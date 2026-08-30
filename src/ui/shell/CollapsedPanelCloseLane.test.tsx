@@ -376,6 +376,54 @@ describe("CollapsedPanelCloseLane component (quick-260829-ih3 Task 1)", () => {
     // Instant disappear (no exit animation) — DOM node must be gone.
     expect(queryByTestId("collapsed-panel-close-lane")).toBeNull();
   });
+
+  it("Test I.2 (regression — inline-260830-close-lane-callback-ref): dragover works when lane mounts AFTER starting from null (drag handlers attach when the div appears, not only on component mount)", () => {
+    // Regression for the bug where a plain useRef + `[]` deps effect ran
+    // exactly once at first render with `outerRef.current === null`
+    // (component returned null when draggedBadgeTabId was null), silently
+    // failed to attach drag listeners, and never re-ran when the div
+    // eventually mounted on drag-start. Ashley report 2026-08-30 (taylor):
+    // "when I start dragging an identity badge it does pop out that side
+    // thing with the X in it but it doesn't highlight coral when I actually
+    // hover over it with the identity badge and if I drop on there nothing
+    // happens." Test I above proves the DOM cycles in/out; this test proves
+    // handlers are LIVE on the mounted div.
+    const onCloseTab = vi.fn();
+    const { getByTestId, queryByTestId, rerender } = render(
+      <CollapsedPanelCloseLane
+        draggedBadgeTabId={null}
+        openTabIds={["tab-alice-1"]}
+        onCloseTab={onCloseTab}
+      />,
+    );
+    expect(queryByTestId("collapsed-panel-close-lane")).toBeNull();
+    rerender(
+      <CollapsedPanelCloseLane
+        draggedBadgeTabId="tab-alice-1"
+        openTabIds={["tab-alice-1"]}
+        onCloseTab={onCloseTab}
+      />,
+    );
+    const lane = getByTestId("collapsed-panel-close-lane");
+    expect(lane.getAttribute("data-hover")).toBe("false");
+    const dt = makeDataTransferStub({
+      "text/plain": "tab-alice-1",
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-alice-1" }),
+    });
+    act(() => {
+      dispatchNativeDragOver(lane, dt);
+    });
+    // If the listener re-attach never happens, data-hover stays "false"
+    // (native dragover fires but the div has no listener → setHover(true)
+    // never runs).
+    expect(lane.getAttribute("data-hover")).toBe("true");
+    // And a drop should also fire onCloseTab through the wired handler.
+    act(() => {
+      dispatchNativeDrop(lane, dt);
+    });
+    expect(onCloseTab).toHaveBeenCalledTimes(1);
+    expect(onCloseTab).toHaveBeenCalledWith("tab-alice-1");
+  });
 });
 
 // ─── useDraggedBadgeTabId hook probe ────────────────────────────────────────

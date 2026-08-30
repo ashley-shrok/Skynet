@@ -24,19 +24,22 @@
 //
 // Native DOM drag listeners — NOT React synthetic (patch #514 lesson).
 // React portal boundaries + synthetic drag events don't co-bubble reliably;
-// SplitView.tsx:258-395 is the canonical shape mirrored here. Listeners are
-// attached in a useEffect on a ref to the outer wrapper; the effect's deps
-// list `[openTabIds, onCloseTab]` reattaches when either changes so the
-// closure over the drop handler sees fresh values. `draggedBadgeTabId` is
-// intentionally NOT in the deps — the handler body doesn't read it; the
-// parent mount gate handles show/hide by unmounting on null.
+// SplitView.tsx:258-395 is the canonical shape mirrored here. Listeners
+// attach in a useEffect keyed on the outer div element via a callback ref
+// (`outerEl` state, set by `outerRef` callback). Deps `[outerEl]` re-run
+// the effect the moment the div actually mounts on the first drag — see
+// inline-260830-close-lane-callback-ref for the bug that motivated the
+// state-based-ref pattern (a plain useRef silently failed to attach
+// listeners because the component conditionally returns null when idle).
+// `openTabIds` + `onCloseTab` are forwarded through refs so their prop
+// churn does NOT reattach listeners on every render (code-review #1).
 //
 // The `isolation: isolate` on the outer wrapper is load-bearing (mirrors the
 // quick-260829-fh3 fix at SplitView.tsx:417). It sandboxes the coral hover
 // state's z-index budget so it can't escape past the AppShell layer gates
 // — same rationale that put `isolate` on the SplitView Pane wrapper.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 
 interface CollapsedPanelCloseLaneProps {
@@ -96,7 +99,21 @@ export default function CollapsedPanelCloseLane({
   openTabIds,
   onCloseTab,
 }: CollapsedPanelCloseLaneProps): JSX.Element | null {
-  const outerRef = useRef<HTMLDivElement | null>(null);
+  // inline-260830-close-lane-callback-ref (Ashley 2026-08-30, taylor): the
+  // component conditionally returns `null` when no drag is in flight (see
+  // `if (draggedBadgeTabId === null) return null;` below). With a plain
+  // useRef, the drag-listener useEffect (deps `[]`) runs on FIRST mount with
+  // `outerRef.current === null` (component returned null → no div → no ref
+  // binding) and early-returns without attaching listeners. When a drag
+  // later starts and the div actually mounts, the ref populates but the
+  // useEffect does NOT re-run (empty deps) — so the lane's coral/drop
+  // handlers never fire even though the div is visibly on screen. Callback
+  // ref → useState so React re-runs the listener effect the moment the div
+  // mounts, matching the sentinelRef pattern in use-auto-scroll.ts.
+  const [outerEl, setOuterEl] = useState<HTMLDivElement | null>(null);
+  const outerRef = useCallback((el: HTMLDivElement | null) => {
+    setOuterEl(el);
+  }, []);
   const [hover, setHover] = useState(false);
 
   // quick-260829-ih3 code-review finding #1 (listener churn): the effect
@@ -121,7 +138,7 @@ export default function CollapsedPanelCloseLane({
   }, [onCloseTab]);
 
   useEffect(() => {
-    const el = outerRef.current;
+    const el = outerEl;
     if (el === null) return;
 
     const onDragOver = (e: DragEvent) => {
@@ -223,8 +240,7 @@ export default function CollapsedPanelCloseLane({
       el.removeEventListener("drop", onDrop);
       window.removeEventListener("dragend", onDragEnd);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [outerEl]);
 
   // Own gate: nothing to render outside a badge drag. The parent AppShell
   // mount gate handles the isMobile/isMobileListScreen/sidebarOpen exclusion;
