@@ -1,5 +1,5 @@
 import { WebSocketServer, WebSocket, type RawData } from "ws";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { basename } from "node:path";
 import type { Client as SSHClientType } from "ssh2";
 import { AuthManager } from "../utils/auth-manager.js";
@@ -3131,6 +3131,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
   let sshConn: SSHClientType | null = null;
   let tailHandle: TailHandle | null = null;
+  // Phase 62 Wave 2 (D-62-01, D-62-04) — per-tail-watcher instance ID for
+  // diagnostic instrumentation. Regenerated on every tail start (fresh
+  // startActiveSessionFlow, tail restart in transitionToActiveNew, and
+  // dormant-handoff → new tail). Threaded via closure into [dedup],
+  // [frame-emit], and [tail-lifecycle] sshLogger.info emissions so a
+  // repro log can identify which tail-watcher instance produced each
+  // frame — cross-tail races are visible from the ID transitions.
+  // Never persisted beyond the closure. 8-char lowercase hex (4 bytes).
+  let tailInstanceId: string = "";
   // Phase 47 Plan 03 Hunk A: 1-indexed line-number counter for the
   // streaming-tail's per-line dispatch. tail -F -n +1 starts at line 1 of
   // the current file; each onLine invocation is the NEXT line, so we
@@ -3522,6 +3531,30 @@ wss.on("connection", async (ws: WebSocket, req) => {
         databaseLogger.warn(`[ws-server] tail-stop-failed hostId=${currentHostId ?? 'null'} err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_tail_stop_failed" });
       }
       tailHandle = null;
+      // Phase 62 Wave 2 (D-62-04) — paired stop log for the
+      // connection-teardown / teardownPane path. Additive fourth "reason"
+      // value ("connection-teardown") beyond the D-62-04 spec's
+      // initial | transition | dormant-handoff — teardownPane fires on
+      // ws.on("close") (final teardown) AND on pane-switch mid-life; both
+      // are legitimate lifecycle boundaries and worth logging.
+      // Guard against emitting a spurious stop for a tail that never
+      // started (empty-string default): only fire when tailInstanceId
+      // is non-empty. Reset to "" after emit so a subsequent
+      // startActiveSessionFlow regenerates cleanly and any redundant call
+      // to this teardown block does not re-log a stale ID.
+      if (tailInstanceId) {
+        sshLogger.info(
+          `[tail-lifecycle] tail=${tailInstanceId} action=stop sessionFile=<teardown> reason=connection-teardown`,
+          {
+            operation: "claude_session_tail_lifecycle",
+            tailInstanceId,
+            action: "stop",
+            sessionFile: null,
+            reason: "connection-teardown",
+          },
+        );
+        tailInstanceId = "";
+      }
     }
     // Phase 41 Plan 04: drain in-flight upload batches when the pane's SSH
     // conn is being closed — an orphaned batch would keep writing to a
@@ -4321,7 +4354,24 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // of extracting them.
     //
     if (sshConn) {
+      // Phase 62 Wave 2 (D-62-04) — regenerate the per-tail-watcher
+      // instance ID for the transition-restart. The OLD ID is not emitted
+      // in a paired action=stop here because transitionToActiveNew replaces
+      // tailHandle in-place; the visible transition in the log stream is
+      // "prev-ID [dedup]/[frame-emit] lines" → "new-ID [tail-lifecycle]
+      // action=start reason=transition" → "new-ID [dedup]/[frame-emit] lines".
+      tailInstanceId = randomBytes(4).toString("hex");
       tailHandle = tailSessionFile(sshConn, newSessionFile, onLine, onError);
+      sshLogger.info(
+        `[tail-lifecycle] tail=${tailInstanceId} action=start sessionFile=${newSessionFile} reason=transition`,
+        {
+          operation: "claude_session_tail_lifecycle",
+          tailInstanceId,
+          action: "start",
+          sessionFile: newSessionFile,
+          reason: "transition",
+        },
+      );
     }
   };
 
@@ -4551,6 +4601,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
     sessionFile: string;
     tmuxSession: string;
     hostId: number;
+    // Phase 62 Wave 2 (D-62-04) — optional attach-reason discriminator
+    // threaded into the [tail-lifecycle] start log. Defaults to "initial"
+    // when omitted (fresh connectToPane + shared-hit cached path). The
+    // dormant→wake handoff caller at L~7208 passes "dormant-handoff".
+    startReason?: "initial" | "dormant-handoff" | "transition";
   }) => Promise<void> | void = () => { /* noop until assigned by connectToPane */ };
 
   ws.on("message", async (raw: RawData) => {
@@ -6218,11 +6273,13 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // backgroundedShellsLastSerialized, changeoverState, currentSessionFile,
     // sessionIdFromFile, hasSeenExit, holdingTicks, discoveryRepollInFlight,
     // currentHostId, currentTmuxSession, stopped.
-    startActiveSessionFlow = async ({ pid, sessionFile, tmuxSession: activeTmuxSession, hostId: activeHostId }: {
+    startActiveSessionFlow = async ({ pid, sessionFile, tmuxSession: activeTmuxSession, hostId: activeHostId, startReason }: {
       pid: number;
       sessionFile: string;
       tmuxSession: string;
       hostId: number;
+      // Phase 62 Wave 2 (D-62-04) — see forward-decl above.
+      startReason?: "initial" | "dormant-handoff" | "transition";
     }) => {
     // Phase 47 Plan 03 Hunk B: probe totalLines once so the connect-time
     // session metadata frame can carry it. The client (PrettyView.tsx,
@@ -6281,6 +6338,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // decorate transitions, not the initial establishment.
     paneStateEmitter.emit("active");
 
+    // Phase 62 Wave 2 (D-62-04) — regenerate per-tail-watcher instance ID
+    // BEFORE the lifecycle log so both the existing "Starting Claude session
+    // tail" line AND the new "[tail-lifecycle] action=start" line carry the
+    // fresh ID. tailInstanceId is closure-scoped; the previous value (if
+    // any) has already been emitted in the paired action=stop log at either
+    // the dormant-handoff site (~L7193) or the connection-teardown site
+    // (~L3518-3525). Fresh 8-char lowercase hex (4 random bytes).
+    tailInstanceId = randomBytes(4).toString("hex");
     sshLogger.info("Starting Claude session tail", {
       operation: "claude_session_tail_start",
       userId,
@@ -6289,7 +6354,21 @@ wss.on("connection", async (ws: WebSocket, req) => {
       tmuxSession: activeTmuxSession,
       pid,
       sessionFile,
+      tailInstanceId,
     });
+    sshLogger.info(
+      `[tail-lifecycle] tail=${tailInstanceId} action=start sessionFile=${sessionFile} reason=${startReason ?? "initial"}`,
+      {
+        operation: "claude_session_tail_lifecycle",
+        tailInstanceId,
+        action: "start",
+        sessionFile,
+        reason: startReason ?? "initial",
+        sessionId,
+        hostId: activeHostId,
+        tmuxSession: activeTmuxSession,
+      },
+    );
 
     // Phase 3: pin the connection-scoped context so the state-transition
     // helpers can log with the right hostId/tmuxSession without needing to
@@ -7201,11 +7280,30 @@ wss.on("connection", async (ws: WebSocket, req) => {
                                 tmuxSession: currentTmuxSession,
                               },
                             );
+                            // Phase 62 Wave 2 (D-62-04) — paired stop log for
+                            // the dormant-handoff tail-swap. The OLD ID is
+                            // emitted here; the NEW ID is generated inside the
+                            // upcoming startActiveSessionFlow call (with
+                            // startReason: "dormant-handoff"). Do NOT reset
+                            // tailInstanceId to "" — leaving the old value
+                            // visible here then the new value visible in the
+                            // next action=start log is exactly the tail-swap
+                            // trace the diagnostic needs.
+                            sshLogger.info(
+                              `[tail-lifecycle] tail=${tailInstanceId} action=stop sessionFile=${currentSessionFile ?? "<unknown>"} reason=dormant-handoff`,
+                              {
+                                operation: "claude_session_tail_lifecycle",
+                                tailInstanceId,
+                                action: "stop",
+                                sessionFile: currentSessionFile ?? null,
+                                reason: "dormant-handoff",
+                              },
+                            );
                           }
                           // Belt-and-suspenders: clear wakeTriggerTs so a subsequent
                           // dormancy+wake cycle on this same WS doesn't see a stale ts.
                           wakeTriggerTs = null;
-                          startActiveSessionFlow({ pid, sessionFile, tmuxSession: currentTmuxSession!, hostId: currentHostId! });
+                          startActiveSessionFlow({ pid, sessionFile, tmuxSession: currentTmuxSession!, hostId: currentHostId!, startReason: "dormant-handoff" });
                           // Aside subsystem registration for the wake path.
                           // Dormant panes had no active aside connection — register now.
                           if (currentHostId != null && currentTmuxSession != null) {
