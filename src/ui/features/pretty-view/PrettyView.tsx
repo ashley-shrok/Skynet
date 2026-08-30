@@ -3231,6 +3231,22 @@ export function PrettyView({
               </Button>
             </div>
           )}
+          {/* inline-260830-pv-scroll-sentinel-inside-scroller (Ashley 2026-08-30,
+              taylor): invisible 1px bottom-sentinel used by useAutoScroll's
+              IntersectionObserver to compute the AUTHORITATIVE pinned-to-bottom
+              state. MUST be a descendant of the scroll container (the element
+              passed as IO `root`) — a non-descendant target never fires the IO
+              callback, so pinnedRef stays initialized-true and every message
+              yanks to bottom regardless of scroll position. Originally shipped
+              260823 (commit 9703fe9f) as a sibling of the scroll container by
+              mistake; moved inside here so IO actually fires. Height of 1px so
+              it always has measurable area; aria-hidden because purely structural. */}
+          <div
+            ref={sentinelRef}
+            data-pv-scroll-sentinel
+            aria-hidden="true"
+            style={{ height: 1, minHeight: 1, width: "100%" }}
+          />
         </div>
       )}
 
@@ -3277,21 +3293,6 @@ export function PrettyView({
       {status === "streaming" && backgroundedShells.length > 0 && (
         <BackgroundedShellsPanel shells={backgroundedShells} />
       )}
-      {/* inline-260823-pv-scroll-sentinel (Ashley 2026-08-23): invisible
-          1px bottom-sentinel used by useAutoScroll's IntersectionObserver
-          to compute the AUTHORITATIVE pinned-to-bottom state. Must be the
-          LAST child of the scroll container so "sentinel in viewport" ⇔
-          "user can see the bottom of the content." Fixes the container-
-          remount race where scroll-event pinning got stuck at pinned=false
-          after React replaced the scroll container mid-hydration (see
-          use-auto-scroll.ts header §(5)). Height of 1px so it always has
-          measurable area; aria-hidden because purely structural. */}
-      <div
-        ref={sentinelRef}
-        data-pv-scroll-sentinel
-        aria-hidden="true"
-        style={{ height: 1, minHeight: 1, width: "100%" }}
-      />
       </div>
       {/* Patch #108 wrapper closes here — ComposeBox stays a peer of the
           wrapper (below it in flex-col), so it's outside the IdentityModal's
