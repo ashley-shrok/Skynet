@@ -595,11 +595,9 @@ describe("PrettyView plain-DOM render — Phase 43 Plan 43-07a", () => {
       new Set(["evt-msg", "evt-img", "evt-rout", "evt-rin", "evt-malformed"]),
     );
 
-    // Assistant ChatMessage / RelayInbound / RelayOutbound bubbles start collapsed
-    // (quick-260829-qb9) — expand each so their body text renders.
-    for (const header of screen.queryAllByTestId("chatmessage-collapsed-header")) {
-      act(() => { fireEvent.click(header); });
-    }
+    // RelayInbound / RelayOutbound bubbles start collapsed (quick-260829-qb9;
+    // ChatMessage assistant reverted to always-expanded in quick-260830-e6i) —
+    // expand each relay so its body text renders below.
     for (const header of screen.queryAllByTestId("relay-inbound-header")) {
       act(() => { fireEvent.click(header); });
     }

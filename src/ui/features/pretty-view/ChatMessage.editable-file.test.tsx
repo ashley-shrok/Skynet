@@ -75,9 +75,6 @@ describe("ChatMessage — editable-file affordance wiring (Plan 40-04)", () => {
       />,
     );
 
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal markdown body.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
-
     const anchor = screen.getByRole("link", { name: /notes\.md/i });
     const button = screen.getByRole("button", { name: /edit notes\.md/i });
 
@@ -122,9 +119,6 @@ describe("ChatMessage — editable-file affordance wiring (Plan 40-04)", () => {
       />,
     );
 
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal markdown body.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
-
     expect(screen.getByRole("link", { name: /notes\.md/i })).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: /edit/i }),
@@ -141,9 +135,6 @@ describe("ChatMessage — editable-file affordance wiring (Plan 40-04)", () => {
         onOpenEditor={vi.fn()}
       />,
     );
-
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal markdown body.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
 
     const anchor = screen.getByRole("link", { name: /notes\.md/i });
     expect(anchor.getAttribute("target")).toBe("_blank");
@@ -162,9 +153,6 @@ describe("ChatMessage — editable-file affordance wiring (Plan 40-04)", () => {
         onOpenEditor={onOpenEditor}
       />,
     );
-
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal markdown body.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
 
     const button = screen.getByRole("button", { name: /edit notes\.md/i });
     fireEvent.click(button);
@@ -187,9 +175,6 @@ describe("ChatMessage — editable-file affordance wiring (Plan 40-04)", () => {
         onOpenEditor={vi.fn()}
       />,
     );
-
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal markdown body.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
 
     expect(screen.getByRole("button", { name: /edit notes\.md/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /edit report\.md/i })).toBeTruthy();
@@ -220,9 +205,6 @@ describe("ChatMessage — editable-file affordance wiring (Plan 40-04)", () => {
       />,
     );
 
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal markdown body.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
-
     expect(screen.getByRole("link", { name: /notes\.md/i })).toBeTruthy();
     // Without a handler the affordance MUST NOT render (safe degrade).
     expect(
@@ -240,9 +222,6 @@ describe("ChatMessage — editable-file affordance wiring (Plan 40-04)", () => {
         onOpenEditor={vi.fn()}
       />,
     );
-
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal markdown body.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
 
     // Filename should be "notes.md" (query stripped) — NOT "notes.md?nocache=1".
     const button = screen.getByRole("button", { name: /edit notes\.md/i });

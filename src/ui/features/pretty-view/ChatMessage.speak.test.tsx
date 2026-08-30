@@ -83,8 +83,6 @@ afterEach(() => {
 describe("ChatMessage speak button (patch #237 streaming)", () => {
   it("Test 1: role='assistant' renders exactly one speak button", () => {
     render(<ChatMessage role="assistant" content="Hello from assistant" />);
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal speak button.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
     const buttons = screen.queryAllByLabelText(/speak|stop/i);
     expect(buttons).toHaveLength(1);
   });
@@ -97,8 +95,6 @@ describe("ChatMessage speak button (patch #237 streaming)", () => {
 
   it("Test 3: clicking the speak button calls postSpeakStream with the bubble text", async () => {
     render(<ChatMessage role="assistant" content="Speak this text" />);
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal speak button.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
     const btn = screen.getByLabelText(/speak message/i);
     fireEvent.click(btn);
 
@@ -114,8 +110,6 @@ describe("ChatMessage speak button (patch #237 streaming)", () => {
     );
 
     render(<ChatMessage role="assistant" content="Loading test" />);
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal speak button.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
     const btn = screen.getByLabelText(/speak message/i);
     fireEvent.click(btn);
 
@@ -137,8 +131,6 @@ describe("ChatMessage speak button (patch #237 streaming)", () => {
 
   it("Test 5: same-bubble click cycles playing → paused → playing via pause()/resume() (never stop())", async () => {
     render(<ChatMessage role="assistant" content="Pause test" />);
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal speak button.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
     const btn = screen.getByLabelText(/speak message/i);
     fireEvent.click(btn);
 
@@ -177,12 +169,7 @@ describe("ChatMessage speak button (patch #237 streaming)", () => {
       </div>,
     );
 
-    // Both assistant bubbles start collapsed (quick-260829-qb9) — expand both to reveal speak buttons.
-    for (const header of screen.queryAllByTestId("chatmessage-collapsed-header")) {
-      fireEvent.click(header);
-    }
-
-    const buttons = container.querySelectorAll("button[aria-label='Speak message']");
+    const buttons = container.querySelectorAll("button[aria-label]");
     const firstBtn = buttons[0] as HTMLElement;
     const secondBtn = buttons[1] as HTMLElement;
 
@@ -210,12 +197,7 @@ describe("ChatMessage speak button (patch #237 streaming)", () => {
       </div>,
     );
 
-    // Both assistant bubbles start collapsed (quick-260829-qb9) — expand both to reveal speak buttons.
-    for (const header of screen.queryAllByTestId("chatmessage-collapsed-header")) {
-      fireEvent.click(header);
-    }
-
-    const buttons = container.querySelectorAll("button[aria-label='Speak message']");
+    const buttons = container.querySelectorAll("button[aria-label]");
     const firstBtn = buttons[0] as HTMLElement;
     const secondBtn = buttons[1] as HTMLElement;
 

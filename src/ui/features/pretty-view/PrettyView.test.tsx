@@ -28,7 +28,7 @@
 // regression tests.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, act, fireEvent, waitFor, screen } from "@testing-library/react";
+import { render, act, fireEvent, waitFor } from "@testing-library/react";
 
 // Patch #148: wsStubs array — accumulates each WS stub created by the factory
 // across retries. Tests index into this array to assert new stubs were created
@@ -1073,13 +1073,6 @@ describe("PrettyView — Fix B: session_holding_cleared self-clear (quick 260730
 
     // Overlay must be gone:
     expect(container.querySelector('[role="status"]')).toBeNull();
-
-    // Assistant bubbles start collapsed (quick-260829-qb9) — expand so their
-    // body text renders and the "hi back" assertion below can see it. The
-    // 'hello there' user turn is unaffected (user bubbles are always expanded).
-    for (const header of screen.queryAllByTestId('chatmessage-collapsed-header')) {
-      act(() => { fireEvent.click(header); });
-    }
 
     // Message content must still be present — session_holding_cleared must NOT
     // clear the message stream (contrast with session_changed which does):

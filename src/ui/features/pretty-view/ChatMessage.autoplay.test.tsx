@@ -97,8 +97,6 @@ describe("ChatMessage long-press detection", () => {
         onLongPressSpeak={onLongPressSpeak}
       />,
     );
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal speak button.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
     const btn = screen.getByLabelText(/speak message/i);
 
     fireEvent.pointerDown(btn, { clientX: 10, clientY: 10 });
@@ -127,8 +125,6 @@ describe("ChatMessage long-press detection", () => {
         onLongPressSpeak={onLongPressSpeak}
       />,
     );
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal speak button.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
     const btn = screen.getByLabelText(/speak message/i);
 
     fireEvent.pointerDown(btn, { clientX: 10, clientY: 10 });
@@ -160,8 +156,6 @@ describe("ChatMessage long-press detection", () => {
         onLongPressSpeak={onLongPressSpeak}
       />,
     );
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal speak button.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
     const btn = screen.getByLabelText(/speak message/i);
 
     fireEvent.pointerDown(btn, { clientX: 10, clientY: 10 });
@@ -186,8 +180,6 @@ describe("ChatMessage long-press detection", () => {
         onLongPressSpeak={onLongPressSpeak}
       />,
     );
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal speak button.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
     const btn = screen.getByLabelText(/speak message/i);
 
     fireEvent.pointerDown(btn, { clientX: 10, clientY: 10 });
@@ -211,8 +203,6 @@ describe("ChatMessage long-press detection", () => {
         onLongPressSpeak={onLongPressSpeak}
       />,
     );
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal speak button.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
     const btn = screen.getByLabelText(/speak message/i);
 
     fireEvent.pointerDown(btn, { clientX: 10, clientY: 10 });
@@ -331,8 +321,6 @@ describe("ChatMessage armed-tint visual", () => {
         autoplayArmed={true}
       />,
     );
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal speak button.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
     const btn = screen.getByLabelText(/speak message/i);
     // The inline style sets background to the hue-cream value when armed.
     // Check for the hsla CSS var signature — JSDOM preserves var() references
@@ -350,8 +338,6 @@ describe("ChatMessage armed-tint visual", () => {
         autoplayArmed={false}
       />,
     );
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal speak button.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
     const btn = screen.getByLabelText(/speak message/i);
     // Default background when not armed.
     // JSDOM normalizes rgba(0,0,0,0.28) → rgba(0, 0, 0, 0.28) so check for
@@ -370,8 +356,6 @@ describe("ChatMessage armed-tint visual", () => {
 describe("ChatMessage speak regression (post-startSpeak-extract)", () => {
   it("REG1: clicking speak button calls postSpeakStream (fresh-play path preserved)", async () => {
     render(<ChatMessage role="assistant" content="Regression test" />);
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal speak button.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
     const btn = screen.getByLabelText(/speak message/i);
     fireEvent.click(btn);
     await waitFor(() => {
@@ -381,8 +365,6 @@ describe("ChatMessage speak regression (post-startSpeak-extract)", () => {
 
   it("REG2: same-bubble pause/resume cycle calls pause() then resume() — never stop()", async () => {
     render(<ChatMessage role="assistant" content="Pause resume test" />);
-    // Assistant bubble starts collapsed (quick-260829-qb9) — expand to reveal speak button.
-    fireEvent.click(screen.getByTestId("chatmessage-collapsed-header"));
     const btn = screen.getByLabelText(/speak message/i);
     fireEvent.click(btn);
 
@@ -411,12 +393,7 @@ describe("ChatMessage speak regression (post-startSpeak-extract)", () => {
       </div>,
     );
 
-    // Both assistant bubbles start collapsed (quick-260829-qb9) — expand both to reveal speak buttons.
-    for (const header of screen.queryAllByTestId("chatmessage-collapsed-header")) {
-      fireEvent.click(header);
-    }
-
-    const buttons = container.querySelectorAll("button[aria-label='Speak message']");
+    const buttons = container.querySelectorAll("button[aria-label]");
     const firstBtn = buttons[0] as HTMLElement;
     const secondBtn = buttons[1] as HTMLElement;
 

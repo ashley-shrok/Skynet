@@ -212,16 +212,6 @@ describe("PrettyView — editable-file modal wiring (Plan 40-04)", () => {
     flipToStreaming(getCurrentWs());
     fireAssistantMessage(getCurrentWs(), "e1", `see [notes.md](${URL_A})`);
 
-    // Assistant bubbles start collapsed (quick-260829-qb9) — expand all so the
-    // markdown body (and its affordance button) renders.
-    await waitFor(() => {
-      const headers = screen.queryAllByTestId("chatmessage-collapsed-header");
-      expect(headers.length).toBeGreaterThan(0);
-    });
-    for (const header of screen.queryAllByTestId("chatmessage-collapsed-header")) {
-      fireEvent.click(header);
-    }
-
     // Find the affordance button (rendered inside the ChatMessage `<a>`
     // override). Rule 1 fix: explicit 15s timeout — this waitFor can be slow
     // under full-suite CI load (CPU contention).
@@ -258,15 +248,6 @@ describe("PrettyView — editable-file modal wiring (Plan 40-04)", () => {
     );
     flipToStreaming(getCurrentWs());
     fireAssistantMessage(getCurrentWs(), "e2", `see [notes.md](${URL_A})`);
-
-    // Assistant bubbles start collapsed (quick-260829-qb9) — expand all.
-    await waitFor(() => {
-      const headers = screen.queryAllByTestId("chatmessage-collapsed-header");
-      expect(headers.length).toBeGreaterThan(0);
-    });
-    for (const header of screen.queryAllByTestId("chatmessage-collapsed-header")) {
-      fireEvent.click(header);
-    }
 
     const button = await waitFor(() =>
       screen.getByRole("button", { name: /edit notes\.md/i }),
@@ -311,15 +292,6 @@ describe("PrettyView — editable-file modal wiring (Plan 40-04)", () => {
     );
     flipToStreaming(getCurrentWs());
     fireAssistantMessage(getCurrentWs(), "e3", `see [notes.md](${URL_A})`);
-
-    // Assistant bubbles start collapsed (quick-260829-qb9) — expand all.
-    await waitFor(() => {
-      const headers = screen.queryAllByTestId("chatmessage-collapsed-header");
-      expect(headers.length).toBeGreaterThan(0);
-    });
-    for (const header of screen.queryAllByTestId("chatmessage-collapsed-header")) {
-      fireEvent.click(header);
-    }
 
     await act(async () => {
       fireEvent.click(
@@ -424,15 +396,6 @@ describe("PrettyView — editable-file modal wiring (Plan 40-04)", () => {
     flipToStreaming(getCurrentWs());
     fireAssistantMessage(getCurrentWs(), "e4", `see [notes.md](${URL_A})`);
 
-    // Assistant bubbles start collapsed (quick-260829-qb9) — expand all.
-    await waitFor(() => {
-      const headers = screen.queryAllByTestId("chatmessage-collapsed-header");
-      expect(headers.length).toBeGreaterThan(0);
-    });
-    for (const header of screen.queryAllByTestId("chatmessage-collapsed-header")) {
-      fireEvent.click(header);
-    }
-
     fireEvent.click(
       await waitFor(() =>
         screen.getByRole("button", { name: /edit notes\.md/i }),
@@ -469,15 +432,6 @@ describe("PrettyView — editable-file modal wiring (Plan 40-04)", () => {
       "e5",
       `one [notes.md](${URL_A}) two [report.md](${URL_B})`,
     );
-
-    // Assistant bubbles start collapsed (quick-260829-qb9) — expand all so both link+affordance render.
-    await waitFor(() => {
-      const headers = screen.queryAllByTestId("chatmessage-collapsed-header");
-      expect(headers.length).toBeGreaterThan(0);
-    });
-    for (const header of screen.queryAllByTestId("chatmessage-collapsed-header")) {
-      fireEvent.click(header);
-    }
 
     // Open A.
     fireEvent.click(
