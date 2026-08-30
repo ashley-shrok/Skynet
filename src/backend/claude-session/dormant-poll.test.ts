@@ -749,8 +749,8 @@ describe("Test Q: dormant sentinel present + session file NOT YET resolved (gett
   });
 });
 
-describe("Test R: dormant sentinel present + readJsonlPct returns null → no context_pct emit", () => {
-  it("silent skip when JSONL has no assistant turn yet (helper returns null)", async () => {
+describe("Test R: dormant sentinel present + readJsonlPct returns null → no context_pct emit + caller-side warn (quick-260830-f1e)", () => {
+  it("silent skip on wsSend, but caller-side warn fires so ashley can grep the blank-meter class", async () => {
     const wsSend = vi.fn();
     const exec = vi.fn().mockResolvedValue("yes\n");
     const readJsonlPct = vi.fn().mockResolvedValue(null); // no usage block
@@ -777,6 +777,16 @@ describe("Test R: dormant sentinel present + readJsonlPct returns null → no co
     expect(wsSend).toHaveBeenCalledTimes(1);
     const frame = JSON.parse(wsSend.mock.calls[0][0]);
     expect(frame.type).toBe("dormant");
+    // quick-260830-f1e — caller-site warn fires so the blank-meter class
+    // is visible in logs alongside the specific-reason warn emitted inside
+    // readContextPctFromJsonl. Same grep target.
+    expect(sshLogger.warn).toHaveBeenCalledWith(
+      "context-pct: dormant-poll got null pct despite resolved session file",
+      expect.objectContaining({
+        operation: "context_pct_dormant_null",
+        escapedName: "tiffany",
+      }),
+    );
   });
 });
 

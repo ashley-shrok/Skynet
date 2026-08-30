@@ -2728,10 +2728,28 @@ export async function __applyDormantPollWithRediscoveryForTests(
             const pct = await readJsonlPct(connSnapshot, sessionFile);
             if (pct !== null) {
               wsSend(JSON.stringify({ type: "context_pct", pct, dormant: true }));
+            } else {
+              // quick-260830-f1e: caller-site warn when the helper returns
+              // null despite dormantSessionFile being set. Correlates by
+              // grep to the specific-reason warn emitted inside
+              // readContextPctFromJsonl (exec_fail / empty_tail /
+              // no_asst_usage / exec_throw) so we get both the caller
+              // context (which identity, on which tick) AND the reason
+              // from the same log-file pair. Ashley grep-target for the
+              // blank-meter class.
+              sshLogger.warn(
+                "context-pct: dormant-poll got null pct despite resolved session file",
+                {
+                  operation: "context_pct_dormant_null",
+                  escapedName,
+                },
+              );
             }
           } catch {
             // Silent — nice-to-have, not load-bearing. Mirrors the outer
-            // catch's posture (skip this tick, keep polling).
+            // catch's posture (skip this tick, keep polling). The
+            // readContextPctFromJsonl helper is documented never-throws,
+            // so this catch is defensive only.
           }
         }
       }

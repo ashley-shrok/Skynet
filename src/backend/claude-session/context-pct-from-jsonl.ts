@@ -1,5 +1,7 @@
+import path from "node:path";
 import type { Client } from "ssh2";
 import { execCommand } from "../ssh/tmux-helper.js";
+import { sshLogger } from "../utils/logger.js";
 
 /**
  * Read Claude Code's context-usage % directly from the JSONL session file
@@ -54,58 +56,46 @@ const AUTO_COMPACT_BUFFER_PCT = 16.5;
 // 2026-08-08 fleet lock: every model in the harness is 1M-token window.
 const MODEL_CONTEXT_WINDOW = 1_000_000;
 
-// 10KB tail is plenty for the last few turns; small enough to keep the
-// SSH round-trip fast (well under the 3s poll interval).
-const TAIL_BYTES = 10_000;
+// Iterative expansion — start small (cheap common case), fall back to
+// larger tails when the small window doesn't contain an assistant usage
+// turn (long tool_result tails, /exit echoes, sequential user messages,
+// etc). 512 KB is the bounded ceiling — even multi-MB JSONLs are covered
+// in ≤ 4 exec round-trips, and 512 KB pathological cases still fit inside
+// one SSH exec well under the 3s dormant-poll interval.
+//
+// WHY 512 KB CEILING (not "just keep expanding")
+// ─────────────────────────────────────────────────────────────────────
+// Over-a-few-MB JSONLs are already unusual (Ashley's fleet median is
+// well under 1 MB); the pathological case (>512 KB tail with no
+// assistant usage turn) is a genuine bug in Claude Code write patterns
+// worth surfacing via the `no_asst_usage` warn rather than expanding
+// the tail infinitely. If Ashley later reports 512 KB isn't enough,
+// bump the top of the schedule — do NOT add another expansion step.
+//
+// EMPIRICAL BACKGROUND
+// ─────────────────────────────────────────────────────────────────────
+// 2026-08-30 Ashley UAT verified 4-for-4: for 3 of 4 dormant identities
+// (Terry 1.16 MB / Pixie 1.29 MB / Holly 2.27 MB JSONLs), the previous
+// fixed 10 KB tail contained ZERO assistant usage turns → helper
+// returned null → context_pct frame never emitted → meter stayed blank.
+// Midna's 302 KB JSONL had an assistant usage turn in its last 10 KB
+// → her meter worked. Iterative expansion resolves all four.
+const TAIL_EXPANSION_STEPS = [10_000, 50_000, 200_000, 512_000] as const;
+const MAX_TAIL_BYTES = TAIL_EXPANSION_STEPS[TAIL_EXPANSION_STEPS.length - 1];
 
 // Matches session-file-discovery.ts's DISCOVERY_EXEC_TIMEOUT_MS — uniform
 // error handling across the two poll callbacks that share this SSH conn.
 const EXEC_TIMEOUT_MS = 3000;
 
 /**
- * Tail the JSONL session file, reverse-scan for the last assistant turn
- * with usage, and return the autocompact-normalized displayed pct. Returns
- * null on any error, timeout, empty tail, no-assistant-turn-with-usage,
- * or exec failure — the caller falls back to parseContextPct(tmux
- * capture-pane) in that case.
- *
- * NEVER THROWS — all error paths return null.
+ * Reverse-scan a tail buffer for the last assistant turn with `usage` and
+ * return the summed input+cache_creation+cache_read token count, or null
+ * if no such turn is present in the buffer. Extracted so the iterative
+ * tail-expansion loop in readContextPctFromJsonl can reuse it without
+ * re-parsing.
  */
-export async function readContextPctFromJsonl(
-  conn: Client,
-  sessionFile: string,
-): Promise<number | null> {
-  // Single-quote wrap for the path. sessionFile is validated upstream by
-  // discoverClaudeSession (it's the exact path Claude Code's PID file
-  // points to), so single-quote escape is sufficient. Same convention as
-  // session-file-discovery.ts:228-230.
-  const tailCmd = `tail -c ${TAIL_BYTES} '${sessionFile}'`;
-
-  let tailOutput: string;
-  try {
-    tailOutput = await Promise.race([
-      execCommand(conn, tailCmd),
-      new Promise<string>((_, reject) =>
-        setTimeout(
-          () => reject(new Error(`tail timeout after ${EXEC_TIMEOUT_MS}ms`)),
-          EXEC_TIMEOUT_MS,
-        ),
-      ),
-    ]);
-  } catch {
-    // SSH-side failure, timeout, or exec error. Caller falls back to
-    // parseContextPct(tmux capture-pane) in the poll callback.
-    return null;
-  }
-
-  if (tailOutput.trim() === "") return null;
-
+function reverseScanForAssistantUsageSum(tailOutput: string): number | null {
   const lines = tailOutput.split("\n");
-
-  // Reverse-scan for the last assistant turn with usage. Short-circuit on
-  // the first match encountered iterating from the end — cases g/h both
-  // rely on last-wins == first-match-in-reverse.
-  let sum: number | null = null;
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
     if (!line || line.trim() === "") continue;
@@ -134,12 +124,122 @@ export async function readContextPctFromJsonl(
     const cc = Number(u.cache_creation_input_tokens) || 0;
     const cr = Number(u.cache_read_input_tokens) || 0;
 
-    sum = input + cc + cr;
-    break; // short-circuit on first (reverse) match — last-wins semantic.
+    return input + cc + cr;
+  }
+  return null;
+}
+
+/**
+ * Tail the JSONL session file, reverse-scan for the last assistant turn
+ * with usage, and return the autocompact-normalized displayed pct. Returns
+ * null on any error, timeout, empty tail, no-assistant-turn-with-usage,
+ * or exec failure — the caller falls back to parseContextPct(tmux
+ * capture-pane) in that case.
+ *
+ * ITERATIVE TAIL EXPANSION (quick-260830-f1e)
+ * ─────────────────────────────────────────────────────────────────────
+ * Tries progressively larger tails from TAIL_EXPANSION_STEPS. Small tail
+ * hits the common case cheaply; when the small window contains no
+ * assistant usage turn (long tool_result tails, /exit echoes, sequential
+ * user messages), expand to the next step. Bounded by MAX_TAIL_BYTES
+ * (512 KB) — beyond that we `warn` and return null so pathological cases
+ * are visible in logs rather than silently masking a real Claude Code
+ * write-pattern bug.
+ *
+ * LOUD NULL-RETURN (quick-260830-f1e)
+ * ─────────────────────────────────────────────────────────────────────
+ * Emits one `sshLogger.warn` per distinguishable null-return path (
+ * exec_fail / empty_tail / no_asst_usage / exec_throw) so Ashley can
+ * grep and correlate the blank-meter class next session. Meta always
+ * carries `sessionFileBasename` (basename only — no full path, mirrors
+ * the T-32-05 mitigation shape used by adjacent code; the JSONL's
+ * session UUID is discoverable via existing session-scoped logs).
+ *
+ * NEVER THROWS — all error paths return null.
+ */
+export async function readContextPctFromJsonl(
+  conn: Client,
+  sessionFile: string,
+): Promise<number | null> {
+  const sessionFileBasename = path.basename(sessionFile);
+  let sum: number | null = null;
+
+  for (const tailStepBytes of TAIL_EXPANSION_STEPS) {
+    // Single-quote wrap for the path. sessionFile is validated upstream by
+    // discoverClaudeSession (it's the exact path Claude Code's PID file
+    // points to), so single-quote escape is sufficient. Same convention as
+    // session-file-discovery.ts:228-230.
+    const tailCmd = `tail -c ${tailStepBytes} '${sessionFile}'`;
+
+    let tailOutput: string;
+    try {
+      tailOutput = await Promise.race([
+        execCommand(conn, tailCmd),
+        new Promise<string>((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`tail timeout after ${EXEC_TIMEOUT_MS}ms`)),
+            EXEC_TIMEOUT_MS,
+          ),
+        ),
+      ]);
+    } catch (err) {
+      // SSH-side failure, timeout, or exec error. Bail — retrying wider
+      // won't fix a broken exec channel; caller falls back to
+      // parseContextPct(tmux capture-pane) in the poll callback.
+      sshLogger.warn("context-pct: exec threw", {
+        operation: "context_pct_exec_throw",
+        sessionFileBasename,
+        tailStepBytes,
+        err: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+
+    // execCommand may resolve to a falsy value (null / undefined) on SSH
+    // channel error — treat that as a hard bail (same reasoning as throw).
+    if (tailOutput === null || tailOutput === undefined) {
+      sshLogger.warn(
+        "context-pct: exec returned null (SSH failure or timeout)",
+        {
+          operation: "context_pct_exec_fail",
+          sessionFileBasename,
+          tailStepBytes,
+        },
+      );
+      return null;
+    }
+
+    // Empty tail = file is genuinely empty or truncated. Retrying with a
+    // wider `-c N` cannot recover bytes that aren't there — bail with a
+    // distinct warn so this class is visible in logs.
+    if (tailOutput.trim() === "") {
+      sshLogger.warn("context-pct: exec succeeded but tail is empty", {
+        operation: "context_pct_empty_tail",
+        sessionFileBasename,
+        tailStepBytes,
+      });
+      return null;
+    }
+
+    sum = reverseScanForAssistantUsageSum(tailOutput);
+    if (sum !== null) break; // found a usage turn — stop expanding.
+    // No usage turn in this window; try the next larger step.
   }
 
-  // No assistant turn with usage anywhere in the tail (case b).
-  if (sum === null) return null;
+  if (sum === null) {
+    // Exhausted the schedule without finding an assistant usage turn.
+    // Pathological JSONL (>512 KB with no usage) or a genuine
+    // Claude-Code write-pattern bug — surface via warn.
+    sshLogger.warn(
+      "context-pct: no assistant usage turn found within max tail bytes",
+      {
+        operation: "context_pct_no_asst_usage",
+        sessionFileBasename,
+        maxTailBytes: MAX_TAIL_BYTES,
+      },
+    );
+    return null;
+  }
 
   // Normalize against the usable window (100% - autocompact buffer).
   const remaining_pct = 100 - (sum / MODEL_CONTEXT_WINDOW) * 100;
