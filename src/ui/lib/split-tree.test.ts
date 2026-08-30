@@ -8,7 +8,7 @@
 // header for the full contract. Constant-ratio 50/50 is baked in (locked
 // decision Ashley 2026-08-28: no draggable pane dividers → no ratio field).
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   type SplitNode,
   type SplitDirection,
@@ -21,6 +21,8 @@ import {
   removeLeaf,
   collectTabIds,
   computeEdgeZone,
+  replaceLeaf,
+  swapLeaves,
 } from "./split-tree";
 // Phase 57 Plan 01 deviation from PLAN.md: Test 13 was specified to import
 // `computeNearestEdge` from `./split-tree`, but Phase 56 shipped
@@ -503,6 +505,214 @@ describe("split-tree — Phase 57: edge-zone hit-testing", () => {
     expect(typeof computeNearestEdge).toBe("function");
     expect(computeNearestEdge(rect, 10, 50)).toBe("left");
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 64 Plan 01 Task 1 — center-drop tree ops (`replaceLeaf` + `swapLeaves`).
+//
+// Behaviour spec is 64-01-PLAN.md Task 1 `<behavior>` (Tests 1-9). Two pure
+// immutable helpers backing the two center-drop payloads:
+//   - replaceLeaf: conversation-list-row → open-session center = replace
+//     target with row's session; displaced session drops out of grid.
+//   - swapLeaves: open-session-badge → open-session center = swap identities;
+//     both remain live in the grid.
+//
+// Semantics locked in .planning/phases/64-multi-view-center-drop/64-CONTEXT.md
+// § In-scope item 1 (same-id no-op, defensive warn, purity) + § Test coverage
+// additions § Plan 64-01 (the nine tests below).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("split-tree — Phase 64: center-drop tree ops (replaceLeaf + swapLeaves)", () => {
+  // replaceLeaf tests ---------------------------------------------------
+
+  it("Phase 64 Test 1: replaceLeaf on a single-leaf root swaps tabId, invariant holds", () => {
+    const tree: SplitNode = leaf("a");
+    const next = replaceLeaf(tree, "a", "b");
+    expect(next).not.toBeNull();
+    expect(next?.kind).toBe("session");
+    // Narrow via kind guard so TS lets us reach tabId cleanly.
+    if (next === null || next.kind !== "session") {
+      throw new Error("expected non-null session leaf");
+    }
+    expect(next.tabId).toBe("b");
+    assertInvariant(next);
+  });
+
+  it(
+    "Phase 64 Test 2: replaceLeaf in a 2-cell tree with a replacement not-yet-in-tree preserves the sibling by reference",
+    () => {
+      const tree = split("vertical", leaf("a"), leaf("b"));
+      const next = replaceLeaf(tree, "b", "c");
+      assertInvariant(next);
+      expect(next).not.toBeNull();
+      if (next === null || next.kind !== "split") {
+        throw new Error("expected split at root");
+      }
+      expect(next.direction).toBe("vertical");
+      expect(findLeaf(next, "a")).toEqual([0]);
+      expect(findLeaf(next, "c")).toEqual([1]);
+      expect(findLeaf(next, "b")).toBeNull();
+      // Sibling at index 0 was not on the rewrite path — share by reference.
+      if (tree.kind !== "split") throw new Error("guard: tree is a split");
+      expect(Object.is(next.children[0], tree.children[0])).toBe(true);
+    },
+  );
+
+  it(
+    "Phase 64 Test 3: replaceLeaf where the replacement is elsewhere in a 3-cell tree removes-then-replaces (net: move)",
+    () => {
+      // root = split-v(   leaf('a')  ,  split-h(leaf('b'), leaf('c'))  )
+      // replaceLeaf(root, 'c', 'a'):
+      //   step 1 — remove 'a' from tree: parent vertical split has one child
+      //     left → collapse to surviving sibling → split-h(b, c).
+      //   step 2 — replace 'c' at its fresh path [1] with 'a' → split-h(b, a).
+      // Expected final root shape: split("horizontal", leaf("b"), leaf("a")).
+      const tree = split(
+        "vertical",
+        leaf("a"),
+        split("horizontal", leaf("b"), leaf("c")),
+      );
+      const next = replaceLeaf(tree, "c", "a");
+      assertInvariant(next);
+      expect(next).not.toBeNull();
+      if (next === null || next.kind !== "split") {
+        throw new Error("expected split at root");
+      }
+      expect(next.direction).toBe("horizontal");
+      expect(findLeaf(next, "b")).toEqual([0]);
+      expect(findLeaf(next, "a")).toEqual([1]);
+      expect(findLeaf(next, "c")).toBeNull();
+    },
+  );
+
+  it(
+    "Phase 64 Test 4: replaceLeaf with targetTabId === replacementTabId is a reference-identity no-op",
+    () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const tree = split("vertical", leaf("a"), leaf("b"));
+        const next = replaceLeaf(tree, "a", "a");
+        expect(Object.is(next, tree)).toBe(true);
+        expect(warnSpy).not.toHaveBeenCalled();
+        assertInvariant(next);
+      } finally {
+        warnSpy.mockRestore();
+      }
+    },
+  );
+
+  it(
+    "Phase 64 Test 5: replaceLeaf with a target-not-found emits ONE defensive console.warn and returns root by reference",
+    () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const tree = leaf("a");
+        const next = replaceLeaf(tree, "ghost", "b");
+        expect(Object.is(next, tree)).toBe(true);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        const firstArg = warnSpy.mock.calls[0][0];
+        expect(typeof firstArg).toBe("string");
+        expect(firstArg as string).toMatch(
+          /^\[split-tree\] replaceLeaf: target not found/,
+        );
+        expect(firstArg as string).toContain("targetTabId=ghost");
+      } finally {
+        warnSpy.mockRestore();
+      }
+    },
+  );
+
+  // swapLeaves tests ----------------------------------------------------
+
+  it("Phase 64 Test 6: swapLeaves on a 2-cell tree trades tabIds, structure preserved", () => {
+    const tree = split("vertical", leaf("a"), leaf("b"));
+    const next = swapLeaves(tree, "a", "b");
+    assertInvariant(next);
+    expect(next).not.toBeNull();
+    if (next === null || next.kind !== "split") {
+      throw new Error("expected split at root");
+    }
+    // Structure preserved — same direction; both children are leaves.
+    expect(next.direction).toBe("vertical");
+    expect(next.children[0].kind).toBe("session");
+    expect(next.children[1].kind).toBe("session");
+    // Leaves traded slots.
+    expect(findLeaf(next, "a")).toEqual([1]);
+    expect(findLeaf(next, "b")).toEqual([0]);
+  });
+
+  it("Phase 64 Test 7: swapLeaves on a deep tree swaps A ↔ C and preserves every internal split's direction", () => {
+    // root = split-v(  leaf('a')  ,  split-h(leaf('b'), leaf('c'))  )
+    // Expected after swap('a', 'c'):
+    //   split-v(  leaf('c')  ,  split-h(leaf('b'), leaf('a'))  )
+    // Sibling 'b' at path [1, 0] unchanged; inner split direction preserved.
+    const tree = split(
+      "vertical",
+      leaf("a"),
+      split("horizontal", leaf("b"), leaf("c")),
+    );
+    const next = swapLeaves(tree, "a", "c");
+    assertInvariant(next);
+    expect(next).not.toBeNull();
+    if (next === null || next.kind !== "split") {
+      throw new Error("expected split at root");
+    }
+    expect(next.direction).toBe("vertical");
+    // Inner horizontal split's direction preserved (structure-only swap).
+    const inner = next.children[1];
+    if (inner.kind !== "split") throw new Error("expected inner split at [1]");
+    expect(inner.direction).toBe("horizontal");
+    // Leaves traded; sibling 'b' unchanged.
+    expect(findLeaf(next, "a")).toEqual([1, 1]);
+    expect(findLeaf(next, "b")).toEqual([1, 0]);
+    expect(findLeaf(next, "c")).toEqual([0]);
+  });
+
+  it("Phase 64 Test 8: swapLeaves with tabIdA === tabIdB is a reference-identity no-op, no warn", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const tree = split("vertical", leaf("a"), leaf("b"));
+      const next = swapLeaves(tree, "a", "a");
+      expect(Object.is(next, tree)).toBe(true);
+      expect(warnSpy).not.toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it(
+    "Phase 64 Test 9: swapLeaves with a missing leaf emits ONE defensive console.warn (either arg missing)",
+    () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const tree = split("vertical", leaf("a"), leaf("b"));
+        // Scenario A: second arg missing.
+        const nextA = swapLeaves(tree, "a", "ghost");
+        expect(Object.is(nextA, tree)).toBe(true);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        const firstArgA = warnSpy.mock.calls[0][0];
+        expect(typeof firstArgA).toBe("string");
+        expect(firstArgA as string).toMatch(
+          /^\[split-tree\] swapLeaves: leaf not found/,
+        );
+        expect(firstArgA as string).toContain("tabId=ghost");
+
+        // Scenario B: first arg missing — reset spy, same shape.
+        warnSpy.mockClear();
+        const nextB = swapLeaves(tree, "ghost", "a");
+        expect(Object.is(nextB, tree)).toBe(true);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        const firstArgB = warnSpy.mock.calls[0][0];
+        expect(typeof firstArgB).toBe("string");
+        expect(firstArgB as string).toMatch(
+          /^\[split-tree\] swapLeaves: leaf not found/,
+        );
+        expect(firstArgB as string).toContain("tabId=ghost");
+      } finally {
+        warnSpy.mockRestore();
+      }
+    },
+  );
 });
 
 // Reference so TS doesn't drop the type imports (Test 1 asserts shape).
