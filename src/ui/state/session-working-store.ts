@@ -5,11 +5,17 @@
 // (PTY-idle from Terminal.tsx + backgrounded-work from PrettyView.tsx)
 // were REMOVED in Plan 06 — see 34-06-SUMMARY.md for the retired symbols.
 //
-// Composite formula:
-//   main      = status === "busy" || status === "shell"
+// Composite formula (Phase 62 Plan 04 — two-branch structure; see the
+// leading block comment above publishFleetStatusSessionState for the full
+// specification and rollout rationale):
+//   DIRECT-SIGNAL BRANCH  (upgraded box: activityMtime and/or stoppedMtime
+//                          present) — grounded on marker mtimes alone; `bg`
+//                          is DROPPED from composition here per §Philosophy.
+//   FALLBACK BRANCH       (unupgraded box: both mtimes null) — executes the
+//                          existing Phase 59 shell-idle-gate predicate
+//                          byte-for-byte INCLUDING the `bg` term per
+//                          §Rollout Option 1's zero-behavior-change promise.
 //   waiting   = status === "waiting"   // separate axis — NOT working, bubble-only
-//   bg        = backgroundTasks.length > 0
-//   isWorking = main || bg
 //
 // The ambient filter runs at the WATCHER (Plan 04), not here. By the time
 // SessionState arrives at the browser, backgroundTasks[] is already
@@ -140,12 +146,58 @@ type WorkingRecord = {
   // the Pitfall-3 invariant — an Axis-A-only isWorking flip that carries no
   // lastStopAt signal MUST NOT wipe the cached value. Read by the `main`
   // predicate below (Axis F block writes it on wire delta).
+  //
+  // Phase 62 Plan 04 (WIP hook-based rewrite 2026-08-30): retained — not
+  // retired — for the entire Phase 62 rollout window per CONTEXT.md §Rollout
+  // Option 1 (LOCKED for this phase). The new direct-signal predicate branch
+  // (activityMtime > stoppedMtime, see below) supersedes this axis on
+  // upgraded boxes, but sessions on unupgraded boxes continue to drive
+  // isWorking via the Phase 59 shell-idle-gate predicate that reads this
+  // axis. A follow-up phase (post-full-rollout, orchestrator-tracked) retires
+  // both this axis and its lastStatusChangeAt sibling below.
   lastStopAt: number | null;
   // Phase 59 Plan 03 — mirrors wire `lastStatusChangeAt`; `null` when the
   // wire carried null OR omitted the field. Cache-preserved across every
   // Axis republish per Pitfall-3 (same invariant as lastStopAt above). Read
   // by the `main` predicate below (Axis G block writes it on wire delta).
+  //
+  // Phase 62 Plan 04 — see the lastStopAt block comment above for the
+  // Option-1 rollout retention rationale — this axis is also retained for
+  // the rollout window and is retired together with lastStopAt in the same
+  // follow-up phase once every managed box has been upgraded.
   lastStatusChangeAt: number | null;
+  // Phase 62 Plan 04 (WIP hook-based rewrite 2026-08-30) — the two per-session
+  // marker mtimes that back the new direct-signal WIP predicate. Mirrored
+  // from wire `SessionState.activityMtime` (touched by activity-hook.sh on
+  // UserPromptSubmit + PreToolUse per Plan 62-01/02). `null` when the wire
+  // carried null OR omitted the field (marker file absent, SSH hiccup, or
+  // emitting backend pre-dates Phase 62 — all three collapse to null at the
+  // store boundary and all three trigger the Option-1 rollout fallback to
+  // the Phase 59 shell-idle-gate predicate).
+  //
+  // Cache-preserved across every Axis (A/B/C/D/E/F/G) republish per the
+  // Pitfall-3 invariant established for all prior axes — an Axis-A-only
+  // isWorking flip that carries no activityMtime signal MUST NOT wipe the
+  // cached value. Axis H below is the ONLY writer on wire delta.
+  //
+  // Read by the direct-signal branch of the isWorking predicate below (when
+  // `activityMtime !== null || stoppedMtime !== null`). Per CONTEXT.md
+  // §Philosophy the direct-signal branch is grounded on marker mtimes ALONE
+  // — the `bg = backgroundTasks.length > 0` axis does NOT contribute in the
+  // direct-signal branch (bg is retained only in the retained Phase 59
+  // fallback branch, byte-for-byte, per §Rollout Option 1).
+  activityMtime: number | null;
+  // Phase 62 Plan 04 — mirrors wire `SessionState.stoppedMtime` (touched by
+  // stopped-hook.sh on Stop / StopFailure / PermissionRequest per Plan
+  // 62-01/02 — PermissionRequest is deliberately treated as "stopped" per
+  // CONTEXT.md §Philosophy: "agent is waiting on you" is the same as "agent
+  // is done" from the affordance's perspective — both mean the row deserves
+  // Ashley's attention right now).
+  //
+  // Same three-valued semantics + Pitfall-3 preservation invariant as
+  // activityMtime above. Axis I below is the ONLY writer on wire delta.
+  // Read by the direct-signal branch of isWorking below.
+  stoppedMtime: number | null;
 };
 
 type State = {
@@ -213,6 +265,53 @@ export function publishFleetStatusSessionState(
 ): void {
   const key = `${hostId}:${state_arg.tmuxSession ?? ""}`;
 
+  // Phase 62 Plan 04 (WIP hook-based rewrite 2026-08-30) — the affordance
+  // stops lying. Two-branch predicate structure:
+  //
+  //   1. DIRECT-SIGNAL BRANCH (upgraded box — Plan 62-02 hooks installed):
+  //      Fires when at least one of activityMtime or stoppedMtime is a
+  //      number (i.e. at least one marker file has been touched by a
+  //      Plan 62-01 hook script on the managed box). Composition:
+  //        - activityMtime === null && stoppedMtime !== null → false
+  //          (only stop observed — row does NOT deserve attention).
+  //        - activityMtime !== null && stoppedMtime === null → true
+  //          (activity observed, no stop yet — row deserves attention).
+  //        - both !== null → `activityMtime > stoppedMtime` (strict >,
+  //          equal collapses to false — activity must beat the latest stop).
+  //      The `bg = backgroundTasks.length > 0` axis is DROPPED from
+  //      composition in this branch. Per CONTEXT.md §Philosophy the
+  //      direct-signal predicate is grounded on marker mtimes alone — no
+  //      state machine, no smoothing, no oscillation to fight, no second
+  //      guessing layer alongside the direct signal. If a case is missed,
+  //      the fix is to change which hooks we subscribe to (Plan 62-02),
+  //      NOT to layer inference back in. `backgroundTasks[]` stays on the
+  //      wire per CONTEXT.md §Out of scope for orthogonal consumers.
+  //
+  //   2. FALLBACK BRANCH (unupgraded box — no hooks yet installed):
+  //      Fires when both activityMtime === null AND stoppedMtime === null
+  //      (no direct signal available). Executes the EXISTING Phase 59
+  //      shell-idle-gate predicate BYTE-FOR-BYTE, INCLUDING the `bg` term.
+  //      See the actual composition line in the else-branch below for the
+  //      literal source-of-truth (main + bg with the disjunction operator).
+  //      Zero behavior change on unupgraded boxes is Option-1 rollout's
+  //      core promise per CONTEXT.md §Rollout (LOCKED for this phase). A
+  //      session currently driven by long-running background tasks
+  //      (status=idle, bg=true) MUST continue to show isWorking=true until
+  //      its box is upgraded — dropping `bg` here would silently flip
+  //      such sessions to idle on every unupgraded box, which IS the
+  //      behavior change Option-1 explicitly promised not to make. `bg`
+  //      retirement happens ONLY on upgraded boxes (branch 1 above) where
+  //      the direct signal supersedes it, and fleet-wide once the follow-
+  //      up phase retires the fallback branch entirely.
+  //
+  // The `waiting` status axis is preserved on both branches (feeds
+  // session-waiting-store separately, not part of isWorking here) —
+  // unchanged from prior behavior.
+  //
+  // Historical context on the fallback branch (retained verbatim from
+  // Phase 59 Plan 03 for the reader tracing why the fallback looks the
+  // way it does):
+  //
   // Phase 59 Plan 03 (WIP-shell-idle-gate 2026-08-29) — supersedes the
   // inline-260823-wip-shell-is-work rule at the predicate boundary but
   // preserves it as the mid-turn-shell case. New shape: `shell` counts as
@@ -228,27 +327,55 @@ export function publishFleetStatusSessionState(
   // `lastStatusChangeAt > lastStopAt` and the indicator lit. The predicate
   // only trips FALSE for stale-shell (the Poppy/aqua/wilma pattern) where
   // status settled on shell BEFORE the last Stop-hook fire and has not moved
-  // since — the very false-positive that motivated this phase. See
-  // 59-CONTEXT.md § Shape for the full rule + rationale.
+  // since — the very false-positive that motivated Phase 62 (see the
+  // §Shape / §Philosophy blocks in 62-CONTEXT.md for how the direct-signal
+  // branch closes this while the fallback branch preserves the existing
+  // gate byte-for-byte for the rollout window).
   // Fall back to cached values when the incoming frame's stop-gate axes are
   // undefined (e.g. any source-B-style frame that omits these fields). Using
   // wire-only values would let a source-B frame reset the gating basis for
   // this key, silently breaking the shell-gate on the next source-A shell
   // frame — same Pitfall-3 class the Axis writes below guard against.
-  // Consult cache first, wire second, null last.
+  // Consult cache first, wire second, null last. The same fall-back
+  // discipline applies to the new Phase 62 axes activityMtime + stoppedMtime
+  // so the direct-signal branch reads a source-B-safe view of both axes.
   const existing = state.map.get(key);
   const lastStopAt =
     state_arg.lastStopAt ?? existing?.lastStopAt ?? null;
   const lastStatusChangeAt =
     state_arg.lastStatusChangeAt ?? existing?.lastStatusChangeAt ?? null;
-  const shellCountsAsWork =
-    state_arg.status === "shell" &&
-    (lastStopAt === null ||
-      (lastStatusChangeAt !== null && lastStatusChangeAt > lastStopAt));
-  const main =
-    state_arg.status === "busy" || shellCountsAsWork;
-  const bg = state_arg.backgroundTasks.length > 0;
-  const isWorking = main || bg;
+  const activityMtime =
+    state_arg.activityMtime ?? existing?.activityMtime ?? null;
+  const stoppedMtime =
+    state_arg.stoppedMtime ?? existing?.stoppedMtime ?? null;
+
+  let isWorking: boolean;
+  if (activityMtime !== null || stoppedMtime !== null) {
+    // Direct-signal branch (upgraded box): activity vs stopped mtime alone.
+    // `bg` is intentionally NOT referenced here per CONTEXT.md §Philosophy.
+    if (activityMtime !== null && stoppedMtime === null) {
+      isWorking = true;
+    } else if (activityMtime === null && stoppedMtime !== null) {
+      isWorking = false;
+    } else {
+      // Both are numbers (TypeScript can't narrow across the || above but
+      // the else-branch of the outer disjunction reaches here only when
+      // both were non-null, so the ! assertions are safe).
+      isWorking = (activityMtime as number) > (stoppedMtime as number);
+    }
+  } else {
+    // Fallback branch (unupgraded box): byte-for-byte the Phase 59 predicate,
+    // INCLUDING the `bg` term — Option-1 rollout requires zero behavior
+    // change on unupgraded boxes. See CONTEXT.md §Rollout Option 1.
+    const shellCountsAsWork =
+      state_arg.status === "shell" &&
+      (lastStopAt === null ||
+        (lastStatusChangeAt !== null && lastStatusChangeAt > lastStopAt));
+    const main =
+      state_arg.status === "busy" || shellCountsAsWork;
+    const bg = state_arg.backgroundTasks.length > 0;
+    isWorking = main || bg;
+  }
 
   // Phase 44 (Plan 03) — single-chokepoint architecture per 43-CONTEXT.md §
   // Reconciliation helper. isWorking axis handled inline; lastMessageAt axis
@@ -296,6 +423,13 @@ export function publishFleetStatusSessionState(
       lastStatusChangeAt: existing?.lastStatusChangeAt ?? null,
       previousLastStopAt: existing?.lastStopAt ?? null,
       previousLastStatusChangeAt: existing?.lastStatusChangeAt ?? null,
+      // Phase 62 Plan 04 — new direct-signal axes on the forensic log so a
+      // future debug session can trace which branch of the predicate
+      // (direct-signal vs. Phase 59 fallback) drove any given transition.
+      activityMtime: existing?.activityMtime ?? null,
+      stoppedMtime: existing?.stoppedMtime ?? null,
+      previousActivityMtime: existing?.activityMtime ?? null,
+      previousStoppedMtime: existing?.stoppedMtime ?? null,
     });
 
     const nextMap = new Map(state.map);
@@ -310,6 +444,10 @@ export function publishFleetStatusSessionState(
       // wipe the cached values. Axes F/G below handle wire-driven updates.
       lastStopAt: existing?.lastStopAt ?? null,
       lastStatusChangeAt: existing?.lastStatusChangeAt ?? null,
+      // Phase 62 Plan 04 — Pitfall-3 preservation for the two new axes.
+      // Axes H/I below handle wire-driven updates. Brand-new-key default null.
+      activityMtime: existing?.activityMtime ?? null,
+      stoppedMtime: existing?.stoppedMtime ?? null,
     });
     state = { map: nextMap };
     notify();
@@ -361,6 +499,9 @@ export function publishFleetStatusSessionState(
         // Phase 59 Plan 03 — preserve stop-gate axes on dormant flip.
         lastStopAt: existingAfterAxes.lastStopAt,
         lastStatusChangeAt: existingAfterAxes.lastStatusChangeAt,
+        // Phase 62 Plan 04 — preserve direct-signal axes on dormant flip.
+        activityMtime: existingAfterAxes.activityMtime,
+        stoppedMtime: existingAfterAxes.stoppedMtime,
       });
       state = { map: nextMap };
       notify();
@@ -396,6 +537,9 @@ export function publishFleetStatusSessionState(
         // Phase 59 Plan 03 — preserve stop-gate axes on recycling flip.
         lastStopAt: existingAfterAxes.lastStopAt,
         lastStatusChangeAt: existingAfterAxes.lastStatusChangeAt,
+        // Phase 62 Plan 04 — preserve direct-signal axes on recycling flip.
+        activityMtime: existingAfterAxes.activityMtime,
+        stoppedMtime: existingAfterAxes.stoppedMtime,
       });
       state = { map: nextMap };
       notify();
@@ -434,6 +578,9 @@ export function publishFleetStatusSessionState(
         recycling: existingAfterAxes.recycling,
         lastStopAt,
         lastStatusChangeAt: existingAfterAxes.lastStatusChangeAt,
+        // Phase 62 Plan 04 — preserve direct-signal axes on lastStopAt flip.
+        activityMtime: existingAfterAxes.activityMtime,
+        stoppedMtime: existingAfterAxes.stoppedMtime,
       });
       state = { map: nextMap };
       notify();
@@ -469,6 +616,89 @@ export function publishFleetStatusSessionState(
         recycling: existingAfterAxes.recycling,
         lastStopAt: existingAfterAxes.lastStopAt,
         lastStatusChangeAt,
+        // Phase 62 Plan 04 — preserve direct-signal axes on
+        // lastStatusChangeAt flip.
+        activityMtime: existingAfterAxes.activityMtime,
+        stoppedMtime: existingAfterAxes.stoppedMtime,
+      });
+      state = { map: nextMap };
+      notify();
+    }
+  }
+
+  // ── Axis H — activityMtime swap-and-notify block (Phase 62 Plan 04) ──
+  // Wire semantic (optional field): `activityMtime: <number>` sets value;
+  // `activityMtime: null` explicitly resets cache to null; `activityMtime`
+  // absent (undefined) preserves the cached value — an Axis-A-only republish
+  // that carries no direct-signal MUST NOT wipe an `activityMtime` set by a
+  // prior frame. Matches the optional-nullable convention on the wire
+  // (activityMtime?: number | null) mirrored by fleet-status-types.ts and by
+  // the backend zod schema (Plan 62-03).
+  //
+  // Direct swap-and-notify (no max-wins, no last-wins) — the backend derives
+  // this axis from the mtime of the per-session activity marker touched by
+  // the Plan 62-01 activity-hook.sh on UserPromptSubmit + PreToolUse events,
+  // so the freshest server-side reading is authoritative. Fire only when we
+  // have an explicit signal AND it differs from cache. Brand-new-key case is
+  // handled above in Axis A which preserves activityMtime in its nextMap
+  // write; here we only fire on change. Mirrors the Axis F pattern above.
+  if (state_arg.activityMtime !== undefined) {
+    const activityMtime = state_arg.activityMtime;
+    const existingAfterAxes = state.map.get(key);
+    if (
+      existingAfterAxes !== undefined &&
+      existingAfterAxes.activityMtime !== activityMtime
+    ) {
+      const nextMap = new Map(state.map);
+      nextMap.set(key, {
+        isWorking: existingAfterAxes.isWorking,
+        lastMessageAt: existingAfterAxes.lastMessageAt,
+        aiTitle: existingAfterAxes.aiTitle,
+        dormant: existingAfterAxes.dormant,
+        recycling: existingAfterAxes.recycling,
+        lastStopAt: existingAfterAxes.lastStopAt,
+        lastStatusChangeAt: existingAfterAxes.lastStatusChangeAt,
+        activityMtime,
+        stoppedMtime: existingAfterAxes.stoppedMtime,
+      });
+      state = { map: nextMap };
+      notify();
+    }
+  }
+
+  // ── Axis I — stoppedMtime swap-and-notify block (Phase 62 Plan 04) ──
+  // Wire semantic (optional field): `stoppedMtime: <number>` sets value;
+  // `stoppedMtime: null` explicitly resets cache to null; `stoppedMtime`
+  // absent (undefined) preserves the cached value — same optional-nullable
+  // convention as Axis H above.
+  //
+  // Direct swap-and-notify — the backend derives this axis from the mtime of
+  // the per-session stopped marker touched by the Plan 62-01 stopped-hook.sh
+  // on Stop / StopFailure / PermissionRequest events (PermissionRequest
+  // deliberately treated as "stopped" per CONTEXT.md §Philosophy — from the
+  // affordance's perspective "agent is waiting on you" is the same as "agent
+  // is done": both mean the row deserves Ashley's attention right now).
+  // Fire only when we have an explicit signal AND it differs from cache.
+  // Brand-new-key case is handled above in Axis A which preserves
+  // stoppedMtime in its nextMap write. Mirrors the Axis G pattern above.
+  if (state_arg.stoppedMtime !== undefined) {
+    const stoppedMtime = state_arg.stoppedMtime;
+    const existingAfterAxes = state.map.get(key);
+    if (
+      existingAfterAxes !== undefined &&
+      existingAfterAxes.stoppedMtime !== stoppedMtime
+    ) {
+      const nextMap = new Map(state.map);
+      nextMap.set(key, {
+        isWorking: existingAfterAxes.isWorking,
+        lastMessageAt: existingAfterAxes.lastMessageAt,
+        aiTitle: existingAfterAxes.aiTitle,
+        dormant: existingAfterAxes.dormant,
+        recycling: existingAfterAxes.recycling,
+        lastStopAt: existingAfterAxes.lastStopAt,
+        lastStatusChangeAt: existingAfterAxes.lastStatusChangeAt,
+        activityMtime: existingAfterAxes.activityMtime,
+        stoppedMtime,
       });
       state = { map: nextMap };
       notify();
@@ -548,6 +778,10 @@ function advanceSessionLastMessageAt(key: string, ts: number | null): void {
     // chokepoint write. Seed-created records default both to null.
     lastStopAt: existing?.lastStopAt ?? null,
     lastStatusChangeAt: existing?.lastStatusChangeAt ?? null,
+    // Phase 62 Plan 04 — preserve cached direct-signal axes across the
+    // Axis B chokepoint write. Seed-created records default both to null.
+    activityMtime: existing?.activityMtime ?? null,
+    stoppedMtime: existing?.stoppedMtime ?? null,
   };
 
   console.info({
@@ -637,6 +871,10 @@ function advanceSessionAiTitle(key: string, title: string | null): void {
     // chokepoint write. Seed-created records default both to null.
     lastStopAt: existing?.lastStopAt ?? null,
     lastStatusChangeAt: existing?.lastStatusChangeAt ?? null,
+    // Phase 62 Plan 04 — preserve cached direct-signal axes across the
+    // Axis C chokepoint write. Seed-created records default both to null.
+    activityMtime: existing?.activityMtime ?? null,
+    stoppedMtime: existing?.stoppedMtime ?? null,
   };
 
   console.info({
@@ -801,6 +1039,11 @@ export function getSessionWorkingSnapshot(): ReadonlyMap<
     // so Test P can assert Axis-A cache preservation of lastStopAt.
     lastStopAt: number | null;
     lastStatusChangeAt: number | null;
+    // Phase 62 Plan 04 — direct-signal axes exposed on the test-only
+    // snapshot so Tests K/L/M/N can assert Axis-H/I preservation +
+    // explicit-null reset.
+    activityMtime: number | null;
+    stoppedMtime: number | null;
   }
 > {
   return state.map;
