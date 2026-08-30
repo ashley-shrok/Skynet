@@ -31,7 +31,7 @@ key-files:
     - src/ui/state/session-working-store.ts
     - src/ui/state/session-working-store.test.ts
 decisions:
-  - "LOCKED CONTEXT.md §Rollout Option 1 (from PLAN.md): backend emits BOTH the two new Phase 62 mtime axes AND the retained Phase 59 lastStopAt + lastStatusChangeAt axes on every frame for the entire rollout window; frontend chooses which predicate branch runs per-session based on marker presence. Zero deletions from the Phase 59 pipeline. A follow-up phase (post-full-rollout, orchestrator-tracked) retires both the Phase 59 fields and the fallback branch cleanly. Rationale: blast-radius rule (CLAUDE.md — a bad deploy loses Ashley access to her whole fleet)."
+  - "LOCKED CONTEXT.md §Rollout Option 1 (from PLAN.md): backend emits BOTH the two new Phase 63 mtime axes AND the retained Phase 59 lastStopAt + lastStatusChangeAt axes on every frame for the entire rollout window; frontend chooses which predicate branch runs per-session based on marker presence. Zero deletions from the Phase 59 pipeline. A follow-up phase (post-full-rollout, orchestrator-tracked) retires both the Phase 59 fields and the fallback branch cleanly. Rationale: blast-radius rule (CLAUDE.md — a bad deploy loses Ashley access to her whole fleet)."
   - "HIGH #1 branch-scoped `bg` retirement (from plan-review): `bg` is DROPPED from the direct-signal branch composition ONLY. In the fallback branch it stays byte-for-byte in the Phase 59 `main || bg` composition. This preserves Option-1 rollout's zero-behavior-change promise on unupgraded boxes — a session with status=idle + running background tasks continues to show isWorking=true on unupgraded boxes; only the upgraded-box branch retires the axis. Three grep invariants + Test I (direct-signal branch bg-drop) + Test J (fallback branch bg-preserve regression guard) are the enforcement pair."
   - "Test O 6-frame Nelly reproducer is the CORE test — it proves the phase's promise end-to-end. Includes frame 4 (PermissionRequest fires) asserting isWorking=false to prove the CONTEXT.md §Philosophy 'PermissionRequest counts as stopped' design choice at the predicate boundary."
   - "TDD RED-step relaxation for Task 1 (documented Rule 2 process deviation, no code deviation): pure-type mirror file has no runtime tests to fail; RED gate is TSC + grep-based type-strict mirror checks. Task 1's `<verify>` in the plan is `tsc` alone which matches this. GREEN is the additive field write. Tasks 2 and 3 both follow standard TDD (Task 2's `<verify>` is TSC to prove the rewrite compiles cleanly; Task 3's `<verify>` is `npx vitest run` on the test file with all 80 tests passing — the tests written in Task 3 exercise the Task 2 rewrite that already existed on-disk when Task 3 ran, so the tests wrote green immediately — this is the natural order of the plan which puts store rewrite in Task 2 and tests in Task 3)."
@@ -42,7 +42,7 @@ metrics:
   files: 3
 ---
 
-# Phase 62 Plan 04: WIP-indicator hook-based rewrite — frontend consumer swap Summary
+# Phase 63 Plan 04: WIP-indicator hook-based rewrite — frontend consumer swap Summary
 
 One-liner: Rewrote the frontend session-working-store WIP predicate as a two-branch structure — direct-signal `activityMtime > stoppedMtime` on upgraded boxes (grounded on marker mtimes alone per CONTEXT.md §Philosophy, `bg` axis DROPPED from composition), and the retained Phase 59 shell-idle-gate predicate BYTE-FOR-BYTE including `bg` on unupgraded boxes (Option-1 rollout's zero-behavior-change promise per §Rollout LOCKED) — mirrored the two new wire fields onto the browser-side type surface, added two new Axis H + Axis I swap-and-notify blocks with Pitfall-3 cache preservation across all seven prior axes, and locked the whole predicate behavior via 16 new tests including Test I/J (branch-scoped `bg` retirement pair — HIGH #1 regression guard) and Test O (6-frame Nelly oscillation reproducer + "PermissionRequest = done" end-to-end proof).
 
@@ -52,9 +52,9 @@ Three files modified, no files created (this plan is pure additive-to-existing o
 
 - **`src/ui/api/fleet-status-types.ts`** — added `activityMtime?: number | null` and `stoppedMtime?: number | null` to the SessionState interface as a name-for-name + type-for-type mirror of the Plan 62-03 wire-protocol.ts additions. Added a ~35-line block comment above the two fields matching the Phase 59 mirror-comment style (source, consumer, three-valued semantics, MUST-stay-in-lockstep warning). FRAME_SCHEMA_VERSION deliberately unchanged. Final size: 268 lines (was 233); +35 insertions.
 
-- **`src/ui/state/session-working-store.ts`** — REWROTE the isWorking predicate composition (was lines 216-251, now a two-branch structure at lines 216-320). New leading block comment (~90 lines) explaining the Phase 62 direct-signal architecture, Option-1 rollout fallback, the branch-scoped `bg` retirement rationale, and the Phase 59 historical context (retained as secondary paragraphs for the reader tracing why the fallback looks the way it does). New cache-preservation reads for activityMtime + stoppedMtime mirroring the Phase 59 lastStopAt/lastStatusChangeAt fallback chain. Two-branch predicate: direct-signal if `activityMtime !== null || stoppedMtime !== null`, else fallback to the byte-for-byte Phase 59 `main || bg` composition. Extended WorkingRecord type (lines 91-149 → now ~200 lines) with the two new `number | null` fields + ~55-line block comment above them describing rollout retention rationale. Extended Axis A nextMap.set + fleet_status_working_state_change forensic log with the two new axes + `previous*` counterparts. Extended Axes B/C/D/E/F/G nextRecord/nextMap.set literals with the two new preserved fields (7 nextMap.set / nextRecord sites total, cross-cutting Pitfall-3 discipline). Inserted new Axis H (activityMtime) + Axis I (stoppedMtime) swap-and-notify blocks after Axis G, mirroring the Axis F/G pattern exactly. Extended getSessionWorkingSnapshot return-type signature with the two new axes so Tests K/L/M/N can assert preservation + explicit-null reset. Updated the store-header comment (lines 8-22) so the composite-formula section reflects the two-branch structure and the stray literal `isWorking = main || bg` in the header is replaced with a descriptive summary — this makes the HIGH-#1 grep-count invariant well-defined (source-of-truth for that literal is now the actual fallback-branch composition line only). Zero changes to hook function bodies (useSessionIsWorking / useSessionIsWorkingRaw / useSessionIsDormant / useSessionIsRecycling / useSessionAiTitle / useSessionLastMessageAt), publishFleetStatusSessionGone, subscribeSessionWorkingStore, all seed/getter/`__resetForTest` APIs. Final size: 1155 lines (was 897); +273 insertions, −15 deletions.
+- **`src/ui/state/session-working-store.ts`** — REWROTE the isWorking predicate composition (was lines 216-251, now a two-branch structure at lines 216-320). New leading block comment (~90 lines) explaining the Phase 63 direct-signal architecture, Option-1 rollout fallback, the branch-scoped `bg` retirement rationale, and the Phase 59 historical context (retained as secondary paragraphs for the reader tracing why the fallback looks the way it does). New cache-preservation reads for activityMtime + stoppedMtime mirroring the Phase 59 lastStopAt/lastStatusChangeAt fallback chain. Two-branch predicate: direct-signal if `activityMtime !== null || stoppedMtime !== null`, else fallback to the byte-for-byte Phase 59 `main || bg` composition. Extended WorkingRecord type (lines 91-149 → now ~200 lines) with the two new `number | null` fields + ~55-line block comment above them describing rollout retention rationale. Extended Axis A nextMap.set + fleet_status_working_state_change forensic log with the two new axes + `previous*` counterparts. Extended Axes B/C/D/E/F/G nextRecord/nextMap.set literals with the two new preserved fields (7 nextMap.set / nextRecord sites total, cross-cutting Pitfall-3 discipline). Inserted new Axis H (activityMtime) + Axis I (stoppedMtime) swap-and-notify blocks after Axis G, mirroring the Axis F/G pattern exactly. Extended getSessionWorkingSnapshot return-type signature with the two new axes so Tests K/L/M/N can assert preservation + explicit-null reset. Updated the store-header comment (lines 8-22) so the composite-formula section reflects the two-branch structure and the stray literal `isWorking = main || bg` in the header is replaced with a descriptive summary — this makes the HIGH-#1 grep-count invariant well-defined (source-of-truth for that literal is now the actual fallback-branch composition line only). Zero changes to hook function bodies (useSessionIsWorking / useSessionIsWorkingRaw / useSessionIsDormant / useSessionIsRecycling / useSessionAiTitle / useSessionLastMessageAt), publishFleetStatusSessionGone, subscribeSessionWorkingStore, all seed/getter/`__resetForTest` APIs. Final size: 1155 lines (was 897); +273 insertions, −15 deletions.
 
-- **`src/ui/state/session-working-store.test.ts`** — added 16 new tests across 4 new describe blocks tagged "Phase 62 Plan 04": (a) direct-signal predicate (6 tests A/B/C/D/E/P covering all four new-branch cases + direct-signal branch precedence over fallback), (b) fallback branch (3 tests F/G/H covering busy + fresh-shell + stale-shell Phase 59 cases), (c) bg axis retirement (2 tests I/J — the HIGH #1 branch-scoped regression pair: Test I proves `bg` is dropped in the direct-signal branch, Test J proves `bg` is PRESERVED byte-for-byte in the fallback branch per Option-1 rollout), (d) Axis H/I preservation + explicit-null reset (4 tests K/L/M/N covering Pitfall-3 preservation across Axis-A republish for both new axes + explicit-null wire reset for both), (e) Nelly oscillation + PermissionRequest-as-done end-to-end proof (1 test O — the CORE 6-frame reproducer proving both the false-positive fix and the "PermissionRequest = done" §Philosophy design choice). Final size: 2041 lines (was 1477); +564 insertions.
+- **`src/ui/state/session-working-store.test.ts`** — added 16 new tests across 4 new describe blocks tagged "Phase 63 Plan 04": (a) direct-signal predicate (6 tests A/B/C/D/E/P covering all four new-branch cases + direct-signal branch precedence over fallback), (b) fallback branch (3 tests F/G/H covering busy + fresh-shell + stale-shell Phase 59 cases), (c) bg axis retirement (2 tests I/J — the HIGH #1 branch-scoped regression pair: Test I proves `bg` is dropped in the direct-signal branch, Test J proves `bg` is PRESERVED byte-for-byte in the fallback branch per Option-1 rollout), (d) Axis H/I preservation + explicit-null reset (4 tests K/L/M/N covering Pitfall-3 preservation across Axis-A republish for both new axes + explicit-null wire reset for both), (e) Nelly oscillation + PermissionRequest-as-done end-to-end proof (1 test O — the CORE 6-frame reproducer proving both the false-positive fix and the "PermissionRequest = done" §Philosophy design choice). Final size: 2041 lines (was 1477); +564 insertions.
 
 ## Tasks executed
 
@@ -75,7 +75,7 @@ Three files modified, no files created (this plan is pure additive-to-existing o
 
 ### Task 3: Extend session-working-store tests
 
-- **Test commit `fd2fc1be`**: `test(62-04): extend session-working-store tests — 16 new Phase 62 tests covering direct-signal predicate + fallback branch + Axes H/I + bg retirement + Nelly reproducer (Task 3)` — 16 new tests across 4 new describe blocks, each `it()` line tagged "Phase 62 Task 3 Test X" so the grep count never drifts below the count of Phase 62 tests present. Combined 64 pre-plan + 16 new = 80 tests pass.
+- **Test commit `fd2fc1be`**: `test(62-04): extend session-working-store tests — 16 new Phase 63 tests covering direct-signal predicate + fallback branch + Axes H/I + bg retirement + Nelly reproducer (Task 3)` — 16 new tests across 4 new describe blocks, each `it()` line tagged "Phase 63 Task 3 Test X" so the grep count never drifts below the count of Phase 63 tests present. Combined 64 pre-plan + 16 new = 80 tests pass.
 
   Test run acceptance:
   ```
@@ -86,10 +86,10 @@ Three files modified, no files created (this plan is pure additive-to-existing o
   ```
 
   Grep acceptance:
-  - `Phase 62` count: **23** (need ≥ 16).
+  - `Phase 63` count: **23** (need ≥ 16).
   - `activityMtime|stoppedMtime` count: **66** (need ≥ 30).
   - `Nelly|oscillation` count: **10** (need ≥ 1; Test O reproducer is greppable).
-  - `it("Phase 62` count: **16** (each new test tagged individually).
+  - `it("Phase 63` count: **16** (each new test tagged individually).
 
   No pre-plan tests updated: pre-plan Test C ("idle + bg shell task → true") still passes because `makeState` omits activityMtime + stoppedMtime by default, which routes to the fallback branch where bg is preserved byte-for-byte per Option-1 rollout; the bg-retirement is scoped to the direct-signal branch and is proven separately by Test I above. This behavior is exactly the "adopt Option-1 rollout preserves unupgraded-box behavior" property the plan explicitly promises.
 
@@ -157,7 +157,7 @@ $ grep -c 'activityMtime\|stoppedMtime' src/ui/state/session-working-store.ts
       #             I block 8 + getSessionWorkingSnapshot 2 = 52, headroom
       #             for the actual 63 count). ✓
 $ grep -c 'lastStopAt\|lastStatusChangeAt' src/ui/state/session-working-store.ts
-64    # pre-plan: 60 → post-plan: 64. All 4 new references are inside Phase 62
+64    # pre-plan: 60 → post-plan: 64. All 4 new references are inside Phase 63
       # comments citing the retained Phase 59 axes. Phase 59 CODE PATHS
       # themselves are byte-identical. ✓
 $ grep -c 'Axis H\|Axis I' src/ui/state/session-working-store.ts
@@ -170,9 +170,9 @@ $ git diff HEAD~2..HEAD~1 src/ui/state/session-working-store.ts | grep -E '^-.*e
 Task 3 acceptance greps:
 
 ```
-$ grep -Ec 'Phase 62' src/ui/state/session-working-store.test.ts
+$ grep -Ec 'Phase 63' src/ui/state/session-working-store.test.ts
 23    # need >= 16 ✓
-$ grep -cE 'it\("Phase 62' src/ui/state/session-working-store.test.ts
+$ grep -cE 'it\("Phase 63' src/ui/state/session-working-store.test.ts
 16    # each new test tagged individually ✓
 $ grep -c 'activityMtime\|stoppedMtime' src/ui/state/session-working-store.test.ts
 66    # need >= 30 ✓
@@ -191,7 +191,7 @@ $ git diff --stat e8072821..HEAD  # commits from post-62-03 SUMMARY through end 
 
 **1. [Rule 2 — Documentation consistency] Store-header composite-formula section updated (beyond the plan's Task 2 action list).**
 
-The plan's Task 2 `<action>` step 2 replaces the leading block comment above the predicate (lines 216-238) with a new Phase 62 comment. The store-header comment at lines 1-85, however, contained a stray literal string `isWorking = main || bg` inside a `Composite formula:` block that pre-dated Phase 41/47/52/53/59 evolutions. Left unchanged, this literal would have caused the HIGH-#1 grep-count invariant (`grep -c 'isWorking = main || bg' … returns exactly 1`) to return 2 or more — the count would include both the header-comment doc-string and the actual fallback-branch code line, making the invariant ambiguous.
+The plan's Task 2 `<action>` step 2 replaces the leading block comment above the predicate (lines 216-238) with a new Phase 63 comment. The store-header comment at lines 1-85, however, contained a stray literal string `isWorking = main || bg` inside a `Composite formula:` block that pre-dated Phase 41/47/52/53/59 evolutions. Left unchanged, this literal would have caused the HIGH-#1 grep-count invariant (`grep -c 'isWorking = main || bg' … returns exactly 1`) to return 2 or more — the count would include both the header-comment doc-string and the actual fallback-branch code line, making the invariant ambiguous.
 
 Rewrote the header-comment composite-formula section (lines 8-22) to describe the two-branch structure in prose form, moving the literal `isWorking = main || bg` OUT of the header comment. The literal now lives ONLY in the fallback-branch composition line (line 377), making the HIGH-#1 grep-count invariant well-defined. No code-behavior change; documentation-only fix that closes a grep-invariant ambiguity.
 
@@ -229,7 +229,7 @@ No Rule 1 (bug), Rule 3 (blocking-issue), or Rule 4 (architectural) deviations. 
 
 ## Known Stubs
 
-None. The frontend now consumes the direct signal on any managed box that has been re-installed with the Plan 62-02 hooks. Boxes without the installer continue to drive isWorking via the retained Phase 59 shell-idle-gate predicate — this is not a stub, it is the plan's explicit Option-1 rollout contract LOCKED in CONTEXT.md §Rollout for the entire Phase 62 rollout window.
+None. The frontend now consumes the direct signal on any managed box that has been re-installed with the Plan 62-02 hooks. Boxes without the installer continue to drive isWorking via the retained Phase 59 shell-idle-gate predicate — this is not a stub, it is the plan's explicit Option-1 rollout contract LOCKED in CONTEXT.md §Rollout for the entire Phase 63 rollout window.
 
 ## Threat Flags
 
@@ -274,6 +274,6 @@ Commits verified in `git log --oneline`:
 
 - `ed19c914` feat(62-04): mirror wire-protocol.ts activityMtime + stoppedMtime into fleet-status-types (Task 1)
 - `d80f3e2f` feat(62-04): rewrite session-working-store predicate — two-branch direct-signal + Phase 59 fallback, Axes H/I, `bg` retired from direct-signal branch (Task 2)
-- `fd2fc1be` test(62-04): extend session-working-store tests — 16 new Phase 62 tests covering direct-signal predicate + fallback branch + Axes H/I + bg retirement + Nelly reproducer (Task 3)
+- `fd2fc1be` test(62-04): extend session-working-store tests — 16 new Phase 63 tests covering direct-signal predicate + fallback branch + Axes H/I + bg retirement + Nelly reproducer (Task 3)
 
-Working tree clean after Task 3 commit. All acceptance-criteria greps satisfied. All 80 scoped tests pass. TSC baseline unchanged (269 = 269, zero new errors mention any Phase 62 file). Ready for Plan 62-verify / orchestrator ship pipeline.
+Working tree clean after Task 3 commit. All acceptance-criteria greps satisfied. All 80 scoped tests pass. TSC baseline unchanged (269 = 269, zero new errors mention any Phase 63 file). Ready for Plan 62-verify / orchestrator ship pipeline.

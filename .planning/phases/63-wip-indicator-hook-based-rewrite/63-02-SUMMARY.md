@@ -13,7 +13,7 @@ provides:
   - src/backend/fleet-status/remote-hook-install.ts::ACTIVITY_HOOK_SCRIPT_CONTENTS + STOPPED_HOOK_SCRIPT_CONTENTS (exported for byte-drift tests)
 affects:
   - src/backend/starter.ts (line 249 callsite — signature preserved, no edit)
-  - .planning/phases/62-wip-indicator-hook-based-rewrite/62-03-PLAN.md (backend predicate that will `stat -c %Y` the two marker files this installer's hooks touch)
+  - .planning/phases/63-wip-indicator-hook-based-rewrite/63-03-PLAN.md (backend predicate that will `stat -c %Y` the two marker files this installer's hooks touch)
 tech-stack:
   added: []
   patterns:
@@ -39,7 +39,7 @@ metrics:
   files: 2
 ---
 
-# Phase 62 Plan 02: WIP-indicator hook-based rewrite — installer extension Summary
+# Phase 63 Plan 02: WIP-indicator hook-based rewrite — installer extension Summary
 
 One-liner: Extended `installStopHook` in `src/backend/fleet-status/remote-hook-install.ts` to drop three shell scripts (existing stop-hook + Phase-62 activity + stopped) and merge six settings.json hook entries across five event keys (Stop×2, UserPromptSubmit, PreToolUse, StopFailure, PermissionRequest) idempotently via a generalized `readAndMergeHookSettings` helper, with 32 vitest tests covering install shape, five-key idempotency, third-party preservation, uninstall-all-three, per-script verify-failure identification, and byte-drift detection for the two new inlined script constants — one of which caught a real backtick-escaping bug on its first run.
 
@@ -171,7 +171,7 @@ None. The extended installer is production-ready — three scripts drop, six ent
   - `${HOME}/.claude/fleet-status/hooks/<sid>/stopped`  (touched by stopped-hook on Stop + StopFailure + PermissionRequest)
 - Emit `activityMtime` + `stoppedMtime` on the wire.
 - Evaluate `activity_mtime > stopped_mtime → working` server-side (or frontend, per plan boundary decision).
-- Implement CONTEXT §Rollout Option 1: fall back to the old predicate when both markers are absent (i.e. box not yet upgraded to Phase 62 install).
+- Implement CONTEXT §Rollout Option 1: fall back to the old predicate when both markers are absent (i.e. box not yet upgraded to Phase 63 install).
 
 **Plan 62-04 will:**
 - Consume the new mtime axes in `src/ui/state/session-working-store.ts`.

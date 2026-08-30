@@ -11,11 +11,11 @@ provides:
   - src/backend/fleet-status/wire-protocol.ts::SessionStateSchema (extended with activityMtime + stoppedMtime as additive+optional numeric wire fields)
   - src/backend/fleet-status/ssh-poll-orchestrator.ts::processPid (two new per-session marker stat reads; PidCacheEntry + computeFingerprint + SessionState composition + livenessMap.set both branches all extended)
 affects:
-  - .planning/phases/62-wip-indicator-hook-based-rewrite/62-04-PLAN.md (frontend consumer that will read activityMtime + stoppedMtime from the wire and compute `activityMtime > stoppedMtime` as the new WIP predicate — no state machine, no shell-idle gate)
+  - .planning/phases/63-wip-indicator-hook-based-rewrite/63-04-PLAN.md (frontend consumer that will read activityMtime + stoppedMtime from the wire and compute `activityMtime > stoppedMtime` as the new WIP predicate — no state machine, no shell-idle gate)
 tech-stack:
   added: []
   patterns:
-    - "Sixth iteration of the T-41-03-05 additive-optional wire discipline (FRAME_SCHEMA_VERSION deliberately HELD AT 1 across every prior additive addition: lastMessageAt → aiTitle → dormant → recycling → lastStopAt+lastStatusChangeAt → this Phase 62 addition)"
+    - "Sixth iteration of the T-41-03-05 additive-optional wire discipline (FRAME_SCHEMA_VERSION deliberately HELD AT 1 across every prior additive addition: lastMessageAt → aiTitle → dormant → recycling → lastStopAt+lastStatusChangeAt → this Phase 63 addition)"
     - "Two separate stat reads per PID per tick (activity + stopped) — batched read deferred per T-62-03-03 rationale with an inline code comment above the first read pointing at the threat entry (plan-review LOW-#10)"
     - "Character-class regex `/^[a-zA-Z0-9_-]+$/` guards BEFORE shell interpolation on both new stat reads — same defense as Phase 59 lastStopAt at line 1121, matching the write-side regex in activity-hook.sh / stopped-hook.sh (T-62-03-02 mitigation)"
     - "Fail-open cache preservation on SSH hiccup (null return) AND absent-file (empty stdout) AND non-numeric stdout — matches lastMessageAt / aiTitle / dormant / lastStopAt patterns"
@@ -30,7 +30,7 @@ key-files:
     - src/backend/fleet-status/ssh-poll-orchestrator.ts
     - src/backend/fleet-status/ssh-poll-orchestrator.test.ts
 decisions:
-  - "LOCKED Option 1 rollout (CONTEXT.md § Rollout): backend publishes BOTH the two new Phase 62 mtime axes AND the retained Phase 59 lastStopAt + lastStatusChangeAt axes simultaneously for the entire rollout window. Frontend Plan 62-04 chooses which predicate to consume per-session based on marker presence. Zero deletions from the Phase 59 pipeline — a follow-up phase (post-full-rollout) retires it cleanly. Rationale: blast-radius rule (CLAUDE.md — a bad deploy loses Ashley access to her whole fleet)."
+  - "LOCKED Option 1 rollout (CONTEXT.md § Rollout): backend publishes BOTH the two new Phase 63 mtime axes AND the retained Phase 59 lastStopAt + lastStatusChangeAt axes simultaneously for the entire rollout window. Frontend Plan 62-04 chooses which predicate to consume per-session based on marker presence. Zero deletions from the Phase 59 pipeline — a follow-up phase (post-full-rollout) retires it cleanly. Rationale: blast-radius rule (CLAUDE.md — a bad deploy loses Ashley access to her whole fleet)."
   - "Two separate stat reads (not one batched `stat -c %Y activity stopped`) per T-62-03-03 deferral: (a) profiling has not shown regression at the 2s poll cadence, (b) two separate reads let each empty-stdout / SSH-hiccup branch preserve its cached value INDEPENDENTLY (batched read must disambiguate two absent-file cases from a single blob), (c) two separate reads match the Phase 59 pattern the reader is familiar with. Inline code comment above the first read documents this — plan-review LOW-#10 acknowledgement."
   - "MEDIUM-#4 comment on the perSessionHookPayloadRaw block (installed by quick-260829-kmr, feeds the Phase 59 background_tasks[] pipeline + the retained Phase 59 lastStopAt fallback signal set): the comment cites CONTEXT.md § Out of scope AND § Rollout Option 1 as the two orthogonal constraints requiring the OLD path to stay. Prevents a future maintainer from `cleaning up` one of the reads mid-rollout."
   - "Test G-bis added beyond the plan's Test G to prove BOTH new axes (not just activityMtime) participate independently in computeFingerprint. Cheap belt-and-suspenders coverage — the second axis could theoretically be omitted from the fingerprint if the diff went wrong."
@@ -41,21 +41,21 @@ metrics:
   files: 4
 ---
 
-# Phase 62 Plan 03: WIP-indicator hook-based rewrite — wire schema + backend orchestrator Summary
+# Phase 63 Plan 03: WIP-indicator hook-based rewrite — wire schema + backend orchestrator Summary
 
 One-liner: Extended the fleet-status wire protocol with two additive+optional numeric fields (activityMtime + stoppedMtime) — sixth iteration of the T-41-03-05 discipline holding FRAME_SCHEMA_VERSION at 1 — and wired ssh-poll-orchestrator's processPid loop to derive both fields per PID per tick from the two Plan 62-01 marker files installed via Plan 62-02, with 10 new wire-schema tests and 9 new orchestrator tests covering successful stat / SSH-hiccup fail-open / absent-file fail-open / character-class-guard skip / sessionId-rotation reset / fingerprint-axis-inclusion / Phase 59 retention proof, all under the Option-1 rollout contract that keeps the Phase 59 lastStopAt + lastStatusChangeAt fields on the wire alongside for the entire rollout window.
 
 ## What shipped
 
-Four files modified, no files created (all Phase 62 wire + orchestrator changes are additions to existing files):
+Four files modified, no files created (all Phase 63 wire + orchestrator changes are additions to existing files):
 
 - **`src/backend/fleet-status/wire-protocol.ts`** — extended SessionStateSchema with two new `z.number().nullable().optional()` fields (activityMtime + stoppedMtime). Added a full block-comment doc above SessionStateSchema (~50 lines) mirroring the Phase 59 comment shape: title, sources (both marker paths with hook-event routing), three-valued semantics (number / null / undefined with rollout-fallback interpretation of null on the frontend side), phase lineage of the additive-optional invariant, Option-1 rollout note explaining why the Phase 59 fields are RETAINED not retired, and a cross-reference to the orchestrator's cache-preservation discipline. FRAME_SCHEMA_VERSION unchanged. Final size: 454 lines (was 381).
 
-- **`src/backend/fleet-status/wire-protocol.test.ts`** — added a new `describe` block after the existing Phase 59 block containing 10 new test cases: A-D per axis (number preserved, null preserved, omitted → undefined back-compat, wrong type → parse error path includes field name), E (both new fields populated together), F (FRAME_SCHEMA_VERSION guard), G (Option-1 retention proof — Phase 62 + Phase 59 axes coexist in the same frame with all four values preserved). Final size: 609 lines (was 454).
+- **`src/backend/fleet-status/wire-protocol.test.ts`** — added a new `describe` block after the existing Phase 59 block containing 10 new test cases: A-D per axis (number preserved, null preserved, omitted → undefined back-compat, wrong type → parse error path includes field name), E (both new fields populated together), F (FRAME_SCHEMA_VERSION guard), G (Option-1 retention proof — Phase 63 + Phase 59 axes coexist in the same frame with all four values preserved). Final size: 609 lines (was 454).
 
 - **`src/backend/fleet-status/ssh-poll-orchestrator.ts`** — extended processPid with two new stat exec blocks (immediately after the Phase 59 lastStopAt block at line ~1138 and before the perSessionHookPayloadRaw cat at line ~1150), extended PidCacheEntry with two new fields (activityMtime + stoppedMtime) plus a ~40-line block comment above them, extended sessionId-rotation reset (line ~1192) with the two additional axis nulls, extended computeFingerprint (line ~597) with two new pipe-separated axes appended at the END of the template literal, extended SessionState composition (line ~1442) with the two new stamps, extended the fleet_status_session_state_published log with two new forensic fields, extended BOTH livenessMap.set branches (fingerprint-changed line ~1488 + fingerprint-unchanged line ~1509) with the two new axis writes. Inserted the MEDIUM-#4 explanatory code comment (~25 lines) above the perSessionHookPayloadRaw read explaining Option-1 rollout coupling. Zero changes to Phase 59 lastStopAt / lastStatusChangeAt derivation code paths (retention proof). Zero changes to source B (pollDormantOnlyIdentities). Zero changes to the ambient-filter / backgroundTasks pipeline. Zero changes to the JSONL tail-scan. Final size: 2019 lines (was 1823) — +197 insertions, −1 deletion (the fingerprint template literal was rewritten to append two axes; every other Phase 59 code path is preserved).
 
-- **`src/backend/fleet-status/ssh-poll-orchestrator.test.ts`** — added a new `describe` block after the existing quick-260829-kmr block containing 9 new test cases + two new reusable helpers (wirePhase62Base + buildPhase62Deps, mirroring wirePhase59Base + buildPhase59Deps). Tests: A (activity successful stat), B (stopped successful stat), C (SSH hiccup on activity preserves cached value), D (absent-file empty stdout on stopped preserves cached value), E (character-class-guard-skipped sessionId → neither Phase 62 stat command issued; call-log introspection), F (sessionId rotation nulls both axes), G (activityMtime fingerprint axis — mtime-only delta fires a new publish), G-bis (stoppedMtime fingerprint axis — proves both axes participate independently, executor-added beyond the plan's Test G for belt-and-suspenders), H (Phase 59 retention proof — same publish carries Phase 62 axes AND Phase 59 lastStopAt + lastStatusChangeAt). Final size: 6500 lines (was 6040).
+- **`src/backend/fleet-status/ssh-poll-orchestrator.test.ts`** — added a new `describe` block after the existing quick-260829-kmr block containing 9 new test cases + two new reusable helpers (wirePhase62Base + buildPhase62Deps, mirroring wirePhase59Base + buildPhase59Deps). Tests: A (activity successful stat), B (stopped successful stat), C (SSH hiccup on activity preserves cached value), D (absent-file empty stdout on stopped preserves cached value), E (character-class-guard-skipped sessionId → neither Phase 63 stat command issued; call-log introspection), F (sessionId rotation nulls both axes), G (activityMtime fingerprint axis — mtime-only delta fires a new publish), G-bis (stoppedMtime fingerprint axis — proves both axes participate independently, executor-added beyond the plan's Test G for belt-and-suspenders), H (Phase 59 retention proof — same publish carries Phase 63 axes AND Phase 59 lastStopAt + lastStatusChangeAt). Final size: 6500 lines (was 6040).
 
 ## Tasks executed
 
@@ -66,7 +66,7 @@ Four files modified, no files created (all Phase 62 wire + orchestrator changes 
 
 ### Task 2: Extend ssh-poll-orchestrator.ts processPid — two new per-session marker stat reads + PidCacheEntry + computeFingerprint + SessionState composition + livenessMap.set both branches (TDD RED → GREEN)
 
-- **RED commit `d83a5c45`**: `test(62-03): add failing tests for ssh-poll-orchestrator Phase 62 marker reads (RED)` — 9 tests fail with `expected undefined to be <number>` (or `expected null` for the guard-skip test) because the two new axes are not yet stamped by processPid.
+- **RED commit `d83a5c45`**: `test(62-03): add failing tests for ssh-poll-orchestrator Phase 63 marker reads (RED)` — 9 tests fail with `expected undefined to be <number>` (or `expected null` for the guard-skip test) because the two new axes are not yet stamped by processPid.
 - **GREEN commit `9431efdf`**: `feat(62-03): extend processPid with two per-session marker mtime reads (GREEN)` — all seven plan-action-step changes applied verbatim to the surgical scope named in the plan. All 161 tests pass across both files (98 pre-plan orchestrator + 9 new + 38 pre-plan wire-protocol + 10 new + 6 executor test G-bis+H additions counted once). Backend TS build exits 0.
 
 ## Verification evidence
@@ -98,7 +98,7 @@ $ grep -c 'activityMtime\|stoppedMtime' src/backend/fleet-status/wire-protocol.t
 $ grep -c 'FRAME_SCHEMA_VERSION = 1' src/backend/fleet-status/wire-protocol.ts
 1           # need exactly 1 ✓ (version deliberately unchanged)
 $ grep -c 'lastStopAt\|lastStatusChangeAt' src/backend/fleet-status/wire-protocol.ts
-9           # need >= 2 ✓ (Phase 59 fields retained — count actually grew because the Phase 62 comment cites Phase 59 as the retention reference)
+9           # need >= 2 ✓ (Phase 59 fields retained — count actually grew because the Phase 63 comment cites Phase 59 as the retention reference)
 $ grep -c 'activityMtime\|stoppedMtime' src/backend/fleet-status/wire-protocol.test.ts
 39          # need >= 10 ✓ (each field referenced by 4-5 tests × 2 fields + Tests E/G both-field checks)
 ```
@@ -116,7 +116,7 @@ $ grep -c 'activityMtime\|stoppedMtime' src/backend/fleet-status/ssh-poll-orches
 $ grep -c 'fleet-status/hooks' src/backend/fleet-status/ssh-poll-orchestrator.ts
 5           # need >= 2 ✓ (two new stat commands + three comment references)
 $ grep -c 'lastStopAt\|lastStatusChangeAt' src/backend/fleet-status/ssh-poll-orchestrator.ts
-40          # pre-plan: 27 → post-plan: 40. All 13 new references are inside Phase 62
+40          # pre-plan: 27 → post-plan: 40. All 13 new references are inside Phase 63
               # comments citing the RETAINED Phase 59 axes (block comments, MEDIUM-#4
               # rollout-coupling comment, rotation-reset explanation). The Phase 59
               # CODE PATHS themselves are byte-identical — verified by:
@@ -153,7 +153,7 @@ No Rule 1 (bug), Rule 3 (blocking-issue), or Rule 4 (architectural) deviations. 
 |-----------|----------|-------------|---------------------|
 | T-62-03-01 | Tampering — marker mtime spoofing by hostile local identity | accept | Documented in the plan as `accept` — box-level trust model unchanged. No code mitigation required at this layer. |
 | T-62-03-02 | Information-Disclosure — path traversal via malicious sessionId reads foreign file's mtime | mitigate | Character-class regex `/^[a-zA-Z0-9_-]+$/` applied BEFORE both new stat commands (matching the Phase 59 line 1121 pattern verbatim). Verified by Test P62-03 E which uses sessionId `"../evil"` and asserts `channel.getCalls().filter(c => c.command.includes("fleet-status/hooks/")).length === 0` — no exec issued, cached values preserved. Belt-and-suspenders POISON responses registered for the two stat patterns in Test E prove no value leaks through. |
-| T-62-03-03 | Denial-of-Service — two additional stat execs per PID per tick | accept | Two extra stats on top of the existing lastStopAt stat = 3 total per PID per tick. The 2s poll cadence + typical <50 PIDs per box means negligible added load. Batched-read optimization deferred with an inline code comment in ssh-poll-orchestrator.ts above the first Phase 62 stat block pointing at this threat entry (plan-review LOW-#10 acknowledgement). |
+| T-62-03-03 | Denial-of-Service — two additional stat execs per PID per tick | accept | Two extra stats on top of the existing lastStopAt stat = 3 total per PID per tick. The 2s poll cadence + typical <50 PIDs per box means negligible added load. Batched-read optimization deferred with an inline code comment in ssh-poll-orchestrator.ts above the first Phase 63 stat block pointing at this threat entry (plan-review LOW-#10 acknowledgement). |
 | T-62-03-04 | Spoofing — wire schema addition without version bump masks a truly breaking change | mitigate | Both new fields are `.optional().nullable()` — parse succeeds on pre-Phase-62 emitters that omit them. Sixth iteration of the T-41-03-05 pattern. Verified by wire-protocol.test.ts Tests P62-03 C for both fields (schema back-compat on omission). FRAME_SCHEMA_VERSION guard verified by Test P62-03 F. |
 | T-62-03-SC | Tampering — package installs | n/a | No new package dependencies introduced. No `npm install <pkg>` invoked. |
 
@@ -210,7 +210,7 @@ Files verified present on disk:
 Commits verified in `git log --oneline`:
 - `8ca72817` test(62-03): add failing tests for wire-protocol activityMtime + stoppedMtime (RED)
 - `05fe64d6` feat(62-03): add activityMtime + stoppedMtime to SessionStateSchema (GREEN)
-- `d83a5c45` test(62-03): add failing tests for ssh-poll-orchestrator Phase 62 marker reads (RED)
+- `d83a5c45` test(62-03): add failing tests for ssh-poll-orchestrator Phase 63 marker reads (RED)
 - `9431efdf` feat(62-03): extend processPid with two per-session marker mtime reads (GREEN)
 
 Working tree clean (`git status --short` empty). All acceptance-criteria greps satisfied. All 161 scoped tests pass. Backend TS build exits 0. Ready for Plan 62-04.

@@ -1,4 +1,4 @@
-# Phase 62: WIP-indicator hook-based rewrite — Context
+# Phase 63: WIP-indicator hook-based rewrite — Context
 
 **Gathered:** 2026-08-30
 **Status:** Ready for planning

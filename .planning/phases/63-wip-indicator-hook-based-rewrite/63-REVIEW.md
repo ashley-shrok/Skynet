@@ -1,4 +1,4 @@
-# Phase 62: WIP-indicator hook-based rewrite — Code Review
+# Phase 63: WIP-indicator hook-based rewrite — Code Review
 
 **Reviewed:** 2026-08-30
 **Reviewer:** unbiased general-purpose sub-agent (per /build skill — deliberately NOT `/gsd:code-review` or any framework-branded reviewer, so the review is fresh eyes on the code against the shape rather than framework ceremony)
@@ -30,7 +30,7 @@ The reviewer confirmed clean coverage across the code's actual attack surface:
 - Cache preservation on fingerprint-unchanged branch (Pitfall-3 discipline).
 - Ambient-filter interaction (unchanged and orthogonal).
 - Source B (dormant identity enumeration) frames don't wipe cached mtimes.
-- Pre-existing TSC errors are actually pre-existing (zero Phase 62 files appear in tsc error list).
+- Pre-existing TSC errors are actually pre-existing (zero Phase 63 files appear in tsc error list).
 
 ## Findings + adjudication
 
@@ -51,19 +51,19 @@ No code change. The shape's design agreement (5 lifecycle events wired: UserProm
 
 **Reviewer's concern:** SUMMARY names two files (`conversation-store.test.ts`, `ElectronVersionCheck.tsx`) as the source of the 269 pre-existing TSC errors; actual scope is ~140 files.
 
-**Adjudication: accepted, doc-accuracy nit.** The category claim (pre-existing, zero from Phase 62) holds — reviewer verified independently. The SUMMARY understates the file count but not the semantic scope. Not fixing inline; if a future ship-gate reader is confused, the truth is `npx tsc --project tsconfig.app.json --noEmit` output.
+**Adjudication: accepted, doc-accuracy nit.** The category claim (pre-existing, zero from Phase 63) holds — reviewer verified independently. The SUMMARY understates the file count but not the semantic scope. Not fixing inline; if a future ship-gate reader is confused, the truth is `npx tsc --project tsconfig.app.json --noEmit` output.
 
 ### LOW — `stat`-fail-open can't distinguish SSH hiccup from marker deletion
 
 **Reviewer's concern:** both `null` (SSH failed) and empty stdout (file absent) preserve cached mtime; if a fleet-wide cleanup ever deletes marker files, the affordance freezes on last-seen state until backend restart.
 
-**Adjudication: accepted per shape.** The shape's philosophy (§What would violate the spirit) explicitly rejects "adding a second inference layer alongside the direct signal to catch cases the hooks miss" — the fix is to change which hooks we subscribe to, not to layer inference back in. Marker deletion is not in scope for Phase 62. If it becomes an operational issue post-rollout, the fix is a Phase 62 follow-up (branch the fail-open into distinguishable cases) — not a re-widening of the current predicate.
+**Adjudication: accepted per shape.** The shape's philosophy (§What would violate the spirit) explicitly rejects "adding a second inference layer alongside the direct signal to catch cases the hooks miss" — the fix is to change which hooks we subscribe to, not to layer inference back in. Marker deletion is not in scope for Phase 63. If it becomes an operational issue post-rollout, the fix is a Phase 63 follow-up (branch the fail-open into distinguishable cases) — not a re-widening of the current predicate.
 
 ### LOW — Session_id regex first-match wins
 
 **Reviewer's concern:** bash `=~` returns first match; a payload whose inner field text contains `"session_id":"foreign_sid"` before the top-level key would extract the wrong sid.
 
-**Adjudication: accepted as pre-existing pattern.** Exact same brittleness lives in `stop-hook.sh:47` (the pre-existing sibling this arc mirrored for path-traversal defense). Phase 62 propagates the pattern, does not introduce it. Hardening (piping through `jq` or restructuring the regex) is a fleet-wide follow-up — either all three hook scripts get the same treatment or none do; a Phase 62-scoped fix would create inconsistency.
+**Adjudication: accepted as pre-existing pattern.** Exact same brittleness lives in `stop-hook.sh:47` (the pre-existing sibling this arc mirrored for path-traversal defense). Phase 63 propagates the pattern, does not introduce it. Hardening (piping through `jq` or restructuring the regex) is a fleet-wide follow-up — either all three hook scripts get the same treatment or none do; a Phase 63-scoped fix would create inconsistency.
 
 ## Overall
 

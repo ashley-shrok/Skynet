@@ -9,8 +9,8 @@ provides:
   - src/backend/fleet-status/activity-hook.sh (leaf-level touch-marker script for UserPromptSubmit + PreToolUse)
   - src/backend/fleet-status/stopped-hook.sh  (leaf-level touch-marker script for Stop + StopFailure + PermissionRequest)
 affects:
-  - .planning/phases/62-wip-indicator-hook-based-rewrite/62-02-PLAN.md (installer that will inline-embed these two scripts and merge four new settings.json hook entries)
-  - .planning/phases/62-wip-indicator-hook-based-rewrite/62-03-PLAN.md (backend predicate that will `stat -c %Y` these two markers per session per poll tick)
+  - .planning/phases/63-wip-indicator-hook-based-rewrite/63-02-PLAN.md (installer that will inline-embed these two scripts and merge four new settings.json hook entries)
+  - .planning/phases/63-wip-indicator-hook-based-rewrite/63-03-PLAN.md (backend predicate that will `stat -c %Y` these two markers per session per poll tick)
 tech-stack:
   added: []
   patterns:
@@ -36,7 +36,7 @@ metrics:
   files: 4
 ---
 
-# Phase 62 Plan 01: WIP-indicator hook-based rewrite — hook shell scripts + vitest coverage Summary
+# Phase 63 Plan 01: WIP-indicator hook-based rewrite — hook shell scripts + vitest coverage Summary
 
 One-liner: Authored two leaf-level per-session marker-touch shell scripts (activity-hook.sh + stopped-hook.sh) with byte-strict path-traversal defense, timeout-guarded fail-open discipline, and 18 vitest tests spawning `bash` against mktemp'd $HOME — the primitives that Plan 62-02's installer will drop onto managed boxes and Plan 62-03's backend predicate will `stat -c %Y`.
 

@@ -1629,13 +1629,15 @@ Plans:
 ### Phase 63: WIP-indicator hook-based rewrite
 
 **Goal:** The conversation-list WIP affordance stops lying about active-but-idle Nelly-shape agents by consuming a direct harness lifecycle signal (per-session activity + stopped marker files touched by installed hooks) instead of inferring from status-enum + pane-command polling. Predicate collapses to `activity_mtime > stopped_mtime`; old shell-idle-gate machinery retained as Option-1 rollout fallback for unupgraded boxes.
-**Requirements**: none — scope fully captured by 62-CONTEXT.md (seeded from shape file), which locks the In-scope hook set, the predicate shape, the marker paths, the wire trim discipline, and the Option-1 rollout choice.
+**Requirements**: none — scope fully captured by 63-CONTEXT.md (seeded from shape file), which locks the In-scope hook set, the predicate shape, the marker paths, the wire trim discipline, and the Option-1 rollout choice.
 **Depends on:** Phase 61
+
+**Rescue-rebase note (2026-08-30, 17th known `gsd-sdk phase.add` cross-tree race — bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`):** Originally planned + executed as Phase 62 in this identity's tree. Renumbered 62 → 63 after Taylor's Phase 62 (Invisible-dormancy client-side follow-up) pushed to origin first; Taylor keeps 62 because force-pushing origin to renumber her artifacts is destructive/blocked (per role rule + rescue-rebase-runbook). Historical commit-message prefixes stay as `feat(62-XX)`, `test(62-XX)`, `docs(62-XX)` per runbook — chronology, not identity. Planning-artifact filenames + directory + internal refs renamed to 63 in the single rescue-rebase cleanup commit that lands right after this rebase completes.
+
 **Plans:** 4/4 plans complete
-**Rescue-rebase note (2026-08-30):** Originally planned + executed as Phase 62 in this identity's tree. Renumbered 62 → 63 after Taylor's Phase 62 (Invisible-dormancy client-side follow-up) pushed to origin first; Taylor keeps 62 because force-pushing origin to renumber her artifacts is destructive/blocked (per role rule + rescue-rebase-runbook). Historical commit-message prefixes stay as `feat(62-XX)`, `test(62-XX)`, `docs(62-XX)` per runbook — chronology, not identity. Planning-artifact filenames (62-CONTEXT.md, 62-XX-PLAN.md, 62-XX-SUMMARY.md) still reference 62 during rebase; single rescue commit at end of rebase renames dir + files + internal refs to 63.
-**Plans:** 2/4 plans executed
+
 Plans:
-- [x] 62-01-PLAN.md — Author the two hook shell scripts (activity-hook.sh + stopped-hook.sh) with per-session marker touch, path-traversal defense, and vitest coverage
-- [x] 62-02-PLAN.md — Extend remote-hook-install.ts to drop the three scripts + merge five hook entries (Stop with two scripts, UserPromptSubmit + PreToolUse + StopFailure + PermissionRequest) into ~/.claude/settings.json idempotently
-- [x] 62-03-PLAN.md — Extend wire-protocol.ts with activityMtime + stoppedMtime; extend ssh-poll-orchestrator processPid with two new stat reads per PID per tick; retain Phase 59 fields for rollout fallback
-- [x] 62-04-PLAN.md — Rewrite session-working-store predicate: direct-signal branch first (activity>stopped), Phase 59 shell-idle-gate as fallback when both mtimes null; retire bg from composition; mirror types on the browser side
+- [x] 63-01-PLAN.md — Author the two hook shell scripts (activity-hook.sh + stopped-hook.sh) with per-session marker touch, path-traversal defense, and vitest coverage
+- [x] 63-02-PLAN.md — Extend remote-hook-install.ts to drop the three scripts + merge five hook entries (Stop with two scripts, UserPromptSubmit + PreToolUse + StopFailure + PermissionRequest) into ~/.claude/settings.json idempotently
+- [x] 63-03-PLAN.md — Extend wire-protocol.ts with activityMtime + stoppedMtime; extend ssh-poll-orchestrator processPid with two new stat reads per PID per tick; retain Phase 59 fields for rollout fallback
+- [x] 63-04-PLAN.md — Rewrite session-working-store predicate: direct-signal branch first (activity>stopped), Phase 59 shell-idle-gate as fallback when both mtimes null; retire bg from composition; mirror types on the browser side
