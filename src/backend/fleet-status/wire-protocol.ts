@@ -193,6 +193,76 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
+// Phase 62 Plan 03 (WIP hook-based rewrite 2026-08-30): added `activityMtime`
+// and `stoppedMtime` as OPTIONAL, NULLABLE numeric fields carrying the two
+// per-session marker-file mtimes that back the new direct-signal WIP
+// predicate. The frontend Plan 62-04 will compute the whole predicate as one
+// comparison per session per render:
+//
+//   `activityMtime > stoppedMtime` → working (affordance lit); else → not
+//    working (affordance off).
+//
+// No state machine, no smoothing, no shell-idle gate — just one comparison.
+//
+// Sources:
+//   - `activityMtime`: mtime of `~/.claude/fleet-status/hooks/<sessionId>/activity`
+//     on the target host, × 1000 (seconds → unix millis). Touched by the
+//     Plan 62-01 activity-hook.sh, installed via Plan 62-02, on two hook
+//     events: UserPromptSubmit (Ashley submitted a prompt) and PreToolUse
+//     (agent began invoking a tool).
+//   - `stoppedMtime`: mtime of `~/.claude/fleet-status/hooks/<sessionId>/stopped`
+//     on the target host, × 1000. Touched by the Plan 62-01 stopped-hook.sh,
+//     installed via Plan 62-02, on three hook events: Stop (turn finished
+//     cleanly), StopFailure (turn ended in error), PermissionRequest (agent
+//     blocked waiting on Ashley for a permission decision — same as done from
+//     the affordance's perspective).
+//
+// Semantics (both fields):
+//   - number    → mtime present (unix millis).
+//   - null      → marker file absent OR SSH-hiccup normalised-null. The
+//                 frontend treats both cases IDENTICALLY at the
+//                 session-working-store boundary: both signal "no direct
+//                 hook signal available for this session — Option-1 rollout
+//                 fallback engages, use the retained Phase 59 predicate."
+//   - undefined → emitting backend pre-dates Phase 62. Frontend treats
+//                 undefined and null identically at the working-store
+//                 boundary (matches the Phase 59 pattern established for
+//                 lastStopAt).
+//
+// Additive-optional invariant: FRAME_SCHEMA_VERSION deliberately HELD AT 1
+// — SIXTH iteration of the T-41-03-05 mitigation. Phase lineage:
+//   Phase 41 lastMessageAt (2026-08-15)     → held at 1
+//   Phase 47 aiTitle       (2026-08-20)     → held at 1
+//   Phase 52 dormant       (2026-08-20)     → held at 1
+//   Phase 53 recycling     (2026-08-21)     → held at 1
+//   Phase 59 lastStopAt+lastStatusChangeAt  (2026-08-29) → held at 1
+//   Phase 62 activityMtime + stoppedMtime   (2026-08-30) → held at 1 (this)
+//
+// Rollout note (CONTEXT.md § Rollout — Option 1, LOCKED for this phase):
+// The Phase 59 lastStopAt + lastStatusChangeAt fields (added directly below
+// this comment block, see next section) are RETAINED — NOT retired — for the
+// entire duration of Phase 62's rollout window. The backend publishes BOTH
+// signal sets simultaneously on every frame; the frontend session-working-
+// store (Plan 62-04) chooses which predicate applies per-session based on
+// marker presence:
+//   - activityMtime !== null || stoppedMtime !== null → new predicate
+//     (Plan 62-04 mtime comparison).
+//   - both null → fall through to the retained Phase 59 shell-idle-gate
+//     predicate (Ashley has adapted to the known bugs on unupgraded boxes;
+//     adaptation is intact until each box gets the Plan 62-02 installer).
+// A follow-up phase (orchestrator-tracked, post-full-rollout) retires the
+// Phase 59 fields cleanly once every managed box is confirmed installed.
+// Retention over deletion is the blast-radius-safe direction (CLAUDE.md —
+// a bad deploy loses Ashley access to her whole fleet).
+//
+// Cache-preservation cross-reference: the two mtime reads in
+// ssh-poll-orchestrator.ts's processPid loop fail-open on SSH hiccup (null
+// return) and absent-file (empty stdout) — the cached value is preserved,
+// matching the lastMessageAt / aiTitle / dormant / lastStopAt patterns.
+// See ssh-poll-orchestrator.ts PidCacheEntry.activityMtime + stoppedMtime.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // Phase 59 Plan 01 (2026-08-29): added `lastStopAt` and `lastStatusChangeAt`
 // as OPTIONAL, NULLABLE numeric fields carrying the two axes that back the
 // WIP-shell-idle-gate predicate on the frontend.
@@ -253,6 +323,10 @@ export const SessionStateSchema = z.object({
   lastStopAt: z.number().nullable().optional(),
   // Phase 59 Plan 01 — server-derived status-transition timestamp (see block comment above).
   lastStatusChangeAt: z.number().nullable().optional(),
+  // Phase 62 Plan 03 — mtime of the per-session activity marker (see block comment above).
+  activityMtime: z.number().nullable().optional(),
+  // Phase 62 Plan 03 — mtime of the per-session stopped marker (see block comment above).
+  stoppedMtime: z.number().nullable().optional(),
 });
 
 export type SessionState = z.infer<typeof SessionStateSchema>;
