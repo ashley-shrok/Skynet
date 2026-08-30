@@ -171,21 +171,31 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 //   - false     → sentinel file absent; the identity is in normal operation OR
 //                 dormant OR any other non-recycling state.
 //   - null      → normalised-null in transit (backend may emit null when it
-//                 cannot distinguish true/false due to SSH error — treated as
-//                 false by the frontend per the same convention as dormant).
-//   - undefined → emitting backend pre-dates Phase 53 Plan 01; frontend treats
-//                 undefined and null identically (both → false).
+//                 cannot distinguish true/false due to SSH error — frontend
+//                 store treats as `false` at Axis E because `null === true`
+//                 evaluates false. In practice source B never emits null —
+//                 fail-open logic collapses null stats to boolean `false`
+//                 before construction — so this branch is defensive only.
+//   - undefined → the emitting source does NOT participate in the recycling
+//                 axis for this frame. Frontend store Axis E preserves the
+//                 cached value (session-working-store.ts:382). See §
+//                 inline-260830-source-a-omit-recycling below.
 //
 // Scope-lock: recycling means SPECIFICALLY "identity is being replaced via the
 // reset routine." It does NOT expand to memory-cap restarts, dormancy-wake, or
 // any other harness-down state. Those have their own overlays (dormant /
 // connection-drop / inactive) and MUST NOT flip recycling.
 //
-// Source A only: unlike dormant, recycling has no source B enumeration. The
-// caretaker's sentinel is placed while the outgoing claude PID is still alive
-// and held for 8s after the fresh PID is up — the poller's 2s cadence
-// guarantees source A (per-PID processPid) sees the sentinel for multiple
-// ticks during the entire recycle window. See Phase 53 RESEARCH § Assumption A1.
+// Sole authority: source B (per-identity enumeration in pollDormantOnlyIdentities)
+// is the ONLY publisher that stamps recycling. Source A OMITS the field per
+// inline-260830-source-a-omit-recycling (Ashley 2026-08-30, taylor) — an
+// earlier version had source A stamp `recycling: false` explicitly on every
+// per-PID publish, which wiped the frontend cache immediately after source B
+// fired `recycling: true` on sentinel drop. Source B's fingerprint dedup then
+// suppressed the re-publish, leaving the store stuck at false through the
+// rest of the recycle window. Migrating to source-B-only + source-A-omit
+// (via undefined preserved by Axis E) closes that gap end-to-end. See
+// ssh-poll-orchestrator.ts:1455 and the QT-260823-73o + inline-260830 tests.
 //
 // Additive-optional invariant: FRAME_SCHEMA_VERSION deliberately HELD AT 1
 // (same T-41-03-05 mitigation established for lastMessageAt in Phase 41 and

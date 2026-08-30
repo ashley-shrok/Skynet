@@ -3964,7 +3964,12 @@ describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
     await orchestrator.start();
 
     expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    expect(deps.registry.publishedStates[0].state.recycling).toBe(false);
+    // inline-260830-source-a-omit-recycling: source A omits recycling;
+    // source B SKIPS when live PID + !isRecycling. Semantic: no frame
+    // stamps recycling:true.
+    for (const p of deps.registry.publishedStates) {
+      expect(p.state.recycling).not.toBe(true);
+    }
   });
 
   // ---------------------------------------------------------------------------
@@ -3991,7 +3996,14 @@ describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
 
     expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
     // Fail-open — cold-start cache default is false.
-    expect(deps.registry.publishedStates[0].state.recycling).toBe(false);
+    // inline-260830-source-a-omit-recycling: source A omits the recycling
+    // axis (undefined). Source B SKIPS publish when the identity has a live
+    // PID AND !isRecycling (liveTmuxSet skip-and-evict — preserved from the
+    // quick-260823-73o migration). Semantic under the new contract:
+    // no published frame stamps recycling:true this tick.
+    for (const p of deps.registry.publishedStates) {
+      expect(p.state.recycling).not.toBe(true);
+    }
   });
 
   // ---------------------------------------------------------------------------
@@ -4063,9 +4075,12 @@ describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
 
     const publishesAfterTick1 = deps.registry.publishedStates.length;
     expect(publishesAfterTick1).toBeGreaterThan(0);
-    expect(
-      deps.registry.publishedStates[publishesAfterTick1 - 1].state.recycling,
-    ).toBe(false);
+    // inline-260830-source-a-omit-recycling: source A omits recycling; source
+    // B skips when live PID + !isRecycling. Tick 1 semantic: no frame stamps
+    // recycling:true.
+    for (const p of deps.registry.publishedStates) {
+      expect(p.state.recycling).not.toBe(true);
+    }
 
     // Tick 2: recycling flips to true — ALL OTHER axes unchanged (same session
     // json, same tail, same hook payload, same dormant). Fingerprint MUST see
@@ -4451,7 +4466,14 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
     await orchestrator.start();
 
     expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    expect(deps.registry.publishedStates[0].state.recycling).toBe(false);
+    // inline-260830-source-a-omit-recycling: source A omits the recycling
+    // axis (undefined). Source B SKIPS publish when the identity has a live
+    // PID AND !isRecycling (liveTmuxSet skip-and-evict — preserved from the
+    // quick-260823-73o migration). Semantic under the new contract:
+    // no published frame stamps recycling:true this tick.
+    for (const p of deps.registry.publishedStates) {
+      expect(p.state.recycling).not.toBe(true);
+    }
   });
 
   // ---------------------------------------------------------------------------
@@ -4478,7 +4500,14 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
     expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
     // Fail-open: cold-start cache default is false; matches sentinel's own
     // fail-open contract at Test P53-01-T1-iii.
-    expect(deps.registry.publishedStates[0].state.recycling).toBe(false);
+    // inline-260830-source-a-omit-recycling: source A omits the recycling
+    // axis (undefined). Source B SKIPS publish when the identity has a live
+    // PID AND !isRecycling (liveTmuxSet skip-and-evict — preserved from the
+    // quick-260823-73o migration). Semantic under the new contract:
+    // no published frame stamps recycling:true this tick.
+    for (const p of deps.registry.publishedStates) {
+      expect(p.state.recycling).not.toBe(true);
+    }
   });
 });
 
@@ -4607,7 +4636,14 @@ describe("quick-260823-recycle-overlay — `.recycle-requested` source-A stat + 
     await orchestrator.start();
 
     expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    expect(deps.registry.publishedStates[0].state.recycling).toBe(false);
+    // inline-260830-source-a-omit-recycling: source A omits the recycling
+    // axis (undefined). Source B SKIPS publish when the identity has a live
+    // PID AND !isRecycling (liveTmuxSet skip-and-evict — preserved from the
+    // quick-260823-73o migration). Semantic under the new contract:
+    // no published frame stamps recycling:true this tick.
+    for (const p of deps.registry.publishedStates) {
+      expect(p.state.recycling).not.toBe(true);
+    }
   });
 
   it("Test C: `.recycle-requested` probe returns null (SSH hiccup) → cold-start cached value (false) preserved (fail-open, matches Test P53-01-T1-iii pattern)", async () => {
@@ -4626,7 +4662,14 @@ describe("quick-260823-recycle-overlay — `.recycle-requested` source-A stat + 
     await expect(orchestrator.start()).resolves.not.toThrow();
 
     expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    expect(deps.registry.publishedStates[0].state.recycling).toBe(false);
+    // inline-260830-source-a-omit-recycling: source A omits the recycling
+    // axis (undefined). Source B SKIPS publish when the identity has a live
+    // PID AND !isRecycling (liveTmuxSet skip-and-evict — preserved from the
+    // quick-260823-73o migration). Semantic under the new contract:
+    // no published frame stamps recycling:true this tick.
+    for (const p of deps.registry.publishedStates) {
+      expect(p.state.recycling).not.toBe(true);
+    }
   });
 
   it("Test D: `.recycle-requested` probe fires exactly once per tick (single SSH round-trip added by this axis)", async () => {
@@ -4847,11 +4890,14 @@ describe("quick-260823-73o — recycle axes in source B (per-identity, PID-indep
 
     // Source A frame — identified by numeric pid 12345. Source A no longer
     // stamps recycling after the migration.
+    // inline-260830-source-a-omit-recycling: source A now OMITS the recycling
+    // field entirely (was `false`; changed to preserve store cache written by
+    // source B — see ssh-poll-orchestrator.ts:1455 comment).
     const sourceAFrames = deps.registry.publishedStates.filter(
       (p) => p.state.pid === 12345,
     );
     expect(sourceAFrames.length).toBeGreaterThanOrEqual(1);
-    expect(sourceAFrames[0].state.recycling).toBe(false);
+    expect(sourceAFrames[0].state.recycling).toBeUndefined();
   });
 
   // ---------------------------------------------------------------------------
@@ -4880,11 +4926,12 @@ describe("quick-260823-73o — recycle axes in source B (per-identity, PID-indep
     expect(sourceBFrames[0].state.pid).toBeNull();
     expect(sourceBFrames[0].state.recycling).toBe(true);
 
+    // inline-260830-source-a-omit-recycling: source A omits recycling.
     const sourceAFrames = deps.registry.publishedStates.filter(
       (p) => p.state.pid === 12345,
     );
     expect(sourceAFrames.length).toBeGreaterThanOrEqual(1);
-    expect(sourceAFrames[0].state.recycling).toBe(false);
+    expect(sourceAFrames[0].state.recycling).toBeUndefined();
   });
 
   // ---------------------------------------------------------------------------
@@ -4946,12 +4993,13 @@ describe("quick-260823-73o — recycle axes in source B (per-identity, PID-indep
     expect(sourceBFrames[0].state.tmuxSession).toBe("tina");
     expect(sourceBFrames[0].state.recycling).toBe(true);
 
-    // Source A frame — recycling:false (source A no longer stamps).
+    // Source A frame — recycling omitted (source A no longer stamps).
+    // inline-260830-source-a-omit-recycling: source A omits recycling.
     const sourceAFrames = deps.registry.publishedStates.filter(
       (p) => p.state.pid === 12345,
     );
     expect(sourceAFrames.length).toBeGreaterThanOrEqual(1);
-    expect(sourceAFrames[0].state.recycling).toBe(false);
+    expect(sourceAFrames[0].state.recycling).toBeUndefined();
   });
 
   // ---------------------------------------------------------------------------
@@ -4974,8 +5022,11 @@ describe("quick-260823-73o — recycle axes in source B (per-identity, PID-indep
     await orchestrator.start();
 
     // Guard: NO published frame has recycling:true this tick.
+    // inline-260830-source-a-omit-recycling: source A frames now have
+    // recycling === undefined (omitted). Source B, when it publishes, still
+    // stamps false explicitly. Assert the negative — no frame stamps true.
     for (const p of deps.registry.publishedStates) {
-      expect(p.state.recycling).toBe(false);
+      expect(p.state.recycling).not.toBe(true);
     }
   });
 
@@ -5035,6 +5086,92 @@ describe("quick-260823-73o — recycle axes in source B (per-identity, PID-indep
     );
     expect(tick2SbFrame).toBeDefined();
     expect(tick2SbFrame!.state.recycling).toBe(false);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test inline-260830-source-a-omit-recycling — REGRESSION
+  //
+  // Bug (Ashley 2026-08-30, taylor session): during a real /id reset, the
+  // overlay armed briefly the instant `.recycle-requested` dropped, then
+  // disappeared and never came back through the /exit + harness kill + fresh
+  // claude launch window. Root cause: source A stamped `recycling: false`
+  // explicitly on every publish for the live PID; source B stamped
+  // `recycling: true` when the sentinel was present. Within the same tick,
+  // source A ran first (per-PID loop) then source B; the frontend store's
+  // Axis E (session-working-store.ts:382) preserved cache only when the wire
+  // field was undefined — an explicit `false` flipped it. So source A's next
+  // status-change publish (busy↔shell) wiped the store cache back to false.
+  // Source B's fingerprint dedup then skipped republishing because
+  // isRecycling remained true, leaving the store stuck at false for the
+  // rest of the recycle window.
+  //
+  // Fix: source A OMITS the recycling field entirely (undefined). Store
+  // Axis E preserves cache on undefined. Source B stays sole authority.
+  //
+  // This test pins the source-A-omit contract at the wire boundary. The
+  // store-side preserve-on-undefined contract is already covered by
+  // session-working-store.test.ts Test P53-02-vii ("recycling:true, then
+  // isWorking toggles → recycling still true"). Together they close the
+  // full pipeline: source A never stamps → Axis E never flips false from
+  // source A frames → cache stays true through the recycle window.
+  // ---------------------------------------------------------------------------
+
+  it("Test inline-260830-source-a-omit-recycling: EVERY source A frame (across multiple ticks + status flips) has recycling===undefined regardless of sentinel state", async () => {
+    const channel = new MockSshChannel();
+    // Start with sentinel present so source B fires recycling:true and any
+    // source A frame that stamped `false` would surface in the assertion.
+    wireLivePidAndIdentity(channel, { recycleRequested: "yes" });
+
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // Simulate a status flip mid-recycle by re-firing the poller (source A
+    // will publish a fresh frame on the next fingerprint delta — a real
+    // recycle window sees these constantly as claude toggles busy↔shell).
+    const pollFn = setIntervalFns.find((s) => s.ms === 2000)?.fn;
+    expect(pollFn).toBeDefined();
+    // Bump the SessionJson so source A's fingerprint changes on the next tick.
+    channel.setResponse(
+      "cat ~/.claude/sessions/12345.json",
+      makeSessionJson({ status: "shell" }),
+    );
+    await pollFn!();
+
+    // Then flip the sentinel to `.recycled-at` (supervisor rename) — source B
+    // should stay recycling:true via that axis and source A should still omit.
+    channel.setResponse(
+      "test -f ~/.claude/identities/'tina'/.recycle-requested",
+      "no\n",
+    );
+    channel.setResponse(
+      "stat ~/.claude/identities/'tina'/.recycled-at",
+      "yes\n",
+    );
+    await pollFn!();
+
+    // Every source A frame across all ticks — recycling must be undefined.
+    const sourceAFrames = deps.registry.publishedStates.filter(
+      (p) => p.state.pid === 12345,
+    );
+    expect(sourceAFrames.length).toBeGreaterThanOrEqual(1);
+    for (const f of sourceAFrames) {
+      expect(f.state.recycling).toBeUndefined();
+    }
+
+    // Source B frames — at least one recycling:true frame across all ticks.
+    const sourceBTrueFrames = deps.registry.publishedStates.filter(
+      (p) => p.state.sessionId === "__dormant__" && p.state.recycling === true,
+    );
+    expect(sourceBTrueFrames.length).toBeGreaterThanOrEqual(1);
   });
 });
 

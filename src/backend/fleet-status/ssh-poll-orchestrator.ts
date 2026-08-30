@@ -1617,11 +1617,22 @@ export function createSshPollOrchestrator(
       lastMessageAt: derivedLastMessageAt,
       aiTitle: derivedAiTitle,
       dormant: derivedDormant,
-      recycling: false,
-      // Phase 59 Plan 02 — per-session Stop-hook mtime + server-derived
-      // status-transition timestamp. Both axes are consumed by the frontend
-      // session-working-store's `main = busy || (shell && stopIsFresh)`
-      // predicate in Plan 59-03.
+      // inline-260830-source-a-omit-recycling (Ashley 2026-08-30, taylor):
+      // OMIT the recycling field on source A frames. Source B is the sole
+      // recycling authority (per quick-260823-73o migration comment above
+      // at ~L731). Previously source A stamped `recycling: false` explicitly,
+      // which wiped the frontend session-working-store's recycling axis
+      // (session-working-store.ts:382 Axis E flips cache to false on any
+      // defined wire value) immediately after source B fired
+      // `recycling: true` on sentinel drop. Source B's fingerprint dedup
+      // (ssh-poll-orchestrator.ts:943) then skipped republishing because
+      // isRecycling remained true — leaving the store cache stuck at false
+      // for the rest of the recycle window. Ashley report 2026-08-30:
+      // overlay armed briefly at sentinel drop then disappeared and never
+      // came back through /exit + harness kill + new claude launch.
+      // Omitting the field (wire schema is `z.boolean().nullable().optional()`,
+      // wire-protocol.ts:251) makes Axis E preserve the cache on source A
+      // frames — source B stays sole authority end-to-end.
       lastStopAt: derivedLastStopAt,
       lastStatusChangeAt: derivedLastStatusChangeAt,
       // Phase 62 Plan 03 — per-session activity + stopped marker mtimes.
@@ -1647,11 +1658,14 @@ export function createSshPollOrchestrator(
         pid,
         sessionId: sessionJson.sessionId,
         status: sessionJson.status,
-        // quick-260823-73o: source A always publishes recycling:false now;
-        // dormant is still source-A-owned so keep it on the publish log for
-        // forensics.
+        // quick-260823-73o: source A no longer stamps recycling (per
+        // inline-260830-source-a-omit-recycling, the field is now OMITTED
+        // rather than stamped `false` — Axis E preserves cache on undefined
+        // wire values). Log field DROPPED from source A publishes so a grep
+        // for `recycling:` on this log op cleanly separates source A (no
+        // hit) from source B (hit with true|false). dormant is still
+        // source-A-owned; keep it on the publish log.
         dormant: state.dormant,
-        recycling: state.recycling,
         // Phase 59 Plan 02 — forensic entries for the two new axes so future
         // debugging can trace which axis drove a publish (T-59-02-04 mitigation).
         lastStopAt: state.lastStopAt,
