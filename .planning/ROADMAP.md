@@ -1623,5 +1623,5 @@ Wave 1 *(all complete)*
 **Plans:** 2 plans
 Plans:
 
-- [ ] 62-01-PLAN.md — Wave 1: PrettyView pending-send timer widened for dormant sends (dormantRef.current arm-time read + PENDING_SEND_TIMEOUT_MS_{NORMAL,DORMANT} named constants + branched flip-to-failed reason label + new Test 5b locking test)
+- [x] 62-01-PLAN.md — Wave 1: PrettyView pending-send timer widened for dormant sends (dormantRef.current arm-time read + PENDING_SEND_TIMEOUT_MS_{NORMAL,DORMANT} named constants + branched flip-to-failed reason label + new Test 5b locking test)
 - [ ] 62-02-PLAN.md — Wave 2: dedup + emission-path instrumentation (per-tail-watcher instance ID via crypto.randomBytes(4) + [dedup]/[frame-emit]/[tail-lifecycle] sshLogger.info emissions — instrumentation only, zero behavior change per D-62-01)
