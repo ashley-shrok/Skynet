@@ -776,9 +776,19 @@ export function createSshPollOrchestrator(
   ): Promise<void> {
     const { host, channel, identityRecycleState } = hostState;
 
-    // Enumerate identity folders
+    // Enumerate identity folders. Use `find -type d` (not `ls -1`) so
+    // leftover backup tarballs / notes / .DS_Store in ~/.claude/identities/
+    // (e.g. `pixie.pre-role-migration.20260804T050759Z.tar.gz` from role
+    // migrations) do NOT get enumerated as identity names — otherwise we
+    // fire ghost SSH-exec stat/find calls per tick against nonexistent
+    // identity dirs. `-mindepth 1 -maxdepth 1 -type d -printf '%f\n'`
+    // emits ONLY directory basenames (one per line) — same shape as the
+    // prior `ls -1` output. Managed hosts are all Linux (box-map.md
+    // § Managed hosts) so GNU find + `-printf` is available. Guard
+    // `2>/dev/null || true` mirrors the prior fail-open shape when the
+    // ~/.claude/identities/ dir doesn't exist.
     const listing = await channel.exec(
-      "ls -1 ~/.claude/identities/ 2>/dev/null || true",
+      "find ~/.claude/identities/ -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' 2>/dev/null || true",
     );
     if (listing === null || listing.trim() === "") {
       systemLogger.debug(
