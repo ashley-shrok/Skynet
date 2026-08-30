@@ -59,6 +59,8 @@ import {
   getNodeAt,
   insertAtEdge,
   removeLeaf,
+  replaceLeaf,
+  swapLeaves,
 } from "@/lib/split-tree";
 import {
   encodeSplitTreeToUrl,
@@ -107,6 +109,10 @@ function MechanismScaffold({
   onSplitTreeChange?: (tree: SplitNode | null) => void;
   registerHandle?: (h: {
     openSessionInTree: (tabId: string, path: SplitPath, edge: DropEdge) => void;
+    // Phase 64 Plan 02 — mirror AppShell handler shape so integration tests
+    // exercise the same setSplitTree wrapper the real handlers use.
+    replaceInTree: (replacementTabId: string, targetTabId: string) => void;
+    swapInTree: (tabIdA: string, tabIdB: string) => void;
     getSplitTree: () => SplitNode | null;
   }) => void;
   useLayoutHydration?: boolean;
@@ -214,6 +220,20 @@ function MechanismScaffold({
     [],
   );
 
+  // Phase 64 Plan 02 — pure setSplitTree wrappers around Plan 64-01's helpers.
+  // Scaffold mirrors AppShell.replaceInTree / AppShell.swapInTree shape but
+  // omits the structured [pv-split-drop] logs (those belong to the real
+  // handler layer; scaffold callbacks are pure state wrappers).
+  const replaceInTree = useCallback(
+    (replacementTabId: string, targetTabId: string) => {
+      setSplitTree((prev) => replaceLeaf(prev, targetTabId, replacementTabId));
+    },
+    [],
+  );
+  const swapInTree = useCallback((tabIdA: string, tabIdB: string) => {
+    setSplitTree((prev) => swapLeaves(prev, tabIdA, tabIdB));
+  }, []);
+
   useEffect(() => {
     onSplitTreeChange?.(splitTree);
   }, [splitTree, onSplitTreeChange]);
@@ -221,10 +241,12 @@ function MechanismScaffold({
   useEffect(() => {
     registerHandle?.({
       openSessionInTree,
+      replaceInTree,
+      swapInTree,
       getSplitTree: () => splitTree,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openSessionInTree, splitTree]);
+  }, [openSessionInTree, replaceInTree, swapInTree, splitTree]);
 
   // URL-sync effect — encode splitTree back into the URL. Mirrors the
   // AppShell URL-sync effect at ~L768.

@@ -82,7 +82,7 @@ import type { TabSpec } from "@/lib/tab-url";
 // array state and their localStorage effects). URL is the single source of
 // truth for the split arrangement.
 import type { SplitNode, SplitPath, DropEdge } from "@/lib/split-tree";
-import { insertAtEdge, removeLeaf, findLeaf, getNodeAt, collectTabIds } from "@/lib/split-tree";
+import { insertAtEdge, removeLeaf, findLeaf, getNodeAt, collectTabIds, replaceLeaf, swapLeaves } from "@/lib/split-tree";
 import { computeNearestEdge } from "@/shell/SplitView";
 import {
   encodeSplitTreeToUrl,
@@ -1712,6 +1712,51 @@ export function AppShell({
     [],
   );
 
+  // ─── Phase 64 Plan 02: center-drop handlers ─────────────────────────────
+  //
+  // Both mirror openSessionInTree's functional-updater shape (setSplitTree
+  // wrapped around a Plan 64-01 helper) with SYMMETRIC FOCUS SEMANTICS
+  // per CONTEXT.md § In-scope item 2 (revised): the session the user was
+  // "carrying" during the drag lands focused in its new cell.
+  //   - replaceInTree(replacementTabId, targetTabId) → focus goes to the
+  //     replacement (the incoming session).
+  //   - swapInTree(tabIdA, tabIdB) → focus goes to tabIdA (the dragged
+  //     badge's source session, which lands in its new cell).
+  //
+  // Neither handler calls closeTab — the displaced session on replace
+  // stays live in `tabs[]`, just kicked out of the grid ("still present in
+  // the conv list, just no longer occupying a slot" per CONTEXT.md § What
+  // this is line 3). The URL-sync effect at :868 fires on every splitTree
+  // change automatically — no additional wiring needed.
+  //
+  // See:
+  //   .planning/phases/64-multi-view-center-drop/64-CONTEXT.md
+  //   src/ui/lib/split-tree.ts replaceLeaf + swapLeaves (Plan 64-01).
+
+  const replaceInTree = useCallback(
+    (replacementTabId: string, targetTabId: string) => {
+      // eslint-disable-next-line no-console
+      console.info(
+        `[pv-split-drop] replace target=${targetTabId} with=${replacementTabId}`,
+      );
+      setSplitTree((prev) => replaceLeaf(prev, targetTabId, replacementTabId));
+      setFocusedTabId(replacementTabId);
+    },
+    [],
+  );
+
+  const swapInTree = useCallback(
+    (tabIdA: string, tabIdB: string) => {
+      // eslint-disable-next-line no-console
+      console.info(
+        `[pv-split-drop] swap a=${tabIdA} b=${tabIdB}`,
+      );
+      setSplitTree((prev) => swapLeaves(prev, tabIdA, tabIdB));
+      setFocusedTabId(tabIdA);
+    },
+    [],
+  );
+
   // Patch #511 (Phase 56 hotfix follow-up): the drag payload from
   // PrettyConversationRow now carries the full row shape (host,
   // targetTmuxSession, fleetOnly, rdpHostRow) alongside the row.id. The
@@ -2562,6 +2607,14 @@ export function AppShell({
                         edge,
                       )
                     }
+                    // Phase 64 Plan 02 center-drop wiring: SplitView
+                    // center-zone drop dispatches to replaceInTree (from
+                    // conv-list source MIME) or swapInTree (from open badge
+                    // source MIME). Both go through setSplitTree so the
+                    // URL-sync effect at :868 auto-encodes the new tree —
+                    // no additional wiring needed.
+                    onReplaceInTree={replaceInTree}
+                    onSwapInTree={swapInTree}
                   />
                 </div>
               )}
