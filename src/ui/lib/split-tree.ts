@@ -395,3 +395,131 @@ export function computeEdgeZone(
   if (minDist === distLeft) return "left";
   return "right";
 }
+
+// ─── replaceLeaf (Phase 64 Plan 01) ────────────────────────────────────────
+
+/** Phase 64 Plan 01: pure immutable tree op backing "drop a conversation-list
+ *  row payload onto the CENTER of an already-open session's body". The dragged
+ *  session takes the target cell in place; the target session drops out of the
+ *  grid entirely (still exists in the conv list — just no longer in a slot).
+ *
+ *  See `.planning/phases/64-multi-view-center-drop/64-CONTEXT.md` § In-scope
+ *  item 1 for the semantic contract; § Edge cases items 1-4 for the four
+ *  branches implemented here.
+ *
+ *  Four branches:
+ *    1. `root === null` → return null verbatim (nothing to replace).
+ *    2. `targetTabId === replacementTabId` → return `root` by reference identity
+ *       (Object.is holds). Cheap same-id no-op, NO console.warn.
+ *    3. `targetTabId` not found in the tree → emit ONE defensive `console.warn`
+ *       and return `root` by reference identity. The Plan 64-02 AppShell
+ *       handler's guard makes this unreachable in practice; the warn helps
+ *       debuggability if the invariant ever breaks.
+ *    4. Mainline: if `replacementTabId` is ALREADY in the tree elsewhere,
+ *       `removeLeaf` evicts it first (collapsing its parent split via the
+ *       existing invariant-preserving rule). The path to `targetTabId` is
+ *       then re-discovered post-removal (an ancestor may have collapsed),
+ *       and the target leaf is replaced with a fresh `{kind:"session",
+ *       tabId: replacementTabId}` leaf via the private `replaceAt` helper.
+ *
+ *  Purity: no in-place mutation of any input SplitNode; every ancestor on the
+ *  rewrite path is freshly allocated per `replaceAt`'s documented contract at
+ *  :213-240; every subtree NOT on the rewrite path is shared by reference.
+ *
+ *  Logging: NO `console.info` from this helper body — structured
+ *  `[pv-split-drop]` logging is Plan 64-02's job at the AppShell handler
+ *  layer. Only defensive `console.warn` on missing target (branch 3). */
+export function replaceLeaf(
+  root: SplitNode | null,
+  targetTabId: string,
+  replacementTabId: string,
+): SplitNode | null {
+  // Branch 1: null tree — nothing to replace.
+  if (root === null) return root;
+  // Branch 2: same-id no-op — reference-identity return, no warn.
+  if (targetTabId === replacementTabId) return root;
+  // Branch 3: target not found — defensive warn + reference-identity return.
+  const targetPath = findLeaf(root, targetTabId);
+  if (targetPath === null) {
+    console.warn(
+      `[split-tree] replaceLeaf: target not found targetTabId=${targetTabId}`,
+    );
+    return root;
+  }
+  // Branch 4 (mainline): evict any pre-existing replacementTabId, then
+  // rediscover the target path (an ancestor may have collapsed) and swap the
+  // target leaf.
+  const withoutReplacement = removeLeaf(root, replacementTabId);
+  // Degenerate case: single-leaf root where replacement WAS that leaf and the
+  // target was ALSO that leaf's parent context — removeLeaf can return null.
+  // Guard prevents crashing on rediscovery.
+  if (withoutReplacement === null) {
+    return { kind: "session", tabId: replacementTabId };
+  }
+  const freshTargetPath = findLeaf(withoutReplacement, targetTabId);
+  // Defensive: if the target became collateral in the collapse (should not
+  // happen for distinct tabIds, but preserves the surviving cells over
+  // throwing), return the post-removal tree.
+  if (freshTargetPath === null) return withoutReplacement;
+  return replaceAt(withoutReplacement, freshTargetPath, {
+    kind: "session",
+    tabId: replacementTabId,
+  });
+}
+
+// ─── swapLeaves (Phase 64 Plan 01) ─────────────────────────────────────────
+
+/** Phase 64 Plan 01: pure immutable tree op backing "drop an already-open
+ *  session's identity badge onto the CENTER of another already-open session".
+ *  The two sessions trade slots; both remain live in the grid. Pure
+ *  leaf-content-only mutation — every internal split node (direction +
+ *  structural shape) is preserved by construction because we never touch
+ *  splits, only leaf contents at two paths.
+ *
+ *  See `.planning/phases/64-multi-view-center-drop/64-CONTEXT.md` § In-scope
+ *  item 1 + § Edge cases item 7 (deep-tree swap preserves inner directions).
+ *
+ *  Three branches:
+ *    1. `root === null` → return null verbatim (nothing to swap).
+ *    2. `tabIdA === tabIdB` → return `root` by reference identity (Object.is
+ *       holds). Cheap same-id no-op, NO console.warn.
+ *    3. Either `tabIdA` or `tabIdB` not found in the tree → emit ONE
+ *       defensive `console.warn` naming the missing tabId, and return `root`
+ *       by reference identity. If BOTH are missing, `tabIdA` is named (the
+ *       first-encountered miss). The Plan 64-02 handler's guard makes this
+ *       unreachable in practice; the warn helps debuggability.
+ *    4. Mainline: `replaceAt` applied twice — first swaps `pathA`'s leaf to
+ *       `tabIdB`, then swaps `pathB`'s leaf to `tabIdA`. Order does not
+ *       matter because leaves are terminal (a leaf cannot be an ancestor of
+ *       another leaf), so `pathA` and `pathB` are guaranteed disjoint.
+ *
+ *  Purity: no in-place mutation; every ancestor on either rewrite path is
+ *  freshly allocated per `replaceAt`'s contract.
+ *
+ *  Logging: NO `console.info` from this helper body — structured
+ *  `[pv-split-drop]` logging belongs to Plan 64-02's AppShell handler layer.
+ *  Only defensive `console.warn` on missing leaves (branch 3). */
+export function swapLeaves(
+  root: SplitNode | null,
+  tabIdA: string,
+  tabIdB: string,
+): SplitNode | null {
+  // Branch 1: null tree — nothing to swap.
+  if (root === null) return root;
+  // Branch 2: same-id no-op — reference-identity return, no warn.
+  if (tabIdA === tabIdB) return root;
+  // Branch 3: missing leaf — defensive warn + reference-identity return.
+  const pathA = findLeaf(root, tabIdA);
+  const pathB = findLeaf(root, tabIdB);
+  if (pathA === null || pathB === null) {
+    const missing = pathA === null ? tabIdA : tabIdB;
+    console.warn(`[split-tree] swapLeaves: leaf not found tabId=${missing}`);
+    return root;
+  }
+  // Branch 4 (mainline): two-step leaf-content-only swap. Order-independent
+  // because leaves are terminal — pathA and pathB describe disjoint locations
+  // and neither call restructures the tree.
+  const step1 = replaceAt(root, pathA, { kind: "session", tabId: tabIdB });
+  const step2 = replaceAt(step1, pathB, { kind: "session", tabId: tabIdA });
+  return step2;
+}
