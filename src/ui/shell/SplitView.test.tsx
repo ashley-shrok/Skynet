@@ -569,7 +569,13 @@ describe("SplitView — Phase 57: drop-preview overlay + edge-zone hit-testing",
     expect(overlay!.style.height).toBe("50px");
   });
 
-  it("Test 4: dragover at (50,50) — dead center → no overlay + no ring affordance", () => {
+  it("Test 4: dragover at (50,50) — dead center — Phase 64 SUPERSEDED: center is now a live drop target when a skynet MIME is present", () => {
+    // Phase 57 asserted "no overlay at dead center" per the shape-file's
+    // "center dead zone" concept. Phase 64 Plan 02 retires the dead zone —
+    // center is now a live drop target that renders a FULL-CELL coral
+    // overlay when the drag carries a skynet MIME. This test is updated to
+    // assert Phase 64's new semantics; the "no overlay for unknown MIME"
+    // regression is asserted separately at Phase 64 Test 3.
     const tree: SplitNode = leaf("aaa");
     const { container } = render(
       <SplitView splitTree={tree} tabs={[tabA]} />,
@@ -580,9 +586,12 @@ describe("SplitView — Phase 57: drop-preview overlay + edge-zone hit-testing",
     dispatchDragOverAt(paneOuter, 50, 50);
     const overlay = container.querySelector(
       '[data-testid="pane-drop-preview-overlay"]',
-    );
-    expect(overlay).toBeNull();
-    // Outer div must NOT have any ring-2 ring-inset ring-accent-brand class.
+    ) as HTMLElement | null;
+    // Phase 64: overlay DOES render for center when a skynet MIME is
+    // present (the helper's default includes application/x-skynet-row).
+    expect(overlay).not.toBeNull();
+    expect(overlay!.getAttribute("data-zone")).toBe("center");
+    // Ring affordance still absent — the coral overlay is the ONLY visual.
     expect(paneOuter.className).not.toContain("ring-2 ring-inset ring-accent-brand");
   });
 
@@ -627,11 +636,25 @@ describe("SplitView — Phase 57: drop-preview overlay + edge-zone hit-testing",
     expect(overlayAfter!.getAttribute("data-zone")).toBe("left");
   });
 
-  it("Test 7: center-dead-zone DROP is silent — no handler call + structured log", () => {
+  it("Test 7: center-drop — Phase 64 SUPERSEDED: dead-zone log retired; center now dispatches to replace/swap by MIME", () => {
+    // Phase 57 asserted the center-dead-zone silent-return + a structured
+    // `[pv-split-drop] center-dead-zone ignored` log. Phase 64 Plan 02
+    // replaces that short-circuit with source-conditioned dispatch. This
+    // test is updated to assert the new semantics:
+    //   - A center drop with the Phase 57 default MIME (skynet-row types +
+    //     text/plain=<tabId>) NOW dispatches to onReplaceInTree via the
+    //     text/plain fallback branch (badge/row JSON both empty).
+    //   - The retired dead-zone log line is gone; the new dispatch=replace-
+    //     fallback log is emitted instead.
+    // Deeper handler-dispatch coverage lives in Phase 64 Tests 5-9 below.
     const onOpenSessionInTree =
       vi.fn<(tabId: string, path: SplitPath, edge: DropEdge) => void>();
     const onDropRowInTree =
       vi.fn<(payload: unknown, path: SplitPath, edge: DropEdge) => void>();
+    const onReplaceInTree =
+      vi.fn<(replacement: string, target: string) => void>();
+    const onSwapInTree =
+      vi.fn<(a: string, b: string) => void>();
     const tree: SplitNode = leaf("aaa");
     const { container } = render(
       <SplitView
@@ -639,6 +662,8 @@ describe("SplitView — Phase 57: drop-preview overlay + edge-zone hit-testing",
         tabs={[tabA]}
         onOpenSessionInTree={onOpenSessionInTree}
         onDropRowInTree={onDropRowInTree}
+        onReplaceInTree={onReplaceInTree}
+        onSwapInTree={onSwapInTree}
       />,
     );
     const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
@@ -647,16 +672,32 @@ describe("SplitView — Phase 57: drop-preview overlay + edge-zone hit-testing",
     dispatchDropAt(paneOuter, 50, 50, {
       getData: (k: string) => (k === "text/plain" ? "newtab" : ""),
     });
+    // Phase 56 handlers still not called (center never routed through those).
     expect(onOpenSessionInTree).not.toHaveBeenCalled();
     expect(onDropRowInTree).not.toHaveBeenCalled();
-    const centerLog = infoSpy.mock.calls.some((args) =>
+    // Phase 64 fallback branch: badge/row JSON both empty in this payload;
+    // text/plain=newtab is non-empty and != target ("aaa") → replace-fallback.
+    expect(onReplaceInTree).toHaveBeenCalledTimes(1);
+    expect(onReplaceInTree).toHaveBeenCalledWith("newtab", "aaa");
+    expect(onSwapInTree).not.toHaveBeenCalled();
+    // Retired: `center-dead-zone ignored` no longer emitted.
+    const deadZoneLog = infoSpy.mock.calls.some((args) =>
       args.some(
         (a) =>
           typeof a === "string" &&
           a.includes("[pv-split-drop] center-dead-zone ignored"),
       ),
     );
-    expect(centerLog).toBe(true);
+    expect(deadZoneLog).toBe(false);
+    // New: dispatch=replace-fallback log fires instead.
+    const fallbackLog = infoSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "string" &&
+          a.includes("[pv-split-drop] center-drop dispatch=replace-fallback"),
+      ),
+    );
+    expect(fallbackLog).toBe(true);
   });
 
   it("Test 8: edge-zone DROP preserves Phase 56 contract — onOpenSessionInTree('newtab', [], 'left')", () => {

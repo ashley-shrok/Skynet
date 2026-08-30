@@ -29,9 +29,8 @@ import { computeEdgeZone } from "@/lib/split-tree";
 
 /**
  * Phase 57 Plan 02 — overlay geometry helper. Given the current pane's
- * bounding rect and the winning edge zone, returns the coral overlay's
- * pane-local `{ left, top, width, height }` in CSS pixels — half the pane
- * along the winning edge (t = 0.5), matching prototype.html:414-421 exactly.
+ * bounding rect and the winning zone, returns the coral overlay's
+ * pane-local `{ left, top, width, height }` in CSS pixels.
  *
  * Pane-local means the values are relative to the `.flex-1.min-h-0.overflow-
  * hidden.relative` wrapper the overlay is a child of (SplitView.tsx:296).
@@ -39,12 +38,19 @@ import { computeEdgeZone } from "@/lib/split-tree";
  * PaneHeader removal), pane-local coords are effectively rect-relative
  * with (0,0) at the wrapper's top-left.
  *
- * Center is deliberately EXCLUDED from the input type — the caller must
- * short-circuit before invoking this. See Pane's JSX gate on
- * `dropPreview.zone !== "center"`.
+ * Edge zones (top / bottom / left / right): half the pane along the winning
+ * edge (t = 0.5), matching prototype.html:414-421 exactly.
+ *
+ * Phase 64 Plan 02: `center` zone returns FULL-CELL geometry
+ * `{ left: 0, top: 0, width: rect.width, height: rect.height }` per
+ * CONTEXT.md § In-scope item 4 ("Whole-body coral highlight … same coral
+ * vocabulary"). The caller relies on the `hasSkynetDragPayload` gate at
+ * :275 to prevent non-skynet drags from setting `dropPreview` in the first
+ * place, so any `zone === "center"` reaching this helper is guaranteed to
+ * originate from a valid skynet MIME.
  */
 function overlayGeometryForZone(
-  zone: Exclude<DropZone, "center">,
+  zone: DropZone,
   rect: DOMRect | { left: number; right: number; top: number; bottom: number; width: number; height: number },
 ): { left: number; top: number; width: number; height: number } {
   const w = rect.width ?? rect.right - rect.left;
@@ -59,6 +65,9 @@ function overlayGeometryForZone(
       return { left: 0, top: 0, width: w * t, height: h };
     case "right":
       return { left: w * (1 - t), top: 0, width: w * t, height: h };
+    case "center":
+      // Phase 64 Plan 02: whole-body coral highlight for center-drop.
+      return { left: 0, top: 0, width: w, height: h };
   }
 }
 
@@ -195,6 +204,8 @@ const Pane = memo(function Pane({
   onPaneClick,
   onOpenSessionInTree,
   onDropRowInTree,
+  onReplaceInTree,
+  onSwapInTree,
 }: {
   tab: Tab | null;
   tabId: string;
@@ -217,6 +228,21 @@ const Pane = memo(function Pane({
     path: SplitPath,
     edge: DropEdge,
   ) => void;
+  // Phase 64 Plan 02 — center-drop-from-conv-list dispatch. AppShell wires
+  // this to `replaceInTree` (functional-updater around split-tree
+  // `replaceLeaf`). See
+  // `.planning/phases/64-multi-view-center-drop/64-CONTEXT.md` §
+  // In-scope item 3.
+  onReplaceInTree?: (
+    replacementTabId: string,
+    targetTabId: string,
+  ) => void;
+  // Phase 64 Plan 02 — center-drop-from-open-badge dispatch. AppShell wires
+  // this to `swapInTree` (functional-updater around split-tree
+  // `swapLeaves`). See
+  // `.planning/phases/64-multi-view-center-drop/64-CONTEXT.md` §
+  // In-scope item 3.
+  onSwapInTree?: (tabIdA: string, tabIdB: string) => void;
 }) {
   // Phase 57 Plan 02 — dropPreview replaces the Phase 56 `isDragOver: boolean`.
   // Stores the current edge-zone pick from `computeEdgeZone` (Plan 57-01) and
@@ -342,14 +368,98 @@ const Pane = memo(function Pane({
       prevZoneRef.current = null;
       const rect = el.getBoundingClientRect();
       const zone = computeEdgeZone(rect, e.clientX, e.clientY);
-      // Center-dead-zone short-circuit. Silent per shape file: no error, no
-      // toast, no visual affordance — release does nothing, no drop
-      // registered. The AppShell outer handler is already blocked by the
-      // preventDefault + stopPropagation above.
+      // Phase 64 Plan 02: center-zone dispatch. Was a silent short-circuit
+      // through Phase 57 ("center dead zone"); now the drop is routed to
+      // one of two handlers based on the drag source's MIME:
+      //   - application/x-skynet-badge (open-session identity badge) →
+      //     onSwapInTree(sourceTabId, targetTabId)
+      //   - application/x-skynet-row (conv-list row) →
+      //     onReplaceInTree(sourceTabId, targetTabId)
+      //   - text/plain-only fallback (rare: badge-less, row-less, tabId
+      //     present) → onReplaceInTree(payloadTabId, targetTabId)
+      //   - unknown / malformed → silent no-op with
+      //     `[pv-split-drop] center-drop-unknown-mime` log.
+      // Self-drop (source === target) is a benign no-op with a structured
+      // log (`center-self-drop-ignored`) per CONTEXT.md § Edge case #1.
+      // See .planning/phases/64-multi-view-center-drop/64-CONTEXT.md §
+      // In-scope items 2, 3, 5.
       if (zone === "center") {
+        const badgeJson =
+          e.dataTransfer?.getData("application/x-skynet-badge") ?? "";
+        if (badgeJson.length > 0) {
+          try {
+            const parsed = JSON.parse(badgeJson) as { tabId?: unknown };
+            const sourceTabId =
+              typeof parsed?.tabId === "string" && parsed.tabId.length > 0
+                ? parsed.tabId
+                : "";
+            if (sourceTabId.length > 0) {
+              if (sourceTabId === tabId) {
+                // eslint-disable-next-line no-console
+                console.info(
+                  `[pv-split-drop] center-self-drop-ignored path=${JSON.stringify(path)} tabId=${sourceTabId}`,
+                );
+                return;
+              }
+              // eslint-disable-next-line no-console
+              console.info(
+                `[pv-split-drop] center-drop dispatch=swap path=${JSON.stringify(path)} sourceTabId=${sourceTabId} targetTabId=${tabId}`,
+              );
+              onSwapInTree?.(sourceTabId, tabId);
+              return;
+            }
+          } catch (err) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[pv-split-drop] center-drop badge-parse failed path=${JSON.stringify(path)}: ${(err as Error).message}`,
+            );
+            // Fall through to row / text/plain / unknown-mime branches.
+          }
+        }
+        const rowJson =
+          e.dataTransfer?.getData("application/x-skynet-row") ?? "";
+        if (rowJson.length > 0) {
+          try {
+            const parsed = JSON.parse(rowJson) as { id?: unknown };
+            const sourceTabId =
+              typeof parsed?.id === "string" && parsed.id.length > 0
+                ? parsed.id
+                : "";
+            if (sourceTabId.length > 0) {
+              if (sourceTabId === tabId) {
+                // eslint-disable-next-line no-console
+                console.info(
+                  `[pv-split-drop] center-self-drop-ignored path=${JSON.stringify(path)} tabId=${sourceTabId}`,
+                );
+                return;
+              }
+              // eslint-disable-next-line no-console
+              console.info(
+                `[pv-split-drop] center-drop dispatch=replace-rich path=${JSON.stringify(path)} rowId=${sourceTabId} targetTabId=${tabId}`,
+              );
+              onReplaceInTree?.(sourceTabId, tabId);
+              return;
+            }
+          } catch (err) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[pv-split-drop] center-drop row-parse failed path=${JSON.stringify(path)}: ${(err as Error).message}`,
+            );
+            // Fall through to text/plain / unknown-mime branches.
+          }
+        }
+        const payloadTabId = e.dataTransfer?.getData("text/plain") ?? "";
+        if (payloadTabId.length > 0 && payloadTabId !== tabId) {
+          // eslint-disable-next-line no-console
+          console.info(
+            `[pv-split-drop] center-drop dispatch=replace-fallback path=${JSON.stringify(path)} payloadTabId=${payloadTabId} targetTabId=${tabId}`,
+          );
+          onReplaceInTree?.(payloadTabId, tabId);
+          return;
+        }
         // eslint-disable-next-line no-console
         console.info(
-          `[pv-split-drop] center-dead-zone ignored path=${JSON.stringify(path)} clientX=${Math.round(e.clientX)} clientY=${Math.round(e.clientY)}`,
+          `[pv-split-drop] center-drop-unknown-mime path=${JSON.stringify(path)} types=${JSON.stringify(Array.from(e.dataTransfer?.types ?? []))}`,
         );
         return;
       }
@@ -410,7 +520,14 @@ const Pane = memo(function Pane({
     // path is a fresh array each render; JSON.stringify it into the dep
     // list so a real path change reattaches (identity would fire every
     // render).
-  }, [path.join("."), onDropRowInTree, onOpenSessionInTree]);
+  }, [
+    path.join("."),
+    onDropRowInTree,
+    onOpenSessionInTree,
+    onReplaceInTree,
+    onSwapInTree,
+    tabId,
+  ]);
 
   return (
     /* Patch #517 follow-up (quick-260829-fh3): `isolate` establishes a CSS
@@ -471,7 +588,15 @@ const Pane = memo(function Pane({
             (255, 184, 150) matches the app's --color-pv-code-fg token at
             index.css:159 and the prototype's --highlight rgba(255,184,150,0.20)
             / --highlight-strong rgba(255,184,150,0.55). */}
-        {dropPreview !== null && dropPreview.zone !== "center" && (
+        {/* Phase 64 Plan 02: the `!== "center"` gate is REPLACED — the
+            overlay now renders for center too, with full-cell geometry.
+            The `hasSkynetDragPayload` gate at :275 already prevents
+            non-skynet drags from setting dropPreview in the first place,
+            so any dropPreview reaching this JSX is guaranteed to originate
+            from a valid skynet MIME. Coral RGBA, border, zIndex,
+            pointer-events, transition — all UNCHANGED ("same coral
+            vocabulary" per shape file). */}
+        {dropPreview !== null && (
           <div
             data-testid="pane-drop-preview-overlay"
             data-zone={dropPreview.zone}
@@ -505,6 +630,8 @@ function PaneTree({
   onPaneClick,
   onOpenSessionInTree,
   onDropRowInTree,
+  onReplaceInTree,
+  onSwapInTree,
 }: {
   node: SplitNode;
   path: SplitPath;
@@ -522,6 +649,13 @@ function PaneTree({
     path: SplitPath,
     edge: DropEdge,
   ) => void;
+  // Phase 64 Plan 02 — center-drop handlers threaded through PaneTree to
+  // reach each leaf's Pane instance.
+  onReplaceInTree?: (
+    replacementTabId: string,
+    targetTabId: string,
+  ) => void;
+  onSwapInTree?: (tabIdA: string, tabIdB: string) => void;
 }) {
   if (node.kind === "session") {
     const tab = tabs.find((tt) => tt.id === node.tabId) ?? null;
@@ -535,6 +669,8 @@ function PaneTree({
         onPaneClick={onPaneClick}
         onOpenSessionInTree={onOpenSessionInTree}
         onDropRowInTree={onDropRowInTree}
+        onReplaceInTree={onReplaceInTree}
+        onSwapInTree={onSwapInTree}
       />
     );
   }
@@ -558,6 +694,8 @@ function PaneTree({
           onPaneClick={onPaneClick}
           onOpenSessionInTree={onOpenSessionInTree}
           onDropRowInTree={onDropRowInTree}
+          onReplaceInTree={onReplaceInTree}
+          onSwapInTree={onSwapInTree}
         />
       </div>
       <Divider direction={node.direction} />
@@ -574,6 +712,8 @@ function PaneTree({
           onPaneClick={onPaneClick}
           onOpenSessionInTree={onOpenSessionInTree}
           onDropRowInTree={onDropRowInTree}
+          onReplaceInTree={onReplaceInTree}
+          onSwapInTree={onSwapInTree}
         />
       </div>
     </div>
@@ -592,6 +732,8 @@ export const SplitView = memo(function SplitView({
   onPaneClick,
   onOpenSessionInTree,
   onDropRowInTree,
+  onReplaceInTree,
+  onSwapInTree,
 }: {
   tabs: Tab[];
   splitTree: SplitNode | null;
@@ -609,6 +751,17 @@ export const SplitView = memo(function SplitView({
     path: SplitPath,
     edge: DropEdge,
   ) => void;
+  // Phase 64 Plan 02 — center-drop-from-conv-list-row dispatch. Wired by
+  // AppShell to `replaceInTree` (functional-updater around split-tree
+  // `replaceLeaf` from Plan 64-01). See CONTEXT.md § In-scope items 2, 3.
+  onReplaceInTree?: (
+    replacementTabId: string,
+    targetTabId: string,
+  ) => void;
+  // Phase 64 Plan 02 — center-drop-from-open-badge dispatch. Wired by
+  // AppShell to `swapInTree` (functional-updater around split-tree
+  // `swapLeaves` from Plan 64-01).
+  onSwapInTree?: (tabIdA: string, tabIdB: string) => void;
 }) {
   useEffect(() => {
     const id = requestAnimationFrame(() => onTerminalResize?.());
@@ -634,6 +787,8 @@ export const SplitView = memo(function SplitView({
         onPaneClick={onPaneClick}
         onOpenSessionInTree={onOpenSessionInTree}
         onDropRowInTree={onDropRowInTree}
+        onReplaceInTree={onReplaceInTree}
+        onSwapInTree={onSwapInTree}
       />
     </div>
   );
