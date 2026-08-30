@@ -6038,3 +6038,463 @@ describe("quick-260829-kmr — cross-identity background_tasks leak: per-session
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 62 Plan 03 (WIP hook-based rewrite 2026-08-30) — activityMtime +
+// stoppedMtime derivation from per-session marker files installed by Plan
+// 62-02. Contract under test (locked by 62-03-PLAN.md § tasks 1-2):
+//
+//   - Per-session activity marker mtime read: `stat -c %Y
+//     ~/.claude/fleet-status/hooks/<sessionId>/activity 2>/dev/null || true`
+//     fires ONCE per PID per tick after parseSessionJson returns; empty
+//     stdout == marker absent → derivedActivityMtime := cached ?? null;
+//     trimmed numeric stdout × 1000 → unix millis; null return (SSH hiccup)
+//     → cache-preserve (fail-open, matches lastMessageAt / aiTitle / dormant
+//     / lastStopAt patterns).
+//   - Per-session stopped marker mtime read: identical pattern for the
+//     `stopped` marker.
+//   - Character-class guard: sessionId failing `/^[a-zA-Z0-9_-]+$/` causes
+//     BOTH new stat execs to be skipped entirely (T-62-03-02 mitigation,
+//     matches the Phase 59 lastStopAt pattern at line 1121).
+//   - SessionId rotation: both new axes null on rotation (isNew-equivalent
+//     treatment matching lastStopAt at line 1193).
+//   - Both new axes participate in computeFingerprint — a delta on EITHER
+//     fires publishSessionState even when every other axis is unchanged.
+//   - Retention proof: same publish also carries lastStopAt +
+//     lastStatusChangeAt (Option-1 rollout — both signal sets ride together
+//     during the rollout window per CONTEXT.md § Rollout LOCKED).
+//
+// The two new stat commands are uniquely identified by the substring
+// `fleet-status/hooks/` — disjoint from Phase 59's `fleet-status/stop-`
+// pattern and from the box-wide `fleet-status/last-stop-payload.json`
+// pattern. Register the new stat responses via wirePhase62Base so
+// MockSshChannel's insertion-order iteration finds them predictably.
+// ---------------------------------------------------------------------------
+
+describe("ssh-poll-orchestrator Phase 62 Plan 03 — activityMtime + stoppedMtime derivation from per-session marker files", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Substrings uniquely identifying the two new Phase 62 stat commands.
+  // Both share the `fleet-status/hooks/` prefix (per Plan 62-01 marker path
+  // decision) but the trailing marker filename disambiguates.
+  const ACTIVITY_STAT_PATTERN = "fleet-status/hooks/'test-session-id'/activity";
+  const STOPPED_STAT_PATTERN = "fleet-status/hooks/'test-session-id'/stopped";
+
+  // Broader substring for the sessionId-agnostic negative assertion in Test E.
+  const FLEET_HOOKS_ANY_PATTERN = "fleet-status/hooks/";
+
+  // Helper: register the base per-tick channel responses a PID needs to reach
+  // the SessionState composition. Mirrors wirePhase59Base but adds the two
+  // new marker-stat responses.
+  function wirePhase62Base(
+    channel: MockSshChannel,
+    sessionJsonOverride?: string,
+  ): void {
+    // Set both Phase 62 marker patterns FIRST so iteration finds them before
+    // any broader `fleet-status/` pattern registered below.
+    channel.setResponse(ACTIVITY_STAT_PATTERN, ""); // default: activity marker absent
+    channel.setResponse(STOPPED_STAT_PATTERN, "");  // default: stopped  marker absent
+    // Phase 59 per-session stop file (uniquely `fleet-status/stop-` prefix).
+    channel.setResponse("fleet-status/stop-", "");
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("~/.claude/identities/ -mindepth", "");
+    channel.setResponse(
+      "cat ~/.claude/sessions/12345.json",
+      sessionJsonOverride ?? makeSessionJson(),
+    );
+    channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
+    channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
+    channel.setResponse("tmux display-message", "tina");
+    channel.setResponse(
+      "cat ~/.claude/fleet-status/last-stop-payload.json",
+      makeValidPayload(),
+    );
+    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
+  }
+
+  // Helper: build deps with a controllable now() clock (mirrors buildPhase59Deps).
+  function buildPhase62Deps(
+    channel: MockSshChannel,
+    clock: { now: number },
+  ): OrchestratorDeps & {
+    registry: MockRegistry;
+    setIntervalFns: Array<{ fn: () => void; ms: number }>;
+  } {
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const registry = new MockRegistry();
+    const hosts: HostRecord[] = [{ id: "host-1", name: "testhost" }];
+    const deps: OrchestratorDeps = {
+      listIdentityHostingHosts: vi.fn().mockResolvedValue(hosts),
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      releaseSshChannel: vi.fn(),
+      registry,
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+      clearInterval: vi.fn(),
+      now: () => clock.now,
+      pollIntervalMs: 2000,
+      staleSweepIntervalMs: 30000,
+      hookPayloadPath: "~/.claude/fleet-status/last-stop-payload.json",
+      hookPayloadWarnCooldownMs: 60000,
+    };
+    return { ...deps, registry, setIntervalFns };
+  }
+
+  // -------------------------------------------------------------------------
+  // Test A — activity marker successful stat: mock returns "1730000000"; the
+  // published SessionState has activityMtime === 1730000000000 (× 1000 conversion).
+  // -------------------------------------------------------------------------
+
+  it("Test P62-03 A: activity marker successful stat → activityMtime = mtime × 1000 (seconds → unix millis)", async () => {
+    const channel = new MockSshChannel();
+    wirePhase62Base(channel);
+    channel.setResponse(ACTIVITY_STAT_PATTERN, "1730000000\n");
+
+    const clock = { now: 1730500000000 };
+    const deps = buildPhase62Deps(channel, clock);
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    expect(published.state.activityMtime).toBe(1730000000000);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test B — stopped marker successful stat: same behavior for the stopped marker.
+  // -------------------------------------------------------------------------
+
+  it("Test P62-03 B: stopped marker successful stat → stoppedMtime = mtime × 1000 (seconds → unix millis)", async () => {
+    const channel = new MockSshChannel();
+    wirePhase62Base(channel);
+    channel.setResponse(STOPPED_STAT_PATTERN, "1730000005\n");
+
+    const clock = { now: 1730500000000 };
+    const deps = buildPhase62Deps(channel, clock);
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    expect(published.state.stoppedMtime).toBe(1730000005000);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test C — SSH hiccup on activity stat preserves cached activityMtime
+  // (fail-open, matches lastMessageAt / aiTitle / dormant / lastStopAt).
+  //
+  // Tick 1: activity stat returns "1730000000\n" → cached becomes 1730000000000.
+  // Tick 2: activity stat returns null (SSH hiccup). ALSO status flips
+  //         busy → shell to force a fingerprint delta publish.
+  //         Published state MUST carry activityMtime = 1730000000000 (preserved
+  //         from cache) NOT null.
+  // -------------------------------------------------------------------------
+
+  it("Test P62-03 C: SSH hiccup on activity stat preserves cached activityMtime (fail-open)", async () => {
+    const channel = new MockSshChannel();
+    wirePhase62Base(channel, makeSessionJson({ status: "busy", updatedAt: 1700000000000 }));
+    channel.setResponse(ACTIVITY_STAT_PATTERN, "1730000000\n");
+
+    const clock = { now: 1000 };
+    const deps = buildPhase62Deps(channel, clock);
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // Tick 1: activityMtime captured
+
+    expect(deps.registry.publishedStates.length).toBe(1);
+    expect(deps.registry.publishedStates[0].state.activityMtime).toBe(1730000000000);
+
+    // Tick 2: activity stat returns null (SSH hiccup) AND status transitions to
+    // force a publish. Published state must fail-open to cached value.
+    channel.setResponse(ACTIVITY_STAT_PATTERN, null);
+    channel.setResponse(
+      "cat ~/.claude/sessions/12345.json",
+      makeSessionJson({ status: "shell", updatedAt: 1700000000000 }),
+    );
+    clock.now = 3000;
+    const pollFn = deps.setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    expect(deps.registry.publishedStates.length).toBe(2);
+    const tick2Publish = deps.registry.publishedStates[1];
+    // Fail-open — cache preserved across the hiccup, NOT wiped to null.
+    expect(tick2Publish.state.activityMtime).toBe(1730000000000);
+    expect(tick2Publish.state.status).toBe("shell");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test D — absent file (empty stdout) preserves cached stoppedMtime.
+  //
+  // Tick 1: stopped stat returns "1730000005\n" → cached becomes 1730000005000.
+  // Tick 2: stopped stat returns "" (empty stdout — file absent, `|| true`
+  //         swallowed non-zero exit). ALSO status flips to force a publish.
+  //         Published state MUST carry stoppedMtime = 1730000005000 (preserved
+  //         from cache) NOT null. Fail-open matches Test C's SSH-hiccup path.
+  // -------------------------------------------------------------------------
+
+  it("Test P62-03 D: absent-file (empty stdout) preserves cached stoppedMtime (fail-open)", async () => {
+    const channel = new MockSshChannel();
+    wirePhase62Base(channel, makeSessionJson({ status: "busy", updatedAt: 1700000000000 }));
+    channel.setResponse(STOPPED_STAT_PATTERN, "1730000005\n");
+
+    const clock = { now: 1000 };
+    const deps = buildPhase62Deps(channel, clock);
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // Tick 1: stoppedMtime captured
+
+    expect(deps.registry.publishedStates.length).toBe(1);
+    expect(deps.registry.publishedStates[0].state.stoppedMtime).toBe(1730000005000);
+
+    // Tick 2: stopped stat returns "" (marker file removed / absent) AND
+    // status transitions to force a publish.
+    channel.setResponse(STOPPED_STAT_PATTERN, "");
+    channel.setResponse(
+      "cat ~/.claude/sessions/12345.json",
+      makeSessionJson({ status: "shell", updatedAt: 1700000000000 }),
+    );
+    clock.now = 3000;
+    const pollFn = deps.setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    expect(deps.registry.publishedStates.length).toBe(2);
+    const tick2Publish = deps.registry.publishedStates[1];
+    // Fail-open — cache preserved across the empty stdout, NOT wiped to null.
+    expect(tick2Publish.state.stoppedMtime).toBe(1730000005000);
+    expect(tick2Publish.state.status).toBe("shell");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test E — character-class guard skips both stat execs (T-62-03-02 mitigation).
+  //
+  // sessionId "../evil" contains `.` and `/`, both excluded by the character
+  // class `/^[a-zA-Z0-9_-]+$/`. The two new Phase 62 stat commands MUST be
+  // skipped entirely — no `fleet-status/hooks/` call issued to the channel.
+  // Mirrors the Phase 59 quick-260829-kmr Test D pattern using CALL LOG
+  // introspection (observable behavior, not internal state).
+  // -------------------------------------------------------------------------
+
+  it("Test P62-03 E: character-class-guard-skipped sessionId → neither Phase 62 stat command is issued", async () => {
+    const channel = new MockSshChannel();
+    wirePhase62Base(channel, makeSessionJson({ sessionId: "../evil" }));
+
+    // POISON: if the regex guard is wrong and a Phase 62 stat DOES fire for
+    // "../evil", the POISON value could parse and appear as activityMtime.
+    // The call-log assertion below is the primary check — this is the
+    // belt-and-suspenders check that no value leaks through.
+    channel.setResponse(ACTIVITY_STAT_PATTERN, "9999999999\n");
+    channel.setResponse(STOPPED_STAT_PATTERN, "9999999998\n");
+
+    const clock = { now: 1000 };
+    const deps = buildPhase62Deps(channel, clock);
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // Assertion (a): NO Phase 62 marker stat call was issued.
+    const phase62HookCalls = channel
+      .getCalls()
+      .filter((c) => c.command.includes(FLEET_HOOKS_ANY_PATTERN));
+    expect(phase62HookCalls).toHaveLength(0);
+
+    // Assertion (b): the published state's mtime axes stay null (cache
+    // default) — the POISON responses did not leak through because the
+    // stat commands were never issued in the first place.
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    expect(published.state.activityMtime).toBe(null);
+    expect(published.state.stoppedMtime).toBe(null);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test F — sessionId rotation nulls both new axes.
+  //
+  // Tick 1: sessionId "test-session-id" with activityMtime + stoppedMtime
+  //         populated. Cached in PidCacheEntry keyed by pid=12345.
+  // Tick 2: SAME pid=12345 but sessionId rotated to "rotated-session-id"
+  //         (Claude Code compaction rotates sessionId in-place, Phase 44
+  //         L328-335). The new session's marker files may not exist yet.
+  //         BOTH new axes MUST reset to null on the rotation-detection
+  //         branch, matching lastStopAt's rotation reset at line 1193.
+  //
+  // Test wires DIFFERENT marker patterns for the rotated sessionId (with
+  // empty stdout to simulate marker absence for the new session) so the
+  // published tick 2 frame has activityMtime = null AND stoppedMtime = null.
+  // -------------------------------------------------------------------------
+
+  it("Test P62-03 F: sessionId rotation nulls both activityMtime and stoppedMtime (isNew-equivalent treatment)", async () => {
+    const channel = new MockSshChannel();
+    wirePhase62Base(channel, makeSessionJson({
+      sessionId: "test-session-id",
+      status: "busy",
+      updatedAt: 1700000000000,
+    }));
+    // Tick 1: original sessionId markers populated.
+    channel.setResponse(ACTIVITY_STAT_PATTERN, "1730000000\n");
+    channel.setResponse(STOPPED_STAT_PATTERN, "1730000005\n");
+
+    const clock = { now: 1000 };
+    const deps = buildPhase62Deps(channel, clock);
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // Tick 1: both axes populated
+
+    expect(deps.registry.publishedStates.length).toBe(1);
+    expect(deps.registry.publishedStates[0].state.activityMtime).toBe(1730000000000);
+    expect(deps.registry.publishedStates[0].state.stoppedMtime).toBe(1730000005000);
+
+    // Tick 2: SAME pid, sessionId ROTATED. The rotation-detection branch
+    // (existing code at ssh-poll-orchestrator.ts:1188-1194) treats this as
+    // isNew-equivalent for stop-gate-adjacent axes. Both Phase 62 axes MUST
+    // null on rotation — the rotated sessionId's markers may not exist.
+    channel.setResponse(
+      "cat ~/.claude/sessions/12345.json",
+      makeSessionJson({
+        sessionId: "rotated-session-id",
+        status: "busy",
+        updatedAt: 1700000000000,
+      }),
+    );
+    // Rotated sessionId's markers absent (empty stdout).
+    channel.setResponse("fleet-status/hooks/'rotated-session-id'/activity", "");
+    channel.setResponse("fleet-status/hooks/'rotated-session-id'/stopped", "");
+
+    clock.now = 3000;
+    const pollFn = deps.setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    // The rotated-sessionId frame publishes (fingerprint differs on sessionId
+    // AND on mtime axes vs cached), with both new axes reset to null.
+    expect(deps.registry.publishedStates.length).toBe(2);
+    const tick2Publish = deps.registry.publishedStates[1];
+    expect(tick2Publish.state.sessionId).toBe("rotated-session-id");
+    expect(tick2Publish.state.activityMtime).toBe(null);
+    expect(tick2Publish.state.stoppedMtime).toBe(null);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test G — fingerprint includes activityMtime + stoppedMtime — a mtime-only
+  // delta causes a new publish even when every other axis stays identical.
+  //
+  // Tick 1: activityMtime=1730000000000 + status=idle + bg=[] → initial publish
+  //         (isNew).
+  // Tick 2: activity stat returns "1730000005\n" (mtime advanced 5s — a user
+  //         prompt submit / tool use fired) + SAME status + SAME bg +
+  //         SAME updatedAt. status did NOT change so lastStatusChangeAt cache
+  //         is preserved. But activityMtime CHANGED (1730000000000 →
+  //         1730000005000) so the fingerprint segment
+  //         `|${state.activityMtime ?? ""}|` differs → new publish must fire.
+  //
+  // This is the load-bearing "activityMtime is a distinct fingerprint axis"
+  // test. Mirrors the Phase 59 Test P57-02-F pattern.
+  // -------------------------------------------------------------------------
+
+  it("Test P62-03 G: fingerprint includes activityMtime — activity-mtime-only delta causes a new publish (load-bearing)", async () => {
+    const channel = new MockSshChannel();
+    wirePhase62Base(channel, makeSessionJson({ status: "idle", updatedAt: 1700000000000 }));
+    channel.setResponse(ACTIVITY_STAT_PATTERN, "1730000000\n");
+
+    const clock = { now: 1000 };
+    const deps = buildPhase62Deps(channel, clock);
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBe(1);
+    expect(deps.registry.publishedStates[0].state.activityMtime).toBe(1730000000000);
+
+    // Tick 2: EVERYTHING unchanged EXCEPT the activity marker mtime (5s later).
+    channel.setResponse(ACTIVITY_STAT_PATTERN, "1730000005\n");
+    clock.now = 3000;
+    const pollFn = deps.setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    // activityMtime-only delta MUST fire a new publish.
+    expect(deps.registry.publishedStates.length).toBe(2);
+    const tick2Publish = deps.registry.publishedStates[1];
+    expect(tick2Publish.state.activityMtime).toBe(1730000005000);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test G-bis — same as G but for the stoppedMtime axis. Proves stoppedMtime
+  // is ALSO a distinct fingerprint axis (not just activityMtime).
+  // -------------------------------------------------------------------------
+
+  it("Test P62-03 G-bis: fingerprint includes stoppedMtime — stopped-mtime-only delta causes a new publish (load-bearing)", async () => {
+    const channel = new MockSshChannel();
+    wirePhase62Base(channel, makeSessionJson({ status: "idle", updatedAt: 1700000000000 }));
+    channel.setResponse(STOPPED_STAT_PATTERN, "1730000000\n");
+
+    const clock = { now: 1000 };
+    const deps = buildPhase62Deps(channel, clock);
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBe(1);
+    expect(deps.registry.publishedStates[0].state.stoppedMtime).toBe(1730000000000);
+
+    // Tick 2: EVERYTHING unchanged EXCEPT the stopped marker mtime (5s later).
+    channel.setResponse(STOPPED_STAT_PATTERN, "1730000005\n");
+    clock.now = 3000;
+    const pollFn = deps.setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+
+    expect(deps.registry.publishedStates.length).toBe(2);
+    const tick2Publish = deps.registry.publishedStates[1];
+    expect(tick2Publish.state.stoppedMtime).toBe(1730000005000);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test H — Phase 59 fields still published (Option-1 rollout retention proof).
+  //
+  // The same publish that carries the two new Phase 62 axes MUST also carry
+  // the Phase 59 lastStopAt + lastStatusChangeAt axes. Both signal sets ride
+  // together during the rollout window per CONTEXT.md § Rollout Option 1
+  // (LOCKED). The frontend Plan 62-04 chooses which predicate to consume
+  // per-session based on marker presence.
+  // -------------------------------------------------------------------------
+
+  it("Test P62-03 H: same publish carries Phase 62 axes AND retained Phase 59 axes (Option-1 rollout — both signal sets ride together)", async () => {
+    const channel = new MockSshChannel();
+    wirePhase62Base(channel);
+    // Populate Phase 62 axes.
+    channel.setResponse(ACTIVITY_STAT_PATTERN, "1730000000\n");
+    channel.setResponse(STOPPED_STAT_PATTERN, "1730000005\n");
+    // Populate Phase 59 lastStopAt (per-session stop file).
+    channel.setResponse("fleet-status/stop-", "1729999999\n");
+
+    const clock = { now: 1730500000000 };
+    const deps = buildPhase62Deps(channel, clock);
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    // Phase 62 axes present.
+    expect(published.state.activityMtime).toBe(1730000000000);
+    expect(published.state.stoppedMtime).toBe(1730000005000);
+    // Phase 59 axes RETAINED and present (Option-1 rollout).
+    expect(published.state.lastStopAt).toBe(1729999999000);
+    // lastStatusChangeAt seeded on first appearance (isNew branch) to
+    // deps.now() — proves the Phase 59 derivation continues to run.
+    expect(published.state.lastStatusChangeAt).toBe(1730500000000);
+  });
+});
