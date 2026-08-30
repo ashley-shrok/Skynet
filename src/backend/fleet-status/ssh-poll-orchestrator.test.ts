@@ -4509,6 +4509,182 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
       expect(p.state.recycling).not.toBe(true);
     }
   });
+
+  // ---------------------------------------------------------------------------
+  // inline-260830-layer1-skip-harness-synthetic-user-turns — REGRESSION
+  //
+  // Bug (Ashley 2026-08-30, taylor session): during the ~30s window between
+  // Ashley clicking reset and the /id skill dropping `.recycle-requested`,
+  // the overlay stayed off — Layer 1 never fired despite `/id reset` being
+  // the freshest real user turn in the JSONL. Root cause: the /id skill's
+  // own bash/read tool_use invocations write tool_result turns to JSONL as
+  // `type:"user"` entries with ARRAY content. scanTailForLayer1RecyclingSignal
+  // iterated ALL user turns and set `lastResult = detectIdReset(parsed)`
+  // unconditionally. detectIdReset returns FALSE (not null) for array-content
+  // user turns — so each tool_result flipped lastResult back to false,
+  // drowning the /id reset signal. Same class of drowning for /exit
+  // (agent-supervisor injects it before recycle), resumed-injection
+  // sentinels, and control-char kill signals.
+  //
+  // Fix: pre-filter the scan with `isAshleyRealUserTurn` so harness-
+  // synthetic user turns don't reach detectIdReset. Real user speech is
+  // the only thing that flips the axis.
+  //
+  // These tests build tails matching real recycle-window shapes and
+  // assert Layer 1 STAYS TRUE. Together with today's Bug B fix
+  // (inline-260830-source-a-omit-recycling), the overlay now arms at
+  // t=~2s (first Layer 1 tick after /id reset lands in JSONL) instead of
+  // t=~30s (sentinel drop), and stays armed through the whole recycle
+  // window because source A can no longer wipe the cache.
+  // ---------------------------------------------------------------------------
+
+  function toolResultUserLine(tsMillis: number, toolUseId: string): string {
+    return JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: toolUseId,
+            content: "tool output",
+          },
+        ],
+      },
+      timestamp: new Date(tsMillis).toISOString(),
+      uuid: `uuid-tool-result-${tsMillis}`,
+    });
+  }
+
+  function exitCommandLine(tsMillis: number): string {
+    return JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content:
+          "<command-name>/exit</command-name>\n<command-args></command-args>",
+      },
+      timestamp: new Date(tsMillis).toISOString(),
+      uuid: `uuid-exit-${tsMillis}`,
+    });
+  }
+
+  function resumedInjectionLine(tsMillis: number): string {
+    return JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content:
+          "Your session was just resumed by the agent-supervisor. Your background Monitors stopped with the previous session — start them again per the id skill.",
+      },
+      timestamp: new Date(tsMillis).toISOString(),
+      uuid: `uuid-resumed-${tsMillis}`,
+    });
+  }
+
+  it("Test inline-260830-layer1-skip-tool-results: /id reset followed by tool_result flood → Layer 1 stays TRUE (source B publishes recycling:true)", async () => {
+    const channel = new MockSshChannel();
+    // Tail: /id reset THEN many tool_result user turns (simulates the /id skill
+    // running bash/read/write during the ~30s save flow).
+    const tail =
+      idResetLine(2000) +
+      "\n" +
+      toolResultUserLine(2100, "toolu_01") +
+      "\n" +
+      toolResultUserLine(2200, "toolu_02") +
+      "\n" +
+      toolResultUserLine(2300, "toolu_03") +
+      "\n" +
+      toolResultUserLine(2400, "toolu_04") +
+      "\n";
+    wireBaseResponses(channel, tail);
+    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // Layer 1 must survive the tool_result flood — source B publishes true.
+    const sourceBFrame = pickSourceBFrame(deps.registry.publishedStates);
+    expect(sourceBFrame).toBeDefined();
+    expect(sourceBFrame!.recycling).toBe(true);
+  });
+
+  it("Test inline-260830-layer1-skip-exit: /id reset followed by /exit → Layer 1 stays TRUE (source B publishes recycling:true)", async () => {
+    const channel = new MockSshChannel();
+    // Tail: /id reset THEN /exit (agent-supervisor injects /exit right before
+    // recycle — /exit is a string-content user turn but detectIdReset returns
+    // false for it because the content has no <command-name>/id</command-name>).
+    const tail =
+      idResetLine(2000) + "\n" + exitCommandLine(2500) + "\n";
+    wireBaseResponses(channel, tail);
+    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    const sourceBFrame = pickSourceBFrame(deps.registry.publishedStates);
+    expect(sourceBFrame).toBeDefined();
+    expect(sourceBFrame!.recycling).toBe(true);
+  });
+
+  it("Test inline-260830-layer1-skip-resumed: /id reset followed by resumed-injection sentinel → Layer 1 stays TRUE", async () => {
+    const channel = new MockSshChannel();
+    // Tail: /id reset THEN the agent-supervisor resumed-injection sentinel
+    // (a string-content user turn that isAshleyRealUserTurn's step 7 explicitly
+    // excludes — it's supervisor-injected boilerplate, not real user speech).
+    const tail =
+      idResetLine(2000) + "\n" + resumedInjectionLine(2500) + "\n";
+    wireBaseResponses(channel, tail);
+    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    const sourceBFrame = pickSourceBFrame(deps.registry.publishedStates);
+    expect(sourceBFrame).toBeDefined();
+    expect(sourceBFrame!.recycling).toBe(true);
+  });
+
+  it("Test inline-260830-layer1-real-user-after-reset: /id reset followed by a REAL user prompt → Layer 1 flips FALSE (semantic: last real user turn wins)", async () => {
+    const channel = new MockSshChannel();
+    // Tail: /id reset THEN a plain string-content user prompt (e.g., Ashley
+    // typed "actually never mind" — extremely rare in practice because the
+    // composebox clears after submit, but semantically important). This
+    // "last REAL user turn wins" semantic is preserved: a real subsequent
+    // prompt DOES flip Layer 1 back to false.
+    const tail =
+      idResetLine(2000) +
+      "\n" +
+      plainMessageLine(2500, "user", "actually never mind") +
+      "\n";
+    wireBaseResponses(channel, tail);
+    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // No frame stamps recycling:true — Layer 1 flipped false via a real
+    // subsequent user turn; sentinel absent; nothing arms.
+    for (const p of deps.registry.publishedStates) {
+      expect(p.state.recycling).not.toBe(true);
+    }
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

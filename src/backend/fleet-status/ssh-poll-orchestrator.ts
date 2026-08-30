@@ -510,17 +510,48 @@ function scanTailForLayer1RecyclingSignal(tailContents: string): boolean | null 
   const lines = tailContents.split("\n");
   for (const line of lines) {
     if (line.trim() === "") continue;
+    // inline-260830-layer1-skip-harness-synthetic-user-turns (Ashley
+    // 2026-08-30, taylor): pre-filter with isAshleyRealUserTurn so
+    // harness-synthetic user turns do NOT flip lastResult back to false
+    // after a real /id reset has been seen. Historical behavior: this
+    // loop iterated ALL type:"user" lines and set lastResult =
+    // detectIdReset(parsed) unconditionally. detectIdReset returns FALSE
+    // (not null) for:
+    //   - array-content user turns (tool_result — the /id skill's own
+    //     bash/read tool_use → tool_result exchanges fill the JSONL
+    //     during the ~30s recycle window; each one flipped lastResult
+    //     false, drowning the /id reset signal),
+    //   - the /exit user turn agent-supervisor injects right before
+    //     recycle (content is a string but doesn't contain
+    //     `<command-name>/id</command-name>`),
+    //   - control-char kill signals + resumed-injection sentinels,
+    //   - non-command XML-wrapped strings.
+    // Ashley report 2026-08-30 (chad 20:09:07):
+    // [fleet_status_recycling_armed] showed layer1:false, requested:true
+    // — the sentinel drop was the ONLY arm axis; Layer 1 never fired
+    // during the 30s window while the /id skill was running. This filter
+    // restores the intended semantic ("last REAL user turn wins" —
+    // matches the lastMessageAt scan at scanTailForNewestMessageAt which
+    // has always used isAshleyRealUserTurn). detectIdReset stays the
+    // final classifier; the isAshleyRealUserTurn gate just makes sure
+    // only real user speech reaches it.
+    if (!isAshleyRealUserTurn(line).ok) continue;
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(line) as Record<string, unknown>;
     } catch {
       // Malformed line — skip silently (matches existing parser tolerance).
+      // Also isAshleyRealUserTurn's own JSON.parse would have returned
+      // { ok: false } and we'd have already continued above; this catch is
+      // structural belt-and-suspenders (a race where the same line parses
+      // differently between the two calls is not possible).
       continue;
     }
-    if (parsed.type !== "user") continue;
-    // detectIdReset handles all harness-synthetic-user-turn exclusions
-    // (isMeta, array content, tool_result) at the object level — mirrors
-    // layer1-detect.ts:isUserTurn + isIdResetUserTurn on the raw-string path.
+    // The type check inside detectIdReset (parsed.type === "user") is
+    // now redundant with isAshleyRealUserTurn's own type gate, but
+    // detectIdReset is called by other consumers too (Plan 30-01
+    // observation channel in claude-session-server.ts) so keeping its
+    // internal check preserves defense-in-depth.
     lastResult = detectIdReset(parsed);
   }
   return lastResult;
