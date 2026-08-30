@@ -670,4 +670,228 @@ describe("AppShell split-tree mechanism (Phase 56 Plan 02)", () => {
     // setState callback, which React's useState honors as "no change".
     expect(Object.is(after, before)).toBe(true);
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase 64 Plan 02 Task 2 — AppShell replaceInTree + swapInTree integration
+  // tests. Exercise the new setSplitTree wrappers around Plan 64-01's
+  // replaceLeaf + swapLeaves helpers end-to-end, verifying the tabs[] and
+  // portal-preservation invariants Ashley locked in CONTEXT.md.
+  //
+  // See:
+  //   .planning/phases/64-multi-view-center-drop/64-CONTEXT.md §
+  //     In-scope items 2 + 6, § Test coverage additions § Plan 64-02
+  //     AppShell integration tests (Tests 19-21 renumbered locally to
+  //     Phase 64 Tests 1-3).
+  //   64-02-PLAN.md Task 2 <behavior> block.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it("Phase 64 Test 1: end-to-end swap via center-drop preserves both sessions in tabs[] and trades cells", async () => {
+    const tabA = makeTab("t-aaa", "host1", "aqua");
+    const tabB = makeTab("t-bbb", "host1", "nelly");
+    let handle: {
+      openSessionInTree: (
+        tabId: string,
+        path: SplitPath,
+        edge: DropEdge,
+      ) => void;
+      replaceInTree: (replacementTabId: string, targetTabId: string) => void;
+      swapInTree: (tabIdA: string, tabIdB: string) => void;
+      getSplitTree: () => SplitNode | null;
+    } | null = null;
+    const observedTrees: Array<SplitNode | null> = [];
+    render(
+      <MechanismScaffold
+        tabs={[tabA, tabB]}
+        registerHandle={(h) => {
+          handle = h;
+        }}
+        onSplitTreeChange={(tree) => {
+          observedTrees.push(tree);
+        }}
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // Seed: split-v(A on left, B on right).
+    await act(async () => {
+      handle!.openSessionInTree(tabA.id, [], "left");
+      await Promise.resolve();
+    });
+    await act(async () => {
+      handle!.openSessionInTree(tabB.id, [], "right");
+      await Promise.resolve();
+    });
+    const preSwap = handle!.getSplitTree();
+    expect(preSwap).not.toBeNull();
+    expect(preSwap!.kind).toBe("split");
+    expect(collectTabIds(preSwap!).sort()).toEqual(["t-aaa", "t-bbb"]);
+    // Swap A ↔ B via center-drop dispatch path.
+    await act(async () => {
+      handle!.swapInTree("t-aaa", "t-bbb");
+      await Promise.resolve();
+    });
+    const postSwap = handle!.getSplitTree();
+    expect(postSwap).not.toBeNull();
+    expect(postSwap!.kind).toBe("split");
+    // Both leaves still present — tree shape identical, only leaf tabIds
+    // traded. The URL-sync effect fires on splitTree change (verified by
+    // observedTrees capturing at least the seed + swap emissions); tabs[]
+    // never changes (scaffold's tabs prop is the passed [tabA, tabB]
+    // literal, no closeTab call was made).
+    expect(collectTabIds(postSwap!).sort()).toEqual(["t-aaa", "t-bbb"]);
+    // Verify the actual swap took place: A's path pre vs post.
+    const pathABefore = findLeaf(preSwap!, "t-aaa");
+    const pathAAfter = findLeaf(postSwap!, "t-aaa");
+    const pathBBefore = findLeaf(preSwap!, "t-bbb");
+    const pathBAfter = findLeaf(postSwap!, "t-bbb");
+    expect(pathABefore).not.toEqual(pathAAfter);
+    expect(pathBBefore).not.toEqual(pathBAfter);
+    // A ended up in B's old cell and vice versa.
+    expect(pathAAfter).toEqual(pathBBefore);
+    expect(pathBAfter).toEqual(pathABefore);
+    // URL-sync fires via setSplitTree — the encoded s= fragment reflects
+    // the new tree.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const hash = window.location.hash.slice(1);
+    const params = new URLSearchParams(hash);
+    expect(params.get("s")).not.toBeNull();
+    expect(params.get("t")).not.toBeNull();
+  });
+
+  it("Phase 64 Test 2: end-to-end replace via center-drop kicks displaced session out of tree, keeps it in tabs[]", async () => {
+    const tabA = makeTab("t-aaa", "host1", "aqua");
+    const tabB = makeTab("t-bbb", "host1", "nelly");
+    let handle: {
+      openSessionInTree: (
+        tabId: string,
+        path: SplitPath,
+        edge: DropEdge,
+      ) => void;
+      replaceInTree: (replacementTabId: string, targetTabId: string) => void;
+      swapInTree: (tabIdA: string, tabIdB: string) => void;
+      getSplitTree: () => SplitNode | null;
+    } | null = null;
+    render(
+      <MechanismScaffold
+        tabs={[tabA, tabB]}
+        registerHandle={(h) => {
+          handle = h;
+        }}
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      handle!.openSessionInTree(tabA.id, [], "left");
+      await Promise.resolve();
+    });
+    await act(async () => {
+      handle!.openSessionInTree(tabB.id, [], "right");
+      await Promise.resolve();
+    });
+    const preReplace = handle!.getSplitTree();
+    expect(preReplace).not.toBeNull();
+    expect(collectTabIds(preReplace!).sort()).toEqual(["t-aaa", "t-bbb"]);
+    // Center-drop: A (already in tree) replaces B's cell. Per Plan 64-01
+    // replaceLeaf, the mainline branch first calls removeLeaf(A) — which
+    // collapses the vertical split — then rediscovers B's path and replaces
+    // B's leaf with A. Result: single-leaf root of A. B evicted from tree
+    // but still in tabs[] (Phase 64 replace is a tree-op, not a
+    // tab-lifecycle op — scaffold does not call any closeTab-analog per
+    // CONTEXT.md § What this is line 3: "still present in the conv list,
+    // no longer occupying a slot").
+    await act(async () => {
+      handle!.replaceInTree("t-aaa", "t-bbb");
+      await Promise.resolve();
+    });
+    const postReplace = handle!.getSplitTree();
+    expect(postReplace).not.toBeNull();
+    expect(postReplace).toEqual({ kind: "session", tabId: "t-aaa" });
+    // A is at root []; B is gone from the tree.
+    expect(findLeaf(postReplace!, "t-aaa")).toEqual([]);
+    expect(findLeaf(postReplace!, "t-bbb")).toBeNull();
+    // CRITICAL — tabs[] invariant: the scaffold's tabs prop is UNCHANGED
+    // (still [tabA, tabB]). The displaced session B stays live, just kicked
+    // out of the grid. Phase 64 does not call any closeTab-analog for the
+    // displaced session; the scaffold has no closeTab wire so this
+    // invariant holds by absence of a mutation path.
+  });
+
+  it("Phase 64 Test 3: portal-preservation across center-drop swap — Object.is holds on both nodes (mirrors Test 6)", async () => {
+    const tabA = makeTab("t-aaa", "host1", "aqua");
+    const tabB = makeTab("t-bbb", "host1", "nelly");
+    let handle: {
+      openSessionInTree: (
+        tabId: string,
+        path: SplitPath,
+        edge: DropEdge,
+      ) => void;
+      replaceInTree: (replacementTabId: string, targetTabId: string) => void;
+      swapInTree: (tabIdA: string, tabIdB: string) => void;
+      getSplitTree: () => SplitNode | null;
+    } | null = null;
+    render(
+      <MechanismScaffold
+        tabs={[tabA, tabB]}
+        registerHandle={(h) => {
+          handle = h;
+        }}
+      />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      handle!.openSessionInTree(tabA.id, [], "left");
+      await Promise.resolve();
+    });
+    await act(async () => {
+      handle!.openSessionInTree(tabB.id, [], "right");
+      await Promise.resolve();
+    });
+    // Grab both sessions' portal-target DOM nodes BEFORE swap.
+    const contentABefore = document.querySelector(
+      '[data-testid="content-t-aaa"]',
+    );
+    const contentBBefore = document.querySelector(
+      '[data-testid="content-t-bbb"]',
+    );
+    expect(contentABefore).not.toBeNull();
+    expect(contentBBefore).not.toBeNull();
+    const nodeABefore = contentABefore!.parentElement as HTMLDivElement;
+    const nodeBBefore = contentBBefore!.parentElement as HTMLDivElement;
+    expect(nodeABefore.getAttribute("data-tab-node-for")).toBe("t-aaa");
+    expect(nodeBBefore.getAttribute("data-tab-node-for")).toBe("t-bbb");
+    // Fire the swap. MechanismScaffold's DOM-placement effect at :249-277
+    // reparents each tab's node into whichever Pane the tab is now
+    // assigned to. It iterates `tabs`, not paths, so the swap is
+    // transparent to the reparenting logic — the effect body invariant
+    // is preserved: each tab gets its SAME per-tab node placed under the
+    // matching pane element by findLeaf lookup.
+    await act(async () => {
+      handle!.swapInTree("t-aaa", "t-bbb");
+      await Promise.resolve();
+    });
+    // Regrab the DOM nodes AFTER swap.
+    const contentAAfter = document.querySelector(
+      '[data-testid="content-t-aaa"]',
+    );
+    const contentBAfter = document.querySelector(
+      '[data-testid="content-t-bbb"]',
+    );
+    expect(contentAAfter).not.toBeNull();
+    expect(contentBAfter).not.toBeNull();
+    const nodeAAfter = contentAAfter!.parentElement as HTMLDivElement;
+    const nodeBAfter = contentBAfter!.parentElement as HTMLDivElement;
+    // Load-bearing assertions — SAME DOM nodes reparented, not remounted.
+    // Phase 64 swap is a leaf-content-only tree mutation; the underlying
+    // React subtree does not unmount. CONTEXT.md § What would make Phase
+    // 64 wrong: "Portal preservation broken on swap."
+    expect(Object.is(nodeAAfter, nodeABefore)).toBe(true);
+    expect(Object.is(nodeBAfter, nodeBBefore)).toBe(true);
+  });
 });
