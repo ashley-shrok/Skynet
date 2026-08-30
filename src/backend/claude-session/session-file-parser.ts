@@ -55,6 +55,19 @@ const OUTBOUND_SENTINEL_RE = /m\.room\.message/;
 // Strict variant (INBOUND_REGEX_STRICT from prototype.html line 227).
 const INBOUND_REGEX = /\[room\s+(\S+)\]\s*\[(\@\S+)\]\s*\(event\s+(\S+)\):\s*([\s\S]*?)(?:<\/event>|$)/;
 
+// quick-260830-e6i (widen r9i goodbye_echo): Ashley's session-end routine
+// emits four literal exit-echo variants — narrow to that closed set so other
+// <local-command-stdout>...</local-command-stdout> blocks (e.g. /model or
+// /status output) still render as normal bubbles. Set-membership, not
+// substring — a body that merely CONTAINS "Goodbye!" but has other prose
+// around it is real user content and passes through.
+const GOODBYE_ECHO_VARIANTS = new Set([
+  "<local-command-stdout>Goodbye!</local-command-stdout>",
+  "<local-command-stdout>Catch you later!</local-command-stdout>",
+  "<local-command-stdout>See ya!</local-command-stdout>",
+  "<local-command-stdout>Bye!</local-command-stdout>",
+]);
+
 export type ConversationalMessage = {
   kind: "message";
   role: "user" | "assistant";
@@ -1265,10 +1278,11 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
   // src/backend/fleet-status/ssh-poll-orchestrator.ts for slash_exit,
   // resume_injection, and ctrl_c_kill. slash_id is NOT excluded there
   // (backend uses /id as an "Ashley present" signal) but IS excluded here
-  // (bubble noise). goodbye_echo is deliberately narrow to the literal
-  // "Goodbye!" stdout — other <local-command-stdout>...</local-command-stdout>
-  // blocks still render because Ashley intentionally invokes other
-  // slash-commands whose output is useful context.
+  // (bubble noise). goodbye_echo is narrow to the four literal exit-echo
+  // variants (Goodbye! / Catch you later! / See ya! / Bye!) — other
+  // <local-command-stdout>...</local-command-stdout> blocks still render
+  // because Ashley intentionally invokes other slash-commands whose output
+  // is useful context. See GOODBYE_ECHO_VARIANTS at module scope.
   if (isUser && imageRefs.length === 0 && typeof content === "string") {
     if (content.includes("<command-name>/exit</command-name>")) {
       return { kind: "skip", why: "slash_exit" };
@@ -1276,7 +1290,7 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
     if (content.includes("<command-name>/id</command-name>")) {
       return { kind: "skip", why: "slash_id" };
     }
-    if (content.trim() === "<local-command-stdout>Goodbye!</local-command-stdout>") {
+    if (GOODBYE_ECHO_VARIANTS.has(content.trim())) {
       return { kind: "skip", why: "goodbye_echo" };
     }
     if (content.startsWith("Your session was just resumed by the agent-supervisor")) {

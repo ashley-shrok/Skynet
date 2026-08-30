@@ -1213,6 +1213,77 @@ describe("parseSessionLine — session-lifecycle noise skips (quick-260829-r9i)"
     expect(parsed.why).toBe("goodbye_echo");
   });
 
+  // quick-260830-e6i: widen goodbye_echo predicate to 4 exit-echo variants.
+  // Ashley's session-end routine emits three additional literals beyond Goodbye!
+  // — all equally session-lifecycle noise. Set-membership is closed, so other
+  // <local-command-stdout>...</local-command-stdout> bodies still render (see
+  // Test R9I-3d below).
+
+  it("Test R9I-3a: goodbye_echo — literal 'Catch you later!' stdout is skipped", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "u-r9i-3a",
+        timestamp: "2026-08-30T10:00:00.000Z",
+        message: {
+          content: "<local-command-stdout>Catch you later!</local-command-stdout>",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("goodbye_echo");
+  });
+
+  it("Test R9I-3b: goodbye_echo — literal 'See ya!' stdout is skipped", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "u-r9i-3b",
+        timestamp: "2026-08-30T10:00:01.000Z",
+        message: {
+          content: "<local-command-stdout>See ya!</local-command-stdout>",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("goodbye_echo");
+  });
+
+  it("Test R9I-3c: goodbye_echo — literal 'Bye!' stdout is skipped", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "u-r9i-3c",
+        timestamp: "2026-08-30T10:00:02.000Z",
+        message: {
+          content: "<local-command-stdout>Bye!</local-command-stdout>",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("goodbye_echo");
+  });
+
+  it("Test R9I-3d: non-exit <local-command-stdout>...</local-command-stdout> body passes through (Set is closed, not substring)", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "u-r9i-3d",
+        timestamp: "2026-08-30T10:00:03.000Z",
+        message: {
+          content: "<local-command-stdout>output of /model</local-command-stdout>",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.role).toBe("user");
+    expect(parsed.content).toContain("output of /model");
+  });
+
   it("Test R9I-4: resume_injection — agent-supervisor resume sentinel is skipped", () => {
     const parsed = parseSessionLine(
       line({
