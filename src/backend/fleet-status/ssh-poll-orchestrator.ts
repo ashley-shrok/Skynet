@@ -207,6 +207,44 @@ interface PidCacheEntry {
   // preserve prior value — fail-open matching lastMessageAt / aiTitle /
   // dormant patterns).
   lastStopAt: number | null;
+  // -------------------------------------------------------------------------
+  // Phase 62 Plan 03 (WIP hook-based rewrite — 2026-08-30): two new cache axes
+  // for the direct-signal WIP predicate. Both participate in computeFingerprint
+  // so a mtime-only change on either publishes a new frame even when every
+  // other axis is unchanged.
+  //
+  // Sources: the two per-session marker files touched by the Plan 62-01 hook
+  // scripts, installed onto managed boxes by Plan 62-02:
+  //   - activityMtime: mtime × 1000 of
+  //     `~/.claude/fleet-status/hooks/<sessionId>/activity` (touched on
+  //     UserPromptSubmit + PreToolUse).
+  //   - stoppedMtime:  mtime × 1000 of
+  //     `~/.claude/fleet-status/hooks/<sessionId>/stopped`  (touched on
+  //     Stop + StopFailure + PermissionRequest).
+  //
+  // Semantics (both fields): `null` on cold-start, missing file (empty
+  // stdout), or SSH hiccup (null exec return). Cache-preserved on all three
+  // — fail-open in the safe direction matches lastMessageAt / aiTitle /
+  // dormant / lastStopAt patterns. Numeric value (unix millis) only when
+  // the stat returned a non-null non-empty numeric-parseable stdout.
+  //
+  // Rollout note (CONTEXT.md § Rollout Option 1 — LOCKED for Phase 62):
+  // These two axes ride alongside — NOT instead of — the Phase 59 lastStopAt
+  // + lastStatusChangeAt axes for the duration of the rollout window. The
+  // frontend (Plan 62-04) chooses which predicate applies per-session based
+  // on marker presence:
+  //   - activityMtime !== null || stoppedMtime !== null → new predicate
+  //     (`activityMtime > stoppedMtime` → working).
+  //   - both null → fall through to the retained Phase 59 shell-idle-gate
+  //     predicate (box not yet upgraded to Plan 62-02 installer).
+  // A follow-up phase retires the Phase 59 axes cleanly post-full-rollout.
+  //
+  // SessionId-rotation reset: on rotation (isNew-equivalent), both new axes
+  // reset to null (the new sessionId's marker files may not exist yet).
+  // Matches the Phase 59 lastStopAt rotation-reset at line ~1193 in processPid.
+  // -------------------------------------------------------------------------
+  activityMtime: number | null;
+  stoppedMtime: number | null;
 }
 
 // quick-260823-73o — source B per-identity cache entry. Replaces the prior
@@ -594,7 +632,17 @@ function computeFingerprint(state: SessionState): string {
   // lastMessageAt / aiTitle numeric-axis handling). Fingerprint segments
   // MUST live at the END of the template literal so any future axis is
   // appended after these two without disturbing the delta contract.
-  return `${state.status}|${state.waitingFor ?? ""}|${bgKey}|${state.updatedAt}|${state.lastMessageAt ?? ""}|${state.aiTitle ?? ""}|${state.dormant === true ? "1" : state.dormant === false ? "0" : ""}|${state.recycling === true ? "1" : state.recycling === false ? "0" : ""}|${state.lastStopAt ?? ""}|${state.lastStatusChangeAt ?? ""}`;
+  // Phase 62 Plan 03: activityMtime + stoppedMtime are two additional
+  // distinct axes — a per-session marker file touch (activity-hook.sh fired
+  // on UserPromptSubmit / PreToolUse, or stopped-hook.sh fired on Stop /
+  // StopFailure / PermissionRequest) bumps the mtime, which is the ONLY
+  // way to observe the direct-signal WIP predicate. Same null-normalized
+  // "" convention as the Phase 59 numeric axes — a marker-mtime-only change
+  // publishes a new frame even when status + backgroundTasks + lastStopAt +
+  // lastStatusChangeAt + every other axis is unchanged. Segments appended
+  // at the END so any future axis is added after these without disturbing
+  // the existing delta contract.
+  return `${state.status}|${state.waitingFor ?? ""}|${bgKey}|${state.updatedAt}|${state.lastMessageAt ?? ""}|${state.aiTitle ?? ""}|${state.dormant === true ? "1" : state.dormant === false ? "0" : ""}|${state.recycling === true ? "1" : state.recycling === false ? "0" : ""}|${state.lastStopAt ?? ""}|${state.lastStatusChangeAt ?? ""}|${state.activityMtime ?? ""}|${state.stoppedMtime ?? ""}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1138,6 +1186,114 @@ export function createSshPollOrchestrator(
     // defaults to on when lastStopAt stays null).
 
     // -------------------------------------------------------------------------
+    // Phase 62 Plan 03 (WIP hook-based rewrite — 2026-08-30): per-session
+    // ACTIVITY marker mtime read. Second per-session mtime read follows below
+    // for the STOPPED marker.
+    //
+    // Two separate stat reads (not one batched `stat -c %Y activity stopped`)
+    // per T-62-03-03 threat entry — the batch optimization is DEFERRED because
+    // (a) profiling has not shown regression at the 2s poll cadence, (b) two
+    // separate reads let each empty-stdout / SSH-hiccup branch preserve its
+    // own cached value independently (a batched read would need to
+    // disambiguate two absent-file cases from a single stdout blob — more
+    // complex, easier to get wrong on the initial rollout), and (c) two
+    // separate reads match the Phase 59 pattern the reader is familiar with.
+    // See <threat_model> T-62-03-03 for the full deferral rationale (and
+    // this comment corresponds to the plan-review LOW-#10 acknowledgement).
+    //
+    // Shell-quoting via shellSingleQuote (T-62-03-02 mitigation): the same
+    // character-class regex `/^[a-zA-Z0-9_-]+$/` gate the Phase 59 block
+    // above uses is applied here — any sessionId that would not have been
+    // accepted for a per-session write (activity-hook.sh / stopped-hook.sh
+    // have the same regex on the write side) must not be interpolated into
+    // a stat READ either. A `../` in sessionId could otherwise stat a
+    // foreign session's marker and publish its mtime as our activityMtime.
+    // Shell-quoting alone is not enough — it prevents command injection but
+    // still allows path traversal inside the argument.
+    //
+    // Fail-open semantics (matches lastMessageAt / aiTitle / dormant /
+    // lastStopAt): null return from SSH exec preserves the cached value;
+    // empty stdout (file does not exist — `stat` writes to stderr and
+    // `|| true` swallows non-zero exit) preserves the cached value;
+    // non-numeric stdout preserves the cached value. On cold-start (no
+    // cached entry) the value is `null`, matching the wire schema's
+    // optional-nullable contract. Unit: seconds × 1000 = unix millis
+    // (server-side conversion for wire consistency with every other
+    // timestamp axis, matching Phase 59 lastStopAt's convention).
+    // -------------------------------------------------------------------------
+    let derivedActivityMtime: number | null = cached?.activityMtime ?? null;
+    if (/^[a-zA-Z0-9_-]+$/.test(sessionJson.sessionId)) {
+      const quotedSessionId = shellSingleQuote(sessionJson.sessionId);
+      const activityMtimeRaw = await channel.exec(
+        `stat -c %Y ~/.claude/fleet-status/hooks/${quotedSessionId}/activity 2>/dev/null || true`,
+      );
+      if (activityMtimeRaw !== null && activityMtimeRaw.trim() !== "") {
+        const parsed = parseInt(activityMtimeRaw.trim(), 10);
+        if (Number.isFinite(parsed)) {
+          derivedActivityMtime = parsed * 1000;
+        }
+        // Non-numeric stdout → fail-open, keep cached value.
+      }
+      // activityMtimeRaw === null (SSH hiccup) or empty (file absent) →
+      // fail-open, keep cached value.
+    }
+    // sessionId failed the character-class guard → skip the stat entirely,
+    // preserve cached value. Fail-open in the safe direction (frontend
+    // falls back to Phase 59 predicate when activityMtime stays null).
+
+    let derivedStoppedMtime: number | null = cached?.stoppedMtime ?? null;
+    if (/^[a-zA-Z0-9_-]+$/.test(sessionJson.sessionId)) {
+      const quotedSessionId = shellSingleQuote(sessionJson.sessionId);
+      const stoppedMtimeRaw = await channel.exec(
+        `stat -c %Y ~/.claude/fleet-status/hooks/${quotedSessionId}/stopped 2>/dev/null || true`,
+      );
+      if (stoppedMtimeRaw !== null && stoppedMtimeRaw.trim() !== "") {
+        const parsed = parseInt(stoppedMtimeRaw.trim(), 10);
+        if (Number.isFinite(parsed)) {
+          derivedStoppedMtime = parsed * 1000;
+        }
+        // Non-numeric stdout → fail-open, keep cached value.
+      }
+      // stoppedMtimeRaw === null (SSH hiccup) or empty (file absent) →
+      // fail-open, keep cached value.
+    }
+    // sessionId failed the character-class guard → skip the stat entirely,
+    // preserve cached value (same fail-open direction as activity above).
+
+    // -------------------------------------------------------------------------
+    // Phase 62 Plan 03 MEDIUM-#4 code comment (LOCKED per plan review):
+    //
+    // The `perSessionHookPayloadRaw` read below (introduced by quick-260829-kmr)
+    // is the OLD Phase 59 per-session lastStopAt payload path. It also carries
+    // background_tasks[] for the box-wide `bg` consumer path after
+    // quick-260829-kmr — orthogonal to the Phase 62 direct-signal WIP predicate.
+    //
+    // It is KEPT DELIBERATELY during the Phase 62 rollout window per two
+    // distinct constraints:
+    //   1. CONTEXT.md § Out of scope: "the background-tasks list mechanism ...
+    //      stays as-is" — the payload's background_tasks[] feeds a consumer
+    //      unrelated to the WIP predicate this phase replaces.
+    //   2. CONTEXT.md § Rollout Option 1 (LOCKED): the Phase 59 lastStopAt
+    //      derivation (its `stat -c %Y ~/.claude/fleet-status/stop-<sid>.json`
+    //      sibling above at line ~1114) must keep publishing so the frontend
+    //      fallback branch on unupgraded boxes continues to have data. Both
+    //      the stat and this payload cat feed the retained Phase 59 signal set.
+    //
+    // The NEW Phase 62 marker reads live at
+    // `~/.claude/fleet-status/hooks/<sid>/{activity,stopped}` (added ABOVE
+    // this block in step 3 of Task 2 — search for `derivedActivityMtime` and
+    // `derivedStoppedMtime`). Both are read every tick during the rollout
+    // window. Frontend consumer (Plan 62-04) chooses which predicate applies
+    // per-session based on marker presence.
+    //
+    // A follow-up phase (post-full-rollout, orchestrator-tracked) retires
+    // this cat + the two Phase 59 stat/derivation blocks + the stop-hook.sh
+    // install entirely; until then the three reads coexist deliberately.
+    // Prevents a future maintainer from "cleaning up" one of the reads
+    // without understanding the rollout coupling.
+    // -------------------------------------------------------------------------
+
+    // -------------------------------------------------------------------------
     // Quick 260829-kmr: per-session Stop-hook PAYLOAD read (separate from Phase 61's mtime
     //   stat above). Mirrors Phase 61's regex + shellSingleQuote pattern so an illegal
     //   sessionId cannot path-traverse a foreign identity's payload. On null/empty here
@@ -1191,6 +1347,15 @@ export function createSshPollOrchestrator(
       cached.sessionId !== sessionJson.sessionId;
     if (sessionIdRotated) {
       derivedLastStopAt = null;
+      // Phase 62 Plan 03 — rotation resets both new axes too. The rotated
+      // sessionId's marker files (activity + stopped) may not exist yet;
+      // preserving the previous sessionId's cached mtimes would publish
+      // stale foreign-session values and drive the WIP predicate wrong on
+      // the fresh session's first ticks. Same isNew-equivalent treatment
+      // as lastStopAt above — both signal sets stay in lockstep on
+      // rotation.
+      derivedActivityMtime = null;
+      derivedStoppedMtime = null;
     }
 
     let derivedLastStatusChangeAt: number;
@@ -1459,6 +1624,14 @@ export function createSshPollOrchestrator(
       // predicate in Plan 59-03.
       lastStopAt: derivedLastStopAt,
       lastStatusChangeAt: derivedLastStatusChangeAt,
+      // Phase 62 Plan 03 — per-session activity + stopped marker mtimes.
+      // Both axes are consumed by the frontend session-working-store's new
+      // direct-signal WIP predicate in Plan 62-04 (`activityMtime >
+      // stoppedMtime` → working). Ride alongside the Phase 59 axes above
+      // per CONTEXT.md § Rollout Option 1 (LOCKED) — frontend chooses
+      // which predicate applies per-session based on marker presence.
+      activityMtime: derivedActivityMtime,
+      stoppedMtime: derivedStoppedMtime,
     };
 
     // Delta semantics — only publish if fingerprint changed
@@ -1483,6 +1656,11 @@ export function createSshPollOrchestrator(
         // debugging can trace which axis drove a publish (T-59-02-04 mitigation).
         lastStopAt: state.lastStopAt,
         lastStatusChangeAt: state.lastStatusChangeAt,
+        // Phase 62 Plan 03 — forensic entries for the two new Phase 62 axes.
+        // Post-publish inspection can distinguish which signal set drove the
+        // frontend's per-session predicate choice during the rollout window.
+        activityMtime: state.activityMtime,
+        stoppedMtime: state.stoppedMtime,
       });
 
       livenessMap.set(pid, {
@@ -1503,6 +1681,13 @@ export function createSshPollOrchestrator(
         lastStatus: sessionJson.status,
         lastStatusChangeAt: derivedLastStatusChangeAt,
         lastStopAt: derivedLastStopAt,
+        // Phase 62 Plan 03 — cache the two new mtime axes so the next tick's
+        // fail-open preservation has the correct source-of-truth (matching
+        // the lastStopAt pattern above). Same Pitfall-3 invariant applies
+        // here: on a fingerprint-changed publish the fresh derived values
+        // become the new cache baseline.
+        activityMtime: derivedActivityMtime,
+        stoppedMtime: derivedStoppedMtime,
       });
     } else {
       // Update procStart + tmux in case they changed without a state-change
@@ -1527,6 +1712,17 @@ export function createSshPollOrchestrator(
         lastStatus: sessionJson.status,
         lastStatusChangeAt: derivedLastStatusChangeAt,
         lastStopAt: derivedLastStopAt,
+        // Phase 62 Plan 03 — SAME Pitfall-3 invariant applies to the two
+        // new mtime axes. Consider: a same-status same-payload tick where
+        // the activity or stopped marker's mtime changed via a hook fire
+        // that has ALREADY been fingerprinted+published on a prior tick.
+        // The fingerprint might match on THIS tick (mtime axis unchanged
+        // this-tick-vs-cache) yet the DERIVED values differ from the
+        // spread's cached values if a fresh stat succeeded. Explicitly
+        // stamping both keeps the cache in lockstep with the derivation
+        // logic, matching the lastStopAt handling above.
+        activityMtime: derivedActivityMtime,
+        stoppedMtime: derivedStoppedMtime,
       });
     }
   }
