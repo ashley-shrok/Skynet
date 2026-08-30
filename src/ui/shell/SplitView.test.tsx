@@ -791,3 +791,470 @@ describe("SplitView — Phase 57: drop-preview overlay + edge-zone hit-testing",
     ).toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 64 Plan 02 Task 1 — center-drop replace-vs-swap dispatch + full-cell
+// coral overlay + two new Pane props (onReplaceInTree + onSwapInTree).
+//
+// See `.planning/phases/64-multi-view-center-drop/64-CONTEXT.md` §
+// "Test coverage additions" § Plan 64-02 SplitView tests (Tests 10-18 in
+// CONTEXT.md renumbered locally to Phase 64 Tests 1-9 here + Test 10 covering
+// deep-tree center-drop from CONTEXT.md § Edge case #7 for robustness).
+//
+// Helpers redeclared locally — the Phase 57 describe's helpers are describe-
+// scoped, not file-scoped. Redeclaring inline keeps the diff surface within
+// the Phase 64 block (satisfies "no other file changes" plan-scope directive).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("SplitView — Phase 64: center-drop replace-vs-swap", () => {
+  // ── Local helpers (mirror Phase 57's describe-scoped helpers verbatim) ──
+  function dispatchDragOverAt(
+    el: Element,
+    clientX: number,
+    clientY: number,
+    dataTransfer?: {
+      getData?: (k: string) => string;
+      types?: readonly string[];
+    },
+  ): void {
+    const dtWithTypes = {
+      types: ["application/x-skynet-row", "text/plain"] as readonly string[],
+      getData: (_k: string) => "",
+      ...(dataTransfer ?? {}),
+    };
+    const evt = createEvent.dragOver(el, { dataTransfer: dtWithTypes });
+    Object.defineProperty(evt, "clientX", { value: clientX, configurable: true });
+    Object.defineProperty(evt, "clientY", { value: clientY, configurable: true });
+    fireEvent(el, evt);
+  }
+
+  function dispatchDragLeaveAt(
+    el: Element,
+    clientX: number,
+    clientY: number,
+  ): void {
+    const dtWithTypes = {
+      types: ["application/x-skynet-row", "text/plain"] as readonly string[],
+      getData: (_k: string) => "",
+    };
+    const evt = createEvent.dragLeave(el, { dataTransfer: dtWithTypes });
+    Object.defineProperty(evt, "clientX", { value: clientX, configurable: true });
+    Object.defineProperty(evt, "clientY", { value: clientY, configurable: true });
+    fireEvent(el, evt);
+  }
+
+  function dispatchDropAt(
+    el: Element,
+    clientX: number,
+    clientY: number,
+    dataTransfer: { getData: (k: string) => string; types?: readonly string[] },
+  ): void {
+    const dtWithTypes = {
+      types: ["application/x-skynet-row", "text/plain"] as readonly string[],
+      ...dataTransfer,
+    };
+    const evt = createEvent.drop(el, { dataTransfer: dtWithTypes });
+    Object.defineProperty(evt, "clientX", { value: clientX, configurable: true });
+    Object.defineProperty(evt, "clientY", { value: clientY, configurable: true });
+    fireEvent(el, evt);
+  }
+
+  function findPaneOuter(from: HTMLElement): HTMLElement {
+    let cur: HTMLElement | null = from.parentElement;
+    while (cur && !cur.className.includes("relative isolate flex flex-col")) {
+      cur = cur.parentElement;
+    }
+    if (!cur) throw new Error("Pane outer div not found");
+    return cur;
+  }
+
+  function mockRect(
+    el: HTMLElement,
+    r: { left: number; right: number; top: number; bottom: number },
+  ): void {
+    el.getBoundingClientRect = () =>
+      ({
+        left: r.left,
+        right: r.right,
+        top: r.top,
+        bottom: r.bottom,
+        width: r.right - r.left,
+        height: r.bottom - r.top,
+        x: r.left,
+        y: r.top,
+        toJSON: () => ({}),
+      }) as DOMRect;
+  }
+
+  // ── Local fixtures ──
+  const tabTarget = makeTab("target", "TargetTab");
+  const tabC = makeTab("ccc", "Charlie");
+
+  let infoSpy: ReturnType<typeof vi.spyOn>;
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  // ── Overlay rendering (Tests 1-4) ────────────────────────────────────────
+
+  it("Phase 64 Test 1: badge-mime dragover at dead-center renders full-cell overlay (data-zone=center, geometry=full rect)", () => {
+    const tree: SplitNode = leaf("target");
+    const { container } = render(
+      <SplitView splitTree={tree} tabs={[tabTarget]} />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDragOverAt(paneOuter, 50, 50, {
+      types: ["application/x-skynet-badge", "text/plain"],
+      getData: (_k: string) => "",
+    });
+    const overlay = container.querySelector(
+      '[data-testid="pane-drop-preview-overlay"]',
+    ) as HTMLElement | null;
+    expect(overlay).not.toBeNull();
+    expect(overlay!.getAttribute("data-zone")).toBe("center");
+    expect(overlay!.style.left).toBe("0px");
+    expect(overlay!.style.top).toBe("0px");
+    expect(overlay!.style.width).toBe("100px");
+    expect(overlay!.style.height).toBe("100px");
+  });
+
+  it("Phase 64 Test 2: row-mime dragover at dead-center renders full-cell overlay (data-zone=center, geometry=full rect)", () => {
+    const tree: SplitNode = leaf("target");
+    const { container } = render(
+      <SplitView splitTree={tree} tabs={[tabTarget]} />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDragOverAt(paneOuter, 50, 50, {
+      types: ["application/x-skynet-row", "text/plain"],
+      getData: (_k: string) => "",
+    });
+    const overlay = container.querySelector(
+      '[data-testid="pane-drop-preview-overlay"]',
+    ) as HTMLElement | null;
+    expect(overlay).not.toBeNull();
+    expect(overlay!.getAttribute("data-zone")).toBe("center");
+    expect(overlay!.style.left).toBe("0px");
+    expect(overlay!.style.top).toBe("0px");
+    expect(overlay!.style.width).toBe("100px");
+    expect(overlay!.style.height).toBe("100px");
+  });
+
+  it("Phase 64 Test 3: unknown-mime (text/plain only) dragover at center renders NO overlay (hasSkynetDragPayload gate regression)", () => {
+    const tree: SplitNode = leaf("target");
+    const { container } = render(
+      <SplitView splitTree={tree} tabs={[tabTarget]} />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDragOverAt(paneOuter, 50, 50, {
+      types: ["text/plain"],
+      getData: (_k: string) => "",
+    });
+    const overlay = container.querySelector(
+      '[data-testid="pane-drop-preview-overlay"]',
+    );
+    expect(overlay).toBeNull();
+  });
+
+  it("Phase 64 Test 4: center dragover then dragleave OUTSIDE clears the overlay (state cleanup regression)", () => {
+    const tree: SplitNode = leaf("target");
+    const { container } = render(
+      <SplitView splitTree={tree} tabs={[tabTarget]} />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDragOverAt(paneOuter, 50, 50, {
+      types: ["application/x-skynet-badge", "text/plain"],
+      getData: (_k: string) => "",
+    });
+    expect(
+      container.querySelector('[data-testid="pane-drop-preview-overlay"]'),
+    ).not.toBeNull();
+    dispatchDragLeaveAt(paneOuter, 500, 500); // outside mocked rect
+    expect(
+      container.querySelector('[data-testid="pane-drop-preview-overlay"]'),
+    ).toBeNull();
+  });
+
+  // ── Drop dispatch (Tests 5-9) ────────────────────────────────────────────
+
+  it("Phase 64 Test 5: badge-mime center-drop dispatches onSwapInTree(source, target); no other handler called", () => {
+    const swapSpy =
+      vi.fn<(a: string, b: string) => void>();
+    const replaceSpy =
+      vi.fn<(replacement: string, target: string) => void>();
+    const openSpy =
+      vi.fn<(tabId: string, path: SplitPath, edge: DropEdge) => void>();
+    const rowDropSpy =
+      vi.fn<(payload: unknown, path: SplitPath, edge: DropEdge) => void>();
+    const tree: SplitNode = leaf("target");
+    const { container } = render(
+      <SplitView
+        splitTree={tree}
+        tabs={[tabTarget]}
+        onSwapInTree={swapSpy}
+        onReplaceInTree={replaceSpy}
+        onOpenSessionInTree={openSpy}
+        onDropRowInTree={rowDropSpy}
+      />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDropAt(paneOuter, 50, 50, {
+      types: ["application/x-skynet-badge", "text/plain"],
+      getData: (k: string) =>
+        k === "application/x-skynet-badge"
+          ? JSON.stringify({ tabId: "source" })
+          : k === "text/plain"
+            ? "source"
+            : "",
+    });
+    expect(swapSpy).toHaveBeenCalledTimes(1);
+    expect(swapSpy).toHaveBeenCalledWith("source", "target");
+    expect(replaceSpy).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(rowDropSpy).not.toHaveBeenCalled();
+  });
+
+  it("Phase 64 Test 6: row-mime center-drop dispatches onReplaceInTree(source, target); no other handler called", () => {
+    const swapSpy =
+      vi.fn<(a: string, b: string) => void>();
+    const replaceSpy =
+      vi.fn<(replacement: string, target: string) => void>();
+    const openSpy =
+      vi.fn<(tabId: string, path: SplitPath, edge: DropEdge) => void>();
+    const rowDropSpy =
+      vi.fn<(payload: unknown, path: SplitPath, edge: DropEdge) => void>();
+    const tree: SplitNode = leaf("target");
+    const { container } = render(
+      <SplitView
+        splitTree={tree}
+        tabs={[tabTarget]}
+        onSwapInTree={swapSpy}
+        onReplaceInTree={replaceSpy}
+        onOpenSessionInTree={openSpy}
+        onDropRowInTree={rowDropSpy}
+      />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDropAt(paneOuter, 50, 50, {
+      types: ["application/x-skynet-row", "text/plain"],
+      getData: (k: string) =>
+        k === "application/x-skynet-row"
+          ? JSON.stringify({
+              id: "source",
+              host: null,
+              targetTmuxSession: null,
+              fleetOnly: false,
+              rdpHostRow: false,
+            })
+          : k === "text/plain"
+            ? "source"
+            : "",
+    });
+    expect(replaceSpy).toHaveBeenCalledTimes(1);
+    expect(replaceSpy).toHaveBeenCalledWith("source", "target");
+    expect(swapSpy).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(rowDropSpy).not.toHaveBeenCalled();
+  });
+
+  it("Phase 64 Test 7: badge-mime self-drop (source === target) is silent — no handler called, structured log emitted", () => {
+    const swapSpy =
+      vi.fn<(a: string, b: string) => void>();
+    const replaceSpy =
+      vi.fn<(replacement: string, target: string) => void>();
+    const openSpy =
+      vi.fn<(tabId: string, path: SplitPath, edge: DropEdge) => void>();
+    const rowDropSpy =
+      vi.fn<(payload: unknown, path: SplitPath, edge: DropEdge) => void>();
+    const tree: SplitNode = leaf("target");
+    const { container } = render(
+      <SplitView
+        splitTree={tree}
+        tabs={[tabTarget]}
+        onSwapInTree={swapSpy}
+        onReplaceInTree={replaceSpy}
+        onOpenSessionInTree={openSpy}
+        onDropRowInTree={rowDropSpy}
+      />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDropAt(paneOuter, 50, 50, {
+      types: ["application/x-skynet-badge", "text/plain"],
+      getData: (k: string) =>
+        k === "application/x-skynet-badge"
+          ? JSON.stringify({ tabId: "target" })
+          : k === "text/plain"
+            ? "target"
+            : "",
+    });
+    expect(swapSpy).not.toHaveBeenCalled();
+    expect(replaceSpy).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(rowDropSpy).not.toHaveBeenCalled();
+    // Structured log emits — exact token per must_have truth 6.
+    const selfDropLog = infoSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "string" &&
+          a.includes("center-self-drop-ignored"),
+      ),
+    );
+    expect(selfDropLog).toBe(true);
+  });
+
+  it("Phase 64 Test 8: unknown-mime center-drop is silent (drop handler is a total function) — no handler called, no throw", () => {
+    const swapSpy =
+      vi.fn<(a: string, b: string) => void>();
+    const replaceSpy =
+      vi.fn<(replacement: string, target: string) => void>();
+    const openSpy =
+      vi.fn<(tabId: string, path: SplitPath, edge: DropEdge) => void>();
+    const rowDropSpy =
+      vi.fn<(payload: unknown, path: SplitPath, edge: DropEdge) => void>();
+    const tree: SplitNode = leaf("target");
+    const { container } = render(
+      <SplitView
+        splitTree={tree}
+        tabs={[tabTarget]}
+        onSwapInTree={swapSpy}
+        onReplaceInTree={replaceSpy}
+        onOpenSessionInTree={openSpy}
+        onDropRowInTree={rowDropSpy}
+      />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    // No skynet MIME — hasSkynetDragPayload gate at :333 early-returns.
+    expect(() =>
+      dispatchDropAt(paneOuter, 50, 50, {
+        types: ["text/plain"],
+        getData: (k: string) => (k === "text/plain" ? "selected-text" : ""),
+      }),
+    ).not.toThrow();
+    expect(swapSpy).not.toHaveBeenCalled();
+    expect(replaceSpy).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(rowDropSpy).not.toHaveBeenCalled();
+    // No overlay was rendered (no dragover; and even if there had been, the
+    // gate would have blocked it).
+    expect(
+      container.querySelector('[data-testid="pane-drop-preview-overlay"]'),
+    ).toBeNull();
+  });
+
+  it("Phase 64 Test 9: edge-zone drop preserves Phase 56 rich-payload + Phase 58 badge-onto-edge paths (byte-unchanged regression)", () => {
+    const swapSpy =
+      vi.fn<(a: string, b: string) => void>();
+    const replaceSpy =
+      vi.fn<(replacement: string, target: string) => void>();
+    const openSpy =
+      vi.fn<(tabId: string, path: SplitPath, edge: DropEdge) => void>();
+    const rowDropSpy =
+      vi.fn<(payload: unknown, path: SplitPath, edge: DropEdge) => void>();
+    const tree: SplitNode = leaf("target");
+    const { container } = render(
+      <SplitView
+        splitTree={tree}
+        tabs={[tabTarget]}
+        onSwapInTree={swapSpy}
+        onReplaceInTree={replaceSpy}
+        onOpenSessionInTree={openSpy}
+        onDropRowInTree={rowDropSpy}
+      />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+
+    // Scenario A: left-edge drop with row-payload → rich-payload branch fires.
+    const rowPayload = {
+      id: "source-row",
+      host: null,
+      targetTmuxSession: null,
+      fleetOnly: false,
+      rdpHostRow: false,
+    };
+    dispatchDropAt(paneOuter, 10, 50, {
+      types: ["application/x-skynet-row", "text/plain"],
+      getData: (k: string) =>
+        k === "application/x-skynet-row"
+          ? JSON.stringify(rowPayload)
+          : k === "text/plain"
+            ? "source-row"
+            : "",
+    });
+    expect(rowDropSpy).toHaveBeenCalledTimes(1);
+    expect(rowDropSpy).toHaveBeenCalledWith(rowPayload, [], "left");
+    expect(swapSpy).not.toHaveBeenCalled();
+    expect(replaceSpy).not.toHaveBeenCalled();
+
+    // Scenario B: left-edge drop with badge-MIME + text/plain (no rich row) →
+    // text/plain fallback branch fires. Phase 58 badge-onto-edge rearrange.
+    dispatchDropAt(paneOuter, 10, 50, {
+      types: ["application/x-skynet-badge", "text/plain"],
+      getData: (k: string) =>
+        k === "text/plain" ? "source-badge" : "",
+    });
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    expect(openSpy).toHaveBeenCalledWith("source-badge", [], "left");
+    expect(swapSpy).not.toHaveBeenCalled();
+    expect(replaceSpy).not.toHaveBeenCalled();
+  });
+
+  // ── Deep-tree regression (Test 10) ──────────────────────────────────────
+
+  it("Phase 64 Test 10: deep-tree center-drop through SplitView — badge drop onto nested cell C dispatches onSwapInTree(a, c)", () => {
+    const swapSpy =
+      vi.fn<(a: string, b: string) => void>();
+    const replaceSpy =
+      vi.fn<(replacement: string, target: string) => void>();
+    // splitTree = split(vertical, leaf("aaa"), split(horizontal, leaf("bbb"), leaf("ccc")))
+    const tree: SplitNode = split(
+      "vertical",
+      leaf("aaa"),
+      split("horizontal", leaf("bbb"), leaf("ccc")),
+    );
+    const { container } = render(
+      <SplitView
+        splitTree={tree}
+        tabs={[tabA, tabB, tabC]}
+        onSwapInTree={swapSpy}
+        onReplaceInTree={replaceSpy}
+      />,
+    );
+    const contentC = container.querySelector(
+      '[data-tab-id="ccc"]',
+    ) as HTMLElement;
+    expect(contentC).not.toBeNull();
+    const paneOuterC = findPaneOuter(contentC);
+    mockRect(paneOuterC, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDropAt(paneOuterC, 50, 50, {
+      types: ["application/x-skynet-badge", "text/plain"],
+      getData: (k: string) =>
+        k === "application/x-skynet-badge"
+          ? JSON.stringify({ tabId: "aaa" })
+          : k === "text/plain"
+            ? "aaa"
+            : "",
+    });
+    expect(swapSpy).toHaveBeenCalledTimes(1);
+    expect(swapSpy).toHaveBeenCalledWith("aaa", "ccc");
+    expect(replaceSpy).not.toHaveBeenCalled();
+  });
+});
