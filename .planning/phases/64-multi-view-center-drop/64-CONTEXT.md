@@ -64,7 +64,8 @@ Both operate purely on the `SplitNode` tree; both are pure functions; both fit t
 2. **New AppShell handlers `replaceInTree` + `swapInTree` (Plan 64-02).**
    - `replaceInTree(replacementTabId: string, targetTabId: string)` — calls `setSplitTree((prev) => replaceLeaf(prev, targetTabId, replacementTabId))`. Structured log: `[pv-split-drop] replace target=<tabId> with=<tabId>`.
    - `swapInTree(tabIdA: string, tabIdB: string)` — calls `setSplitTree((prev) => swapLeaves(prev, tabIdA, tabIdB))`. Structured log: `[pv-split-drop] swap a=<tabId> b=<tabId>`.
-   - Both mirror the mutation shape of the existing `openSessionInTree` handler at `AppShell.tsx:1600-1708` (functional-updater pattern; URL fragment auto-syncs via existing effect at `:1322` since `splitTree` is the encoded axis).
+   - Both mirror the mutation shape of the existing `openSessionInTree` handler at `AppShell.tsx:1600-1708` (functional-updater pattern; URL fragment auto-syncs via existing effect at `AppShell.tsx:868` since `splitTree` is the encoded axis).
+   - **Focus semantics — SYMMETRIC.** Both handlers set focus to the "just-moved" session after the mutation. For `replaceInTree`: `setFocusedTabId(replacementTabId)` — the new occupant of the target cell gets focus. For `swapInTree`: `setFocusedTabId(tabIdA)` — the session that was dragged (source) gets focus in its new cell. Mental model in both cases: the session the user was "carrying" during the drag lands focused. This is the locked default; do not leave focus to executor discretion.
 
 3. **SplitView center-zone drop handling (Plan 64-02).** Rewrite the short-circuit at `src/ui/shell/SplitView.tsx:349-355`:
    - On center-zone drop, read `e.dataTransfer.types`:
