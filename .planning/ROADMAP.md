@@ -190,6 +190,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 4 plans
 
 Plans:
+
 - [x] 05-01-PLAN.md — Backend upload orchestrator + shared wire-protocol types (upload_start/upload_chunk/upload_abort cases in terminal.ts, pretty-view-upload.ts module, formatInjectedUserTurn helper, sanitizeFilenameForUpload, all threat-model mitigations at ingress) (UPLOAD-06, UPLOAD-09, UPLOAD-10, UPLOAD-14)
 - [x] 05-02-PLAN.md — Frontend chip strip + drop overlay + paste + mobile paperclip + usePrettyViewUploads orchestrator hook (chunk pump, batch atomicity, retry, per-chip progress, folder rejection, caption/attachment persistence asymmetry) (UPLOAD-01, UPLOAD-02, UPLOAD-03, UPLOAD-04, UPLOAD-05, UPLOAD-07, UPLOAD-08, UPLOAD-12, UPLOAD-13)
 - [x] 05-03-PLAN.md — Terminal.tsx wiring (webSocketRef + handleInjectedTurnReady two-event split-send) + ChatMessage sender-side chip render + parseInjectedUserTurn round-trip parser (UPLOAD-06, UPLOAD-09, UPLOAD-11)
@@ -264,6 +265,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 **Plans:** 2/3 plans executed
 
 Plans:
+
 - [x] 07-01-PLAN.md — Fleet-native store extension (FleetSession + updateFleetSessions + updateHostsFlat + union/dedup rows with fleetOnly marker) + AppShell one-shot getSessionList() fetch + detached-row-click transparent-attach handler (TG-12, TG-13, TG-14, TG-17)
 - [x] 07-02-PLAN.md — RDP row rendering at bottom (monitor icon + no hue + rdpHostRow marker) + NewSessionButton pencil re-style + ConversationsPanel showGear mobile-fix via `!useIsTouchDevice()` gate + AppShell onRdpRowClick handler (TG-15, TG-16, TG-18)
 - [ ] 07-03-PLAN.md — Deploy checkpoint: build verify + Nyquist UAT checklist for TG-12..18 + patches-md #106 draft + mandatory 15-min deadman deploy under Ashley's separate green-light (all TG-12..18)
@@ -278,6 +280,7 @@ Plans:
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (run /gsd-plan-phase 8 to break down)
 
 ### Phase 9: ComposeBox redesign — 2-tall shell with horizontal ctx meter
@@ -312,10 +315,12 @@ Plans:
 **Depends on:** Phase 6, Phase 7, Phase 4 (Glass depth tokens + hue-vocabulary — reused verbatim for selected-row treatment)
 
 **Design source-of-truth (LOCKED, Ashley signed off 2026-07-22):**
+
 - Mobile: `~/.claude/identities/tina/bounties/pretty-conversations-panel-redesign/prototype.html` (v0.3)
 - Desktop: `~/.claude/identities/tina/bounties/pretty-conversations-panel-redesign/desktop.html` (v0.1)
 
 **Non-negotiables (baked into plans, not open to re-litigation):**
+
 - Both viewports ship in the same phase (no dual-mode ship — shape file lock)
 - No IdentityBadge chip on rows (Ashley: session name = identity name)
 - Flat list — no "Pinned" or per-host section headers
@@ -369,10 +374,12 @@ Plans:
   6. On mobile, page-load lands on the pretty-conversations panel (list view) with mobile back-button flow to PrettyView chat, unchanged from Phase 10's shipped behavior
 
 **Design source-of-truth (LOCKED, Ashley 2026-07-23):**
+
 - `~/.claude/identities/tina/bounties/skynet-transformation-purge-dead-surfaces/` (bounty premise + Ashley UAT quote)
 - `~/.claude/identities/tina/tina.md` § Skynet direction — Ship of Theseus (dead-surfaces canonical list; palette authority `--color-pv-*`)
 
 **Non-negotiables (baked into plans, not open to re-litigation):**
+
 - Delete files rather than gate/hide them — this is a Ship-of-Theseus purge, not a feature-flag switch
 - Keep the invisible-shell technical capability: tab plumbing, terminal renderer, RDP/VNC panes, host CRUD BACKEND (data layer). Untouched.
 - No settings UI anywhere in this phase or any follow-up (Ashley 2026-07-23: "we are not having settings at all" — total, not partial)
@@ -418,11 +425,13 @@ Plans:
   8. `tsc --noEmit` exits 0; `npx vitest run` all green (or unchanged from Phase 11's 2-baseline ComposeBox drift); `npm run build` succeeds; AppShell + pretty-view chunks unchanged size (this phase only removes already-orphaned files, so bundle size drop should be modest — the big shrink was Phase 11 which stripped the imports; deleting the now-orphaned files should give a smaller incremental drop unless code-splitting was already keeping them out)
 
 **Design source-of-truth (LOCKED, Ashley 2026-07-23):**
+
 - `~/.claude/identities/tina/bounties/skynet-transformation-purge-dead-surfaces/` (bounty premise + Phase 12+ todo enumeration)
 - `~/.claude/identities/tina/tina.md` § Skynet direction — Ship of Theseus (dead-surfaces canonical list; palette authority `--color-pv-*`; scope-decision heuristic)
 - `.planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-01-STRIP-LIST.md` (Phase 11's enumeration pattern — Phase 12 mirrors this)
 
 **Non-negotiables (baked into plans, not open to re-litigation):**
+
 - Deletion, not gating — same as Phase 11
 - Enumeration-first plan (mirror Phase 11 Plan 01 pattern) — produce authoritative `12-01-STRIP-LIST.md` BEFORE any deletion; prove each target has zero surviving `src/` imports via grep
 - Atomic commits per file/subtree, tsc-clean per commit — same as Phase 11
@@ -487,11 +496,13 @@ Plans:
   10. `tsc --noEmit` exits 0 across all Phase 13 commit boundaries; `npx vitest run` all green (or unchanged from Phase 12's baseline); `npm run build` succeeds; conversation-list bundle size does not grow meaningfully (the swap from JS-computed inline styles + Tailwind classes to a static CSS file should be a wash or slight shrink).
 
 **Design source-of-truth (LOCKED, Ashley 2026-07-23):**
+
 - `~/.claude/identities/tina/bounties/skynet-transformation/prototype.html` (mock v4, THE authoritative visual spec — Full-intensity + Normal density variant is what ships)
 - `~/.claude/identities/tina/tina.md § Skynet direction — the app IS Telegram` (mental model, two-surfaces rule, pretty-view interior is locked)
 - `src/ui/index.css:117-146` (`--color-pv-*` palette — the color authority for both surfaces)
 
 **Non-negotiables (baked into plans, not open to re-litigation):**
+
 - **Lift, don't approximate.** The mock's flat CSS is the target. If a task is proposing to re-derive the mock's values through JS-computed inline styles or Tailwind classes, that's the same failure pattern that produced the current state — reject and re-scope.
 - **Pretty-view chat surface interior is UNTOUCHED.** No edits to `src/ui/features/pretty-view/*.tsx`. If a task appears to want to touch it, the scope check fails.
 - **Shadcn primitives + SSH/RDP dialogs + xterm.js chrome are UNTOUCHED.** Ship-of-Theseus rule — those 413 Skynet theme-class hits stay for upstream Skynet rebase-ability. Same reason Phase 13 (originally scoped as backend routes) was skipped.
@@ -569,15 +580,18 @@ Plans:
 **Plans:** 2/3 plans executed
 
 Plans:
+
 - [x] 15-01-PLAN.md — Backend: extend /user-preferences with pinnedConversationIds JSON column + endpoint + direct-handler tests (PIN-01, PIN-02, PIN-06, PIN-07, PIN-08)
 - [x] 15-02-PLAN.md — Frontend store: pins-api client + pinConversation/unpinConversation server-write augmentation + hydratePinnedIdsFromServer setter + tests 30j-30o (PIN-03, PIN-05, PIN-08)
 - [ ] 15-03-PLAN.md — Frontend panel: PrettyConversationsPanel mount-effect fetch + one integration test + human-verify end-to-end round-trip checkpoint (PIN-01, PIN-02, PIN-04, PIN-05)
 
 **Design decisions locked in planning (internally coherent per plan-checker requirement):**
+
 - Storage shape: Option B — JSON column `pinned_conversation_ids TEXT` on existing `user_preferences` table (safe additive migration via existing `addColumnIfNotExists` helper at src/backend/database/db/index.ts:670-674; set-size is 1; no per-pin metadata needed)
 - Endpoint shape: Option A — extend `/user-preferences` GET+PUT (ZERO nginx changes — existing `location ~ ^/user-preferences(/.*)?$` block at nginx.conf:258 + nginx-https.conf:265 already routes; JSON body, response-echoes-persisted-state avoids PIN-08 multipart trap)
 
 **Wave structure:**
+
 - Wave 1: 15-01 (backend — schema + endpoint + tests; no dependencies)
 - Wave 2: 15-02 (frontend store; depends on 15-01 for endpoint to exist)
 - Wave 3: 15-03 (frontend panel wire-up + human-verify; depends on 15-02 for hydratePinnedIdsFromServer + getPinnedIds to exist)
@@ -590,6 +604,7 @@ Plans:
 **Plans:** 4/4 plans complete
 
 Plans:
+
 - [x] TBD (run /gsd-plan-phase 16 to break down) (completed 2026-07-27)
 
 ### Phase 17: Pretty-view relay bubbles — Skynet integration
@@ -610,11 +625,13 @@ Plans:
   6. All existing pretty-view functionality is preserved end-to-end — plain-text send/receive, WipBubble, PlanPendingBubble, tool-use rendering (for non-relay curl commands), IdentityBadge, ComposeBox, session-changeover behavior, keyboard chords. Zero regression to non-relay turn rendering.
 
 **Design source-of-truth (LOCKED, 2026-07-28):**
+
 - Prototype: `~/.claude/identities/tina/bounties/pretty-view-relay-bubble-prototype/prototype.html` (served at http://100.99.149.8:8899/relay-bubble-prototype.html, 6/6 acceptance battery passed with Ashley)
 - Detector JS in prototype.html — port verbatim; the two conjunctions ARE the contract
 - Bubble class-toggle recipe in prototype.html — port verbatim (outbound-blue right, inbound-orange left)
 
 **Non-negotiables (baked into plans, not open to re-litigation):**
+
 - Detection is the two conjunctions, unchanged. Do NOT loosen (bare-substring on any of the three tokens was rejected in prototype validation for producing false positives on prose/comments).
 - Extraction failure MUST render a warned bubble, not a dropped detection — silent-loss of a detected relay turn is worse than an ugly-but-clear ⚠ display.
 - Scope stays in `src/ui/features/pretty-view/` as a message-turn extension. No changes to the pretty-view chat surface interior beyond adding the new bubble variants + detection layer + mxid resolver + file-pointer fetcher.
@@ -627,6 +644,7 @@ Plans:
 **Plans:** 3/4 plans executed
 
 Plans:
+
 - [x] 17-01-PLAN.md — Backend session-file-parser + WS wire types for relay detection (RELAYBUB-01, RELAYBUB-02, RELAYBUB-05)
 - [x] 17-02-PLAN.md — Backend SSRF-safe /relay-pointer HTTP proxy on main Express backend (port 30001) + BOTH nginx configs updated for long-inbound file-pointer fetch (RELAYBUB-04)
 - [x] 17-03-PLAN.md — Frontend RelayOutboundBubble + RelayInboundBubble + mxid resolver + file-pointer fetcher + PrettyView dispatch wiring (RELAYBUB-01, RELAYBUB-02, RELAYBUB-03, RELAYBUB-04, RELAYBUB-05, RELAYBUB-06)
@@ -651,10 +669,12 @@ Plans:
   7. **Security parity.** All new WS handlers validate `identityKey` against `IDENTITY_KEY_RE` and bounty slug against `IDENTITY_SLUG_RE` before any shell/SSH interpolation. No new shell-escape gaps introduced. Payload validation matches the existing update-wakeup handler's shape (typed guards on every input field, error responses via `identity:*-error` echoes).
 
 **Design source-of-truth:**
+
 - **Markdown-tab editor**: SCRATCH-ITERATED 2026-07-31 in bounty `file-editing-in-identity-modal` (Ashley greenlit shape on live docker-cp scratch; container still serves the scratch bytes until the ship recreate). Shape locked.
 - **Bounty-field editor**: PENDING scratch round (Wave B prerequisite — plan should call this out explicitly so it's not skipped).
 
 **Non-negotiables (baked into plans, not open to re-litigation):**
+
 - **Atomic writes only** — never a bare `fs.writeFile` without tmp+rename. A mid-write crash MUST leave the previous version on disk. Mirror the exact pattern from `writeIdentityWakeupUpdate` lines 713-718.
 - **`meeting_questions[]` remains user-only-authored** — the bounty-field editor exposes it, but no server-side handler is introduced that any agent flow could invoke to add one on the user's behalf. UI convention only; wire-level guards preserve semantics.
 - **`pinned` remains user-reserved via the existing star toggle** — no separate `pinned:true` programmatic-set path added. The Phase 18 bounty-field editor does not surface pin as one of its editable fields.
@@ -713,11 +733,13 @@ Plans:
   7. **Security parity with patch #223.** Streaming route wires JWT auth (`authenticateJWT` middleware), 300s AbortController timeout on the upstream Chatterbox fetch, T-16-03 no-body-leak on non-2xx (`{error:"TTS stream non-2xx", status}` fixed shape), and 504/502 error paths matching patch #223 semantics. No new shell/injection surfaces introduced.
 
 **Design source-of-truth:**
+
 - Endpoint spec + browser-decode reference: Nelly DM 2026-07-31 (event `$Piv-9UsNx5LjDfpXbDnspf_8TMTmLQyX4XKO49i4ZC8`) captured verbatim in bounty `stream-tts-output-via-chatterbox/bounty.json`.
 - Progressive-decode reference: view-source at https://gigaashley.click/tts-demo/ (~50 lines of JS in `<script>` block — lift wholesale per Nelly's explicit permission).
 - iOS Safari compatibility: Ashley's iPhone PWA spike of Nelly's demo passed 2026-07-31 (in-session).
 
 **Non-negotiables (baked into plans, not open to re-litigation):**
+
 - **No server-side buffering on the streaming route.** Any `await response.arrayBuffer()` / `.text()` / `.blob()` on the Chatterbox response inside `handleSpeakStream` is a plan-checker BLOCK. Pipe-through only.
 - **Existing `/voice/speak` (patch #223) is untouched.** IdentityModal voice-preview MUST continue working post-ship. Any plan that modifies the buffered route or its `postSpeak` axios helper is out of scope.
 - **Default voice stays Elena.wav.** Do NOT switch to Adrian just because Nelly's demo used it.
@@ -737,6 +759,7 @@ Plans:
 **Requirements**: IDUI-01, IDUI-02, IDUI-03, IDUI-04, IDUI-05, IDUI-06, IDUI-07, IDUI-08, IDUI-09, IDUI-10
 
 **Requirement details:**
+
 - **IDUI-01 (Modal upgrade + identity-mode toggle).** `src/ui/sidebar/NewSessionDialog.tsx` gains a **path field** (visible in both modes) and an **identity-mode checkbox** (defaults on). When off = today's regular-session flow plus the new path field; when on = identity-birth field cluster reveals below.
 - **IDUI-02 (Identity-birth field cluster).** When identity-mode is on, the modal reveals: **title** (maps to `displayName`), **brief** (ephemeral, avatar-prompt seed only, NEVER persisted anywhere), **avatar** (required pick), **voice** (reused from IdentityModal.tsx), **color** (reused from IdentityModal.tsx).
 - **IDUI-03 (Path field behavior).** Default `~`, accepts both `/` and `\` and normalizes to `/`, expands `~` server-side, creates the directory via `mkdir -p` on target host if missing.
@@ -753,6 +776,7 @@ Plans:
 **Design source-of-truth:** `~/.claude/identities/tina/bounties/identity-creation-ui/shape-identity-creation-ui.md` (LOCKED via /open with Ashley 2026-08-03 — do NOT re-litigate the design axis). Companion bounty at `~/.claude/identities/tina/bounties/identity-creation-ui/`.
 
 **Non-negotiables from shape file (baked into plans, not open to re-litigation):**
+
 - **The brief field is ephemeral.** It seeds the avatar-prompt draft ONLY. It is never persisted to the identity file, the Skynet record, or anywhere else. Any plan that persists it is a plan-checker BLOCK. (The identity discovers its own role through its own onboarding dialogue when it first wakes.)
 - **Avatar pick is required.** Modal cannot submit without a picked candidate.
 - **Both name collisions block.** Skynet-side existing record OR target-host-side existing identity folder = refuse to submit, tell the user why.
@@ -765,6 +789,7 @@ Plans:
 **Plans:** 6/6 plans complete
 
 Plans:
+
 - [x] 20-01-PLAN.md — Backend: POST /identities/avatar/batch (LLM archetype + gpt-image-1 x3 + gamma 0.7 + short-TTL cache) + nginx dual-config
 - [x] 20-02-PLAN.md — Backend: GET /identities/exists-on-host?hostId=&name= (SSH probe + local-branch for self-birth) + nginx dual-config
 - [x] 20-03-PLAN.md — Frontend: extract VoicePicker + ColorPicker from IdentityModal.tsx into shared reusable components
@@ -781,6 +806,7 @@ Plans:
 **Plans:** 6/6 plans complete
 
 Plans:
+
 - [x] 22-01-PLAN.md — SRIC-01: Repoint IdentityModal Bounties + History reads to role folder via backend two-step (Wave 1, parallel with 22-02)
 - [x] 22-02-PLAN.md — SRIC-02: GET /roles?hostId + birth orchestrator writes `role:` frontmatter (Step 2.5 pre-write per B4b(a)) + required Role dropdown on NewSessionDialog + nginx dual-config (Wave 1, parallel with 22-01)
 - [x] 22-04-PLAN.md — SRIC-04: POST /roles + CreateRoleDialog + `+ New role` launcher (Wave 2, depends on 22-02; parallel with 22-06)
@@ -789,6 +815,7 @@ Plans:
 - [x] 22-05-PLAN.md — SRIC-05: Chain create-role → create-identity with role+host pre-filled + editable (Wave 4, depends on 22-02+22-03+22-04)
 
 **Requirement details:**
+
 - **SRIC-01 (Repoint IdentityModal Bounties + History tabs).** Extend the existing `identity:get-bounties` + `identity:get-history` backend ops (or equivalent — planner picks exact naming) to do the two-step: open `~/.claude/identities/<key>/<key>.md`, parse `role:` from frontmatter, then open `~/.claude/roles/<role>/bounties/` and `~/.claude/roles/<role>/history.md` respectively. Frontend API shape stays `(identityKey, hostId)`. Fixes existing gap where these tabs read the migrated-empty identity folder. No no-role fallback branch (Ashley 2026-08-04: no such identities exist).
 - **SRIC-02 (List-roles-per-host endpoint + `role:` frontmatter on identity birth + required Role dropdown on NewSessionDialog).** New backend op `roles:list-for-host` — SSHes to given host, `ls ~/.claude/roles/`, returns `[{name, description}]` (description = `## Role` section content per id skill template; planner confirms exact source). Phase 20's identity-birth code (`identity-birth-orchestrator.ts` and callers) — when writing the new slim `<name>.md` pointer file, include `role: <picked>` frontmatter. NewSessionDialog gains a REQUIRED Role dropdown, positioned near the host picker; re-populates via `roles:list-for-host` when host changes; blocks submit if empty. Submit payload adds `role` field passed through to birth backend.
 - **SRIC-03 (Clone identity — context menu + clone modal + backend clone endpoint).** Add `Clone` item to `PrettyConversationContextMenu`'s items array via `PrettyConversationsPanel`. `onClick` reads the clicked row's host from existing session context and opens the clone modal. Clone modal: Name required (blank, default something like `<source>-2`), Title editable pre-filled from source, Voice editable pre-filled from source, Avatar pre-filled with source's bytes + option to regenerate 3 new candidates (reuses Phase 20's avatar batch flow with same-role archetype). Host + Role + Color are LOCKED (not shown — auto-copied from source). New backend op `identity:clone` takes `(sourceIdentityKey, hostId, newName, editedTitle, editedVoice, avatarCandidates)`; reads source's role from source's fleet `<name>.md` frontmatter; creates new fleet folder on same host with same `role:` frontmatter + fresh relay account (reuse Phase 20 birth logic); copies Skynet DB row with new name + user-edited title/voice/avatar. NO `host_id` column added to `identities` — source's host comes from clicked session's context. Validates clone name against existing fleet folders on target host before writing.
@@ -801,6 +828,7 @@ Plans:
 **Design source-of-truth:** `~/.claude/roles/box-maintainer/bounties/skynet-role-identity-crud-ui/design-and-waves.md` (LOCKED with Ashley 2026-08-04 — do NOT re-litigate the design axis). Companion `bounty.json` in the same folder holds the premise + timeline. Reviewed by Ashley before plan-phase kicked off; iteration passes are recorded in the bounty timeline.
 
 **Non-negotiables from design-and-waves.md (baked into plans, not open to re-litigation):**
+
 - **Roles are pure filesystem — NO Skynet DB column for role.** The identity's role lives ONLY in the fleet-side `<name>.md` frontmatter. Any plan that adds a `role` column to the `identities` table is a plan-checker BLOCK.
 - **No legacy no-role identity handling.** Ashley confirmed 2026-08-04: every fleet identity has `role:` frontmatter post-migration. Any plan that adds "graceful (no role)" fallback branches or empty-state handling for missing role is a plan-checker BLOCK (dead code, unreachable state).
 - **Source host for clone comes from the clicked session's context.** Any plan that adds a `host_id` column to `identities` or adds a target-host picker to the clone modal is a plan-checker BLOCK.
@@ -811,6 +839,7 @@ Plans:
 - **Backend does the two-step for role-scoped ops.** Frontend API stays `(identityKey, hostId)` — never `(role, hostId)`. Frontend has no role-name awareness for artifact lookups.
 
 **Deferred (out of scope for THIS phase — future bounties if needed):**
+
 - Delete role / delete identity affordances.
 - A dedicated "Manage roles" list surface (MVP is just the `+ New role` launcher button).
 - Display of role outside IdentityModal (badge on avatar in conversation list, filter-by-role, etc.).
@@ -829,6 +858,7 @@ Plans:
 **Plans:** 4/5 plans executed
 
 Plans:
+
 - [x] 23-01-PLAN.md — Backend config-loader + `GET /global-files?hostId=<n>` + dual nginx blocks (GEFM-02, GEFM-03)
 - [x] 23-02-PLAN.md — Backend `POST /global-files/read` + `PUT /global-files/write` with whitelist enforcement + SSH SFTP atomic write (GEFM-04)
 - [x] 23-03-PLAN.md — Frontend `GlobalFilesModal` + `GlobalFileTab` + `global-files-api.ts` helpers (GEFM-05)
@@ -836,6 +866,7 @@ Plans:
 - [ ] 23-05-PLAN.md — Bootstrap doc `23-BOOTSTRAP.md` + skynet-ec2 seed for the 8 unix fleet hosts (GEFM-06)
 
 **Requirement details:**
+
 - **GEFM-01 (Panel header menu consolidation).** Filter button stays separate in `PrettyConversationsPanel`'s header. Existing action buttons (`+ New agent` pencil, `+ New role` from Phase 22 SRIC-04, and the new Edit-global-files entry from GEFM-05) collapse into ONE dropdown menu button (icon TBD by planner — likely `MoreHorizontal` / `MoreVertical` / `Plus` menu). Menu items open their respective modals as they do now. Header ends up: `[Panel title] ... [Filter] [Menu-dropdown]`. Pinned count badge stays where it is (it's a badge, not a button). Same visual language as existing panel header (`--color-pv-*` tokens, mock v4 aesthetic — do NOT reintroduce Skynet chrome).
 - **GEFM-02 (Config schema + volume mount).** JSON file at `/app/data/global-files.json` in the Skynet container (backed by the `skynet-data` docker volume — same volume as the crown-jewel encrypted SQLite, so it's already backed up by AWS DLM snapshots). Shape: `{ "hosts": { "<hostName-or-hostId>": [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" }, ... ] } }`. Host key format: planner picks either host name string (human-readable, human-editable) or hostId int (survives host rename). Label is optional (defaults to basename of path). Absence of the file OR absence of a host key means "no files configured for this host" — modal shows an empty-state. Never fabricate a file that isn't in the config. Bootstrap: for MVP the config is edited via SSH into skynet-ec2 (`sudo vim /var/lib/docker/volumes/skynet_skynet-data/_data/global-files.json` or similar — planner confirms exact volume host-path); meta-UI (editing the config file via the same UI, self-referentially) is deferred.
 - **GEFM-03 (`GET /global-files?hostId=<n>` backend endpoint).** Reads `global-files.json` from the volume, returns the configured file list for the given host. Response shape: `{ files: [{ path, label }] }`. Empty array if no config or host not in config. Dual nginx location blocks (docker/nginx.conf + docker/nginx-https.conf per fleet caveat). Cookie auth (existing admin cookie — no new auth surface).
@@ -846,12 +877,14 @@ Plans:
 **Depends on:** Phase 22 SRIC-06 (reuses the two-step SSH read/write pattern for role file → generalizes it to configured file paths). Panel header consolidation touches Phase 22 SRIC-04's `+ New role` launcher position (folds it into the menu).
 
 **Design source-of-truth:** Verbal design session with Ashley 2026-08-04 (see role's history.md for the timestamp). No shape file — Ashley skipped `/open` after the axes were settled inline ("I feel like we've pretty much got what we need on it"). Key exchange:
+
 - Q: per-host vs per-Skynet-instance files? A: "you would want to be able to put in the config pointing to files on any host because there are different files on different hosts you would want to edit."
 - Q: UI location? A: "top of conversation list like the other buttons, But we're kind of getting crowded on the buttons, so we might want to collapse them into a single button at this point."
 - Q: access? A: "anyone could edit"
 - Q: filter button? A: "I figure the filter button could stay in the header separate, but the others could go under one button now"
 
 **Non-negotiables (baked into plans, not open to re-litigation):**
+
 - **Files are per-host, config is per-Skynet-instance.** Ashley's Skynet has one list; Stacey's ceo-skynet has a different list. Both configs live in each deployment's own docker volume. Any plan that hardcodes a fleet-wide file list into the source code is a plan-checker BLOCK.
 - **Whitelist enforcement on read + write.** Backend MUST reject any path not present in `global-files.json` for the given host (403). Any plan that trusts the frontend's path parameter is a plan-checker BLOCK.
 - **No new auth surface.** Existing Skynet admin cookie is the sole gate. No per-user ACLs, no read-only vs read-write split. Any plan that adds an auth layer is a plan-checker BLOCK.
@@ -862,6 +895,7 @@ Plans:
 - **Same two-step SSH read/write pattern as SRIC-06.** Backend does the SSH; frontend never touches file paths beyond passing them through. Any plan that has the frontend do direct file access (e.g. via a WebSocket file protocol) is a plan-checker BLOCK.
 
 **Deferred (out of scope for THIS phase — future bounties if needed):**
+
 - Meta-UI for editing `global-files.json` itself (self-referentially via the modal).
 - Diff view / three-way merge / conflict resolution UI. MVP is textarea + save + optimistic-concurrency 409 on stale writes.
 - Auto-save. MVP is explicit Save button.
@@ -882,6 +916,7 @@ Plans:
 **Plans:** 5/5 plans complete
 
 Plans:
+
 - [x] 24-01-PLAN.md — Fix plan-pending-parser fingerprint for pinned fleet Ink variant + add parsePlanFilePath helper (+ updated vitest fixtures)
 - [x] 24-02-PLAN.md — New backend module `plan-file-fetch.ts` — SFTP side-channel read on existing SSH Client with strict path validation + 500KB cap + full test coverage
 - [x] 24-03-PLAN.md — Widen WS `plan_pending` frame to {planFilePath, planContent, contentError}, wire async SFTP fetch trigger, add `raw_keystrokes` WS handler (`tmux send-keys -l`), extend frontend wire types
@@ -896,6 +931,7 @@ Plans:
 **Plans:** 3/3 plans complete
 
 Plans:
+
 - [x] TBD (run /gsd-plan-phase 25 to break down) (completed 2026-08-05)
 
 ### Phase 26: Conversation-list needs-desk count + filter menu — add per-row needs-desk bounty count (schema field added 2026-08-06) alongside existing pinned count as combined `pin·desk` pill; Filter icon becomes popover with two toggles (pinned-only / needs-desk-only, AND intersection); Filter icon gets small dot when any toggle on; needs-desk filter exempts active-set symmetric with pinned. Locked decisions from design conversation with Ashley 2026-08-06: **Row display**: combined pill `"3·1"` (pin·desk) — position-coded compact form beats side-by-side badges (hue conflict, doubled `.pv-meta` width) and icon+number pairs (heavier meta). Left number = pinned count, right number = needs-desk count, middle-dot separator. Zero on either side renders that side blank; both zero renders no pill (same as today). **Filter combination**: AND (intersection). Both toggles on = show rows that have BOTH ≥1 pinned bounty AND ≥1 needs-desk bounty. Each toggle independent otherwise. **Filter icon state**: small dot indicator when at least one toggle is on (matches row-badge presence-is-signal pattern; no icon swap flicker). **Active-set exemption**: symmetric with pinned — needs-desk filter also exempts active-set rows. **Mechanism**: widen existing `readIdentityPinnedBountyCount` in `src/backend/claude-session/identity-artifact-reader.ts` §10 to return `{pinnedCount, needsDeskCount}` on the same fs walk; WS `identity:count-bounties`→`identity:bounty-counts` carries both counts; `bounty-counts-store` keys a pair per identity. One round-trip, same poller, same failure semantics as today. **Frontend split**: `PrettyBountyCountBadge` renders the combined pill (backwards-compat — keep component name and mount location, widen props); `PrettyConversationsPanel` filter button opens a Radix popover with the two toggles + separator + close. **Out of scope**: separate wire message per count-type, new nginx location block, per-user filter persistence across sessions, animation transitions on toggle, hover-hue on the pill halves. **Rebase risk**: LOW — additive reader field, wire-shape widening (backwards-compat via optional field), row-badge refactor and filter-popover split within pretty-conversations only. No upstream Skynet surfaces touched. **Design source-of-truth**: this ROADMAP entry + bounty `conversation-list-needs-desk-count-and-filter-menu` (design conversation 2026-08-06, LOCKED — do NOT re-litigate).
@@ -906,6 +942,7 @@ Plans:
 **Plans:** 4/4 plans complete
 
 Plans:
+
 - [x] 26-01-PLAN.md — Backend widening: rename `readIdentityPinnedBountyCount` to `readIdentityBountyCounts` returning `{pinnedCount, needsDeskCount}` on same fs walk; widen WS response payload and frontend API types; update 3 backend/API test files with orthogonality + single-walk-invariant coverage
 - [x] 26-02-PLAN.md — Frontend store widening: `bounty-counts-store` internal Map values become `{pinnedCount, needsDeskCount}` pairs; rename `useBountyCount` → `useBountyCounts` (plural); per-target error preserves the FULL last-known pair; widened test suite with 7+ tests
 - [x] 26-03-PLAN.md — Row + badge refactor (wave 3, parallel with none in wave 3): rebuild `PrettyBountyCountBadge` as combined `pin·desk` pill per 4-case rendering rule table; rewire `PrettyConversationRow` to consume `useBountyCounts` and forward the pair; CSS min-width bump for two-half content
@@ -919,6 +956,7 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
+
 - [ ] 27-01-PLAN.md — Wave 1: add `@tanstack/react-virtual` to package.json dependencies (not devDependencies), run install, verify with `npm ls`
 - [ ] 27-02-PLAN.md — Wave 2: refactor PrettyView.tsx message list to virtualized rendering with composed `scrollRef`+virtualizer ref, `getItemKey`=`eventId`, `data-pv-bubble` marker attribute, and move WipBubble/PlanPendingBubble/AsideBubble OUT of the sized virtualizer container into a sibling in-flow block inside the same scroll container (surprise-#1 layout change from 27-PATTERNS.md); `use-auto-scroll.ts` and diag emitter untouched
 - [ ] 27-03-PLAN.md — Wave 3: update PrettyView.aside.test.tsx for the new sibling-of-scroller layout and add new PrettyView.virtualization.test.tsx covering bounded-DOM (`<= 30` bubble subtrees on 100+ msg fixture), scroll-anchor preservation over virtualized DOM, image-bubble grow re-measure, and accessory-sibling placement invariants; full `npx vitest run` exit 0
@@ -946,9 +984,11 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
+
 - [ ] 28-01-PLAN.md — Wave 1: Fix H3 (observeElementRect cleanup contract) + H4 (stale scrollElement closure) + M1 (scrollMargin=12) + M2 (initialRect.height 4096→600) + M4 (non-colliding getItemKey fallback with diagnostic warn) in PrettyView.tsx; extend PrettyView.virtualization.test.tsx with Tests 6/7/8/9; verify full frontend suite green + tsc clean + use-auto-scroll.ts byte-untouched
 
 **Notes**:
+
 - Scope containment: `src/ui/features/pretty-view/PrettyView.tsx` + `src/ui/features/pretty-view/PrettyView.virtualization.test.tsx` ONLY. Do NOT touch use-auto-scroll.ts (byte-preserve invariant), other pretty-view files, other subsystems, backend, or docker/nginx.
 - H1, H2, M5, M7 findings from the review are explicitly OUT of scope for this phase (all touch auto-scroll behavior, which is TEMP-disabled per patch #373). They come back into scope only when bounty `pv-auto-scroll-redesign` picks up auto-scroll.
 - L1, L2, L3-L10 findings from the review are follow-up nits, not scope for this phase. L1 and L2 (stale/factually-wrong comments about auto-scroll) already partially addressed by patch #373's comment rewrites; the remaining lying comments at PrettyView.tsx:1801 and 1888-1891 are captured in bounty `pv-auto-scroll-redesign` for cleanup alongside the redesign.
@@ -962,6 +1002,7 @@ Plans:
 **Plans:** 5/5 plans complete
 
 Plans:
+
 - [x] 29-01-PLAN.md — Pure `resolvePhase(wsState, backendFirstFrame) → Phase` reducer + type unions (WsState, BackendFirstFrame, Phase) + 20-case truth-table unit tests (test-seam split per layer1-detect.ts pattern)
 - [x] 29-02-PLAN.md — New PrettyViewErrorOverlay component (warm-red glass card + static RefreshCcw + Retry button per D-07/D-08/D-09) + component test suite (render, click, static-glyph regression, iOS backdrop-filter hardening, role="alert")
 - [x] 29-03-PLAN.md — New usePaneResolvingMachine hook (single authoritative pane-entry state machine; three entry triggers via one shared code path; 150ms delay-arm; post-resolve steady state per D-10/D-11/D-12) + hook behavior tests (entry triggers, delay-arm, retry callback, structural grep gates)
@@ -976,6 +1017,7 @@ Plans:
 **Plans:** 3/3 plans complete
 
 Plans:
+
 - [x] 30-01-PLAN.md — Backend pane_state emitter (wire frame type + per-connection factory + dedupe + emitCurrent) + funnel every existing dormant/session_holding/session_holding_cleared/session_changed/inactive emit site through the emitter (legacy frames preserved on wire for backward compat) + emit pane_state at attach-time via natural transition sites (PS30-01, PS30-03, PS30-07)
 - [x] 30-02-PLAN.md — Backend session-file parser /id reset detection (detectIdReset predicate mirroring layer1-detect.ts:isIdResetUserTurn truth) + parseSessionLine returns skip(id_reset) to suppress the user turn from the message stream + onLine consumer calls paneStateEmitter.emit('holding', 'id_reset') alongside the existing Layer 1 transitionToHolding (emitter dedupe collapses to one wire frame) (PS30-02, PS30-07)
 - [x] 30-03-PLAN.md — Frontend rewire: resolve-phase.ts rewritten to LOCKED Phase-30 truth table with (wsTransportState, paneState) → RenderedState + usePaneResolvingMachine reduced from ~380 to <60 LOC (zero React state/effect machinery, no entry-triggers, no snapshot rearm, no delay-arm) + PrettyView.tsx new pane_state WS handler case + ALL ~10 captureFirstFrame call sites DELETED + patch #381 onResetClicked cleanup + overlay mount gates flipped to renderedState === '...' + PrettyView.phase29.test.tsx rewritten as Phase-30 integration tests (PS30-04, PS30-05, PS30-06, PS30-07, PS30-08)
@@ -1062,6 +1104,7 @@ Plans:
 **Plans:** 3/4 plans executed
 
 Plans:
+
 - [ ] 32-01-PLAN.md — TanStack Virtual scrollTop-write verification (grep node_modules/@tanstack/virtual-core; produce 32-01-VERIFICATION-REPORT.md with verdict + Plan 02 recommendation)
 - [x] 32-02-PLAN.md — Rewrite src/ui/features/pretty-view/use-auto-scroll.ts to the CONTEXT.md-locked design (one stickyRef + one programmaticRef + one scrollToBottomAndFollow + single scroll listener + RO on OUTER container + self-halting rAF chain + no load-lock)
 - [x] 32-03-PLAN.md — Wire the new hook into PrettyView.tsx (delete L744-784+L912-915 stub + forceStickAndJumpRef scaffolding + local contentRef; insert useAutoScroll(paneKey); swap handleComposeSend :627 forceStickAndJumpRef.current() → scrollToBottomAndFollow(); wire ComposeBox.tsx L2055 /explain quick-button through onGoodToGo?.())
@@ -1122,6 +1165,7 @@ Plans:
 **Plans:** 3/3 plans executed
 
 Plans:
+
 - [x] 32-01-PLAN.md — useVoiceRecording.cancel() race-safety fix (pendingCancelRef) + useHoldToRecord hook (Shape 1 optimistic-start + rollback with awaited cancel before onShortTap) + unit tests (3 new useVoiceRecording tests + 10 useHoldToRecord tests including iOS Safari sync-gesture invariant assertion) (HOLD-SEND-01..05) — completed 2026-08-13, see 32-01-SUMMARY.md, commits f822acf + 4aba86f + de58a08
 - [x] 32-02-PLAN.md — Wire useHoldToRecord into ComposeBox primary send button (L2380-2437, preserves onClick={asideActive ? onAsideDismiss : undefined} per B-2) AND slot send button (L2807-2846 in QueuedRow subcomponent, with extracted slotSendDisabled shared local per M-2) + gate showRecordingControls / showSlotRecording on !holdInitiatedRef.current per B-3 + data-hold-active CSS rule + @keyframes in src/ui/index.css (HOLD-SEND-06..10) — completed 2026-08-13, see 32-02-SUMMARY.md, commits ee2c98f + c54b6ea + 2b371d2
 - [x] 32-03-PLAN.md — ComposeBox.hold-to-send.test.tsx integration tests covering all 9 CONTEXT.md § specifics test cases + 1 threshold-boundary regression guard, with deterministic B-2 (aside-dismiss via preserved onClick) and B-3 (RecordingControls does NOT swap in during hold-initiated recording) assertions (HOLD-SEND-11..13) — completed 2026-08-13, see 32-03-SUMMARY.md, commit aefeb34
@@ -1134,6 +1178,7 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
+
 - [ ] 38-01-PLAN.md — Backend: POST /identities/:id/share (copy-and-diverge row duplicator, no-op on repeat, no permission gate) + GET /users/list-basic (slim per-authenticated-user route excluding requester, only {id, username} fields exposed) + tests for both endpoints
 - [ ] 38-02-PLAN.md — Frontend: shareIdentity + getUsersListBasic API clients + ShareIdentityPicker component (empty-state hide, populated dropdown, already-shared marker on selectable rows, toast confirmation on share) + IdentityModal DialogHeader wiring with parent-owned alreadySharedUserIds Set state + tests
 
@@ -1166,6 +1211,7 @@ Plans:
 **Plans:** 4/5 plans executed
 
 Plans:
+
 - [x] 40-01-PLAN.md — Backend SSRF-hardened proxy POST /pretty-view/fetch-tailnet-url + shared whitelist/basename constants + inline byte-sniff heuristic + backend unit tests (D-01, D-02, D-04 backend half; T-40-01 SSRF, T-40-02 dir-listing HTML spoof mitigations)
 - [x] 40-02-PLAN.md — Frontend `fetchTailnetUrl` axios helper + byte-identical whitelist twin + `useEditableFileEligibility` per-message hook (extension-sync-then-byte-sniff-async classifier) + tests; discard-cached-bytes D-04 invariant enforced structurally (D-01, D-02, D-04 frontend half)
 - [x] 40-03-PLAN.md — `EditableFileAffordance` (Pencil sibling button — desktop hover-reveal, mobile always-visible 44x44) + `EditableFileModal` (forked GlobalFilesModal chrome minus host picker + tabs bar; verbatim `GlobalFileTab` body; fresh-fetch-at-open lifecycle; error-body-plus-toast on re-fetch fail; save deposits to onStageEditedFile callback) + component tests (D-03, D-04, D-05, D-06)
@@ -1173,6 +1219,7 @@ Plans:
 - [ ] 40-05-PLAN.md — Deploy-prep docs artifacts: 40-BUILD-VERIFY-LOG.md (objective build/test posture at HEAD) + 40-UAT-CHECKLIST.md (7-item post-deploy walk covering each D-XX observable behavior on production) + 40-PATCHES-MD-ENTRY.md (paste-ready patch entry for the maintainer); ends with a BLOCKING human-verify checkpoint per `human_verify_mode: end-of-phase`. Deploy motion (docker build + docker compose up + git push + patches paste) is the maintainer's remit — NOT the executor's.
 
 **UI hint:** yes (new UI components: EditableFileAffordance, EditableFileModal; modification of ChatMessage/PrettyView render tree)
+
 ### Phase 41: Defer terminal view mount until user summons it
 
 **Goal:** For identity-based sessions (where PrettyView is the default landing view), defer the mount of the Terminal component so it does not exist at all until the user summons it via Ctrl+Shift+O or long-press-identity-badge. On summon, cold-boot the terminal fully (fresh xterm, fresh SSH WebSocket, tmux reattach). Toggle back to PrettyView tears the terminal down completely (unmount, close WS) to reclaim resources. Two Terminal-owned signals PrettyView depends on today (isIdle + tab-title tmuxSession) are re-sourced from the Phase 39 fleet-status backend broadcast so PrettyView can stand alone. Scope: identity-based agent sessions only; non-identity SSH-terminal and RDP/Guacamole panes unaffected.
@@ -1184,17 +1231,21 @@ Plans:
 **Plans:** 4/4 plans complete
 
 Plans:
+
 - [x] 41-01-PLAN.md — Signal re-source (invisible P2): add `useSessionIsWorkingRaw` three-state hook + new `session-tmux-store` module + extend AppShell fleet-status callbacks to feed the tmux store + rewire PrettyView `isIdle` to derive internally from the fleet-status store; Terminal still nests PrettyView, `isIdle` prop preserved as no-op during transition; user-visible behavior unchanged
 - [x] 41-02-PLAN.md — Pane restructure (visible P1): new `IdentitySessionPane` wrapper in `src/ui/shell/`, hoists `isPrettyMode` + `pvSendInputRef` + `pvSendInterruptRef` + `isMessageQueueOpen` + `isIdentityModalOpen`; moves `MessageQueueDrawer` + `IdentityBadge` + `IdentityModal` + session-tint out of Terminal.tsx; tabUtils dispatches identity terminal tabs to the wrapper (non-identity terminal tabs unchanged); Terminal.tsx surgically stripped of PrettyView render + all hoisted state + vestigial `isIdle` useState + `togglePrettyMode`/`toggleMessageQueue` imperative-handle entries; PrettyView props drop the `isIdle` field
 - [x] 41-03-PLAN.md — Deploy prep (docs only, no source diffs): 41-BUILD-VERIFY-LOG.md (objective build/test posture at HEAD) + 41-UAT-CHECKLIST.md (10+ observable-behavior items cross-referencing CONTEXT.md LOCKED decisions) + 41-PATCHES-MD-ENTRY.md (paste-ready patch entry for the orchestrator). Deploy motion (docker build + compose + push + patches paste) is orchestrator-owned per fleet rule 2026-08-08. Ends with end-of-phase human UAT gate.
 
 **Wave 1**
+
 - [x] 41-01-PLAN.md
 
 **Wave 2** *(blocked on 41-01 completion — signal re-source must land before pane restructure so intermediate commits never regress the user)*
+
 - [x] 41-02-PLAN.md
 
 **Wave 3** *(blocked on 41-01 + 41-02 completion — docs prep + end-of-phase UAT)*
+
 - [x] 41-03-PLAN.md
 
 **UI hint:** no source-visible UI redesign — this is an architectural pane composition change; PrettyView and Terminal's own surfaces are byte-unchanged. Only the mount/unmount lifecycle around Terminal changes for identity panes.
@@ -1210,14 +1261,17 @@ Plans:
 **Plans:** 3/3 plans complete
 
 Plans:
+
 - [x] 42-01-PLAN.md — Three-zone sort split + ambient-recession CSS retirement (frontend-only). Reshapes ConversationList to `{ activeSet, pinned, middle, rdpGroup }`, adds `compareByRecencyDesc` with no-history-to-top + insertion-order fallback until 42-03 lands real recency, retires the `.ambient` CSS block and row-className toggle, flattens the middle-zone renderer, regression-lock RDP-header-hides-on-zero and ready-dot-on-all-non-working-rows.
 - [x] 42-02-PLAN.md — Search input + one-shot scroll-hide + label-only filter (frontend-only). Always-in-DOM `<input type="search">` at top of `.pv-panel-scroll`, one-shot cold-load scroll-hide via `pv-conv-search-hidden-once` sessionStorage sentinel (with `only=1` opener guard), tap-to-focus on mobile (no auto-focus), filter flattens all three zones to a single label-only match list, hidden rows excluded from matches.
 - [x] 42-03-PLAN.md — Fleet-status WS protocol extension for per-message recency signal + wire middle-zone sort (full-stack). Extend `SessionStateSchema` with optional `lastMessageAt: number | null`, derive backend-side from message-bearing JSONL frames only (user + assistant messages; excludes tool_use, thinking, streaming ticks, lifecycle events), cache in `session-working-store`, stamp on `ConversationRow`, drive real DESC-by-recency sort in the middle zone. No wire-protocol version bump (additive + optional). No nginx changes (existing `/fleet-status/` route unchanged; payload extension only).
 
 **Wave 1**
+
 - [x] 42-01-PLAN.md
 
 **Wave 2** *(blocked on 42-01 — needs the `{middle, rdpGroup}` ConversationList shape + `compareByRecencyDesc` seam)*
+
 - [x] 42-02-PLAN.md
 - [x] 42-03-PLAN.md
 
@@ -1238,20 +1292,24 @@ Plans:
 Plans:
 
 **Wave 1 (parallel, no deps):**
+
 - [x] 43-01-PLAN.md — Parameterize session-file-tail.ts to accept an initial-lines override (backcompat preserved)
 - [x] 43-02-PLAN.md — New readSessionFileRange + resolveEventIdToLine helpers (one-shot SSH exec + sed range read + grep eventId→line lookup)
 - [x] 43-03-PLAN.md — Wire scaffolding: openClaudeSessionSocket({historyWindow}) + FetchOlderPayload (locked to `{anchorEventId, count}` — NO anchorLine field) + FetchOlderBatchEvent types
 - [x] 43-06-PLAN.md — Rewrite use-auto-scroll.ts from 245 lines to ~50 (plain-DOM pinned-follow + no-yank-when-scrolled-up); hook return API frozen
 
 **Wave 2 (depends on Wave 1):**
+
 - [x] 43-04-PLAN.md — Backend: handleFetchOlder extracted handler (eventId→line lookup then range read) + historyWindow handshake parse + thread into tailSessionFile; observation channel byte-verified unchanged via PHASE-43 anchor comments (depends on 43-01, 43-02, 43-03)
 - [x] 43-05-PLAN.md — Frontend api runtime helpers: sendFetchOlder + isFetchOlderBatchEvent (depends on 43-03)
 
 **Wave 3 (sequential within wave; depends on Wave 2 + 43-06):**
+
 - [x] 43-07a-PLAN.md — PrettyView plain-DOM conversion: delete virtualizer + plain-DOM scroller + remove `[overflow-anchor:none]` + aside-arm walk byte-verified via PHASE-43 anchor comments (depends on 43-04, 43-05, 43-06)
 - [x] 43-07b-PLAN.md — Windowing + fetch_older client + drop-oldest cap + loading hint (150ms threshold) + reachedBeginning short-circuit + fetch-error warn-and-clear (depends on 43-07a)
 
 **Wave 4 (depends on Wave 3):**
+
 - [x] 43-08-PLAN.md — Cleanup: delete virt-specific test files + npm uninstall @tanstack/react-virtual + three separate residual-reference checks (jq package.json + grep -c package-lock.json + grep -r src/) + explicit nginx-unchanged verify + human UAT checkpoint
 
 **UI hint:** partial source-visible UI change. The PrettyView chat scroller behaves like a normal DOM scroller — no more virt-jitter, image-bubble grows cleanly, no jump-back on tall-bubble re-measure. A "load older" indicator may appear briefly near the top when scrolling back past the loaded window. Otherwise the render is byte-equivalent to current per-bubble output. iOS PWA + desktop both.
@@ -1269,19 +1327,23 @@ Plans:
 **Plans:** 4/4 plans executed — code work complete; verification + shipping orchestrator-scope
 
 Plans:
+
 - [x] 44-01-PLAN.md — /sessions/list route extended with per-session `lastMessageAt` derivation (discovery + tail scan, per-session Promise.all mirroring resolveRoleForIdentity, per-session failure isolation) *(2026-08-18: shipped — 10/10 route tests pass, full suite 2440 pass)*
 - [x] 44-02-PLAN.md — ssh-poll-orchestrator swap: `jsonlPathForSession(cwd, sessionId)` → `discoverIdentityJsonlPathViaChannel(channel, tmuxSession)` with cached `jsonlPath` in PidCacheEntry + rediscovery-on-stale threshold (defense against JSONL rotation mid-session)
 - [x] 44-03-PLAN.md — Working-store reconciliation chokepoint: `advanceSessionLastMessageAt` (max-wins), `seedSessionLastMessageAt` (public seed API), refactored `publishFleetStatusSessionState` to funnel through it + wire-type extension for RemoteTmuxSession *(2026-08-18: shipped — 32/32 session-working-store tests pass incl 15 new reconciliation-contract tests; full suite 2529 pass; both builds exit 0)*
 - [x] 44-04-PLAN.md — AppShell wires seedSessionLastMessageAt per /sessions/list row (cached + fresh) + FleetSession type extension with cache-key bump to v2 + compareByRecencyDesc Rule 1 flip from null-to-top to null-to-bottom (retires Ashley's 2026-08-14 lock) *(2026-08-18: shipped — 99/99 conversation-store tests pass incl 9 new Phase 44 Plan 04 tests; full suite 2538 pass; both builds exit 0)*
 
 **Wave 1** *(parallel — no file overlap)*
+
 - [x] 44-01-PLAN.md — /sessions/list route extension *(2026-08-18)*
 - [x] 44-02-PLAN.md — ssh-poll-orchestrator JSONL derivation swap
 
 **Wave 2** *(blocked on 44-01 completion for wire-type shape)*
+
 - [x] 44-03-PLAN.md — session-working-store reconciliation chokepoint + sessions-api.ts RemoteTmuxSession extension *(2026-08-18)*
 
 **Wave 3** *(blocked on 44-01 + 44-02 + 44-03 — coordinated wire-consumer + type + comparator flip on files that must land together)*
+
 - [x] 44-04-PLAN.md — AppShell seed wiring + FleetSession type + comparator Rule 1 flip *(2026-08-18: shipped)*
 
 **UI hint:** no source-visible UI redesign. Zero changes to `PrettyConversationsPanel.tsx` or `pretty-conversations.css`. The middle-zone ordering fix ships purely by giving the existing comparator + snapshot pipeline correct inputs. Scope fence in 44-CONTEXT.md `<scope_fence>` enumerates hard-blocked files.
@@ -1299,6 +1361,7 @@ Plans:
 **Plans:** 5/5 plans complete
 
 Plans:
+
 - [x] 45-01-PLAN.md — Backend revert: delete session-file-range module + its test + two Phase-43-born backend test files; revert session-file-tail.ts to pre-P43 4-arg signature (byte-shape-equal to `f60514b5~1`) + trim its test file; revert 5 discrete Phase 43 regions in claude-session-server.ts (imports, handler+parse block, historyWindowParsed binding, both 5-arg tailSessionFile calls → 4-arg, fetch_older msg-switch case). Sibling handleIdentityCountBounties preserved as canary. (closes Bug #1 backend half)
 - [x] 45-02-PLAN.md — Frontend wire cleanup: delete Phase-43-born claude-session-api.test.ts (100% coverage of deleted helpers); revert openClaudeSessionSocket to no-arg pre-P43 shape; delete Phase 43 wire-types + helpers block (FetchOlderPayload, FetchOlderBatchEvent, sendFetchOlder, isFetchOlderBatchEvent). Sibling countIdentityBounties preserved as canary. (closes Bug #1 wire half; parallel with 45-01 in Wave 1)
 - [x] 45-03-PLAN.md — PrettyView.tsx three-part surgery: (a) delete all fetch_older client wiring (imports, constants, refs+state, fireFetchOlder callback, near-top-scroll effect, fetch_older_batch case, loading-hint mount, composedScrollRef binding, openClaudeSessionSocket opt-in); (b) preserve appendDedupWithCap + WORKING_SET_CAP=150 + all 5 live-append call sites byte-for-byte (Ashley UAT-locked client-side cap); (c) add `style={{ paddingBottom: 9 }}` on the plain-DOM bubble wrapper. Delete-and-recreate PrettyView.windowed-pagination.test.tsx → PrettyView.hydration-cap.test.tsx with 8 tests locking client-cap + no-fetch_older + regressions. (closes Bug #1 client half + Bug #2; Wave 2, depends on 45-01+45-02)
@@ -1316,6 +1379,7 @@ Plans:
 **Plans:** 3/3 plans complete
 
 Plans:
+
 - [x] 46-01-PLAN.md — Backend router (7 endpoints) at `/skills-editor` + 4-layer path-safety gate (SKILL_NAME_RE + isSafeRelativePath + resolved-path prefix assertion + shellEscape defense-in-depth) + 40-test Vitest coverage (includes 8 SEC-labeled attack tests + a new skill-existence gate test) + twin nginx blocks in `docker/nginx.conf` AND `docker/nginx-https.conf` (patch #446 layer-enumeration reflex — missing either half returns 404 in prod).
 - [x] 46-02-PLAN.md — Frontend cluster: `src/ui/api/skills-api.ts` (7 typed authApi helpers + 2 strict-shape 409 error classes), `SkillsEditorModal.tsx` (glass modal + host/skill dropdowns + horizontal-scroll tab strip + `+ Add file`/delete-skill header buttons + per-dialog delete state), `SkillFileTab.tsx` (text branch + non-text AlertTriangle placeholder + delete-file Trash2), `DeleteConfirmDialog.tsx` (generic modal-in-modal confirm). Component tests preserve the Phase 23 lazy-load race regression guard byte-verbatim.
 - [x] 46-03-PLAN.md — Menu mount at `PrettyConversationsPanel.tsx` L1616 as sibling to "Edit global files…" with KEEP ORDER guard comment + `46-UAT-CHECKLIST.md` generation + `46-PATCH-DRAFT.md` for orchestrator ship.
@@ -1334,6 +1398,7 @@ Plans:
 **Plans:** 3/4 plans executed
 
 Plans:
+
 - [ ] TBD (run /gsd-plan-phase 47 to break down)
 
 ### Phase 48: Convo-list per-row current-work hint from ai-title — extends FleetSession with aiTitle (mirror Phase 44 lastMessageAt shape), backend JSONL scraper for latest ai-title per session, WS publish, cache-key v2→v3, PrettyConversationRow.tsx redesign per v14 locked shape: identity name + hostname parens on title line, ai-title as fading-truncation subtitle, working spinner = JS-computed 4-input inverted idle-dot boolean `!(inActiveSet && isWorking === false && !isRecycling && !hasQueuePending)` emitted as `spinner-on` className (Ashley 2026-08-19 verbatim: "make the spinner work on the same logic as the idle indicator, except you invert it as the final step of logic there"), V12-style Pin/Monitor badge wraps repositioned to avatar bottom-left/bottom-right corners
@@ -1368,6 +1433,7 @@ Plans:
 **Plans:** 1/1 plans complete
 
 Plans:
+
 - [x] 49-01-PLAN.md — Backend extractor sanitize pass: add APOS_MARKER + sanitizeBashSqEscapeIdioms + restoreApostrophes to session-file-parser.ts, refactor extractOutboundBody to sanitize-first + restore-on-return, simplify 4 sq-strategy regexes to `[^']*`, drop 4 stale `.replace` post-processing calls, add NELLY-SHAPE fixture + SELF-REFERENTIAL known-limitation test, full vitest suite green precondition. Executor's remit stops at code + tests green + atomic commit (deploy motion is orchestrator scope per box-maintainer role file).
 
 **Verification:** `49-VERIFICATION.md` (2026-08-20, status **passed**) — 10/10 must-haves verified against shipped code; full vitest 2545/9 skip/1 todo/0 fail. Independent verifier confirmed all 4 regex simplifications, all 4 dropped .replace calls, NELLY-SHAPE fixture, SELF-REFERENTIAL known-limitation test documenting deferred bug, PRIORITY-REGRESSION preserved byte-for-byte.
@@ -1400,6 +1466,7 @@ Plans:
 - [x] 50-04-PLAN.md — In-process end-to-end integration tests covering all 7 D-22 scenarios (happy path / queued path / failure path / retry-Enter path / full-resend path / latest-only referenced from PrettyView test / dedup) + D-23 adapt-not-delete audit (D-22, D-23) — 50-04-SUMMARY.md
 
 **History note:** Phase originally numbered 45 in this identity's tree (started 2026-08-19). Collided on rebase with FIVE origin-side phases that had shipped between my planning-commit time and my next work session: tina P45 (fix-forward on P43, shipped as #466), tiffany P46 (frontend-skill-editing, shipped as #469), tina P47 (load-more button, in tanya's bundled ship #472), tanya P48 (convo-list ai-title, shipped in bundled #472), tabitha P49 (relay-outbound sanitize, shipped as #473). Fully autonomous rescue-rebase per role-file directive + `rescue-rebase-runbook.md` — the 11th known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). No source overlap with any of the five (theirs = various pretty-view surfaces + skills-editor router + extractor sanitize; mine = ComposeBox HARD LOCK removal + ChatMessage pending state + parser queue-operation-enqueue emission + terminal.ts watchdog swap + IdentitySessionPane mqid thread). Planning artifacts renamed 45-* → 50-*, ROADMAP + STATE re-added under new number. Zero-cost rescue in the sense that no plans had shipped yet — only planning commits were on the local branch, none pushed.
+
 ### Phase 51: BG-agents panel — admit 2.1.150+ async Agent invocations via tool_result launch-ack
 
 Bounty: `claude-code-2-1-214-pretty-view-compat` (Bug 1 only; Bug 2 plan-pending is a separate phase). Parser at `src/backend/claude-session/claude-session-server.ts` backgrounded_agents correlator (~L2506) gates admission on `input.run_in_background === true` — modern Claude Code (v2.1.150+ verified against taylor's live JSONL) writes `Agent` invocations WITHOUT that flag and signals async via tool_result launch-ack (`toolUseResult.isAsync === true`, already parsed at L2559 but only used as skip-guard). Fix shape: admit every `Agent` tool_use into a scratch map; promote to `backgroundedAgents` on tool_result async-ack; drop scratch entry if first tool_result is a non-async completion (was sync). Preserve backward compat with legacy `input.run_in_background === true` admission path. Verify whether `Bash{run_in_background:true}` branch (~L2529) needs the same treatment or if only `Agent` moved shape. Tests: parser fixtures for the new shape. Scoped tight — no push/deploy inside executor, orchestrator handles ship.
@@ -1412,6 +1479,7 @@ Bounty: `claude-code-2-1-214-pretty-view-compat` (Bug 1 only; Bug 2 plan-pending
 **Plans:** 1 plan
 
 Plans:
+
 - [ ] 51-01-PLAN.md — Parser admission via async-launch-ack + fixtures (scratch map, dual-path admission, four fixture tests)
 
 ### Phase 52: Convo-list filter: restyle popover + add Ready toggle
@@ -1436,7 +1504,6 @@ Plans:
 
 **History note:** Phase originally numbered 50 in this identity's tree (2026-08-20). Rescue-rebased to Phase 52 mid-planning after coord-room detection of taylor's in-flight Phase 50 (optimistic-message-bubbles) + tabitha's rescue-renumber Phase 50 → Phase 51 (claude-session-server BG-agents correlator). Taylor was mid-ship per tabitha's post; per fleet tiebreak rule (mid-ship keeps its number) taylor keeps 50, tabitha kept 51, mine moves to 52. 13th known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). Fully autonomous — zero source overlap (mine touches PrettyConversationsPanel filter markup + fleet-status wire; taylor touches PrettyView + ComposeBox), zero-cost rename since no commits had landed on origin at rescue-rebase time.
 
-
 ### Phase 53: backend-authoritative recycling signal — one wire axis, two consuming surfaces
 
 **Goal:** Move the "session is being recycled" signal from a client-side bridge store (PrettyView-published, mount-gated) to a backend-authoritative axis on the fleet-status wire (`.recycled-at` sentinel → ssh-poll → new `recycling?: boolean` wire field → working-store Axis E → useSessionIsRecycling hook). Both consumer surfaces (PrettyView holding overlay + PrettyConversationRow row spinner) read from the SAME store axis so a row's recycling indicator is correct regardless of whether that session's pretty-view is currently mounted. Client-side session-recycling-store is RETIRED.
@@ -1445,6 +1512,7 @@ Plans:
 **Plans:** 3/3 plans complete
 
 Plans:
+
 - [x] 53-01-PLAN.md — Backend wire + poller: add `recycling?: boolean` to SessionStateSchema (wire-protocol.ts) + stat `.recycled-at` per PID-tick in ssh-poll-orchestrator source A + extend computeFingerprint with recycling axis + PidCacheEntry.recycling cache + 5 test cases (P53-01-T1-i…v)
 - [x] 53-02-PLAN.md — Browser store + hook: mirror recycling field on fleet-status-types.ts SessionState (closes Phase 52 dormant gap along the way) + WorkingRecord Axis E (recycling: boolean) + Axis E swap-and-notify block + Axis A preservation of recycling (Pitfall 3 defense) + useSessionIsRecycling hook + 7 test cases (P53-02-i…vii)
 - [x] 53-03-PLAN.md — Consumer swaps + retirement: PrettyView.tsx SessionHoldingOverlay + ComposeBox isHolding + ComposeBox recycleActive all swap to useSessionIsRecycling (one source for all three surfaces) + PrettyConversationsPanel row-spinner swap + DELETE session-recycling-store.ts + .test.ts + update PrettyView.phase29.test.tsx grep gates + update PrettyView.test.tsx Test F fixture + docblock cleanup in session-queue-pending-store.ts
@@ -1457,6 +1525,7 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
+
 - [x] 54-01-PLAN.md — Axios HTTP retry interceptor (computeBackoffMs full-jitter + isRetryable classification tree + retry loop inside createApiInstance) + main-axios.test.ts covering classification, jitter shape, 401 fast-path preserved, escape hatches, success-clears-degraded
 - [x] 54-02-PLAN.md — WS reconnect jitter injection at three sites (fleet-status-client.ts, PrettyView.tsx, Terminal.tsx) — minimum-touch; caps and termination conditions unchanged; fleet-status-client.test.ts extended with Test 9 jitter-range assertion
 
@@ -1468,6 +1537,7 @@ Plans:
 **Plans:** 3/3 plans complete
 
 Plans:
+
 - [x] 55-01-PLAN.md — Wave 1: session-file-cache.ts primitive (module-level Map + typed read/write/clear + hostId string|number coercion) + 10 vitest cases covering cold-miss, round-trip, cross-type coercion, last-writer-wins, host-scoped clear
 - [x] 55-02-PLAN.md — Wave 2 (parallel with 55-03): source-A writer hookup in ssh-poll-orchestrator.ts processPid (guarded on jsonlPath!=null && tmuxSession!=null; source B stays clear) + 6 orchestrator tests (Phase 55 A–F)
 - [x] 55-03-PLAN.md — Wave 2 (parallel with 55-02): discoverClaudeSessionBatched (2 round-trips instead of 4) + connectToPane cache-hit shim at ~L6776 + observability log "Claude session discovery path" with path (shared-hit|batched-fresh) + durationMs + 10 batched tests + 2 integration tests
@@ -1480,6 +1550,7 @@ Plans:
 **Plans:** 3/3 plans complete
 
 Plans:
+
 - [x] TBD (run /gsd-plan-phase 56 to break down) (completed 2026-08-28)
 
 ### Phase 57: Drop-preview overlay + edge-zone hit-testing — replace placeholder overlay with live coral-tinted future-split geometry that hovers with cursor across four edge zones (top/bottom/left/right) with center-dead-zone; snap-to-nearest-edge for any non-center position. Scope: src/ui/features/pretty-view/split-tree/ (Pane, drop overlay), src/ui/features/pretty-view/pretty-view.css. Prior context: Phase 56 (patches #509-#514) shipped foundation with placeholder "Drop to split" overlay; Ashley UAT confirmed dnd works end-to-end but observed two Phase-57-inherent gaps: (a) drop-preview overlay flickers when moving (dragleave crosses child DOM boundaries in portaled content), (b) edge-selection unpredictable near equidistant points (nearest-edge computed at drop-time, no live preview). Both fold into Phase 57. Shape: .planning/shapes/shape-visual-session-management.md §Vehicle Phase 2. Parent bounty: bring-back-split-view.
@@ -1490,6 +1561,7 @@ Plans:
 **Plans:** 1/2 plans executed
 
 Plans:
+
 - [x] 57-01-PLAN.md — Wave 1: computeEdgeZone pure function + DropZone type in split-tree.ts + 13 unit tests (4 edge-midpoints, 4 corner-tie tiebreaks, dead-center, both sides of 0.28 threshold, non-square rect, off-origin rect, defensive out-of-rect cursor). Zero UI changes; port of prototype.html:361-370 pickZone geometry.
 - [ ] 57-02-PLAN.md — Wave 2 (depends 57-01): Pane component rewire in SplitView.tsx — replace isDragOver:boolean with dropPreview:{zone,rect}|null, wire computeEdgeZone on every dragover, coral overlay div (half the pane along winning edge, prototype.html:414-421 geometry, --color-pv-code-fg palette rgba(255,184,150,0.22 fill / 0.60 border)), bounding-rect flicker fix on dragleave, center-dead-zone drop short-circuit (silent, structured log, preserves stopPropagation), structured [pv-split-preview] logs on zone changes, extends SplitView.test.tsx with 11 new tests.
 
@@ -1501,6 +1573,7 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
+
 - [x] TBD (run /gsd-plan-phase 58 to break down) (completed 2026-08-28)
 
 ### Phase 59: coral drop-target affordance on empty PrettyView + conv-list-close (visual-session-management UAT followup, patch #517)
@@ -1511,6 +1584,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
+
 - [ ] 59-01-PLAN.md — Coral tint overlays on both drop targets (Task 1: empty-PV in AppShell.tsx + new AppShell.empty-pv-drop-tint.test.tsx; Task 2: conv-list panel in PrettyConversationsPanel.tsx + PrettyConversationsPanel.test.tsx Phase 59 describe block)
 
 ### Phase 60: Invisible dormancy/wakes — delete visible sleep/wake surfaces; teach send-path to trigger wake invisibly
@@ -1540,3 +1614,14 @@ Wave 1 *(all complete)*
 - [x] 61-01-PLAN.md — Foundation: stop-hook.sh additive per-session write + wire schema extension + fleet-status-types frontend mirror + wire-protocol.test.ts additive-axis tests
 - [x] 61-02-PLAN.md — Backend processPid extension: per-session file mtime read + server-side status-delta tracking + fingerprint extension + 6 new ssh-poll-orchestrator tests
 - [x] 61-03-PLAN.md — Frontend session-working-store extension: WorkingRecord gains two axes + main predicate revised + Axis A/D/E cache-preservation + Test B revised + Tests M/N/O/P new
+
+### Phase 62: Invisible-dormancy client-side follow-up — widen client pending-send timer for dormant sends (Wave 1 fix) + instrument dedup Map emissions to identify duplicate-bubble mechanism from Ashley 2026-08-30 repro (Wave 2 instrumentation-only)
+
+**Goal:** Close the client-side half of the Phase 60 invisible-dormancy widening (Wave 1: PrettyView pending-send 20s timer branches on dormantRef.current at arm time — dormant path uses 220s ceiling per D-62-02, sized 10s above backend's `MARKER_FALLBACK_MS + GIVE_UP_MS_DORMANT` = 210s; awake path unchanged) AND add diagnostic instrumentation around the queueEnqueueDedup Map + user-role frame-emit path so the next dormant-send repro produces logs identifying the duplicate-bubble mechanism (Wave 2 instrumentation-only per D-62-01 — actual dedup fix moves to Phase 63 post-repro-with-logs). Both waves ship in one bundle per D-62-05.
+**Requirements**: TBD
+**Depends on:** Phase 61
+**Plans:** 2 plans
+Plans:
+
+- [ ] 62-01-PLAN.md — Wave 1: PrettyView pending-send timer widened for dormant sends (dormantRef.current arm-time read + PENDING_SEND_TIMEOUT_MS_{NORMAL,DORMANT} named constants + branched flip-to-failed reason label + new Test 5b locking test)
+- [ ] 62-02-PLAN.md — Wave 2: dedup + emission-path instrumentation (per-tail-watcher instance ID via crypto.randomBytes(4) + [dedup]/[frame-emit]/[tail-lifecycle] sshLogger.info emissions — instrumentation only, zero behavior change per D-62-01)
