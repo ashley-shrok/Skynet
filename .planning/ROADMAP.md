@@ -1,0 +1,1643 @@
+# Roadmap: Skynet Fork — Pretty Session View (Patch #43)
+
+## Overview
+
+Patch #43 gives Skynet terminal tabs holding a Claude Code tmux session a
+second top-pane mode: a native web-chat rendering of the current session's
+conversation, backed by tailing the JSONL session file the Claude process
+writes on the remote host. A keyboard chord flips the top pane between the
+existing tmux mode (default) and the new pretty mode. The queue drawer at
+the bottom stays put. Sends go through the same split-send tmux input path
+patch #40 established. No optimism on sends — messages appear when the
+session file confirms them.
+
+The work splits into two vertical slices. Phase 1 lands the backend
+session-file discovery + tail + WebSocket bridge together with a minimal
+read-only pretty view so the pipe is observable end-to-end in production
+without any UI ergonomics yet. Phase 2 layers on the keyboard-chord toggle,
+tmux/pretty layout coexistence, compose box, and native web selection /
+click / paste behavior — the ergonomic payoff the shape file cares most
+about. Both phases ship as fork commits behind the mandatory 15-minute
+deadman rollback timer per the fork's DEPLOY DISCIPLINE.
+
+## Phases
+
+**Phase Numbering:**
+
+- Integer phases (1, 2, 3): Planned milestone work
+- Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
+
+Decimal phases appear between their surrounding integers in numeric order.
+
+- [x] **Phase 1: Live session stream to browser + read-only pretty view** - Backend discovers the Claude process in the pane's tmux session, locates the JSONL session file, tails it, streams parsed conversational events over WebSocket, and renders them in a minimal read-only pretty view (with the no-active-session fallback) ✓ deployed to production 2026-07-17
+- [x] **Phase 2: Toggle, compose, and native web ergonomics** - Keyboard chord flips the top pane between tmux and pretty modes with the queue drawer preserved, plus compose box with split-send and native browser text-selection / click-to-focus / readable-paste behavior ✓ deployed to production 2026-07-17 (Ctrl+Shift+O toggle + ComposeBox with inline send button + jump-to-latest pill)
+- [ ] **Phase 3: Session changeover detection** - Pretty view detects when the current Claude session was recycled (via `/id reset`) or recovered (crash/reboot → `claude --resume`) and switches to tailing the new session's file without user intervention; edge-triggered on `/exit` marker with a discovery-repoll backstop on the existing 3s poller for SIGTERM-fallback and recover-in-different-cwd cases
+- [ ] **Phase 4: Pretty view visual reskin — Glass depth aesthetic** - Reskin pretty view away from Skynet's flat-brutalist styling to a warm dark Glass depth aesthetic with real physical dimensionality (multi-layer shadows, backdrop-filter blur, subtle rim highlights, atmospheric background gradient) and per-pane identity-hue carry-through (user bubble + context bar + send button + focus ring). CSS-only, no behavior changes; scope confined to `src/ui/features/pretty-view/` — terminal/RDP/dashboard/sidebar chrome untouched. Design spec: `/home/ubuntu/.claude/identities/tina/bounties/pretty-view-visual-overhaul/mock/index.html` (Glass tab).
+- [x] **Phase 5: Pretty view file upload support** - Add a cognitively-free "attach a file" affordance to pretty view: drag-and-drop anywhere on the surface (primary), clipboard paste (first-class), mobile-only paperclip button (gated by useIsTouchDevice). Attachments stage as a chip strip; on send, files transfer atomically to the receiving box (landing at `~/pretty-view-uploads/<yyyy-mm-dd>/<hhmmss>-<original-filename>`) then an injected user turn carries path-only-with-metadata (never inlined bytes) so context cost is deferred to the moment the agent actually reads. Sender-side rendering as chip-bearing bubble; folder drops refused; one caption per batch; no auto-cleanup. Shape file: `.planning/shapes/shape-pretty-view-file-upload-support.md` (LOCKED, do NOT re-litigate). (completed 2026-07-20)
+- [x] **Phase 6: Telegram-like interface** - Reshape Skynet around a Telegram-style conversation-list interface. Sidebar becomes a flat single-select list of currently-active sessions grouped by host (existing tree order preserved); per-session pins float to the top. Only one conversation visible at a time; switching hides/shows without unmount, so sessions stay alive in-memory across switches within a page-load. Tab strip removed entirely. Mobile: list-vs-view flow with top-left back button; bottom navigation bar deleted; admin/settings destinations migrated to unobtrusive gear (desktop) or list row (mobile). Deferred to v2: activity/unread signals of any kind. Out entirely: cross-conversation search, folders, drag-to-reorder, ended-session history. Shape file: `.planning/shapes/shape-telegram-like-interface.md` (LOCKED, do NOT re-litigate). (completed 2026-07-21)
+- [ ] **Phase 7: Fleet-native conversation list** - Follow-up to Phase 6. Reshape the list's data source from "browser-tab's open Skynet tabs" to "fleet-discovered tmux sessions unioned with browser-tab's open tabs" so a fresh page-load shows the sessions running across the fleet (like the current sidebar host-tree + double-shift menu already do), not just what's open in this browser tab. Adds RDP host rows at the bottom (one per RDP-enabled host, monitor icon, no identity hue). Re-styles the existing New Session button as the Telegram-native pencil. Fixes the mobile gear/settings-row duplication from Phase 6 (gear desktop-only, settings-row mobile-only). Snapshot-on-page-load discovery, no polling — Ashley refreshes to update. Everything else from Phase 6 preserved verbatim (per-session pins, host grouping, mobile flow, tab-strip absence, session persistence, sidebar collapse). Shape file: `.planning/shapes/shape-fleet-native-conversation-list.md` (LOCKED, do NOT re-litigate).
+- [x] **Phase 8: Quality-of-life batch** - Multiple small UX improvements shipped as one batch (completed 2026-07-21, retroactive roadmap entry).
+- [ ] **Phase 9: ComposeBox redesign — 2-tall shell with horizontal ctx meter** - Restructure ComposeBox into a 2-tall shell with the horizontal ctx-meter running below the textarea, plus polish patches (completed 2026-07-22, shipped as patches #116-#122, retroactive roadmap entry).
+- [ ] **Phase 10: Pretty-Conversations visual-language rework** - Replace the current shadcn-derived `ConversationsPanel` + `ConversationRow` with a clean-slate `src/ui/features/pretty-conversations/` component tree (mirrors the pretty-view precedent from Phase 4). Chunky Telegram-style row layout (~72px mobile / ~62px desktop, 48/40px identity-hue avatar disc with hue-ring, primary label + host-name secondary line), pretty-view visual language (glass gradients, identity-hue selected-row lift, Inter font, warm palette). Session-name IS identity-name convention baked in — no IdentityBadge chip on rows. Flat list, no section headers — pin glyph on row IS the pin marker. Mobile pin = swipe-left action; desktop pin = hover-reveal button. New session = compact pencil icon in the header (Telegram-native). Fix small-window desktop sidebar-affordance regression by adding a persistent top-left toggle in AppShell that survives at all window widths. Same component drives both viewports; AppShell swaps in place with no dual-mode ship (per shape-file rule). Delete old `ConversationsPanel` + `ConversationRow` after cutover. Design source-of-truth: `~/.claude/identities/tina/bounties/pretty-conversations-panel-redesign/{prototype.html,desktop.html}` (Ashley signed off 2026-07-22 v0.3 mobile + v0.1 desktop). Shape reference: `.planning/shapes/shape-telegram-like-interface.md` (LOCKED, model unchanged — this is presentation-only follow-up).
+- [ ] **Phase 11: Skynet transformation — purge dead Skynet surfaces (first slice)** - Ship-of-Theseus purge of Skynet UI surfaces that Ashley does not see in Skynet. This-phase scope: (a) desktop landing surface becomes the pretty-conversations panel + PrettyView chat surface (NOT the Skynet dashboard); (b) the left AppRail (icon buttons for dashboard, host manager, snippets, admin, settings) is deleted from `AppShell` and its file removed. Long-term goal (subsequent Phase 12+): rip host manager UI pages, snippets manager, admin console, ALL settings surfaces, Skynet tab bar chrome, keyboard shortcut editor UI, and any backend routes that only served those deleted surfaces. Invisible-shell technical capability stays intact: tab plumbing (mount/unmount, WebSocket lifecycle, focus routing), terminal renderer (xterm.js), RDP/VNC/Guacamole panes, host CRUD BACKEND (data layer — the encrypted-SQLite host record store must NOT be touched; only its UI entry points via AppRail are removed). Palette authority for any surface color change stays `--color-pv-*` (theme-color, `--background` rebase all draw from the pretty-view token set, NOT Skynet's dark-mode `--background`). Rebase risk HIGH — accept upstream divergence for deleted surfaces (Ashley 2026-07-23 verbatim: "we are not having settings at all" — this is total, not partial). Bounty tracker: `~/.claude/identities/tina/bounties/skynet-transformation-purge-dead-surfaces/`.
+- [ ] **Phase 12: Skynet transformation — purge dead frontend surfaces (second slice)** - Second slice of the Ship-of-Theseus purge. Phase 11 stripped AppShell imports of ~13 dead panels + deleted AppRail + SettingsRow, but the panel FILES themselves stayed on disk. This phase deletes those orphan files + their transitive subtrees + dead locale strings. In scope: (a) `src/ui/sidebar/` panel files with zero remaining `src/` imports (HostsPanel, SessionsPanel, CredentialsPanel, QuickConnectPanel, SshToolsPanel, SnippetsPanel, HistoryPanel, SplitScreenPanel, ConnectionsPanel, UserProfilePanel, AdminSettingsPanel + AdminApiKeys/Identities/Management/Settings/Shared/UserDialogs sections + HostManager subtree + HostEditor* + HostCredentialList + HostShareModal + SidebarTree + CredentialEditorView); (b) `src/ui/dashboard/` subtree that Phase 11 orphaned (DashboardTab.tsx primary + Dashboard.tsx + SessionDashboard.tsx + NewSessionHostChips + RemoteHostChips + sshHostToHost.ts + cards/components/hooks/panels/ subdirs whose only consumers are dashboard files); (c) Skynet tab bar chrome (top-level tab strip UI — invisible tab plumbing STAYS, only visible bar chrome dies); (d) keyboard shortcut editor UI; (e) dead locale strings across ~34 JSON files (pinAppRail, nav.dashboard, nav.hosts, nav.snippets, nav.admin, nav.credentials, nav.history, plus any transitively-dead key referencing the deleted surfaces). Verification per Plan 01 STRIP-LIST pattern from Phase 11: enumerate targets, prove each has zero surviving src/ imports, delete atomically with tsc-clean + tests-green per commit. KEEP: `sidebar/NewSessionDialog.tsx` (used by pretty-conversations pencil button), pretty-view/pretty-conversations/terminal/RDP/Guacamole/backend all untouched. Rebase risk HIGH — accept upstream divergence per Phase 11 pattern. Bounty tracker: `~/.claude/identities/tina/bounties/skynet-transformation/`.
+- [ ] **Phase 14: Plain-language translation asides — auto-fire /btw explanations on idle turns** - Independent pretty-view feature layered on top of the existing pretty-view + ComposeBox + fleet-identity-session infrastructure. Every completed assistant turn on a fleet-identity session with an open pretty-view tab in the active browser window triggers a canned `/btw` prompt (inlining the `/explain` skill body verbatim) injected via `tmux send-keys` into that identity's tmux. Backend polls `tmux capture-pane` to extract the /btw answer (using scrollback + the `↑/↓ · f to fork · Esc to close` marker line for end-of-answer detection), streams it over the existing pretty-view WS, and pretty-view renders it as a distinct AsideBubble at the bottom of the message stream (in-flow, same identity hue as normal assistant bubbles but with a 10px solid border + three-layer neon glow at 12/32/64px). While an aside is displayed for a session, the ComposeBox morphs: send button becomes X icon (hover "Resume"), queue-message/thumbs-up/reset all disable, textarea preserves partial draft. X-click dismisses: backend sends Escape into tmux, aside clears across all tabs viewing that session (cross-tab dismiss coherence). New-turn-while-aside-showing (v1): ignored — the newer turn does NOT get its own aside; current one stays until dismissed. Tab-close-with-aside-showing: overlay stays open on tmux; next pretty-view mount for that session pane-probes and re-renders. NO aside store — tmux overlay IS source of truth, backend is pure translator. Design source-of-truth: `~/.claude/identities/tina/bounties/plain-language-translation-asides/bounty.json` (2026-07-26 design session with Ashley, full spec locked). Visual iteration snippet: `~/.claude/identities/tina/bounties/plain-language-translation-asides/aside-visual-snippet.js` (paste-into-DevTools recipe Ashley signed off on 2026-07-26, defaults locked at 10px border + glow multiplier 1.0). Rebase risk MEDIUM — feature is purely additive on fork-local pretty-view + backend session-tail infrastructure; no upstream Skynet surfaces touched. Bounty tracker: `~/.claude/identities/tina/bounties/plain-language-translation-asides/`.
+- [ ] **Phase 13: Skynet transformation — conversation list lift-from-mock (final Ship-of-Theseus slice)** - After Phases 11+12 purged the non-Telegram surfaces, the ONLY remaining unfinished piece of the Skynet-shape-of-Telegram-mobile-app transformation is the conversation list surface itself. The mock at `~/.claude/identities/tina/bounties/skynet-transformation/prototype.html` (mock v4, locked by Ashley) is the source of truth. This phase lifts the mock's flat CSS class-toggle recipe (`.panel` / `.panel-header` / `.title` / `.pencil` / `.row` / `.avatar` / `.body` / `.meta` / `.dot` / `.selected` / `.active-set` / `.working` / `.pinned`) directly onto `PrettyConversationsPanel.tsx` + `PrettyConversationRow.tsx` + `PinAction.tsx`, retiring the current approximation-through-JS-computed-inline-styles-plus-Tailwind-scaffolding. Also rebases the shell chrome around the conversation list — the top bar in `AppShell.tsx` (~L1407, sidebar-toggle chevron area) — to the mock's palette treatment (`--color-pv-*`, not Skynet `--background`/`--foreground` tokens). Post-lift, the ready-for-attention dot UAT-not-visible issue is re-checked; if still broken, 4 diagnostic candidates preserved from the merged `conversation-list-idle-vs-wip-state` bounty (Terminal.tsx isIdle null-start, sessionWorkingKey mismatch, activeSet sessionStorage populate, PrettyConversationRowLive Rules-of-Hooks) are investigated. Mobile iPhone scroll-freeze is also re-verified — may be obviated by the CSS restructuring. The 100dvh/100vh safe-area padding escape (patch #126 workaround, merged from `sidebar-scroll-escapes-appshell-padding`) is structurally fixed if the pretty-conversations scroll container is one of the elements refactored. **STRICTLY OUT of scope:** the pretty-view chat surface interior (bubbles, compose box, IdentityBadge, message rendering, chat-column background) — Ashley 2026-07-23: "leave alone, already good, locked." Also out of scope: shadcn primitives (input/skeleton/sidebar/card/sheet/sonner/etc.), SSH/RDP dialogs (OPKSSHDialog, SSHAuthDialog, TmuxSessionPicker, WarpgateDialog, ConnectionLog), xterm.js chrome — those 413 Skynet theme-class hits are Ship-of-Theseus-preserved for upstream rebase-ability (same rule as skipping backend routes). After Phase 13 ships and Ashley UATs at parity with the mock (mobile + desktop), Skynet's SHAPE is complete and the Ship-of-Theseus movement closes. Design source-of-truth: `~/.claude/identities/tina/bounties/skynet-transformation/prototype.html` (mock v4, LOCKED). Bounty tracker: `~/.claude/identities/tina/bounties/skynet-transformation/` (MASTER bounty for the entire movement — Phase 13 folds directly into its timeline+todos; do NOT spawn sibling bounties for slices).
+- [x] **Phase 19: Streaming TTS output via Chatterbox /tts endpoint** - Replace the buffered TTS path on the pretty-view bubble speak-button with progressive Web Audio playback. Ashley heard Nelly's streaming Chatterbox demo (https://gigaashley.click/tts-demo/) 2026-07-31 and said "night and day" vs the buffered path; iOS Safari spike on her iPhone PWA passed same day. New backend route `POST /voice/speak-stream` stream-proxies from `http://100.80.122.111:8001/tts` (NOT the OpenAI-compat `/v1/audio/speech`) via `Readable.fromWeb(response.body).pipe(res)` — no server-side arrayBuffer buffering. Body-schema translation: Skynet `{text, voice}` → Chatterbox `{text, voice_mode:"predefined", predefined_voice_id, stream:true, split_text:true, chunk_size:80}`. Frontend `ChatMessage.tsx` speak handler switches from `postSpeak → URL.createObjectURL(blob) → new Audio(url).play()` to `postSpeakStream() → response.body.getReader() → Web Audio API` progressive decode (parse 44-byte RIFF header from first bytes, allocate `AudioBuffer` per PCM chunk, schedule via `AudioBufferSourceNode` at a running `nextStartTime` clock so chunks play back-to-back gaplessly). Reference ~50 lines of JS at view-source of Nelly's demo — lift wholesale. Cross-bubble Stop singleton adapted to Web Audio (stop scheduled sources + cancel reader + close AudioContext). Existing buffered `POST /voice/speak` (patch #223) preserved byte-for-byte — IdentityModal voice-preview keeps using it (one-shot 25-word sample doesn't benefit from streaming). Nginx: new `location /voice/speak-stream` in BOTH `docker/nginx.conf` and `docker/nginx-https.conf` with `proxy_buffering off; proxy_request_buffering off; chunked_transfer_encoding on;`. JWT auth + AbortController + T-16-03 no-body-leak mirrored on the streaming route. Default voice stays `Elena.wav` (unchanged from #223). Ships as patch #237. Bounty tracker: `~/.claude/identities/tina/bounties/stream-tts-output-via-chatterbox/`. Rebase risk LOW — additive backend route + additive nginx block + swap one frontend function; no upstream Skynet surfaces touched. (completed 2026-08-01)
+- [x] **Phase 20: Identity creation UI** - Extend the New-Session modal so it can birth a whole new fleet identity in one motion — box-side agent, on-disk identity folder, and Skynet-side identity record. Adds a path field (both modes) and an identity-mode checkbox (defaults on) revealing title, brief (ephemeral avatar-prompt seed only, never persisted), avatar (required pick from Generate/Regenerate loop of 3 horizontal gamma-corrected candidates, fresh archetype every regen), voice picker (reused verbatim from identity-edit modal), and color picker. Compound birth sequence on Create: Skynet record → tmux session → agent CLI (permissive mode) → bootstrap dance (crib from Nelly's supervisor) → `/id <name>`. Modal stays open with per-step progress; focus follows to new session on success so user is present for the identity's opening onboarding question. Per-step contextual failure blurbs tell user what to finish manually — no rollback, no retry, no cancel. Both Skynet-side and target-host-side name collisions block submission. Shape file: `~/.claude/identities/tina/bounties/identity-creation-ui/shape-identity-creation-ui.md` (LOCKED via /open with Ashley 2026-08-03). Bounty tracker: `~/.claude/identities/tina/bounties/identity-creation-ui/`. Rebase risk LOW — additive modal surface + additive backend session-orchestration route + integration with existing avatar pipeline + reuse of Skynet identity POST contract. (completed 2026-08-03)
+- [x] **Phase 28: PrettyView virtualization correctness cluster (post-Phase-27 review followup)** - Fix the five correctness issues surfaced by the independent code review of Phase 27's virtualization (see `/tmp/pv-virtualization-review.md`, bounty `pv-virtualization-correctness-fixes`). H3 (custom `observeElementRect` at PrettyView.tsx:646-661 returns bare `undefined` on the two null-early-return branches; TanStack expects `() => void` for cleanup and will call `undefined()` on later rebind — reachable on initial render before composed ref binds, and on any scroll-container unmount/remount cycle). H4 (`observeElementRect`'s `read()` closure captures `el` at bind time and doesn't re-derive from `instance.scrollElement`, so an old RO can fire against a stale element after a container remount, feeding the virtualizer wrong viewport dimensions). M1 (missing `scrollMargin: 12` for the outer scroll container's `py-3` padding — off-by-12 today, real bug the day `scrollToIndex` ships; also compute dynamically from `scrollEl` padding to avoid drift). M2 (`initialRect.height: 4096` causes ~60 real bubble mounts on first paint before RO contracts, defeating the phase's bounded-DOM goal in the transient window; use `initialRect: { width: 1024, height: 400 }` or 600 so the first paint mounts 5-10 items and RO corrects on the next frame). M4 (`getItemKey` fallback to index `?? i` silently masks what would otherwise be a diagnosable bug — either drop the fallback and let TanStack crash loudly on the count/messages disagreement, or use `-1 - i` to guarantee no collision with real integer eventIds; if kept, add a `console.warn` for a diagnostic week to settle whether the race is real). **Explicitly out of scope**: H1 (accessory-mount pin blind spot), H2 (image-bubble decode re-pin race), M5 (forceStickAndJumpRef assignment during render), M7 (forceStickAndJump on failed sends) — all moot because auto-scroll is TEMP-disabled per patch #373 / bounty `pv-disable-auto-scroll-temp`. Also out of scope: the eventual auto-scroll redesign (bounty `pv-auto-scroll-redesign`, follows this phase). All fixes in `PrettyView.tsx`; test coverage extends `PrettyView.virtualization.test.tsx` using patterns already established there (widened ResizeObserver polyfill from PrettyView.aside.test.tsx, HTMLElement.prototype.offsetHeight override on `[data-pv-bubble]`). No backend changes, no new deps, no nginx work. Bounty tracker: `~/.claude/roles/box-maintainer/bounties/pv-virtualization-correctness-fixes/`. Rebase risk LOW — narrow correctness fixes on fork-local PrettyView virtualization integration; no upstream Skynet surfaces touched.
+- [x] **Phase 22: Skynet UI parity with the role/identity paradigm** - Bring the fleet-level role/identity split (roles live on disk at `~/.claude/roles/<role>/`, identities point at them via `role:` frontmatter, bounties + history are shared across identities holding the same role) into Skynet's UI. Six coordinated pieces: (1) repoint IdentityModal's Bounties + History tabs to the role folder via a backend two-step (open identity file → parse `role:` frontmatter → open role-scoped artifact), fixing an existing gap where those tabs read the now-empty identity folder; (2) new backend endpoint listing roles-per-host + Phase 20 identity-birth code writes `role:` frontmatter into new identity files + required Role dropdown on NewSessionDialog scoped to the currently-selected host, re-populating on host change; (3) Clone flow — context menu addition on conversation rows opens a clone modal (name required, title/voice/avatar editable and pre-filled from source, host/role/color LOCKED to source; source host derived from clicked session's context — NO `host_id` DB column); backend clone endpoint reads source's role from source's fleet `<name>.md`, creates a real new fleet folder on same host with same `role:` frontmatter + fresh relay account, copies Skynet DB row with new name; (4) Create-role modal (name required kebab-case-lowercase + description required + host picker + checkbox `Then create an identity with this role` defaulting true) + backend endpoint that SSHes to target host → `mkdir` role folder + writes stub `<role>.md` + `touch history.md` + `mkdir bounties/` + a `+ New role` launcher button; (5) chain from create-role → create-identity modal with role + host pre-filled when checkbox true; (6) Role tab as FIRST/default tab in IdentityModal with new backend `identity:get-role-file` / `identity:update-role-file` ops doing the two-step to read/write `~/.claude/roles/<role>/<role>.md`. NO Skynet DB schema changes (roles are pure filesystem — adding a `role` column would create a two-source drift problem). No legacy no-role handling (Ashley 2026-08-04: every fleet identity has `role:` frontmatter post-migration; no fallback branches). No edit-role-on-identity affordance — required-role dropdown is CREATE-only. Design source-of-truth: `~/.claude/roles/box-maintainer/bounties/skynet-role-identity-crud-ui/design-and-waves.md` (LOCKED with Ashley 2026-08-04 — do NOT re-litigate). Bounty tracker: `~/.claude/roles/box-maintainer/bounties/skynet-role-identity-crud-ui/`. Rebase risk LOW — additive backend endpoints + additive frontend modals + repoint of existing IdentityModal tab data-source + reuse of Phase 20's identity-birth code path for clones + reuse of NewSessionDialog host picker for role creation. No upstream Skynet surfaces disturbed. Fork severed 2026-07-24. (completed 2026-08-04)
+
+## Phase Details
+
+### Phase 1: Live session stream to browser + read-only pretty view
+
+**Goal**: A Claude Code tmux pane in Skynet can display its live conversation as chat messages read from the remote session file, with a graceful no-active-session state
+**Mode:** mvp
+**Depends on**: Nothing (first phase)
+**Requirements**: BACKEND-01, BACKEND-02, BACKEND-03, BACKEND-04, RENDER-01, RENDER-02, RENDER-03, FALLBACK-01, FALLBACK-02
+**Success Criteria** (what must be TRUE):
+
+  1. On a terminal tab whose tmux session is running Claude Code, the pretty view shows the full conversation from the start of the current session file, with user messages and Claude's text replies rendered as chat bubbles and nothing else (no tool calls, thinking, tokens, or metadata)
+  2. New user messages and Claude replies appear in the pretty view within a second or two of landing in the session file on the remote host
+  3. When the user is scrolled to the bottom, new messages keep the view pinned to the newest; when the user scrolls up, the view holds position and does not yank back
+  4. On a tab with no Claude Code process currently running in its tmux session (shell prompt, exited Claude, or something else entirely), the pretty view shows only "no active Claude session" and does not reach back to any prior session file
+  5. The behavior above works in production behind Skynet's normal browser SSH plumbing without regressing any existing terminal, RDP, VNC, message-queue, identity, or session-list feature**Plans**: 5 plans
+
+**Wave 1**
+
+- [x] 01-01-PLAN.md — Discovery primitives: pane→process→session-file walker + JSONL conversational-message parser (BACKEND-01, BACKEND-02, FALLBACK-02)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 01-02-PLAN.md — Backend tail loop + WebSocket bridge on port 30003 (BACKEND-03, BACKEND-04, FALLBACK-01)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 01-03-PLAN.md — Frontend PrettyView + ChatMessage + auto-scroll hook + WS API (RENDER-01, RENDER-02, RENDER-03, FALLBACK-01)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 01-04-PLAN.md — Wire PrettyView into TerminalTabContent behind a URL-fragment gate (RENDER-01..03, FALLBACK-01..02)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [x] 01-05-PLAN.md — Nginx location blocks on both configs + end-to-end deploy smoke checkpoint (BACKEND-04)
+
+**UI hint**: yes
+
+### Phase 2: Toggle, compose, and native web ergonomics
+
+**Goal**: The user can flip a Claude Code terminal tab into pretty mode and interact with it like a native web chat — compose and send messages, select and copy text with the normal cursor, paste and see what they pasted, click to focus without accidentally selecting
+**Mode:** mvp
+**Depends on**: Phase 1
+**Requirements**: TOGGLE-01, TOGGLE-02, TOGGLE-03, RENDER-04, RENDER-05, COMPOSE-01, COMPOSE-02, COMPOSE-03, COMPOSE-04, COMPOSE-05
+**Success Criteria** (what must be TRUE):
+
+  1. On the active terminal tab, the user presses a dedicated keyboard chord and the top pane flips between the existing tmux mode and the pretty mode; every fresh terminal tab opens in tmux mode with no memory of the previous choice
+  2. The message queue drawer stays at the bottom in the same position with the same behavior across mode flips
+  3. In pretty mode, the user selects text with the native browser cursor and copies with the OS copy shortcut — no highlight-then-Enter dance — and clicking the pane focuses it without starting a selection
+  4. The compose box below the conversation accepts typed and pasted text with full readable content (no "[pasted N lines]" collapse), Enter sends the message via the same split-send WebSocket input path the queue drawer uses (text and Enter as two events ~60ms apart), and Shift-Enter inserts a newline
+  5. A sent message appears in the conversation only after the session file confirms it landed — never as an optimistic bubble that could lie about state
+
+**Plans**: 3 (02-01 mode toggle, 02-02 compose box, 02-03 deploy checkpoint)
+**UI hint**: yes
+
+**Wave 1** *(complete)*
+
+- [x] 02-01-PLAN.md — Mode toggle chord Ctrl+Shift+O + layout preservation (TOGGLE-01, TOGGLE-02, TOGGLE-03)
+
+**Wave 2** *(blocked on Wave 1 completion, complete)*
+
+- [x] 02-02-PLAN.md — Compose box + split-send through terminal WebSocket (COMPOSE-01..05)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 02-03-PLAN.md — Deploy checkpoint + UAT verification (RENDER-04, RENDER-05, COMPOSE-04, COMPOSE-05)
+
+### Phase 3: Session changeover detection
+
+**Goal**: When the current Claude session is recycled (`/id reset`) or recovered (`claude --resume`), pretty view detects the changeover within seconds and re-tails the new session without the user having to close and reopen the tab
+**Depends on**: Phase 1, Phase 2
+**Requirements**: CHANGEOVER-01, CHANGEOVER-02, CHANGEOVER-03, CHANGEOVER-04, CHANGEOVER-05
+**Success Criteria** (what must be TRUE):
+
+  1. When Ashley runs `/id reset` in a pane whose pretty view is open, the pretty view shows a "session recycling…" indication within ~1s of `/exit` landing in the current JSONL, then automatically switches to the new session and shows its conversation from the top — no manual tab close/reopen needed
+  2. If the graceful `/exit` fails and the supervisor falls back to SIGTERM, the discovery-repoll on the existing 3s poller catches the changeover within ~5s and the same switch happens (no `/exit` seen, but same end state)
+  3. If the pane's Claude process crashes and the supervisor recovers via `claude --resume <oldId>` — even to a different cwd → same session id but a different `projects/<slug>/` subdir — the pretty view detects the new file location and re-tails it
+  4. During the ~5s bare-shell gap between old-session death and new-session launch, the pretty view holds the "recycling" indication instead of falling to the terminal "no active Claude session" fallback; the WebSocket connection is NOT torn down
+  5. On the successful changeover, the messages / harness-tasks / context-% state resets to the new session; the identity badge and pane-tint (pane-scoped) remain unchanged
+  6. If no new session appears within ~30-60s of the changeover trigger (rare — recycle failed to relaunch), the pretty view falls through to the terminal `no-active-session` state (existing FALLBACK-01 behavior)
+
+**Plans**: 2 (03-01 backend state machine + two-layer detection, 03-02 frontend event handlers + holding banner)
+**UI hint**: yes
+
+**Wave 1**
+
+- [ ] 03-01-PLAN.md — Backend state machine + Layer 1 raw-line /exit scan + Layer 2 discovery-repoll on the existing 3s ticker + new WS emits session_holding / session_changed / holding_timeout inactive (CHANGEOVER-01, CHANGEOVER-02, CHANGEOVER-05)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 03-02-PLAN.md — Frontend WS handlers for session_holding + session_changed + SessionHoldingBanner sibling component + client-side state reset (CHANGEOVER-01, CHANGEOVER-03, CHANGEOVER-04)
+
+### Phase 4: Pretty view visual reskin — Glass depth aesthetic
+
+**Goal**: Pretty view is reskinned from Skynet's flat-brutalist styling to a warm dark Glass depth aesthetic with real physical dimensionality and per-pane identity-hue carry-through — CSS-only, all existing behavior preserved end-to-end, scope confined to `src/ui/features/pretty-view/` so terminal/RDP/dashboard/sidebar chrome is untouched
+**Depends on**: Phase 1, Phase 2 (Phase 3 not a hard dependency — can ship independently, but SessionHoldingBanner from Phase 3 should adopt the same visual language when it lands)
+**Requirements**: VISUAL-01, VISUAL-02, VISUAL-03, VISUAL-04, VISUAL-05, VISUAL-06, VISUAL-07, VISUAL-08, VISUAL-09, VISUAL-10
+**Design spec**: `/home/ubuntu/.claude/identities/tina/bounties/pretty-view-visual-overhaul/mock/index.html` (Glass tab — the mock's CSS values are TARGETS, not exact copies; translate into Skynet's Tailwind v4 idiom via `@theme inline {}` tokens where reused and scoped class-based styles per component elsewhere)
+
+**Success Criteria** (what must be TRUE):
+
+  1. Pretty view visually reads as a warm-neutral, physically-dimensional space with real depth cues — multi-layer shadow stacks on bubbles, subtle atmospheric background gradients, rim highlights on raised elements, backdrop-filter blur on translucent surfaces. No more flat-brutalist styling in this surface.
+  2. Each pane's user bubble accent + border glow, context bar fill, send button glow, and textarea focus ring carry the identity's stored `colorHue` as a coherent color chain — one glance identifies which agent is talking. Falls back to a neutral accent when the identity has no `colorHue` set.
+  3. Identity badge (top-right of pretty view) uses a ~56px avatar with name+title stacked to the right, plus a subtle slow breathing brightness animation (~5s cycle) as a grounding anchor. Preserves patch #38 hover-fade behavior wherever the badge is used, including its existing terminal-pane mount.
+  4. The ambient panels shelf (HarnessTasksPanel + BackgroundedAgentsPanel + BackgroundedShellsPanel) reads as one quiet floating card treatment — findable but visually calm; compose surface reads as intentionally low-prominence (no card treatment); textarea has only a lightest-touch 1px warm-white outline; send button retains a saturated identity-hue glow as the ONE intentional attention-grab-point.
+  5. All existing pretty-view functionality is preserved end-to-end — chat rendering, ComposeBox split-send/reset/go-ahead paths, all ambient panels, WipBubble, PlanPendingBubble, session-changeover holding/changed banners (when Phase 3 lands), empty state, error states, keyboard chords. Zero behavior changes, zero WebSocket protocol changes, zero prop/state/effect changes. CSS-only.
+  6. Terminal / RDP / VNC / file manager / dashboard / sidebar / tab bar / AppRail chrome is visually unchanged — pretty view is a themed island in the current Skynet visual system.
+
+**Plans**: 3 (04-01 tokens + IdentityBadge size variant + PrettyView root hue plumbing; 04-02 per-component reskin of all 8 pretty-view components + IdentityBadge lg treatment consumption; 04-03 build verification + Nyquist UAT prep + AGENTS.md draft — no source diffs)
+**UI hint**: yes (this whole phase IS visual)
+
+**Wave 1**
+
+- [ ] 04-01-PLAN.md — Phase 4 design tokens in @theme inline {} + IdentityBadge size prop (md default preserves patch #17/#38, lg = pretty-view treatment with 56px avatar + breathing brightness + hover-fade preserved) + PrettyView root wires --pv-id-hue CSS var via useSessionIdentity + mounts IdentityBadge size=lg (VISUAL-04, VISUAL-10 partial, VISUAL-01 partial, VISUAL-03 partial)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 04-02-PLAN.md — Reskin all 8 pretty-view components: bubbles (ChatMessage user+assistant, WipBubble, PlanPendingBubble) + banner (SessionHoldingBanner) + ambient panels shelf (HarnessTasksPanel, BackgroundedAgentsPanel, BackgroundedShellsPanel) + PrettyView root atmospheric depth + ComposeBox (quiet surround + lightest-touch textarea + identity-hue focus ring + saturated send-button glow + identity-hue context bar); Terminal.tsx UNTOUCHED (VISUAL-01, VISUAL-02, VISUAL-03, VISUAL-05, VISUAL-06, VISUAL-07, VISUAL-08, VISUAL-09)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 04-03-PLAN.md — Build verification (npm run build clean, Vite output contains Phase 4 tokens, Terminal.tsx untouched) + Nyquist UAT checklist generation (04-UAT-CHECKLIST.md walking VISUAL-01..10 for Ashley post-deploy) + AGENTS.md patch entry draft (04-AGENTS-MD-ENTRY.md ready to paste at PIN time). Zero source diffs. Deploy is Ashley's separate green-light per fleet rule.
+
+### Phase 5: Pretty view file upload support
+
+**Goal**: A user talking to an agent in pretty view can drop a file (or paste one, or on mobile tap a paperclip), write a caption, hit send — and the file(s) land at a predictable path on the receiving box while an injected user turn tells the agent where to find them, with zero surprise context cost, atomic transfer semantics, and the same action-shape as sending a plain message
+**Depends on**: Phase 2 (compose box), patch #49 (draft persistence), patch #60 (atomic delete-on-send + messageQueueItemId), patch #100 (split-and-delay Enter path), patch #102 (useIsTouchDevice hook)
+**Requirements**: UPLOAD-01, UPLOAD-02, UPLOAD-03, UPLOAD-04, UPLOAD-05, UPLOAD-06, UPLOAD-07, UPLOAD-08, UPLOAD-09, UPLOAD-10, UPLOAD-11, UPLOAD-12, UPLOAD-13, UPLOAD-14
+**Shape spec**: `.planning/shapes/shape-pretty-view-file-upload-support.md` — LOCKED, do NOT re-litigate; the shape resolved every philosophical question (path-only injection, atomic transfer, `~/pretty-view-uploads/<date>/<time>-<name>` landing, mobile-only paperclip, chip strip, no auto cleanup, folder-drop refused, one caption per batch, works on any pane)
+
+**Success Criteria** (what must be TRUE):
+
+  1. On any pretty-view pane, the user can attach one or more files via drag-and-drop (desktop primary), clipboard paste, or (on touch devices only) a paperclip button, stage them as chips in a strip above the compose textarea, remove individual chips before send, then send with an optional caption — same action-shape as sending a plain message
+  2. On send, all attachments transfer atomically to the receiving box: the injected user turn only appears once every file has landed successfully at `~/pretty-view-uploads/<yyyy-mm-dd>/<hhmmss>-<original-filename>`; if any file fails, the message stays in staging, chips turn red, retry is available
+  3. The injected message contains the caption plus a compact metadata block per file (filename + size + mimetype + upload timestamp + landing path); file bytes are NEVER inlined into the message — attaching a 100MB file costs zero session context until the agent chooses to read it
+  4. The paperclip button is invisible on desktop (any window width); dropping a folder is refused with a visible nudge; sender-side stream renders the sent message as a single bubble with inline chips (no thumbnails); caption drafts survive tab close but attachment bytes do not
+  5. All existing pretty-view functionality is preserved end-to-end — plain-text send/receive, WipBubble, PlanPendingBubble, message queue drawer, identity badge, session changeover behavior, keyboard chords, split-and-delay Enter path (patch #100), atomic delete-on-send (patch #60). Zero regression to non-attach send flow.
+  6. The feature works on both Claude Code panes AND plain-shell panes — the injected metadata block is meaningful to a human at a shell (they can `cat`/`less` the landing path) as much as to an agent (which can `@`-reference it)
+
+**Plans**: 4 plans
+
+Plans:
+
+- [x] 05-01-PLAN.md — Backend upload orchestrator + shared wire-protocol types (upload_start/upload_chunk/upload_abort cases in terminal.ts, pretty-view-upload.ts module, formatInjectedUserTurn helper, sanitizeFilenameForUpload, all threat-model mitigations at ingress) (UPLOAD-06, UPLOAD-09, UPLOAD-10, UPLOAD-14)
+- [x] 05-02-PLAN.md — Frontend chip strip + drop overlay + paste + mobile paperclip + usePrettyViewUploads orchestrator hook (chunk pump, batch atomicity, retry, per-chip progress, folder rejection, caption/attachment persistence asymmetry) (UPLOAD-01, UPLOAD-02, UPLOAD-03, UPLOAD-04, UPLOAD-05, UPLOAD-07, UPLOAD-08, UPLOAD-12, UPLOAD-13)
+- [x] 05-03-PLAN.md — Terminal.tsx wiring (webSocketRef + handleInjectedTurnReady two-event split-send) + ChatMessage sender-side chip render + parseInjectedUserTurn round-trip parser (UPLOAD-06, UPLOAD-09, UPLOAD-11)
+- [x] 05-04-PLAN.md — Deploy checkpoint: build verification, Nyquist UAT checklist for UPLOAD-01..14, skynet-patches.md entry draft, mandatory 15-min deadman deploy under Ashley's separate green-light (all UPLOAD-01..14)
+
+**UI hint**: yes
+
+**Bounty of record**: `~/.claude/identities/tina/bounties/pretty-view-file-upload-support/` — in_progress + high priority; source of truth for progress across sessions.
+
+## Progress
+
+**Execution Order:**
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1. Live session stream to browser + read-only pretty view | 5/5 | Complete | 2026-07-17 |
+| 2. Toggle, compose, and native web ergonomics | 3/3 | Complete | 2026-07-17 |
+| 3. Session changeover detection | 0/2 | Planning | — |
+| 4. Pretty view visual reskin — Glass depth aesthetic | 0/3 | Planning | — |
+| 5. Pretty view file upload support | 4/4 | Complete   | 2026-07-20 |
+| 6. Telegram-like interface | 5/5 | Complete   | 2026-07-21 |
+| 7. Fleet-native conversation list | 2/3 | In Progress|  |
+| 9. ComposeBox redesign — 2-tall shell | 4/4 | Complete   | 2026-07-22 |
+| 10. Pretty-Conversations visual-language rework | 5/5 | Complete-pending-deploy | 2026-07-22 |
+| 11. Skynet transformation — purge dead Skynet surfaces (first slice) | 0/4 | Planning | — |
+
+### Phase 6: Telegram-like interface
+
+**Goal:** Reshape Skynet's navigation model around a Telegram-style conversation-list interface — sidebar as flat single-select list of active sessions (grouped by host, per-session pins floating on top), tab strip removed, mobile bottom-nav deleted in favor of list-vs-view flow with top-left back button, admin destinations relocated to an unobtrusive settings surface, and in-memory session persistence preserving live connections across switches within a page-load.
+
+**Shape file (LOCKED, do NOT re-litigate):** `.planning/shapes/shape-telegram-like-interface.md`
+
+**Requirements:** TG-01, TG-02, TG-03, TG-04, TG-05, TG-06, TG-07, TG-08, TG-09, TG-10, TG-11 (11 requirements, defined in `.planning/REQUIREMENTS.md` § Telegram-like Interface — Phase 6). Full scope edges — in / out / deferred-to-v2 / tempting-but-no — are enumerated in the shape file's Scope edges section.
+
+**Depends on:** Phase 5
+
+**Plans:** 5/5 plans complete
+
+**Wave 1**
+
+- [x] 06-01-PLAN.md — Foundation: conversation-store (pins + single-select + host-tree derivation), ConversationsPanel + ConversationRow with identity avatar + hue tint reused from TabBar idiom (TG-01, TG-02, TG-08)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 06-02-PLAN.md — Tab-strip DELETION + persistence contract (mounted-but-hidden via patch #35 tabNodesRef mechanism) + settings-surface migration (desktop gear icon + SettingsRow for mobile mount) + AppRail default view swap to `conversations` (TG-03, TG-04, TG-05, TG-10, TG-11)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 06-03-PLAN.md — Mobile list-vs-view flow (mobile-flow module with `#mv=1` URL fragment surviving Chrome window-restore per patch #25 lesson) + top-left back button + MobileBottomBar DELETION + SettingsRow mounted at bottom of mobile ConversationsPanel (TG-06, TG-07)
+
+**Wave 4** *(blocked on Wave 2 + Wave 3 completion — sequential due to AppShell.tsx + ConversationsPanel.tsx file overlap)*
+
+- [x] 06-04-PLAN.md — New-session button + host picker modal + client-side name validation + selectConversationDeferred race defense + auto-navigate on create (mobile: also navigateToView) (TG-09)
+
+**Wave 5** *(blocked on Waves 2-4 completion — deploy checkpoint)*
+
+- [x] 06-05-PLAN.md — Build verification + UAT checklist walking TG-01..11 + patches-md entry draft + mandatory 15-min deadman deploy under Ashley's separate green-light (all TG-01..11)
+
+**Bounty:** `telegram-like-interface` (tracker under Tina's identity — `~/.claude/identities/tina/bounties/telegram-like-interface/`). Moves to `in_progress` when the first plan enters execution.
+
+### Phase 7: Fleet-native conversation list
+
+**Goal:** Reshape the conversation list's data source from "browser-tab's open Skynet tabs" to "fleet-discovered tmux sessions unioned with browser-tab's open tabs (deduplicated by session identity)" so a fresh page-load shows the sessions Ashley has running across her fleet. Add remote-desktop host rows at the bottom (one row per RDP-enabled host, monitor icon, no identity hue). Re-style the existing New Session button as the Telegram-native pencil. Fix the mobile gear/settings-row duplication carried over from Phase 6 (gear desktop-only, settings-row mobile-only). Snapshot-on-page-load discovery, no polling — Ashley refreshes to update. Everything else from Phase 6 preserved verbatim.
+
+**Shape file (LOCKED, do NOT re-litigate):** `.planning/shapes/shape-fleet-native-conversation-list.md`
+
+**Requirements:** TG-12, TG-13, TG-14, TG-15, TG-16, TG-17, TG-18 (7 requirements, defined in `.planning/REQUIREMENTS.md` § Fleet-native Conversation List — Phase 7 — continuation of the TG-XX numbering from Phase 6). Full scope edges enumerated in the shape file's Scope edges section.
+
+**Depends on:** Phase 6
+
+**Plans:** 2/3 plans executed
+
+Plans:
+
+- [x] 07-01-PLAN.md — Fleet-native store extension (FleetSession + updateFleetSessions + updateHostsFlat + union/dedup rows with fleetOnly marker) + AppShell one-shot getSessionList() fetch + detached-row-click transparent-attach handler (TG-12, TG-13, TG-14, TG-17)
+- [x] 07-02-PLAN.md — RDP row rendering at bottom (monitor icon + no hue + rdpHostRow marker) + NewSessionButton pencil re-style + ConversationsPanel showGear mobile-fix via `!useIsTouchDevice()` gate + AppShell onRdpRowClick handler (TG-15, TG-16, TG-18)
+- [ ] 07-03-PLAN.md — Deploy checkpoint: build verify + Nyquist UAT checklist for TG-12..18 + patches-md #106 draft + mandatory 15-min deadman deploy under Ashley's separate green-light (all TG-12..18)
+
+**Bounty:** `telegram-like-interface` (SAME tracker as Phase 6 — one bounty spans both ship steps: patch #105 for Phase 6 + this phase's patch #106+). Bounty closes via `/close telegram-like-interface` after this phase ships + Ashley UAT.
+
+### Phase 8: Quality-of-life batch: thumbs-up rename to "works for me", identity modal repositioned to chat-content region (composer stays uncovered), bounty rows show slugs, bounty sort becomes in_progress-fence-then-priority-flat, and submit bug fixed by collapsing pretty-view onSend to a single WS event carrying text+CR with messageQueueItemId attached. Bundled with Phase 7 into a single build/deploy. Master plan at ~/.claude/plans/twinkling-strolling-eclipse.md.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 7
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 8 to break down)
+
+### Phase 9: ComposeBox redesign — 2-tall shell with horizontal ctx meter
+
+**Goal:** The ComposeBox at rest is ~2 button-heights tall (down from ~3), giving Ashley more vertical space to read the conversation and a natural real-estate seam for adding future top-row buttons without stretching height. Top row holds the context meter (turned horizontal, filling left→right) with the reset button as its leftmost cell, plus the non-send aux buttons (paperclip / thumbs-up / hourglass). Bottom row holds the textarea (mostly full width, min = 1 row, auto-grows on multi-line input) and the send button on the right. Attachment chips pop as an ephemeral third row when at least one chip is present. All pre-existing patch treatment survives: warm-glass compose surround (#79/#82), textarea recessed-well `!`-important treatment (#81), VISUAL-08 vibrant amber send, patch #84 queue armed-pulse, patch #57 draft persistence, Phase 05 upload flow, reset-send affordance integrated as meter's leftmost cell, and the COMPOSE-04 hard-lock (no local optimistic bubble on send).
+**Requirements**: COMPOSE-01, COMPOSE-02, COMPOSE-03, COMPOSE-04, COMPOSE-05, VISUAL-06, VISUAL-07, VISUAL-08, VISUAL-09, UPLOAD-04 (all pre-existing; no new REQ-IDs introduced; Phase 9 rearranges the geometry without altering the requirement contracts)
+**Depends on:** Phase 2 (COMPOSE base), Phase 4 (Glass reskin), Phase 5 (upload chip strip), patch #83 (vertical ctx meter — reoriented here), patch #84 (queue button — preserved)
+**UI-SPEC (LOCKED via prototype review 2026-07-22):** `.planning/phases/09-compose-box-redesign-2-tall-shell/09-UI-SPEC.md`
+**Plans:** 4/4 plans complete
+
+**Wave 1**
+
+- [x] 09-01-PLAN.md — Restructure ComposeBox JSX into 2-row shell (Row-3 chip strip, Row-1 instrument bar with meter+spacer+aux, Row-2 compose bar with textarea+send); preserve every existing class value verbatim; textarea rows floor 2→1; touch target min-h[44px] gated by showPaperclip (COMPOSE-01..05, VISUAL-06, VISUAL-07, VISUAL-08, VISUAL-09, UPLOAD-04)
+
+**Wave 2** *(blocked on 09-01 — same-file overlap)*
+
+- [x] 09-02-PLAN.md — Rotate meter 90° from vertical to horizontal (28px×w-7 → 28px×160px); flex-col→flex-row; segment iteration LTR; drain sweep reoriented right→left; SEG_COUNT 11→12 per prototype lock; expose `--seg-count` + `--meter-width` as CSS custom properties (COMPOSE-01, VISUAL-06, VISUAL-07, VISUAL-09)
+
+**Wave 3** *(blocked on 09-01 + 09-02 — same-file overlap for tests, then human UAT)*
+
+- [x] 09-03-PLAN.md — Add Phase 9 structural tests to ComposeBox.test.tsx (2-row shell DOM position, horizontal meter flex-row, mobile touch target min-h[44px], 1-row textarea floor); do not modify or delete any of the 10 pre-existing Phase 05 tests (COMPOSE-01..05, VISUAL-09)
+- [x] 09-04-PLAN.md — Human UAT checkpoint (Ashley walks the 10-item checklist in a live Skynet instance); approval routes to Ashley's separate build+deploy step, revision notes route back to 09-01 or 09-02 (COMPOSE-01..05, VISUAL-08, VISUAL-09, UPLOAD-04)
+
+**Bounty:** `compose-box-redesign` (tracker under Tina's identity — `~/.claude/identities/tina/bounties/compose-box-redesign/`). Prototype-locked at 2026-07-22.
+
+### Phase 10: Pretty-Conversations visual-language rework
+
+**Goal:** Replace the shadcn-derived `ConversationsPanel` + `ConversationRow` with a clean-slate `src/ui/features/pretty-conversations/` component tree (mirrors Phase 4 pretty-view precedent) — chunky Telegram-style rows with 48/40px identity-hue avatar disc + hue-ring, primary label (= session name = identity name) + host secondary line, ChatMessage.tsx-verbatim selected-row hue treatment, flat list (no section headers), swipe-left pin on mobile / hover-reveal pin on desktop, compact pencil-icon new-session button in the header, persistent top-left sidebar-toggle that survives at all window widths (fixing the small-window sidebar-affordance regression), retirement of the old panel + row + labeled-CTA files after cutover. Presentation-only follow-up to Phase 6/7 — the LIST-NOT-TABS model + session-persistence contract + conversation-store data source all stay verbatim.
+
+**Requirements:** No new REQ-IDs introduced. Presentation-only rework; existing PRETTY-VIEW-VISUAL-* / TG-* IDs owned by Phases 4/6/7 continue to hold.
+
+**Depends on:** Phase 6, Phase 7, Phase 4 (Glass depth tokens + hue-vocabulary — reused verbatim for selected-row treatment)
+
+**Design source-of-truth (LOCKED, Ashley signed off 2026-07-22):**
+
+- Mobile: `~/.claude/identities/tina/bounties/pretty-conversations-panel-redesign/prototype.html` (v0.3)
+- Desktop: `~/.claude/identities/tina/bounties/pretty-conversations-panel-redesign/desktop.html` (v0.1)
+
+**Non-negotiables (baked into plans, not open to re-litigation):**
+
+- Both viewports ship in the same phase (no dual-mode ship — shape file lock)
+- No IdentityBadge chip on rows (Ashley: session name = identity name)
+- Flat list — no "Pinned" or per-host section headers
+- Compact pencil icon = new session (not a full-width labeled CTA)
+- Persistent top-left sidebar-toggle at all widths (small-window fix)
+- Delete `ConversationsPanel.tsx` + `ConversationRow.tsx` + `NewSessionButton.tsx` after cutover
+- Selected-row treatment MIRRORS ChatMessage.tsx assistant-bubble class strings verbatim
+- Patch #111e F3-diag console.log spew fully retired with the old panel
+
+**Plans:** 5 plans
+
+**Wave 1**
+
+- [ ] 10-01-PLAN.md — Foundation: tokens.ts + PinAction.tsx + PrettyConversationRow.tsx with variant-based pin mechanism (mobile swipe-left / desktop hover-reveal) + PrettyConversationRow.test.tsx (11 cases: swipe state machine, RDP-no-swipe, selected-state hue interpolation, avatar fallback, e.stopPropagation on pin, no IdentityBadge in DOM)
+
+**Wave 2** *(blocked on Wave 1 — imports PrettyConversationRow)*
+
+- [ ] 10-02-PLAN.md — PrettyConversationsPanel.tsx (flat list, pinned-first, RDP-sentinel-at-bottom, empty-state glass card, variant-based header with pencil + optional gear, swipe coordination) + PrettyConversationsPanel.test.tsx (15 cases: empty state, ordering, no section headers, RDP-sentinel, variant header, gear desktop-only, settingsRowSlot mobile bottom, dispatcher routing, onConversationSelected coverage)
+
+**Wave 3** *(blocked on Wave 2 — mounts PrettyConversationsPanel; contains human-verify checkpoint)*
+
+- [ ] 10-03-PLAN.md — AppShell cutover (ConversationsPanel → PrettyConversationsPanel on both viewports, single commit — no dual-mode ship) + persistent top-left 32x32 chevron sidebar-toggle + resolution of narrow-window thin-strip at AppShell:1844-1852 (recommended: remove; single canonical toggle) + F3-diag console.warn at AppShell:1483 removed + NewSessionDialog.test.tsx Test 10 retargeted to PrettyConversationsPanel + Ashley 9-step human-verify checkpoint
+
+**Wave 4** *(blocked on Wave 3 human-verify approval — safety net for rollback)*
+
+- [ ] 10-04-PLAN.md — Delete src/ui/sidebar/ConversationsPanel.tsx + ConversationRow.tsx + NewSessionButton.tsx + prune NewSessionDialog.test.tsx Test 1 (NewSessionButton-in-isolation) + repo-wide grep verification (zero imports of deleted paths + zero F3-diag survivors) + tsc-clean + test suite green
+
+**Wave 5** *(blocked on Wave 4 — final docs pass)*
+
+- [ ] 10-05-PLAN.md — Build verification (npx tsc + npx vitest + npm run build all clean, output captured to 10-BUILD-VERIFY-LOG.md) + 10-UAT-CHECKLIST.md authoring (19 non-negotiable items + 3 polish, adapted for Ashley's post-deploy walkthrough) + 10-PATCHES-MD-ENTRY.md draft for patch #128 (batched onto pending #123-#127 stack behind Ashley's morning greenlight — 15-min deadman rollback). NO deploy in this phase.
+
+**Bounty:** `pretty-conversations-panel-redesign` (tracker under Tina's identity — `~/.claude/identities/tina/bounties/pretty-conversations-panel-redesign/`). Prototype-locked at 2026-07-22 (v0.3 mobile + v0.1 desktop). Closes on Ashley UAT sign-off post-deploy.
+
+**Deploy discipline:** Patch #128 stacks on the existing #123-#127 pending batch on `feat/tab-title-from-tmux`. No deploy inside this phase; deploy is Ashley's morning greenlight per fork DEPLOY DISCIPLINE (15-min deadman rollback mandatory).
+
+### Phase 11: Skynet transformation — purge dead Skynet surfaces (first slice)
+
+**Goal:** Desktop's landing surface renders the pretty-conversations panel + PrettyView chat surface on session load (NOT the Skynet dashboard), and the left AppRail — its file plus every reference — is deleted from `AppShell` so the Skynet dashboard, host manager UI, snippets manager, admin console, and any settings surfaces reachable via the AppRail become unreachable from the UI. The invisible-shell technical capability (tab plumbing, terminal renderer, RDP/VNC panes, host CRUD BACKEND API + encrypted-SQLite data layer) is untouched. This is a delete-code Ship-of-Theseus pass, not a feature flag.
+
+**Requirements:** PURGE-01, PURGE-02, PURGE-03, PURGE-04, PURGE-05
+
+**Depends on:** Phase 10 (pretty-conversations panel + PrettyView are the destination landing surface; must be shipped and stable before AppShell cuts over to them as landing)
+
+**Success Criteria** (what must be TRUE):
+
+  1. On desktop, after fresh page-load without a hash-fragment, the visible top-level surface is the pretty-conversations panel (sidebar) + PrettyView chat surface (default main pane) — NOT the Skynet dashboard, host manager, or any other historical Skynet landing UI
+  2. The left AppRail component file no longer exists in `src/ui/sidebar/` (or wherever it lived); zero imports of the deleted AppRail file remain anywhere in `src/`; `tsc` clean; test suite green
+  3. No UI navigation path exists from a fresh Skynet landing to the Skynet dashboard, host manager pages, snippets manager, admin console, or any settings surface — the surfaces are unreachable through the visible UI, even if some backing route files linger for follow-up phase deletion
+  4. Backend `/host/db/*` and `/identities/*` endpoints continue to serve their existing frontends (pretty-conversations panel reads the host list via the same API path it uses today); no backend route deletion in this phase
+  5. RDP/VNC/Guacamole sessions launch and render exactly as they did before the purge (Phase 7's RDP-host-sentinel row in the conversation list still opens Guacamole panes)
+  6. On mobile, page-load lands on the pretty-conversations panel (list view) with mobile back-button flow to PrettyView chat, unchanged from Phase 10's shipped behavior
+
+**Design source-of-truth (LOCKED, Ashley 2026-07-23):**
+
+- `~/.claude/identities/tina/bounties/skynet-transformation-purge-dead-surfaces/` (bounty premise + Ashley UAT quote)
+- `~/.claude/identities/tina/tina.md` § Skynet direction — Ship of Theseus (dead-surfaces canonical list; palette authority `--color-pv-*`)
+
+**Non-negotiables (baked into plans, not open to re-litigation):**
+
+- Delete files rather than gate/hide them — this is a Ship-of-Theseus purge, not a feature-flag switch
+- Keep the invisible-shell technical capability: tab plumbing, terminal renderer, RDP/VNC panes, host CRUD BACKEND (data layer). Untouched.
+- No settings UI anywhere in this phase or any follow-up (Ashley 2026-07-23: "we are not having settings at all" — total, not partial)
+- If a surface isn't the conversation list or the pretty view, don't defend it in scope decisions
+- Palette authority for any surface color change stays `--color-pv-*` (theme-color, `--background` rebase, safe-area color — all draw from pretty-view tokens, NOT Skynet's dark-mode `--background`)
+- Same landing behavior ships to both viewports in this phase (no dual-mode ship — mirrors Phase 10 rule)
+
+**Plans:** 4 plans
+
+**Wave 1**
+
+- [ ] 11-01-PLAN.md — Enumeration + strip-list authoring (locate AppRail + SettingsRow files, grep every import, identify every visible-UI entry point to dead surfaces, produce authoritative deletion-target document at 11-01-STRIP-LIST.md for Plans 02+03 consumption) (PURGE-01, PURGE-02, PURGE-03)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 11-02-PLAN.md — Landing-surface swap: create PrettyLandingCard.tsx warm-glass empty-landing card + swap renderTabContent's case "dashboard" from `<DashboardTab>` to `<PrettyLandingCard/>` + update AppShell initial-tab + closeTab-fallback labels to `t("nav.conversations.title", ...)` (the "dashboard" TabType is preserved as a load-bearing fallback identifier; DashboardTab.tsx becomes dead code for Phase 12+ deletion) (PURGE-01, PURGE-05)
+
+**Wave 3** *(blocked on Wave 2 — AppShell.tsx file overlap)*
+
+- [ ] 11-03-PLAN.md — AppRail + SettingsRow retirement: strip rail-view state machine from AppShell (railView state + handleRailClick + sidebarTitle + editHostInManager + openSingletonTab dead branches + 10 dead panel {railView === X} branches + AppRail mount + SettingsRow mount + 12 dead imports) + drop settingsRowSlot prop from PrettyConversationsPanel + prune Test 11 + delete SettingsRow.tsx + delete AppRail.tsx (5 atomic commits per Phase 10 Wave 4 precedent) (PURGE-02, PURGE-03, PURGE-04, PURGE-05)
+
+**Wave 4** *(blocked on Wave 3 — final docs pass)*
+
+- [ ] 11-04-PLAN.md — Build verification (npx tsc + npx vitest + npm run build all clean, output captured to 11-BUILD-VERIFY-LOG.md) + 11-UAT-CHECKLIST.md authoring (desktop + mobile + cross-viewport regression + failure route-back table for Ashley's post-deploy walkthrough) + 11-PATCHES-MD-ENTRY.md draft for patch #138 (batched with subsequent Phase 12+ purge patches per fleet-standing "batch patches into meaningful deploys" rule — no deploy inside this phase unless Ashley explicitly greenlights) (PURGE-01, PURGE-02, PURGE-03, PURGE-04, PURGE-05)
+
+### Phase 12: Skynet transformation — purge dead frontend surfaces (second slice)
+
+**Goal:** Every UI file that Phase 11's AppShell strip left orphaned is deleted from the source tree, along with its transitive-orphan subtrees, the Skynet tab bar chrome, the keyboard shortcut editor UI, and all dead locale strings referencing the deleted surfaces. After this phase, `src/ui/sidebar/` contains only the pieces used by the retained pretty-conversations panel (`NewSessionDialog.tsx` + anything it imports), `src/ui/dashboard/` is deleted entirely (or reduced to nothing pretty-conversations imports), and grep for the retired identifiers (HostsPanel, SnippetsPanel, AdminSettingsPanel, HostManager, DashboardTab, etc.) returns 0 code hits across `src/`. The invisible-shell technical capability (tab plumbing, terminal renderer, RDP/VNC panes, host CRUD backend + encrypted-SQLite data layer, pretty-view internals) remains untouched.
+
+**Requirements:** PURGE-06, PURGE-07, PURGE-08, PURGE-09, PURGE-10
+
+**Depends on:** Phase 11 (AppShell imports must already be stripped before file deletion is safe — Phase 11 is what turned these files into orphans)
+
+**Success Criteria** (what must be TRUE):
+
+  1. All Phase-11-orphaned sidebar panel files are deleted from `src/ui/sidebar/`: HostsPanel, SessionsPanel, CredentialsPanel, QuickConnectPanel, SshToolsPanel, SnippetsPanel, HistoryPanel, SplitScreenPanel, ConnectionsPanel, UserProfilePanel, AdminSettingsPanel + AdminApiKeysSection/AdminIdentitiesSection/AdminManagementSections/AdminSettingsSections/AdminSettingsShared/AdminUserDialogs, HostManager + HostManagerData/HostManagerTabs/HostShareModal, HostEditor + HostEditorData/HostEditorFeatureTabs/HostEditorGeneralTab/HostEditorGuacamoleTabs/HostEditorStatsTab, HostCredentialList, CredentialEditorView, SidebarTree — all gone; grep for each identifier returns 0 code hits across `src/`
+  2. `src/ui/dashboard/` subtree is deleted (DashboardTab.tsx, Dashboard.tsx, SessionDashboard.tsx, NewSessionHostChips.tsx, RemoteHostChips.tsx, sshHostToHost.ts, plus its cards/components/hooks/panels/ subdirs) — the "dashboard" TabType STAYS as a load-bearing fallback identifier in `src/types/ui-types.ts`, but no `dashboard/*.tsx` files remain
+  3. Skynet tab bar chrome (the top-level visible tab strip UI Ashley never sees in Skynet) is deleted; invisible tab plumbing (mount/unmount, WebSocket lifecycle, focus routing) stays intact
+  4. Keyboard shortcut editor UI (`src/ui/features/keyboard/` visible editor surfaces) is deleted; underlying keyboard shortcut handling for retained UI (the Ctrl+Shift+O pretty-view toggle, ChordDropdown, etc.) stays intact
+  5. Dead locale strings (`pinAppRail`, `nav.dashboard`, `nav.hosts`, `nav.snippets`, `nav.admin`, `nav.credentials`, `nav.history`, and any transitively-dead key referencing deleted surfaces) are removed from all ~34 `src/ui/locales/*.json` files
+  6. `sidebar/NewSessionDialog.tsx` STAYS (used by pretty-conversations pencil); anything it imports STAYS
+  7. Backend routes, encrypted-SQLite schema, docker/caddy/nginx config untouched (Phase 13 handles the backend route cleanup after this phase proves what's truly orphaned vs also serving pretty-conversations)
+  8. `tsc --noEmit` exits 0; `npx vitest run` all green (or unchanged from Phase 11's 2-baseline ComposeBox drift); `npm run build` succeeds; AppShell + pretty-view chunks unchanged size (this phase only removes already-orphaned files, so bundle size drop should be modest — the big shrink was Phase 11 which stripped the imports; deleting the now-orphaned files should give a smaller incremental drop unless code-splitting was already keeping them out)
+
+**Design source-of-truth (LOCKED, Ashley 2026-07-23):**
+
+- `~/.claude/identities/tina/bounties/skynet-transformation-purge-dead-surfaces/` (bounty premise + Phase 12+ todo enumeration)
+- `~/.claude/identities/tina/tina.md` § Skynet direction — Ship of Theseus (dead-surfaces canonical list; palette authority `--color-pv-*`; scope-decision heuristic)
+- `.planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-01-STRIP-LIST.md` (Phase 11's enumeration pattern — Phase 12 mirrors this)
+
+**Non-negotiables (baked into plans, not open to re-litigation):**
+
+- Deletion, not gating — same as Phase 11
+- Enumeration-first plan (mirror Phase 11 Plan 01 pattern) — produce authoritative `12-01-STRIP-LIST.md` BEFORE any deletion; prove each target has zero surviving `src/` imports via grep
+- Atomic commits per file/subtree, tsc-clean per commit — same as Phase 11
+- If a file's grep shows surviving imports (unexpectedly live consumer), DO NOT delete — flag and route back for investigation
+- Delete the `src/ui/sidebar/HostManager*` subtree ONLY if no surviving import path exists to it from retained UI (pretty-conversations, pretty-view, etc.); grep-verify first
+- Locale strings: batch by key removal across all ~34 JSON files as one commit per removed key set, tsc-clean (typed i18n keys will fail tsc if a consumer still uses the removed string)
+- NO backend route deletion — Phase 13's problem
+- Palette authority stays `--color-pv-*` for anything the deletion knock-on affects
+- Rebase risk HIGH — accept upstream divergence
+
+**Plans:** 7 plans
+
+**Wave 1**
+
+- [ ] 12-01-PLAN.md — Enumerate deletion targets + pre-flight refactor set + retained-UI protection list (STRIP-LIST doc) (PURGE-06, PURGE-07, PURGE-08, PURGE-09, PURGE-10)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 12-02-PLAN.md — Pre-flight refactors: inline isFolder into sidebar/NewSessionDialog, relocate 4 dashboard-shared files to features/session-launcher/ for CommandPalette, swap tabUtils network_graph render to PrettyLandingCard (PURGE-06, PURGE-07)
+
+**Wave 3** *(blocked on Wave 2 — parallel-safe: disjoint files_modified)*
+
+- [ ] 12-03-PLAN.md — Delete sidebar simple leaves + Admin subtree + HostManager subtree + SidebarTree (29 files) (PURGE-06, PURGE-09)
+- [ ] 12-04-PLAN.md — Delete src/ui/dashboard/ subtree entirely + resolve FullScreenAppWrapper cross-cut (17+ files) (PURGE-07)
+- [ ] 12-05-PLAN.md — Delete src/ui/shell/Tab.tsx (Skynet tab bar chrome) (PURGE-08)
+
+**Wave 4** *(blocked on Waves 3 — locale keys become 0-consumer after deletion plans land)*
+
+- [ ] 12-06-PLAN.md — Strip pinAppRail + dead nav.* keys from all 34 locale JSON files (PURGE-10)
+
+**Wave 5** *(blocked on all prior waves — phase-boundary docs pass)*
+
+- [ ] 12-07-PLAN.md — Build verification + UAT checklist + patch #139 draft (PURGE-06, PURGE-07, PURGE-08, PURGE-09, PURGE-10)
+
+**Bounty:** `skynet-transformation-purge-dead-surfaces` (Tina's identity). Same bounty as Phase 11; Phase 12 is the next slice of the same movement. Closes only after Phase 13 (backend routes) if that's the full purge; may be re-scoped if follow-up is more granular.
+
+**Deploy discipline:** Batched with Phase 11's patch #138 per fleet-standing "batch patches into meaningful deploys" rule (Ashley 2026-07-23). No deploy inside this phase unless Ashley explicitly greenlights a mid-purge deploy.
+
+**Bounty:** `skynet-transformation-purge-dead-surfaces` (tracker under Tina's identity — `~/.claude/identities/tina/bounties/skynet-transformation-purge-dead-surfaces/`). Reclassified low → HIGH on 2026-07-23 after Ashley's UAT quote ("I really feel like we need to get away from this skynet front end stuff before any of this is worth quibbling over"). Closes only after subsequent phases finish the full purge; this phase closes on landing-surface-swap + AppRail retirement UAT sign-off.
+
+**Deploy discipline:** Batched with subsequent purge phases per fleet-standing "batch patches into meaningful deploys" rule (Ashley 2026-07-23). No deploy inside this phase unless Ashley explicitly greenlights an early deploy of just the landing swap + AppRail removal. Rebase risk HIGH — accept upstream divergence for deleted surfaces.
+
+### Phase 13: Skynet transformation — conversation list lift-from-mock (final Ship-of-Theseus slice)
+
+**Goal:** The conversation list surface (`PrettyConversationsPanel` + `PrettyConversationRow` + `PinAction`) and its surrounding shell chrome (the top bar in `AppShell.tsx` with the sidebar-toggle chevron) look and behave at parity with the locked mock v4 at `~/.claude/identities/tina/bounties/skynet-transformation/prototype.html` on both mobile (iPhone PWA) and desktop viewports. The current approximation — JS-computed inline styles + Tailwind layout scaffolding, mixed-case chunky 13px title + filled-glass pencil pill, Skynet-button-chrome pin action with muted-gray icon, over-recessed ambient body style — is retired in favor of the mock's flat CSS class-toggle recipe with a real `.css` file. After this phase ships and Ashley UATs, Skynet's SHAPE is complete and the entire Ship-of-Theseus movement (Phases 11+12+13) closes.
+
+**Requirements:** SHAPE-01, SHAPE-02, SHAPE-03, SHAPE-04, SHAPE-05, SHAPE-06, SHAPE-07
+
+**Depends on:** Phase 11 (dead surfaces stripped from AppShell), Phase 12 (dead panel files deleted) — both shipped in the grouped #135-#139 deploy 2026-07-23. Phase 13 could not have been executed cleanly before them because the surviving surfaces were coexisting with Skynet-flavored shell chrome that made "match the mock" impossible.
+
+**Success Criteria** (what must be TRUE):
+
+  1. `PrettyConversationRow.tsx` renders using a real `.css` file (or CSS module colocated in `src/ui/features/pretty-conversations/`) whose selectors match the mock's `.row` / `.avatar` / `.body` / `.meta` / `.dot` structure exactly. Row markup uses the mock's semantic `<div class="row [selected] [active-set] [working] [pinned]">` + `<div class="avatar">` + `<div class="body"><span class="label"/><span class="host"/></div>` + `<div class="meta"><span class="pin"/><span class="dot"/></div>` pattern. Base row + all state variants (selected, active-set, working, pinned, ambient/recessed) are class-toggle CSS, NOT JS-computed inline styles.
+  2. `PrettyConversationsPanel.tsx` panel header renders with the mock's `.panel-header` treatment: 12px + font-weight 700 + `letter-spacing: 0.1em` + `text-transform: uppercase` title in `--color-pv-fg`; 32x32 pencil button with transparent bg + transparent border + `border-radius: 8px` + `--color-pv-fg-muted` icon color. Panel container itself uses the mock's `.panel` treatment (linear-gradient of `--color-pv-surface-quiet` → `--color-pv-surface-quiet-alt`, hairline `--color-pv-border-quiet` border, backdrop-blur 28px).
+  3. `PinAction.tsx` retires the button chrome entirely: renders as a bare icon (no bg, no border, no rounded rect wrapper) with `color: hsla(hue, 80%, 70%, 0.95)` + `filter: drop-shadow(0 0 4px hsla(hue, 80%, 60%, 0.55))` on pinned rows. Unpinned rows do NOT render the pin button at all (mock's `.row:not(.pinned) .meta .pin { display: none }` rule). The 2 last Skynet theme-class hits in `src/ui/features/pretty-conversations/` subtree (`text-muted-foreground/60`, `hover:text-foreground` at `PinAction.tsx:98,101`) are gone; grep for `bg-background|text-foreground|bg-card|text-card-foreground|bg-muted|bg-primary|border-border|muted-foreground` across `src/ui/features/pretty-conversations/` returns 0 hits.
+  4. Shell chrome top bar in `AppShell.tsx` (~L1407, sidebar-toggle chevron area) uses only `--color-pv-*` tokens for color decisions — no `--background`/`--foreground`/`bg-card`/etc. Skynet theme classes on the chevron's own render or its immediate container. Button treatment matches the mock's transparent-icon-with-rounded-md aesthetic (no filled-glass pill).
+  5. Post-lift UAT on the ready-for-attention dot: Ashley clicks 3+ conversations in one browser session; each row shows the dot when its agent is idle. If the dot still isn't visible after the lift, the 4 diagnostic candidates from the merged `conversation-list-idle-vs-wip-state` bounty are investigated (Terminal.tsx isIdle null-start, sessionWorkingKey mismatch, activeSet sessionStorage populate, PrettyConversationRowLive Rules-of-Hooks) and root cause fixed.
+  6. Post-lift mobile iPhone PWA UAT: scroll from top to bottom of the conversation list works without freeze. If scroll-freeze still repros, dedicated diag round with mobile devtools signal.
+  7. AppShell safe-area padding: no `100dvh`/`100vh` reference escapes the AppShell height chain such that the conversation list bottom items scroll behind the iPhone home indicator. If root cause is a single ancestor element, structurally fix so patch #126's per-scroller `pb-[env(safe-area-inset-bottom)]` workaround can be reverted (nice-to-have; not phase-blocking).
+  8. `src/ui/features/pretty-view/*.tsx` files (pretty-view chat surface interior) are UNTOUCHED by this phase — `git diff --stat` on the phase's commits shows zero lines changed in `src/ui/features/pretty-view/`.
+  9. `src/ui/components/` shadcn primitives, `src/ui/ssh/dialogs/`, xterm.js chrome, and `src/ui/features/terminal/` are UNTOUCHED (413 Skynet theme-class hits preserved for upstream rebase-ability).
+  10. `tsc --noEmit` exits 0 across all Phase 13 commit boundaries; `npx vitest run` all green (or unchanged from Phase 12's baseline); `npm run build` succeeds; conversation-list bundle size does not grow meaningfully (the swap from JS-computed inline styles + Tailwind classes to a static CSS file should be a wash or slight shrink).
+
+**Design source-of-truth (LOCKED, Ashley 2026-07-23):**
+
+- `~/.claude/identities/tina/bounties/skynet-transformation/prototype.html` (mock v4, THE authoritative visual spec — Full-intensity + Normal density variant is what ships)
+- `~/.claude/identities/tina/tina.md § Skynet direction — the app IS Telegram` (mental model, two-surfaces rule, pretty-view interior is locked)
+- `src/ui/index.css:117-146` (`--color-pv-*` palette — the color authority for both surfaces)
+
+**Non-negotiables (baked into plans, not open to re-litigation):**
+
+- **Lift, don't approximate.** The mock's flat CSS is the target. If a task is proposing to re-derive the mock's values through JS-computed inline styles or Tailwind classes, that's the same failure pattern that produced the current state — reject and re-scope.
+- **Pretty-view chat surface interior is UNTOUCHED.** No edits to `src/ui/features/pretty-view/*.tsx`. If a task appears to want to touch it, the scope check fails.
+- **Shadcn primitives + SSH/RDP dialogs + xterm.js chrome are UNTOUCHED.** Ship-of-Theseus rule — those 413 Skynet theme-class hits stay for upstream Skynet rebase-ability. Same reason Phase 13 (originally scoped as backend routes) was skipped.
+- **Master bounty rule.** All Phase 13 work + follow-ups fold into `~/.claude/identities/tina/bounties/skynet-transformation/` timeline+todos. Do NOT spawn sibling bounties for slices of it (dot visibility, scroll-freeze, safe-area padding). Fragmentation is the failure pattern that caused Tina to lose the Skynet vision across sessions.
+- **Class-toggle state variants, not JS-computed styles.** The mock uses `.row.selected`, `.row.active-set`, `.row.working`, `.row.pinned` + a `body[data-intensity]` variant if we still want the reduced-intensity option. The React component sets those class names via string concat or a `clsx` utility; CSS handles the actual visual state.
+- **Atomic commits per file/slice, tsc-clean per commit** — same discipline as Phases 11+12.
+
+**Plans:** Estimated 4-5 plans (Wave 1 = extract CSS + rewrite row; Wave 2 = rewrite panel header + shell chrome; Wave 3 = rewrite pin action; Wave 4 = post-lift dot + scroll + safe-area verification / investigation if needed; Wave 5 = build verify + UAT checklist + patch draft). Planner decides final decomposition.
+
+**Bounty:** `skynet-transformation` (master, under `~/.claude/identities/tina/bounties/skynet-transformation/`). Reclassified 2026-07-23 as the master bounty for the ENTIRE Ship-of-Theseus movement (Phases 11+12+13), not just the purge slice. Merged in 4 sibling bounties (`conversation-list-bubble-badge-restyle`, `conversation-list-idle-vs-wip-state`, `phase10-mobile-tap-and-scroll-freeze` scroll-freeze half, `sidebar-scroll-escapes-appshell-padding`) that were fragmentation of the same movement. Closes when Ashley UATs the conversation list at parity with the mock (mobile + desktop).
+
+**Deploy discipline:** Batched per fleet-standing "batch patches into meaningful deploys" rule (Ashley 2026-07-23). Would typically ship as one patch (call it #140) alongside any concurrent QoL fixes. No deploy inside this phase unless Ashley explicitly greenlights an intra-phase deploy. Rebase risk MEDIUM — the pretty-conversations subtree is fork-local (not upstream Skynet), so restructuring its CSS doesn't diverge from upstream any further than it already is.
+
+### Phase 14: Plain-language translation asides — auto-fire /btw explanations on idle turns
+
+**Goal**: Every completed assistant turn on a fleet-identity session with an open pretty-view tab in Ashley's active browser window(s) auto-fires a plain-language re-explanation of the turn (via a canned `/btw` prompt inlining the `/explain` skill), extracted by scraping the resulting tmux BTW overlay and rendered as a distinct in-flow AsideBubble at the bottom of that session's pretty-view message stream, with the ComposeBox morphed into a resume-required state until she dismisses it
+**Mode:** execute
+**Depends on**: Phase 1 (backend session-tail + WS bridge), Phase 2 (ComposeBox + split-send), Phase 9 (ComposeBox 2-tall shell + WIP indicator's idle-window signal — reused verbatim as the aside trigger)
+**Requirements**: ASIDE-01, ASIDE-02, ASIDE-03, ASIDE-04, ASIDE-05, ASIDE-06, ASIDE-07, ASIDE-08, ASIDE-09, ASIDE-10, ASIDE-11
+**Success Criteria** (what must be TRUE):
+
+  1. On a fleet-identity session with a pretty-view tab open in the current browser window, when an assistant turn completes AND the WIP-indicator's idle threshold expires with no further activity, a `/btw` prompt is injected into that identity's tmux session and the resulting BTW-overlay answer is extracted and rendered as an AsideBubble at the BOTTOM of that session's message stream — WITHOUT firing for any session that has zero open pretty-view tabs anywhere and WITHOUT firing for anonymous (non-identity) sessions
+  2. The AsideBubble uses the same identity-hue background gradient as normal assistant bubbles for that session but with an obvious 10px solid neon-hue border + three-layer outer glow (12px/32px/64px in the hue at descending alpha), visually unmistakable as "not a normal assistant reply"; it sits IN-flow at the bottom of the scrollable message list, and scrolling up to re-read history works exactly as before with the aside staying pinned at the bottom
+  3. While an aside is displayed for a session, its ComposeBox send button is replaced with an X icon (hover tooltip "Resume"), the queue-message / thumbs-up / reset-session affordances are all disabled/greyed, and any partial draft text in the textarea is preserved verbatim (never cleared or overwritten by the aside displaying)
+  4. Clicking the X (Resume) dismisses the aside: the AsideBubble is removed from the stream, the ComposeBox reverts to its normal state with the partial draft still intact, the backend sends `Escape` into the identity's tmux to close the underlying BTW overlay, and any OTHER browser tab currently viewing the same session's pretty-view also clears its aside display within a WS round-trip
+  5. When a new turn arrives on a session that has an aside currently displayed (v1 policy), the aside remains unchanged and the new turn does NOT get its own aside; the new turn otherwise behaves normally
+  6. When a pretty-view tab is closed while its aside is still displayed, the tmux BTW overlay stays open on the identity's tmux (no cleanup); when any pretty-view for that same session subsequently mounts (any tab, same or new browser session), the backend pane-probes the tmux and re-renders the aside in the same displayed state if the overlay is still open
+  7. The feature works in production without regressing any existing pretty-view, ComposeBox, terminal, RDP, VNC, message-queue, identity, session-list, upload, or fleet-discovery behavior — all existing pretty-view WS event contracts remain backward-compatible, and no aside-related backend state persists across restarts (backend rediscovers by pane-probing on next event)
+
+**Plans:** 5/6 plans executed
+
+**Wave 1**
+
+- [x] 14-01-PLAN.md — Backend primitives: BTW_PROMPT + ASIDE_END_MARKER constants + injectBtw + sendEscapeToBtw + extractBtwAnswer helpers in claude-session-server.ts (ASIDE-03, ASIDE-04, ASIDE-10)
+
+**Wave 2** *(blocked on Wave 1 — composes primitives)*
+
+- [x] 14-02-PLAN.md — Backend aside subsystem: aside_ready / aside_dismissed / AsideDismissedPayload WS wire types + extraction poller + WIP-idle trigger + client dispatch + cross-tab broadcast + connect-time re-attach probe (ASIDE-01, ASIDE-02, ASIDE-08, ASIDE-09, ASIDE-10, ASIDE-11)
+
+**Wave 3** *(blocked on Wave 2 — consumes WS types)*
+
+- [x] 14-03-PLAN.md — Frontend AsideBubble component + PrettyView mount + asideText state + WS handlers + fresh-pane reset + ComposeBox prop plumbing stub (ASIDE-05, ASIDE-09)
+
+**Wave 4** *(blocked on Wave 3 — consumes asideActive + onAsideDismiss props)*
+
+- [x] 14-04-PLAN.md — ComposeBox morph: asideActive/onAsideDismiss props + aux button disable extension + inside-textarea Send-button-to-X morph (ASIDE-06, ASIDE-07)
+
+**Wave 5** *(blocked on Wave 4 — integration coverage)*
+
+- [x] 14-05-PLAN.md — Frontend PrettyView.test.tsx 4 new integration cases (aside_ready mount+morph, X-click dismiss+outbound frame, aside_dismissed idempotency, fresh-pane reset) + backend claude-session-server.aside.integration.test.ts 4 new cases (poller stability, cross-tab broadcast, v1 overlap policy, connect-time probe) (ASIDE-01, ASIDE-05, ASIDE-06, ASIDE-07, ASIDE-08, ASIDE-09, ASIDE-11)
+
+**Wave 6** *(blocked on Wave 5 — deploy checkpoint)*
+
+- [ ] 14-06-PLAN.md — Build verification (tsc + vitest + npm run build) + 14-UAT-CHECKLIST.md authoring + 14-PATCHES-MD-ENTRY.md draft + Ashley human-verify checkpoint for bundled deploy (Phase 14 + queued #150 A + C per CONTEXT.md § Phase Boundary) (ASIDE-01..11)
+
+**Bounty:** `plain-language-translation-asides` (under `~/.claude/identities/tina/bounties/plain-language-translation-asides/`). Design session with Ashley 2026-07-26 captured verbatim in the bounty's `timeline[]`. Visual aesthetic locked via the `aside-visual-snippet.js` DevTools prototype in the same folder (defaults: 10px solid border, glow=1.0, three-layer 12/32/64px outer glow in the identity hue). Bounty closes when Ashley UATs the feature across at least 3 fleet-identity sessions in her active window with per-turn asides firing + dismissing correctly.
+
+**Deploy discipline:** This feature is the bundle-mate for the queued #150 A + C deploy — Ashley 2026-07-26 verbatim: "there's no point in deploying until we get it in." So the deploy sequence when this phase completes is: bundle #150 A + C + this feature's patches together in one deploy event, standard pre-warn (HTTP2_PROTOCOL_ERROR on first hard-refresh, close+reopen tab). Rebase risk MEDIUM — additive on fork-local infrastructure only.
+
+### Phase 15: Pinned conversations — server-side account-wide persistence
+
+**Goal**: Ashley's pinned conversation IDs live on the server (in the `skynet-data` SQLite) keyed to her authenticated user account instead of in Zustand memory only — so pins survive tab close, browser close, hard-refresh, and PWA close on iPhone, AND sync desktop ↔ iPhone in near-real-time. Fixes the bug she hit 2026-07-27 ("pins are not working; they last only until I close the app"). Followup-2 to patch #149 A/B/C, which shipped three-tier sort + fleet-aware pruner but left pinnedIds in-memory only.
+**Mode:** execute
+**Depends on**: Phase 7 (Fleet-native conversation list — pins were introduced here, `pinConversation`/`unpinConversation` live in `conversation-store.ts`), Phase 10 (Pretty-Conversations visual-language rework — pin action UI lives in `PinAction.tsx`)
+**Requirements**: PIN-01, PIN-02, PIN-03, PIN-04, PIN-05, PIN-06, PIN-07, PIN-08
+**Success Criteria** (what must be TRUE):
+
+  1. Pin any conversation on desktop, close the browser completely, reopen, and the pin is still there — verified end-to-end against production, not just against a running dev server. Same round-trip works from the iOS PWA (close the PWA fully, reopen, pin persists).
+  2. Pin any conversation on desktop, and within one poll/next mount on iPhone (or vice versa) the pin appears on the other device without user action — no page reload required beyond the natural mount cycle.
+  3. Every pin/unpin click writes to the server immediately; no batching, no debounce. The UI update is optimistic and synchronous; the server write is asynchronous but verified before the next fetch trusts the round-trip.
+  4. If the server is unreachable (network drop, Skynet restart mid-click), the pin still updates in the UI and the mutation retries on the next sync opportunity. A pin action never leaves the UI stuck.
+  5. The endpoint is per-user, authenticated via the existing Skynet identity auth (cookie jar / JWT), and returns 401 to unauthenticated requests. One user's pins are invisible to any other user.
+  6. Verification includes a GET-verify after every PUT during the client's initial rollout window to prove writes stuck — required to avoid the patch #77 silent-200 no-op trap on any multipart-shape endpoint.
+
+**Plans:** 2/3 plans executed
+
+Plans:
+
+- [x] 15-01-PLAN.md — Backend: extend /user-preferences with pinnedConversationIds JSON column + endpoint + direct-handler tests (PIN-01, PIN-02, PIN-06, PIN-07, PIN-08)
+- [x] 15-02-PLAN.md — Frontend store: pins-api client + pinConversation/unpinConversation server-write augmentation + hydratePinnedIdsFromServer setter + tests 30j-30o (PIN-03, PIN-05, PIN-08)
+- [ ] 15-03-PLAN.md — Frontend panel: PrettyConversationsPanel mount-effect fetch + one integration test + human-verify end-to-end round-trip checkpoint (PIN-01, PIN-02, PIN-04, PIN-05)
+
+**Design decisions locked in planning (internally coherent per plan-checker requirement):**
+
+- Storage shape: Option B — JSON column `pinned_conversation_ids TEXT` on existing `user_preferences` table (safe additive migration via existing `addColumnIfNotExists` helper at src/backend/database/db/index.ts:670-674; set-size is 1; no per-pin metadata needed)
+- Endpoint shape: Option A — extend `/user-preferences` GET+PUT (ZERO nginx changes — existing `location ~ ^/user-preferences(/.*)?$` block at nginx.conf:258 + nginx-https.conf:265 already routes; JSON body, response-echoes-persisted-state avoids PIN-08 multipart trap)
+
+**Wave structure:**
+
+- Wave 1: 15-01 (backend — schema + endpoint + tests; no dependencies)
+- Wave 2: 15-02 (frontend store; depends on 15-01 for endpoint to exist)
+- Wave 3: 15-03 (frontend panel wire-up + human-verify; depends on 15-02 for hydratePinnedIdsFromServer + getPinnedIds to exist)
+
+### Phase 16: Voice input in ComposeBox — mic button + tap-to-record + STT via Skynet backend proxy to tailnet faster-whisper
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 15
+**Plans:** 4/4 plans complete
+
+Plans:
+
+- [x] TBD (run /gsd-plan-phase 16 to break down) (completed 2026-07-27)
+
+### Phase 17: Pretty-view relay bubbles — Skynet integration
+
+**Goal:** Fleet Matrix relay send/receive (outbound relay PUTs by tina/other agents + inbound task-notification wakes surfaced by recv.sh) renders as distinct message bubbles in-flow in pretty-view, next to normal conversation turns — so fleet coordination shows up visually in the chat instead of hiding inside opaque `Bash: curl ...` tool-use blobs. Detectors validated in prototype (bounty `pretty-view-relay-bubble-prototype`, 6/6 acceptance battery 2026-07-28); this phase ports the detectors + rendering into `src/ui/features/pretty-view/` and adds an mxid→identity resolver so bubbles carry the sender's colorHue.
+
+**Requirements**: RELAYBUB-01, RELAYBUB-02, RELAYBUB-03, RELAYBUB-04, RELAYBUB-05, RELAYBUB-06
+
+**Depends on:** Phase 2 (pretty-view infra — bubbles, ChatMessage, message-turn extension mechanism)
+
+**Success Criteria** (what must be TRUE):
+
+  1. A tool-use turn whose Bash command line contains all three of `curl` + `-X PUT` + URL shape `rooms/{roomId}/send/m.room.message/{txnId}` is detected as an OUTBOUND relay send and rendered as a right-aligned blue relay bubble showing the recipient room + best-effort extracted message body. Two false positives from the prototype battery (a `cat > bounty.json <<JSON` mentioning the substring in prose, a `grep -n 'send/m.room.message'` command) are correctly rejected.
+  2. A `type=user` turn whose `origin.kind=task-notification` AND whose body matches the recv.sh line regex `[room X] [@sender:server] (event $Y): BODY` is detected as an INBOUND relay receive and rendered as a left-aligned orange relay bubble showing the sender mxid + room + body. Non-relay task-notifications (wakeup fires, scheduled self-checks) correctly render as neutral, not as inbound bubbles.
+  3. Inbound bubble sender mxid (`@name:server`) is resolved to the corresponding local identity where possible (e.g. `@tina:...` → tina), and the bubble carries that identity's stored `colorHue` — same treatment as normal agent-bubble hue chains. Unresolved mxids fall back to a neutral grey hue with the raw mxid visible.
+  4. When recv.sh wrote the inbound body to a file (file-pointer format — recognizable by the presence of a filesystem path in the body), pretty-view fetches the pointed-to file and renders the full body inline; the pointer line is shown as a header/preview. Fetch failure falls back to showing the pointer line + a fetch-failed indicator.
+  5. Body extraction is best-effort — variants that defeat static parsing (shell-var interpolation like `$body`, `--data-raw`, heredoc-nested payloads) render the bubble with a ⚠ warning and the raw command line, rather than dropping the detection entirely. Detection remains bulletproof — the two heuristic conjunctions are the ONLY truth signal.
+  6. All existing pretty-view functionality is preserved end-to-end — plain-text send/receive, WipBubble, PlanPendingBubble, tool-use rendering (for non-relay curl commands), IdentityBadge, ComposeBox, session-changeover behavior, keyboard chords. Zero regression to non-relay turn rendering.
+
+**Design source-of-truth (LOCKED, 2026-07-28):**
+
+- Prototype: `~/.claude/identities/tina/bounties/pretty-view-relay-bubble-prototype/prototype.html` (served at http://100.99.149.8:8899/relay-bubble-prototype.html, 6/6 acceptance battery passed with Ashley)
+- Detector JS in prototype.html — port verbatim; the two conjunctions ARE the contract
+- Bubble class-toggle recipe in prototype.html — port verbatim (outbound-blue right, inbound-orange left)
+
+**Non-negotiables (baked into plans, not open to re-litigation):**
+
+- Detection is the two conjunctions, unchanged. Do NOT loosen (bare-substring on any of the three tokens was rejected in prototype validation for producing false positives on prose/comments).
+- Extraction failure MUST render a warned bubble, not a dropped detection — silent-loss of a detected relay turn is worse than an ugly-but-clear ⚠ display.
+- Scope stays in `src/ui/features/pretty-view/` as a message-turn extension. No changes to the pretty-view chat surface interior beyond adding the new bubble variants + detection layer + mxid resolver + file-pointer fetcher.
+- mxid→identity resolution reuses the existing identity registry / colorHue mechanism the IdentityBadge and agent-bubble hue chains already use — don't invent a parallel palette.
+
+**Rebase risk:** MEDIUM — purely additive to fork-local pretty-view; no upstream Skynet surfaces touched.
+
+**Bounty tracker:** `~/.claude/identities/tina/bounties/pretty-view-relay-bubble-prototype/` (through-line remains open — prototype milestone done, integration is the actual product goal per learned preference 2026-07-28).
+
+**Plans:** 3/4 plans executed
+
+Plans:
+
+- [x] 17-01-PLAN.md — Backend session-file-parser + WS wire types for relay detection (RELAYBUB-01, RELAYBUB-02, RELAYBUB-05)
+- [x] 17-02-PLAN.md — Backend SSRF-safe /relay-pointer HTTP proxy on main Express backend (port 30001) + BOTH nginx configs updated for long-inbound file-pointer fetch (RELAYBUB-04)
+- [x] 17-03-PLAN.md — Frontend RelayOutboundBubble + RelayInboundBubble + mxid resolver + file-pointer fetcher + PrettyView dispatch wiring (RELAYBUB-01, RELAYBUB-02, RELAYBUB-03, RELAYBUB-04, RELAYBUB-05, RELAYBUB-06)
+- [ ] 17-04-PLAN.md — Deploy checkpoint: build-verify + Ashley UAT checklist for RELAYBUB-01..06 + patches-md entry draft (all RELAYBUB-01..06)
+
+### Phase 18: Identity modal — full editability across all tabs
+
+**Goal:** Make every artifact surface in IdentityModal fully editable in-place, so Ashley edits identity file / history / handoff / bounty fields / wakeup specs from her phone via term.gigaashley.click without spinning up a Claude session on the target box. Today: Bounties has status/priority/pin/archive/delete, Wakeups has spec CRUD (patch #154 + quick 260731-2pa); Identity file / History / Handoff are read-only text views; Bounty title / premise / todos / keywords / source_links / deadline are read-only. All become read+write, with atomic writes (tmp+rename) for markdown files and `updated_at` + timeline bumps for JSON edits. Cross-machine identity edits work over SSH.
+
+**Requirements**: IDMEDIT-01, IDMEDIT-02, IDMEDIT-03, IDMEDIT-04, IDMEDIT-05, IDMEDIT-06, IDMEDIT-07, IDMEDIT-08
+
+**Depends on:** None new — builds on identity-artifact-reader.ts write primitives (`writeIdentityWakeupUpdate`, `writeIdentityBountyPriority`, `writeIdentityBountyStatus`, `writeIdentityBountyPinned`, `archiveIdentityBounty`, `deleteIdentityBounty`) and the identity-modal WS wire pattern (patch #17g/#92).
+
+**Success Criteria** (what must be TRUE):
+
+  1. **Markdown tabs editable.** Identity file / History / Handoff tabs each have Edit/Save/Cancel controls in their tab toolbar. Edit mode replaces the ReactMarkdown preview with a monospace textarea filling the pane height. Save persists via new WS write payloads (`identity:update-identity-file`, `identity:update-history`, `identity:update-handoff`) that overwrite the file atomically (tmp+rename). Cancel with unsaved changes prompts `window.confirm("Discard unsaved changes?")`. Server echoes the confirmed markdown back and the tab re-hydrates from server-side truth.
+  2. **Bounty fields editable.** BountyCard exposes editable in-place editors for `title` (inline input), `premise` (textarea), `todos` (add/edit text/toggle done/remove/reorder), `keywords[]` (list editor), `source_links[]` (list editor), and `deadline` (date-or-datetime picker). Existing edit surfaces (status/priority/pinned/archive/delete) unchanged. `id`, `created_at`, `updated_at`, `timeline[]` remain read-only. `meeting_questions[]` follows user-reserved semantics — surfaces in the editor with add + mark-answered, no agent-only add path introduced.
+  3. **Backend atomic-write primitives.** New backend writers mirror the existing tmp+rename pattern from `writeIdentityWakeupUpdate`: `writeIdentityFile`, `writeIdentityHistory`, `writeIdentityHandoff` (full-file overwrite); `writeIdentityBountyFields` (partial JSON patch that bumps `updated_at` + appends a `<ISO-Z> <field> updated via identity modal` timeline entry per field changed). Both LOCAL (bind-mount `fs.writeFile` via tmp) and REMOTE (SSH) branches wired for every new writer.
+  4. **Cross-machine writes work.** REMOTE branch supports writes at any payload size — SFTP or chunked-stdin protocol, chosen at plan time (`execCommand` in `tmux-helper.ts` does not currently support stdin, so this needs an SFTP or new exec-with-stdin primitive). Verified by editing e.g. nelly.md from Ashley's phone connected to skynet-ec2's Skynet against nelly's live identity folder on thenasty.
+  5. **Design contract locked from scratches.** Markdown-tab editor shape is LOCKED from the file-editing-in-identity-modal scratch UAT 2026-07-31 (Ashley greenlit "worked" against the docker-cp'd scratch on skynet). Bounty-field editor shape is LOCKED via a follow-up scratch iteration BEFORE Wave B ships — todos alone is 5 interactions (add/edit/toggle/remove/reorder) and warrants its own docker-cp scratch round to lock the shape.
+  6. **No regression** to existing edit surfaces or read paths. Bounties status/priority/pinned/archive/delete continue to work byte-for-byte. Wakeups spec CRUD (patch #154 + quick 260731-2pa) continues to work. Identity-tab title/avatar/voice edits (quick 260731-1c8 + patch #223) continue to work. Read-only markdown tab display (pre-Phase-18 shape) preserved as the default state after cancel/close.
+  7. **Security parity.** All new WS handlers validate `identityKey` against `IDENTITY_KEY_RE` and bounty slug against `IDENTITY_SLUG_RE` before any shell/SSH interpolation. No new shell-escape gaps introduced. Payload validation matches the existing update-wakeup handler's shape (typed guards on every input field, error responses via `identity:*-error` echoes).
+
+**Design source-of-truth:**
+
+- **Markdown-tab editor**: SCRATCH-ITERATED 2026-07-31 in bounty `file-editing-in-identity-modal` (Ashley greenlit shape on live docker-cp scratch; container still serves the scratch bytes until the ship recreate). Shape locked.
+- **Bounty-field editor**: PENDING scratch round (Wave B prerequisite — plan should call this out explicitly so it's not skipped).
+
+**Non-negotiables (baked into plans, not open to re-litigation):**
+
+- **Atomic writes only** — never a bare `fs.writeFile` without tmp+rename. A mid-write crash MUST leave the previous version on disk. Mirror the exact pattern from `writeIdentityWakeupUpdate` lines 713-718.
+- **`meeting_questions[]` remains user-only-authored** — the bounty-field editor exposes it, but no server-side handler is introduced that any agent flow could invoke to add one on the user's behalf. UI convention only; wire-level guards preserve semantics.
+- **`pinned` remains user-reserved via the existing star toggle** — no separate `pinned:true` programmatic-set path added. The Phase 18 bounty-field editor does not surface pin as one of its editable fields.
+- **Timeline entries** appended on JSON field updates use the existing "via identity modal" convention (patch #154 pattern in `writeIdentityBountyPriority` line 768).
+
+**Rebase risk:** LOW — purely additive to fork-local identity-modal + backend WS handlers. No upstream Skynet surfaces touched.
+
+**Bounty tracker:** `~/.claude/identities/tina/bounties/file-editing-in-identity-modal/` — the bounty Ashley parked 2026-07-31; expand it to cover the full phase scope. Scratch-iteration outcomes from THIS session (markdown-tab shape lock) feed the plan.
+
+**Plans:** 5/5 plans executed — Phase 18 COMPLETE 2026-07-31, Ashley UAT approved ("Great job.")
+
+**Wave 1**
+
+- [x] 18-01-PLAN.md — Shared backend atomic-write primitive: writeIdentityFile/History/Handoff + SFTP tmp+rename + WS handlers + wire types (IDMEDIT-06)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 18-02-PLAN.md — Markdown-tab editors (IdentityFileTab, HistoryTab, HandoffTab) with Edit/Save/Cancel toolbar + Ashley UAT covering LOCAL and REMOTE (nelly on thenasty) writes (IDMEDIT-01, IDMEDIT-02, IDMEDIT-03, IDMEDIT-05)
+
+**Wave 3** *(blocked on Wave 2 completion — BLOCKING scratch prerequisite)*
+
+- [x] 18-03-PLAN.md — Bounty-field editor scratch UAT via docker-cp overlay; produces 18-03-SCRATCH-REPORT.md as the design-locked spec for Plan 05; no ship code committed (IDMEDIT-08)
+
+**Wave 4** *(blocked on Wave 3 SCRATCH-REPORT.md)*
+
+- [x] 18-04-PLAN.md — Backend bounty-fields writer (writeIdentityBountyFields partial JSON patch, extended normalizeBounty, extended Bounty wire type, identity:update-bounty-fields WS handler) (IDMEDIT-04)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [x] 18-05-PLAN.md — BountyCard field editors (title/premise/todos/keywords/source_links/deadline/meeting_questions) + IdentityModal wiring + Ashley UAT walking bounty-field editors AND IDMEDIT-07 non-regression across all pre-existing edit surfaces (IDMEDIT-07)
+
+**Deploy status:** HELD pending explicit skynet-ec2 recreate greenlight per fork DEPLOY DISCIPLINE. The current live container has SCRATCH BYTES from mid-UAT docker cp (Wave 1 + Wave 2 + cursor fix + Wave 4 + Wave 5 all live). The fork branch has ~15 new commits since ffaae0b ready to build+recreate.
+
+### Phase 19: Streaming TTS output via Chatterbox /tts endpoint
+
+**Goal:** Replace the buffered TTS path on the pretty-view bubble speak-button with a progressive Web Audio player. Today (patch #223) the whole chain buffers end-to-end: backend `handleSpeak` (`src/backend/database/routes/voice.ts:129`) calls `fetch(TTS_URL) → Buffer.from(await response.arrayBuffer()) → res.end(buf)` against Chatterbox's OpenAI-compat `/v1/audio/speech`, then frontend `postSpeak` (`src/ui/api/voice-api.ts:5`) axios-fetches a Blob, then `ChatMessage.tsx:99-117` plays via `new Audio(URL.createObjectURL(blob))`. First sound = end of synthesis. Ashley heard Nelly's streaming demo (https://gigaashley.click/tts-demo/) 2026-07-31 and said "night and day" — she wants streaming wired into the bubble speak-button. iOS Safari Web Audio verified working via her spike of the demo on her iPhone PWA same day (no iOS-specific workaround required).
+
+**Requirements**: TTSSTR-01, TTSSTR-02, TTSSTR-03, TTSSTR-04, TTSSTR-05, TTSSTR-06, TTSSTR-07
+
+**Depends on:** None new — builds on patch #223 TTS infrastructure (`voice.ts` router, `voice-api.ts` helpers, `ChatMessage.tsx` speak-button UI) and pattern precedent from patch #232 (nginx `proxy_read_timeout` tuning for TTS).
+
+**Success Criteria** (what must be TRUE):
+
+  1. **Backend streams — never buffers.** New `POST /voice/speak-stream` on port 30001 pipes chunks from Chatterbox `http://100.80.122.111:8001/tts` straight through to the browser via `Readable.fromWeb(response.body).pipe(res)` (or equivalent WHATWG-stream→Node-stream bridge). Grep-verified: no `await response.arrayBuffer()`, `.buffer`, or `.text()` on the Chatterbox response inside the streaming handler. Response headers: `Content-Type: audio/wav` + `X-Accel-Buffering: no`.
+
+  2. **Body-schema translation server-side.** Skynet client sends `{text, voice?}` (matching the existing buffered shape); backend forwards to Chatterbox as `{text, voice_mode:"predefined", predefined_voice_id: voice ?? "Elena.wav", stream:true, split_text:true, chunk_size:80}`. Reuses `VOICE_FILENAME_RE` + `SPEAK_TEXT_MAX` from patch #223. Default voice stays `Elena.wav`.
+
+  3. **Nginx configured for streaming in BOTH configs.** New `location /voice/speak-stream` block in `docker/nginx.conf` AND `docker/nginx-https.conf` (per CLAUDE.md caveat) with `proxy_buffering off; proxy_request_buffering off; chunked_transfer_encoding on; proxy_read_timeout 300s;`. End-to-end `curl -N https://term.gigaashley.click/voice/speak-stream` shows chunks arriving as they synthesize (not batched). Existing `location /voice/speak` block for the buffered route untouched.
+
+  4. **Frontend switches speak-button to Web Audio API progressive decode.** `postSpeakStream(text, voice?)` in `voice-api.ts` returns a raw `fetch` Response (JWT manually attached via `Authorization: Bearer ${token}` header). `ChatMessage.tsx` speak handler reads `response.body.getReader()`, accumulates bytes until 44-byte RIFF header parseable (sample rate/channels/bit depth extracted), then for each PCM chunk allocates `AudioBuffer`, copies samples in with bit-depth conversion, creates `AudioBufferSourceNode`, schedules via a running `nextStartTime` clock so chunks play gaplessly back-to-back. Audio begins BEFORE synthesis completes (TTFB target ~30ms per Nelly's demo). Reference: ~50 lines of JS at view-source of https://gigaashley.click/tts-demo/ (lift wholesale).
+
+  5. **Cross-bubble Stop / preempt semantics preserved.** Module-level `currentAudio` singleton adapted to Web Audio: tracks active `AudioContext` + array of scheduled `AudioBufferSourceNode`s + fetch `ReadableStreamDefaultReader`. Starting a new bubble's speak (or clicking Stop) calls `.stop()` on every queued source node, `.cancel()` on the reader, and closes the AudioContext. Mid-stream errors (network blip, TTS drop, container recreate) abort scheduled sources, revert `speakState` to `idle`, no ugly click or trailing partial audio.
+
+  6. **Existing buffered path preserved byte-for-byte.** `POST /voice/speak` (patch #223) untouched. `postSpeak()` axios helper untouched. `IdentityModal` voice-preview keeps calling `postSpeak()` — one-shot 25-word sample doesn't benefit from streaming. Voice-preview UAT continues to work post-ship.
+
+  7. **Security parity with patch #223.** Streaming route wires JWT auth (`authenticateJWT` middleware), 300s AbortController timeout on the upstream Chatterbox fetch, T-16-03 no-body-leak on non-2xx (`{error:"TTS stream non-2xx", status}` fixed shape), and 504/502 error paths matching patch #223 semantics. No new shell/injection surfaces introduced.
+
+**Design source-of-truth:**
+
+- Endpoint spec + browser-decode reference: Nelly DM 2026-07-31 (event `$Piv-9UsNx5LjDfpXbDnspf_8TMTmLQyX4XKO49i4ZC8`) captured verbatim in bounty `stream-tts-output-via-chatterbox/bounty.json`.
+- Progressive-decode reference: view-source at https://gigaashley.click/tts-demo/ (~50 lines of JS in `<script>` block — lift wholesale per Nelly's explicit permission).
+- iOS Safari compatibility: Ashley's iPhone PWA spike of Nelly's demo passed 2026-07-31 (in-session).
+
+**Non-negotiables (baked into plans, not open to re-litigation):**
+
+- **No server-side buffering on the streaming route.** Any `await response.arrayBuffer()` / `.text()` / `.blob()` on the Chatterbox response inside `handleSpeakStream` is a plan-checker BLOCK. Pipe-through only.
+- **Existing `/voice/speak` (patch #223) is untouched.** IdentityModal voice-preview MUST continue working post-ship. Any plan that modifies the buffered route or its `postSpeak` axios helper is out of scope.
+- **Default voice stays Elena.wav.** Do NOT switch to Adrian just because Nelly's demo used it.
+- **Nginx block goes in BOTH configs.** `docker/nginx.conf` AND `docker/nginx-https.conf` — CLAUDE.md caveat, patch #232 lesson.
+- **JWT auth + T-16-03 no-body-leak preserved.** Same middleware wiring + same fixed error shape as patch #223. No leaking Chatterbox response bodies on non-2xx.
+
+**Rebase risk:** LOW — purely additive backend route + additive nginx block + swap ONE frontend caller in `ChatMessage.tsx`. No upstream Skynet surfaces touched. Fork severed 2026-07-24 so no upstream to rebase against anyway.
+
+**Bounty tracker:** `~/.claude/identities/tina/bounties/stream-tts-output-via-chatterbox/` — captured Nelly's DM verbatim + full work-shape breakdown + Ashley's scope decisions 2026-07-31 (streaming replaces bubble speak-button only; IdentityModal voice-preview stays buffered; default voice stays Elena; iOS spike passed).
+
+**Deploy note:** Bundles with the held deploy queue (#198→#236 currently unpushed to container ~57 commits). This phase's shipped patch (#237) rides the same rebuild + recreate whenever Ashley greenlights.
+
+### Phase 20: Identity creation UI
+
+**Goal:** Extend the New-Session modal so it can birth a whole new fleet identity in one motion — box-side agent, on-disk identity folder, and Skynet-side identity record. Adds a path field (visible in both modes) and an identity-mode checkbox (defaults on) that reveals title, brief (ephemeral, avatar-prompt seed only), avatar (Generate/Regenerate loop producing 3 horizontal gamma-corrected candidates with fresh archetype every regen and required pick), voice picker (reused verbatim from identity-edit modal), and color picker. On Create, a compound birth sequence runs: Skynet record → tmux session on target host → agent CLI (permissive mode) → bootstrap dance (crib from Nelly's supervisor, do not re-derive) → `/id <name>`. Modal stays open with per-step progress; focus follows to the new session on success so the user is already in the room when the fresh identity asks its opening onboarding question. On failure at any step, a per-step contextual blurb tells the user exactly what got created and what manual finish-up is needed — no rollback, no retry, no cancel. Both Skynet-side (identity record already exists) and target-host-side (`~/.claude/identities/<name>/` already exists) name collisions block submission.
+
+**Requirements**: IDUI-01, IDUI-02, IDUI-03, IDUI-04, IDUI-05, IDUI-06, IDUI-07, IDUI-08, IDUI-09, IDUI-10
+
+**Requirement details:**
+
+- **IDUI-01 (Modal upgrade + identity-mode toggle).** `src/ui/sidebar/NewSessionDialog.tsx` gains a **path field** (visible in both modes) and an **identity-mode checkbox** (defaults on). When off = today's regular-session flow plus the new path field; when on = identity-birth field cluster reveals below.
+- **IDUI-02 (Identity-birth field cluster).** When identity-mode is on, the modal reveals: **title** (maps to `displayName`), **brief** (ephemeral, avatar-prompt seed only, NEVER persisted anywhere), **avatar** (required pick), **voice** (reused from IdentityModal.tsx), **color** (reused from IdentityModal.tsx).
+- **IDUI-03 (Path field behavior).** Default `~`, accepts both `/` and `\` and normalizes to `/`, expands `~` server-side, creates the directory via `mkdir -p` on target host if missing.
+- **IDUI-04 (Avatar generation pipeline).** New backend endpoint accepts `{name, title, brief}`; server drafts an archetype prompt via LLM (avatar-flow runbook pattern) → calls gpt-image-1 x3 in parallel → applies gamma 0.7 correction to each → returns 3 candidate URLs. Every Generate/Regenerate press re-runs the archetype draft (fresh archetype, never same-prompt-different-seeds). Prompt hidden from user. Generate disabled during in-flight batch.
+- **IDUI-05 (Name collision blocking, both sides).** Before Create is enabled, modal verifies (a) no existing Skynet-side record with the same identityKey (GET /identities pre-check; backend POST /identities already 409s on collision as source of truth), AND (b) no existing on-disk identity folder at `~/.claude/identities/<name>/` on target host (new backend probe endpoint). Either collision blocks submission with inline text naming which side.
+- **IDUI-06 (Compound birth sequence, Nelly-cribbed).** When Create fires, backend runs 5-step sequence: (1) POST /identities with picked avatar + metadata (multipart with `data` field, GET-verify after per silent-no-op discipline); (2) open tmux session on target host (SSH for remote, local-exec for self-birth), `mkdir -p` for path if missing, `tmux new-session -d -s <name> -c <path>` then sleep 3; (3) pre-set `.projects[<cwd>].hasTrustDialogAccepted = true` in `~/.claude.json` on target host, then `tmux send-keys -t <name> -l "CLAUDE_CODE_RESUME_THRESHOLD_MINUTES=99999999 CLAUDE_CODE_RESUME_TOKEN_THRESHOLD=99999999 claude --dangerously-skip-permissions"` + Enter, then sleep 2; (4) blind Enter train — loop 7 times firing `tmux send-keys -t <name> Enter; sleep 3` (SETTLE_SECONDS=22, no detection, deliberately dumb); (5) `tmux send-keys -t <name> -l "/id <name>"` + Enter. Reference source: `~/vms-apps/apps/home/agent-supervisor.sh` lines 106-142 (env-var defs + accept_trust_for_workdir helper) and 326-340 (fresh-drive sequence). Reference skill for SSH orchestration shape: `~/.claude/skills/spawn-remote-agent/`. NOTE: `tmux send-keys -t "=<name>"` exact-match syntax is a known tmux3.4 trap — use plain `-t <name>`.
+- **IDUI-07 (Per-step progress rendering + focus-follow on success).** Modal stays open during birth sequence and displays 5 ticking checkboxes (one per step from IDUI-06) that update in real time via SSE stream from the birth endpoint (or equivalent transport). Each step visible states: pending (dim), in-progress (spinner), done (green check), failed (red X + blurb). On successful completion of all 5 steps, modal closes and the conversation-list view switches to the newly-birthed session so the user is present the moment the fresh identity's `/id` create-path fires and asks its onboarding question.
+- **IDUI-08 (Per-step contextual failure blurbs, no rollback).** On failure at any step, modal shows a step-specific message telling the user what got created and what manual finish-up commands to run. Default blurbs drafted in CONTEXT.md § "Failure blurbs" (Ashley overrides post-ship if any read wrong). NO rollback, NO retry, NO cancel — failed birth = user closes modal + does manual finish-up + retries fresh if desired. Modal state resets on close (no draft store).
+- **IDUI-09 (Self-birth support).** When target host === `skynet-ec2` (the box running Skynet itself), backend uses local command execution instead of SSH for steps 2-5 of the birth sequence. Functional parity with remote SSH path.
+- **IDUI-10 (Voice + color picker reuse from IdentityModal.tsx).** Voice picker (patch #223 surface, IdentityModal.tsx L186-190 + L1144+) and color picker (patch #279 surface, IdentityModal.tsx L190-192 + L836) used in the identity-mode reveal are either extracted into shared components under `src/ui/features/pretty-view/pickers/` or inline-copied — planner's call based on long-term reuse expectations. Voice-preview via `postSpeak(SAMPLE_PHRASE, voiceDraft)` behavior preserved. Color picker retains the silent-no-op verification pattern from patch #279 (if server echo doesn't reflect the sent colorHue, surface inline error rather than trust the 200).
+
+**Depends on:** Phase 19
+
+**Design source-of-truth:** `~/.claude/identities/tina/bounties/identity-creation-ui/shape-identity-creation-ui.md` (LOCKED via /open with Ashley 2026-08-03 — do NOT re-litigate the design axis). Companion bounty at `~/.claude/identities/tina/bounties/identity-creation-ui/`.
+
+**Non-negotiables from shape file (baked into plans, not open to re-litigation):**
+
+- **The brief field is ephemeral.** It seeds the avatar-prompt draft ONLY. It is never persisted to the identity file, the Skynet record, or anywhere else. Any plan that persists it is a plan-checker BLOCK. (The identity discovers its own role through its own onboarding dialogue when it first wakes.)
+- **Avatar pick is required.** Modal cannot submit without a picked candidate.
+- **Both name collisions block.** Skynet-side existing record OR target-host-side existing identity folder = refuse to submit, tell the user why.
+- **No transactional rollback, no cancel button, no retry mechanism.** Failure = per-step blurb + user does manual finish-up.
+- **Voice + color pickers are reused from the existing identity-edit modal.** Do not re-invent — read the existing modal's implementation and lift the components.
+- **Nelly-crib for the bootstrap dance.** Coordinate with Nelly (agent-supervisor maintainer) during discuss/plan — do not re-derive the reliable "hit enter a few times" sequence.
+
+**Rebase risk:** LOW — additive frontend modal surface + additive backend session-orchestration route + integration with existing avatar pipeline + reuse of existing Skynet identity POST contract. No upstream Skynet surfaces disturbed. Fork severed 2026-07-24 so no upstream to rebase against anyway.
+
+**Plans:** 6/6 plans complete
+
+Plans:
+
+- [x] 20-01-PLAN.md — Backend: POST /identities/avatar/batch (LLM archetype + gpt-image-1 x3 + gamma 0.7 + short-TTL cache) + nginx dual-config
+- [x] 20-02-PLAN.md — Backend: GET /identities/exists-on-host?hostId=&name= (SSH probe + local-branch for self-birth) + nginx dual-config
+- [x] 20-03-PLAN.md — Frontend: extract VoicePicker + ColorPicker from IdentityModal.tsx into shared reusable components
+- [x] 20-04-PLAN.md — Backend: POST /identities/birth SSE orchestrator (5-step Nelly-cribbed sequence, self-birth branch, silent-no-op guard) + nginx SSE block
+- [x] 20-05-PLAN.md — Frontend: extend sidebar NewSessionDialog with path + identity-mode + birth field cluster + collision precheck (both sides) + avatar batch/pick UI
+- [x] 20-06-PLAN.md — Frontend: SSE birth-stream consumer + 5-row progress checklist + per-step failure blurbs + AppShell focus-follow
+
+### Phase 22: Skynet UI parity with the role/identity paradigm
+
+**Goal:** Bring the fleet-level role/identity split (roles at `~/.claude/roles/<role>/`, identities point at them via `role:` frontmatter, bounties + history shared across identities holding the same role) into Skynet's UI. Every Skynet user surface that touches identities becomes role-aware: NewSessionDialog gets a required Role dropdown, IdentityModal gets a Role tab (first/default) plus repointed Bounties + History tabs, conversation rows get a Clone context-menu affordance, and a Create-role modal + `+ New role` launcher lets Ashley spawn fresh roles on any host without touching the shell. NO Skynet DB schema changes.
+
+**Requirements**: SRIC-01, SRIC-02, SRIC-03, SRIC-04, SRIC-05, SRIC-06
+
+**Plans:** 6/6 plans complete
+
+Plans:
+
+- [x] 22-01-PLAN.md — SRIC-01: Repoint IdentityModal Bounties + History reads to role folder via backend two-step (Wave 1, parallel with 22-02)
+- [x] 22-02-PLAN.md — SRIC-02: GET /roles?hostId + birth orchestrator writes `role:` frontmatter (Step 2.5 pre-write per B4b(a)) + required Role dropdown on NewSessionDialog + nginx dual-config (Wave 1, parallel with 22-01)
+- [x] 22-04-PLAN.md — SRIC-04: POST /roles + CreateRoleDialog + `+ New role` launcher (Wave 2, depends on 22-02; parallel with 22-06)
+- [x] 22-06-PLAN.md — SRIC-06: Role tab as FIRST/default in IdentityModal + identity:get-role-file/update-role-file WS ops via two-step (Wave 2, depends on 22-01; parallel with 22-04)
+- [x] 22-03-PLAN.md — SRIC-03: Clone context menu + CloneAgentDialog (Host/Role/Color LOCKED) + POST /identities/clone (JSON body per Pitfall 2) (Wave 3, depends on 22-01+22-02+22-04)
+- [x] 22-05-PLAN.md — SRIC-05: Chain create-role → create-identity with role+host pre-filled + editable (Wave 4, depends on 22-02+22-03+22-04)
+
+**Requirement details:**
+
+- **SRIC-01 (Repoint IdentityModal Bounties + History tabs).** Extend the existing `identity:get-bounties` + `identity:get-history` backend ops (or equivalent — planner picks exact naming) to do the two-step: open `~/.claude/identities/<key>/<key>.md`, parse `role:` from frontmatter, then open `~/.claude/roles/<role>/bounties/` and `~/.claude/roles/<role>/history.md` respectively. Frontend API shape stays `(identityKey, hostId)`. Fixes existing gap where these tabs read the migrated-empty identity folder. No no-role fallback branch (Ashley 2026-08-04: no such identities exist).
+- **SRIC-02 (List-roles-per-host endpoint + `role:` frontmatter on identity birth + required Role dropdown on NewSessionDialog).** New backend op `roles:list-for-host` — SSHes to given host, `ls ~/.claude/roles/`, returns `[{name, description}]` (description = `## Role` section content per id skill template; planner confirms exact source). Phase 20's identity-birth code (`identity-birth-orchestrator.ts` and callers) — when writing the new slim `<name>.md` pointer file, include `role: <picked>` frontmatter. NewSessionDialog gains a REQUIRED Role dropdown, positioned near the host picker; re-populates via `roles:list-for-host` when host changes; blocks submit if empty. Submit payload adds `role` field passed through to birth backend.
+- **SRIC-03 (Clone identity — context menu + clone modal + backend clone endpoint).** Add `Clone` item to `PrettyConversationContextMenu`'s items array via `PrettyConversationsPanel`. `onClick` reads the clicked row's host from existing session context and opens the clone modal. Clone modal: Name required (blank, default something like `<source>-2`), Title editable pre-filled from source, Voice editable pre-filled from source, Avatar pre-filled with source's bytes + option to regenerate 3 new candidates (reuses Phase 20's avatar batch flow with same-role archetype). Host + Role + Color are LOCKED (not shown — auto-copied from source). New backend op `identity:clone` takes `(sourceIdentityKey, hostId, newName, editedTitle, editedVoice, avatarCandidates)`; reads source's role from source's fleet `<name>.md` frontmatter; creates new fleet folder on same host with same `role:` frontmatter + fresh relay account (reuse Phase 20 birth logic); copies Skynet DB row with new name + user-edited title/voice/avatar. NO `host_id` column added to `identities` — source's host comes from clicked session's context. Validates clone name against existing fleet folders on target host before writing.
+- **SRIC-04 (Create-role modal + backend + launcher).** New `CreateRoleDialog.tsx`: Name required (kebab-case-lowercase, validated), Description required, Host picker (same set NewSessionDialog uses), checkbox `Then create an identity with this role` defaulting to `true`. New backend op `roles:create` takes `(name, description, hostId)`; validates name (kebab-case-lowercase + doesn't already exist on host); SSHes to host, `mkdir ~/.claude/roles/<name>/`, `mkdir ~/.claude/roles/<name>/bounties/`, `touch ~/.claude/roles/<name>/history.md`, writes stub `~/.claude/roles/<name>/<name>.md` with `# <Name>\n\n## Role\n\n<description>\n` (planner confirms exact template). Add a `+ New role` launcher button — MVP placement is in the sidebar next to `+ New agent` (planner may adjust).
+- **SRIC-05 (Chain create-role → create-identity).** On CreateRoleDialog submit with checkbox true, close create-role modal and open NewSessionDialog with `role={newRoleName}` and `host={selectedHost}` pre-filled. Whether role/host are editable in the chained modal or locked is a planner call (default: pre-filled but editable).
+- **SRIC-06 (Role tab in IdentityModal as first/default tab).** New backend ops `identity:get-role-file` + `identity:update-role-file` — same two-step: identity file → `role:` frontmatter → open `~/.claude/roles/<role>/<role>.md`. Same shape as existing `identity:get-identity-file` / `identity:update-identity-file`. New frontend `RoleFileTab.tsx` mirrors `IdentityFileTab.tsx` pattern (fetch state + markdown preview + inline edit). Add tab to IdentityModal's tabs array at position 0. Set `activeTab = "role"` as default. Add lucide icon (probably `Users` since role is a group concept — planner picks). No no-role fallback branch.
+
+**Depends on:** Phase 20 (reuses NewSessionDialog structure + Phase 20's identity-birth code path + avatar batch flow; IdentityModal tab-pattern from Phase 18 also relevant but not a hard dependency).
+
+**Design source-of-truth:** `~/.claude/roles/box-maintainer/bounties/skynet-role-identity-crud-ui/design-and-waves.md` (LOCKED with Ashley 2026-08-04 — do NOT re-litigate the design axis). Companion `bounty.json` in the same folder holds the premise + timeline. Reviewed by Ashley before plan-phase kicked off; iteration passes are recorded in the bounty timeline.
+
+**Non-negotiables from design-and-waves.md (baked into plans, not open to re-litigation):**
+
+- **Roles are pure filesystem — NO Skynet DB column for role.** The identity's role lives ONLY in the fleet-side `<name>.md` frontmatter. Any plan that adds a `role` column to the `identities` table is a plan-checker BLOCK.
+- **No legacy no-role identity handling.** Ashley confirmed 2026-08-04: every fleet identity has `role:` frontmatter post-migration. Any plan that adds "graceful (no role)" fallback branches or empty-state handling for missing role is a plan-checker BLOCK (dead code, unreachable state).
+- **Source host for clone comes from the clicked session's context.** Any plan that adds a `host_id` column to `identities` or adds a target-host picker to the clone modal is a plan-checker BLOCK.
+- **Clone is true-to-the-word.** Host + Role + Color are AUTO-copied and LOCKED (not shown in the clone modal). Only Name + Title + Voice + Avatar are editable. Any plan that exposes host/role/color as editable on clone is a plan-checker BLOCK.
+- **Required-role dropdown is CREATE-only.** No affordance to edit an identity's role assignment anywhere in the UI. Identity's role changes by editing the frontmatter directly (which the Role tab technically enables via the identity file being visible, but there's no "change my role" button).
+- **`Then create an identity with this role` checkbox on CreateRoleDialog defaults to `true`.** Ashley: "obviously going to want an identity to take on the new role otherwise you'll have a role without any identities." Any plan that defaults it to `false` or removes the chain is a plan-checker BLOCK.
+- **Role tab is FIRST tab and DEFAULT `activeTab` in IdentityModal.** Not slotted after Identity, not toggleable in position. Any plan that adds it in a different position is a plan-checker BLOCK.
+- **Backend does the two-step for role-scoped ops.** Frontend API stays `(identityKey, hostId)` — never `(role, hostId)`. Frontend has no role-name awareness for artifact lookups.
+
+**Deferred (out of scope for THIS phase — future bounties if needed):**
+
+- Delete role / delete identity affordances.
+- A dedicated "Manage roles" list surface (MVP is just the `+ New role` launcher button).
+- Display of role outside IdentityModal (badge on avatar in conversation list, filter-by-role, etc.).
+- Backfill legacy Skynet DB rows with role information (moot — no DB column exists).
+
+**Rebase risk:** LOW — additive backend endpoints (`roles:list-for-host`, `roles:create`, `identity:clone`, `identity:get-role-file`, `identity:update-role-file`) + additive frontend modals (`CreateRoleDialog`, clone modal) + additive tab (Role) + repoint of existing IdentityModal tab data-sources (Bounties, History) + reuse of Phase 20's identity-birth code path + reuse of NewSessionDialog host picker. No upstream Skynet surfaces disturbed. Fork severed 2026-07-24 so no upstream to rebase against anyway.
+
+**Plans:** 0 plans yet — plan-phase will populate.
+
+### Phase 23: Skynet editable global files + panel header menu consolidation
+
+**Goal:** Give Ashley a UI-driven way to edit configurable per-host files that live outside the roles/identities paradigm — starting with each host's `~/.claude/CLAUDE.md` and extensible to any file the deployment operator lists in a per-Skynet-instance config. Uses the same two-step SSH read/write pattern as Phase 22 SRIC-06's Role tab. Coupled with a panel-header menu consolidation: as the pretty-conversations panel header has accumulated action buttons (New session, `+ New role` from SRIC-04, and now Edit-global-files), collapse everything except the Filter button under a single dropdown menu to keep the header clean. Config file lives in the Skynet docker volume (portable across deploys — Ashley's Skynet gets one file listed, Stacey's ceo-skynet gets a different set); edited via SSH for MVP.
+
+**Requirements**: GEFM-01, GEFM-02, GEFM-03, GEFM-04, GEFM-05, GEFM-06
+
+**Plans:** 4/5 plans executed
+
+Plans:
+
+- [x] 23-01-PLAN.md — Backend config-loader + `GET /global-files?hostId=<n>` + dual nginx blocks (GEFM-02, GEFM-03)
+- [x] 23-02-PLAN.md — Backend `POST /global-files/read` + `PUT /global-files/write` with whitelist enforcement + SSH SFTP atomic write (GEFM-04)
+- [x] 23-03-PLAN.md — Frontend `GlobalFilesModal` + `GlobalFileTab` + `global-files-api.ts` helpers (GEFM-05)
+- [x] 23-04-PLAN.md — Panel-header menu consolidation (pencil + `+ New role` + Edit global files into ONE MoreVertical dropdown) + human UAT (GEFM-01)
+- [ ] 23-05-PLAN.md — Bootstrap doc `23-BOOTSTRAP.md` + skynet-ec2 seed for the 8 unix fleet hosts (GEFM-06)
+
+**Requirement details:**
+
+- **GEFM-01 (Panel header menu consolidation).** Filter button stays separate in `PrettyConversationsPanel`'s header. Existing action buttons (`+ New agent` pencil, `+ New role` from Phase 22 SRIC-04, and the new Edit-global-files entry from GEFM-05) collapse into ONE dropdown menu button (icon TBD by planner — likely `MoreHorizontal` / `MoreVertical` / `Plus` menu). Menu items open their respective modals as they do now. Header ends up: `[Panel title] ... [Filter] [Menu-dropdown]`. Pinned count badge stays where it is (it's a badge, not a button). Same visual language as existing panel header (`--color-pv-*` tokens, mock v4 aesthetic — do NOT reintroduce Skynet chrome).
+- **GEFM-02 (Config schema + volume mount).** JSON file at `/app/data/global-files.json` in the Skynet container (backed by the `skynet-data` docker volume — same volume as the crown-jewel encrypted SQLite, so it's already backed up by AWS DLM snapshots). Shape: `{ "hosts": { "<hostName-or-hostId>": [ { "path": "~/.claude/CLAUDE.md", "label": "User CLAUDE.md" }, ... ] } }`. Host key format: planner picks either host name string (human-readable, human-editable) or hostId int (survives host rename). Label is optional (defaults to basename of path). Absence of the file OR absence of a host key means "no files configured for this host" — modal shows an empty-state. Never fabricate a file that isn't in the config. Bootstrap: for MVP the config is edited via SSH into skynet-ec2 (`sudo vim /var/lib/docker/volumes/skynet_skynet-data/_data/global-files.json` or similar — planner confirms exact volume host-path); meta-UI (editing the config file via the same UI, self-referentially) is deferred.
+- **GEFM-03 (`GET /global-files?hostId=<n>` backend endpoint).** Reads `global-files.json` from the volume, returns the configured file list for the given host. Response shape: `{ files: [{ path, label }] }`. Empty array if no config or host not in config. Dual nginx location blocks (docker/nginx.conf + docker/nginx-https.conf per fleet caveat). Cookie auth (existing admin cookie — no new auth surface).
+- **GEFM-04 (`POST /global-files/read` + `PUT /global-files/write` backend endpoints).** `read` takes `{ hostId, path }`, whitelist-checks the path against the config (rejects any path not listed for that host with 403 to prevent arbitrary-file access), SSHes to host, `cat`s the file, returns `{ content, mtime, size }`. `write` takes `{ hostId, path, content, expectedMtime }` — same whitelist enforcement, optional expectedMtime for optimistic-concurrency conflict detection (if expectedMtime present and file has changed since, return 409). Writes via the same SSH exec-channel plumbing SRIC-06 uses. Dual nginx location blocks. Cookie auth. Anyone with the admin cookie can read/write (no per-user gating — matches Ashley's `anyone could edit` decision 2026-08-04).
+- **GEFM-05 (`GlobalFilesModal` frontend component).** New modal opened from GEFM-01's dropdown menu. Layout: optional host picker (defaults to the currently-selected session's host if any, else prompts to pick from the same host list NewSessionDialog uses) → tabs across the top for each file the current host has configured (via `GET /global-files?hostId=<n>`) → each tab renders a textarea (plain, monospace, whole-file edit — same shape as Phase 22 SRIC-06's RoleFileTab) + a Save button. Save fires `PUT /global-files/write`. Loading + error + empty states mirror IdentityModal patterns. Uses `--color-pv-*` tokens. Sized like other modals.
+- **GEFM-06 (Config bootstrap + skynet-ec2 initial population).** Ship an example `global-files.json` in the docker volume for skynet-ec2 pre-populated with `~/.claude/CLAUDE.md` for each of the current fleet hosts (thenasty, workstation, ashley-beelink, GIGAASHLEYPC, ZoeyBattlestation, aither-cloud, aither-cloud2, aither-sftp, skynet-ec2 — Windows hosts that don't have `~/.claude/CLAUDE.md` should be omitted, not left in with an error state). Document the SSH-edit workflow in a doc — location TBD by planner (probably `.planning/phases/23-*/23-BOOTSTRAP.md` or an entry in `box-map.md`).
+
+**Depends on:** Phase 22 SRIC-06 (reuses the two-step SSH read/write pattern for role file → generalizes it to configured file paths). Panel header consolidation touches Phase 22 SRIC-04's `+ New role` launcher position (folds it into the menu).
+
+**Design source-of-truth:** Verbal design session with Ashley 2026-08-04 (see role's history.md for the timestamp). No shape file — Ashley skipped `/open` after the axes were settled inline ("I feel like we've pretty much got what we need on it"). Key exchange:
+
+- Q: per-host vs per-Skynet-instance files? A: "you would want to be able to put in the config pointing to files on any host because there are different files on different hosts you would want to edit."
+- Q: UI location? A: "top of conversation list like the other buttons, But we're kind of getting crowded on the buttons, so we might want to collapse them into a single button at this point."
+- Q: access? A: "anyone could edit"
+- Q: filter button? A: "I figure the filter button could stay in the header separate, but the others could go under one button now"
+
+**Non-negotiables (baked into plans, not open to re-litigation):**
+
+- **Files are per-host, config is per-Skynet-instance.** Ashley's Skynet has one list; Stacey's ceo-skynet has a different list. Both configs live in each deployment's own docker volume. Any plan that hardcodes a fleet-wide file list into the source code is a plan-checker BLOCK.
+- **Whitelist enforcement on read + write.** Backend MUST reject any path not present in `global-files.json` for the given host (403). Any plan that trusts the frontend's path parameter is a plan-checker BLOCK.
+- **No new auth surface.** Existing Skynet admin cookie is the sole gate. No per-user ACLs, no read-only vs read-write split. Any plan that adds an auth layer is a plan-checker BLOCK.
+- **Anyone with admin cookie edits.** On Ashley's single-tenant Skynet this is just her; on Stacey's multi-user ceo-skynet all their users can. That's intentional — matches Ashley's `anyone could edit` call and mirrors how Skynet's other cross-cutting edits (host CRUD, identity CRUD, roles) already work.
+- **Menu consolidation includes the existing `+ New agent` + `+ New role` buttons.** Not just the new Edit-global-files entry. The whole point of consolidating is to make the header less crowded. Any plan that leaves the existing buttons alongside the new dropdown is a plan-checker BLOCK.
+- **Filter button stays separate in the header.** Ashley called this out explicitly. Any plan that folds Filter into the dropdown is a plan-checker BLOCK.
+- **Config file is edited via SSH for MVP.** Meta-UI (editing `global-files.json` via the modal itself) is explicitly deferred. Any plan that adds a self-referential edit path is a plan-checker BLOCK for this phase.
+- **Same two-step SSH read/write pattern as SRIC-06.** Backend does the SSH; frontend never touches file paths beyond passing them through. Any plan that has the frontend do direct file access (e.g. via a WebSocket file protocol) is a plan-checker BLOCK.
+
+**Deferred (out of scope for THIS phase — future bounties if needed):**
+
+- Meta-UI for editing `global-files.json` itself (self-referentially via the modal).
+- Diff view / three-way merge / conflict resolution UI. MVP is textarea + save + optimistic-concurrency 409 on stale writes.
+- Auto-save. MVP is explicit Save button.
+- File-add / file-remove UI (config management via the app). SSH-edit only for MVP.
+- Per-user ACLs (read-only vs read-write split).
+- File history / diff-since-last-save.
+- Filesystem watch / auto-refresh on external changes.
+- Non-text files (binary editing, image previews). MVP is text-file textarea only.
+- Directory listing / picker (opening arbitrary paths on a host). Whitelist-only.
+
+**Rebase risk:** LOW — additive backend endpoints (`GET /global-files`, `POST /global-files/read`, `PUT /global-files/write`) + additive frontend modal (`GlobalFilesModal`) + additive JSON config file in existing docker volume + refactor of `PrettyConversationsPanel` header to fold buttons under a dropdown (touches Phase 22 SRIC-04's `+ New role` launcher position). No upstream Skynet surfaces disturbed. Fork severed 2026-07-24 so no upstream to rebase against anyway.
+
+### Phase 24: Plan-mode approval bubble — pane-tail detection, expanded bubble with plan contents + Approve/Feedback buttons, compose-box disable while pending
+
+**Goal:** Make the Claude Code plan-approval prompt actionable from pretty view — fix pane-scrape detection for the pinned fleet Ink variant, render plan file contents inline in an expanded bubble with [Approve] and [Feedback] buttons that write raw keystrokes to the PTY (bypassing ComposeBox's Ink-incompatible split-send), and disable compose-box interactions while the prompt is pending.
+**Requirements**: TBD
+**Depends on:** Phase 23
+**Plans:** 5/5 plans complete
+
+Plans:
+
+- [x] 24-01-PLAN.md — Fix plan-pending-parser fingerprint for pinned fleet Ink variant + add parsePlanFilePath helper (+ updated vitest fixtures)
+- [x] 24-02-PLAN.md — New backend module `plan-file-fetch.ts` — SFTP side-channel read on existing SSH Client with strict path validation + 500KB cap + full test coverage
+- [x] 24-03-PLAN.md — Widen WS `plan_pending` frame to {planFilePath, planContent, contentError}, wire async SFTP fetch trigger, add `raw_keystrokes` WS handler (`tmux send-keys -l`), extend frontend wire types
+- [x] 24-04-PLAN.md — Expand `PlanPendingBubble` in place — header preserved + plan-contents `<pre>` section + Approve/Feedback buttons + inline Feedback modal
+- [x] 24-05-PLAN.md — Add `planPendingActive` prop to ComposeBox (OR-in at every recycleActive site) + PrettyView wiring (mount bubble with props + supply prop + raw_keystrokes send handlers) + new disable-truth-table vitest suite
+
+### Phase 25: Sidebar role-clustering — group identities by role within host. Silent secondary sort key that clusters rows of the same role together in the sidebar, so clones (which share a role) show up adjacent. Applies to all three tiers of PrettyConversationsPanel. Locked decisions from design conversation with Ashley 2026-08-05: **Sort tuple**: (host, role, label) in all three tiers (ActiveSet, Pinned, Tier-3 host-grouped-per-bucket). Host always outer per Ashley: "host is above role always." In Tier 3, host is already the visible bucket; role becomes the primary inner sort. In ActiveSet + Pinned tiers, host becomes an invisible outer sort key (no subheading — no chrome change). Within each role, sort by label. Case-insensitive alphabetical throughout — consistency for muscle memory ("stuff is showing up in the same place always"). **Null-role handling**: identities whose file lacks role: frontmatter, or rows without an identity at all (RDP panes), sort to the **bottom** of their host bucket. **No visible affordance**: NO role subheading, NO indent, NO color band, NO extra info on list items. Ashley: "the title that they get will a lot of times be the role, but look prettier. And I am not interested in adding extra info to those list items." colorHue inheritance on clones already gives an implicit visual cue; clone-clustering by position is the whole payoff. **Mechanism** (Ashley: "I believe it should stay out of the database, and it could just be read when all of the sessions in the list are enumerated"): NO DB schema change. Role resolved fs-side at list-enumeration time via existing resolveRoleForIdentity (src/backend/claude-session/identity-artifact-reader.ts:227). Plumb through the identity list payload (GET /identities → publicIdentity() → Identity frontend type → useIdentities().byKey). Reads happen once per page load — same cadence as identity list refresh today. **Sort sites**: 3 spots in src/ui/state/conversation-store.ts (:365, :403, :431 — currently all compareByLabel). Change to (host, role, label) tuple. **Out of scope**: any visible chrome (subheadings, dividers, per-role color bands), any role-editing UI, any DB migration. Role-clusters-across-hosts (Ashley: "we do not care" — even if role X exists on hosts A and B, they are treated as separate). **Rebase risk**: LOW — additive resolveRoleForIdentity call on list endpoint + wire-type field + three sort-tuple changes; no upstream Skynet surfaces touched. **Design source-of-truth**: this ROADMAP entry (design conversation 2026-08-05, LOCKED — do NOT re-litigate).
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 24
+**Plans:** 3/3 plans complete
+
+Plans:
+
+- [x] TBD (run /gsd-plan-phase 25 to break down) (completed 2026-08-05)
+
+### Phase 26: Conversation-list needs-desk count + filter menu — add per-row needs-desk bounty count (schema field added 2026-08-06) alongside existing pinned count as combined `pin·desk` pill; Filter icon becomes popover with two toggles (pinned-only / needs-desk-only, AND intersection); Filter icon gets small dot when any toggle on; needs-desk filter exempts active-set symmetric with pinned. Locked decisions from design conversation with Ashley 2026-08-06: **Row display**: combined pill `"3·1"` (pin·desk) — position-coded compact form beats side-by-side badges (hue conflict, doubled `.pv-meta` width) and icon+number pairs (heavier meta). Left number = pinned count, right number = needs-desk count, middle-dot separator. Zero on either side renders that side blank; both zero renders no pill (same as today). **Filter combination**: AND (intersection). Both toggles on = show rows that have BOTH ≥1 pinned bounty AND ≥1 needs-desk bounty. Each toggle independent otherwise. **Filter icon state**: small dot indicator when at least one toggle is on (matches row-badge presence-is-signal pattern; no icon swap flicker). **Active-set exemption**: symmetric with pinned — needs-desk filter also exempts active-set rows. **Mechanism**: widen existing `readIdentityPinnedBountyCount` in `src/backend/claude-session/identity-artifact-reader.ts` §10 to return `{pinnedCount, needsDeskCount}` on the same fs walk; WS `identity:count-bounties`→`identity:bounty-counts` carries both counts; `bounty-counts-store` keys a pair per identity. One round-trip, same poller, same failure semantics as today. **Frontend split**: `PrettyBountyCountBadge` renders the combined pill (backwards-compat — keep component name and mount location, widen props); `PrettyConversationsPanel` filter button opens a Radix popover with the two toggles + separator + close. **Out of scope**: separate wire message per count-type, new nginx location block, per-user filter persistence across sessions, animation transitions on toggle, hover-hue on the pill halves. **Rebase risk**: LOW — additive reader field, wire-shape widening (backwards-compat via optional field), row-badge refactor and filter-popover split within pretty-conversations only. No upstream Skynet surfaces touched. **Design source-of-truth**: this ROADMAP entry + bounty `conversation-list-needs-desk-count-and-filter-menu` (design conversation 2026-08-06, LOCKED — do NOT re-litigate).
+
+**Goal:** The conversation-list row shows BOTH pinned and needs-desk bounty counts in a single combined `pin·desk` pill inheriting `--pv-hue`, and the panel-header Filter icon opens a popover with two independent toggles that AND-intersect when both are on, with a small hue-tinted dot indicator on the icon whenever any toggle is on, and active-set rows exempt from filtering regardless of toggle state.
+**Requirements**: TBD (see CONTEXT.md `<decisions>` for locked design; requirement IDs deferred to a future REQUIREMENTS.md update — phase design-locked in-chat 2026-08-06 without formal REQ enumeration per fleet's quick-turnaround convention for small additive features on already-shipped surfaces)
+**Depends on:** Phase 25
+**Plans:** 4/4 plans complete
+
+Plans:
+
+- [x] 26-01-PLAN.md — Backend widening: rename `readIdentityPinnedBountyCount` to `readIdentityBountyCounts` returning `{pinnedCount, needsDeskCount}` on same fs walk; widen WS response payload and frontend API types; update 3 backend/API test files with orthogonality + single-walk-invariant coverage
+- [x] 26-02-PLAN.md — Frontend store widening: `bounty-counts-store` internal Map values become `{pinnedCount, needsDeskCount}` pairs; rename `useBountyCount` → `useBountyCounts` (plural); per-target error preserves the FULL last-known pair; widened test suite with 7+ tests
+- [x] 26-03-PLAN.md — Row + badge refactor (wave 3, parallel with none in wave 3): rebuild `PrettyBountyCountBadge` as combined `pin·desk` pill per 4-case rendering rule table; rewire `PrettyConversationRow` to consume `useBountyCounts` and forward the pair; CSS min-width bump for two-half content
+- [x] 26-04-PLAN.md — Filter popover refactor (wave 4, sequential after 26-03 due to shared pretty-conversations.css): convert Filter button to shadcn Popover with two shadcn Checkbox toggles; AND-intersect filter helper; small `--pv-hue` dot indicator; symmetric active-set exemption; rename testid `pv-filter-pinned-bounties` → `pv-filter-toggles`; widened panel test suite covering pinned-only / needs-desk-only / both-on / active-set-exempt / dot-visibility / Escape-closes
+
+### Phase 27: Virtualize PrettyView message list (iter 3 of hidden-pane-cost-mitigation) — render only viewport-visible messages (~5-15 + buffer) via TanStack Virtual so DOM stays constant (~200-300 nodes) regardless of conversation length; today a 200-msg conversation renders ~2,500-3,200 DOM nodes and this scales linearly forever. Scope: src/ui/features/pretty-view/PrettyView.tsx message list only (WipBubble/PlanPendingBubble/AsideBubble in slot below stay unvirtualized). Preserve existing scroll anchor (auto-scroll-to-bottom-when-pinned vs. don't-yank-when-scrolled-up) and initial-slice-from-bottom hydration. Handle image bubble grow via ResizeObserver + re-measure. ⌘F/find-in-page regression on long conversations ACCEPTED (Ashley 2026-08-09: 'I don't really care about losing that functionality'). New dep: TanStack Virtual. Bounty tracker: ~/.claude/roles/box-maintainer/bounties/pretty-view-message-list-virtualization/. Rebase risk LOW — additive integration on fork-local PrettyView; no upstream Skynet surfaces touched.
+
+**Goal:** Replace the raw `messages.map` in PrettyView.tsx with a `@tanstack/react-virtual` virtualized list so DOM node count stays flat (~30 bubble subtrees + accessories) on conversations of any length, while preserving every existing scroll-anchor behavior (auto-scroll-to-bottom-when-pinned, don't-yank-when-scrolled-up, initial-slice-from-bottom hydration) and handling image-bubble grow via TanStack Virtual's ResizeObserver.
+**Requirements**: TBD (follow-up phase to hidden-pane-cost-mitigation empirical rotation; acceptance surface is the 10-item Success criteria block in 27-CONTEXT.md § specifics, not a formal REQ-ID list)
+**Depends on:** Phase 26
+**Plans:** 3 plans
+
+Plans:
+
+- [ ] 27-01-PLAN.md — Wave 1: add `@tanstack/react-virtual` to package.json dependencies (not devDependencies), run install, verify with `npm ls`
+- [ ] 27-02-PLAN.md — Wave 2: refactor PrettyView.tsx message list to virtualized rendering with composed `scrollRef`+virtualizer ref, `getItemKey`=`eventId`, `data-pv-bubble` marker attribute, and move WipBubble/PlanPendingBubble/AsideBubble OUT of the sized virtualizer container into a sibling in-flow block inside the same scroll container (surprise-#1 layout change from 27-PATTERNS.md); `use-auto-scroll.ts` and diag emitter untouched
+- [ ] 27-03-PLAN.md — Wave 3: update PrettyView.aside.test.tsx for the new sibling-of-scroller layout and add new PrettyView.virtualization.test.tsx covering bounded-DOM (`<= 30` bubble subtrees on 100+ msg fixture), scroll-anchor preservation over virtualized DOM, image-bubble grow re-measure, and accessory-sibling placement invariants; full `npx vitest run` exit 0
+
+### Phase 28: PrettyView virtualization correctness cluster (post-Phase-27 review followup)
+
+**Goal**: The five correctness issues surfaced by the independent code review of Phase 27's virtualization (H3, H4, M1, M2, M4 from `/tmp/pv-virtualization-review.md`) are fixed in `PrettyView.tsx`, with new/adjusted tests locking each fix, so a future rebase or refactor can't silently regress any of them.
+
+**Mode:** standard
+
+**Depends on**: Phase 27 (virtualization is in place), patch #373 (auto-scroll disabled — collapses the fix cluster to just the virtualizer-side items)
+
+**Requirements**: none new (correctness follow-up to Phase 27 requirements)
+
+**Success Criteria** (what must be TRUE):
+
+  1. **H3 fixed** — `observeElementRect` returns a `() => void` cleanup on every branch (null scrollElement, null targetWindow, and the missing-ResizeObserver branch). Bind→unbind→rebind cycle (transient scrollElement null on initial render or on status flip through connecting/error/streaming) does not throw `TypeError: undefined is not a function`. Test: force a null-then-non-null scrollElement sequence and assert no thrown exception + cleanup callable.
+  2. **H4 fixed** — `observeElementRect`'s `read()` re-derives `el` from `instance.scrollElement` on every call rather than capturing at bind time. A remount of the outer scroll container does not cause an old RO to fire callbacks against a stale element. Test: mount → unmount scroll container → mount new one → assert the virtualizer reads dimensions from the NEW container's rect, not the old.
+  3. **M1 fixed** — `scrollMargin` is set to match the outer scroll container's top padding (`py-3` = 12px). Test: assert `useVirtualizer` config includes `scrollMargin: 12` (or computed from padding). If computed dynamically, assert the computed value equals 12 for the current class list.
+  4. **M2 fixed** — `initialRect.height` reduced from 4096 to a value that mounts ≤10 items on first paint before RO fires (600 or lower is fine). Test: on first render with the initial rect (RO stubbed out), assert `[data-pv-bubble]` count is `≤ 15` (loose upper bound covering estimateSize + overscan variance). Real-device first-paint DOM cost drops from ~60 mounts to ~5-10.
+  5. **M4 fixed** — `getItemKey` either drops the index fallback (letting TanStack crash loudly on count/messages disagreement) OR uses a fallback that cannot collide with real integer eventIds (`-1 - i` or `Symbol()`). If the fallback is kept, a `console.warn` fires on the fallback path so the race (if real) becomes observable. Test: assert `getItemKey(0)` with a real eventId `"0"` and `getItemKey(0)` with `messages.length === 0` produce distinguishable values (no collision).
+  6. Full frontend test suite (`npx vitest run`) passes with 0 failures. `npx tsc --noEmit` passes. No regressions in the pretty-view tests already passing under patch #373.
+  7. Fixes ship as one atomic patch on `feat/tab-title-from-tmux`; skynet-patches.md entry names all five fixes; container healthy + HTTPS 200 after deploy.
+
+**Plans**: 1 plan
+
+Plans:
+
+- [ ] 28-01-PLAN.md — Wave 1: Fix H3 (observeElementRect cleanup contract) + H4 (stale scrollElement closure) + M1 (scrollMargin=12) + M2 (initialRect.height 4096→600) + M4 (non-colliding getItemKey fallback with diagnostic warn) in PrettyView.tsx; extend PrettyView.virtualization.test.tsx with Tests 6/7/8/9; verify full frontend suite green + tsc clean + use-auto-scroll.ts byte-untouched
+
+**Notes**:
+
+- Scope containment: `src/ui/features/pretty-view/PrettyView.tsx` + `src/ui/features/pretty-view/PrettyView.virtualization.test.tsx` ONLY. Do NOT touch use-auto-scroll.ts (byte-preserve invariant), other pretty-view files, other subsystems, backend, or docker/nginx.
+- H1, H2, M5, M7 findings from the review are explicitly OUT of scope for this phase (all touch auto-scroll behavior, which is TEMP-disabled per patch #373). They come back into scope only when bounty `pv-auto-scroll-redesign` picks up auto-scroll.
+- L1, L2, L3-L10 findings from the review are follow-up nits, not scope for this phase. L1 and L2 (stale/factually-wrong comments about auto-scroll) already partially addressed by patch #373's comment rewrites; the remaining lying comments at PrettyView.tsx:1801 and 1888-1891 are captured in bounty `pv-auto-scroll-redesign` for cleanup alongside the redesign.
+- Deploy is orchestrator-only (tina, not the executor) per fleet rule — plans MUST NOT include a "ship" task at executor scope.
+
+### Phase 29: Unified session-entry state machine — single resolving spinner fronts every overlay until deterministic verdict
+
+**Goal:** Replace the current patchwork of ~5 racing overlays on pretty-view pane entry (isBooting/PrettyViewLoadingOverlay, isHolding/SessionHoldingOverlay, dormant/DormancyOverlay + waking, status connecting/streaming/error, WS reconnect flashes) with a single unified state machine hosted at one site in the PrettyView subtree. Displays ONE spinner during a `resolving` phase, waits for a fully deterministic set of two inputs (`wsState` + `backendFirstFrame`) to settle, then transitions to exactly ONE of five terminal phases (active/holding/dormant/inactive/error) and renders the corresponding UI. No timeout heuristics anywhere — the machine waits as long as inputs need. Retires the 600000ms holding-timeout watchdog and 10s loading-overlay auto-dismiss (both in PrettyView.tsx) that fought the new deterministic model. Retires transient "Connecting…"/"Connection lost" text nodes. Adds a new PrettyViewErrorOverlay for `phase === "error"` (warm-red glass card + static RefreshCcw + Retry button, mirroring SessionHoldingOverlay error variant + DormancyOverlay Wake button UX shape). Full test coverage: pure resolvePhase truth-table + hook behavior tests + integration tests + structural-grep gates on overlay render sites + three named flicker regression tests + session-recycling-store transition test + Ashley UAT on her iPhone PWA. Scoped to pretty-view panes only — Terminal xterm.js panes + RDP/VNC/Guacamole panes explicitly out of scope for this phase (same pattern can be applied to them in a future phase if the pretty-view win proves out).
+**Requirements**: PHASE29-REQ-01 through PHASE29-REQ-07 (see `.planning/phases/29-unified-session-entry-state-machine-single-resolving-spinner/29-SPEC.md` for the 7 locked requirements)
+**Depends on:** Phase 28
+**Plans:** 5/5 plans complete
+
+Plans:
+
+- [x] 29-01-PLAN.md — Pure `resolvePhase(wsState, backendFirstFrame) → Phase` reducer + type unions (WsState, BackendFirstFrame, Phase) + 20-case truth-table unit tests (test-seam split per layer1-detect.ts pattern)
+- [x] 29-02-PLAN.md — New PrettyViewErrorOverlay component (warm-red glass card + static RefreshCcw + Retry button per D-07/D-08/D-09) + component test suite (render, click, static-glyph regression, iOS backdrop-filter hardening, role="alert")
+- [x] 29-03-PLAN.md — New usePaneResolvingMachine hook (single authoritative pane-entry state machine; three entry triggers via one shared code path; 150ms delay-arm; post-resolve steady state per D-10/D-11/D-12) + hook behavior tests (entry triggers, delay-arm, retry callback, structural grep gates)
+- [x] 29-04-PLAN.md — Rewire PrettyView.tsx: mount usePaneResolvingMachine, flip mount gates to `phase === "..."`, delete 600000ms watchdog + 10s auto-dismiss, retire showOverlay/holdingTimeoutError/isBooting state, retire "Connecting…"/"Connection lost" text, mount PrettyViewErrorOverlay at phase="error", update session-recycling-store publisher to derive from phase="holding" (SPEC req 7), rewire ComposeBox recycleActive/dormantActive/reconnectingActive props
+- [x] 29-05-PLAN.md — Test suite: audit + fix existing overlay tests broken by 29-04 rewire; new PrettyView.phase29.test.tsx with structural-grep gates + entry-trigger integration tests + three named flicker regression tests; new session-recycling-store resolving→holding transition test; full-suite green precondition
+
+### Phase 30: pane-state-backend-authoritative-no-client-inference
+
+**Goal:** Refactor Phase 29's state-machine INPUT sourcing so pane phase derives from real backend observations (session-file parser, PID + dormancy state, backend classification) instead of client-side inference. State machine reduces to exactly two inputs: `paneState` (backend-emitted authoritative frame) and `wsTransportState` (unavoidably client-observed WS lifecycle). Delete all `captureFirstFrame(...)` inference sites, the three entry-trigger effects, the `rearmSnapshotRef` machinery, the D-11 "message = active" swap, and patch #381's client-hint hack. Add backend `/id reset` detection in the session-file parser (earliest real recycling signal) with suppress-user-turn + emit-holding.
+**Requirements**: PS30-01 Backend emits a new `pane_state` WS frame with `{state, reason?}` on WS attach + every state change; PS30-02 Session-file parser detects `/id reset` (and `/id reset (...)` form), suppresses the user-turn from the message stream, and triggers `pane_state: holding`; PS30-03 Existing dormancy / session_holding / session_changed / inactive detectors funnel through the new pane_state emitter; PS30-04 Frontend `usePaneResolvingMachine` reduces to a trivial two-input derivation with no entry-trigger effects and no snapshot rearm machinery; PS30-05 All `captureFirstFrame(...)` call sites in PrettyView.tsx delete (~10 sites) including patch #381's onResetClicked call; PS30-06 Overlay mount gates flip to `paneState === "<value>"` guards only; PS30-07 Existing Phase-29 tests for entry-triggers / snapshot rearm / D-11 delete; new tests cover the parser /id reset detection, pane_state emitter transitions, and simplified state-machine derivation; PS30-08 Full frontend + backend test suites green.
+**Depends on:** Phase 29
+**Plans:** 3/3 plans complete
+
+Plans:
+
+- [x] 30-01-PLAN.md — Backend pane_state emitter (wire frame type + per-connection factory + dedupe + emitCurrent) + funnel every existing dormant/session_holding/session_holding_cleared/session_changed/inactive emit site through the emitter (legacy frames preserved on wire for backward compat) + emit pane_state at attach-time via natural transition sites (PS30-01, PS30-03, PS30-07)
+- [x] 30-02-PLAN.md — Backend session-file parser /id reset detection (detectIdReset predicate mirroring layer1-detect.ts:isIdResetUserTurn truth) + parseSessionLine returns skip(id_reset) to suppress the user turn from the message stream + onLine consumer calls paneStateEmitter.emit('holding', 'id_reset') alongside the existing Layer 1 transitionToHolding (emitter dedupe collapses to one wire frame) (PS30-02, PS30-07)
+- [x] 30-03-PLAN.md — Frontend rewire: resolve-phase.ts rewritten to LOCKED Phase-30 truth table with (wsTransportState, paneState) → RenderedState + usePaneResolvingMachine reduced from ~380 to <60 LOC (zero React state/effect machinery, no entry-triggers, no snapshot rearm, no delay-arm) + PrettyView.tsx new pane_state WS handler case + ALL ~10 captureFirstFrame call sites DELETED + patch #381 onResetClicked cleanup + overlay mount gates flipped to renderedState === '...' + PrettyView.phase29.test.tsx rewritten as Phase-30 integration tests (PS30-04, PS30-05, PS30-06, PS30-07, PS30-08)
+
+### Phase 31: Whole-app structured-logging backfill
+
+**Goal:** Instrument the whole Skynet app so remote maintainers can diagnose bugs from `/opt/skynet/console-forward-logs/console-forward.log` alone. Wide-net instrumentation across every subsystem where a bug could conceivably need diagnosis: WS lifecycle + pause-gate + reopen ladder + load-bearing ref transitions in Terminal.tsx; full TTS/speak pipeline in ChatMessage.tsx; voice recording golden-copy retrofit; PWA + compose + tap + render lifecycle; backend logs unified into the same console-forward.log via a new console-forward-transport module; backend surfaces (WS server, pane-state emitter, session-file parser, tmux-helper, host CRUD, voice server) all normalized to the D-13 canonical prefix taxonomy. Instrumentation-only phase per D-22 — the two deferred symptom bounties (`ws-pause-gate-stuck-connect-cycling`, `speak-button-broken-on-cellular`) do NOT get diagnosed or fixed here, only made diagnosable.
+**Requirements**: Decisions D-01..D-22 in `.planning/phases/31-whole-app-structured-logging-backfill/31-CONTEXT.md` (this phase's requirements are captured as D-nnn decisions rather than REQ-nnn IDs — every D-nnn is reflected in at least one plan's tasks; see per-plan `requirements` frontmatter for the D-nnn coverage map)
+**Depends on:** Phase 30
+**Plans:** 9/9 plans complete
+
+**Wave 1** — Foundation (no deps)
+
+- [x] 31-01-PLAN.md — Convention foundation: NEW src/ui/lib/log-dedup.ts (D-17 syslog "×N in Xs" rate-limiter) + extend console-forwarder.ts LogEntry envelope with hostId/sessionKey + setLogContext hook + rename [DIAG-REPORT]→[render] + rename [SW]→[pwa] + add SW lifecycle logs (D-11, D-13, D-17, D-19, D-20)
+
+**Wave 2** *(blocked on 31-01 — all parallel, no file overlap)*
+
+- [x] 31-02-PLAN.md — Terminal.tsx WS lifecycle + pause-gate + 5 load-bearing refs + 4-path reopen ladder + eliminate JSON.stringify(event) anti-pattern + smoke test for [ws] close line shape (D-05, D-06, D-11..D-15, D-17, D-20 — enables ws-pause-gate-stuck-connect-cycling diagnosis)
+- [x] 31-03-PLAN.md — ChatMessage.tsx TTS pipeline: fetch/decode/audio.play() promise/media events + patch #389 autoplay effect + MediaError explicit extraction + smoke test for [tts] play-attempt result (D-05, D-11..D-14, D-20 — enables speak-button-broken-on-cellular diagnosis)
+- [x] 31-04-PLAN.md — useVoiceRecording.ts golden-copy retrofit: rename [voice-diag]→[voice], normalize levels (info/warn/error), explicit MediaRecorder error extraction, patch #382 feedback-playback boundary logs, optional logContext prop (D-05, D-07, D-11..D-14 — the file becomes the canonical golden-copy that D-04 future patches follow)
+- [x] 31-05-PLAN.md — ComposeBox.tsx [compose-draft]→[compose] + [tap-diag]→[tap] rename + shape normalization + submit path instrumentation + aside-morph transitions + main.tsx PWA visibility/pagehide/pageshow/boot lifecycle + session-open trigger boundary (D-11..D-14)
+- [x] 31-06-PLAN.md — diag-registry pane register/unregister + PrettyView pane-mount/pane-unmount lifecycle events complementing the DIAG-REPORT periodic tick (D-11, D-13, D-14, D-17)
+- [x] 31-07-PLAN.md — NEW src/backend/utils/console-forward-transport.ts (batches backend logs to the SAME console-forward.log with source=backend marker) + wire logger.ts info/warn/error/success into it + extend debug.ts LogEntry with source field + flush-on-shutdown in starter.ts + smoke test (D-03, D-11, D-13, D-16, D-17, D-20)
+
+**Wave 3** *(blocked on 31-07 — backend surface instrumentation depends on the transport landing)*
+
+- [x] 31-08-PLAN.md — claude-session-server.ts WS lifecycle + eliminate 20+ silent try{ws.send}catch{ignore} sites + pane-state-emitter emit() correlation + session-file-parser classify decisions + tmux-helper SSH exec boundaries + host.ts + voice.ts existing calls normalized to [host-db] + [voice-server] prefixes (D-01, D-03, D-05, D-11..D-14, D-16)
+
+**Wave 4** *(blocked on all — final coverage sweep)*
+
+- [x] 31-09-PLAN.md — Grep pass: no JSON.stringify(event), all old prefixes 0 in src/, all D-02+D-03 subsystems COVERED per the crosswalk; frontend + backend builds clean; full vitest suite green; write 31-COVERAGE-REPORT.md + 31-MANUAL-VERIFICATION.md runbook for Ashley's post-ship WS-cycle reproduction; human-verify checkpoint (D-20, D-21, D-22)
+
+### Phase 32: Identity-first-turn session discovery + wake-bubble message history
+
+**Goal:** Add a process-independent, disk-based helper for finding the current JSONL of a given identity, and wire it into the dormant branch so the wake bubble (shipped 2026-08-12 as quick 260812-ma8) surfaces the tail of the conversation Ashley is deciding whether to wake — instead of an empty message list. Today the backend chains tmux-pane → PID → cwd → mtime-newest JSONL to find the current session (pane-based discovery). That chain requires a live claude process, so the dormant branch at `src/backend/claude-session/claude-session-server.ts:4675-4700` gets no session file and never opens a tail — the browser's `messages` array stays empty for dormant panes, which the pre-260812-ma8 scrim hid from Ashley and the new in-flow bubble reveals.
+
+**What ships this phase:**
+
+1. NEW `src/backend/claude-session/discover-identity-session-file.ts` — a pure `discoverIdentitySessionFile(sshConn, identityName): Promise<string | null>` helper that (a) lists all `.jsonl` files under `~/.claude/projects/*/` via the pane's SSH connection, (b) for each file reads until the first line where `"role":"user"` is present and pattern-matches BOTH `<command-name>/id</command-name>` AND `<command-args><identityName>` (space / `\r` / `<` as terminator; verbatim byte pattern from the Layer 1 detector at `claude-session-server.ts:1232` — same production-proven `line.includes` approach, no JSON parsing), (c) returns the mtime-latest matching absolute path, or `null` if no match. Fully-covered unit tests: happy path (single match), multi-match with mtime tiebreak, no-match returns null, non-user first turn skipped, mention-later-in-file NOT matched, empty project dir tolerated, byte-pattern refuses partial identity-name matches (`<command-args>tiff` must NOT match `tiffany`).
+
+2. Wire the helper into the dormant branch at `claude-session-server.ts:4675-4700`. After the `.dormant` sentinel probe succeeds and the `{type:"dormant",dormant:true,wakingSince}` frame is sent, ALSO call `discoverIdentitySessionFile(conn, tmuxSession)` and, if it returns non-null, open a `tailSessionFile(sshConn!, discoveredFile, onLine, onError)` (same signature the active flow uses at L4634). Because `tailSessionFile` runs `tail -F -n +1` (per L162 comment), Ashley's browser gets the full historical message stream through the existing `appendDedup` + `eventId` pipeline — same code path as the live case, just no new writes coming because the pane is asleep.
+
+3. Handle the wake→active handoff safely. When `__applyDormantPollWithRediscoveryForTests` detects the sentinel disappearing and rediscovery hits `active`, the `startActiveSessionFlow` callback opens a fresh `tailSessionFile()` on the newly-woken session's JSONL. The pre-existing dormant tail (if any) MUST be closed cleanly BEFORE the active tail opens — otherwise two tails briefly overlap on different files and produce duplicate/out-of-order message emissions. The existing closure-scoped `tailHandle` variable is already reachable from the transition point; add an explicit `tailHandle?.stop()` (or equivalent — inspect the TailHandle interface) + `tailHandle = null` immediately before `startActiveSessionFlow` runs the active-flow `tailHandle = tailSessionFile(...)` assignment.
+
+4. Fallback: if `discoverIdentitySessionFile` returns null (brand-new identity that's never had a claude session, or a fresh box), the dormant branch degrades gracefully to today's behavior — dormant frame sent, no tail opened, no messages. No worse than status quo; UI bubble still renders correctly with the empty list.
+
+5. Backend integration test: dormant branch opens a tail on the discovered file + replays historical messages via the existing `appendDedup` path (assert message frames land on the WS test double); wake transition closes the dormant tail before the active tail opens (assert no double-emit of any eventId across the handoff window).
+
+6. Regression: existing `DormancyOverlay.test.tsx` + `PrettyView.test.tsx` dormancy paths still pass. This is a pure backend addition — UI byte-untouched.
+
+7. Deploy loop hardening (small, bundled): update `~/.claude/roles/box-maintainer/box-map.md` to reflect that the served static tree is `/app/html/`, not `/app/dist/`, AND add a served-bundle-hash-match check to the standard deploy runbook (compare `curl -sS https://term.gigaashley.click/ | grep -oE 'assets/index-[^"]+\.js'` against `grep -oE 'assets/index-[^"]+\.js' dist/index.html`; MUST match before declaring deploy verified). This is directly the miss I ate on the quick 260812-ma8 first ship attempt — `docker cp` to the wrong path silently no-op'd and my HTTPS smoke test still returned 200 because it was serving Tina's old (correct-path) build.
+
+**Deliberate design choices — locked from design conversation with Ashley 2026-08-12 (LOCKED — do NOT re-litigate):**
+
+- **Byte-pattern match, not JSON parse.** Same shape as the Layer 1 detector — production-proven, cheap, tolerant to minor JSONL shape drift. `line.includes` only.
+- **First user-role line only.** `/id <name>` is always the first user turn of an identity session by convention (id-skill invocation is how identities bootstrap). Later mentions of `/id <name>` in transcript body don't match.
+- **Mtime-latest tiebreak when multiple JSONLs match.** New `/id reset` recycles create fresh JSONLs with the same first-turn signature; latest = current.
+- **Throwaway/non-identity panes naturally excluded.** Their first user turn isn't `/id <name>`, so they never match — the helper is identity-only by construction.
+- **Cold-start works.** No prior visit / no cache / no bootstrap needed. Every session that's ever been started for an identity is discoverable from disk alone.
+- **Stronger identity attribution than pane-based mechanism.** If two identities share a repo cwd (both cd into e.g. `/home/ubuntu/skynet-plain`), pane-based mtime-newest can't disambiguate which identity wrote which JSONL. First-turn signature makes each identity's JSONL unmistakable. Nice-to-have here; would be load-bearing if this mechanism ever expands to the live path.
+- **Cost negligible at current scale.** ~4 project dirs × dozens of JSONLs × `grep -m 1 '"role":"user"'` (early-bails) = well under 100ms per lookup. Mtime pre-filter is a trivial future optimization if the JSONL count ever grows past thousands.
+- **Recycle-boundary latency parity with pane-based.** As soon as the newly-recycled session writes its first user turn, mtime-latest-matching correctly points at the new file — same window as pane-based waiting for the new PID's first JSONL write.
+- **OUT OF SCOPE for Phase 32:** migrating the LIVE-path discovery to this helper. Additive only — the helper is wired into the dormant branch and no other site. Live path stays on pane-based (which is proven and works for throwaways). A future phase can consider a broader migration; explicitly deferred here to keep blast radius minimal.
+
+**Consumer sequencing:** wake bubble message history (from the just-shipped `dormancy-bubble-in-flow` quick task) is the first and currently only consumer. Ashley 2026-08-12: *"the bubble looks good, but unfortunately, the rest of the messages that would be in that session are not showing up."*
+
+**Requirements:** captured as D-nnn decisions in `.planning/phases/32-identity-first-turn-session-discovery/32-CONTEXT.md` (created at plan time). Every D-nnn reflected in at least one plan's tasks; see per-plan `requirements` frontmatter for the D-nnn coverage map.
+
+**Depends on:** Phase 31 (structured logging — the dormant-branch tail-open path will emit `[ws]` / `[session]` boundary logs consistent with the Phase 31 taxonomy)
+
+**Rebase risk:** LOW — additive: new helper file + wire into an existing branch that emits only a single dormant frame today + explicit tail-close ordering at the wake transition + fallback preserves existing behavior. No upstream Skynet surfaces touched.
+
+**Plans:** 3/3 complete
+
+- [x] 32-01-PLAN.md — pure `discoverIdentitySessionFile(sshConn, identityName)` helper + 22 unit tests (TDD; byte-pattern mirrors Layer 1 detector; D-01..D-07)
+- [x] 32-02-PLAN.md — wire helper into dormant branch at claude-session-server.ts:4675-4799 via new `__applyDormantBranchTailOpenForTests` seam + open dormant tail + wake→active safe-close ordering + `basename()`-only log payload + 7 CASE-DT integration tests (D-01, D-02, D-05, D-07, D-08, D-09)
+- [x] 32-03-PLAN.md — deploy-runbook hardening: `~/.claude/roles/box-maintainer/box-map.md` corrected `/app/dist/` → `/app/html/` + mandatory served-bundle-hash-match check codified in the standard deploy loop (external file, no repo commit; D-05 loose motivating reference)
+
+### Phase 33: Redesign pretty-view auto-scroll — three-case sticky-bottom hook (session load / follow-on-new-when-at-bottom / send-forces-bottom) replacing the temp-disabled 225-line use-auto-scroll.ts. Design settled with Ashley 2026-08-12: keep-it-simple ~80-line hook, one stickyRef + one programmaticRef, one exported scrollToBottomAndFollow used by pill AND all send paths (Enter/click/queued-fire/voice/aside-resume), ResizeObserver on OUTER scroll container (closes H1 accessory-mount blind spot from WipBubble/PlanPendingBubble/AsideBubble living as in-flow siblings post-Phase-27 Step-B), single scroll listener replaces old wheel+keydown+touchmove trifecta (programmaticRef distinguishes our writes from user), no load-lock-that-blocks-gestures. Implicit inverse Ashley confirmed: new messages while scrolled up do NOT yank down (pill stays manual affordance). Verify at implementation: whether TanStack Virtual writes scrollTop directly on re-measure (mitigation if yes: flag around known measurement events). Ships with tests for the four scenarios + Ashley UAT. Full design detail in bounty pv-auto-scroll-redesign timeline entry 2026-08-12T18:05:00Z. Supersedes bounty pv-disable-auto-scroll-temp. Rebase risk LOW — fork-local pretty-view; no upstream surfaces touched.
+
+**Goal:** Replace the temp-disabled 225-line `use-auto-scroll.ts` with a fresh ~80-line hook that lands PrettyView at the bottom on session first load, follows new messages while at bottom, forces bottom on every user send path (Enter/click/queued-fire/voice/quick-buttons), and does NOT yank the user down when they are scrolled up reading history
+**Requirements**: none (no REQUIREMENTS.md entry — this phase supersedes bounties `pv-auto-scroll-redesign` + `pv-disable-auto-scroll-temp`; requirements are captured in 32-CONTEXT.md as LOCKED decisions)
+**Depends on:** Phase 31
+**Plans:** 3/4 plans executed
+
+Plans:
+
+- [ ] 32-01-PLAN.md — TanStack Virtual scrollTop-write verification (grep node_modules/@tanstack/virtual-core; produce 32-01-VERIFICATION-REPORT.md with verdict + Plan 02 recommendation)
+- [x] 32-02-PLAN.md — Rewrite src/ui/features/pretty-view/use-auto-scroll.ts to the CONTEXT.md-locked design (one stickyRef + one programmaticRef + one scrollToBottomAndFollow + single scroll listener + RO on OUTER container + self-halting rAF chain + no load-lock)
+- [x] 32-03-PLAN.md — Wire the new hook into PrettyView.tsx (delete L744-784+L912-915 stub + forceStickAndJumpRef scaffolding + local contentRef; insert useAutoScroll(paneKey); swap handleComposeSend :627 forceStickAndJumpRef.current() → scrollToBottomAndFollow(); wire ComposeBox.tsx L2055 /explain quick-button through onGoodToGo?.())
+- [x] 32-04-PLAN.md — Extend PrettyView.virtualization.test.tsx with the four CONTEXT.md § Test coverage scenarios (un-skip Test 2 session-first-load; add Test 2b incoming-at-bottom; adapt Test 3 wheel→scroll for the new listener; add Test 2d user-send-forces-bottom via integration path)
+
+### Phase 34: Backend-authoritative fleet-status broadcast channel via harness session-status file and hooks — retires PTY-scraped ttyBusy/hasBgWork signals and adds waiting-state PrettyView bubble
+
+**Goal:** The Skynet frontend derives every session's working-signal (conversation-list dot + PrettyView WipBubble) from a single backend-authoritative fleet-status control WebSocket sourced from Claude Code's own `~/.claude/sessions/<pid>.json` files plus Stop-hook `background_tasks[]`, retiring the PTY-scraped ttyBusy + backgrounded_agents/shells feeders that have accumulated months of signal-quality noise (harness bottom-bar redraws, sibling-tmux status-line flapping, hidden-pane WS drops freezing the signal). Bundles a new WaitingBubble PrettyView surface for the harness-waiting state (e.g. file-deletion permission prompts that slip past dangerously-skip-permissions).
+**Requirements**: none (no REQUIREMENTS.md entry — decisions captured in 34-CONTEXT.md as LOCKED)
+**Depends on:** Phase 33
+**Plans:** 6 plans — shipped as patch #434 (tina) at HEAD `eeff94b`; zod hotfix bundled
+
+**Wave 1**
+
+- [x] 34-01-PLAN.md — Backend fleet-status pure-library modules under src/backend/fleet-status/*: SessionJson + StopHookPayload zod parsers, procStart liveness (pure), PID→tmux correlation (dependency-injected SSH-exec), ambient description-prefix filter — the parse/logic layer Plan 04 SSH-poll orchestrator drives (per PIVOT 2026-08-13: NO per-box daemon, watcher runs inside Skynet backend)
+- [x] 34-02-PLAN.md — Skynet backend fleet-status broadcast WS server on port 30012 with dual handshake modes (frontend consumer + box watcher), subscription registry with snapshot + fan-out + gone semantics, zod-validated versioned wire protocol
+- [x] 34-03-PLAN.md — PrettyView WaitingBubble presentational component (PlanPendingBubble visual template, presence-only, no interactive controls per D-CTX lock — Ashley switches to terminal pane to answer)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 34-04-PLAN.md — ssh-poll-orchestrator (2s SSH polling per identity-hosting host over existing SSH pool; state-delta publish into Plan 02 subscription registry; PID→tmux caching; 30s stale sweep) + remote-hook-install (one-time-per-host file drop + idempotent settings.json merge; NO persistent process) + stop-hook.sh (fire-and-forget bash) + fail-open regression tests for missing hook payload file (Ashley 2026-08-13 LOCKED) + verify-monitor-payload.sh (closes RESEARCH § OQ-2) + starter.ts wire-in + human-verify checkpoint against a real scratch identity
+- [x] 34-05-PLAN.md — External gate: id-skill on-wake block ships [ambient] description-prefix on every persistent Monitor + at least one live identity reloaded with tag in effect + Nellie coordinates fleet-agent-supervisor parallel path (companion bounty ambient-monitor-tagging-in-id-skill closes here — NOT a Skynet-repo executor task)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 34-06-PLAN.md — Frontend cutover: new fleet-status browser WS client owned by AppShell at boot + session-working-store rewired around D-CTX composite formula + new session-waiting-store + PrettyView mounts WaitingBubble + Terminal.tsx retires publishSessionTtyBusy + PrettyView.tsx retires the 4 publishSessionHasBackgroundedWork call sites + end-to-end integration test + retired-feeder grep gate + full-suite green
+
+### Phase 35: pretty-view-owns-compose-send-migrate-off-terminal-ws-borrow
+
+**Goal:** Migrate all four pretty-view outbound writes (compose-send, interrupt, injected-turn, MessageQueueDrawer.onSend) off the borrowed terminal SSH WebSocket onto pretty-view's own claude-session WebSocket, eliminating the silent-death-on-long-idle bug where `webSocketRef.current` points at a dead socket after network-middleware idle-kill (Caddy timeout / TCP keepalive gap / mobile-tower NAT rebind) and the first send after returning to a session fails with `submit-failed err="not-connected"`.
+**Requirements**: PVWS-01..PVWS-13 (13 total captured in 35-PLAN-OUTLINE.md, distributed across two plans)
+**Depends on:** Phase 33
+**Plans:** 2/2 complete — VERIFICATION.md status=passed 8/8 must-haves
+
+- [x] 35-01-PLAN.md — Backend additive `type:"input"` + `type:"interrupt"` handlers on claude-session WS with 250ms split-send (mirrors terminal.ts:842 patch #111 timing); `__applyInputMessageForTests` + `__applyInterruptMessageForTests` extracted seams; 16-case test file `claude-session-server.compose-send.test.ts` covering split-send fake-timer boundary + trust boundary + 16KB cap + empty-body edge case + log-and-swallow — shipped as commits `5594342` (input handler) + `3294cbb` (interrupt handler) + `05df22f` (tests)
+- [x] 35-02-PLAN.md — Atomic frontend cutover: PrettyView adds `sendInput`/`sendInterrupt` callbacks + ref-forwarding registration surface; Terminal.tsx swaps ALL FOUR call sites (`handleInjectedTurnReady`, `onSend`, `onInterrupt`, `MessageQueueDrawer.onSend`) from `webSocketRef.current` → `pvSendInputRef`/`pvSendInterruptRef`; `terminalWs={webSocketRef.current}` at :3367 preserved (feeds `usePrettyViewUploads`); MessageQueueDrawer mount at :3391 unchanged; terminal-mode xterm.js keystrokes still on terminal SSH WS (both handlers coexist); 5-case frontend test file with defense-in-depth `terminalWsMock.send` not-called assertion in every test — shipped as commits `d846e7a`/`509e94f`/`aabf340`/`20e8173`/`96256e5`
+
+### Phase 36: voice-slash-server-side-skill-catalog — Retire client-side double-word intent-transform (composeIntentTransform.ts / INTENT_REGISTRY) in favor of a server-side STT-endpoint-scoped transform that lets Ashley say "slash <skill-name> <args>" (voice-first path only) to invoke ANY skill on the target box's ~/.claude/skills/ with no maintained registry. Wake-word gate first (transcript must begin with /^\s*slash[\s.,;:!?\-]+/); on hit, server SSH-fetches skill catalog (~/.claude/skills/*/) with generous 10s timeout + fail-open, then greedy longest-prefix matcher against words after "slash" (kebab-case normalization: "gsd quick" -> "gsd-quick"); on match returns transformed transcript ("/skill-name rest"), on miss returns transcript unchanged. Transform applies to BOTH endSend (direct-send) and endAppend (into-textarea) paths in useVoiceRecording.ts. Client passes {hostId, tmuxSession} alongside audio blob to STT endpoint. Typed messages unaffected (voice-only path). User-wide skills only (~/.claude/skills/*). NO TTL cache at v1. Retire composeIntentTransform.ts + INTENT_REGISTRY + doubled-word regex + associated tests + the two call sites in useVoiceRecording.ts.
+
+**Note on phase-number renumber**: this phase was originally Phase 34 in tiffany's tree but collided with tina's Phase 34 (Backend-authoritative fleet-status broadcast, shipped as #434 2026-08-13). Renumbered to Phase 36 on rebase; **directory on disk stays `34-voice-slash-server-side-skill-catalog-retire-client-side-dou/` per prior fleet precedent (Phase 32→33 tanya rename, Phase 28→29 tiffany rename); commit messages retain `plan(34-XX)` prefix per no-`git rebase -i` rule.** Root cause is the SDK `phase.add` race with no cross-tree lock — bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`.
+
+**Goal:** Ashley says "slash <skill-name> <args>" into a pretty-view mic in a Claude Code pane, and the transcript arriving at the compose textarea / tmux send is already rewritten to "/<skill-name> <args>" — invoking any skill present on the target box's ~/.claude/skills/ with no client-maintained registry, no client-side transform, and fail-open passthrough if the target box's catalog can't be reached.
+**Requirements**: (none — scope fully captured by 34-CONTEXT.md on disk)
+**Depends on:** Phase 33
+**Plans:** 3/3 complete (files on disk retain `34-XX` numbering)
+
+- [x] 34-01-PLAN.md — Pure server-side matcher module (`src/backend/voice/slashCommandTransform.ts`): wake-word regex + tokenizer + greedy longest-prefix matcher + 21-case truth-table test suite mirroring CONTEXT.md § Specific Ideas — shipped as commit `756c6e3` (pre-rebase SHA; post-rebase equivalent per `git log --grep=34-01`)
+- [x] 34-02-PLAN.md — SSH-fetch skill-catalog helper (`src/backend/voice/skill-catalog.ts`): `fetchSkillCatalog(hostId, userId, timeoutMs=10000): Promise<Set<string>>` reusing connectOneShot + execCommand + resolveHostById; fail-open on every failure branch (empty Set, never throws) — shipped as commit `b7b906d` (pre-rebase SHA)
+- [x] 34-03-PLAN.md — Atomic cutover: wire matcher + fetcher into STT route (`handleTranscribe` accepts hostId/tmuxSession multipart fields, gates on wake-word, applies transform); DELETE client-side `composeIntentTransform.ts` + tests + two `applyIntentTransform` call sites in `useVoiceRecording.ts`; client posts hostId+tmuxSession alongside audio blob — shipped as single-commit `728973a` (pre-rebase SHA; all three tasks in one atomic commit per plan's ⚠️ ATOMICITY note; server + client + delete land together)
+
+### Phase 37: Hold-to-send gesture on send button
+
+**Note on phase-number renumber**: originally added as Phase 32 in tanya's tree but collided with tanya's pre-existing Phase 32 (Identity-first-turn session discovery, already shipped earlier). Renumbered to Phase 37 on rebase past Tina's #434 + Tiffany's #435; **directory on disk stays `32-hold-to-send-gesture-on-send-button/` per prior fleet precedent (Tiffany's Phase 34→36, tanya's Phase 32→33); commit messages retain `plan(32-XX)` prefix per no-`git rebase -i` rule.** Root cause: SDK `phase.add` race with no cross-tree lock — bounty `gsd-sdk-phase-add-race-no-cross-tree-lock` remains open.
+
+**Goal:** Add press-and-hold gesture (>=250ms) to the existing ComposeBox send button — hold to start voice recording (reuses useVoiceRecording), release inside bounds to end + send (transcript glued to any typed text via existing single-space rule, then routed through the same handleSend as tap-mic then RecordingControls Send per D-16-05), slide off and release to cancel. Short taps under 250ms continue to fire the existing typed-send path byte-identically. Gesture is inert when the button is morphed to X (asideActive), disabled, or the mic-tap path is already recording (voice.state !== "idle" guard). D-16-02 iOS Safari sync-getUserMedia invariant preserved via Shape 1 (optimistic start + rollback on short-tap). Both mic-tap then RecordingControls path (careful record with append option) and hold-to-send path (fast one-shot) coexist. Visual during hold: send button tinted coral (--color-pv-code-fg) in place; do NOT swap in RecordingControls under the pointer. Applied symmetrically to primary AND slot send buttons.
+**Requirements**: HOLD-SEND-01, HOLD-SEND-02, HOLD-SEND-03, HOLD-SEND-04, HOLD-SEND-05, HOLD-SEND-06, HOLD-SEND-07, HOLD-SEND-08, HOLD-SEND-09, HOLD-SEND-10, HOLD-SEND-11, HOLD-SEND-12, HOLD-SEND-13
+**Depends on:** Phase 31 (numeric predecessor only; functionally depends on Phase 16 voice pipeline + Phase 9 ComposeBox 2-row shell)
+**Plans:** 3/3 plans executed
+
+Plans:
+
+- [x] 32-01-PLAN.md — useVoiceRecording.cancel() race-safety fix (pendingCancelRef) + useHoldToRecord hook (Shape 1 optimistic-start + rollback with awaited cancel before onShortTap) + unit tests (3 new useVoiceRecording tests + 10 useHoldToRecord tests including iOS Safari sync-gesture invariant assertion) (HOLD-SEND-01..05) — completed 2026-08-13, see 32-01-SUMMARY.md, commits f822acf + 4aba86f + de58a08
+- [x] 32-02-PLAN.md — Wire useHoldToRecord into ComposeBox primary send button (L2380-2437, preserves onClick={asideActive ? onAsideDismiss : undefined} per B-2) AND slot send button (L2807-2846 in QueuedRow subcomponent, with extracted slotSendDisabled shared local per M-2) + gate showRecordingControls / showSlotRecording on !holdInitiatedRef.current per B-3 + data-hold-active CSS rule + @keyframes in src/ui/index.css (HOLD-SEND-06..10) — completed 2026-08-13, see 32-02-SUMMARY.md, commits ee2c98f + c54b6ea + 2b371d2
+- [x] 32-03-PLAN.md — ComposeBox.hold-to-send.test.tsx integration tests covering all 9 CONTEXT.md § specifics test cases + 1 threshold-boundary regression guard, with deterministic B-2 (aside-dismiss via preserved onClick) and B-3 (RecordingControls does NOT swap in during hold-initiated recording) assertions (HOLD-SEND-11..13) — completed 2026-08-13, see 32-03-SUMMARY.md, commit aefeb34
+
+### Phase 38: Identity sharing — share an identity with another Skynet user from the identity modal
+
+**Goal:** Deliver a one-tap in-header picker in the identity modal that hands one Skynet user's identity to another via a copy-and-diverge duplicate INSERT onto the target user's row set — no permissioning, silent no-op on repeat, already-shared marker but still selectable, picker hides entirely when the deployment has no other users.
+**Requirements**: none (shape file + CONTEXT.md carry the locked decisions; no REQUIREMENTS.md IDs enumerated for this phase)
+**Depends on:** Phase 37
+**Plans:** 2 plans
+
+Plans:
+
+- [ ] 38-01-PLAN.md — Backend: POST /identities/:id/share (copy-and-diverge row duplicator, no-op on repeat, no permission gate) + GET /users/list-basic (slim per-authenticated-user route excluding requester, only {id, username} fields exposed) + tests for both endpoints
+- [ ] 38-02-PLAN.md — Frontend: shareIdentity + getUsersListBasic API clients + ShareIdentityPicker component (empty-state hide, populated dropdown, already-shared marker on selectable rows, toast confirmation on share) + IdentityModal DialogHeader wiring with parent-owned alreadySharedUserIds Set state + tests
+
+### Phase 39: Fleet-status Gate 2: SSH-poll decrypt-via-user-session + presence-driven lifecycle — Rewire SSH-poll orchestrator to lazy start/stop keyed off fleet-status subscription registry (first subscriber starts poller, last unsubscriber stops it). Poller uses subscribing user's authenticated session for resolveHostById(hostId, userId) — the standard request-driven decrypt path used by every other SSH caller in the app. Fixes the ciphertext-passed-to-ssh2 bug in current SSH-poll (bypassing SimpleDBOps.select/DataCrypto). Bundles: (a) fix swallowed err.message in fleet-status structured logger, (b) verify Plan 04 Stop-hook install status per host + install where missing. Bounty: fleet-status-ssh-poll-decrypt-and-lazy-lifecycle. Path C decided by Ashley 2026-08-13.
+
+**Goal:** Fleet-status pipeline populates the session-working-store end-to-end from a real browser session — SSH-poll orchestrator runs only while at least one fleet-status browser subscriber is connected, per-host SSH decrypt uses the subscribing user's authenticated session via `resolveHostById(hostId, userId)`, structured log `error` fields surface in `console-forward-logs/console-forward.log` and `docker logs skynet`, and Phase 34 Plan 04's Stop-hook is installed (blind, idempotent) on every enrolled host the first time it's acquired during a lifecycle.
+**Requirements**: GATE2-01, GATE2-02, GATE2-03, GATE2-04, GATE2-05, GATE2-06
+**Depends on:** Phase 38
+**Plans:** 4/4 plans complete
+
+**Wave 1**
+
+- [x] 39-01-PLAN.md — Extend SubscriptionRegistry with onFirstSubscriber/onLastUnsubscriber callback registrars + optional { userId } ctx on subscribe; MockRegistry stub update in ssh-poll-orchestrator.test.ts; 7 new lifecycle-hook tests (GATE2-01, GATE2-02)
+- [x] 39-03-PLAN.md — Fix logger.ts formatMessage to surface non-sensitive structured context fields (generic passthrough after existing 7-field whitelist) + new logger.test.ts covering error passthrough / sensitive-field masking / known-field ordering (GATE2-04)
+
+**Wave 2** *(blocked on 39-01 completion)*
+
+- [x] 39-02-PLAN.md — Thread { userId } through fleet-status-server.ts subscribe call + rewrite listIdentityHostingHosts in starter.ts to use resolveHostById per-host decrypt + move orchestrator.start/stop behind registry.onFirstSubscriber/onLastUnsubscriber + hostClients cleanup on last-unsub + fleet_status_awaiting_subscriber boot log (GATE2-01, GATE2-02, GATE2-03, GATE2-06)
+
+**Wave 3** *(blocked on 39-02 completion — same-file overlap on starter.ts)*
+
+- [x] 39-04-PLAN.md — Wire installStopHook fire-and-forget on first successful acquireSshChannel per host per lifecycle + install-once tracking Set + reset on onLastUnsubscriber + starter.test.ts coverage for the install-once + non-blocking + failure-logs-with-err.message invariants (GATE2-05)
+
+### Phase 40: text editor in skynet
+
+**Goal:** An in-app text editor inside Skynet's pretty-view chat surface — Ashley taps the pencil affordance next to an agent-served tailnet URL, edits the file in a modal that reuses the Global Files edit shell, and hits Save to deposit the edited version into her ComposeBox as a fresh attachment; the return trip to the agent rides Skynet's existing reply-with-attachment path. Load-bearing case is mobile (iPhone PWA) where the current multi-agent-round-trip workflow has no viable equivalent.
+
+**Requirements:** No REQ-IDs assigned — LOCKED decisions D-01..D-07 in `.planning/phases/40-text-editor-in-skynet/40-CONTEXT.md` are the de-facto requirements. `must_haves` at plan-level enumerate them.
+**Depends on:** Phase 5 (upload/attachment pipeline this deposit rides on) + Phase 23 GEFM-05 (Global Files edit modal + `GlobalFileTab` — reuse target for the editor UX). Phase-number ordering (39 immediately before) is calendric only, not a functional dependency.
+**Plans:** 4/5 plans executed
+
+Plans:
+
+- [x] 40-01-PLAN.md — Backend SSRF-hardened proxy POST /pretty-view/fetch-tailnet-url + shared whitelist/basename constants + inline byte-sniff heuristic + backend unit tests (D-01, D-02, D-04 backend half; T-40-01 SSRF, T-40-02 dir-listing HTML spoof mitigations)
+- [x] 40-02-PLAN.md — Frontend `fetchTailnetUrl` axios helper + byte-identical whitelist twin + `useEditableFileEligibility` per-message hook (extension-sync-then-byte-sniff-async classifier) + tests; discard-cached-bytes D-04 invariant enforced structurally (D-01, D-02, D-04 frontend half)
+- [x] 40-03-PLAN.md — `EditableFileAffordance` (Pencil sibling button — desktop hover-reveal, mobile always-visible 44x44) + `EditableFileModal` (forked GlobalFilesModal chrome minus host picker + tabs bar; verbatim `GlobalFileTab` body; fresh-fetch-at-open lifecycle; error-body-plus-toast on re-fetch fail; save deposits to onStageEditedFile callback) + component tests (D-03, D-04, D-05, D-06)
+- [x] 40-04-PLAN.md — `ChatMessage.tsx` wiring (hook call + `a` override extension to render affordance sibling + `pv-bubble` class token on bubble container) + `PrettyView.tsx` wiring (modal mount alongside IdentityModal at document.body portal; open-state useState; onOpenEditor callback threaded to ChatMessage; onStageEditedFile → uploads.stageAttachments('primary', [File]) closing the D-07 loop into existing send pipeline) + wiring tests (D-03, D-06, D-07)
+- [ ] 40-05-PLAN.md — Deploy-prep docs artifacts: 40-BUILD-VERIFY-LOG.md (objective build/test posture at HEAD) + 40-UAT-CHECKLIST.md (7-item post-deploy walk covering each D-XX observable behavior on production) + 40-PATCHES-MD-ENTRY.md (paste-ready patch entry for the maintainer); ends with a BLOCKING human-verify checkpoint per `human_verify_mode: end-of-phase`. Deploy motion (docker build + docker compose up + git push + patches paste) is the maintainer's remit — NOT the executor's.
+
+**UI hint:** yes (new UI components: EditableFileAffordance, EditableFileModal; modification of ChatMessage/PrettyView render tree)
+
+### Phase 41: Defer terminal view mount until user summons it
+
+**Goal:** For identity-based sessions (where PrettyView is the default landing view), defer the mount of the Terminal component so it does not exist at all until the user summons it via Ctrl+Shift+O or long-press-identity-badge. On summon, cold-boot the terminal fully (fresh xterm, fresh SSH WebSocket, tmux reattach). Toggle back to PrettyView tears the terminal down completely (unmount, close WS) to reclaim resources. Two Terminal-owned signals PrettyView depends on today (isIdle + tab-title tmuxSession) are re-sourced from the Phase 39 fleet-status backend broadcast so PrettyView can stand alone. Scope: identity-based agent sessions only; non-identity SSH-terminal and RDP/Guacamole panes unaffected.
+
+**Requirements**: None assigned — LOCKED decisions in `41-CONTEXT.md` `<decisions>` block ARE the requirements (mirrors Phase 40 pattern per CONTEXT.md cross-reference).
+
+**Depends on:** Phase 39 (fleet-status backend broadcast + presence-driven SSH-poll lifecycle), Phase 35 (PrettyView-owned send path — makes standalone PrettyView possible)
+
+**Plans:** 4/4 plans complete
+
+Plans:
+
+- [x] 41-01-PLAN.md — Signal re-source (invisible P2): add `useSessionIsWorkingRaw` three-state hook + new `session-tmux-store` module + extend AppShell fleet-status callbacks to feed the tmux store + rewire PrettyView `isIdle` to derive internally from the fleet-status store; Terminal still nests PrettyView, `isIdle` prop preserved as no-op during transition; user-visible behavior unchanged
+- [x] 41-02-PLAN.md — Pane restructure (visible P1): new `IdentitySessionPane` wrapper in `src/ui/shell/`, hoists `isPrettyMode` + `pvSendInputRef` + `pvSendInterruptRef` + `isMessageQueueOpen` + `isIdentityModalOpen`; moves `MessageQueueDrawer` + `IdentityBadge` + `IdentityModal` + session-tint out of Terminal.tsx; tabUtils dispatches identity terminal tabs to the wrapper (non-identity terminal tabs unchanged); Terminal.tsx surgically stripped of PrettyView render + all hoisted state + vestigial `isIdle` useState + `togglePrettyMode`/`toggleMessageQueue` imperative-handle entries; PrettyView props drop the `isIdle` field
+- [x] 41-03-PLAN.md — Deploy prep (docs only, no source diffs): 41-BUILD-VERIFY-LOG.md (objective build/test posture at HEAD) + 41-UAT-CHECKLIST.md (10+ observable-behavior items cross-referencing CONTEXT.md LOCKED decisions) + 41-PATCHES-MD-ENTRY.md (paste-ready patch entry for the orchestrator). Deploy motion (docker build + compose + push + patches paste) is orchestrator-owned per fleet rule 2026-08-08. Ends with end-of-phase human UAT gate.
+
+**Wave 1**
+
+- [x] 41-01-PLAN.md
+
+**Wave 2** *(blocked on 41-01 completion — signal re-source must land before pane restructure so intermediate commits never regress the user)*
+
+- [x] 41-02-PLAN.md
+
+**Wave 3** *(blocked on 41-01 + 41-02 completion — docs prep + end-of-phase UAT)*
+
+- [x] 41-03-PLAN.md
+
+**UI hint:** no source-visible UI redesign — this is an architectural pane composition change; PrettyView and Terminal's own surfaces are byte-unchanged. Only the mount/unmount lifecycle around Terminal changes for identity panes.
+
+### Phase 42: Conversation list — flat recency sort with pins zone at top, RDP zone at bottom, always-hidden-on-load search input; retire ambient-recession visual
+
+**Goal:** Reshape the conversation list panel (`PrettyConversationsPanel.tsx`) so its middle section is flat and message-recency-sorted, moving away from the host-grouped strict-order model established in Phase 7. Pins remain the only stickiness mechanism and cluster at the top of the list using the existing stable per-row ordering. Remote-desktop sessions get their own section at the bottom, also using the existing stable ordering internally, and their section header hides entirely when zero RDP sessions are running. The ambient-recession visual (dimmed background rows) is retired — every row carries the same visual weight, and position + the ready-dot together carry the whole "where should I look next" story. A search input is always present at the very top of the list but scrolled out of view under the panel header on the app's first render of the list; scrolling up reveals it. Typing flattens the entire list to matches against visible row labels only (no message-body content search).
+
+**Requirements**: None assigned — LOCKED decisions in `42-CONTEXT.md` `<decisions>` block ARE the requirements (mirrors Phase 40/41 pattern).
+
+**Depends on:** Phase 7 (fleet-native conversation list data source), Phase 25 (existing stable `(host, role, label)` ordering that pins + RDP zone inherit), Phase 34 (fleet-status backend broadcast — extended in 42-03 for the recency signal)
+
+**Plans:** 3/3 plans complete
+
+Plans:
+
+- [x] 42-01-PLAN.md — Three-zone sort split + ambient-recession CSS retirement (frontend-only). Reshapes ConversationList to `{ activeSet, pinned, middle, rdpGroup }`, adds `compareByRecencyDesc` with no-history-to-top + insertion-order fallback until 42-03 lands real recency, retires the `.ambient` CSS block and row-className toggle, flattens the middle-zone renderer, regression-lock RDP-header-hides-on-zero and ready-dot-on-all-non-working-rows.
+- [x] 42-02-PLAN.md — Search input + one-shot scroll-hide + label-only filter (frontend-only). Always-in-DOM `<input type="search">` at top of `.pv-panel-scroll`, one-shot cold-load scroll-hide via `pv-conv-search-hidden-once` sessionStorage sentinel (with `only=1` opener guard), tap-to-focus on mobile (no auto-focus), filter flattens all three zones to a single label-only match list, hidden rows excluded from matches.
+- [x] 42-03-PLAN.md — Fleet-status WS protocol extension for per-message recency signal + wire middle-zone sort (full-stack). Extend `SessionStateSchema` with optional `lastMessageAt: number | null`, derive backend-side from message-bearing JSONL frames only (user + assistant messages; excludes tool_use, thinking, streaming ticks, lifecycle events), cache in `session-working-store`, stamp on `ConversationRow`, drive real DESC-by-recency sort in the middle zone. No wire-protocol version bump (additive + optional). No nginx changes (existing `/fleet-status/` route unchanged; payload extension only).
+
+**Wave 1**
+
+- [x] 42-01-PLAN.md
+
+**Wave 2** *(blocked on 42-01 — needs the `{middle, rdpGroup}` ConversationList shape + `compareByRecencyDesc` seam)*
+
+- [x] 42-02-PLAN.md
+- [x] 42-03-PLAN.md
+
+**UI hint:** yes, source-visible UI redesign. The conversation list on the left/side panel loses its per-host divider chips, adopts messaging-app recency sort in the middle, hides the ambient-row dimming, adds a search bar that reveals on scroll-up. Same three-zone rendering surface, new order and new search affordance. iOS PWA + desktop both.
+
+**History note:** Phase originally numbered 41 in this identity's tree (started 2026-08-14). Collided with Tanya's independent Phase 41 (`defer-terminal-view-mount`) — the sixth known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). Renumbered to 42 during rescue-rebase 2026-08-17 after Tanya's Phase 41 shipped as patch #455; 5 code commits cherry-picked cleanly onto origin (Tanya #455 + Tiffany #456 base), planning artifacts renamed 41-* → 42-*, ROADMAP + STATE re-added under new number. Ashley 2026-08-17 verbatim on the renumber: *"Don't really care what you do with the phase number."* Original commit history preserved on backup branch `tina-phase41-backup` locally. Code state is byte-equivalent to what shipped under Phase 41's SUMMARY.md files (see 42-01-SUMMARY.md, 42-02-SUMMARY.md, 42-03-SUMMARY.md — internal references were bulk-updated 41-* → 42-* but content is otherwise verbatim).
+
+### Phase 43: Replace PrettyView virtualization with plain-DOM windowed pagination (drop-oldest working set)
+
+**Goal:** Retire the Phase 27/28/32 TanStack Virtual message list in favor of a plain-DOM scroller backed by a bounded working-set window. Initial connect loads the last N messages (not the whole conversation), scrolling near the top triggers a fetch-and-prepend of the previous batch, and the working set is capped: when in-memory messages exceed the cap during a long live session, the oldest are dropped from the DOM and refetched on demand if the user scrolls back. The browser's built-in `overflow-anchor: auto` preserves visible content across prepends and image-load height changes. Auto-scroll collapses from three fighting actors (user scroll, virtualizer correction writes, follow-to-bottom logic) to one: user scroll — the follow-to-bottom rule becomes "if pinned when new message arrives, scroll to bottom." Backend WS gains a `historyWindow: N` handshake param bounding the initial `-n +1` replay and a new `fetch_older` request for range reads; the observation channel (layer1-detect, context-pct, plan-pending, backgroundedAgents/Shells, id-reset) still tails the whole file untouched.
+
+**Requirements**: None assigned — LOCKED decisions in `43-CONTEXT.md` `<decisions>` block ARE the requirements (mirrors Phase 40/41/42 pattern).
+
+**Depends on:** Phase 27 (virtualization introduction — being retired), Phase 28 (virt correctness cluster — being retired), Phase 32 (auto-scroll three-case hook — being simplified)
+
+**Plans:** 9/9 plans complete
+
+Plans:
+
+**Wave 1 (parallel, no deps):**
+
+- [x] 43-01-PLAN.md — Parameterize session-file-tail.ts to accept an initial-lines override (backcompat preserved)
+- [x] 43-02-PLAN.md — New readSessionFileRange + resolveEventIdToLine helpers (one-shot SSH exec + sed range read + grep eventId→line lookup)
+- [x] 43-03-PLAN.md — Wire scaffolding: openClaudeSessionSocket({historyWindow}) + FetchOlderPayload (locked to `{anchorEventId, count}` — NO anchorLine field) + FetchOlderBatchEvent types
+- [x] 43-06-PLAN.md — Rewrite use-auto-scroll.ts from 245 lines to ~50 (plain-DOM pinned-follow + no-yank-when-scrolled-up); hook return API frozen
+
+**Wave 2 (depends on Wave 1):**
+
+- [x] 43-04-PLAN.md — Backend: handleFetchOlder extracted handler (eventId→line lookup then range read) + historyWindow handshake parse + thread into tailSessionFile; observation channel byte-verified unchanged via PHASE-43 anchor comments (depends on 43-01, 43-02, 43-03)
+- [x] 43-05-PLAN.md — Frontend api runtime helpers: sendFetchOlder + isFetchOlderBatchEvent (depends on 43-03)
+
+**Wave 3 (sequential within wave; depends on Wave 2 + 43-06):**
+
+- [x] 43-07a-PLAN.md — PrettyView plain-DOM conversion: delete virtualizer + plain-DOM scroller + remove `[overflow-anchor:none]` + aside-arm walk byte-verified via PHASE-43 anchor comments (depends on 43-04, 43-05, 43-06)
+- [x] 43-07b-PLAN.md — Windowing + fetch_older client + drop-oldest cap + loading hint (150ms threshold) + reachedBeginning short-circuit + fetch-error warn-and-clear (depends on 43-07a)
+
+**Wave 4 (depends on Wave 3):**
+
+- [x] 43-08-PLAN.md — Cleanup: delete virt-specific test files + npm uninstall @tanstack/react-virtual + three separate residual-reference checks (jq package.json + grep -c package-lock.json + grep -r src/) + explicit nginx-unchanged verify + human UAT checkpoint
+
+**UI hint:** partial source-visible UI change. The PrettyView chat scroller behaves like a normal DOM scroller — no more virt-jitter, image-bubble grows cleanly, no jump-back on tall-bubble re-measure. A "load older" indicator may appear briefly near the top when scrolling back past the loaded window. Otherwise the render is byte-equivalent to current per-bubble output. iOS PWA + desktop both.
+
+**Bounty:** `replace-pv-virtualization-with-windowed-pagination` (created 2026-08-18) — Ashley 2026-08-18 verbatim: *"I really feel like a solution where we don't virtualize but instead load as the user scrolls up would be most of what we need because we don't have to care about heights then."* Retires the multi-attempt virt saga (Phase 27 landed, Phase 28 correctness cluster, patch #373 temp-disable, Phase 32 auto-scroll redesign, patch #437 tall-bubble RO split) with a categorically different architecture where the estimate-and-correct height problem simply does not exist.
+
+### Phase 44: Fix convo-list recency signal — switch dormant + live paths to /id-first-turn JSONL discovery, retire no-history-to-top
+
+**Goal:** The conversation-list middle zone renders freshest-message rows at the top and no-history rows at the bottom, sourced from the /id-first-turn JSONL discovery mechanism for both dormant identities (via a per-session extension of the /sessions/list route) and live identities (via a swap of the ssh-poll-orchestrator's JSONL path derivation), reconciled through a max-wins working-store chokepoint, with the pre-Phase-44 no-history-to-top rule retired.
+
+**Requirements**: None assigned — LOCKED decisions in `44-CONTEXT.md` `<decisions>` block ARE the requirements (mirrors Phase 40/41/42 pattern).
+
+**Depends on:** Phase 42 (fleet-status wire lastMessageAt field + comparator seam + no-history-to-top lock this phase revisits), Phase 32 (`discoverIdentitySessionFile` byte-pattern mechanism consumed as-is), Phase 7 (fleet-native /sessions/list route being extended)
+
+**Plans:** 4/4 plans executed — code work complete; verification + shipping orchestrator-scope
+
+Plans:
+
+- [x] 44-01-PLAN.md — /sessions/list route extended with per-session `lastMessageAt` derivation (discovery + tail scan, per-session Promise.all mirroring resolveRoleForIdentity, per-session failure isolation) *(2026-08-18: shipped — 10/10 route tests pass, full suite 2440 pass)*
+- [x] 44-02-PLAN.md — ssh-poll-orchestrator swap: `jsonlPathForSession(cwd, sessionId)` → `discoverIdentityJsonlPathViaChannel(channel, tmuxSession)` with cached `jsonlPath` in PidCacheEntry + rediscovery-on-stale threshold (defense against JSONL rotation mid-session)
+- [x] 44-03-PLAN.md — Working-store reconciliation chokepoint: `advanceSessionLastMessageAt` (max-wins), `seedSessionLastMessageAt` (public seed API), refactored `publishFleetStatusSessionState` to funnel through it + wire-type extension for RemoteTmuxSession *(2026-08-18: shipped — 32/32 session-working-store tests pass incl 15 new reconciliation-contract tests; full suite 2529 pass; both builds exit 0)*
+- [x] 44-04-PLAN.md — AppShell wires seedSessionLastMessageAt per /sessions/list row (cached + fresh) + FleetSession type extension with cache-key bump to v2 + compareByRecencyDesc Rule 1 flip from null-to-top to null-to-bottom (retires Ashley's 2026-08-14 lock) *(2026-08-18: shipped — 99/99 conversation-store tests pass incl 9 new Phase 44 Plan 04 tests; full suite 2538 pass; both builds exit 0)*
+
+**Wave 1** *(parallel — no file overlap)*
+
+- [x] 44-01-PLAN.md — /sessions/list route extension *(2026-08-18)*
+- [x] 44-02-PLAN.md — ssh-poll-orchestrator JSONL derivation swap
+
+**Wave 2** *(blocked on 44-01 completion for wire-type shape)*
+
+- [x] 44-03-PLAN.md — session-working-store reconciliation chokepoint + sessions-api.ts RemoteTmuxSession extension *(2026-08-18)*
+
+**Wave 3** *(blocked on 44-01 + 44-02 + 44-03 — coordinated wire-consumer + type + comparator flip on files that must land together)*
+
+- [x] 44-04-PLAN.md — AppShell seed wiring + FleetSession type + comparator Rule 1 flip *(2026-08-18: shipped)*
+
+**UI hint:** no source-visible UI redesign. Zero changes to `PrettyConversationsPanel.tsx` or `pretty-conversations.css`. The middle-zone ordering fix ships purely by giving the existing comparator + snapshot pipeline correct inputs. Scope fence in 44-CONTEXT.md `<scope_fence>` enumerates hard-blocked files.
+
+**History note:** Phase originally numbered 43 in this identity's tree (started 2026-08-18). Collided with tina's independent Phase 43 (`replace-pv-virtualization-with-plain-dom-windowed-pagination`) — the seventh known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). tina was mid-ship (34 commits pushed at 58de67ac, holding at deploy for Ashley greenlight) → she kept the Phase 43 slot per the auto-resolve tiebreak; I renumbered mine to Phase 44 (rescue-rebase per role-file directive + bounty's `rescue-rebase-runbook.md`). Fully autonomous — no Ashley check-in required (Ashley 2026-08-18 verbatim: *"I don't care what phases have what number, so all I do is avoid the collision"*). Planning artifacts renamed 43-* → 44-*, ROADMAP + STATE re-added under new number.
+
+### Phase 45: Fix-forward on Phase 43 — restore correct architecture for windowed PrettyView pagination + reship as patch #466. Phase 43 (=#465) shipped and UAT-failed with 3 bugs: (1) backend tail -F -n 50 starves the observation channel — architecture-locked fix is to revert backend to -n +1 (full-file emission) and move historyWindow to a purely client-side cap on the messages[] array during initial hydration (drop-oldest as they arrive). Wipes Phase 43 backend Plans 43-01, 43-02, 43-04 rewiring and rewrites plan 43-07b's client hook. (2) 9px inter-bubble padding lost during 43-07a plain-DOM conversion — 1-line restore of style={{ paddingBottom: 9 }} on the bubble wrapper at PrettyView.tsx:2481. (3) TypeError: Cannot read properties of undefined (reading 'replace') at bi in AppShell-BjR3_4Qj.js:1:33664 on send — needs repro to pin down, will add undefined guard on the confirmed site once identified. Bounty: replace-pv-virtualization-with-windowed-pagination + closes parent pretty-view-message-list-virtualization at ship. Ships as patch #466 (collision-check at ship time).
+
+**Goal:** Close all three Ashley-UAT bugs from Phase 43 (=patch #465) so patch #466 ships clean: (1) backend `tail -F` reverts to `-n +1` full-file emission so the observation channel is unstarved; the messages-array cap moves to a purely client-side drop-oldest during hydration and live-tail (Ashley UAT-locked). (2) 9px inline `paddingBottom` restored on the plain-DOM bubble wrapper (Ashley verbatim value + medium). (3) `.replace()` TypeError on send closed via one targeted undefined-guard on the source-map-confirmed site (or documented did-not-reproduce if fixes #1+#2 unblock it incidentally). Full-suite `npx vitest run` + `npm run build:backend` + `npm run build` green as ship precondition per fleet standing directive.
+
+**Requirements**: none — this is a fix-forward on shipped code, no external REQUIREMENTS.md IDs apply. Plan-local acceptance criteria driven by the three UAT-failed bugs.
+
+**Depends on:** Phase 44
+
+**Plans:** 5/5 plans complete
+
+Plans:
+
+- [x] 45-01-PLAN.md — Backend revert: delete session-file-range module + its test + two Phase-43-born backend test files; revert session-file-tail.ts to pre-P43 4-arg signature (byte-shape-equal to `f60514b5~1`) + trim its test file; revert 5 discrete Phase 43 regions in claude-session-server.ts (imports, handler+parse block, historyWindowParsed binding, both 5-arg tailSessionFile calls → 4-arg, fetch_older msg-switch case). Sibling handleIdentityCountBounties preserved as canary. (closes Bug #1 backend half)
+- [x] 45-02-PLAN.md — Frontend wire cleanup: delete Phase-43-born claude-session-api.test.ts (100% coverage of deleted helpers); revert openClaudeSessionSocket to no-arg pre-P43 shape; delete Phase 43 wire-types + helpers block (FetchOlderPayload, FetchOlderBatchEvent, sendFetchOlder, isFetchOlderBatchEvent). Sibling countIdentityBounties preserved as canary. (closes Bug #1 wire half; parallel with 45-01 in Wave 1)
+- [x] 45-03-PLAN.md — PrettyView.tsx three-part surgery: (a) delete all fetch_older client wiring (imports, constants, refs+state, fireFetchOlder callback, near-top-scroll effect, fetch_older_batch case, loading-hint mount, composedScrollRef binding, openClaudeSessionSocket opt-in); (b) preserve appendDedupWithCap + WORKING_SET_CAP=150 + all 5 live-append call sites byte-for-byte (Ashley UAT-locked client-side cap); (c) add `style={{ paddingBottom: 9 }}` on the plain-DOM bubble wrapper. Delete-and-recreate PrettyView.windowed-pagination.test.tsx → PrettyView.hydration-cap.test.tsx with 8 tests locking client-cap + no-fetch_older + regressions. (closes Bug #1 client half + Bug #2; Wave 2, depends on 45-01+45-02)
+- [x] 45-04-PLAN.md — Bug #3 investigation-then-guard: build fresh dev bundle; Ashley reproduces the send action against post-Bugs-#1+#2 dist and reports fresh minified stack (or did-not-reproduce); source-map the fresh stack against dist/*.map to pin ONE of 3 candidate sites (ComposeBox.tsx:1194 collapseNewlinesForSend / AppShell.tsx:1239 tab-dedup / commandTags.ts:53 preprocessCommandTriplets); add ONE targeted `typeof x !== "string" ? "" : x.replace(...)` guard with Phase-45 source comment + companion test; Ashley re-verifies post-guard fresh build. If no repro post-Bugs-#1+#2: no guard shipped (Ashley-locked no-speculative-defense rule). (closes Bug #3; Wave 3, autonomous:false due to human-verify checkpoints)
+- [x] 45-05-PLAN.md — Ship-readiness gate: full-suite `npx vitest run` + `npx tsc --noEmit` + `npm run build:backend` + `npm run build` all exit 0; phase-wide grep sweep confirms zero hits for 10 Phase 43 identifiers + positive canary hits for handleIdentityCountBounties + countIdentityBounties; three-bugs-closed proof aggregated from prior SUMMARYs into `45-05-SHIP-READINESS.md`; hand-off note to orchestrator (Tina) with the 7 deploy actions + 4 fleet standing directives. Subagent does NOT execute the deploy motion (fleet standing directive: subagents don't do deploys). (Wave 3, autonomous:true, depends on 45-01..04)
+
+### Phase 46: Frontend skill editing — editor surface for skill folders on a host, sibling to the existing global-files editor
+
+**Goal:** Deliver an editor surface for skill folders on a host, reached from the same menu as the existing global-files editor. Same modal chrome + host dropdown + tab bar + editor pane, plus a new skill dropdown alongside the host picker. Tabs = files inside the chosen skill (flat with path-relative labels for nested files; horizontal-scroll fallback). Text editable, non-text viewable-as-placeholder. Add + delete files inside a skill and delete an entire skill (delete-file has a confirm; no other guards). Deliberately unaware of skill distribution/self-update.
+
+**Requirements**: None — locked design decisions live in `46-CONTEXT.md` `<decisions>` block (D-01..D-16) and ARE the requirements (mirrors Phase 40/41/42/44 pattern).
+
+**Depends on:** Phase 23 (existing global-files editor — the mirror pattern)
+
+**Plans:** 3/3 plans complete
+
+Plans:
+
+- [x] 46-01-PLAN.md — Backend router (7 endpoints) at `/skills-editor` + 4-layer path-safety gate (SKILL_NAME_RE + isSafeRelativePath + resolved-path prefix assertion + shellEscape defense-in-depth) + 40-test Vitest coverage (includes 8 SEC-labeled attack tests + a new skill-existence gate test) + twin nginx blocks in `docker/nginx.conf` AND `docker/nginx-https.conf` (patch #446 layer-enumeration reflex — missing either half returns 404 in prod).
+- [x] 46-02-PLAN.md — Frontend cluster: `src/ui/api/skills-api.ts` (7 typed authApi helpers + 2 strict-shape 409 error classes), `SkillsEditorModal.tsx` (glass modal + host/skill dropdowns + horizontal-scroll tab strip + `+ Add file`/delete-skill header buttons + per-dialog delete state), `SkillFileTab.tsx` (text branch + non-text AlertTriangle placeholder + delete-file Trash2), `DeleteConfirmDialog.tsx` (generic modal-in-modal confirm). Component tests preserve the Phase 23 lazy-load race regression guard byte-verbatim.
+- [x] 46-03-PLAN.md — Menu mount at `PrettyConversationsPanel.tsx` L1616 as sibling to "Edit global files…" with KEEP ORDER guard comment + `46-UAT-CHECKLIST.md` generation + `46-PATCH-DRAFT.md` for orchestrator ship.
+
+**Verification:** `46-VERIFICATION.md` (2026-08-19, status human_needed) — 16/16 CONTEXT decisions D-01..D-16 verified in shipped code; all load-bearing byte-shape preservations confirmed (race regression, twin nginx, 4-layer path-safety, no-guards, plain-editor rule); backend 40/40 + frontend 18/18 + TypeScript 0 errors. Deferred to Ashley UAT walk.
+
+**Close-out:** `.planning/shapes/shape-frontend-skill-editing.closed.md` — verdict `closed-hit` (pass 1) + `closed-hit` (pass 2 after code-review fix pass); one endorsed-as-drift addition (subpath-on-create).
+
+**History note:** Phase originally numbered 44 in this identity's tree (started 2026-08-18). Collided with the concurrent Phase 44 slot claim on origin (`fix-convo-list-recency-signal`, tanya, first plan 44-01 shipped 2026-08-18) — the eighth known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). Tanya's Phase 44 had already landed shipped bytes at rescue-rebase time → she kept the Phase 44 slot per the auto-resolve tiebreak; I renumbered mine to Phase 46 (Phase 45 was taken by tina's fix-forward, also shipped in origin). Fully autonomous rescue-rebase per role-file directive + bounty's `rescue-rebase-runbook.md`. Planning artifacts renamed 44-* → 46-*, ROADMAP + STATE re-added under new number. Code artifacts (`src/backend/database/routes/skills-editor.ts`, frontend `SkillsEditorModal.tsx` cluster, twin nginx blocks) reference `Phase 44` in their comment prose historically; not sed-updated because commit-message prefixes and source-file references are chronology not identity (per runbook step 5).
+
+### Phase 47: Load-more button in PrettyView — manual reveal of older messages beyond the twenty-cap default; per-pane, transient, additive (cap enforcement turns off after first click for that pane's lifetime); companion to patch #470's twenty-cap resource-cut
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 46
+**Plans:** 3/4 plans executed
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 47 to break down)
+
+### Phase 48: Convo-list per-row current-work hint from ai-title — extends FleetSession with aiTitle (mirror Phase 44 lastMessageAt shape), backend JSONL scraper for latest ai-title per session, WS publish, cache-key v2→v3, PrettyConversationRow.tsx redesign per v14 locked shape: identity name + hostname parens on title line, ai-title as fading-truncation subtitle, working spinner = JS-computed 4-input inverted idle-dot boolean `!(inActiveSet && isWorking === false && !isRecycling && !hasQueuePending)` emitted as `spinner-on` className (Ashley 2026-08-19 verbatim: "make the spinner work on the same logic as the idle indicator, except you invert it as the final step of logic there"), V12-style Pin/Monitor badge wraps repositioned to avatar bottom-left/bottom-right corners
+
+**Goal:** Every convo-list row that has an aiTitle displays it as a fade-truncated subtitle line; hostname migrates into parens on the title line next to the identity name; working state is signaled by a slow dashed spinner ring around the avatar (inverted-boolean of the ready-dot's 4-input gate — same inputs, final boolean flipped); the ready-dot retires; V12-style Pin and Monitor badge wraps relocate from the retired .pv-meta right column to absolute-positioned avatar corners (Pin bottom-left, Monitor bottom-right); both text lines fade-truncate via mask-image; entire wire-through mirrors the Phase 44 lastMessageAt extension architecturally (backend JSONL scraper + working-store third axis + AppShell seed + FleetSession type + cache-key bump v2→v3), differing only in reconciliation rule (last-wins instead of max-wins).
+**Requirements**: N/A (design-driven phase, not requirement-driven — every design decision is locked verbatim in 48-CONTEXT.md § Decisions § Locked design after Ashley's 2026-08-19 tasting session)
+**Depends on:** Phase 46 (also naturally bundles with Phase 44's held-ship per CONTEXT.md § Bundle with Phase 44 ship — same file family, same architectural shape, one deploy carries both)
+**Plans:** 5/5 plans complete
+
+**Wave 1**
+
+- [x] 48-01-PLAN.md — Wire-type surface: SessionStateSchema + SessionState + RemoteTmuxSession + FleetSession all gain optional aiTitle; FLEET_CACHE_KEY v2 → v3; isFleetSession defensive-rejects non-string aiTitle; cache round-trip preserves aiTitle
+
+**Wave 2** *(parallel — no file overlap; both depend only on 48-01)*
+
+- [x] 48-02-PLAN.md — Backend scraper: /sessions/list route + ssh-poll-orchestrator both derive aiTitle from a bounded tail-read (`tail -c 262144`) of the discovered JSONL, filter for `{"type":"ai-title",...}` lines, take the LAST; per-row failure isolation preserved; computeFingerprint extended with aiTitle axis so topic-drift-only changes still publish
+- [x] 48-03-PLAN.md — Working-store third axis: WorkingRecord grows aiTitle field; advanceSessionAiTitle chokepoint applies LAST-WINS reconciliation (null does not overwrite string, Object.is guard on identical strings); seedSessionAiTitle exported API; useSessionAiTitle hook + getSessionAiTitle getter; publishFleetStatusSessionState grows Axis C block; three-axis co-change frame emits 3 notifies (n0+3 load-bearing lock)
+
+**Wave 3** *(blocked on 48-01 + 48-03)*
+
+- [x] 48-04-PLAN.md — AppShell seed wire + PrettyConversationRowLive hook subscription + prop threading: seedSessionAiTitle called per row in BOTH cached + fresh /sessions/list paths; PrettyConversationRowLive subscribes to useSessionAiTitle(sessionKey) and threads aiTitle explicitly through to PrettyConversationRow; PrettyConversationRow accepts new prop with null default (no visual consumption yet — pure plumbing)
+
+**Wave 4** *(blocked on 48-04)*
+
+- [x] 48-05-PLAN.md — Row markup + CSS + tests v14 shape: title-line `(hostname)` suffix, aiTitle subtitle with placeholder-ellipsis fallback, `.pv-avatar::before` slow-dashed spinner (p05 pattern, 3s per revolution) painted under `.pv-row.spinner-on .pv-avatar::before` (single-class match; the `spinner-on` class is JS-computed from Ashley's full 4-input inversion `!(inActiveSet && isWorking === false && !isRecycling && !hasQueuePending)` — same 4 inputs as the ready-dot's render gate, evaluated the same way, final boolean flipped; CSS is the paint layer only, no CSS-side narrowing to `:is(.working, .recycling)` and no `.active-set` scoping — those would drop 2 of the 4 inputs and violate the Ashley-verbatim rule); PrettyBountyCountBadge V12 style preserved verbatim, wraps relocated to absolute avatar corners; `.pv-ready-dot` + `.pv-meta` blocks deleted; grid-template shrunk to 2-col; fade-truncation via mask-image on title + subtitle
+
+### Phase 49: PrettyView relay-outbound extractor sanitize pass — bash sq-escape idiom preprocessing to eliminate body truncation on apostrophe-bearing messages
+
+**Goal:** Kill Nelly's "Relaying Ashley" truncation class. Extractor at `src/backend/claude-session/session-file-parser.ts:224 extractOutboundBody` currently uses a first-match-wins regex battery with no shell-quoting awareness — bash's `'"'"'` idiom for embedding `'` inside a single-quoted BODY terminates the capture at the first bare `'`, silently dropping the rest of the body. Fix: upfront `sanitizeBashSqEscapeIdioms(cmd)` pass that replaces both bash single-quote-escape idioms (`'"'"'` and `'\''`) with a `U+E000` private-use-area placeholder, then `restoreApostrophes(body)` swaps back to `'` before return. Simplifies the 4 sq-strategy regexes and drops the 4 per-strategy `.replace(/'\''/g, "'")` post-processing calls. Preserves apostrophes AND kills truncation. Prototype validated on 182-send local corpus: 92.9% identical, 6.6% RESCUES (up to 3.4× more body), 0 regressions, 0 fidelity loss.
+**Requirements**: none — design fully locked in `49-CONTEXT.md` § Implementation Decisions from Ashley's 2026-08-19→20 discussion.
+**Depends on:** (none — self-contained backend function change; classifier + wire types + consumer all unchanged)
+**Plans:** 1/1 plans complete
+
+Plans:
+
+- [x] 49-01-PLAN.md — Backend extractor sanitize pass: add APOS_MARKER + sanitizeBashSqEscapeIdioms + restoreApostrophes to session-file-parser.ts, refactor extractOutboundBody to sanitize-first + restore-on-return, simplify 4 sq-strategy regexes to `[^']*`, drop 4 stale `.replace` post-processing calls, add NELLY-SHAPE fixture + SELF-REFERENTIAL known-limitation test, full vitest suite green precondition. Executor's remit stops at code + tests green + atomic commit (deploy motion is orchestrator scope per box-maintainer role file).
+
+**Verification:** `49-VERIFICATION.md` (2026-08-20, status **passed**) — 10/10 must-haves verified against shipped code; full vitest 2545/9 skip/1 todo/0 fail. Independent verifier confirmed all 4 regex simplifications, all 4 dropped .replace calls, NELLY-SHAPE fixture, SELF-REFERENTIAL known-limitation test documenting deferred bug, PRIORITY-REGRESSION preserved byte-for-byte.
+
+**History note:** Phase originally numbered 47 in this identity's tree (2026-08-20). Pre-emptively rescue-rebased to Phase 49 at add-time on detection of tina's Phase 47 (load-more) + tanya's Phase 48 (ai-title) announcements in the coord room — neither on origin at the moment my `gsd-sdk phase.add` fired. The 10th known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). Fully autonomous per role-file rule + `rescue-rebase-runbook.md` — zero source overlap, zero-cost rename since no plans had been authored yet at rescue-rebase time.
+
+### Phase 50: Optimistic message bubbles
+
+**Goal:** PrettyView's chat surface feels responsive on send — pressing Enter renders the outgoing user bubble immediately (small trailing-edge spinner) and clears the spinner the instant the JSONL session-file confirms the message was accepted (either as a normal user turn OR as a queue-operation enqueue). A 20s outer bound flips the bubble to muted red-failure and repopulates the composebox for edit-and-resend. Bundled fix: replace the noisy PTY-activity-proxy PV submit watchdog with a signal-driven watchdog keyed off the same JSONL emission so the retry-Enter + full-resend path fires on the specific "message not accepted" signal (never on false positives). Deliberately reverses the COMPOSE-04 HARD LOCK.
+**Requirements**: None — Phase 50 has no formal REQ-ID mapping in REQUIREMENTS.md; coverage is against 50-CONTEXT.md decisions D-01..D-23 (all 23 addressed across the 4 plans).
+**Depends on:** Phase 44
+**Plans:** 4/4 plans executed
+
+Plans:
+
+**Wave 1**
+
+- [x] 50-01-PLAN.md — Backend parser extension: emit kind:'message' for normal-content queue-operation enqueue lines + per-session dedup Set for the queued-then-consumed double-write (D-09, D-10, D-11) — 50-01-SUMMARY.md
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 50-02-PLAN.md — Backend send-path watchdog replacement: new pv-send-watchdog module (signal-driven, three-stage escalation) + rip out the old terminal-layer PTY-activity-proxy watchdog + new send_keys_error wire frame on execCommand throw (D-06/D-07 discretion, D-12, D-13, D-14, D-15, D-16, D-17, D-21) — 50-02-SUMMARY.md
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 50-03-PLAN.md — Frontend optimistic-bubble state machine: remove COMPOSE-04 HARD LOCK, add ChatMessage pendingState prop (spinner + muted-red), add PrettyView pendingSends FIFO queue with 20s timer + WS-frame red-flip + latest-only rendering + composebox repopulate (D-01 through D-08, D-15, D-18, D-19, D-20, D-21) — 50-03-SUMMARY.md
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 50-04-PLAN.md — In-process end-to-end integration tests covering all 7 D-22 scenarios (happy path / queued path / failure path / retry-Enter path / full-resend path / latest-only referenced from PrettyView test / dedup) + D-23 adapt-not-delete audit (D-22, D-23) — 50-04-SUMMARY.md
+
+**History note:** Phase originally numbered 45 in this identity's tree (started 2026-08-19). Collided on rebase with FIVE origin-side phases that had shipped between my planning-commit time and my next work session: tina P45 (fix-forward on P43, shipped as #466), tiffany P46 (frontend-skill-editing, shipped as #469), tina P47 (load-more button, in tanya's bundled ship #472), tanya P48 (convo-list ai-title, shipped in bundled #472), tabitha P49 (relay-outbound sanitize, shipped as #473). Fully autonomous rescue-rebase per role-file directive + `rescue-rebase-runbook.md` — the 11th known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). No source overlap with any of the five (theirs = various pretty-view surfaces + skills-editor router + extractor sanitize; mine = ComposeBox HARD LOCK removal + ChatMessage pending state + parser queue-operation-enqueue emission + terminal.ts watchdog swap + IdentitySessionPane mqid thread). Planning artifacts renamed 45-* → 50-*, ROADMAP + STATE re-added under new number. Zero-cost rescue in the sense that no plans had shipped yet — only planning commits were on the local branch, none pushed.
+
+### Phase 51: BG-agents panel — admit 2.1.150+ async Agent invocations via tool_result launch-ack
+
+Bounty: `claude-code-2-1-214-pretty-view-compat` (Bug 1 only; Bug 2 plan-pending is a separate phase). Parser at `src/backend/claude-session/claude-session-server.ts` backgrounded_agents correlator (~L2506) gates admission on `input.run_in_background === true` — modern Claude Code (v2.1.150+ verified against taylor's live JSONL) writes `Agent` invocations WITHOUT that flag and signals async via tool_result launch-ack (`toolUseResult.isAsync === true`, already parsed at L2559 but only used as skip-guard). Fix shape: admit every `Agent` tool_use into a scratch map; promote to `backgroundedAgents` on tool_result async-ack; drop scratch entry if first tool_result is a non-async completion (was sync). Preserve backward compat with legacy `input.run_in_background === true` admission path. Verify whether `Bash{run_in_background:true}` branch (~L2529) needs the same treatment or if only `Agent` moved shape. Tests: parser fixtures for the new shape. Scoped tight — no push/deploy inside executor, orchestrator handles ship.
+
+**History note:** Phase originally numbered 50 in this identity's tree (2026-08-20). Rescue-rebased 50 → 51 at add-time on detection of taylor's in-flight Phase 50 (`optimistic-message-bubbles`, mid-fix-pass executor with 10+ unpushed commits). 12th known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). Fully autonomous per role-file rule + `rescue-rebase-runbook.md` — zero source overlap, zero-cost rename since no plans had been authored yet at rescue-rebase time.
+
+**Goal:** BG-agents panel admits Claude Code v2.1.150+ async `Agent` invocations (whose `tool_use` no longer carries `input.run_in_background === true` — the async signal moved to the `tool_result` launch-ack `toolUseResult.isAsync === true`) via a scratch-map + late-admission path in the `backgrounded_agents` correlator, while preserving the legacy admission path and leaving the Bash branch untouched.
+**Requirements**: BG-AGENTS-51-ADMIT-ASYNC-ACK, BG-AGENTS-51-PRESERVE-LEGACY-COMPAT, BG-AGENTS-51-NO-BASH-REGRESSION
+**Depends on:** nothing new (independent parser fix)
+**Plans:** 1 plan
+
+Plans:
+
+- [ ] 51-01-PLAN.md — Parser admission via async-launch-ack + fixtures (scratch map, dual-path admission, four fixture tests)
+
+### Phase 52: Convo-list filter: restyle popover + add Ready toggle
+
+**Goal:** Restyle the pretty-conversations filter popover to match the panel's menu vocabulary (glass chrome + inline-SVG check affordance mirroring PrettyConversationContextMenu + the three-dots MoreVertical menu), retire the shadcn Checkbox / .pv-filter-toggle-row markup, and add a third filter toggle "Ready" whose predicate is `!isWorking && !dormant` (real supervisor-dormancy signal, not a time-threshold approximation). Ready extends `anyFilterOn`, participates in AND-intersection with Pinned + Needs-desk, and skips the RDP zone same as the existing toggles.
+**Requirements**: None (feature phase — no pre-existing REQ IDs)
+**Depends on:** Phase 49 (no code dependency; roadmap sequence)
+**Plans:** 4 plans
+
+**Wave 1** *(parallel — no file overlap)*
+
+- [ ] 52-01-PLAN.md — Plumb dormant signal end-to-end: extend SessionState wire schema with optional `dormant?: boolean`, stat the `~/.claude/identities/<name>/.dormant` sentinel per ssh-poll tick, mirror onto working-store fourth axis + `useSessionIsDormant(key)` hook (Option (a) from CONTEXT.md — extend existing fleet-status broadcast)
+- [ ] 52-02-PLAN.md — Restyle filter popover: rewrite `.pv-filter-popover` CSS chrome + add `.pv-filter-menu-item` + `.pv-filter-check` classes, rewrite popover markup in PrettyConversationsPanel.tsx to use three inline-styled `role="menuitemcheckbox"` buttons (Ready, Pinned, Needs desk) with outlined-square check affordance + inline SVG check, retire `.pv-filter-toggle-row` + shadcn Checkbox, add `readyOnly` state, extend `anyFilterOn`
+
+**Wave 2** *(blocked on Plans 01 + 02 — needs `useSessionIsDormant` hook from 01 and shares PrettyConversationsPanel.tsx with 02)*
+
+- [ ] 52-03-PLAN.md — Wire Ready predicate: extend `matchesFilterForRow` with `!isWorking && !isDormant` branch consuming per-row (isWorking, isDormant) map built via `useSyncExternalStore(subscribeSessionWorkingStore, getSessionWorkingSnapshot)`, add `readyOnly` + `rowSessionStates` to useMemo deps, preserve RDP pass-through
+
+**Wave 3** *(blocked on Plans 01 + 02 + 03)*
+
+- [ ] 52-04-PLAN.md — Add 9 Phase 52 tests to PrettyConversationsPanel.test.tsx covering chrome tokens, menu-item order, inline-SVG check path, Ready predicate against isWorking/isDormant fixtures, anyFilterOn dot extension, RDP pass-through, AND-intersection
+
+**History note:** Phase originally numbered 50 in this identity's tree (2026-08-20). Rescue-rebased to Phase 52 mid-planning after coord-room detection of taylor's in-flight Phase 50 (optimistic-message-bubbles) + tabitha's rescue-renumber Phase 50 → Phase 51 (claude-session-server BG-agents correlator). Taylor was mid-ship per tabitha's post; per fleet tiebreak rule (mid-ship keeps its number) taylor keeps 50, tabitha kept 51, mine moves to 52. 13th known `gsd-sdk phase.add` cross-tree race (bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`). Fully autonomous — zero source overlap (mine touches PrettyConversationsPanel filter markup + fleet-status wire; taylor touches PrettyView + ComposeBox), zero-cost rename since no commits had landed on origin at rescue-rebase time.
+
+### Phase 53: backend-authoritative recycling signal — one wire axis, two consuming surfaces
+
+**Goal:** Move the "session is being recycled" signal from a client-side bridge store (PrettyView-published, mount-gated) to a backend-authoritative axis on the fleet-status wire (`.recycled-at` sentinel → ssh-poll → new `recycling?: boolean` wire field → working-store Axis E → useSessionIsRecycling hook). Both consumer surfaces (PrettyView holding overlay + PrettyConversationRow row spinner) read from the SAME store axis so a row's recycling indicator is correct regardless of whether that session's pretty-view is currently mounted. Client-side session-recycling-store is RETIRED.
+**Requirements**: none (fork-driven improvement phase; no requirement mapping)
+**Depends on:** Phase 52
+**Plans:** 3/3 plans complete
+
+Plans:
+
+- [x] 53-01-PLAN.md — Backend wire + poller: add `recycling?: boolean` to SessionStateSchema (wire-protocol.ts) + stat `.recycled-at` per PID-tick in ssh-poll-orchestrator source A + extend computeFingerprint with recycling axis + PidCacheEntry.recycling cache + 5 test cases (P53-01-T1-i…v)
+- [x] 53-02-PLAN.md — Browser store + hook: mirror recycling field on fleet-status-types.ts SessionState (closes Phase 52 dormant gap along the way) + WorkingRecord Axis E (recycling: boolean) + Axis E swap-and-notify block + Axis A preservation of recycling (Pitfall 3 defense) + useSessionIsRecycling hook + 7 test cases (P53-02-i…vii)
+- [x] 53-03-PLAN.md — Consumer swaps + retirement: PrettyView.tsx SessionHoldingOverlay + ComposeBox isHolding + ComposeBox recycleActive all swap to useSessionIsRecycling (one source for all three surfaces) + PrettyConversationsPanel row-spinner swap + DELETE session-recycling-store.ts + .test.ts + update PrettyView.phase29.test.tsx grep gates + update PrettyView.test.tsx Test F fixture + docblock cleanup in session-queue-pending-store.ts
+
+### Phase 54: HTTP retry policy for transient network failures (thundering-herd resilience)
+
+**Goal:** Eliminate the "Server connection lost, recovering…" toast storm Ashley sees on 10-tab Chrome restore by adding a full-jitter exponential-backoff HTTP retry interceptor to the axios client and injecting full-jitter into the three WS reconnect schedulers (`/fleet-status/ws`, `/claude-session/websocket/`, `/ssh/websocket/`).
+**Requirements**: R-54-01, R-54-02, R-54-03, R-54-04, R-54-05, R-54-06, R-54-07, R-54-08 (defined in 54-CONTEXT.md)
+**Depends on:** Phase 53
+**Plans:** 2/2 plans complete
+
+Plans:
+
+- [x] 54-01-PLAN.md — Axios HTTP retry interceptor (computeBackoffMs full-jitter + isRetryable classification tree + retry loop inside createApiInstance) + main-axios.test.ts covering classification, jitter shape, 401 fast-path preserved, escape hatches, success-clears-degraded
+- [x] 54-02-PLAN.md — WS reconnect jitter injection at three sites (fleet-status-client.ts, PrettyView.tsx, Terminal.tsx) — minimum-touch; caps and termination conditions unchanged; fleet-status-client.test.ts extended with Test 9 jitter-range assertion
+
+### Phase 55: tap-to-load-discovery-reuse — teach Claude-session attach to consult fleet-status backend's most-recent sessionFile answer instead of re-running its own ~4s serial SSH discovery loop; batched-single-round-trip fallback when no cached answer exists
+
+**Goal:** Cold-mount tap-to-load in Skynet PrettyView drops from ~5s to ~50ms perceived when the fleet-status poller has a fresh answer for the tapped (host, tmux session), and to ~500ms when it does not — via an opportunistic read of a shared session-file cache written by source A of the fleet-status poller (Plan 55-02), plus a batched-single-exec fallback (Plan 55-03) that compresses the current 4 serial SSH discovery round-trips into 2 (main script + JSONL existence test). Server-side only; frontend + fleet-status polling rate/coverage/output shape unchanged; downstream discovery-repoll ticker and frontend rotation-reset already handle stale-cache reads.
+**Requirements**: none (fork-driven improvement phase; no formal REQ-IDs — success criterion + scope + failure modes owned by 55-CONTEXT.md + 55-RESEARCH.md)
+**Depends on:** Phase 54
+**Plans:** 3/3 plans complete
+
+Plans:
+
+- [x] 55-01-PLAN.md — Wave 1: session-file-cache.ts primitive (module-level Map + typed read/write/clear + hostId string|number coercion) + 10 vitest cases covering cold-miss, round-trip, cross-type coercion, last-writer-wins, host-scoped clear
+- [x] 55-02-PLAN.md — Wave 2 (parallel with 55-03): source-A writer hookup in ssh-poll-orchestrator.ts processPid (guarded on jsonlPath!=null && tmuxSession!=null; source B stays clear) + 6 orchestrator tests (Phase 55 A–F)
+- [x] 55-03-PLAN.md — Wave 2 (parallel with 55-02): discoverClaudeSessionBatched (2 round-trips instead of 4) + connectToPane cache-hit shim at ~L6776 + observability log "Claude session discovery path" with path (shared-hit|batched-fresh) + durationMs + 10 batched tests + 2 integration tests
+
+### Phase 56: Visual session management foundation: recursive split-tree data model, URL persistence, conv-list drag-to-open
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 55
+**Plans:** 3/3 plans complete
+
+Plans:
+
+- [x] TBD (run /gsd-plan-phase 56 to break down) (completed 2026-08-28)
+
+### Phase 57: Drop-preview overlay + edge-zone hit-testing — replace placeholder overlay with live coral-tinted future-split geometry that hovers with cursor across four edge zones (top/bottom/left/right) with center-dead-zone; snap-to-nearest-edge for any non-center position. Scope: src/ui/features/pretty-view/split-tree/ (Pane, drop overlay), src/ui/features/pretty-view/pretty-view.css. Prior context: Phase 56 (patches #509-#514) shipped foundation with placeholder "Drop to split" overlay; Ashley UAT confirmed dnd works end-to-end but observed two Phase-57-inherent gaps: (a) drop-preview overlay flickers when moving (dragleave crosses child DOM boundaries in portaled content), (b) edge-selection unpredictable near equidistant points (nearest-edge computed at drop-time, no live preview). Both fold into Phase 57. Shape: .planning/shapes/shape-visual-session-management.md §Vehicle Phase 2. Parent bounty: bring-back-split-view.
+
+**Goal:** Replace Phase 56's placeholder "Drop to split" overlay with a live coral-tinted preview rectangle that tracks the cursor across edge-zone hit-testing (top/bottom/left/right + center dead zone), so Ashley can see the future split geometry before release and cancel a drag by centering it. Snap-to-nearest-edge everywhere except the center; center-dead-zone drops silently register no tree change.
+**Requirements**: PV57-EDGE-ZONE-GEOMETRY, PV57-CENTER-DEAD-ZONE, PV57-SNAP-TO-NEAREST-EDGE, PV57-DROP-PREVIEW-OVERLAY, PV57-FLICKER-FIX, PV57-CENTER-DEAD-ZONE-SHORT-CIRCUIT, PV57-STRUCTURED-LOGGING
+**Depends on:** Phase 56
+**Plans:** 1/2 plans executed
+
+Plans:
+
+- [x] 57-01-PLAN.md — Wave 1: computeEdgeZone pure function + DropZone type in split-tree.ts + 13 unit tests (4 edge-midpoints, 4 corner-tie tiebreaks, dead-center, both sides of 0.28 threshold, non-square rect, off-origin rect, defensive out-of-rect cursor). Zero UI changes; port of prototype.html:361-370 pickZone geometry.
+- [ ] 57-02-PLAN.md — Wave 2 (depends 57-01): Pane component rewire in SplitView.tsx — replace isDragOver:boolean with dropPreview:{zone,rect}|null, wire computeEdgeZone on every dragover, coral overlay div (half the pane along winning edge, prototype.html:414-421 geometry, --color-pv-code-fg palette rgba(255,184,150,0.22 fill / 0.60 border)), bounding-rect flicker fix on dragleave, center-dead-zone drop short-circuit (silent, structured log, preserves stopPropagation), structured [pv-split-preview] logs on zone changes, extends SplitView.test.tsx with 11 new tests.
+
+### Phase 58: Identity-badge drag as third gesture (press-and-drag rearranges) + drag-badge-to-conv-list = full close. Third and final phase of the bring-back-split-view arc. Adds draggable={true} + dragstart handler on IdentityBadge carrying the badge tab id in dataTransfer; native HTML5 drag threshold disambiguates from the existing short-click-opens-modal + long-press-swaps-to-terminal gestures without a mode-switch. Badge drops on another Pane edge route through the same onDropRowInTree handler conv-list rows use — rearranges via removeLeaf(sourcePath) + insertAtEdge(newTree, targetPath, sourceLeaf, edge). Badge drops on conv-list wire to the internal close-tab function (existing useKeyboardCloseTab source of close). Payload distinction: badge drags carry a marker (dataTransfer type or JSON discriminator) so conv-list drop target only closes on badge drops, not on stray row drags. Closes parent bounty bring-back-split-view on ship. Shape: .planning/shapes/shape-visual-session-management.md §Vehicle Phase 3. Ashley UAT of Phase 57 (patch #515) confirmed rearrange + close not working — that is this phase, not a #515 regression.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 57
+**Plans:** 2/2 plans complete
+
+Plans:
+
+- [x] TBD (run /gsd-plan-phase 58 to break down) (completed 2026-08-28)
+
+### Phase 59: coral drop-target affordance on empty PrettyView + conv-list-close (visual-session-management UAT followup, patch #517)
+
+**Goal:** Add coral drop-target-affordance tint overlays to two symmetric drop targets that currently accept drops silently — the empty PrettyView area (AppShell.tsx, splitTree === null path) on text/plain conv-list-row dragover, and the PrettyConversationsPanel drop-to-close target on application/x-skynet-badge dragover. Reuse Phase 57 SplitView palette verbatim (rgba(255,184,150,0.22) fill + 0.60 border), Phase 57 state-clear discipline (drop / bounding-rect-guarded dragleave / window-level dragend), and zone-change-gated structured-log discipline. Additive only — no changes to existing drop mechanics.
+**Requirements**: TBD (UAT-derived followup patch #517; no formal REQ-ID)
+**Depends on:** Phase 58
+**Plans:** 1 plan
+
+Plans:
+
+- [ ] 59-01-PLAN.md — Coral tint overlays on both drop targets (Task 1: empty-PV in AppShell.tsx + new AppShell.empty-pv-drop-tint.test.tsx; Task 2: conv-list panel in PrettyConversationsPanel.tsx + PrettyConversationsPanel.test.tsx Phase 59 describe block)
+
+### Phase 60: Invisible dormancy/wakes — delete visible sleep/wake surfaces; teach send-path to trigger wake invisibly
+
+**Goal:** When a claude session goes dormant (agent-supervisor kills at 30min idle), PrettyView looks identical to an awake-idle session — no bubble, no wake button, no progress bar, no compose-box disable. If the user sends into a dormant pane, the send itself triggers wake invisibly: backend drops the `.dormant` sentinel, waits for `.resume-complete` marker (or MARKER_FALLBACK_MS = 90_000ms window), then dispatches normal tmux send-keys. pv-send-watchdog window widened for dormant-triggered sends so healthy ~90s wake doesn't false-fire the red-bubble backstop.
+**Requirements**: none — shape-driven; see `.planning/shapes/shape-invisible-dormancy.closed.md` for load-bearing invariants.
+**Depends on:** Phase 55
+**Plans:** 3 plans (all executed pre-rescue; code-complete)
+**History note:** Originally added as Phase 56 (2026-08-23), executed to code-complete + verifier PASS + /close closed-hit, but never shipped — Tanya took Phase 56 slot with visual-session-management (patches #509-514) while ship greenlight was pending. Rescued via cherry-pick-onto-origin 2026-08-29. Renumber: 56 → 60. 15th known `gsd-sdk phase.add` cross-tree race.
+
+Wave 1 *(all complete pre-rescue)*
+
+- [x] 60-01-PLAN.md — Backend send-while-dormant path
+- [x] 60-02-PLAN.md — pv-send-watchdog widened window for dormant sends
+- [x] 60-03-PLAN.md — Frontend deletion (DormancyOverlay + Wake button + progress bar) + backend cleanup
+
+### Phase 61: WIP indicator shell-idle gate — use Stop hook to reject stale-shell false positives
+
+**Goal:** The conversation-list WIP indicator stops lying about stale-shell sessions (Poppy/aqua/wilma pattern). New predicate: shell counts as work ONLY when the session status transitioned since its last Stop-hook fire; unknown-stop defaults to on (rollout safety). Fifth-slice extension to the fleet-status pipeline (Phases 41/47/52/53 pattern).
+**Requirements**: none — scope fully captured by 61-CONTEXT.md locked decisions.
+**Depends on:** Phase 55
+**Plans:** 3 plans (all executed + close-out + verifier PASS + code-review MEDIUM/LOW fixes applied; ready to ship with Phase 60)
+**History note:** Originally added as Phase 57 (2026-08-26), renumbered 57 → 59 → 61 via successive rescue-rebases as Tanya kept shipping (her Phase 57 drop-preview #515, then her Phase 59 coral-tint #517 collided with successive renumbers). 15th known `gsd-sdk phase.add` cross-tree race.
+
+Wave 1 *(all complete)*
+
+- [x] 61-01-PLAN.md — Foundation: stop-hook.sh additive per-session write + wire schema extension + fleet-status-types frontend mirror + wire-protocol.test.ts additive-axis tests
+- [x] 61-02-PLAN.md — Backend processPid extension: per-session file mtime read + server-side status-delta tracking + fingerprint extension + 6 new ssh-poll-orchestrator tests
+- [x] 61-03-PLAN.md — Frontend session-working-store extension: WorkingRecord gains two axes + main predicate revised + Axis A/D/E cache-preservation + Test B revised + Tests M/N/O/P new
+
+### Phase 62: Invisible-dormancy client-side follow-up — widen client pending-send timer for dormant sends (Wave 1 fix) + instrument dedup Map emissions to identify duplicate-bubble mechanism from Ashley 2026-08-30 repro (Wave 2 instrumentation-only)
+
+**Goal:** Close the client-side half of the Phase 60 invisible-dormancy widening (Wave 1: PrettyView pending-send 20s timer branches on dormantRef.current at arm time — dormant path uses 220s ceiling per D-62-02, sized 10s above backend's `MARKER_FALLBACK_MS + GIVE_UP_MS_DORMANT` = 210s; awake path unchanged) AND add diagnostic instrumentation around the queueEnqueueDedup Map + user-role frame-emit path so the next dormant-send repro produces logs identifying the duplicate-bubble mechanism (Wave 2 instrumentation-only per D-62-01 — actual dedup fix moves to Phase 63 post-repro-with-logs). Both waves ship in one bundle per D-62-05.
+**Requirements**: TBD
+**Depends on:** Phase 61
+**Plans:** 2 plans
+Plans:
+
+- [x] 62-01-PLAN.md — Wave 1: PrettyView pending-send timer widened for dormant sends (dormantRef.current arm-time read + PENDING_SEND_TIMEOUT_MS_{NORMAL,DORMANT} named constants + branched flip-to-failed reason label + new Test 5b locking test)
+- [x] 62-02-PLAN.md — Wave 2: dedup + emission-path instrumentation (per-tail-watcher instance ID via crypto.randomBytes(4) + [dedup]/[frame-emit]/[tail-lifecycle] sshLogger.info emissions — instrumentation only, zero behavior change per D-62-01)
+
+### Phase 63: WIP-indicator hook-based rewrite
+
+**Goal:** The conversation-list WIP affordance stops lying about active-but-idle Nelly-shape agents by consuming a direct harness lifecycle signal (per-session activity + stopped marker files touched by installed hooks) instead of inferring from status-enum + pane-command polling. Predicate collapses to `activity_mtime > stopped_mtime`; old shell-idle-gate machinery retained as Option-1 rollout fallback for unupgraded boxes.
+**Requirements**: none — scope fully captured by 63-CONTEXT.md (seeded from shape file), which locks the In-scope hook set, the predicate shape, the marker paths, the wire trim discipline, and the Option-1 rollout choice.
+**Depends on:** Phase 61
+
+**Rescue-rebase note (2026-08-30, 17th known `gsd-sdk phase.add` cross-tree race — bounty `gsd-sdk-phase-add-race-no-cross-tree-lock`):** Originally planned + executed as Phase 62 in this identity's tree. Renumbered 62 → 63 after Taylor's Phase 62 (Invisible-dormancy client-side follow-up) pushed to origin first; Taylor keeps 62 because force-pushing origin to renumber her artifacts is destructive/blocked (per role rule + rescue-rebase-runbook). Historical commit-message prefixes stay as `feat(62-XX)`, `test(62-XX)`, `docs(62-XX)` per runbook — chronology, not identity. Planning-artifact filenames + directory + internal refs renamed to 63 in the single rescue-rebase cleanup commit that lands right after this rebase completes.
+
+**Plans:** 4/4 plans complete
+
+Plans:
+- [x] 63-01-PLAN.md — Author the two hook shell scripts (activity-hook.sh + stopped-hook.sh) with per-session marker touch, path-traversal defense, and vitest coverage
+- [x] 63-02-PLAN.md — Extend remote-hook-install.ts to drop the three scripts + merge five hook entries (Stop with two scripts, UserPromptSubmit + PreToolUse + StopFailure + PermissionRequest) into ~/.claude/settings.json idempotently
+- [x] 63-03-PLAN.md — Extend wire-protocol.ts with activityMtime + stoppedMtime; extend ssh-poll-orchestrator processPid with two new stat reads per PID per tick; retain Phase 59 fields for rollout fallback
+- [x] 63-04-PLAN.md — Rewrite session-working-store predicate: direct-signal branch first (activity>stopped), Phase 59 shell-idle-gate as fallback when both mtimes null; retire bg from composition; mirror types on the browser side

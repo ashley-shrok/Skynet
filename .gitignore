@@ -33,8 +33,3 @@ electron/build-info.cjs
 /.mcp.json
 /CLAUDE.md
 /old_db/
-
-# Planning artifacts are per-tree, per-maintainer — not shared across identities
-# (retired tracked-planning convention 2026-08-30 — removed phase-number-slot
-# collision surface between maintainers; bounty gsd-sdk-phase-add-race-no-cross-tree-lock)
-/.planning/
