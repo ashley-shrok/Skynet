@@ -1647,8 +1647,8 @@ Plans:
 **Goal:** Extend the multi-view drag-and-drop system (Phases 56-59) so the body of an already-open session becomes a valid drop target: whole-body coral highlight on hover; on release, the drag source disambiguates the outcome — conv-list row → replace target in place (displaced session drops out of grid, stays in conv list), open-session identity badge → swap slots (both remain live). Same coral vocabulary, source-decides-outcome, no visual distinction, no confirmation.
 **Requirements**: N/A (shape-file-driven /build phase; CONTEXT.md § In-scope items 1-6 are the coverage target)
 **Depends on:** Phase 63
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
-- [ ] 64-01-PLAN.md — Pure tree helpers: add replaceLeaf + swapLeaves to src/ui/lib/split-tree.ts with 9 vitest unit tests (5 replaceLeaf + 4 swapLeaves) covering same-id no-op, defensive missing-leaf warn, deep-tree swap, replacement-already-elsewhere collapse, and root-cell replace
+- [x] 64-01-PLAN.md — Pure tree helpers: add replaceLeaf + swapLeaves to src/ui/lib/split-tree.ts with 9 vitest unit tests (5 replaceLeaf + 4 swapLeaves) covering same-id no-op, defensive missing-leaf warn, deep-tree swap, replacement-already-elsewhere collapse, and root-cell replace
 - [ ] 64-02-PLAN.md — SplitView center-drop dispatch (source MIME → swap or replace) + full-cell coral overlay + AppShell replaceInTree/swapInTree useCallbacks + prop wiring; 10 new SplitView component tests + 3 new AppShell integration tests (end-to-end swap, end-to-end replace with displaced-session-stays-in-tabs, portal-preservation across swap)
