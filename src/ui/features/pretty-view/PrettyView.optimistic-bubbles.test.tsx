@@ -386,6 +386,62 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     expect(textarea.value).toBe("will-fail");
   });
 
+  it("Test 5b: dormant-at-arm-time defers pending flip from T+20s to T+220s (Phase 62 Wave 1 — client-side symmetric widening of Phase 60 backend widening)", async () => {
+    vi.useFakeTimers();
+    const { container } = mount();
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // Deliver the dormant frame BEFORE the send. This drives setDormant(true)
+    // through the WS onmessage `case "dormant":` handler at PrettyView.tsx:1976-1986,
+    // which the dormantRef mirror useEffect (PrettyView.tsx:2381-2386) then copies
+    // into dormantRef.current on the next tick. handleOptimisticSend will read
+    // dormantRef.current === true at arm time (D-62-03).
+    sendWsFrame(ws, { type: "dormant", dormant: true });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    typeAndEnter(container, "dormant-send-payload");
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(countPendingBubbles(container)).toBe(1);
+    // Spinner still present — pending is 'sending'.
+    expect(
+      container.querySelector("[data-pv-bubble-spinner]"),
+    ).not.toBeNull();
+
+    // Advance past the NORMAL 20000ms timeout — dormant path defers flip,
+    // so pending MUST still be 'sending' here. This is the assertion that
+    // fails under today's PrettyView.tsx (which uses a hard-coded 20000ms
+    // setTimeout unaware of dormancy) and passes after Task 2's widening.
+    await act(async () => {
+      vi.advanceTimersByTime(20001);
+      await Promise.resolve();
+    });
+    expect(container.querySelector("[data-pv-bubble-failed]")).toBeNull();
+    expect(
+      container.querySelector("[data-pv-bubble-spinner]"),
+    ).not.toBeNull();
+
+    // Advance to just past the DORMANT 220000ms ceiling (total from arm =
+    // 20001 + 200000 = 220001ms) — pending MUST now be 'failed'.
+    await act(async () => {
+      vi.advanceTimersByTime(200000);
+      await Promise.resolve();
+    });
+    expect(container.querySelector("[data-pv-bubble-failed]")).not.toBeNull();
+    expect(container.querySelector("[data-pv-bubble-spinner]")).toBeNull();
+
+    // composeOverrideText was populated (same edit-and-resend path as Test 5).
+    const textarea = container.querySelector(
+      'textarea[placeholder^="Message"]',
+    ) as HTMLTextAreaElement;
+    expect(textarea.value).toBe("dormant-send-payload");
+  });
+
   it("Test 6: paste_send_failed WS frame flips to failed and cancels 20s timer", async () => {
     vi.useFakeTimers();
     const { container } = mount();
