@@ -517,6 +517,26 @@ describe("STOP_HOOK_SCRIPT_CONTENTS", () => {
     const diskContents = readFileSync(diskPath, "utf-8");
     expect(STOP_HOOK_SCRIPT_CONTENTS).toBe(diskContents);
   });
+
+  it("Test 11a (Phase 62): ACTIVITY_HOOK_SCRIPT_CONTENTS byte-matches activity-hook.sh on disk", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const { dirname, join } = await import("node:path");
+    const testDir = dirname(fileURLToPath(import.meta.url));
+    const diskPath = join(testDir, "activity-hook.sh");
+    const diskContents = readFileSync(diskPath, "utf-8");
+    expect(ACTIVITY_HOOK_SCRIPT_CONTENTS).toBe(diskContents);
+  });
+
+  it("Test 11b (Phase 62): STOPPED_HOOK_SCRIPT_CONTENTS byte-matches stopped-hook.sh on disk", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const { dirname, join } = await import("node:path");
+    const testDir = dirname(fileURLToPath(import.meta.url));
+    const diskPath = join(testDir, "stopped-hook.sh");
+    const diskContents = readFileSync(diskPath, "utf-8");
+    expect(STOPPED_HOOK_SCRIPT_CONTENTS).toBe(diskContents);
+  });
 });
 
 describe("uninstallStopHook", () => {
@@ -595,5 +615,535 @@ describe("uninstallStopHook", () => {
           c.command.includes(".claude/fleet-status")),
     );
     expect(payloadRmCalls).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 62 tests: three-script drop, five-key merge, idempotency across all
+// five keys, partial-upgrade, third-party-preservation, uninstall-all-three,
+// per-script verify-failure identification.
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the last SETTINGS_EOF heredoc body from a MockSshChannel's callLog
+ * and JSON-parse it. Used by the Phase-62 tests that assert the exact shape
+ * of the final settings.json write.
+ *
+ * Returns `null` if no SETTINGS_EOF write was performed (idempotency path).
+ */
+function extractLastSettingsWrite(
+  callLog: Array<{ command: string }>,
+): Record<string, unknown> | null {
+  const settingsWrites = callLog.filter((c) =>
+    c.command.includes("SETTINGS_EOF"),
+  );
+  if (settingsWrites.length === 0) return null;
+  const last = settingsWrites[settingsWrites.length - 1];
+  const match = last.command.match(/<<'SETTINGS_EOF'\n([\s\S]*?)\nSETTINGS_EOF/);
+  if (!match) return null;
+  return JSON.parse(match[1]) as Record<string, unknown>;
+}
+
+/**
+ * Produce a Phase-62-shaped settings.json string with ALL SIX hook entries
+ * present at absolute paths (post-tilde-expansion). Simulates the state of
+ * a fully-installed managed box for idempotency + uninstall tests.
+ */
+function makePhase62Settings(
+  stopHookPath: string,
+  activityHookPath: string,
+  stoppedHookPath: string,
+): string {
+  return JSON.stringify({
+    hooks: {
+      Stop: [
+        {
+          hooks: [
+            { type: "command", command: stopHookPath },
+            { type: "command", command: stoppedHookPath },
+          ],
+        },
+      ],
+      UserPromptSubmit: [
+        { hooks: [{ type: "command", command: activityHookPath }] },
+      ],
+      PreToolUse: [
+        { hooks: [{ type: "command", command: activityHookPath }] },
+      ],
+      StopFailure: [
+        { hooks: [{ type: "command", command: stoppedHookPath }] },
+      ],
+      PermissionRequest: [
+        { hooks: [{ type: "command", command: stoppedHookPath }] },
+      ],
+    },
+  });
+}
+
+// The absolute (tilde-expanded) forms of the three default script paths as
+// resolved by the test $HOME "/home/testuser". Shared across the Phase 62
+// tests.
+const P62_STOP_PATH =
+  "/home/testuser/.claude/hooks/skynet-fleet-status-stop.sh";
+const P62_ACTIVITY_PATH =
+  "/home/testuser/.claude/hooks/skynet-fleet-status-activity.sh";
+const P62_STOPPED_PATH =
+  "/home/testuser/.claude/hooks/skynet-fleet-status-stopped.sh";
+
+describe("installStopHook (Phase 62 extended shape)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function buildPhase62Channel(settingsJson?: string): MockSshChannel {
+    const channel = new MockSshChannel();
+    channel.setResponse("echo $HOME", "/home/testuser\n");
+    channel.setResponse('rm -rf "/home/testuser/~"', "");
+    channel.setResponse("mkdir -p", "");
+    channel.setResponse("STOPHOOK_EOF", "");
+    channel.setResponse("ACTIVITY_HOOK_EOF", "");
+    channel.setResponse("STOPPED_HOOK_EOF", "");
+    // test -x → OK (any script path)
+    channel.setResponse("test -x", "OK");
+    channel.setResponse(
+      "cat ~/.claude/settings.json",
+      settingsJson ?? "",
+    );
+    channel.setResponse("SETTINGS_EOF", "");
+    return channel;
+  }
+
+  it("Test P62-1: installStopHook drops all THREE scripts, each via atomic .tmp + mv + chmod +x", async () => {
+    const channel = buildPhase62Channel();
+    await installStopHook(channel, {});
+
+    // Each script drop uses its distinct heredoc sentinel. Assert each sentinel
+    // appears in the callLog exactly once (single sequential drop per script).
+    const stopHookDrops = channel.callLog.filter((c) =>
+      c.command.includes("STOPHOOK_EOF"),
+    );
+    const activityHookDrops = channel.callLog.filter((c) =>
+      c.command.includes("ACTIVITY_HOOK_EOF"),
+    );
+    const stoppedHookDrops = channel.callLog.filter((c) =>
+      c.command.includes("STOPPED_HOOK_EOF"),
+    );
+    expect(stopHookDrops).toHaveLength(1);
+    expect(activityHookDrops).toHaveLength(1);
+    expect(stoppedHookDrops).toHaveLength(1);
+
+    // Each drop command must include the .tmp + mv + chmod +x sequence.
+    for (const drop of [
+      stopHookDrops[0],
+      activityHookDrops[0],
+      stoppedHookDrops[0],
+    ]) {
+      expect(drop.command).toMatch(/cat > "\S+\.tmp" <<'/);
+      expect(drop.command).toMatch(/mv "\S+\.tmp" "\S+" && chmod \+x /);
+    }
+
+    // Each script path must appear in the corresponding drop.
+    expect(stopHookDrops[0].command).toContain(P62_STOP_PATH);
+    expect(activityHookDrops[0].command).toContain(P62_ACTIVITY_PATH);
+    expect(stoppedHookDrops[0].command).toContain(P62_STOPPED_PATH);
+
+    // test -x must have been called for all three scripts.
+    const testXCalls = channel.callLog.filter((c) =>
+      c.command.startsWith("test -x"),
+    );
+    expect(testXCalls.length).toBeGreaterThanOrEqual(3);
+    const testXPaths = testXCalls.map((c) => c.command);
+    expect(testXPaths.some((cmd) => cmd.includes(P62_STOP_PATH))).toBe(true);
+    expect(testXPaths.some((cmd) => cmd.includes(P62_ACTIVITY_PATH))).toBe(true);
+    expect(testXPaths.some((cmd) => cmd.includes(P62_STOPPED_PATH))).toBe(true);
+  });
+
+  it("Test P62-2: installStopHook merges all FIVE hook keys with correct entry counts (empty settings.json start)", async () => {
+    const channel = buildPhase62Channel();
+    const result = await installStopHook(channel, {});
+    expect(result.hookInstalled).toBe(true);
+    expect(result.settingsUpdated).toBe(true);
+
+    const written = extractLastSettingsWrite(channel.callLog);
+    expect(written).not.toBeNull();
+    const hooks = written!.hooks as Record<string, unknown>;
+
+    // Stop should have TWO entries (stop-hook + stopped-hook — Stop fires BOTH).
+    const stop = hooks.Stop as Array<{ hooks: Array<{ command: string }> }>;
+    expect(stop).toHaveLength(1);
+    expect(stop[0].hooks.map((h) => h.command)).toEqual([
+      P62_STOP_PATH,
+      P62_STOPPED_PATH,
+    ]);
+
+    // UserPromptSubmit → activity-hook (ONE entry).
+    const ups = hooks.UserPromptSubmit as Array<{ hooks: Array<{ command: string }> }>;
+    expect(ups).toHaveLength(1);
+    expect(ups[0].hooks.map((h) => h.command)).toEqual([P62_ACTIVITY_PATH]);
+
+    // PreToolUse → activity-hook (ONE entry).
+    const ptu = hooks.PreToolUse as Array<{ hooks: Array<{ command: string }> }>;
+    expect(ptu).toHaveLength(1);
+    expect(ptu[0].hooks.map((h) => h.command)).toEqual([P62_ACTIVITY_PATH]);
+
+    // StopFailure → stopped-hook (ONE entry).
+    const sf = hooks.StopFailure as Array<{ hooks: Array<{ command: string }> }>;
+    expect(sf).toHaveLength(1);
+    expect(sf[0].hooks.map((h) => h.command)).toEqual([P62_STOPPED_PATH]);
+
+    // PermissionRequest → stopped-hook (ONE entry).
+    const pr = hooks.PermissionRequest as Array<{ hooks: Array<{ command: string }> }>;
+    expect(pr).toHaveLength(1);
+    expect(pr[0].hooks.map((h) => h.command)).toEqual([P62_STOPPED_PATH]);
+  });
+
+  it("Test P62-3: idempotency across all five keys — second install writes zero settings.json changes", async () => {
+    // First install into empty settings.
+    const channel = buildPhase62Channel();
+    const first = await installStopHook(channel, {});
+    expect(first.settingsUpdated).toBe(true);
+    const writtenAfterFirst = extractLastSettingsWrite(channel.callLog);
+    expect(writtenAfterFirst).not.toBeNull();
+
+    // Second install: seed the channel with the exact JSON the first install
+    // produced. The idempotency short-circuit must fire.
+    const channel2 = buildPhase62Channel(JSON.stringify(writtenAfterFirst));
+    const second = await installStopHook(channel2, {});
+    expect(second.hookInstalled).toBe(true);
+    expect(second.settingsUpdated).toBe(false);
+
+    // ZERO SETTINGS_EOF writes on the second install.
+    const secondWrites = channel2.callLog.filter((c) =>
+      c.command.includes("SETTINGS_EOF"),
+    );
+    expect(secondWrites).toHaveLength(0);
+
+    // Zero settings.json.tmp mv calls too — the whole tmp+mv pipeline was
+    // skipped, not just the heredoc.
+    expect(channel2.countCallsMatching("settings.json.tmp")).toBe(0);
+  });
+
+  it("Test P62-4: partial upgrade — pre-existing legacy stop-hook entry only; installer adds the other FIVE (Stop appended with stopped-hook, plus four new event keys populated) without duplicating the existing Stop entry", async () => {
+    // Simulate a box previously installed under Phase 59 (stop-hook only, at
+    // its ABSOLUTE path — post-tilde-fix). The Phase-62 installer must add
+    // exactly five new entries.
+    const legacyPhase59Settings = JSON.stringify({
+      hooks: {
+        Stop: [
+          {
+            hooks: [{ type: "command", command: P62_STOP_PATH }],
+          },
+        ],
+      },
+    });
+    const channel = buildPhase62Channel(legacyPhase59Settings);
+    const result = await installStopHook(channel, {});
+    expect(result.settingsUpdated).toBe(true);
+
+    const written = extractLastSettingsWrite(channel.callLog);
+    expect(written).not.toBeNull();
+    const hooks = written!.hooks as Record<string, unknown>;
+
+    // Stop must have EXACTLY two entries: the pre-existing stop-hook (position
+    // preserved) + the newly-appended stopped-hook. No duplicate stop-hook.
+    const stop = hooks.Stop as Array<{ hooks: Array<{ command: string }> }>;
+    expect(stop[0].hooks).toHaveLength(2);
+    expect(stop[0].hooks[0].command).toBe(P62_STOP_PATH);
+    expect(stop[0].hooks[1].command).toBe(P62_STOPPED_PATH);
+
+    // The four new event keys must now be populated.
+    expect(
+      (hooks.UserPromptSubmit as Array<{ hooks: Array<{ command: string }> }>)[0]
+        .hooks[0].command,
+    ).toBe(P62_ACTIVITY_PATH);
+    expect(
+      (hooks.PreToolUse as Array<{ hooks: Array<{ command: string }> }>)[0]
+        .hooks[0].command,
+    ).toBe(P62_ACTIVITY_PATH);
+    expect(
+      (hooks.StopFailure as Array<{ hooks: Array<{ command: string }> }>)[0]
+        .hooks[0].command,
+    ).toBe(P62_STOPPED_PATH);
+    expect(
+      (hooks.PermissionRequest as Array<{ hooks: Array<{ command: string }> }>)[0]
+        .hooks[0].command,
+    ).toBe(P62_STOPPED_PATH);
+  });
+
+  it("Test P62-5 (Concern #6 regression proof): third-party entries in ALL FIVE hook keys are preserved intact + fleet-status entries added without duplication + second install idempotent", async () => {
+    // Seed settings.json with pre-existing third-party (non-fleet-status)
+    // entries in EACH of the four new event keys AND alongside the existing
+    // Stop entry. The shallow-copy discipline in readAndMergeHookSettings
+    // must preserve every third-party entry across every key.
+    const withThirdParty = JSON.stringify({
+      hooks: {
+        Stop: [
+          { hooks: [{ type: "command", command: "/opt/user-stop-hook.sh" }] },
+        ],
+        UserPromptSubmit: [
+          { hooks: [{ type: "command", command: "/opt/user-prompt-hook.sh" }] },
+        ],
+        PreToolUse: [
+          { hooks: [{ type: "command", command: "/opt/user-tool-hook.sh" }] },
+        ],
+        StopFailure: [
+          { hooks: [{ type: "command", command: "/opt/user-fail-hook.sh" }] },
+        ],
+        PermissionRequest: [
+          { hooks: [{ type: "command", command: "/opt/user-perm-hook.sh" }] },
+        ],
+      },
+    });
+
+    const channel = buildPhase62Channel(withThirdParty);
+    const first = await installStopHook(channel, {});
+    expect(first.settingsUpdated).toBe(true);
+
+    const written = extractLastSettingsWrite(channel.callLog);
+    expect(written).not.toBeNull();
+    const hooks = written!.hooks as Record<string, unknown>;
+
+    // Collect ALL command strings across all five hook keys for the
+    // preservation + no-duplication assertions.
+    const collectCommands = (event: string): string[] => {
+      const arr = hooks[event] as Array<{ hooks: Array<{ command: string }> }>;
+      return arr.flatMap((g) => g.hooks.map((h) => h.command));
+    };
+    const stopCmds = collectCommands("Stop");
+    const upsCmds = collectCommands("UserPromptSubmit");
+    const ptuCmds = collectCommands("PreToolUse");
+    const sfCmds = collectCommands("StopFailure");
+    const prCmds = collectCommands("PermissionRequest");
+
+    // (a) All five third-party entries preserved intact.
+    expect(stopCmds).toContain("/opt/user-stop-hook.sh");
+    expect(upsCmds).toContain("/opt/user-prompt-hook.sh");
+    expect(ptuCmds).toContain("/opt/user-tool-hook.sh");
+    expect(sfCmds).toContain("/opt/user-fail-hook.sh");
+    expect(prCmds).toContain("/opt/user-perm-hook.sh");
+
+    // (b) Our fleet-status entries added — Stop has BOTH stop + stopped;
+    // UserPromptSubmit + PreToolUse have activity; StopFailure +
+    // PermissionRequest have stopped.
+    expect(stopCmds).toContain(P62_STOP_PATH);
+    expect(stopCmds).toContain(P62_STOPPED_PATH);
+    expect(upsCmds).toContain(P62_ACTIVITY_PATH);
+    expect(ptuCmds).toContain(P62_ACTIVITY_PATH);
+    expect(sfCmds).toContain(P62_STOPPED_PATH);
+    expect(prCmds).toContain(P62_STOPPED_PATH);
+
+    // (c) Every third-party command appears EXACTLY ONCE (no accidental
+    // duplication from the merge helper's shallow copies).
+    const thirdPartyCmds = [
+      "/opt/user-stop-hook.sh",
+      "/opt/user-prompt-hook.sh",
+      "/opt/user-tool-hook.sh",
+      "/opt/user-fail-hook.sh",
+      "/opt/user-perm-hook.sh",
+    ];
+    const allCmds = [
+      ...stopCmds,
+      ...upsCmds,
+      ...ptuCmds,
+      ...sfCmds,
+      ...prCmds,
+    ];
+    for (const tp of thirdPartyCmds) {
+      expect(allCmds.filter((c) => c === tp)).toHaveLength(1);
+    }
+
+    // (d) Second install against the merged settings is idempotent — zero
+    // writes, no third-party mutation, no fleet-status duplication.
+    const channel2 = buildPhase62Channel(JSON.stringify(written));
+    const second = await installStopHook(channel2, {});
+    expect(second.settingsUpdated).toBe(false);
+    expect(channel2.countCallsMatching("SETTINGS_EOF")).toBe(0);
+    expect(channel2.countCallsMatching("settings.json.tmp")).toBe(0);
+  });
+
+  it("Test P62-6: uninstallStopHook removes ALL FIVE hook entries + rm -f's ALL THREE script paths; payload dir + per-session marker dir preserved", async () => {
+    // Seed a Phase-62-shaped settings.json (with a third-party entry alongside
+    // to verify uninstall does not clobber it).
+    const phase62WithThirdParty = JSON.stringify({
+      hooks: {
+        Stop: [
+          {
+            hooks: [
+              { type: "command", command: P62_STOP_PATH },
+              { type: "command", command: P62_STOPPED_PATH },
+              { type: "command", command: "/opt/user-stop-hook.sh" },
+            ],
+          },
+        ],
+        UserPromptSubmit: [
+          {
+            hooks: [
+              { type: "command", command: P62_ACTIVITY_PATH },
+              { type: "command", command: "/opt/user-prompt-hook.sh" },
+            ],
+          },
+        ],
+        PreToolUse: [
+          {
+            hooks: [
+              { type: "command", command: P62_ACTIVITY_PATH },
+              { type: "command", command: "/opt/user-tool-hook.sh" },
+            ],
+          },
+        ],
+        StopFailure: [
+          {
+            hooks: [
+              { type: "command", command: P62_STOPPED_PATH },
+              { type: "command", command: "/opt/user-fail-hook.sh" },
+            ],
+          },
+        ],
+        PermissionRequest: [
+          {
+            hooks: [
+              { type: "command", command: P62_STOPPED_PATH },
+              { type: "command", command: "/opt/user-perm-hook.sh" },
+            ],
+          },
+        ],
+      },
+    });
+
+    const channel = new MockSshChannel();
+    channel.setResponse("cat ~/.claude/settings.json", phase62WithThirdParty);
+    channel.setResponse("SETTINGS_EOF", "");
+    channel.setResponse("rm -f", "");
+
+    await uninstallStopHook(channel, {
+      remoteHookPath: P62_STOP_PATH,
+      remoteActivityHookPath: P62_ACTIVITY_PATH,
+      remoteStoppedHookPath: P62_STOPPED_PATH,
+    });
+
+    // Extract the written settings and verify:
+    // - Every fleet-status command is GONE from every event key.
+    // - Every third-party command is PRESERVED intact.
+    const written = extractLastSettingsWrite(channel.callLog);
+    expect(written).not.toBeNull();
+    const hooks = written!.hooks as Record<string, unknown>;
+    const collectCommands = (event: string): string[] => {
+      const arr = hooks[event] as Array<{ hooks: Array<{ command: string }> }>;
+      return arr.flatMap((g) => g.hooks.map((h) => h.command));
+    };
+    const fleetPaths = [P62_STOP_PATH, P62_ACTIVITY_PATH, P62_STOPPED_PATH];
+    for (const event of [
+      "Stop",
+      "UserPromptSubmit",
+      "PreToolUse",
+      "StopFailure",
+      "PermissionRequest",
+    ]) {
+      const cmds = collectCommands(event);
+      for (const p of fleetPaths) {
+        expect(cmds).not.toContain(p);
+      }
+    }
+    expect(collectCommands("Stop")).toContain("/opt/user-stop-hook.sh");
+    expect(collectCommands("UserPromptSubmit")).toContain(
+      "/opt/user-prompt-hook.sh",
+    );
+    expect(collectCommands("PreToolUse")).toContain("/opt/user-tool-hook.sh");
+    expect(collectCommands("StopFailure")).toContain("/opt/user-fail-hook.sh");
+    expect(collectCommands("PermissionRequest")).toContain(
+      "/opt/user-perm-hook.sh",
+    );
+
+    // rm -f must have targeted ALL THREE script paths.
+    const rmCall = channel.callLog.find(
+      (c) => c.command.startsWith("rm -f") && c.command.includes(P62_STOP_PATH),
+    );
+    expect(rmCall).toBeDefined();
+    expect(rmCall!.command).toContain(P62_STOP_PATH);
+    expect(rmCall!.command).toContain(P62_ACTIVITY_PATH);
+    expect(rmCall!.command).toContain(P62_STOPPED_PATH);
+
+    // Payload dir + per-session marker dir NOT deleted (post-mortem preservation).
+    const preservedRmCalls = channel.callLog.filter(
+      (c) =>
+        c.command.startsWith("rm") &&
+        (c.command.includes("last-stop-payload") ||
+          c.command.includes("/.claude/fleet-status/hooks") ||
+          c.command.match(/rm -rf .*\.claude\/fleet-status\b/)),
+    );
+    expect(preservedRmCalls).toHaveLength(0);
+  });
+
+  it("Test P62-7: activity-hook verify failure throws with a script-specific error message identifying WHICH script failed", async () => {
+    const channel = new MockSshChannel();
+    channel.setResponse("echo $HOME", "/home/testuser\n");
+    channel.setResponse('rm -rf "/home/testuser/~"', "");
+    channel.setResponse("mkdir -p", "");
+    channel.setResponse("STOPHOOK_EOF", "");
+    channel.setResponse("ACTIVITY_HOOK_EOF", "");
+    channel.setResponse("STOPPED_HOOK_EOF", "");
+    // Only the activity-hook test -x fails; stop-hook test -x succeeds.
+    channel.setResponse(`test -x "${P62_STOP_PATH}"`, "OK");
+    channel.setResponse(`test -x "${P62_ACTIVITY_PATH}"`, "NOT-OK");
+    channel.setResponse(`test -x "${P62_STOPPED_PATH}"`, "OK");
+
+    await expect(installStopHook(channel, {})).rejects.toThrow(
+      /activity-hook/,
+    );
+
+    // Structured log must identify the failing script.
+    expect(systemLogger.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        operation: "fleet_status_hook_install_verify_failed",
+        scriptLabel: "activity-hook",
+      }),
+    );
+
+    // Must NOT have proceeded to the settings.json read/write.
+    expect(channel.countCallsMatching("cat ~/.claude/settings.json")).toBe(0);
+    expect(channel.countCallsMatching("SETTINGS_EOF")).toBe(0);
+  });
+
+  it("Test P62-8: stopped-hook verify failure throws with a script-specific error message identifying WHICH script failed", async () => {
+    // Same as P62-7 but stopped-hook is the failing script — proves the
+    // per-script identification is not hard-coded to activity-hook.
+    const channel = new MockSshChannel();
+    channel.setResponse("echo $HOME", "/home/testuser\n");
+    channel.setResponse('rm -rf "/home/testuser/~"', "");
+    channel.setResponse("mkdir -p", "");
+    channel.setResponse("STOPHOOK_EOF", "");
+    channel.setResponse("ACTIVITY_HOOK_EOF", "");
+    channel.setResponse("STOPPED_HOOK_EOF", "");
+    channel.setResponse(`test -x "${P62_STOP_PATH}"`, "OK");
+    channel.setResponse(`test -x "${P62_ACTIVITY_PATH}"`, "OK");
+    channel.setResponse(`test -x "${P62_STOPPED_PATH}"`, "NOT-OK");
+
+    await expect(installStopHook(channel, {})).rejects.toThrow(
+      /stopped-hook/,
+    );
+
+    expect(systemLogger.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        operation: "fleet_status_hook_install_verify_failed",
+        scriptLabel: "stopped-hook",
+      }),
+    );
+  });
+
+  it("Test P62-9: install completion log records forensic fields for all three remote script paths", async () => {
+    const channel = buildPhase62Channel();
+    await installStopHook(channel, {});
+
+    expect(systemLogger.info).toHaveBeenCalledWith(
+      expect.stringContaining("hook set installed"),
+      expect.objectContaining({
+        operation: "fleet_status_hook_install_complete",
+        remoteHookPath: P62_STOP_PATH,
+        remoteActivityHookPath: P62_ACTIVITY_PATH,
+        remoteStoppedHookPath: P62_STOPPED_PATH,
+      }),
+    );
   });
 });

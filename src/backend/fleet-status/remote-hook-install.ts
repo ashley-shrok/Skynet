@@ -200,7 +200,7 @@ export const ACTIVITY_HOOK_SCRIPT_CONTENTS = `#!/bin/bash
 # Path-traversal defense (T-62-01-01 Tampering): session_id is extracted from
 # the piped stdin JSON via a strict bash regex whose character class rejects
 # any path-traversal metacharacter (mirrors stop-hook.sh line 47). Any other
-# character — \`/\`, \`.\`, \`..\`, \`\\\`, \`\$\`, \`\\\`\`, \`;\`, \`(\`, \`)\`, \`&\`, \`|\`, \`>\`,
+# character — \`/\`, \`.\`, \`..\`, \`\\\`, \`\$\`, \`\` \` \`\`, \`;\`, \`(\`, \`)\`, \`&\`, \`|\`, \`>\`,
 # \`<\`, whitespace — fails the regex match and skips the touch entirely
 # (fail-open: exit 0 with no marker created).
 #
@@ -286,7 +286,7 @@ export const STOPPED_HOOK_SCRIPT_CONTENTS = `#!/bin/bash
 # Path-traversal defense (T-62-01-01 Tampering): session_id is extracted from
 # the piped stdin JSON via a strict bash regex whose character class rejects
 # any path-traversal metacharacter (mirrors stop-hook.sh line 47). Any other
-# character — \`/\`, \`.\`, \`..\`, \`\\\`, \`\$\`, \`\\\`\`, \`;\`, \`(\`, \`)\`, \`&\`, \`|\`, \`>\`,
+# character — \`/\`, \`.\`, \`..\`, \`\\\`, \`\$\`, \`\` \` \`\`, \`;\`, \`(\`, \`)\`, \`&\`, \`|\`, \`>\`,
 # \`<\`, whitespace — fails the regex match and skips the touch entirely
 # (fail-open: exit 0 with no marker created).
 #
