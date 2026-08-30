@@ -1641,3 +1641,13 @@ Plans:
 - [x] 63-02-PLAN.md — Extend remote-hook-install.ts to drop the three scripts + merge five hook entries (Stop with two scripts, UserPromptSubmit + PreToolUse + StopFailure + PermissionRequest) into ~/.claude/settings.json idempotently
 - [x] 63-03-PLAN.md — Extend wire-protocol.ts with activityMtime + stoppedMtime; extend ssh-poll-orchestrator processPid with two new stat reads per PID per tick; retain Phase 59 fields for rollout fallback
 - [x] 63-04-PLAN.md — Rewrite session-working-store predicate: direct-signal branch first (activity>stopped), Phase 59 shell-idle-gate as fallback when both mtimes null; retire bg from composition; mirror types on the browser side
+
+### Phase 64: multi-view-center-drop
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 63
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 64 to break down)
