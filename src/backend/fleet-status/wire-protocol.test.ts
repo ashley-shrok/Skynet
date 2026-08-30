@@ -452,3 +452,158 @@ describe("wire-protocol Phase 59 additive axes — lastStopAt + lastStatusChange
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 62 Plan 03 — activityMtime + stoppedMtime are optional, back-compat
+// numeric fields on SessionState. Sources: mtime × 1000 of the two per-session
+// marker files touched by the Plan 62-01 hook scripts installed via Plan 62-02:
+//   - activityMtime: ~/.claude/fleet-status/hooks/<sessionId>/activity
+//                    (touched on UserPromptSubmit + PreToolUse)
+//   - stoppedMtime:  ~/.claude/fleet-status/hooks/<sessionId>/stopped
+//                    (touched on Stop + StopFailure + PermissionRequest)
+//
+// Semantics (both fields):
+//   - number    → mtime present (unix millis, seconds × 1000).
+//   - null      → marker file absent OR SSH-hiccup normalised-null (frontend
+//                 treats identically at session-working-store boundary; both
+//                 signal "no direct hook signal available for this session —
+//                 Option-1 rollout fallback engages, use Phase 59 predicate").
+//   - undefined → emitting backend pre-dates Phase 62.
+//
+// Additive-optional invariant: FRAME_SCHEMA_VERSION deliberately HELD AT 1 —
+// sixth iteration of the T-41-03-05 mitigation established by Phase 41
+// lastMessageAt (Phase 41 → 47 aiTitle → 52 dormant → 53 recycling → 59
+// lastStopAt + lastStatusChangeAt → this Phase 62 addition).
+//
+// Option-1 rollout retention proof: Phase 59 lastStopAt + lastStatusChangeAt
+// fields remain on the wire alongside the two new axes for the entire Phase
+// 62 rollout window — the frontend chooses which predicate to consume per-
+// session based on marker presence (Plan 62-04). A follow-up phase retires
+// the Phase 59 fields post-full-rollout.
+// ---------------------------------------------------------------------------
+
+describe("wire-protocol Phase 62 additive axes — activityMtime + stoppedMtime", () => {
+  it("Test P62-03 A (activityMtime number): SessionStateSchema accepts state with activityMtime as a number — the numeric value is preserved", () => {
+    const withActivity = { ...validSessionState, activityMtime: 1730000000000 };
+    const result = SessionStateSchema.safeParse(withActivity);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.activityMtime).toBe(1730000000000);
+    }
+  });
+
+  it("Test P62-03 B (activityMtime null): SessionStateSchema accepts state with activityMtime as null — the null value is preserved (marker absent OR SSH-hiccup normalised-null)", () => {
+    const withNull = { ...validSessionState, activityMtime: null };
+    const result = SessionStateSchema.safeParse(withNull);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.activityMtime).toBeNull();
+    }
+  });
+
+  it("Test P62-03 C (activityMtime omitted — back-compat): SessionStateSchema accepts state OMITTING activityMtime — field is optional, pre-Phase-62 emitter remains compatible", () => {
+    // validSessionState fixture at top-of-file does NOT carry activityMtime —
+    // parse must succeed; the parsed result has activityMtime === undefined
+    // (optional field, no default). Frontend consumer (Plan 62-04) treats
+    // undefined and null identically at the working-store boundary — both
+    // signal "no direct hook signal, fall through to Phase 59 predicate".
+    const result = SessionStateSchema.safeParse(validSessionState);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.activityMtime).toBeUndefined();
+    }
+  });
+
+  it("Test P62-03 D (activityMtime type-enforcement): SessionStateSchema REJECTS state with activityMtime as a string — z.number() enforces the type when the field IS present", () => {
+    const withBadType = { ...validSessionState, activityMtime: "not-a-number" };
+    const result = SessionStateSchema.safeParse(withBadType);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join("."));
+      expect(paths.some((p) => p.includes("activityMtime"))).toBe(true);
+    }
+  });
+
+  it("Test P62-03 A (stoppedMtime number): SessionStateSchema accepts state with stoppedMtime as a number — the numeric value is preserved", () => {
+    const withStopped = { ...validSessionState, stoppedMtime: 1730000005000 };
+    const result = SessionStateSchema.safeParse(withStopped);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.stoppedMtime).toBe(1730000005000);
+    }
+  });
+
+  it("Test P62-03 B (stoppedMtime null): SessionStateSchema accepts state with stoppedMtime as null — the null value is preserved (marker absent OR SSH-hiccup normalised-null)", () => {
+    const withNull = { ...validSessionState, stoppedMtime: null };
+    const result = SessionStateSchema.safeParse(withNull);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.stoppedMtime).toBeNull();
+    }
+  });
+
+  it("Test P62-03 C (stoppedMtime omitted — back-compat): SessionStateSchema accepts state OMITTING stoppedMtime — field is optional, pre-Phase-62 emitter remains compatible", () => {
+    const result = SessionStateSchema.safeParse(validSessionState);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.stoppedMtime).toBeUndefined();
+    }
+  });
+
+  it("Test P62-03 D (stoppedMtime type-enforcement): SessionStateSchema REJECTS state with stoppedMtime as a string — z.number() enforces the type when the field IS present", () => {
+    const withBadType = { ...validSessionState, stoppedMtime: "not-a-number" };
+    const result = SessionStateSchema.safeParse(withBadType);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join("."));
+      expect(paths.some((p) => p.includes("stoppedMtime"))).toBe(true);
+    }
+  });
+
+  it("Test P62-03 E (both new fields populated together): SessionStateSchema accepts state with BOTH activityMtime AND stoppedMtime populated in the same frame — both values are preserved", () => {
+    const withBoth = {
+      ...validSessionState,
+      activityMtime: 1730000000000,
+      stoppedMtime: 1730000005000,
+    };
+    const result = SessionStateSchema.safeParse(withBoth);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.activityMtime).toBe(1730000000000);
+      expect(result.data.stoppedMtime).toBe(1730000005000);
+    }
+  });
+
+  it("Test P62-03 F (schema version guard): FRAME_SCHEMA_VERSION remains 1 — the two additive+optional axes never require a version bump (T-41-03-05 mitigation, sixth iteration)", () => {
+    // Sixth iteration of the pattern:
+    //   Phase 41 lastMessageAt → Phase 47 aiTitle → Phase 52 dormant →
+    //   Phase 53 recycling → Phase 59 lastStopAt + lastStatusChangeAt →
+    //   this Phase 62 activityMtime + stoppedMtime.
+    // Every prior addition held the version at 1; this one continues that.
+    expect(FRAME_SCHEMA_VERSION).toBe(1);
+  });
+
+  it("Test P62-03 G (Option-1 rollout retention proof): SessionStateSchema accepts state with the full Phase 62 axis set AND the retained Phase 59 axis set populated together — all four values are preserved (backend publishes both signal sets simultaneously during rollout window)", () => {
+    // CONTEXT.md §Rollout Option 1 (LOCKED): backend publishes BOTH the new
+    // Phase 62 mtime axes AND the retained Phase 59 lastStopAt +
+    // lastStatusChangeAt axes for the entire rollout window. Frontend Plan
+    // 62-04 chooses which predicate to consume per-session based on marker
+    // presence (activityMtime !== null || stoppedMtime !== null → new
+    // predicate; both null → fall through to Phase 59 shell-idle-gate).
+    const withAllFour = {
+      ...validSessionState,
+      activityMtime: 1730000000000,
+      stoppedMtime: 1730000005000,
+      lastStopAt: 1729999999000,
+      lastStatusChangeAt: 1730000001000,
+    };
+    const result = SessionStateSchema.safeParse(withAllFour);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.activityMtime).toBe(1730000000000);
+      expect(result.data.stoppedMtime).toBe(1730000005000);
+      expect(result.data.lastStopAt).toBe(1729999999000);
+      expect(result.data.lastStatusChangeAt).toBe(1730000001000);
+    }
+  });
+});
