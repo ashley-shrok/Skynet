@@ -62,6 +62,13 @@ function expandCard(): void {
   fireEvent.click(screen.getByRole("button", { name: /daily-box-check/i }));
 }
 
+// Helper: enter edit mode on the single rendered wakeup card.
+// Used by the Phase 65 tests to reduce duplication.
+function enterEditMode(): void {
+  expandCard();
+  fireEvent.click(screen.getByRole("button", { name: /Edit schedule/i }));
+}
+
 describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -268,5 +275,138 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
 
     // onUpdate was never called by Cancel.
     expect(onUpdate).not.toHaveBeenCalled();
+  });
+
+  // ── Phase 65 Plan 02: days-gate round-trip + chip UI tests ─────────────────
+  // Chip aria-label contract (must match Task 2 implementation exactly):
+  //   - Container: role="group" aria-label="Restrict to days of week"
+  //   - Each chip button: aria-label="Toggle Mon" / "Toggle Tue" / ... / "Toggle Sun"
+  //   - Each chip button: aria-pressed="true" when selected, aria-pressed="false" when deselected
+
+  it("8: Save preserves days:[mon,tue,wed,thu,fri] on a daily+weekdays spec — no data loss (Phase 65 Success Criteria #2, D-07 round-trip)", async () => {
+    const { onUpdate } = renderTab({
+      schedule: { type: "daily", at: "23:00", timezone: "America/New_York", days: ["mon", "tue", "wed", "thu", "fri"] },
+      scheduleHuman: "Weekdays at 23:00 (box-local)",
+    });
+
+    enterEditMode();
+
+    // Do NOT modify any control — just click Save to prove round-trip fidelity.
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
+
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
+
+    const [, updates] = onUpdate.mock.calls[0] as [string, { schedule?: Record<string, unknown> }];
+    const schedule = updates.schedule as Record<string, unknown>;
+
+    expect(schedule.type).toBe("daily");
+    expect(schedule.at).toBe("23:00");
+    expect(Array.isArray(schedule.days)).toBe(true);
+    // D-03: canonical mon→sun order preserved; D-07: round-trip fidelity
+    expect(schedule.days).toEqual(["mon", "tue", "wed", "thu", "fri"]);
+  });
+
+  it("9: Chip toggle → build — starting from a plain daily spec (no days), toggling 5 chips emits days:[mon,tue,wed,thu,fri] on Save (Phase 65 Success Criteria #3)", async () => {
+    const { onUpdate } = renderTab();
+
+    enterEditMode();
+
+    // Locate the chip-row container via aria-label (D-06 container contract).
+    const chipContainer = screen.getByRole("group", { name: /Restrict to days of week/i });
+    expect(chipContainer).toBeTruthy();
+
+    // Click each of Mon, Tue, Wed, Thu, Fri chips (aria-label contract: "Toggle Mon" etc.).
+    for (const day of ["Mon", "Tue", "Wed", "Thu", "Fri"]) {
+      fireEvent.click(screen.getByRole("button", { name: `Toggle ${day}` }));
+    }
+
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
+
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
+
+    const [, updates] = onUpdate.mock.calls[0] as [string, { schedule?: Record<string, unknown> }];
+    const schedule = updates.schedule as Record<string, unknown>;
+
+    // D-03: canonical mon→sun order regardless of click order
+    expect(schedule.days).toEqual(["mon", "tue", "wed", "thu", "fri"]);
+  });
+
+  it("10: D-02 full-7 drop — toggling all 7 chips on emits payload WITHOUT `days` key", async () => {
+    const { onUpdate } = renderTab();
+
+    enterEditMode();
+
+    // Click all 7 chip buttons in ARBITRARY order (proves order-insensitivity per D-03).
+    for (const day of ["Sun", "Mon", "Sat", "Tue", "Fri", "Wed", "Thu"]) {
+      fireEvent.click(screen.getByRole("button", { name: `Toggle ${day}` }));
+    }
+
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
+
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
+
+    const [, updates] = onUpdate.mock.calls[0] as [string, { schedule?: Record<string, unknown> }];
+    const schedule = updates.schedule as Record<string, unknown>;
+
+    // D-02: full-7 drops the field entirely (key must be ABSENT, not just undefined).
+    expect("days" in schedule).toBe(false);
+  });
+
+  it("11: D-04 empty subset drop — starting from a days-having spec, deselecting all chips emits payload WITHOUT `days` and does NOT block Save", async () => {
+    const { onUpdate } = renderTab({
+      schedule: { type: "daily", at: "23:00", timezone: "America/New_York", days: ["mon", "tue", "wed", "thu", "fri"] },
+      scheduleHuman: "Weekdays at 23:00 (box-local)",
+    });
+
+    enterEditMode();
+
+    // Pre-condition: the 5 weekday chips render as selected on entry (aria-pressed="true").
+    for (const day of ["Mon", "Tue", "Wed", "Thu", "Fri"]) {
+      expect(screen.getByRole("button", { name: `Toggle ${day}` }).getAttribute("aria-pressed")).toBe("true");
+    }
+
+    // Deselect all 5 weekday chips.
+    for (const day of ["Mon", "Tue", "Wed", "Thu", "Fri"]) {
+      fireEvent.click(screen.getByRole("button", { name: `Toggle ${day}` }));
+    }
+
+    // No validation error banner (D-04: empty subset is not a blocking validation error).
+    expect(screen.queryByText(/validation|must be|invalid|error/i)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
+
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
+
+    const [, updates] = onUpdate.mock.calls[0] as [string, { schedule?: Record<string, unknown> }];
+    const schedule = updates.schedule as Record<string, unknown>;
+
+    // D-04: empty subset drops the field entirely.
+    expect("days" in schedule).toBe(false);
+    // Other fields preserved.
+    expect(schedule.type).toBe("daily");
+    expect(schedule.at).toBe("23:00");
+  });
+
+  it("12: D-03 hydrate normalization — unknown / non-string / uppercase entries in s.days are filtered and canonical-ordered", async () => {
+    const { onUpdate } = renderTab({
+      // Mixed case, whitespace, non-string, unknown code — hydrate must normalize defensively.
+      schedule: { type: "daily", at: "23:00", timezone: "America/New_York", days: ["FRI", "mon", 42, null, "xyz", "WED", " tue "] },
+      scheduleHuman: "Days at 23:00 (box-local)",
+    });
+
+    enterEditMode();
+
+    // Click Save WITHOUT touching any chip — proves D-03 + D-07 defensive hydration.
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
+
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
+
+    const [, updates] = onUpdate.mock.calls[0] as [string, { schedule?: Record<string, unknown> }];
+    const schedule = updates.schedule as Record<string, unknown>;
+
+    // D-03: canonical mon→sun order; D-07: defensive normalization
+    // FRI→fri, mon→mon, 42→drop, null→drop, xyz→drop, WED→wed, " tue "→tue
+    // Sorted: mon, tue, wed, fri
+    expect(schedule.days).toEqual(["mon", "tue", "wed", "fri"]);
   });
 });
