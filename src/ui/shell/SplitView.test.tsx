@@ -639,13 +639,24 @@ describe("SplitView — Phase 57: drop-preview overlay + edge-zone hit-testing",
   it("Test 7: center-drop — Phase 64 SUPERSEDED: dead-zone log retired; center now dispatches to replace/swap by MIME", () => {
     // Phase 57 asserted the center-dead-zone silent-return + a structured
     // `[pv-split-drop] center-dead-zone ignored` log. Phase 64 Plan 02
-    // replaces that short-circuit with source-conditioned dispatch. This
-    // test is updated to assert the new semantics:
-    //   - A center drop with the Phase 57 default MIME (skynet-row types +
-    //     text/plain=<tabId>) NOW dispatches to onReplaceInTree via the
-    //     text/plain fallback branch (badge/row JSON both empty).
-    //   - The retired dead-zone log line is gone; the new dispatch=replace-
-    //     fallback log is emitted instead.
+    // replaced that short-circuit with source-conditioned dispatch.
+    //
+    // Phase 64 /close finding (Addition 2) further tightened the center-drop
+    // path: the text/plain-only fallback that previously accepted a bare
+    // tabId string as a replace-source was REMOVED, because it opened a
+    // hole for stray browser drags (text selection, external drag) to
+    // clobber a live session. Now, a center drop with only text/plain
+    // (no rich x-skynet-row or x-skynet-badge JSON payload) falls through
+    // to the unknown-mime silent-no-op branch — same shape as an unknown
+    // drop.
+    //
+    // This test asserts the current semantics after both changes:
+    //   - Payload with types [row + text/plain] but no rich JSON body is
+    //     rejected (badge JSON empty, row JSON empty, text/plain fallback
+    //     retired) → no handler call.
+    //   - Retired dead-zone log is gone.
+    //   - New unknown-mime log fires instead of the (now-retired) replace-
+    //     fallback log.
     // Deeper handler-dispatch coverage lives in Phase 64 Tests 5-9 below.
     const onOpenSessionInTree =
       vi.fn<(tabId: string, path: SplitPath, edge: DropEdge) => void>();
@@ -675,10 +686,11 @@ describe("SplitView — Phase 57: drop-preview overlay + edge-zone hit-testing",
     // Phase 56 handlers still not called (center never routed through those).
     expect(onOpenSessionInTree).not.toHaveBeenCalled();
     expect(onDropRowInTree).not.toHaveBeenCalled();
-    // Phase 64 fallback branch: badge/row JSON both empty in this payload;
-    // text/plain=newtab is non-empty and != target ("aaa") → replace-fallback.
-    expect(onReplaceInTree).toHaveBeenCalledTimes(1);
-    expect(onReplaceInTree).toHaveBeenCalledWith("newtab", "aaa");
+    // Phase 64 /close finding (Addition 2): text/plain-only fallback
+    // REMOVED. Payload has no rich JSON (both badge & row getData return
+    // ""), text/plain is present but no longer counts — falls through to
+    // unknown-mime silent no-op.
+    expect(onReplaceInTree).not.toHaveBeenCalled();
     expect(onSwapInTree).not.toHaveBeenCalled();
     // Retired: `center-dead-zone ignored` no longer emitted.
     const deadZoneLog = infoSpy.mock.calls.some((args) =>
@@ -689,7 +701,8 @@ describe("SplitView — Phase 57: drop-preview overlay + edge-zone hit-testing",
       ),
     );
     expect(deadZoneLog).toBe(false);
-    // New: dispatch=replace-fallback log fires instead.
+    // Retired (Phase 64 Addition 2 fix): dispatch=replace-fallback log
+    // no longer emitted either.
     const fallbackLog = infoSpy.mock.calls.some((args) =>
       args.some(
         (a) =>
@@ -697,7 +710,16 @@ describe("SplitView — Phase 57: drop-preview overlay + edge-zone hit-testing",
           a.includes("[pv-split-drop] center-drop dispatch=replace-fallback"),
       ),
     );
-    expect(fallbackLog).toBe(true);
+    expect(fallbackLog).toBe(false);
+    // New: unknown-mime log fires instead (fail-closed on bare text/plain).
+    const unknownMimeLog = infoSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "string" &&
+          a.includes("[pv-split-drop] center-drop-unknown-mime"),
+      ),
+    );
+    expect(unknownMimeLog).toBe(true);
   });
 
   it("Test 8: edge-zone DROP preserves Phase 56 contract — onOpenSessionInTree('newtab', [], 'left')", () => {
@@ -1297,5 +1319,135 @@ describe("SplitView — Phase 64: center-drop replace-vs-swap", () => {
     expect(swapSpy).toHaveBeenCalledTimes(1);
     expect(swapSpy).toHaveBeenCalledWith("aaa", "ccc");
     expect(replaceSpy).not.toHaveBeenCalled();
+  });
+
+  // ── /close findings — Additions 2 + 3 fixes ─────────────────────────────
+
+  it("Phase 64 /close fix (Addition 2): center-drop with rich MIME in types but MALFORMED JSON body + valid-looking text/plain does NOT fall through to text/plain — dispatches unknown-mime silent no-op", () => {
+    // Regression test for the removed text/plain fallback. Prior behavior:
+    // if badge/row JSON parse failed, text/plain payload was accepted as
+    // a replace-source tabId — meaning any stray drag whose rich payload
+    // was garbled but whose text/plain happened to look like a tabId
+    // could clobber a live session. New behavior: fail-closed, silent
+    // no-op via unknown-mime log.
+    const replaceSpy = vi.fn<(replacement: string, target: string) => void>();
+    const swapSpy = vi.fn<(a: string, b: string) => void>();
+    const tree: SplitNode = leaf("target");
+    const { container } = render(
+      <SplitView
+        splitTree={tree}
+        tabs={[tabTarget]}
+        onReplaceInTree={replaceSpy}
+        onSwapInTree={swapSpy}
+      />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDropAt(paneOuter, 50, 50, {
+      types: ["application/x-skynet-row", "text/plain"],
+      getData: (k: string) =>
+        k === "application/x-skynet-row"
+          ? "{malformed-json-not-parseable"
+          : k === "text/plain"
+            ? "stray-content-that-looks-like-tabid"
+            : "",
+    });
+    expect(replaceSpy).not.toHaveBeenCalled();
+    expect(swapSpy).not.toHaveBeenCalled();
+    const unknownMimeLog = infoSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "string" &&
+          a.includes("[pv-split-drop] center-drop-unknown-mime"),
+      ),
+    );
+    expect(unknownMimeLog).toBe(true);
+    // Row-parse-failed warn log fires from the row JSON.parse catch block.
+    const rowParseWarn = warnSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "string" &&
+          a.includes("[pv-split-drop] center-drop row-parse failed"),
+      ),
+    );
+    expect(rowParseWarn).toBe(true);
+  });
+
+  it("Phase 64 /close fix (Addition 3): badge dragover where source === target suppresses the center-zone coral overlay", () => {
+    // Self-drop with badge source: sourceTabId === target tabId. Shape
+    // contract: "coral appears → release always performs the corresponding
+    // action." Self-drop release is a no-op, so coral must NOT light.
+    const tree: SplitNode = leaf("target");
+    const { container } = render(
+      <SplitView splitTree={tree} tabs={[tabTarget]} />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDragOverAt(paneOuter, 50, 50, {
+      types: ["application/x-skynet-badge", "text/plain"],
+      getData: (k: string) =>
+        k === "application/x-skynet-badge"
+          ? JSON.stringify({ tabId: "target" })
+          : k === "text/plain"
+            ? "target"
+            : "",
+    });
+    const overlay = container.querySelector(
+      '[data-testid="pane-drop-preview-overlay"]',
+    ) as HTMLElement | null;
+    expect(overlay).toBeNull();
+  });
+
+  it("Phase 64 /close fix (Addition 3): row dragover where source === target suppresses the center-zone coral overlay", () => {
+    // Same rule for row source (drag conv-list row of an already-open
+    // session onto its own cell in the grid).
+    const tree: SplitNode = leaf("target");
+    const { container } = render(
+      <SplitView splitTree={tree} tabs={[tabTarget]} />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDragOverAt(paneOuter, 50, 50, {
+      types: ["application/x-skynet-row", "text/plain"],
+      getData: (k: string) =>
+        k === "application/x-skynet-row"
+          ? JSON.stringify({ id: "target" })
+          : k === "text/plain"
+            ? "target"
+            : "",
+    });
+    const overlay = container.querySelector(
+      '[data-testid="pane-drop-preview-overlay"]',
+    ) as HTMLElement | null;
+    expect(overlay).toBeNull();
+  });
+
+  it("Phase 64 /close fix (Addition 3): badge dragover where source !== target STILL renders the center-zone coral overlay (regression guard)", () => {
+    // Ensure the self-drop suppression is scoped to actual self-drops
+    // and does not incorrectly suppress valid swap-target dragovers.
+    const tree: SplitNode = leaf("target");
+    const { container } = render(
+      <SplitView splitTree={tree} tabs={[tabTarget]} />,
+    );
+    const contentEl = container.querySelector("[data-tab-id]") as HTMLElement;
+    const paneOuter = findPaneOuter(contentEl);
+    mockRect(paneOuter, { left: 0, right: 100, top: 0, bottom: 100 });
+    dispatchDragOverAt(paneOuter, 50, 50, {
+      types: ["application/x-skynet-badge", "text/plain"],
+      getData: (k: string) =>
+        k === "application/x-skynet-badge"
+          ? JSON.stringify({ tabId: "other-session" })
+          : k === "text/plain"
+            ? "other-session"
+            : "",
+    });
+    const overlay = container.querySelector(
+      '[data-testid="pane-drop-preview-overlay"]',
+    ) as HTMLElement | null;
+    expect(overlay).not.toBeNull();
+    expect(overlay!.getAttribute("data-zone")).toBe("center");
   });
 });

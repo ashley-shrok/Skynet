@@ -303,6 +303,51 @@ const Pane = memo(function Pane({
       e.stopPropagation();
       const rect = el.getBoundingClientRect();
       const zone = computeEdgeZone(rect, e.clientX, e.clientY);
+      // Phase 64 /close finding (Addition 3): suppress coral on
+      // center-zone self-drop. The shape's contract is "coral appears →
+      // release always performs the corresponding action." A self-drop
+      // (drag source === target cell) at center is a benign no-op on
+      // release (swap-with-self / replace-with-self both collapse to
+      // no-op), so lighting coral there would break the visual contract.
+      // Read the source tabId from the rich payload (same-origin drag
+      // means getData is available at dragover time in modern browsers).
+      // Only applies to center-zone: edge-zone self-drops still reshape
+      // the tree via removeLeaf + insertAtEdge, so their coral is honest.
+      // See shape-multi-view-center-drop.closed.md § Additions.
+      if (zone === "center") {
+        let sourceTabId = "";
+        const badgeJson =
+          e.dataTransfer?.getData("application/x-skynet-badge") ?? "";
+        if (badgeJson.length > 0) {
+          try {
+            const parsed = JSON.parse(badgeJson) as { tabId?: unknown };
+            if (typeof parsed?.tabId === "string") sourceTabId = parsed.tabId;
+          } catch {
+            /* fall through to row check */
+          }
+        }
+        if (sourceTabId.length === 0) {
+          const rowJson =
+            e.dataTransfer?.getData("application/x-skynet-row") ?? "";
+          if (rowJson.length > 0) {
+            try {
+              const parsed = JSON.parse(rowJson) as { id?: unknown };
+              if (typeof parsed?.id === "string") sourceTabId = parsed.id;
+            } catch {
+              /* fall through to no-suppress */
+            }
+          }
+        }
+        if (sourceTabId.length > 0 && sourceTabId === tabId) {
+          // Self-drop — clear any stale preview from a non-self edge zone
+          // the cursor may have crossed on the way to center, then return.
+          if (prevZoneRef.current !== null) {
+            prevZoneRef.current = null;
+          }
+          setDropPreview((prev) => (prev === null ? prev : null));
+          return;
+        }
+      }
       // Zone-change gate for the structured log. Ref-based (see prevZoneRef
       // JSDoc above) to avoid React 18 strict-mode double-fire. Log fires
       // synchronously inside the native listener body, before the setState
@@ -448,15 +493,15 @@ const Pane = memo(function Pane({
             // Fall through to text/plain / unknown-mime branches.
           }
         }
-        const payloadTabId = e.dataTransfer?.getData("text/plain") ?? "";
-        if (payloadTabId.length > 0 && payloadTabId !== tabId) {
-          // eslint-disable-next-line no-console
-          console.info(
-            `[pv-split-drop] center-drop dispatch=replace-fallback path=${JSON.stringify(path)} payloadTabId=${payloadTabId} targetTabId=${tabId}`,
-          );
-          onReplaceInTree?.(payloadTabId, tabId);
-          return;
-        }
+        // Phase 64 /close finding (Addition 2): text/plain-only fallback
+        // path REMOVED. The shape strictly names two rich-payload sources
+        // (row via application/x-skynet-row, badge via
+        // application/x-skynet-badge). Accepting bare text/plain as a
+        // session-tabId payload opens a hole for stray browser drags
+        // (text selection, external drag) to clobber a live session on
+        // release. Fail-closed: if both rich-payload branches missed
+        // (absent OR malformed), fall through to unknown-mime silent
+        // no-op. See shape-multi-view-center-drop.closed.md § Additions.
         // eslint-disable-next-line no-console
         console.info(
           `[pv-split-drop] center-drop-unknown-mime path=${JSON.stringify(path)} types=${JSON.stringify(Array.from(e.dataTransfer?.types ?? []))}`,
