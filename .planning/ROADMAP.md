@@ -1660,11 +1660,11 @@ Plans:
 **Goal:** Fix both halves of the wake-up `days` gate regression on the identity modal: (a) DISPLAY — humanizer at `src/backend/claude-session/identity-artifact-reader.ts:54-81` renders the optional top-level `s.days` gate correctly (weekdays / weekends / arbitrary subset / full-7-drops, per D-01..D-05 + D-07); (b) ROUND-TRIP — form editor at `src/ui/features/pretty-view/WakeupsTab.tsx` extends `FormSchedule` with `days?: Weekday[]` on interval/daily/weekly, adds a chip UI under daily+weekly variant renders (matching the on/off enabled-chip family at L354-362), and preserves `days` through hydrate → edit → build so Save no longer strips the gate off the wire. Backwards-compatible (specs without `days` render / round-trip identically to today).
 **Requirements**: (bug fix — not mapped to any REQ-ID)
 **Depends on:** Phase 64
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
 **Wave 1**
 
-- [ ] 65-01-PLAN.md — Humanizer (backend + unit tests): extend `humanizeWakeupSchedule` to render `s.days` per D-01/D-02/D-03/D-05/D-07 (weekdays / weekends / arbitrary subset with `/` separator / full-7-drops / defensive normalization); add `identity-artifact-reader.humanize-wakeup.test.ts` with 30 unit tests covering Success Criteria #4 (weekdays/weekends/full-7/arbitrary-subset) plus #5 backwards-compat regression cases (Wave 1, standalone)
+- [x] 65-01-PLAN.md — Humanizer (backend + unit tests): extend `humanizeWakeupSchedule` to render `s.days` per D-01/D-02/D-03/D-05/D-07 (weekdays / weekends / arbitrary subset with `/` separator / full-7-drops / defensive normalization); add `identity-artifact-reader.humanize-wakeup.test.ts` with 30 unit tests covering Success Criteria #4 (weekdays/weekends/full-7/arbitrary-subset) plus #5 backwards-compat regression cases (Wave 1, standalone)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
