@@ -45,11 +45,66 @@ import { execCommand } from "../ssh/tmux-helper.js";
 // maintaining a duplicate; replaces the now-private copy in server.ts)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Days-gate helpers (Phase 65 / D-01..D-07) — file-private, NOT exported
+// ---------------------------------------------------------------------------
+
+/** Canonical weekday order mirrors wakeup-scheduler.py L118-119 (mon→sun). */
+const CANONICAL_WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+type WeekdayCode = (typeof CANONICAL_WEEKDAYS)[number];
+
+/** Returns true iff `v` is one of the seven canonical 3-letter weekday strings. */
+function isWeekdayCode(v: unknown): v is WeekdayCode {
+  return typeof v === "string" && (CANONICAL_WEEKDAYS as readonly string[]).includes(v);
+}
+
+/**
+ * Defensive normalization of a raw `days` field per D-07.
+ * Returns a canonical mon→sun ordered subset, or null if it should be treated
+ * as "no gate" (absent / empty / full-7 / non-array / all-invalid).
+ */
+function normalizeDaysGate(rawDays: unknown): WeekdayCode[] | null {
+  if (!Array.isArray(rawDays)) return null;
+  // Normalize each entry: string → lowercase+trim; non-string → drop
+  const normalized = rawDays
+    .map((entry) => (typeof entry === "string" ? entry.toLowerCase().trim() : null))
+    .filter(isWeekdayCode);
+  // Deduplicate via Set, then sort into canonical mon→sun order
+  const unique = [...new Set<WeekdayCode>(normalized)].sort(
+    (a, b) => CANONICAL_WEEKDAYS.indexOf(a) - CANONICAL_WEEKDAYS.indexOf(b),
+  );
+  if (unique.length === 0) return null; // empty === absent === every day (D-04)
+  if (unique.length === 7) return null; // full-7 === no gate (D-02)
+  return unique;
+}
+
+/**
+ * Renders a normalized days-gate subset as a human label per D-05.
+ * - Exact weekdays {mon..fri} → "Weekdays"
+ * - Exact weekends {sat,sun} → "Weekends"
+ * - Any other subset → "Mon/Wed/Fri" (capitalized 3-letter, /‑joined, mon→sun order)
+ */
+function daysGateLabel(days: WeekdayCode[]): string {
+  if (
+    days.length === 5 &&
+    days[0] === "mon" && days[1] === "tue" && days[2] === "wed" &&
+    days[3] === "thu" && days[4] === "fri"
+  ) {
+    return "Weekdays";
+  }
+  if (days.length === 2 && days[0] === "sat" && days[1] === "sun") {
+    return "Weekends";
+  }
+  return days.map((d) => d.charAt(0).toUpperCase() + d.slice(1)).join("/");
+}
+
 /**
  * Humanize a wakeup schedule object into a human-readable string.
  * Handles interval / daily / weekly schedule types; falls back to "custom schedule".
  * Exported so claude-session-server.ts can re-export it (patch #92: moved here to
  * avoid a circular dependency — artifact reader must not import from server.ts).
+ *
+ * Phase 65: extended to render optional `s.days` day-of-week gate per D-01..D-07.
  */
 export function humanizeWakeupSchedule(schedule: unknown): string {
   if (typeof schedule !== "object" || schedule === null) return "custom schedule";
@@ -57,16 +112,28 @@ export function humanizeWakeupSchedule(schedule: unknown): string {
   const type = s.type;
   if (type === "interval") {
     const every = s.every;
+    let base: string;
     if (typeof every === "string" && every.length > 0) {
-      return `Every ${every}`;
+      base = `Every ${every}`;
+    } else if (typeof every === "number") {
+      base = `Every ${every}m`;
+    } else {
+      return "custom schedule";
     }
-    if (typeof every === "number") {
-      return `Every ${every}m`;
+    // Apply days gate: replace "Every " prefix with "<label> every " (D-05)
+    const gate = normalizeDaysGate(s.days);
+    if (gate !== null) {
+      return `${daysGateLabel(gate)} every ${base.slice("Every ".length)}`;
     }
-    return "custom schedule";
+    return base;
   }
   if (type === "daily") {
     const at = typeof s.at === "string" ? s.at : "";
+    const gate = normalizeDaysGate(s.days);
+    if (gate !== null) {
+      // Replace the "Daily" verb with the gate label (D-05)
+      return at ? `${daysGateLabel(gate)} at ${at} (box-local)` : `${daysGateLabel(gate)} (box-local)`;
+    }
     return at ? `Daily at ${at} (box-local)` : "Daily (box-local)";
   }
   if (type === "weekly") {
@@ -75,7 +142,20 @@ export function humanizeWakeupSchedule(schedule: unknown): string {
     const day = dayRaw.length > 0
       ? dayRaw.charAt(0).toUpperCase() + dayRaw.slice(1).toLowerCase()
       : "?";
-    return at ? `Weekly on ${day} at ${at} (box-local)` : `Weekly on ${day} (box-local)`;
+    const baseWeekly = at ? `Weekly on ${day} at ${at} (box-local)` : `Weekly on ${day} (box-local)`;
+    const gate = normalizeDaysGate(s.days);
+    if (gate !== null) {
+      // Determine if the weekly slot day is inside the gate (D-01)
+      const dayLower = dayRaw.toLowerCase();
+      const dayInGate = isWeekdayCode(dayLower) && gate.includes(dayLower);
+      if (dayInGate) {
+        // Render as days-gate-substituted daily-style form; drop redundant "on <Day>" (D-01)
+        return at ? `${daysGateLabel(gate)} at ${at} (box-local)` : `${daysGateLabel(gate)} (box-local)`;
+      }
+      // Malformed NEVER-FIRES case: surface visibly (D-01 defensive branch)
+      return `${baseWeekly} — NEVER FIRES (weekly day excluded from days gate)`;
+    }
+    return baseWeekly;
   }
   return "custom schedule";
 }
