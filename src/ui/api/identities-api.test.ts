@@ -221,3 +221,42 @@ describe("CR-05: openBirthStream error paths", () => {
     }).rejects.toThrow("empty SSE stream");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Regression: postManualAvatarCandidate MUST send multipart/form-data
+// ─────────────────────────────────────────────────────────────────────────────
+// Bug: authApi instance defaults to Content-Type: application/json. Without an
+// explicit multipart override on this call, axios v1's formDataToJSON transform
+// fires, drops the File field during JSON serialization, and multer returns
+// 400 "missing avatar field". This test asserts BOTH the FormData avatar field
+// AND the multipart Content-Type header on the outgoing request.
+
+describe("postManualAvatarCandidate: sends multipart/form-data with avatar field", () => {
+  it("posts to /identities/avatar/candidate/manual with Content-Type: multipart/form-data and FormData containing 'avatar' field", async () => {
+    const mockPost = vi.fn().mockResolvedValue({ data: { id: "cand-abc" } });
+    vi.doMock("@/main-axios", () => ({
+      authApi: { post: mockPost },
+      handleApiError: (err: unknown, _op: string) => { throw err; },
+    }));
+    vi.resetModules();
+    const { postManualAvatarCandidate } = await import("./identities-api");
+
+    const file = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "px.png", { type: "image/png" });
+    const result = await postManualAvatarCandidate({ file });
+
+    expect(result).toEqual({ id: "cand-abc" });
+    expect(mockPost).toHaveBeenCalledTimes(1);
+    const [url, body, config] = mockPost.mock.calls[0] as [
+      string,
+      FormData,
+      { headers?: Record<string, string> },
+    ];
+    expect(url).toBe("/identities/avatar/candidate/manual");
+    expect(body).toBeInstanceOf(FormData);
+    const avatarEntry = body.get("avatar");
+    expect(avatarEntry).toBeInstanceOf(File);
+    expect((avatarEntry as File).name).toBe("px.png");
+    expect(config?.headers?.["Content-Type"]).toBe("multipart/form-data");
+    vi.doUnmock("@/main-axios");
+  });
+});

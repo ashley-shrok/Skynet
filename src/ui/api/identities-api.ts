@@ -116,8 +116,17 @@ export async function postManualAvatarCandidate({
   try {
     const fd = new FormData();
     fd.append("avatar", file);
-    // Do NOT set Content-Type manually — let axios set it with the boundary.
-    const response = await authApi.post("/identities/avatar/candidate/manual", fd);
+    // Explicit Content-Type override matches createIdentity/updateIdentity
+    // above. The authApi instance defaults to application/json; without this
+    // override axios v1's formDataToJSON transform fires, serializes the
+    // FormData to a JSON body that drops the File field, and multer returns
+    // 400 "missing avatar field". Passing "multipart/form-data" (no boundary
+    // — axios adds it) suppresses the JSON transform and lets multer parse.
+    const response = await authApi.post(
+      "/identities/avatar/candidate/manual",
+      fd,
+      { headers: { "Content-Type": "multipart/form-data" } },
+    );
     return response.data as { id: string };
   } catch (error) {
     handleApiError(error, "upload manual avatar");
