@@ -1637,6 +1637,7 @@ Plans:
 **Plans:** 4/4 plans complete
 
 Plans:
+
 - [x] 63-01-PLAN.md — Author the two hook shell scripts (activity-hook.sh + stopped-hook.sh) with per-session marker touch, path-traversal defense, and vitest coverage
 - [x] 63-02-PLAN.md — Extend remote-hook-install.ts to drop the three scripts + merge five hook entries (Stop with two scripts, UserPromptSubmit + PreToolUse + StopFailure + PermissionRequest) into ~/.claude/settings.json idempotently
 - [x] 63-03-PLAN.md — Extend wire-protocol.ts with activityMtime + stoppedMtime; extend ssh-poll-orchestrator processPid with two new stat reads per PID per tick; retain Phase 59 fields for rollout fallback
@@ -1650,15 +1651,21 @@ Plans:
 **Plans:** 1/2 plans executed
 
 Plans:
+
 - [x] 64-01-PLAN.md — Pure tree helpers: add replaceLeaf + swapLeaves to src/ui/lib/split-tree.ts with 9 vitest unit tests (5 replaceLeaf + 4 swapLeaves) covering same-id no-op, defensive missing-leaf warn, deep-tree swap, replacement-already-elsewhere collapse, and root-cell replace
 - [ ] 64-02-PLAN.md — SplitView center-drop dispatch (source MIME → swap or replace) + full-cell coral overlay + AppShell replaceInTree/swapInTree useCallbacks + prop wiring; 10 new SplitView component tests + 3 new AppShell integration tests (end-to-end swap, end-to-end replace with displaced-session-stays-in-tabs, portal-preservation across swap)
 
 ### Phase 65: Wake-up `days` gate — humanize + form-editor round-trip preservation. Scheduler (~/.claude/identities/*/wakeups/wakeup-scheduler.py L117-122) accepts an optional `days: ["mon","tue","wed","thu","fri"]` gate alongside any schedule type (interval/daily/weekly) as a day-of-week restriction; canonical "weekdays at 23:00" spec is `{type:"daily", at:"23:00", days:["mon","tue","wed","thu","fri"]}`. Two bugs on the Skynet identity-modal side: (1) DISPLAY — humanizer at src/backend/claude-session/identity-artifact-reader.ts:54-81 ignores `s.days` entirely, renders "Daily at 23:00" for what is actually a weekdays-only spec (Ashley report on Aqua@Workstation, 2026-08-31); (2) ROUND-TRIP DATA LOSS — form editor at src/ui/features/pretty-view/WakeupsTab.tsx has no `days` field on its FormSchedule discriminated union or UI (no chips/checkboxes), so opening a weekdays-only card in edit mode and hitting Save silently drops the `days` restriction, turning it into a plain "daily at 23:00" spec on the wire. Scope: (a) extend humanizer to render `days` — weekdays/weekends/subset/full-week semantics; (b) add `days?: Weekday[]` to FormSchedule, add restrict-to-days UI (day chips) to daily/weekly variants, preserve in hydrate/build/validate; (c) tests both sides — unit tests on humanizer for the days shapes, WakeupsTab tests for hydrate-preserve + edit-preserve + toggle. Out of scope: adding days to interval-type UI (scheduler supports it but rare in practice; leave humanizer-side aware but skip form UI). Touched files: src/backend/claude-session/identity-artifact-reader.ts, src/ui/features/pretty-view/WakeupsTab.tsx, both their existing test files.
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Fix both halves of the wake-up `days` gate regression on the identity modal: (a) DISPLAY — humanizer at `src/backend/claude-session/identity-artifact-reader.ts:54-81` renders the optional top-level `s.days` gate correctly (weekdays / weekends / arbitrary subset / full-7-drops, per D-01..D-05 + D-07); (b) ROUND-TRIP — form editor at `src/ui/features/pretty-view/WakeupsTab.tsx` extends `FormSchedule` with `days?: Weekday[]` on interval/daily/weekly, adds a chip UI under daily+weekly variant renders (matching the on/off enabled-chip family at L354-362), and preserves `days` through hydrate → edit → build so Save no longer strips the gate off the wire. Backwards-compatible (specs without `days` render / round-trip identically to today).
+**Requirements**: (bug fix — not mapped to any REQ-ID)
 **Depends on:** Phase 64
-**Plans:** 0 plans
-
+**Plans:** 2 plans
 Plans:
-- [ ] TBD (run /gsd-plan-phase 65 to break down)
+**Wave 1**
+
+- [ ] 65-01-PLAN.md — Humanizer (backend + unit tests): extend `humanizeWakeupSchedule` to render `s.days` per D-01/D-02/D-03/D-05/D-07 (weekdays / weekends / arbitrary subset with `/` separator / full-7-drops / defensive normalization); add `identity-artifact-reader.humanize-wakeup.test.ts` with 30 unit tests covering Success Criteria #4 (weekdays/weekends/full-7/arbitrary-subset) plus #5 backwards-compat regression cases (Wave 1, standalone)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 65-02-PLAN.md — Form editor round-trip (frontend + component tests): extend `FormSchedule` with `days?: Weekday[]` on interval/daily/weekly, add `normalizeDays` helper + `RestrictToDaysChips` sub-component, mount chip UI under daily + weekly variant renders (D-06 styling matching L354-362), preserve `days` through hydrate/build; extend `WakeupsTab.test.tsx` with 5 new tests covering Success Criteria #2 round-trip fidelity, #3 chip-toggle-to-payload, D-02 full-7 drop, D-04 empty-subset drop, D-03 hydrate defensive normalization (Wave 2, disjoint files from Plan 01 — could run in parallel; sequenced for review clarity)
