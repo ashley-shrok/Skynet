@@ -1652,3 +1652,13 @@ Plans:
 Plans:
 - [x] 64-01-PLAN.md — Pure tree helpers: add replaceLeaf + swapLeaves to src/ui/lib/split-tree.ts with 9 vitest unit tests (5 replaceLeaf + 4 swapLeaves) covering same-id no-op, defensive missing-leaf warn, deep-tree swap, replacement-already-elsewhere collapse, and root-cell replace
 - [ ] 64-02-PLAN.md — SplitView center-drop dispatch (source MIME → swap or replace) + full-cell coral overlay + AppShell replaceInTree/swapInTree useCallbacks + prop wiring; 10 new SplitView component tests + 3 new AppShell integration tests (end-to-end swap, end-to-end replace with displaced-session-stays-in-tabs, portal-preservation across swap)
+
+### Phase 65: Wake-up `days` gate — humanize + form-editor round-trip preservation. Scheduler (~/.claude/identities/*/wakeups/wakeup-scheduler.py L117-122) accepts an optional `days: ["mon","tue","wed","thu","fri"]` gate alongside any schedule type (interval/daily/weekly) as a day-of-week restriction; canonical "weekdays at 23:00" spec is `{type:"daily", at:"23:00", days:["mon","tue","wed","thu","fri"]}`. Two bugs on the Skynet identity-modal side: (1) DISPLAY — humanizer at src/backend/claude-session/identity-artifact-reader.ts:54-81 ignores `s.days` entirely, renders "Daily at 23:00" for what is actually a weekdays-only spec (Ashley report on Aqua@Workstation, 2026-08-31); (2) ROUND-TRIP DATA LOSS — form editor at src/ui/features/pretty-view/WakeupsTab.tsx has no `days` field on its FormSchedule discriminated union or UI (no chips/checkboxes), so opening a weekdays-only card in edit mode and hitting Save silently drops the `days` restriction, turning it into a plain "daily at 23:00" spec on the wire. Scope: (a) extend humanizer to render `days` — weekdays/weekends/subset/full-week semantics; (b) add `days?: Weekday[]` to FormSchedule, add restrict-to-days UI (day chips) to daily/weekly variants, preserve in hydrate/build/validate; (c) tests both sides — unit tests on humanizer for the days shapes, WakeupsTab tests for hydrate-preserve + edit-preserve + toggle. Out of scope: adding days to interval-type UI (scheduler supports it but rare in practice; leave humanizer-side aware but skip form UI). Touched files: src/backend/claude-session/identity-artifact-reader.ts, src/ui/features/pretty-view/WakeupsTab.tsx, both their existing test files.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 64
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 65 to break down)
