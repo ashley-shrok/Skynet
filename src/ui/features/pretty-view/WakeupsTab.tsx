@@ -44,10 +44,12 @@ type OnUpdate = (
 // Quick 260731-2pa: discriminated union of parsed per-type form state.
 // `hydrateFormSchedule` (below) converts a raw `wakeup.schedule` object into
 // this shape when entering edit-mode; `buildSchedule` is the inverse.
+// Phase 65-02: `days?: Weekday[]` added to interval/daily/weekly variants
+// for the optional day-of-week gate. one_shot is unchanged.
 type FormSchedule =
-  | { type: "interval"; n: number; u: "s" | "m" | "h" | "d" }
-  | { type: "daily"; at: string }
-  | { type: "weekly"; day: "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun"; at: string }
+  | { type: "interval"; n: number; u: "s" | "m" | "h" | "d"; days?: Weekday[] }
+  | { type: "daily"; at: string; days?: Weekday[] }
+  | { type: "weekly"; day: "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun"; at: string; days?: Weekday[] }
   | { type: "one_shot"; at: string /* datetime-local YYYY-MM-DDTHH:MM */ };
 
 const WEEKDAY_VALUES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
@@ -55,6 +57,31 @@ type Weekday = (typeof WEEKDAY_VALUES)[number];
 
 function isWeekday(v: unknown): v is Weekday {
   return typeof v === "string" && (WEEKDAY_VALUES as readonly string[]).includes(v);
+}
+
+// Phase 65-02: normalize raw `s.days` from the wire into a canonical
+// mon→sun-ordered subset. Returns undefined for all no-gate cases:
+// - non-array input
+// - empty result (all entries invalid)
+// - full-7 result (all days present = same as no gate, per D-02)
+// Used by both hydrateFormSchedule (read) and buildSchedule (write) so the
+// drop rules apply symmetrically on both ends of the round-trip (D-07).
+function normalizeDays(raw: unknown): Weekday[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const seen = new Set<Weekday>();
+  for (const entry of raw) {
+    const normalized = typeof entry === "string" ? entry.toLowerCase().trim() : null;
+    if (normalized !== null && isWeekday(normalized)) {
+      seen.add(normalized);
+    }
+  }
+  if (seen.size === 0 || seen.size === 7) return undefined;
+  return WEEKDAY_VALUES.filter((w) => seen.has(w));
+}
+
+// Phase 65-02: capitalize first letter of a 3-letter weekday code for chip labels.
+function cap(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function detectBrowserTimezone(): string {
@@ -95,19 +122,26 @@ function hydrateFormSchedule(sched: unknown): FormSchedule {
   if (t === "interval") {
     const every = typeof s.every === "string" ? s.every : "";
     const m = /^(\d+)([smhd])$/.exec(every);
+    const days = normalizeDays(s.days);
     if (m) {
-      return { type: "interval", n: Number(m[1]), u: m[2] as "s" | "m" | "h" | "d" };
+      return days !== undefined
+        ? { type: "interval", n: Number(m[1]), u: m[2] as "s" | "m" | "h" | "d", days }
+        : { type: "interval", n: Number(m[1]), u: m[2] as "s" | "m" | "h" | "d" };
     }
-    return { type: "interval", n: 30, u: "m" };
+    return days !== undefined
+      ? { type: "interval", n: 30, u: "m", days }
+      : { type: "interval", n: 30, u: "m" };
   }
   if (t === "daily") {
     const at = typeof s.at === "string" && /^\d\d:\d\d$/.test(s.at) ? s.at : "09:00";
-    return { type: "daily", at };
+    const days = normalizeDays(s.days);
+    return days !== undefined ? { type: "daily", at, days } : { type: "daily", at };
   }
   if (t === "weekly") {
     const day = isWeekday(s.day) ? s.day : "mon";
     const at = typeof s.at === "string" && /^\d\d:\d\d$/.test(s.at) ? s.at : "09:00";
-    return { type: "weekly", day, at };
+    const days = normalizeDays(s.days);
+    return days !== undefined ? { type: "weekly", day, at, days } : { type: "weekly", day, at };
   }
   if (t === "one_shot") {
     if (typeof s.at === "string") {
@@ -132,15 +166,26 @@ function hydrateFormSchedule(sched: unknown): FormSchedule {
 
 // Build the schedule object that gets written back. Interval OMITS timezone
 // (scheduler no-ops it); daily/weekly/one_shot include the browser-detected zone.
+// Phase 65-02: emit `days:` key only when normalizeDays returns a non-empty,
+// non-full-7 subset (D-02 + D-04 drop-the-field on both bounds).
 function buildSchedule(fs: FormSchedule, tz: string): Record<string, unknown> {
   if (fs.type === "interval") {
-    return { type: "interval", every: `${fs.n}${fs.u}` };
+    const base: Record<string, unknown> = { type: "interval", every: `${fs.n}${fs.u}` };
+    const days = normalizeDays(fs.days);
+    if (days !== undefined) base.days = days;
+    return base;
   }
   if (fs.type === "daily") {
-    return { type: "daily", at: fs.at, timezone: tz };
+    const base: Record<string, unknown> = { type: "daily", at: fs.at, timezone: tz };
+    const days = normalizeDays(fs.days);
+    if (days !== undefined) base.days = days;
+    return base;
   }
   if (fs.type === "weekly") {
-    return { type: "weekly", day: fs.day, at: fs.at, timezone: tz };
+    const base: Record<string, unknown> = { type: "weekly", day: fs.day, at: fs.at, timezone: tz };
+    const days = normalizeDays(fs.days);
+    if (days !== undefined) base.days = days;
+    return base;
   }
   // one_shot: convert local datetime string to ISO+offset.
   return { type: "one_shot", at: toIsoWithOffset(fs.at), timezone: tz };
@@ -164,6 +209,67 @@ function validateForm(fs: FormSchedule): string | null {
   const d = new Date(fs.at);
   if (Number.isNaN(d.getTime())) return "`at` is not a valid datetime";
   return null;
+}
+
+// Phase 65-02: day-of-week chip row (D-06). Mounted under daily + weekly variant
+// renders only — NOT on interval (out of scope) or one_shot (nonsensical).
+// Container aria-label and chip button aria-label are CONTRACT — tests 9, 10, 11
+// all query on these exact strings. Do NOT change them without updating the tests.
+function RestrictToDaysChips({
+  hue,
+  days,
+  onChange,
+  slug,
+}: {
+  hue: number;
+  days: Weekday[] | undefined;
+  onChange: (next: Weekday[] | undefined) => void;
+  slug: string;
+}): JSX.Element {
+  return (
+    <div className="flex flex-col gap-1">
+      <span
+        id={`wakeup-days-label-${slug}`}
+        className="text-[10px] uppercase tracking-wide text-[var(--color-pv-fg-dim)] font-semibold"
+      >
+        Restrict to days
+      </span>
+      <div role="group" aria-label="Restrict to days of week" className="flex flex-wrap gap-1.5">
+        {WEEKDAY_VALUES.map((d) => {
+          const selected = (days ?? []).includes(d);
+          return (
+            <button
+              key={d}
+              type="button"
+              aria-label={`Toggle ${cap(d)}`}
+              aria-pressed={selected}
+              onClick={() => {
+                const nextSet = new Set(days ?? []);
+                if (selected) {
+                  nextSet.delete(d);
+                } else {
+                  nextSet.add(d);
+                }
+                const nextArr = WEEKDAY_VALUES.filter((w) => nextSet.has(w));
+                onChange(nextArr.length === 0 ? undefined : nextArr);
+              }}
+              className={cn(
+                "cursor-pointer px-2 py-0.5 rounded-full text-[11px] font-medium uppercase tracking-wide border transition-opacity",
+                !selected && "bg-slate-500/10 text-slate-400 border-slate-500/25",
+              )}
+              style={selected ? {
+                background: `hsla(${hue}, 60%, 50%, 0.35)`,
+                borderColor: `hsla(${hue}, 60%, 50%, 0.55)`,
+                color: "#f0ebe0",
+              } : undefined}
+            >
+              {cap(d)}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 export function WakeupsTab({
@@ -539,6 +645,12 @@ function WakeupRow({
                   <div className="text-xs text-[var(--color-pv-fg-dim)] font-mono">
                     Timezone (auto-detected from browser): <b>{detectedTz}</b>
                   </div>
+                  <RestrictToDaysChips
+                    hue={hue}
+                    days={formSchedule.days}
+                    onChange={(next) => setFormSchedule({ ...formSchedule, days: next })}
+                    slug={wakeup.slug}
+                  />
                 </>
               )}
 
@@ -592,6 +704,12 @@ function WakeupRow({
                   <div className="text-xs text-[var(--color-pv-fg-dim)] font-mono">
                     Timezone (auto-detected from browser): <b>{detectedTz}</b>
                   </div>
+                  <RestrictToDaysChips
+                    hue={hue}
+                    days={formSchedule.days}
+                    onChange={(next) => setFormSchedule({ ...formSchedule, days: next })}
+                    slug={wakeup.slug}
+                  />
                 </>
               )}
 
