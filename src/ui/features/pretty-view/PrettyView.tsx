@@ -1991,10 +1991,9 @@ export function PrettyView({
           // paneState "inactive" comes from the sibling pane_state emit
           // (funneled through the same transitionToDead site — see Plan
           // 30-01 Task 2). Here we only capture the reason string for
-          // diagnostic display and set status to unmount the compose box
-          // (the "no active Claude session" fallback banner is gated on
-          // renderedState === "inactive" derived from the pane_state
-          // frame, not from status).
+          // diagnostic display and set status to unmount the compose box.
+          // The inactive branch no longer renders a fallback banner (retired
+          // 2026-08-31); an inactive pane just shows empty space.
           if (parsed.reason === "holding_timeout") {
             // Do NOT setStatus("inactive") on holding_timeout — keep the
             // compose surface flex layout intact so the overlay stays
@@ -2981,13 +2980,8 @@ export function PrettyView({
           if UAT surfaced the flash — which Ashley's report did. */}
       {showResolvingSpinner && <PrettyViewLoadingOverlay />}
 
-      {/* Phase 30 (PS30-06): inactive fallback gated on
-          `renderedState === "inactive"`. */}
-      {renderedState === "inactive" && (
-        <div className="flex-1 flex items-center justify-center p-4 text-sm text-[var(--color-pv-fg-muted)]">
-          no active Claude session
-        </div>
-      )}
+      {/* Inactive branch renders nothing — the label was noisy and sometimes
+          flashed during the dormancy transition, per Ashley 2026-08-31. */}
 
       {/* Phase 30 (PS30-06): PrettyViewErrorOverlay gated on
           `renderedState === "error"`. Retry button wires to an inline
@@ -3259,8 +3253,8 @@ export function PrettyView({
       {/* ComposeBox mounts only when onSend is provided (caller is wiring
           a live terminal WS) AND status is "streaming" (a Claude session
           is confirmed active). When status is "inactive" or "error", the
-          compose box is intentionally absent — FALLBACK-01 ensures the
-          inactive branch renders only the "no active Claude session" string. */}
+          compose box is intentionally absent — the inactive branch renders
+          nothing (fallback banner retired 2026-08-31). */}
       {/* Harness tasks panel — mounts directly above the compose area,
           in-flow (takes real layout space, not an overlay). Filtered to
           active tasks only (pending + in_progress); when the filtered list

@@ -196,14 +196,16 @@ describe("Phase 30 — structural-grep gates (PS30-04 + PS30-05 + PS30-06)", () 
     expect(pvSrc).not.toMatch(/\bshowSpinner\b/);
   });
 
-  it("PrettyView.tsx: overlay mount gates use renderedState === '...' (backend-authoritative) — dormant/error/inactive use renderedState; resolving uses showResolvingSpinner; holding moved to useSessionIsRecycling (Phase 53 Plan 03)", () => {
+  it("PrettyView.tsx: overlay mount gates use renderedState === '...' (backend-authoritative) — dormant/error use renderedState; resolving uses showResolvingSpinner; holding moved to useSessionIsRecycling (Phase 53 Plan 03); inactive retired 2026-08-31 (branch renders nothing)", () => {
     // Phase 53 Plan 03: "holding" was intentionally moved off renderedState
     // and is now driven by useSessionIsRecycling (working-store Axis E).
-    // The other overlays still use renderedState — locked by assertions below.
-    // The new hook consumption is locked by the new grep gate below.
+    // 2026-08-31: the "no active Claude session" inactive fallback was
+    // retired — the inactive branch now renders nothing, so there is no
+    // renderedState === "inactive" gate to assert. The other overlays still
+    // use renderedState — locked by assertions below. The new hook
+    // consumption is locked by the new grep gate below.
     expect(pvSrc).toMatch(/renderedState === "dormant"/);
     expect(pvSrc).toMatch(/renderedState === "error"/);
-    expect(pvSrc).toMatch(/renderedState === "inactive"/);
     // phase-30-restore-resolving-overlay-paint-delay (2026-08-10): the
     // resolving-state mount is gated on `showResolvingSpinner`, a boolean
     // flipped by a 400ms paint-delay useEffect observing renderedState.
