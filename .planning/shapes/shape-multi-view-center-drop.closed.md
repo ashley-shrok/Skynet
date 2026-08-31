@@ -67,3 +67,41 @@ GSD phase via /build. Real UI work with three coordinated moving parts (drop-zon
 The work lives in the pretty-view multi-view surface. Identity of record: tina (working tree at `~/skynet-tina` on `feat/tab-title-from-tmux`). Standard box-maintainer ship discipline applies (scoped tests during executor waves, full suite as orchestrator ship-gate, coord-room BEFORE/AFTER posts around container mutation, greenlight-gate at git push).
 
 Next step: `/build` continues from here — plan phase, then execute, then close (which reads this shape and verifies conformance both ways).
+
+---
+
+## Close-Out
+
+**Closed:** 2026-08-31
+**Vehicle used:** GSD phase (Phase 64) via /build — /gsd:phase add → /gsd:plan-phase --skip-research (CONTEXT.md seeded directly from this shape file per precedent Phases 53/56/57/58/59) → /gsd:execute-phase (2 waves, 6 atomic TDD commits) → /gsd:verifier (12/12 invariants PASS) → orchestrator full-suite ship-gate (3308/3308 pass) → /close.
+**Overall verdict:** closed-with-misses (both misses are unsanctioned additions the user asked to fix inline before ship; no shape features missing)
+
+### Shape features (conformance)
+
+- **What this is** — present · Center-of-open-session became a valid drop target with the two source-conditioned outcomes.
+- **Shape** — present · Body-of-session hover lights coral; drop from conv-list-row → replace, drop from open badge → swap.
+- **Philosophy** — present · Same coral vocabulary for both behaviors; source of drag structurally disambiguates; no mode, no palette, no distinction visual.
+- **Prior context** — present · Reuses the existing MIME-payload conventions from Phases 56 (row) and 58 (badge); the center-of-cell region was ignored before this change and now fills that gap.
+- **What would make it wrong: coral inconsistent between behaviors** — present · Single overlay branch renders both cases; identical RGBA fill + border + transition; architecturally impossible to distinguish.
+- **What would make it wrong: coral appears but release does nothing (silent failure)** — partial · Violated by the two additions surfaced in review (plain-text-only-drop path routing to replace despite bare payload; self-drop lighting coral before no-op'ing). Inline fixes commissioned to restore the contract before ship.
+- **What would make it wrong: displaced session ends up half-mounted** — present · Replace is a pure tree-op via setSplitTree; tabs[] array unchanged (integration Test 2 asserts); no closeTab fires; WebSocket lifetime is per-tab and independent of tree position.
+- **What would make it wrong: swap mid-swing overlap / blank / wrong-slot** — present · Swap is atomic (single setSplitTree call returning the new tree); both cells re-render in one React commit.
+- **What would make it wrong: center-drop competes with edge-zone for the same hover pixel** — present · computeEdgeZone returns exactly one zone per cursor position; no visual competition possible.
+- **Scope edges (in)** — present · All five in-scope items delivered.
+- **Scope edges (out)** — present · No visual distinction between replace-coral and swap-coral; no guard/confirmation/undo for replace; no touch-specific handling added; no new drag sources; no new drop targets beyond body-of-open-session.
+- **Scope edges (deferred/tempting-but-no)** — present · Neither trimmed suggestion (visual distinction, "already-in-grid" edge case) reintroduced; tree invariants make the already-in-grid case fall out cleanly.
+
+### Additions (in the result, not in the shape)
+
+- Focus behavior on replace + swap: after the drop, the "carried" session (the replacement, or the dragged badge's source) takes focus in its new cell. Shape said nothing about focus. — endorsed-as-drift ("not a big deal")
+- Plain-text-only drops routing to replace: center-drop accepts bare `text/plain` payload (no rich session MIME) and dispatches to replace, allowing a stray browser drag (text selection, external drag) to clobber a live session. Shape strictly names two rich-payload sources. — unsanctioned (fix lands inline before ship)
+- Self-drop silent no-op with coral lit: coral overlay lights on hover over a cell whose session matches the drag source, then release silently no-ops. Shape rule: "coral appeared → release always performs the corresponding action." — unsanctioned (fix lands inline before ship)
+
+### Follow-ups
+
+- Reject plain-text-only drops in the center-drop path — require `application/x-skynet-row` OR `application/x-skynet-badge` to be present before dispatching to replace or swap; bare text/plain drops fall through to silent-no-op (matching the unknown-MIME path). — accepted-as-drift (fix lands inline before ship)
+- Suppress the coral overlay when the hovered cell would be a self-drop (drag source and target session are the same). Read source tabId from dataTransfer.types + payload during dragover; compare against target cell's tabId; skip overlay if equal. — accepted-as-drift (fix lands inline before ship)
+
+### Notes
+
+Both unsanctioned additions were flagged during plan-check as MEDIUM findings (M-4 = text/plain fallback breadth, M-3-adjacent behavior for self-drop coral) and I dismissed both as "low probability / defensive helper carries it." The reviewer + user surfaced them as real. Lesson: MEDIUM findings that name a live-session-clobber failure mode aren't "low probability" — they're specifically the failure class the shape's "coral means real action" contract exists to prevent. Fold this into future plan-check-fix-dispositioning as: any MEDIUM that names a class of user-observable regression should default to "fix before ship" not "accept as drift."
