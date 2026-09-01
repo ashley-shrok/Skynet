@@ -165,23 +165,35 @@ export function useAutoScroll(paneKey: string, messageCount: number): UseAutoScr
     return () => io.disconnect();
   }, [scrollEl, sentinelEl, paneKey]);
 
-  // Scroll listener. inline-260823-pv-scroll-sentinel: pinning update
-  // MOVED to the IntersectionObserver above. This listener remains for
-  // pv-scroll-diag geometry logging AND as a fallback pinning updater
-  // when IntersectionObserver is unavailable (JSDOM tests without an
-  // IO polyfill).
+  // Scroll listener — AUTHORITATIVE pinning updater (2026-09-01, tina).
+  //
+  // Previously (inline-260823-pv-scroll-sentinel), this was demoted to
+  // diagnostic-only when IntersectionObserver was available, on the theory
+  // that IO was the more robust signal against container-remount races. In
+  // practice the IO callback never fires in Ashley's live browser — 37
+  // pv-scroll-diag events on 2026-09-01 with ZERO sentinel-intersect events —
+  // leaving pinnedRef stuck at its initial `true` and every new message
+  // yanking the viewport to the bottom.
+  //
+  // Root cause of IO silence is unclear from the logs alone (deployed bundle
+  // has the sentinel div correctly nested inside the scroll container). Fix
+  // routes around it: scroll-position math is deterministic, cheap, works in
+  // every browser, and doesn't depend on any observer firing. IO effect stays
+  // as an advisory second writer to pinnedRef — when it works, both agree;
+  // when it doesn't, the scroll listener carries the load.
+  //
+  // The container-remount race that originally motivated IO (new element
+  // mounts with scrollTop=0 while scrollHeight is large mid-hydration →
+  // scroll event flips pinnedRef=false → follow effects gate out) is still
+  // covered by `didFirstContentScrollRef`: the very first content-populate
+  // per pane bypasses the pinnedRef gate.
   useEffect(() => {
     if (!scrollEl) return;
-    const hasIO = typeof IntersectionObserver !== "undefined";
     const onScroll = (): void => {
       const dist = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
       const pinned = dist <= BOTTOM_EPSILON;
-      if (!hasIO) {
-        // Only update pinnedRef from scroll events when IO is unavailable
-        // (test-env fallback). In production the IO owns pinning state.
-        pinnedRef.current = pinned;
-        setIsPinnedToBottom(pinned);
-      }
+      pinnedRef.current = pinned;
+      setIsPinnedToBottom(pinned);
       // pv-scroll-diag (2026-08-23): log every scroll event so we can
       // reconstruct the geometry timeline around a "jump up" complaint.
       // Volume is bounded by user input; flows to console-forward.log.
@@ -204,12 +216,21 @@ export function useAutoScroll(paneKey: string, messageCount: number): UseAutoScr
   useEffect(() => {
     if (!scrollEl) return;
     const isFirstContentArrival = !didFirstContentScrollRef.current && messageCount > 0;
-    if (!pinnedRef.current && !isFirstContentArrival) {
+    // Belt-and-suspenders (2026-09-01, tina): also re-measure at write time.
+    // pinnedRef is normally correct (scroll listener owns it authoritatively
+    // per L173 header) but if it ever drifts stale — no scroll event fired
+    // since user scrolled, IO effect wrote stale-true — the direct measurement
+    // here catches it and refuses to yank. Skip iff BOTH signals say the user
+    // is scrolled up.
+    const distNow = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+    const pinnedByMeasurement = distNow <= BOTTOM_EPSILON;
+    const shouldWrite = (pinnedRef.current && pinnedByMeasurement) || isFirstContentArrival;
+    if (!shouldWrite) {
       // pv-scroll-diag (2026-08-23): log skip-write path so we can see
       // whether the browser's overflow-anchor preserved position when we
       // deliberately did not write.
       console.info(
-        `[pv-scroll-diag] follow-skip messageCount=${messageCount} top=${scrollEl.scrollTop} height=${scrollEl.scrollHeight} pinned=false paneKey=${paneKey}`,
+        `[pv-scroll-diag] follow-skip messageCount=${messageCount} top=${scrollEl.scrollTop} height=${scrollEl.scrollHeight} pinnedRef=${pinnedRef.current} pinnedByMeasurement=${pinnedByMeasurement} paneKey=${paneKey}`,
       );
       return;
     }
@@ -275,16 +296,24 @@ export function useAutoScroll(paneKey: string, messageCount: number): UseAutoScr
         // mount per pane anchors to bottom even under spurious pinned=false.
         const isFirstContentArrival =
           !didFirstContentScrollRef.current && scrollEl.children.length > 0;
-        const willWrite = pinnedRef.current || isFirstContentArrival;
+        // Belt-and-suspenders (2026-09-01, tina): re-measure position at
+        // write time. Same rationale as the follow effect above — pinnedRef
+        // should be authoritative but the direct measurement here catches any
+        // stale-true drift and refuses to yank the user out of a scrolled-up
+        // read.
         const beforeTop = scrollEl.scrollTop;
         const beforeHeight = scrollEl.scrollHeight;
+        const distNow = beforeHeight - beforeTop - scrollEl.clientHeight;
+        const pinnedByMeasurement = distNow <= BOTTOM_EPSILON;
+        const willWrite =
+          (pinnedRef.current && pinnedByMeasurement) || isFirstContentArrival;
         if (!willWrite) {
           // pv-scroll-diag: skip-write path — browser overflow-anchor should
           // handle. If Ashley sees a "jump up" and this log shows top
           // moving between successive skip-writes without a user scroll in
           // between, the browser's anchor is being defeated somewhere.
           console.info(
-            `[pv-scroll-diag] mutation-skip added=${added} removed=${removed} top=${beforeTop} height=${beforeHeight} client=${scrollEl.clientHeight} pinned=false children=${scrollEl.children.length} paneKey=${paneKey}`,
+            `[pv-scroll-diag] mutation-skip added=${added} removed=${removed} top=${beforeTop} height=${beforeHeight} client=${scrollEl.clientHeight} pinnedRef=${pinnedRef.current} pinnedByMeasurement=${pinnedByMeasurement} children=${scrollEl.children.length} paneKey=${paneKey}`,
           );
           return;
         }
