@@ -247,7 +247,7 @@ describe("extractCosmeticsFromFrontmatter", () => {
 });
 
 // ===========================================================================
-// extractCosmeticsFromFrontmatter — coordinator field (Phase 67 Plan 67-01)
+// Phase 67 Plan 67-01: coordinator field narrowing
 // ===========================================================================
 //
 // Phase 67 adds ONE MORE optional cosmetic scalar to the on-disk YAML

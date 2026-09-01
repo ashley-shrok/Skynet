@@ -1450,6 +1450,7 @@ export const AVATAR_MIME_FROM_EXT: Record<AvatarExt, string> = {
  * Each field is type-narrowed via typeof + range checks (T-66-03-03):
  *   - displayName / title / voice / avatar: non-empty string
  *   - colorHue: integer-or-float number in [0, 359]
+ *   - coordinator: boolean (typeof === "boolean") — Phase 67 Plan 67-01
  * Anything failing its gate is DROPPED (not defaulted) — the caller
  * distinguishes "not present" from "present with bad value" by checking
  * `field in cosmetics`.
@@ -1460,6 +1461,7 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
   colorHue?: number;
   voice?: string;
   avatar?: string;
+  coordinator?: boolean;
 } {
   const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return {};
@@ -1477,6 +1479,7 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
     colorHue?: number;
     voice?: string;
     avatar?: string;
+    coordinator?: boolean;
   } = {};
   if (typeof src.displayName === "string" && src.displayName.length > 0) {
     out.displayName = src.displayName;
@@ -1497,6 +1500,9 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
   }
   if (typeof src.avatar === "string" && src.avatar.length > 0) {
     out.avatar = src.avatar;
+  }
+  if (typeof src.coordinator === "boolean") {
+    out.coordinator = src.coordinator;
   }
   return out;
 }
