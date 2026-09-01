@@ -11,6 +11,12 @@ export interface Identity {
   avatarMime: string;
   avatarUrl: string;
   avatarEtag: string;
+  /** Phase 67 Plan 67-01: coordinator flag derived from the identity's
+   *  on-disk YAML frontmatter (`coordinator: true|false`). Non-nullable —
+   *  absent-from-disk normalizes to `false` (actor) per the backend
+   *  publicIdentity safe-default contract, so Wave 2's surface components
+   *  can branch on it without null-safety plumbing. */
+  coordinator: boolean;
   createdAt: string;
   updatedAt: string;
 }

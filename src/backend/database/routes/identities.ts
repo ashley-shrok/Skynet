@@ -99,13 +99,17 @@ function capitalizeFirst(s: string): string {
  * `cosmetics` overlay semantics:
  *   - present string → use it (overrides safe-default)
  *   - present number for colorHue → use it (overrides null)
+ *   - present boolean for coordinator → use it; absent → safe-default false (actor)
  *   - absent → safe-default (displayName=capitalizeFirst(identityKey);
  *     title/colorHue/voice → null; avatarMime/avatarEtag → "")
+ *
+ * Phase 67 Plan 67-01 exports this function so the colocated PUB-* tests
+ * can exercise it directly (routes still call it from within the module).
  *
  * The `role` argument is preserved (used only by pre-flip tests; kept for
  * signature compatibility with any surviving caller).
  */
-function publicIdentity(
+export function publicIdentity(
   row: typeof identities.$inferSelect,
   cosmetics: {
     displayName?: string;
@@ -114,6 +118,7 @@ function publicIdentity(
     voice?: string;
     avatarMime?: string;
     avatarEtag?: string;
+    coordinator?: boolean;
   } = {},
   role: string | null = null,
 ) {
@@ -132,6 +137,11 @@ function publicIdentity(
     avatarUrl: `/identities/${row.id}/avatar`,
     avatarEtag:
       typeof cosmetics.avatarEtag === "string" ? cosmetics.avatarEtag : "",
+    // Phase 67 Plan 67-01: coordinator overlay. Absence = actor = false
+    // safe-default (mirrors the avatarMime/avatarEtag non-nullable-safe-default
+    // pattern; the frontend Identity type has coordinator: boolean, not
+    // boolean | null, so this shape is load-bearing for TSC).
+    coordinator: typeof cosmetics.coordinator === "boolean" ? cosmetics.coordinator : false,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     role,
