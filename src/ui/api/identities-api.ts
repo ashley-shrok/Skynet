@@ -278,6 +278,10 @@ export interface CloneIdentityInput {
   newName: string;
   title: string;
   voice: string | null;
+  /** Frontend passes source identity's colorHue (LOCKED in UI — no picker on
+   *  the clone dialog); backend writes it to the cloned identity's on-disk
+   *  frontmatter. Phase 66 /close 2026-09-01 follow-up. */
+  colorHue: number | null;
   avatarCandidateId: string | null;
   /** Working directory for the new identity on the target host. Backend
    *  mkdir -p's this path. Required (default "~" in CloneAgentDialog).

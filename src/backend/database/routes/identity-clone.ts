@@ -13,8 +13,11 @@
  *       newName: string,             // must pass IDENTITY_KEY_RE
  *       title: string,               // required non-empty (≤200 chars)
  *       voice: string | null,        // optional (≤100 chars)
- *       avatarCandidateId: string | null   // if provided, uses candidate cache;
- *                                          // if null, reuses source avatarData
+ *       colorHue: number | null,     // integer 0-359 (frontend passes source's;
+ *                                    // LOCKED in UI — no picker on clone dialog)
+ *       avatarCandidateId: string | null,  // if provided, candidate bytes are
+ *                                          // written as sibling avatar file
+ *       path: string,                // remote working directory for sessions
  *     }
  *   Responses:
  *     201 { publicIdentity(newRow) } — created
@@ -103,9 +106,13 @@ import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import {
   writeMarkdownFileAtomic,
+  writeAvatarSiblingFile,
   resolveRoleForIdentity,
+  MIME_TO_AVATAR_EXT,
   IDENTITY_KEY_RE,
+  type AvatarExt,
 } from "../../claude-session/identity-artifact-reader.js";
+import yaml from "js-yaml";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import {
   getCandidateForBirth,
@@ -271,6 +278,7 @@ router.post(
     const rawHostId = body.hostId;
     const rawTitle = body.title;
     const rawVoice = body.voice;
+    const rawColorHue = body.colorHue;
     const rawCandidateId = body.avatarCandidateId;
     const rawPath = body.path;
 
@@ -318,6 +326,23 @@ router.post(
       res.status(400).json({ error: `voice must be ≤${MAX_VOICE_LEN} chars` });
       return;
     }
+    // colorHue: optional. Frontend passes source identity's colorHue (LOCKED
+    // in the UI — no picker on the clone dialog) so the cloned identity
+    // inherits the color of the identity it was cloned from. Backend validates
+    // the shape only (integer 0-359 or null/absent) — no server-side check
+    // against source's on-disk colorHue since sourceRow.colorHue was retired
+    // when Phase 66 Plan 04 dropped the store columns.
+    if (
+      rawColorHue !== null &&
+      rawColorHue !== undefined &&
+      (typeof rawColorHue !== "number" ||
+        !Number.isInteger(rawColorHue) ||
+        rawColorHue < 0 ||
+        rawColorHue > 359)
+    ) {
+      res.status(400).json({ error: "colorHue must be an integer 0-359 or null" });
+      return;
+    }
     if (
       rawCandidateId !== null &&
       rawCandidateId !== undefined &&
@@ -340,6 +365,7 @@ router.post(
     const hostId = rawHostId;
     const title = rawTitle.trim();
     const voice: string | null = typeof rawVoice === "string" ? rawVoice : null;
+    const colorHue: number | null = typeof rawColorHue === "number" ? rawColorHue : null;
     const avatarCandidateId: string | null =
       typeof rawCandidateId === "string" && rawCandidateId.length > 0
         ? rawCandidateId
@@ -392,16 +418,17 @@ router.post(
 
     // -----------------------------------------------------------------------
     // 3. Fetch avatar bytes (candidate cache only — Phase 66 Plan 04 dropped
-    //    sourceRow.avatarData; the source-verbatim reuse path becomes a no-op
-    //    at the store level. If the user does not supply avatarCandidateId,
-    //    the cloned identity gets no avatar bytes committed here; it inherits
-    //    whatever the source's on-disk avatar file was (an orthogonal disk-
-    //    copy step that lives outside Phase 66's scope). The candidate cache
-    //    branch is retained because Test 8 (consumeCandidateForBirth called)
-    //    still needs the wire contract to honor the cache-consume idempotency
-    //    guarantee — even though the bytes are no longer persisted here.
+    //    sourceRow.avatarData). If the user supplies avatarCandidateId, the
+    //    candidate bytes + mime are written to the cloned identity's home
+    //    folder as a sibling avatar file in step 10a below (matches the birth
+    //    flow's Step 2.5). If the user does NOT supply a candidate, the cloned
+    //    identity ships without an avatar sibling (renders with placeholder
+    //    initial — same fallback as any identity whose on-disk avatar is
+    //    absent). Inheriting the source's on-disk avatar bytes when the user
+    //    doesn't override is orthogonal follow-up work.
     // -----------------------------------------------------------------------
     let avatarBytes: Buffer | null = null;
+    let avatarMime: string | null = null;
     if (avatarCandidateId) {
       const cand = getCandidateForBirth(userId, avatarCandidateId);
       if (!cand) {
@@ -409,6 +436,7 @@ router.post(
         return;
       }
       avatarBytes = cand.bytes;
+      avatarMime = cand.mime;
     }
 
     // -----------------------------------------------------------------------
@@ -587,8 +615,51 @@ router.post(
       //
       //       (cloned from <sourceIdentityKey>)
       // ---------------------------------------------------------------------
+      // Phase 66 /close 2026-09-01 follow-up: grow the frontmatter to include
+      // the full cosmetic scalars (displayName, title, colorHue, voice, avatar
+      // filename when candidate bytes are provided). Mirrors the birth flow's
+      // Step 2.5 emission via buildIdentityFileBody in identity-birth-
+      // orchestrator.ts. Absent-⇒-omit rule: any scalar that is null, absent,
+      // or empty-after-trim is omitted from the frontmatter (do NOT write null).
+      const cloneDisplayName =
+        newName.charAt(0).toUpperCase() + newName.slice(1);
+      let avatarExt: AvatarExt | null = null;
+      if (avatarBytes && avatarMime) {
+        const looked = MIME_TO_AVATAR_EXT[avatarMime];
+        if (!looked) {
+          res
+            .status(400)
+            .json({ error: `unsupported avatar mime: ${avatarMime}` });
+          return;
+        }
+        avatarExt = looked;
+      }
+      const cloneFrontmatterPairs: Array<[string, string | number]> = [];
+      cloneFrontmatterPairs.push(["role", sourceRole]);
+      cloneFrontmatterPairs.push(["displayName", cloneDisplayName]);
+      if (title.length > 0) {
+        cloneFrontmatterPairs.push(["title", title]);
+      }
+      if (colorHue !== null) {
+        cloneFrontmatterPairs.push(["colorHue", colorHue]);
+      }
+      if (voice !== null && voice.trim().length > 0) {
+        cloneFrontmatterPairs.push(["voice", voice]);
+      }
+      if (avatarExt !== null) {
+        cloneFrontmatterPairs.push(["avatar", `${newName}.${avatarExt}`]);
+      }
+      const cloneYamlBody = yaml.dump(
+        Object.fromEntries(cloneFrontmatterPairs),
+        {
+          sortKeys: false,
+          lineWidth: -1,
+          noRefs: true,
+          forceQuotes: false,
+        },
+      );
       const identityFileMarkdown =
-        `---\nrole: ${sourceRole}\n---\n\n${CLONE_SEED_COMMENT}\n\n# ${newName}\n\n(cloned from ${sourceIdentityKey})\n`;
+        `---\n${cloneYamlBody}---\n\n${CLONE_SEED_COMMENT}\n\n# ${newName}\n\n(cloned from ${sourceIdentityKey})\n`;
       const targetPath = `${remoteHome}/.claude/identities/${newName}/${newName}.md`;
       try {
         await writeMarkdownFileAtomic(conn, targetPath, identityFileMarkdown);
@@ -607,6 +678,34 @@ router.post(
         return;
       }
 
+      // -------------------------------------------------------------------
+      // 10a. Write the sibling avatar file if candidate bytes provided.
+      //      Same SSH connection + same SFTP tmp+rename discipline as the
+      //      markdown write. On failure, we've already written the .md — the
+      //      clone folder is partially populated. That's the same failure
+      //      mode as birth Step 2.5 (accepted). The identity renders with a
+      //      placeholder until either the operator retries clone or a
+      //      subsequent PUT /:id/avatar lands on disk.
+      // -------------------------------------------------------------------
+      if (avatarBytes && avatarExt !== null) {
+        try {
+          await writeAvatarSiblingFile(conn, newName, avatarExt, avatarBytes);
+        } catch (err) {
+          sshLogger.error(
+            "identity-clone: avatar sibling write failed",
+            err instanceof Error ? err : new Error(String(err)),
+            {
+              operation: "identity_clone_avatar_write",
+              hostId,
+              newName,
+              avatarExt,
+            },
+          );
+          res.status(502).json({ error: "SSH exec failed" });
+          return;
+        }
+      }
+
       // ---------------------------------------------------------------------
       // 11. Insert new Skynet DB row.
       //     LOCKED fields (from D-CONTEXT §UX):
@@ -623,17 +722,11 @@ router.post(
       const newId = nanoid();
       const now = new Date().toISOString();
       // Phase 66 Plan 04: cosmetic columns physically dropped from identities.
-      // The clone insertRow now holds only the 5 surviving columns. The
-      // cloned identity's cosmetics live on disk in <newName>.md's frontmatter
-      // — that file is written above via writeMarkdownFileAtomic; growing it
-      // with the per-clone display cosmetics is orthogonal follow-up work
-      // (out of Phase 66's scope; the id skill and the wake-up seed comment
-      // handle those write-paths). `title`, `voice`, `avatarBytes` remain
-      // in local scope because the endpoint validates them at the wire even
-      // though they're not persisted here.
-      void title;
-      void voice;
-      void avatarBytes;
+      // The clone insertRow holds only the 5 surviving columns. The cloned
+      // identity's cosmetics live on disk in the frontmatter emitted at step
+      // 10 above (displayName/title/colorHue/voice/avatar), and the avatar
+      // sibling file written at step 10a. This matches the birth flow's
+      // Step 2.5 shape end-to-end (Phase 66 /close 2026-09-01 follow-up).
       const insertRow = {
         id: newId,
         userId,

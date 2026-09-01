@@ -92,8 +92,16 @@ vi.mock("../../ssh/host-resolver.js", () => ({
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   writeMarkdownFileAtomic: vi.fn(),
+  writeAvatarSiblingFile: vi.fn(),
   resolveRoleForIdentity: vi.fn(),
   IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
+  MIME_TO_AVATAR_EXT: {
+    "image/webp": "webp",
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/gif": "gif",
+    "image/svg+xml": "svg",
+  },
 }));
 
 vi.mock("./identity-avatar-batch.js", () => ({
@@ -209,6 +217,7 @@ import { execCommand } from "../../ssh/tmux-helper.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import {
   writeMarkdownFileAtomic,
+  writeAvatarSiblingFile,
   resolveRoleForIdentity,
 } from "../../claude-session/identity-artifact-reader.js";
 import {
@@ -580,8 +589,16 @@ describe("POST /identities/clone", () => {
     expect(writeArgs[1]).toBe("/home/ubuntu/.claude/identities/tina-2/tina-2.md");
 
     const stubBody = writeArgs[2] as string;
-    // (a) Positive assertions: role frontmatter present
-    expect(stubBody).toMatch(/^---\nrole: box-maintainer\n---/);
+    // (a) Positive assertions: role frontmatter present + full cosmetic
+    //     frontmatter emitted per Phase 66 /close 2026-09-01 follow-up.
+    //     role must come first (id-skill invariant).
+    expect(stubBody).toMatch(/^---\nrole: box-maintainer\n/);
+    expect(stubBody).toContain("displayName: Tina-2"); // capitalized newName
+    expect(stubBody).toContain("title: Cloned Op"); // user-supplied title
+    expect(stubBody).toContain("voice: Nathan.wav"); // user-supplied voice
+    expect(stubBody).toContain("avatar: tina-2.png"); // ext from candidate mime
+    // colorHue is absent when the request body omits it (Test 8 doesn't send)
+    expect(stubBody).not.toContain("colorHue:");
     // (b) Positive assertions: seed comment phrases present (REVISION 2026-08-04)
     expect(stubBody).toContain("This identity has no relay account yet");
     expect(stubBody).toContain("On first wake");
@@ -594,6 +611,11 @@ describe("POST /identities/clone", () => {
     // (e) name + source-key reference present
     expect(stubBody).toContain("tina-2");
     expect(stubBody).toContain("tina");
+    // (f) writeAvatarSiblingFile fired with the candidate ext + bytes
+    expect(writeAvatarSiblingFile).toHaveBeenCalledTimes(1);
+    const avatarWriteArgs = (writeAvatarSiblingFile as Mock).mock.calls[0];
+    expect(avatarWriteArgs[1]).toBe("tina-2"); // identityKey
+    expect(avatarWriteArgs[2]).toBe("png"); // ext derived from candidate mime
 
     // Candidate consumed. Patch #316 (2026-08-04) made userId a string across
     // the birth+clone flows; consumeCandidateForBirth receives the string form.
@@ -624,6 +646,56 @@ describe("POST /identities/clone", () => {
 
     // Cleanup — conn.end() fired in finally
     expect(stubConn.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("Test 8b: happy path with colorHue AND voice omitted — frontmatter includes colorHue, omits voice + avatar (Phase 66 /close 2026-09-01 follow-up)", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify({
+        sourceIdentityKey: "tina",
+        hostId: 5,
+        newName: "tina-b",
+        title: "Cloned Op",
+        voice: null,
+        colorHue: 216,
+        avatarCandidateId: null,
+        path: "~",
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    // role + displayName + title + colorHue present
+    expect(stubBody).toMatch(/^---\nrole: box-maintainer\n/);
+    expect(stubBody).toContain("displayName: Tina-b");
+    expect(stubBody).toContain("title: Cloned Op");
+    expect(stubBody).toContain("colorHue: 216");
+    // voice + avatar absent (omit-if-absent rule)
+    expect(stubBody).not.toContain("voice:");
+    expect(stubBody).not.toContain("avatar:");
+    // writeAvatarSiblingFile NOT called when no candidate provided
+    expect(writeAvatarSiblingFile).not.toHaveBeenCalled();
+  });
+
+  it("Test 8c: colorHue validation — reject out-of-range or non-integer", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify({
+        sourceIdentityKey: "tina",
+        hostId: 5,
+        newName: "tina-c",
+        title: "Cloned Op",
+        voice: null,
+        colorHue: 400, // out of range
+        avatarCandidateId: null,
+        path: "~",
+      }),
+    });
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toMatch(/colorHue/i);
   });
 
   it("Test 9: WITHOUT avatarCandidateId — inserts narrow row (no avatar-copy from source; cosmetics live on disk)", async () => {

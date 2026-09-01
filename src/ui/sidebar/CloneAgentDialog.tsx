@@ -289,6 +289,10 @@ export function CloneAgentDialog({
         newName: name,
         title: title.trim(),
         voice: voice.length > 0 ? voice : null,
+        // colorHue is LOCKED-from-source in the UI (no picker). Passing it in
+        // the wire so the backend can persist it to the cloned identity's
+        // on-disk frontmatter (Phase 66 /close 2026-09-01 follow-up).
+        colorHue: sourceIdentity.colorHue,
         avatarCandidateId: pickedCandidateId,
         path: normalizedPath,
       });
