@@ -1672,10 +1672,24 @@ Plans:
 
 ### Phase 66: Skynet reads and writes identity cosmetics from disk
 
-**Goal:** [To be planned]
-**Requirements**: TBD
-**Depends on:** Phase 65
-**Plans:** 0 plans
+**Goal:** Skynet's identity endpoints stop treating the encrypted store as the source of truth for identity cosmetics (displayName, title, colorHue, voice, avatar) and start reading + writing them via the artifact-reader against each identity's home box on disk. Post-Phase-A the fleet is already disk-authoritative for these fields; this phase catches Skynet up so a Skynet-created identity and a disk-created identity render byte-shape-identically in Skynet (per the shape file's core commitment: `.planning/shapes/identity-prettiness-on-disk.md`). Three tracks — BIRTH (grow the birth orchestrator's Step 2.5 frontmatter emission + write avatar sibling file), UPDATE (flip PUT /identities/:id from store-column writes to disk frontmatter mutations), READ (flip GET /identities + GET /:id/avatar from store reads to per-request lazy disk reads with graceful degradation on unreachable / missing-frontmatter identities) — plus one FRONTEND ENRICHMENT (populate identityHosts from conversation-store fleetSessions + thread hostId through avatarUrl consumers + backend publicIdentity safe-defaults) and one MIGRATION (drop the seven now-dead cosmetic columns from the identities table via an idempotent startup ALTER TABLE DROP COLUMN block). The identity row itself survives as the userId + identityKey + timestamp ownership anchor.
+**Requirements**: (no REQ-IDs — scope lives in `.planning/phases/66-skynet-reads-and-writes-identity-cosmetics-from-disk/CONTEXT.md` per shape-file precedent)
+**Depends on:** Phase 65 (numerical ordering only — no functional dependency; Phase A shipped by nadia+nelly 2026-08-31 is the sole functional prereq)
+**Plans:** 5 plans
 
-Plans:
-- [ ] TBD (run /gsd-plan-phase 66 to break down)
+**Wave 1** *(two parallel tracks — disjoint file surfaces)*
+
+- [ ] 66-01-PLAN.md — BIRTH: grow identity-birth-orchestrator Step 2.5 to emit full cosmetic frontmatter + write avatar sibling; add writeAvatarSiblingFile helper to artifact-reader with atomic-rename discipline; extend role-frontmatter tests + remote-writes tests
+- [ ] 66-02-PLAN.md — UPDATE: flip PUT /identities/:id to writeIdentityFile + writeAvatarSiblingFile via artifact-reader; widen contract to accept hostId; ext-swap deletes old sibling; RED/GREEN test file identities.put-disk.test.ts covers present/absent/null-remove/avatar-swap/hostId-required/SSH-unreachable/missing-frontmatter; audit + shim all 7 IdentityModal.*.test.tsx files
+
+**Wave 2** *(single track — backend READ path flip + co-located publicIdentity safe-defaults; per-checker-B2 the safe-defaults moved from Plan 05 into Plan 03 so the null-cosmetics scenario Plan 03 introduces is contract-safe from the moment the flip lands)*
+
+- [ ] 66-03-PLAN.md — READ + SAFE-DEFAULTS: flip GET / to per-identity lazy disk-derivation (identityHosts query param); flip GET /:id/avatar to readAvatarSiblingFile with ext-discovery; graceful degradation per row on unreachable / missing-frontmatter / synthetic-unreachable-fixture edge case (safe-defaults returned, not null); new readAvatarSiblingFile + extractCosmeticsFromFrontmatter helpers; publicIdentity() safe non-null defaults for the frontend Identity type's non-nullable strings (displayName=capitalizeFirst(identityKey); avatarMime=""; avatarEtag="") — moved here from Plan 05 per checker B2 iteration 3
+
+**Wave 3** *(blocked on 66-03 completion — frontend enrichment depends on the backend endpoints Plan 03 defines)*
+
+- [ ] 66-05-PLAN.md — FRONTEND ENRICHMENT: rewire identities-store.fetchOnce to build identityHosts from conversation-store fleetSessions before calling listIdentities (sessionMatchKey imported directly from @/features/terminal/session-hue per W4); thread hostId through IdentityModal.tsx L1264+L1396 + 5 other avatarUrl consumers (IdentityBadge, PrettyConversationRow, SessionRow, CloneAgentDialog); audit + shim all 7 IdentityModal.*.test.tsx files; NO backend edits (publicIdentity safe-defaults live in Plan 03 per B2)
+
+**Wave 4** *(blocked on 66-01 + 66-02 + 66-03 + 66-05 completion — dead columns can only be dropped once no code reads/writes them AND the frontend enrichment is proven green)*
+
+- [ ] 66-04-PLAN.md — MIGRATION: idempotent ALTER TABLE identities DROP COLUMN block in db/index.ts migrateSchema() for the 7 dead cosmetic columns (with SQLite version preflight per B6); drizzle schema typing narrowed; prune all insert/update paths (POST + birth + clone + share) of dropped columns; return-shape narrowing across identity-birth.ts L124-158, identity-birth-orchestrator.ts L149 + L381-401, identity-clone.ts L186-192, identity-share.ts L208-213; publicIdentity() null-echoes for moved fields (safe-defaults contract from Plan 03 continues to satisfy the frontend Identity type); new migration test covers old-schema-boot → drop → surviving-columns-intact + SQLite version preflight
