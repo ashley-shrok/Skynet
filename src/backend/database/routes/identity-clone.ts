@@ -219,6 +219,15 @@ function publicIdentity(row: typeof identities.$inferSelect) {
     avatarMime: "",
     avatarUrl: `/identities/${row.id}/avatar`,
     avatarEtag: "",
+    // Phase 67 /close 2026-09-01 follow-up (H2): mirror the main
+    // identities.ts publicIdentity coordinator field so the clone response
+    // satisfies the frontend Identity type's non-nullable `coordinator:
+    // boolean` contract. Freshly-cloned identities are never coordinators
+    // (coordinator lives in on-disk YAML; a fresh clone has no such YAML
+    // yet — even the frontmatter emitted at step 10 omits coordinator), so
+    // `false` is correct. Field position matches identities.ts:
+    // between avatarEtag and createdAt.
+    coordinator: false,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

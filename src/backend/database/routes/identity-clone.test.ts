@@ -537,6 +537,7 @@ describe("POST /identities/clone", () => {
       avatarUrl: string;
       avatarMime: string;
       avatarEtag: string;
+      coordinator: boolean;
     };
     expect(body.identityKey).toBe("tina-2");
     // Phase 66 Plan 04: publicIdentity uses the safe-defaults contract
@@ -554,6 +555,12 @@ describe("POST /identities/clone", () => {
     expect(body.avatarEtag).toBe("");
     expect(body.avatarUrl).toBe(`/identities/${body.id}/avatar`);
     expect(body.id).toBeTruthy();
+    // Phase 67 /close 2026-09-01 follow-up (H2): clone-local publicIdentity
+    // must emit `coordinator: false` to satisfy the frontend Identity type's
+    // non-nullable coordinator field. Freshly-cloned identities are never
+    // coordinators (coordinator lives in on-disk YAML — a fresh clone has
+    // no such YAML yet).
+    expect(body.coordinator).toBe(false);
 
     // DB assertions — new row inserted alongside the source row. Store shape
     // is narrowed to the 5 surviving columns; NO cosmetic asserts remain.
