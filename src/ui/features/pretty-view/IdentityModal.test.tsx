@@ -486,3 +486,29 @@ describe("IdentityModal — Phase 66 Plan 05: hostId threading + etag guard", ()
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 67 Plan 67-02 Track C — coordinator watermark on the IdentityModal
+// DialogHeader region. Two tests: presence-when-true / absence-when-absent.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("IdentityModal — Phase 67 coordinator watermark", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("MODAL-COORD-1: identity.coordinator === true renders data-testid=coordinator-watermark (inside DialogHeader region)", () => {
+    renderModal({ coordinator: true });
+    expect(screen.queryByTestId("coordinator-watermark")).not.toBeNull();
+  });
+
+  it("MODAL-COORD-2: identity.coordinator absent → no coordinator-watermark element in DOM", () => {
+    // BASE_IDENTITY omits coordinator — undefined at runtime, resolves
+    // false-branch under the strict `=== true` guard on the render side.
+    renderModal();
+    expect(screen.queryByTestId("coordinator-watermark")).toBeNull();
+  });
+});
