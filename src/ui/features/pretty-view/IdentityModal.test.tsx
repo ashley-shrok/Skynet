@@ -180,11 +180,13 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
       expect(mockedUpdateIdentity).toHaveBeenCalledTimes(1);
     }, { timeout: 15000 });
 
-    // Assert updateIdentity was called with (id, {title: "New title"}, null).
+    // Assert updateIdentity was called with (id, {title: "New title"}, null, hostId).
+    // Phase 66 Plan 66-02: hostId is now the required 4th arg (renderModal wires hostId={1}).
     expect(mockedUpdateIdentity).toHaveBeenCalledWith(
       "id-1",
       { title: "New title" },
       null,
+      1,
     );
 
     // Assert applyIdentityChange was called with the resolved identity.
@@ -233,13 +235,16 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
       expect(mockedUpdateIdentity).toHaveBeenCalledTimes(1);
     });
 
-    // Assert updateIdentity was called with (id, {} (no title change), File).
-    const [calledId, calledMeta, calledFile] = mockedUpdateIdentity.mock.calls[0];
+    // Assert updateIdentity was called with (id, {} (no title change), File, hostId).
+    // Phase 66 Plan 66-02: hostId now threaded as the 4th arg (renderModal wires hostId={1}).
+    const [calledId, calledMeta, calledFile, calledHostId] =
+      mockedUpdateIdentity.mock.calls[0];
     expect(calledId).toBe("id-1");
     expect(calledMeta).toEqual({});
     expect(calledFile).toBeInstanceOf(File);
     expect((calledFile as File).name).toBe("avatar.png");
     expect((calledFile as File).type).toBe("image/png");
+    expect(calledHostId).toBe(1);
 
     // Assert applyIdentityChange was called with the resolved identity.
     expect(mockedApplyIdentityChange).toHaveBeenCalledWith(updatedIdentity);

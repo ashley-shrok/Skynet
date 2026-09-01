@@ -1127,7 +1127,10 @@ export function IdentityModal({
       if (hueDraft !== committedHue) {
         meta.colorHue = hueDraft;
       }
-      const updated = await updateIdentity(identity.id, meta, avatarFile);
+      // Phase 66 Plan 66-02: thread the modal's existing hostId prop into
+      // updateIdentity — the backend PUT handler now uses it to route the
+      // disk-write to the identity's home box via the artifact-reader.
+      const updated = await updateIdentity(identity.id, meta, avatarFile, hostId);
       // Patch #279: GET-verify guard — Skynet's multipart handler has been known to silently
       // no-op on the `data` field when middleware order gets misconfigured. Defensive check:
       // if we sent a colorHue change but the server echo doesn't reflect it, surface an inline

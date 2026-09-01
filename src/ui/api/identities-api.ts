@@ -30,6 +30,24 @@ function buildFormData(meta: IdentityInput, avatar: File | null): FormData {
   return fd;
 }
 
+/**
+ * Phase 66 Plan 66-02: updateIdentity's data payload now carries `hostId`
+ * so the backend can route the disk-write to the identity's home box via
+ * the artifact-reader (LOCAL bind-mount vs REMOTE connectOneShot). createIdentity
+ * intentionally does NOT take hostId here — POST /identities does not hit
+ * disk in this phase (Plan 66-04 scope).
+ */
+function buildUpdateFormData(
+  meta: IdentityInput,
+  avatar: File | null,
+  hostId: number,
+): FormData {
+  const fd = new FormData();
+  fd.append("data", JSON.stringify({ ...meta, hostId }));
+  if (avatar) fd.append("avatar", avatar);
+  return fd;
+}
+
 export async function listIdentities(): Promise<Identity[]> {
   try {
     const response = await authApi.get("/identities");
@@ -60,11 +78,16 @@ export async function updateIdentity(
   id: string,
   meta: IdentityInput,
   avatar: File | null,
+  /** Phase 66 Plan 66-02: REQUIRED — routes the backend disk-write to the
+   *  identity's home box (isLocalHostId LOCAL branch vs connectOneShot
+   *  REMOTE branch). IdentityModal already receives hostId as a prop
+   *  (Phase 22 SRIC, L170); the modal's onSave threads it through. */
+  hostId: number,
 ): Promise<Identity> {
   try {
     const response = await authApi.put(
       `/identities/${id}`,
-      buildFormData(meta, avatar),
+      buildUpdateFormData(meta, avatar, hostId),
       { headers: { "Content-Type": "multipart/form-data" } },
     );
     return response.data as Identity;
