@@ -1404,6 +1404,230 @@ export async function writeAvatarSiblingFile(
   await sftpWriteBinaryAtomic(conn, targetPath, bytes);
 }
 
+// ---------------------------------------------------------------------------
+// 6c. Cosmetics reads — Phase 66 Plan 03
+// ---------------------------------------------------------------------------
+//
+// Two new exports that support the READ flip in identities.ts:
+//   - AVATAR_MIME_FROM_EXT: inverse of MIME_TO_AVATAR_EXT — ext → mime string.
+//     Used by GET /:id/avatar to set Content-Type from the on-disk file's ext.
+//   - readAvatarSiblingFile(conn, identityKey): discovers + reads the sibling
+//     avatar file (frontmatter authoritative when present; ls / fs cascade
+//     otherwise). Returns null when no sibling exists; throws on SSH errors.
+//   - extractCosmeticsFromFrontmatter(markdown): parses the .md's frontmatter
+//     block, type-narrows each of the 5 cosmetic keys, returns whatever
+//     validates. Empty {} means "no cosmetics on disk" (caller renders
+//     safe-defaults via publicIdentity).
+//
+// Both readAvatarSiblingFile branches (LOCAL + REMOTE) go through
+// readIdentityFile first to check for an authoritative avatar: <filename>
+// frontmatter key. When absent OR malformed, we fall through to a
+// cascade/enumeration over AVATAR_EXT_VALUES.
+
+/**
+ * Inverse of MIME_TO_AVATAR_EXT (Plan 01) — maps a canonical on-disk avatar
+ * extension back to its MIME string for HTTP Content-Type headers. Used by
+ * GET /identities/:id/avatar's response construction (Plan 03 Task 2).
+ * image/jpeg → jpg (matches Nelly's Phase A sibling-file convention on disk).
+ */
+export const AVATAR_MIME_FROM_EXT: Record<AvatarExt, string> = {
+  webp: "image/webp",
+  png: "image/png",
+  jpg: "image/jpeg",
+  gif: "image/gif",
+  svg: "image/svg+xml",
+};
+
+/**
+ * Extract cosmetics scalars from an identity markdown file's YAML frontmatter.
+ *
+ * Uses the same regex as extractRoleFromMarkdown (top-of-file `---...---`
+ * block, tolerant of CRLF). yaml.load is wrapped in try/catch — any parse
+ * error returns {} rather than throwing (caller treats malformed frontmatter
+ * as "no cosmetics on disk" and renders safe-defaults, matching the shape
+ * file's "accept the ugly render" degradation).
+ *
+ * Each field is type-narrowed via typeof + range checks (T-66-03-03):
+ *   - displayName / title / voice / avatar: non-empty string
+ *   - colorHue: integer-or-float number in [0, 359]
+ * Anything failing its gate is DROPPED (not defaulted) — the caller
+ * distinguishes "not present" from "present with bad value" by checking
+ * `field in cosmetics`.
+ */
+export function extractCosmeticsFromFrontmatter(markdown: string): {
+  displayName?: string;
+  title?: string;
+  colorHue?: number;
+  voice?: string;
+  avatar?: string;
+} {
+  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return {};
+  let parsed: unknown;
+  try {
+    parsed = yaml.load(match[1]);
+  } catch {
+    return {};
+  }
+  if (parsed === null || typeof parsed !== "object") return {};
+  const src = parsed as Record<string, unknown>;
+  const out: {
+    displayName?: string;
+    title?: string;
+    colorHue?: number;
+    voice?: string;
+    avatar?: string;
+  } = {};
+  if (typeof src.displayName === "string" && src.displayName.length > 0) {
+    out.displayName = src.displayName;
+  }
+  if (typeof src.title === "string" && src.title.length > 0) {
+    out.title = src.title;
+  }
+  if (
+    typeof src.colorHue === "number" &&
+    Number.isFinite(src.colorHue) &&
+    src.colorHue >= 0 &&
+    src.colorHue <= 359
+  ) {
+    out.colorHue = src.colorHue;
+  }
+  if (typeof src.voice === "string" && src.voice.length > 0) {
+    out.voice = src.voice;
+  }
+  if (typeof src.avatar === "string" && src.avatar.length > 0) {
+    out.avatar = src.avatar;
+  }
+  return out;
+}
+
+/**
+ * Read the identity's sibling avatar file (~/.claude/identities/<key>/<key>.<ext>).
+ *
+ * Discovery order:
+ *   1. Read <key>.md's frontmatter via readIdentityFile. If it has a valid
+ *      `avatar: <key>.<ext>` key naming a canonical extension, use that ext.
+ *   2. Otherwise, cascade through AVATAR_EXT_VALUES = [webp,png,jpg,gif,svg]
+ *      to find which sibling file exists. LOCAL: fs.readFile per ext until
+ *      one succeeds (ENOENT → next). REMOTE: single `ls` shell round-trip
+ *      that returns the first matching filename (bash brace expansion).
+ *   3. If none exist, return null.
+ *
+ * Returns {bytes, mime, ext} on success; null when no sibling exists.
+ * Throws on invalid identityKey, SSH-layer errors, or files exceeding
+ * IDMEDIT_MAX_AVATAR_BYTES (defense-in-depth — writers cap at write-time).
+ *
+ * Caller policy on SSH errors: GET /identities SWALLOWS (returns row with
+ * safe-default cosmetics for that identity — Ashley: "accept the ugly
+ * render"). GET /:id/avatar surfaces as 502.
+ */
+export async function readAvatarSiblingFile(
+  conn: SSHClientType | null,
+  identityKey: string,
+): Promise<{ bytes: Buffer; mime: string; ext: AvatarExt } | null> {
+  if (!IDENTITY_KEY_RE.test(identityKey)) {
+    throw new Error("invalid identityKey");
+  }
+
+  // Step 1: try to read the markdown and extract the authoritative avatar key.
+  let authoritativeExt: AvatarExt | null = null;
+  try {
+    const { markdown } = await readIdentityFile(conn, identityKey);
+    if (markdown && markdown.length > 0) {
+      const cos = extractCosmeticsFromFrontmatter(markdown);
+      if (cos.avatar) {
+        // Match `<identityKey>.<ext>` exactly; ext must be one of the 5 canonical.
+        const re = new RegExp(
+          `^${identityKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(webp|png|jpg|gif|svg)$`,
+        );
+        const m = cos.avatar.match(re);
+        if (m) {
+          authoritativeExt = m[1] as AvatarExt;
+        }
+      }
+    }
+  } catch {
+    // If reading the markdown itself throws (SSH error), swallow here —
+    // the caller's discovery cascade will surface the same error if it
+    // hits SSH again below. This keeps the code path uniform for the
+    // "no md file but sibling exists" case (rare — but possible on a
+    // half-populated identity folder).
+  }
+
+  if (conn === null) {
+    // ─── LOCAL branch ────────────────────────────────────────────────
+    const root = getLocalIdentitiesRoot();
+    const tryRead = async (ext: AvatarExt): Promise<Buffer | null> => {
+      const filePath = path.join(root, identityKey, `${identityKey}.${ext}`);
+      try {
+        const bytes = await fs.readFile(filePath);
+        if (bytes.byteLength > IDMEDIT_MAX_AVATAR_BYTES) {
+          throw new Error("avatar exceeds cap on disk");
+        }
+        return bytes;
+      } catch (err: unknown) {
+        if (
+          typeof err === "object" &&
+          err !== null &&
+          (err as NodeJS.ErrnoException).code === "ENOENT"
+        ) {
+          return null;
+        }
+        throw err;
+      }
+    };
+
+    if (authoritativeExt) {
+      const bytes = await tryRead(authoritativeExt);
+      if (bytes) {
+        return { bytes, mime: AVATAR_MIME_FROM_EXT[authoritativeExt], ext: authoritativeExt };
+      }
+      // authoritative ext named a file that doesn't exist — fall through to
+      // cascade so we can still discover a real sibling if the frontmatter
+      // is stale.
+    }
+
+    for (const ext of AVATAR_EXT_VALUES) {
+      const bytes = await tryRead(ext);
+      if (bytes) {
+        return { bytes, mime: AVATAR_MIME_FROM_EXT[ext], ext };
+      }
+    }
+    return null;
+  }
+
+  // ─── REMOTE branch ─────────────────────────────────────────────────
+  // Single `ls` round-trip: bash brace expansion enumerates the 5 canonical
+  // sibling paths; `2>/dev/null` swallows the "no such file" per-path errors;
+  // `head -n1` picks the first hit; `xargs -r basename` strips the directory
+  // to yield just `<key>.<ext>` (or empty string on no matches). identityKey
+  // is IDENTITY_KEY_RE-validated so direct interpolation is shell-safe (same
+  // pattern as readIdentityFile at L440).
+  const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
+
+  let extToRead: AvatarExt | null = authoritativeExt;
+  if (!extToRead) {
+    const lsCmd =
+      `ls "$HOME/.claude/identities/${identityKey}/"${identityKey}".{webp,png,jpg,gif,svg}" 2>/dev/null | head -n1 | xargs -r basename`;
+    const basename = (await execWithTimeout(conn, lsCmd)).trim();
+    if (!basename) return null;
+    // Extract ext from basename like "tina.webp"
+    const re = new RegExp(
+      `^${identityKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(webp|png|jpg|gif|svg)$`,
+    );
+    const m = basename.match(re);
+    if (!m) return null;
+    extToRead = m[1] as AvatarExt;
+  }
+
+  const targetPath = `${remoteHome}/.claude/identities/${identityKey}/${identityKey}.${extToRead}`;
+  const bytes = await sftpReadFile(conn, targetPath);
+  if (bytes.byteLength > IDMEDIT_MAX_AVATAR_BYTES) {
+    throw new Error("avatar exceeds cap on disk");
+  }
+  return { bytes, mime: AVATAR_MIME_FROM_EXT[extToRead], ext: extToRead };
+}
+
 /**
  * Private SFTP helper — reads a remote file into a Buffer via SFTP.
  * Promise-wraps conn.sftp → sftp.readFile(remotePath) → sftp.end() in finally.
