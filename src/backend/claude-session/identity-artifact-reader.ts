@@ -1133,6 +1133,39 @@ export async function writeIdentityWakeupUpdate(
  *  2MB is generous for identity files (nelly.md is ~40KB) while capping DoS. */
 export const IDMEDIT_MAX_MARKDOWN_BYTES = 2_000_000;
 
+/** Maximum binary byte size for avatar sibling files written via
+ *  writeAvatarSiblingFile (Phase 66 Plan 66-01 Track 1 / T-66-01-02).
+ *  5MB — headroom over multer's 2MB birth cap (see identities.ts fileSize
+ *  limit); avatar cannot exceed this even if a future manual-upload path
+ *  raises the multer cap. Mirrors the SPEAK_TEXT_MAX / IDMEDIT_MAX_MARKDOWN_BYTES
+ *  DoS-cap-before-open-SFTP pattern. */
+export const IDMEDIT_MAX_AVATAR_BYTES = 5_000_000;
+
+/** Canonical avatar file extensions accepted on disk. Kept as a typed const
+ *  tuple so the writeAvatarSiblingFile parameter typing statically forbids
+ *  arbitrary strings (T-66-01-01). image/jpeg → jpg (not jpeg) matches the
+ *  fleet's Phase A sibling-file extensions. */
+export const AVATAR_EXT_VALUES = [
+  "webp",
+  "png",
+  "jpg",
+  "gif",
+  "svg",
+] as const;
+export type AvatarExt = typeof AVATAR_EXT_VALUES[number];
+
+/** MIME → on-disk extension map for the birth avatar sibling file. Only the
+ *  five image types Skynet's birth upload path accepts are present; anything
+ *  else returns undefined so writeAvatarSiblingFile's caller can throw a loud
+ *  "unsupported avatar mime for on-disk write" instead of silently no-op'ing. */
+export const MIME_TO_AVATAR_EXT: Record<string, AvatarExt> = {
+  "image/webp": "webp",
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/svg+xml": "svg",
+};
+
 /** Maximum UTF-8 byte size for bounty.json after a partial-patch write.
  *  100KB cap prevents a crafted todos[]/meeting_questions[] from bloating
  *  bounty.json to an absurd size (T-18-19). Checked on the serialized
@@ -1230,6 +1263,145 @@ export async function writeMarkdownFileAtomic(
   } finally {
     sftp.end();
   }
+}
+
+/**
+ * SFTP binary tmp+rename helper — Phase 66 Plan 66-01 Track 1.
+ *
+ * Byte-for-byte mirror of writeMarkdownFileAtomic's promise-wrap discipline:
+ * conn.sftp → sftp.writeFile(tmp, bytes, {mode:0o644}) →
+ * sftp.ext_openssh_rename(tmp, target). On any error: best-effort
+ * sftp.unlink(tmp) fire-and-forget then re-throw. Always closes SFTP in
+ * finally. See writeMarkdownFileAtomic's prologue (above) for the quick
+ * 260802-qrw rationale on why ext_openssh_rename is used instead of
+ * sftp.rename — the same POSIX-rename atomic-overwrite semantics apply to
+ * avatar sibling files that get replaced on subsequent identity edits.
+ *
+ * WHY NOT COLLAPSE INTO writeMarkdownFileAtomic:
+ *   - writeMarkdownFileAtomic's signature accepts `contents: string` and its
+ *     logger operation tag is `identity_markdown_write`. Avatar payloads are
+ *     binary bytes with their own log tag `identity_avatar_write`. Keeping
+ *     the two helpers separate preserves the log-tag separation for on-call
+ *     debugging (grep for `identity_avatar_write` when an avatar write is
+ *     the suspected culprit) and avoids leaking a string-vs-buffer overload
+ *     into a helper whose current call sites are all string-payload markdown.
+ *   - The regression trap in identity-artifact-reader.remote-writes.test.ts's
+ *     buildMockConn() (sftp.rename → throws with the fix name) still guards
+ *     this helper transitively because the throwing trap is on the SFTP mock,
+ *     not on any specific caller.
+ */
+async function sftpWriteBinaryAtomic(
+  conn: SSHClientType,
+  targetPath: string,
+  bytes: Buffer,
+): Promise<void> {
+  const tmpPath = targetPath + ".tmp";
+  const byteLen = bytes.byteLength;
+
+  const sftp: SFTPWrapper = await new Promise<SFTPWrapper>((resolve, reject) => {
+    conn.sftp((err, s) => {
+      if (err) return reject(err);
+      resolve(s);
+    });
+  });
+
+  try {
+    // Write to .tmp first (atomic-write pattern: crash leaves prior file intact)
+    await new Promise<void>((resolve, reject) => {
+      sftp.writeFile(tmpPath, bytes, { mode: 0o644 }, (err) => {
+        if (err) return reject(err);
+        resolve();
+      });
+    });
+
+    // Rename tmp → target via posix-rename@openssh.com (atomic overwrite;
+    // see writeMarkdownFileAtomic's prologue for the EEXIST → SSH2_FX_FAILURE
+    // trap that made plain sftp.rename unsafe for existing-file overwrites).
+    await new Promise<void>((resolve, reject) => {
+      sftp.ext_openssh_rename(tmpPath, targetPath, (err) => {
+        if (err) return reject(err);
+        resolve();
+      });
+    });
+
+    sshLogger.info("identity-artifact-reader: identity_avatar_write", {
+      operation: "identity_avatar_write",
+      targetPath,
+      bytes: byteLen,
+    });
+  } catch (err) {
+    sshLogger.error(
+      "identity-artifact-reader: identity_avatar_write failed",
+      err instanceof Error ? err : new Error(String(err)),
+      { operation: "identity_avatar_write_error", targetPath, bytes: byteLen },
+    );
+    // Best-effort cleanup of the .tmp file — fire-and-forget
+    sftp.unlink(tmpPath, () => {});
+    throw err;
+  } finally {
+    sftp.end();
+  }
+}
+
+/** Write the avatar sibling file (<key>/<key>.<ext>) atomically.
+ *
+ * Phase 66 Plan 66-01 Track 1: the identity-birth orchestrator's Step 2.5
+ * uses this after writeMarkdownFileAtomic to land the uploaded avatar bytes
+ * next to the identity markdown, matching the fleet's Phase A on-disk
+ * cosmetics layout (a sibling image file named by the `avatar:` frontmatter
+ * key). Future manual identity-edit flows (Plan 66-02 UPDATE) reuse this
+ * same helper.
+ *
+ * Guards run in this order (defense-in-depth per T-66-01-01 / T-66-01-02):
+ *   1. IDENTITY_KEY_RE.test(identityKey) — throws before any I/O.
+ *   2. AVATAR_EXT_VALUES.includes(ext) — throws before any I/O; the typed
+ *      parameter already blocks arbitrary strings at compile time, but the
+ *      runtime check catches any caller that widens its own typing via
+ *      `as unknown as AvatarExt`.
+ *   3. bytes.byteLength ≤ IDMEDIT_MAX_AVATAR_BYTES — throws before opening
+ *      SFTP; mirrors IDMEDIT_MAX_MARKDOWN_BYTES DoS-cap pattern.
+ *
+ * LOCAL branch (conn === null): tmp+rename via Node fs — mirrors
+ *   writeIdentityFile LOCAL pattern at ~/.claude/identities/<key>/<key>.<ext>.
+ * REMOTE branch (conn is SSHClientType): SFTP tmp+rename via
+ *   sftpWriteBinaryAtomic above (ext_openssh_rename discipline). remoteHome
+ *   is resolved via `echo $HOME` on the target box; targetPath is
+ *   <home>/.claude/identities/<key>/<key>.<ext> — remoteHome is server-side
+ *   only (not attacker-influenceable via any birth-payload field).
+ */
+export async function writeAvatarSiblingFile(
+  conn: SSHClientType | null,
+  identityKey: string,
+  ext: AvatarExt,
+  bytes: Buffer,
+): Promise<void> {
+  // Guards 1 + 2 + 3 fire regardless of branch (LOCAL or REMOTE) so a bad
+  // key / bad ext / oversized payload is rejected without ever touching the
+  // network or the disk.
+  if (!IDENTITY_KEY_RE.test(identityKey)) {
+    throw new Error("invalid identityKey");
+  }
+  if (!(AVATAR_EXT_VALUES as readonly string[]).includes(ext)) {
+    throw new Error("invalid avatar ext");
+  }
+  if (bytes.byteLength > IDMEDIT_MAX_AVATAR_BYTES) {
+    throw new Error("avatar payload exceeds IDMEDIT_MAX_AVATAR_BYTES");
+  }
+
+  if (conn === null) {
+    // LOCAL branch — tmp+rename via Node fs, mirrors writeIdentityFile LOCAL.
+    const root = getLocalIdentitiesRoot();
+    const filePath = path.join(root, identityKey, `${identityKey}.${ext}`);
+    const tmpPath = filePath + ".tmp";
+    await fs.writeFile(tmpPath, bytes);
+    await fs.rename(tmpPath, filePath);
+    return;
+  }
+
+  // REMOTE branch — resolve $HOME then SFTP write via ext_openssh_rename.
+  const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
+  const targetPath = `${remoteHome}/.claude/identities/${identityKey}/${identityKey}.${ext}`;
+  await sftpWriteBinaryAtomic(conn, targetPath, bytes);
 }
 
 /**
