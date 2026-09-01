@@ -31,7 +31,7 @@ import { invalidateIdentity as invalidateBountyCount } from "@/state/bounty-coun
 // broadcasts the fresh identity to all useIdentities() consumers so live
 // IdentityBadge / SessionRow / PrettyConversationRow / RelayInboundBubble
 // re-render without a manual refresh.
-import { updateIdentity, getIdentityNoDormancy, setIdentityNoDormancy } from "@/api/identities-api";
+import { updateIdentity, getIdentityNoDormancy, setIdentityNoDormancy, avatarUrlWithHost } from "@/api/identities-api";
 import { applyIdentityChange } from "@/state/identities-store";
 import { toast } from "sonner";
 import { VoicePicker } from "./pickers/VoicePicker";
@@ -1262,9 +1262,18 @@ export function IdentityModal({
         >
           {/* Quick 260731-1c8: cache-bust the header avatar with ?v=<avatarEtag>
               so that after applyIdentityChange fires with a new avatarEtag the
-              browser fetches the fresh image instead of serving the stale cache. */}
+              browser fetches the fresh image instead of serving the stale cache.
+              Phase 66 Plan 05: hostId threading — Plan 03's GET /:id/avatar
+              requires hostId query param; use avatarUrlWithHost helper. Etag
+              guard: when avatarEtag is the "" safe-default from Plan 03's
+              publicIdentity (disk-cosmetics absent), SKIP the &v= entirely
+              rather than emitting a literal `&v=`. */}
           <img
-            src={`${identity.avatarUrl}?v=${identity.avatarEtag}`}
+            src={
+              identity.avatarEtag
+                ? `${avatarUrlWithHost(identity, hostId)}&v=${identity.avatarEtag}`
+                : avatarUrlWithHost(identity, hostId)
+            }
             alt=""
             className="shrink-0 object-cover"
             style={{
@@ -1394,9 +1403,17 @@ export function IdentityModal({
             </h3>
 
             {/* Avatar preview + file picker row */}
+            {/* Phase 66 Plan 05: hostId threading + etag guard — same shape as
+                the header avatar above. avatarPreviewUrl (blob: URL from a
+                fresh file pick) takes precedence unchanged. */}
             <div className="flex items-center gap-3 mb-3">
               <img
-                src={avatarPreviewUrl ?? `${identity.avatarUrl}?v=${identity.avatarEtag}`}
+                src={
+                  avatarPreviewUrl ??
+                  (identity.avatarEtag
+                    ? `${avatarUrlWithHost(identity, hostId)}&v=${identity.avatarEtag}`
+                    : avatarUrlWithHost(identity, hostId))
+                }
                 alt=""
                 className="shrink-0 object-cover"
                 style={{

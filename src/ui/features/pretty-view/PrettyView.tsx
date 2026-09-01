@@ -2876,6 +2876,7 @@ export function PrettyView({
       {pvIdentityKey && (
         <IdentityBadge
           identityKey={pvIdentityKey}
+          hostId={hostId}
           onClick={() => setIsIdentityModalOpen(true)}
           onLongPress={onTogglePrettyMode}
           tabId={tabId}

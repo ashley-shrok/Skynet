@@ -384,6 +384,7 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
           {identityKey && !isPrettyMode && (
             <IdentityBadge
               identityKey={identityKey}
+              hostId={parseInt(host.id, 10)}
               onClick={() => setIsIdentityModalOpen(true)}
               onLongPress={() => setIsPrettyMode((v) => !v)}
               tabId={tabId}

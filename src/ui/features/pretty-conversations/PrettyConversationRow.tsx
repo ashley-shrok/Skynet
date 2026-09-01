@@ -135,6 +135,9 @@ import { Pin, Monitor } from "lucide-react";
 import { tabIcon } from "@/shell/tabUtils";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { useIdentities } from "@/state/identities-store";
+// Phase 66 Plan 05: hostId threading — Plan 03's GET /:id/avatar requires
+// hostId query param; use avatarUrlWithHost helper when row.host is present.
+import { avatarUrlWithHost } from "@/api/identities-api";
 import { useBountyCounts } from "@/state/bounty-counts-store";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { cn } from "@/lib/utils";
@@ -1170,7 +1173,21 @@ export function PrettyConversationRow({
           {identity ? (
             identity.avatarUrl ? (
               <img
-                src={identity.avatarUrl}
+                // Phase 66 Plan 05: hostId threading — Plan 03's GET /:id/avatar
+                // requires hostId query param. rowHostIdNum (L330 above) is
+                // parseInt(row.host.id, 10) when row.host is present; when
+                // row.host is absent (row.host is undefined per ConversationRow
+                // optional field) rowHostIdNum is NaN and we fall back to the
+                // initial-letter placeholder branch below — but that branch is
+                // gated on `identity.avatarUrl` truthiness, not on hostId,
+                // so we still route through avatarUrlWithHost when hostId is
+                // valid and use raw identity.avatarUrl (which will 400 →
+                // browser broken-image affordance) as the degraded fallback.
+                src={
+                  Number.isFinite(rowHostIdNum)
+                    ? avatarUrlWithHost(identity, rowHostIdNum)
+                    : identity.avatarUrl
+                }
                 alt=""
                 className="pv-avatar-img"
                 style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "999px" }}

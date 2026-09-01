@@ -2,6 +2,9 @@ import { Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { RemoteTmuxSession } from "@/api/sessions-api";
 import { useSessionIdentity } from "@/features/terminal/session-hue";
+// Phase 66 Plan 05: hostId threading — Plan 03's GET /:id/avatar requires
+// hostId query param. session.hostId is authoritative on RemoteTmuxSession.
+import { avatarUrlWithHost } from "@/api/identities-api";
 
 interface SessionRowProps {
   session: RemoteTmuxSession;
@@ -52,7 +55,10 @@ export function SessionRow({
         >
           {identity ? (
             <img
-              src={identity.avatarUrl}
+              // Phase 66 Plan 05: hostId threading — Plan 03's GET /:id/avatar
+              // requires hostId query param. session.hostId comes straight
+              // from RemoteTmuxSession (populated by /sessions/list).
+              src={avatarUrlWithHost(identity, session.hostId)}
               alt=""
               className="w-full h-full object-cover"
               draggable={false}

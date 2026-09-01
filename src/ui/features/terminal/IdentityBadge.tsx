@@ -2,9 +2,18 @@ import { useEffect, useRef } from "react";
 import type { DragEvent as ReactDragEvent } from "react";
 import { useIdentities } from "@/state/identities-store";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { avatarUrlWithHost } from "@/api/identities-api";
 
 export interface IdentityBadgeProps {
   identityKey: string | null;
+  /** Phase 66 Plan 05: hostId threading — Plan 03's GET /:id/avatar requires
+   *  hostId query param. When supplied, the avatar img src routes through
+   *  avatarUrlWithHost(identity, hostId). Both existing call sites
+   *  (PrettyView + IdentitySessionPane) already carry hostId in scope. Left
+   *  optional so any future call site without hostId still renders (the img
+   *  degrades to a 400 → placeholder via the browser's built-in broken-image
+   *  handling; the badge itself doesn't crash). */
+  hostId?: number;
   // When provided, the badge renders as a <button> with click affordance
   // (cursor-pointer, hover scale, aria-label). When absent, the badge
   // renders as a <div aria-hidden> — backward-compat with call sites
@@ -47,6 +56,7 @@ export interface IdentityBadgeProps {
 // treatment across terminal + pretty-view" decision.
 export function IdentityBadge({
   identityKey,
+  hostId,
   onClick,
   onLongPress,
   tabId,
@@ -101,10 +111,18 @@ export function IdentityBadge({
     color: "#e8e4d8",
     animation: "pv-identity-breathe 5s ease-in-out infinite",
   };
+  // Phase 66 Plan 05: hostId threading — Plan 03's GET /:id/avatar requires
+  // hostId query param. Route through avatarUrlWithHost when hostId is in
+  // scope (both existing call sites carry it); fall back to raw identity.avatarUrl
+  // otherwise. The raw form now 400s at the backend (Plan 03 gate) → browser
+  // shows a broken-image affordance, which is the intended degraded render for
+  // callers that omit hostId (a rare or programmer-error path today).
+  const avatarSrc =
+    hostId != null ? avatarUrlWithHost(identity, hostId) : identity.avatarUrl;
   const inner = (
     <>
       <img
-        src={identity.avatarUrl}
+        src={avatarSrc}
         alt=""
         className="object-cover shrink-0"
         style={{
