@@ -1145,6 +1145,27 @@ export function PrettyConversationRow({
         style={bodyStyle}
         className={rowClassName}
       >
+        {/* Phase 67 Plan 67-02 Track A: coordinator watermark. Renders iff the
+            row's resolved identity carries `coordinator: true` on the wire
+            (Phase 67 Plan 67-01 backend contract — safe-default false when
+            the identity's on-disk YAML frontmatter has no coordinator key).
+            FIRST child of .pv-row so it lands earliest in DOM order (aria-
+            hidden keeps it silent for screen readers); z-index: 0 in
+            pretty-conversations.css places paint order below the avatar +
+            badges + text which have no explicit z-index (or positive) —
+            paint order defers to z-index regardless of DOM order. Absence-
+            of-marker is the actor contract: coordinator=false/undefined
+            renders nothing here. Strict `=== true` guard means only the
+            literal boolean true triggers the marker; any other truthy value
+            (number, string, non-boolean) is treated as "no marker" per the
+            Wave 1 narrowing contract that only ever writes true|false. */}
+        {identity?.coordinator === true && (
+          <span
+            aria-hidden="true"
+            data-testid="coordinator-watermark"
+            className="pv-coordinator-watermark"
+          />
+        )}
         {/* Avatar disc — identity avatar OR initial letter OR tabIcon fallback.
             Phase 48 Plan 05: `.pv-avatar` is now the positioning host for the
             Pin + Monitor bounty-count badges (relocated from the retired
