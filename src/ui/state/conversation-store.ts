@@ -1538,6 +1538,28 @@ export function useActiveSet(): ReadonlySet<string> {
   );
 }
 
+// ─── Phase 66 Plan 05 — cross-store accessors for identities-store enrichment ─
+// The identities-store's fetchOnce needs to construct an identityHosts map
+// (identityKey → hostId) from the fleet-sessions snapshot before it calls
+// listIdentities, so first-render cosmetics come back POPULATED from disk
+// instead of safe-defaults. Two thin accessor exports are enough:
+//   - getFleetSessionsSnapshot() — read-only view of state.fleetSessions.
+//     Returns the live array reference; identities-store's helper does not
+//     mutate it (only iterates), so a shallow-copy would just cost memory.
+//   - subscribeConversationStore(cb) — mirrors the internal subscribe(cb)
+//     so identities-store can wire a one-shot re-fetch after the false→true
+//     fleetSessionsLoaded flip. Guarded on the identities-store side.
+// sessionMatchKey is imported DIRECTLY by identities-store from
+// @/features/terminal/session-hue per W4 — do NOT re-export it here (that
+// would add a second import path and risk a circular-dep loop if session-hue
+// ever imports from conversation-store).
+export function getFleetSessionsSnapshot(): FleetSession[] {
+  return state.fleetSessions;
+}
+export function subscribeConversationStore(cb: () => void): () => void {
+  return subscribe(cb);
+}
+
 // ─── Test-only helpers ───────────────────────────────────────────────────────
 // Underscore-prefixed exports for Vitest. NOT part of the public API — do not
 // consume from production code. Kept exported (rather than gated on
