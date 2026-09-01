@@ -225,6 +225,8 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
     if (typeof src.colorHue === "number" && src.colorHue >= 0 && src.colorHue <= 359) out.colorHue = src.colorHue;
     if (typeof src.voice === "string" && src.voice.length > 0) out.voice = src.voice;
     if (typeof src.avatar === "string" && src.avatar.length > 0) out.avatar = src.avatar;
+    // Phase 67 Plan 67-01: coordinator field (boolean-only, dropped otherwise).
+    if (typeof src.coordinator === "boolean") out.coordinator = src.coordinator;
     return out;
   },
 }));
@@ -257,7 +259,7 @@ function makeFakeConnWithEnd() {
 // Import router AFTER mocks
 // ---------------------------------------------------------------------------
 
-import identitiesRouter from "./identities.js";
+import identitiesRouter, { publicIdentity } from "./identities.js";
 
 // ---------------------------------------------------------------------------
 // HTTP helpers
@@ -350,6 +352,44 @@ afterEach(() => new Promise<void>((resolve) => server.close(() => resolve())));
 // ===========================================================================
 // Tests
 // ===========================================================================
+
+// Phase 67 Plan 67-01: colocated unit tests for publicIdentity's coordinator
+// overlay contract. publicIdentity is imported directly (function is exported
+// from identities.ts starting in Task 2). These tests exercise the safe-default
+// contract in isolation from the route wiring — the route-level tests below
+// prove the full disk → overlay → wire path end-to-end.
+describe("publicIdentity — coordinator overlay (Phase 67 Plan 67-01)", () => {
+  const baseRow = {
+    id: "row-id-1",
+    userId: "test-user",
+    identityKey: "tina",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  } as unknown as Parameters<typeof publicIdentity>[0];
+
+  it("PUB-1: publicIdentity(row, { coordinator: true }) → coordinator === true", () => {
+    const out = publicIdentity(baseRow, { coordinator: true });
+    expect(out.coordinator).toBe(true);
+  });
+
+  it("PUB-2: publicIdentity(row, { coordinator: false }) → coordinator === false", () => {
+    const out = publicIdentity(baseRow, { coordinator: false });
+    expect(out.coordinator).toBe(false);
+  });
+
+  it("PUB-3: publicIdentity(row, {}) → coordinator === false (safe-default; not null, not missing)", () => {
+    const out = publicIdentity(baseRow, {});
+    expect(out.coordinator).toBe(false);
+    // Explicit shape: safe-default is the boolean literal false, not null/undefined.
+    expect(out.coordinator).not.toBeNull();
+    expect(out.coordinator).not.toBeUndefined();
+  });
+
+  it("PUB-4: publicIdentity(row) with no cosmetics argument → coordinator === false", () => {
+    const out = publicIdentity(baseRow);
+    expect(out.coordinator).toBe(false);
+  });
+});
 
 describe("GET /identities — disk-derived cosmetics (Phase 66 Plan 66-03)", () => {
   // -------------------------------------------------------------------------
@@ -469,6 +509,88 @@ describe("GET /identities — disk-derived cosmetics (Phase 66 Plan 66-03)", () 
     expect(ut.voice).toBeNull();
     expect(ut.avatarMime).toBe("");
     expect(ut.avatarEtag).toBe("");
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 67 Plan 67-01 — coordinator overlay end-to-end
+  // -------------------------------------------------------------------------
+  // Two route-level tests prove the whole disk → overlay → wire path lands
+  // the coordinator boolean correctly for the two shapes the frontend cares
+  // about: (a) coordinator: true on disk propagates as coordinator: true in
+  // the response body, alongside the other cosmetics; (b) coordinator absent
+  // from disk yields coordinator: false safe-default (never null, never
+  // missing). Each test seeds a fresh row so the pre-existing three tests'
+  // fixture setup is untouched.
+  // -------------------------------------------------------------------------
+  it("GET-COORD-1: identity with coordinator:true on disk → response row has coordinator:true AND displayName:'Nelly'", async () => {
+    // Fresh seed to keep this test's setup independent from Tests 1-3.
+    dbState.identities = [
+      {
+        id: "coord-test-id",
+        userId: "test-user",
+        identityKey: "coordinator-test",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+
+    isLocalHostIdMock.mockReturnValue(false);
+    readIdentityFileMock.mockImplementation((_conn: unknown, key: string) => {
+      if (key === "coordinator-test") {
+        return Promise.resolve({
+          markdown:
+            "---\nrole: box-maintainer\ndisplayName: Nelly\ncoordinator: true\n---\n",
+        });
+      }
+      return Promise.resolve({ markdown: "" });
+    });
+
+    const hostsJson = encodeURIComponent(
+      JSON.stringify({ "coordinator-test": 1 }),
+    );
+    const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    expect(row.identityKey).toBe("coordinator-test");
+    expect(row.displayName).toBe("Nelly");
+    expect(row.coordinator).toBe(true);
+  });
+
+  it("GET-COORD-2: identity with NO coordinator key on disk → response row has coordinator:false (safe-default) AND displayName:'Tina'", async () => {
+    dbState.identities = [
+      {
+        id: "actor-test-id",
+        userId: "test-user",
+        identityKey: "actor-test",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+
+    isLocalHostIdMock.mockReturnValue(false);
+    readIdentityFileMock.mockImplementation((_conn: unknown, key: string) => {
+      if (key === "actor-test") {
+        return Promise.resolve({
+          markdown:
+            "---\nrole: box-maintainer\ndisplayName: Tina\n---\n",
+        });
+      }
+      return Promise.resolve({ markdown: "" });
+    });
+
+    const hostsJson = encodeURIComponent(JSON.stringify({ "actor-test": 1 }));
+    const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    expect(row.identityKey).toBe("actor-test");
+    expect(row.displayName).toBe("Tina");
+    expect(row.coordinator).toBe(false);
   });
 });
 
