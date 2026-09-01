@@ -81,3 +81,40 @@ The overall shape has two owners and two vehicles.
 Shape file lives at `.planning/shapes/identity-prettiness-on-disk.md` in the skynet repo so both agents can reach it — Nelly by pulling the tree or by receiving the file over the relay, Tina by having it in-tree for her Phase B phase.
 
 Slug: `identity-prettiness-on-disk`. Arc closes with `/close identity-prettiness-on-disk` after Phase B ships and the store rows are retired.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-01
+**Vehicle used:** Two-phase arc as agreed: Phase A shipped by Nelly (fleet-wide on-disk population + id-skill body update at source); Phase B shipped by Tina as GSD phase 66 in the skynet repo across five plans (birth, update, read, migration, frontend threading) on branch `feat/tab-title-from-tmux`
+**Overall verdict:** closed-with-misses
+
+### Shape features (conformance)
+
+- **What this is — cosmetics move from Skynet's store to the identity's home folder; Skynet becomes an observer of on-disk truth** — present · store rows narrowed to id/userId/identityKey/createdAt/updatedAt; every render surface routes through the artifact-reader to the identity's home
+- **Shape — five scalars in frontmatter, avatar as sibling image file named by frontmatter, no cache, error-on-unreachable** — present · frontmatter carries displayName/title/colorHue/voice/avatar; sibling image file lands alongside the .md; every server render fetches; unreachable box errors out server-side
+- **Phase A — fleet-wide on-disk population + id-skill teaching** — present · fleet identities carry the five fields alongside a sibling picture file; id-skill body at source teaches the new template (serving app hiccup is unrelated infrastructure)
+- **Phase B — birth flow enriched, identity-modal update writes disk, every render path flips to artifact-reader, store rows retired** — partial · birth, update, and every render path all flip as agreed; store rows physically dropped; BUT the clone action — a form of identity creation — writes only the role pointer to disk and drops the cosmetics on the floor
+- **Philosophy — identity owns its own soul and face; Skynet becomes a well-informed viewer** — present · an agent creating an identity purely on disk gets a fully-rendered identity in Skynet on the next render; disk-created and Skynet-created cases render identically
+- **Prior context — reuse the existing artifact-reader that routes bind-mount/SSH transparently** — present · new readAvatarSiblingFile / writeAvatarSiblingFile / extractCosmeticsFromFrontmatter live on the same artifact-reader module and follow the same LOCAL-vs-REMOTE branch pattern
+- **What would make it wrong: Skynet quietly holds a cache** — present · no server-side cache of on-disk values; per-response ETag is computed against freshly-read bytes each request
+- **What would make it wrong: on-disk creation still renders ugly** — present · an agent that writes the right files on disk gets a fully-rendered identity on the next render (verified via commander-zoey path)
+- **What would make it wrong: identity can't self-edit its own face** — present · no server-side cache means an edit to the identity's own frontmatter file appears in the very next render
+- **What would make it wrong: special offline fallback creeps in** — present · unreachable-box paths return an error (502 on the avatar route; safe-default cosmetics for that row in the list route, per Ashley's greenlit accept-the-ugly-render); no last-known-good caches, no degraded-mode holdovers
+- **What would make it wrong: roles get a second copy of what's already in frontmatter** — present · role pointer stays in frontmatter as the single source; no parallel role field was added on the narrowed identities table
+- **Scope edges — In: five scalars + avatar move; Phase A disk-population + id-skill; Phase B birth + update + reads + row retirement** — partial · everything landed EXCEPT the clone-side creation path, which the shape did not name explicitly but which behaves as a creation path the user still surfaces
+- **Scope edges — Out: deletion symmetry, offline fallback, dual-write bridge, roles-table changes** — present · delete still only removes the store row; no offline fallback code; no dual-write bridge; roles table untouched
+
+### Additions (in the result, not in the shape)
+
+- A five-minute browser-side hold on the identity's picture bytes (Cache-Control: private, max-age=300 on the avatar response), which lets a stale picture linger on the viewer's screen for up to five minutes after the identity swaps the file on disk — unsanctioned
+
+### Follow-ups
+
+- The clone action should put the appropriate cosmetics on the identity's home folder too — grown frontmatter plus a sibling picture file — so a freshly cloned identity renders with the face the operator supplied at clone time, matching the birth flow — new-shape
+- Drop the browser-side five-minute hold on the identity's picture response so avatar swaps land immediately on every viewer; the intent is every render, on both server and browser, reaches into the identity's home for the current bytes — new-shape
+
+### Notes
+
+The shape's Phase B language named 'the birth flow' and 'the identity-modal update flow' as the two write paths that flip to disk; the clone flow sits between them semantically and was not explicitly called out either as in-scope or out-of-scope. The implementation treated it as out-of-scope (leaving the fields as void locals with a comment marking it 'orthogonal follow-up work'), but from the operator's perspective clone is a creation path that surfaces the same cosmetic fields, so silently dropping them creates the very failure the shape warned against ('on-disk creation still renders ugly'). Worth naming clone explicitly in the follow-up shape. Separately, the server side is genuinely cache-free per the shape rule — the browser-side max-age was a defensible reading of 'no cache = no server cache', but Ashley's intent is stricter (every render, both sides), so the read of the shape was too generous by one hop.
