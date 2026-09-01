@@ -18,7 +18,6 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import * as fsp from "node:fs/promises";
 import { nanoid } from "nanoid";
-import { createHash } from "node:crypto";
 import { db } from "../db/index.js";
 import { identities } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
@@ -68,11 +67,18 @@ async function createIdentityRecord(
   avatarBytes: Buffer,
 ): Promise<{
   id: string;
-  colorHue: number | null;
-  voice: string | null;
-  avatarEtag: string;
 }> {
-  const etag = createHash("md5").update(avatarBytes).digest("hex");
+  // Phase 66 Plan 04: cosmetic fields (displayName / title / colorHue / voice
+  // / avatarMime / avatarData / avatarEtag) no longer live in the store — they
+  // are written to disk in Step 2.5 of the birth orchestrator. The store row
+  // survives as the ownership + user-scoping + timestamp anchor. `meta` and
+  // `avatarBytes` remain in this function's signature because the orchestrator
+  // and its DI shape (BirthDeps.createIdentityRecord) still pass them; the
+  // downstream disk-write step reads them from opts, but this DB helper drops
+  // them silently. Return-shape narrows to { id } — GET-verify collapses to
+  // a row-existence sentinel (see identity-birth-orchestrator.ts step 1).
+  void meta;
+  void avatarBytes;
   const id = nanoid();
   const now = new Date().toISOString();
 
@@ -81,13 +87,6 @@ async function createIdentityRecord(
       id,
       userId,
       identityKey: meta.identityKey,
-      displayName: meta.displayName,
-      title: meta.title,
-      colorHue: meta.colorHue ?? null,
-      voice: meta.voice ?? null,
-      avatarMime: "image/png",
-      avatarData: avatarBytes,
-      avatarEtag: etag,
       createdAt: now,
       updatedAt: now,
     })
@@ -104,7 +103,7 @@ async function createIdentityRecord(
     });
   }
 
-  return { id, colorHue: meta.colorHue, voice: meta.voice, avatarEtag: etag };
+  return { id };
 }
 
 // ---------------------------------------------------------------------------
@@ -115,12 +114,11 @@ async function createIdentityRecord(
 async function getIdentityRecord(
   userId: string,
   id: string,
-): Promise<{
-  id: string;
-  colorHue: number | null;
-  voice: string | null;
-  avatarEtag: string;
-}> {
+): Promise<{ id: string }> {
+  // Phase 66 Plan 04: return-shape narrowed to { id } — GET-verify collapses
+  // to a row-existence sentinel (see identity-birth-orchestrator.ts step 1).
+  // Previously returned colorHue/voice/avatarEtag for the round-trip check;
+  // those columns no longer exist post-drop.
   const rows = db
     .select()
     .from(identities)
@@ -131,13 +129,7 @@ async function getIdentityRecord(
     throw new Error(`Identity ${id} not found after creation`);
   }
 
-  const row = rows[0];
-  return {
-    id: row.id,
-    colorHue: row.colorHue ?? null,
-    voice: row.voice ?? null,
-    avatarEtag: row.avatarEtag,
-  };
+  return { id: rows[0].id };
 }
 
 // ---------------------------------------------------------------------------

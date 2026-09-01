@@ -281,8 +281,13 @@ router.post(
           .json({ error: `Identity "${identityKey}" already exists` });
       }
 
-      const buffer = req.file.buffer;
-      const etag = createHash("md5").update(buffer).digest("hex");
+      // Phase 66 Plan 04: cosmetic fields are written to disk in a separate
+      // step (identity-birth is the fresh-identity path per Plan 01); the
+      // POST / handler retains the multipart validation but does NOT persist
+      // displayName/title/colorHue/voice/avatarMime/avatarData/avatarEtag to
+      // the store. This handler is legacy for the deprecated raw-POST flow
+      // and returns cosmetics-absent (publicIdentity emits Plan 03's
+      // safe-defaults contract when the overlay is empty).
       const id = nanoid();
       const now = new Date().toISOString();
       db.insert(identities)
@@ -290,13 +295,6 @@ router.post(
           id,
           userId,
           identityKey,
-          displayName,
-          title: meta.title ?? null,
-          colorHue: meta.colorHue ?? null,
-          voice: meta.voice ?? null,
-          avatarMime: req.file.mimetype,
-          avatarData: buffer,
-          avatarEtag: etag,
           createdAt: now,
           updatedAt: now,
         })

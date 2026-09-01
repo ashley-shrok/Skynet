@@ -133,7 +133,12 @@ export interface BirthDeps {
   isLocalHostId: (hostId: number) => boolean;
   /** Runs a shell command locally (child_process.exec equivalent). */
   execLocal: (command: string) => Promise<string>;
-  /** Creates an identity record in Skynet DB. */
+  /**
+   * Creates an identity record in Skynet DB. Phase 66 Plan 04: return-shape
+   * narrowed to { id } — cosmetic columns (colorHue/voice/avatarEtag) no
+   * longer live in the store. The disk-write for those fields happens in
+   * Step 2.5 via writeMarkdownFileAtomic + writeAvatarSiblingFile.
+   */
   createIdentityRecord: (
     userId: string,
     meta: {
@@ -144,22 +149,16 @@ export interface BirthDeps {
       voice: string | null;
     },
     avatarBytes: Buffer,
-  ) => Promise<{
-    id: string;
-    colorHue: number | null;
-    voice: string | null;
-    avatarEtag: string;
-  }>;
-  /** Fetches an identity record for GET-verify. */
+  ) => Promise<{ id: string }>;
+  /**
+   * Fetches an identity record for GET-verify (silent-no-op sentinel).
+   * Phase 66 Plan 04: return-shape narrowed to { id } — GET-verify collapses
+   * to a row-existence sentinel.
+   */
   getIdentityRecord: (
     userId: string,
     id: string,
-  ) => Promise<{
-    id: string;
-    colorHue: number | null;
-    voice: string | null;
-    avatarEtag: string;
-  }>;
+  ) => Promise<{ id: string }>;
   /** Fetches avatar candidate bytes from plan 01's cache. Returns null if expired/missing. */
   getCandidateForBirth: (userId: string, id: string) => { bytes: Buffer; mime: string } | null;
   /** Resolves a hostId to host connection details. */
@@ -482,24 +481,17 @@ export async function birthIdentity(
 
       identityId = created.id;
 
-      // GET-verify: silent-no-op guard (colorHue/voice/avatarEtag must match)
+      // Phase 66 Plan 04: cosmetic GET-verify collapsed — colorHue/voice/
+      // avatarEtag no longer live in the store (they're written to disk in
+      // Step 2.5). The row-existence check remains as defense against a
+      // silent-no-op insert on the identities table (better-sqlite3 does
+      // not throw when an insert affects 0 rows if the underlying primary-
+      // key clash is silently ignored by shim behavior — real DB will throw
+      // UNIQUE, but the sentinel is cheap defense-in-depth).
       const fresh = await deps.getIdentityRecord(opts.userId, created.id);
-
-      if (opts.colorHue !== null && fresh.colorHue !== opts.colorHue) {
+      if (fresh.id !== created.id) {
         throw new Error(
-          `silent-no-op: colorHue not persisted (sent ${opts.colorHue}, got ${fresh.colorHue})`,
-        );
-      }
-      if (opts.voice !== null && fresh.voice !== opts.voice) {
-        throw new Error(
-          `silent-no-op: voice not persisted (sent ${opts.voice}, got ${fresh.voice})`,
-        );
-      }
-      // avatarEtag check: we trust the DB wrote it if colorHue+voice passed,
-      // but verify anyway as defense-in-depth
-      if (fresh.avatarEtag !== created.avatarEtag) {
-        throw new Error(
-          `silent-no-op: avatarEtag mismatch (expected ${created.avatarEtag}, got ${fresh.avatarEtag})`,
+          `silent-no-op: identity row not found post-insert (expected ${created.id}, got ${fresh.id})`,
         );
       }
     });

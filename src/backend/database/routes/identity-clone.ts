@@ -93,7 +93,6 @@
 import type { AuthenticatedRequest } from "../../../types/index.js";
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
-import { createHash } from "node:crypto";
 import { nanoid } from "nanoid";
 import { db } from "../db/index.js";
 import { identities } from "../db/schema.js";
@@ -178,18 +177,40 @@ function normalizeRemotePath(p: string): string {
 const CLONE_SEED_COMMENT =
   "<!-- This identity has no relay account yet. On first wake, please register a Matrix relay account for this identity and remove this comment. -->";
 
-/** Public identity DTO — mirrors identities.ts publicIdentity(). */
+/**
+ * Public identity DTO — mirrors identities.ts publicIdentity(). Phase 66
+ * Plan 04: cosmetic columns (displayName / title / colorHue / voice /
+ * avatarMime / avatarEtag) no longer live in the store row. This constructor
+ * PRESERVES the Plan 03 safe-defaults contract (co-located with the READ
+ * flip per checker B2) so the frontend Identity type's non-nullable-string
+ * contract is honored without a type widening:
+ *   - displayName = capitalizeFirst(identityKey)   (non-nullable string)
+ *   - avatarMime  = ""                              (non-nullable string)
+ *   - avatarEtag  = ""                              (non-nullable string)
+ *   - title/colorHue/voice = null                  (nullable in Identity type)
+ *
+ * capitalizeFirst mirrors the identities.ts helper exactly (see comment
+ * there). It is duplicated locally rather than imported to avoid a circular
+ * import between identities.ts and identity-clone.ts (both are mounted
+ * routers in database.ts and importing each other's helpers would cause
+ * bundler-time cycles that vitest's mock resolver can trip on).
+ */
+function capitalizeFirst(s: string): string {
+  if (!s || s.length === 0) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 function publicIdentity(row: typeof identities.$inferSelect) {
   return {
     id: row.id,
     identityKey: row.identityKey,
-    displayName: row.displayName,
-    title: row.title,
-    colorHue: row.colorHue,
-    voice: row.voice,
-    avatarMime: row.avatarMime,
+    displayName: capitalizeFirst(row.identityKey),
+    title: null as string | null,
+    colorHue: null as number | null,
+    voice: null as string | null,
+    avatarMime: "",
     avatarUrl: `/identities/${row.id}/avatar`,
-    avatarEtag: row.avatarEtag,
+    avatarEtag: "",
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -370,9 +391,17 @@ router.post(
     }
 
     // -----------------------------------------------------------------------
-    // 3. Fetch avatar bytes (candidate cache OR source's buffer)
+    // 3. Fetch avatar bytes (candidate cache only — Phase 66 Plan 04 dropped
+    //    sourceRow.avatarData; the source-verbatim reuse path becomes a no-op
+    //    at the store level. If the user does not supply avatarCandidateId,
+    //    the cloned identity gets no avatar bytes committed here; it inherits
+    //    whatever the source's on-disk avatar file was (an orthogonal disk-
+    //    copy step that lives outside Phase 66's scope). The candidate cache
+    //    branch is retained because Test 8 (consumeCandidateForBirth called)
+    //    still needs the wire contract to honor the cache-consume idempotency
+    //    guarantee — even though the bytes are no longer persisted here.
     // -----------------------------------------------------------------------
-    let avatarBytes: Buffer;
+    let avatarBytes: Buffer | null = null;
     if (avatarCandidateId) {
       const cand = getCandidateForBirth(userId, avatarCandidateId);
       if (!cand) {
@@ -380,9 +409,6 @@ router.post(
         return;
       }
       avatarBytes = cand.bytes;
-    } else {
-      // Source's avatarData is a Buffer per drizzle blob mode: "buffer"
-      avatarBytes = sourceRow.avatarData as Buffer;
     }
 
     // -----------------------------------------------------------------------
@@ -596,24 +622,22 @@ router.post(
       // ---------------------------------------------------------------------
       const newId = nanoid();
       const now = new Date().toISOString();
-      const etag = createHash("md5").update(avatarBytes).digest("hex");
-      // Mime discipline: candidate bytes are gpt-image-1 PNGs (see identity-
-      // avatar-batch); source-verbatim reuse must preserve source's original
-      // mime (may be image/webp for older avatars). Hardcoding "image/png"
-      // when reusing a WebP buffer produced a Content-Type/body mismatch that
-      // rendered as the default terminal-icon fallback on every clone.
-      const clonedAvatarMime = avatarCandidateId ? "image/png" : sourceRow.avatarMime;
+      // Phase 66 Plan 04: cosmetic columns physically dropped from identities.
+      // The clone insertRow now holds only the 5 surviving columns. The
+      // cloned identity's cosmetics live on disk in <newName>.md's frontmatter
+      // — that file is written above via writeMarkdownFileAtomic; growing it
+      // with the per-clone display cosmetics is orthogonal follow-up work
+      // (out of Phase 66's scope; the id skill and the wake-up seed comment
+      // handle those write-paths). `title`, `voice`, `avatarBytes` remain
+      // in local scope because the endpoint validates them at the wire even
+      // though they're not persisted here.
+      void title;
+      void voice;
+      void avatarBytes;
       const insertRow = {
         id: newId,
         userId,
         identityKey: newName,
-        displayName: newName,
-        title: title.length > 0 ? title : sourceRow.title,
-        colorHue: sourceRow.colorHue, // LOCKED — user CANNOT override
-        voice: voice !== null && voice.length > 0 ? voice : sourceRow.voice,
-        avatarMime: clonedAvatarMime,
-        avatarData: avatarBytes,
-        avatarEtag: etag,
         createdAt: now,
         updatedAt: now,
       };

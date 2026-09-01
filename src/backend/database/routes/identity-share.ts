@@ -201,17 +201,18 @@ router.post(
       // ---------------------------------------------------------------------
       const newId = nanoid();
       const now = new Date().toISOString();
+      // Phase 66 Plan 04: cosmetic columns dropped from identities. The share
+      // insertRow copies only the 5 surviving columns. Cosmetics are disk-
+      // authoritative and travel with the identity's on-disk .md file — the
+      // share-onward case implicitly gains them because the target user's
+      // render surfaces read from disk using identityKey (Plan 03 + Plan 05
+      // wire the identityHosts map). The insertRow is narrow; nothing to
+      // null-echo (there's no publicIdentity constructor in this file —
+      // response body is `{identityId, shared}` at the send calls below).
       const insertRow = {
         id: newId,
         userId: targetUserId,
         identityKey: sourceRow.identityKey,
-        displayName: sourceRow.displayName,
-        title: sourceRow.title,
-        colorHue: sourceRow.colorHue,
-        voice: sourceRow.voice,
-        avatarMime: sourceRow.avatarMime,
-        avatarData: sourceRow.avatarData,
-        avatarEtag: sourceRow.avatarEtag,
         createdAt: now,
         updatedAt: now,
       };
