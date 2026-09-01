@@ -621,12 +621,30 @@ router.put(
         .from(identities)
         .where(eq(identities.id, id))
         .all()[0];
-      // TODO(Phase 66 Plan 03): the fields displayName/title/colorHue/voice/
-      // avatarMime/avatarEtag in this response are stale store values —
-      // Plan 03 flips GET reads to disk. During the deploy window between
-      // Plans 02+03 landing, transient staleness on the response is
-      // accepted per CONTEXT.md § "transition window drift".
-      return res.json(publicIdentity(freshRow));
+      // Phase 67 /close 2026-09-01 follow-up (H1): re-read the identity's
+      // on-disk cosmetics AFTER the write completes and overlay them onto
+      // publicIdentity so the response echoes the true state — most notably
+      // the coordinator flag, which is disk-authoritative (Phase 67 Plan
+      // 67-01). Without this overlay, publicIdentity safe-defaults
+      // coordinator to false and the frontend's applyIdentityChange replaces
+      // the store entry, dropping the watermark across all surfaces until
+      // the next refreshIdentities() cycle. As a side benefit this closes
+      // the pre-existing "stale echo" TODO for title/colorHue/voice/
+      // avatarMime/avatarEtag: the response now reflects what was actually
+      // written to disk. Errors during the read fall back to
+      // publicIdentity(freshRow) with safe-defaults (matches GET / per-row
+      // fetch-failure behavior — accept-the-ugly-render).
+      let echoCosmetics: ReturnType<typeof extractCosmeticsFromFrontmatter> = {};
+      try {
+        const { markdown: postWriteMd } = await readIdentityFile(conn, identityKey);
+        if (postWriteMd && postWriteMd.length > 0) {
+          echoCosmetics = extractCosmeticsFromFrontmatter(postWriteMd);
+        }
+      } catch {
+        // Swallow — response falls back to safe-defaults (empty cosmetics).
+        echoCosmetics = {};
+      }
+      return res.json(publicIdentity(freshRow, echoCosmetics));
     } catch (e) {
       databaseLogger.error("Failed to update identity on disk", e, {
         operation: "update_identity_disk_write",

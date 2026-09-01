@@ -244,6 +244,27 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
       return null;
     }
   },
+  // Phase 67 /close 2026-09-01 follow-up (H1): the PUT handler now re-reads
+  // disk cosmetics after write and overlays them onto publicIdentity so the
+  // response echoes the true disk state (crucial for the coordinator flag).
+  // Mirror the get-disk.test.ts mock: parse frontmatter and hoist only the
+  // whitelist of cosmetic fields.
+  extractCosmeticsFromFrontmatter: (markdown: string) => {
+    const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    if (!match) return {};
+    let parsed: unknown;
+    try { parsed = yaml.load(match[1]); } catch { return {}; }
+    if (parsed === null || typeof parsed !== "object") return {};
+    const src = parsed as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    if (typeof src.displayName === "string" && src.displayName.length > 0) out.displayName = src.displayName;
+    if (typeof src.title === "string" && src.title.length > 0) out.title = src.title;
+    if (typeof src.colorHue === "number" && src.colorHue >= 0 && src.colorHue <= 359) out.colorHue = src.colorHue;
+    if (typeof src.voice === "string" && src.voice.length > 0) out.voice = src.voice;
+    if (typeof src.avatar === "string" && src.avatar.length > 0) out.avatar = src.avatar;
+    if (typeof src.coordinator === "boolean") out.coordinator = src.coordinator;
+    return out;
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -682,8 +703,14 @@ describe("PUT /identities/:id — disk-write flip (Phase 66 Plan 66-02)", () => 
     expect(res.status).toBe(200);
     expect(connectOneShotMock).not.toHaveBeenCalled();
 
-    expect(readIdentityFileMock).toHaveBeenCalledTimes(1);
+    // Phase 67 /close 2026-09-01 follow-up (H1): the handler now re-reads the
+    // identity file post-write so the response echoes true disk cosmetics.
+    // In the LOCAL branch that means readIdentityFile is called TWICE (pre-
+    // write overlay parse + post-write echo re-read); both calls must pass
+    // conn=null since we never opened an SSH connection.
+    expect(readIdentityFileMock).toHaveBeenCalledTimes(2);
     expect(readIdentityFileMock.mock.calls[0][0]).toBeNull();
+    expect(readIdentityFileMock.mock.calls[1][0]).toBeNull();
 
     expect(writeIdentityFileMock).toHaveBeenCalledTimes(1);
     expect(writeIdentityFileMock.mock.calls[0][0]).toBeNull();
@@ -710,6 +737,51 @@ describe("PUT /identities/:id — disk-write flip (Phase 66 Plan 66-02)", () => 
     // forceSave hit exactly once with the expected reason
     expect(forceSaveMock).toHaveBeenCalledTimes(1);
     expect(forceSaveMock).toHaveBeenCalledWith("identity_updated");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 11 (Phase 67 /close 2026-09-01 follow-up, H1): coordinator round-trip
+  // -------------------------------------------------------------------------
+  // The PUT response body must echo the identity's true on-disk `coordinator`
+  // state. Pre-fix, publicIdentity(freshRow) with no overlay safe-defaulted
+  // coordinator to false, causing the frontend's applyIdentityChange() to
+  // clobber the flag and drop the watermark across every surface until the
+  // next refreshIdentities(). Post-fix, the handler re-reads disk cosmetics
+  // and passes them through publicIdentity(..., cosmetics) so the response
+  // reflects reality — coordinator=true here must round-trip as true.
+  it("Test 11 (H1): PUT response echoes coordinator:true from disk after write", async () => {
+    // The mock's writeIdentityFile is a spy — it does NOT actually mutate the
+    // markdown fixture. So the post-write re-read returns the SAME fixture we
+    // seeded. Seed with coordinator: true; the fix's re-read + overlay must
+    // surface it in the response.
+    readIdentityFileMock.mockResolvedValue({
+      markdown:
+        "---\nrole: box-maintainer\ndisplayName: Coord\ntitle: Coordinator\ncolorHue: 216\ncoordinator: true\n---\n\n# testkey\n",
+    });
+
+    const body = buildMultipartBody({
+      data: { hostId: 7, title: "New Title" },
+    });
+
+    const res = await httpPut(server, "/identities/test-id", body);
+
+    expect(res.status).toBe(200);
+    const responseBody = res.body as {
+      coordinator?: boolean;
+      title?: string | null;
+      colorHue?: number | null;
+      displayName?: string;
+    };
+    // Pre-fix this was false (safe-default from publicIdentity with no overlay).
+    // Post-fix the disk-read overlay lifts the true value into the response.
+    expect(responseBody.coordinator).toBe(true);
+    // Side-benefit assertion: title/colorHue/displayName also echo from disk
+    // (closes the pre-existing "stale echo" TODO).
+    expect(responseBody.displayName).toBe("Coord");
+    expect(responseBody.colorHue).toBe(216);
+    // readIdentityFile called twice: once pre-write (to load frontmatter for
+    // overlay) and once post-write (echo re-read for the response).
+    expect(readIdentityFileMock).toHaveBeenCalledTimes(2);
   });
 
 });
