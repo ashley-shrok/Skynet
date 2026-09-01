@@ -45,6 +45,8 @@ import {
   writeIdentityFile,
   writeIdentityHistory,
   writeIdentityHandoff,
+  writeAvatarSiblingFile,
+  IDMEDIT_MAX_AVATAR_BYTES,
 } from "./identity-artifact-reader.js";
 
 // ──────────────────────────────────────────────────────────────────────
@@ -206,5 +208,91 @@ describe("writeIdentityHistory and writeIdentityHandoff — REMOTE branch (quick
     );
 
     expect(sftp.end).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Phase 66 Plan 66-01 Task 1: writeAvatarSiblingFile atomic-rename pinning
+// ──────────────────────────────────────────────────────────────────────
+//
+// Mirrors the writeIdentityFile pattern: the SFTP binary writer for the
+// avatar sibling file MUST use ext_openssh_rename (posix-rename@openssh.com)
+// so overwrites of an existing avatar file don't hit the SSH_FXP_RENAME /
+// EEXIST → SSH2_FX_FAILURE trap that plain sftp.rename produces. The
+// buildMockConn() throwing trap on sftp.rename is the load-bearing pinning
+// mechanism (reused unchanged from the markdown writers above).
+
+describe("writeAvatarSiblingFile — REMOTE branch atomic-rename API", () => {
+  it("Test A: calls ext_openssh_rename (not sftp.rename); writes bytes to <home>/.claude/identities/<key>/<key>.<ext>.tmp then renames to target", async () => {
+    const { conn, sftp, renameCalls } = buildMockConn();
+
+    const bytes = Buffer.from([0xde, 0xad, 0xbe, 0xef]);
+    await writeAvatarSiblingFile(conn, "tina", "webp", bytes);
+
+    // Load-bearing: extension called once, plain rename never called.
+    expect(sftp.ext_openssh_rename).toHaveBeenCalledTimes(1);
+    expect(sftp.rename).not.toHaveBeenCalled();
+
+    // Path shape: tmp then final.
+    expect(renameCalls).toHaveLength(1);
+    expect(renameCalls[0].from).toBe(
+      "/home/tester/.claude/identities/tina/tina.webp.tmp",
+    );
+    expect(renameCalls[0].to).toBe(
+      "/home/tester/.claude/identities/tina/tina.webp",
+    );
+
+    // sftp.writeFile called with the .tmp target AND the input bytes verbatim.
+    expect(sftp.writeFile).toHaveBeenCalledTimes(1);
+    const writeArgs = sftp.writeFile.mock.calls[0];
+    expect(writeArgs[0]).toBe(
+      "/home/tester/.claude/identities/tina/tina.webp.tmp",
+    );
+    // Bytes must round-trip byte-for-byte
+    const writtenBuf = writeArgs[1] as Buffer;
+    expect(Buffer.isBuffer(writtenBuf)).toBe(true);
+    expect(writtenBuf.equals(bytes)).toBe(true);
+
+    // finally { sftp.end() } always runs.
+    expect(sftp.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("Test B: invalid identityKey ('Bad Key') throws 'invalid identityKey'; sftp.writeFile NEVER called", async () => {
+    const { conn, sftp } = buildMockConn();
+
+    await expect(
+      writeAvatarSiblingFile(conn, "Bad Key", "webp", Buffer.from([0x00])),
+    ).rejects.toThrow(/invalid identityKey/);
+
+    expect(sftp.writeFile).not.toHaveBeenCalled();
+    expect(sftp.ext_openssh_rename).not.toHaveBeenCalled();
+  });
+
+  it("Test C: invalid ext ('tiff') throws 'invalid avatar ext'; sftp.writeFile NEVER called", async () => {
+    const { conn, sftp } = buildMockConn();
+
+    await expect(
+      writeAvatarSiblingFile(
+        conn,
+        "tina",
+        "tiff" as unknown as "webp",
+        Buffer.from([0x00]),
+      ),
+    ).rejects.toThrow(/invalid avatar ext/);
+
+    expect(sftp.writeFile).not.toHaveBeenCalled();
+    expect(sftp.ext_openssh_rename).not.toHaveBeenCalled();
+  });
+
+  it("Test D: oversized payload (> IDMEDIT_MAX_AVATAR_BYTES) throws; sftp.writeFile NEVER called", async () => {
+    const { conn, sftp } = buildMockConn();
+
+    const oversized = Buffer.alloc(IDMEDIT_MAX_AVATAR_BYTES + 1);
+    await expect(
+      writeAvatarSiblingFile(conn, "tina", "png", oversized),
+    ).rejects.toThrow(/avatar payload exceeds IDMEDIT_MAX_AVATAR_BYTES/);
+
+    expect(sftp.writeFile).not.toHaveBeenCalled();
+    expect(sftp.ext_openssh_rename).not.toHaveBeenCalled();
   });
 });
