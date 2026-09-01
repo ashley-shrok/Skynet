@@ -476,7 +476,7 @@ describe("GET /identities/:id/avatar — disk-derived (Phase 66 Plan 66-03)", ()
   // -------------------------------------------------------------------------
   // Test 4: happy path
   // -------------------------------------------------------------------------
-  it("Test 4: identityId=tina + hostId=1 + readAvatarSiblingFile returns PNG bytes → 200 + Content-Type + body bytes", async () => {
+  it("Test 4: identityId=tina + hostId=1 + readAvatarSiblingFile returns PNG bytes → 200 + Content-Type + body bytes + Cache-Control: no-store", async () => {
     isLocalHostIdMock.mockReturnValue(false);
     const pngBytes = Buffer.from("PNGDATA");
     readAvatarSiblingFileMock.mockResolvedValue({ bytes: pngBytes, mime: "image/png", ext: "png" });
@@ -486,6 +486,9 @@ describe("GET /identities/:id/avatar — disk-derived (Phase 66 Plan 66-03)", ()
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toBe("image/png");
     expect(res.rawBody.equals(pngBytes)).toBe(true);
+    // Every render on every viewer reaches the identity's home for the current
+    // bytes — no browser caching (Ashley /close 2026-09-01).
+    expect(res.headers["cache-control"]).toBe("no-store");
   });
 
   // -------------------------------------------------------------------------

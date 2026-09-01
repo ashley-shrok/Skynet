@@ -712,12 +712,11 @@ router.get(
             .json({ error: "no avatar on disk for this identity" });
         }
 
-        // ETag is per-response, not stored server-side. Browser-side
-        // revalidation via If-None-Match is standard HTTP cache-validation
-        // — the shape file's "no cache" clause targets server-side
-        // cosmetics caching (Skynet holding a copy of the disk values),
-        // NOT HTTP cache-validation. Per-response etag is compatible with
-        // the shape rule (per W6).
+        // ETag is per-response, not stored server-side — kept for correctness
+        // (identifies the resource version) even though `no-store` below tells
+        // the browser not to cache the bytes at all. Every render on every
+        // viewer reaches the identity's home for the current bytes, matching
+        // Ashley's intent stated at /close 2026-09-01.
         const etag = `"disk-${createHash("md5").update(readResult.bytes).digest("hex")}"`;
         const ifNoneMatch = req.headers["if-none-match"];
         if (ifNoneMatch && ifNoneMatch === etag) {
@@ -726,7 +725,7 @@ router.get(
         res.setHeader("Content-Type", readResult.mime);
         res.setHeader("Content-Length", String(readResult.bytes.byteLength));
         res.setHeader("ETag", etag);
-        res.setHeader("Cache-Control", "private, max-age=300");
+        res.setHeader("Cache-Control", "no-store");
         return res.send(readResult.bytes);
       } catch {
         // SSH-layer / SFTP error → 502 with canned message (T-66-03-02);
