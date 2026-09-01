@@ -423,3 +423,66 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
     expect(document.querySelector("[data-slot='identity-modal-content']")).toBeTruthy();
   }, 20000);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 66 Plan 05 — header/edit-drawer avatar src threading
+//   Both avatar <img>s in IdentityModal (header L1264, edit-drawer L1396)
+//   must route through avatarUrlWithHost(identity, hostId) so GET /:id/avatar
+//   receives the required hostId query param (Plan 03 backend contract).
+//   Also: when identity.avatarEtag is the empty-string safe-default from
+//   Plan 03's publicIdentity, the ?v=<etag> cache-bust must be SKIPPED
+//   (never emit `?v=` literal). Whenever etag is truthy, cache-bust joins
+//   as `&v=<etag>` (not `?v=`, because avatarUrlWithHost already appended
+//   `?hostId=<n>`).
+// ─────────────────────────────────────────────────────────────────────────────
+describe("IdentityModal — Phase 66 Plan 05: hostId threading + etag guard", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("Plan 05 Test A: header avatar src threads hostId; non-empty etag joins as &v=<etag>", () => {
+    renderModal({ avatarEtag: "etag-abc" });
+    const headerImg = document
+      .querySelector("[data-slot='identity-modal-content']")
+      ?.querySelector("img") as HTMLImageElement | null;
+    expect(headerImg).toBeTruthy();
+    expect(headerImg!.getAttribute("src")).toBe(
+      "/identities/id-1/avatar?hostId=1&v=etag-abc",
+    );
+  });
+
+  it("Plan 05 Test B: header avatar src skips ?v= when etag is empty (safe-default)", () => {
+    renderModal({ avatarEtag: "" });
+    const headerImg = document
+      .querySelector("[data-slot='identity-modal-content']")
+      ?.querySelector("img") as HTMLImageElement | null;
+    expect(headerImg).toBeTruthy();
+    expect(headerImg!.getAttribute("src")).toBe(
+      "/identities/id-1/avatar?hostId=1",
+    );
+    // Belt-and-braces: no literal `?v=` in the src string
+    expect(headerImg!.getAttribute("src")).not.toContain("?v=");
+    expect(headerImg!.getAttribute("src")).not.toContain("&v=");
+  });
+
+  it("Plan 05 Test C: edit-drawer avatar src threads hostId identically to header when no file preview", () => {
+    renderModal({ avatarEtag: "etag-xyz" });
+    // Reveal the edit block via the pencil toggle.
+    fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
+
+    // Collect all imgs inside the modal content region; the drawer avatar is
+    // the second img (header is first). Both must thread hostId.
+    const imgs = Array.from(
+      document
+        .querySelector("[data-slot='identity-modal-content']")
+        ?.querySelectorAll("img") ?? [],
+    ) as HTMLImageElement[];
+    expect(imgs.length).toBeGreaterThanOrEqual(2);
+    // Every non-blob-preview img must include hostId=1 in its src.
+    for (const img of imgs) {
+      const src = img.getAttribute("src") ?? "";
+      if (src.startsWith("blob:")) continue; // file-pick preview branch
+      expect(src).toContain("hostId=1");
+    }
+  });
+});
