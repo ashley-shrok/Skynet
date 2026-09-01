@@ -352,3 +352,45 @@ describe("IdentityBadge — Phase 58 Plan 01: badge as drag source", () => {
     expect(onLongPress).toHaveBeenCalledTimes(1);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 67 Plan 67-02 Track B — coordinator watermark on the IdentityBadge.
+// Two tests: presence-when-true / absence-when-absent for the badge's inner
+// fragment watermark span. Both branches (interactive <button> + non-
+// interactive <div>) share the same `inner` fragment, so asserting via the
+// interactive branch (default onClick present) covers both by construction.
+// ─────────────────────────────────────────────────────────────────────────────
+import { useIdentities } from "@/state/identities-store";
+
+describe("IdentityBadge — Phase 67 coordinator watermark", () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+    setMobileViewport(false);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("BADGE-COORD-1: identity.coordinator === true renders data-testid=coordinator-watermark inside the badge root", () => {
+    const coordFixture = { ...FIXTURE, coordinator: true };
+    vi.mocked(useIdentities).mockReturnValue({
+      identities: [coordFixture],
+      byKey: new Map([["tina", coordFixture]]),
+      loaded: true,
+      refresh: vi.fn(),
+    });
+    render(<IdentityBadge identityKey="tina" onClick={vi.fn()} />);
+    const root = screen.getByTestId("identity-badge-root");
+    const watermark = root.querySelector('[data-testid="coordinator-watermark"]');
+    expect(watermark).not.toBeNull();
+  });
+
+  it("BADGE-COORD-2: identity.coordinator absent → no coordinator-watermark element in DOM", () => {
+    // FIXTURE (top-level vi.mock default) has no coordinator field — undefined
+    // at runtime, resolves to false-branch under the strict `=== true` guard.
+    render(<IdentityBadge identityKey="tina" onClick={vi.fn()} />);
+    expect(
+      screen.queryByTestId("coordinator-watermark"),
+    ).toBeNull();
+  });
+});
