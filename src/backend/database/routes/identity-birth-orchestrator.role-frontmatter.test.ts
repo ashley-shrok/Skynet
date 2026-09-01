@@ -36,6 +36,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
+import yaml from "js-yaml";
 import type { BirthEvent, BirthOptions, BirthDeps } from "./identity-birth-orchestrator.js";
 
 // ---------------------------------------------------------------------------
@@ -53,6 +54,16 @@ vi.mock("../../ssh/tmux-helper.js", () => ({
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   isLocalHostId: vi.fn(),
   writeMarkdownFileAtomic: vi.fn(),
+  writeAvatarSiblingFile: vi.fn(),
+  MIME_TO_AVATAR_EXT: {
+    "image/webp": "webp",
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/gif": "gif",
+    "image/svg+xml": "svg",
+  },
+  AVATAR_EXT_VALUES: ["webp", "png", "jpg", "gif", "svg"] as const,
+  IDMEDIT_MAX_AVATAR_BYTES: 5_000_000,
 }));
 
 vi.mock("node:child_process", () => ({
@@ -95,6 +106,9 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
     isLocalHostId: mockIsLocalHostId,
     execLocal: mockExecLocal,
     writeMarkdownFileAtomic: vi.fn().mockResolvedValue(undefined),
+    // Phase 66 Plan 66-01: additive dep — pre-existing tests should not
+    // notice this exists (default no-op), Tests 20-24 override it explicitly.
+    writeAvatarSiblingFile: vi.fn().mockResolvedValue(undefined),
     createIdentityRecord: vi.fn().mockResolvedValue({
       id: "created-id-123",
       identityKey: "testkey",
@@ -515,4 +529,265 @@ it("Test: writeMarkdownFileAtomic throws → step:2:failed, later steps skipped"
     (e) => e.type === "step" && e.n === 3 && e.phase === "started",
   );
   expect(step3Started).toBeUndefined();
+}, 30_000);
+
+// ---------------------------------------------------------------------------
+// Phase 66 Plan 66-01 Track 1 — full-cosmetics frontmatter + avatar sibling
+// ---------------------------------------------------------------------------
+//
+// The Step 2.5 identity file body grows from the role-only stub into a full
+// cosmetics-carrying frontmatter block so a Skynet-created identity is
+// byte-shape-indistinguishable from a Nelly-migrated (Phase A) identity.
+//
+// Absent-⇒-omit invariant (CONTEXT.md Track 1): fields whose birth-opts
+// value is null OR empty-string are NEVER emitted as YAML null / empty —
+// they are literally not present as keys in the emitted frontmatter.
+
+it("Test 20: full cosmetics present → frontmatter emits role/displayName/title/colorHue/voice/avatar in canonical order", async () => {
+  const writeAtomic = vi.fn().mockResolvedValue(undefined);
+  const writeAvatar = vi.fn().mockResolvedValue(undefined);
+  const deps = makeDeps({
+    writeMarkdownFileAtomic: writeAtomic,
+    writeAvatarSiblingFile: writeAvatar,
+  });
+  const opts = makeOpts({
+    name: "testkey",
+    role: "box-maintainer",
+    title: "Test Identity",
+    colorHue: 210,
+    voice: "Elena.wav",
+  });
+
+  const { emit } = collectEvents();
+  const birthPromise = birthIdentity(opts, emit, deps);
+  await vi.runAllTimersAsync();
+  await birthPromise;
+
+  expect(writeAtomic).toHaveBeenCalled();
+  const [, , contents] = writeAtomic.mock.calls[0] as [unknown, string, string];
+
+  // Extract frontmatter block via the same regex extractRoleFromMarkdown uses
+  const match = contents.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  expect(match).not.toBeNull();
+  const parsed = yaml.load(match![1]) as Record<string, unknown>;
+
+  // All six keys present with correct values (displayName = capitalize(name))
+  expect(parsed.role).toBe("box-maintainer");
+  expect(parsed.displayName).toBe("Testkey");
+  expect(parsed.title).toBe("Test Identity");
+  expect(parsed.colorHue).toBe(210);
+  expect(parsed.voice).toBe("Elena.wav");
+  expect(parsed.avatar).toBe("testkey.png"); // default candidate mime = image/png
+
+  // Canonical ordering — role must be first (post-Phase-A byte-shape parity)
+  const keys = Object.keys(parsed);
+  expect(keys).toEqual([
+    "role",
+    "displayName",
+    "title",
+    "colorHue",
+    "voice",
+    "avatar",
+  ]);
+
+  // Body shape: frontmatter, seed comment, H1 heading — same envelope as
+  // Test 17 but now with the extra cosmetic keys.
+  expect(contents.startsWith("---\n")).toBe(true);
+  expect(contents).toMatch(/---\r?\n\r?\n<!--/); // frontmatter closes, blank line, seed comment
+  expect(contents).toMatch(/#\s+testkey/i);
+}, 30_000);
+
+it("Test 21: absent-⇒-omit — empty title + null colorHue + null voice → those keys NOT present in frontmatter", async () => {
+  const writeAtomic = vi.fn().mockResolvedValue(undefined);
+  const writeAvatar = vi.fn().mockResolvedValue(undefined);
+  const deps = makeDeps({
+    writeMarkdownFileAtomic: writeAtomic,
+    writeAvatarSiblingFile: writeAvatar,
+  });
+  // NOTE: the HTTP route currently 400s on empty title (identity-birth.ts
+  // L190), but the orchestrator's Step 2.5 must still respect absent-⇒-omit
+  // as a data-integrity invariant for any future caller that bypasses the
+  // route validator (e.g. a CLI ingest or a fleet self-birth path). Route
+  // validation and orchestrator validation are independent layers.
+  const opts = makeOpts({
+    name: "testkey",
+    role: "box-maintainer",
+    title: "",           // empty string → OMIT
+    colorHue: null,      // null → OMIT
+    voice: null,         // null → OMIT
+  });
+
+  const { emit } = collectEvents();
+  const birthPromise = birthIdentity(opts, emit, deps);
+  await vi.runAllTimersAsync();
+  await birthPromise;
+
+  expect(writeAtomic).toHaveBeenCalled();
+  const [, , contents] = writeAtomic.mock.calls[0] as [unknown, string, string];
+  const match = contents.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  expect(match).not.toBeNull();
+  const parsed = yaml.load(match![1]) as Record<string, unknown>;
+
+  const keys = Object.keys(parsed);
+  // Only role + displayName + avatar (avatar always emitted when bytes present)
+  expect(keys).toEqual(["role", "displayName", "avatar"]);
+  // Explicit absence checks — no YAML null, no empty string surviving
+  expect("title" in parsed).toBe(false);
+  expect("colorHue" in parsed).toBe(false);
+  expect("voice" in parsed).toBe(false);
+}, 30_000);
+
+it("Test 22: writeAvatarSiblingFile invoked exactly once with (conn, name, 'png', candidate.bytes) — ext derived from image/png via MIME_TO_AVATAR_EXT", async () => {
+  const writeAvatar = vi.fn().mockResolvedValue(undefined);
+  const bytes = Buffer.from("fakepng");
+  const deps = makeDeps({
+    writeAvatarSiblingFile: writeAvatar,
+    getCandidateForBirth: vi.fn().mockReturnValue({
+      bytes,
+      mime: "image/png",
+    }),
+  });
+  const opts = makeOpts({ name: "testkey", role: "box-maintainer" });
+
+  const { emit } = collectEvents();
+  const birthPromise = birthIdentity(opts, emit, deps);
+  await vi.runAllTimersAsync();
+  await birthPromise;
+
+  expect(writeAvatar).toHaveBeenCalledTimes(1);
+  const call = writeAvatar.mock.calls[0];
+  // (conn, identityKey, ext, bytes)
+  expect(call[0]).toBeDefined(); // the mock conn from beforeEach
+  expect(call[1]).toBe("testkey");
+  expect(call[2]).toBe("png");
+  expect(Buffer.isBuffer(call[3])).toBe(true);
+  expect((call[3] as Buffer).equals(bytes)).toBe(true);
+}, 30_000);
+
+it("Test 23: mime → ext derivation covers webp + jpeg (jpg)", async () => {
+  // Sub-case A: image/webp → ext "webp"
+  {
+    const writeAvatar = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps({
+      writeAvatarSiblingFile: writeAvatar,
+      getCandidateForBirth: vi.fn().mockReturnValue({
+        bytes: Buffer.from("fakewebp"),
+        mime: "image/webp",
+      }),
+    });
+    const opts = makeOpts({ name: "testkey", role: "box-maintainer" });
+    const { emit } = collectEvents();
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+    expect(writeAvatar).toHaveBeenCalledTimes(1);
+    expect(writeAvatar.mock.calls[0][2]).toBe("webp");
+  }
+
+  // Sub-case B: image/jpeg → ext "jpg" (fleet Phase A convention — not "jpeg")
+  {
+    const writeAvatar = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps({
+      writeAvatarSiblingFile: writeAvatar,
+      getCandidateForBirth: vi.fn().mockReturnValue({
+        bytes: Buffer.from("fakejpeg"),
+        mime: "image/jpeg",
+      }),
+    });
+    const opts = makeOpts({ name: "testkey", role: "box-maintainer" });
+    const { emit } = collectEvents();
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+    expect(writeAvatar).toHaveBeenCalledTimes(1);
+    expect(writeAvatar.mock.calls[0][2]).toBe("jpg");
+  }
+}, 30_000);
+
+// Test 24a + 24b (W10 split): avatar write failure surfaces as step:2:failed
+// AND the mkdir+touch + writeMarkdownFileAtomic already fired before it — the
+// "graceful partial recovery" pin. The partial identity folder is left
+// containing <key>.md + wakeups/ + handoff.md even though avatar write failed;
+// re-birth is the recovery path (not a rollback we build).
+
+it("Test 24a: writeAvatarSiblingFile throws → step:2:failed, Steps 3/4/5 never fired", async () => {
+  const writeAvatar = vi.fn().mockRejectedValue(new Error("SFTP write failed"));
+  const deps = makeDeps({ writeAvatarSiblingFile: writeAvatar });
+  const opts = makeOpts();
+
+  const { events, emit } = collectEvents();
+  const birthPromise = birthIdentity(opts, emit, deps);
+  await vi.runAllTimersAsync();
+  await birthPromise;
+
+  const failed = events.find(
+    (e) => e.type === "step" && e.n === 2 && e.phase === "failed",
+  );
+  expect(failed).toBeDefined();
+
+  const endedEvent = events.find((e) => e.type === "ended");
+  expect((endedEvent as { ok: boolean; failedStep?: number }).ok).toBe(false);
+  expect((endedEvent as { ok: boolean; failedStep?: number }).failedStep).toBe(2);
+
+  // No Steps 3/4/5 after failure
+  const step3Started = events.find(
+    (e) => e.type === "step" && e.n === 3 && e.phase === "started",
+  );
+  expect(step3Started).toBeUndefined();
+}, 30_000);
+
+it("Test 24b: mkdir+touch fired ONCE + writeMarkdownFileAtomic fired ONCE before the avatar-write throw (partial identity folder preserved)", async () => {
+  const callOrder: string[] = [];
+
+  const writeAtomic = vi.fn().mockImplementation(async () => {
+    callOrder.push("writeMarkdownFileAtomic");
+  });
+  const writeAvatar = vi.fn().mockImplementation(async () => {
+    callOrder.push("writeAvatarSiblingFile");
+    throw new Error("SFTP write failed");
+  });
+
+  // Track execCommand invocations that are the Step 2.5 mkdir+touch exec
+  // (both are combined into a single `mkdir -p ... && touch ...` per the
+  // existing orchestrator body at L484-486).
+  let mkdirTouchCount = 0;
+  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+    const s = String(cmd);
+    if (s.trim() === "echo $HOME") return Promise.resolve("/home/ubuntu\n");
+    if (
+      s.includes("mkdir -p") &&
+      s.includes("wakeups") &&
+      s.includes("touch") &&
+      s.includes("handoff.md")
+    ) {
+      mkdirTouchCount += 1;
+      callOrder.push("mkdir+touch");
+    }
+    return Promise.resolve("");
+  });
+
+  const deps = makeDeps({
+    writeMarkdownFileAtomic: writeAtomic,
+    writeAvatarSiblingFile: writeAvatar,
+  });
+  const opts = makeOpts();
+
+  const { emit } = collectEvents();
+  const birthPromise = birthIdentity(opts, emit, deps);
+  await vi.runAllTimersAsync();
+  await birthPromise;
+
+  // Positive ordering: mkdir+touch ran EXACTLY ONCE, then writeMarkdownFileAtomic,
+  // then writeAvatarSiblingFile (which threw and aborted the step).
+  expect(mkdirTouchCount).toBe(1);
+  expect(writeAtomic).toHaveBeenCalledTimes(1);
+  expect(writeAvatar).toHaveBeenCalledTimes(1);
+
+  // Call-order array ends with exactly these three, in this order:
+  const tail = callOrder.slice(-3);
+  expect(tail).toEqual([
+    "mkdir+touch",
+    "writeMarkdownFileAtomic",
+    "writeAvatarSiblingFile",
+  ]);
 }, 30_000);
