@@ -132,8 +132,42 @@ async function fetchOnce(): Promise<void> {
 }
 
 export function refreshIdentities(): Promise<void> {
-  state = { ...state, loaded: false };
-  return fetchOnce();
+  // Force a fresh fetch even if the initial fetchOnce is still inflight.
+  //
+  // 2026-09-01 Ashley regression: the first fetchOnce fires from
+  // useIdentities().useEffect immediately after component mount, when
+  // conversation-store's fleetSessions is still empty (WS hasn't returned
+  // fleet-status yet). It runs with an empty identityHosts map and the
+  // backend returns safe-default cosmetics for every identity.
+  //
+  // Milliseconds later the WS fleet-status arrives; the subscription in
+  // ensureFleetSubscription() fires the one-shot re-fetch via this
+  // function. Under the previous shape (`state.loaded = false; return
+  // fetchOnce();`), fetchOnce's guard `if (state.loaded || inflight)
+  // return inflight` short-circuited back to the STILL-INFLIGHT initial
+  // fetch. That fetch's promise resolves with the safe-default results
+  // and never re-runs — so cosmetics stay null forever and every identity
+  // renders as its blue-hue safe-default.
+  //
+  // Fix: bypass fetchOnce's guards. Do the fetch directly with the
+  // now-populated identityHosts map. Any concurrent inflight remains
+  // outstanding but its result is superseded by setIdentities from THIS
+  // path — since setIdentities atomically replaces the identities array,
+  // whichever call runs last wins, and the fresh (populated) call is what
+  // the user wants regardless.
+  ensureFleetSubscription();
+  const p = (async () => {
+    try {
+      const identityHosts = buildIdentityHostsFromFleet(
+        getFleetSessionsSnapshot(),
+      );
+      const list = await listIdentities(identityHosts);
+      setIdentities(list);
+    } catch {
+      // Silent — the safe-default render from the initial fetch stays up.
+    }
+  })();
+  return p;
 }
 
 export function applyIdentityChange(

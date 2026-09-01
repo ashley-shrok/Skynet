@@ -187,6 +187,17 @@ export function useAutoScroll(paneKey: string, messageCount: number): UseAutoScr
   // scroll event flips pinnedRef=false → follow effects gate out) is still
   // covered by `didFirstContentScrollRef`: the very first content-populate
   // per pane bypasses the pinnedRef gate.
+  //
+  // (An earlier iteration this same session added a "belt-and-suspenders"
+  // measurement-at-write-time gate in the follow + observer effects. That
+  // gate was wrong: it conflated "user was pinned before content grew"
+  // (should follow, pinnedRef.current tracks this) with "user is at bottom
+  // AFTER content grew" (naturally false whenever scrollHeight jumps by
+  // more than the epsilon). Live symptom: session-pick landed above the
+  // bottom because backfill grew scrollHeight past viewport and the measure
+  // gate skipped every follow write. Reverted — pinnedRef alone is the
+  // right authority; the scroll listener owning it (the change above) was
+  // the only necessary piece.)
   useEffect(() => {
     if (!scrollEl) return;
     const onScroll = (): void => {
@@ -216,21 +227,12 @@ export function useAutoScroll(paneKey: string, messageCount: number): UseAutoScr
   useEffect(() => {
     if (!scrollEl) return;
     const isFirstContentArrival = !didFirstContentScrollRef.current && messageCount > 0;
-    // Belt-and-suspenders (2026-09-01, tina): also re-measure at write time.
-    // pinnedRef is normally correct (scroll listener owns it authoritatively
-    // per L173 header) but if it ever drifts stale — no scroll event fired
-    // since user scrolled, IO effect wrote stale-true — the direct measurement
-    // here catches it and refuses to yank. Skip iff BOTH signals say the user
-    // is scrolled up.
-    const distNow = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
-    const pinnedByMeasurement = distNow <= BOTTOM_EPSILON;
-    const shouldWrite = (pinnedRef.current && pinnedByMeasurement) || isFirstContentArrival;
-    if (!shouldWrite) {
+    if (!pinnedRef.current && !isFirstContentArrival) {
       // pv-scroll-diag (2026-08-23): log skip-write path so we can see
       // whether the browser's overflow-anchor preserved position when we
       // deliberately did not write.
       console.info(
-        `[pv-scroll-diag] follow-skip messageCount=${messageCount} top=${scrollEl.scrollTop} height=${scrollEl.scrollHeight} pinnedRef=${pinnedRef.current} pinnedByMeasurement=${pinnedByMeasurement} paneKey=${paneKey}`,
+        `[pv-scroll-diag] follow-skip messageCount=${messageCount} top=${scrollEl.scrollTop} height=${scrollEl.scrollHeight} pinned=false paneKey=${paneKey}`,
       );
       return;
     }
@@ -296,24 +298,16 @@ export function useAutoScroll(paneKey: string, messageCount: number): UseAutoScr
         // mount per pane anchors to bottom even under spurious pinned=false.
         const isFirstContentArrival =
           !didFirstContentScrollRef.current && scrollEl.children.length > 0;
-        // Belt-and-suspenders (2026-09-01, tina): re-measure position at
-        // write time. Same rationale as the follow effect above — pinnedRef
-        // should be authoritative but the direct measurement here catches any
-        // stale-true drift and refuses to yank the user out of a scrolled-up
-        // read.
+        const willWrite = pinnedRef.current || isFirstContentArrival;
         const beforeTop = scrollEl.scrollTop;
         const beforeHeight = scrollEl.scrollHeight;
-        const distNow = beforeHeight - beforeTop - scrollEl.clientHeight;
-        const pinnedByMeasurement = distNow <= BOTTOM_EPSILON;
-        const willWrite =
-          (pinnedRef.current && pinnedByMeasurement) || isFirstContentArrival;
         if (!willWrite) {
           // pv-scroll-diag: skip-write path — browser overflow-anchor should
           // handle. If Ashley sees a "jump up" and this log shows top
           // moving between successive skip-writes without a user scroll in
           // between, the browser's anchor is being defeated somewhere.
           console.info(
-            `[pv-scroll-diag] mutation-skip added=${added} removed=${removed} top=${beforeTop} height=${beforeHeight} client=${scrollEl.clientHeight} pinnedRef=${pinnedRef.current} pinnedByMeasurement=${pinnedByMeasurement} children=${scrollEl.children.length} paneKey=${paneKey}`,
+            `[pv-scroll-diag] mutation-skip added=${added} removed=${removed} top=${beforeTop} height=${beforeHeight} client=${scrollEl.clientHeight} pinned=false children=${scrollEl.children.length} paneKey=${paneKey}`,
           );
           return;
         }

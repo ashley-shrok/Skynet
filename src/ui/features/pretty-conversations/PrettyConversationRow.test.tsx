@@ -3503,9 +3503,14 @@ describe("PrettyConversationRow: Phase 56 row is a drag source", () => {
     // fallback branch is <span>, no draggable attribute needed).
     currentIdentity.avatarUrl = "data:image/png;base64,iVBORw0KGgo=";
 
+    // Ashley 2026-09-01: <img> now gates on Number.isFinite(rowHostIdNum) —
+    // when row.host.id is non-numeric (as in the default makeHost fixture
+    // where id="hA") the render falls back to the initial-letter placeholder
+    // to avoid a broken-image affordance. Provide a numeric host id so the
+    // avatar-img path actually renders under test.
     const { container } = render(
       <PrettyConversationRow
-        row={makeRow()}
+        row={makeRow({ host: makeHost({ id: "1" }) })}
         selected={false}
         pinned={false}
         variant="desktop"

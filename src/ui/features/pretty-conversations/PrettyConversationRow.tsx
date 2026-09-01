@@ -1192,23 +1192,17 @@ export function PrettyConversationRow({
             component's null-return contract. */}
         <div className="pv-avatar" data-testid="pcrow-avatar">
           {identity ? (
-            identity.avatarUrl ? (
+            // Phase 66 Plan 05: hostId threading — Plan 03's GET /:id/avatar
+            // requires hostId query param. `rowHostIdNum` (~L330) is
+            // parseInt(row.host.id, 10) when row.host is present; NaN when
+            // absent. If NaN we can't fetch the avatar (backend 400s) so
+            // fall back to the initial-letter placeholder rather than
+            // producing a broken-image affordance. Ashley 2026-09-01:
+            // "some conversation-list rows show broken-image icons" — this
+            // gates on BOTH avatarUrl truthiness AND hostId presence.
+            identity.avatarUrl && Number.isFinite(rowHostIdNum) ? (
               <img
-                // Phase 66 Plan 05: hostId threading — Plan 03's GET /:id/avatar
-                // requires hostId query param. rowHostIdNum (L330 above) is
-                // parseInt(row.host.id, 10) when row.host is present; when
-                // row.host is absent (row.host is undefined per ConversationRow
-                // optional field) rowHostIdNum is NaN and we fall back to the
-                // initial-letter placeholder branch below — but that branch is
-                // gated on `identity.avatarUrl` truthiness, not on hostId,
-                // so we still route through avatarUrlWithHost when hostId is
-                // valid and use raw identity.avatarUrl (which will 400 →
-                // browser broken-image affordance) as the degraded fallback.
-                src={
-                  Number.isFinite(rowHostIdNum)
-                    ? avatarUrlWithHost(identity, rowHostIdNum)
-                    : identity.avatarUrl
-                }
+                src={avatarUrlWithHost(identity, rowHostIdNum)}
                 alt=""
                 className="pv-avatar-img"
                 style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "999px" }}
