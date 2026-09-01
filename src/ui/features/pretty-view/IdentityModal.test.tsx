@@ -511,4 +511,25 @@ describe("IdentityModal — Phase 67 coordinator watermark", () => {
     renderModal();
     expect(screen.queryByTestId("coordinator-watermark")).toBeNull();
   });
+
+  it("MODAL-COORD-3 (Phase 67 /close 2026-09-01 follow-up, M3): coordinator watermark null-hue fallback is 216 (unified with row + badge)", () => {
+    // Pre-fix, the modal reused the incoming `hue` prop for the watermark
+    // background — the prop arrives from PrettyView as `identity.colorHue
+    // ?? 35`, so null-hue coordinator identities rendered an amber (35)
+    // watermark here while the row's CSS default painted a coral-blue
+    // (216) one. Post-fix, the watermark's null-hue fallback is 216 on
+    // every surface. The chrome hue (dialog border, gradient, glow) still
+    // uses the incoming `hue` prop — that's a separate concern.
+    // JSDOM canonicalizes inline CSS colors on read (hsl → rgb):
+    //   hsl(216, 85%, 78%) → rgb(151, 189, 247)  (fallback: unified 216)
+    //   hsl(35,  85%, 78%) → rgb(247, 207, 151)  (pre-fix bug: chrome-35)
+    // renderModal passes hue={200} as the chrome hue prop; the identity's
+    // colorHue is null so the WATERMARK's null-fallback (216) is what
+    // paints — proving the two hues are cleanly separated.
+    renderModal({ coordinator: true, colorHue: null });
+    const watermark = screen.getByTestId("coordinator-watermark");
+    const inlineStyle = watermark.getAttribute("style") ?? "";
+    expect(inlineStyle).toContain("rgb(151, 189, 247)"); // = hsl(216, 85%, 78%)
+    expect(inlineStyle).not.toContain("rgb(247, 207, 151)"); // ≠ hsl(35, 85%, 78%)
+  });
 });

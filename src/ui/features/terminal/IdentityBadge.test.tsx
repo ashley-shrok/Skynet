@@ -405,4 +405,32 @@ describe("IdentityBadge — Phase 67 coordinator watermark", () => {
       screen.queryByTestId("coordinator-watermark"),
     ).toBeNull();
   });
+
+  it("BADGE-COORD-3 (Phase 67 /close 2026-09-01 follow-up, M3): coordinator watermark null-hue fallback is 216 (unified with row + modal)", () => {
+    // Pre-fix, the badge fell back to hue 35 (chrome default) for the
+    // watermark when identity.colorHue was null — mismatching the row's
+    // CSS `--pv-hue: 216` default. Post-fix, the watermark's null-hue
+    // fallback is 216 across all three surfaces (chrome fallback stays at
+    // 35 — see comment at IdentityBadge.tsx `const hue = ...`).
+    // JSDOM canonicalizes inline CSS colors on read (hsl → rgb), so this
+    // test asserts on the rgb() equivalents:
+    //   hsl(216, 85%, 78%) → rgb(151, 189, 247)  (fallback: unified 216)
+    //   hsl(35,  85%, 78%) → rgb(247, 207, 151)  (pre-fix bug: chrome-35)
+    const nullHueCoordFixture = {
+      ...FIXTURE,
+      colorHue: null as number | null,
+      coordinator: true,
+    };
+    vi.mocked(useIdentities).mockReturnValue({
+      identities: [nullHueCoordFixture],
+      byKey: new Map([["tina", nullHueCoordFixture]]),
+      loaded: true,
+      refresh: vi.fn(),
+    });
+    render(<IdentityBadge identityKey="tina" onClick={vi.fn()} />);
+    const watermark = screen.getByTestId("coordinator-watermark");
+    const inlineStyle = watermark.getAttribute("style") ?? "";
+    expect(inlineStyle).toContain("rgb(151, 189, 247)"); // = hsl(216, 85%, 78%)
+    expect(inlineStyle).not.toContain("rgb(247, 207, 151)"); // ≠ hsl(35, 85%, 78%)
+  });
 });
