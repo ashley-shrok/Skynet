@@ -151,11 +151,20 @@ export function IdentityBadge({
           )}
         />
       )}
+      {/* Phase 67 /close 2026-09-01 follow-up (M4): explicit z-index: 1 on
+          the avatar img + name/title stack pins them above the coordinator
+          watermark's z-index: 0 sibling. Previously relied on auto vs 0
+          emergent stacking — a future hover state that added `z-index: -1`
+          or a container that set `isolation: isolate` could have flipped
+          the watermark above primaries. `position: relative` gives z-index
+          bite on the flex items. */}
       <img
         src={avatarSrc}
         alt=""
         className="object-cover shrink-0"
         style={{
+          position: "relative",
+          zIndex: 1,
           width: 56,
           height: 56,
           borderRadius: "50%",
@@ -163,7 +172,10 @@ export function IdentityBadge({
         }}
         draggable={false}
       />
-      <div className="flex flex-col min-w-0">
+      <div
+        className="flex flex-col min-w-0"
+        style={{ position: "relative", zIndex: 1 }}
+      >
         <span
           className="font-semibold truncate leading-tight"
           style={{ fontSize: 15, color: "#f0ebe0" }}

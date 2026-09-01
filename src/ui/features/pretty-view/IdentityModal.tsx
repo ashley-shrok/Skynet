@@ -1305,6 +1305,17 @@ export function IdentityModal({
               guard: when avatarEtag is the "" safe-default from Plan 03's
               publicIdentity (disk-cosmetics absent), SKIP the &v= entirely
               rather than emitting a literal `&v=`. */}
+          {/* Phase 67 /close 2026-09-01 follow-up (M4): explicit
+              position: relative + zIndex: 1 on every DialogHeader primary
+              sibling below pins them above the coordinator watermark's
+              zIndex: 0. Previously relied on auto vs 0 emergent stacking —
+              a future hover state that added zIndex: -1 or a container
+              that set isolation: isolate could have flipped the watermark
+              above primaries + broken the interactive controls (stays-
+              awake switch, share picker, pencil, close button). Belt-and-
+              suspenders: interactive controls also need a stacking context
+              for their pointer events to reliably win over the watermark
+              (which is pointerEvents: none, so this is defensive only). */}
           <img
             src={
               identity.avatarEtag
@@ -1314,6 +1325,8 @@ export function IdentityModal({
             alt=""
             className="shrink-0 object-cover"
             style={{
+              position: "relative",
+              zIndex: 1,
               width: 40,
               height: 40,
               borderRadius: "50%",
@@ -1321,7 +1334,10 @@ export function IdentityModal({
             }}
             draggable={false}
           />
-          <div className="flex flex-col min-w-0 flex-1">
+          <div
+            className="flex flex-col min-w-0 flex-1"
+            style={{ position: "relative", zIndex: 1 }}
+          >
             <span className="font-semibold text-base text-[#f0ebe0] truncate leading-tight">
               {identity.displayName}
             </span>
@@ -1337,6 +1353,7 @@ export function IdentityModal({
           <label
             className="shrink-0 flex flex-row items-center gap-2 cursor-pointer select-none"
             title="Toggle stays-awake sentinel for this identity"
+            style={{ position: "relative", zIndex: 1 }}
           >
             <Switch
               checked={staysAwake === true}
@@ -1365,6 +1382,9 @@ export function IdentityModal({
             title={editing ? "Done editing" : "Edit agent"}
             className="shrink-0 cursor-pointer size-9 rounded-full flex items-center justify-center transition-[color,background-color,border-color,box-shadow] duration-200"
             style={{
+              // Phase 67 M4: pin above coordinator watermark (z-index: 0).
+              position: "relative",
+              zIndex: 1,
               background: editing ? "rgba(255, 255, 255, 0.10)" : "rgba(255, 255, 255, 0.04)",
               border: editing ? "1px solid rgba(220, 225, 245, 0.22)" : "1px solid rgba(220, 225, 245, 0.10)",
               boxShadow: editing ? `0 0 20px hsla(${hue}, 60%, 50%, 0.25)` : "none",
@@ -1406,6 +1426,9 @@ export function IdentityModal({
               title="Close"
               className="shrink-0 cursor-pointer size-9 rounded-full flex items-center justify-center text-[#a89a80] hover:text-[#f0ebe0] transition-[color,background-color,border-color,box-shadow] duration-200"
               style={{
+                // Phase 67 M4: pin above coordinator watermark (z-index: 0).
+                position: "relative",
+                zIndex: 1,
                 background: "rgba(255, 255, 255, 0.04)",
                 border: "1px solid rgba(220, 225, 245, 0.10)",
               }}

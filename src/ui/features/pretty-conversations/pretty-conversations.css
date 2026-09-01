@@ -556,6 +556,14 @@
      ring + badge wraps do. */
   position: relative;
   overflow: visible;
+  /* Phase 67 /close 2026-09-01 follow-up (M4): explicit z-index so the
+     avatar always paints above the `.pv-coordinator-watermark` (z-index:
+     0) sibling. Row primary elements previously relied on emergent
+     stacking rules (auto vs 0); pinning `z-index: 1` here + on `.pv-body`
+     locks the contract so a future hover state that adds `z-index: -1` or
+     an `isolate` on the row can't accidentally flip the watermark above
+     primaries. `.pv-pin-indicator` already has `z-index: 1`. */
+  z-index: 1;
   width: 40px;
   height: 40px;
   border-radius: 999px;
@@ -685,6 +693,14 @@
      name/title font. Both use Inter Variable; the app root defaults to
      JetBrains Mono, which was leaking into the row's label/host until now. */
   font-family: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  /* Phase 67 /close 2026-09-01 follow-up (M4): explicit z-index so the
+     text label/subtitle always paints above the `.pv-coordinator-
+     watermark` (z-index: 0) sibling. `.pv-body` needs a stacking context
+     for z-index to take effect on a flex item; `position: relative`
+     satisfies that without altering layout (already an inline flex
+     child of `.pv-row`). */
+  position: relative;
+  z-index: 1;
 }
 
 .pv-body .pv-label {
