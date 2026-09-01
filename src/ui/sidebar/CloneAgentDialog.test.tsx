@@ -296,6 +296,10 @@ describe("CloneAgentDialog", () => {
       newName: "tina-2",
       title: "Fleet Operator",
       voice: "Elena.wav",
+      // Phase 66 /close 2026-09-01 follow-up: source's colorHue is threaded
+      // through so the clone's on-disk frontmatter inherits it (LOCKED in UI —
+      // no picker).
+      colorHue: 128,
       avatarCandidateId: null,
       path: "~/",
     });
