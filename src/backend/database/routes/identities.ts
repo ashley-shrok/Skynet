@@ -17,6 +17,8 @@ import {
   readIdentityFile,
   writeIdentityFile,
   writeAvatarSiblingFile,
+  readAvatarSiblingFile,
+  extractCosmeticsFromFrontmatter,
   isLocalHostId,
   getLocalIdentitiesRoot,
   extractRoleFromMarkdown,
@@ -71,21 +73,102 @@ function parseMultipartMetadata(req: Request): IdentityMetadata | null {
   }
 }
 
-function publicIdentity(row: typeof identities.$inferSelect, role: string | null = null) {
+/**
+ * Phase 66 Plan 03 (moved from Plan 05 per checker B2): capitalizeFirst
+ * safe-default helper. Mirrors the frontend withDisplayCap pattern at
+ * src/ui/state/identities-store.ts L23-29 exactly. When disk cosmetics
+ * are absent, displayName falls back to `capitalizeFirst(identityKey)`
+ * so the frontend Identity type's non-nullable-string contract is
+ * satisfied without widening the type.
+ */
+function capitalizeFirst(s: string): string {
+  if (!s || s.length === 0) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/**
+ * Phase 66: safe-defaults for the frontend Identity type's non-nullable-string
+ * fields (displayName/avatarMime/avatarEtag). Disk-overlay populates when
+ * identityHosts is supplied AND cosmetics exist on disk; safe defaults
+ * otherwise satisfy TSC without widening the Identity type (Plan 05 defers
+ * the type widening as bigger blast radius). Moved from Plan 05 to Plan 03
+ * per checker B2 — co-located with the READ flip that creates the
+ * null-cosmetics scenario, so this plan's own tests exercise the
+ * safe-defaults path.
+ *
+ * `cosmetics` overlay semantics:
+ *   - present string → use it (overrides safe-default)
+ *   - present number for colorHue → use it (overrides null)
+ *   - absent → safe-default (displayName=capitalizeFirst(identityKey);
+ *     title/colorHue/voice → null; avatarMime/avatarEtag → "")
+ *
+ * The `role` argument is preserved (used only by pre-flip tests; kept for
+ * signature compatibility with any surviving caller).
+ */
+function publicIdentity(
+  row: typeof identities.$inferSelect,
+  cosmetics: {
+    displayName?: string;
+    title?: string;
+    colorHue?: number;
+    voice?: string;
+    avatarMime?: string;
+    avatarEtag?: string;
+  } = {},
+  role: string | null = null,
+) {
   return {
     id: row.id,
     identityKey: row.identityKey,
-    displayName: row.displayName,
-    title: row.title,
-    colorHue: row.colorHue,
-    voice: row.voice,
-    avatarMime: row.avatarMime,
+    displayName:
+      typeof cosmetics.displayName === "string" && cosmetics.displayName.length > 0
+        ? cosmetics.displayName
+        : capitalizeFirst(row.identityKey),
+    title: typeof cosmetics.title === "string" ? cosmetics.title : null,
+    colorHue: typeof cosmetics.colorHue === "number" ? cosmetics.colorHue : null,
+    voice: typeof cosmetics.voice === "string" ? cosmetics.voice : null,
+    avatarMime:
+      typeof cosmetics.avatarMime === "string" ? cosmetics.avatarMime : "",
     avatarUrl: `/identities/${row.id}/avatar`,
-    avatarEtag: row.avatarEtag,
+    avatarEtag:
+      typeof cosmetics.avatarEtag === "string" ? cosmetics.avatarEtag : "",
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     role,
   };
+}
+
+// Phase 66 Plan 03: GET / accepts an optional `identityHosts` query param
+// (URL-encoded JSON map `{ identityKey: hostId }`). For each row whose key
+// is IN the map, we per-request lazy-fetch the identity's on-disk .md file
+// via the artifact-reader on the caller-specified box and overlay the
+// parsed cosmetics onto publicIdentity(). Rows with no hostId in the map,
+// or whose disk fetch fails (unreachable / missing / malformed), come back
+// with SAFE-DEFAULT cosmetics for that row (publicIdentity emits
+// capitalizeFirst(identityKey) + null-nullables + ""-for-non-null-strings).
+// The endpoint NEVER errors 5xx due to a per-row fetch failure — Ashley
+// greenlit "accept the ugly render" per the shape file.
+//
+// Plan 05 (wave 3) rewires the frontend caller to pass a populated
+// identityHosts map from conversation-store fleetSessions; in the transition
+// window (Plan 03 shipped, Plan 05 pending) the map arrives as `{}` and
+// every row comes back with safe-defaults on first render.
+function parseIdentityHosts(raw: unknown): Record<string, number> {
+  if (typeof raw !== "string" || raw.length === 0) return {};
+  try {
+    const decoded = decodeURIComponent(raw);
+    const parsed = JSON.parse(decoded);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof v === "number" && Number.isInteger(v) && v > 0) {
+        out[k.toLowerCase()] = v;
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 router.get("/", authenticateJWT, async (req: Request, res: Response) => {
@@ -96,11 +179,49 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
       .from(identities)
       .where(eq(identities.userId, userId))
       .all();
-    // Role is authoritative from /sessions/list (per-host SSH conn reads frontmatter
-    // on the identity's home box). The LOCAL-only resolveRoleForIdentity(null, ...) call
-    // that was here returned null for every non-tina identity (skynet-ec2 only has tina's
-    // identity file). Retiring that broken call; wire shape preserved (role: null on wire).
-    const enriched = rows.map((row) => publicIdentity(row, null));
+
+    const identityHosts = parseIdentityHosts(req.query.identityHosts);
+
+    // Per-row parallel fetch via Promise.allSettled — bounds wall-clock so a
+    // single slow box doesn't stretch the endpoint past the sum of per-row
+    // 5s connect timeouts (T-66-03-01). Rows not in identityHosts skip the
+    // SSH work entirely and go straight to safe-defaults publicIdentity.
+    const enriched = await Promise.all(
+      rows.map(async (row) => {
+        const keyLc = row.identityKey.toLowerCase();
+        const hostId = identityHosts[keyLc];
+        if (hostId === undefined) {
+          // No hostId in caller-scoped map → safe-defaults for this row.
+          return publicIdentity(row, {});
+        }
+        // Fetch cosmetics from disk. Swallow ALL errors → safe-defaults.
+        try {
+          const local = isLocalHostId(hostId);
+          let conn: import("ssh2").Client | null = null;
+          if (!local) {
+            const host = await resolveHostById(hostId, userId);
+            if (!host) return publicIdentity(row, {});
+            conn = await connectOneShot(host, 5_000);
+          }
+          try {
+            const { markdown } = await readIdentityFile(conn, row.identityKey);
+            if (!markdown || markdown.length === 0) return publicIdentity(row, {});
+            const cos = extractCosmeticsFromFrontmatter(markdown);
+            return publicIdentity(row, cos);
+          } finally {
+            if (conn) {
+              try { conn.end(); } catch { /* ignore */ }
+            }
+          }
+        } catch {
+          // Per-shape "cosmetics unfetchable → error state" scoped to this
+          // row (not the whole endpoint). Row still appears in the response
+          // with safe-default cosmetics.
+          return publicIdentity(row, {});
+        }
+      }),
+    );
+
     return res.json(enriched);
   } catch (e) {
     databaseLogger.error("Failed to list identities", e, {
@@ -531,12 +652,32 @@ router.delete("/:id", authenticateJWT, async (req: Request, res: Response) => {
   }
 });
 
+// Phase 66 Plan 03: GET /:id/avatar reads the sibling avatar file from disk
+// via readAvatarSiblingFile. Query `hostId=<n>` is required to route the
+// artifact-reader (LOCAL bind-mount vs REMOTE connectOneShot). Response
+// Content-Type derives from the on-disk file's extension. 404 when no
+// sibling exists; 502 when SSH fails.
 router.get(
   "/:id/avatar",
   authenticateJWT,
   async (req: Request, res: Response) => {
     const userId = (req as AuthenticatedRequest).userId;
     const id = String(req.params.id);
+
+    // hostId query validation — fail fast BEFORE the row lookup or SSH work.
+    const rawHost = req.query.hostId;
+    const hostIdNum =
+      typeof rawHost === "string" ? Number(rawHost) : Number.NaN;
+    if (
+      !Number.isFinite(hostIdNum) ||
+      !Number.isInteger(hostIdNum) ||
+      hostIdNum <= 0
+    ) {
+      return res
+        .status(400)
+        .json({ error: "hostId query required (positive integer)" });
+    }
+
     try {
       const row = db
         .select()
@@ -546,15 +687,60 @@ router.get(
       if (!row) {
         return res.status(404).json({ error: "Identity not found" });
       }
-      const ifNoneMatch = req.headers["if-none-match"];
-      const etag = `"${row.avatarEtag}"`;
-      if (ifNoneMatch && ifNoneMatch === etag) {
-        return res.status(304).end();
+
+      const local = isLocalHostId(hostIdNum);
+      let conn: import("ssh2").Client | null = null;
+      if (!local) {
+        try {
+          const host = await resolveHostById(hostIdNum, userId);
+          if (!host) {
+            return res
+              .status(502)
+              .json({ error: "identity home box unreachable" });
+          }
+          conn = await connectOneShot(host, 5_000);
+        } catch {
+          return res
+            .status(502)
+            .json({ error: "identity home box unreachable" });
+        }
       }
-      res.setHeader("Content-Type", row.avatarMime);
-      res.setHeader("ETag", etag);
-      res.setHeader("Cache-Control", "private, max-age=300");
-      return res.send(row.avatarData);
+
+      try {
+        const readResult = await readAvatarSiblingFile(conn, row.identityKey);
+        if (readResult === null) {
+          return res
+            .status(404)
+            .json({ error: "no avatar on disk for this identity" });
+        }
+
+        // ETag is per-response, not stored server-side. Browser-side
+        // revalidation via If-None-Match is standard HTTP cache-validation
+        // — the shape file's "no cache" clause targets server-side
+        // cosmetics caching (Skynet holding a copy of the disk values),
+        // NOT HTTP cache-validation. Per-response etag is compatible with
+        // the shape rule (per W6).
+        const etag = `"disk-${createHash("md5").update(readResult.bytes).digest("hex")}"`;
+        const ifNoneMatch = req.headers["if-none-match"];
+        if (ifNoneMatch && ifNoneMatch === etag) {
+          return res.status(304).end();
+        }
+        res.setHeader("Content-Type", readResult.mime);
+        res.setHeader("Content-Length", String(readResult.bytes.byteLength));
+        res.setHeader("ETag", etag);
+        res.setHeader("Cache-Control", "private, max-age=300");
+        return res.send(readResult.bytes);
+      } catch {
+        // SSH-layer / SFTP error → 502 with canned message (T-66-03-02);
+        // never leak raw SSH exceptions into the response body.
+        return res
+          .status(502)
+          .json({ error: "identity home box unreachable" });
+      } finally {
+        if (conn) {
+          try { conn.end(); } catch { /* ignore */ }
+        }
+      }
     } catch (e) {
       databaseLogger.error("Failed to serve avatar", e, {
         operation: "get_identity_avatar",

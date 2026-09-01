@@ -48,13 +48,41 @@ function buildUpdateFormData(
   return fd;
 }
 
-export async function listIdentities(): Promise<Identity[]> {
+/**
+ * Phase 66 Plan 03: listIdentities widened to accept an optional
+ * `identityHosts` map (identityKey → hostId). The backend per-request
+ * fetches on-disk cosmetics per identity using this caller-scoped map;
+ * rows whose key is NOT in the map come back with safe-default cosmetics
+ * (displayName = capitalizeFirst(identityKey); title/colorHue/voice = null;
+ * avatarMime/avatarEtag = "").
+ *
+ * identityHosts is caller-scoped. Empty map (default) = all cosmetics as
+ * safe-defaults (matches Phase 66 transition-window semantics — Plan 05
+ * wires the populated call site from conversation-store fleetSessions).
+ */
+export async function listIdentities(
+  identityHosts: Record<string, number> = {},
+): Promise<Identity[]> {
   try {
-    const response = await authApi.get("/identities");
+    const params: Record<string, string> = {};
+    if (Object.keys(identityHosts).length > 0) {
+      params.identityHosts = JSON.stringify(identityHosts);
+    }
+    const response = await authApi.get("/identities", { params });
     return response.data as Identity[];
   } catch (error) {
     handleApiError(error, "list identities");
   }
+}
+
+/**
+ * Phase 66 Plan 03: avatar URL threaded with hostId (required by the
+ * flipped GET /identities/:id/avatar route). Plan 05 wires the consumers
+ * (IdentityBadge / IdentityModal / etc.) to call this helper with the
+ * identity's hostId from conversation-store fleetSessions.
+ */
+export function avatarUrlWithHost(identity: Identity, hostId: number): string {
+  return `${identity.avatarUrl}?hostId=${hostId}`;
 }
 
 export async function createIdentity(

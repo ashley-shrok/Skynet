@@ -42,7 +42,13 @@ async function fetchOnce(): Promise<void> {
   if (state.loaded || inflight) return inflight ?? Promise.resolve();
   inflight = (async () => {
     try {
-      const list = await listIdentities();
+      // Phase 66 Plan 03 transition-window: pass empty identityHosts map so
+      // the backend serves cosmetics-as-safe-defaults (capitalizeFirst of
+      // identityKey; nulls for title/colorHue/voice; "" for avatarMime/etag).
+      // Plan 05 rewires this call site to pass a populated map derived from
+      // conversation-store fleetSessions (widening this call is a separate
+      // blast-radius change tracked by Plan 05, wave 3).
+      const list = await listIdentities({});
       setIdentities(list);
     } catch {
       state = { ...state, loaded: true };
