@@ -247,6 +247,71 @@ describe("extractCosmeticsFromFrontmatter", () => {
 });
 
 // ===========================================================================
+// extractCosmeticsFromFrontmatter — coordinator field (Phase 67 Plan 67-01)
+// ===========================================================================
+//
+// Phase 67 adds ONE MORE optional cosmetic scalar to the on-disk YAML
+// frontmatter: `coordinator: true|false`. Purely additive extension of the
+// Phase 66 pipeline. Six cases mirror the existing narrowing contract:
+// present-true keeps it, present-false keeps it, absent drops it, non-boolean
+// (string or number) drops it, and malformed YAML returns {}.
+
+describe("extractCosmeticsFromFrontmatter — coordinator field (Phase 67 Plan 67-01)", () => {
+  it("COORD-1: frontmatter with coordinator: true + other cosmetics → coordinator: true alongside narrowed fields", async () => {
+    const md =
+      "---\nrole: box-maintainer\ndisplayName: Nelly\ntitle: The Fleet Warden\ncolorHue: 15\nvoice: Sabrina.wav\navatar: nelly.png\ncoordinator: true\n---\n\n# body\n";
+    const result = extractCosmeticsFromFrontmatter(md);
+    expect(result.displayName).toBe("Nelly");
+    expect(result.title).toBe("The Fleet Warden");
+    expect(result.colorHue).toBe(15);
+    expect(result.voice).toBe("Sabrina.wav");
+    expect(result.avatar).toBe("nelly.png");
+    expect(result.coordinator).toBe(true);
+  });
+
+  it("COORD-2: frontmatter with coordinator: false → coordinator: false present (NOT dropped)", async () => {
+    const md =
+      "---\nrole: box-maintainer\ndisplayName: Tina\ncoordinator: false\n---\n\n# body\n";
+    const result = extractCosmeticsFromFrontmatter(md);
+    expect(result.displayName).toBe("Tina");
+    expect("coordinator" in result).toBe(true);
+    expect(result.coordinator).toBe(false);
+  });
+
+  it("COORD-3: frontmatter with NO coordinator key → coordinator absent from result", async () => {
+    const md =
+      "---\nrole: box-maintainer\ndisplayName: Tina\ntitle: The Coder\n---\n\n# body\n";
+    const result = extractCosmeticsFromFrontmatter(md);
+    expect(result.displayName).toBe("Tina");
+    expect("coordinator" in result).toBe(false);
+  });
+
+  it("COORD-4: frontmatter with coordinator: 'yes' (non-boolean string) → coordinator DROPPED", async () => {
+    const md =
+      "---\nrole: box-maintainer\ndisplayName: Tina\ncoordinator: \"yes\"\n---\n\n# body\n";
+    const result = extractCosmeticsFromFrontmatter(md);
+    expect(result.displayName).toBe("Tina");
+    expect("coordinator" in result).toBe(false);
+  });
+
+  it("COORD-5: frontmatter with coordinator: 1 (number) → coordinator DROPPED", async () => {
+    const md =
+      "---\nrole: box-maintainer\ndisplayName: Tina\ncoordinator: 1\n---\n\n# body\n";
+    const result = extractCosmeticsFromFrontmatter(md);
+    expect(result.displayName).toBe("Tina");
+    expect("coordinator" in result).toBe(false);
+  });
+
+  it("COORD-6: malformed YAML block → {} returned; coordinator absent", async () => {
+    const md =
+      "---\n: : broken : : yaml : :\n  invalid: [unclosed\ncoordinator: true\n---\n\n# body\n";
+    const result = extractCosmeticsFromFrontmatter(md);
+    expect(result).toEqual({});
+    expect("coordinator" in result).toBe(false);
+  });
+});
+
+// ===========================================================================
 // Invalid identityKey guard
 // ===========================================================================
 
