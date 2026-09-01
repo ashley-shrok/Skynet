@@ -1669,3 +1669,13 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 65-02-PLAN.md — Form editor round-trip (frontend + component tests): extend `FormSchedule` with `days?: Weekday[]` on interval/daily/weekly, add `normalizeDays` helper + `RestrictToDaysChips` sub-component, mount chip UI under daily + weekly variant renders (D-06 styling matching L354-362), preserve `days` through hydrate/build; extend `WakeupsTab.test.tsx` with 5 new tests covering Success Criteria #2 round-trip fidelity, #3 chip-toggle-to-payload, D-02 full-7 drop, D-04 empty-subset drop, D-03 hydrate defensive normalization (Wave 2, disjoint files from Plan 01 — could run in parallel; sequenced for review clarity)
+
+### Phase 66: Skynet reads and writes identity cosmetics from disk
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 65
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 66 to break down)
