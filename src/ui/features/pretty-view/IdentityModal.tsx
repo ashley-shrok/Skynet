@@ -1256,10 +1256,52 @@ export function IdentityModal({
             #90 deploy eyeball). */}
         <DialogHeader
           className="px-6 py-4 shrink-0 flex flex-row items-center gap-3"
+          // Phase 67: watermark positioning host + bleed clip
           style={{
+            position: "relative",
+            overflow: "hidden",
             borderBottom: `1px solid hsla(${hue}, 50%, 50%, 0.2)`,
           }}
         >
+          {/* Phase 67 Plan 67-02 Track C: coordinator watermark. Renders iff
+              the identity's coordinator boolean is strictly-true (Phase 67
+              Plan 67-01 backend contract — safe-default false when the
+              identity's on-disk YAML has no coordinator key). Sized to
+              match the IdentityBadge
+              treatment (opacity 0.14, width 148, bleed -28/-32) — same
+              larger-surface treatment per shape file. Hue reads from the
+              `hue` prop already in scope (destructured at L161). Non-
+              interactive (pointer-events: none) — never fights the header's
+              stays-awake switch / share picker / pencil-toggle / DialogClose
+              wiring. Renders BEFORE the avatar so it sits earliest in DOM
+              order (aria-hidden keeps it silent for screen readers); z-index
+              0 keeps paint order below primary header elements (which have
+              no explicit z-index or higher). */}
+          {identity.coordinator === true && (
+            <span
+              aria-hidden="true"
+              data-testid="coordinator-watermark"
+              style={{
+                position: "absolute",
+                right: -28,
+                top: -32,
+                bottom: -32,
+                width: 148,
+                zIndex: 0,
+                pointerEvents: "none",
+                opacity: 0.14,
+                backgroundColor: `hsl(${hue}, 85%, 78%)`,
+                WebkitMaskImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M8.4 18.2c.38.5.6 1.12.6 1.8 0 1.66-1.34 3-3 3s-3-1.34-3-3 1.34-3 3-3c.44 0 .85.09 1.23.26l1.41-1.77a4.504 4.504 0 0 1-1.09-3.69l-2.03-.68A2.997 2.997 0 0 1 0 9.5c0-1.66 1.34-3 3-3s3 1.34 3 3c0 .07 0 .14-.01.21l2.03.68a4.468 4.468 0 0 1 3.22-2.32V5.91A3.018 3.018 0 0 1 9 3c0-1.66 1.34-3 3-3s3 1.34 3 3c0 1.4-.96 2.57-2.25 2.91v2.16c1.4.23 2.58 1.11 3.22 2.32L18 9.71V9.5c0-1.66 1.34-3 3-3s3 1.34 3 3-1.34 3-3 3c-1.06 0-1.98-.55-2.52-1.37l-2.03.68a4.49 4.49 0 0 1-1.09 3.69l1.41 1.77c.38-.18.79-.27 1.23-.27 1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3c0-.68.22-1.3.6-1.8l-1.41-1.77c-1.35.75-3.01.76-4.37 0L8.4 18.2z'/></svg>")`,
+                maskImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M8.4 18.2c.38.5.6 1.12.6 1.8 0 1.66-1.34 3-3 3s-3-1.34-3-3 1.34-3 3-3c.44 0 .85.09 1.23.26l1.41-1.77a4.504 4.504 0 0 1-1.09-3.69l-2.03-.68A2.997 2.997 0 0 1 0 9.5c0-1.66 1.34-3 3-3s3 1.34 3 3c0 .07 0 .14-.01.21l2.03.68a4.468 4.468 0 0 1 3.22-2.32V5.91A3.018 3.018 0 0 1 9 3c0-1.66 1.34-3 3-3s3 1.34 3 3c0 1.4-.96 2.57-2.25 2.91v2.16c1.4.23 2.58 1.11 3.22 2.32L18 9.71V9.5c0-1.66 1.34-3 3-3s3 1.34 3 3-1.34 3-3 3c-1.06 0-1.98-.55-2.52-1.37l-2.03.68a4.49 4.49 0 0 1-1.09 3.69l1.41 1.77c.38-.18.79-.27 1.23-.27 1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3c0-.68.22-1.3.6-1.8l-1.41-1.77c-1.35.75-3.01.76-4.37 0L8.4 18.2z'/></svg>")`,
+                WebkitMaskRepeat: "no-repeat",
+                maskRepeat: "no-repeat",
+                WebkitMaskPosition: "center",
+                maskPosition: "center",
+                WebkitMaskSize: "contain",
+                maskSize: "contain",
+              }}
+            />
+          )}
           {/* Quick 260731-1c8: cache-bust the header avatar with ?v=<avatarEtag>
               so that after applyIdentityChange fires with a new avatarEtag the
               browser fetches the fresh image instead of serving the stale cache.
