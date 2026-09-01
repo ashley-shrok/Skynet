@@ -3,6 +3,10 @@ import type { DragEvent as ReactDragEvent } from "react";
 import { useIdentities } from "@/state/identities-store";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { avatarUrlWithHost } from "@/api/identities-api";
+import {
+  getCoordinatorWatermarkStyle,
+  COORDINATOR_WATERMARK_HUE_FALLBACK,
+} from "@/features/pretty-view/coordinator-watermark";
 
 export interface IdentityBadgeProps {
   identityKey: string | null;
@@ -130,32 +134,21 @@ export function IdentityBadge({
           Non-interactive (pointer-events: none) — never fights the pill's
           click/hover/focus + long-press machinery. Sized larger than the
           conversation-row treatment (opacity 0.14 vs 0.16, width 148 vs 96,
-          bleed -28/-32 vs -18/-22) per shape file tasting-v5 option-C. Hue
-          derives from the `hue` variable already in scope at L99 (identity's
-          own colorHue with 35 fallback). */}
+          bleed -28/-32 vs -18/-22) per shape file tasting-v5 option-C.
+          Phase 67 /close 2026-09-01 follow-up (M2 + M3): SVG + style moved
+          to the shared coordinator-watermark helper; the watermark's null-
+          hue fallback is unified to 216 across all three surfaces (was 35
+          here, mismatching the row's CSS 216 default). Chrome hue (border,
+          glow, bg) still falls back to 35 at L99 above — that's a separate
+          concern with a broader blast radius. */}
       {identity.coordinator === true && (
         <span
           aria-hidden="true"
           data-testid="coordinator-watermark"
-          style={{
-            position: "absolute",
-            right: -28,
-            top: -32,
-            bottom: -32,
-            width: 148,
-            zIndex: 0,
-            pointerEvents: "none",
-            opacity: 0.14,
-            backgroundColor: `hsl(${hue}, 85%, 78%)`,
-            WebkitMaskImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M8.4 18.2c.38.5.6 1.12.6 1.8 0 1.66-1.34 3-3 3s-3-1.34-3-3 1.34-3 3-3c.44 0 .85.09 1.23.26l1.41-1.77a4.504 4.504 0 0 1-1.09-3.69l-2.03-.68A2.997 2.997 0 0 1 0 9.5c0-1.66 1.34-3 3-3s3 1.34 3 3c0 .07 0 .14-.01.21l2.03.68a4.468 4.468 0 0 1 3.22-2.32V5.91A3.018 3.018 0 0 1 9 3c0-1.66 1.34-3 3-3s3 1.34 3 3c0 1.4-.96 2.57-2.25 2.91v2.16c1.4.23 2.58 1.11 3.22 2.32L18 9.71V9.5c0-1.66 1.34-3 3-3s3 1.34 3 3-1.34 3-3 3c-1.06 0-1.98-.55-2.52-1.37l-2.03.68a4.49 4.49 0 0 1-1.09 3.69l1.41 1.77c.38-.18.79-.27 1.23-.27 1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3c0-.68.22-1.3.6-1.8l-1.41-1.77c-1.35.75-3.01.76-4.37 0L8.4 18.2z'/></svg>")`,
-            maskImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M8.4 18.2c.38.5.6 1.12.6 1.8 0 1.66-1.34 3-3 3s-3-1.34-3-3 1.34-3 3-3c.44 0 .85.09 1.23.26l1.41-1.77a4.504 4.504 0 0 1-1.09-3.69l-2.03-.68A2.997 2.997 0 0 1 0 9.5c0-1.66 1.34-3 3-3s3 1.34 3 3c0 .07 0 .14-.01.21l2.03.68a4.468 4.468 0 0 1 3.22-2.32V5.91A3.018 3.018 0 0 1 9 3c0-1.66 1.34-3 3-3s3 1.34 3 3c0 1.4-.96 2.57-2.25 2.91v2.16c1.4.23 2.58 1.11 3.22 2.32L18 9.71V9.5c0-1.66 1.34-3 3-3s3 1.34 3 3-1.34 3-3 3c-1.06 0-1.98-.55-2.52-1.37l-2.03.68a4.49 4.49 0 0 1-1.09 3.69l1.41 1.77c.38-.18.79-.27 1.23-.27 1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3c0-.68.22-1.3.6-1.8l-1.41-1.77c-1.35.75-3.01.76-4.37 0L8.4 18.2z'/></svg>")`,
-            WebkitMaskRepeat: "no-repeat",
-            maskRepeat: "no-repeat",
-            WebkitMaskPosition: "center",
-            maskPosition: "center",
-            WebkitMaskSize: "contain",
-            maskSize: "contain",
-          }}
+          style={getCoordinatorWatermarkStyle(
+            identity.colorHue ?? COORDINATOR_WATERMARK_HUE_FALLBACK,
+            "badge",
+          )}
         />
       )}
       <img
