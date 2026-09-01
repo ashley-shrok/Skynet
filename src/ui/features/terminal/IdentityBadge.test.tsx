@@ -386,8 +386,20 @@ describe("IdentityBadge — Phase 67 coordinator watermark", () => {
   });
 
   it("BADGE-COORD-2: identity.coordinator absent → no coordinator-watermark element in DOM", () => {
-    // FIXTURE (top-level vi.mock default) has no coordinator field — undefined
-    // at runtime, resolves to false-branch under the strict `=== true` guard.
+    // Explicitly restore the FIXTURE-without-coordinator baseline. Vitest
+    // does NOT roll back `vi.mocked(fn).mockReturnValue(...)` overrides
+    // between tests in the same describe block on its own — a prior test
+    // (BADGE-COORD-1) swapped in a coordinator-true FIXTURE, so we must
+    // pin the baseline back explicitly before rendering to defend against
+    // test-ordering-dependent bleed. FIXTURE has no coordinator field —
+    // undefined at runtime, resolves to false-branch under the strict
+    // `=== true` guard on the render side.
+    vi.mocked(useIdentities).mockReturnValue({
+      identities: [FIXTURE],
+      byKey: new Map([["tina", FIXTURE]]),
+      loaded: true,
+      refresh: vi.fn(),
+    });
     render(<IdentityBadge identityKey="tina" onClick={vi.fn()} />);
     expect(
       screen.queryByTestId("coordinator-watermark"),
