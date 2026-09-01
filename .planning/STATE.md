@@ -3,15 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: completed
-stopped_at: "Completed 64-01-PLAN.md (Wave 1: split-tree replaceLeaf + swapLeaves helpers, TDD-first, RED+GREEN commits)"
-last_updated: "2026-09-01T04:34:13.549Z"
+last_updated: "2026-09-01T18:46:08.855Z"
 last_activity: 2026-09-01 -- Phase 66 marked complete
 progress:
-  total_phases: 65
-  completed_phases: 53
-  total_plans: 227
-  completed_plans: 226
-  percent: 82
+  total_phases: 67
+  completed_phases: 56
+  total_plans: 241
+  completed_plans: 239
+  percent: 84
 ---
 
 # Project State
@@ -312,6 +311,7 @@ Progress: [██████████] 100%
 | Phase 58 P01 | 8 | 1 tasks | 2 files |
 | Phase 58 P02 | 15 | 2 tasks | 5 files |
 | Phase 64 P01 | 5 | 1 tasks | 2 files |
+| Phase 67 P02 | 20m | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -474,6 +474,7 @@ Recent decisions affecting current work:
 - [Phase ?]: D-02: full-7 days treated as no-gate — normalizeDays returns undefined; buildSchedule drops the field
 - [Phase ?]: D-04: empty subset valid (normalizeDays → undefined); validateForm unchanged; chip deselect all = every day
 - [Phase ?]: FormSchedule days field + RestrictToDaysChips chip UI on daily/weekly fixes the data-loss round-trip bug
+- [Phase ?]: Phase 67 Plan 67-02 — Wave 2 frontend watermark landed via CSS-mask MdHub SVG approach (three surfaces: PrettyConversationRow, IdentityBadge, IdentityModal); hue-brightened from identity's own colorHue; six new render tests; zero regression across 9 test files, 162 tests; no writes/pushes/builds/deploys.
 
 ### Pending Todos
 
@@ -484,6 +485,8 @@ None yet.
 None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY DISCIPLINE — not a blocker, a standing constraint.
 
 ### Roadmap Evolution
+
+- 2026-09-01: Phase 67 added (tina) — Mark coordinators in Skynet with right-side MdHub watermark on identity surfaces. Coordinator status lives in each identity's on-disk YAML frontmatter as `coordinator: true` (per id-skill § Coordinator mode). This phase reads that flag through the Phase 66 disk-cosmetic pipeline (one more field alongside role/displayName/title/colorHue/voice/avatar) and renders a right-side Material `MdHub` (hub-and-spoke) watermark on three surfaces: (a) conversation-list row, (b) pretty-view identity badge, (c) IdentityModal header. Watermark is oversized (moderate bleed — overflows top/bottom/right of container), semi-transparent (~0.14-0.16), with hue-derived color: identity's own colorHue at approximately L=78% S=85% so it feels like a lighter tone of the row's own palette rather than a fixed accent that clashes on some hues. Read-only from Skynet's side — no UI toggle for the flag. Same treatment on mobile (may need tuning after Ashley sees it live — deferred). Piggybacks on Phase 66's disk-cosmetic reader and hostId routing without introducing new mechanisms. Depends on Phase 66 (both stacked — Ashley greenlit "just stack it" 2026-09-01 rather than shipping 66 first). Shape file at `.planning/shapes/shape-mark-coordinators-in-skynet.md` (opened + locked 2026-09-01 via `/build` → `/open`, greenlit `thumbs up` same session). Vehicle: /build feature-mode → GSD phase → /gsd:discuss-phase (seed CONTEXT.md from shape file per build-skill convention) → /gsd:plan-phase → /gsd:execute-phase → /close mark-coordinators-in-skynet. Blast radius: backend disk-cosmetic reader (one field added), identity type widening (one boolean), three frontend render surfaces (row + PV badge + IdentityModal header), CSS for the watermark. No worktrees.
 
 - 2026-09-01: Phase 66 added (tina) — Skynet reads and writes identity cosmetics from disk. Phase B of the `/build identity-prettiness-on-disk` two-phase arc. Shape file at `.planning/shapes/identity-prettiness-on-disk.md` (locked 2026-08-31 via `/open`); Phase A (populate disk fleet-wide + id skill update) shipped 2026-08-31 by nadia+nelly (51/54 identities landed on-disk with rich frontmatter + sibling avatar file, id skill self-updating at vms-apps master f33d187). Phase B scope: (a) BIRTH — grow `identity-birth-orchestrator.ts` step 2 frontmatter emission from `role:` only to also include `displayName`/`title`/`colorHue`/`voice` (absent-⇒-omit) and write the uploaded avatar bytes as a sibling file `<key>.<ext>` (extension implies mime); (b) UPDATE — flip `PUT /identities/:id` from encrypted-store write to disk-write via the same artifact-reader plumbing already used for bounty/wakeup writes (see `identity-artifact-reader.remote-writes.test.ts` for pattern); avatar update lands a fresh sibling file, replaces prior one; (c) READ — every render surface currently pulling `displayName`/`title`/`colorHue`/`voice`/`avatarUrl` from the encrypted store flips to reading the identity's on-disk frontmatter + sibling avatar file via the artifact-reader; concretely `GET /identities` becomes a fleet-walk (or a per-hostId lazy read tied to the caller's context — planner decides), `GET /identities/:id/avatar` reads the sibling file, and the identity modal + pretty-view badge consumers stay unchanged (they still call the same endpoints). Store schema: drop `displayName`/`title`/`colorHue`/`voice`/`avatarMime`/`avatarData`/`avatarEtag` columns from the `identities` table via a migration — `identityKey` + `id` + timestamps stay (identity row still exists as the ownership/user-scoping anchor). Scope-out per shape: delete symmetry (no delete UI), offline-box fallback (error is fine — same class as bounty-fetch-on-offline-box), dual-write bridge (single flip, transition window drift accepted), roles table changes (role stays in existing frontmatter). Known orphans post-Phase-A: `commander-zoey` (folder is `commander zoey` with space on ZoeyBattlestation, Ashley greenlit accept-the-ugly-render as scoped edge case). `alpha`+`beta` retired from store 2026-08-31 pre-Phase-B. Blast radius: identity endpoints backend + related tests + one DB migration. Frontend consumers unchanged. Vehicle: /gsd-plan-phase 66 (discuss-phase SKIPPED per build-skill precedent — shape file + this STATE entry seed CONTEXT.md) → /gsd-execute-phase 66 → /close identity-prettiness-on-disk after ship. No worktrees.
 
@@ -745,7 +748,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-01T03:17:26.977Z
+Last session: 2026-09-01T18:45:49.299Z
 Stopped at: Completed 64-01-PLAN.md (Wave 1: split-tree replaceLeaf + swapLeaves helpers, TDD-first, RED+GREEN commits)
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)

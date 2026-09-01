@@ -1693,3 +1693,14 @@ Plans:
 **Wave 4** *(blocked on 66-01 + 66-02 + 66-03 + 66-05 completion — dead columns can only be dropped once no code reads/writes them AND the frontend enrichment is proven green)*
 
 - [ ] 66-04-PLAN.md — MIGRATION: idempotent ALTER TABLE identities DROP COLUMN block in db/index.ts migrateSchema() for the 7 dead cosmetic columns (with SQLite version preflight per B6); drizzle schema typing narrowed; prune all insert/update paths (POST + birth + clone + share) of dropped columns; return-shape narrowing across identity-birth.ts L124-158, identity-birth-orchestrator.ts L149 + L381-401, identity-clone.ts L186-192, identity-share.ts L208-213; publicIdentity() null-echoes for moved fields (safe-defaults contract from Plan 03 continues to satisfy the frontend Identity type); new migration test covers old-schema-boot → drop → surviving-columns-intact + SQLite version preflight
+
+### Phase 67: Mark coordinators in Skynet — right-side MdHub watermark on identity surfaces
+
+**Goal:** Extend Phase 66's on-disk cosmetic pipeline by one more field — `coordinator: true` — and render a hue-brightened MdHub hub-and-spoke watermark on three identity surfaces (conversation-list row, pretty-view identity badge, identity-modal header) when the flag is present, so Ashley can distinguish coordinators from actors at a glance across every identity surface in Skynet.
+**Requirements**: (none — scope lives in 67-CONTEXT.md; same pattern as Phase 66)
+**Depends on:** Phase 66
+**Plans:** 2/2 plans complete
+
+Plans:
+- [x] 67-01-PLAN.md — BACKEND: extend extractCosmeticsFromFrontmatter to narrow coordinator boolean; widen publicIdentity overlay + response with coordinator: boolean safe-defaulted false; widen frontend Identity type; unit + route tests.
+- [x] 67-02-PLAN.md — FRONTEND: render hue-brightened MdHub watermark on PrettyConversationRow (+ pretty-conversations.css), IdentityBadge, and IdentityModal DialogHeader when identity.coordinator === true; three disjoint file-surface tracks in one plan; render tests per surface.
