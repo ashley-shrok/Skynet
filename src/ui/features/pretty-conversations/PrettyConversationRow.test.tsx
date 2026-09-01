@@ -3518,3 +3518,53 @@ describe("PrettyConversationRow: Phase 56 row is a drag source", () => {
     expect(img!.getAttribute("draggable")).toBe("false");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 67 Plan 67-02 Track A — coordinator watermark on the conversation-list
+// row. Two tests locking presence-when-true / absence-when-absent contract for
+// the `.pv-row` FIRST-child watermark span.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationRow: Phase 67 coordinator watermark", () => {
+  it("ROW-COORD-1: identity.coordinator === true renders `data-testid=coordinator-watermark` element inside .pv-row", () => {
+    currentIdentity = { ...makeIdentity(200, "nelly"), coordinator: true };
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const watermark = container.querySelector(
+      '[data-testid="coordinator-watermark"]',
+    );
+    expect(watermark).not.toBeNull();
+    // Positional contract: watermark lives INSIDE the .pv-row body, not
+    // sibling to it.
+    const row = container.querySelector(".pv-row") as HTMLElement | null;
+    expect(row).not.toBeNull();
+    expect(row!.contains(watermark)).toBe(true);
+  });
+
+  it("ROW-COORD-2: identity.coordinator absent (undefined) → no coordinator-watermark element in DOM", () => {
+    // makeIdentity fixture omits coordinator — with widened Identity + strict:
+    // false tsconfig this compiles fine and the field is undefined at runtime.
+    currentIdentity = makeIdentity(200, "nelly");
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    expect(
+      container.querySelector('[data-testid="coordinator-watermark"]'),
+    ).toBeNull();
+  });
+});
