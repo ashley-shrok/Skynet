@@ -83,6 +83,7 @@ import type { Request, Response } from "express";
 import { nanoid } from "nanoid";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
+import { DatabaseSaveTrigger } from "../../utils/database-save-trigger.js";
 import { identities, users } from "../db/schema.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger } from "../../utils/logger.js";
@@ -261,6 +262,20 @@ router.post(
         );
         res.status(200).json({ identityId: raceWinnerId, shared: false });
         return;
+      }
+      // In-memory-SQLite persistence discipline (CLAUDE.md rule + code review
+      // HIGH #3, 2026-09-01) — direct .run() writes only reach RAM; force-save
+      // to disk. Failure logs a warning but doesn't fail the share request.
+      try {
+        await DatabaseSaveTrigger.forceSave("identity_shared");
+      } catch (saveErr) {
+        databaseLogger.warn("Force-save after identity share failed", {
+          operation: "identity_share_save_failed",
+          requesterUserId: userId,
+          targetUserId,
+          sourceId,
+          error: saveErr instanceof Error ? saveErr.message : "Unknown",
+        });
       }
 
       databaseLogger.info("identity-share: shared identity to target user", {

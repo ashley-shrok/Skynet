@@ -1607,8 +1607,14 @@ export async function readAvatarSiblingFile(
 
   let extToRead: AvatarExt | null = authoritativeExt;
   if (!extToRead) {
+    // Brace expansion must sit OUTSIDE double quotes — bash does NOT expand
+    // `{a,b,c}` inside quotes, so the previous shape emitted a literal path
+    // with brace text and `ls` always errored → cascade returned null (dead
+    // code). identityKey is IDENTITY_KEY_RE-validated (^[a-z0-9_-]{1,64}$) so
+    // direct interpolation without quoting is shell-safe. Code review HIGH #2,
+    // 2026-09-01.
     const lsCmd =
-      `ls "$HOME/.claude/identities/${identityKey}/"${identityKey}".{webp,png,jpg,gif,svg}" 2>/dev/null | head -n1 | xargs -r basename`;
+      `ls "$HOME/.claude/identities/${identityKey}/${identityKey}".{webp,png,jpg,gif,svg} 2>/dev/null | head -n1 | xargs -r basename`;
     const basename = (await execWithTimeout(conn, lsCmd)).trim();
     if (!basename) return null;
     // Extract ext from basename like "tina.webp"

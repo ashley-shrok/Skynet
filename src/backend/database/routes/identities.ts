@@ -463,8 +463,26 @@ router.put(
           if (parsed && typeof parsed === "object") {
             overlaid = { ...parsed };
           }
-        } catch {
-          overlaid = {};
+        } catch (yamlErr) {
+          // Malformed frontmatter YAML — do NOT silently reset to {} because
+          // that would drop the mandatory `role:` pointer (and anything else
+          // the identity carried) on the next write, permanently bricking the
+          // identity for every downstream artifact reader. Fail loud instead;
+          // the operator must repair the frontmatter on disk before Skynet
+          // will touch it again. (Code review HIGH #1, 2026-09-01.)
+          databaseLogger.warn(
+            "identity update: existing frontmatter YAML malformed — refusing overlay",
+            {
+              operation: "identity_update_frontmatter_parse",
+              userId,
+              identityKey,
+              error: yamlErr instanceof Error ? yamlErr.message : "Unknown",
+            },
+          );
+          return res.status(500).json({
+            error:
+              "existing identity frontmatter is malformed — repair on disk before editing",
+          });
         }
         bodyAfterFm = existing.slice(fmMatch[0].length);
         // Strip a leading newline after the closing `---` (we re-add \n in

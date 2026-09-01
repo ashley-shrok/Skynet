@@ -98,6 +98,7 @@ import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import { nanoid } from "nanoid";
 import { db } from "../db/index.js";
+import { DatabaseSaveTrigger } from "../../utils/database-save-trigger.js";
 import { identities } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { AuthManager } from "../../utils/auth-manager.js";
@@ -763,6 +764,20 @@ router.post(
         });
         res.status(500).json({ error: "internal" });
         return;
+      }
+      // In-memory-SQLite persistence discipline (CLAUDE.md rule + code review
+      // HIGH #3, 2026-09-01) — direct .run() writes only reach RAM; force-save
+      // to disk. Failure to save doesn't fail the request (row exists in RAM,
+      // user's response is honest) but logs a warning for follow-up.
+      try {
+        await DatabaseSaveTrigger.forceSave("identity_cloned");
+      } catch (saveErr) {
+        databaseLogger.warn("Force-save after identity clone failed", {
+          operation: "identity_clone_save_failed",
+          userId,
+          newName,
+          error: saveErr instanceof Error ? saveErr.message : "Unknown",
+        });
       }
 
       // ---------------------------------------------------------------------
