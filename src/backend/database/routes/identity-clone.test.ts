@@ -114,17 +114,14 @@ vi.mock("./identity-harness-start.js", () => ({
 // State is reset per-test via beforeEach so cross-test isolation holds.
 // ---------------------------------------------------------------------------
 
+// Phase 66 Plan 04: identities table narrowed to the 5 surviving columns.
+// Cosmetics live on disk per shape file — tests no longer assert on them
+// in the store shim. Tests 8/9/11 rewritten to check disk-inferred defaults
+// on publicIdentity (safe-defaults pattern; see identity-clone.ts).
 type IdentityRow = {
   id: string;
   userId: string;
   identityKey: string;
-  displayName: string;
-  title: string | null;
-  colorHue: number | null;
-  voice: string | null;
-  avatarMime: string;
-  avatarData: Buffer;
-  avatarEtag: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -287,22 +284,13 @@ const stubHost = {
   password: "secret",
 };
 
-const sourceAvatarBytes = Buffer.from("source-avatar-bytes-verbatim");
-
+// Phase 66 Plan 04: source row no longer carries cosmetic columns. The
+// clone handler no longer copies avatar/mime/etag/colorHue from the row —
+// those come from disk (or safe-defaults on publicIdentity).
 const stubSourceRow: IdentityRow = {
   id: "src-id-nano",
   userId: "1",
   identityKey: "tina",
-  displayName: "tina",
-  title: "Fleet Operator",
-  colorHue: 128,
-  voice: "Elena.wav",
-  // Deliberately NOT image/png — exercises the mime-preservation path so a
-  // regression to hardcoded "image/png" for the source-verbatim reuse case
-  // (root cause of the default-terminal-icon render bug) breaks Test 9.
-  avatarMime: "image/webp",
-  avatarData: sourceAvatarBytes,
-  avatarEtag: "src-etag-md5",
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
@@ -514,7 +502,7 @@ describe("POST /identities/clone", () => {
     expect(stubConn.end).toHaveBeenCalledTimes(1);
   });
 
-  it("Test 8: happy path with avatarCandidateId — 201, DB insert with locked colorHue, seed-comment stub", async () => {
+  it("Test 8: happy path with avatarCandidateId — 201, DB insert with narrow row + safe-default publicIdentity + seed-comment stub", async () => {
     const res = await httpRequest(server, {
       method: "POST",
       path: "/identities/clone",
@@ -538,32 +526,39 @@ describe("POST /identities/clone", () => {
       colorHue: number | null;
       voice: string | null;
       avatarUrl: string;
+      avatarMime: string;
       avatarEtag: string;
     };
     expect(body.identityKey).toBe("tina-2");
-    expect(body.displayName).toBe("tina-2");
-    expect(body.title).toBe("Cloned Op");
-    expect(body.voice).toBe("Nathan.wav");
-    // colorHue is LOCKED to source (user cannot edit — REVISION locked field)
-    expect(body.colorHue).toBe(128);
+    // Phase 66 Plan 04: publicIdentity uses the safe-defaults contract
+    // (moved from Plan 05 to Plan 03 per checker B2). displayName falls
+    // back to capitalizeFirst(identityKey); title/colorHue/voice go null;
+    // avatarMime/avatarEtag go "" — cosmetics are disk-authoritative and
+    // this endpoint does not disk-read (clone returns immediately post-
+    // insert). Frontend Identity type's non-nullable-string contract is
+    // satisfied via the "" defaults.
+    expect(body.displayName).toBe("Tina-2");
+    expect(body.title).toBeNull();
+    expect(body.voice).toBeNull();
+    expect(body.colorHue).toBeNull();
+    expect(body.avatarMime).toBe("");
+    expect(body.avatarEtag).toBe("");
     expect(body.avatarUrl).toBe(`/identities/${body.id}/avatar`);
     expect(body.id).toBeTruthy();
 
-    // DB assertions — new row inserted alongside the source row
+    // DB assertions — new row inserted alongside the source row. Store shape
+    // is narrowed to the 5 surviving columns; NO cosmetic asserts remain.
     expect(dbState.rows.length).toBe(2);
     const newRow = dbState.rows.find((r) => r.identityKey === "tina-2");
     expect(newRow).toBeDefined();
     expect(newRow!.userId).toBe("1");
-    expect(newRow!.displayName).toBe("tina-2");
-    expect(newRow!.title).toBe("Cloned Op");
-    expect(newRow!.voice).toBe("Nathan.wav");
-    expect(newRow!.colorHue).toBe(128);
-    expect(newRow!.avatarMime).toBe("image/png");
-    // avatarData is the candidate's bytes (not source's)
-    expect(newRow!.avatarData.equals(Buffer.from("candidate-avatar-bytes"))).toBe(true);
-    // avatarEtag is a fresh md5 of the candidate bytes
-    expect(newRow!.avatarEtag).toBeTruthy();
-    expect(newRow!.avatarEtag).not.toBe("src-etag-md5");
+    expect(newRow!.id).toBeTruthy();
+    expect(newRow!.createdAt).toBeTruthy();
+    expect(newRow!.updatedAt).toBeTruthy();
+    // No displayName/title/colorHue/voice/avatarMime/avatarData/avatarEtag
+    // on the row — those keys are gone from the drizzle schema (Task 1).
+    expect((newRow as unknown as Record<string, unknown>).avatarData).toBeUndefined();
+    expect((newRow as unknown as Record<string, unknown>).colorHue).toBeUndefined();
 
     // SSH assertions — mkdir + touch + writeMarkdownFileAtomic
     const execCalls = (execCommand as Mock).mock.calls.map((c) => c[1] as string);
@@ -631,7 +626,7 @@ describe("POST /identities/clone", () => {
     expect(stubConn.end).toHaveBeenCalledTimes(1);
   });
 
-  it("Test 9: WITHOUT avatarCandidateId — clone uses source's avatarData buffer verbatim", async () => {
+  it("Test 9: WITHOUT avatarCandidateId — inserts narrow row (no avatar-copy from source; cosmetics live on disk)", async () => {
     const res = await httpRequest(server, {
       method: "POST",
       path: "/identities/clone",
@@ -651,16 +646,19 @@ describe("POST /identities/clone", () => {
     expect(getCandidateForBirth).not.toHaveBeenCalled();
     expect(consumeCandidateForBirth).not.toHaveBeenCalled();
 
-    // New row's avatarData deep-equals source's buffer
+    // Phase 66 Plan 04: the store row is narrowed to 5 columns; the clone
+    // handler no longer copies avatarData/avatarMime/etag/colorHue from
+    // source. Those values live on disk (source's identity file is copied
+    // separately via the fleet-standard on-disk workflow — orthogonal to
+    // this endpoint). The insertRow is just the 5 surviving columns.
     const newRow = dbState.rows.find((r) => r.identityKey === "tina-3");
     expect(newRow).toBeDefined();
-    expect(newRow!.avatarData.equals(sourceAvatarBytes)).toBe(true);
-    // avatarMime mirrors source (image/webp per stub) — NOT hardcoded PNG.
-    // Regression guard for the default-terminal-icon bug where reusing a
-    // WebP buffer verbatim with a PNG mime blocked browser render.
-    expect(newRow!.avatarMime).toBe("image/webp");
-    // colorHue still locked to source
-    expect(newRow!.colorHue).toBe(128);
+    expect(newRow!.userId).toBe("1");
+    expect(newRow!.identityKey).toBe("tina-3");
+    // No cosmetic keys on the row at all
+    expect((newRow as unknown as Record<string, unknown>).avatarData).toBeUndefined();
+    expect((newRow as unknown as Record<string, unknown>).avatarMime).toBeUndefined();
+    expect((newRow as unknown as Record<string, unknown>).colorHue).toBeUndefined();
   });
 
   it("Test 10: SSH connect failure → 502; DB row NOT inserted", async () => {

@@ -92,17 +92,14 @@ vi.mock("nanoid", () => ({ nanoid: () => "nano-generated-id" }));
 // In-memory identities table shim
 // ---------------------------------------------------------------------------
 
+// Phase 66 Plan 04: identities row narrowed to 5 surviving columns.
+// The stale-store cosmetic seed values Test 1 previously used are gone —
+// publicIdentity() no longer reads them from the row; it either overlays
+// from the disk-read cosmetics map or emits the safe-default contract.
 type IdentityRow = {
   id: string;
   userId: string;
   identityKey: string;
-  displayName: string;
-  title: string | null;
-  colorHue: number | null;
-  voice: string | null;
-  avatarMime: string;
-  avatarData: Buffer;
-  avatarEtag: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -123,18 +120,12 @@ vi.mock("drizzle-orm", () => ({
   and: (...conds: unknown[]) => ({ __type: "and", conds }),
 }));
 
+// Phase 66 Plan 04: schema mock narrowed to 5 surviving columns.
 vi.mock("../db/schema.js", () => ({
   identities: {
     id: { _colName: "id" },
     userId: { _colName: "userId" },
     identityKey: { _colName: "identityKey" },
-    displayName: { _colName: "displayName" },
-    title: { _colName: "title" },
-    colorHue: { _colName: "colorHue" },
-    voice: { _colName: "voice" },
-    avatarMime: { _colName: "avatarMime" },
-    avatarData: { _colName: "avatarData" },
-    avatarEtag: { _colName: "avatarEtag" },
     createdAt: { _colName: "createdAt" },
     updatedAt: { _colName: "updatedAt" },
   },
@@ -306,19 +297,16 @@ function httpGet(
 
 let server: http.Server;
 
+// Phase 66 Plan 04: rows narrow to the 5 surviving columns. The stale-store
+// cosmetic values that Plan 03 tests used to prove "response ignores store
+// cosmetics" no longer exist anywhere in the codebase — the store shim
+// couldn't hold them if it wanted to.
 function seedThreeRows() {
   dbState.identities = [
     {
       id: "tina-id",
       userId: "test-user",
       identityKey: "tina",
-      displayName: "stale-store-tina",
-      title: "stale-store-title",
-      colorHue: 999,
-      voice: "stale.wav",
-      avatarMime: "image/stale",
-      avatarData: Buffer.from("stale"),
-      avatarEtag: "stale-etag",
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     },
@@ -326,13 +314,6 @@ function seedThreeRows() {
       id: "nelly-id",
       userId: "test-user",
       identityKey: "nelly",
-      displayName: "stale-store-nelly",
-      title: "stale-store-title",
-      colorHue: 999,
-      voice: "stale.wav",
-      avatarMime: "image/stale",
-      avatarData: Buffer.from("stale"),
-      avatarEtag: "stale-etag",
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     },
@@ -340,13 +321,6 @@ function seedThreeRows() {
       id: "unreachable-id",
       userId: "test-user",
       identityKey: "unreachable-test",
-      displayName: "stale-store-ut",
-      title: "stale-store-title",
-      colorHue: 999,
-      voice: "stale.wav",
-      avatarMime: "image/stale",
-      avatarData: Buffer.from("stale"),
-      avatarEtag: "stale-etag",
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     },

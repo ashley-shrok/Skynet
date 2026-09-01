@@ -87,17 +87,15 @@ vi.mock("nanoid", () => ({
 // In-memory identities table shim + captured update .set() calls
 // ---------------------------------------------------------------------------
 
+// Phase 66 Plan 04: identities row narrowed to 5 surviving columns.
+// Cosmetics live on disk. The PUT handler was already flipped in Plan 02
+// to write disk-side, and the store update only bumps `updatedAt` — Test 1
+// already asserts `dbState.lastUpdateSetKeys === ["updatedAt"]`. Post-drop,
+// the seed row no longer has cosmetic columns to preserve.
 type IdentityRow = {
   id: string;
   userId: string;
   identityKey: string;
-  displayName: string;
-  title: string | null;
-  colorHue: number | null;
-  voice: string | null;
-  avatarMime: string;
-  avatarData: Buffer;
-  avatarEtag: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -125,18 +123,12 @@ vi.mock("drizzle-orm", () => ({
   and: (...conds: unknown[]) => ({ __type: "and", conds }),
 }));
 
+// Phase 66 Plan 04: schema mock narrowed to 5 surviving columns.
 vi.mock("../db/schema.js", () => ({
   identities: {
     id: { _colName: "id" },
     userId: { _colName: "userId" },
     identityKey: { _colName: "identityKey" },
-    displayName: { _colName: "displayName" },
-    title: { _colName: "title" },
-    colorHue: { _colName: "colorHue" },
-    voice: { _colName: "voice" },
-    avatarMime: { _colName: "avatarMime" },
-    avatarData: { _colName: "avatarData" },
-    avatarEtag: { _colName: "avatarEtag" },
     createdAt: { _colName: "createdAt" },
     updatedAt: { _colName: "updatedAt" },
   },
@@ -367,13 +359,6 @@ function seedRow(overrides: Partial<IdentityRow> = {}): IdentityRow {
     id: "test-id",
     userId: "test-user",
     identityKey: "testkey",
-    displayName: "Testkey",
-    title: "Original Title",
-    colorHue: 90,
-    voice: "Anna.wav",
-    avatarMime: "image/png",
-    avatarData: Buffer.from("stale-store-avatar"),
-    avatarEtag: "stale-etag",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
@@ -458,15 +443,21 @@ describe("PUT /identities/:id — disk-write flip (Phase 66 Plan 66-02)", () => 
     expect(fm.voice).toBe("Elena.wav");
 
     // Store cosmetics untouched — the .set() call keys must NOT include any
-    // moved-to-disk column. Only updatedAt allowed.
+    // moved-to-disk column. Only updatedAt allowed. Phase 66 Plan 04 physically
+    // dropped the columns; there is no cosmetic state left in the store to
+    // preserve, but the .set()-keys-are-only-updatedAt invariant still holds.
     expect(dbState.lastUpdateSetKeys).toEqual(["updatedAt"]);
 
-    // Direct-row inspection: seeded cosmetic values unchanged post-PUT.
+    // Direct-row inspection: the surviving 5 columns are intact post-PUT.
+    // No cosmetic keys remain on the row (Plan 04 dropped them from the shim).
     const row = dbState.identities[0];
-    expect(row.displayName).toBe("Testkey"); // seeded, not "Newname"
-    expect(row.title).toBe("Original Title");
-    expect(row.colorHue).toBe(90);
-    expect(row.voice).toBe("Anna.wav");
+    expect(row.id).toBe("test-id");
+    expect(row.userId).toBe("test-user");
+    expect(row.identityKey).toBe("testkey");
+    expect((row as unknown as Record<string, unknown>).displayName).toBeUndefined();
+    expect((row as unknown as Record<string, unknown>).title).toBeUndefined();
+    expect((row as unknown as Record<string, unknown>).colorHue).toBeUndefined();
+    expect((row as unknown as Record<string, unknown>).voice).toBeUndefined();
   });
 
   // -------------------------------------------------------------------------

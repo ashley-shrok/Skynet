@@ -83,17 +83,13 @@ vi.mock("nanoid", () => ({
 // In-memory two-table DB shim
 // ---------------------------------------------------------------------------
 
+// Phase 66 Plan 04: identities row narrowed to 5 surviving columns.
+// Cosmetics live on disk; identity-share.ts no longer copies them from
+// sourceRow into the target-user's insert.
 type IdentityRow = {
   id: string;
   userId: string;
   identityKey: string;
-  displayName: string;
-  title: string | null;
-  colorHue: number | null;
-  voice: string | null;
-  avatarMime: string;
-  avatarData: Buffer;
-  avatarEtag: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -160,18 +156,12 @@ vi.mock("drizzle-orm", () => ({
 // db/schema mock — expose identities + users columns the handler uses
 // ---------------------------------------------------------------------------
 
+// Phase 66 Plan 04: schema mock narrowed to 5 surviving columns on identities.
 vi.mock("../db/schema.js", () => ({
   identities: {
     id: { _colName: "id", _table: "identities" },
     userId: { _colName: "userId", _table: "identities" },
     identityKey: { _colName: "identityKey", _table: "identities" },
-    displayName: { _colName: "displayName", _table: "identities" },
-    title: { _colName: "title", _table: "identities" },
-    colorHue: { _colName: "colorHue", _table: "identities" },
-    voice: { _colName: "voice", _table: "identities" },
-    avatarMime: { _colName: "avatarMime", _table: "identities" },
-    avatarData: { _colName: "avatarData", _table: "identities" },
-    avatarEtag: { _colName: "avatarEtag", _table: "identities" },
     createdAt: { _colName: "createdAt", _table: "identities" },
     updatedAt: { _colName: "updatedAt", _table: "identities" },
     _tableName: "identities",
@@ -343,20 +333,15 @@ function httpRequest(
 // Seed data
 // ---------------------------------------------------------------------------
 
-const sourceAvatarBytes = Buffer.from("source-avatar-bytes-for-share");
-
+// Phase 66 Plan 04: cosmetic fields removed from the seed. Any test that
+// spread additional cosmetic keys via `overrides` now silently drops them
+// (Partial<IdentityRow> excludes those keys entirely because the type
+// itself narrowed above).
 function makeSourceIdentity(overrides: Partial<IdentityRow> = {}): IdentityRow {
   return {
     id: "src-id-nano",
     userId: "u-alice",
     identityKey: "tina",
-    displayName: "Tina",
-    title: "Fleet Operator",
-    colorHue: 128,
-    voice: "Elena.wav",
-    avatarMime: "image/webp",
-    avatarData: sourceAvatarBytes,
-    avatarEtag: "src-etag-md5",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
@@ -511,17 +496,18 @@ describe("POST /identities/:id/share", () => {
     expect(newRow).toBeDefined();
     expect(newRow!.userId).toBe("u-bob");
 
-    // Field-copy fidelity — every schema column NOT (id, userId, createdAt,
-    // updatedAt) is copied EXACTLY from source.
+    // Phase 66 Plan 04: only the 5 surviving columns are copied. Cosmetics
+    // live on disk — share-onward implicitly gains them from the disk file
+    // (identityKey is the disk-lookup key). The insertRow is narrow now.
     const source = dbState.identities.find((r) => r.id === "src-id-nano")!;
     expect(newRow!.identityKey).toBe(source.identityKey);
-    expect(newRow!.displayName).toBe(source.displayName);
-    expect(newRow!.title).toBe(source.title);
-    expect(newRow!.colorHue).toBe(source.colorHue);
-    expect(newRow!.voice).toBe(source.voice);
-    expect(newRow!.avatarMime).toBe(source.avatarMime);
-    expect(newRow!.avatarData.equals(source.avatarData)).toBe(true);
-    expect(newRow!.avatarEtag).toBe(source.avatarEtag);
+    expect((newRow as unknown as Record<string, unknown>).displayName).toBeUndefined();
+    expect((newRow as unknown as Record<string, unknown>).avatarData).toBeUndefined();
+    expect((newRow as unknown as Record<string, unknown>).avatarMime).toBeUndefined();
+    expect((newRow as unknown as Record<string, unknown>).avatarEtag).toBeUndefined();
+    expect((newRow as unknown as Record<string, unknown>).colorHue).toBeUndefined();
+    expect((newRow as unknown as Record<string, unknown>).voice).toBeUndefined();
+    expect((newRow as unknown as Record<string, unknown>).title).toBeUndefined();
 
     // Fresh timestamps — ISO strings, distinct from source's 2026-01-01 seed
     expect(newRow!.createdAt).not.toBe(source.createdAt);
@@ -532,14 +518,13 @@ describe("POST /identities/:id/share", () => {
   });
 
   it("Test 9: no-op on repeat — target already has identityKey → 200 shared:false, NO insert", async () => {
-    // Seed an existing bob row with SAME identityKey as alice's source
+    // Seed an existing bob row with SAME identityKey as alice's source.
+    // Phase 66 Plan 04: cosmetic overrides no longer meaningful — the row
+    // only holds ownership + timestamps.
     const existingBobRow = makeSourceIdentity({
       id: "existing-bob-tina-id",
       userId: "u-bob",
       identityKey: "tina",
-      displayName: "Bob's Tina",
-      title: "Different Title",
-      avatarEtag: "different-etag",
     });
     dbState.identities.push(existingBobRow);
     const countBefore = dbState.identities.length;
@@ -584,16 +569,17 @@ describe("POST /identities/:id/share", () => {
     expect(body.shared).toBe(true);
     expect(body.identityId).toBe("new-share-uuid");
 
-    // Alice's row still there + one new carol row
+    // Alice's row still there + one new carol row. Phase 66 Plan 04:
+    // narrow insert — no cosmetic-copy from source.
     expect(dbState.identities.length).toBe(2);
     const carolRow = dbState.identities.find((r) => r.userId === "u-carol");
     expect(carolRow).toBeDefined();
     expect(carolRow!.identityKey).toBe("tina");
-    expect(carolRow!.displayName).toBe("Tina");
-    expect(carolRow!.colorHue).toBe(128);
-    expect(carolRow!.voice).toBe("Elena.wav");
-    expect(carolRow!.avatarMime).toBe("image/webp");
-    expect(carolRow!.avatarData.equals(sourceAvatarBytes)).toBe(true);
+    expect((carolRow as unknown as Record<string, unknown>).displayName).toBeUndefined();
+    expect((carolRow as unknown as Record<string, unknown>).colorHue).toBeUndefined();
+    expect((carolRow as unknown as Record<string, unknown>).voice).toBeUndefined();
+    expect((carolRow as unknown as Record<string, unknown>).avatarMime).toBeUndefined();
+    expect((carolRow as unknown as Record<string, unknown>).avatarData).toBeUndefined();
   });
 
   it("Test 11: race safety — UNIQUE(user_id, identity_key) conflict on INSERT → 200 shared:false with race-winner's id (not 500)", async () => {
@@ -609,8 +595,6 @@ describe("POST /identities/:id/share", () => {
       id: "race-winner-bob-tina-id",
       userId: "u-bob",
       identityKey: "tina",
-      displayName: "Bob's Tina (race winner)",
-      title: "From concurrent request",
     });
     dbState.nextInsertRaceInjection = { winnerRow: raceWinnerRow };
 

@@ -114,19 +114,16 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
     // Phase 66 Plan 66-01: additive avatar-sibling dep for Step 2.5 (mocked
     // as no-op in existing tests so pre-Phase-66 assertions don't drift).
     writeAvatarSiblingFile: vi.fn().mockResolvedValue(undefined),
+    // Phase 66 Plan 04: createIdentityRecord return-shape narrowed to
+    // { id } only — colorHue/voice/avatarEtag no longer live in the store.
     createIdentityRecord: vi.fn().mockResolvedValue({
       id: "created-id-123",
-      identityKey: "testkey",
-      colorHue: 210,
-      voice: "Elena.wav",
-      avatarEtag: "abc123",
     }),
+    // Phase 66 Plan 04: getIdentityRecord return-shape narrowed to { id }
+    // only — the GET-verify block collapses to a row-existence sentinel
+    // (see Test 4 below and identity-birth-orchestrator.ts step 1).
     getIdentityRecord: vi.fn().mockResolvedValue({
       id: "created-id-123",
-      identityKey: "testkey",
-      colorHue: 210,
-      voice: "Elena.wav",
-      avatarEtag: "abc123",
     }),
     getCandidateForBirth: vi.fn().mockReturnValue({
       bytes: Buffer.from("fakepng"),
@@ -329,17 +326,13 @@ it("Test 3: step 1 calls createIdentityRecord with correct meta and avatar bytes
 
   const avatarBytes = Buffer.from("avatar-png-bytes");
   const mockGetCandidate = vi.fn().mockReturnValue({ bytes: avatarBytes, mime: "image/png" });
+  // Phase 66 Plan 04: createIdentityRecord + getIdentityRecord return-shapes
+  // narrow to { id } — GET-verify collapses to row-existence sentinel.
   const mockCreateIdentity = vi.fn().mockResolvedValue({
     id: "new-id-456",
-    colorHue: 210,
-    voice: "Elena.wav",
-    avatarEtag: "etag-xyz",
   });
   const mockGetIdentity = vi.fn().mockResolvedValue({
     id: "new-id-456",
-    colorHue: 210,
-    voice: "Elena.wav",
-    avatarEtag: "etag-xyz",
   });
 
   const deps = makeDeps({
@@ -393,19 +386,18 @@ it("Test 3: step 1 calls createIdentityRecord with correct meta and avatar bytes
 // Test 4: step 1 silent-no-op guard: GET-verify mismatch → step:1:failed
 // ---------------------------------------------------------------------------
 
-it("Test 4: step 1 GET-verify mismatch (colorHue null) → step:1:failed silent-no-op", async () => {
+it("Test 4: step 1 GET-verify row-existence sentinel (id mismatch) → step:1:failed silent-no-op", async () => {
+  // Phase 66 Plan 04: the pre-Phase-66 GET-verify block asserted colorHue /
+  // voice / avatarEtag round-trip through the store. Those columns no longer
+  // exist on identities (they live on disk); the GET-verify collapsed to a
+  // row-existence sentinel — if getIdentityRecord returns an id that doesn't
+  // match `created.id`, the store-side insert silently no-op'd and we throw.
   const mockCreateIdentity = vi.fn().mockResolvedValue({
     id: "id-789",
-    colorHue: 210,
-    voice: "Elena.wav",
-    avatarEtag: "abc",
   });
-  // GET returns colorHue null — mismatch
+  // GET returns a DIFFERENT id — sentinel mismatch → throw.
   const mockGetIdentity = vi.fn().mockResolvedValue({
-    id: "id-789",
-    colorHue: null,
-    voice: "Elena.wav",
-    avatarEtag: "abc",
+    id: "id-DIFFERENT",
   });
 
   const deps = makeDeps({
@@ -424,6 +416,7 @@ it("Test 4: step 1 GET-verify mismatch (colorHue null) → step:1:failed silent-
   );
   expect(failedEvent).toBeDefined();
   expect((failedEvent as { reason?: string }).reason).toMatch(/silent-no-op/i);
+  expect((failedEvent as { reason?: string }).reason).toMatch(/identity row/i);
 
   const endedEvent = events.find((e) => e.type === "ended");
   expect(endedEvent).toBeDefined();
