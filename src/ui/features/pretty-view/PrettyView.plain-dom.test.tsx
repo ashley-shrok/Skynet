@@ -665,4 +665,84 @@ describe("PrettyView plain-DOM render — Phase 43 Plan 43-07a", () => {
       expect(el.style.transform || "").not.toContain("translateY");
     }
   });
+
+  // ── Test 7 (2026-09-01, tina): relay_inbound matrixEventId dedup ────────
+  // Locks the fix for Ashley's report that peer relay messages sometimes
+  // show up as 2-4 duplicate bubbles. A Matrix message arriving during a
+  // busy turn can produce up to three distinct jsonl envelopes
+  // (queue-operation enqueue / attachment queued_command / user
+  // task-notification — see session-file-parser.ts § detectRelayInbound).
+  // Each carries a distinct uuid → distinct wire-frame eventId → not
+  // caught by the eventId dedup. matrixEventId is stable across all three
+  // envelopes for the same physical Matrix event; the dedup in
+  // appendDedup / appendDedupWithCap uses that as a second key so only
+  // the first arrival renders.
+  it("Test 7: relay_inbound with the same matrixEventId across distinct eventIds renders as a SINGLE bubble", async () => {
+    const { container } = render(
+      <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+
+    // Simulate the three envelopes a busy-turn arrival can produce for the
+    // SAME physical Matrix message — same matrixEventId, distinct outer
+    // jsonl uuids (surfaces as distinct wire eventIds).
+    const sharedMatrixEventId = "$deadbeef:example.org";
+    fireWsMessage(ws, {
+      type: "relay_inbound",
+      room: "!room:example.org",
+      sender: "@stacy:skynet.aithercloud.com",
+      matrixEventId: sharedMatrixEventId,
+      body: "hey nicole, ready for the next patch?",
+      raw: "raw-line-1",
+      eventId: "evt-inbound-envelope-user",
+      ts: 1_000_000,
+    });
+    fireWsMessage(ws, {
+      type: "relay_inbound",
+      room: "!room:example.org",
+      sender: "@stacy:skynet.aithercloud.com",
+      matrixEventId: sharedMatrixEventId,
+      body: "hey nicole, ready for the next patch?",
+      raw: "raw-line-2",
+      eventId: "evt-inbound-envelope-queue-op",
+      ts: 1_000_001,
+    });
+    fireWsMessage(ws, {
+      type: "relay_inbound",
+      room: "!room:example.org",
+      sender: "@stacy:skynet.aithercloud.com",
+      matrixEventId: sharedMatrixEventId,
+      body: "hey nicole, ready for the next patch?",
+      raw: "raw-line-3",
+      eventId: "evt-inbound-envelope-attachment",
+      ts: 1_000_002,
+    });
+
+    // Only ONE inbound bubble should render — the first arrival wins.
+    await waitFor(() => {
+      const bubbles = container.querySelectorAll("[data-pv-bubble]");
+      expect(bubbles.length).toBe(1);
+    });
+    const [only] = Array.from(container.querySelectorAll("[data-pv-bubble]"));
+    expect(only?.getAttribute("data-event-id")).toBe("evt-inbound-envelope-user");
+
+    // Sanity: an unrelated inbound with a DIFFERENT matrixEventId still
+    // renders (dedup is per-matrixEventId, not "any inbound blocks all
+    // later inbounds").
+    fireWsMessage(ws, {
+      type: "relay_inbound",
+      room: "!room:example.org",
+      sender: "@stacy:skynet.aithercloud.com",
+      matrixEventId: "$different:example.org",
+      body: "second message",
+      raw: "raw-line-4",
+      eventId: "evt-inbound-second",
+      ts: 1_000_003,
+    });
+    await waitFor(() => {
+      const bubbles = container.querySelectorAll("[data-pv-bubble]");
+      expect(bubbles.length).toBe(2);
+    });
+  });
 });

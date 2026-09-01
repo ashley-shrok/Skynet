@@ -300,6 +300,25 @@ function appendDedup(
   next: StreamEvent,
 ): StreamEvent[] {
   if (prev.some((m) => m.eventId === next.eventId)) return prev;
+  // Relay-inbound matrixEventId dedup (2026-09-01, Ashley bug report: peer
+  // messages showing as 2-4 duplicate bubbles). A single Matrix event
+  // arriving during a busy turn can produce up to THREE distinct jsonl
+  // envelopes (queue-operation enqueue, attachment queued_command, user
+  // task-notification — see session-file-parser.ts § detectRelayInbound
+  // envelope table), each with its own uuid → distinct eventId → not caught
+  // by the eventId check above. The `matrixEventId` field on
+  // RelayInboundEvent is the recv.sh $EVENT_ID, stable across all three
+  // envelopes for the same physical message; drop later arrivals for a
+  // matrixEventId we've already accepted.
+  if (next.type === "relay_inbound" && next.matrixEventId) {
+    if (
+      prev.some(
+        (m) => m.type === "relay_inbound" && m.matrixEventId === next.matrixEventId,
+      )
+    ) {
+      return prev;
+    }
+  }
   const idx = findInsertIndex(prev, lineKey(next));
   // Fast path: insertion at end (arrival-order matches chronological, which
   // is the norm for live-tail) → cheap array spread.
@@ -326,6 +345,23 @@ function appendDedupWithCap<T extends { eventId: string; line?: number; ts?: num
   cap: number,
 ): T[] {
   if (prev.some((m) => m.eventId === next.eventId)) return prev;
+  // Relay-inbound matrixEventId dedup — same rationale as appendDedup above
+  // (2026-09-01 Ashley bug report). Generic constraint doesn't carry
+  // matrixEventId, so probe by shape at runtime; harmless on non-relay
+  // entries. Skip the later arrival of a matrixEventId already accepted so
+  // one physical Matrix message never renders as 2-4 bubbles.
+  const asRelay = next as unknown as { type?: unknown; matrixEventId?: unknown };
+  if (asRelay.type === "relay_inbound" && typeof asRelay.matrixEventId === "string" && asRelay.matrixEventId.length > 0) {
+    const mid = asRelay.matrixEventId;
+    if (
+      prev.some((m) => {
+        const p = m as unknown as { type?: unknown; matrixEventId?: unknown };
+        return p.type === "relay_inbound" && p.matrixEventId === mid;
+      })
+    ) {
+      return prev;
+    }
+  }
   const nextKey =
     typeof next.line === "number"
       ? next.line
