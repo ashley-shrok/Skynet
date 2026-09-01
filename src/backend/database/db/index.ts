@@ -463,17 +463,15 @@ async function initializeCompleteDatabase(): Promise<void> {
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     );
 
+    -- Phase 66 Plan 04: cosmetic columns live on disk in each identity's home
+    -- folder (see .planning/shapes/identity-prettiness-on-disk.md). The row
+    -- survives as the ownership + user-scoping + timestamp anchor ONLY. Old
+    -- installs that boot with the 12-column shape have the 7 cosmetic columns
+    -- dropped by runIdentitiesCosmeticDrops() below during migrateSchema().
     CREATE TABLE IF NOT EXISTS identities (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
         identity_key TEXT NOT NULL,
-        display_name TEXT NOT NULL,
-        title TEXT,
-        color_hue INTEGER,
-        voice TEXT,
-        avatar_mime TEXT NOT NULL,
-        avatar_data BLOB NOT NULL,
-        avatar_etag TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
@@ -669,7 +667,112 @@ const addColumnIfNotExists = (
   }
 };
 
+// -----------------------------------------------------------------------------
+// Phase 66 Plan 04 (per B6): SQLite version preflight for ALTER TABLE DROP
+// COLUMN, which needs SQLite 3.35+ (native support). Called once at the top
+// of the drop block below — hoisted here (not inside dropColumnIfExists) so
+// we don't repeat the version pragma read 7×. Exported for test coverage.
+// -----------------------------------------------------------------------------
+export function assertSqliteSupportsDropColumn(
+  sqliteDb: Database.Database,
+): void {
+  const row = sqliteDb
+    .prepare("SELECT sqlite_version() AS v")
+    .get() as { v: string } | undefined;
+  const version = row?.v ?? "unknown";
+  const parts = version.split(".");
+  const major = Number.parseInt(parts[0] ?? "0", 10);
+  const minor = Number.parseInt(parts[1] ?? "0", 10);
+  const supported =
+    Number.isFinite(major) &&
+    Number.isFinite(minor) &&
+    (major > 3 || (major === 3 && minor >= 35));
+  if (!supported) {
+    throw new Error(
+      `Phase 66 migration requires SQLite >= 3.35 for ALTER TABLE DROP COLUMN. Runtime version: ${version}. Verify better-sqlite3 bundle version.`,
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Phase 66 Plan 04: idempotent drop-if-exists — inverse of addColumnIfNotExists.
+// Try a scoped SELECT on the column; if it succeeds the column exists → run
+// the DROP; if it throws the column is absent → return silently. Exported
+// so the migration test can exercise the "column absent" no-throw path
+// (Test 3) and the multi-column happy path (Test 1) against test-owned
+// in-memory databases without needing the singleton.
+// -----------------------------------------------------------------------------
+export function dropColumnIfExists(
+  sqliteDb: Database.Database,
+  table: string,
+  column: string,
+): void {
+  try {
+    sqliteDb
+      .prepare(`SELECT "${column}" FROM ${table} LIMIT 1`)
+      .get();
+  } catch {
+    // Column absent → no-op (mirror shape of addColumnIfNotExists inverted).
+    return;
+  }
+  try {
+    sqliteDb.exec(`ALTER TABLE ${table} DROP COLUMN "${column}";`);
+  } catch (dropError) {
+    // Non-fatal per T-66-04-01: a failed drop leaves the surviving columns
+    // intact (deadweight column, not corruption). Next boot re-tries.
+    databaseLogger.warn(
+      `Failed to drop column ${column} from ${table}`,
+      {
+        operation: "schema_migration_drop",
+        table,
+        column,
+        error: dropError,
+      },
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Phase 66 Plan 04: the seven cosmetic drops packaged as one call. Preflight
+// runs first (throws loudly on SQLite < 3.35 per B6). Exported so the
+// migration test can exercise the full drop sequence against a test-owned
+// in-memory database (Test 1 OLD-schema → shrunken, Test 2 NEW-schema
+// idempotent no-op). Called from migrateSchema() at boot time.
+// -----------------------------------------------------------------------------
+export function runIdentitiesCosmeticDrops(sqliteDb: Database.Database): void {
+  assertSqliteSupportsDropColumn(sqliteDb);
+  dropColumnIfExists(sqliteDb, "identities", "display_name");
+  dropColumnIfExists(sqliteDb, "identities", "title");
+  dropColumnIfExists(sqliteDb, "identities", "color_hue");
+  dropColumnIfExists(sqliteDb, "identities", "voice");
+  dropColumnIfExists(sqliteDb, "identities", "avatar_mime");
+  dropColumnIfExists(sqliteDb, "identities", "avatar_data");
+  dropColumnIfExists(sqliteDb, "identities", "avatar_etag");
+}
+
 const migrateSchema = () => {
+  // Phase 66 Plan 04: drop the cosmetic columns from identities (now live on
+  // disk per shape file). Preflight asserts SQLite >= 3.35 (native DROP
+  // COLUMN). Idempotent — no-op on fresh installs (columns absent) + on
+  // upgraded installs after the first successful boot (columns dropped).
+  //
+  // Runs BEFORE the addColumnIfNotExists sweep so a legacy install that had
+  // the addColumnIfNotExists lines for these columns removed simultaneously
+  // doesn't briefly re-add them here in the same boot cycle.
+  try {
+    runIdentitiesCosmeticDrops(sqlite);
+  } catch (preflightErr) {
+    // assertSqliteSupportsDropColumn throw — surface loudly (T-66-04-04:
+    // "boot aborts before schema corruption"). Rethrow so container exits
+    // rather than silently continuing with a partially-migrated schema.
+    databaseLogger.error(
+      "Phase 66 identities-drop preflight failed",
+      preflightErr,
+      { operation: "schema_migration_preflight" },
+    );
+    throw preflightErr;
+  }
+
   addColumnIfNotExists("user_preferences", "theme", "TEXT");
   addColumnIfNotExists("user_preferences", "font_size", "TEXT");
   addColumnIfNotExists("user_preferences", "accent_color", "TEXT");
@@ -683,13 +786,6 @@ const migrateSchema = () => {
   addColumnIfNotExists("compose_drafts", "queue_slots", "TEXT NOT NULL DEFAULT '[]'");
 
   addColumnIfNotExists("user_open_tabs", "target_tmux_session", "TEXT");
-
-  addColumnIfNotExists("identities", "title", "TEXT");
-  addColumnIfNotExists("identities", "color_hue", "INTEGER");
-  addColumnIfNotExists("identities", "voice", "TEXT");
-  addColumnIfNotExists("identities", "avatar_mime", "TEXT");
-  addColumnIfNotExists("identities", "avatar_data", "BLOB");
-  addColumnIfNotExists("identities", "avatar_etag", "TEXT");
 
   addColumnIfNotExists("users", "is_admin", "INTEGER NOT NULL DEFAULT 0");
 

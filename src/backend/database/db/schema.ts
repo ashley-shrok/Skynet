@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, blob } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
 export const users = sqliteTable("users", {
@@ -651,19 +651,18 @@ export const apiKeys = sqliteTable("api_keys", {
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
 });
 
+// Phase 66 Plan 04: cosmetics live on disk (see .planning/shapes/
+// identity-prettiness-on-disk.md). The identities row survives as the
+// ownership + user-scoping + timestamp anchor ONLY. Dropped columns
+// (display_name, title, color_hue, voice, avatar_mime, avatar_data,
+// avatar_etag) are physically removed from the table via
+// runIdentitiesCosmeticDrops() in db/index.ts at boot time.
 export const identities = sqliteTable("identities", {
   id: text("id").primaryKey(),
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   identityKey: text("identity_key").notNull(),
-  displayName: text("display_name").notNull(),
-  title: text("title"),
-  colorHue: integer("color_hue"),
-  voice: text("voice"),
-  avatarMime: text("avatar_mime").notNull(),
-  avatarData: blob("avatar_data", { mode: "buffer" }).notNull(),
-  avatarEtag: text("avatar_etag").notNull(),
   createdAt: text("created_at")
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
