@@ -913,18 +913,40 @@ export async function readIdentityBounties(
   // no Promise.all racing an archive branch, a genuine open-side failure
   // should propagate so callers see the real error instead of silently
   // getting an empty bounties list.
+  //
+  // Empty/missing-dir tolerance (2026-09-01): the earlier `cd ... 2>/dev/null &&`
+  // form exited 1 with empty stderr whenever the bounties dir was missing
+  // (fresh role never touched a bounty) OR present-but-empty (glob `*/` stays
+  // literal, `[ -f "*/bounty.json" ]` fails as the loop's last statement).
+  // execCommand's fallback turns that into `Error("Command exited with code 1")`
+  // which surfaced in the IdentityModal as "Couldn't load bounties: Command
+  // exited with code 1" for any identity on a remote host whose role has no
+  // bounties yet. Two guards make the command exit 0 in those benign cases:
+  // (a) `[ -d "$DIR" ] || exit 0` skips the loop entirely when the dir
+  //     doesn't exist,
+  // (b) `[ "$d" = "*" ] && continue` skips the literal-glob iteration on an
+  //     empty dir,
+  // (c) trailing `exit 0` overrides the loop's last-command exit status so a
+  //     tail iteration whose `[ -f ... ]` returned false doesn't bubble up.
+  // Real shell errors (e.g. `cd` failing on a permission-denied dir) still
+  // propagate via execCommand's timeout / connection-level failure paths.
   const openCmd =
-    `cd "$HOME/.claude/roles/${role}/bounties" 2>/dev/null && ` +
-    'for d in */; do d="${d%/}"; [ "$d" = "archive" ] && continue; ' +
-    '[ -f "$d/bounty.json" ] && echo "===DIR:$d===" && cat "$d/bounty.json"; done';
+    `DIR="$HOME/.claude/roles/${role}/bounties"; [ -d "$DIR" ] || exit 0; ` +
+    'cd "$DIR" || exit 0; ' +
+    'for d in */; do d="${d%/}"; [ "$d" = "*" ] && continue; ' +
+    '[ "$d" = "archive" ] && continue; ' +
+    '[ -f "$d/bounty.json" ] && echo "===DIR:$d===" && cat "$d/bounty.json"; done; ' +
+    'exit 0';
 
   const openStdout = await execWithTimeout(conn, openCmd);
   let archiveStdout = "";
   if (includeArchived) {
     const archiveCmd =
-      `cd "$HOME/.claude/roles/${role}/bounties/archive" 2>/dev/null && ` +
-      'for d in */; do d="${d%/}"; ' +
-      '[ -f "$d/bounty.json" ] && echo "===DIR:$d===" && cat "$d/bounty.json"; done';
+      `DIR="$HOME/.claude/roles/${role}/bounties/archive"; [ -d "$DIR" ] || exit 0; ` +
+      'cd "$DIR" || exit 0; ' +
+      'for d in */; do d="${d%/}"; [ "$d" = "*" ] && continue; ' +
+      '[ -f "$d/bounty.json" ] && echo "===DIR:$d===" && cat "$d/bounty.json"; done; ' +
+      'exit 0';
     archiveStdout = await execWithTimeout(conn, archiveCmd).catch(() => "");
   }
 
