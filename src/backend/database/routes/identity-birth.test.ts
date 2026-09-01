@@ -56,6 +56,10 @@ vi.mock("../../ssh/host-resolver.js", () => ({
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   isLocalHostId: vi.fn(),
   writeMarkdownFileAtomic: vi.fn().mockResolvedValue(undefined),
+  // Phase 66 Plan 66-01: additive avatar-sibling dep — the birth route now
+  // wires this into BirthDeps. Test 5 asserts d.writeAvatarSiblingFile is a
+  // function.
+  writeAvatarSiblingFile: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("./identity-avatar-batch.js", () => ({
@@ -389,6 +393,8 @@ it("Test 5: orchestrator called with body opts + userId + all required dep keys"
   expect(typeof d.resolveHostById).toBe("function");
   // Phase 22 SRIC-02: writeMarkdownFileAtomic dep for Step 2.5 pre-write
   expect(typeof d.writeMarkdownFileAtomic).toBe("function");
+  // Phase 66 Plan 66-01: writeAvatarSiblingFile dep for Step 2.5 avatar write
+  expect(typeof d.writeAvatarSiblingFile).toBe("function");
 });
 
 // ---------------------------------------------------------------------------

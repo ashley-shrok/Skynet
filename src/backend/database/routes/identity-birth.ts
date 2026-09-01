@@ -30,6 +30,7 @@ import { execCommand } from "../../ssh/tmux-helper.js";
 import {
   isLocalHostId,
   writeMarkdownFileAtomic,
+  writeAvatarSiblingFile,
 } from "../../claude-session/identity-artifact-reader.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import {
@@ -264,6 +265,12 @@ router.post(
       // Phase 22 SRIC-02: SFTP tmp+rename helper for Step 2.5 pre-write.
       writeMarkdownFileAtomic: async (conn, targetPath, contents) =>
         writeMarkdownFileAtomic(conn, targetPath, contents),
+      // Phase 66 Plan 66-01 Track 1: SFTP binary tmp+rename helper for the
+      // Step 2.5 avatar sibling write — same ext_openssh_rename discipline
+      // as writeMarkdownFileAtomic, binary payload, log tag
+      // identity_avatar_write.
+      writeAvatarSiblingFile: async (conn, identityKey, ext, bytes) =>
+        writeAvatarSiblingFile(conn, identityKey, ext, bytes),
     };
 
     // -----------------------------------------------------------------------

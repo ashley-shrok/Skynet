@@ -22,7 +22,12 @@
  */
 
 import type { Client as SSHClient } from "ssh2";
+import yaml from "js-yaml";
 import { startHarnessOnIdentity } from "./identity-harness-start.js";
+import {
+  MIME_TO_AVATAR_EXT,
+  type AvatarExt,
+} from "../../claude-session/identity-artifact-reader.js";
 
 // ---------------------------------------------------------------------------
 // Nelly-verbatim constants (audited against agent-supervisor.sh + DM §1)
@@ -174,6 +179,21 @@ export interface BirthDeps {
     targetPath: string,
     contents: string,
   ) => Promise<void>;
+  /**
+   * Phase 66 Plan 66-01 Track 1: SFTP binary tmp+rename helper for the
+   * Step 2.5 avatar sibling write. Wraps
+   * identity-artifact-reader.writeAvatarSiblingFile — same ext_openssh_rename
+   * atomic-overwrite discipline as writeMarkdownFileAtomic, but with a binary
+   * Buffer payload and its own log tag (identity_avatar_write). Called AFTER
+   * writeMarkdownFileAtomic in Step 2.5's remote branch; called ONCE per
+   * successful birth.
+   */
+  writeAvatarSiblingFile: (
+    conn: SSHClient,
+    identityKey: string,
+    ext: AvatarExt,
+    bytes: Buffer,
+  ) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +257,82 @@ const IDENTITY_KEY_RE = /^[a-z0-9._=/+-]+$/;
  * target). See CR-02 in .planning/phases/20-identity-creation-ui/20-REVIEW.md.
  */
 const TMUX_SAFE_NAME_RE = /^[a-z][a-z0-9_-]*$/;
+
+// ---------------------------------------------------------------------------
+// Phase 66 Plan 66-01 Track 1 — full-cosmetics identity file body builder
+// ---------------------------------------------------------------------------
+//
+// Grows the Step 2.5 identityFileBody from role-only frontmatter into a full
+// cosmetics-carrying block so a Skynet-created identity is byte-shape-
+// indistinguishable from a Nelly-migrated (Phase A) one:
+//
+//   ---
+//   role: <role>
+//   displayName: <Capitalize(name)>
+//   title: <title>          (omitted if empty or null)
+//   colorHue: <colorHue>    (omitted if null)
+//   voice: <voice>          (omitted if null)
+//   avatar: <name>.<ext>    (always present when avatar bytes were written)
+//   ---
+//
+//   <!-- seed comment (Ashley-locked verbatim) -->
+//
+//   # <name>
+//
+// Absent-⇒-omit invariant (CONTEXT.md Track 1): fields whose birth-opts
+// value is null OR empty-string are NEVER emitted as YAML null / empty —
+// they are literally not present as keys in the emitted frontmatter.
+//
+// role-first ordering matters (post-Phase-A byte-shape parity per
+// CONTEXT.md), so yaml.dump is called with sortKeys:false; the pairs array
+// is built in canonical order.
+//
+// yaml.dump options rationale:
+//   sortKeys: false    — preserve the [role, displayName, title, colorHue,
+//                        voice, avatar] insertion order
+//   lineWidth: -1      — no line-wrapping; keeps long titles / voice paths
+//                        on a single line for cleaner grep/diff on disk
+//   noRefs: true       — never emit `&anchor` / `*alias` for repeated
+//                        values (defense-in-depth; shouldn't fire on scalars)
+//   forceQuotes: false — let yaml.dump decide per-value; it correctly
+//                        quotes strings containing colons/newlines
+//                        automatically (T-66-01-04)
+function buildIdentityFileBody(
+  opts: BirthOptions,
+  displayName: string,
+  avatarFilename: string,
+): string {
+  const pairs: Array<[string, string | number]> = [];
+
+  // role is ALWAYS present (validated upstream)
+  pairs.push(["role", opts.role]);
+  // displayName is ALWAYS present (derived from opts.name)
+  pairs.push(["displayName", displayName]);
+
+  // title: skip if null OR empty-after-trim (absent-⇒-omit)
+  if (typeof opts.title === "string" && opts.title.trim().length > 0) {
+    pairs.push(["title", opts.title]);
+  }
+  // colorHue: skip if null (integer 0 is a valid hue — do NOT skip on falsy)
+  if (opts.colorHue !== null && opts.colorHue !== undefined) {
+    pairs.push(["colorHue", opts.colorHue]);
+  }
+  // voice: skip if null OR empty-after-trim
+  if (typeof opts.voice === "string" && opts.voice.trim().length > 0) {
+    pairs.push(["voice", opts.voice]);
+  }
+  // avatar: always emitted (Step 2.5 only runs when candidate bytes exist)
+  pairs.push(["avatar", avatarFilename]);
+
+  const yamlBody = yaml.dump(Object.fromEntries(pairs), {
+    sortKeys: false,
+    lineWidth: -1,
+    noRefs: true,
+    forceQuotes: false,
+  });
+
+  return `---\n${yamlBody}---\n\n${IDENTITY_FILE_SEED_COMMENT}\n\n# ${opts.name}\n`;
+}
 
 // ---------------------------------------------------------------------------
 // Main export
@@ -340,6 +436,13 @@ export async function birthIdentity(
   // -------------------------------------------------------------------------
   let identityId: string | undefined;
 
+  // Phase 66 Plan 66-01: hoisted so Step 2.5 can reuse the candidate mime+bytes
+  // without calling getCandidateForBirth() a second time (would race with
+  // consumeCandidateForBirth's cleanup path). Assigned inside runStep(1) after
+  // the non-null guard; Step 2.5 asserts non-null with `!` because a null
+  // candidate at Step 1 already threw and aborted the flow.
+  let birthCandidate: { bytes: Buffer; mime: string } | null = null;
+
   try {
     await runStep(1, async () => {
       // Look up avatar bytes from plan 01's candidate cache
@@ -347,6 +450,7 @@ export async function birthIdentity(
       if (!cand) {
         throw new Error("avatar candidate expired or not found");
       }
+      birthCandidate = cand;
 
       // Patch #320: the Identity schema has THREE distinct slots
       // (identityKey / displayName / title) but the birth POST body only
@@ -458,6 +562,10 @@ export async function birthIdentity(
       await sleep(STEP_2_SLEEP_MS);
 
       // Phase 22 SRIC-02 Step 2.5: identity file pre-write (remote branch only).
+      // Phase 66 Plan 66-01 grew this to also emit full-cosmetics frontmatter
+      // (displayName/title/colorHue/voice/avatar) + write the avatar sibling
+      // file, so Skynet-born identities are byte-shape-indistinguishable from
+      // Nelly-migrated (Phase A) ones on disk.
       if (!useLocal && conn) {
         // Defense in depth: HTTP handler validates opts.role, but re-check
         // here because role is shell-interpolated below (T-22-02-01).
@@ -485,21 +593,49 @@ export async function birthIdentity(
           `mkdir -p "${identityDir}/wakeups" && touch "${identityDir}/handoff.md"`,
         );
 
-        // 2. Compose the identity file body:
-        //    - frontmatter with role: <opts.role>
-        //    - seed comment (Ashley-locked verbatim text) telling the wake-up
-        //      agent to register its own Matrix relay account
-        //    - H1 heading with the identity name (id skill just needs the
-        //      file to exist with role: frontmatter — body content is minimal).
-        const identityFileBody =
-          `---\nrole: ${opts.role}\n---\n\n` +
-          `${IDENTITY_FILE_SEED_COMMENT}\n\n` +
-          `# ${opts.name}\n`;
+        // 2. Derive avatar ext from the candidate mime. Defense-in-depth: the
+        //    birth upload path is capped to png/jpeg/webp so an unmapped mime
+        //    should never surface here, but throw loud instead of silent-no-op
+        //    if the map ever narrows and a caller widens (T-66-01-01).
+        //    birthCandidate is populated inside runStep(1) after its non-null
+        //    guard, so `!` is safe here — any prior null would have thrown at
+        //    Step 1 and never reached Step 2.5.
+        const cand = birthCandidate!;
+        const avatarExt = MIME_TO_AVATAR_EXT[cand.mime];
+        if (!avatarExt) {
+          throw new Error(
+            "unsupported avatar mime for on-disk write: " + cand.mime,
+          );
+        }
+        const avatarFilename = `${opts.name}.${avatarExt}`;
 
-        // 3. Write via SFTP tmp+rename (ext_openssh_rename per Pitfall 3 /
-        //    #2924 — sftp.rename cannot atomically overwrite existing files
-        //    on some SFTP servers).
+        // 3. Compose the identity file body via the Phase 66 builder —
+        //    full cosmetics frontmatter with role-first ordering and the
+        //    absent-⇒-omit invariant for null / empty-string fields.
+        //    displayName mirrors identity-birth.ts createIdentityRecord's
+        //    capitalize(opts.name) rule (Patch #320 correct mapping).
+        const displayName =
+          opts.name.length > 0
+            ? opts.name[0].toUpperCase() + opts.name.slice(1)
+            : opts.name;
+        const identityFileBody = buildIdentityFileBody(
+          opts,
+          displayName,
+          avatarFilename,
+        );
+
+        // 4. Write markdown via SFTP tmp+rename (ext_openssh_rename per
+        //    Pitfall 3 / #2924).
         await deps.writeMarkdownFileAtomic(conn, identityFilePath, identityFileBody);
+
+        // 5. Write avatar sibling file via SFTP tmp+rename (same
+        //    ext_openssh_rename discipline, binary payload — Phase 66
+        //    Plan 66-01 Track 1). Runs AFTER writeMarkdownFileAtomic:
+        //    graceful partial recovery — if the avatar write fails, the
+        //    .md + wakeups/ + handoff.md are still on disk (re-birth is
+        //    the recovery path, not a rollback we build). Test 24b pins
+        //    this ordering.
+        await deps.writeAvatarSiblingFile(conn, opts.name, avatarExt, cand.bytes);
       }
     });
 

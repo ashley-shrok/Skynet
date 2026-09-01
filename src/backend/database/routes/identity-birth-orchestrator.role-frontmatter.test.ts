@@ -266,8 +266,13 @@ it("Test 12: writeMarkdownFileAtomic invoked with target path + role: frontmatte
   // Target path: ~/.claude/identities/<name>/<name>.md
   expect(targetPath).toBe("/home/ubuntu/.claude/identities/testkey/testkey.md");
 
-  // Body starts with role: frontmatter (allowing for CRLF-safe regex on ---\n)
-  expect(contents).toMatch(/^---\r?\nrole: box-maintainer\r?\n---/);
+  // Body starts with a frontmatter block whose FIRST key is role: <role>
+  // (Phase 66 Plan 66-01 grew this to also emit displayName/title/colorHue/
+  //  voice/avatar keys after role, so the assertion no longer checks that
+  //  role is followed immediately by ---; it checks that role is the
+  //  first key inside the frontmatter block — the post-Phase-A byte-shape-
+  //  parity invariant.)
+  expect(contents).toMatch(/^---\r?\nrole: box-maintainer\r?\n/);
 
   // Seed comment assertions — required exact phrases per Ashley's constraints:
   expect(contents).toContain("This identity has no relay account yet");
@@ -391,8 +396,13 @@ it("Test 17: identity file body has ---\\nrole: <role>\\n---, seed comment, and 
   expect(writeAtomic).toHaveBeenCalled();
   const [, , contents] = writeAtomic.mock.calls[0] as [unknown, string, string];
 
-  // frontmatter present at start
-  expect(contents.startsWith("---\nrole: box-maintainer\n---")).toBe(true);
+  // frontmatter present at start with role as the FIRST key (Phase 66 Plan
+  // 66-01: displayName/title/colorHue/voice/avatar now follow role inside
+  // the frontmatter block; the role-first ordering is the invariant that
+  // preserves post-Phase-A byte-shape parity)
+  expect(contents.startsWith("---\nrole: box-maintainer\n")).toBe(true);
+  // frontmatter block is closed by --- somewhere later in the body
+  expect(contents).toMatch(/^---\r?\n[\s\S]*?\r?\n---\r?\n/);
   // heading present
   expect(contents).toMatch(/#\s+testkey/i);
   // seed comment present (HTML comment style)

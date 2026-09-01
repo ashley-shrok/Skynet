@@ -44,6 +44,18 @@ vi.mock("../../ssh/tmux-helper.js", () => ({
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   isLocalHostId: vi.fn(),
   writeMarkdownFileAtomic: vi.fn().mockResolvedValue(undefined),
+  // Phase 66 Plan 66-01: additive dep — pre-existing tests are unchanged;
+  // the orchestrator's Step 2.5 now calls this after writeMarkdownFileAtomic.
+  writeAvatarSiblingFile: vi.fn().mockResolvedValue(undefined),
+  MIME_TO_AVATAR_EXT: {
+    "image/webp": "webp",
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/gif": "gif",
+    "image/svg+xml": "svg",
+  },
+  AVATAR_EXT_VALUES: ["webp", "png", "jpg", "gif", "svg"] as const,
+  IDMEDIT_MAX_AVATAR_BYTES: 5_000_000,
 }));
 
 vi.mock("node:child_process", () => ({
@@ -99,6 +111,9 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
     execLocal: mockExecLocal,
     // Phase 22 SRIC-02: pre-write dep for Step 2.5 (mocked as no-op in existing tests)
     writeMarkdownFileAtomic: vi.fn().mockResolvedValue(undefined),
+    // Phase 66 Plan 66-01: additive avatar-sibling dep for Step 2.5 (mocked
+    // as no-op in existing tests so pre-Phase-66 assertions don't drift).
+    writeAvatarSiblingFile: vi.fn().mockResolvedValue(undefined),
     createIdentityRecord: vi.fn().mockResolvedValue({
       id: "created-id-123",
       identityKey: "testkey",
