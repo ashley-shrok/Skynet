@@ -1146,6 +1146,15 @@ export function PrettyView({
   const handleOptimisticSend = useCallback(
     (args: { payload: string; mqid: string; immediateFailure: boolean }) => {
       const { payload, mqid, immediateFailure } = args;
+      // Phase 68 Plan 02 D-03: render-blacklist for /id commands (reset, etc.).
+      // The funnel ALWAYS generates and threads an mqid through — even for
+      // render-blacklisted payloads — so the backend Phase 56 wake gate fires
+      // for dormant sessions. The suppression is ONLY at this render layer:
+      // the pendingSend record is never added, so no bubble appears. The WS
+      // input frame (sendInput) is unchanged and still carries messageQueueItemId.
+      // isIdCommand (L425-427) is module-scoped and recognizes both raw `/id `
+      // prefix and the harness XML-wrapper form.
+      if (isIdCommand(payload)) { return; }
       const collapsed = collapseNewlinesForMatch(payload);
       if (immediateFailure) {
         // D-20: WS was not open on the ComposeBox side — this callback
