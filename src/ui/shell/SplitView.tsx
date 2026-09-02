@@ -638,9 +638,19 @@ const Pane = memo(function Pane({
             The `hasSkynetDragPayload` gate at :275 already prevents
             non-skynet drags from setting dropPreview in the first place,
             so any dropPreview reaching this JSX is guaranteed to originate
-            from a valid skynet MIME. Coral RGBA, border, zIndex,
-            pointer-events, transition — all UNCHANGED ("same coral
-            vocabulary" per shape file). */}
+            from a valid skynet MIME. Coral RGBA, border, pointer-events,
+            transition — UNCHANGED ("same coral vocabulary" per shape file). */}
+        {/* zIndex: 100 — above the pane-local state overlays in the z-[95]
+            /z-[99] band (DropOverlay z-[95], SessionHoldingOverlay z-[99],
+            PrettyViewLoadingOverlay z-[99], PrettyViewErrorOverlay z-[99]) so
+            the drop-preview stays visible when the pane's session is being
+            recycled or is otherwise showing one of those scrims. Was
+            zIndex:20 pre-2026-09-02, which sat UNDER SessionHoldingOverlay in
+            the shared Pane-isolate stacking context (the .flex-1.relative
+            wrapper doesn't establish its own stacking context, so the coral
+            and SessionHoldingOverlay siblings-of-siblings compare directly).
+            Left BELOW IdentityBadge (z-[101]) so the badge stays crisp above
+            the translucent coral tint. */}
         {dropPreview !== null && (
           <div
             data-testid="pane-drop-preview-overlay"
@@ -651,7 +661,7 @@ const Pane = memo(function Pane({
               background: "rgba(255, 184, 150, 0.22)",
               border: "2px solid rgba(255, 184, 150, 0.60)",
               borderRadius: 0,
-              zIndex: 20,
+              zIndex: 100,
               transition:
                 "left 80ms ease, top 80ms ease, width 80ms ease, height 80ms ease",
             }}
