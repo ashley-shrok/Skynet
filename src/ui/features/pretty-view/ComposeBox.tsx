@@ -415,6 +415,86 @@ export interface ComposeBoxProps {
   className?: string;
 }
 
+// ============================================================================
+// Phase 68 Plan 01 D-01: co-located send-funnel hook.
+//
+// Extracts the core send transport from handleSend's text-only branch:
+//   mqid generation → onOptimisticSend seed (pre-send + failure) → onSend
+//   dispatch → submit-entry / submit-success / submit-failed logs.
+//
+// What the hook does NOT own (stays with each caller per PATTERNS.md §
+// "Contract boundary"): setText, clearAfterSend, attachment branching,
+// textarea focus, draft persistence, per-trigger UI cleanup.
+//
+// D-02: optional bubbleTextOverride — when provided, the optimistic bubble
+// renders this text instead of the send payload. onSend always receives the
+// original payload (e.g. the actual command text), not the override. Rationale:
+// thumbs-up renders a 👍 icon; the bubble should show that from birth rather
+// than "thumbs up" → icon flip.
+//
+// D-03: mqid is ALWAYS generated and threaded through — even for callers
+// whose bubble will be render-blacklisted (reset). The backend Phase 56 wake
+// gate fires on pretty-view submit shape (mqid presence); render-blacklist is
+// honored by the render layer downstream, not by omitting the mqid here.
+// ============================================================================
+function useComposeSend(deps: {
+  hostId: number;
+  tmuxSession: string | null | undefined;
+  onSend: ComposeBoxProps["onSend"];
+  onOptimisticSend: ComposeBoxProps["onOptimisticSend"];
+}) {
+  const { hostId, tmuxSession, onSend, onOptimisticSend } = deps;
+  const send = useCallback(
+    (
+      payload: string,
+      options?: { bubbleTextOverride?: string; trigger?: string },
+    ): boolean => {
+      const trigger = options?.trigger ?? "unknown";
+      const bubbleText = options?.bubbleTextOverride ?? payload;
+
+      // Phase 31 D-02: compose submit instrumentation — normal send path.
+      // Format is verbatim from the pre-refactor handleSend L1493 so existing
+      // test assertions on the log string continue to pass unmodified.
+      console.info(
+        `[compose] submit-entry hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${payload.length} attachmentCount=0 trigger=${trigger}`,
+      );
+
+      // Phase 50 D-01/D-18: generate the mqid ONCE per send. Pattern is
+      // `pv-optim-<ms>-<8hex>` — deterministic-enough for FIFO ordering +
+      // unique enough that concurrent sends don't collide.
+      const mqid = `pv-optim-${Date.now()}-${Math.random().toString(36).slice(2, 10).padEnd(8, "0")}`;
+
+      // Phase 50 D-01: fire the optimistic-bubble seed BEFORE the WS send so
+      // PrettyView renders the pending bubble on the same React frame as the
+      // send dispatches. D-02: pass bubbleText (may be the override) to the
+      // bubble; the raw payload goes to onSend unchanged.
+      onOptimisticSend?.({ payload: bubbleText, mqid, immediateFailure: false });
+
+      // D-03: mqid ALWAYS passed regardless of bubbleTextOverride or render-blacklist.
+      const dispatched = onSend(payload, mqid);
+
+      if (dispatched) {
+        console.info(
+          `[compose] submit-success hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${payload.length}`,
+        );
+      } else {
+        console.warn(
+          `[compose] submit-failed hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${payload.length} err="not-connected"`,
+        );
+        // Phase 50 D-20: fire a SECOND onOptimisticSend with immediateFailure
+        // so PrettyView flips the just-seeded pending bubble to red state
+        // immediately (no waiting on the 20s timer for the WS-not-open case).
+        onOptimisticSend?.({ payload: bubbleText, mqid, immediateFailure: true });
+      }
+
+      return dispatched;
+    },
+    [hostId, tmuxSession, onSend, onOptimisticSend],
+  );
+
+  return { send };
+}
+
 export function ComposeBox({
   onSend,
   onOptimisticSend,
@@ -1312,6 +1392,12 @@ export function ComposeBox({
     };
   }, [stagedAttachmentsCount]);
 
+  // Phase 68 Plan 01 D-01: instantiate the co-located send-funnel hook.
+  // Placed here (after all useEffect/useLayoutEffect/useCallback hooks, before
+  // the first function-declaration handler) so it follows React's hook ordering
+  // rules. All 5 send-trigger handlers close over `funnel.send`.
+  const funnel = useComposeSend({ hostId, tmuxSession, onSend, onOptimisticSend });
+
   function handleTextChange(next: string) {
     setText(next);
     scheduleAutosave(next, latestQueueSlotsRef.current);
@@ -1489,24 +1575,15 @@ export function ComposeBox({
     // D-50 policy: collapse newlines to spaces on send. Ink safety.
     const payload = collapseNewlinesForSend(trimmed);
 
-    // Phase 31 D-02: compose submit instrumentation — normal send path.
-    console.info(`[compose] submit-entry hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${payload.length} attachmentCount=0 trigger=${trigger}`);
-    // Phase 50 D-01/D-18: generate the mqid ONCE per send. This mqid
-    // flows through onOptimisticSend → PrettyView.pendingSends AND through
-    // onSend(text, mqid) → PrettyView.handleComposeSend → IdentitySessionPane
-    // → pvSendInputRef → backend armPvSendWatchdog — a single source of
-    // truth for the entire mqid chain (Blocker #4 root-cause resolution
-    // from the plan-checker iteration 1). Pattern is `pv-optim-<ms>-<8hex>`
-    // — deterministic-enough for FIFO ordering + unique enough that
-    // concurrent sends don't collide.
-    const mqid = `pv-optim-${Date.now()}-${Math.random().toString(36).slice(2, 10).padEnd(8, "0")}`;
-    // Phase 50 D-01: fire the optimistic-bubble seed BEFORE the WS send so
-    // PrettyView renders the pending bubble on the same React frame as the
-    // send dispatches.
-    onOptimisticSend?.({ payload, mqid, immediateFailure: false });
-    const dispatched = onSend(payload, mqid);
+    // Phase 68 Plan 01: delegate to the co-located useComposeSend hook.
+    // The funnel handles mqid generation, onOptimisticSend seed (pre-send +
+    // failure), onSend dispatch, and the three submit-entry/success/failed log
+    // lines — all byte-identical to the pre-refactor inline code. Caller keeps
+    // only the per-trigger UI cleanup (setText, clearAfterSend, setErrorMessage
+    // on failure per PATTERNS.md § Contract boundary). The trigger label flows
+    // through so the submit-entry log line carries the correct trigger field.
+    const dispatched = funnel.send(payload, { trigger });
     if (dispatched) {
-      console.info(`[compose] submit-success hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${payload.length}`);
       setText(""); // clear compose textarea on success
       clearAfterSend();
       // Phase 50 D-18: prior HARD LOCK removed. The optimistic bubble
@@ -1517,19 +1594,14 @@ export function ComposeBox({
       // .planning/phases/50-optimistic-message-bubbles/50-CONTEXT.md
       // D-01/D-05/D-19.
     } else {
-      console.warn(`[compose] submit-failed hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${payload.length} err="not-connected"`);
       setErrorMessage("Not connected — try again in a moment");
-      // Phase 50 D-20: fire a SECOND onOptimisticSend with immediateFailure
-      // so PrettyView flips the just-seeded pending bubble to red state
-      // immediately (no waiting on the 20s timer for the WS-not-open case).
-      onOptimisticSend?.({ payload, mqid, immediateFailure: true });
-      // Phase 50 D-20 + D-56: do NOT clear text on onSend-returned-false;
-      // user may want to retry. onOptimisticSend was called with
-      // immediateFailure:true so the pending bubble on PrettyView is
-      // already in red state; keeping the textarea populated lets the user
-      // edit-and-resend without re-typing. Do NOT clear the persisted
-      // draft either — failed send should leave the composition intact
-      // server-side too.
+      // Phase 50 D-20 + D-56: do NOT clear text on dispatched===false;
+      // user may want to retry. The funnel already fired
+      // onOptimisticSend({ immediateFailure: true }) so PrettyView has
+      // flipped the pending bubble to red. Keeping the textarea populated
+      // lets the user edit-and-resend without re-typing. Do NOT clear the
+      // persisted draft either — failed send should leave the composition
+      // intact server-side too.
     }
   }
 
