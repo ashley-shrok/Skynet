@@ -93,6 +93,9 @@ vi.mock("../../ssh/host-resolver.js", () => ({
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   writeMarkdownFileAtomic: vi.fn(),
   writeAvatarSiblingFile: vi.fn(),
+  // Source-avatar inheritance (2026-09-02): read source's on-disk avatar when
+  // no candidate is supplied so the clone inherits the source's face.
+  readAvatarSiblingFile: vi.fn(),
   resolveRoleForIdentity: vi.fn(),
   // Phase 68 Plan 03: readIdentityFile + extractCosmeticsFromFrontmatter used
   // for disk re-read in the clone response.
@@ -158,6 +161,7 @@ import { resolveHostById } from "../../ssh/host-resolver.js";
 import {
   writeMarkdownFileAtomic,
   writeAvatarSiblingFile,
+  readAvatarSiblingFile,
   resolveRoleForIdentity,
   readIdentityFile,
   extractCosmeticsFromFrontmatter,
@@ -277,6 +281,10 @@ beforeEach(() => {
 
   (resolveRoleForIdentity as Mock).mockResolvedValue("box-maintainer");
   (writeMarkdownFileAtomic as Mock).mockResolvedValue(undefined);
+  // Default: source has NO on-disk avatar (source-avatar inheritance falls
+  // through to the "clone ships without avatar" path). Individual tests
+  // override to simulate a source with an avatar sibling.
+  (readAvatarSiblingFile as Mock).mockResolvedValue(null);
   (getCandidateForBirth as Mock).mockReturnValue({
     bytes: Buffer.from("candidate-avatar-bytes"),
     mime: "image/png",
@@ -648,7 +656,7 @@ describe("POST /identities/clone", () => {
     expect((res.body as { error: string }).error).toMatch(/colorHue/i);
   });
 
-  it("Test 9: Phase 68 — WITHOUT avatarCandidateId — 201 with safe-default cosmetics from disk re-read", async () => {
+  it("Test 9: Phase 68 — WITHOUT avatarCandidateId, source has NO avatar — 201 with safe-default cosmetics; source-avatar read attempted, no sibling written", async () => {
     const res = await httpRequest(server, {
       method: "POST",
       path: "/identities/clone",
@@ -668,12 +676,85 @@ describe("POST /identities/clone", () => {
     expect(getCandidateForBirth).not.toHaveBeenCalled();
     expect(consumeCandidateForBirth).not.toHaveBeenCalled();
 
+    // Source-avatar inheritance attempted (default mock returns null → no
+    // sibling written, but the fallback path fired).
+    expect(readAvatarSiblingFile).toHaveBeenCalledTimes(1);
+    expect(readAvatarSiblingFile).toHaveBeenCalledWith(stubConn, "tina");
+    expect(writeAvatarSiblingFile).not.toHaveBeenCalled();
+
     // Phase 68: no DB row inserted — response uses disk re-read cosmetics
     const body = res.body as { identityKey: string };
     expect(body.identityKey).toBe("tina-3");
 
     // readIdentityFile was called for disk re-read
     expect(readIdentityFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("Test 9b: WITHOUT avatarCandidateId, source HAS avatar sibling — 201; clone inherits source's avatar bytes/ext via writeAvatarSiblingFile", async () => {
+    // Simulate a source identity with an on-disk avatar sibling.
+    const sourceAvatarBytes = Buffer.from("source-avatar-bytes-here");
+    (readAvatarSiblingFile as Mock).mockResolvedValue({
+      bytes: sourceAvatarBytes,
+      mime: "image/webp",
+      ext: "webp",
+    });
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify({
+        sourceIdentityKey: "tina",
+        hostId: 5,
+        newName: "tina-4",
+        title: "Cloned Op",
+        voice: null,
+        avatarCandidateId: null,
+        path: "~",
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    // Candidate cache was skipped
+    expect(getCandidateForBirth).not.toHaveBeenCalled();
+    // Source avatar read fired
+    expect(readAvatarSiblingFile).toHaveBeenCalledWith(stubConn, "tina");
+    // Sibling avatar file written with source's bytes + ext
+    expect(writeAvatarSiblingFile).toHaveBeenCalledTimes(1);
+    const [writeConn, writeName, writeExt, writeBytes] =
+      (writeAvatarSiblingFile as Mock).mock.calls[0];
+    expect(writeConn).toBe(stubConn);
+    expect(writeName).toBe("tina-4");
+    expect(writeExt).toBe("webp");
+    expect(writeBytes).toBe(sourceAvatarBytes);
+    // Frontmatter emitted with the avatar filename (matches Test 8's shape)
+    const mdBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    expect(mdBody).toContain("avatar: tina-4.webp");
+  });
+
+  it("Test 9c: source-avatar read failure is best-effort — clone still succeeds without avatar", async () => {
+    (readAvatarSiblingFile as Mock).mockRejectedValue(new Error("SSH boom"));
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify({
+        sourceIdentityKey: "tina",
+        hostId: 5,
+        newName: "tina-5",
+        title: "Cloned Op",
+        voice: null,
+        avatarCandidateId: null,
+        path: "~",
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(readAvatarSiblingFile).toHaveBeenCalledTimes(1);
+    // Sibling avatar NOT written; markdown DID write (frontmatter without `avatar:`).
+    expect(writeAvatarSiblingFile).not.toHaveBeenCalled();
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    const mdBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    expect(mdBody).not.toContain("avatar:");
   });
 
   it("Test 10: SSH connect failure → 502; DB row NOT inserted", async () => {

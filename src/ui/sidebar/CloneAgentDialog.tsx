@@ -15,7 +15,9 @@
 // LOCKED fields (D-CONTEXT §UX plan-checker BLOCK if exposed):
 //   - Host (same as source; passed via `hostId` prop from panel)
 //   - Role (auto-preserved by backend via resolveRoleForIdentity two-step)
-//   - Color (auto-preserved by backend from sourceRow.colorHue)
+//   - Aesthetics (colorHue + on-disk avatar auto-preserved by backend from
+//     the source identity's cosmetics; user can override the avatar via
+//     Regenerate / Upload, but the color travels with the clone unedited)
 //
 // Chain hook is NOT provided — clone is a one-shot flow. No `onChainToXxx`
 // prop. Success invokes `onCloned` (optional) then `onClose`.
@@ -347,7 +349,7 @@ export function CloneAgentDialog({
     ? `Clone ${sourceIdentity.displayName}`
     : "Clone identity";
   const dialogDescription = sourceIdentity
-    ? `Create a new identity based on ${sourceIdentity.displayName}. Host, role, and color are preserved automatically.`
+    ? `Create a new identity based on ${sourceIdentity.displayName}. Host, role, and aesthetics are preserved automatically.`
     : "Clone an existing identity.";
 
   const cancelLabel = t("common.cancel", { defaultValue: "Cancel" });

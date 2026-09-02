@@ -103,6 +103,7 @@ import { execCommand } from "../../ssh/tmux-helper.js";
 import {
   writeMarkdownFileAtomic,
   writeAvatarSiblingFile,
+  readAvatarSiblingFile,
   resolveRoleForIdentity,
   readIdentityFile,
   extractCosmeticsFromFrontmatter,
@@ -396,15 +397,14 @@ router.post(
     // -----------------------------------------------------------------------
 
     // -----------------------------------------------------------------------
-    // 3. Fetch avatar bytes (candidate cache only — Phase 66 Plan 04 dropped
-    //    sourceRow.avatarData). If the user supplies avatarCandidateId, the
-    //    candidate bytes + mime are written to the cloned identity's home
-    //    folder as a sibling avatar file in step 10a below (matches the birth
-    //    flow's Step 2.5). If the user does NOT supply a candidate, the cloned
-    //    identity ships without an avatar sibling (renders with placeholder
-    //    initial — same fallback as any identity whose on-disk avatar is
-    //    absent). Inheriting the source's on-disk avatar bytes when the user
-    //    doesn't override is orthogonal follow-up work.
+    // 3. Fetch avatar bytes from candidate cache if provided. If the user
+    //    supplies avatarCandidateId (regenerated or uploaded via the dialog),
+    //    the candidate bytes + mime are written to the cloned identity's home
+    //    folder as a sibling avatar file in step 10a below. If NO candidate is
+    //    provided, we later (post-SSH-connect at step 6a) fall back to reading
+    //    the source's on-disk avatar sibling so the clone inherits the source's
+    //    face — the clone dialog shows the source's avatar as the default
+    //    preview, so the clone should end up with it too.
     // -----------------------------------------------------------------------
     let avatarBytes: Buffer | null = null;
     let avatarMime: string | null = null;
@@ -467,6 +467,41 @@ router.post(
         );
         res.status(500).json({ error: "source has no role frontmatter" });
         return;
+      }
+
+      // ---------------------------------------------------------------------
+      // 6a. Inherit source's on-disk avatar when the user didn't override.
+      //     readAvatarSiblingFile reads <sourceKey>/<sourceKey>.<ext> over the
+      //     same SSH connection (same discovery cascade the GET /:id/avatar
+      //     endpoint uses). If found, the bytes/mime replace the null default
+      //     so step 10a writes the sibling and step 10 emits the `avatar:`
+      //     frontmatter line. If the source has no sibling either, the clone
+      //     ships without an avatar (placeholder-initial fallback). SSH errors
+      //     during the read are best-effort: warn + proceed without avatar
+      //     rather than fail the whole clone — matches Ashley's "accept the
+      //     ugly render" posture for avatar failures elsewhere in the reader.
+      // ---------------------------------------------------------------------
+      if (!avatarBytes) {
+        try {
+          const sourceAvatar = await readAvatarSiblingFile(
+            conn,
+            sourceIdentityKey,
+          );
+          if (sourceAvatar) {
+            avatarBytes = sourceAvatar.bytes;
+            avatarMime = sourceAvatar.mime;
+          }
+        } catch (err) {
+          sshLogger.warn(
+            "identity-clone: source avatar read failed, proceeding without",
+            {
+              operation: "identity_clone_source_avatar_read",
+              hostId,
+              sourceIdentityKey,
+              error: err instanceof Error ? err.message : "Unknown",
+            },
+          );
+        }
       }
 
       // ---------------------------------------------------------------------
