@@ -6824,3 +6824,103 @@ describe("ssh-poll-orchestrator Phase 62 Plan 03 — activityMtime + stoppedMtim
     expect(published.state.lastStatusChangeAt).toBe(1730500000000);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression coverage for bounty 9c8d4a72-1e5f-4b8a-9d3c-6f2b8e4a7c19 —
+// SSH channel-open-failure on stat read was being conflated with PID-dead,
+// causing session_gone publishes for actively-working sessions on t1000 under
+// sshd MaxSessions saturation. Fix landed 2026-09-02 in ssh-poll-orchestrator.ts.
+//
+// The fix wraps every /proc/<pid>/stat SSH exec in a sentinel — `cat ... &&
+// echo __STAT_OK__ || echo __STAT_ENOENT__` — and routes the result through
+// `readStatWithSentinel`, which returns {ok, content} | {ok: false, reason}.
+// A `null` channel response now unambiguously means transport failure
+// (fail-OPEN: skip reap this tick) rather than PID-dead. Real ENOENT is
+// signalled by the `__STAT_ENOENT__` sentinel. Real live PID reads emit
+// `<stat contents>\n__STAT_OK__`.
+//
+// The 4 tests below pin all four transport-vs-dead outcomes. Test 1 is the
+// bug-fix that would have caught Tina 2026-09-02 (transport → no reap);
+// Tests 2/3/4 are baselines proving real PID-dead / PID-reuse / live-PID
+// detection all still work post-fix.
+// ---------------------------------------------------------------------------
+describe("transport-vs-dead distinction in stat read (bounty 9c8d4a72)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __clearAllSessionFileCacheForTests();
+  });
+
+  it("Test 1 — Transport failure: null stat return does NOT reap (fail-OPEN, session stays live) [THE bug fix]", async () => {
+    const deps = buildDeps();
+    // Stat exec returns null → simulates the SSH channel-open-failure that
+    // the adapter swallows to null. Pre-fix, isStaleFromStat(_, null) === true
+    // → publishSessionGone fires → row drops → WIP indicator gone.
+    deps.channel.setResponse("cat /proc/12345/stat", null);
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // The fix: transport failure never reaps. livenessMap keeps the entry
+    // for this tick, and the state still publishes so the frontend row
+    // keeps rendering the WIP indicator.
+    expect(deps.registry.publishedGone).toEqual([]);
+    const state12345 = deps.registry.publishedStates.find(
+      (p) => p.state.pid === 12345,
+    );
+    expect(state12345).toBeDefined();
+    expect(state12345?.state.sessionId).toBe("test-session-id");
+  });
+
+  it("Test 2 — Real PID reuse: sentinel-wrapped stat with mismatched field22 DOES reap [baseline]", async () => {
+    const deps = buildDeps();
+    // Sentinel-wrapped real /proc/stat content whose field22 (starttime) does
+    // NOT match the session JSON's procStart ("12345") — makeStatContents
+    // appends `\n__STAT_OK__` under the bounty 9c8d4a72 fixture contract, so
+    // this exercises the ok-with-mismatched-field22 reap path.
+    deps.channel.setResponse(
+      "cat /proc/12345/stat",
+      makeStatContents("99999"),
+    );
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // PID reuse (mismatched starttime) reaps as today.
+    expect(deps.registry.publishedGone).toHaveLength(1);
+    expect(deps.registry.publishedGone[0].hostId).toBe("host-1");
+    expect(deps.registry.publishedGone[0].sessionId).toBe("test-session-id");
+  });
+
+  it("Test 3 — Live PID: sentinel-wrapped stat with matching field22 does NOT reap [baseline]", async () => {
+    const deps = buildDeps();
+    // Default buildDeps() wires `cat /proc/12345/stat` to makeStatContents("12345"),
+    // which post-fix ends with `\n__STAT_OK__` and whose starttime matches the
+    // session JSON's procStart. This is the happy path.
+    // (No override needed — buildDeps() already sets this up.)
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedGone).toEqual([]);
+    const state12345 = deps.registry.publishedStates.find(
+      (p) => p.state.pid === 12345,
+    );
+    expect(state12345).toBeDefined();
+    expect(state12345?.state.sessionId).toBe("test-session-id");
+  });
+
+  it("Test 4 — Real absence: bare __STAT_ENOENT__ sentinel DOES reap [baseline]", async () => {
+    const deps = buildDeps();
+    // Sentinel-only response — models the post-fix command output when
+    // /proc/<pid>/stat is genuinely absent (cat fails → || echo __STAT_ENOENT__).
+    deps.channel.setResponse("cat /proc/12345/stat", "__STAT_ENOENT__");
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // Real ENOENT still reaps as today.
+    expect(deps.registry.publishedGone).toHaveLength(1);
+    expect(deps.registry.publishedGone[0].hostId).toBe("host-1");
+    expect(deps.registry.publishedGone[0].sessionId).toBe("test-session-id");
+  });
+});
