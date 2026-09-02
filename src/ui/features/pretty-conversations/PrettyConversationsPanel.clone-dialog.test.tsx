@@ -357,7 +357,7 @@ describe("PrettyConversationsPanel: Clone dialog wiring", () => {
       path: "~/",
       identityMode: "existing",
       identityName: "tina-2",
-      identityId: "new-id",
+      identityId: "tina-2",
     });
   });
 });
