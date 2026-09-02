@@ -1971,15 +1971,38 @@ export function PrettyView({
             logPreLen = prev.length;
             const combined = [...parsed.messages, ...prev];
             const seen = new Set<string>();
+            // Relay-inbound matrixEventId dedup — mirror of the fix in
+            // appendDedup / appendDedupWithCap (commit 064be9d6, 2026-09-01).
+            // The live-tail path caught the 2-3 envelope duplicates for one
+            // physical Matrix message; the range-fetch path here needs the
+            // same guard so a "load more" click doesn't re-hydrate the same
+            // duplicate bubbles. First-arrival-wins ordering is preserved
+            // because parsed (older batch) sits BEFORE prev in `combined`.
+            const seenMatrixEventIds = new Set<string>();
             const result: typeof combined = [];
             const droppedByDedup: string[] = [];
             for (const m of combined) {
-              if (!seen.has(m.eventId)) {
-                seen.add(m.eventId);
-                result.push(m);
-              } else {
+              if (seen.has(m.eventId)) {
                 droppedByDedup.push(m.eventId);
+                continue;
               }
+              const asRelay = m as unknown as {
+                type?: unknown;
+                matrixEventId?: unknown;
+              };
+              if (
+                asRelay.type === "relay_inbound" &&
+                typeof asRelay.matrixEventId === "string" &&
+                asRelay.matrixEventId.length > 0
+              ) {
+                if (seenMatrixEventIds.has(asRelay.matrixEventId)) {
+                  droppedByDedup.push(m.eventId);
+                  continue;
+                }
+                seenMatrixEventIds.add(asRelay.matrixEventId);
+              }
+              seen.add(m.eventId);
+              result.push(m);
             }
             // inline-260823-pv-line-sorted-insert: sort combined+deduped
             // result by `line` so a subsequent WS-reconnect re-hydration's
