@@ -1477,7 +1477,10 @@ export function ComposeBox({
     setErrorMessage(null);
 
     const payload = collapseNewlinesForSend(trimmed);
-    const dispatched = onSend(payload);
+    // Phase 68 Plan 02: route through the funnel so queue-slot sends carry
+    // an mqid (D-03 invariant — backend Phase 56 wake gate fires on all
+    // pretty-view sends) and seed an optimistic bubble (D-01).
+    const dispatched = funnel.send(payload, { trigger: "queue-item" });
     if (dispatched) {
       const nextSlots = queueSlots.filter((s) => s.id !== slotId);
       setQueueSlots(nextSlots);
@@ -1809,7 +1812,12 @@ export function ComposeBox({
     const payload = trimmed
       ? `/id reset (${collapseNewlinesForSend(trimmed)})`
       : "/id reset";
-    const dispatched = onSend(payload);
+    // Phase 68 Plan 02: route through the funnel so reset carries an mqid
+    // (D-03 invariant — backend Phase 56 wake gate fires on dormant reset
+    // just like main-textarea sends). Render-blacklist is honored downstream
+    // in PrettyView.handleOptimisticSend (Task 3) — funnel always generates
+    // the mqid regardless of whether the bubble will render.
+    const dispatched = funnel.send(payload, { trigger: "reset" });
     if (dispatched) {
       setText("");
       clearAfterSend();
