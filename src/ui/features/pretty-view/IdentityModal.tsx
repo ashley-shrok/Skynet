@@ -1215,8 +1215,13 @@ export function IdentityModal({
             the avatar visually above center; Ashley called out on first
             #90 deploy eyeball). */}
         <DialogHeader
-          className="px-6 py-4 shrink-0 flex flex-row items-center gap-3"
-          // Phase 67: watermark positioning host + bleed clip
+          className="shrink-0"
+          // Phase 67: watermark positioning host + bleed clip.
+          // overflow:hidden CLIPS the watermark's vertical bleed (top:-32,
+          // bottom:-32) AND its rightward bleed (right:-28). The scrollable
+          // flex-row moves to an inner wrapper below so the header itself
+          // stays clip-only (watermark) while the controls row can scroll
+          // horizontally on narrow viewports (see inner wrapper comment).
           style={{
             position: "relative",
             overflow: "hidden",
@@ -1253,6 +1258,23 @@ export function IdentityModal({
               )}
             />
           )}
+          {/* Scrollable inner row (Ashley 2026-09-02 mobile fix): the header's
+              children (avatar + name/title + stays-awake switch + pencil + close)
+              have a natural minimum width that exceeds a phone viewport — the
+              "Boost response time…" label alone is ~200px wide, and it sits
+              alongside a 40px avatar + 36px pencil + 36px close (all shrink-0).
+              Pre-fix, the row overflowed the outer overflow:hidden and clipped
+              the close button on the right, stranding Ashley with no way to
+              dismiss the modal on mobile short of force-quitting the app.
+              overflow-x-auto lets the row scroll horizontally when it doesn't
+              fit, so the close button is always reachable via touch flick.
+              px-6/py-4 moved from DialogHeader to here so padding stays inside
+              the scroll area (avoids padding-collapse artifacts at scroll
+              extents). The name/title's flex-1+min-w-0 still expands to fill
+              free space on desktop and collapses first on narrow viewports —
+              scroll only kicks in when the shrink-0 controls' aggregate width
+              still exceeds container width after that collapse. */}
+          <div className="px-6 py-4 flex flex-row items-center gap-3 overflow-x-auto">
           {/* Quick 260731-1c8: cache-bust the header avatar with &v=<avatarEtag>
               so that after applyIdentityChange fires with a new avatarEtag the
               browser fetches the fresh image instead of serving the stale cache.
@@ -1394,6 +1416,7 @@ export function IdentityModal({
               <X className="size-4" />
             </button>
           </DialogClose>
+          </div>
         </DialogHeader>
 
         {/* Header-level edit drawer (2026-08-05): the pencil in DialogHeader
