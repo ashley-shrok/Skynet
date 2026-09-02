@@ -524,7 +524,7 @@ describe("ComposeBox — queued-slot attachment send (quick-260829-nt9)", () => 
 
     // text-only onSend called exactly once with the collapsed payload.
     expect(onSend).toHaveBeenCalledTimes(1);
-    expect(onSend).toHaveBeenCalledWith("just text");
+    expect(onSend).toHaveBeenCalledWith("just text", expect.stringMatching(/^pv-optim-/));
 
     // onSendWithAttachments NOT called (no attachments staged).
     expect(onSendWithAttachments).not.toHaveBeenCalled();

@@ -497,10 +497,10 @@ describe("ComposeBox — Phase 16 voice flow", () => {
 
     // onSend fires with the glued payload after endSend resolves.
     await waitFor(() => {
-      // /id reset path uses dispatchResetPayload (single-arg onSend),
-      // NOT handleSend — Phase 50 D-18's mqid threading is scoped to
-      // primary handleSend only. This assertion stays single-arg.
-      expect(onSend).toHaveBeenCalledWith("/id reset (hi there and one more thing)");
+      // Phase 68 Plan 02: dispatchResetPayload now routes through the funnel
+      // so reset carries an mqid (D-03 invariant — backend Phase 56 wake gate
+      // fires on dormant reset like main-textarea sends).
+      expect(onSend).toHaveBeenCalledWith("/id reset (hi there and one more thing)", expect.stringMatching(/^pv-optim-/));
     });
 
     // Textarea cleared after successful dispatch.
@@ -547,10 +547,10 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     // KEY assertion: onSend fires with the EXISTING textarea body — NOT
     // plain "/id reset", NOT a silent no-op.
     await waitFor(() => {
-      // /id reset path uses dispatchResetPayload (single-arg onSend),
-      // NOT handleSend — Phase 50 D-18's mqid threading is scoped to
-      // primary handleSend only. This assertion stays single-arg.
-      expect(onSend).toHaveBeenCalledWith("/id reset (existing body)");
+      // Phase 68 Plan 02: dispatchResetPayload now routes through the funnel
+      // so reset carries an mqid (D-03 invariant — backend Phase 56 wake gate
+      // fires on dormant reset like main-textarea sends).
+      expect(onSend).toHaveBeenCalledWith("/id reset (existing body)", expect.stringMatching(/^pv-optim-/));
     });
   });
 
