@@ -169,7 +169,16 @@ function makeStatContents(starttime = "12345"): string {
   // /proc/<pid>/stat: pid (comm) state ppid pgrp session tty tpgid flags
   //   minflt cminflt majflt cmajflt utime stime cutime cstime priority nice
   //   num_threads itrealvalue starttime ...
-  return `12345 (node) S 1 12345 12345 0 -1 4194304 1234 0 0 0 10 5 0 0 20 0 1 0 ${starttime} ...rest`;
+  //
+  // Bounty 9c8d4a72 (2026-09-02): the orchestrator's stat read is now wrapped
+  // in `cat ... && echo __STAT_OK__ || echo __STAT_ENOENT__` so the channel
+  // response for a live PID is the raw /proc/stat content followed by a
+  // trailing `\n__STAT_OK__` sentinel line. `readStatWithSentinel` strips
+  // the sentinel + trailing whitespace before returning content, so the
+  // downstream isStaleFromStat contract is unchanged. Mock fixtures append
+  // the sentinel here so every existing test that models "live PID read"
+  // exercises the post-fix command shape end-to-end.
+  return `12345 (node) S 1 12345 12345 0 -1 4194304 1234 0 0 0 10 5 0 0 20 0 1 0 ${starttime} ...rest\n__STAT_OK__`;
 }
 
 function makeValidPayload(tasks: unknown[] = []): string {
@@ -465,8 +474,11 @@ describe("createSshPollOrchestrator", () => {
     // Confirm initial publish happened
     expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
 
-    // Now simulate: PID 12345 goes stale (stat returns null = ENOENT)
-    channel.setResponse("cat /proc/12345/stat", null);
+    // Now simulate: PID 12345 goes stale. Bounty 9c8d4a72 (2026-09-02): the
+    // orchestrator now uses `readStatWithSentinel` — real ENOENT is signalled
+    // by the `__STAT_ENOENT__` sentinel (not by a null return, which now
+    // means SSH transport failure and fail-OPEN semantics).
+    channel.setResponse("cat /proc/12345/stat", "__STAT_ENOENT__");
 
     // Trigger the 30s sweep
     const sweepFn = setIntervalFns.find((f) => f.ms === 30000);
@@ -539,8 +551,8 @@ describe("createSshPollOrchestrator", () => {
     const environCallsAfterFirst = channel.countCallsMatching("cat /proc/12345/environ");
     expect(environCallsAfterFirst).toBe(1);
 
-    // Make PID stale
-    channel.setResponse("cat /proc/12345/stat", null);
+    // Make PID stale. Bounty 9c8d4a72: real ENOENT via sentinel (see makeStatContents docblock).
+    channel.setResponse("cat /proc/12345/stat", "__STAT_ENOENT__");
     const sweepFn = setIntervalFns.find((f) => f.ms === 30000);
     if (sweepFn) {
       await sweepFn.fn();
@@ -2916,9 +2928,10 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
     expect(t2Publish.state.pid).toBe(12345);
     expect(t2Publish.state.sessionId).toBe("test-session-id");
 
-    // Tick 3: PID reaped (stat null → sessionJson null after next cycle). To
-    // simulate reap cleanly, mark stale via /proc/stat null.
-    channel.setResponse("cat /proc/12345/stat", null);
+    // Tick 3: PID reaped. Bounty 9c8d4a72 (2026-09-02): real ENOENT is now
+    // signalled by the `__STAT_ENOENT__` sentinel; a null return means SSH
+    // transport failure (fail-OPEN, no reap) and cannot be used here.
+    channel.setResponse("cat /proc/12345/stat", "__STAT_ENOENT__");
 
     if (pollFn) {
       await pollFn.fn();

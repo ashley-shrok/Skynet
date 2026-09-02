@@ -104,6 +104,80 @@ export interface SshPollOrchestrator {
 }
 
 // ---------------------------------------------------------------------------
+// readStatWithSentinel — transport-vs-dead distinguishing stat reader
+// ---------------------------------------------------------------------------
+
+/**
+ * Tagged discriminated union returned by `readStatWithSentinel`. Distinguishes
+ * three outcomes of a `/proc/<pid>/stat` read over the SSH channel:
+ *
+ *   - `{ok: true, content}`     — stat read succeeded, content is /proc/<pid>/stat.
+ *   - `{ok: false, reason: 'enoent'}`    — real absence (PID dead).
+ *   - `{ok: false, reason: 'transport'}` — SSH channel error / unknown shape.
+ *
+ * The whole point of this helper is bounty 9c8d4a72-1e5f-4b8a-9d3c-6f2b8e4a7c19:
+ * SSH `Channel open failure` on the raw `cat /proc/<pid>/stat` exec was returning
+ * `null` from the channel adapter, which `isStaleFromStat(_, null)` treats as
+ * PID-dead. The reaper then published `session_gone` for actively-working sessions
+ * whenever sshd MaxSessions saturated. See fix-wip-indicator-transport-vs-dead.md.
+ */
+export type StatReadResult =
+  | { ok: true; content: string }
+  | { ok: false; reason: 'enoent' | 'transport' };
+
+/**
+ * Read `/proc/<pid>/stat` via the SSH channel, distinguishing transport error
+ * from real PID-dead ENOENT via an exit-code sentinel.
+ *
+ * Command shape: `cat /proc/${pid}/stat 2>&1 && echo __STAT_OK__ || echo __STAT_ENOENT__`
+ *
+ * The sentinel is what makes the null-return from the adapter unambiguous —
+ * a genuine PID-dead read returns `<empty stdout>__STAT_ENOENT__` (adapter
+ * captures string), whereas a transport failure returns `null` (adapter swallows
+ * the SSH channel-open-failure).
+ *
+ * Dispatch rules (applied in order):
+ *   1. `raw === null`                  → transport failure (adapter caught throw).
+ *   2. Trimmed raw ends with `__STAT_OK__`     → strip sentinel + trailing whitespace → ok.
+ *   3. Trimmed raw ends with `__STAT_ENOENT__` → real ENOENT (PID dead) → reap.
+ *   4. Any other shape (empty, unknown sentinel, malformed) → transport (fail-OPEN).
+ *
+ * Fail-OPEN on unknown is deliberate per the fix agreement: an unrecognised shape
+ * is more likely a truncated / mangled channel response than a real PID-dead
+ * signal, so it must NOT cause a reap. The next tick will retry.
+ *
+ * Bounty: 9c8d4a72-1e5f-4b8a-9d3c-6f2b8e4a7c19
+ */
+export async function readStatWithSentinel(
+  channel: SshChannel,
+  pid: number,
+): Promise<StatReadResult> {
+  const cmd = `cat /proc/${pid}/stat 2>&1 && echo __STAT_OK__ || echo __STAT_ENOENT__`;
+  const raw = await channel.exec(cmd);
+
+  // Rule 1: adapter swallowed a throw (SSH channel-open-failure etc.)
+  if (raw === null) {
+    return { ok: false, reason: 'transport' };
+  }
+
+  const trimmed = raw.trimEnd();
+
+  // Rule 2: OK sentinel present — strip it + any trailing whitespace, return content.
+  if (trimmed.endsWith('__STAT_OK__')) {
+    const content = trimmed.slice(0, -'__STAT_OK__'.length).trimEnd();
+    return { ok: true, content };
+  }
+
+  // Rule 3: ENOENT sentinel present — real absence, PID dead.
+  if (trimmed.endsWith('__STAT_ENOENT__')) {
+    return { ok: false, reason: 'enoent' };
+  }
+
+  // Rule 4: unknown shape (empty, malformed, unrecognised sentinel) → fail-OPEN.
+  return { ok: false, reason: 'transport' };
+}
+
+// ---------------------------------------------------------------------------
 // Internal types
 // ---------------------------------------------------------------------------
 
@@ -1116,14 +1190,19 @@ export function createSshPollOrchestrator(
     const sessionJsonPromise = channel.exec(
       `cat ~/.claude/sessions/${pid}.json`,
     );
-    const statPromise = channel.exec(`cat /proc/${pid}/stat`);
+    // Bounty 9c8d4a72 — readStatWithSentinel distinguishes SSH transport error
+    // (fail-OPEN, keep session live this tick) from real /proc/<pid>/stat ENOENT
+    // (reap). Prior code fed the null-on-transport-error return of channel.exec
+    // directly to isStaleFromStat and reaped live sessions on sshd MaxSessions
+    // saturation. See fix-wip-indicator-transport-vs-dead.md.
+    const statPromise = readStatWithSentinel(channel, pid);
     const hookPayloadPromise = channel.exec(`cat ${hookPayloadPath} 2>/dev/null || true`);
 
     // environ + tmux only for new PIDs (or PIDs with no cached tmuxSession)
     const cached = livenessMap.get(pid);
     const needsTmuxResolution = isNew || cached?.tmuxSession === null;
 
-    const [sessionJsonRaw, statContents, hookPayloadRaw] = await Promise.all([
+    const [sessionJsonRaw, statResult, hookPayloadRaw] = await Promise.all([
       sessionJsonPromise,
       statPromise,
       hookPayloadPromise,
@@ -1561,24 +1640,45 @@ export function createSshPollOrchestrator(
       }
     }
 
-    // Liveness check
-    const stale = isStaleFromStat(sessionJson.procStart, statContents);
-    if (stale) {
-      // Reap: publish session_gone and drop from liveness map
-      const entry = livenessMap.get(pid);
-      const entryTmuxSession = entry?.tmuxSession ?? tmuxSession;
-      const sessionId = entry?.sessionId ?? sessionJson.sessionId;
+    // Liveness check — bounty 9c8d4a72: branch on the tagged statResult BEFORE
+    // calling isStaleFromStat so SSH transport errors never trigger a reap.
+    if (!statResult.ok && statResult.reason === 'transport') {
+      // SSH channel-open-failure (or unknown-shape response). Fail-OPEN: skip
+      // the stale-check this tick, leave the session in livenessMap, continue
+      // processPid so the row still re-publishes with fresh state. Debug (not
+      // warn) — this happens under sshd MaxSessions load and is recoverable.
+      systemLogger.debug(
+        "Fleet-status: stat read transport error — skipping stale check this tick",
+        {
+          operation: "fleet_status_stat_transport_skip",
+          fleetHostId: host.id,
+          pid,
+          sessionId: sessionJson.sessionId,
+        },
+      );
+    } else {
+      // statResult is either {ok: true, content} or {ok: false, reason: 'enoent'}.
+      // isStaleFromStat's null-branch handles the ENOENT case (matches today's
+      // reap-on-ENOENT behavior); string content flows through the field22 check.
+      const statContents = statResult.ok ? statResult.content : null;
+      const stale = isStaleFromStat(sessionJson.procStart, statContents);
+      if (stale) {
+        // Reap: publish session_gone and drop from liveness map
+        const entry = livenessMap.get(pid);
+        const entryTmuxSession = entry?.tmuxSession ?? tmuxSession;
+        const sessionId = entry?.sessionId ?? sessionJson.sessionId;
 
-      systemLogger.info("Fleet-status: session stale — publishing gone", {
-        operation: "fleet_status_stale_reap",
-        fleetHostId: host.id,
-        pid,
-        sessionId,
-      });
+        systemLogger.info("Fleet-status: session stale — publishing gone", {
+          operation: "fleet_status_stale_reap",
+          fleetHostId: host.id,
+          pid,
+          sessionId,
+        });
 
-      deps.registry.publishSessionGone(host.id, entryTmuxSession, sessionId);
-      livenessMap.delete(pid);
-      return;
+        deps.registry.publishSessionGone(host.id, entryTmuxSession, sessionId);
+        livenessMap.delete(pid);
+        return;
+      }
     }
 
     // Fix (quick-260829-kmr): per-session preferred, box-wide fallback,
@@ -1956,7 +2056,23 @@ export function createSshPollOrchestrator(
 
     for (const [pid, entry] of livenessMap.entries()) {
       try {
-        const statContents = await channel.exec(`cat /proc/${pid}/stat`);
+        // Bounty 9c8d4a72 — see readStatWithSentinel docblock. Transport failure
+        // on this stat read must NOT reap the entry (fail-OPEN, sweep the rest
+        // of the PIDs); real ENOENT + field22 mismatch still reap as before.
+        const statResult = await readStatWithSentinel(channel, pid);
+        if (!statResult.ok && statResult.reason === 'transport') {
+          systemLogger.debug(
+            "Fleet-status: sweep stat read transport error — skipping reap this sweep",
+            {
+              operation: "fleet_status_sweep_stat_transport_skip",
+              fleetHostId: host.id,
+              pid,
+              sessionId: entry.sessionId,
+            },
+          );
+          continue;
+        }
+        const statContents = statResult.ok ? statResult.content : null;
         const stale = isStaleFromStat(entry.procStart, statContents);
         if (stale) {
           systemLogger.info(
