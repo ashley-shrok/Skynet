@@ -829,7 +829,8 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
         await shortTapSendButton(slotSendBtn);
       });
 
-      expect(onSend).toHaveBeenCalledWith("send this");
+      // Phase 68 Plan 02: funnel now passes mqid as second arg (D-03 invariant).
+      expect(onSend).toHaveBeenCalledWith("send this", expect.stringMatching(/^pv-optim-\d+-[0-9a-z]{8}$/));
       // Slot should be removed after successful send
       expect(screen.getAllByRole("textbox").length).toBe(1); // only primary
     } finally {
@@ -862,7 +863,8 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
         await shortTapSendButton(slotSendBtn);
       });
 
-      expect(onSend).toHaveBeenCalledWith("failing send");
+      // Phase 68 Plan 02: funnel now passes mqid as second arg (D-03 invariant).
+      expect(onSend).toHaveBeenCalledWith("failing send", expect.stringMatching(/^pv-optim-\d+-[0-9a-z]{8}$/));
       // Slot persists
       expect(screen.getAllByRole("textbox").length).toBe(2);
       // Error message surfaces
@@ -935,7 +937,8 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
     await act(async () => {
       fireEvent.keyDown(slotTextarea, { key: "Enter", shiftKey: false });
     });
-    expect(onSend).toHaveBeenCalledWith("queued via enter");
+    // Phase 68 Plan 02: funnel now passes mqid as second arg (D-03 invariant).
+    expect(onSend).toHaveBeenCalledWith("queued via enter", expect.stringMatching(/^pv-optim-\d+-[0-9a-z]{8}$/));
 
     // Slot is removed on successful send (mirrors QS 4).
     expect(screen.getAllByRole("textbox").length).toBe(1); // only primary
