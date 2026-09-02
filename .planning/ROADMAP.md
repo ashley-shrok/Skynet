@@ -1708,11 +1708,13 @@ Plans:
 
 ### Phase 68: compose-send-funnel — universal send funnel for PrettyView compose box: route all 5 send-triggers (main textarea, queue-slot, thumbs-up, recap, reset) through one common helper that generates a pv-optim-* mqid, wakes dormant sessions, dispatches, and optionally seeds an optimistic bubble (unless render-blacklisted like reset). Fixes: (a) missing bubbles on queue-slot/thumbs-up/recap, (b) thumbs-up/recap disabled-when-dormant (legacy artifact of retired wake-up button), (c) reset button dropping /id reset into bare bash on dormant sessions instead of waking first. Extracts send-core from ComposeBox.tsx handleSend (currently entangled with attachment branching, textarea clear, error state, draft clear) into standalone hook/helper. Per-trigger in-process tests locking the new behavior. Out of scope: attachment refactor, draft persistence refactor, system-initiated sends (WIP-restore, agent-relay forwards). Shape: .planning/shapes/shape-compose-send-funnel.md.
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Every user-driven send-affordance in the PrettyView compose box (main textarea, queue-slot, thumbs-up, recap, reset) routes through one common send-funnel that wakes dormant sessions, dispatches to Claude, and — unless render-blacklisted like reset — seeds an optimistic bubble via the Phase 50 mqid contract. Post-refactor: reset stops dropping /id reset into bare bash on dormant sessions (wake gate fires because the WS input frame now carries messageQueueItemId), thumbs-up + recap become clickable when dormant, and the shape file's rule of thumb — "does it enter characters into the compose box and submit it? → funnel" — has one obvious implementation.
+**Requirements**: (none — scope is the shape file's invariants + CONTEXT.md D-01 through D-06 decisions; same shape-file-authoritative pattern as Phases 66/67)
 **Depends on:** Phase 67
-**Plans:** 0 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 68 to break down)
+- [x] 68-01-PLAN.md — Extract useComposeSend hook co-located in ComposeBox.tsx (D-01); rewire main-textarea handleSend through it; add ComposeBox.send-funnel.test.tsx with Test 1 (main-textarea baseline lock).
+- [ ] 68-02-PLAN.md — Rewire remaining 4 call sites (queue-slot, thumbs-up, recap, reset) through the funnel; add bubbleTextOverride="👍" for thumbs-up (D-02); relax L2379+L2412 disable predicates (D-05); add isIdCommand render-blacklist in PrettyView.handleOptimisticSend so reset's mqid still fires backend wake gate (D-03) without visible bubble.
+- [ ] 68-03-PLAN.md — Add per-trigger tests to ComposeBox.send-funnel.test.tsx: Test 2 (queue-slot), Test 3 (thumbs-up + D-05 button.disabled === false assertion), Test 4 (recap + D-05), Test 5 (reset — 0 bubbles + WS frame carries messageQueueItemId verifying CONTEXT.md wake hypothesis). D-06 satisfied.
