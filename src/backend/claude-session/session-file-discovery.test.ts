@@ -196,8 +196,9 @@ describe("discoverClaudeSession — PID-file-based lookup", () => {
     // Start the discovery (do not await yet — need to advance timers)
     const resultPromise = discoverClaudeSession(fakeConn, "test-session");
 
-    // Advance past the 3000ms DISCOVERY_EXEC_TIMEOUT_MS
-    await vi.advanceTimersByTimeAsync(3100);
+    // Advance past the 15000ms DISCOVERY_EXEC_TIMEOUT_MS (was 3000ms pre-2026-09-02
+    // bump — see the constant's comment for the semaphore-backpressure rationale).
+    await vi.advanceTimersByTimeAsync(15100);
 
     const result = await resultPromise;
     expect(result).toEqual({ status: "inactive", reason: "exec_error" });
@@ -541,8 +542,8 @@ describe("discoverClaudeSessionBatched — single-exec discovery", () => {
     expect(result).toEqual({ status: "inactive", reason: "exec_error" });
   });
 
-  // Test batched-10: main exec times out (>3s) → exec_error
-  it("batched-10: main exec times out (>3s) → exec_error", async () => {
+  // Test batched-10: main exec times out (>15s per DISCOVERY_EXEC_TIMEOUT_MS) → exec_error
+  it("batched-10: main exec times out (>15s) → exec_error", async () => {
     vi.useFakeTimers();
     vi.mocked(execCommand).mockImplementation(
       (_conn: import("ssh2").Client, script: string): Promise<string> => {
@@ -558,7 +559,7 @@ describe("discoverClaudeSessionBatched — single-exec discovery", () => {
     );
 
     const resultPromise = discoverClaudeSessionBatched(fakeConn, "test-session");
-    await vi.advanceTimersByTimeAsync(3001);
+    await vi.advanceTimersByTimeAsync(15100);
 
     const result = await resultPromise;
     expect(result).toEqual({ status: "inactive", reason: "exec_error" });

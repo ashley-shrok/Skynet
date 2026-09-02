@@ -85,7 +85,9 @@ const MAX_TAIL_BYTES = TAIL_EXPANSION_STEPS[TAIL_EXPANSION_STEPS.length - 1];
 
 // Matches session-file-discovery.ts's DISCOVERY_EXEC_TIMEOUT_MS — uniform
 // error handling across the two poll callbacks that share this SSH conn.
-const EXEC_TIMEOUT_MS = 3000;
+// Bumped 3000 → 15000ms (2026-09-02) alongside its sibling — see the full
+// rationale in session-file-discovery.ts (semaphore backpressure vs failure).
+const EXEC_TIMEOUT_MS = 15000;
 
 /**
  * Reverse-scan a tail buffer for the last assistant turn with `usage` and

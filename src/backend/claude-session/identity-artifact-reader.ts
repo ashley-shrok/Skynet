@@ -335,9 +335,14 @@ function shellEscape(s: string): string {
 // Timeout constant
 // ---------------------------------------------------------------------------
 
-const REMOTE_EXEC_TIMEOUT_MS = 3000;
+// Bumped 3000 → 15000ms (2026-09-02) — see session-file-discovery.ts for the
+// full rationale. tl;dr: patch 260902-3ll's per-connection SSH exec semaphore
+// (cap 8, unbounded FIFO wait queue) makes "slow exec" often mean "queued
+// behind fleet-status's work" rather than "SSH is broken," so hard 3s
+// timeouts here would mis-classify legitimate backpressure as failure.
+const REMOTE_EXEC_TIMEOUT_MS = 15000;
 
-/** Wrap a remote execCommand in a 3-second Promise.race timeout. */
+/** Wrap a remote execCommand in a Promise.race timeout (REMOTE_EXEC_TIMEOUT_MS). */
 async function execWithTimeout(
   conn: SSHClientType,
   command: string,

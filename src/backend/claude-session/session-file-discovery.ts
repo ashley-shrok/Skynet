@@ -2,7 +2,19 @@ import type { Client } from "ssh2";
 import { execCommand, queryPanePid } from "../ssh/tmux-helper.js";
 import { shellSingleQuote } from "./discover-identity-session-file.js";
 
-const DISCOVERY_EXEC_TIMEOUT_MS = 3000;
+// Bumped 3000 → 15000ms (2026-09-02) after patch 260902-3ll's per-connection
+// SSH exec semaphore (cap 8, unbounded FIFO wait queue) went live in prod.
+// The old 3s was calibrated when "slow exec" meant "SSH is having trouble."
+// Post-semaphore, "slow exec" often just means "you're queued behind
+// fleet-status's work" — legitimate backpressure, not failure. 15s gives
+// generous headroom for realistic queue-wait during a full-refresh burst
+// while still detecting genuine SSH death within reasonable UX bounds.
+// The visible symptom: on the first post-ship refresh with 3+ workstation
+// pretty-view sessions, discovery hit the 3s timeout under transient
+// sshd-session pressure, returned `{status:"inactive", reason:"exec_error"}`,
+// and claude-session-server.ts:7228's strict `reason === "not_claude"` guard
+// skipped the dormancy probe → blank surfaces.
+const DISCOVERY_EXEC_TIMEOUT_MS = 15000;
 
 export type ClaudeSessionDiscoveryResult =
   | { status: "active"; pid: number; sessionFile: string }
