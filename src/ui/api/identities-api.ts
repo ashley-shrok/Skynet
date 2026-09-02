@@ -1,7 +1,6 @@
 import { authApi, handleApiError } from "@/main-axios";
 
 export interface Identity {
-  id: string;
   identityKey: string;
   displayName: string;
   title: string | null;
@@ -9,6 +8,10 @@ export interface Identity {
   voice: string | null;
   role: string | null;
   avatarMime: string;
+  /** Phase 68 Plan 04: hostId is now baked into avatarUrl by the backend
+   *  (publicIdentity emits avatarUrl as `/identities/:key/avatar?hostId=N`).
+   *  Frontend consumers render identity.avatarUrl directly — no avatarUrlWithHost
+   *  helper needed. id/createdAt/updatedAt removed (disk-authoritative; no DB row). */
   avatarUrl: string;
   avatarEtag: string;
   /** Phase 67 Plan 67-01: coordinator flag derived from the identity's
@@ -17,8 +20,6 @@ export interface Identity {
    *  publicIdentity safe-default contract, so Wave 2's surface components
    *  can branch on it without null-safety plumbing. */
   coordinator: boolean;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface IdentityInput {
@@ -42,6 +43,9 @@ function buildFormData(meta: IdentityInput, avatar: File | null): FormData {
  * the artifact-reader (LOCAL bind-mount vs REMOTE connectOneShot). createIdentity
  * intentionally does NOT take hostId here — POST /identities does not hit
  * disk in this phase (Plan 66-04 scope).
+ *
+ * Phase 68 Plan 04: no longer includes hostId in the URL path — hostId is a
+ * body field per Phase 66 Plan 02 (still needed to route the backend disk-write).
  */
 function buildUpdateFormData(
   meta: IdentityInput,
@@ -81,15 +85,6 @@ export async function listIdentities(
   }
 }
 
-/**
- * Phase 66 Plan 03: avatar URL threaded with hostId (required by the
- * flipped GET /identities/:id/avatar route). Plan 05 wires the consumers
- * (IdentityBadge / IdentityModal / etc.) to call this helper with the
- * identity's hostId from conversation-store fleetSessions.
- */
-export function avatarUrlWithHost(identity: Identity, hostId: number): string {
-  return `${identity.avatarUrl}?hostId=${hostId}`;
-}
 
 export async function createIdentity(
   meta: Required<Pick<IdentityInput, "identityKey" | "displayName">> &
@@ -109,18 +104,23 @@ export async function createIdentity(
 }
 
 export async function updateIdentity(
-  id: string,
+  identityKey: string,
   meta: IdentityInput,
   avatar: File | null,
   /** Phase 66 Plan 66-02: REQUIRED — routes the backend disk-write to the
    *  identity's home box (isLocalHostId LOCAL branch vs connectOneShot
    *  REMOTE branch). IdentityModal already receives hostId as a prop
-   *  (Phase 22 SRIC, L170); the modal's onSave threads it through. */
+   *  (Phase 22 SRIC, L170); the modal's onSave threads it through.
+   *  Phase 68 Plan 04: JSDoc updated — first arg is now identityKey (lowercase
+   *  identity name, e.g. "tina"), not a nanoid PK id. URL uses
+   *  encodeURIComponent(identityKey) per the no-dormancy route discipline
+   *  (IDENTITY_KEY_RE allows '/', '+' which are URL-special; encodeURIComponent
+   *  handles them). hostId is still a body field in the multipart payload. */
   hostId: number,
 ): Promise<Identity> {
   try {
     const response = await authApi.put(
-      `/identities/${id}`,
+      `/identities/${encodeURIComponent(identityKey)}`,
       buildUpdateFormData(meta, avatar, hostId),
       { headers: { "Content-Type": "multipart/form-data" } },
     );
@@ -130,13 +130,6 @@ export async function updateIdentity(
   }
 }
 
-export async function deleteIdentity(id: string): Promise<void> {
-  try {
-    await authApi.delete(`/identities/${id}`);
-  } catch (error) {
-    handleApiError(error, "delete identity");
-  }
-}
 
 export interface AvatarCandidate {
   id: string;
@@ -354,46 +347,6 @@ export async function createRole(input: {
   }
 }
 
-// ─── Phase 38: identity sharing ─────────────────────────────────────────────
-// Backing route: src/backend/database/routes/identity-share.ts
-// POST /identities/:id/share with JSON body {targetUserId} →
-//   { identityId: string, shared: boolean }
-// Consumed by ShareIdentityPicker inside IdentityModal DialogHeader (Wave 2).
-//
-// Contract intentionally JSON — sidesteps the Phase 20 patch #77 silent-200
-// trap that hits form-data POSTs whose backend expects `data=<json>`. Wave 1
-// backend gates non-JSON content types at the router level.
-//
-// `shared: true` = fresh row inserted onto target user's identities.
-// `shared: false` = target already had a row with the same identityKey; the
-//   endpoint returns the EXISTING row's id so the picker can update its
-//   "already shared" set without a second round-trip. Both cases are HTTP 200.
-//
-// Error handling: 400 (targetUserId missing / self-target / target-not-found)
-// and 404 (source not in requester's scope) and 500 all surface via
-// handleApiError with the "share identity" label. The picker prevents the
-// 400 branches at the UI layer (backend re-validates as defense-in-depth per
-// threat model T-38-02-01), so no typed error subclass is warranted.
-
-export interface ShareIdentityResponse {
-  identityId: string;
-  shared: boolean; // true = new row inserted onto target; false = target already had this identityKey
-}
-
-export async function shareIdentity(
-  sourceIdentityId: string,
-  targetUserId: string,
-): Promise<ShareIdentityResponse> {
-  try {
-    const response = await authApi.post(
-      `/identities/${encodeURIComponent(sourceIdentityId)}/share`,
-      { targetUserId },
-    );
-    return response.data as ShareIdentityResponse;
-  } catch (error) {
-    handleApiError(error, "share identity");
-  }
-}
 
 // ─── openBirthStream ─────────────────────────────────────────────────────────
 // SSE consumer for POST /identities/birth. EventSource does NOT support POST;

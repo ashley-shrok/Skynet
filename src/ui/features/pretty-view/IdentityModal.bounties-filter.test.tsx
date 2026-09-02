@@ -119,18 +119,19 @@ import { IdentityModal } from "./IdentityModal";
 import type { Bounty } from "@/api/claude-session-api";
 
 // ── Fixture ──────────────────────────────────────────────────────────────────
+// Phase 68: Identity no longer has id/createdAt/updatedAt; avatarUrl bakes
+// hostId at backend (no avatarUrlWithHost on frontend).
 const BASE_IDENTITY: Identity = {
-  id: "id-1",
   identityKey: "tina",
   displayName: "Tina",
   title: "Old title",
   colorHue: null,
   voice: null,
+  role: null,
   avatarMime: "image/png",
-  avatarUrl: "/identities/id-1/avatar",
+  avatarUrl: "/identities/tina/avatar?hostId=1",
   avatarEtag: "etag-1",
-  createdAt: "2026-01-01T00:00:00Z",
-  updatedAt: "2026-01-01T00:00:00Z",
+  coordinator: false,
 };
 
 function renderModal(): void {

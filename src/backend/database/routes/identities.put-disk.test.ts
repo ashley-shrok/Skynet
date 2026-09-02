@@ -1,46 +1,40 @@
 /**
- * Phase 66 Plan 66-02 (UPDATE — disk-write flip): Tests for the flipped
- * PUT /identities/:id handler.
+ * Phase 68 Plan 68-02 Task 2 (PUT /:identityKey rekey): Tests for the rekeyed
+ * PUT /identities/:identityKey handler.
  *
- * Post-flip contract (see .planning/phases/66-.../66-02-PLAN.md):
+ * Post-Phase-68-02 contract:
  *
- * The PUT handler stops writing displayName/title/colorHue/voice/avatar* to
- * the encrypted `identities` store and instead writes them as a frontmatter
- * overlay onto <key>.md on the identity's home box (routed via a new
- * `hostId` field in the request body, isLocalHostId LOCAL/REMOTE split,
- * connectOneShot for REMOTE). Avatar bytes are written as a sibling file
- * <key>.<ext> via the writeAvatarSiblingFile helper (Plan 66-01 export);
- * ext-swap deletes the old sibling.
+ * Route renamed from /:id to /:identityKey. Row lookup removed (no DB select
+ * by id+userId). Row bump removed (no db.update updatedAt). forceSave removed
+ * (disk write is fsynced by writeMarkdownFileAtomic). The URL param IS the
+ * identityKey used for disk reads/writes — no indirection through the DB.
  *
- * Frontmatter mutation semantics (CONTEXT.md Track 2):
+ * Frontmatter mutation semantics (unchanged from Phase 66):
  *   - absent-in-payload  → leave key alone
  *   - explicit-null      → REMOVE key
  *   - present-scalar     → overlay
  *
- * The store row's `updatedAt` is still bumped (identity row remains the
- * ownership anchor for id + identityKey + userId + timestamps per
- * CONTEXT.md), followed by DatabaseSaveTrigger.forceSave("identity_updated")
- * (CLAUDE.md in-memory SQLite rule).
- *
- * Test surface: 10 tests exercising every CONTEXT.md-called-out case:
- *   1  present-updates-overlay: full body → yaml overlay, store cosmetics untouched
+ * Test surface: 10 tests (Tests 1-9 preserved with URL + assertion updates;
+ * Test 10 was "forceSave called" which is removed — replaced with NEW Test 10
+ * "disk-file-missing → 500" via :identityKey URL that doesn't exist on disk):
+ *   1  present-updates-overlay: full body → yaml overlay (URL uses identityKey)
  *   2  absent-in-payload-leaves-alone
  *   3  explicit-null-removes-key
  *   4  avatar-write-same-ext (no rm exec)
  *   5  avatar-write-swap-ext (rm old sibling)
  *   6  hostId missing → 400
  *   7  connectOneShot rejects → 502
- *   8  readIdentityFile returns "" → 500 (data-integrity violation)
+ *   8  readIdentityFile returns "" → 500 (data-integrity violation T-68-02-04)
  *   9  LOCAL branch (isLocalHostId true) → conn=null across all helpers
- *  10  DatabaseSaveTrigger.forceSave called after row-updatedAt bump
+ *  10  NEW: PUT /identities/nonexistent-key where .md missing → 500 "identity file missing on target host"
+ *  11  PUT response echoes coordinator:true from disk after write (Phase 67 H1 preserved)
  *
- * Scaffold follows identity-share.test.ts + identity-birth.test.ts:
+ * Scaffold follows identity-birth.test.ts:
  *   - bare Express + Node http.request (no supertest dep)
  *   - vi.mock() AuthManager, db/index, drizzle-orm, db/schema, logger,
  *     artifact-reader, ssh-one-shot, tmux-helper, DatabaseSaveTrigger
- *   - in-memory single-table dbState (identities) for the pre-flip row lookup
- *   - drizzle chain captures which columns the .set() call touched so
- *     Test 1's "store cosmetics untouched" assertion has bite
+ *   - DB shim retained for POST / path (410 stub; not exercised here) and any
+ *     other routes mounted on the router that still touch the DB.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
@@ -430,12 +424,12 @@ function loadWrittenFrontmatter(body: string): Record<string, unknown> {
 // Tests
 // ===========================================================================
 
-describe("PUT /identities/:id — disk-write flip (Phase 66 Plan 66-02)", () => {
+describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no forceSave)", () => {
 
   // -------------------------------------------------------------------------
-  // Test 1: present-updates-overlay
+  // Test 1: present-updates-overlay (URL now uses identityKey, not id)
   // -------------------------------------------------------------------------
-  it("Test 1: full-body present values overlay onto existing frontmatter; store cosmetics untouched", async () => {
+  it("Test 1: full-body present values overlay onto existing frontmatter; disk-write-only (no row bump)", async () => {
     const body = buildMultipartBody({
       data: {
         hostId: 7,
@@ -446,7 +440,8 @@ describe("PUT /identities/:id — disk-write flip (Phase 66 Plan 66-02)", () => 
       },
     });
 
-    const res = await httpPut(server, "/identities/test-id", body);
+    // Phase 68-02: URL uses identityKey ("testkey") not the nanoid id ("test-id")
+    const res = await httpPut(server, "/identities/testkey", body);
 
     expect(res.status).toBe(200);
 
@@ -463,22 +458,10 @@ describe("PUT /identities/:id — disk-write flip (Phase 66 Plan 66-02)", () => 
     expect(fm.colorHue).toBe(180);
     expect(fm.voice).toBe("Elena.wav");
 
-    // Store cosmetics untouched — the .set() call keys must NOT include any
-    // moved-to-disk column. Only updatedAt allowed. Phase 66 Plan 04 physically
-    // dropped the columns; there is no cosmetic state left in the store to
-    // preserve, but the .set()-keys-are-only-updatedAt invariant still holds.
-    expect(dbState.lastUpdateSetKeys).toEqual(["updatedAt"]);
-
-    // Direct-row inspection: the surviving 5 columns are intact post-PUT.
-    // No cosmetic keys remain on the row (Plan 04 dropped them from the shim).
-    const row = dbState.identities[0];
-    expect(row.id).toBe("test-id");
-    expect(row.userId).toBe("test-user");
-    expect(row.identityKey).toBe("testkey");
-    expect((row as unknown as Record<string, unknown>).displayName).toBeUndefined();
-    expect((row as unknown as Record<string, unknown>).title).toBeUndefined();
-    expect((row as unknown as Record<string, unknown>).colorHue).toBeUndefined();
-    expect((row as unknown as Record<string, unknown>).voice).toBeUndefined();
+    // Phase 68-02: no row bump — DB update NOT called at all.
+    expect(dbState.lastUpdateSetKeys).toBeNull();
+    // Phase 68-02: no forceSave after disk write.
+    expect(forceSaveMock).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
@@ -494,7 +477,7 @@ describe("PUT /identities/:id — disk-write flip (Phase 66 Plan 66-02)", () => 
       data: { hostId: 7, title: "Only Title Change" },
     });
 
-    const res = await httpPut(server, "/identities/test-id", body);
+    const res = await httpPut(server, "/identities/testkey", body);
 
     expect(res.status).toBe(200);
     expect(writeIdentityFileMock).toHaveBeenCalledTimes(1);
@@ -523,7 +506,7 @@ describe("PUT /identities/:id — disk-write flip (Phase 66 Plan 66-02)", () => 
       data: { hostId: 7, title: null, colorHue: null },
     });
 
-    const res = await httpPut(server, "/identities/test-id", body);
+    const res = await httpPut(server, "/identities/testkey", body);
 
     expect(res.status).toBe(200);
     expect(writeIdentityFileMock).toHaveBeenCalledTimes(1);
@@ -557,7 +540,7 @@ describe("PUT /identities/:id — disk-write flip (Phase 66 Plan 66-02)", () => 
       },
     });
 
-    const res = await httpPut(server, "/identities/test-id", body);
+    const res = await httpPut(server, "/identities/testkey", body);
 
     expect(res.status).toBe(200);
     expect(writeAvatarSiblingFileMock).toHaveBeenCalledTimes(1);
@@ -598,7 +581,7 @@ describe("PUT /identities/:id — disk-write flip (Phase 66 Plan 66-02)", () => 
       },
     });
 
-    const res = await httpPut(server, "/identities/test-id", body);
+    const res = await httpPut(server, "/identities/testkey", body);
 
     expect(res.status).toBe(200);
     expect(writeAvatarSiblingFileMock).toHaveBeenCalledTimes(1);
@@ -629,7 +612,7 @@ describe("PUT /identities/:id — disk-write flip (Phase 66 Plan 66-02)", () => 
       data: { title: "foo" },
     });
 
-    const res = await httpPut(server, "/identities/test-id", body);
+    const res = await httpPut(server, "/identities/testkey", body);
 
     expect(res.status).toBe(400);
     const errBody = res.body as { error?: string };
@@ -651,7 +634,7 @@ describe("PUT /identities/:id — disk-write flip (Phase 66 Plan 66-02)", () => 
       data: { hostId: 7, title: "will not land" },
     });
 
-    const res = await httpPut(server, "/identities/test-id", body);
+    const res = await httpPut(server, "/identities/testkey", body);
 
     expect(res.status).toBe(502);
     const errBody = res.body as { error?: string };
@@ -663,7 +646,7 @@ describe("PUT /identities/:id — disk-write flip (Phase 66 Plan 66-02)", () => 
   });
 
   // -------------------------------------------------------------------------
-  // Test 8: readIdentityFile returns empty → 500 descriptive error
+  // Test 8: readIdentityFile returns empty → 500 descriptive error (T-68-02-04)
   // -------------------------------------------------------------------------
   it("Test 8: readIdentityFile returns empty markdown → 500 'identity file missing on target host'", async () => {
     readIdentityFileMock.mockResolvedValue({ markdown: "" });
@@ -672,7 +655,7 @@ describe("PUT /identities/:id — disk-write flip (Phase 66 Plan 66-02)", () => 
       data: { hostId: 7, title: "orphan" },
     });
 
-    const res = await httpPut(server, "/identities/test-id", body);
+    const res = await httpPut(server, "/identities/testkey", body);
 
     expect(res.status).toBe(500);
     const errBody = res.body as { error?: string };
@@ -698,15 +681,14 @@ describe("PUT /identities/:id — disk-write flip (Phase 66 Plan 66-02)", () => 
       },
     });
 
-    const res = await httpPut(server, "/identities/test-id", body);
+    const res = await httpPut(server, "/identities/testkey", body);
 
     expect(res.status).toBe(200);
     expect(connectOneShotMock).not.toHaveBeenCalled();
 
-    // Phase 67 /close 2026-09-01 follow-up (H1): the handler now re-reads the
-    // identity file post-write so the response echoes true disk cosmetics.
-    // In the LOCAL branch that means readIdentityFile is called TWICE (pre-
-    // write overlay parse + post-write echo re-read); both calls must pass
+    // The handler re-reads the identity file post-write so the response echoes true
+    // disk cosmetics. In the LOCAL branch that means readIdentityFile is called TWICE
+    // (pre-write overlay parse + post-write echo re-read); both calls must pass
     // conn=null since we never opened an SSH connection.
     expect(readIdentityFileMock).toHaveBeenCalledTimes(2);
     expect(readIdentityFileMock.mock.calls[0][0]).toBeNull();
@@ -720,39 +702,43 @@ describe("PUT /identities/:id — disk-write flip (Phase 66 Plan 66-02)", () => 
   });
 
   // -------------------------------------------------------------------------
-  // Test 10: DatabaseSaveTrigger.forceSave fires with reason "identity_updated"
+  // Test 10 (Phase 68-02): PUT /identities/nonexistent-key with missing on-disk
+  // .md → 500 'identity file missing on target host' (T-68-02-04 preserved)
   // -------------------------------------------------------------------------
-  it("Test 10: after row updatedAt bump, DatabaseSaveTrigger.forceSave called with 'identity_updated'", async () => {
+  it("Test 10 (NEW, Phase 68-02): PUT /identities/nonexistent-key where .md missing on disk → 500 'identity file missing on target host'", async () => {
+    // The key "nonexistent-key" doesn't have a .md file on disk
+    readIdentityFileMock.mockResolvedValue({ markdown: "" });
+
     const body = buildMultipartBody({
-      data: { hostId: 7, title: "trigger check" },
+      data: { hostId: 7, title: "will not land" },
     });
 
-    const res = await httpPut(server, "/identities/test-id", body);
+    // Use the identityKey directly in the URL — no DB row lookup to check existence
+    const res = await httpPut(server, "/identities/nonexistent-key", body);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
+    const errBody = res.body as { error?: string };
+    expect(errBody.error).toBe("identity file missing on target host");
 
-    // .set() was called with ONLY updatedAt post-flip
-    expect(dbState.lastUpdateSetKeys).toEqual(["updatedAt"]);
-
-    // forceSave hit exactly once with the expected reason
-    expect(forceSaveMock).toHaveBeenCalledTimes(1);
-    expect(forceSaveMock).toHaveBeenCalledWith("identity_updated");
+    // Never wrote anything
+    expect(writeIdentityFileMock).not.toHaveBeenCalled();
+    expect(writeAvatarSiblingFileMock).not.toHaveBeenCalled();
+    // Phase 68-02: no row bump, no forceSave
+    expect(dbState.lastUpdateSetKeys).toBeNull();
+    expect(forceSaveMock).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
   // Test 11 (Phase 67 /close 2026-09-01 follow-up, H1): coordinator round-trip
   // -------------------------------------------------------------------------
   // The PUT response body must echo the identity's true on-disk `coordinator`
-  // state. Pre-fix, publicIdentity(freshRow) with no overlay safe-defaulted
-  // coordinator to false, causing the frontend's applyIdentityChange() to
-  // clobber the flag and drop the watermark across every surface until the
-  // next refreshIdentities(). Post-fix, the handler re-reads disk cosmetics
-  // and passes them through publicIdentity(..., cosmetics) so the response
-  // reflects reality — coordinator=true here must round-trip as true.
+  // state. The handler re-reads disk cosmetics after write and passes them
+  // through publicIdentity(..., cosmetics) so the response reflects reality —
+  // coordinator=true here must round-trip as true.
   it("Test 11 (H1): PUT response echoes coordinator:true from disk after write", async () => {
     // The mock's writeIdentityFile is a spy — it does NOT actually mutate the
     // markdown fixture. So the post-write re-read returns the SAME fixture we
-    // seeded. Seed with coordinator: true; the fix's re-read + overlay must
+    // seeded. Seed with coordinator: true; the re-read + overlay must
     // surface it in the response.
     readIdentityFileMock.mockResolvedValue({
       markdown:
@@ -763,7 +749,7 @@ describe("PUT /identities/:id — disk-write flip (Phase 66 Plan 66-02)", () => 
       data: { hostId: 7, title: "New Title" },
     });
 
-    const res = await httpPut(server, "/identities/test-id", body);
+    const res = await httpPut(server, "/identities/testkey", body);
 
     expect(res.status).toBe(200);
     const responseBody = res.body as {

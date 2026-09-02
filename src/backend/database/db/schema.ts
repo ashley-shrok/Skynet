@@ -651,25 +651,9 @@ export const apiKeys = sqliteTable("api_keys", {
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
 });
 
-// Phase 66 Plan 04: cosmetics live on disk (see .planning/shapes/
-// identity-prettiness-on-disk.md). The identities row survives as the
-// ownership + user-scoping + timestamp anchor ONLY. Dropped columns
-// (display_name, title, color_hue, voice, avatar_mime, avatar_data,
-// avatar_etag) are physically removed from the table via
-// runIdentitiesCosmeticDrops() in db/index.ts at boot time.
-export const identities = sqliteTable("identities", {
-  id: text("id").primaryKey(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  identityKey: text("identity_key").notNull(),
-  createdAt: text("created_at")
-    .notNull()
-    .default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: text("updated_at")
-    .notNull()
-    .default(sql`CURRENT_TIMESTAMP`),
-});
+// Phase 68: identities table dropped; identity IS the disk folder on some
+// host per .planning/shapes/shape-kill-identities-table.md. The `identities`
+// schema export is removed — the table no longer exists in any install.
 
 export const messageQueueItems = sqliteTable("message_queue_items", {
   id: text("id").primaryKey(),

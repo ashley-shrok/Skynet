@@ -8,7 +8,7 @@
  * making unit testing clean. The SSE route wraps this with real dep instances.
  *
  * Step sequence (cribbed from ~/vms-apps/apps/home/agent-supervisor.sh §FRESH):
- *   Step 1: Create Skynet identity record + GET-verify silent-no-op guard
+ *   Step 1: On-disk collision probe + avatar candidate check (Phase 68 rewire)
  *   Step 2: mkdir -p + tmux new-session on target host (SSH or local)
  *   Step 3: pre-write hasTrustDialogAccepted + launch claude CLI
  *   Step 4: blind Enter train × 7 at 3s spacing (fire-and-forget, timing-based)
@@ -125,6 +125,18 @@ export interface BirthOptions {
 }
 
 export interface BirthDeps {
+  /**
+   * Phase 68: no DB record is created; disk folder + frontmatter + avatar
+   * sibling ARE the identity's identity. createIdentityRecord and
+   * getIdentityRecord have been removed from BirthDeps entirely.
+   *
+   * Step 1 now serves as the on-disk collision precheck:
+   *   - For remote hosts: SSH exec `if [ -d ~/.claude/identities/<name> ]`
+   *   - For local hosts: fs.access equivalent
+   * The step fails immediately with "identity already exists on this host"
+   * if the folder already exists.
+   */
+
   /** Opens an SSH connection to the target host. */
   connectOneShot: (host: unknown, timeoutMs: number) => Promise<SSHClient>;
   /** Runs a command over SSH and returns stdout. */
@@ -133,32 +145,6 @@ export interface BirthDeps {
   isLocalHostId: (hostId: number) => boolean;
   /** Runs a shell command locally (child_process.exec equivalent). */
   execLocal: (command: string) => Promise<string>;
-  /**
-   * Creates an identity record in Skynet DB. Phase 66 Plan 04: return-shape
-   * narrowed to { id } — cosmetic columns (colorHue/voice/avatarEtag) no
-   * longer live in the store. The disk-write for those fields happens in
-   * Step 2.5 via writeMarkdownFileAtomic + writeAvatarSiblingFile.
-   */
-  createIdentityRecord: (
-    userId: string,
-    meta: {
-      identityKey: string;
-      displayName: string;
-      title: string | null;
-      colorHue: number | null;
-      voice: string | null;
-    },
-    avatarBytes: Buffer,
-  ) => Promise<{ id: string }>;
-  /**
-   * Fetches an identity record for GET-verify (silent-no-op sentinel).
-   * Phase 66 Plan 04: return-shape narrowed to { id } — GET-verify collapses
-   * to a row-existence sentinel.
-   */
-  getIdentityRecord: (
-    userId: string,
-    id: string,
-  ) => Promise<{ id: string }>;
   /** Fetches avatar candidate bytes from plan 01's cache. Returns null if expired/missing. */
   getCandidateForBirth: (userId: string, id: string) => { bytes: Buffer; mime: string } | null;
   /** Resolves a hostId to host connection details. */
@@ -411,12 +397,18 @@ export async function birthIdentity(
   }
 
   // -------------------------------------------------------------------------
+  // Phase 68 Plan 03: identityId is now opts.name (the identityKey).
+  // There is no DB-generated nanoid — the identity IS its folder name on disk.
+  // -------------------------------------------------------------------------
+  const identityId = opts.name;
+
+  // -------------------------------------------------------------------------
   // Branch selection: SSH vs local
   // -------------------------------------------------------------------------
   const useLocal = deps.isLocalHostId(opts.hostId);
 
   // For SSH branch: resolve the host and connect.
-  // Wrap ALL step 2-5 ops in try/finally that calls conn.end().
+  // Wrap ALL step 1-5 ops in try/finally that calls conn.end().
   let conn: SSHClient | null = null;
 
   // -------------------------------------------------------------------------
@@ -430,19 +422,46 @@ export async function birthIdentity(
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Step 1: Create Skynet identity record + GET-verify (always local to backend)
-  // -------------------------------------------------------------------------
-  let identityId: string | undefined;
-
   // Phase 66 Plan 66-01: hoisted so Step 2.5 can reuse the candidate mime+bytes
   // without calling getCandidateForBirth() a second time (would race with
-  // consumeCandidateForBirth's cleanup path). Assigned inside runStep(1) after
+  // consumeCandidateForBirth's cleanup path). Assigned before Step 1 after
   // the non-null guard; Step 2.5 asserts non-null with `!` because a null
   // candidate at Step 1 already threw and aborted the flow.
   let birthCandidate: { bytes: Buffer; mime: string } | null = null;
 
+  // -------------------------------------------------------------------------
+  // Steps 1-5: SSH or local (wrapped in single try/finally for conn cleanup)
+  // -------------------------------------------------------------------------
   try {
+    // For remote branch, connect now (before Step 1 so the collision probe
+    // can use SSH exec). SHAPE B: Step 1 is the on-disk collision probe.
+    if (!useLocal) {
+      const host = await deps.resolveHostById(opts.hostId, opts.userId);
+      try {
+        conn = await deps.connectOneShot(host, SSH_CONNECT_TIMEOUT_MS);
+      } catch (e) {
+        // Step 1 failure: SSH connect error before collision probe
+        emit({ type: "step", n: 1, phase: "started" });
+        const reason = /timeout|unreachable/i.test((e as Error).message ?? "")
+          ? "Host unreachable"
+          : "Host unreachable";
+        emit({ type: "step", n: 1, phase: "failed", reason });
+        emit({ type: "ended", ok: false, failedStep: 1 });
+        return;
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 1: On-disk collision probe + avatar candidate check
+    //         (Phase 68 rewire — no DB INSERT or GET-verify)
+    //
+    //   For remote: SSH exec `if [ -d ~/.claude/identities/<name> ]`
+    //   For local: relies on Step 2's mkdir being idempotent (local branch
+    //              self-birth doesn't probe — same pre-Phase-68 behavior).
+    //
+    // Avatar candidate check is also in Step 1 so a cache miss aborts before
+    // any state mutation (mirrors the pre-Phase-68 early-abort discipline).
+    // -----------------------------------------------------------------------
     await runStep(1, async () => {
       // Look up avatar bytes from plan 01's candidate cache
       const cand = deps.getCandidateForBirth(opts.userId, opts.avatarCandidateId);
@@ -451,77 +470,20 @@ export async function birthIdentity(
       }
       birthCandidate = cand;
 
-      // Patch #320: the Identity schema has THREE distinct slots
-      // (identityKey / displayName / title) but the birth POST body only
-      // sends `name` + `title`. The previous mapping collapsed those into
-      // (identityKey := name, displayName := title) and left `title` NULL —
-      // so the sidebar row showed `title-string` in both name+subtitle
-      // positions and the pretty-view badge showed only the title-string
-      // with no role subtitle. Correct mapping:
-      //   identityKey := opts.name                (lowercased key, e.g. "patricia")
-      //   displayName := capitalize(opts.name)    (human-friendly, e.g. "Patricia")
-      //   title       := opts.title               (role/subtitle, e.g. "PDF Inspector")
-      const displayName =
-        opts.name.length > 0
-          ? opts.name[0].toUpperCase() + opts.name.slice(1)
-          : opts.name;
-
-      // Create the identity record
-      const created = await deps.createIdentityRecord(
-        opts.userId,
-        {
-          identityKey: opts.name,
-          displayName,
-          title: opts.title,
-          colorHue: opts.colorHue,
-          voice: opts.voice,
-        },
-        cand.bytes,
-      );
-
-      identityId = created.id;
-
-      // Phase 66 Plan 04: cosmetic GET-verify collapsed — colorHue/voice/
-      // avatarEtag no longer live in the store (they're written to disk in
-      // Step 2.5). The row-existence check remains as defense against a
-      // silent-no-op insert on the identities table (better-sqlite3 does
-      // not throw when an insert affects 0 rows if the underlying primary-
-      // key clash is silently ignored by shim behavior — real DB will throw
-      // UNIQUE, but the sentinel is cheap defense-in-depth).
-      const fresh = await deps.getIdentityRecord(opts.userId, created.id);
-      if (fresh.id !== created.id) {
-        throw new Error(
-          `silent-no-op: identity row not found post-insert (expected ${created.id}, got ${fresh.id})`,
+      // On-disk collision probe for remote branch (SHAPE B).
+      // opts.name is already gated by IDENTITY_KEY_RE + TMUX_SAFE_NAME_RE so
+      // it's safe to interpolate into the double-quoted path (matches the
+      // same "validate-then-interpolate" pattern as identity-clone.ts:119).
+      if (!useLocal && conn) {
+        const probeOut = await deps.execCommand(
+          conn,
+          `if [ -d "$HOME/.claude/identities/${opts.name}" ]; then echo exists; else echo missing; fi`,
         );
+        if (probeOut.trim() === "exists") {
+          throw new Error("identity already exists on this host");
+        }
       }
     });
-  } catch (e) {
-    if (e instanceof BirthAborted) return;
-    // Pre-step-1 error (shouldn't normally reach here)
-    emit({ type: "ended", ok: false });
-    return;
-  }
-
-  // -------------------------------------------------------------------------
-  // Steps 2-5: SSH or local (wrapped in try/finally for conn cleanup)
-  // -------------------------------------------------------------------------
-  try {
-    // For remote branch, connect now
-    if (!useLocal) {
-      const host = await deps.resolveHostById(opts.hostId, opts.userId);
-      try {
-        conn = await deps.connectOneShot(host, SSH_CONNECT_TIMEOUT_MS);
-      } catch (e) {
-        // Step 2 failure: SSH connect error
-        emit({ type: "step", n: 2, phase: "started" });
-        const reason = /timeout|unreachable/i.test((e as Error).message ?? "")
-          ? "Host unreachable"
-          : "Host unreachable";
-        emit({ type: "step", n: 2, phase: "failed", reason });
-        emit({ type: "ended", ok: false, failedStep: 2 });
-        return;
-      }
-    }
 
     // Single-quote the session name for shell safety
     const escName = shellSingleQuote(opts.name);

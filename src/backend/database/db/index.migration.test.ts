@@ -21,6 +21,7 @@ import {
   assertSqliteSupportsDropColumn,
   dropColumnIfExists,
   runIdentitiesCosmeticDrops,
+  runIdentitiesTableDrop,
 } from "./index.js";
 
 // The OLD identities CREATE TABLE — verbatim from db/index.ts pre-Phase-66.
@@ -191,5 +192,93 @@ describe("Phase 66-04 migration — drop cosmetic columns from identities", () =
     const msg = (err as Error).message;
     expect(msg).toContain("3.35");
     expect(msg).toContain("3.34.0");
+  });
+});
+
+// The 5-column identities schema remaining after Phase 66 cosmetic drops.
+const PHASE_66_IDENTITIES_CREATE_SQL = `
+  CREATE TABLE identities (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    identity_key TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (user_id, identity_key)
+  );
+`;
+
+describe("Phase 68-05 migration — drop identities table entirely", () => {
+  it("Test 5: runIdentitiesTableDrop drops the table when present", () => {
+    const db = new Database(":memory:");
+    db.exec(PHASE_66_IDENTITIES_CREATE_SQL);
+
+    // Seed a row to confirm data is gone post-drop.
+    db.exec(
+      "INSERT INTO identities (id, user_id, identity_key, created_at, updated_at) VALUES ('abc', 'user1', 'tina', '2026-01-01', '2026-01-01');",
+    );
+
+    // Confirm table exists pre-drop.
+    const preRows = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='identities'",
+      )
+      .all();
+    expect(preRows.length).toBe(1);
+
+    runIdentitiesTableDrop(db);
+
+    // Table must no longer exist.
+    const postRows = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='identities'",
+      )
+      .all();
+    expect(postRows).toEqual([]);
+
+    // PRAGMA table_info returns empty for absent table.
+    const pragmaRows = db.prepare("PRAGMA table_info(identities)").all();
+    expect(pragmaRows).toEqual([]);
+  });
+
+  it("Test 6: runIdentitiesTableDrop is idempotent on absent table", () => {
+    const db = new Database(":memory:");
+    // No identities table created.
+
+    // First call — no-op, no throw.
+    expect(() => runIdentitiesTableDrop(db)).not.toThrow();
+
+    // Second call — still no-op, no throw.
+    expect(() => runIdentitiesTableDrop(db)).not.toThrow();
+
+    // Table still absent.
+    const pragmaRows = db.prepare("PRAGMA table_info(identities)").all();
+    expect(pragmaRows).toEqual([]);
+  });
+
+  it("Test 7: runIdentitiesCosmeticDrops then runIdentitiesTableDrop on legacy 5-column schema leaves no identities table", () => {
+    const db = new Database(":memory:");
+    db.exec(PHASE_66_IDENTITIES_CREATE_SQL);
+
+    // Seed a row.
+    db.exec(
+      "INSERT INTO identities (id, user_id, identity_key, created_at, updated_at) VALUES ('xyz', 'user2', 'ash', '2026-02-01', '2026-02-01');",
+    );
+
+    // Phase 66 cosmetic drops (all columns already absent — idempotent no-op).
+    expect(() => runIdentitiesCosmeticDrops(db)).not.toThrow();
+
+    // Phase 68 table drop.
+    runIdentitiesTableDrop(db);
+
+    // Table gone.
+    const tableRows = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='identities'",
+      )
+      .all();
+    expect(tableRows).toEqual([]);
+
+    const pragmaRows = db.prepare("PRAGMA table_info(identities)").all();
+    expect(pragmaRows).toEqual([]);
   });
 });

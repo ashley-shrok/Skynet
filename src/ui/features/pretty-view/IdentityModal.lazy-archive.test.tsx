@@ -132,18 +132,19 @@ vi.mock("@/state/bounty-counts-store", async (importOriginal) => {
 import { IdentityModal } from "./IdentityModal";
 
 // ── Shared fixture ──────────────────────────────────────────────────────────
+// Phase 68: Identity no longer has id/createdAt/updatedAt; avatarUrl bakes
+// hostId at backend (no avatarUrlWithHost on frontend).
 const BASE_IDENTITY: Identity = {
-  id: "id-wendy",
   identityKey: "wendy",
   displayName: "Wendy",
   title: "Fleet maintainer",
   colorHue: null,
   voice: null,
+  role: null,
   avatarMime: "image/png",
-  avatarUrl: "/identities/id-wendy/avatar",
+  avatarUrl: "/identities/wendy/avatar?hostId=1",
   avatarEtag: "etag-1",
-  createdAt: "2026-01-01T00:00:00Z",
-  updatedAt: "2026-01-01T00:00:00Z",
+  coordinator: false,
 };
 
 function renderModal() {

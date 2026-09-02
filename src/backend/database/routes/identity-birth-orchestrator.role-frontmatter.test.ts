@@ -109,20 +109,9 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
     // Phase 66 Plan 66-01: additive dep — pre-existing tests should not
     // notice this exists (default no-op), Tests 20-24 override it explicitly.
     writeAvatarSiblingFile: vi.fn().mockResolvedValue(undefined),
-    createIdentityRecord: vi.fn().mockResolvedValue({
-      id: "created-id-123",
-      identityKey: "testkey",
-      colorHue: 210,
-      voice: "Elena.wav",
-      avatarEtag: "abc123",
-    }),
-    getIdentityRecord: vi.fn().mockResolvedValue({
-      id: "created-id-123",
-      identityKey: "testkey",
-      colorHue: 210,
-      voice: "Elena.wav",
-      avatarEtag: "abc123",
-    }),
+    // Phase 68 Plan 03: createIdentityRecord + getIdentityRecord removed from
+    // BirthDeps — no DB record is created; disk folder + frontmatter + avatar
+    // sibling ARE the identity's identity.
     getCandidateForBirth: vi.fn().mockReturnValue({
       bytes: Buffer.from("fakepng"),
       mime: "image/png",
@@ -145,7 +134,7 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
 
 function makeOpts(overrides: Partial<BirthOptions> = {}): BirthOptions {
   return {
-    userId: 1,
+    userId: "user-1",
     hostId: 7,
     name: "testkey",
     title: "Test Identity",
@@ -411,8 +400,8 @@ it("Test 17: identity file body has ---\\nrole: <role>\\n---, seed comment, and 
 
 // ---------------------------------------------------------------------------
 // CALL ORDER integration test (Test 16 in original spec, minus relay register):
-//   createIdentityRecord (Step 1)
-//   → tmux new-session exec (Step 2)
+//   Phase 68: no DB record create — avatar candidate check (Step 1 precheck)
+//   → SSH connect → on-disk collision probe → tmux new-session exec (Step 2)
 //   → writeMarkdownFileAtomic (Step 2.5 pre-write)
 //   → mkdir + touch execs (Step 2.5)
 //   → hasTrustDialogAccepted write exec (Step 3)
@@ -420,27 +409,8 @@ it("Test 17: identity file body has ---\\nrole: <role>\\n---, seed comment, and 
 //   → /id name send-keys (Step 5)
 // ---------------------------------------------------------------------------
 
-it("Test 16: call ordering — createIdentityRecord → tmux new-session → writeMarkdownFileAtomic → mkdir/touch → hasTrustDialogAccepted → Enter train → /id name", async () => {
+it("Test 16: call ordering — avatar candidate → tmux new-session → writeMarkdownFileAtomic → mkdir/touch → hasTrustDialogAccepted → Enter train → /id name", async () => {
   const executionLog: string[] = [];
-
-  const mockCreateIdentity = vi.fn().mockImplementation(async () => {
-    executionLog.push("createIdentityRecord");
-    return {
-      id: "created-id-123",
-      identityKey: "testkey",
-      colorHue: 210,
-      voice: "Elena.wav",
-      avatarEtag: "abc123",
-    };
-  });
-
-  const mockGetIdentity = vi.fn().mockImplementation(async () => ({
-    id: "created-id-123",
-    identityKey: "testkey",
-    colorHue: 210,
-    voice: "Elena.wav",
-    avatarEtag: "abc123",
-  }));
 
   const writeAtomic = vi.fn().mockImplementation(async () => {
     executionLog.push("writeMarkdownFileAtomic");
@@ -475,8 +445,6 @@ it("Test 16: call ordering — createIdentityRecord → tmux new-session → wri
   });
 
   const deps = makeDeps({
-    createIdentityRecord: mockCreateIdentity,
-    getIdentityRecord: mockGetIdentity,
     writeMarkdownFileAtomic: writeAtomic,
   });
 
@@ -489,7 +457,6 @@ it("Test 16: call ordering — createIdentityRecord → tmux new-session → wri
   // Verify the ordering
   const idx = (name: string) => executionLog.indexOf(name);
 
-  const createIdx = idx("createIdentityRecord");
   const tmuxIdx = idx("tmux-new-session");
   const writeIdx = idx("writeMarkdownFileAtomic");
   const mkdirIdx = idx("mkdir-wakeups");
@@ -497,8 +464,8 @@ it("Test 16: call ordering — createIdentityRecord → tmux new-session → wri
   const trustIdx = idx("trust-flag");
   const idIdx = idx("id-name-sendkeys");
 
-  expect(createIdx).toBeGreaterThanOrEqual(0);
-  expect(tmuxIdx).toBeGreaterThan(createIdx);
+  // Phase 68: tmux new-session happens first (no DB createIdentityRecord before)
+  expect(tmuxIdx).toBeGreaterThanOrEqual(0);
   // writeMarkdownFileAtomic must be AFTER tmux new-session
   expect(writeIdx).toBeGreaterThan(tmuxIdx);
   // mkdir + touch also part of Step 2.5 — both must be after tmux new-session

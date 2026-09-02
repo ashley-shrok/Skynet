@@ -45,10 +45,7 @@ import {
   postGenerateAvatarBatch,
   postManualAvatarCandidate,
   IdentityCloneCollisionError,
-  // Phase 66 Plan 05: hostId threading — Plan 03's GET /:id/avatar requires
-  // hostId query param; dialog's hostId prop supplies it for the source-avatar
-  // preview render at L548.
-  avatarUrlWithHost,
+  // Phase 68 Plan 04: avatarUrlWithHost DELETED — backend bakes hostId into identity.avatarUrl.
   type AvatarCandidate,
   type Identity,
 } from "@/api/identities-api";
@@ -317,7 +314,9 @@ export function CloneAgentDialog({
             path: normalizedPath,
             identityMode: "existing",
             identityName: result.identityKey,
-            identityId: result.id,
+            // Phase 68 Plan 04: result.id removed from publicIdentity shape;
+            // identityId field now carries the identityKey (opaque string handle).
+            identityId: result.identityKey,
           });
         } catch {
           // Best-effort — swallow so onClose still fires.
@@ -550,23 +549,12 @@ export function CloneAgentDialog({
 
             {/* Default preview — source's avatar (rendered when no candidate
                 and no manual upload).
-                Phase 66 Plan 05: hostId threading — Plan 03's GET /:id/avatar
-                requires hostId query param. dialog's hostId prop (declared at
-                L75 as `number | null`) is the source-identity's home box; we
-                already gate the render on the surrounding `sourceIdentity`
-                truthiness AND the outer submit path requires hostId !== null
-                (L211/L274), so when this branch renders we're safe to route
-                through avatarUrlWithHost. Guard on hostId != null anyway for
-                defense-in-depth (edge race: sourceIdentity resolved before
-                hostId picker completes). */}
+                Phase 68 Plan 04: avatarUrlWithHost deleted — backend bakes hostId
+                into sourceIdentity.avatarUrl at emit time; render directly. */}
             {!hasCandidates && !manualPreviewUrl && sourceIdentity && (
               <div className="flex justify-center">
                 <img
-                  src={
-                    hostId != null
-                      ? avatarUrlWithHost(sourceIdentity, hostId)
-                      : sourceIdentity.avatarUrl
-                  }
+                  src={sourceIdentity.avatarUrl}
                   alt={`Avatar for ${sourceIdentity.displayName}`}
                   className="w-16 h-16 rounded object-cover"
                 />

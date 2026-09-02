@@ -443,6 +443,71 @@ export async function readIdentityFile(
 }
 
 // ---------------------------------------------------------------------------
+// 1a. listIdentityKeysOnHost — Phase 68 fanout enumeration primitive
+// ---------------------------------------------------------------------------
+
+/**
+ * Lists the identity folder names on the given host (LOCAL bind-mount or REMOTE SSH).
+ *
+ * Purpose: Phase 68 Plan 02 disk-fanout enumeration primitive. The GET /identities
+ * handler calls this once per unique hostId in the caller's identityHosts map, then
+ * reads each returned key's .md file via readIdentityFile to build the merged roster.
+ *
+ * LOCAL branch (conn === null):
+ *   - Reads getLocalIdentitiesRoot() via fs.readdir({ withFileTypes: true }).
+ *   - ENOENT → returns [].
+ *   - Keeps entries where isDirectory() === true AND IDENTITY_KEY_RE.test(name).
+ *   - Returns sorted (lexicographic) array of names.
+ *
+ * REMOTE branch (conn !== null):
+ *   - Runs `find "$HOME/.claude/identities" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null || true`
+ *     via execWithTimeout (3s timeout matches other REMOTE ops).
+ *   - `|| true` handles "identities dir missing" as empty stdout.
+ *   - Splits stdout by newline, trims, drops empty strings.
+ *   - Filters through IDENTITY_KEY_RE.
+ *   - Returns sorted array.
+ *
+ * Errors propagate up — caller (GET / fanout handler) wraps each host call in
+ * try/catch for per-host silent-swallow. Do NOT swallow inside this function:
+ * that would mask real SSH exec bugs behind an empty response.
+ */
+export async function listIdentityKeysOnHost(
+  conn: SSHClientType | null,
+): Promise<string[]> {
+  if (conn === null) {
+    // LOCAL branch
+    const root = getLocalIdentitiesRoot();
+    let entries: Awaited<ReturnType<typeof fs.readdir>>;
+    try {
+      entries = await fs.readdir(root, { withFileTypes: true });
+    } catch (err: unknown) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        (err as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
+        return [];
+      }
+      throw err;
+    }
+    return (entries as import("node:fs").Dirent[])
+      .filter((e) => e.isDirectory() && IDENTITY_KEY_RE.test(e.name))
+      .map((e) => e.name)
+      .sort();
+  }
+
+  // REMOTE branch — find prints basenames only; || true handles missing dir
+  const cmd =
+    `find "$HOME/.claude/identities" -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' 2>/dev/null || true`;
+  const stdout = await execWithTimeout(conn, cmd);
+  return stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((name) => name.length > 0 && IDENTITY_KEY_RE.test(name))
+    .sort();
+}
+
+// ---------------------------------------------------------------------------
 // 1b. readRoleFile — role/<role>.md via two-step (Phase 22 SRIC-06 / Plan 22-06)
 // ---------------------------------------------------------------------------
 

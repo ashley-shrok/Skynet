@@ -684,8 +684,8 @@ describe("NewSessionDialog: Test H — invalid name disables Create + shows erro
 describe("NewSessionDialog: Test I — Skynet collision blocks Create", () => {
   it("Test I: listIdentities returns matching key → 'Already exists in Skynet' + Create disabled", async () => {
     mockListIdentities.mockResolvedValue([
-      { identityKey: "alicia", displayName: "Alicia", id: "1", title: null, colorHue: null, voice: null,
-        avatarMime: "", avatarUrl: "", avatarEtag: "", createdAt: "", updatedAt: "" }
+      { identityKey: "alicia", displayName: "Alicia", title: null, colorHue: null, voice: null,
+        role: null, avatarMime: "", avatarUrl: "", avatarEtag: "", coordinator: false }
     ]);
     mockGetIdentityExistsOnHost.mockResolvedValue(false);
     const { getByLabelText, getByRole } = renderDialog();
@@ -729,8 +729,8 @@ describe("NewSessionDialog: Test K — collision clears when name changes", () =
   it("Test K: after collision, change name to valid unique one → error clears", async () => {
     mockListIdentities
       .mockResolvedValueOnce([
-        { identityKey: "alicia", displayName: "Alicia", id: "1", title: null, colorHue: null,
-          voice: null, avatarMime: "", avatarUrl: "", avatarEtag: "", createdAt: "", updatedAt: "" }
+        { identityKey: "alicia", displayName: "Alicia", title: null, colorHue: null,
+          voice: null, role: null, avatarMime: "", avatarUrl: "", avatarEtag: "", coordinator: false }
       ])
       .mockResolvedValue([]);
     mockGetIdentityExistsOnHost.mockResolvedValue(false);
@@ -1162,7 +1162,8 @@ describe("NewSessionDialog: Test W — 5 progress rows appear after Create", () 
     fireEvent.click(createBtn);
 
     await waitFor(() => {
-      expect(screen.queryByText(/create skynet identity record/i)).toBeTruthy();
+      // Phase 68 SHAPE B: Step 1 is now "Check identity name is available on host"
+      expect(screen.queryByText(/check identity name is available/i)).toBeTruthy();
     });
     expect(screen.queryByText(/launch claude cli/i)).toBeTruthy();
     expect(screen.queryByText(/bootstrap dance/i)).toBeTruthy();
@@ -1405,9 +1406,11 @@ describe("NewSessionDialog: Test DD — birth in progress disables form fields, 
 // Test EE: step:1:failed with silent-no-op reason surfaces step-1 blurb
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test EE — step-1 failure shows correct blurb", () => {
-  it("Test EE: step:1:failed:reason=silent-no-op → step-1 blurb (couldn't create Skynet record) renders", async () => {
+  it("Test EE: step:1:failed → step-1 blurb (identity name already in use on host) renders", async () => {
+    // Phase 68: SHAPE B — Step 1 is now an SSH-side on-disk collision probe
+    // (not a Skynet DB record creation). Blurb updated to reflect the new meaning.
     mockOpenBirthStream.mockReturnValueOnce(createMockStream([
-      { type: "step", n: 1, phase: "failed", reason: "silent-no-op: colorHue not persisted" },
+      { type: "step", n: 1, phase: "failed", reason: "identity already exists on this host" },
       { type: "ended", ok: false, failedStep: 1 },
     ]));
 
@@ -1416,11 +1419,11 @@ describe("NewSessionDialog: Test EE — step-1 failure shows correct blurb", () 
     fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
 
     await waitFor(() => {
-      // Step 1 blurb: "Couldn't create the Skynet identity record"
+      // Step 1 blurb: Phase 68 SHAPE B — "The identity name is already in use on this host"
       expect(
-        screen.queryByText(/couldn't create the skynet identity record/i) ??
-        screen.queryByText(/nothing was created/i) ??
-        screen.queryByText(/safe to retry/i)
+        screen.queryByText(/identity name.*already in use/i) ??
+        screen.queryByText(/already in use on this host/i) ??
+        screen.queryByText(/pick a different name/i)
       ).toBeTruthy();
     });
   });

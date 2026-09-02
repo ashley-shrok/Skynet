@@ -130,13 +130,19 @@ export type NewSessionOnCreateOpts =
       path: string;
       identityMode: "existing";
       identityName: string;
+      /** Phase 68 Plan 04: this string is the identityKey (was nanoid PK pre-phase).
+       *  Field name retained for backward-compatibility with downstream callers;
+       *  treat as opaque identity handle. Value is now identity.identityKey
+       *  (e.g. "tina") instead of a DB-generated UUID. */
       identityId: string;
     };
 
 // ─── BirthProgress ─────────────────────────────────────────────────────────
 // Step labels for the 5-step birth sequence (matching CONTEXT.md §"Compound birth sequence")
+// Phase 68 Plan 04: SHAPE B chosen in 68-03. Step 1 is now an SSH-side on-disk
+// collision probe (SSH connect + folder check). Array length stays 5.
 const BIRTH_STEP_LABELS = [
-  "Create Skynet identity record",
+  "Check identity name is available on host",
   "Open tmux session", // rendered with hostName at runtime
   "Launch Claude CLI",
   "Bootstrap dance",
@@ -145,9 +151,10 @@ const BIRTH_STEP_LABELS = [
 
 // Failure blurbs verbatim from D-CONTEXT §"Failure blurbs", indexed 0-4 (step N is index N-1).
 // Slots: <host>, <name>, <path> — replaced at render time.
+// Phase 68 Plan 04: SHAPE B — blurb[0] updated for SSH-side collision probe.
 const BIRTH_STEP_BLURBS = [
-  "Couldn't create the Skynet identity record. Nothing was created — safe to retry.",
-  "Skynet record created, but couldn't open a tmux session on <host>. You'll need to delete the identity record from the identity modal before retrying, or open the session by hand: `ssh <host> tmux new-session -d -s <name> -c <path>`.",
+  "The identity name is already in use on this host. Pick a different name and retry.",
+  "Name available, but couldn't open a tmux session on <host>. Open the session by hand: `ssh <host> tmux new-session -d -s <name> -c <path>`.",
   "Session is open on <host>, but the Claude CLI didn't launch. Attach with `ssh <host> tmux attach -t <name>` and start it yourself.",
   "Session is open and Claude launched, but the bootstrap dance didn't complete. Attach with `ssh <host> tmux attach -t <name>` and press Enter a few times until the REPL responds, then run `/id <name>` yourself.",
   "Session is at the REPL, but /id <name> didn't fire. Attach with `ssh <host> tmux attach -t <name>` and run it yourself.",

@@ -23,7 +23,6 @@ export async function getUserList(): Promise<{ users: UserInfo[] }> {
 // route is reachable by any authenticated user and is scoped to id+username
 // only, enforced by an explicit-columns drizzle select on the backend.
 //
-// Consumed by ShareIdentityPicker to populate the DropdownMenu content.
 
 export interface BasicUser {
   id: string;

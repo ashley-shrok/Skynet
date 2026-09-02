@@ -27,11 +27,12 @@ import { Switch } from "@/components/switch";
 // response callback (there is no shared identity:* listener elsewhere).
 import { invalidateIdentity as invalidateBountyCount } from "@/state/bounty-counts-store";
 // Quick 260731-1c8: add inline title + avatar editor to the Identity tab.
-// updateIdentity is the existing PUT /identities/:id HTTP client; applyIdentityChange
+// updateIdentity is the existing PUT /identities/:identityKey HTTP client; applyIdentityChange
 // broadcasts the fresh identity to all useIdentities() consumers so live
 // IdentityBadge / SessionRow / PrettyConversationRow / RelayInboundBubble
 // re-render without a manual refresh.
-import { updateIdentity, getIdentityNoDormancy, setIdentityNoDormancy, avatarUrlWithHost } from "@/api/identities-api";
+// Phase 68 Plan 04: avatarUrlWithHost DELETED — backend bakes hostId into identity.avatarUrl.
+import { updateIdentity, getIdentityNoDormancy, setIdentityNoDormancy } from "@/api/identities-api";
 import { applyIdentityChange } from "@/state/identities-store";
 import {
   getCoordinatorWatermarkStyle,
@@ -95,8 +96,6 @@ import { RoleFileTab } from "./RoleFileTab";
 import { HistoryTab } from "./HistoryTab";
 import { WakeupsTab } from "./WakeupsTab";
 import { HandoffTab } from "./HandoffTab";
-// Phase 38 Wave 2: share this identity with another Skynet user from the modal header.
-import { ShareIdentityPicker } from "./ShareIdentityPicker";
 
 // Patch #87: tabbed near-fullscreen modal for the identity's bounties.
 // Patch #17g: renamed Standing Directives → Identity; promoted Identity to
@@ -248,52 +247,6 @@ export function IdentityModal({
   // Quick 260811-ax1: "Stays awake" switch — null = loading, boolean = loaded.
   const [staysAwake, setStaysAwake] = useState<boolean | null>(null);
   const [staysAwakeSaving, setStaysAwakeSaving] = useState<boolean>(false);
-
-  // Phase 38 Wave 2 (plan 38-02): Parent-owned set of userIds who already have
-  // this identityKey. Empty at open — the frontend does NOT precompute
-  // "who has this identityKey" via a cross-user query in Phase 38 (there is
-  // no such endpoint, and adding one is the deferred provenance-display
-  // feature). As the user shares to targets this session, ShareIdentityPicker
-  // reports each successful share via onShareSuccess; we add the targetUserId
-  // to the Set so subsequent picker opens render the "shared" marker without
-  // a refetch. Set is created lazily so a re-render does not thrash the
-  // referential identity (which would churn the picker's props).
-  const [alreadySharedUserIds, setAlreadySharedUserIds] = useState<Set<string>>(
-    () => new Set<string>(),
-  );
-
-  // Reset alreadySharedUserIds when the modal is bound to a different identity.
-  // IdentityModal is mounted persistently in the tree (PrettyView reuses a
-  // single mount and swaps the `identity` prop as Ashley taps different badges),
-  // so the Set would otherwise carry stale target-user ids from the previous
-  // identity and render misleading "shared" markers under the new one.
-  // Keyed on identity.identityKey — that is the actual "am I looking at the
-  // same person?" signal (identity.id is the row PK, which also changes on
-  // switch, but identityKey is the semantic key that maps to the underlying
-  // agent). Session-scoped by design per CONTEXT.md § Deferred: provenance
-  // display — cross-session persistence would require a "who has this
-  // identityKey" endpoint that is explicitly out of scope for Phase 38.
-  useEffect(() => {
-    setAlreadySharedUserIds(new Set<string>());
-  }, [identity.identityKey]);
-
-  // handleShareSuccess adds result.targetUserId to alreadySharedUserIds so the
-  // picker's per-row marker updates on the next open without a refetch.
-  const handleShareSuccess = useCallback(
-    (result: { targetUserId: string; shared: boolean; resultingIdentityId: string }) => {
-      // Fresh Set instance so React sees a new reference and re-renders the
-      // picker with the updated marker state. Handles both shared:true (real
-      // hand-over) and shared:false (silent no-op-on-repeat) the same way —
-      // per CONTEXT.md re-share-to-same-target contract, the marker should
-      // stay marked after any successful call, not flip.
-      setAlreadySharedUserIds((prev) => {
-        const next = new Set(prev);
-        next.add(result.targetUserId);
-        return next;
-      });
-    },
-    [],
-  );
 
   // Patch #191: bottom icon-bar nav for section switching (Telegram-shape).
   // Replaces the previous shadcn TabsList strip, which (a) aesthetically didn't
@@ -601,7 +554,9 @@ export function IdentityModal({
     // Patch #279: reset hue draft on open/identity switch
     setHueDraft(identity.colorHue ?? hue);
     setCommittedHue(identity.colorHue ?? hue);
-  }, [open, identity.id, identity.title, identity.voice, identity.colorHue]);
+  // Phase 68 Plan 04: identity.id removed from type; identityKey is the
+  // canonical "which identity are we editing" signal (disk-authoritative key).
+  }, [open, identity.identityKey, identity.title, identity.voice, identity.colorHue]);
 
   // Cleanup: revoke the preview URL when the modal is unmounted mid-edit.
   useEffect(() => {
@@ -1134,7 +1089,8 @@ export function IdentityModal({
       // Phase 66 Plan 66-02: thread the modal's existing hostId prop into
       // updateIdentity — the backend PUT handler now uses it to route the
       // disk-write to the identity's home box via the artifact-reader.
-      const updated = await updateIdentity(identity.id, meta, avatarFile, hostId);
+      // Phase 68 Plan 04: first arg is now identityKey (was identity.id).
+      const updated = await updateIdentity(identity.identityKey, meta, avatarFile, hostId);
       // Patch #279: GET-verify guard — Skynet's multipart handler has been known to silently
       // no-op on the `data` field when middleware order gets misconfigured. Defensive check:
       // if we sent a colorHue change but the server echo doesn't reflect it, surface an inline
@@ -1297,14 +1253,13 @@ export function IdentityModal({
               )}
             />
           )}
-          {/* Quick 260731-1c8: cache-bust the header avatar with ?v=<avatarEtag>
+          {/* Quick 260731-1c8: cache-bust the header avatar with &v=<avatarEtag>
               so that after applyIdentityChange fires with a new avatarEtag the
               browser fetches the fresh image instead of serving the stale cache.
-              Phase 66 Plan 05: hostId threading — Plan 03's GET /:id/avatar
-              requires hostId query param; use avatarUrlWithHost helper. Etag
-              guard: when avatarEtag is the "" safe-default from Plan 03's
-              publicIdentity (disk-cosmetics absent), SKIP the &v= entirely
-              rather than emitting a literal `&v=`. */}
+              Phase 68 Plan 04: hostId is now baked into identity.avatarUrl by the
+              backend; render identity.avatarUrl directly. Etag guard: when
+              avatarEtag is the "" safe-default (disk-cosmetics absent), SKIP the
+              &v= entirely rather than emitting a literal `&v=`. */}
           {/* Phase 67 /close 2026-09-01 follow-up (M4): explicit
               position: relative + zIndex: 1 on every DialogHeader primary
               sibling below pins them above the coordinator watermark's
@@ -1318,9 +1273,12 @@ export function IdentityModal({
               (which is pointerEvents: none, so this is defensive only). */}
           <img
             src={
+              // Phase 68 Plan 04: avatarUrlWithHost deleted — backend bakes hostId into
+              // identity.avatarUrl. Etag suffix uses `&` (not `?`) because avatarUrl
+              // already ends with `?hostId=N`; etag becomes an additional query param.
               identity.avatarEtag
-                ? `${avatarUrlWithHost(identity, hostId)}&v=${identity.avatarEtag}`
-                : avatarUrlWithHost(identity, hostId)
+                ? `${identity.avatarUrl}&v=${identity.avatarEtag}`
+                : identity.avatarUrl
             }
             alt=""
             className="shrink-0 object-cover"
@@ -1363,16 +1321,6 @@ export function IdentityModal({
             />
             <span className="text-xs text-[#a89a80]">Boost response time (uses more memory)</span>
           </label>
-          {/* Phase 38 Wave 2 (plan 38-02): share this identity with another
-              Skynet user. Hides itself when the deployment has no other users
-              so the header does not carry a dead affordance. Parent owns the
-              already-shared Set + updates it via handleShareSuccess. */}
-          <ShareIdentityPicker
-            identityId={identity.id}
-            identityKey={identity.identityKey}
-            alreadySharedUserIds={alreadySharedUserIds}
-            onShareSuccess={handleShareSuccess}
-          />
           {/* Patch #277: pencil toggle button — reveals/hides the edit block.
               Matches close-button glass affordance (same size, border, glow
               recipe) but NOT wrapped in DialogClose — does not close the dialog. */}
@@ -1463,16 +1411,18 @@ export function IdentityModal({
             </h3>
 
             {/* Avatar preview + file picker row */}
-            {/* Phase 66 Plan 05: hostId threading + etag guard — same shape as
-                the header avatar above. avatarPreviewUrl (blob: URL from a
-                fresh file pick) takes precedence unchanged. */}
+            {/* Phase 68 Plan 04: avatarUrlWithHost deleted — same etag-guard
+                shape as the header avatar above. avatarPreviewUrl (blob: URL
+                from a fresh file pick) takes precedence unchanged. */}
             <div className="flex items-center gap-3 mb-3">
               <img
                 src={
+                  // Phase 68 Plan 04: avatarUrlWithHost deleted — backend bakes hostId into
+                  // identity.avatarUrl. Same etag-suffix pattern as the header avatar above.
                   avatarPreviewUrl ??
                   (identity.avatarEtag
-                    ? `${avatarUrlWithHost(identity, hostId)}&v=${identity.avatarEtag}`
-                    : avatarUrlWithHost(identity, hostId))
+                    ? `${identity.avatarUrl}&v=${identity.avatarEtag}`
+                    : identity.avatarUrl)
                 }
                 alt=""
                 className="shrink-0 object-cover"

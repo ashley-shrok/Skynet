@@ -96,11 +96,6 @@
 import type { AuthenticatedRequest } from "../../../types/index.js";
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
-import { nanoid } from "nanoid";
-import { db } from "../db/index.js";
-import { DatabaseSaveTrigger } from "../../utils/database-save-trigger.js";
-import { identities } from "../db/schema.js";
-import { eq, and } from "drizzle-orm";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger, sshLogger } from "../../utils/logger.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
@@ -109,6 +104,9 @@ import {
   writeMarkdownFileAtomic,
   writeAvatarSiblingFile,
   resolveRoleForIdentity,
+  readIdentityFile,
+  extractCosmeticsFromFrontmatter,
+  extractRoleFromMarkdown,
   MIME_TO_AVATAR_EXT,
   IDENTITY_KEY_RE,
   type AvatarExt,
@@ -186,50 +184,55 @@ const CLONE_SEED_COMMENT =
   "<!-- This identity has no relay account yet. On first wake, please register a Matrix relay account for this identity and remove this comment. -->";
 
 /**
- * Public identity DTO — mirrors identities.ts publicIdentity(). Phase 66
- * Plan 04: cosmetic columns (displayName / title / colorHue / voice /
- * avatarMime / avatarEtag) no longer live in the store row. This constructor
- * PRESERVES the Plan 03 safe-defaults contract (co-located with the READ
- * flip per checker B2) so the frontend Identity type's non-nullable-string
- * contract is honored without a type widening:
- *   - displayName = capitalizeFirst(identityKey)   (non-nullable string)
- *   - avatarMime  = ""                              (non-nullable string)
- *   - avatarEtag  = ""                              (non-nullable string)
- *   - title/colorHue/voice = null                  (nullable in Identity type)
+ * Public identity DTO — Phase 68 shape (10 fields, no id/createdAt/updatedAt).
+ * Mirrors identities.ts publicIdentity() from Plan 68-02.
  *
- * capitalizeFirst mirrors the identities.ts helper exactly (see comment
- * there). It is duplicated locally rather than imported to avoid a circular
- * import between identities.ts and identity-clone.ts (both are mounted
- * routers in database.ts and importing each other's helpers would cause
- * bundler-time cycles that vitest's mock resolver can trip on).
+ * Safe-defaults contract so the frontend Identity type's non-nullable-string
+ * contract is honored without type widening:
+ *   - displayName = capitalizeFirst(identityKey)  (non-nullable, from cosmetics or derived)
+ *   - avatarMime  = ""                            (non-nullable safe-default)
+ *   - avatarEtag  = ""                            (non-nullable safe-default)
+ *   - coordinator = false                         (non-nullable safe-default)
+ *   - title/colorHue/voice/role = null            (nullable in Identity type)
+ *
+ * capitalizeFirst is duplicated locally (not imported from identities.ts) to
+ * avoid a circular import between the two mounted route files. Matches the
+ * Phase 66 Plan 04 precedent in identity-clone.ts.
+ *
+ * Phase 68 Plan 03: signature changed from `(row: typeof identities.$inferSelect)`
+ * to `(identityKey, hostId, cosmetics, role)`. No DB row — disk re-read cosmetics
+ * are the authoritative source for the clone response body.
  */
 function capitalizeFirst(s: string): string {
   if (!s || s.length === 0) return s;
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function publicIdentity(row: typeof identities.$inferSelect) {
+function publicIdentity(
+  identityKey: string,
+  hostId: number,
+  cosmetics: {
+    displayName?: string;
+    title?: string | null;
+    colorHue?: number | null;
+    voice?: string | null;
+    avatarMime?: string | null;
+    avatarEtag?: string | null;
+    coordinator?: boolean | null;
+  } = {},
+  role: string | null = null,
+) {
   return {
-    id: row.id,
-    identityKey: row.identityKey,
-    displayName: capitalizeFirst(row.identityKey),
-    title: null as string | null,
-    colorHue: null as number | null,
-    voice: null as string | null,
-    avatarMime: "",
-    avatarUrl: `/identities/${row.id}/avatar`,
-    avatarEtag: "",
-    // Phase 67 /close 2026-09-01 follow-up (H2): mirror the main
-    // identities.ts publicIdentity coordinator field so the clone response
-    // satisfies the frontend Identity type's non-nullable `coordinator:
-    // boolean` contract. Freshly-cloned identities are never coordinators
-    // (coordinator lives in on-disk YAML; a fresh clone has no such YAML
-    // yet — even the frontmatter emitted at step 10 omits coordinator), so
-    // `false` is correct. Field position matches identities.ts:
-    // between avatarEtag and createdAt.
-    coordinator: false,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
+    identityKey,
+    displayName: cosmetics.displayName ?? capitalizeFirst(identityKey),
+    title: cosmetics.title ?? null,
+    colorHue: cosmetics.colorHue ?? null,
+    voice: cosmetics.voice ?? null,
+    avatarMime: cosmetics.avatarMime ?? "",
+    avatarUrl: `/identities/${identityKey}/avatar?hostId=${hostId}`,
+    avatarEtag: cosmetics.avatarEtag ?? "",
+    coordinator: cosmetics.coordinator ?? false,
+    role,
   };
 }
 
@@ -383,48 +386,14 @@ router.post(
     const path = rawPath.trim();
 
     // -----------------------------------------------------------------------
-    // 2. Fetch source row from Skynet DB (userId filter for cross-user gate)
+    // Phase 68: source existence is verified by SSH — resolveRoleForIdentity
+    // at Step 6 throws if the identity's .md file is missing (no role:
+    // frontmatter). That IS the source-existence check now. No DB SELECT.
+    //
+    // Phase 68: newName collision is checked exclusively by the SSH-side probe
+    // at Step 7 (`if [ -d ~/.claude/identities/${newName} ]`). No DB precheck
+    // — there's no DB roster to check against.
     // -----------------------------------------------------------------------
-    const sourceRows = db
-      .select()
-      .from(identities)
-      .where(
-        and(
-          eq(identities.userId, userId),
-          eq(identities.identityKey, sourceIdentityKey),
-        ),
-      )
-      .all();
-    if (sourceRows.length === 0) {
-      res.status(404).json({ error: "source not found" });
-      return;
-    }
-    const sourceRow = sourceRows[0];
-
-    // -----------------------------------------------------------------------
-    // 2b. Precheck: DB (userId, newName) uniqueness. Prevents the halfway-
-    //     through state where SFTP creates the identity folder on the target
-    //     but the DB insert then trips the (user_id, identity_key) UNIQUE
-    //     constraint — surfaced as a generic 500 the frontend renders as
-    //     "server error occurred please try again later." The FE already maps
-    //     409 → IdentityCloneCollisionError → inline "name already exists"
-    //     modal error, so returning 409 here gives the user an actionable
-    //     message and short-circuits before any SSH work.
-    // -----------------------------------------------------------------------
-    const existingRows = db
-      .select()
-      .from(identities)
-      .where(
-        and(
-          eq(identities.userId, userId),
-          eq(identities.identityKey, newName),
-        ),
-      )
-      .all();
-    if (existingRows.length > 0) {
-      res.status(409).json({ error: "identity name already in use" });
-      return;
-    }
 
     // -----------------------------------------------------------------------
     // 3. Fetch avatar bytes (candidate cache only — Phase 66 Plan 04 dropped
@@ -716,104 +685,14 @@ router.post(
         }
       }
 
-      // ---------------------------------------------------------------------
-      // 11. Insert new Skynet DB row.
-      //     LOCKED fields (from D-CONTEXT §UX):
-      //       - colorHue: sourceRow.colorHue (NOT req.body — LOCKED)
-      //       - identityKey: newName
-      //       - displayName: newName
-      //     Editable fields:
-      //       - title: user-edited (fallback to source's title if source has
-      //         one; but title is required in the body so this fallback is
-      //         belt-and-suspenders — user always provides one).
-      //       - voice: user-edited (null OK; fallback to source's voice when
-      //         null so cloned identity doesn't lose the voice preference).
-      // ---------------------------------------------------------------------
-      const newId = nanoid();
-      const now = new Date().toISOString();
-      // Phase 66 Plan 04: cosmetic columns physically dropped from identities.
-      // The clone insertRow holds only the 5 surviving columns. The cloned
-      // identity's cosmetics live on disk in the frontmatter emitted at step
-      // 10 above (displayName/title/colorHue/voice/avatar), and the avatar
-      // sibling file written at step 10a. This matches the birth flow's
-      // Step 2.5 shape end-to-end (Phase 66 /close 2026-09-01 follow-up).
-      const insertRow = {
-        id: newId,
-        userId,
-        identityKey: newName,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      try {
-        db.insert(identities).values(insertRow).run();
-      } catch (err) {
-        // Race backstop for the step-2b precheck: two concurrent clones with
-        // the same newName can both pass the precheck and reach the insert.
-        // better-sqlite3 tags UNIQUE-index violations with
-        // .code === "SQLITE_CONSTRAINT_UNIQUE"; surface as 409 so the FE
-        // inline-error path fires instead of the misleading generic 500.
-        const code = (err as { code?: string } | undefined)?.code;
-        if (code === "SQLITE_CONSTRAINT_UNIQUE") {
-          databaseLogger.warn(
-            "identity-clone: DB insert collided after precheck (race)",
-            {
-              operation: "identity_clone_db_insert_collision",
-              userId,
-              newName,
-            },
-          );
-          res.status(409).json({ error: "identity name already in use" });
-          return;
-        }
-        databaseLogger.error("identity-clone: DB insert failed", err, {
-          operation: "identity_clone_db_insert",
-          userId,
-          newName,
-        });
-        res.status(500).json({ error: "internal" });
-        return;
-      }
-      // In-memory-SQLite persistence discipline (CLAUDE.md rule + code review
-      // HIGH #3, 2026-09-01) — direct .run() writes only reach RAM; force-save
-      // to disk. Failure to save doesn't fail the request (row exists in RAM,
-      // user's response is honest) but logs a warning for follow-up.
-      try {
-        await DatabaseSaveTrigger.forceSave("identity_cloned");
-      } catch (saveErr) {
-        databaseLogger.warn("Force-save after identity clone failed", {
-          operation: "identity_clone_save_failed",
-          userId,
-          newName,
-          error: saveErr instanceof Error ? saveErr.message : "Unknown",
-        });
-      }
+      // Phase 68 Plan 03: DB INSERT removed — no Skynet DB row is created.
+      // The disk folder + frontmatter + avatar sibling ARE the identity's record.
+      // No DB mutation → no DatabaseSaveTrigger.forceSave needed (the
+      // writeMarkdownFileAtomic + writeAvatarSiblingFile above already fsynced
+      // via SFTP tmp+rename discipline).
 
       // ---------------------------------------------------------------------
-      // 12. Re-select the new row for the response shape.
-      // ---------------------------------------------------------------------
-      const newRows = db
-        .select()
-        .from(identities)
-        .where(eq(identities.id, newId))
-        .all();
-      if (newRows.length === 0) {
-        databaseLogger.error(
-          "identity-clone: clone row missing after insert",
-          new Error("re-select empty"),
-          {
-            operation: "identity_clone_reselect",
-            newId,
-            userId,
-          },
-        );
-        res.status(500).json({ error: "internal" });
-        return;
-      }
-      const newRow = newRows[0];
-
-      // ---------------------------------------------------------------------
-      // 13. Consume the avatar candidate (idempotent — safe to call twice).
+      // 11. Consume the avatar candidate (idempotent — safe to call twice).
       // ---------------------------------------------------------------------
       if (avatarCandidateId) {
         try {
@@ -824,9 +703,28 @@ router.post(
       }
 
       // ---------------------------------------------------------------------
-      // 14. Response 201.
+      // 12. Re-read the freshly-written frontmatter for response cosmetics.
+      //     Phase 68: disk is authoritative — re-reading what was just written
+      //     catches any frontmatter-emit bugs and makes the clone response
+      //     byte-shape-identical to a GET / fanout hit for the same identityKey.
       // ---------------------------------------------------------------------
-      res.status(201).json(publicIdentity(newRow));
+      try {
+        const { markdown: writtenMd } = await readIdentityFile(conn, newName);
+        const cosmetics = extractCosmeticsFromFrontmatter(writtenMd);
+        const role = extractRoleFromMarkdown(writtenMd);
+        res.status(201).json(publicIdentity(newName, hostId, cosmetics, role));
+      } catch (reReadErr) {
+        // Disk write succeeded (we reached this point), so return safe-defaults.
+        // Frontend gets safe-default cosmetics; next GET / fanout picks up the
+        // real cosmetics. Matches T-68-03-06 accept pattern.
+        sshLogger.warn("identity-clone: post-write disk re-read failed, using safe-defaults", {
+          operation: "identity_clone_reread_failed",
+          hostId,
+          newName,
+          error: reReadErr instanceof Error ? reReadErr.message : "Unknown",
+        });
+        res.status(201).json(publicIdentity(newName, hostId, {}, sourceRole));
+      }
       return;
     } finally {
       if (conn) {

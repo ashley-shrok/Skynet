@@ -94,6 +94,11 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   writeMarkdownFileAtomic: vi.fn(),
   writeAvatarSiblingFile: vi.fn(),
   resolveRoleForIdentity: vi.fn(),
+  // Phase 68 Plan 03: readIdentityFile + extractCosmeticsFromFrontmatter used
+  // for disk re-read in the clone response.
+  readIdentityFile: vi.fn(),
+  extractCosmeticsFromFrontmatter: vi.fn(),
+  extractRoleFromMarkdown: vi.fn(),
   IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
   MIME_TO_AVATAR_EXT: {
     "image/webp": "webp",
@@ -118,89 +123,24 @@ vi.mock("./identity-harness-start.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// In-memory DB shim — mirrors the drizzle chain surface the route uses.
-// State is reset per-test via beforeEach so cross-test isolation holds.
+// Phase 68 Plan 03: identity-clone.ts no longer touches the DB for source
+// lookup, newName collision, DB INSERT, or re-select. These mocks are stubs
+// that satisfy any residual transitive import resolution — the clone route
+// itself has zero db.* calls post-plan.
 // ---------------------------------------------------------------------------
 
-// Phase 66 Plan 04: identities table narrowed to the 5 surviving columns.
-// Cosmetics live on disk per shape file — tests no longer assert on them
-// in the store shim. Tests 8/9/11 rewritten to check disk-inferred defaults
-// on publicIdentity (safe-defaults pattern; see identity-clone.ts).
-type IdentityRow = {
-  id: string;
-  userId: string;
-  identityKey: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-const dbState: {
-  rows: IdentityRow[];
-  lastFilter: {
-    userId?: string;
-    identityKey?: string;
-    id?: string;
-  };
-} = {
-  rows: [],
-  lastFilter: {},
-};
-
-// eq/and are stubbed to capture filter intent for `where(...)` calls.
-// The chain: db.select().from(identities).where(and(eq(userId,X), eq(identityKey,Y))).all()
-// We record the eq column+value pairs in a filter obj, then all() applies them.
-
-let filterAccum: Record<string, unknown> = {};
-
 vi.mock("drizzle-orm", () => ({
-  eq: (col: { _colName: string }, val: unknown) => {
-    filterAccum[col._colName] = val;
-    return { __type: "eq", col: col._colName, val };
-  },
-  and: (...conds: unknown[]) => ({ __type: "and", conds }),
+  eq: vi.fn(),
+  and: vi.fn(),
 }));
 
 vi.mock("../db/schema.js", () => ({
-  identities: {
-    userId: { _colName: "userId" },
-    identityKey: { _colName: "identityKey" },
-    id: { _colName: "id" },
-  },
+  identities: {},
 }));
 
-vi.mock("../db/index.js", () => {
-  const chain = {
-    select: () => chain,
-    from: () => chain,
-    where: () => {
-      dbState.lastFilter = { ...filterAccum };
-      filterAccum = {};
-      return chain;
-    },
-    all: () => {
-      const f = dbState.lastFilter;
-      dbState.lastFilter = {};
-      return dbState.rows.filter((r) => {
-        if (f.userId !== undefined && r.userId !== f.userId) return false;
-        if (f.identityKey !== undefined && r.identityKey !== f.identityKey) return false;
-        if (f.id !== undefined && r.id !== f.id) return false;
-        return true;
-      });
-    },
-    insert: () => chain,
-    values: (row: IdentityRow) => {
-      // capture row for run() below
-      (chain as unknown as { _pending: IdentityRow })._pending = row;
-      return chain;
-    },
-    run: () => {
-      const row = (chain as unknown as { _pending?: IdentityRow })._pending;
-      if (row) dbState.rows.push(row);
-      (chain as unknown as { _pending?: IdentityRow })._pending = undefined;
-    },
-  };
-  return { db: chain };
-});
+vi.mock("../db/index.js", () => ({
+  db: {},
+}));
 
 vi.mock("../../utils/logger.js", () => ({
   databaseLogger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -219,6 +159,9 @@ import {
   writeMarkdownFileAtomic,
   writeAvatarSiblingFile,
   resolveRoleForIdentity,
+  readIdentityFile,
+  extractCosmeticsFromFrontmatter,
+  extractRoleFromMarkdown,
 } from "../../claude-session/identity-artifact-reader.js";
 import {
   getCandidateForBirth,
@@ -278,7 +221,7 @@ function httpRequest(
   });
 }
 
-// Stub SSH conn + host record + source row
+// Stub SSH conn + host record
 const stubConn = {
   end: vi.fn(),
   exec: vi.fn(),
@@ -293,17 +236,6 @@ const stubHost = {
   password: "secret",
 };
 
-// Phase 66 Plan 04: source row no longer carries cosmetic columns. The
-// clone handler no longer copies avatar/mime/etag/colorHue from the row —
-// those come from disk (or safe-defaults on publicIdentity).
-const stubSourceRow: IdentityRow = {
-  id: "src-id-nano",
-  userId: "1",
-  identityKey: "tina",
-  createdAt: "2026-01-01T00:00:00.000Z",
-  updatedAt: "2026-01-01T00:00:00.000Z",
-};
-
 // ---------------------------------------------------------------------------
 // Import router under test (module does not exist yet → RED)
 // ---------------------------------------------------------------------------
@@ -316,16 +248,15 @@ let server: http.Server;
 // to Mock so tests can .mockRejectedValueOnce and inspect .mock.calls.
 const mockStartHarness = startHarnessOnIdentity as unknown as Mock;
 
+// Phase 68 Plan 03: default disk-read response for the post-clone re-read
+// (readIdentityFile → extractCosmeticsFromFrontmatter for response cosmetics).
+const DEFAULT_CLONE_MARKDOWN =
+  "---\nrole: box-maintainer\ndisplayName: Tina-2\ntitle: Cloned Op\n---\n\n# tina-2\n";
+
 beforeEach(() => {
   vi.clearAllMocks();
   stubConn.end.mockClear();
   mockStartHarness.mockReset().mockResolvedValue(undefined);
-  dbState.rows = [];
-  dbState.lastFilter = {};
-  filterAccum = {};
-
-  // Seed the source row
-  dbState.rows.push({ ...stubSourceRow });
 
   // Default: user owns host 5; anything else → null
   (resolveHostById as Mock).mockImplementation((hostId: number) => {
@@ -350,6 +281,19 @@ beforeEach(() => {
     bytes: Buffer.from("candidate-avatar-bytes"),
     mime: "image/png",
   });
+
+  // Phase 68: disk re-read for clone response
+  (readIdentityFile as Mock).mockResolvedValue({ markdown: DEFAULT_CLONE_MARKDOWN });
+  (extractCosmeticsFromFrontmatter as Mock).mockReturnValue({
+    displayName: "Tina-2",
+    title: "Cloned Op",
+    colorHue: undefined,
+    voice: undefined,
+    avatarMime: undefined,
+    avatarEtag: undefined,
+    coordinator: undefined,
+  });
+  (extractRoleFromMarkdown as Mock).mockReturnValue("box-maintainer");
 
   const app = express();
   // Router does its own express.json() mounting per plan
@@ -435,7 +379,14 @@ describe("POST /identities/clone", () => {
     expect(connectOneShot).not.toHaveBeenCalled();
   });
 
-  it("Test 5: source row not found in Skynet DB → 404", async () => {
+  it("Test 5: Phase 68 — source identity not found on disk (resolveRoleForIdentity throws) → 500", async () => {
+    // Phase 68: source existence is verified by SSH — resolveRoleForIdentity
+    // throws if the source's .md file is missing. That throw IS the
+    // source-existence check. No DB SELECT for the source row.
+    (resolveRoleForIdentity as Mock).mockRejectedValueOnce(
+      new Error("identity nonexistent: no role frontmatter"),
+    );
+
     const res = await httpRequest(server, {
       method: "POST",
       path: "/identities/clone",
@@ -449,9 +400,9 @@ describe("POST /identities/clone", () => {
         path: "~",
       }),
     });
-    expect(res.status).toBe(404);
-    expect((res.body as { error: string }).error).toMatch(/source not found/i);
-    expect(connectOneShot).not.toHaveBeenCalled();
+    expect(res.status).toBe(500);
+    expect((res.body as { error: string }).error).toMatch(/source has no role frontmatter/i);
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
   });
 
   it("Test 6: source has no role frontmatter → 500 (resolveRoleForIdentity throws — NO fallback)", async () => {
@@ -476,9 +427,7 @@ describe("POST /identities/clone", () => {
     expect((res.body as { error: string }).error).toMatch(/source has no role frontmatter/i);
     // writeMarkdownFileAtomic must NOT have been called
     expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
-    // No DB insert past the source read (only the seeded source row remains)
-    expect(dbState.rows.length).toBe(1);
-    expect(dbState.rows[0].identityKey).toBe("tina");
+    // Phase 68: no DB state to check — source verification is now purely SSH-based
   });
 
   it("Test 7: newName already exists on target host → 409", async () => {
@@ -505,13 +454,23 @@ describe("POST /identities/clone", () => {
     expect(res.status).toBe(409);
     expect((res.body as { error: string }).error).toMatch(/identity exists on host/i);
     expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
-    // Only the seeded source row remains — no clone insert
-    expect(dbState.rows.length).toBe(1);
     // conn.end() still fires (try/finally)
     expect(stubConn.end).toHaveBeenCalledTimes(1);
   });
 
-  it("Test 8: happy path with avatarCandidateId — 201, DB insert with narrow row + safe-default publicIdentity + seed-comment stub", async () => {
+  it("Test 8: Phase 68 — happy path with avatarCandidateId — 201 with Phase 68 publicIdentity shape (disk re-read cosmetics)", async () => {
+    // Set up the disk re-read mock for "tina-2" with avatar frontmatter
+    (readIdentityFile as Mock).mockResolvedValue({
+      markdown: "---\nrole: box-maintainer\ndisplayName: Tina-2\ntitle: Cloned Op\nvoice: Nathan.wav\navatar: tina-2.png\n---\n\n# tina-2\n",
+    });
+    (extractCosmeticsFromFrontmatter as Mock).mockReturnValue({
+      displayName: "Tina-2",
+      title: "Cloned Op",
+      voice: "Nathan.wav",
+      avatar: "tina-2.png",
+    });
+    (extractRoleFromMarkdown as Mock).mockReturnValue("box-maintainer");
+
     const res = await httpRequest(server, {
       method: "POST",
       path: "/identities/clone",
@@ -528,7 +487,6 @@ describe("POST /identities/clone", () => {
 
     expect(res.status).toBe(201);
     const body = res.body as {
-      id: string;
       identityKey: string;
       displayName: string;
       title: string | null;
@@ -538,43 +496,28 @@ describe("POST /identities/clone", () => {
       avatarMime: string;
       avatarEtag: string;
       coordinator: boolean;
+      role: string | null;
     };
+    // Phase 68: no id, no createdAt, no updatedAt in response
+    expect((body as Record<string, unknown>).id).toBeUndefined();
+    expect((body as Record<string, unknown>).createdAt).toBeUndefined();
+    expect((body as Record<string, unknown>).updatedAt).toBeUndefined();
+
+    // Phase 68 publicIdentity shape — disk re-read cosmetics
     expect(body.identityKey).toBe("tina-2");
-    // Phase 66 Plan 04: publicIdentity uses the safe-defaults contract
-    // (moved from Plan 05 to Plan 03 per checker B2). displayName falls
-    // back to capitalizeFirst(identityKey); title/colorHue/voice go null;
-    // avatarMime/avatarEtag go "" — cosmetics are disk-authoritative and
-    // this endpoint does not disk-read (clone returns immediately post-
-    // insert). Frontend Identity type's non-nullable-string contract is
-    // satisfied via the "" defaults.
     expect(body.displayName).toBe("Tina-2");
-    expect(body.title).toBeNull();
-    expect(body.voice).toBeNull();
+    expect(body.title).toBe("Cloned Op");
+    expect(body.voice).toBe("Nathan.wav");
     expect(body.colorHue).toBeNull();
     expect(body.avatarMime).toBe("");
     expect(body.avatarEtag).toBe("");
-    expect(body.avatarUrl).toBe(`/identities/${body.id}/avatar`);
-    expect(body.id).toBeTruthy();
-    // Phase 67 /close 2026-09-01 follow-up (H2): clone-local publicIdentity
-    // must emit `coordinator: false` to satisfy the frontend Identity type's
-    // non-nullable coordinator field. Freshly-cloned identities are never
-    // coordinators (coordinator lives in on-disk YAML — a fresh clone has
-    // no such YAML yet).
+    // avatarUrl bakes hostId into the query string (Phase 68 identities.ts pattern)
+    expect(body.avatarUrl).toMatch(/\/identities\/tina-2\/avatar/);
     expect(body.coordinator).toBe(false);
+    expect(body.role).toBe("box-maintainer");
 
-    // DB assertions — new row inserted alongside the source row. Store shape
-    // is narrowed to the 5 surviving columns; NO cosmetic asserts remain.
-    expect(dbState.rows.length).toBe(2);
-    const newRow = dbState.rows.find((r) => r.identityKey === "tina-2");
-    expect(newRow).toBeDefined();
-    expect(newRow!.userId).toBe("1");
-    expect(newRow!.id).toBeTruthy();
-    expect(newRow!.createdAt).toBeTruthy();
-    expect(newRow!.updatedAt).toBeTruthy();
-    // No displayName/title/colorHue/voice/avatarMime/avatarData/avatarEtag
-    // on the row — those keys are gone from the drizzle schema (Task 1).
-    expect((newRow as unknown as Record<string, unknown>).avatarData).toBeUndefined();
-    expect((newRow as unknown as Record<string, unknown>).colorHue).toBeUndefined();
+    // readIdentityFile was called post-write for disk re-read
+    expect(readIdentityFile).toHaveBeenCalledTimes(1);
 
     // SSH assertions — mkdir + touch + writeMarkdownFileAtomic
     const execCalls = (execCommand as Mock).mock.calls.map((c) => c[1] as string);
@@ -705,7 +648,7 @@ describe("POST /identities/clone", () => {
     expect((res.body as { error: string }).error).toMatch(/colorHue/i);
   });
 
-  it("Test 9: WITHOUT avatarCandidateId — inserts narrow row (no avatar-copy from source; cosmetics live on disk)", async () => {
+  it("Test 9: Phase 68 — WITHOUT avatarCandidateId — 201 with safe-default cosmetics from disk re-read", async () => {
     const res = await httpRequest(server, {
       method: "POST",
       path: "/identities/clone",
@@ -725,19 +668,12 @@ describe("POST /identities/clone", () => {
     expect(getCandidateForBirth).not.toHaveBeenCalled();
     expect(consumeCandidateForBirth).not.toHaveBeenCalled();
 
-    // Phase 66 Plan 04: the store row is narrowed to 5 columns; the clone
-    // handler no longer copies avatarData/avatarMime/etag/colorHue from
-    // source. Those values live on disk (source's identity file is copied
-    // separately via the fleet-standard on-disk workflow — orthogonal to
-    // this endpoint). The insertRow is just the 5 surviving columns.
-    const newRow = dbState.rows.find((r) => r.identityKey === "tina-3");
-    expect(newRow).toBeDefined();
-    expect(newRow!.userId).toBe("1");
-    expect(newRow!.identityKey).toBe("tina-3");
-    // No cosmetic keys on the row at all
-    expect((newRow as unknown as Record<string, unknown>).avatarData).toBeUndefined();
-    expect((newRow as unknown as Record<string, unknown>).avatarMime).toBeUndefined();
-    expect((newRow as unknown as Record<string, unknown>).colorHue).toBeUndefined();
+    // Phase 68: no DB row inserted — response uses disk re-read cosmetics
+    const body = res.body as { identityKey: string };
+    expect(body.identityKey).toBe("tina-3");
+
+    // readIdentityFile was called for disk re-read
+    expect(readIdentityFile).toHaveBeenCalledTimes(1);
   });
 
   it("Test 10: SSH connect failure → 502; DB row NOT inserted", async () => {
@@ -759,9 +695,7 @@ describe("POST /identities/clone", () => {
       }),
     });
     expect(res.status).toBe(502);
-    // Only the seeded source row remains — no clone insert
-    expect(dbState.rows.length).toBe(1);
-    expect(dbState.rows[0].identityKey).toBe("tina");
+    // Phase 68: no DB state to check — only SSH-side work matters
     expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
   });
 
@@ -806,14 +740,13 @@ describe("POST /identities/clone", () => {
     expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
   });
 
-  it("Test 13: newName already exists in DB for this user → 409 BEFORE any SSH work", async () => {
-    // Seed a second identity row for the same user with the target newName.
-    // Precheck (step 2b) must catch this and return 409 without touching SSH.
-    dbState.rows.push({
-      ...stubSourceRow,
-      id: "existing-collision-id",
-      identityKey: "patty",
-      displayName: "patty",
+  it("Test 13: Phase 68 — newName already exists on disk (SSH probe returns 'exists') → 409 [formerly DB collision, now SSH-only check]", async () => {
+    // Phase 68: newName collision is checked exclusively by the SSH-side probe.
+    // No DB precheck — there's no DB roster to check against.
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("if [ -d") && cmd.includes("patty")) return "exists";
+      if (cmd.includes("echo $HOME")) return "/home/ubuntu";
+      return "";
     });
 
     const res = await httpRequest(server, {
@@ -831,13 +764,10 @@ describe("POST /identities/clone", () => {
     });
 
     expect(res.status).toBe(409);
-    expect((res.body as { error: string }).error).toMatch(/already in use/i);
-    // Precheck short-circuits before any SSH primitive fires
-    expect(connectOneShot).not.toHaveBeenCalled();
-    expect(execCommand).not.toHaveBeenCalled();
+    expect((res.body as { error: string }).error).toMatch(/identity exists on host/i);
+    // SSH IS connected (needed for the probe), but write is not called
+    expect(connectOneShot).toHaveBeenCalledTimes(1);
     expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
-    // No insert happened — still just source + seeded collision row
-    expect(dbState.rows.length).toBe(2);
   });
 
   it("Test 14: missing path → 400", async () => {
@@ -959,12 +889,8 @@ describe("POST /identities/clone", () => {
     expect(res.status).toBe(502);
     expect((res.body as { error: string }).error).toBe("SSH exec failed");
 
-    // No DB row for the failed clone — only the seeded source row remains.
-    expect(dbState.rows.length).toBe(1);
-    expect(dbState.rows.filter((r) => r.identityKey === "tina-harnessfail")).toEqual([]);
-
-    // writeMarkdownFileAtomic must NOT have been called — SFTP identity-file
-    // write is downstream of harness-start in the endpoint's ordering.
+    // Phase 68: no DB state to check. writeMarkdownFileAtomic must NOT have
+    // been called — SFTP identity-file write is downstream of harness-start.
     expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
 
     // conn.end() still fires in the outer finally — connection cleanup is

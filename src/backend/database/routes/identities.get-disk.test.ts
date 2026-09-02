@@ -1,57 +1,45 @@
 /**
- * Phase 66 Plan 66-03 (READ — disk-derived cosmetics flip): Tests for the
- * flipped GET /identities and GET /identities/:id/avatar handlers.
+ * Phase 68 Plan 68-02 Task 2: Tests for the rewired GET /identities fanout handler
+ * and GET /identities/:identityKey/avatar handler.
  *
- * Post-flip contract (see .planning/phases/66-.../66-03-PLAN.md):
+ * POST Phase 68-02 contract:
  *
- * ─── GET /identities ─────────────────────────────────────────────────────
- * Optional query `identityHosts` = URL-encoded JSON `{ identityKey: hostId }`
- * map. For each store row:
- *   - If identityKey is IN the map: attempt to read <key>.md via the
- *     artifact-reader on that hostId's box (isLocalHostId LOCAL/REMOTE
- *     split; connectOneShot for REMOTE). Overlay cosmetics from the parsed
- *     frontmatter onto publicIdentity(). Failures (unreachable / missing
- *     frontmatter / bad YAML) → row returned with SAFE-DEFAULT cosmetics
- *     for that row only (accept-the-ugly-render per Ashley's greenlight;
- *     endpoint never errors 5xx for a per-row fetch failure).
- *   - If identityKey is NOT in the map: row returned with SAFE-DEFAULT
- *     cosmetics — displayName = capitalizeFirst(identityKey); title/
- *     colorHue/voice = null; avatarMime = "" ; avatarEtag = "".
- *     (Plan 05 will thread identityHosts populated from fleetSessions;
- *     transition-window degradation is deliberate.)
+ * ─── GET /identities (fanout) ─────────────────────────────────────────────────
+ * No DB SELECT. Fans out per unique hostId from identityHosts query param:
+ *   - listIdentityKeysOnHost(conn) per host to enumerate folder names.
+ *   - readIdentityFile(conn, key) per key to read cosmetics.
+ *   - extractCosmeticsFromFrontmatter + extractRoleFromMarkdown → publicIdentity().
+ *   - Per-host silent-swallow on error (no 5xx, no crash).
+ *   - First-host-wins on cross-host identityKey collision.
+ *   - Empty identityHosts → [].
  *
- * ─── GET /identities/:id/avatar ──────────────────────────────────────────
- * Required query `hostId=<positive int>`. Reads sibling avatar file from
- * disk via readAvatarSiblingFile:
- *   - Success → 200 with Content-Type = readResult.mime; body = bytes;
- *     ETag = "disk-<md5>" (per-response; not stored server-side).
- *   - Null result → 404 { error: "no avatar on disk for this identity" }.
- *   - SSH throw → 502 { error: "identity home box unreachable" }.
- *   - Missing/invalid hostId query → 400.
- *   - LOCAL branch (isLocalHostId=true) → conn=null; connectOneShot NEVER
- *     called; readAvatarSiblingFile called with conn=null.
+ * ─── publicIdentity() shape (Phase 68) ──────────────────────────────────────
+ * Takes (identityKey, hostId, cosmetics, role). Returns 10 fields:
+ *   identityKey, displayName, title, colorHue, voice, avatarMime, avatarUrl,
+ *   avatarEtag, coordinator, role.
+ * DROPPED: id, createdAt, updatedAt.
+ * avatarUrl = `/identities/${identityKey}/avatar?hostId=${hostId}`.
  *
- * ─── publicIdentity() safe-defaults (moved from Plan 05 per checker B2) ──
- * Emits safe non-null defaults for the frontend Identity type's non-nullable-
- * string fields (displayName/avatarMime/avatarEtag) when disk-overlay is
- * absent — matches the wire type contract without widening it.
+ * ─── GET /identities/:identityKey/avatar ─────────────────────────────────────
+ * Route rekeyed from /:id to /:identityKey. No DB row lookup. Uses the URL
+ * param directly with readAvatarSiblingFile. Same 404/502/400 contract as before.
  *
- * Test surface: 8 tests
- *   1  Happy path GET / — full map, both rows overlay from disk, third row
- *      has no hostId supplied → safe-defaults for that row.
- *   2  Unreachable box scoped to row — nelly's connectOneShot rejects;
- *      tina's LOCAL branch works; both rows in 200 response, nelly safe-def.
- *   3  Missing-frontmatter fixture ("unreachable-test") → row returned with
- *      safe-default cosmetics. 200, no error on whole endpoint.
- *   4  GET /:id/avatar happy path: 200 + Content-Type + body bytes match.
- *   5  GET /:id/avatar disk-empty → 404.
- *   6  GET /:id/avatar SSH-fail → 502.
- *   7  GET /:id/avatar missing hostId → 400.
- *   8  GET /:id/avatar LOCAL branch → connectOneShot NEVER called.
+ * Test surface: 6 fanout tests + direct publicIdentity unit tests + 5 avatar tests
+ *   Fanout (a)  single host, 2 identities on disk → 2 in response, hostId baked in avatarUrl
+ *   Fanout (b)  two hosts, 3+2 identities → 5 in response, correct hostId per identity
+ *   Fanout (c)  unreachable host (listIdentityKeysOnHost throws) → that host absent, survivor present
+ *   Fanout (d)  cross-host collision on identityKey "tina" → first-host-wins
+ *   Fanout (e)  empty identityHosts map → []
+ *   Fanout (f)  host reachable but empty folder (listIdentityKeysOnHost returns []) → 0 identities
  *
- * Scaffold: mirrors identities.put-disk.test.ts (bare Express + Node http.request,
- * vi.mock db chain, vi.mock artifact-reader, vi.mock ssh-one-shot,
- * vi.mock host-resolver, in-memory identities table).
+ *   Avatar (1)  happy path: 200 + Content-Type + body bytes + Cache-Control: no-store
+ *   Avatar (2)  readAvatarSiblingFile returns null → 404
+ *   Avatar (3)  readAvatarSiblingFile throws → 502
+ *   Avatar (4)  missing hostId → 400
+ *   Avatar (5)  LOCAL branch → connectOneShot NEVER called
+ *
+ * Scaffold: bare Express + Node http.request, vi.mock on artifact-reader, ssh-one-shot,
+ * host-resolver, tmux-helper. DB mocks kept minimal (POST / still uses DB; GET / does not).
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -89,13 +77,9 @@ vi.mock("../../utils/auth-manager.js", () => {
 vi.mock("nanoid", () => ({ nanoid: () => "nano-generated-id" }));
 
 // ---------------------------------------------------------------------------
-// In-memory identities table shim
+// In-memory identities table shim (kept for POST / which still uses DB)
 // ---------------------------------------------------------------------------
 
-// Phase 66 Plan 04: identities row narrowed to 5 surviving columns.
-// The stale-store cosmetic seed values Test 1 previously used are gone —
-// publicIdentity() no longer reads them from the row; it either overlays
-// from the disk-read cosmetics map or emits the safe-default contract.
 type IdentityRow = {
   id: string;
   userId: string;
@@ -120,7 +104,6 @@ vi.mock("drizzle-orm", () => ({
   and: (...conds: unknown[]) => ({ __type: "and", conds }),
 }));
 
-// Phase 66 Plan 04: schema mock narrowed to 5 surviving columns.
 vi.mock("../db/schema.js", () => ({
   identities: {
     id: { _colName: "id" },
@@ -170,15 +153,17 @@ vi.mock("../../utils/database-save-trigger.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Artifact-reader mock
+// Artifact-reader mock — includes listIdentityKeysOnHost (Phase 68 new export)
 // ---------------------------------------------------------------------------
 
 const readIdentityFileMock = vi.fn();
 const readAvatarSiblingFileMock = vi.fn();
 const isLocalHostIdMock = vi.fn();
+const listIdentityKeysOnHostMock = vi.fn();
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   readIdentityFile: (conn: unknown, key: string) => readIdentityFileMock(conn, key),
+  listIdentityKeysOnHost: (conn: unknown) => listIdentityKeysOnHostMock(conn),
   writeIdentityFile: vi.fn(),
   writeAvatarSiblingFile: vi.fn(),
   readAvatarSiblingFile: (conn: unknown, key: string) =>
@@ -225,7 +210,6 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
     if (typeof src.colorHue === "number" && src.colorHue >= 0 && src.colorHue <= 359) out.colorHue = src.colorHue;
     if (typeof src.voice === "string" && src.voice.length > 0) out.voice = src.voice;
     if (typeof src.avatar === "string" && src.avatar.length > 0) out.avatar = src.avatar;
-    // Phase 67 Plan 67-01: coordinator field (boolean-only, dropped otherwise).
     if (typeof src.coordinator === "boolean") out.coordinator = src.coordinator;
     return out;
   },
@@ -299,43 +283,14 @@ function httpGet(
 
 let server: http.Server;
 
-// Phase 66 Plan 04: rows narrow to the 5 surviving columns. The stale-store
-// cosmetic values that Plan 03 tests used to prove "response ignores store
-// cosmetics" no longer exist anywhere in the codebase — the store shim
-// couldn't hold them if it wanted to.
-function seedThreeRows() {
-  dbState.identities = [
-    {
-      id: "tina-id",
-      userId: "test-user",
-      identityKey: "tina",
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    },
-    {
-      id: "nelly-id",
-      userId: "test-user",
-      identityKey: "nelly",
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    },
-    {
-      id: "unreachable-id",
-      userId: "test-user",
-      identityKey: "unreachable-test",
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-    },
-  ];
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
   mockUserId = "test-user";
-  seedThreeRows();
+  dbState.identities = [];
   filterAccum = {};
 
   // Default mocks
+  listIdentityKeysOnHostMock.mockResolvedValue([]);
   readIdentityFileMock.mockResolvedValue({ markdown: "" });
   readAvatarSiblingFileMock.mockResolvedValue(null);
   isLocalHostIdMock.mockReturnValue(false);
@@ -350,320 +305,325 @@ beforeEach(() => {
 afterEach(() => new Promise<void>((resolve) => server.close(() => resolve())));
 
 // ===========================================================================
-// Tests
+// publicIdentity unit tests (Phase 68 shape: no id/createdAt/updatedAt)
 // ===========================================================================
 
-// Phase 67 Plan 67-01: colocated unit tests for publicIdentity's coordinator
-// overlay contract. publicIdentity is imported directly (function is exported
-// from identities.ts starting in Task 2). These tests exercise the safe-default
-// contract in isolation from the route wiring — the route-level tests below
-// prove the full disk → overlay → wire path end-to-end.
-describe("publicIdentity — coordinator overlay (Phase 67 Plan 67-01)", () => {
-  const baseRow = {
-    id: "row-id-1",
-    userId: "test-user",
-    identityKey: "tina",
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-  } as unknown as Parameters<typeof publicIdentity>[0];
-
-  it("PUB-1: publicIdentity(row, { coordinator: true }) → coordinator === true", () => {
-    const out = publicIdentity(baseRow, { coordinator: true });
-    expect(out.coordinator).toBe(true);
+describe("publicIdentity — Phase 68 shape (no id/createdAt/updatedAt)", () => {
+  it("PUB-1: emits identityKey, displayName, title, colorHue, voice, avatarMime, avatarUrl, avatarEtag, coordinator, role", () => {
+    const out = publicIdentity("tina", 1, { displayName: "Tina", title: "Dev", colorHue: 220, voice: "Elena.wav", avatarMime: "image/png", avatarEtag: "abc", coordinator: true }, "box-maintainer");
+    expect(out).toHaveProperty("identityKey", "tina");
+    expect(out).toHaveProperty("displayName", "Tina");
+    expect(out).toHaveProperty("title", "Dev");
+    expect(out).toHaveProperty("colorHue", 220);
+    expect(out).toHaveProperty("voice", "Elena.wav");
+    expect(out).toHaveProperty("avatarMime", "image/png");
+    expect(out).toHaveProperty("avatarUrl", "/identities/tina/avatar?hostId=1");
+    expect(out).toHaveProperty("avatarEtag", "abc");
+    expect(out).toHaveProperty("coordinator", true);
+    expect(out).toHaveProperty("role", "box-maintainer");
+    // DROPPED fields must NOT be present
+    expect(out).not.toHaveProperty("id");
+    expect(out).not.toHaveProperty("createdAt");
+    expect(out).not.toHaveProperty("updatedAt");
   });
 
-  it("PUB-2: publicIdentity(row, { coordinator: false }) → coordinator === false", () => {
-    const out = publicIdentity(baseRow, { coordinator: false });
+  it("PUB-2: safe-defaults: no cosmetics → capitalizeFirst(identityKey) + nulls + empty strings", () => {
+    const out = publicIdentity("poppy", 5, {}, null);
+    expect(out.displayName).toBe("Poppy"); // capitalizeFirst
+    expect(out.title).toBeNull();
+    expect(out.colorHue).toBeNull();
+    expect(out.voice).toBeNull();
+    expect(out.avatarMime).toBe("");
+    expect(out.avatarEtag).toBe("");
     expect(out.coordinator).toBe(false);
+    expect(out.role).toBeNull();
+    // hostId baked into avatarUrl
+    expect(out.avatarUrl).toBe("/identities/poppy/avatar?hostId=5");
   });
 
-  it("PUB-3: publicIdentity(row, {}) → coordinator === false (safe-default; not null, not missing)", () => {
-    const out = publicIdentity(baseRow, {});
+  it("PUB-3: coordinator safe-default is false (not null, not undefined)", () => {
+    const out = publicIdentity("tina", 1, {}, null);
     expect(out.coordinator).toBe(false);
-    // Explicit shape: safe-default is the boolean literal false, not null/undefined.
     expect(out.coordinator).not.toBeNull();
     expect(out.coordinator).not.toBeUndefined();
   });
 
-  it("PUB-4: publicIdentity(row) with no cosmetics argument → coordinator === false", () => {
-    const out = publicIdentity(baseRow);
+  it("PUB-4: no cosmetics argument → same as empty cosmetics", () => {
+    const out = publicIdentity("moxie", 3);
     expect(out.coordinator).toBe(false);
+    expect(out.avatarUrl).toBe("/identities/moxie/avatar?hostId=3");
   });
 });
 
-describe("GET /identities — disk-derived cosmetics (Phase 66 Plan 66-03)", () => {
+// ===========================================================================
+// GET /identities — fanout enumeration (Phase 68)
+// ===========================================================================
+
+describe("GET /identities — disk-fanout enumeration (Phase 68 Plan 68-02)", () => {
+
   // -------------------------------------------------------------------------
-  // Test 1: happy path — full identityHosts map, mixed disk-overlay + safe-def
+  // Fanout (a): single host, 2 identities on disk
   // -------------------------------------------------------------------------
-  it("Test 1: identityHosts={tina:1,nelly:5} → tina full disk-overlay, nelly partial disk-overlay + nulls, unreachable-test safe-defaults", async () => {
+  it("Fanout-a: single host, 2 identities on disk → 2 in response with hostId baked in avatarUrl", async () => {
     isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+
+    listIdentityKeysOnHostMock.mockResolvedValue(["tina", "poppy"]);
 
     readIdentityFileMock.mockImplementation((_conn: unknown, key: string) => {
       if (key === "tina") {
         return Promise.resolve({
-          markdown:
-            "---\nrole: box-maintainer\ndisplayName: Tina\ntitle: The Coder\ncolorHue: 220\nvoice: Elena.wav\navatar: tina.png\n---\n",
+          markdown: "---\nrole: box-maintainer\ndisplayName: Tina\ntitle: The Coder\ncolorHue: 220\n---\n",
         });
       }
-      if (key === "nelly") {
-        // 3 of 5 present — colorHue + voice absent
+      if (key === "poppy") {
         return Promise.resolve({
-          markdown:
-            "---\nrole: box-maintainer\ndisplayName: Nelly\ntitle: The Fleet Warden\navatar: nelly.webp\n---\n",
+          markdown: "---\nrole: box-maintainer\ndisplayName: Poppy\ntitle: The Warden\n---\n",
         });
       }
       return Promise.resolve({ markdown: "" });
     });
 
-    const hostsJson = encodeURIComponent(JSON.stringify({ tina: 1, nelly: 5 }));
+    const hostsJson = encodeURIComponent(JSON.stringify({ tina: 1, poppy: 1 }));
     const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
 
     expect(res.status).toBe(200);
     const rows = res.body as Array<Record<string, unknown>>;
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(2);
 
     const tina = rows.find((r) => r.identityKey === "tina") as Record<string, unknown>;
-    const nelly = rows.find((r) => r.identityKey === "nelly") as Record<string, unknown>;
-    const ut = rows.find((r) => r.identityKey === "unreachable-test") as Record<string, unknown>;
+    const poppy = rows.find((r) => r.identityKey === "poppy") as Record<string, unknown>;
 
-    // Tina: full disk-overlay
+    expect(tina).toBeDefined();
     expect(tina.displayName).toBe("Tina");
     expect(tina.title).toBe("The Coder");
     expect(tina.colorHue).toBe(220);
-    expect(tina.voice).toBe("Elena.wav");
+    // avatarUrl must carry hostId=1
+    expect(tina.avatarUrl).toBe("/identities/tina/avatar?hostId=1");
+    // No id/createdAt/updatedAt
+    expect(tina).not.toHaveProperty("id");
+    expect(tina).not.toHaveProperty("createdAt");
+    expect(tina).not.toHaveProperty("updatedAt");
 
-    // Nelly: partial disk-overlay (displayName + title from disk; colorHue+voice null)
-    expect(nelly.displayName).toBe("Nelly");
-    expect(nelly.title).toBe("The Fleet Warden");
-    expect(nelly.colorHue).toBeNull();
-    expect(nelly.voice).toBeNull();
-
-    // unreachable-test: no hostId in map → SAFE-DEFAULTS
-    expect(ut.displayName).toBe("Unreachable-test"); // capitalizeFirst
-    expect(ut.title).toBeNull();
-    expect(ut.colorHue).toBeNull();
-    expect(ut.voice).toBeNull();
-    expect(ut.avatarMime).toBe(""); // non-nullable string safe-default
-    expect(ut.avatarEtag).toBe(""); // non-nullable string safe-default
+    expect(poppy).toBeDefined();
+    expect(poppy.displayName).toBe("Poppy");
+    expect(poppy.avatarUrl).toBe("/identities/poppy/avatar?hostId=1");
   });
 
   // -------------------------------------------------------------------------
-  // Test 2: unreachable box scoped to row — nelly connect fails, tina works
+  // Fanout (b): two hosts, correct hostId per identity in avatarUrl
   // -------------------------------------------------------------------------
-  it("Test 2: nelly's connectOneShot rejects → tina disk-overlay + nelly safe-defaults; 200 (not 502)", async () => {
-    isLocalHostIdMock.mockImplementation((n: number) => n === 1); // tina=LOCAL, nelly=REMOTE
+  it("Fanout-b: two hosts with different identities → all 5 in response, each with correct hostId in avatarUrl", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
 
-    readIdentityFileMock.mockImplementation((_conn: unknown, key: string) => {
-      if (key === "tina") {
-        return Promise.resolve({
-          markdown:
-            "---\nrole: box-maintainer\ndisplayName: Tina\ntitle: The Coder\ncolorHue: 220\nvoice: Elena.wav\navatar: tina.png\n---\n",
-        });
+    // host 1 (LOCAL): tina, poppy, moxie
+    // host 2 (REMOTE): nelly, zoey
+    listIdentityKeysOnHostMock.mockImplementation((conn: unknown) => {
+      if (conn === null) {
+        // LOCAL host 1
+        return Promise.resolve(["tina", "poppy", "moxie"]);
       }
-      // Nelly should not be READ — the SSH connect fails first, so this
-      // branch only fires if the caller misroutes.
-      return Promise.resolve({ markdown: "" });
+      // REMOTE host 2
+      return Promise.resolve(["nelly", "zoey"]);
     });
 
-    connectOneShotMock.mockRejectedValue(new Error("Host unreachable"));
+    readIdentityFileMock.mockImplementation((_conn: unknown, key: string) => {
+      return Promise.resolve({
+        markdown: `---\nrole: box-maintainer\ndisplayName: ${key.charAt(0).toUpperCase() + key.slice(1)}\n---\n`,
+      });
+    });
 
-    const hostsJson = encodeURIComponent(JSON.stringify({ tina: 1, nelly: 5 }));
+    // identityHosts: tina→1, poppy→1, moxie→1, nelly→2, zoey→2
+    const hostsJson = encodeURIComponent(JSON.stringify({ tina: 1, poppy: 1, moxie: 1, nelly: 2, zoey: 2 }));
     const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
 
-    expect(res.status).toBe(200); // NOT 502 — per-row degradation
+    expect(res.status).toBe(200);
     const rows = res.body as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(5);
+
     const tina = rows.find((r) => r.identityKey === "tina") as Record<string, unknown>;
     const nelly = rows.find((r) => r.identityKey === "nelly") as Record<string, unknown>;
 
-    expect(tina.displayName).toBe("Tina");
-    expect(tina.title).toBe("The Coder");
-
-    // Nelly: SAFE-DEFAULTS (SSH connect failed for this row only)
-    expect(nelly.displayName).toBe("Nelly"); // capitalizeFirst
-    expect(nelly.title).toBeNull();
-    expect(nelly.colorHue).toBeNull();
-    expect(nelly.voice).toBeNull();
-    expect(nelly.avatarMime).toBe("");
-    expect(nelly.avatarEtag).toBe("");
+    // host 1 identities get hostId=1 in avatarUrl
+    expect(tina.avatarUrl).toBe("/identities/tina/avatar?hostId=1");
+    // host 2 identities get hostId=2 in avatarUrl
+    expect(nelly.avatarUrl).toBe("/identities/nelly/avatar?hostId=2");
   });
 
   // -------------------------------------------------------------------------
-  // Test 3: unreachable-test-fixture missing folder — empty markdown → safe-def
+  // Fanout (c): unreachable host → that host's identities absent, survivor present
   // -------------------------------------------------------------------------
-  it("Test 3: identityHosts={unreachable-test:7} + readIdentityFile returns empty → safe-defaults for that row; 200", async () => {
-    isLocalHostIdMock.mockReturnValue(false);
-    readIdentityFileMock.mockImplementation((_conn: unknown, key: string) => {
-      if (key === "unreachable-test") return Promise.resolve({ markdown: "" });
-      return Promise.resolve({ markdown: "" });
+  it("Fanout-c: unreachable host (listIdentityKeysOnHost throws) → absent from result, other host present", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+
+    listIdentityKeysOnHostMock.mockImplementation((conn: unknown) => {
+      if (conn === null) {
+        // LOCAL host 1: works
+        return Promise.resolve(["tina"]);
+      }
+      // REMOTE host 2: SSH failure
+      return Promise.reject(new Error("Host unreachable"));
     });
 
-    const hostsJson = encodeURIComponent(JSON.stringify({ "unreachable-test": 7 }));
+    readIdentityFileMock.mockResolvedValue({
+      markdown: "---\nrole: box-maintainer\ndisplayName: Tina\n---\n",
+    });
+
+    // tina→1 (LOCAL, works), nelly→2 (REMOTE, fails)
+    const hostsJson = encodeURIComponent(JSON.stringify({ tina: 1, nelly: 2 }));
     const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(200); // NOT 5xx — per-host silent-swallow
     const rows = res.body as Array<Record<string, unknown>>;
-    const ut = rows.find((r) => r.identityKey === "unreachable-test") as Record<string, unknown>;
-    expect(ut.displayName).toBe("Unreachable-test"); // capitalizeFirst
-    expect(ut.title).toBeNull();
-    expect(ut.colorHue).toBeNull();
-    expect(ut.voice).toBeNull();
-    expect(ut.avatarMime).toBe("");
-    expect(ut.avatarEtag).toBe("");
+
+    // Only tina (from host 1) present; nelly (from host 2) absent
+    const tinaRow = rows.find((r) => r.identityKey === "tina");
+    const nellyRow = rows.find((r) => r.identityKey === "nelly");
+
+    expect(tinaRow).toBeDefined();
+    expect(nellyRow).toBeUndefined();
+    expect(rows).toHaveLength(1);
   });
 
   // -------------------------------------------------------------------------
-  // Phase 67 Plan 67-01 — coordinator overlay end-to-end
+  // Fanout (d): cross-host collision → first-host-wins
   // -------------------------------------------------------------------------
-  // Two route-level tests prove the whole disk → overlay → wire path lands
-  // the coordinator boolean correctly for the two shapes the frontend cares
-  // about: (a) coordinator: true on disk propagates as coordinator: true in
-  // the response body, alongside the other cosmetics; (b) coordinator absent
-  // from disk yields coordinator: false safe-default (never null, never
-  // missing). Each test seeds a fresh row so the pre-existing three tests'
-  // fixture setup is untouched.
-  // -------------------------------------------------------------------------
-  it("GET-COORD-1: identity with coordinator:true on disk → response row has coordinator:true AND displayName:'Nelly'", async () => {
-    // Fresh seed to keep this test's setup independent from Tests 1-3.
-    dbState.identities = [
-      {
-        id: "coord-test-id",
-        userId: "test-user",
-        identityKey: "coordinator-test",
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      },
-    ];
+  it("Fanout-d: cross-host identityKey collision on 'tina' → first-host-wins (host 1)", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
 
-    isLocalHostIdMock.mockReturnValue(false);
-    readIdentityFileMock.mockImplementation((_conn: unknown, key: string) => {
-      if (key === "coordinator-test") {
+    // Both host 1 and host 2 have "tina"
+    listIdentityKeysOnHostMock.mockImplementation((conn: unknown) => {
+      // Both LOCAL and REMOTE return tina
+      return Promise.resolve(["tina"]);
+    });
+
+    readIdentityFileMock.mockImplementation((conn: unknown, key: string) => {
+      if (key === "tina") {
+        if (conn === null) {
+          // host 1's tina
+          return Promise.resolve({
+            markdown: "---\nrole: box-maintainer\ndisplayName: Tina-Host1\n---\n",
+          });
+        }
+        // host 2's tina
         return Promise.resolve({
-          markdown:
-            "---\nrole: box-maintainer\ndisplayName: Nelly\ncoordinator: true\n---\n",
+          markdown: "---\nrole: box-maintainer\ndisplayName: Tina-Host2\n---\n",
         });
       }
       return Promise.resolve({ markdown: "" });
     });
 
-    const hostsJson = encodeURIComponent(
-      JSON.stringify({ "coordinator-test": 1 }),
-    );
+    // Both tina→1 and tina→2 in the map — since identityHosts has unique keys,
+    // only one "tina" key survives. Use two different keys pointing to same identity.
+    // Actually for collision testing, we need the fanout to encounter the key on both hosts.
+    // identityHosts is { tina: 1 } for host 1, but host 2 also has tina (uniqueHostIds=[1,2]).
+    // We need uniqueHostIds to include both 1 and 2.
+    // Use: { tina: 1, poppy: 2 } so uniqueHostIds = [1, 2].
+    // Host 1 returns ["tina"]; host 2 ALSO returns ["tina"].
+    // First-host-wins: tina from host 1.
+    const hostsJson = encodeURIComponent(JSON.stringify({ tina: 1, poppy: 2 }));
     const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
 
     expect(res.status).toBe(200);
     const rows = res.body as Array<Record<string, unknown>>;
-    expect(rows).toHaveLength(1);
-    const row = rows[0];
-    expect(row.identityKey).toBe("coordinator-test");
-    expect(row.displayName).toBe("Nelly");
-    expect(row.coordinator).toBe(true);
+
+    // Only ONE tina in the merged result (first-host-wins dedup)
+    const tinaRows = rows.filter((r) => r.identityKey === "tina");
+    expect(tinaRows).toHaveLength(1);
+    // displayName from host 1 (LOCAL) since host 1 is enumerated first in uniqueHostIds
+    expect(tinaRows[0].displayName).toBe("Tina-Host1");
+    expect(tinaRows[0].avatarUrl).toBe("/identities/tina/avatar?hostId=1");
   });
 
-  it("GET-COORD-2: identity with NO coordinator key on disk → response row has coordinator:false (safe-default) AND displayName:'Tina'", async () => {
-    dbState.identities = [
-      {
-        id: "actor-test-id",
-        userId: "test-user",
-        identityKey: "actor-test",
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      },
-    ];
+  // -------------------------------------------------------------------------
+  // Fanout (e): empty identityHosts map → []
+  // -------------------------------------------------------------------------
+  it("Fanout-e: empty identityHosts map → [] immediately, no host fanout", async () => {
+    const res = await httpGet(server, `/identities?identityHosts=${encodeURIComponent("{}")}`);
 
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<unknown>;
+    expect(rows).toHaveLength(0);
+    expect(listIdentityKeysOnHostMock).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Fanout (f): host reachable but empty folder → 0 identities from that host
+  // -------------------------------------------------------------------------
+  it("Fanout-f: host reachable but listIdentityKeysOnHost returns [] → 0 identities from that host", async () => {
     isLocalHostIdMock.mockReturnValue(false);
-    readIdentityFileMock.mockImplementation((_conn: unknown, key: string) => {
-      if (key === "actor-test") {
-        return Promise.resolve({
-          markdown:
-            "---\nrole: box-maintainer\ndisplayName: Tina\n---\n",
-        });
-      }
-      return Promise.resolve({ markdown: "" });
-    });
+    listIdentityKeysOnHostMock.mockResolvedValue([]); // empty folder
 
-    const hostsJson = encodeURIComponent(JSON.stringify({ "actor-test": 1 }));
+    const hostsJson = encodeURIComponent(JSON.stringify({ tina: 5 }));
     const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
 
     expect(res.status).toBe(200);
-    const rows = res.body as Array<Record<string, unknown>>;
-    expect(rows).toHaveLength(1);
-    const row = rows[0];
-    expect(row.identityKey).toBe("actor-test");
-    expect(row.displayName).toBe("Tina");
-    expect(row.coordinator).toBe(false);
+    const rows = res.body as Array<unknown>;
+    expect(rows).toHaveLength(0);
+    // listIdentityKeysOnHost was called (host is reachable), but returned []
+    expect(listIdentityKeysOnHostMock).toHaveBeenCalledTimes(1);
+    // readIdentityFile NEVER called (no keys to read)
+    expect(readIdentityFileMock).not.toHaveBeenCalled();
   });
 });
 
-describe("GET /identities/:id/avatar — disk-derived (Phase 66 Plan 66-03)", () => {
-  // -------------------------------------------------------------------------
-  // Test 4: happy path
-  // -------------------------------------------------------------------------
-  it("Test 4: identityId=tina + hostId=1 + readAvatarSiblingFile returns PNG bytes → 200 + Content-Type + body bytes + Cache-Control: no-store", async () => {
+// ===========================================================================
+// GET /identities/:identityKey/avatar — rekeyed (Phase 68)
+// ===========================================================================
+
+describe("GET /identities/:identityKey/avatar — Phase 68 rekeyed", () => {
+
+  it("Avatar-1: identityKey=tina + hostId=1 → 200 + Content-Type + bytes + Cache-Control: no-store", async () => {
     isLocalHostIdMock.mockReturnValue(false);
     const pngBytes = Buffer.from("PNGDATA");
     readAvatarSiblingFileMock.mockResolvedValue({ bytes: pngBytes, mime: "image/png", ext: "png" });
 
-    const res = await httpGet(server, `/identities/tina-id/avatar?hostId=1`);
+    const res = await httpGet(server, `/identities/tina/avatar?hostId=1`);
 
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toBe("image/png");
     expect(res.rawBody.equals(pngBytes)).toBe(true);
-    // Every render on every viewer reaches the identity's home for the current
-    // bytes — no browser caching (Ashley /close 2026-09-01).
     expect(res.headers["cache-control"]).toBe("no-store");
+    // readAvatarSiblingFile was called with identityKey="tina" (the URL param)
+    expect(readAvatarSiblingFileMock.mock.calls[0][1]).toBe("tina");
   });
 
-  // -------------------------------------------------------------------------
-  // Test 5: disk-empty → 404
-  // -------------------------------------------------------------------------
-  it("Test 5: readAvatarSiblingFile returns null → 404 with 'no avatar' error", async () => {
+  it("Avatar-2: readAvatarSiblingFile returns null → 404 with 'no avatar' error", async () => {
     isLocalHostIdMock.mockReturnValue(false);
     readAvatarSiblingFileMock.mockResolvedValue(null);
 
-    const res = await httpGet(server, `/identities/tina-id/avatar?hostId=1`);
+    const res = await httpGet(server, `/identities/tina/avatar?hostId=1`);
 
     expect(res.status).toBe(404);
     const body = res.body as { error?: string };
-    expect(body.error).toBeDefined();
     expect(body.error?.toLowerCase()).toContain("no avatar");
   });
 
-  // -------------------------------------------------------------------------
-  // Test 6: SSH-fail → 502
-  // -------------------------------------------------------------------------
-  it("Test 6: readAvatarSiblingFile throws → 502 'identity home box unreachable'", async () => {
+  it("Avatar-3: readAvatarSiblingFile throws → 502 'identity home box unreachable'", async () => {
     isLocalHostIdMock.mockReturnValue(false);
     readAvatarSiblingFileMock.mockRejectedValue(new Error("remote exec timeout"));
 
-    const res = await httpGet(server, `/identities/tina-id/avatar?hostId=1`);
+    const res = await httpGet(server, `/identities/tina/avatar?hostId=1`);
 
     expect(res.status).toBe(502);
     const body = res.body as { error?: string };
     expect(body.error).toBe("identity home box unreachable");
   });
 
-  // -------------------------------------------------------------------------
-  // Test 7: missing hostId → 400
-  // -------------------------------------------------------------------------
-  it("Test 7: missing ?hostId query → 400 with 'hostId' error message", async () => {
-    const res = await httpGet(server, `/identities/tina-id/avatar`);
+  it("Avatar-4: missing ?hostId query → 400 with 'hostId' error message", async () => {
+    const res = await httpGet(server, `/identities/tina/avatar`);
 
     expect(res.status).toBe(400);
     const body = res.body as { error?: string };
-    expect(body.error).toBeDefined();
     expect(body.error?.toLowerCase()).toContain("hostid");
     expect(readAvatarSiblingFileMock).not.toHaveBeenCalled();
   });
 
-  // -------------------------------------------------------------------------
-  // Test 8: LOCAL branch → connectOneShot never called
-  // -------------------------------------------------------------------------
-  it("Test 8: LOCAL branch (isLocalHostId=true) → connectOneShot NEVER called; readAvatarSiblingFile called with conn=null", async () => {
+  it("Avatar-5: LOCAL branch (isLocalHostId=true) → connectOneShot NEVER called; readAvatarSiblingFile called with conn=null", async () => {
     isLocalHostIdMock.mockReturnValue(true);
     const pngBytes = Buffer.from("LOCALDATA");
     readAvatarSiblingFileMock.mockResolvedValue({ bytes: pngBytes, mime: "image/png", ext: "png" });
 
-    const res = await httpGet(server, `/identities/tina-id/avatar?hostId=1`);
+    const res = await httpGet(server, `/identities/tina/avatar?hostId=1`);
 
     expect(res.status).toBe(200);
     expect(connectOneShotMock).not.toHaveBeenCalled();

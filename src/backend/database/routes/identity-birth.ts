@@ -17,13 +17,8 @@ import type { Request, Response } from "express";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import * as fsp from "node:fs/promises";
-import { nanoid } from "nanoid";
-import { db } from "../db/index.js";
-import { identities } from "../db/schema.js";
-import { eq, and } from "drizzle-orm";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger } from "../../utils/logger.js";
-import { DatabaseSaveTrigger } from "../../utils/database-save-trigger.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import {
@@ -48,89 +43,6 @@ const router = express.Router();
 const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
 const execAsync = promisify(exec);
-
-// ---------------------------------------------------------------------------
-// DB-direct helper: createIdentityRecord
-// Mirrors POST /identities handler (identities.ts:86-171) but operates
-// directly on the DB — avoids double-JWT-auth and internal HTTP round-trip.
-// ---------------------------------------------------------------------------
-
-async function createIdentityRecord(
-  userId: string,
-  meta: {
-    identityKey: string;
-    displayName: string;
-    title: string | null;
-    colorHue: number | null;
-    voice: string | null;
-  },
-  avatarBytes: Buffer,
-): Promise<{
-  id: string;
-}> {
-  // Phase 66 Plan 04: cosmetic fields (displayName / title / colorHue / voice
-  // / avatarMime / avatarData / avatarEtag) no longer live in the store — they
-  // are written to disk in Step 2.5 of the birth orchestrator. The store row
-  // survives as the ownership + user-scoping + timestamp anchor. `meta` and
-  // `avatarBytes` remain in this function's signature because the orchestrator
-  // and its DI shape (BirthDeps.createIdentityRecord) still pass them; the
-  // downstream disk-write step reads them from opts, but this DB helper drops
-  // them silently. Return-shape narrows to { id } — GET-verify collapses to
-  // a row-existence sentinel (see identity-birth-orchestrator.ts step 1).
-  void meta;
-  void avatarBytes;
-  const id = nanoid();
-  const now = new Date().toISOString();
-
-  db.insert(identities)
-    .values({
-      id,
-      userId,
-      identityKey: meta.identityKey,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
-
-  try {
-    await DatabaseSaveTrigger.forceSave("identity_birth");
-  } catch (saveErr) {
-    databaseLogger.warn("Force-save after identity birth failed", {
-      operation: "identity_birth_save_failed",
-      userId,
-      identityKey: meta.identityKey,
-      error: saveErr instanceof Error ? saveErr.message : "Unknown error",
-    });
-  }
-
-  return { id };
-}
-
-// ---------------------------------------------------------------------------
-// DB-direct helper: getIdentityRecord
-// Used for GET-verify after step 1 (silent-no-op guard).
-// ---------------------------------------------------------------------------
-
-async function getIdentityRecord(
-  userId: string,
-  id: string,
-): Promise<{ id: string }> {
-  // Phase 66 Plan 04: return-shape narrowed to { id } — GET-verify collapses
-  // to a row-existence sentinel (see identity-birth-orchestrator.ts step 1).
-  // Previously returned colorHue/voice/avatarEtag for the round-trip check;
-  // those columns no longer exist post-drop.
-  const rows = db
-    .select()
-    .from(identities)
-    .where(and(eq(identities.id, id), eq(identities.userId, userId)))
-    .all();
-
-  if (rows.length === 0) {
-    throw new Error(`Identity ${id} not found after creation`);
-  }
-
-  return { id: rows[0].id };
-}
 
 // ---------------------------------------------------------------------------
 // Local exec helper (child_process.exec promisified)
@@ -238,15 +150,14 @@ router.post(
     // breaking every birth at step 1's getCandidateForBirth scope guard.
     // Pass the string through unmodified; dep signatures updated to match.
 
+    // Phase 68 Plan 03: createIdentityRecord + getIdentityRecord removed —
+    // no DB record is created; disk folder + frontmatter + avatar sibling ARE
+    // the identity's identity. forceSave also removed (no DB mutation to save).
     const deps: BirthDeps = {
       connectOneShot,
       execCommand,
       isLocalHostId,
       execLocal,
-      createIdentityRecord: async (uid, meta, avatarBytes) =>
-        createIdentityRecord(uid, meta, avatarBytes),
-      getIdentityRecord: async (uid, id) =>
-        getIdentityRecord(uid, id),
       getCandidateForBirth: (uid, id) => getCandidateForBirth(uid, id),
       resolveHostById: async (hostId, uid) =>
         resolveHostById(hostId, uid),

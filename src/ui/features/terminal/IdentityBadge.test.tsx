@@ -19,8 +19,9 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import type { Identity } from "@/api/identities-api";
 
 // ── Fixture identity (must satisfy full Identity shape) ─────────────────────
+// Phase 68: Identity no longer has id/createdAt/updatedAt; avatarUrl bakes
+// hostId at backend (no avatarUrlWithHost on frontend).
 const FIXTURE: Identity = {
-  id: "id-1",
   identityKey: "tina",
   displayName: "Tina",
   title: "Session coordinator",
@@ -28,10 +29,9 @@ const FIXTURE: Identity = {
   voice: null,
   role: null,
   avatarMime: "image/png",
-  avatarUrl: "/identities/id-1/avatar",
+  avatarUrl: "/identities/tina/avatar?hostId=1",
   avatarEtag: "etag-1",
-  createdAt: "2026-01-01T00:00:00Z",
-  updatedAt: "2026-01-01T00:00:00Z",
+  coordinator: false,
 };
 
 // Mock identities-store: byKey.get("tina") returns FIXTURE so the badge renders.

@@ -110,18 +110,19 @@ const mockedToastError = vi.mocked(toast.error);
 
 // ── Shared fixture ────────────────────────────────────────────────────────────
 
+// Phase 68: Identity no longer has id/createdAt/updatedAt; avatarUrl bakes
+// hostId at backend (no avatarUrlWithHost on frontend).
 const BASE_IDENTITY: Identity = {
-  id: "id-stays-awake-1",
   identityKey: "moxie",
   displayName: "Moxie",
   title: "Tester",
   colorHue: null,
   voice: null,
+  role: null,
   avatarMime: "image/png",
-  avatarUrl: "/identities/id-stays-awake-1/avatar",
+  avatarUrl: "/identities/moxie/avatar?hostId=1",
   avatarEtag: "etag-sa-1",
-  createdAt: "2026-01-01T00:00:00Z",
-  updatedAt: "2026-01-01T00:00:00Z",
+  coordinator: false,
 };
 
 function renderModal(identityOverrides?: Partial<Identity>) {

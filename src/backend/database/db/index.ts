@@ -463,20 +463,11 @@ async function initializeCompleteDatabase(): Promise<void> {
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     );
 
-    -- Phase 66 Plan 04: cosmetic columns live on disk in each identity's home
-    -- folder (see .planning/shapes/identity-prettiness-on-disk.md). The row
-    -- survives as the ownership + user-scoping + timestamp anchor ONLY. Old
-    -- installs that boot with the 12-column shape have the 7 cosmetic columns
-    -- dropped by runIdentitiesCosmeticDrops() below during migrateSchema().
-    CREATE TABLE IF NOT EXISTS identities (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        identity_key TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
-        UNIQUE (user_id, identity_key)
-    );
+    -- Phase 68: identities table dropped; identity IS the disk folder on some
+    -- host per .planning/shapes/shape-kill-identities-table.md. The table is
+    -- physically removed at boot time by runIdentitiesTableDrop() in migrateSchema().
+    -- Fresh installs never create the table; upgraded installs have it dropped on
+    -- first successful boot via the idempotent DROP TABLE IF EXISTS migration.
 
     CREATE TABLE IF NOT EXISTS message_queue_items (
         id TEXT PRIMARY KEY,
@@ -564,7 +555,7 @@ async function initializeCompleteDatabase(): Promise<void> {
     });
   }
 
-  migrateSchema();
+  await migrateSchema();
 
   try {
     const row = sqlite
@@ -750,7 +741,37 @@ export function runIdentitiesCosmeticDrops(sqliteDb: Database.Database): void {
   dropColumnIfExists(sqliteDb, "identities", "avatar_etag");
 }
 
-const migrateSchema = () => {
+// -----------------------------------------------------------------------------
+// Phase 68: drop the identities table entirely. Idempotent via IF EXISTS —
+// safe on fresh installs (table never existed) and upgraded installs
+// (table dropped on first successful boot; subsequent boots no-op).
+// Runs AFTER runIdentitiesCosmeticDrops so any lingering column drops
+// from a stale table on legacy installs complete before the whole
+// table goes away (both are no-op if the table is absent).
+//
+// Exported for test coverage (Test 5 + Test 6 exercise this against
+// test-owned in-memory databases).
+// -----------------------------------------------------------------------------
+export function runIdentitiesTableDrop(sqliteDb: Database.Database): void {
+  try {
+    sqliteDb.exec("DROP TABLE IF EXISTS identities;");
+  } catch (dropError) {
+    // Non-fatal per T-66-04-01 precedent — a failed drop leaves the
+    // table intact (deadweight, not corruption). Since no runtime code
+    // path reads or writes it post-Phase-68, a lingering table is inert.
+    // Next boot retries via IF EXISTS.
+    databaseLogger.warn(
+      "Failed to drop identities table",
+      {
+        operation: "schema_migration_drop_table",
+        table: "identities",
+        error: dropError,
+      },
+    );
+  }
+}
+
+const migrateSchema = async () => {
   // Phase 66 Plan 04: drop the cosmetic columns from identities (now live on
   // disk per shape file). Preflight asserts SQLite >= 3.35 (native DROP
   // COLUMN). Idempotent — no-op on fresh installs (columns absent) + on
@@ -771,6 +792,32 @@ const migrateSchema = () => {
       { operation: "schema_migration_preflight" },
     );
     throw preflightErr;
+  }
+
+  // Phase 68: physically drop the identities table (the row survives only
+  // as ownership + timestamps post-Phase-66; Phase 68 shape file dictates
+  // total removal). Idempotent via IF EXISTS. Persist the schema mutation
+  // to the encrypted SQLite file via DatabaseSaveTrigger.forceSave — direct
+  // .exec() writes only reach RAM per CLAUDE.md § "In-memory SQLite pattern".
+  // Wrapped in try/catch: DatabaseSaveTrigger may not yet be initialized on
+  // the FIRST-EVER boot (handlePostInitFileEncryption at L1690-1703 wires
+  // it AFTER migrateSchema returns). A null / uninitialized-trigger failure
+  // is non-fatal — the DROP is idempotent, so the next boot re-fires the
+  // drop and forceSave together, and eventually persists. Phase 66 Plan 04
+  // shipped WITHOUT this wrapper and ran green; adding it here is cheap
+  // defense-in-depth for the first-boot race.
+  runIdentitiesTableDrop(sqlite);
+  try {
+    await DatabaseSaveTrigger.forceSave("phase-68-drop-identities-table");
+  } catch (saveError) {
+    databaseLogger.warn(
+      "[phase-68] forceSave failed post-drop (non-fatal — DROP is idempotent, next boot retries)",
+      {
+        operation: "schema_migration_force_save_post_drop",
+        reason: "phase-68-drop-identities-table",
+        error: saveError,
+      },
+    );
   }
 
   addColumnIfNotExists("user_preferences", "theme", "TEXT");

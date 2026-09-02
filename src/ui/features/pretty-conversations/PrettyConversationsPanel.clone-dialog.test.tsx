@@ -30,18 +30,19 @@ vi.mock("@/features/terminal/session-hue", () => ({
 
 // Seed one identity so the Clone menu-item guard passes on any row whose
 // targetTmuxSession matches this key.
+// Phase 68: Identity no longer has id/createdAt/updatedAt; avatarUrl bakes
+// hostId at backend (no avatarUrlWithHost on frontend).
 const stubIdentity: Identity = {
-  id: "id-1",
   identityKey: "tina",
   displayName: "tina",
   title: "Fleet Operator",
   colorHue: 128,
   voice: "Elena.wav",
+  role: null,
   avatarMime: "image/png",
-  avatarUrl: "/identities/id-1/avatar",
+  avatarUrl: "/identities/tina/avatar?hostId=5",
   avatarEtag: "etag-1",
-  createdAt: "",
-  updatedAt: "",
+  coordinator: false,
 };
 
 vi.mock("@/state/identities-store", () => ({
@@ -252,18 +253,19 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Seed the mock clone response so a successful submit resolves with a
   // fresh Identity whose identityKey doubles as the tmux session name.
+  // Phase 68: Identity no longer has id/createdAt/updatedAt; avatarUrl bakes
+  // hostId at backend (no avatarUrlWithHost on frontend).
   mockCloneIdentity.mockResolvedValue({
-    id: "new-id",
     identityKey: "tina-2",
     displayName: "tina-2",
     title: "Fleet Operator",
     colorHue: 128,
     voice: "Elena.wav",
+    role: null,
     avatarMime: "image/png",
-    avatarUrl: "/identities/new-id/avatar",
+    avatarUrl: "/identities/tina-2/avatar?hostId=5",
     avatarEtag: "e",
-    createdAt: "",
-    updatedAt: "",
+    coordinator: false,
   });
   mockPostGenerateAvatarBatch.mockResolvedValue([]);
 });

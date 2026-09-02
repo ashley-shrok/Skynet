@@ -104,18 +104,19 @@ const mockedUpdateIdentity = vi.mocked(updateIdentity);
 const mockedApplyIdentityChange = vi.mocked(applyIdentityChange);
 
 // ── Shared fixture ────────────────────────────────────────────────────────────
+// Phase 68: Identity no longer has id/createdAt/updatedAt; avatarUrl now bakes
+// hostId in at the backend (no avatarUrlWithHost on frontend).
 const BASE_IDENTITY: Identity = {
-  id: "id-1",
   identityKey: "tina",
   displayName: "Tina",
   title: "Old title",
   colorHue: null,
   voice: null,
+  role: null,
   avatarMime: "image/png",
-  avatarUrl: "/identities/id-1/avatar",
+  avatarUrl: "/identities/tina/avatar?hostId=1",
   avatarEtag: "etag-1",
-  createdAt: "2026-01-01T00:00:00Z",
-  updatedAt: "2026-01-01T00:00:00Z",
+  coordinator: false,
 };
 
 // Helper: render the modal open and return the onOpenChange spy.
@@ -180,10 +181,11 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
       expect(mockedUpdateIdentity).toHaveBeenCalledTimes(1);
     }, { timeout: 15000 });
 
-    // Assert updateIdentity was called with (id, {title: "New title"}, null, hostId).
-    // Phase 66 Plan 66-02: hostId is now the required 4th arg (renderModal wires hostId={1}).
+    // Assert updateIdentity was called with (identityKey, {title: "New title"}, null, hostId).
+    // Phase 68: first arg is now identityKey (was id). Phase 66 Plan 66-02: hostId is
+    // the required 4th arg (renderModal wires hostId={1}).
     expect(mockedUpdateIdentity).toHaveBeenCalledWith(
-      "id-1",
+      "tina",
       { title: "New title" },
       null,
       1,
@@ -235,11 +237,12 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
       expect(mockedUpdateIdentity).toHaveBeenCalledTimes(1);
     });
 
-    // Assert updateIdentity was called with (id, {} (no title change), File, hostId).
-    // Phase 66 Plan 66-02: hostId now threaded as the 4th arg (renderModal wires hostId={1}).
+    // Assert updateIdentity was called with (identityKey, {} (no title change), File, hostId).
+    // Phase 68: first arg is now identityKey (was id). Phase 66 Plan 66-02: hostId
+    // now threaded as the 4th arg (renderModal wires hostId={1}).
     const [calledId, calledMeta, calledFile, calledHostId] =
       mockedUpdateIdentity.mock.calls[0];
-    expect(calledId).toBe("id-1");
+    expect(calledId).toBe("tina");
     expect(calledMeta).toEqual({});
     expect(calledFile).toBeInstanceOf(File);
     expect((calledFile as File).name).toBe("avatar.png");
@@ -425,40 +428,37 @@ describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 66 Plan 05 — header/edit-drawer avatar src threading
-//   Both avatar <img>s in IdentityModal (header L1264, edit-drawer L1396)
-//   must route through avatarUrlWithHost(identity, hostId) so GET /:id/avatar
-//   receives the required hostId query param (Plan 03 backend contract).
-//   Also: when identity.avatarEtag is the empty-string safe-default from
-//   Plan 03's publicIdentity, the ?v=<etag> cache-bust must be SKIPPED
-//   (never emit `?v=` literal). Whenever etag is truthy, cache-bust joins
-//   as `&v=<etag>` (not `?v=`, because avatarUrlWithHost already appended
-//   `?hostId=<n>`).
+// Phase 68 Plan 04 — header/edit-drawer avatar src threading
+//   Phase 68: avatarUrlWithHost is DELETED. The backend now bakes hostId into
+//   identity.avatarUrl at emit time. Fixtures carry avatarUrl with ?hostId=N
+//   already present. Components render identity.avatarUrl directly; etag suffix
+//   (when non-empty) appends as `&v=<etag>` (still an `&` because ?hostId=N
+//   already supplied the leading `?`).
 // ─────────────────────────────────────────────────────────────────────────────
-describe("IdentityModal — Phase 66 Plan 05: hostId threading + etag guard", () => {
+describe("IdentityModal — Phase 68: hostId-baked avatarUrl + etag guard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("Plan 05 Test A: header avatar src threads hostId; non-empty etag joins as &v=<etag>", () => {
+  it("Plan 05 Test A: header avatar src uses baked hostId from avatarUrl; non-empty etag joins as &v=<etag>", () => {
     renderModal({ avatarEtag: "etag-abc" });
     const headerImg = document
       .querySelector("[data-slot='identity-modal-content']")
       ?.querySelector("img") as HTMLImageElement | null;
     expect(headerImg).toBeTruthy();
     expect(headerImg!.getAttribute("src")).toBe(
-      "/identities/id-1/avatar?hostId=1&v=etag-abc",
+      "/identities/tina/avatar?hostId=1&v=etag-abc",
     );
   });
 
-  it("Plan 05 Test B: header avatar src skips ?v= when etag is empty (safe-default)", () => {
+  it("Plan 05 Test B: header avatar src skips &v= when etag is empty (safe-default)", () => {
     renderModal({ avatarEtag: "" });
     const headerImg = document
       .querySelector("[data-slot='identity-modal-content']")
       ?.querySelector("img") as HTMLImageElement | null;
     expect(headerImg).toBeTruthy();
     expect(headerImg!.getAttribute("src")).toBe(
-      "/identities/id-1/avatar?hostId=1",
+      "/identities/tina/avatar?hostId=1",
     );
     // Belt-and-braces: no literal `?v=` in the src string
     expect(headerImg!.getAttribute("src")).not.toContain("?v=");

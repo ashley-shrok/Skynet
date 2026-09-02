@@ -41,18 +41,19 @@ import type { TerminalHandle } from "@/features/terminal/Terminal";
 // ── Mock: identities-store ───────────────────────────────────────────────────
 // Returns one identity so identityKey lookup is truthy (identity pane detection).
 vi.mock("@/state/identities-store", () => {
+  // Phase 68: Identity no longer has id/createdAt/updatedAt; avatarUrl bakes
+  // hostId at backend (no avatarUrlWithHost on frontend).
   const identity = {
-    id: "id-1",
     identityKey: "tina",
     displayName: "Tina",
     title: "Agent",
     colorHue: 200,
     voice: null,
+    role: null,
     avatarMime: "image/png",
-    avatarUrl: "/identities/id-1/avatar",
+    avatarUrl: "/identities/tina/avatar?hostId=1",
     avatarEtag: "etag-1",
-    createdAt: "2026-01-01T00:00:00Z",
-    updatedAt: "2026-01-01T00:00:00Z",
+    coordinator: false,
   };
   return {
     useIdentities: vi.fn(() => ({

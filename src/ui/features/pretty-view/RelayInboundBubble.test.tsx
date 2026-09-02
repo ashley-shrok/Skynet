@@ -38,17 +38,18 @@ function makeIdentity(
   displayName: string,
   colorHue: number,
 ): Identity {
+  // Phase 68: Identity no longer has id/createdAt/updatedAt.
   return {
-    id: `id-${identityKey}`,
     identityKey,
     displayName,
     title: null,
     colorHue,
+    voice: null,
+    role: null,
     avatarMime: "image/png",
     avatarUrl: "/avatar.png",
     avatarEtag: "abc",
-    createdAt: "2026-01-01T00:00:00Z",
-    updatedAt: "2026-01-01T00:00:00Z",
+    coordinator: false,
   };
 }
 

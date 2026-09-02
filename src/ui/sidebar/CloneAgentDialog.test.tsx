@@ -117,18 +117,19 @@ function makeHost(overrides: Partial<Host> = {}): Host {
 // ─── Fixture helper: source Identity ────────────────────────────────────────
 
 function makeIdentity(overrides: Partial<Identity> = {}): Identity {
+  // Phase 68: Identity no longer has id/createdAt/updatedAt; avatarUrl bakes
+  // hostId at backend (no avatarUrlWithHost on frontend).
   return {
-    id: "src-id",
     identityKey: "tina",
     displayName: "tina",
     title: "Fleet Operator",
     colorHue: 128,
     voice: "Elena.wav",
+    role: null,
     avatarMime: "image/png",
-    avatarUrl: "/identities/src-id/avatar",
+    avatarUrl: "/identities/tina/avatar?hostId=5",
     avatarEtag: "src-etag",
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
+    coordinator: false,
     ...overrides,
   };
 }
@@ -136,7 +137,7 @@ function makeIdentity(overrides: Partial<Identity> = {}): Identity {
 beforeEach(() => {
   vi.clearAllMocks();
   mockCloneIdentity.mockResolvedValue(
-    makeIdentity({ id: "new-id", identityKey: "tina-2", displayName: "tina-2" }),
+    makeIdentity({ identityKey: "tina-2", displayName: "tina-2" }),
   );
   mockPostGenerateAvatarBatch.mockResolvedValue([
     { id: "cand-1", url: "data:image/png;base64,AAAA" },
@@ -314,7 +315,7 @@ describe("CloneAgentDialog", () => {
       path: "~/",
       identityMode: "existing",
       identityName: "tina-2",
-      identityId: "new-id",
+      identityId: "tina-2",
     });
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
@@ -586,7 +587,6 @@ describe("CloneAgentDialog", () => {
     // Resolve the promise → submitting flips false → preparing text clears.
     resolveClone(
       makeIdentity({
-        id: "new-id",
         identityKey: "tina-2",
         displayName: "tina-2",
       }),

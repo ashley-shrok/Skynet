@@ -95,18 +95,18 @@ function makeRow(
 }
 
 function makeIdentity(name = "nelly"): Identity {
+  // Phase 68: Identity no longer has id/createdAt/updatedAt.
   return {
-    id: "id-1",
     identityKey: name.toLowerCase(),
     displayName: name,
     title: "Test Op",
     colorHue: 30,
     voice: "Elena.wav",
+    role: null,
     avatarMime: "image/png",
     avatarUrl: "",
     avatarEtag: "",
-    createdAt: "",
-    updatedAt: "",
+    coordinator: false,
   };
 }
 

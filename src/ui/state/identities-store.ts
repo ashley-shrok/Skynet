@@ -172,13 +172,15 @@ export function refreshIdentities(): Promise<void> {
 
 export function applyIdentityChange(
   next: Identity | null,
-  removedId?: string,
+  removedKey?: string,
 ): void {
   let list = state.identities.slice();
-  if (removedId) {
-    list = list.filter((i) => i.id !== removedId);
+  if (removedKey) {
+    const removedKeyLc = removedKey.toLowerCase();
+    list = list.filter((i) => i.identityKey.toLowerCase() !== removedKeyLc);
   } else if (next) {
-    const idx = list.findIndex((i) => i.id === next.id);
+    const nextKeyLc = next.identityKey.toLowerCase();
+    const idx = list.findIndex((i) => i.identityKey.toLowerCase() === nextKeyLc);
     if (idx >= 0) list[idx] = next;
     else list.push(next);
   }

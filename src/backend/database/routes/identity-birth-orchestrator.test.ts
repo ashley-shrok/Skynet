@@ -101,7 +101,6 @@ function collectEvents(): { events: BirthEvent[]; emit: (e: BirthEvent) => void 
 }
 
 function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
-  const mockConn = { end: vi.fn() };
   const mockExecLocal = vi.fn().mockResolvedValue("");
 
   return {
@@ -114,17 +113,9 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
     // Phase 66 Plan 66-01: additive avatar-sibling dep for Step 2.5 (mocked
     // as no-op in existing tests so pre-Phase-66 assertions don't drift).
     writeAvatarSiblingFile: vi.fn().mockResolvedValue(undefined),
-    // Phase 66 Plan 04: createIdentityRecord return-shape narrowed to
-    // { id } only — colorHue/voice/avatarEtag no longer live in the store.
-    createIdentityRecord: vi.fn().mockResolvedValue({
-      id: "created-id-123",
-    }),
-    // Phase 66 Plan 04: getIdentityRecord return-shape narrowed to { id }
-    // only — the GET-verify block collapses to a row-existence sentinel
-    // (see Test 4 below and identity-birth-orchestrator.ts step 1).
-    getIdentityRecord: vi.fn().mockResolvedValue({
-      id: "created-id-123",
-    }),
+    // Phase 68 Plan 03: createIdentityRecord + getIdentityRecord removed from
+    // BirthDeps — no DB record is created; disk folder + frontmatter + avatar
+    // sibling ARE the identity's identity.
     getCandidateForBirth: vi.fn().mockReturnValue({
       bytes: Buffer.from("fakepng"),
       mime: "image/png",
@@ -147,7 +138,7 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
 
 function makeOpts(overrides: Partial<BirthOptions> = {}): BirthOptions {
   return {
-    userId: 1,
+    userId: "user-1",
     hostId: 7,
     name: "testkey",
     title: "Test Identity",
@@ -309,14 +300,13 @@ it("Test 2: self-birth (isLocalHostId=true), uses local exec, no SSH", async () 
 }, 10_000);
 
 // ---------------------------------------------------------------------------
-// Test 3: step 1 posts identity with multipart+data field, then GET-verifies
+// Test 3: Phase 68 — getCandidateForBirth still called with (userId, avatarCandidateId)
 // ---------------------------------------------------------------------------
 
-it("Test 3: step 1 calls createIdentityRecord with correct meta and avatar bytes, then GET-verifies", async () => {
+it("Test 3: Phase 68 — getCandidateForBirth called; no DB createIdentityRecord/getIdentityRecord", async () => {
   mockIsLocalHostId.mockReturnValue(false);
   const mockConn = { end: vi.fn() };
   mockConnectOneShot.mockResolvedValue(mockConn);
-  // Default: `echo $HOME` returns a plausible path (Phase 22 Step 2.5), all others return ""
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
@@ -326,19 +316,9 @@ it("Test 3: step 1 calls createIdentityRecord with correct meta and avatar bytes
 
   const avatarBytes = Buffer.from("avatar-png-bytes");
   const mockGetCandidate = vi.fn().mockReturnValue({ bytes: avatarBytes, mime: "image/png" });
-  // Phase 66 Plan 04: createIdentityRecord + getIdentityRecord return-shapes
-  // narrow to { id } — GET-verify collapses to row-existence sentinel.
-  const mockCreateIdentity = vi.fn().mockResolvedValue({
-    id: "new-id-456",
-  });
-  const mockGetIdentity = vi.fn().mockResolvedValue({
-    id: "new-id-456",
-  });
 
   const deps = makeDeps({
     getCandidateForBirth: mockGetCandidate,
-    createIdentityRecord: mockCreateIdentity,
-    getIdentityRecord: mockGetIdentity,
   });
 
   const opts = makeOpts({
@@ -357,98 +337,80 @@ it("Test 3: step 1 calls createIdentityRecord with correct meta and avatar bytes
   // getCandidateForBirth was called with (userId, avatarCandidateId)
   expect(mockGetCandidate).toHaveBeenCalledWith(opts.userId, opts.avatarCandidateId);
 
-  // createIdentityRecord was called with userId, meta object, avatar bytes.
-  // Patch #320 (2026-08-04) split the DB slots: identityKey (key), displayName
-  // (Capitalize(key)), title (user-provided). Prior mapping put opts.title into
-  // displayName; the corrected mapping keeps title separate and derives
-  // displayName from the key.
-  expect(mockCreateIdentity).toHaveBeenCalledWith(
-    opts.userId,
-    expect.objectContaining({
-      identityKey: "testkey",
-      displayName: "Testkey",
-      title: "Test Title",
-      colorHue: 210,
-      voice: "Elena.wav",
-    }),
-    avatarBytes,
-  );
-
-  // GET-verify was called after creation
-  expect(mockGetIdentity).toHaveBeenCalledWith(opts.userId, "new-id-456");
-
+  // Phase 68: no DB helpers exist on BirthDeps — only disk operations run
+  // (createIdentityRecord + getIdentityRecord were deleted from the interface)
   const endedEvent = events.find((e) => e.type === "ended");
   expect(endedEvent).toBeDefined();
   expect((endedEvent as { type: "ended"; ok: boolean }).ok).toBe(true);
 }, 10_000);
 
 // ---------------------------------------------------------------------------
-// Test 4: step 1 silent-no-op guard: GET-verify mismatch → step:1:failed
+// Test 4: Phase 68 — on-disk collision probe: identity already exists → step failed
 // ---------------------------------------------------------------------------
 
-it("Test 4: step 1 GET-verify row-existence sentinel (id mismatch) → step:1:failed silent-no-op", async () => {
-  // Phase 66 Plan 04: the pre-Phase-66 GET-verify block asserted colorHue /
-  // voice / avatarEtag round-trip through the store. Those columns no longer
-  // exist on identities (they live on disk); the GET-verify collapsed to a
-  // row-existence sentinel — if getIdentityRecord returns an id that doesn't
-  // match `created.id`, the store-side insert silently no-op'd and we throw.
-  const mockCreateIdentity = vi.fn().mockResolvedValue({
-    id: "id-789",
-  });
-  // GET returns a DIFFERENT id — sentinel mismatch → throw.
-  const mockGetIdentity = vi.fn().mockResolvedValue({
-    id: "id-DIFFERENT",
-  });
-
-  const deps = makeDeps({
-    createIdentityRecord: mockCreateIdentity,
-    getIdentityRecord: mockGetIdentity,
+it("Test 4: Phase 68 — on-disk collision probe: existing folder returns step failed with 'already exists'", async () => {
+  // Simulate the SSH collision probe returning "exists"
+  mockIsLocalHostId.mockReturnValue(false);
+  const mockConn = { end: vi.fn() };
+  mockConnectOneShot.mockResolvedValue(mockConn);
+  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
+    // Collision probe returns "exists"
+    if (typeof cmd === "string" && cmd.includes("identities") && cmd.includes("testkey") && cmd.includes("if [ -d")) {
+      return Promise.resolve("exists");
+    }
+    return Promise.resolve("");
   });
 
-  const opts = makeOpts({ colorHue: 210 });
-  const { events, emit } = collectEvents();
-  const birthPromise = birthIdentity(opts, emit, deps);
-  await vi.runAllTimersAsync();
-  await birthPromise;
-
-  const failedEvent = events.find(
-    (e) => e.type === "step" && e.n === 1 && e.phase === "failed",
-  );
-  expect(failedEvent).toBeDefined();
-  expect((failedEvent as { reason?: string }).reason).toMatch(/silent-no-op/i);
-  expect((failedEvent as { reason?: string }).reason).toMatch(/identity row/i);
-
-  const endedEvent = events.find((e) => e.type === "ended");
-  expect(endedEvent).toBeDefined();
-  expect((endedEvent as { type: "ended"; ok: boolean; failedStep?: number }).ok).toBe(false);
-  expect((endedEvent as { type: "ended"; ok: boolean; failedStep?: number }).failedStep).toBe(1);
-});
-
-// ---------------------------------------------------------------------------
-// Test 5: step 1 failure (409 collision) → step:1:failed
-// ---------------------------------------------------------------------------
-
-it("Test 5: step 1 failure (409 collision) → step:1:failed", async () => {
-  const mockCreateIdentity = vi.fn().mockRejectedValue(
-    Object.assign(new Error('Identity "testkey" already exists'), { status: 409 }),
-  );
-
-  const deps = makeDeps({ createIdentityRecord: mockCreateIdentity });
+  const deps = makeDeps();
   const opts = makeOpts();
   const { events, emit } = collectEvents();
   const birthPromise = birthIdentity(opts, emit, deps);
   await vi.runAllTimersAsync();
   await birthPromise;
 
+  // A step failure should have occurred
   const failedEvent = events.find(
-    (e) => e.type === "step" && e.n === 1 && e.phase === "failed",
+    (e) => e.type === "step" && e.phase === "failed",
   );
   expect(failedEvent).toBeDefined();
   expect((failedEvent as { reason?: string }).reason).toMatch(/already exists/i);
 
   const endedEvent = events.find((e) => e.type === "ended");
-  expect((endedEvent as { ok: boolean; failedStep?: number }).failedStep).toBe(1);
+  expect(endedEvent).toBeDefined();
+  expect((endedEvent as { type: "ended"; ok: boolean }).ok).toBe(false);
 });
+
+// ---------------------------------------------------------------------------
+// Test 5: Phase 68 — ended event identityId carries opts.name (the identityKey)
+// ---------------------------------------------------------------------------
+
+it("Test 5: Phase 68 — ended event identityId carries opts.name (not a nanoid)", async () => {
+  mockIsLocalHostId.mockReturnValue(false);
+  const mockConn = { end: vi.fn() };
+  mockConnectOneShot.mockResolvedValue(mockConn);
+  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
+    return Promise.resolve("");
+  });
+
+  const deps = makeDeps();
+  const opts = makeOpts({ name: "testkey" });
+  const { events, emit } = collectEvents();
+  const birthPromise = birthIdentity(opts, emit, deps);
+  await vi.runAllTimersAsync();
+  await birthPromise;
+
+  const endedEvent = events.find((e) => e.type === "ended" && (e as { ok: boolean }).ok === true);
+  expect(endedEvent).toBeDefined();
+  // identityId must be the identityKey (opts.name), not a nanoid
+  expect((endedEvent as { identityId?: string }).identityId).toBe("testkey");
+  expect((endedEvent as { sessionName?: string }).sessionName).toBe("testkey");
+}, 10_000);
 
 // ---------------------------------------------------------------------------
 // Test 6: step 2 mkdir + tmux new-session sent verbatim
@@ -973,10 +935,10 @@ it("Test 15: avatar candidate cache miss → step:1:failed with avatar reason", 
 });
 
 // ---------------------------------------------------------------------------
-// Test 16: SSH connect timeout at step 2 → step:2:failed
+// Test 16: SSH connect timeout → step:1:failed (Phase 68 SHAPE B: SSH connects before Step 1)
 // ---------------------------------------------------------------------------
 
-it("Test 16: SSH connect timeout at step 2 → step:2:failed with timeout/unreachable reason", async () => {
+it("Test 16: SSH connect timeout → step:1:failed with timeout/unreachable reason (SHAPE B: SSH hoisted before Step 1)", async () => {
   mockIsLocalHostId.mockReturnValue(false);
   mockConnectOneShot.mockRejectedValue(
     new Error("Connect timeout after 30000ms"),
@@ -990,8 +952,10 @@ it("Test 16: SSH connect timeout at step 2 → step:2:failed with timeout/unreac
   await vi.runAllTimersAsync();
   await birthPromise;
 
+  // Phase 68 SHAPE B: SSH connect happens before Step 1 (collision probe).
+  // Connect failure surfaces as step:1:failed (not step:2:failed).
   const failedEvent = events.find(
-    (e) => e.type === "step" && e.n === 2 && e.phase === "failed",
+    (e) => e.type === "step" && e.n === 1 && e.phase === "failed",
   );
   expect(failedEvent).toBeDefined();
   // Reason must contain timeout or unreachable (no raw stack or IP leak)
@@ -999,7 +963,7 @@ it("Test 16: SSH connect timeout at step 2 → step:2:failed with timeout/unreac
   expect(reason.match(/timeout|unreachable/i)).not.toBeNull();
 
   const endedEvent = events.find((e) => e.type === "ended");
-  expect((endedEvent as { ok: boolean; failedStep?: number }).failedStep).toBe(2);
+  expect((endedEvent as { ok: boolean; failedStep?: number }).failedStep).toBe(1);
 });
 
 // ---------------------------------------------------------------------------
@@ -1093,8 +1057,6 @@ describe("CR-02: TMUX_SAFE_NAME_RE stricter gate", () => {
     async (evilName) => {
       const deps = makeDeps({
         getCandidateForBirth: vi.fn(),
-        createIdentityRecord: vi.fn(),
-        getIdentityRecord: vi.fn(),
         connectOneShot: mockConnectOneShot,
         execCommand: mockExecCommand,
         execLocal: vi.fn(),
@@ -1112,9 +1074,8 @@ describe("CR-02: TMUX_SAFE_NAME_RE stricter gate", () => {
         /unsafe for tmux target/,
       );
 
-      // No SSH/exec/DB deps should have been called
+      // No SSH/exec deps should have been called (DB deps removed in Phase 68)
       expect(deps.getCandidateForBirth).not.toHaveBeenCalled();
-      expect(deps.createIdentityRecord).not.toHaveBeenCalled();
       expect(mockConnectOneShot).not.toHaveBeenCalled();
       expect(mockExecCommand).not.toHaveBeenCalled();
       expect(deps.execLocal).not.toHaveBeenCalled();

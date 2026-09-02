@@ -68,23 +68,13 @@ vi.mock("./identity-avatar-batch.js", () => ({
   default: express.Router(),
 }));
 
-// Mock DB — identity routes depend on the db
+// Phase 68 Plan 03: identity-birth.ts no longer imports db, identities schema,
+// or drizzle-orm. These mocks are kept as stubs for any transitive imports that
+// might still reference them (e.g., the identity-avatar-batch module), but the
+// birth route itself no longer touches the DB at all.
 vi.mock("../db/index.js", () => ({
-  db: {
-    select: vi.fn().mockReturnThis(),
-    from: vi.fn().mockReturnThis(),
-    where: vi.fn().mockReturnThis(),
-    all: vi.fn().mockReturnValue([]),
-    insert: vi.fn().mockReturnThis(),
-    values: vi.fn().mockReturnThis(),
-    run: vi.fn(),
-  },
-  getDb: vi.fn().mockReturnValue({
-    select: vi.fn().mockReturnThis(),
-    from: vi.fn().mockReturnThis(),
-    where: vi.fn().mockReturnThis(),
-    all: vi.fn().mockReturnValue([]),
-  }),
+  db: {},
+  getDb: vi.fn().mockReturnValue({}),
 }));
 
 vi.mock("../db/schema.js", () => ({
@@ -382,13 +372,14 @@ it("Test 5: orchestrator called with body opts + userId + all required dep keys"
   expect(o.role).toBe(VALID_BODY.role);
 
   // Verify deps has all required keys
+  // Phase 68 Plan 03: createIdentityRecord + getIdentityRecord removed from BirthDeps
   const d = capturedDeps as Record<string, unknown>;
   expect(typeof d.connectOneShot).toBe("function");
   expect(typeof d.execCommand).toBe("function");
   expect(typeof d.isLocalHostId).toBe("function");
   expect(typeof d.execLocal).toBe("function");
-  expect(typeof d.createIdentityRecord).toBe("function");
-  expect(typeof d.getIdentityRecord).toBe("function");
+  expect(d.createIdentityRecord).toBeUndefined();
+  expect(d.getIdentityRecord).toBeUndefined();
   expect(typeof d.getCandidateForBirth).toBe("function");
   expect(typeof d.resolveHostById).toBe("function");
   // Phase 22 SRIC-02: writeMarkdownFileAtomic dep for Step 2.5 pre-write

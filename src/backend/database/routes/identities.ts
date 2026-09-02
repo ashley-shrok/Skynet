@@ -2,19 +2,15 @@ import type { AuthenticatedRequest } from "../../../types/index.js";
 import express from "express";
 import multer from "multer";
 import { createHash } from "crypto";
-import { nanoid } from "nanoid";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import yaml from "js-yaml";
-import { db } from "../db/index.js";
-import { identities } from "../db/schema.js";
-import { eq, and } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { databaseLogger } from "../../utils/logger.js";
 import { AuthManager } from "../../utils/auth-manager.js";
-import { DatabaseSaveTrigger } from "../../utils/database-save-trigger.js";
 import {
   readIdentityFile,
+  listIdentityKeysOnHost,
   writeIdentityFile,
   writeAvatarSiblingFile,
   readAvatarSiblingFile,
@@ -23,6 +19,7 @@ import {
   getLocalIdentitiesRoot,
   extractRoleFromMarkdown,
   MIME_TO_AVATAR_EXT,
+  IDENTITY_KEY_RE,
 } from "../../claude-session/identity-artifact-reader.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
@@ -37,7 +34,6 @@ const ALLOWED_AVATAR_MIMES = new Set([
   "image/jpeg",
   "image/webp",
 ]);
-const IDENTITY_KEY_RE = /^[a-z0-9._=/+-]+$/;
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -87,30 +83,32 @@ function capitalizeFirst(s: string): string {
 }
 
 /**
- * Phase 66: safe-defaults for the frontend Identity type's non-nullable-string
- * fields (displayName/avatarMime/avatarEtag). Disk-overlay populates when
- * identityHosts is supplied AND cosmetics exist on disk; safe defaults
- * otherwise satisfy TSC without widening the Identity type (Plan 05 defers
- * the type widening as bigger blast radius). Moved from Plan 05 to Plan 03
- * per checker B2 — co-located with the READ flip that creates the
- * null-cosmetics scenario, so this plan's own tests exercise the
- * safe-defaults path.
+ * Phase 68 Plan 68-02: publicIdentity rewired to (identityKey, hostId, cosmetics, role).
+ * Drops the DB row argument entirely. avatarUrl bakes hostId as a query param.
  *
- * `cosmetics` overlay semantics:
+ * New signature: publicIdentity(identityKey, hostId, cosmetics, role)
+ *
+ * Returned object shape (10 fields — DROPPED: id, createdAt, updatedAt):
+ *   identityKey, displayName, title, colorHue, voice, avatarMime, avatarUrl,
+ *   avatarEtag, coordinator, role.
+ *
+ * avatarUrl = `/identities/${identityKey}/avatar?hostId=${hostId}` — hostId baked
+ * into the URL string. The frontend helper avatarUrlWithHost is no longer needed
+ * (Wave 3 removes it; interim: the baked URL is self-sufficient).
+ *
+ * `cosmetics` overlay semantics (unchanged from Phase 66/67):
  *   - present string → use it (overrides safe-default)
  *   - present number for colorHue → use it (overrides null)
  *   - present boolean for coordinator → use it; absent → safe-default false (actor)
  *   - absent → safe-default (displayName=capitalizeFirst(identityKey);
  *     title/colorHue/voice → null; avatarMime/avatarEtag → "")
  *
- * Phase 67 Plan 67-01 exports this function so the colocated PUB-* tests
- * can exercise it directly (routes still call it from within the module).
- *
- * The `role` argument is preserved (used only by pre-flip tests; kept for
- * signature compatibility with any surviving caller).
+ * Exported so colocated tests (PUB-* in get-disk.test.ts) can unit-test the shape
+ * directly without going through the route.
  */
 export function publicIdentity(
-  row: typeof identities.$inferSelect,
+  identityKey: string,
+  hostId: number,
   cosmetics: {
     displayName?: string;
     title?: string;
@@ -123,27 +121,23 @@ export function publicIdentity(
   role: string | null = null,
 ) {
   return {
-    id: row.id,
-    identityKey: row.identityKey,
+    identityKey,
     displayName:
       typeof cosmetics.displayName === "string" && cosmetics.displayName.length > 0
         ? cosmetics.displayName
-        : capitalizeFirst(row.identityKey),
+        : capitalizeFirst(identityKey),
     title: typeof cosmetics.title === "string" ? cosmetics.title : null,
     colorHue: typeof cosmetics.colorHue === "number" ? cosmetics.colorHue : null,
     voice: typeof cosmetics.voice === "string" ? cosmetics.voice : null,
     avatarMime:
       typeof cosmetics.avatarMime === "string" ? cosmetics.avatarMime : "",
-    avatarUrl: `/identities/${row.id}/avatar`,
+    // Phase 68: hostId baked into avatarUrl so the frontend no longer needs
+    // to append it via avatarUrlWithHost (Wave 3 removes that helper).
+    avatarUrl: `/identities/${identityKey}/avatar?hostId=${hostId}`,
     avatarEtag:
       typeof cosmetics.avatarEtag === "string" ? cosmetics.avatarEtag : "",
-    // Phase 67 Plan 67-01: coordinator overlay. Absence = actor = false
-    // safe-default (mirrors the avatarMime/avatarEtag non-nullable-safe-default
-    // pattern; the frontend Identity type has coordinator: boolean, not
-    // boolean | null, so this shape is load-bearing for TSC).
+    // Phase 67 Plan 67-01: coordinator overlay. Absence = actor = false (safe-default).
     coordinator: typeof cosmetics.coordinator === "boolean" ? cosmetics.coordinator : false,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
     role,
   };
 }
@@ -181,58 +175,85 @@ function parseIdentityHosts(raw: unknown): Record<string, number> {
   }
 }
 
+// Phase 68 disk-fanout enumeration. No DB SELECT. Fans out to unique hostIds
+// from identityHosts map; per-host silent-swallow on error; first-host-wins
+// on cross-host identityKey collision (explicitly deferred per CONTEXT.md § Scope edges).
 router.get("/", authenticateJWT, async (req: Request, res: Response) => {
   const userId = (req as AuthenticatedRequest).userId;
   try {
-    const rows = db
-      .select()
-      .from(identities)
-      .where(eq(identities.userId, userId))
-      .all();
-
+    // 1. Parse identityHosts from query param.
     const identityHosts = parseIdentityHosts(req.query.identityHosts);
 
-    // Per-row parallel fetch via Promise.allSettled — bounds wall-clock so a
-    // single slow box doesn't stretch the endpoint past the sum of per-row
-    // 5s connect timeouts (T-66-03-01). Rows not in identityHosts skip the
-    // SSH work entirely and go straight to safe-defaults publicIdentity.
-    const enriched = await Promise.all(
-      rows.map(async (row) => {
-        const keyLc = row.identityKey.toLowerCase();
-        const hostId = identityHosts[keyLc];
-        if (hostId === undefined) {
-          // No hostId in caller-scoped map → safe-defaults for this row.
-          return publicIdentity(row, {});
-        }
-        // Fetch cosmetics from disk. Swallow ALL errors → safe-defaults.
+    // 2. Empty map → no hosts to fan out to.
+    if (Object.keys(identityHosts).length === 0) {
+      return res.json([]);
+    }
+
+    // 3. Collect unique hostIds (Set preserves insertion order on iteration).
+    const uniqueHostIds = [...new Set(Object.values(identityHosts))];
+
+    // 4. Per-host fanout via Promise.all. Each host returns an array of publicIdentity objects.
+    //    Per-host try/catch provides silent-swallow: one dead box does not break the
+    //    endpoint — it just contributes zero identities (T-68-02-02, T-68-02-03).
+    const perHostResults = await Promise.all(
+      uniqueHostIds.map(async (hostId): Promise<ReturnType<typeof publicIdentity>[]> => {
         try {
           const local = isLocalHostId(hostId);
           let conn: import("ssh2").Client | null = null;
+
           if (!local) {
             const host = await resolveHostById(hostId, userId);
-            if (!host) return publicIdentity(row, {});
+            if (!host) return [];
             conn = await connectOneShot(host, 5_000);
           }
+
           try {
-            const { markdown } = await readIdentityFile(conn, row.identityKey);
-            if (!markdown || markdown.length === 0) return publicIdentity(row, {});
-            const cos = extractCosmeticsFromFrontmatter(markdown);
-            return publicIdentity(row, cos);
+            // Enumerate keys on this host.
+            const identityKeys = await listIdentityKeysOnHost(conn);
+
+            // Per-key parallel read of cosmetics + role.
+            const identityList = await Promise.all(
+              identityKeys.map(async (identityKey) => {
+                try {
+                  const { markdown } = await readIdentityFile(conn, identityKey);
+                  const cosmetics = extractCosmeticsFromFrontmatter(markdown);
+                  const role = extractRoleFromMarkdown(markdown) ?? null;
+                  return publicIdentity(identityKey, hostId, cosmetics, role);
+                } catch {
+                  // Per-key failure swallowed — skip this key.
+                  return null;
+                }
+              }),
+            );
+
+            return identityList.filter((x): x is ReturnType<typeof publicIdentity> => x !== null);
           } finally {
             if (conn) {
               try { conn.end(); } catch { /* ignore */ }
             }
           }
         } catch {
-          // Per-shape "cosmetics unfetchable → error state" scoped to this
-          // row (not the whole endpoint). Row still appears in the response
-          // with safe-default cosmetics.
-          return publicIdentity(row, {});
+          // Per-host silent-swallow: unreachable host contributes zero identities.
+          // Server logs receive the failure via databaseLogger (T-68-02-03).
+          return [];
         }
       }),
     );
 
-    return res.json(enriched);
+    // 5. Flatten per-host arrays into a single merged list.
+    const flatList = perHostResults.flat();
+
+    // 6. Dedupe on identityKey (first-host-wins by iteration order per T-68-02-05).
+    const seen = new Set<string>();
+    const merged: ReturnType<typeof publicIdentity>[] = [];
+    for (const identity of flatList) {
+      if (!seen.has(identity.identityKey)) {
+        seen.add(identity.identityKey);
+        merged.push(identity);
+      }
+    }
+
+    return res.json(merged);
   } catch (e) {
     databaseLogger.error("Failed to list identities", e, {
       operation: "list_identities",
@@ -242,120 +263,42 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
   }
 });
 
-router.post(
-  "/",
-  authenticateJWT,
-  upload.single("avatar"),
-  async (req: Request, res: Response) => {
-    const userId = (req as AuthenticatedRequest).userId;
-    const meta = parseMultipartMetadata(req);
-    if (meta === null) {
-      return res.status(400).json({ error: "Invalid JSON in data field" });
-    }
-    if (!req.file) {
-      return res.status(400).json({ error: "Avatar file is required" });
-    }
-    const identityKey = (meta.identityKey ?? "").toLowerCase().trim();
-    const displayName = (meta.displayName ?? "").trim();
-    if (!identityKey || !IDENTITY_KEY_RE.test(identityKey)) {
-      return res
-        .status(400)
-        .json({ error: "identityKey must match [a-z0-9._=/+-]+" });
-    }
-    if (!displayName) {
-      return res.status(400).json({ error: "displayName is required" });
-    }
-    if (
-      meta.colorHue != null &&
-      (typeof meta.colorHue !== "number" ||
-        meta.colorHue < 0 ||
-        meta.colorHue > 359)
-    ) {
-      return res.status(400).json({ error: "colorHue must be 0-359" });
-    }
+// Phase 68 Plan 68-02: POST / — Option A (410 GONE). The raw-POST create flow is
+// retired; identity creation goes through POST /identities/birth (identity-birth.ts)
+// which handles disk-side work (create folder, write frontmatter, save avatar).
+// Wave 4 removes identity-birth.ts's DB INSERT as part of the table drop.
+router.post("/", authenticateJWT, (_req: Request, res: Response) => {
+  return res.status(410).json({
+    error: "POST /identities is retired — use POST /identities/birth to create new identities",
+  });
+});
 
-    try {
-      const existing = db
-        .select()
-        .from(identities)
-        .where(
-          and(
-            eq(identities.userId, userId),
-            eq(identities.identityKey, identityKey),
-          ),
-        )
-        .all();
-      if (existing.length > 0) {
-        return res
-          .status(409)
-          .json({ error: `Identity "${identityKey}" already exists` });
-      }
-
-      // Phase 66 Plan 04: cosmetic fields are written to disk in a separate
-      // step (identity-birth is the fresh-identity path per Plan 01); the
-      // POST / handler retains the multipart validation but does NOT persist
-      // displayName/title/colorHue/voice/avatarMime/avatarData/avatarEtag to
-      // the store. This handler is legacy for the deprecated raw-POST flow
-      // and returns cosmetics-absent (publicIdentity emits Plan 03's
-      // safe-defaults contract when the overlay is empty).
-      const id = nanoid();
-      const now = new Date().toISOString();
-      db.insert(identities)
-        .values({
-          id,
-          userId,
-          identityKey,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
-
-      const row = db
-        .select()
-        .from(identities)
-        .where(eq(identities.id, id))
-        .all()[0];
-      try {
-        await DatabaseSaveTrigger.forceSave("identity_created");
-      } catch (saveErr) {
-        databaseLogger.warn("Force-save after identity create failed", {
-          operation: "identity_create_save_failed",
-          userId,
-          identityKey,
-          error: saveErr instanceof Error ? saveErr.message : "Unknown error",
-        });
-      }
-      return res.status(201).json(publicIdentity(row));
-    } catch (e) {
-      databaseLogger.error("Failed to create identity", e, {
-        operation: "create_identity",
-        userId,
-        identityKey,
-      });
-      return res.status(500).json({ error: "Failed to create identity" });
-    }
-  },
-);
-
-// Phase 66 Plan 66-02: cosmetics (displayName / title / colorHue / voice /
-// avatar) are written to disk via the artifact-reader; the store row bumps
-// updatedAt only. See CONTEXT.md § Track 2 and 66-02-PLAN.md.
+// Phase 68 Plan 68-02: PUT /:identityKey rekeyed from /:id.
+// Row lookup, row bump, and forceSave all removed — disk write is the sole side-effect.
+// Phase 68: no row bump means no forceSave (disk write already fsynced by
+// writeMarkdownFileAtomic + writeAvatarSiblingFile from Phase 66 Plan 66-01 Track 1).
 router.put(
-  "/:id",
+  "/:identityKey",
   authenticateJWT,
   upload.single("avatar"),
   async (req: Request, res: Response) => {
     const userId = (req as AuthenticatedRequest).userId;
-    const id = String(req.params.id);
+    const identityKey = String(req.params.identityKey);
+    // Route param becomes disk path + SSH command interpolation via readIdentityFile /
+    // writeIdentityFile. Gate BEFORE any of those touch it so `../etc/passwd` and
+    // shell-metachar names can't reach the filesystem or shell.
+    if (!IDENTITY_KEY_RE.test(identityKey)) {
+      return res.status(400).json({
+        error: "identityKey must match [a-z0-9_-]{1,64}",
+      });
+    }
     const meta = parseMultipartMetadata(req);
     if (meta === null) {
       return res.status(400).json({ error: "Invalid JSON in data field" });
     }
 
-    // Phase 66 Plan 66-02: hostId is required in the PUT body — the
-    // disk-write flip needs it to route the artifact-reader (LOCAL vs
-    // REMOTE branch). Validate BEFORE the row lookup so a bad payload
-    // fails fast without touching the DB.
+    // hostId is required in the PUT body — routes the artifact-reader (LOCAL vs REMOTE).
+    // Validate BEFORE SSH work so a bad payload fails fast.
     const hostId = meta.hostId;
     if (
       typeof hostId !== "number" ||
@@ -368,8 +311,8 @@ router.put(
         .json({ error: "hostId required in request body (positive integer)" });
     }
 
-    // Field-shape validation (mirrors pre-flip handler; still needed BEFORE
-    // reaching the disk-write branch so a bad hue/voice fails fast).
+    // Field-shape validation — still needed BEFORE the disk-write branch so a bad
+    // hue/voice fails fast.
     if (meta.displayName !== undefined) {
       const dn = String(meta.displayName).trim();
       if (!dn) {
@@ -397,28 +340,6 @@ router.put(
         .json({ error: "voice must match [A-Z][A-Za-z]+\\.wav" });
     }
 
-    let row: typeof identities.$inferSelect | undefined;
-    try {
-      const existing = db
-        .select()
-        .from(identities)
-        .where(and(eq(identities.id, id), eq(identities.userId, userId)))
-        .all();
-      if (existing.length === 0) {
-        return res.status(404).json({ error: "Identity not found" });
-      }
-      row = existing[0];
-    } catch (e) {
-      databaseLogger.error("Failed to load identity for update", e, {
-        operation: "update_identity_lookup",
-        userId,
-        id,
-      });
-      return res.status(500).json({ error: "Failed to update identity" });
-    }
-
-    const identityKey = row.identityKey;
-
     // Route via isLocalHostId (module-load parsed IDENTITIES_LOCAL_HOST_IDS
     // allowlist). LOCAL → conn=null, no SSH. REMOTE → resolveHostById +
     // connectOneShot; failure = 502.
@@ -435,10 +356,10 @@ router.put(
         }
         conn = await connectOneShot(host, 30_000);
       } catch (connErr) {
-        databaseLogger.warn("PUT /identities/:id — SSH connect failed", {
+        databaseLogger.warn("PUT /identities/:identityKey — SSH connect failed", {
           operation: "update_identity_ssh_connect_failed",
           userId,
-          id,
+          identityKey,
           hostId,
           error:
             connErr instanceof Error ? connErr.message : "Unknown error",
@@ -453,9 +374,9 @@ router.put(
       // ---- Read the existing on-disk identity file ----
       const { markdown: existing } = await readIdentityFile(conn, identityKey);
       if (!existing || existing.length === 0) {
-        // Data-integrity violation post-Phase-A: the identity's home is
-        // supposed to hold the .md file. No offline fallback (shape file:
-        // "error and move on"). Canned message per threat T-66-02-04.
+        // Data-integrity violation: the identity's home is supposed to hold the .md
+        // file. No implicit-create (shape file: "error and move on"). Canned message
+        // per threat T-66-02-04 / T-68-02-04.
         return res
           .status(500)
           .json({ error: "identity file missing on target host" });
@@ -590,53 +511,16 @@ router.put(
         }
       }
 
-      // ---- Bump store row updatedAt ONLY (cosmetics moved to disk) ----
-      const nowIso = new Date().toISOString();
-      try {
-        db.update(identities)
-          .set({ updatedAt: nowIso })
-          .where(and(eq(identities.id, id), eq(identities.userId, userId)))
-          .run();
-      } catch (updErr) {
-        databaseLogger.warn("Force-updatedAt bump after disk-write failed", {
-          operation: "update_identity_row_bump_failed",
-          userId,
-          id,
-          error: updErr instanceof Error ? updErr.message : "Unknown error",
-        });
-      }
-      try {
-        await DatabaseSaveTrigger.forceSave("identity_updated");
-      } catch (saveErr) {
-        databaseLogger.warn("Force-save after identity update failed", {
-          operation: "identity_update_save_failed",
-          userId,
-          id,
-          error: saveErr instanceof Error ? saveErr.message : "Unknown error",
-        });
-      }
-
-      const freshRow = db
-        .select()
-        .from(identities)
-        .where(eq(identities.id, id))
-        .all()[0];
-      // Phase 67 /close 2026-09-01 follow-up (H1): re-read the identity's
-      // on-disk cosmetics AFTER the write completes and overlay them onto
-      // publicIdentity so the response echoes the true state — most notably
-      // the coordinator flag, which is disk-authoritative (Phase 67 Plan
-      // 67-01). Without this overlay, publicIdentity safe-defaults
-      // coordinator to false and the frontend's applyIdentityChange replaces
-      // the store entry, dropping the watermark across all surfaces until
-      // the next refreshIdentities() cycle. As a side benefit this closes
-      // the pre-existing "stale echo" TODO for title/colorHue/voice/
-      // avatarMime/avatarEtag: the response now reflects what was actually
-      // written to disk. Errors during the read fall back to
-      // publicIdentity(freshRow) with safe-defaults (matches GET / per-row
-      // fetch-failure behavior — accept-the-ugly-render).
+      // ---- Post-write re-read for response echo ----
+      // Re-read the identity's on-disk cosmetics AFTER the write completes and overlay
+      // them onto publicIdentity so the response echoes the true state — most notably
+      // the coordinator flag, which is disk-authoritative (Phase 67 Plan 67-01).
+      // Errors during the read → fall back to safe-defaults (empty cosmetics).
       let echoCosmetics: ReturnType<typeof extractCosmeticsFromFrontmatter> = {};
+      let postWriteMd = "";
       try {
-        const { markdown: postWriteMd } = await readIdentityFile(conn, identityKey);
+        const readResult = await readIdentityFile(conn, identityKey);
+        postWriteMd = readResult.markdown ?? "";
         if (postWriteMd && postWriteMd.length > 0) {
           echoCosmetics = extractCosmeticsFromFrontmatter(postWriteMd);
         }
@@ -644,12 +528,13 @@ router.put(
         // Swallow — response falls back to safe-defaults (empty cosmetics).
         echoCosmetics = {};
       }
-      return res.json(publicIdentity(freshRow, echoCosmetics));
+
+      return res.json(publicIdentity(identityKey, hostId, echoCosmetics, extractRoleFromMarkdown(postWriteMd) ?? null));
     } catch (e) {
       databaseLogger.error("Failed to update identity on disk", e, {
         operation: "update_identity_disk_write",
         userId,
-        id,
+        identityKey,
       });
       return res.status(500).json({ error: "Failed to update identity" });
     } finally {
@@ -664,51 +549,25 @@ router.put(
   },
 );
 
-router.delete("/:id", authenticateJWT, async (req: Request, res: Response) => {
-  const userId = (req as AuthenticatedRequest).userId;
-  const id = String(req.params.id);
-  try {
-    const result = db
-      .delete(identities)
-      .where(and(eq(identities.id, id), eq(identities.userId, userId)))
-      .run();
-    if (result.changes === 0) {
-      return res.status(404).json({ error: "Identity not found" });
-    }
-    try {
-      await DatabaseSaveTrigger.forceSave("identity_deleted");
-    } catch (saveErr) {
-      databaseLogger.warn("Force-save after identity delete failed", {
-        operation: "identity_delete_save_failed",
-        userId,
-        id,
-        error: saveErr instanceof Error ? saveErr.message : "Unknown error",
-      });
-    }
-    return res.status(204).send();
-  } catch (e) {
-    databaseLogger.error("Failed to delete identity", e, {
-      operation: "delete_identity",
-      userId,
-      id,
-    });
-    return res.status(500).json({ error: "Failed to delete identity" });
-  }
-});
 
-// Phase 66 Plan 03: GET /:id/avatar reads the sibling avatar file from disk
-// via readAvatarSiblingFile. Query `hostId=<n>` is required to route the
-// artifact-reader (LOCAL bind-mount vs REMOTE connectOneShot). Response
-// Content-Type derives from the on-disk file's extension. 404 when no
-// sibling exists; 502 when SSH fails.
+// Phase 68 Plan 68-02: GET /:identityKey/avatar rekeyed from /:id/avatar.
+// Row lookup removed — the URL param IS the identityKey used by readAvatarSiblingFile.
+// Identity's on-disk existence check falls to readAvatarSiblingFile's null return.
 router.get(
-  "/:id/avatar",
+  "/:identityKey/avatar",
   authenticateJWT,
   async (req: Request, res: Response) => {
     const userId = (req as AuthenticatedRequest).userId;
-    const id = String(req.params.id);
+    const identityKey = String(req.params.identityKey);
+    // readAvatarSiblingFile self-validates identityKey, but return a clean 400 here
+    // rather than a downstream null-as-404 so bad callers get an actionable error.
+    if (!IDENTITY_KEY_RE.test(identityKey)) {
+      return res.status(400).json({
+        error: "identityKey must match [a-z0-9_-]{1,64}",
+      });
+    }
 
-    // hostId query validation — fail fast BEFORE the row lookup or SSH work.
+    // hostId query validation — fail fast BEFORE SSH work.
     const rawHost = req.query.hostId;
     const hostIdNum =
       typeof rawHost === "string" ? Number(rawHost) : Number.NaN;
@@ -722,75 +581,60 @@ router.get(
         .json({ error: "hostId query required (positive integer)" });
     }
 
-    try {
-      const row = db
-        .select()
-        .from(identities)
-        .where(and(eq(identities.id, id), eq(identities.userId, userId)))
-        .all()[0];
-      if (!row) {
-        return res.status(404).json({ error: "Identity not found" });
-      }
-
-      const local = isLocalHostId(hostIdNum);
-      let conn: import("ssh2").Client | null = null;
-      if (!local) {
-        try {
-          const host = await resolveHostById(hostIdNum, userId);
-          if (!host) {
-            return res
-              .status(502)
-              .json({ error: "identity home box unreachable" });
-          }
-          conn = await connectOneShot(host, 5_000);
-        } catch {
+    // No row lookup — identityKey from URL param feeds directly into
+    // readAvatarSiblingFile's shell interpolation, guarded by IDENTITY_KEY_RE
+    // pre-validation in the artifact-reader (T-68-02-01).
+    const local = isLocalHostId(hostIdNum);
+    let conn: import("ssh2").Client | null = null;
+    if (!local) {
+      try {
+        const host = await resolveHostById(hostIdNum, userId);
+        if (!host) {
           return res
             .status(502)
             .json({ error: "identity home box unreachable" });
         }
-      }
-
-      try {
-        const readResult = await readAvatarSiblingFile(conn, row.identityKey);
-        if (readResult === null) {
-          return res
-            .status(404)
-            .json({ error: "no avatar on disk for this identity" });
-        }
-
-        // ETag is per-response, not stored server-side — kept for correctness
-        // (identifies the resource version) even though `no-store` below tells
-        // the browser not to cache the bytes at all. Every render on every
-        // viewer reaches the identity's home for the current bytes, matching
-        // Ashley's intent stated at /close 2026-09-01.
-        const etag = `"disk-${createHash("md5").update(readResult.bytes).digest("hex")}"`;
-        const ifNoneMatch = req.headers["if-none-match"];
-        if (ifNoneMatch && ifNoneMatch === etag) {
-          return res.status(304).end();
-        }
-        res.setHeader("Content-Type", readResult.mime);
-        res.setHeader("Content-Length", String(readResult.bytes.byteLength));
-        res.setHeader("ETag", etag);
-        res.setHeader("Cache-Control", "no-store");
-        return res.send(readResult.bytes);
+        conn = await connectOneShot(host, 5_000);
       } catch {
-        // SSH-layer / SFTP error → 502 with canned message (T-66-03-02);
-        // never leak raw SSH exceptions into the response body.
         return res
           .status(502)
           .json({ error: "identity home box unreachable" });
-      } finally {
-        if (conn) {
-          try { conn.end(); } catch { /* ignore */ }
-        }
       }
-    } catch (e) {
-      databaseLogger.error("Failed to serve avatar", e, {
-        operation: "get_identity_avatar",
-        userId,
-        id,
-      });
-      return res.status(500).json({ error: "Failed to serve avatar" });
+    }
+
+    try {
+      const readResult = await readAvatarSiblingFile(conn, identityKey);
+      if (readResult === null) {
+        return res
+          .status(404)
+          .json({ error: "no avatar on disk for this identity" });
+      }
+
+      // ETag is per-response, not stored server-side — kept for correctness
+      // (identifies the resource version) even though `no-store` below tells
+      // the browser not to cache the bytes at all. Every render on every
+      // viewer reaches the identity's home for the current bytes, matching
+      // Ashley's intent stated at /close 2026-09-01.
+      const etag = `"disk-${createHash("md5").update(readResult.bytes).digest("hex")}"`;
+      const ifNoneMatch = req.headers["if-none-match"];
+      if (ifNoneMatch && ifNoneMatch === etag) {
+        return res.status(304).end();
+      }
+      res.setHeader("Content-Type", readResult.mime);
+      res.setHeader("Content-Length", String(readResult.bytes.byteLength));
+      res.setHeader("ETag", etag);
+      res.setHeader("Cache-Control", "no-store");
+      return res.send(readResult.bytes);
+    } catch {
+      // SSH-layer / SFTP error → 502 with canned message (T-68-02-01);
+      // never leak raw SSH exceptions into the response body.
+      return res
+        .status(502)
+        .json({ error: "identity home box unreachable" });
+    } finally {
+      if (conn) {
+        try { conn.end(); } catch { /* ignore */ }
+      }
     }
   },
 );

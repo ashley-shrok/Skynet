@@ -135,9 +135,7 @@ import { Pin, Monitor } from "lucide-react";
 import { tabIcon } from "@/shell/tabUtils";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { useIdentities } from "@/state/identities-store";
-// Phase 66 Plan 05: hostId threading — Plan 03's GET /:id/avatar requires
-// hostId query param; use avatarUrlWithHost helper when row.host is present.
-import { avatarUrlWithHost } from "@/api/identities-api";
+// Phase 68 Plan 04: avatarUrlWithHost DELETED — backend bakes hostId into identity.avatarUrl.
 import { useBountyCounts } from "@/state/bounty-counts-store";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { cn } from "@/lib/utils";
@@ -1199,10 +1197,12 @@ export function PrettyConversationRow({
             // fall back to the initial-letter placeholder rather than
             // producing a broken-image affordance. Ashley 2026-09-01:
             // "some conversation-list rows show broken-image icons" — this
-            // gates on BOTH avatarUrl truthiness AND hostId presence.
-            identity.avatarUrl && Number.isFinite(rowHostIdNum) ? (
+            // gates on avatarUrl truthiness (Phase 68: hostId is baked in by backend).
+            identity.avatarUrl ? (
               <img
-                src={avatarUrlWithHost(identity, rowHostIdNum)}
+                // Phase 68 Plan 04: avatarUrlWithHost deleted — backend bakes hostId
+                // into identity.avatarUrl at emit time; render directly.
+                src={identity.avatarUrl}
                 alt=""
                 className="pv-avatar-img"
                 style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "999px" }}

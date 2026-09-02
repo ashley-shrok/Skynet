@@ -180,19 +180,20 @@ function makeRow(
 }
 
 function makeIdentity(hue: number, name = "nelly"): Identity {
+  // Phase 68: Identity no longer has id/createdAt/updatedAt.
   return {
-    id: "id-1",
     identityKey: name.toLowerCase(),
     displayName: name,
     title: null,
     colorHue: hue,
+    voice: null,
+    role: null,
     avatarMime: "image/png",
     // Empty avatarUrl → the row falls back to the initial-letter render path
     // (avoids any real network fetch during tests).
     avatarUrl: "",
     avatarEtag: "",
-    createdAt: "",
-    updatedAt: "",
+    coordinator: false,
   };
 }
 

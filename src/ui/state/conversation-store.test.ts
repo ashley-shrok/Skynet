@@ -89,8 +89,8 @@ function makeIdentity(
   role: string | null,
   overrides?: Partial<Identity>,
 ): Identity {
+  // Phase 68: Identity no longer has id/createdAt/updatedAt.
   return {
-    id: identityKey,
     identityKey,
     displayName: identityKey,
     title: null,
@@ -100,10 +100,9 @@ function makeIdentity(
     avatarMime: "",
     avatarUrl: "",
     avatarEtag: "",
-    createdAt: "",
-    updatedAt: "",
+    coordinator: false,
     ...(overrides ?? {}),
-  } as unknown as Identity;
+  };
 }
 
 // Phase 25 (Plan 25-03): build a Map<string, Identity> keyed by
