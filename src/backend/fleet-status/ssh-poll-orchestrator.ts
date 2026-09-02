@@ -1642,7 +1642,9 @@ export function createSshPollOrchestrator(
 
     // Liveness check — bounty 9c8d4a72: branch on the tagged statResult BEFORE
     // calling isStaleFromStat so SSH transport errors never trigger a reap.
-    if (!statResult.ok && statResult.reason === 'transport') {
+    // Extract cast because backend tsconfig has strict:false, which disables
+    // discriminated-union narrowing on `!statResult.ok` in compound `&&`.
+    if (!statResult.ok && (statResult as Extract<StatReadResult, { ok: false }>).reason === 'transport') {
       // SSH channel-open-failure (or unknown-shape response). Fail-OPEN: skip
       // the stale-check this tick, leave the session in livenessMap, continue
       // processPid so the row still re-publishes with fresh state. Debug (not
@@ -2060,7 +2062,8 @@ export function createSshPollOrchestrator(
         // on this stat read must NOT reap the entry (fail-OPEN, sweep the rest
         // of the PIDs); real ENOENT + field22 mismatch still reap as before.
         const statResult = await readStatWithSentinel(channel, pid);
-        if (!statResult.ok && statResult.reason === 'transport') {
+        // Same Extract cast rationale as line 1645 — see the comment there.
+        if (!statResult.ok && (statResult as Extract<StatReadResult, { ok: false }>).reason === 'transport') {
           systemLogger.debug(
             "Fleet-status: sweep stat read transport error — skipping reap this sweep",
             {
