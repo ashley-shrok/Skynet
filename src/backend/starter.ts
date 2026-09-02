@@ -76,6 +76,51 @@ export function maybeInstallStopHook(
     });
 }
 
+// ---------------------------------------------------------------------------
+// Bounty b31a5c8e-7f2d-4c91-a4b6-8e9f1c3b7d24 — per-connection SSH exec
+// throttle. OpenSSH default MaxSessions=10 (universal since OpenSSH 5.1,
+// 2008) is per-CONNECTION, not per-host-global (sshd_config man page: "the
+// maximum number of open shell, login or subsystem sessions permitted per
+// network connection"). We cap Skynet's own exec-channel concurrency at 8
+// per (host, SSH connection) — this leaves 2 channels of headroom on our
+// own connection's bucket and cannot starve any other legitimate SSH
+// client on any target box (they each get their own private 10-cap
+// bucket). This eliminates CHANNEL_OPEN_FAILURE bursts from the
+// fleet-status poller under any target host's default sshd config, with
+// zero call-site changes to ssh-poll-orchestrator.ts (its Promise.all
+// fan-outs queue implicitly).
+//
+// Contract:
+//   - `run(fn)` runs fn() when a slot is free; otherwise queues FIFO.
+//   - Slot decrement + queue drain happen in try/finally so a throwing
+//     fn() still releases its slot and wakes the next waiter.
+//   - Errors from fn() propagate unchanged — the semaphore does NOT catch
+//     or transform them. The channel adapter's outer try/catch → null
+//     remains the SOLE null-conversion point in the exec pipeline.
+//   - No timing / no timeouts. Pure counting semaphore with a FIFO queue.
+// ---------------------------------------------------------------------------
+export function makeSemaphore(limit: number): {
+  run<T>(fn: () => Promise<T>): Promise<T>;
+} {
+  let active = 0;
+  const waiters: Array<() => void> = [];
+  return {
+    async run<T>(fn: () => Promise<T>): Promise<T> {
+      if (active >= limit) {
+        await new Promise<void>((resolve) => waiters.push(resolve));
+      }
+      active++;
+      try {
+        return await fn();
+      } finally {
+        active--;
+        const next = waiters.shift();
+        if (next) next();
+      }
+    },
+  };
+}
+
 // Guard the boot IIFE so test imports of exported helpers (Phase 39-04) do
 // not trigger real backend initialization (dotenv, DB init, SSL setup, WS
 // servers). Vitest sets process.env.VITEST === "true" automatically.
@@ -356,17 +401,23 @@ if (process.env.VITEST !== "true") {
           if (existing) {
             // Health-check: try a simple command
             try {
+              // Bounty b31a5c8e: per-connection SSH exec throttle. Cap at
+              // 8 in flight to stay under OpenSSH default MaxSessions=10.
+              const sem = makeSemaphore(8);
               const channel = {
                 exec: async (command: string): Promise<string | null> => {
                   try {
-                    return await execCommand(existing, command);
+                    return await sem.run(async () =>
+                      execCommand(existing, command),
+                    );
                   } catch {
                     return null;
                   }
                 },
               };
-              // Quick health probe
-              await execCommand(existing, "echo ok");
+              // Quick health probe — routed through the SAME semaphore so
+              // it cannot bypass the cap on a saturated connection.
+              await sem.run(async () => execCommand(existing, "echo ok"));
               return channel;
             } catch {
               // Connection dead — remove and reconnect
@@ -398,10 +449,13 @@ if (process.env.VITEST !== "true") {
           client.on("close", () => hostClients.delete(host.id));
           client.on("error", () => hostClients.delete(host.id));
 
+          // Bounty b31a5c8e: per-connection SSH exec throttle. Cap at 8
+          // in flight to stay under OpenSSH default MaxSessions=10.
+          const sem = makeSemaphore(8);
           const channelAdapter: SshChannel = {
             exec: async (command: string): Promise<string | null> => {
               try {
-                return await execCommand(client, command);
+                return await sem.run(async () => execCommand(client, command));
               } catch {
                 return null;
               }
