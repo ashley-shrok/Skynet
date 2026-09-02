@@ -1299,6 +1299,15 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
     if (content.trim().replace(/[\x00-\x1F]/g, "") === "") {
       return { kind: "skip", why: "ctrl_c_kill" };
     }
+    // Ashley 2026-09-02: relay-hygiene closer phrase — a bare "No response
+    // requested." user turn is peer-agent signaling with no conversational
+    // payload. Exact-match on trim (mirrors goodbye_echo's closed-set posture,
+    // NOT a substring/suffix strip) — a real user message that ENDS with or
+    // CONTAINS the phrase still renders so any real prose around it is
+    // preserved.
+    if (content.trim() === "No response requested.") {
+      return { kind: "skip", why: "no_response_requested" };
+    }
   }
 
   // Skip harness-injected wrapper-only user turns. The Monitor tool

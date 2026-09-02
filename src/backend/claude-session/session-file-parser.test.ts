@@ -1372,4 +1372,59 @@ describe("parseSessionLine — session-lifecycle noise skips (quick-260829-r9i)"
     expect(parsed.role).toBe("user");
     expect(parsed.content).toBe("< 100 rows returned > and the ratio is > 0.5");
   });
+
+  // Ashley 2026-09-02: relay-hygiene closer phrase — a bare "No response
+  // requested." user turn is peer-agent signaling with no conversational
+  // payload. Exact trim-match mirrors goodbye_echo's closed-set posture.
+  it("Test R9I-9: no_response_requested — bare 'No response requested.' user turn is skipped", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "u-r9i-9",
+        timestamp: "2026-09-02T10:00:00.000Z",
+        message: {
+          content: "No response requested.",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("no_response_requested");
+  });
+
+  it("Test R9I-9a: no_response_requested — leading/trailing whitespace tolerated (trim match)", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "u-r9i-9a",
+        timestamp: "2026-09-02T10:00:01.000Z",
+        message: {
+          content: "  \n No response requested.\n  ",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("no_response_requested");
+  });
+
+  it("Test R9I-9b: substring / suffix does NOT trigger no_response_requested — real prose passes through", () => {
+    // Guard against widening this to a substring/suffix match by accident —
+    // a real informational user turn that ENDS with the phrase must still
+    // render (would lose its whole body otherwise).
+    const parsed = parseSessionLine(
+      line({
+        type: "user",
+        uuid: "u-r9i-9b",
+        timestamp: "2026-09-02T10:00:02.000Z",
+        message: {
+          content: "Deployed v3.4 to prod. No response requested.",
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("message");
+    if (parsed.kind !== "message") throw new Error("unreachable");
+    expect(parsed.role).toBe("user");
+    expect(parsed.content).toContain("Deployed v3.4 to prod");
+  });
 });
