@@ -996,11 +996,18 @@ export function PrettyView({
   const sendInput = useCallback((text: string, mqid?: string): boolean => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    // Neutralize harness-control-shaped tags before they land in claude's stdin.
+    // Anthropic's Claude Code parses `<bash-input>…</bash-input>`, `<system-reminder>`,
+    // etc. as its own control frames when they appear in user input, so pasting/typing
+    // such a tag would silently execute or interpret it. Inserting U+200B after every
+    // opening `<` of a tag-shaped substring breaks the harness's tag regex while
+    // remaining visually identical in bubbles and copy-outs.
+    const data = text.replace(/<(\/?[a-zA-Z][a-zA-Z0-9_-]*)/g, "<\u200B$1");
     try {
       ws.send(
         JSON.stringify({
           type: "input",
-          data: text,
+          data,
           ...(mqid ? { messageQueueItemId: mqid } : {}),
         }),
       );
