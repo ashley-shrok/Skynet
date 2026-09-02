@@ -1187,6 +1187,12 @@ export function ComposeBox({
   // queueSlots + scheduleAutosave. useCallback is REQUIRED — the watchdog
   // effect keeps a ref via its dependency array; a bare function decl would
   // capture a stale `queue` between arm and timer fire.
+  // Phase 68 follow-up: hoist funnel declaration above fireNextQueued so the
+  // arm-idle drainer can route through funnel.send. React hook-order rules
+  // remain satisfied (useComposeSend's inner useCallback fires before
+  // fireNextQueued's useCallback in the same consistent order every render).
+  const funnel = useComposeSend({ hostId, tmuxSession, onSend, onOptimisticSend });
+
   const fireNextQueued = useCallback(() => {
     if (queue.length === 0) return;
     const head = queue[0];
@@ -1230,7 +1236,10 @@ export function ComposeBox({
     }
 
     const payload = collapseNewlinesForSend(head.text);
-    const dispatched = onSend(payload);
+    // Phase 68 follow-up: route the arm-idle drainer's text-only branch through
+    // the funnel so cadence-fired queue sends get optimistic bubbles + dormancy
+    // wake, matching every other user-initiated send affordance.
+    const dispatched = funnel.send(payload, { trigger: "queue-item" });
     if (dispatched) {
       setQueue((prev) => prev.filter((_, i) => i !== 0));
       if (head.source === "primary") {
@@ -1246,7 +1255,7 @@ export function ComposeBox({
       setQueue((prev) => prev.filter((_, i) => i !== 0));
       setErrorMessage("Not connected — queued send failed");
     }
-  }, [queue, onSend, clearAfterSend, onSendWithAttachments, getStagedAttachmentsForTarget, clearStagedForTarget, hostId, tmuxSession, scheduleAutosave]);
+  }, [queue, funnel, clearAfterSend, onSendWithAttachments, getStagedAttachmentsForTarget, clearStagedForTarget, hostId, tmuxSession, scheduleAutosave]);
 
   // Vehicle C v2 (2026-08-01): FIFO-aware idle watchdog. Gate on
   // `queue.length === 0` (no armed sources → nothing to fire). Strict
@@ -1391,12 +1400,6 @@ export function ComposeBox({
       observer.disconnect();
     };
   }, [stagedAttachmentsCount]);
-
-  // Phase 68 Plan 01 D-01: instantiate the co-located send-funnel hook.
-  // Placed here (after all useEffect/useLayoutEffect/useCallback hooks, before
-  // the first function-declaration handler) so it follows React's hook ordering
-  // rules. All 5 send-trigger handlers close over `funnel.send`.
-  const funnel = useComposeSend({ hostId, tmuxSession, onSend, onOptimisticSend });
 
   function handleTextChange(next: string) {
     setText(next);
@@ -1709,7 +1712,10 @@ export function ComposeBox({
               setMicTarget("primary");
               return;
             }
-            const dispatched = onSend(payload);
+            // Phase 68 follow-up: route voice-slot text-only sends through the
+            // funnel so voice-transcribed messages get optimistic bubbles +
+            // dormancy wake, matching every other user-initiated send affordance.
+            const dispatched = funnel.send(payload, { trigger: "voice-slot" });
             if (dispatched) {
               const nextSlots = latestQueueSlotsRef.current.filter((s) => s.id !== target);
               setQueueSlots(nextSlots);
