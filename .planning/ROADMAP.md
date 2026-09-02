@@ -1702,5 +1702,17 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
+
 - [x] 67-01-PLAN.md — BACKEND: extend extractCosmeticsFromFrontmatter to narrow coordinator boolean; widen publicIdentity overlay + response with coordinator: boolean safe-defaulted false; widen frontend Identity type; unit + route tests.
 - [x] 67-02-PLAN.md — FRONTEND: render hue-brightened MdHub watermark on PrettyConversationRow (+ pretty-conversations.css), IdentityBadge, and IdentityModal DialogHeader when identity.coordinator === true; three disjoint file-surface tracks in one plan; render tests per surface.
+
+### Phase 68: compose-send-funnel — universal send funnel for PrettyView compose box: route all 5 send-triggers (main textarea, queue-slot, thumbs-up, recap, reset) through one common helper that generates a pv-optim-* mqid, wakes dormant sessions, dispatches, and optionally seeds an optimistic bubble (unless render-blacklisted like reset). Fixes: (a) missing bubbles on queue-slot/thumbs-up/recap, (b) thumbs-up/recap disabled-when-dormant (legacy artifact of retired wake-up button), (c) reset button dropping /id reset into bare bash on dormant sessions instead of waking first. Extracts send-core from ComposeBox.tsx handleSend (currently entangled with attachment branching, textarea clear, error state, draft clear) into standalone hook/helper. Per-trigger in-process tests locking the new behavior. Out of scope: attachment refactor, draft persistence refactor, system-initiated sends (WIP-restore, agent-relay forwards). Shape: .planning/shapes/shape-compose-send-funnel.md.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 67
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 68 to break down)
