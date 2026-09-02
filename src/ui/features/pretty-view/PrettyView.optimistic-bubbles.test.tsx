@@ -348,7 +348,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     expect(remaining.getAttribute("data-event-id")).toBe(`pending-${secondMqid}`);
   });
 
-  it("Test 5: 20s timer flips pending to failed and populates composeOverrideText", async () => {
+  it("Test 5: 20s timer flips pending to failed; composebox stays empty (no repopulate)", async () => {
     vi.useFakeTimers();
     const { container } = mount();
     const ws = getCurrentWs();
@@ -379,11 +379,13 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     // No spinner anymore (mutually exclusive).
     expect(container.querySelector("[data-pv-bubble-spinner]")).toBeNull();
 
-    // ComposeBox textarea repopulated with the failed content.
+    // ComposeBox textarea stays EMPTY after failure — the red bubble is
+    // the record of the send; no edit-and-resend repopulate (Ashley
+    // 2026-09-02, reversing Phase 50 D-03).
     const textarea = container.querySelector(
       'textarea[placeholder^="Message"]',
     ) as HTMLTextAreaElement;
-    expect(textarea.value).toBe("will-fail");
+    expect(textarea.value).toBe("");
   });
 
   it("Test 5b: dormant-at-arm-time defers pending flip from T+20s to T+220s (Phase 62 Wave 1 — client-side symmetric widening of Phase 60 backend widening)", async () => {
@@ -435,11 +437,11 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     expect(container.querySelector("[data-pv-bubble-failed]")).not.toBeNull();
     expect(container.querySelector("[data-pv-bubble-spinner]")).toBeNull();
 
-    // composeOverrideText was populated (same edit-and-resend path as Test 5).
+    // Composebox stays EMPTY after failure (same no-repopulate contract as Test 5).
     const textarea = container.querySelector(
       'textarea[placeholder^="Message"]',
     ) as HTMLTextAreaElement;
-    expect(textarea.value).toBe("dormant-send-payload");
+    expect(textarea.value).toBe("");
   });
 
   it("Test 6: paste_send_failed WS frame flips to failed and cancels 20s timer", async () => {
@@ -525,11 +527,12 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     });
     // Immediately failed.
     expect(container.querySelector("[data-pv-bubble-failed]")).not.toBeNull();
-    // Textarea stays populated (ComposeBox preserves the draft on failure).
+    // Textarea is CLEARED on WS-not-open (Ashley 2026-09-02) — the red
+    // bubble is the record; no need to also keep the text in the textarea.
     const textarea = container.querySelector(
       'textarea[placeholder^="Message"]',
     ) as HTMLTextAreaElement;
-    expect(textarea.value).toBe("ws-not-ready");
+    expect(textarea.value).toBe("");
     // No timer should exist to fire later — advancing timers doesn't
     // create additional failed bubbles.
     await act(async () => {
@@ -745,44 +748,11 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     expect(countPendingBubbles(container)).toBe(0);
   });
 
-  it("Test 13: onOverrideTextConsumed clears composeOverrideText (Warning #6)", async () => {
-    vi.useFakeTimers();
-    const { container } = mount();
-    const ws = getCurrentWs();
-    flipToStreaming(ws);
-    await act(async () => {
-      await Promise.resolve();
-    });
-    typeAndEnter(container, "override-check");
-    await act(async () => {
-      await Promise.resolve();
-    });
-    // Trigger the 20s timer → flipToFailed → composeOverrideText = "override-check"
-    await act(async () => {
-      vi.advanceTimersByTime(20001);
-      await Promise.resolve();
-    });
-    const textarea = container.querySelector(
-      'textarea[placeholder^="Message"]',
-    ) as HTMLTextAreaElement;
-    expect(textarea.value).toBe("override-check");
-    // The ack should have fired (ComposeBox's overrideText useEffect
-    // calls onOverrideTextConsumed synchronously with setText), which
-    // resets composeOverrideText to null. Regression test: manually
-    // clear the textarea and re-render (via re-typing anything) — the
-    // useEffect must NOT re-fire and re-populate with "override-check".
-    act(() => {
-      fireEvent.change(textarea, { target: { value: "" } });
-    });
-    // Give the effect an opportunity to run again.
-    await act(async () => {
-      vi.advanceTimersByTime(0);
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    // Textarea stays empty — the ack path prevented a stale re-populate.
-    expect(textarea.value).toBe("");
-  });
+  // (Test 13 deleted 2026-09-02 alongside the Ashley-directed removal of
+  // flipToFailed's composeOverrideText populate. The Warning-#6 ack path
+  // it exercised is dead in production — nothing sets composeOverrideText
+  // to a non-null value anymore. Tests 5 / 5b / 8 cover the new
+  // "textarea stays empty after failure" contract.)
 });
 
 describe("PrettyView — render latest-only + interleaving (Phase 50 Plan 03 Task 3b)", () => {

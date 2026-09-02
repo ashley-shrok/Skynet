@@ -1795,7 +1795,7 @@ describe("ComposeBox — optimistic bubble seeding (Phase 50 Plan 03 Task 2)", (
     expect(sendMqid).toBe(firstCall.mqid);
   });
 
-  it("Test 3: onSend returning false triggers onOptimisticSend with immediateFailure:true and preserves text", async () => {
+  it("Test 3: onSend returning false triggers onOptimisticSend with immediateFailure:true and clears textarea", async () => {
     const onSend = vi.fn(() => false); // WS down
     const onOptimisticSend = vi.fn();
     render(
@@ -1819,8 +1819,9 @@ describe("ComposeBox — optimistic bubble seeding (Phase 50 Plan 03 Task 2)", (
     expect(secondCall.immediateFailure).toBe(true);
     // Same mqid across both calls (single-source per send).
     expect(firstCall.mqid).toBe(secondCall.mqid);
-    // Text preserved (draft stays for user to retry-and-resend).
-    expect(textarea.value).toBe("failing send");
+    // Textarea CLEARED — red bubble in transcript is the record of the send;
+    // no draft-preservation for retry (Ashley 2026-09-02).
+    expect(textarea.value).toBe("");
   });
 
   it("Test 5: mqid format matches pv-optim-<timestamp>-<random8hex>", async () => {

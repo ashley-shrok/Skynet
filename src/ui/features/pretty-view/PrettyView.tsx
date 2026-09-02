@@ -1117,12 +1117,13 @@ export function PrettyView({
 
   // flipToFailed: called by the 20s timer, by the paste_send_failed WS
   // branch, and by the send_keys_error WS branch. Marks the matching
-  // pending as 'failed' (state:'failed', timer:null) AND populates
-  // composeOverrideText with the pending's content so ComposeBox refills
-  // for edit-and-resend. Ref-based lookup so we can call from timer
-  // callbacks with fresh state. D-05 invariant: only flips pendings that
-  // are still in state:'sending'; a pending that has already been matched
-  // (removed from the array) is a no-op.
+  // pending as 'failed' (state:'failed', timer:null). The red-bordered
+  // failed bubble stays in the transcript as the record of the send;
+  // the composebox is NOT repopulated (Ashley 2026-09-02, reversing
+  // Phase 50 D-03 edit-and-resend). Ref-based lookup so we can call
+  // from timer callbacks with fresh state. D-05 invariant: only flips
+  // pendings that are still in state:'sending'; a pending that has
+  // already been matched (removed from the array) is a no-op.
   const flipToFailed = useCallback((mqid: string, reason: string) => {
     setPendingSends((prev) => {
       const found = prev.find((p) => p.mqid === mqid && p.state === "sending");
@@ -1136,8 +1137,6 @@ export function PrettyView({
       console.warn(
         `[pv-optim] flip-to-failed mqid=${mqid} reason=${reason} content-length=${found.content.length}`,
       );
-      // Populate ComposeBox for edit-and-resend (D-03).
-      setComposeOverrideText(found.content);
       return prev.map((p) =>
         p.mqid === mqid ? { ...p, state: "failed", timer: null } : p,
       );

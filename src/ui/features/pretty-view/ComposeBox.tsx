@@ -1589,25 +1589,15 @@ export function ComposeBox({
     // on failure per PATTERNS.md § Contract boundary). The trigger label flows
     // through so the submit-entry log line carries the correct trigger field.
     const dispatched = funnel.send(payload, { trigger });
-    if (dispatched) {
-      setText(""); // clear compose textarea on success
-      clearAfterSend();
-      // Phase 50 D-18: prior HARD LOCK removed. The optimistic bubble
-      // is seeded via onOptimisticSend synchronously with the WS send;
-      // PrettyView owns the pending-send state machine and matches the
-      // returning MessageEvent (or paste_send_failed / send_keys_error /
-      // 20s-timer) to clear or fail the bubble. See
-      // .planning/phases/50-optimistic-message-bubbles/50-CONTEXT.md
-      // D-01/D-05/D-19.
-    } else {
+    // Clear the composebox on BOTH dispatched=true and dispatched=false.
+    // The red-bordered failed bubble in the transcript is the record of
+    // the send in either case — no need to also keep the text in the
+    // textarea (Ashley 2026-09-02, reversing Phase 50 D-20 / D-56 which
+    // preserved the draft on WS-not-open for edit-and-resend).
+    setText("");
+    clearAfterSend();
+    if (!dispatched) {
       setErrorMessage("Not connected — try again in a moment");
-      // Phase 50 D-20 + D-56: do NOT clear text on dispatched===false;
-      // user may want to retry. The funnel already fired
-      // onOptimisticSend({ immediateFailure: true }) so PrettyView has
-      // flipped the pending bubble to red. Keeping the textarea populated
-      // lets the user edit-and-resend without re-typing. Do NOT clear the
-      // persisted draft either — failed send should leave the composition
-      // intact server-side too.
     }
   }
 
