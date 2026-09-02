@@ -1718,3 +1718,27 @@ Plans:
 - [x] 68-01-PLAN.md — Extract useComposeSend hook co-located in ComposeBox.tsx (D-01); rewire main-textarea handleSend through it; add ComposeBox.send-funnel.test.tsx with Test 1 (main-textarea baseline lock).
 - [x] 68-02-PLAN.md — Rewire remaining 4 call sites (queue-slot, thumbs-up, recap, reset) through the funnel; add bubbleTextOverride="👍" for thumbs-up (D-02); relax L2379+L2412 disable predicates (D-05); add isIdCommand render-blacklist in PrettyView.handleOptimisticSend so reset's mqid still fires backend wake gate (D-03) without visible bubble.
 - [x] 68-03-PLAN.md — Add per-trigger tests to ComposeBox.send-funnel.test.tsx: Test 2 (queue-slot), Test 3 (thumbs-up + D-05 button.disabled === false assertion), Test 4 (recap + D-05), Test 5 (reset — 0 bubbles + WS frame carries messageQueueItemId verifying CONTEXT.md wake hypothesis). D-06 satisfied.
+
+### Phase 69: Kill the identities DB table — disk becomes sole source of truth
+
+**Goal:** Eliminate Skynet's `identities` DB table entirely. Post-phase, an identity IS its disk folder on some host (`~/.claude/identities/<name>/`), full stop; nothing about it lives inside Skynet's database anymore. Skynet builds the fleet roster by fanning out per-request to each enabled host's disk. The internal row-id disappears as a concept — identityKey (lowercase name) becomes the stable key across all consumers. Delete the share endpoint + DELETE endpoint (obsolete/dead). Drop timestamps (dead weight). Drop `userId` (obsolete once cosmetics are on disk). Rescue-rebased from local Phase 68 slot (renumbered to 69 due to concurrent Phase 68 = compose-send-funnel shipped by another maintainer). Shape: .planning/shapes/shape-kill-identities-table.md.
+**Requirements**: (none — scope lives in 69-CONTEXT.md; same shape-file-authoritative pattern as Phases 66/67/68)
+**Depends on:** Phase 67
+**Plans:** 5/5 plans complete
+Plans:
+**Wave 1**
+
+- [x] 69-01-PLAN.md — Wave 1 wholesale removals: delete identity-share.ts (backend + tests) + ShareIdentityPicker.tsx (frontend + tests + IdentityModal.share.test.tsx); delete DELETE /identities/:id + deleteIdentity FE fn; prune Phase 38 state from IdentityModal; strip stale ShareIdentityPicker comment.
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 69-02-PLAN.md — Wave 2 backend rewires: GET / becomes disk-fanout (new listIdentityKeysOnHost primitive); PUT + GET-avatar rekey to `:identityKey`; publicIdentity drops id/createdAt/updatedAt and bakes hostId into avatarUrl; POST / collapsed to 410 GONE.
+- [x] 69-03-PLAN.md — Wave 2 birth + clone rewires: BirthDeps drops createIdentityRecord/getIdentityRecord; Step 1 rewires to on-disk collision probe (SSH -d test); clone drops DB INSERT + re-select; clone publicIdentity rewritten with disk re-read for response.
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 69-04-PLAN.md — Wave 3 frontend cascade: Identity interface narrows to 10 fields; updateIdentity migrates to identityKey; avatarUrlWithHost deleted; applyIdentityChange keys on identityKey.toLowerCase; five component consumers migrate off identity.id; NewSessionDialog BIRTH_STEP arrays updated; Task 4 audits birthEvent.identityId consumers.
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 69-05-PLAN.md — Wave 4 migration + schema removal: runIdentitiesTableDrop boot-migration (idempotent DROP TABLE IF EXISTS + inline null-safe forceSave try/catch); migrateSchema becomes async; CREATE TABLE identities deleted from db/index.ts; schema.ts identities export deleted; identities.ts DB imports removed. Post-review security fix: PUT + GET-avatar handlers gate the :identityKey URL param against strict IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/.
