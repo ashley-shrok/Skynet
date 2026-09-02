@@ -83,7 +83,7 @@ import type { TabSpec } from "@/lib/tab-url";
 // truth for the split arrangement.
 import type { SplitNode, SplitPath, DropEdge } from "@/lib/split-tree";
 import { insertAtEdge, removeLeaf, findLeaf, getNodeAt, collectTabIds, replaceLeaf, swapLeaves } from "@/lib/split-tree";
-import { computeNearestEdge } from "@/shell/SplitView";
+import { computeNearestEdge, overlayGeometryForZone } from "@/shell/SplitView";
 import {
   encodeSplitTreeToUrl,
   decodeSplitTreeFromUrl,
@@ -273,16 +273,29 @@ export function AppShell({
   // after tabs are materialized.
   const [splitTree, setSplitTree] = useState<SplitNode | null>(null);
   const [focusedTabId, setFocusedTabId] = useState<string | null>(null);
-  // Phase 59 Plan 01 Gap 1 — coral drop-target tint state for the empty-PV
-  // wrapper. Set true when a text/plain conv-list-row drag hovers the wrapper
-  // and splitTree === null; cleared on drop / bounding-rect-guarded dragleave
-  // / window-level dragend (Escape-cancel). Ref-based zone-change gate for
-  // the structured log mirrors SplitView.tsx:223 prevZoneRef discipline —
-  // synchronous ref-write inside handler bodies avoids React 18 strict-mode
-  // double-fire from a setState functional updater. `null` initial (not
-  // `false`) so the first false→false transition never emits a spurious log.
-  const [isConvRowDragOver, setIsConvRowDragOver] = useState(false);
-  const prevEmptyPvVisibleRef = useRef<boolean | null>(null);
+  // Coral drop-target preview for the empty-PV wrapper. The overlay owns
+  // dragover/drop when splitTree === null (the SplitView Pane's own preview
+  // handles the splitTree-non-null case). Zone semantics:
+  //   - `null`   = no drag in progress → no overlay.
+  //   - `"full"` = drop will REPLACE the tree with a single leaf (empty PV,
+  //                self-drop, or active tab isn't a session). Whole-body coral.
+  //   - DropEdge = drop will `insertAtEdge(active, [], dropped, edge)` and
+  //                create a real split. Edge-zoned half-body coral.
+  // inline-260902 (identity-badge-drop-preview-not-edge-zoned-when-one-agent-open):
+  // before this widening, state was a boolean and the overlay always drew
+  // whole-body — Ashley UAT: one-agent case highlighted the whole area even
+  // when hovering left/right, mismatching the actual drop routing which had
+  // always used computeNearestEdge to pick a real edge.
+  //
+  // Cleared on drop / bounding-rect-guarded dragleave / window-level dragend
+  // (Escape-cancel). Ref-based zone-change gate for the structured log
+  // mirrors SplitView.tsx:223 prevZoneRef discipline — synchronous ref-write
+  // inside handler bodies avoids React 18 strict-mode double-fire from a
+  // setState functional updater.
+  const [convRowDragZone, setConvRowDragZone] = useState<
+    DropEdge | "full" | null
+  >(null);
+  const prevEmptyPvZoneRef = useRef<DropEdge | "full" | null>(null);
   // Patch #513: memoized Set of tabIds currently rendered as leaves in the
   // splitTree. Passed to PrettyConversationsPanel to drive (a) the row
   // "selected" glow on every in-view session (not just the single
@@ -395,13 +408,13 @@ export function AppShell({
   // Dep on splitTree so the log's splitTreeNull field reflects current state.
   useEffect(() => {
     const onDragEnd = () => {
-      setIsConvRowDragOver(false);
-      if (prevEmptyPvVisibleRef.current !== false) {
+      setConvRowDragZone(null);
+      if (prevEmptyPvZoneRef.current !== null) {
         // eslint-disable-next-line no-console
         console.info(
-          `[empty-pv-drop-preview] visible=false splitTreeNull=${splitTree === null}`,
+          `[empty-pv-drop-preview] zone=none splitTreeNull=${splitTree === null}`,
         );
-        prevEmptyPvVisibleRef.current = false;
+        prevEmptyPvZoneRef.current = null;
       }
     };
     window.addEventListener("dragend", onDragEnd);
@@ -2386,19 +2399,57 @@ export function AppShell({
                 if (!e.dataTransfer.types.includes("text/plain")) return;
                 if (e.dataTransfer.types.includes("Files")) return;
                 e.preventDefault();
-                // Phase 59 Gap 1 tint state — post type-gate so Files drags
-                // and non-text/plain drags never trigger. Zone-change gate
-                // via prevEmptyPvVisibleRef mirrors SplitView.tsx:271-277
-                // for the structured log. Ref-write is atomic with log
-                // emission. splitTreeNull captured at gate time.
-                setIsConvRowDragOver(true);
-                const splitTreeNull = splitTree === null;
-                if (prevEmptyPvVisibleRef.current !== true) {
+                // inline-260902 (identity-badge-drop-preview): compute the
+                // zone the drop will actually route to and paint the overlay
+                // to match. Mirrors the branch logic in the onDrop handler
+                // below — if the drop would `insertAtEdge` (active is a real
+                // session, drop tab id differs from active), preview an edge
+                // zone; else preview whole-body. Best-effort self-drop
+                // detection via the badge payload's tabId (getData is
+                // available at dragover for same-origin drags); row-payload
+                // self-drop detection would need resolveRowPayloadTabId which
+                // may open tabs and isn't safe to run on every dragover, so
+                // that cosmetic edge case is accepted.
+                const rect = e.currentTarget.getBoundingClientRect();
+                const activeTab = tabs.find((t) => t.id === activeTabId);
+                const activeIsSession =
+                  activeTab != null &&
+                  activeTab.type === "terminal" &&
+                  activeTab.targetTmuxSession != null &&
+                  identitiesByKey.has(
+                    activeTab.targetTmuxSession.toLowerCase(),
+                  );
+                let wouldReplace = !activeIsSession || activeTab == null;
+                if (!wouldReplace && activeTab != null) {
+                  const badgeJson = e.dataTransfer.getData(
+                    "application/x-skynet-badge",
+                  );
+                  if (badgeJson) {
+                    try {
+                      const parsed = JSON.parse(badgeJson) as {
+                        tabId?: unknown;
+                      };
+                      if (
+                        typeof parsed?.tabId === "string" &&
+                        parsed.tabId === activeTab.id
+                      ) {
+                        wouldReplace = true;
+                      }
+                    } catch {
+                      /* fall through — best-effort */
+                    }
+                  }
+                }
+                const zone: DropEdge | "full" = wouldReplace
+                  ? "full"
+                  : computeNearestEdge(rect, e.clientX, e.clientY);
+                setConvRowDragZone((prev) => (prev === zone ? prev : zone));
+                if (prevEmptyPvZoneRef.current !== zone) {
                   // eslint-disable-next-line no-console
                   console.info(
-                    `[empty-pv-drop-preview] visible=true splitTreeNull=${splitTreeNull}`,
+                    `[empty-pv-drop-preview] zone=${zone} splitTreeNull=${splitTree === null}`,
                   );
-                  prevEmptyPvVisibleRef.current = true;
+                  prevEmptyPvZoneRef.current = zone;
                 }
               }}
               onDragLeave={(e) => {
@@ -2416,27 +2467,27 @@ export function AppShell({
                   e.clientY >= rect.top &&
                   e.clientY <= rect.bottom;
                 if (stillInside) return;
-                setIsConvRowDragOver(false);
-                if (prevEmptyPvVisibleRef.current !== false) {
+                setConvRowDragZone(null);
+                if (prevEmptyPvZoneRef.current !== null) {
                   // eslint-disable-next-line no-console
                   console.info(
-                    `[empty-pv-drop-preview] visible=false splitTreeNull=${splitTree === null}`,
+                    `[empty-pv-drop-preview] zone=none splitTreeNull=${splitTree === null}`,
                   );
-                  prevEmptyPvVisibleRef.current = false;
+                  prevEmptyPvZoneRef.current = null;
                 }
               }}
               onDrop={(e) => {
                 // Phase 59 Gap 1 tint clear — clear FIRST regardless of
                 // downstream branches (mirror SplitView.tsx:323-324 — drop
                 // always clears state immediately, even for skip paths).
-                // Idempotent — clearing already-false state is a no-op.
-                setIsConvRowDragOver(false);
-                if (prevEmptyPvVisibleRef.current !== false) {
+                // Idempotent — clearing already-null state is a no-op.
+                setConvRowDragZone(null);
+                if (prevEmptyPvZoneRef.current !== null) {
                   // eslint-disable-next-line no-console
                   console.info(
-                    `[empty-pv-drop-preview] visible=false splitTreeNull=${splitTree === null}`,
+                    `[empty-pv-drop-preview] zone=none splitTreeNull=${splitTree === null}`,
                   );
-                  prevEmptyPvVisibleRef.current = false;
+                  prevEmptyPvZoneRef.current = null;
                 }
                 if (!e.dataTransfer.types.includes("text/plain")) return;
                 if (e.dataTransfer.types.includes("Files")) return;
@@ -2545,8 +2596,8 @@ export function AppShell({
             >
               {/* Phase 59 Plan 01 Gap 1 — coral drop-target-affordance tint
                   overlay. Sibling to the SplitView (:2482+) and normal-view
-                  (:2528+) containers. Render gate `isConvRowDragOver &&
-                  splitTree === null` enforces the architectural exclusion:
+                  (:2528+) containers. Render gate `convRowDragZone !== null
+                  && splitTree === null` enforces the architectural exclusion:
                   when splitTree becomes non-null (a session is showing in
                   a Pane), the Pane's own overlay (SplitView.tsx:439-454)
                   owns preview state — this outer tint MUST defer. Palette
@@ -2555,17 +2606,46 @@ export function AppShell({
                   drop still fires on the underlying wrapper's onDrop.
                   zIndex 30 sits above normal-view (z-10 at :2528+) but
                   below the mobile back-chevron (z-30 at :1400) — they
-                  don't co-occupy this container. */}
-              {isConvRowDragOver && splitTree === null && (
+                  don't co-occupy this container.
+                  inline-260902 (identity-badge-drop-preview): geometry now
+                  reflects the zone (edge-zoned half-body for the insertAtEdge
+                  branch, whole-body for the leaf-replace branch) instead of
+                  always-whole-body. Uses overlayGeometryForZone from
+                  SplitView so the edge-zoned geometry stays a single source
+                  of truth with Pane's own overlay. */}
+              {convRowDragZone !== null && splitTree === null && (
                 <div
                   data-testid="empty-pv-drop-preview"
-                  className="absolute inset-0 pointer-events-none"
-                  style={{
-                    background: "rgba(255, 184, 150, 0.22)",
-                    border: "2px solid rgba(255, 184, 150, 0.60)",
-                    zIndex: 30,
-                    transition: "opacity 120ms ease",
-                  }}
+                  data-zone={convRowDragZone}
+                  className="absolute pointer-events-none"
+                  style={(() => {
+                    const geom =
+                      convRowDragZone === "full"
+                        ? { left: 0, top: 0, width: "100%", height: "100%" }
+                        : (() => {
+                            const g = overlayGeometryForZone(convRowDragZone, {
+                              left: 0,
+                              top: 0,
+                              right: 100,
+                              bottom: 100,
+                              width: 100,
+                              height: 100,
+                            });
+                            return {
+                              left: `${g.left}%`,
+                              top: `${g.top}%`,
+                              width: `${g.width}%`,
+                              height: `${g.height}%`,
+                            };
+                          })();
+                    return {
+                      ...geom,
+                      background: "rgba(255, 184, 150, 0.22)",
+                      border: "2px solid rgba(255, 184, 150, 0.60)",
+                      zIndex: 30,
+                      transition: "opacity 120ms ease",
+                    };
+                  })()}
                 />
               )}
               {/* Split view — always mounted when not mobile, hidden via CSS when inactive */}

@@ -2,30 +2,38 @@
 // Phase 59 Plan 01 Task 1 — coral tint overlay on empty PrettyView drop
 // target (Gap 1) — scaffold-based test suite.
 //
+// inline-260902 (identity-badge-drop-preview): scaffold widened from
+// isConvRowDragOver: boolean to convRowDragZone: DropEdge | "full" | null so
+// the preview reflects the zone the drop will actually route to. Log format
+// changed from `visible=true|false` to `zone=<edge|full|none>` alongside.
+//
 // Mirrors the AppShell.split-tree.test.tsx MechanismScaffold pattern (fallback
 // authorized in that file's header) — mounting the full AppShell would drag
 // in ~30 imports; the load-bearing mechanism is small enough to reproduce in
 // a minimal scaffold that mirrors the empty-PV drop wrapper 1:1:
 //
-//   1. isConvRowDragOver: boolean useState — the tint's on/off state.
-//   2. prevEmptyPvVisibleRef: Ref<boolean|null> — zone-change gate for the
+//   1. convRowDragZone: DropEdge | "full" | null useState — the zone state.
+//   2. prevEmptyPvZoneRef: Ref<zone|null> — zone-change gate for the
 //      structured log (mirrors SplitView.tsx:223 prevZoneRef pattern).
-//   3. onDragOver — text/plain type-gate + Files exclusion; sets state true
-//      + emits `[empty-pv-drop-preview] visible=true …` on transition.
+//   3. onDragOver — text/plain type-gate + Files exclusion; computes the
+//      zone based on activeIsSession + best-effort badge self-drop check;
+//      emits `[empty-pv-drop-preview] zone=<edge|full> …` on transition.
 //   4. onDragLeave — text/plain type-gate FIRST + bounding-rect stateless
 //      guard (mirror SplitView.tsx:301-305) to prevent flicker on child
-//      DOM boundary crossings; sets state false + emits `visible=false` on
+//      DOM boundary crossings; sets state null + emits `zone=none` on
 //      transition.
 //   5. onDrop — clears state FIRST (defensive, idempotent) then emits log.
 //   6. useEffect for window-level dragend cleanup — Escape-cancel path
 //      (mirror SplitView.tsx:378-381).
 //   7. Overlay sibling div with data-testid="empty-pv-drop-preview",
-//      pointer-events-none, coral palette (rgba(255, 184, 150, 0.22) fill
-//      + 2px solid rgba(255, 184, 150, 0.60) border). Render gate is
-//      `isTintActive && splitTreeNull` — architectural exclusion when
+//      data-zone attribute reflects the state, geometry reflects the zone
+//      (whole-body for "full", half-body edge rect for DropEdge), coral
+//      palette (rgba(255, 184, 150, 0.22) fill + 2px solid
+//      rgba(255, 184, 150, 0.60) border). Render gate is
+//      `zone !== null && splitTreeNull` — architectural exclusion when
 //      splitTree !== null (Pane's own overlay owns that state).
 //
-// Tests (per plan's <behavior> block A-H):
+// Tests:
 //   A: dragOver with text/plain when splitTree null → overlay rendered.
 //   B: dragOver with Files → overlay NOT rendered.
 //   C: splitTree !== null + text/plain dragOver → overlay NOT rendered.
@@ -33,12 +41,21 @@
 //   E: dragOver then window dragend → overlay present then ABSENT.
 //   F: dragOver then dragLeave INSIDE bounding rect → overlay STAYS.
 //   G: dragOver then dragLeave OUTSIDE bounding rect → overlay ABSENT.
-//   H: two consecutive identical dragOvers → console.info called EXACTLY
-//      once for the transition (zone-change gate); + drop adds one more log.
+//   H: two consecutive identical dragOvers emit ONE zone=<X> log; drop adds
+//      one zone=none log.
+//   I (inline-260902): activeIsSession=false → zone="full" whole-body.
+//   J (inline-260902): activeIsSession=true + cursor near LEFT edge →
+//      zone="left", geometry is left half (width 50%, left 0).
+//   K (inline-260902): activeIsSession=true + cursor near RIGHT edge →
+//      zone="right", geometry is right half (width 50%, left 50%).
+//   L (inline-260902): activeIsSession=true + badge payload sourceTabId ===
+//      activeTab.id → zone="full" (self-drop preview short-circuit).
 
 import { useEffect, useRef, useState } from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, createEvent, act, cleanup } from "@testing-library/react";
+import { computeNearestEdge, overlayGeometryForZone } from "@/shell/SplitView";
+import type { DropEdge } from "@/lib/split-tree";
 
 // Helper: build a stub DataTransfer with a Map-backed store. `types` reflects
 // the keys, so dragover code that inspects types works. `getData` returns ""
@@ -62,45 +79,55 @@ function makeDataTransferStub(entries: Record<string, string> = {}) {
 // constructor, so `fireEvent.dragLeave(el, { clientX, clientY })` sets both
 // to 0. Mirror SplitView.test.tsx:448-461 pattern: build via `createEvent.*`
 // then Object.defineProperty for clientX/Y, then dispatch via fireEvent(el, evt).
-function dispatchDragLeaveAt(
+function dispatchDragEventAt(
+  kind: "dragOver" | "dragLeave" | "drop",
   el: Element,
   clientX: number,
   clientY: number,
   dt: ReturnType<typeof makeDataTransferStub>,
 ): void {
-  const evt = createEvent.dragLeave(el, { dataTransfer: dt });
+  const evt =
+    kind === "dragOver"
+      ? createEvent.dragOver(el, { dataTransfer: dt })
+      : kind === "dragLeave"
+      ? createEvent.dragLeave(el, { dataTransfer: dt })
+      : createEvent.drop(el, { dataTransfer: dt });
   Object.defineProperty(evt, "clientX", { value: clientX, configurable: true });
   Object.defineProperty(evt, "clientY", { value: clientY, configurable: true });
   fireEvent(el, evt);
 }
 
 // ─── MechanismScaffold ───────────────────────────────────────────────────────
-// Mirrors the empty-PV drop wrapper from AppShell.tsx:2258-2379 — same
-// handler shapes, same state/ref pattern, same overlay JSX. simulateSplitTreeNonNull
-// hydrates the render-gate exclusion (Test C).
+// Mirrors the empty-PV drop wrapper from AppShell.tsx — same handler shapes,
+// same state/ref pattern, same overlay JSX.
+//
+// simulateSplitTreeNonNull hydrates the render-gate exclusion (Test C).
+// activeSessionTabId sets the "active tab is a real session" branch: when
+// non-null the drop-would-insertAtEdge branch fires (edge-zoned preview);
+// when null, drop-would-replace branch fires (whole-body preview).
 
 function EmptyPvDropScaffold({
   simulateSplitTreeNonNull = false,
+  activeSessionTabId = null as string | null,
 }: {
   simulateSplitTreeNonNull?: boolean;
+  activeSessionTabId?: string | null;
 }) {
-  // The scaffold reads splitTree as a plain boolean — the plan's real code
-  // uses `splitTree === null` on a SplitNode | null; the scaffold collapses
-  // that to a boolean since the tint mechanism only cares about the null
-  // check for the render gate + log payload.
   const splitTreeNull = !simulateSplitTreeNonNull;
-  const [isConvRowDragOver, setIsConvRowDragOver] = useState(false);
-  const prevEmptyPvVisibleRef = useRef<boolean | null>(null);
+  const [convRowDragZone, setConvRowDragZone] = useState<
+    DropEdge | "full" | null
+  >(null);
+  const prevEmptyPvZoneRef = useRef<DropEdge | "full" | null>(null);
 
   useEffect(() => {
     const onDragEnd = () => {
-      setIsConvRowDragOver(false);
-      if (prevEmptyPvVisibleRef.current !== false) {
+      setConvRowDragZone(null);
+      if (prevEmptyPvZoneRef.current !== null) {
         // eslint-disable-next-line no-console
         console.info(
-          `[empty-pv-drop-preview] visible=false splitTreeNull=${splitTreeNull}`,
+          `[empty-pv-drop-preview] zone=none splitTreeNull=${splitTreeNull}`,
         );
-        prevEmptyPvVisibleRef.current = false;
+        prevEmptyPvZoneRef.current = null;
       }
     };
     window.addEventListener("dragend", onDragEnd);
@@ -112,22 +139,43 @@ function EmptyPvDropScaffold({
       data-testid="empty-pv-drop-wrapper"
       className="relative flex flex-col flex-1 min-h-0 overflow-hidden"
       onDragOver={(e) => {
-        // Mirror AppShell.tsx:2271-2273 existing type-gate verbatim.
         if (!e.dataTransfer.types.includes("text/plain")) return;
         if (e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
-        // Phase 59 Gap 1 tint state — post type-gate so Files drags never trigger.
-        setIsConvRowDragOver(true);
-        if (prevEmptyPvVisibleRef.current !== true) {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const activeIsSession = activeSessionTabId !== null;
+        let wouldReplace = !activeIsSession;
+        if (!wouldReplace && activeSessionTabId !== null) {
+          const badgeJson = e.dataTransfer.getData(
+            "application/x-skynet-badge",
+          );
+          if (badgeJson) {
+            try {
+              const parsed = JSON.parse(badgeJson) as { tabId?: unknown };
+              if (
+                typeof parsed?.tabId === "string" &&
+                parsed.tabId === activeSessionTabId
+              ) {
+                wouldReplace = true;
+              }
+            } catch {
+              /* fall through — best-effort */
+            }
+          }
+        }
+        const zone: DropEdge | "full" = wouldReplace
+          ? "full"
+          : computeNearestEdge(rect, e.clientX, e.clientY);
+        setConvRowDragZone((prev) => (prev === zone ? prev : zone));
+        if (prevEmptyPvZoneRef.current !== zone) {
           // eslint-disable-next-line no-console
           console.info(
-            `[empty-pv-drop-preview] visible=true splitTreeNull=${splitTreeNull}`,
+            `[empty-pv-drop-preview] zone=${zone} splitTreeNull=${splitTreeNull}`,
           );
-          prevEmptyPvVisibleRef.current = true;
+          prevEmptyPvZoneRef.current = zone;
         }
       }}
       onDragLeave={(e) => {
-        // Type-gate FIRST (mirror SplitView.tsx:292).
         if (!e.dataTransfer.types.includes("text/plain")) return;
         const rect = e.currentTarget.getBoundingClientRect();
         const stillInside =
@@ -136,49 +184,69 @@ function EmptyPvDropScaffold({
           e.clientY >= rect.top &&
           e.clientY <= rect.bottom;
         if (stillInside) return;
-        setIsConvRowDragOver(false);
-        if (prevEmptyPvVisibleRef.current !== false) {
+        setConvRowDragZone(null);
+        if (prevEmptyPvZoneRef.current !== null) {
           // eslint-disable-next-line no-console
           console.info(
-            `[empty-pv-drop-preview] visible=false splitTreeNull=${splitTreeNull}`,
+            `[empty-pv-drop-preview] zone=none splitTreeNull=${splitTreeNull}`,
           );
-          prevEmptyPvVisibleRef.current = false;
+          prevEmptyPvZoneRef.current = null;
         }
       }}
       onDrop={(e) => {
-        // Clear FIRST (mirror SplitView.tsx:323-324 — drop always clears).
-        setIsConvRowDragOver(false);
-        if (prevEmptyPvVisibleRef.current !== false) {
+        setConvRowDragZone(null);
+        if (prevEmptyPvZoneRef.current !== null) {
           // eslint-disable-next-line no-console
           console.info(
-            `[empty-pv-drop-preview] visible=false splitTreeNull=${splitTreeNull}`,
+            `[empty-pv-drop-preview] zone=none splitTreeNull=${splitTreeNull}`,
           );
-          prevEmptyPvVisibleRef.current = false;
+          prevEmptyPvZoneRef.current = null;
         }
-        // Downstream real handler would then run (payload resolution ladder,
-        // setSplitTree, etc.); scaffold stops at the clear.
         if (!e.dataTransfer.types.includes("text/plain")) return;
         if (e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
       }}
     >
-      {isConvRowDragOver && splitTreeNull && (
+      {convRowDragZone !== null && splitTreeNull && (
         <div
           data-testid="empty-pv-drop-preview"
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background: "rgba(255, 184, 150, 0.22)",
-            border: "2px solid rgba(255, 184, 150, 0.60)",
-            zIndex: 30,
-            transition: "opacity 120ms ease",
-          }}
+          data-zone={convRowDragZone}
+          className="absolute pointer-events-none"
+          style={(() => {
+            const geom =
+              convRowDragZone === "full"
+                ? { left: 0, top: 0, width: "100%", height: "100%" }
+                : (() => {
+                    const g = overlayGeometryForZone(convRowDragZone, {
+                      left: 0,
+                      top: 0,
+                      right: 100,
+                      bottom: 100,
+                      width: 100,
+                      height: 100,
+                    });
+                    return {
+                      left: `${g.left}%`,
+                      top: `${g.top}%`,
+                      width: `${g.width}%`,
+                      height: `${g.height}%`,
+                    };
+                  })();
+            return {
+              ...geom,
+              background: "rgba(255, 184, 150, 0.22)",
+              border: "2px solid rgba(255, 184, 150, 0.60)",
+              zIndex: 30,
+              transition: "opacity 120ms ease",
+            };
+          })()}
         />
       )}
     </div>
   );
 }
 
-// Set a known bounding rect on the wrapper for tests F/G. Uses
+// Set a known bounding rect on the wrapper for tests F/G/J/K. Uses
 // HTMLElement.prototype override in beforeEach + restore in afterEach.
 const KNOWN_RECT: DOMRect = {
   left: 100,
@@ -209,7 +277,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("AppShell empty-PV drop-tint mechanism (Phase 59 Plan 01 Gap 1)", () => {
+describe("AppShell empty-PV drop-tint mechanism (Phase 59 Plan 01 Gap 1 + inline-260902 zone-aware)", () => {
   it("Test A: dragOver with text/plain when splitTree === null renders the coral overlay", () => {
     const { getByTestId, queryByTestId } = render(<EmptyPvDropScaffold />);
     const wrapper = getByTestId("empty-pv-drop-wrapper");
@@ -221,8 +289,6 @@ describe("AppShell empty-PV drop-tint mechanism (Phase 59 Plan 01 Gap 1)", () =>
   it("Test B: dragOver with Files does NOT render the coral overlay (Files gate)", () => {
     const { getByTestId, queryByTestId } = render(<EmptyPvDropScaffold />);
     const wrapper = getByTestId("empty-pv-drop-wrapper");
-    // Real Files drags may or may not include text/plain — mirror the
-    // AppShell.tsx:2272 guard: any presence of Files short-circuits.
     const dt = makeDataTransferStub({
       "text/plain": "spurious-text",
       "Files": "",
@@ -270,8 +336,7 @@ describe("AppShell empty-PV drop-tint mechanism (Phase 59 Plan 01 Gap 1)", () =>
     fireEvent.dragOver(wrapper, { dataTransfer: dt });
     expect(queryByTestId("empty-pv-drop-preview")).not.toBeNull();
     // KNOWN_RECT is left=100 top=100 right=500 bottom=500 — 300,300 is inside.
-    // NOTE: jsdom DragEvent init drops clientX/Y; must use dispatchDragLeaveAt.
-    dispatchDragLeaveAt(wrapper, 300, 300, dt);
+    dispatchDragEventAt("dragLeave", wrapper, 300, 300, dt);
     expect(queryByTestId("empty-pv-drop-preview")).not.toBeNull();
   });
 
@@ -281,19 +346,20 @@ describe("AppShell empty-PV drop-tint mechanism (Phase 59 Plan 01 Gap 1)", () =>
     const dt = makeDataTransferStub({ "text/plain": "tab-alice-1" });
     fireEvent.dragOver(wrapper, { dataTransfer: dt });
     expect(queryByTestId("empty-pv-drop-preview")).not.toBeNull();
-    // 50,50 is outside the known rect (left=100).
-    dispatchDragLeaveAt(wrapper, 50, 50, dt);
+    dispatchDragEventAt("dragLeave", wrapper, 50, 50, dt);
     expect(queryByTestId("empty-pv-drop-preview")).toBeNull();
   });
 
-  it("Test H: two consecutive identical dragOvers emit the [empty-pv-drop-preview] visible=true log EXACTLY once (zone-change gate); drop adds one visible=false log", () => {
+  it("Test H: two consecutive identical dragOvers emit the [empty-pv-drop-preview] zone log EXACTLY once (zone-change gate); drop adds one zone=none log", () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     const { getByTestId } = render(<EmptyPvDropScaffold />);
     const wrapper = getByTestId("empty-pv-drop-wrapper");
     const dt = makeDataTransferStub({ "text/plain": "tab-alice-1" });
 
-    fireEvent.dragOver(wrapper, { dataTransfer: dt });
-    fireEvent.dragOver(wrapper, { dataTransfer: dt });
+    // Dispatch at a fixed cursor position (300,300 = center of KNOWN_RECT)
+    // twice — same zone both times, so log fires once.
+    dispatchDragEventAt("dragOver", wrapper, 300, 300, dt);
+    dispatchDragEventAt("dragOver", wrapper, 300, 300, dt);
 
     const previewCallsAfterDragOvers = infoSpy.mock.calls.filter(
       (call) =>
@@ -302,7 +368,7 @@ describe("AppShell empty-PV drop-tint mechanism (Phase 59 Plan 01 Gap 1)", () =>
     );
     expect(previewCallsAfterDragOvers).toHaveLength(1);
     expect(previewCallsAfterDragOvers[0][0]).toBe(
-      "[empty-pv-drop-preview] visible=true splitTreeNull=true",
+      "[empty-pv-drop-preview] zone=full splitTreeNull=true",
     );
 
     fireEvent.drop(wrapper, { dataTransfer: dt });
@@ -314,7 +380,75 @@ describe("AppShell empty-PV drop-tint mechanism (Phase 59 Plan 01 Gap 1)", () =>
     );
     expect(previewCallsAfterDrop).toHaveLength(2);
     expect(previewCallsAfterDrop[1][0]).toBe(
-      "[empty-pv-drop-preview] visible=false splitTreeNull=true",
+      "[empty-pv-drop-preview] zone=none splitTreeNull=true",
     );
+  });
+
+  // ─── inline-260902 (identity-badge-drop-preview) new tests ─────────────
+  it("Test I (inline-260902): activeIsSession=false → zone='full' whole-body geometry", () => {
+    const { getByTestId } = render(<EmptyPvDropScaffold />);
+    const wrapper = getByTestId("empty-pv-drop-wrapper");
+    const dt = makeDataTransferStub({ "text/plain": "tab-alice-1" });
+    // Cursor near left edge — but activeIsSession is false so drop replaces
+    // whole tree with dropped leaf; preview must be whole-body ("full").
+    dispatchDragEventAt("dragOver", wrapper, 120, 300, dt);
+    const overlay = getByTestId("empty-pv-drop-preview");
+    expect(overlay.getAttribute("data-zone")).toBe("full");
+    expect(overlay.style.width).toBe("100%");
+    expect(overlay.style.height).toBe("100%");
+    expect(overlay.style.left).toBe("0px"); // 0 as number in style → "0px"
+    expect(overlay.style.top).toBe("0px");
+  });
+
+  it("Test J (inline-260902): activeIsSession=true + cursor near LEFT edge → zone='left', left-half geometry (50% width, left 0)", () => {
+    const { getByTestId } = render(
+      <EmptyPvDropScaffold activeSessionTabId="tab-active-42" />,
+    );
+    const wrapper = getByTestId("empty-pv-drop-wrapper");
+    const dt = makeDataTransferStub({ "text/plain": "tab-alice-1" });
+    // KNOWN_RECT: left=100 right=500 top=100 bottom=500.
+    // (120, 300): dLeft=20, dRight=380, dTop=200, dBottom=200 → nearest=left.
+    dispatchDragEventAt("dragOver", wrapper, 120, 300, dt);
+    const overlay = getByTestId("empty-pv-drop-preview");
+    expect(overlay.getAttribute("data-zone")).toBe("left");
+    expect(overlay.style.left).toBe("0%");
+    expect(overlay.style.top).toBe("0%");
+    expect(overlay.style.width).toBe("50%");
+    expect(overlay.style.height).toBe("100%");
+  });
+
+  it("Test K (inline-260902): activeIsSession=true + cursor near RIGHT edge → zone='right', right-half geometry (50% width, left 50%)", () => {
+    const { getByTestId } = render(
+      <EmptyPvDropScaffold activeSessionTabId="tab-active-42" />,
+    );
+    const wrapper = getByTestId("empty-pv-drop-wrapper");
+    const dt = makeDataTransferStub({ "text/plain": "tab-alice-1" });
+    // (480, 300): dLeft=380, dRight=20, dTop=200, dBottom=200 → nearest=right.
+    dispatchDragEventAt("dragOver", wrapper, 480, 300, dt);
+    const overlay = getByTestId("empty-pv-drop-preview");
+    expect(overlay.getAttribute("data-zone")).toBe("right");
+    expect(overlay.style.left).toBe("50%");
+    expect(overlay.style.top).toBe("0%");
+    expect(overlay.style.width).toBe("50%");
+    expect(overlay.style.height).toBe("100%");
+  });
+
+  it("Test L (inline-260902): activeIsSession=true + badge payload sourceTabId === activeTabId → zone='full' (self-drop preview short-circuit)", () => {
+    const { getByTestId } = render(
+      <EmptyPvDropScaffold activeSessionTabId="tab-active-42" />,
+    );
+    const wrapper = getByTestId("empty-pv-drop-wrapper");
+    // Badge drag of the active session onto itself — drop would be a no-op
+    // (droppedLeaf === activeLeaf), so preview must be whole-body not edge.
+    const dt = makeDataTransferStub({
+      "text/plain": "tab-active-42",
+      "application/x-skynet-badge": JSON.stringify({ tabId: "tab-active-42" }),
+    });
+    // Even with cursor at the left edge (would otherwise pick "left"),
+    // self-drop short-circuits to "full".
+    dispatchDragEventAt("dragOver", wrapper, 120, 300, dt);
+    const overlay = getByTestId("empty-pv-drop-preview");
+    expect(overlay.getAttribute("data-zone")).toBe("full");
+    expect(overlay.style.width).toBe("100%");
   });
 });

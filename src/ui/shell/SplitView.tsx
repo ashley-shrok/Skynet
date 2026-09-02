@@ -49,7 +49,7 @@ import { computeEdgeZone } from "@/lib/split-tree";
  * place, so any `zone === "center"` reaching this helper is guaranteed to
  * originate from a valid skynet MIME.
  */
-function overlayGeometryForZone(
+export function overlayGeometryForZone(
   zone: DropZone,
   rect: DOMRect | { left: number; right: number; top: number; bottom: number; width: number; height: number },
 ): { left: number; top: number; width: number; height: number } {
