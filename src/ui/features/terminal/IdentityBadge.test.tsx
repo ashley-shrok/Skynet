@@ -351,6 +351,33 @@ describe("IdentityBadge — Phase 58 Plan 01: badge as drag source", () => {
     vi.advanceTimersByTime(500);
     expect(onLongPress).toHaveBeenCalledTimes(1);
   });
+
+  it("Phase 58 G (inline-260902 drag-cancels-long-press): dragstart cancels the armed long-press timer so a slow drag doesn't fire onLongPress mid-drag", () => {
+    // Repro: pointerdown arms the 500ms timer. Native HTML5 drag suppresses
+    // pointermove after promotion, so the pointermove-based cancel never
+    // fires. Before the fix, a drag lasting >500ms triggered onLongPress
+    // (PV↔terminal toggle) mid-drag. dragStart must clear the timer.
+    vi.useFakeTimers();
+    const onClick = vi.fn();
+    const onLongPress = vi.fn();
+    render(
+      <IdentityBadge
+        identityKey="tina"
+        tabId="tab-tina-42"
+        onClick={onClick}
+        onLongPress={onLongPress}
+      />,
+    );
+    const root = screen.getByTestId("identity-badge-root");
+    fireEvent.pointerDown(root);
+    vi.advanceTimersByTime(100);
+    // Drag starts (typical browser: promoted from pointerdown after ~5px
+    // movement, WITHOUT a pointermove ever reaching this element).
+    fireEvent.dragStart(root, { dataTransfer: makeDataTransferStub() });
+    // Slow drag: user hovers over drop targets past the 500ms threshold.
+    vi.advanceTimersByTime(600);
+    expect(onLongPress).not.toHaveBeenCalled();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

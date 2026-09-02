@@ -220,6 +220,14 @@ export function IdentityBadge({
         // tabId is non-null when isDragSource is true (the !!tabId gate),
         // but TS narrows it via the ternary above — assert here.
         const id = tabId!;
+        // Native HTML5 drag suppresses pointermove after promotion, so the
+        // long-press timer's pointermove-based cancel path can't fire once a
+        // drag starts. Cancel it here so a slow drag (>500ms) doesn't trigger
+        // the PV/terminal toggle mid-drag.
+        if (timerRef.current !== null) {
+          clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
         e.dataTransfer.setData("text/plain", id);
         e.dataTransfer.setData(
           "application/x-skynet-badge",
