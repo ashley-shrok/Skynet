@@ -477,7 +477,7 @@ export async function listIdentityKeysOnHost(
   if (conn === null) {
     // LOCAL branch
     const root = getLocalIdentitiesRoot();
-    let entries: Awaited<ReturnType<typeof fs.readdir>>;
+    let entries: import("node:fs").Dirent[];
     try {
       entries = await fs.readdir(root, { withFileTypes: true });
     } catch (err: unknown) {
@@ -490,7 +490,7 @@ export async function listIdentityKeysOnHost(
       }
       throw err;
     }
-    return (entries as import("node:fs").Dirent[])
+    return entries
       .filter((e) => e.isDirectory() && IDENTITY_KEY_RE.test(e.name))
       .map((e) => e.name)
       .sort();
