@@ -1857,9 +1857,14 @@ export function ComposeBox({
     }
   }
 
-  // Quick-reply: fires a canned message through onSend without touching the
-  // compose textarea's text/focus state. Independent of what the user is
-  // currently composing — same disabled gate as Send (canSend===false only).
+  // Quick-reply: fires a canned message through the funnel without touching
+  // the compose textarea's text/focus state. Independent of what the user is
+  // currently composing.
+  //
+  // Phase 68 Plan 02 D-02: accepts optional { bubbleTextOverride } so the
+  // thumbs-up caller can seed a "👍" bubble instead of "thumbs up". onSend
+  // always receives the literal payload (e.g. "thumbs up"); only the bubble
+  // renders the override. Recap does not use the override.
   //
   // The persisted DRAFT is still cleared on successful dispatch: Ashley
   // may have been composing something in the textarea, then decided to
@@ -1867,14 +1872,18 @@ export function ComposeBox({
   // user's in-progress composition stays visible) but the persisted
   // draft resets to '' so a reload doesn't resurrect it. Failed
   // dispatch leaves both intact.
-  function handleQuickSend(quickText: string) {
+  function handleQuickSend(quickText: string, options?: { bubbleTextOverride?: string }) {
     // Vehicle C v2: quick-reply (thumbs-up, recap) is textarea-independent —
     // it does NOT touch the per-source queue. Armed sources persist across
     // quick-replies so Ashley can fire a canned reply without losing any
     // arm-idle state on the primary or queueSlots.
 
     setErrorMessage(null);
-    const dispatched = onSend(quickText);
+    // Phase 68 Plan 02: route through the funnel so quick-replies carry an
+    // mqid (D-03 invariant) and seed an optimistic bubble (D-01). The
+    // bubbleTextOverride flows through so the thumbs-up wire site can pass
+    // "👍" and have the pending bubble display that from birth (D-02).
+    const dispatched = funnel.send(quickText, { trigger: "quick-reply", bubbleTextOverride: options?.bubbleTextOverride });
     if (dispatched) {
       // NOTE: intentionally does NOT setText("") — the user's typed
       // draft stays visible for continued editing (the quick reply
@@ -2455,8 +2464,8 @@ export function ComposeBox({
           <Button
             size="icon-sm"
             variant="secondary"
-            onClick={() => { onGoodToGo?.(); handleQuickSend("thumbs up"); }}
-            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true}
+            onClick={() => { onGoodToGo?.(); handleQuickSend("thumbs up", { bubbleTextOverride: "👍" }); }}
+            disabled={asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true}
             aria-label="Send 'thumbs up'"
             title="Send 'thumbs up'"
             className={cn(
@@ -2489,7 +2498,7 @@ export function ComposeBox({
             // quick-button above. Per 32-CONTEXT.md § Wire into PrettyView "ALL send paths"
             // rule + 32-PATTERNS.md § 2d Send-path callsite swaps table.
             onClick={() => { onGoodToGo?.(); handleQuickSend("/explain the current situation"); }}
-            disabled={canSend === false || asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true}
+            disabled={asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true}
             aria-label="Recap the current situation"
             title="Recap"
             className={cn(
