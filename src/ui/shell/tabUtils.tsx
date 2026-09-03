@@ -169,11 +169,24 @@ function TerminalOrIdentitySessionPane({
   onTmuxSessionChange?: (sessionName: string | null) => void;
   onTmuxSessionMissing?: (instanceId: string, sessionName: string) => void;
 }) {
-  const { byKey: identitiesByKey } = useIdentities();
+  const { byKey: identitiesByKey, loaded: identitiesLoaded } = useIdentities();
   const identityKey = tab.targetTmuxSession
     ? sessionMatchKey(tab.targetTmuxSession)
     : null;
-  const isIdentityPane = identityKey != null && identitiesByKey.has(identityKey);
+  // During hydration (identities registry not loaded yet), assume identity
+  // if the session name resolves to a key. Otherwise a URL-restored identity
+  // tab briefly renders TerminalTabContent while /identities is in flight —
+  // mounting a real xterm.js + SSH WebSocket for 1-2s before re-rendering
+  // as IdentitySessionPane once the registry lands. Assuming identity during
+  // hydration keeps the terminal from ever mounting for a tab that is going
+  // to be an identity pane. Fails gracefully if the identity was renamed or
+  // deleted while away: IdentitySessionPane renders briefly with a phantom
+  // identityKey (identityColorHue nulls out; badge / modal are gated on both
+  // !isPrettyMode AND identitiesByKey.get(identityKey) so they no-op), then
+  // corrects on the next render once the registry loads.
+  const isIdentityPane =
+    identityKey != null &&
+    (identitiesByKey.has(identityKey) || !identitiesLoaded);
 
   if (isIdentityPane) {
     return (
