@@ -2085,6 +2085,7 @@ export async function __applyInputMessageForTests(deps: {
       },
     );
     const triggerTs = deps.now();
+    sshLogger.info(`[diag-dormant-send] backend dormant-send-start mqid=${mqidForDormantLog.length > 0 ? mqidForDormantLog : "none"} sessionId=${currentTmuxSession} triggerTs=${triggerTs}`);
     // Write wakeTriggerTs so the existing dormant-poll marker-freshness gate
     // at __applyDormantPollWithRediscoveryForTests L2604-2626 holds this
     // pane's dormant:true frame in place while the wake completes. Mirrors
@@ -2100,6 +2101,7 @@ export async function __applyInputMessageForTests(deps: {
         sshConn,
         `rm -f ~/.claude/identities/'${currentTmuxSession}'/.dormant`,
       );
+      sshLogger.info(`[diag-dormant-send] backend sentinel-dropped mqid=${mqidForDormantLog.length > 0 ? mqidForDormantLog : "none"} elapsedMs=${deps.now() - triggerTs}`);
     } catch (sentinelErr) {
       sshLogger.warn("[pv-input] sentinel drop failed during dormant send", {
         operation: "pv_input_dormant_sentinel_drop_failed",
@@ -2111,6 +2113,7 @@ export async function __applyInputMessageForTests(deps: {
             ? sentinelErr.message
             : String(sentinelErr),
       });
+      sshLogger.warn(`[diag-dormant-send] backend sentinel-drop-failed mqid=${mqidForDormantLog.length > 0 ? mqidForDormantLog : "none"} elapsedMs=${deps.now() - triggerTs} error="${sentinelErr instanceof Error ? sentinelErr.message : String(sentinelErr)}"`);
       // Fall through to normal send anyway — pane may still be usable, and
       // any tmux-side failure will surface through the existing send_keys
       // _error frame at L2216-2249.
@@ -2163,6 +2166,7 @@ export async function __applyInputMessageForTests(deps: {
           mqid: mqidForDormantLog.length > 0 ? mqidForDormantLog : "none",
         },
       );
+      sshLogger.info(`[diag-dormant-send] backend marker-fallback mqid=${mqidForDormantLog.length > 0 ? mqidForDormantLog : "none"} elapsedMs=${elapsedMs} branch=fallback`);
     } else {
       sshLogger.info(
         "[pv-input] .resume-complete marker fresh; dispatching send-keys",
@@ -2174,6 +2178,7 @@ export async function __applyInputMessageForTests(deps: {
           mqid: mqidForDormantLog.length > 0 ? mqidForDormantLog : "none",
         },
       );
+      sshLogger.info(`[diag-dormant-send] backend marker-fresh mqid=${mqidForDormantLog.length > 0 ? mqidForDormantLog : "none"} elapsedMs=${elapsedMs} branch=fresh`);
     }
     // markerFresh is always true here (break exits the loop only on the
     // fresh OR fallback path). Suppress unused-var lint noise by referencing.
@@ -2316,6 +2321,7 @@ export async function __applyInputMessageForTests(deps: {
         bodyBytes: body.length,
         dormantSend: wasDormant,
       });
+      sshLogger.info(`[diag-dormant-send] backend watchdog-arm mqid=${mqid} sessionId=${deps.sessionId} bodyBytes=${body.length} dormantSend=${wasDormant} contentHash=${contentHash.slice(0, 8)}`);
     }
 
     // Non-split safety net (2026-08-21, tina). When the frontend loses mqid
@@ -2372,6 +2378,7 @@ export async function __applyInputMessageForTests(deps: {
           dormantSend: wasDormant,
         },
       );
+      sshLogger.warn(`[diag-dormant-send] backend watchdog-arm-retryonly mqid=${synthMqid} sessionId=${deps.sessionId} bodyBytes=${nonSplitBody.length} dormantSend=${wasDormant} synth=true`);
     }
   } catch (err) {
     // Phase 50 Plan 02 D-21 — surface execCommand throws as a new

@@ -282,6 +282,7 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
         gapMs: Date.now() - entry.armedAt,
       },
     );
+    logger.info("[diag-dormant-send] watchdog-fire-retry-enter", { operation: "diag_dormant_watchdog_retry", mqid, sessionId, elapsedMs: Date.now() - entry.armedAt });
 
     const cmd = `tmux send-keys -t ${shellQuote(tmuxTarget)} Enter`;
     // Fire-and-forget; do not block downstream timers on this promise.
@@ -311,6 +312,7 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
       bodyBytes: body.length,
       dormantSend: args.dormantSend === true,
     });
+    logger.info("[diag-dormant-send] watchdog-arm-complete", { operation: "diag_dormant_watchdog_arm", mqid, sessionId, contentHash: contentHash.slice(0, 8), bodyBytes: body.length, dormantSend: args.dormantSend === true, retryEnterOnly: true, retryDelayMs: retryDelay, fullResendDelayMs: null, giveUpDelayMs: null });
     return;
   }
 
@@ -328,6 +330,7 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
         gapMs: Date.now() - entry.armedAt,
       },
     );
+    logger.info("[diag-dormant-send] watchdog-fire-full-resend", { operation: "diag_dormant_watchdog_full_resend", mqid, sessionId, elapsedMs: Date.now() - entry.armedAt });
 
     void (async () => {
       const clearCmd = `tmux send-keys -t ${shellQuote(tmuxTarget)} C-u`;
@@ -395,6 +398,7 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
         gapMs: Date.now() - entry.armedAt,
       },
     );
+    logger.info("[diag-dormant-send] watchdog-fire-give-up", { operation: "diag_dormant_watchdog_give_up", mqid, sessionId, elapsedMs: Date.now() - entry.armedAt, branch: "paste_send_failed_emitted" });
 
     try {
       wsSend({
@@ -432,6 +436,7 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
       dormantSend: args.dormantSend === true,
     },
   );
+  logger.info("[diag-dormant-send] watchdog-arm-complete", { operation: "diag_dormant_watchdog_arm", mqid, sessionId, contentHash: contentHash.slice(0, 8), bodyBytes: body.length, dormantSend: args.dormantSend === true, retryEnterOnly: args.retryEnterOnly === true, retryDelayMs: retryDelay, fullResendDelayMs: args.retryEnterOnly ? null : fullResendDelay, giveUpDelayMs: args.retryEnterOnly ? null : giveUpDelay });
 }
 
 /**
@@ -456,6 +461,7 @@ export function notifyMatched(sessionId: string, contentHash: string): void {
           gapMs: Date.now() - entry.armedAt,
         },
       );
+      entry.logger.info("[diag-dormant-send] watchdog-matched", { operation: "diag_dormant_watchdog_matched", mqid, sessionId, elapsedMs: Date.now() - entry.armedAt, matched_by: "contentHash" });
       cancelTimers(entry);
       pending.delete(mqid);
       return; // FIFO: clear only the oldest matching entry.
@@ -480,6 +486,7 @@ export function clearPvSendWatchdog(mqid: string): void {
       sessionId: entry.sessionId,
     },
   );
+  entry.logger.info("[diag-dormant-send] watchdog-cleared", { operation: "diag_dormant_watchdog_cleared", mqid, sessionId: entry.sessionId, elapsedMs: Date.now() - entry.armedAt, reason: "explicit_clear_or_ws_close" });
   cancelTimers(entry);
   pending.delete(mqid);
 }
@@ -516,6 +523,7 @@ export function clearPvSendWatchdogsForSession(sessionId: string): string[] {
           sessionId: entry.sessionId,
         },
       );
+      entry.logger.info("[diag-dormant-send] watchdog-cleared", { operation: "diag_dormant_watchdog_cleared", mqid, sessionId: entry.sessionId, elapsedMs: Date.now() - entry.armedAt, reason: "session_recycle" });
       cancelTimers(entry);
       clearedMqids.push(mqid);
     }

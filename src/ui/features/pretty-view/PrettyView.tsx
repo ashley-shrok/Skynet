@@ -316,6 +316,7 @@ function appendDedup(
         (m) => m.type === "relay_inbound" && m.matrixEventId === next.matrixEventId,
       )
     ) {
+      console.info(`[diag-dormant-send] dedup-drop mqid=n/a path=inbound incoming_matrixEventId=${next.matrixEventId} incoming_eventId=${next.eventId} matched_existing=true`);
       return prev;
     }
   }
@@ -359,8 +360,10 @@ function appendDedupWithCap<T extends { eventId: string; line?: number; ts?: num
         return p.type === "relay_inbound" && p.matrixEventId === mid;
       })
     ) {
+      console.info(`[diag-dormant-send] dedup-drop mqid=n/a path=inbound-cap incoming_matrixEventId=${mid} incoming_eventId=${(next as unknown as { eventId?: string }).eventId ?? "?"} matched_existing=true`);
       return prev;
     }
+    console.info(`[diag-dormant-send] dedup-store mqid=n/a path=inbound-cap incoming_matrixEventId=${mid} incoming_eventId=${(next as unknown as { eventId?: string }).eventId ?? "?"}`);
   }
   const nextKey =
     typeof next.line === "number"
@@ -1134,6 +1137,7 @@ export function PrettyView({
       if (found.timer !== null) {
         window.clearTimeout(found.timer);
       }
+      console.info(`[diag-dormant-send] flip-to-failed mqid=${mqid} reason=${reason} elapsedMs=${Date.now() - found.sentAt} foundState=${found.state} contentLen=${found.content.length}`);
       console.warn(
         `[pv-optim] flip-to-failed mqid=${mqid} reason=${reason} content-length=${found.content.length}`,
       );
@@ -1207,7 +1211,10 @@ export function PrettyView({
       const timeoutReason = armedDormant
         ? "client_timeout_220s_dormant"
         : "client_timeout_20s_normal";
+      console.info(`[diag-dormant-send] arm mqid=${mqid} dormant=${armedDormant} timeoutMs=${timeoutMs} arm_reason=${timeoutReason} collapsedLen=${collapsed.length} pendingCount=${pendingSendsRef.current.length} now=${Date.now()}`);
+      const armSentAt = Date.now();
       const timerHandle = window.setTimeout(() => {
+        console.info(`[diag-dormant-send] fire mqid=${mqid} elapsedMs=${Date.now() - armSentAt} dormant_at_arm=${armedDormant} dormant_at_fire=${dormantRef.current === true} branch=${armedDormant ? "widened" : "normal"} pendingCount=${pendingSendsRef.current.length} stillPending=${pendingSendsRef.current.some((p) => p.mqid === mqid && p.state === "sending")}`);
         flipToFailed(mqid, timeoutReason);
       }, timeoutMs);
       setPendingSends((prev) => [
@@ -1237,18 +1244,19 @@ export function PrettyView({
   // against a torn-down component AND matches Plan 50-02's per-connection
   // pendingMqidsForThisConnection cleanup on the backend so both sides
   // release together (T-50-03-05 mitigation).
-  const clearAllPendingSends = useCallback(() => {
+  const clearAllPendingSends = useCallback((reason: string = "unspecified") => {
     for (const p of pendingSendsRef.current) {
       if (p.timer !== null) {
         window.clearTimeout(p.timer);
       }
+      console.info(`[diag-dormant-send] cleanup mqid=${p.mqid} matched_by=${reason} elapsedMs=${Date.now() - p.sentAt} replaced=false state=${p.state}`);
     }
     setPendingSends([]);
     setComposeOverrideText(null);
   }, []);
   useEffect(() => {
     return () => {
-      clearAllPendingSends();
+      clearAllPendingSends("ws-close-unmount");
     };
   }, [clearAllPendingSends]);
   // Latest sending-pending derivation (Task 3b, D-04): the newest pending
@@ -1766,7 +1774,7 @@ export function PrettyView({
             setBackgroundedShells([]);
             setPlanPending(null);
             clearAsideState();
-            clearAllPendingSends();
+            clearAllPendingSends("session-rotation");
           }
           lastKnownSessionFileRef.current = parsed.sessionFile;
           break;
@@ -1788,10 +1796,14 @@ export function PrettyView({
           if (parsed.role === "user") {
             const list = pendingSendsRef.current;
             const oldestSendingIdx = list.findIndex((p) => p.state === "sending");
+            const incomingPreview = (typeof parsed.content === "string" ? parsed.content : "").replace(/\s+/g, " ").trim().slice(0, 60);
             if (oldestSendingIdx !== -1) {
               const match = list[oldestSendingIdx]!;
+              console.info(`[diag-dormant-send] cleanup mqid=${match.mqid} matched_by=fifo-head-match elapsedMs=${Date.now() - match.sentAt} replaced=true incoming_eventId=${parsed.eventId} incoming_line=${parsed.line ?? "?"} pendingCountBefore=${list.length} preview="${incomingPreview}"`);
               if (match.timer !== null) window.clearTimeout(match.timer);
               setPendingSends((prev) => prev.filter((p) => p.mqid !== match.mqid));
+            } else {
+              console.info(`[diag-dormant-send] incoming-user-frame mqid=n/a matched_by=none pendingCountBefore=${list.length} incoming_eventId=${parsed.eventId} incoming_line=${parsed.line ?? "?"} action=newBubble reason=no-sending-pending preview="${incomingPreview}"`);
             }
           }
           // Phase 43 Plan 43-07b — drop-oldest cap enforcement on live-append.
@@ -1996,9 +2008,11 @@ export function PrettyView({
                 asRelay.matrixEventId.length > 0
               ) {
                 if (seenMatrixEventIds.has(asRelay.matrixEventId)) {
+                  console.info(`[diag-dormant-send] dedup-drop mqid=n/a path=range-fetch incoming_matrixEventId=${asRelay.matrixEventId} incoming_eventId=${m.eventId} matched_existing=true`);
                   droppedByDedup.push(m.eventId);
                   continue;
                 }
+                console.info(`[diag-dormant-send] dedup-store mqid=n/a path=range-fetch incoming_matrixEventId=${asRelay.matrixEventId} incoming_eventId=${m.eventId}`);
                 seenMatrixEventIds.add(asRelay.matrixEventId);
               }
               seen.add(m.eventId);
@@ -2237,7 +2251,7 @@ export function PrettyView({
           //     replay content, incorrectly clearing pendings that should
           //     have dropped alongside the rest of session-scoped state.
           // Same helper the WS-close cleanup path (~L1973) uses.
-          clearAllPendingSends();
+          clearAllPendingSends("session-changed");
           // inline-260823-pv-session-file-rotation-reset: keep the last-known
           // sessionFile ref in sync so a follow-up `session` frame carrying
           // the same newSessionFile doesn't spuriously re-fire the rotation
@@ -2266,6 +2280,7 @@ export function PrettyView({
         // failed, populates composeOverrideText.
         case "paste_send_failed": {
           if (parsed.mqid) {
+            console.info(`[diag-dormant-send] ws-paste-send-failed mqid=${parsed.mqid ?? "none"} reason=${parsed.reason ?? "paste_send_failed"} action=flipToFailed-from-backend-frame`);
             flipToFailed(parsed.mqid, parsed.reason ?? "paste_send_failed");
           }
           break;
@@ -2276,6 +2291,7 @@ export function PrettyView({
         // landed (exec_throw_body / exec_throw_enter / exec_throw).
         case "send_keys_error": {
           if (parsed.mqid) {
+            console.info(`[diag-dormant-send] ws-send-keys-error mqid=${parsed.mqid ?? "none"} reason=${parsed.reason ?? "send_keys_error"} action=flipToFailed-from-backend-frame`);
             flipToFailed(parsed.mqid, parsed.reason ?? "send_keys_error");
           }
           break;
@@ -2299,7 +2315,7 @@ export function PrettyView({
       // pending, clear its 20s timer, empty the pendingSends array. Pairs
       // with Plan 50-02's backend per-connection pendingMqidsForThisConnection
       // cleanup so both sides release together on WS teardown.
-      clearAllPendingSends();
+      clearAllPendingSends("ws-close-unmount");
       // Patch #148: auto-reconnect on close, mirroring Terminal.tsx's pattern.
       //
       // INACTIVE short-circuit (FALLBACK-01 preservation): when the server has
