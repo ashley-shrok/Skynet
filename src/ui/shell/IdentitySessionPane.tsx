@@ -364,13 +364,6 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
             />
           )}
 
-          {/* Session-tint div — gated on !isPrettyMode (terminal-mode only).
-              Mirrors Terminal.tsx L3409-3411. Moved to wrapper so it renders
-              above the terminal surface when in terminal mode. */}
-          {sessionHue != null && !isPrettyMode && (
-            <div className="session-tint" aria-hidden="true" />
-          )}
-
           {/* IdentityBadge — gated on !isPrettyMode (terminal-mode surface).
               PrettyView has its OWN internal IdentityBadge (Phase 4 patch).
               This badge is the terminal-mode replacement for Terminal.tsx L3413-3423.

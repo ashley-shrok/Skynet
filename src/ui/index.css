@@ -476,18 +476,6 @@ html.fs-xl {
   }
 }
 
-/* Permanent per-pane hue tint. Static (no animation) so 10+ concurrent panes
- * don't hammer the compositor. Alpha sits in the upper half of the old
- * breathing pulse's 0.08→0.22 range so panes are visually distinct at a
- * glance without obscuring terminal contents. */
-.session-tint {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 100;
-  background: hsla(var(--session-hue, 50), 75%, 52%, 0.18);
-}
-
 /* Patch #181 — composebox button press feedback (A-variant, ?btnfx=1 tuner
  * pick). Every <button> inside .pv-composebox transitions its scale +
  * background + box-shadow on the `.pv-btn-pressed` class, which is added

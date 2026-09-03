@@ -40,11 +40,8 @@ import {
   TERMINAL_FONTS,
 } from "@/lib/terminal-themes.ts";
 import "./terminal-global-styles.ts";
-// Phase 41 Plan 02: sessionMatchKey removed from this file (no longer needed;
-// hueFromSessionName is the only session-hue export used by Terminal.tsx now).
 // PrettyView, MessageQueueDrawer, IdentityBadge, IdentityModal, useIdentities,
 // listMessageQueueItems all removed — now owned by IdentitySessionPane.
-import { hueFromSessionName } from "./session-hue.ts";
 // Phase 34 Plan 06: PTY-idle feeder RETIRED — fleet-status channel now
 // sources the working signal from the box-side session JSON, not PTY scraping.
 import { useTheme } from "@/components/theme-provider.tsx";
@@ -300,12 +297,6 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     //   - PrettyView, MessageQueueDrawer, IdentityBadge, IdentityModal JSX blocks
     //   - toggle-mode + toggle-queue from useImperativeHandle (owned by wrapper)
     //
-    // sessionHue is preserved (drives --session-hue CSS var on the root div for
-    // non-identity workstation pane coloring; hueFromSessionName provides the value).
-    const sessionHue = useMemo(
-      () => hueFromSessionName(tmuxSessionName),
-      [tmuxSessionName],
-    );
     const [isTmuxAttached, setIsTmuxAttached] = useState(false);
     const tmuxCopyModeHintShownRef = useRef(false);
 
@@ -3293,14 +3284,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     return (
       <div
         className="h-full w-full relative flex flex-col"
-        style={
-          sessionHue != null
-            ? {
-                backgroundColor,
-                ["--session-hue" as never]: String(sessionHue),
-              }
-            : { backgroundColor }
-        }
+        style={{ backgroundColor }}
       >
         <div
           ref={xtermRef}
@@ -3323,10 +3307,6 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             by IdentitySessionPane (src/ui/shell/IdentitySessionPane.tsx) which
             wraps Terminal for identity panes. Terminal.tsx only renders the raw
             xterm surface regardless of pretty-mode state. */}
-
-        {isConnected && sessionHue != null && (
-          <div className="session-tint" aria-hidden="true" />
-        )}
 
         {isMobile && isConnected && (
           <Toolbar
