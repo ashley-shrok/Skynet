@@ -180,6 +180,26 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     // most volume is `{type:"data", data:"<tmux output>"}` and JSON overhead
     // is small relative to a full tmux frame). Snapshot fn reads + resets.
     const wsBytesRef = useRef<number>(0);
+    // Terminal render-broken-after-initial-attach diag (2026-09-03, Ashley):
+    // desktop-only bug where switch-into-terminal renders the initial buffer
+    // dump but subsequent frames silently don't paint (Ctrl-L confirmed the
+    // write pipeline, not the paint layer, is stuck). These refs let a repro
+    // distinguish stale-closure (hypothesis A) vs multi-handler-race
+    // (hypothesis B) without another deploy round-trip.
+    //   mountIdRef       — fixed at mount so log lines correlate within one
+    //                       Terminal lifetime across remounts.
+    //   setupListenersCountRef — increments each setupWebSocketListeners
+    //                       call so we can see if two paths (setup-effect +
+    //                       pause-effect attemptReconnection) both fire.
+    //   dataFrameCountRef — counts {type:"data"} arrivals so we can tell
+    //                       whether xterm write attempts are actually
+    //                       happening after the initial buffer dump or
+    //                       stopping cold.
+    const mountIdRef = useRef<string>(
+      Math.random().toString(36).slice(2, 8),
+    );
+    const setupListenersCountRef = useRef<number>(0);
+    const dataFrameCountRef = useRef<number>(0);
     const resizeTimeout = useRef<NodeJS.Timeout | null>(null);
     const wasDisconnectedBySSH = useRef(false);
     const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -1309,6 +1329,14 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
       cols: number,
       rows: number,
     ) {
+      setupListenersCountRef.current += 1;
+      // Terminal render-broken diag: count listener attachments per mount.
+      // >1 within a single mount = hypothesis B (multi-handler race) is live.
+      console.info(
+        `[term-diag] setupListeners mountId=${mountIdRef.current} ` +
+          `hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} ` +
+          `callCount=${setupListenersCountRef.current} wsReadyState=${ws.readyState}`,
+      );
       ws.addEventListener("open", () => {
         console.info(`[ws] open hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} wsUrl=${ws.url} readyState=${ws.readyState}`);
         connectionTimeoutRef.current = setTimeout(() => {
@@ -1418,7 +1446,19 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
         // the previous one — but a queued `{type:"disconnected"}` from the
         // old socket can still fire and would pop the Connection Lost overlay
         // AFTER the new socket has already reconnected and rendered content.
-        if (ws !== webSocketRef.current) return;
+        if (ws !== webSocketRef.current) {
+          // Terminal render-broken diag: loud-log the bail so we can see if
+          // this guard is silently eating post-attach data frames — that
+          // would confirm hypothesis B (multi-handler race, stale-socket
+          // guard bailing on the wrong socket).
+          console.warn(
+            `[term-diag] stale-socket-guard-bailed mountId=${mountIdRef.current} ` +
+              `hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} ` +
+              `ws.readyState=${ws.readyState} currentReadyState=${webSocketRef.current?.readyState ?? 'null'} ` +
+              `listenerCallCount=${setupListenersCountRef.current}`,
+          );
+          return;
+        }
         // Bounty pretty-view-per-pane-cost-diag: count bytes for the diag
         // emit. Raw string length is close enough at 30s cadence.
         if (typeof event.data === "string") {
@@ -1436,6 +1476,53 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           }
           // idle frames intentionally ignored — pane-level PrettyView owns this signal (Phase 41-02 a997630f, quick-260821-kyf)
           if (msg.type === "data") {
+            // Terminal render-broken diag: shared write-with-diag helper so
+            // both branches (string and non-string msg.data) log the same
+            // way. Captures the state that would distinguish hypothesis A
+            // (stale terminal closure — DOM disconnected / terminal disposed)
+            // from healthy writes, plus a try/catch to catch dispose-throws.
+            const writeWithDiag = (outputData: string) => {
+              dataFrameCountRef.current += 1;
+              const domConnected = xtermRef.current?.isConnected ?? null;
+              const termRows = terminal?.rows ?? -1;
+              const termCols = terminal?.cols ?? -1;
+              const suspicious =
+                domConnected !== true ||
+                !terminal ||
+                termRows <= 0 ||
+                termCols <= 0;
+              if (suspicious) {
+                console.warn(
+                  `[term-diag] write-suspicious mountId=${mountIdRef.current} ` +
+                    `hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} ` +
+                    `frameNum=${dataFrameCountRef.current} bytes=${outputData.length} ` +
+                    `domConnected=${domConnected} termRows=${termRows} termCols=${termCols} ` +
+                    `hasTerminal=${!!terminal} listenerCallCount=${setupListenersCountRef.current}`,
+                );
+              } else if (
+                dataFrameCountRef.current <= 3 ||
+                dataFrameCountRef.current % 100 === 0
+              ) {
+                // Sample: first 3 frames + every 100th so a healthy stream
+                // shows a lightweight heartbeat without spamming the log.
+                console.info(
+                  `[term-diag] write-ok mountId=${mountIdRef.current} ` +
+                    `hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} ` +
+                    `frameNum=${dataFrameCountRef.current} bytes=${outputData.length} ` +
+                    `termRows=${termRows} termCols=${termCols}`,
+                );
+              }
+              try {
+                terminal.write(outputData);
+              } catch (e) {
+                console.error(
+                  `[term-diag] write-threw mountId=${mountIdRef.current} ` +
+                    `hostId=${hostConfig.id} sessionId=${tmuxSessionNameRef.current ?? 'null'} ` +
+                    `frameNum=${dataFrameCountRef.current} err="${e instanceof Error ? e.message : String(e)}"`,
+                );
+              }
+            };
+
             if (typeof msg.data === "string") {
               const syntaxHighlightingEnabled =
                 localStorage.getItem("terminalSyntaxHighlighting") === "true";
@@ -1444,7 +1531,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
                 ? highlightTerminalOutput(msg.data)
                 : msg.data;
 
-              terminal.write(outputData);
+              writeWithDiag(outputData);
               const sudoPasswordPattern =
                 /(?:\[sudo\][^\n]*:\s*$|sudo:[^\n]*password[^\n]*required|password for [^\n]*:\s*$|Password:\s*$)/i;
               const hasSudoPw =
@@ -1508,7 +1595,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
                 ? highlightTerminalOutput(stringData)
                 : stringData;
 
-              terminal.write(outputData);
+              writeWithDiag(outputData);
             }
           } else if (msg.type === "error") {
             const errorMessage = msg.message || t("terminal.unknownError");
