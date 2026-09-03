@@ -2033,7 +2033,16 @@ wss.on("connection", async (ws: WebSocket, req) => {
                     }),
                   );
                   runPostShellCommands(0);
-                } else if (detection.sessions.length === 0) {
+                } else if (
+                  detection.sessions.length === 0 ||
+                  tmuxAllowCreate
+                ) {
+                  // tmuxAllowCreate is the New Agent dialog's create-intent
+                  // signal: honor it regardless of what already exists on the
+                  // host. Otherwise the exactly-1 branch below silently hijacks
+                  // the new WebSocket onto that lone session (mounting the fresh
+                  // tab on someone else's live claude), and the ≥2 branch would
+                  // offer a picker for a choice the caller didn't ask to make.
                   const newName = `skynet-${id}-${Date.now().toString(36).slice(-4)}`;
                   attachOrCreateTmuxSession(stream, undefined, newName);
                   const confirmed = await waitForTmuxSession(conn, newName);
