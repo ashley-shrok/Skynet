@@ -42,6 +42,11 @@ import {
   removeSilentSigninFromSearch,
   shouldTriggerSilentSignin,
 } from "./silent-signin";
+// Phase 70 Plan 04: login header lockup (icon + wordmark, L1131-1142) now
+// sourced from brandingConfig (Plan 70-03) so operator-provided assets
+// unify with the conversation-list header per D-08's "same icon+wordmark"
+// constraint.
+import { useBrandingConfig } from "@/branding/branding-store";
 
 const LANGUAGES = [
   { code: "en", label: "English" },
@@ -207,6 +212,10 @@ function Field({
 
 export function Auth({ onLogin }: AuthProps) {
   const { t } = useTranslation();
+  // Phase 70 Plan 04: login header (icon + wordmark below at ~L1131) reads
+  // from the branding store — falls back to the bundled Skynet defaults on
+  // t1000, swaps to operator assets on AI+ deploys.
+  const brandingConfig = useBrandingConfig();
   const [view, setView] = useState<AuthView>("login");
   const [loading, setLoading] = useState(false);
   const [oidcLoading, setOidcLoading] = useState(false);
@@ -1129,14 +1138,14 @@ export function Auth({ onLogin }: AuthProps) {
               <div className="flex flex-col gap-5">
                 <div className="flex items-center justify-center gap-3 select-none">
                   <img
-                    src="/icon.png"
+                    src={brandingConfig.iconPath}
                     alt=""
                     className="h-12 w-12 shrink-0"
                     draggable={false}
                   />
                   <img
-                    src="/skynet-wordmark.png"
-                    alt="Skynet"
+                    src={brandingConfig.wordmarkPath}
+                    alt={brandingConfig.appName}
                     className="h-8 w-auto"
                     draggable={false}
                   />
