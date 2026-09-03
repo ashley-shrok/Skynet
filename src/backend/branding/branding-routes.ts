@@ -124,9 +124,12 @@ router.get(
  *   - Missing after both override + default checked → 404.
  *   - Response body on error is empty (no filesystem paths echoed).
  */
-router.get("/branding/*", async (req: Request, res: Response) => {
-  // Express 5 wildcard capture: req.params[0] holds the path after /branding/
-  const requested = (req.params as Record<string, string>)[0] ?? "";
+router.get("/branding/*splat", async (req: Request, res: Response) => {
+  // Express 5 wildcard: `*splat` gives req.params.splat as string[] of the
+  // path segments after /branding/. Join with '/' to reconstruct the path
+  // for resolveAssetPath(). A bare "/branding/" (empty splat) returns 404.
+  const splat = (req.params as { splat?: string | string[] }).splat;
+  const requested = Array.isArray(splat) ? splat.join("/") : (splat ?? "");
   if (requested === "" || requested === "/") {
     return res.status(404).end();
   }

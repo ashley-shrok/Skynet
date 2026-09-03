@@ -1949,15 +1949,23 @@ if (frontendDist) {
         "Cache-Control",
         "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
       );
-      void getBrandedIndexHtml(frontendDist).then(
-        (html) => {
+      void getBrandedIndexHtml(frontendDist)
+        .then((html) => {
           if (html) {
             res.type("html").send(html);
           } else {
             res.sendFile(path.join(frontendDist, "index.html"));
           }
-        },
-      );
+        })
+        .catch((err) => {
+          databaseLogger.error("SPA fallback: branded index render failed", {
+            operation: "spa_fallback_branded_render_failed",
+            error: err instanceof Error ? err.message : String(err),
+          });
+          if (!res.headersSent) {
+            res.sendFile(path.join(frontendDist, "index.html"));
+          }
+        });
     } else {
       next();
     }

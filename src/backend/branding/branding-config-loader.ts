@@ -78,7 +78,10 @@ const HARDCODED_FALLBACK: BrandingConfig = {
 // ---------------------------------------------------------------------------
 
 export function getBrandingConfigPath(): string {
-  return "/etc/skynet/branding.json";
+  // Config file lives INSIDE the branding directory so a single bind-mount
+  // (see docker-compose.yml) covers both config + assets and there is no
+  // file-vs-directory ambiguity for docker's create_host_path auto-init.
+  return "/etc/skynet/branding/branding.json";
 }
 
 export function getBrandingAssetsDir(): string {

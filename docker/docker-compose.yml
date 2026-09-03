@@ -7,19 +7,14 @@ services:
       - "8080:8080"
     volumes:
       - skynet-data:/app/data
-      # Phase 70: branding config JSON — bind-mount from host, read-only.
-      # create_host_path lets t1000 boot cleanly with no /opt/skynet/branding.json
-      # present; Docker creates an empty file, backend loader falls back to
-      # bundled defaults from /app/branding-defaults/.
-      - type: bind
-        source: /opt/skynet/branding.json
-        target: /etc/skynet/branding.json
-        read_only: true
-        bind:
-          create_host_path: true
-      # Phase 70: branding assets directory — bind-mount from host, read-only.
-      # Same create_host_path semantics; per-file fallback to bundled defaults
-      # is handled by the backend /branding/* route.
+      # Phase 70: branding config + assets — single directory bind-mount from
+      # host, read-only. The operator drops branding.json AND asset files
+      # into /opt/skynet/branding/ side-by-side (matching the bundled defaults
+      # layout at /app/branding-defaults/). One directory mount avoids the
+      # docker create_host_path file-vs-directory ambiguity (a missing file
+      # source would auto-create as an empty DIRECTORY, breaking the loader);
+      # a missing directory source auto-creates as an empty directory cleanly,
+      # and the loader's per-file ENOENT fallback then serves bundled defaults.
       - type: bind
         source: /opt/skynet/branding
         target: /etc/skynet/branding
