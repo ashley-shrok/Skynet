@@ -2563,6 +2563,55 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
     expect(deactivateOrder).toBeLessThan(hideOrder);
   });
 
+  // Test (n) [Ashley 2026-09-03 — inverts quick-260731-tgg]: clicking a
+  // hidden row opens the session but leaves hiddenIds untouched. The prior
+  // quick-260731-tgg auto-unhide-on-click both violated the "hidden means
+  // hidden" semantic and produced a click race (row DOM moved out from
+  // under the cursor between click-down and click-up, dropping the
+  // selectConversation dispatch). Test (f) above still asserts unhide-on-
+  // pin — that path is unchanged; only the click path stops mutating.
+  it("Test (n) [Ashley 2026-09-03 flip of quick-260731-tgg]: clicking a hidden row calls selectConversation + onConversationSelected but does NOT call unhideConversation", async () => {
+    const row = makeConversationRow({ id: "hidden-row-n", label: "hidden-n", host: hostA });
+    setSnapshot({
+      grouped: [{ hostId: "h1", hostName: "hostA", rows: [row] }],
+      hiddenIds: new Set(["hidden-row-n"]),
+    });
+
+    const onConversationSelected = vi.fn();
+    const { container } = render(
+      <PrettyConversationsPanel variant="desktop" onConversationSelected={onConversationSelected} onDeactivateRow={() => {}} />,
+    );
+
+    // Expand the Hidden section (collapsed by default — see Test (b) and Test (c))
+    const chip = container.querySelector('[data-testid="hidden-divider"]') as HTMLElement;
+    expect(chip).toBeTruthy();
+    fireEvent.click(chip);
+
+    await waitFor(() => {
+      expect(chip.getAttribute("aria-expanded")).toBe("true");
+    });
+
+    // Confirm the hidden row is in the DOM after expansion
+    const hiddenGroup = container.querySelector('[data-hidden-group="true"]') as HTMLElement;
+    await waitFor(() => {
+      expect(hiddenGroup.querySelectorAll("[data-conversation-id]").length).toBeGreaterThan(0);
+    });
+
+    // Click the row body
+    const rowEl = container.querySelector('[data-conversation-id="hidden-row-n"]') as HTMLElement;
+    expect(rowEl).toBeTruthy();
+    const body = rowEl.querySelector('[role="button"]') as HTMLElement;
+    expect(body).toBeTruthy();
+    fireEvent.click(body);
+
+    // Assert 1 (semantic): unhideConversation must NOT be called — the fleet-critical invariant.
+    // Hidden rows stay hidden on click.
+    expect(unhideConversationSpy).not.toHaveBeenCalled();
+    // Assert 2 (navigation): session-open path still fires end-to-end.
+    expect(selectConversationSpy).toHaveBeenCalledWith("hidden-row-n");
+    expect(onConversationSelected).toHaveBeenCalledWith("hidden-row-n");
+  });
+
   // Tests (k), (l), (m) DELETED in quick-260802-pq2. They asserted on the
   // mobile swipe-strip's [data-testid="hide-action-*"] / "deactivate-action"
   // DOM presence. That strip was retired; mobile action affordance is the

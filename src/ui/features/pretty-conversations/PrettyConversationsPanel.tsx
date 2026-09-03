@@ -971,8 +971,15 @@ export function PrettyConversationsPanel({
   // belt-and-suspenders for the swipe-open race; both the state and the
   // race are gone with the swipe machinery.
   const handleRowSelect = (row: ConversationRowShape) => {
-    // quick-260731-tgg: opening a hidden row auto-unhides it before routing.
-    if (hiddenIds.has(row.id)) unhideConversation(row.id);
+    // Ashley 2026-09-03 [inverts quick-260731-tgg]: hidden means hidden.
+    // Clicking a hidden row opens the session WITHOUT mutating hiddenIds.
+    // Two reasons: (1) semantic — "hidden" is a user-controlled bucket, only
+    // the explicit Unhide context-menu action (handleToggleHide) should change
+    // it; (2) race — the prior synchronous unhide re-rendered the Hidden
+    // section, shifted the row's DOM out from under the cursor mid-click, and
+    // sometimes swallowed the routing branch entirely so the session never
+    // opened. Note: handleTogglePin (line ~1188) still unhides-before-pin
+    // because pinning is promotion — that path is intentional and untouched.
     addToActiveSet(row.id);
     if (row.rdpHostRow && onRdpRowClick) {
       onRdpRowClick(row);
