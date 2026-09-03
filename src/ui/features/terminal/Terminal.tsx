@@ -1956,16 +1956,6 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
               clearTimeout(connectionTimeoutRef.current);
               connectionTimeoutRef.current = null;
             }
-          } else if (msg.type === "host_key_verification_required") {
-            setHostKeyVerification({
-              isOpen: true,
-              scenario: "new",
-              data: msg.data,
-            });
-            if (connectionTimeoutRef.current) {
-              clearTimeout(connectionTimeoutRef.current);
-              connectionTimeoutRef.current = null;
-            }
           } else if (msg.type === "host_key_changed") {
             setHostKeyVerification({
               isOpen: true,

@@ -72,71 +72,27 @@ export class SSHHostKeyVerifier {
           }
 
           if (!host.hostKeyFingerprint) {
-            if (isJumpHost) {
-              await this.storeHostKey(hostId, fingerprint, keyType, algorithm);
-              sshLogger.info("Jump host key auto-accepted and stored", {
-                operation: "host_key_stored",
-                hostId,
-                ip,
-                port,
-                fingerprint,
-                keyType,
-                userId,
-                isJumpHost: true,
-              });
-              verify(true);
-              return;
-            }
-
-            if (!ws) {
-              sshLogger.warn(
-                "No WebSocket available for host key verification prompt",
-                {
-                  operation: "host_key_no_ws",
-                  hostId,
-                  ip,
-                  port,
-                  userId,
-                },
-              );
-              verify(true);
-              return;
-            }
-
-            const accepted = await this.promptUserForNewKey(
-              ws,
+            // First connect to a host in Skynet's host table. Adding the host
+            // is the trust event -- admin explicitly declared IP + creds +
+            // hostname when the host record was created, so this connection
+            // silently stores whatever fingerprint the host presents.
+            // No user prompt: it would ask a question the user has no
+            // out-of-band fingerprint to compare against and would default to
+            // Accept anyway. The genuine security check is the
+            // fingerprint-CHANGE case below (promptUserForChangedKey), which
+            // fires when a stored key later differs on a subsequent connect.
+            await this.storeHostKey(hostId, fingerprint, keyType, algorithm);
+            sshLogger.info("Host key stored on first connect", {
+              operation: "host_key_stored",
+              hostId,
               ip,
               port,
-              host.name || undefined,
               fingerprint,
               keyType,
-              algorithm,
-            );
-
-            if (accepted) {
-              await this.storeHostKey(hostId, fingerprint, keyType, algorithm);
-              sshLogger.info("New host key accepted by user and stored", {
-                operation: "host_key_stored",
-                hostId,
-                ip,
-                port,
-                fingerprint,
-                keyType,
-                userId,
-              });
-            } else {
-              sshLogger.warn("User rejected new host key", {
-                operation: "host_key_rejected",
-                hostId,
-                ip,
-                port,
-                fingerprint,
-                keyType,
-                userId,
-              });
-            }
-
-            verify(accepted);
+              userId,
+              isJumpHost,
+            });
+            verify(true);
             return;
           }
 
@@ -304,66 +260,6 @@ export class SSHHostKeyVerifier {
         hostKeyChangedCount: currentChangeCount + 1,
       })
       .where(eq(hosts.id, hostId));
-  }
-
-  private static async promptUserForNewKey(
-    ws: WebSocket,
-    ip: string,
-    port: number,
-    hostname: string | undefined,
-    fingerprint: string,
-    keyType: string,
-    algorithm: string,
-  ): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
-      const timeout = setTimeout(() => {
-        ws.removeListener("message", messageHandler);
-        sshLogger.warn("Host key verification timeout (new key)", {
-          operation: "host_key_timeout",
-          ip,
-          port,
-        });
-        resolve(false);
-      }, 60000);
-
-      const messageHandler = (data: Buffer) => {
-        try {
-          const message = JSON.parse(data.toString());
-
-          if (message.type === "host_key_verification_response") {
-            clearTimeout(timeout);
-            ws.removeListener("message", messageHandler);
-
-            const response = message.data as VerificationResponse;
-            resolve(response.action === "accept");
-          }
-        } catch (error) {
-          sshLogger.error(
-            "Error parsing host key verification response",
-            error,
-          );
-        }
-      };
-
-      ws.on("message", messageHandler);
-
-      const verificationData: HostKeyVerificationData = {
-        scenario: "new",
-        ip,
-        port,
-        hostname,
-        fingerprint,
-        keyType,
-        algorithm,
-      };
-
-      ws.send(
-        JSON.stringify({
-          type: "host_key_verification_required",
-          data: verificationData,
-        }),
-      );
-    });
   }
 
   private static async promptUserForChangedKey(
