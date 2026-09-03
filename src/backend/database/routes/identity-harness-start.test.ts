@@ -106,9 +106,9 @@ describe("startHarnessOnIdentity — 11-command tmux sequence", () => {
     expect(second).toContain("tmux send-keys -t test -l");
     expect(second).toContain("CLAUDE_CODE_RESUME_THRESHOLD_MINUTES=99999999");
     expect(second).toContain("CLAUDE_CODE_RESUME_TOKEN_THRESHOLD=99999999");
-    expect(second).toContain("claude --dangerously-skip-permissions");
+    expect(second).toContain("claude --model opus --dangerously-skip-permissions");
     // The launch payload is single-quoted (literal-mode for tmux send-keys)
-    expect(second).toContain(`'${CLAUDE_LAUNCH_CMD_PREFIX} claude --dangerously-skip-permissions'`);
+    expect(second).toContain(`'${CLAUDE_LAUNCH_CMD_PREFIX} claude --model opus --dangerously-skip-permissions'`);
   });
 
   it("Test C: THIRD exec call is tmux send-keys -t <name> Enter (no -l flag)", async () => {

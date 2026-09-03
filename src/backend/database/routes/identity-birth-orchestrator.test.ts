@@ -642,7 +642,7 @@ it("Test 10: step 3 claude launch includes both env-vars and uses -l flag + sepa
   expect(launchCmd).toBeDefined();
   expect(launchCmd!).toContain("CLAUDE_CODE_RESUME_THRESHOLD_MINUTES=99999999");
   expect(launchCmd!).toContain("CLAUDE_CODE_RESUME_TOKEN_THRESHOLD=99999999");
-  expect(launchCmd!).toContain("claude --dangerously-skip-permissions");
+  expect(launchCmd!).toContain("claude --model opus --dangerously-skip-permissions");
 
   // Must use -l (literal mode) for the send-keys with the command
   expect(launchCmd!).toContain("-l");
