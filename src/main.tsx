@@ -17,6 +17,7 @@ import { useTranslation } from "react-i18next";
 import { snapshotPendingTab } from "@/lib/tab-url";
 import { initConsoleForwarder } from "@/lib/console-forwarder";
 import { startDiagEmitter } from "@/lib/diag-emitter";
+import { fetchBrandingConfig } from "@/branding/branding-fetch";
 
 // Patch #146: install console-forwarder before anything else so all
 // subsequent console.log/warn/error calls are intercepted and batched
@@ -257,6 +258,15 @@ function RootApp() {
 
   return <App />;
 }
+
+// Phase 70: hydrate the branding-store from /api/branding.
+// Fire-and-forget: the store's initial state is a bundled-default sentinel
+// (byte-for-byte match with docker/branding-defaults/branding.json), so
+// first-paint is defensible even if this fetch never resolves — matches
+// today's t1000 "Skynet" behavior (Pitfall 5 mitigation, D-14). Runs in
+// parallel with prepareClientCacheVersion(); createRoot render is NOT
+// gated on the branding promise.
+void fetchBrandingConfig();
 
 prepareClientCacheVersion().finally(() => {
   createRoot(document.getElementById("root")!).render(
