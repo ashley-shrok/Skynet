@@ -1742,3 +1742,10 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 69-05-PLAN.md — Wave 4 migration + schema removal: runIdentitiesTableDrop boot-migration (idempotent DROP TABLE IF EXISTS + inline null-safe forceSave try/catch); migrateSchema becomes async; CREATE TABLE identities deleted from db/index.ts; schema.ts identities export deleted; identities.ts DB imports removed. Post-review security fix: PUT + GET-avatar handlers gate the :identityKey URL param against strict IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/.
+
+### Phase 70: branding-config — per-instance configurable branding
+
+**Goal:** Skynet can present itself under a different identity than "Skynet" on a per-deployment basis via a host-mounted config file + asset directory. Operator drops `/opt/skynet/branding.json` + assets in `/opt/skynet/branding/`; backend serves them via three new routes (`GET /api/branding`, `GET /manifest.webmanifest`, `GET /branding/*`) with bundled-defaults fallback (both whole-file and per-asset). Frontend fetches config on boot and applies to four surfaces: browser tab title (pre-conversation fallback), favicon, conversation list header (icon + wordmark, separate `iconPath`/`wordmarkPath` fields), login screen header (same icon+wordmark). Deployment target is t1000 mainline with NO config file — bundled defaults preserve current behavior; AI+ deployment supplies its own config at EC2 provisioning. First feature of the AI+ MVP project. Shape: `.planning/shapes/shape-branding-config.md`.
+**Requirements**: (none — scope lives in 70-CONTEXT.md; same shape-file-authoritative pattern as Phases 66/67/68/69)
+**Depends on:** Phase 69 (numerical ordering only — no functional dependency)
+**Plans:** pending
