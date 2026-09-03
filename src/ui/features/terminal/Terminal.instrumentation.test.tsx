@@ -185,7 +185,7 @@ describe("Terminal.tsx Phase 31 Plan 02 — [ws-msg] dispatch line + dedup wirin
     const msgHandlerIdx = src.indexOf('ws.addEventListener("message"');
     expect(msgHandlerIdx).toBeGreaterThan(0);
 
-    const msgBlock = src.slice(msgHandlerIdx, msgHandlerIdx + 1500);
+    const msgBlock = src.slice(msgHandlerIdx, msgHandlerIdx + 2500);
     expect(msgBlock).toMatch(/\[ws-msg\] received type=\$\{msg\.type\}/);
 
     // wsMsgDedup must guard the emission
@@ -226,7 +226,7 @@ describe("Terminal.tsx Phase 31 Plan 02 — [ws-msg] dispatch line + dedup wirin
   it("Test 10: [ws-msg] received line does NOT include msg.data / msg body (D-05 privacy boundary)", () => {
     // msg.data can contain user keystrokes, sudo password prompts — never log the body
     const msgHandlerIdx = src.indexOf('ws.addEventListener("message"');
-    const msgHandlerBlock = src.slice(msgHandlerIdx, msgHandlerIdx + 1500);
+    const msgHandlerBlock = src.slice(msgHandlerIdx, msgHandlerIdx + 2500);
     const wsMsgLineStart = msgHandlerBlock.indexOf("[ws-msg] received type=");
     const wsMsgLineEnd = msgHandlerBlock.indexOf("\n", wsMsgLineStart);
     const wsMsgLine = msgHandlerBlock.slice(wsMsgLineStart, wsMsgLineEnd);
