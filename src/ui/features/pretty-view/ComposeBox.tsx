@@ -2460,7 +2460,7 @@ export function ComposeBox({
           <Button
             size="icon-sm"
             variant="secondary"
-            onClick={() => { onGoodToGo?.(); handleQuickSend("thumbs up", { bubbleTextOverride: "👍" }); }}
+            onClick={() => { onGoodToGo?.(); handleQuickSend("thumbs up"); }}
             disabled={asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true}
             aria-label="Send 'thumbs up'"
             title="Send 'thumbs up'"

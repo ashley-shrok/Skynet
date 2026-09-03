@@ -253,7 +253,7 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
     );
   });
 
-  it("Test 3: thumbs-up routes through funnel — 1 bubble showing 👍, onSend receives 'thumbs up', button clickable when dormant", async () => {
+  it("Test 3: thumbs-up routes through funnel — 1 bubble showing the ThumbsUp icon, onSend receives 'thumbs up', button clickable when dormant", async () => {
     const { container } = mount();
     const ws = getCurrentWs();
     flipToStreaming(ws);
@@ -274,11 +274,13 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
       fireEvent.click(thumbsUpBtn!);
     });
 
-    // Exactly one pending bubble seeded with the bubbleTextOverride (👍 codepoint).
+    // Exactly one pending bubble seeded with the literal "thumbs up" payload,
+    // which triggers ChatMessage's isQuickReply path → renders the ThumbsUp
+    // lucide icon (aria-label="quick reply") instead of the raw text.
     await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
     const pendingEl = container.querySelector('[data-event-id^="pending-"]')!;
-    expect(pendingEl.textContent).toContain("👍"); // U+1F44D 👍
-    expect(pendingEl.textContent).not.toContain("thumbs up"); // D-02: override, not literal
+    expect(pendingEl.querySelector('[aria-label="quick reply"]')).not.toBeNull();
+    expect(pendingEl.textContent).not.toContain("thumbs up"); // isQuickReply replaces text with icon
 
     // onSend received the LITERAL payload "thumbs up" (backend gets the command).
     expect(onSendMock).toHaveBeenCalledOnce();
