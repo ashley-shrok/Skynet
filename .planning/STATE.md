@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-03T05:08:42.849Z"
+last_updated: "2026-09-03T05:31:18.265Z"
 last_activity: 2026-09-03
 progress:
   total_phases: 71
   completed_phases: 57
   total_plans: 252
-  completed_plans: 250
+  completed_plans: 251
   percent: 80
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 70 (branding-config) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 
 Last activity: 2026-09-03 — Completed quick task 260903-vnu: fix pretty-conversations hidden-row click. Ashley reported clicking a row in the "hidden" section did two wrong things — (a) auto-unhid the row (should stay hidden), (b) sometimes failed to navigate to the session at all (just moved + unhid without entering). Root-caused both symptoms to one bug at `src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx:973-989` in `handleRowSelect`: line 974-975 called `unhideConversation(row.id)` synchronously before routing → hidden set mutated → hidden section re-rendered → row DOM shifted under the cursor → click-to-select race manifested as the "sometimes" failure. Fix: removed the auto-unhide (2 lines) + replaced with a 9-line explanatory comment citing Ashley's 2026-09-03 flip of quick-260731-tgg's original intent (hidden means hidden; click-to-open shouldn't change hidden status). handleTogglePin's unhide-before-pin at line 1188 left untouched — pinning is promotion, unhide-on-pin is intentional (test (f) at line 2375 locks that invariant). Regression Test (n) added to the Hide/Show wiring describe block asserting: click hidden row → `unhideConversation` NOT called, `selectConversation` called with row.id, `onConversationSelected` called with row.id. Test (f) + Test (n) together lock the paired invariant: unhide-on-pin YES, unhide-on-click NO. Single atomic commit `d6282ceb` on `feat/tab-title-from-tmux`. Scoped verify 110/110 pass. Ship: `sudo docker build -f docker/Dockerfile -t skynet-patched:local .` OK → `sudo docker compose -f /opt/skynet/docker-compose.yml up -d --force-recreate skynet` OK → HTTPS 200 confirmed on term.gigaashley.click. Also this session: reset the fleet-wide agent-supervisor daemons on all 6 boxes (t1000 + thenasty + workstation + ZoeyBattlestation + ashley-laptop + ashley-beelink) to pick up yesterday's `--model opus` patch in memory — bash scripts hold in-memory function definitions from launch time and don't auto-pick-up disk edits without an exec, self_update was silently no-op'd since thenasty's canonical distribution is retired; PIDs 2542650/1486094/4058107/3235242/2942224/4175134 all Active/running post-restart. Shipped Skynet quick 260903-7e8 (diag `[diag-dormant-send]` instrumentation, 13 frontend + 15 backend sites, commit `a1d531b5` code + `23f08217` docs) — Ashley will hit the dormant-send red-bubble bug in normal use and we'll reconstruct the timeline. Removed `**Fleet-notify convention**` paragraph + trailing clause from box-maintainer role file per Ashley (vms-announcements irrelevant, DMing per-box maintainers gone once Tiffany's AI+ MVP work lands and auto-distributes). Zoey user created on Skynet (`YeShallBeAsGods`); confirmed via existing joe pattern that share requires per-user host copy (export/import), not `/rbac/host/:id/share` which needs `credentialId` (skipped as noted); thenasty (id=22) + ZoeyBattlestation (id=23) imported to Zoey with `enableSsh:true, enableRdp:false` addendum. Drafted `~/.claude/roles/box-maintainer/skynet-admin.md` runbook (admin cookie flow, create-user 3-step, give-user-host export/import, common settings, anti-patterns) + surfaced pointer in role file's Reference-files section. Prior activity:
@@ -321,6 +321,7 @@ Progress: [██████████] 100%
 | Phase 70 P01 | 10min | 2 tasks | 9 files |
 | Phase 70 P02 | ~5 min | 2 tasks | 4 files |
 | Phase 70 P03 | ~10 min | 2 tasks | 4 files |
+| Phase 70-branding-config P04 | ~15 min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -493,6 +494,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Store singleton uses useSyncExternalStore, NOT React Context — banned codebase-wide
 - [Phase ?]: Boot fetch is void fire-and-forget in main.tsx; createRoot NOT gated; bundled-default sentinel defends first paint (Pitfall 5)
 - [Phase ?]: publishBrandingConfig uses JSON.stringify no-op guard for whole-object deep-equal without helper deps
+- [Phase ?]: Phase 70 Plan 04: fifth-surface (auth.loginTitle) addressed via Option 1 locale-neutralize (en.json 'Login to SKYNET' → 'Login') rather than dynamic template. Smaller diff, operator-neutral in both directions. Discrepancy noted: plan claimed Auth.tsx L1314 uses t('auth.loginTitle') but the only live consumer is dead LoginPage.tsx; neutralization is defense-in-depth for potential future LoginPage revival.
 
 ### Pending Todos
 
@@ -772,7 +774,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-03T05:07:32.138Z
+Last session: 2026-09-03T05:30:06.653Z
 Stopped at: Completed 70-01 (branding backend); ready for 70-02 nginx plumbing
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
