@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-03T04:49:32.916Z"
+last_updated: "2026-09-03T04:57:50.692Z"
 last_activity: 2026-09-03
 progress:
   total_phases: 71
   completed_phases: 57
   total_plans: 252
-  completed_plans: 248
+  completed_plans: 249
   percent: 80
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 70 (branding-config) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 
 Last activity: 2026-09-03 — Completed quick task 260903-vnu: fix pretty-conversations hidden-row click. Ashley reported clicking a row in the "hidden" section did two wrong things — (a) auto-unhid the row (should stay hidden), (b) sometimes failed to navigate to the session at all (just moved + unhid without entering). Root-caused both symptoms to one bug at `src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx:973-989` in `handleRowSelect`: line 974-975 called `unhideConversation(row.id)` synchronously before routing → hidden set mutated → hidden section re-rendered → row DOM shifted under the cursor → click-to-select race manifested as the "sometimes" failure. Fix: removed the auto-unhide (2 lines) + replaced with a 9-line explanatory comment citing Ashley's 2026-09-03 flip of quick-260731-tgg's original intent (hidden means hidden; click-to-open shouldn't change hidden status). handleTogglePin's unhide-before-pin at line 1188 left untouched — pinning is promotion, unhide-on-pin is intentional (test (f) at line 2375 locks that invariant). Regression Test (n) added to the Hide/Show wiring describe block asserting: click hidden row → `unhideConversation` NOT called, `selectConversation` called with row.id, `onConversationSelected` called with row.id. Test (f) + Test (n) together lock the paired invariant: unhide-on-pin YES, unhide-on-click NO. Single atomic commit `d6282ceb` on `feat/tab-title-from-tmux`. Scoped verify 110/110 pass. Ship: `sudo docker build -f docker/Dockerfile -t skynet-patched:local .` OK → `sudo docker compose -f /opt/skynet/docker-compose.yml up -d --force-recreate skynet` OK → HTTPS 200 confirmed on term.gigaashley.click. Also this session: reset the fleet-wide agent-supervisor daemons on all 6 boxes (t1000 + thenasty + workstation + ZoeyBattlestation + ashley-laptop + ashley-beelink) to pick up yesterday's `--model opus` patch in memory — bash scripts hold in-memory function definitions from launch time and don't auto-pick-up disk edits without an exec, self_update was silently no-op'd since thenasty's canonical distribution is retired; PIDs 2542650/1486094/4058107/3235242/2942224/4175134 all Active/running post-restart. Shipped Skynet quick 260903-7e8 (diag `[diag-dormant-send]` instrumentation, 13 frontend + 15 backend sites, commit `a1d531b5` code + `23f08217` docs) — Ashley will hit the dormant-send red-bubble bug in normal use and we'll reconstruct the timeline. Removed `**Fleet-notify convention**` paragraph + trailing clause from box-maintainer role file per Ashley (vms-announcements irrelevant, DMing per-box maintainers gone once Tiffany's AI+ MVP work lands and auto-distributes). Zoey user created on Skynet (`YeShallBeAsGods`); confirmed via existing joe pattern that share requires per-user host copy (export/import), not `/rbac/host/:id/share` which needs `credentialId` (skipped as noted); thenasty (id=22) + ZoeyBattlestation (id=23) imported to Zoey with `enableSsh:true, enableRdp:false` addendum. Drafted `~/.claude/roles/box-maintainer/skynet-admin.md` runbook (admin cookie flow, create-user 3-step, give-user-host export/import, common settings, anti-patterns) + surfaced pointer in role file's Reference-files section. Prior activity:
@@ -319,6 +319,7 @@ Progress: [██████████] 100%
 | Phase 64 P01 | 5 | 1 tasks | 2 files |
 | Phase 67 P02 | 20m | 3 tasks | 7 files |
 | Phase 70 P01 | 10min | 2 tasks | 9 files |
+| Phase 70 P02 | ~5 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -485,6 +486,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 70-01: Loader path helpers return fixed absolute paths (no env override) since D-01 pins the mount points
 - [Phase ?]: 70-01: getBundledDefaults() uses synchronous readFileSync and is memoized on first call so failure paths can call it without extra await
 - [Phase ?]: 70-01: manifest.webmanifest background_color + theme_color hardcoded to #0a0b12 per CONTEXT deferred-ideas ('Theme color swaps out of scope')
+- [Phase ?]: 70-02: docker-compose bind mounts use long-form with bind.create_host_path: true so t1000 boots cleanly with no /opt/skynet/branding.json on disk (D-14)
+- [Phase ?]: 70-02: Cache-Control for /manifest.webmanifest set by backend (not nginx) — same value the old static-serve block used, so PWA install pickup byte-for-byte preserved
+- [Phase ?]: 70-02: /branding/* uses regex location (~ ^/branding(/.*)?$) not exact match, so /branding, /branding/, and /branding/asset.png all reach the backend
 
 ### Pending Todos
 
@@ -764,7 +768,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-03T04:49:32.769Z
+Last session: 2026-09-03T04:56:38.222Z
 Stopped at: Completed 70-01 (branding backend); ready for 70-02 nginx plumbing
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
@@ -773,4 +777,4 @@ Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 3
 Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
-Resume file: .planning/phases/70-branding-config/70-02-PLAN.md
+Resume file: None
