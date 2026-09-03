@@ -46,6 +46,11 @@ import userPreferencesRoutes from "./routes/user-preferences.js";
 import debugRoutes from "./routes/debug.js";
 import voiceRoutes from "./routes/voice.js";
 import relayPointerRoutes from "./routes/relay-pointer.js";
+// Phase 70 (branding-config): unauthenticated pre-login branding surfaces.
+// Mounts /api/branding, /branding/*, and /manifest.webmanifest. Matching
+// nginx location blocks land in plan 70-02 (BOTH docker/nginx.conf AND
+// docker/nginx-https.conf per CLAUDE.md nginx caveat).
+import brandingRoutes from "../branding/branding-routes.js";
 // WEEKLY-METER-02: usage collector proxy (plan 260729-1vd).
 // Matching location /api/usage blocks in BOTH nginx configs per CLAUDE.md constraint.
 import usageRoutes from "./routes/usage.js";
@@ -1877,6 +1882,14 @@ app.use("/relay-pointer", relayPointerRoutes);
 app.use("/api/usage", usageRoutes);
 app.use("/debug", debugRoutes);
 app.use("/voice", voiceRoutes);
+// Phase 70 (branding-config): unauthenticated pre-login surface. Mounted
+// BEFORE the frontend express.static block so /manifest.webmanifest is
+// intercepted here rather than served from public/. Per CLAUDE.md nginx
+// caveat, matching location blocks for /api/branding, /branding/*, and
+// /manifest.webmanifest MUST exist in BOTH docker/nginx.conf AND
+// docker/nginx-https.conf — the /manifest.webmanifest block REPLACES the
+// prior static-serve block. Nginx plumbing lands in plan 70-02.
+app.use(brandingRoutes);
 
 const frontendDistPaths = [
   path.join(__dirname, "../../../dist"),
