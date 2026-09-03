@@ -1615,7 +1615,7 @@ export function IdentityModal({
                 out of it by branch swaps. */}
             <div
               className="sticky top-0 z-10 -mx-6 px-6 pt-4 pb-2 backdrop-blur"
-              style={{ background: `hsla(${hue}, 42%, 20%, 0.85)` }}
+              style={{ background: `hsla(${hue}, 45%, 25%, 0.82)` }}
             >
               <div className="relative">
                 <Input
