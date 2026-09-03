@@ -7,6 +7,25 @@ services:
       - "8080:8080"
     volumes:
       - skynet-data:/app/data
+      # Phase 70: branding config JSON — bind-mount from host, read-only.
+      # create_host_path lets t1000 boot cleanly with no /opt/skynet/branding.json
+      # present; Docker creates an empty file, backend loader falls back to
+      # bundled defaults from /app/branding-defaults/.
+      - type: bind
+        source: /opt/skynet/branding.json
+        target: /etc/skynet/branding.json
+        read_only: true
+        bind:
+          create_host_path: true
+      # Phase 70: branding assets directory — bind-mount from host, read-only.
+      # Same create_host_path semantics; per-file fallback to bundled defaults
+      # is handled by the backend /branding/* route.
+      - type: bind
+        source: /opt/skynet/branding
+        target: /etc/skynet/branding
+        read_only: true
+        bind:
+          create_host_path: true
     environment:
       PORT: "8080"
       GUACD_HOST: "guacd"
