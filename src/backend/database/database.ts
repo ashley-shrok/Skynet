@@ -51,6 +51,7 @@ import relayPointerRoutes from "./routes/relay-pointer.js";
 // nginx location blocks land in plan 70-02 (BOTH docker/nginx.conf AND
 // docker/nginx-https.conf per CLAUDE.md nginx caveat).
 import brandingRoutes from "../branding/branding-routes.js";
+import { getBrandedIndexHtml } from "../branding/branding-template.js";
 // WEEKLY-METER-02: usage collector proxy (plan 260729-1vd).
 // Matching location /api/usage blocks in BOTH nginx configs per CLAUDE.md constraint.
 import usageRoutes from "./routes/usage.js";
@@ -1907,6 +1908,12 @@ if (frontendDist) {
   });
   app.use(
     express.static(frontendDist, {
+      // Phase 70 fix — disable automatic index.html serving on `/`. The SPA
+      // fallback below intercepts every HTML-accepting GET and templates
+      // the response from the branding config (getBrandedIndexHtml), so a
+      // rebranded deployment has no user-visible "SKYNET" strings on first
+      // paint or in the iOS home-screen install label.
+      index: false,
       setHeaders: (res, filePath) => {
         const relativePath = path
           .relative(frontendDist, filePath)
@@ -1931,13 +1938,26 @@ if (frontendDist) {
     }),
   );
 
+  // Phase 70 fix — SPA fallback templates index.html from the branding config
+  // so a rebranded deployment has no user-visible "SKYNET" strings on first
+  // paint (the <title>) or in the iOS legacy home-screen install label (the
+  // apple-mobile-web-app-title meta). getBrandedIndexHtml never throws — on
+  // read failure it returns the raw bytes, and if raw is empty it returns "".
   app.use((req, res, next) => {
     if (req.method === "GET" && req.accepts("html")) {
       res.setHeader(
         "Cache-Control",
         "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
       );
-      res.sendFile(path.join(frontendDist, "index.html"));
+      void getBrandedIndexHtml(frontendDist).then(
+        (html) => {
+          if (html) {
+            res.type("html").send(html);
+          } else {
+            res.sendFile(path.join(frontendDist, "index.html"));
+          }
+        },
+      );
     } else {
       next();
     }
