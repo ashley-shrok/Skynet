@@ -1,0 +1,11 @@
+{
+  "appName": "Skynet",
+  "shortName": "Skynet",
+  "iconPath": "/branding/icon.png",
+  "wordmarkPath": "/branding/wordmark.png",
+  "faviconPath": "/branding/favicon.svg",
+  "pwaIcons": [
+    {"src": "/branding/pwa-icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "/branding/pwa-icon-512.png", "sizes": "512x512", "type": "image/png"}
+  ]
+}

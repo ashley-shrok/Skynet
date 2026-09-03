@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+  <!--
+    v2 changes vs v1:
+      - fill color #92eafc
+      - corner rounding reduced (stroke-width 24 -> 10)
+      - cut lines thicker (14 -> 28)
+      - cut lines extended ~30 units outward past each edge midpoint
+        so they punch fully through the rounded outer boundary
+  -->
+  <defs>
+    <mask id="cuts" maskUnits="userSpaceOnUse" x="0" y="0" width="400" height="400">
+      <rect width="400" height="400" fill="black"/>
+      <polygon points="200,50 49.9,310 350.1,310"
+               fill="white" stroke="white" stroke-width="10" stroke-linejoin="round"/>
+      <!-- cut lines: from ~30 units OUTSIDE each edge midpoint, to centroid (200, 223.33) -->
+      <line x1="98.95"  y1="165" x2="200" y2="223.33" stroke="black" stroke-width="28"/>
+      <line x1="301.05" y1="165" x2="200" y2="223.33" stroke="black" stroke-width="28"/>
+      <line x1="200"    y1="340" x2="200" y2="223.33" stroke="black" stroke-width="28"/>
+    </mask>
+  </defs>
+  <polygon points="200,50 49.9,310 350.1,310"
+           fill="#92eafc" stroke="#92eafc" stroke-width="10" stroke-linejoin="round"
+           mask="url(#cuts)"/>
+</svg>
