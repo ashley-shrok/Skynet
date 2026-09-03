@@ -8,6 +8,13 @@ import { useState, useRef, useCallback, useEffect, useMemo, createRef, startTran
 import { createPortal } from "react-dom";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
+// Phase 70 Plan 04: branding config (three prior hardcoded-brand fallback
+// replacements below) + favicon side-effect hook. Hooks are consumers of
+// Plan 70-03's module-singleton store; brandingConfig is closed over by
+// the tab-init / document.title / tab-reset fallback chains that used to
+// hardcode the brand string.
+import { useBrandingConfig } from "@/branding/branding-store";
+import { useBrandingFavicon } from "@/branding/apply-favicon";
 import { useGamepadTabNav } from "@/hooks/use-gamepad-tab-nav";
 import { useKeyboardTabNav } from "@/hooks/use-keyboard-tab-nav";
 import { useKeyboardCloseTab } from "@/hooks/use-keyboard-close-tab";
@@ -224,12 +231,21 @@ export function AppShell({
 }) {
   const { t, i18n } = useTranslation();
   const { setTheme } = useTheme();
+  // Phase 70 Plan 04: consume the branding store (Plan 70-03) so the three
+  // prior hardcoded-brand fallbacks below (initial tab label, document.title
+  // last-fallback slot, tab-reset-on-close label) use the operator-configured
+  // brandingConfig.appName instead. useBrandingFavicon() has no return value
+  // — it runs a useEffect keyed on faviconPath that rewrites <link rel="icon">
+  // hrefs. Placed in AppShell so the favicon applies pre-login too (AppShell
+  // is mounted throughout the auth + post-auth lifecycle).
+  const brandingConfig = useBrandingConfig();
+  useBrandingFavicon();
   const [tabs, setTabs] = useState<Tab[]>([
     {
       id: "dashboard",
       instanceId: "dashboard",
       type: "dashboard",
-      label: "SKYNET",
+      label: brandingConfig.appName,
       openedAt: Date.now(),
     },
   ]);
@@ -630,19 +646,22 @@ export function AppShell({
     // with the legacy Terminal-callback-fed tmuxSessionNames[activeTabId]
     // record as the fallback for non-identity panes where the store has no
     // entry (workstation-style SSH hosts without a live tmux+claude backend).
-    // The identity displayName → tmux → label → "SKYNET" fallback chain is
-    // preserved verbatim — only the tmux source changes.
+    // The identity displayName → tmux → label → brand-fallback chain is
+    // preserved verbatim — only the tmux source changes (and Phase 70 Plan 04
+    // swapped the last-fallback slot from the hardcoded brand string to
+    // brandingConfig.appName).
     const tmux = activeTmuxFromStore ?? tmuxSessionNames[activeTabId];
     // Ashley 2026-08-01: browser tab title mirrors the conversation-list
     // main-label source (patch #258) — for identity sessions, use the
     // properly-cased `identity.displayName` ("Tina") instead of the
     // lowercase tmux sessionName ("tina"). Falls back to raw tmux name,
-    // then activeTab.label, then "SKYNET" (verbatim prior chain) when
-    // no identity resolves.
+    // then activeTab.label, then brandingConfig.appName (verbatim prior
+    // chain modulo Phase 70 Plan 04's last-fallback swap) when no
+    // identity resolves.
     const resolvedKey = (tmux ?? activeTab?.label ?? "").toLowerCase();
     const identity = resolvedKey ? identitiesByKey.get(resolvedKey) : null;
     document.title =
-      identity?.displayName || tmux || activeTab?.label || "SKYNET";
+      identity?.displayName || tmux || activeTab?.label || brandingConfig.appName;
     console.info({
       operation: "app_shell_title_resolve",
       activeTabId,
@@ -650,7 +669,7 @@ export function AppShell({
       tmuxFromLegacyRecord: tmuxSessionNames[activeTabId] ?? null,
       resolvedTitle: document.title,
     });
-  }, [activeTabId, tabs, tmuxSessionNames, identitiesByKey, activeTmuxFromStore]);
+  }, [activeTabId, tabs, tmuxSessionNames, identitiesByKey, activeTmuxFromStore, brandingConfig.appName]);
 
   // ─── Conversation-store sync (Plan 06-02) ────────────────────────────────
   // The conversation-store is a pure DERIVATION of AppShell's tab state; it
@@ -1595,7 +1614,7 @@ export function AppShell({
               id: "dashboard",
               instanceId: "dashboard",
               type: "dashboard",
-              label: "SKYNET",
+              label: brandingConfig.appName,
               openedAt: Date.now(),
             },
           ];

@@ -132,7 +132,11 @@ import type { Host, HostFolder } from "@/types/ui-types";
 
 import { PrettyConversationRow } from "./PrettyConversationRow";
 import WeeklyUsageMeter from "./WeeklyUsageMeter";
-import SkynetLogo from "./SkynetLogo";
+// Phase 70 Plan 04: header lockup (small icon + wordmark) now sourced from
+// brandingConfig (Plan 70-03) so operator-provided assets swap in. Prior
+// hardcoded inline-SVG logo import removed — no remaining consumers in this
+// file after the JSX below switched to <img src={brandingConfig.iconPath}>.
+import { useBrandingConfig } from "@/branding/branding-store";
 
 // Phase 41 Plan 02: sessionStorage sentinel key for the one-shot cold-load
 // search-input scroll-hide effect. Mirrors the pv-conv-active-set pattern at
@@ -358,6 +362,10 @@ export function PrettyConversationsPanel({
 }) {
   const visibleInSplitTree = visibleInSplitTreeTabIds ?? EMPTY_VISIBLE_SET;
   const { t } = useTranslation();
+  // Phase 70 Plan 04: header lockup below (small icon + wordmark) reads
+  // from the branding store instead of importing an inline-SVG logo /
+  // hardcoding the wordmark asset path.
+  const brandingConfig = useBrandingConfig();
   // Phase 41 Plan 01: destructure the three-zone shape — `middle` (flat
   // recency-sorted rows) + `rdpGroup` (nullable RDP sentinel group) replace
   // the retired `grouped: HostGroup[]` field.
@@ -1493,13 +1501,15 @@ export function PrettyConversationsPanel({
             className="pv-title"
             style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
           >
-            <SkynetLogo
+            <img
+              src={brandingConfig.iconPath}
+              alt=""
               aria-hidden="true"
               className="pv-header-logo"
             />
             <img
-              src="/skynet-wordmark.png"
-              alt="SKYNET"
+              src={brandingConfig.wordmarkPath}
+              alt={brandingConfig.appName}
               className="pv-header-wordmark"
             />
           </span>
