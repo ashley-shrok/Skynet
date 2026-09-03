@@ -1747,7 +1747,7 @@ Plans:
 
 **Goal:** Skynet can present itself under a different identity than "Skynet" on a per-deployment basis via a host-mounted config file + asset directory. Operator drops `/opt/skynet/branding.json` + assets in `/opt/skynet/branding/`; backend serves them via three new routes (`GET /api/branding`, `GET /manifest.webmanifest`, `GET /branding/*`) with bundled-defaults fallback (both whole-file and per-asset). Frontend fetches config on boot and applies to four surfaces: browser tab title (pre-conversation fallback), favicon, conversation list header (icon + wordmark, separate `iconPath`/`wordmarkPath` fields), login screen header (same icon+wordmark). Deployment target is t1000 mainline with NO config file — bundled defaults preserve current behavior; AI+ deployment supplies its own config at EC2 provisioning. First feature of the AI+ MVP project. Shape: `.planning/shapes/shape-branding-config.md`.
 **Requirements**: (none — scope lives in 70-CONTEXT.md; same shape-file-authoritative pattern as Phases 66/67/68/69)
-**Depends on:** Phase 69 (numerical ordering only — no functional dependency)**Plans:** 2/5 plans executed
+**Depends on:** Phase 69 (numerical ordering only — no functional dependency)**Plans:** 3/5 plans executed
 **Wave 1**
 
 - [x] 70-01-PLAN.md — Backend: branding-config loader + three unauthenticated routes (/api/branding, /manifest.webmanifest, /branding/*) + docker/branding-defaults/ bundled assets; mount before Express static (wave 1)
@@ -1755,7 +1755,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 70-02-PLAN.md — Deployment: Dockerfile COPY layer + docker-compose bind-mounts with create_host_path + nginx.conf/nginx-https.conf blocks (REPLACE /manifest.webmanifest static-serve + ADD /api/branding + ADD /branding/* proxy_pass) (wave 2, depends on 70-01)
-- [ ] 70-03-PLAN.md — Frontend store: src/ui/branding/ (useSyncExternalStore singleton + boot fetch + useBrandingFavicon hook) + main.tsx boot integration (wave 2, depends on 70-01)
+- [x] 70-03-PLAN.md — Frontend store: src/ui/branding/ (useSyncExternalStore singleton + boot fetch + useBrandingFavicon hook) + main.tsx boot integration (wave 2, depends on 70-01)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
