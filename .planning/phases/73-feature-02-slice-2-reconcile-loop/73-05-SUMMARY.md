@@ -7,17 +7,17 @@ tags:
   - opt-in-flag
   - drizzle-projection
   - fail-closed
-  - phase-72
+  - phase-73
   - slice-2-final
 requires:
-  - 72-02 (Drizzle column `runs_fleet_substrate` on hosts table)
-  - 72-04 (fleet-substrate sweep hook wired at tryAcquireHostChannel; IdentityHostingHostRecord internal type)
+  - 73-02 (Drizzle column `runs_fleet_substrate` on hosts table)
+  - 73-04 (fleet-substrate sweep hook wired at tryAcquireHostChannel; IdentityHostingHostRecord internal type)
 provides:
   - starter.ts projectRunsFleetSubstrate module-scope helper (exported for direct-drive tests)
   - starter.ts listIdentityHostingHosts projects hostsTable.runsFleetSubstrate into each returned record
   - ssh-poll-orchestrator.ts IdentityHostingHostRecord promoted to exported type
   - createSshPollOrchestrator cast tightened to Array<IdentityHostingHostRecord>
-  - Plan 04 TODO block removed, replaced with single-line 72-05 pointer
+  - Plan 04 TODO block removed, replaced with single-line 73-05 pointer
 affects:
   - src/backend/starter.ts (helper + wire-through + cast tightening)
   - src/backend/starter.test.ts (8 new tests)
@@ -39,13 +39,13 @@ decisions:
   - "Extraction discipline: projectRunsFleetSubstrate lives at module scope (starter.ts lines 128–160) so starter.test.ts can drive it directly. Mirrors the maybeInstallStopHook (Phase 39-04) + makeSemaphore (Bounty b31a5c8e) extraction pattern already established in the same file."
   - "IdentityHostingHostRecord narrowed to strict `runsFleetSubstrate: boolean` (was optional `boolean | undefined` under Plan 04) AND extended with `_connDetails: Record<string, unknown>` to match the full projected record shape. The narrowing is safe because projectRunsFleetSubstrate normalizes every legacy input shape into a strict boolean before the field is set."
   - "Cast tightening at createSshPollOrchestrator: changed from `{ id: string; name: string }` to `IdentityHostingHostRecord` via inline `import(...)` — no new top-level import needed and the compiler now catches shape drift between starter.ts's projection and the OrchestratorDeps contract."
-  - "Plan 04 TODO block (6 lines of narrative + rationale) replaced with the exact single-line pointer specified in Plan 05: `// Opt-in flag runsFleetSubstrate populated by starter.ts's listIdentityHostingHosts (wired through 72-05).`"
+  - "Plan 04 TODO block (6 lines of narrative + rationale) replaced with the exact single-line pointer specified in Plan 05: `// Opt-in flag runsFleetSubstrate populated by starter.ts's listIdentityHostingHosts (wired through 73-05).`"
 metrics:
   duration: ~15 min
   completed: 2026-09-04
 ---
 
-# Phase 72 Plan 05: Project runs_fleet_substrate through starter.ts — Summary
+# Phase 73 Plan 05: Project runs_fleet_substrate through starter.ts — Summary
 
 Wires the opt-in flag Plan 04 deliberately stubbed. A `projectRunsFleetSubstrate` helper normalizes the Drizzle column into the strict boolean that the sweep hook reads at tryAcquireHostChannel, making Plan 04's fail-closed-inert hook actually fire on opt-in hosts on the next successful channel acquisition per Skynet instance lifetime.
 
@@ -57,7 +57,7 @@ Wires the opt-in flag Plan 04 deliberately stubbed. A `projectRunsFleetSubstrate
 
 - Signature: `(row: { runsFleetSubstrate?: boolean | number | null }) => boolean`
 - Dispatch: `raw === true || raw === 1 → true`; everything else → false
-- Docblock (30 lines): names Phase 72 Plan 05; explains the fail-closed rule; explains why the wider `boolean | number | null` union is accepted (legacy NULL rows from ALTER TABLE ADD COLUMN + raw-SQL escape hatches); cross-references `IdentityHostingHostRecord.runsFleetSubstrate` in ssh-poll-orchestrator.ts.
+- Docblock (30 lines): names Phase 73 Plan 05; explains the fail-closed rule; explains why the wider `boolean | number | null` union is accepted (legacy NULL rows from ALTER TABLE ADD COLUMN + raw-SQL escape hatches); cross-references `IdentityHostingHostRecord.runsFleetSubstrate` in ssh-poll-orchestrator.ts.
 
 **`listIdentityHostingHosts` projection extended** at the IIFE site:
 
@@ -74,7 +74,7 @@ Wires the opt-in flag Plan 04 deliberately stubbed. A `projectRunsFleetSubstrate
 
 **Import extended** at line 22–28 to include `projectRunsFleetSubstrate` from `./starter.js` alongside the existing `maybeInstallStopHook` + `makeSemaphore` imports.
 
-**New describe block** at lines 255–330: `"Phase 72 Plan 05 — projectRunsFleetSubstrate helper"` with 8 tests:
+**New describe block** at lines 255–330: `"Phase 73 Plan 05 — projectRunsFleetSubstrate helper"` with 8 tests:
 
 | # | Test                                                                        | Line |
 | - | --------------------------------------------------------------------------- | ---- |
@@ -100,10 +100,10 @@ Updated docblock (lines 191–208): retains Plan 04 attribution + rationale, add
 **Plan 04 TODO block replaced** at line 2095 with the exact single-line pointer specified in Plan 05:
 
 ```
-// Opt-in flag runsFleetSubstrate populated by starter.ts's listIdentityHostingHosts (wired through 72-05).
+// Opt-in flag runsFleetSubstrate populated by starter.ts's listIdentityHostingHosts (wired through 73-05).
 ```
 
-The removed TODO block (6 lines starting `// TODO(72-05 or follow-up):`) narrated the fail-closed inert-until-wired state that Plan 04 shipped. That state no longer applies — the wire-through lands in this plan.
+The removed TODO block (6 lines starting `// TODO(73-05 or follow-up):`) narrated the fail-closed inert-until-wired state that Plan 04 shipped. That state no longer applies — the wire-through lands in this plan.
 
 ## Zero-regression proof
 
@@ -130,11 +130,11 @@ Fleet-status poll behavior is byte-identical for `runsFleetSubstrate=false` host
 
 Per-suite breakdown:
 
-- `src/backend/starter.test.ts` — **18 tests passed** (5 Phase 39-04 maybeInstallStopHook + 5 Bounty b31a5c8e makeSemaphore + 8 new Phase 72 Plan 05 projectRunsFleetSubstrate).
-- `src/backend/fleet-status/ssh-poll-orchestrator.test.ts` — **128 tests passed** (including the 6 phase-72 sweep-hook tests from Plan 04, which continue to work unchanged — the sweep gate reads the field via `as IdentityHostingHostRecord` cast at the hook site, and the cast semantics are unaffected by promoting the type to `export` or narrowing the field to strict boolean).
+- `src/backend/starter.test.ts` — **18 tests passed** (5 Phase 39-04 maybeInstallStopHook + 5 Bounty b31a5c8e makeSemaphore + 8 new Phase 73 Plan 05 projectRunsFleetSubstrate).
+- `src/backend/fleet-status/ssh-poll-orchestrator.test.ts` — **128 tests passed** (including the 6 phase-73 sweep-hook tests from Plan 04, which continue to work unchanged — the sweep gate reads the field via `as IdentityHostingHostRecord` cast at the hook site, and the cast semantics are unaffected by promoting the type to `export` or narrowing the field to strict boolean).
 - `src/backend/distributor/` — **44 tests passed** across 5 files (regression proof — no distributor file was modified by this plan).
 
-**Type check** (`npx tsc --noEmit`): clean. Zero phase-72 type errors (`grep -E "IdentityHostingHostRecord|runsFleetSubstrate|projectRunsFleetSubstrate"` returns nothing).
+**Type check** (`npx tsc --noEmit`): clean. Zero phase-73 type errors (`grep -E "IdentityHostingHostRecord|runsFleetSubstrate|projectRunsFleetSubstrate"` returns nothing).
 
 ## Acceptance-criteria checklist
 
@@ -146,7 +146,7 @@ Per-suite breakdown:
 | `grep -c 'runsFleetSubstrate: boolean' src/backend/starter.ts`                                  | 1 ✓ (≥1)           |
 | `grep -c 'IdentityHostingHostRecord' src/backend/starter.ts`                                    | 3 ✓ (≥1)           |
 | `grep -Ec 'TODO.*runsFleetSubstrate.*starter\.ts...' src/backend/fleet-status/ssh-poll-orchestrator.ts` | 0 ✓         |
-| `grep -c 'wired through 72-05' src/backend/fleet-status/ssh-poll-orchestrator.ts`               | 1 ✓                |
+| `grep -c 'wired through 73-05' src/backend/fleet-status/ssh-poll-orchestrator.ts`               | 1 ✓                |
 | `grep -Ec '^export interface IdentityHostingHostRecord...' ssh-poll-orchestrator.ts`            | 1 ✓                |
 | `enableSsh` where-clause preserved (0 lines removed)                                            | 0 ✓                |
 | `resolveHostById` decrypt path preserved (0 lines removed)                                      | 0 ✓                |
@@ -171,7 +171,7 @@ None. `<action>` block executed as written. Column name on the drizzle side conf
 
 ## Commit landed
 
-- `df728e9d` — `feat(72-05): project runs_fleet_substrate through starter.ts + tighten hook cast`
+- `df728e9d` — `feat(73-05): project runs_fleet_substrate through starter.ts + tighten hook cast`
 
 ## Self-Check: PASSED
 

@@ -1819,8 +1819,8 @@ Plans:
 **Plans:** 5/5 plans complete
 
 Plans:
-- [x] 72-01-PLAN.md — Catalog module: hand-maintained TypeScript array enumerating 19 files across 15 conceptual substrate items with bundled/install paths + restart hook (wave 1)
-- [x] 72-02-PLAN.md — Migration: add runs_fleet_substrate BOOLEAN column to ssh_data via addColumnIfNotExists + Drizzle schema + forceSave wrap (wave 1)
-- [x] 72-03-PLAN.md — Pure sweep-decide logic (byte-compare / mode-mirror / restart-hook selection) + log-tag helpers with fleet_substrate_* operation strings (wave 2, depends on 72-01)
-- [x] 72-04-PLAN.md — SSH-channel push helpers (readInstalledBytes / writeInstalledBytesWithMode / restartUserUnit) + runSweepForHost composer + hook into ssh-poll-orchestrator.ts tryAcquireHostChannel with sweepedThisInstance gate + opt-in flag filter + regression tests (wave 3, depends on 72-01 + 72-02 + 72-03)
-- [x] 72-05-PLAN.md — starter.ts wire-through: extract projectRunsFleetSubstrate helper + extend listIdentityHostingHosts drizzle projection to include runsFleetSubstrate + tighten OrchestratorDeps cast to IdentityHostingHostRecord + remove Plan 04 TODO. Makes the sweep actually reach opt-in hosts (wave 4, depends on 72-02 + 72-04)
+- [x] 73-01-PLAN.md — Catalog module: hand-maintained TypeScript array enumerating 19 files across 15 conceptual substrate items with bundled/install paths + restart hook (wave 1)
+- [x] 73-02-PLAN.md — Migration: add runs_fleet_substrate BOOLEAN column to ssh_data via addColumnIfNotExists + Drizzle schema + forceSave wrap (wave 1)
+- [x] 73-03-PLAN.md — Pure sweep-decide logic (byte-compare / mode-mirror / restart-hook selection) + log-tag helpers with fleet_substrate_* operation strings (wave 2, depends on 73-01)
+- [x] 73-04-PLAN.md — SSH-channel push helpers (readInstalledBytes / writeInstalledBytesWithMode / restartUserUnit) + runSweepForHost composer + hook into ssh-poll-orchestrator.ts tryAcquireHostChannel with sweepedThisInstance gate + opt-in flag filter + regression tests (wave 3, depends on 73-01 + 73-02 + 73-03)
+- [x] 73-05-PLAN.md — starter.ts wire-through: extract projectRunsFleetSubstrate helper + extend listIdentityHostingHosts drizzle projection to include runsFleetSubstrate + tighten OrchestratorDeps cast to IdentityHostingHostRecord + remove Plan 04 TODO. Makes the sweep actually reach opt-in hosts (wave 4, depends on 73-02 + 73-04)

@@ -4,7 +4,7 @@ plan: 02
 subsystem: backend/database
 tags: [migration, drizzle, ssh_data, fleet-substrate, opt-in-flag]
 requires:
-  - phase-72-01-fleet-substrate-catalog
+  - phase-73-01-fleet-substrate-catalog
 provides:
   - ssh_data.runs_fleet_substrate BOOLEAN column (INTEGER NOT NULL DEFAULT 0)
   - Drizzle hosts.runsFleetSubstrate typed accessor for Plan 04's identity-hosting-host filter
@@ -12,7 +12,7 @@ provides:
 affects:
   - src/backend/database/db/index.ts (migrateSchema — new addColumnIfNotExists + forceSave call)
   - src/backend/database/db/schema.ts (hosts table — new runsFleetSubstrate column)
-  - src/backend/database/db/index.migration.test.ts (new phase-72 describe block, 4 tests)
+  - src/backend/database/db/index.migration.test.ts (new phase-73 describe block, 4 tests)
 tech_stack:
   added: []
   patterns:
@@ -35,10 +35,10 @@ metrics:
   completed_date: 2026-09-04
 ---
 
-# Phase 72 Plan 02: runs_fleet_substrate Column Summary
+# Phase 73 Plan 02: runs_fleet_substrate Column Summary
 
 ## One-liner
-Added the `runs_fleet_substrate INTEGER NOT NULL DEFAULT 0` opt-in column to `ssh_data` via the existing idempotent addColumnIfNotExists migration path, mirrored on the Drizzle `hosts` table as `runsFleetSubstrate` boolean/default-false, and wrapped in `DatabaseSaveTrigger.forceSave("phase-72-add-runs-fleet-substrate")` with warn-not-throw catch so the schema mutation persists to the encrypted file per Skynet's in-memory-SQLite invariant.
+Added the `runs_fleet_substrate INTEGER NOT NULL DEFAULT 0` opt-in column to `ssh_data` via the existing idempotent addColumnIfNotExists migration path, mirrored on the Drizzle `hosts` table as `runsFleetSubstrate` boolean/default-false, and wrapped in `DatabaseSaveTrigger.forceSave("phase-73-add-runs-fleet-substrate")` with warn-not-throw catch so the schema mutation persists to the encrypted file per Skynet's in-memory-SQLite invariant.
 
 ## Task Log
 
@@ -50,15 +50,15 @@ Three edits in one commit, exact line numbers:
 
 - **db/index.ts:977** — inserted `addColumnIfNotExists("ssh_data", "runs_fleet_substrate", "INTEGER NOT NULL DEFAULT 0");` at the end of the `ssh_data` addColumnIfNotExists cluster (after `show_server_stats_in_sidebar` at L965-969, before the `ssh_credentials` cluster at L971). Preceded by a 6-line docblock referencing this phase and stating the idempotency + opt-in invariants.
 
-- **db/index.ts:978-989** — inserted the try/catch-wrapped `await DatabaseSaveTrigger.forceSave("phase-72-add-runs-fleet-substrate")` immediately after the addColumnIfNotExists call. Verbatim structural mirror of the phase-68 wrapper at L810-821 with:
-  - reason string: `"phase-72-add-runs-fleet-substrate"`
-  - warn message: `"[phase-72] forceSave failed post-add (non-fatal — addColumnIfNotExists is idempotent, next boot retries)"`
+- **db/index.ts:978-989** — inserted the try/catch-wrapped `await DatabaseSaveTrigger.forceSave("phase-73-add-runs-fleet-substrate")` immediately after the addColumnIfNotExists call. Verbatim structural mirror of the phase-68 wrapper at L810-821 with:
+  - reason string: `"phase-73-add-runs-fleet-substrate"`
+  - warn message: `"[phase-73] forceSave failed post-add (non-fatal — addColumnIfNotExists is idempotent, next boot retries)"`
   - operation: `"schema_migration_force_save_post_add"`
   - warn-not-throw catch semantics preserved (propagation would crash boot on first-boot-race where DatabaseSaveTrigger is not yet initialized).
 
 - **db/index.migration.test.ts:26** — added `import { hosts } from "./schema.js";` so Test D can prove the Drizzle typed accessor exists.
 
-- **db/index.migration.test.ts:288-448** — appended a new `describe("Phase 72-02 migration — add runs_fleet_substrate to ssh_data")` block with 4 tests:
+- **db/index.migration.test.ts:288-448** — appended a new `describe("Phase 73-02 migration — add runs_fleet_substrate to ssh_data")` block with 4 tests:
   - Test A (L354-371): OLD schema (no runs_fleet_substrate) → migrate → PRAGMA table_info shows the column present.
   - Test B (L373-410): NEW schema (column already present) → migrate is idempotent no-op; existing row with `runs_fleet_substrate = 1` survives (no default overwrite); column count for runs_fleet_substrate is exactly 1 (no duplicate).
   - Test C (L412-439): OLD schema with a seed row inserted BEFORE migration → after migration, seed row's runs_fleet_substrate is 0 (SQLite ALTER TABLE ADD COLUMN NOT NULL DEFAULT 0 backfills).
@@ -86,14 +86,14 @@ The `CREATE TABLE IF NOT EXISTS ssh_data` literal at L199-236 is byte-identical 
 
 All 11 tests green:
 - 7 pre-existing phase-66/68 tests
-- 4 new phase-72 tests (A/B/C/D)
+- 4 new phase-73 tests (A/B/C/D)
 
 ## Drizzle column declaration as it appears in schema.ts
 
 ```typescript
   enableTelnet: integer("enable_telnet", { mode: "boolean" }).notNull().default(false),
 
-  // Phase 72 Plan 02 — opt-in flag for the fleet-substrate reconcile sweep.
+  // Phase 73 Plan 02 — opt-in flag for the fleet-substrate reconcile sweep.
   // Default false means no host is touched by the sweep unless an operator
   // (or the provisioning path for freshly-created exec VMs) flips it to true.
   runsFleetSubstrate: integer("runs_fleet_substrate", { mode: "boolean" }).notNull().default(false),
@@ -107,8 +107,8 @@ All 11 tests green:
 |-----------|----------|--------|------|
 | `grep -c 'runs_fleet_substrate' src/backend/database/db/index.ts` | >= 1 | 1 | ✓ |
 | `grep -c 'runsFleetSubstrate' src/backend/database/db/schema.ts` | == 1 | 1 | ✓ |
-| `grep -c 'phase-72-add-runs-fleet-substrate' src/backend/database/db/index.ts` | == 1 | 2 | ✗ (see Deviations) |
-| `grep -cE 'DatabaseSaveTrigger.forceSave.*phase-72' src/backend/database/db/index.ts` | == 1 | 1 | ✓ |
+| `grep -c 'phase-73-add-runs-fleet-substrate' src/backend/database/db/index.ts` | == 1 | 2 | ✗ (see Deviations) |
+| `grep -cE 'DatabaseSaveTrigger.forceSave.*phase-73' src/backend/database/db/index.ts` | == 1 | 1 | ✓ |
 | `git diff \| grep -cE '^-.*CREATE TABLE IF NOT EXISTS ssh_data'` | == 0 | 0 | ✓ |
 | `npx vitest run src/backend/database/db/index.migration.test.ts` | all green | 11/11 pass | ✓ |
 | Migration test imports `hosts` from `./schema.js` + asserts `hosts.runsFleetSubstrate` defined | true | Test D passes | ✓ |
@@ -125,11 +125,11 @@ All 11 tests green:
 **Files modified:** None in the source tree — this was a `node_modules/` state repair, not a code change.
 **Rationale:** Rule 3 blocker (build config error preventing test execution) — the correct scoped tests couldn't be run without the native binding. No package name change (Rule 3 exclusion doesn't apply — this was a rebuild of an already-installed package, not a new install of a similarly-named alternative).
 
-### [Rule 1 - Doc bug in plan] Acceptance-criterion `phase-72-add-runs-fleet-substrate == 1` vs. verbatim-mirror-of-phase-68 pattern that produces 2 matches
+### [Rule 1 - Doc bug in plan] Acceptance-criterion `phase-73-add-runs-fleet-substrate == 1` vs. verbatim-mirror-of-phase-68 pattern that produces 2 matches
 
 **Found during:** Task 1 acceptance-check step.
-**Issue:** Plan's Task 1 `<acceptance_criteria>` says `grep -c 'phase-72-add-runs-fleet-substrate' src/backend/database/db/index.ts` should equal 1. However, the same task's `<action>` block explicitly instructs a "VERBATIM STRUCTURE of the phase-68 wrapper at lines 809–821" with two placeholders for the reason string: (a) as the arg to `DatabaseSaveTrigger.forceSave(...)`, and (b) as the `reason:` field inside the warn-log meta. Verified against the actual phase-68 pattern: `grep -c 'phase-68-drop-identities-table' src/backend/database/db/index.ts` returns 2. So the plan asks for TWO things that contradict.
-**Fix:** Followed the `<action>` block's explicit verbatim-structure instruction over the acceptance-count typo — the action block is the authoritative spec for what to write, and the count-check appears to be an off-by-one in the acceptance criterion. Result: 2 occurrences of `phase-72-add-runs-fleet-substrate` in index.ts, identical to how the phase-68 mirror pattern already lives.
+**Issue:** Plan's Task 1 `<acceptance_criteria>` says `grep -c 'phase-73-add-runs-fleet-substrate' src/backend/database/db/index.ts` should equal 1. However, the same task's `<action>` block explicitly instructs a "VERBATIM STRUCTURE of the phase-68 wrapper at lines 809–821" with two placeholders for the reason string: (a) as the arg to `DatabaseSaveTrigger.forceSave(...)`, and (b) as the `reason:` field inside the warn-log meta. Verified against the actual phase-68 pattern: `grep -c 'phase-68-drop-identities-table' src/backend/database/db/index.ts` returns 2. So the plan asks for TWO things that contradict.
+**Fix:** Followed the `<action>` block's explicit verbatim-structure instruction over the acceptance-count typo — the action block is the authoritative spec for what to write, and the count-check appears to be an off-by-one in the acceptance criterion. Result: 2 occurrences of `phase-73-add-runs-fleet-substrate` in index.ts, identical to how the phase-68 mirror pattern already lives.
 **Files modified:** None — this is a doc-inconsistency observation, not a fix. The correct choice was to mirror the phase-68 pattern; correcting the plan doc is out of scope for the executor.
 **Rationale:** Rule 1 (following the action block resolves an internal contradiction in the plan). Rule 4 (architectural decision) does not apply — this is a mechanical spec-vs-typo inconsistency, not a design change.
 
@@ -154,5 +154,5 @@ None. All wiring is complete: the migration runs on boot, the Drizzle column is 
 - File `src/backend/database/db/index.ts` — FOUND
 - File `src/backend/database/db/schema.ts` — FOUND
 - File `src/backend/database/db/index.migration.test.ts` — FOUND
-- File `.planning/phases/72-feature-02-slice-2-reconcile-loop/72-02-SUMMARY.md` — FOUND (this file)
+- File `.planning/phases/73-feature-02-slice-2-reconcile-loop/73-02-SUMMARY.md` — FOUND (this file)
 - Commit `b8323e3e` — FOUND in `git log --oneline -5`

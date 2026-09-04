@@ -1,4 +1,4 @@
-# Phase 72 CONTEXT.md — feature 02 slice 2 (Skynet-side reconcile loop for the fleet-substrate distributor)
+# Phase 73 CONTEXT.md — feature 02 slice 2 (Skynet-side reconcile loop for the fleet-substrate distributor)
 
 **Seeded from:** `.planning/shapes/shape-feature-02-slice-2-reconcile-loop.md` (opened + locked 2026-09-04 in `/build` → `/open` this session; every shape-level gray area — trigger, cadence, audit-log surface, per-host flag, catalog shape, iteration model, restart hooks, mode preservation, error containment, log-line detail level — was worked through with Ashley and greenlit `thumbs up`). The shape file IS the design source of truth; this CONTEXT.md preserves its full text verbatim so downstream agents (`gsd-phase-researcher`, `gsd-planner`) read the same agreement.
 
@@ -13,8 +13,8 @@
 - `~/skynet-tiffany/src/backend/fleet-status/ssh-poll-orchestrator.ts` — 2183 lines, LOAD-BEARING. Slice 2's sweep piggybacks on this file's per-host channel-acquisition moment. Planner + researcher MUST read this file end-to-end and hold its per-host state model (`perHostState: Map<string, PerHostState>`), 2s poll cadence, 30s host-list refresh, per-host in-flight guard (`inFlight: Set<string>` — the wilma-260820 incident guard), and evict-branch behavior in their head before writing the hook. **The entire slice's philosophical guardrail is: do not degrade this system.**
 - `~/skynet-tiffany/src/backend/fleet-status/liveness-check.ts` — 107 lines, pure. Shows the pattern for a "pure library + injected transport" split that the sweep runner should follow: the sweep-decision + byte-compare + catalog logic should be pure functions taking already-fetched bundled bytes + already-fetched installed bytes as inputs, so tests don't need SSH.
 - `~/skynet-tiffany/src/backend/ssh/ssh-connection-pool.ts` (225 lines) + `~/skynet-tiffany/src/backend/ssh/ssh-one-shot.ts` (95 lines) — Skynet's existing SSH primitives. The sweep must NOT open its own new SSH; it uses the orchestrator's already-held `SshChannel.exec()`.
-- `~/skynet-tiffany/.planning/ROADMAP.md` — Phase 72 entry (goal + requirements + depends-on).
-- `~/skynet-tiffany/.planning/STATE.md` — Phase 72 Roadmap Evolution entry (adds slot-collision context vs. tina's incoming Phase 71).
+- `~/skynet-tiffany/.planning/ROADMAP.md` — Phase 73 entry (goal + requirements + depends-on).
+- `~/skynet-tiffany/.planning/STATE.md` — Phase 73 Roadmap Evolution entry (adds slot-collision context vs. tina's incoming Phase 71).
 - `~/.claude/roles/box-maintainer/box-maintainer.md` — box-maintainer role file. Directive-level constraints that apply to executor + orchestrator: full-suite green as ship-gate (§ Test discipline), executor-scope-stops-at-commits-and-scoped-tests (§ Container mutations serialize; § Subagents don't do deploys), push-boundary at `git push` not at `--force-recreate` (§ ⚠️ The deploy-window boundary), Skynet in-memory SQLite direct-writes need `DatabaseSaveTrigger.forceSave` (§ Load-bearing invariants — governs the migration authoring). NO WORKTREES.
 
 ## Code context

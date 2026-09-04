@@ -28,7 +28,7 @@ metrics:
   completed: 2026-09-04
 ---
 
-# Phase 72 Plan 01: Fleet-Substrate Catalog Summary
+# Phase 73 Plan 01: Fleet-Substrate Catalog Summary
 
 Hand-maintained TypeScript catalog of the 15 fleet-substrate items (across 19 files) that the sweep in later plans of phase 72 will reconcile onto managed hosts.
 
@@ -83,9 +83,9 @@ Plan-level verification:
 
 ## TDD Gate Compliance
 
-RED gate: `c1dc374f` — `test(72-01): add failing structural tests` (verified failing before catalog.ts existed: `Cannot find module './catalog.js'`)
+RED gate: `c1dc374f` — `test(73-01): add failing structural tests` (verified failing before catalog.ts existed: `Cannot find module './catalog.js'`)
 
-GREEN gate: `24bf6755` — `feat(72-01): implement fleet-substrate catalog (19 rows, 15 items)` (verified all 7 tests pass)
+GREEN gate: `24bf6755` — `feat(73-01): implement fleet-substrate catalog (19 rows, 15 items)` (verified all 7 tests pass)
 
 No REFACTOR commit — the initial GREEN implementation was already clean and readable (no duplication, single-responsibility rows, docblock covers all cross-references).
 

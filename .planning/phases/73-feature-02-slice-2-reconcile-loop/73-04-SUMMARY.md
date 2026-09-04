@@ -51,7 +51,7 @@ metrics:
   completed: 2026-09-04
 ---
 
-# Phase 72 Plan 04: Wire the SSH-channel-backed push helpers + sweep composer + orchestrator hook Summary
+# Phase 73 Plan 04: Wire the SSH-channel-backed push helpers + sweep composer + orchestrator hook Summary
 
 Landed the full transport + composer + integration for the fleet-substrate reconcile loop. The sweep now fires once per opt-in identity-hosting host per Skynet instance lifetime, piggybacking on the natural moment `tryAcquireHostChannel` first succeeds for that host — no new timer, no new SSH pool, zero OrchestratorDeps additions, zero degradation of the 2s fleet-status poll.
 
@@ -128,7 +128,7 @@ The primitive is `queueMicrotask` exclusively — drainable in tests via `await 
 ## TODO for starter.ts wire-through (present, single line)
 
 ```
-// TODO(72-05 or follow-up): wire runsFleetSubstrate through starter.ts's
+// TODO(73-05 or follow-up): wire runsFleetSubstrate through starter.ts's
 // listIdentityHostingHosts Drizzle projection so the flag reaches this
 // hook site as a truthy value on opt-in hosts. Until then, every host
 // sees runsFleetSubstrate=undefined and the sweep is inert — intentional
@@ -147,21 +147,21 @@ $ npx vitest run src/backend/distributor/ src/backend/fleet-status/ssh-poll-orch
 ```
 
 Breakdown:
-- **ssh-poll-orchestrator.test.ts:** 128/128 — 125 pre-existing tests (zero-regression proof) + 6 new phase-72 sweep-hook tests (A–F)
+- **ssh-poll-orchestrator.test.ts:** 128/128 — 125 pre-existing tests (zero-regression proof) + 6 new phase-73 sweep-hook tests (A–F)
 - **distributor:** 44/44 — 7 catalog + 11 sweep-logic + 5 log-tags + 11 ssh-push + 10 run-sweep
 
-`npx tsc --noEmit 2>&1 | grep -E "distributor|IdentityHostingHostRecord|runsFleetSubstrate" | wc -l` = 0 (zero phase-72 type errors). Full `tsc --noEmit` also runs clean.
+`npx tsc --noEmit 2>&1 | grep -E "distributor|IdentityHostingHostRecord|runsFleetSubstrate" | wc -l` = 0 (zero phase-73 type errors). Full `tsc --noEmit` also runs clean.
 
 ## Commits (6 atomic per-task RED/GREEN)
 
 | Task | Phase | Commit    | Message                                                                    |
 | ---- | ----- | --------- | -------------------------------------------------------------------------- |
-| 1    | RED   | 7a0e780a  | test(72-04): add failing tests for SSH-channel-backed push helpers        |
-| 1    | GREEN | c10118db  | feat(72-04): implement SSH-channel-backed push helpers (never-throw)      |
-| 2    | RED   | 498a3c0b  | test(72-04): add failing tests for runSweepForHost composer               |
-| 2    | GREEN | a35b46c5  | feat(72-04): implement runSweepForHost composer (fire-and-forget)         |
-| 3    | RED   | fb611054  | test(72-04): add failing phase-72 sweep-hook regression tests (A–F)       |
-| 3    | GREEN | ca1a5a38  | feat(72-04): hook runSweepForHost into tryAcquireHostChannel (fire-and-forget) |
+| 1    | RED   | 7a0e780a  | test(73-04): add failing tests for SSH-channel-backed push helpers        |
+| 1    | GREEN | c10118db  | feat(73-04): implement SSH-channel-backed push helpers (never-throw)      |
+| 2    | RED   | 498a3c0b  | test(73-04): add failing tests for runSweepForHost composer               |
+| 2    | GREEN | a35b46c5  | feat(73-04): implement runSweepForHost composer (fire-and-forget)         |
+| 3    | RED   | fb611054  | test(73-04): add failing phase-73 sweep-hook regression tests (A–F)       |
+| 3    | GREEN | ca1a5a38  | feat(73-04): hook runSweepForHost into tryAcquireHostChannel (fire-and-forget) |
 
 ## Deviations from Plan
 
@@ -177,7 +177,7 @@ Otherwise: **plan executed exactly as written.** No auto-fixes triggered on prod
 
 ## Downstream contract for follow-up
 
-The sweep is currently **inert in production** because starter.ts's `listIdentityHostingHosts` does not yet project the `runs_fleet_substrate` Drizzle column into the returned records. Every host arrives with `runsFleetSubstrate=undefined`, the opt-in check `extHost.runsFleetSubstrate === true` returns false, and `runSweepForHost` never fires. This is intentional fail-closed behavior — the shape doc's "default off" invariant. Plan 72-05 (or a follow-up) wires the projection through.
+The sweep is currently **inert in production** because starter.ts's `listIdentityHostingHosts` does not yet project the `runs_fleet_substrate` Drizzle column into the returned records. Every host arrives with `runsFleetSubstrate=undefined`, the opt-in check `extHost.runsFleetSubstrate === true` returns false, and `runSweepForHost` never fires. This is intentional fail-closed behavior — the shape doc's "default off" invariant. Plan 73-05 (or a follow-up) wires the projection through.
 
 Once the projection lands, an operator sets `runs_fleet_substrate=1` on a host row and the sweep fires on next successful channel acquisition (which happens within one poll tick for hosts already in the list, or on next host-refresh for newly-added hosts). The sweep runs sequentially against the 19-entry FLEET_SUBSTRATE_CATALOG, pushes stale bytes over the orchestrator's existing channel, restarts `agent-supervisor.service` on the one entry that carries a restart hook, and emits the four `fleet_substrate_*` log tags for the operator's grep story.
 
@@ -188,7 +188,7 @@ Once the projection lands, an operator sets `runs_fleet_substrate=1` on a host r
 - File `src/backend/distributor/run-sweep.ts` — FOUND
 - File `src/backend/distributor/run-sweep.test.ts` — FOUND
 - File `src/backend/fleet-status/ssh-poll-orchestrator.ts` — MODIFIED (111 additions, 0 deletions)
-- File `src/backend/fleet-status/ssh-poll-orchestrator.test.ts` — MODIFIED (+6 phase-72 sweep-hook tests + top-level vi.mock for run-sweep/log-tags)
+- File `src/backend/fleet-status/ssh-poll-orchestrator.test.ts` — MODIFIED (+6 phase-73 sweep-hook tests + top-level vi.mock for run-sweep/log-tags)
 - Commit `7a0e780a` (RED test-1) — FOUND
 - Commit `c10118db` (GREEN feat-1) — FOUND
 - Commit `498a3c0b` (RED test-2) — FOUND
@@ -200,4 +200,4 @@ Once the projection lands, an operator sets `runs_fleet_substrate=1` on a host r
 - setImmediate diff-additions: 0 (WARN-3 fix)
 - existing fleet_status_* operation-string removals: 0 (zero-regression proof)
 - TODO(starter.ts) present: 1 single-line reference
-- tsc phase-72 errors: 0
+- tsc phase-73 errors: 0

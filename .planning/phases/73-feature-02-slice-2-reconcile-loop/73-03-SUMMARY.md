@@ -40,7 +40,7 @@ metrics:
   completed: 2026-09-04
 ---
 
-# Phase 72 Plan 03: Pure sweep-decision logic + log-tag helpers Summary
+# Phase 73 Plan 03: Pure sweep-decision logic + log-tag helpers Summary
 
 Landed the pure decision layer (byte-compare + mode-mirroring + restart-hook selection) and the log-tag layer (four thin systemLogger wrappers with grep-anchor operation strings) for the fleet-substrate sweep — Plan 04 composes both with real SshChannel.exec.
 
@@ -111,10 +111,10 @@ Plan 04 must call these helpers with these exact strings (grep-anchors for a dia
 
 | Task | Phase | Commit    | Message                                                                    |
 | ---- | ----- | --------- | -------------------------------------------------------------------------- |
-| 1    | RED   | 08d0cd7c  | test(72-03): add failing tests for pure sweep-decision logic               |
-| 1    | GREEN | 924a8e9d  | feat(72-03): implement pure sweep-decision logic (byte-compare + mode + hook) |
-| 2    | RED   | 194917d9  | test(72-03): add failing tests for 4 log-tag helpers with exact operation values |
-| 2    | GREEN | d23e1f31  | feat(72-03): implement 4 log-tag helpers with exact operation strings      |
+| 1    | RED   | 08d0cd7c  | test(73-03): add failing tests for pure sweep-decision logic               |
+| 1    | GREEN | 924a8e9d  | feat(73-03): implement pure sweep-decision logic (byte-compare + mode + hook) |
+| 2    | RED   | 194917d9  | test(73-03): add failing tests for 4 log-tag helpers with exact operation values |
+| 2    | GREEN | d23e1f31  | feat(73-03): implement 4 log-tag helpers with exact operation strings      |
 
 ## Downstream contract for Plan 04
 
