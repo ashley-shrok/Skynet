@@ -191,18 +191,24 @@ export async function readStatWithSentinel(
 /**
  * Phase 72 Plan 04 — narrow extension of HostRecord that adds the
  * runs_fleet_substrate opt-in flag (Plan 02's Drizzle column). Kept
- * INTERNAL to this file (rather than surfacing on HostRecord itself)
- * because the flag is only meaningful to the sweep hook — the rest of
- * ssh-poll-orchestrator does not care.
+ * scoped to the sweep-hook usage because the flag is only meaningful to
+ * the sweep hook — the rest of ssh-poll-orchestrator does not care.
  *
- * The listIdentityHostingHosts implementation in starter.ts is
- * expected to project the column into the returned records. Until
- * that wire-through lands, the field is undefined on every returned
- * host and the sweep is inert — intentional fail-closed behavior
- * consistent with the shape doc's "default off" invariant.
+ * Phase 72 Plan 05 — promoted to `export` so starter.ts's
+ * listIdentityHostingHosts + starter.test.ts's compile-time shape check
+ * can reference it directly. The projection helper
+ * `projectRunsFleetSubstrate` (starter.ts) normalizes the Drizzle column
+ * value into the strict boolean field this type declares, so consumers
+ * see fail-closed behavior on any legacy NULL / undefined / non-1 row.
+ *
+ * `_connDetails` is the decrypted SSH host record packaged by
+ * listIdentityHostingHosts for the acquireSshChannel path; it is opaque
+ * to ssh-poll-orchestrator itself but part of the wire-through shape
+ * between starter.ts and the OrchestratorDeps consumer.
  */
-interface IdentityHostingHostRecord extends HostRecord {
-  runsFleetSubstrate?: boolean;
+export interface IdentityHostingHostRecord extends HostRecord {
+  runsFleetSubstrate: boolean;
+  _connDetails: Record<string, unknown>;
 }
 
 interface PidCacheEntry {
@@ -2086,12 +2092,7 @@ export function createSshPollOrchestrator(
       // "A trigger that fires at most once per host per Skynet instance
       // lifetime."
       //
-      // TODO(72-05 or follow-up): wire runsFleetSubstrate through starter.ts's
-      // listIdentityHostingHosts Drizzle projection so the flag reaches this
-      // hook site as a truthy value on opt-in hosts. Until then, every host
-      // sees runsFleetSubstrate=undefined and the sweep is inert — intentional
-      // fail-closed behavior consistent with the shape doc's "default off"
-      // invariant. See src/backend/starter.ts listIdentityHostingHosts.
+      // Opt-in flag runsFleetSubstrate populated by starter.ts's listIdentityHostingHosts (wired through 72-05).
       const extHost = host as IdentityHostingHostRecord;
       if (extHost.runsFleetSubstrate === true && !sweepedThisInstance.has(host.id)) {
         sweepedThisInstance.add(host.id);

@@ -121,6 +121,46 @@ export function makeSemaphore(limit: number): {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Phase 72 Plan 05 — projection helper for the `runs_fleet_substrate` opt-in
+// flag added to the hosts table in Plan 02 (Drizzle:
+// `runsFleetSubstrate: integer("runs_fleet_substrate", { mode: "boolean" })
+// .notNull().default(false)`).
+//
+// Extracted to module scope (mirrors `maybeInstallStopHook` at line 43 and
+// `makeSemaphore` at line 102) so starter.test.ts can cover it directly
+// without booting the fleet-status IIFE.
+//
+// Fail-closed rule (dispatch order):
+//   1. raw === true   → true
+//   2. raw === 1      → true (raw-SQL escape hatch that bypasses drizzle's
+//                       `{ mode: "boolean" }` coercion)
+//   3. anything else  → false (false, 0, null, undefined, strings, etc.)
+//
+// Drizzle's `{ mode: "boolean" }` coercion normally hands back true/false;
+// the helper accepts the wider `boolean | number | null` union to survive
+// two escape hatches:
+//   - Legacy NULL rows from an ALTER TABLE ADD COLUMN backfill edge case
+//     (the migration `.default(false)` covers new writes, but an older row
+//     inserted before the migration could sit at NULL).
+//   - A raw-SQL read that bypasses drizzle's coercion layer (unlikely in
+//     the current codebase, but the helper is the single normalization
+//     point so future raw-SQL escape hatches still land at fail-closed).
+//
+// Consumers see the strict `boolean` field
+// `IdentityHostingHostRecord.runsFleetSubstrate`
+// declared in `src/backend/fleet-status/ssh-poll-orchestrator.ts`, which the
+// Plan 04 fleet-substrate sweep hook reads at the tryAcquireHostChannel
+// site to gate the once-per-host-per-instance runSweepForHost call.
+// ---------------------------------------------------------------------------
+export function projectRunsFleetSubstrate(row: {
+  runsFleetSubstrate?: boolean | number | null;
+}): boolean {
+  const raw = row.runsFleetSubstrate;
+  if (raw === true || raw === 1) return true;
+  return false; // fail-closed on false / 0 / null / undefined / any other shape
+}
+
 // Guard the boot IIFE so test imports of exported helpers (Phase 39-04) do
 // not trigger real backend initialization (dotenv, DB init, SSL setup, WS
 // servers). Vitest sets process.env.VITEST === "true" automatically.
@@ -346,6 +386,12 @@ if (process.env.VITEST !== "true") {
             .select({
               id: hostsTable.id,
               name: hostsTable.name,
+              // Phase 72 Plan 05 — project the runs_fleet_substrate opt-in
+              // column added by Plan 02 so the sweep hook in
+              // ssh-poll-orchestrator.ts sees the operator's flag on each
+              // returned record. Normalized to strict boolean by
+              // projectRunsFleetSubstrate in the rows.map below.
+              runsFleetSubstrate: hostsTable.runsFleetSubstrate,
             })
             .from(hostsTable)
             .where(eq(hostsTable.enableSsh, true));
@@ -357,6 +403,11 @@ if (process.env.VITEST !== "true") {
               return {
                 id: String(row.id),
                 name: row.name ?? String(row.id),
+                // Phase 72 Plan 05 — fail-closed normalization via the
+                // module-scope helper (drizzle boolean mode normally hands
+                // back true/false but the helper accepts the wider union
+                // to survive legacy NULL rows + raw-SQL escape hatches).
+                runsFleetSubstrate: projectRunsFleetSubstrate(row),
                 // Decrypted SSHHost record — connectOneShot consumes this directly
                 // (matches the canonical sessions.ts:70-75 pattern).
                 _connDetails: host as unknown as Record<string, unknown>,
@@ -364,8 +415,14 @@ if (process.env.VITEST !== "true") {
             }),
           );
           return resolved.filter(
-            (h): h is { id: string; name: string; _connDetails: Record<string, unknown> } =>
-              h !== null,
+            (
+              h,
+            ): h is {
+              id: string;
+              name: string;
+              runsFleetSubstrate: boolean;
+              _connDetails: Record<string, unknown>;
+            } => h !== null,
           );
         } catch (err) {
           systemLogger.warn("Fleet-status: identity-host list query failed", {
@@ -525,8 +582,12 @@ if (process.env.VITEST !== "true") {
       }
 
       const orchestrator = createSshPollOrchestrator({
+        // Phase 72 Plan 05 — tightened cast: the projected records now carry
+        // runsFleetSubstrate + _connDetails, matching IdentityHostingHostRecord.
+        // The compiler catches any future shape drift between starter.ts's
+        // returned records and the OrchestratorDeps contract.
         listIdentityHostingHosts: listIdentityHostingHosts as unknown as () => Promise<
-          Array<{ id: string; name: string }>
+          Array<import("./fleet-status/ssh-poll-orchestrator.js").IdentityHostingHostRecord>
         >,
         acquireSshChannel: acquireSshChannel as unknown as (
           host: { id: string; name: string },

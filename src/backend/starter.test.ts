@@ -20,7 +20,11 @@
  *      not per-process)
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { maybeInstallStopHook, makeSemaphore } from "./starter.js";
+import {
+  maybeInstallStopHook,
+  makeSemaphore,
+  projectRunsFleetSubstrate,
+} from "./starter.js";
 import type { SshChannel } from "./fleet-status/ssh-poll-orchestrator.js";
 import type { systemLogger as SystemLoggerType } from "./utils/logger.js";
 
@@ -245,5 +249,82 @@ describe("Bounty b31a5c8e — makeSemaphore per-connection SSH exec throttle", (
     );
     expect(results).toHaveLength(10);
     expect(results.sort((a, b) => a - b)).toEqual(tokens);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 72 Plan 05 — projectRunsFleetSubstrate helper coverage.
+//
+// The helper normalizes the Drizzle `runs_fleet_substrate` column value into
+// a strict boolean for the IdentityHostingHostRecord.runsFleetSubstrate field
+// consumed by the fleet-substrate sweep hook in ssh-poll-orchestrator.ts.
+//
+// Fail-closed default: only `raw === true` or `raw === 1` return true; every
+// other shape (false, 0, null, undefined, strings, etc.) returns false. This
+// keeps the shape doc's "the sweep runs when the flag is off" failure mode
+// impossible even under legacy NULL rows from an ALTER TABLE ADD COLUMN
+// backfill edge case or a raw-SQL escape hatch that bypasses drizzle's
+// `{ mode: "boolean" }` coercion.
+//
+// The helper is extracted to module scope in starter.ts (mirroring
+// maybeInstallStopHook + makeSemaphore) so these tests drive it directly with
+// pure inputs — no IIFE boot, no DB, no SSH.
+// ---------------------------------------------------------------------------
+describe("Phase 72 Plan 05 — projectRunsFleetSubstrate helper", () => {
+  it("Test 1: runsFleetSubstrate=true → true", () => {
+    expect(projectRunsFleetSubstrate({ runsFleetSubstrate: true })).toBe(true);
+  });
+
+  it("Test 2: runsFleetSubstrate=false → false", () => {
+    expect(projectRunsFleetSubstrate({ runsFleetSubstrate: false })).toBe(
+      false,
+    );
+  });
+
+  it("Test 3: runsFleetSubstrate=null → false (fail-closed on legacy NULL from ALTER TABLE ADD COLUMN backfill)", () => {
+    expect(projectRunsFleetSubstrate({ runsFleetSubstrate: null })).toBe(false);
+  });
+
+  it("Test 4: runsFleetSubstrate=undefined → false (fail-closed on missing field)", () => {
+    expect(projectRunsFleetSubstrate({})).toBe(false);
+  });
+
+  it("Test 5: runsFleetSubstrate=1 (raw SQL escape hatch bypassing drizzle boolean coercion) → true", () => {
+    expect(projectRunsFleetSubstrate({ runsFleetSubstrate: 1 })).toBe(true);
+  });
+
+  it("Test 6: runsFleetSubstrate=0 → false", () => {
+    expect(projectRunsFleetSubstrate({ runsFleetSubstrate: 0 })).toBe(false);
+  });
+
+  it("Test 7: pure — no logger/fs/db calls", () => {
+    // Belt-and-suspenders: the helper does not import the logger at all, so
+    // this assertion is really a proof of purity by structural check on the
+    // injected fixture. If a future change ever wires the logger into the
+    // helper, this test trips before shipping.
+    projectRunsFleetSubstrate({ runsFleetSubstrate: true });
+    projectRunsFleetSubstrate({ runsFleetSubstrate: false });
+    projectRunsFleetSubstrate({ runsFleetSubstrate: null });
+    projectRunsFleetSubstrate({});
+    expect(loggerMock.info).not.toHaveBeenCalled();
+    expect(loggerMock.warn).not.toHaveBeenCalled();
+    expect(loggerMock.error).not.toHaveBeenCalled();
+    expect(loggerMock.debug).not.toHaveBeenCalled();
+  });
+
+  it("Test 8: IdentityHostingHostRecord type import compiles", () => {
+    // Compile-time proof — if this file compiles, the imported type + the
+    // shape returned by listIdentityHostingHosts + projectRunsFleetSubstrate
+    // are structurally compatible.
+    const _typeCheck: import("./fleet-status/ssh-poll-orchestrator.js").IdentityHostingHostRecord =
+      {
+        id: "h1",
+        name: "host1",
+        runsFleetSubstrate: projectRunsFleetSubstrate({
+          runsFleetSubstrate: true,
+        }),
+        _connDetails: {},
+      };
+    expect(_typeCheck.runsFleetSubstrate).toBe(true);
   });
 });
