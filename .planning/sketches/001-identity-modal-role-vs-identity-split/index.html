@@ -1,0 +1,1420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sketch 001 — Identity Modal Role/Identity Split</title>
+  <link rel="stylesheet" href="../themes/default.css">
+  <style>
+    /* ===== Page chrome ===== */
+    body {
+      min-height: 100vh;
+      padding-top: 56px;
+      padding-bottom: 40px;
+    }
+
+    /* Variant tab bar (top) */
+    #variant-nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      background: rgba(10, 12, 20, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--pv-rim-10);
+      padding: 8px 12px;
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+    }
+    .variant-tab {
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--pv-rim-10);
+      background: var(--pv-glass-white-5);
+      color: var(--pv-fg-muted);
+      font-family: var(--pv-font-sans);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: color 120ms ease, background 120ms ease;
+    }
+    .variant-tab:hover { color: var(--pv-fg); }
+    .variant-tab.active {
+      color: var(--pv-fg-bright);
+      background: var(--pv-hue-tab-selected-bg);
+      border-color: var(--pv-hue-tab-selected-rim);
+    }
+
+    .variant { display: none; }
+    .variant.active { display: block; }
+
+    /* Stage — hints at PrettyView chat-content region */
+    .pv-stage {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    .pv-stage-header {
+      text-align: center;
+      color: var(--pv-fg-muted);
+      font-size: 13px;
+      margin-bottom: 16px;
+      padding: 0 12px;
+    }
+    .pv-stage-header h2 {
+      color: var(--pv-fg-bright);
+      font-size: 18px;
+      margin: 0 0 4px;
+      font-weight: 600;
+    }
+    .pv-stage-header p { margin: 0; font-size: 12px; line-height: 1.5; }
+
+    /* Side-by-side actor vs coordinator */
+    .pv-modes {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .pv-modes { grid-template-columns: 1fr; }
+    }
+    .pv-mode {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+    .pv-mode-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--pv-fg-muted);
+    }
+    .pv-mode-sub {
+      font-size: 11px;
+      color: var(--pv-fg-dim);
+      margin-bottom: 6px;
+    }
+
+    /* Phone frame — hints iPhone Safari viewport */
+    .phone-frame {
+      width: 100%;
+      max-width: 390px;
+      background: #000;
+      border-radius: 32px;
+      padding: 8px;
+      box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
+    }
+    .phone-screen {
+      background: linear-gradient(180deg, var(--pv-bg-start), var(--pv-bg-mid) 40%, var(--pv-bg-end));
+      border-radius: 26px;
+      overflow: hidden;
+      position: relative;
+      height: 780px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* PrettyView chrome hint (badge top, compose bottom) */
+    .pv-badge-row {
+      padding: 12px 14px 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid var(--pv-rim-6);
+      flex-shrink: 0;
+    }
+    .pv-badge-row .name {
+      font-weight: 600;
+      color: var(--pv-fg-bright);
+      font-size: 14px;
+    }
+    .pv-badge-row .sub {
+      font-size: 11px;
+      color: var(--pv-fg-muted);
+    }
+
+    .pv-compose {
+      padding: 8px 12px;
+      border-top: 1px solid var(--pv-rim-6);
+      flex-shrink: 0;
+    }
+    .pv-compose-box {
+      background: var(--pv-glass-white-5);
+      border: 1px solid var(--pv-border-white-10);
+      border-radius: 20px;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: var(--pv-fg-dim);
+    }
+
+    /* Modal shell inside phone screen */
+    .modal-shell {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background:
+        linear-gradient(180deg,
+          hsla(324, 40%, 18%, 0.85),
+          hsla(324, 30%, 12%, 0.82),
+          hsla(324, 20%, 8%, 0.88)
+        );
+      border-left: 1px solid var(--pv-rim-10);
+      border-right: 1px solid var(--pv-rim-10);
+      margin: 4px 4px 0;
+      border-radius: 12px 12px 0 0;
+      overflow: hidden;
+      min-height: 0;
+      position: relative;
+    }
+
+    /* Modal header (title + X) */
+    .modal-header {
+      padding: 14px 16px 10px;
+      border-bottom: 1px solid var(--pv-rim-6);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .modal-header .title {
+      font-weight: 600;
+      color: var(--pv-fg-bright);
+      font-size: 15px;
+    }
+    .modal-header .close {
+      color: var(--pv-fg-muted);
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 4px;
+    }
+
+    .modal-body {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
+    }
+    .modal-body .content-pane {
+      padding: 14px 14px 20px;
+    }
+
+    /* Content preview stubs */
+    .stub-md {
+      color: var(--pv-fg);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .stub-md h4 {
+      color: var(--pv-fg-bright);
+      font-size: 13px;
+      margin: 0 0 6px;
+    }
+    .stub-md p { margin: 0 0 8px; }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+      color: var(--pv-fg-dim);
+      font-size: 12px;
+      text-align: center;
+      gap: 6px;
+    }
+    .empty-state .icon {
+      font-size: 24px;
+      opacity: 0.4;
+    }
+
+    /* ===== Variant-specific styles ===== */
+
+    /* V1 — grouped tab strip */
+    .v1-nav-cluster {
+      display: flex;
+      align-items: stretch;
+      flex: 1;
+      min-width: 0;
+    }
+    .v1-nav-cluster.role { justify-content: flex-start; }
+    .v1-nav-cluster.identity { justify-content: flex-end; }
+    .v1-nav-divider {
+      width: 1px;
+      background: var(--pv-rim-10);
+      margin: 8px 4px;
+      align-self: stretch;
+    }
+    .v1-bar-wrap {
+      display: flex;
+      flex-direction: column;
+    }
+    .v1-scope-labels {
+      display: flex;
+      background: var(--pv-bar-bg);
+      padding: 4px 8px 0;
+      border-top: 1px solid var(--pv-rim-10);
+    }
+    .v1-scope-labels > div { flex: 1; }
+    .v1-scope-labels .role { text-align: left; padding-left: 8px; }
+    .v1-scope-labels .identity { text-align: right; padding-right: 8px; }
+
+    /* V2 — stacked sections, each with own bar */
+    .v2-body {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+    }
+    .v2-section {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .v2-section.role { flex: 1.2; border-bottom: 1px solid var(--pv-rim-14); }
+    .v2-section.identity { flex: 1; }
+    .v2-section-header {
+      padding: 6px 12px;
+      background: hsla(var(--pv-id-hue), 30%, 15%, 0.4);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--pv-fg-muted);
+      border-bottom: 1px solid var(--pv-rim-6);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .v2-section.identity .v2-section-header {
+      background: rgba(150, 170, 210, 0.10);
+    }
+    .v2-content {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
+    }
+    .v2-mini-bar {
+      flex-shrink: 0;
+      padding: 3px 6px;
+    }
+    .v2-mini-bar .pv-nav-btn {
+      padding: 4px 4px;
+      font-size: 9px;
+    }
+    .v2-mini-bar .pv-nav-btn svg { width: 14px; height: 14px; }
+
+    /* V3 — left-rail two-cluster nav */
+    .v3-body {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+    }
+    .v3-rail {
+      width: 130px;
+      background: var(--pv-bar-bg);
+      border-right: 1px solid var(--pv-rim-10);
+      padding: 8px 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    .v3-cluster {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .v3-cluster-label {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--pv-fg-dim);
+      padding: 2px 8px 4px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .v3-cluster-divider {
+      height: 1px;
+      background: var(--pv-rim-10);
+      margin: 4px 6px;
+    }
+    .v3-rail-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--pv-fg-muted);
+      border: none;
+      font-family: var(--pv-font-sans);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: left;
+    }
+    .v3-rail-btn.selected {
+      background: var(--pv-hue-tab-selected-bg);
+      color: var(--pv-fg-bright);
+      box-shadow: inset 0 0 0 1px var(--pv-hue-tab-selected-rim);
+    }
+    .v3-rail-btn svg { width: 14px; height: 14px; }
+    .v3-content {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
+    }
+
+    /* V4 — top scope switch */
+    .v4-scope-switch-row {
+      padding: 10px 12px 8px;
+      display: flex;
+      justify-content: center;
+      border-bottom: 1px solid var(--pv-rim-6);
+      flex-shrink: 0;
+    }
+    .v4-nav-row {
+      padding: 0;
+    }
+
+    /* V5 — dashboard cards */
+    .v5-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      padding: 12px;
+      overflow-y: auto;
+      min-height: 0;
+    }
+    .v5-column {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .v5-column-header {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      color: var(--pv-fg-muted);
+      padding: 0 4px 2px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .v5-column.role .v5-column-header { color: hsl(var(--pv-id-hue), 60%, 70%); }
+    .v5-column.identity .v5-column-header { color: #a4b3d0; }
+    .v5-card {
+      background: var(--pv-glass-white-5);
+      border: 1px solid var(--pv-rim-10);
+      border-radius: 10px;
+      padding: 10px;
+      cursor: pointer;
+      transition: background 120ms ease, border-color 120ms ease;
+    }
+    .v5-card:hover {
+      background: var(--pv-glass-white-8);
+      border-color: var(--pv-rim-14);
+    }
+    .v5-card-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--pv-fg);
+      margin-bottom: 6px;
+    }
+    .v5-card-title svg { width: 14px; height: 14px; opacity: 0.6; }
+    .v5-card-body {
+      font-size: 11px;
+      color: var(--pv-fg-muted);
+      line-height: 1.4;
+    }
+    .v5-card-count {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--pv-fg-bright);
+      font-variant-numeric: tabular-nums;
+    }
+    .v5-card.empty {
+      opacity: 0.4;
+      background: transparent;
+      cursor: default;
+    }
+    .v5-card.empty:hover {
+      background: transparent;
+      border-color: var(--pv-rim-10);
+    }
+
+    /* Mode toggle within each phone */
+    .pv-mode-toggle {
+      display: inline-flex;
+      background: var(--pv-glass-white-5);
+      border: 1px solid var(--pv-rim-10);
+      border-radius: 999px;
+      padding: 2px;
+      gap: 2px;
+    }
+    .pv-mode-toggle-btn {
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: none;
+      background: transparent;
+      color: var(--pv-fg-muted);
+      font-family: var(--pv-font-sans);
+      font-size: 10px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .pv-mode-toggle-btn.active {
+      background: var(--pv-hue-tab-selected-bg);
+      color: var(--pv-fg-bright);
+    }
+
+    /* Notes below variants */
+    .variant-notes {
+      max-width: 900px;
+      margin: 24px auto 0;
+      background: var(--pv-glass-white-5);
+      border: 1px solid var(--pv-rim-10);
+      border-radius: 10px;
+      padding: 16px 20px;
+      font-size: 13px;
+      color: var(--pv-fg);
+      line-height: 1.55;
+    }
+    .variant-notes h3 {
+      margin: 0 0 8px;
+      color: var(--pv-fg-bright);
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .variant-notes .pros, .variant-notes .cons { margin: 8px 0 0; padding-left: 20px; }
+    .variant-notes .pros li { color: #a8d0a0; margin-bottom: 2px; }
+    .variant-notes .cons li { color: var(--pv-code-fg); margin-bottom: 2px; }
+  </style>
+</head>
+<body>
+
+<!-- ============ Icon defs (used by all variants) ============ -->
+<svg style="display:none">
+  <symbol id="icon-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+    <circle cx="9" cy="7" r="4"/>
+    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+  </symbol>
+  <symbol id="icon-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+    <circle cx="12" cy="7" r="4"/>
+  </symbol>
+  <symbol id="icon-target" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="10"/>
+    <circle cx="12" cy="12" r="6"/>
+    <circle cx="12" cy="12" r="2"/>
+  </symbol>
+  <symbol id="icon-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="10"/>
+    <polyline points="12 6 12 12 16 14"/>
+  </symbol>
+  <symbol id="icon-alarm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="13" r="8"/>
+    <path d="M12 9v4l2 2"/>
+    <path d="M5 3 2 6"/>
+    <path d="m22 6-3-3"/>
+    <path d="M6.38 18.7 4 21"/>
+    <path d="M17.64 18.67 20 21"/>
+  </symbol>
+  <symbol id="icon-handshake" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m11 17 2 2a1 1 0 1 0 3-3"/>
+    <path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4"/>
+    <path d="m21 3 1 11h-2"/>
+    <path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3"/>
+    <path d="M3 4h8"/>
+  </symbol>
+  <symbol id="icon-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+  </symbol>
+  <symbol id="icon-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+    <polyline points="14 2 14 8 20 8"/>
+  </symbol>
+  <symbol id="icon-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 12h14"/><path d="M12 5v14"/>
+  </symbol>
+</svg>
+
+<!-- ============ Variant nav ============ -->
+<nav id="variant-nav">
+  <button class="variant-tab active" data-variant="v1" onclick="showVariant('v1', this)">A · Grouped Strip</button>
+  <button class="variant-tab" data-variant="v2" onclick="showVariant('v2', this)">B · Stacked Sections</button>
+  <button class="variant-tab" data-variant="v3" onclick="showVariant('v3', this)">C · Left Rail</button>
+  <button class="variant-tab" data-variant="v4" onclick="showVariant('v4', this)">D · Scope Switch ★</button>
+  <button class="variant-tab" data-variant="v5" onclick="showVariant('v5', this)">E · Dashboard</button>
+</nav>
+
+<script>
+  function showVariant(id, btn) {
+    document.querySelectorAll('.variant').forEach(v => v.classList.remove('active'));
+    document.querySelectorAll('.variant-tab').forEach(t => t.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    btn.classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // Actor vs coordinator mode toggle (per-phone)
+  function setMode(phoneId, mode, btn) {
+    const root = document.getElementById(phoneId);
+    if (!root) return;
+    root.setAttribute('data-mode', mode);
+    root.querySelectorAll('.pv-mode-toggle-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    // Show/hide actor-only vs coord-only content
+    root.querySelectorAll('[data-actor-only]').forEach(el => {
+      el.style.display = (mode === 'actor') ? '' : 'none';
+    });
+    root.querySelectorAll('[data-coord-only]').forEach(el => {
+      el.style.display = (mode === 'coord') ? '' : 'none';
+    });
+  }
+</script>
+
+<!-- ============ Shared content stubs (JS templates) ============ -->
+<script>
+  const CONTENT = {
+    roleFile: `<div class="stub-md">
+      <h4>Box Maintainer</h4>
+      <p>Maintainer of this EC2 (tailnet 100.99.149.8, tailscale hostname <span class="pv-code">t1000</span>) that runs Ashley's self-hosted Skynet instance at term.gigaashley.click...</p>
+      <p><strong style="color:var(--pv-fg-bright)">Domain — 10,000-foot view of t1000</strong></p>
+      <p><span class="pv-muted">Single-tenant Ubuntu EC2 hosting the fleet's central browser SSH/RDP manager. Public surface: term.gigaashley.click (Skynet) and files.gigaashley.click (Filestash)...</span></p>
+    </div>`,
+    identityFile: `<div class="stub-md">
+      <h4>Tina</h4>
+      <p><span class="pv-code">role: box-maintainer</span></p>
+      <p><span class="pv-code">displayName: Tina</span> · <span class="pv-code">colorHue: 324</span></p>
+      <p><strong style="color:var(--pv-fg-bright)">Relay accounts (two — start BOTH receivers on wake)</strong></p>
+      <p><span class="pv-muted">I have TWO durable relay accounts on TWO different Matrix homeservers...</span></p>
+    </div>`,
+    bounties: `
+      <div class="pv-bounty">
+        <div class="pv-bounty-title">PV auto-scroll rewrite verify checkpoint</div>
+        <div class="pv-bounty-slug">pretty-view-auto-scroll-three-bug-rewrite</div>
+      </div>
+      <div class="pv-bounty">
+        <div class="pv-bounty-title">Conversations scroll-to-bottom on load</div>
+        <div class="pv-bounty-slug">conversations-scroll-to-bottom-on-load</div>
+      </div>
+      <div class="pv-bounty">
+        <div class="pv-bounty-title">Stacy DM disposition backlog</div>
+        <div class="pv-bounty-slug">stacy-ship-notifications-queue</div>
+      </div>
+      <div class="pv-bounty">
+        <div class="pv-bounty-title">Workstation auth broken to Skynet backend</div>
+        <div class="pv-bounty-slug">workstation-fleethostid-21-authtype-key</div>
+      </div>
+    `,
+    history: `<div class="stub-md" style="font-family:var(--pv-font-mono); font-size:11px; line-height:1.7;">
+      <p>2026-09-04 · Phase 71 PV auto-scroll rewrite shipped as <span class="pv-code">79d14042</span> · slugs: pretty-view-auto-scroll-three-bug-rewrite</p>
+      <p>2026-09-03 · Diag instrumentation shipped for dormant-send bug · slugs: pv-client-pending-send-timer-dormancy-blind</p>
+      <p>2026-09-02 · Fleet-substrate ownership transfer from Nicole (15 items) · slugs: substrate-transfer</p>
+      <p>2026-09-01 · Bounty <span class="pv-code">related[]</span> field spec added · slugs: bounty-related-field</p>
+    </div>`,
+    handoff: `<div class="stub-md">
+      <p><strong style="color:var(--pv-fg-bright)">Session summary</strong></p>
+      <p><span class="pv-muted">Shipped Phase 71 (PV auto-scroll state-machine rewrite) to origin as HEAD <span class="pv-code">79d14042</span>. Rescue-rebased from Phase 70 slot collision with Tiffany's Phase 70...</span></p>
+      <p><strong style="color:var(--pv-fg-bright)">Open plans (carry forward)</strong></p>
+      <p><span class="pv-muted">Phase 71 Wave 4 human-verify checkpoint — awaits deploy + Ashley real-browser walk-through...</span></p>
+    </div>`,
+    identityWakeups: `
+      <div class="pv-wakeup">
+        <span class="pv-wakeup-scope identity">Identity</span>
+        <div style="flex:1">
+          <div style="color:var(--pv-fg-bright); font-weight:600">daily-box-check</div>
+          <div class="pv-muted" style="font-size:11px">daily at 14:00 UTC · check box health</div>
+        </div>
+      </div>
+      <div class="pv-wakeup">
+        <span class="pv-wakeup-scope identity">Identity</span>
+        <div style="flex:1">
+          <div style="color:var(--pv-fg-bright); font-weight:600">fleet-auth-relogin</div>
+          <div class="pv-muted" style="font-size:11px">every 25d · refresh Claude auth</div>
+        </div>
+      </div>
+    `,
+    roleWakeups: `
+      <div class="pv-wakeup">
+        <span class="pv-wakeup-scope role">Role</span>
+        <div style="flex:1">
+          <div style="color:var(--pv-fg-bright); font-weight:600">morning-triage</div>
+          <div class="pv-muted" style="font-size:11px">daily at 09:00 UTC · triage overnight bounties</div>
+        </div>
+      </div>
+      <div class="pv-wakeup">
+        <span class="pv-wakeup-scope role">Role</span>
+        <div style="flex:1">
+          <div style="color:var(--pv-fg-bright); font-weight:600">weekly-audit</div>
+          <div class="pv-muted" style="font-size:11px">weekly on mon at 10:00 UTC · audit shipped work</div>
+        </div>
+      </div>
+    `,
+    coordEmpty: (what) => `<div class="empty-state">
+      <div class="icon">·</div>
+      <div><strong style="color:var(--pv-fg-muted)">No ${what}</strong></div>
+      <div>Coordinators don't hold ${what.toLowerCase()} — that's actor context.</div>
+    </div>`,
+  };
+</script>
+
+<!-- ============ VARIANT A — Grouped Tab Strip ============ -->
+<div id="v1" class="variant active">
+  <div class="pv-stage">
+    <div class="pv-stage-header">
+      <h2>Variant A · Grouped Tab Strip</h2>
+      <p>Keep the bottom icon-bar; visually cluster Role tabs on the left, Identity tabs on the right, with a subtle divider between them and tiny scope labels above. Wakeups appears TWICE — once per scope — instead of using a picker.</p>
+    </div>
+
+    <div class="pv-modes">
+      <!-- ACTOR IDENTITY -->
+      <div class="pv-mode">
+        <div class="pv-mode-label">Actor identity — Tina</div>
+        <div class="pv-mode-sub">holds role box-maintainer</div>
+        <div class="phone-frame">
+          <div class="phone-screen" id="v1-actor" data-mode="actor">
+            <div class="pv-badge-row">
+              <div class="pv-badge">T</div>
+              <div style="flex:1">
+                <div class="name">Tina</div>
+                <div class="sub">box-maintainer</div>
+              </div>
+            </div>
+            <div class="modal-shell">
+              <div class="modal-header">
+                <div class="title">Identity</div>
+                <button class="close"><svg width="16" height="16"><use href="#icon-x"/></svg></button>
+              </div>
+              <div class="modal-body">
+                <div class="content-pane" id="v1-actor-content">
+                  <script>document.write(CONTENT.roleFile)</script>
+                </div>
+              </div>
+              <div class="v1-bar-wrap">
+                <div class="v1-scope-labels">
+                  <div class="role"><span class="pv-scope-label" style="padding:0">ROLE</span></div>
+                  <div class="identity"><span class="pv-scope-label" style="padding:0">IDENTITY</span></div>
+                </div>
+                <div class="pv-nav-bar">
+                  <div class="v1-nav-cluster role">
+                    <button class="pv-nav-btn selected"><svg><use href="#icon-users"/></svg>Role</button>
+                    <button class="pv-nav-btn"><svg><use href="#icon-target"/></svg>Bounties</button>
+                    <button class="pv-nav-btn"><svg><use href="#icon-clock"/></svg>History</button>
+                    <button class="pv-nav-btn"><svg><use href="#icon-alarm"/></svg>Wakes</button>
+                  </div>
+                  <div class="v1-nav-divider"></div>
+                  <div class="v1-nav-cluster identity">
+                    <button class="pv-nav-btn"><svg><use href="#icon-user"/></svg>Identity</button>
+                    <button class="pv-nav-btn"><svg><use href="#icon-alarm"/></svg>Wakes</button>
+                    <button class="pv-nav-btn"><svg><use href="#icon-handshake"/></svg>Handoff</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="pv-compose"><div class="pv-compose-box">Message Tina…</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- COORDINATOR IDENTITY -->
+      <div class="pv-mode">
+        <div class="pv-mode-label">Coordinator identity</div>
+        <div class="pv-mode-sub">no role file, no bounties, no handoff</div>
+        <div class="phone-frame">
+          <div class="phone-screen" id="v1-coord" data-mode="coord">
+            <div class="pv-badge-row">
+              <div class="pv-badge" style="background:linear-gradient(135deg, hsl(200, 40%, 50%), hsl(200, 30%, 30%))">C</div>
+              <div style="flex:1">
+                <div class="name">Coordinator</div>
+                <div class="sub">for box-maintainer</div>
+              </div>
+            </div>
+            <div class="modal-shell" style="background: linear-gradient(180deg, hsla(200, 25%, 15%, 0.85), hsla(200, 20%, 10%, 0.82), hsla(200, 15%, 6%, 0.88));">
+              <div class="modal-header">
+                <div class="title">Identity</div>
+                <button class="close"><svg width="16" height="16"><use href="#icon-x"/></svg></button>
+              </div>
+              <div class="modal-body">
+                <div class="content-pane">
+                  <script>document.write(CONTENT.coordEmpty("role file"))</script>
+                </div>
+              </div>
+              <div class="v1-bar-wrap">
+                <div class="v1-scope-labels">
+                  <div class="role"><span class="pv-scope-label" style="padding:0">ROLE</span></div>
+                  <div class="identity"><span class="pv-scope-label" style="padding:0">IDENTITY</span></div>
+                </div>
+                <div class="pv-nav-bar">
+                  <div class="v1-nav-cluster role">
+                    <button class="pv-nav-btn selected" style="opacity:0.5"><svg><use href="#icon-users"/></svg>Role</button>
+                    <button class="pv-nav-btn" style="opacity:0.5"><svg><use href="#icon-target"/></svg>Bounties</button>
+                    <button class="pv-nav-btn" style="opacity:0.5"><svg><use href="#icon-clock"/></svg>History</button>
+                    <button class="pv-nav-btn"><svg><use href="#icon-alarm"/></svg>Wakes</button>
+                  </div>
+                  <div class="v1-nav-divider"></div>
+                  <div class="v1-nav-cluster identity">
+                    <button class="pv-nav-btn"><svg><use href="#icon-user"/></svg>Identity</button>
+                    <button class="pv-nav-btn" style="opacity:0.5"><svg><use href="#icon-alarm"/></svg>Wakes</button>
+                    <button class="pv-nav-btn" style="opacity:0.5"><svg><use href="#icon-handshake"/></svg>Handoff</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="pv-compose"><div class="pv-compose-box">Message Coordinator…</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="variant-notes">
+      <h3>Variant A read</h3>
+      <p>Smallest-change option. Reader keeps the muscle memory of a bottom icon bar; the ROLE / IDENTITY labels plus a divider carry the semantic split. Wakeups doubles into two icons — visually a bit noisy but semantically honest (each is a distinct scope with its own storage location).</p>
+      <ul class="pros">
+        <li>Ships fastest; keeps the same primitives</li>
+        <li>Clear which tab is which scope, no ambiguity on wakeups</li>
+      </ul>
+      <ul class="cons">
+        <li>7 icons in one strip is crowded on 390px</li>
+        <li>For a coordinator, most icons dim out — the strip looks damaged rather than legible</li>
+        <li>Duplicate Wakes icon can read as a mistake</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============ VARIANT B — Stacked Sections ============ -->
+<div id="v2" class="variant">
+  <div class="pv-stage">
+    <div class="pv-stage-header">
+      <h2>Variant B · Stacked Sections</h2>
+      <p>Modal body splits horizontally: a Role section on top with its own mini icon-bar, an Identity section below with its own. Both always visible. Section labels + hue tint make scope obvious. Coordinator identity naturally collapses the Identity section down.</p>
+    </div>
+
+    <div class="pv-modes">
+      <!-- ACTOR IDENTITY -->
+      <div class="pv-mode">
+        <div class="pv-mode-label">Actor identity — Tina</div>
+        <div class="pv-mode-sub">holds role box-maintainer</div>
+        <div class="phone-frame">
+          <div class="phone-screen">
+            <div class="pv-badge-row">
+              <div class="pv-badge">T</div>
+              <div style="flex:1">
+                <div class="name">Tina</div>
+                <div class="sub">box-maintainer</div>
+              </div>
+            </div>
+            <div class="modal-shell">
+              <div class="modal-header">
+                <div class="title">Identity</div>
+                <button class="close"><svg width="16" height="16"><use href="#icon-x"/></svg></button>
+              </div>
+              <div class="v2-body">
+                <div class="v2-section role">
+                  <div class="v2-section-header">
+                    <span><svg width="10" height="10" style="vertical-align:middle;margin-right:4px"><use href="#icon-users"/></svg>ROLE · box-maintainer</span>
+                    <span style="font-size:9px;font-weight:400;text-transform:none;letter-spacing:0" class="pv-dim">shared with 4 others</span>
+                  </div>
+                  <div class="v2-content">
+                    <div class="content-pane" style="padding:10px 12px">
+                      <script>document.write(CONTENT.roleFile)</script>
+                    </div>
+                  </div>
+                  <div class="pv-nav-bar v2-mini-bar">
+                    <button class="pv-nav-btn selected"><svg><use href="#icon-users"/></svg>Role file</button>
+                    <button class="pv-nav-btn"><svg><use href="#icon-target"/></svg>Bounties</button>
+                    <button class="pv-nav-btn"><svg><use href="#icon-clock"/></svg>History</button>
+                    <button class="pv-nav-btn"><svg><use href="#icon-alarm"/></svg>Wakeups</button>
+                  </div>
+                </div>
+                <div class="v2-section identity">
+                  <div class="v2-section-header" style="background: rgba(150, 170, 210, 0.10);">
+                    <span><svg width="10" height="10" style="vertical-align:middle;margin-right:4px"><use href="#icon-user"/></svg>IDENTITY · Tina</span>
+                    <span style="font-size:9px;font-weight:400;text-transform:none;letter-spacing:0" class="pv-dim">this instance only</span>
+                  </div>
+                  <div class="v2-content">
+                    <div class="content-pane" style="padding:10px 12px">
+                      <script>document.write(CONTENT.identityFile)</script>
+                    </div>
+                  </div>
+                  <div class="pv-nav-bar v2-mini-bar" style="background: linear-gradient(180deg, rgba(30,35,50,0.55), rgba(20,22,30,0.5));">
+                    <button class="pv-nav-btn selected"><svg><use href="#icon-user"/></svg>Identity file</button>
+                    <button class="pv-nav-btn"><svg><use href="#icon-alarm"/></svg>Wakeups</button>
+                    <button class="pv-nav-btn"><svg><use href="#icon-handshake"/></svg>Handoff</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="pv-compose"><div class="pv-compose-box">Message Tina…</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- COORDINATOR IDENTITY -->
+      <div class="pv-mode">
+        <div class="pv-mode-label">Coordinator identity</div>
+        <div class="pv-mode-sub">Identity section collapses to just Identity file</div>
+        <div class="phone-frame">
+          <div class="phone-screen">
+            <div class="pv-badge-row">
+              <div class="pv-badge" style="background:linear-gradient(135deg, hsl(200, 40%, 50%), hsl(200, 30%, 30%))">C</div>
+              <div style="flex:1">
+                <div class="name">Coordinator</div>
+                <div class="sub">for box-maintainer</div>
+              </div>
+            </div>
+            <div class="modal-shell" style="background: linear-gradient(180deg, hsla(200, 25%, 15%, 0.85), hsla(200, 20%, 10%, 0.82), hsla(200, 15%, 6%, 0.88));">
+              <div class="modal-header">
+                <div class="title">Identity</div>
+                <button class="close"><svg width="16" height="16"><use href="#icon-x"/></svg></button>
+              </div>
+              <div class="v2-body">
+                <div class="v2-section role" style="flex:3">
+                  <div class="v2-section-header">
+                    <span><svg width="10" height="10" style="vertical-align:middle;margin-right:4px"><use href="#icon-users"/></svg>ROLE · box-maintainer</span>
+                    <span style="font-size:9px;font-weight:400;text-transform:none;letter-spacing:0" class="pv-dim">routing 4 actors</span>
+                  </div>
+                  <div class="v2-content">
+                    <div class="content-pane" style="padding:10px 12px">
+                      <div style="margin-bottom:10px" class="pv-scope-label">ROLE-WIDE SCHEDULED WAKEUPS</div>
+                      <script>document.write(CONTENT.roleWakeups)</script>
+                    </div>
+                  </div>
+                  <div class="pv-nav-bar v2-mini-bar">
+                    <button class="pv-nav-btn"><svg><use href="#icon-users"/></svg>Role file</button>
+                    <button class="pv-nav-btn"><svg><use href="#icon-target"/></svg>Bounties</button>
+                    <button class="pv-nav-btn"><svg><use href="#icon-clock"/></svg>History</button>
+                    <button class="pv-nav-btn selected"><svg><use href="#icon-alarm"/></svg>Wakeups</button>
+                  </div>
+                </div>
+                <div class="v2-section identity" style="flex:0.4; min-height:60px">
+                  <div class="v2-section-header" style="background: rgba(150, 170, 210, 0.10);">
+                    <span><svg width="10" height="10" style="vertical-align:middle;margin-right:4px"><use href="#icon-user"/></svg>IDENTITY · Coordinator</span>
+                    <span style="font-size:9px;font-weight:400;text-transform:none;letter-spacing:0" class="pv-dim">router — no actor state</span>
+                  </div>
+                  <div class="pv-nav-bar v2-mini-bar" style="background: linear-gradient(180deg, rgba(30,35,50,0.55), rgba(20,22,30,0.5));">
+                    <button class="pv-nav-btn selected"><svg><use href="#icon-user"/></svg>Identity file</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="pv-compose"><div class="pv-compose-box">Message Coordinator…</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="variant-notes">
+      <h3>Variant B read</h3>
+      <p>Two full "sub-modals" stacked, each with its own icon bar. Scope is visually indisputable and the layout naturally degrades for a coordinator: the Identity section shrinks to a slim strip since there's nothing meaningful to show below the identity file.</p>
+      <ul class="pros">
+        <li>Scope split is unmissable</li>
+        <li>Coordinator case degrades gracefully — layout still tells you what's going on</li>
+        <li>You can see role stuff and identity stuff simultaneously — no context loss on tab switch</li>
+      </ul>
+      <ul class="cons">
+        <li>Each section gets HALF the vertical space — content feels cramped on 390px tall</li>
+        <li>Two icon-bars in one modal reads busy</li>
+        <li>Resize / collapse-toggle adds interaction complexity</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============ VARIANT C — Left Rail ============ -->
+<div id="v3" class="variant">
+  <div class="pv-stage">
+    <div class="pv-stage-header">
+      <h2>Variant C · Left Rail Nav</h2>
+      <p>Replace the bottom icon-bar with a left-side navigation rail. Two clusters: "ROLE" header with role tabs, divider, "IDENTITY" header with identity tabs. Reads like Discord/Slack settings.</p>
+    </div>
+
+    <div class="pv-modes">
+      <!-- ACTOR IDENTITY -->
+      <div class="pv-mode">
+        <div class="pv-mode-label">Actor identity — Tina</div>
+        <div class="pv-mode-sub">holds role box-maintainer</div>
+        <div class="phone-frame">
+          <div class="phone-screen">
+            <div class="pv-badge-row">
+              <div class="pv-badge">T</div>
+              <div style="flex:1">
+                <div class="name">Tina</div>
+                <div class="sub">box-maintainer</div>
+              </div>
+            </div>
+            <div class="modal-shell">
+              <div class="modal-header">
+                <div class="title">Identity</div>
+                <button class="close"><svg width="16" height="16"><use href="#icon-x"/></svg></button>
+              </div>
+              <div class="v3-body">
+                <div class="v3-rail">
+                  <div class="v3-cluster">
+                    <div class="v3-cluster-label"><svg width="10" height="10"><use href="#icon-users"/></svg>Role</div>
+                    <button class="v3-rail-btn selected"><svg><use href="#icon-users"/></svg>Role file</button>
+                    <button class="v3-rail-btn"><svg><use href="#icon-target"/></svg>Bounties</button>
+                    <button class="v3-rail-btn"><svg><use href="#icon-clock"/></svg>History</button>
+                    <button class="v3-rail-btn"><svg><use href="#icon-alarm"/></svg>Wakeups</button>
+                  </div>
+                  <div class="v3-cluster-divider"></div>
+                  <div class="v3-cluster">
+                    <div class="v3-cluster-label"><svg width="10" height="10"><use href="#icon-user"/></svg>Identity</div>
+                    <button class="v3-rail-btn"><svg><use href="#icon-user"/></svg>Identity file</button>
+                    <button class="v3-rail-btn"><svg><use href="#icon-alarm"/></svg>Wakeups</button>
+                    <button class="v3-rail-btn"><svg><use href="#icon-handshake"/></svg>Handoff</button>
+                  </div>
+                </div>
+                <div class="v3-content">
+                  <div class="content-pane" style="padding:12px">
+                    <script>document.write(CONTENT.roleFile)</script>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="pv-compose"><div class="pv-compose-box">Message Tina…</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- COORDINATOR IDENTITY -->
+      <div class="pv-mode">
+        <div class="pv-mode-label">Coordinator identity</div>
+        <div class="pv-mode-sub">Identity cluster fades or hides</div>
+        <div class="phone-frame">
+          <div class="phone-screen">
+            <div class="pv-badge-row">
+              <div class="pv-badge" style="background:linear-gradient(135deg, hsl(200, 40%, 50%), hsl(200, 30%, 30%))">C</div>
+              <div style="flex:1">
+                <div class="name">Coordinator</div>
+                <div class="sub">for box-maintainer</div>
+              </div>
+            </div>
+            <div class="modal-shell" style="background: linear-gradient(180deg, hsla(200, 25%, 15%, 0.85), hsla(200, 20%, 10%, 0.82), hsla(200, 15%, 6%, 0.88));">
+              <div class="modal-header">
+                <div class="title">Identity</div>
+                <button class="close"><svg width="16" height="16"><use href="#icon-x"/></svg></button>
+              </div>
+              <div class="v3-body">
+                <div class="v3-rail">
+                  <div class="v3-cluster">
+                    <div class="v3-cluster-label"><svg width="10" height="10"><use href="#icon-users"/></svg>Role</div>
+                    <button class="v3-rail-btn selected"><svg><use href="#icon-alarm"/></svg>Wakeups</button>
+                    <div class="v3-rail-btn" style="opacity:0.35;font-style:italic;cursor:default;padding:4px 8px">— no role file —</div>
+                    <div class="v3-rail-btn" style="opacity:0.35;font-style:italic;cursor:default;padding:4px 8px">— no bounties —</div>
+                    <div class="v3-rail-btn" style="opacity:0.35;font-style:italic;cursor:default;padding:4px 8px">— no history —</div>
+                  </div>
+                  <div class="v3-cluster-divider"></div>
+                  <div class="v3-cluster">
+                    <div class="v3-cluster-label"><svg width="10" height="10"><use href="#icon-user"/></svg>Identity</div>
+                    <button class="v3-rail-btn"><svg><use href="#icon-user"/></svg>Identity file</button>
+                  </div>
+                </div>
+                <div class="v3-content">
+                  <div class="content-pane" style="padding:12px">
+                    <div class="pv-scope-label" style="padding:0 0 8px">ROLE-WIDE SCHEDULED WAKEUPS</div>
+                    <script>document.write(CONTENT.roleWakeups)</script>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="pv-compose"><div class="pv-compose-box">Message Coordinator…</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="variant-notes">
+      <h3>Variant C read</h3>
+      <p>The most structurally-honest layout — the scope split is baked into navigation itself. But it eats horizontal space on a 390px screen, which is where Ashley primarily uses the app.</p>
+      <ul class="pros">
+        <li>Scope split is inherent to the nav, not a label on top</li>
+        <li>Empty rail items make the coordinator "shape" immediately readable</li>
+        <li>More room for section labels + secondary text</li>
+      </ul>
+      <ul class="cons">
+        <li>130px rail eats ~⅓ of a 390px viewport before content shows</li>
+        <li>Doesn't match Skynet's mobile-first bottom-bar language (patch #191 chose bottombar over rail deliberately)</li>
+        <li>Would need a mobile-collapsed variant, adding responsive complexity</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============ VARIANT D — Scope Switch ============ -->
+<div id="v4" class="variant">
+  <div class="pv-stage">
+    <div class="pv-stage-header">
+      <h2>Variant D · Top Scope Switch</h2>
+      <p>One segmented control at the top ("Role" / "Identity"), and the bottom icon-bar re-shuffles to show only that scope's tabs. Two focused views. Coordinator identity defaults to the Role view since that's where its meaningful content lives.</p>
+    </div>
+
+    <div class="pv-modes">
+      <!-- ACTOR IDENTITY -->
+      <div class="pv-mode">
+        <div class="pv-mode-label">Actor identity — Tina</div>
+        <div class="pv-mode-sub">viewing Role scope</div>
+        <div class="phone-frame">
+          <div class="phone-screen">
+            <div class="pv-badge-row">
+              <div class="pv-badge">T</div>
+              <div style="flex:1">
+                <div class="name">Tina</div>
+                <div class="sub">box-maintainer</div>
+              </div>
+            </div>
+            <div class="modal-shell">
+              <div class="modal-header">
+                <div class="title">Identity</div>
+                <button class="close"><svg width="16" height="16"><use href="#icon-x"/></svg></button>
+              </div>
+              <div class="v4-scope-switch-row">
+                <div class="pv-segmented" style="width:100%">
+                  <button class="pv-segmented-btn active" style="flex:1"><svg width="12" height="12" style="vertical-align:middle;margin-right:4px"><use href="#icon-users"/></svg>Role</button>
+                  <button class="pv-segmented-btn" style="flex:1"><svg width="12" height="12" style="vertical-align:middle;margin-right:4px"><use href="#icon-user"/></svg>Identity</button>
+                </div>
+              </div>
+              <div class="modal-body">
+                <div class="content-pane">
+                  <script>document.write(CONTENT.roleFile)</script>
+                </div>
+              </div>
+              <div class="pv-nav-bar">
+                <button class="pv-nav-btn selected"><svg><use href="#icon-users"/></svg>Role file</button>
+                <button class="pv-nav-btn"><svg><use href="#icon-target"/></svg>Bounties</button>
+                <button class="pv-nav-btn"><svg><use href="#icon-clock"/></svg>History</button>
+                <button class="pv-nav-btn"><svg><use href="#icon-alarm"/></svg>Wakeups</button>
+              </div>
+            </div>
+            <div class="pv-compose"><div class="pv-compose-box">Message Tina…</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ACTOR - Identity view (SECOND actor state to show the switch working) -->
+      <div class="pv-mode">
+        <div class="pv-mode-label">Same actor · Identity view</div>
+        <div class="pv-mode-sub">tapped the switch to Identity</div>
+        <div class="phone-frame">
+          <div class="phone-screen">
+            <div class="pv-badge-row">
+              <div class="pv-badge">T</div>
+              <div style="flex:1">
+                <div class="name">Tina</div>
+                <div class="sub">box-maintainer</div>
+              </div>
+            </div>
+            <div class="modal-shell">
+              <div class="modal-header">
+                <div class="title">Identity</div>
+                <button class="close"><svg width="16" height="16"><use href="#icon-x"/></svg></button>
+              </div>
+              <div class="v4-scope-switch-row">
+                <div class="pv-segmented" style="width:100%">
+                  <button class="pv-segmented-btn" style="flex:1"><svg width="12" height="12" style="vertical-align:middle;margin-right:4px"><use href="#icon-users"/></svg>Role</button>
+                  <button class="pv-segmented-btn active" style="flex:1"><svg width="12" height="12" style="vertical-align:middle;margin-right:4px"><use href="#icon-user"/></svg>Identity</button>
+                </div>
+              </div>
+              <div class="modal-body">
+                <div class="content-pane">
+                  <script>document.write(CONTENT.identityFile)</script>
+                </div>
+              </div>
+              <div class="pv-nav-bar">
+                <button class="pv-nav-btn selected"><svg><use href="#icon-user"/></svg>Identity file</button>
+                <button class="pv-nav-btn"><svg><use href="#icon-alarm"/></svg>Wakeups</button>
+                <button class="pv-nav-btn"><svg><use href="#icon-handshake"/></svg>Handoff</button>
+              </div>
+            </div>
+            <div class="pv-compose"><div class="pv-compose-box">Message Tina…</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="height:24px"></div>
+
+    <div class="pv-modes">
+      <!-- COORDINATOR IDENTITY -->
+      <div class="pv-mode">
+        <div class="pv-mode-label">Coordinator identity</div>
+        <div class="pv-mode-sub">defaults to Role view</div>
+        <div class="phone-frame">
+          <div class="phone-screen">
+            <div class="pv-badge-row">
+              <div class="pv-badge" style="background:linear-gradient(135deg, hsl(200, 40%, 50%), hsl(200, 30%, 30%))">C</div>
+              <div style="flex:1">
+                <div class="name">Coordinator</div>
+                <div class="sub">for box-maintainer</div>
+              </div>
+            </div>
+            <div class="modal-shell" style="background: linear-gradient(180deg, hsla(200, 25%, 15%, 0.85), hsla(200, 20%, 10%, 0.82), hsla(200, 15%, 6%, 0.88));">
+              <div class="modal-header">
+                <div class="title">Identity</div>
+                <button class="close"><svg width="16" height="16"><use href="#icon-x"/></svg></button>
+              </div>
+              <div class="v4-scope-switch-row">
+                <div class="pv-segmented" style="width:100%">
+                  <button class="pv-segmented-btn active" style="flex:1"><svg width="12" height="12" style="vertical-align:middle;margin-right:4px"><use href="#icon-users"/></svg>Role</button>
+                  <button class="pv-segmented-btn" style="flex:1"><svg width="12" height="12" style="vertical-align:middle;margin-right:4px"><use href="#icon-user"/></svg>Identity</button>
+                </div>
+              </div>
+              <div class="modal-body">
+                <div class="content-pane">
+                  <div class="pv-scope-label" style="padding:0 0 8px">SCHEDULED WAKEUPS · role scope</div>
+                  <script>document.write(CONTENT.roleWakeups)</script>
+                </div>
+              </div>
+              <div class="pv-nav-bar">
+                <button class="pv-nav-btn" style="opacity:0.4"><svg><use href="#icon-users"/></svg>Role file</button>
+                <button class="pv-nav-btn" style="opacity:0.4"><svg><use href="#icon-target"/></svg>Bounties</button>
+                <button class="pv-nav-btn" style="opacity:0.4"><svg><use href="#icon-clock"/></svg>History</button>
+                <button class="pv-nav-btn selected"><svg><use href="#icon-alarm"/></svg>Wakeups</button>
+              </div>
+            </div>
+            <div class="pv-compose"><div class="pv-compose-box">Message Coordinator…</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- COORDINATOR - Identity view -->
+      <div class="pv-mode">
+        <div class="pv-mode-label">Coordinator · Identity view</div>
+        <div class="pv-mode-sub">only Identity file has content</div>
+        <div class="phone-frame">
+          <div class="phone-screen">
+            <div class="pv-badge-row">
+              <div class="pv-badge" style="background:linear-gradient(135deg, hsl(200, 40%, 50%), hsl(200, 30%, 30%))">C</div>
+              <div style="flex:1">
+                <div class="name">Coordinator</div>
+                <div class="sub">for box-maintainer</div>
+              </div>
+            </div>
+            <div class="modal-shell" style="background: linear-gradient(180deg, hsla(200, 25%, 15%, 0.85), hsla(200, 20%, 10%, 0.82), hsla(200, 15%, 6%, 0.88));">
+              <div class="modal-header">
+                <div class="title">Identity</div>
+                <button class="close"><svg width="16" height="16"><use href="#icon-x"/></svg></button>
+              </div>
+              <div class="v4-scope-switch-row">
+                <div class="pv-segmented" style="width:100%">
+                  <button class="pv-segmented-btn" style="flex:1"><svg width="12" height="12" style="vertical-align:middle;margin-right:4px"><use href="#icon-users"/></svg>Role</button>
+                  <button class="pv-segmented-btn active" style="flex:1"><svg width="12" height="12" style="vertical-align:middle;margin-right:4px"><use href="#icon-user"/></svg>Identity</button>
+                </div>
+              </div>
+              <div class="modal-body">
+                <div class="content-pane">
+                  <div class="stub-md">
+                    <h4>Coordinator</h4>
+                    <p><span class="pv-code">role: box-maintainer</span></p>
+                    <p><span class="pv-code">coordinator: true</span></p>
+                    <p><span class="pv-muted">Router for box-maintainer role. Dispatches inbound work + role-general wake-ups to picked actors.</span></p>
+                  </div>
+                </div>
+              </div>
+              <div class="pv-nav-bar">
+                <button class="pv-nav-btn selected"><svg><use href="#icon-user"/></svg>Identity file</button>
+                <button class="pv-nav-btn" style="opacity:0.4"><svg><use href="#icon-alarm"/></svg>Wakeups</button>
+                <button class="pv-nav-btn" style="opacity:0.4"><svg><use href="#icon-handshake"/></svg>Handoff</button>
+              </div>
+            </div>
+            <div class="pv-compose"><div class="pv-compose-box">Message Coordinator…</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="variant-notes">
+      <h3>Variant D read</h3>
+      <p>Focused single-scope views instead of one blended one. The segmented control is a familiar iOS-style affordance; each scope gets a full bottom-bar to itself. Trades scope co-visibility for content breathing room.</p>
+      <ul class="pros">
+        <li>Each scope's tabs get full space — 4 icons instead of 7</li>
+        <li>Wakeups gets one tab per scope naturally (each view has its own)</li>
+        <li>Coordinator defaults to Role scope where the meaningful content is</li>
+      </ul>
+      <ul class="cons">
+        <li>Two-step nav (switch scope, then tap tab) to reach anything</li>
+        <li>You can't see role + identity content simultaneously</li>
+        <li>Extra top-of-modal chrome eats some vertical space</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============ VARIANT E — Dashboard ============ -->
+<div id="v5" class="variant">
+  <div class="pv-stage">
+    <div class="pv-stage-header">
+      <h2>Variant E · Dashboard, No Tabs</h2>
+      <p>Abandon tabs entirely. Modal body is two columns: Role on left with stacked cards, Identity on right with cards. Each card is a scannable summary; tap opens a full editor. Empty cards visibly fade for coordinator identities.</p>
+    </div>
+
+    <div class="pv-modes">
+      <!-- ACTOR IDENTITY -->
+      <div class="pv-mode">
+        <div class="pv-mode-label">Actor identity — Tina</div>
+        <div class="pv-mode-sub">holds role box-maintainer</div>
+        <div class="phone-frame">
+          <div class="phone-screen">
+            <div class="pv-badge-row">
+              <div class="pv-badge">T</div>
+              <div style="flex:1">
+                <div class="name">Tina</div>
+                <div class="sub">box-maintainer</div>
+              </div>
+            </div>
+            <div class="modal-shell">
+              <div class="modal-header">
+                <div class="title">Identity</div>
+                <button class="close"><svg width="16" height="16"><use href="#icon-x"/></svg></button>
+              </div>
+              <div class="v5-body">
+                <div class="v5-column role">
+                  <div class="v5-column-header"><svg width="10" height="10"><use href="#icon-users"/></svg>Role · box-maintainer</div>
+                  <div class="v5-card">
+                    <div class="v5-card-title"><span>Role file</span><svg><use href="#icon-file"/></svg></div>
+                    <div class="v5-card-body">10,000-foot view of t1000 · runbooks · standing directives · learned preferences <span class="pv-dim">· 668 lines</span></div>
+                  </div>
+                  <div class="v5-card">
+                    <div class="v5-card-title"><span>Bounties</span><svg><use href="#icon-target"/></svg></div>
+                    <div class="v5-card-count">123</div>
+                    <div class="v5-card-body">Pinned · In Progress · Rest · Archive (lazy)</div>
+                  </div>
+                  <div class="v5-card">
+                    <div class="v5-card-title"><span>History</span><svg><use href="#icon-clock"/></svg></div>
+                    <div class="v5-card-body"><span class="pv-code" style="font-size:10px">2026-09-04</span> · Phase 71 shipped<br><span class="pv-code" style="font-size:10px">2026-09-03</span> · Diag instrumentation<br><span class="pv-code" style="font-size:10px">2026-09-02</span> · Substrate transfer</div>
+                  </div>
+                  <div class="v5-card">
+                    <div class="v5-card-title"><span>Role wakeups</span><svg><use href="#icon-alarm"/></svg></div>
+                    <div class="v5-card-body pv-dim">none</div>
+                    <button style="margin-top:6px; background: var(--pv-hue-tab-selected-bg); border:1px solid var(--pv-hue-tab-selected-rim); color:var(--pv-fg-bright); border-radius:6px; padding:4px 10px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;"><svg width="10" height="10"><use href="#icon-plus"/></svg>Add role wakeup</button>
+                  </div>
+                </div>
+                <div class="v5-column identity">
+                  <div class="v5-column-header"><svg width="10" height="10"><use href="#icon-user"/></svg>Identity · Tina</div>
+                  <div class="v5-card">
+                    <div class="v5-card-title"><span>Identity file</span><svg><use href="#icon-file"/></svg></div>
+                    <div class="v5-card-body">Two relay accounts · standing directive: ask about Stacy DM after every ship</div>
+                  </div>
+                  <div class="v5-card">
+                    <div class="v5-card-title"><span>Identity wakeups</span><svg><use href="#icon-alarm"/></svg></div>
+                    <div class="v5-card-body">
+                      <div style="margin-bottom:4px"><span style="color:var(--pv-fg-bright); font-weight:600">daily-box-check</span> · 14:00 UTC</div>
+                      <div><span style="color:var(--pv-fg-bright); font-weight:600">fleet-auth-relogin</span> · every 25d</div>
+                    </div>
+                  </div>
+                  <div class="v5-card">
+                    <div class="v5-card-title"><span>Handoff</span><svg><use href="#icon-handshake"/></svg></div>
+                    <div class="v5-card-body">Session summary · Open plans · Ambient state <span class="pv-dim">· updated 2 hours ago</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="pv-compose"><div class="pv-compose-box">Message Tina…</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- COORDINATOR IDENTITY -->
+      <div class="pv-mode">
+        <div class="pv-mode-label">Coordinator identity</div>
+        <div class="pv-mode-sub">Role column dominates, Identity fades</div>
+        <div class="phone-frame">
+          <div class="phone-screen">
+            <div class="pv-badge-row">
+              <div class="pv-badge" style="background:linear-gradient(135deg, hsl(200, 40%, 50%), hsl(200, 30%, 30%))">C</div>
+              <div style="flex:1">
+                <div class="name">Coordinator</div>
+                <div class="sub">for box-maintainer</div>
+              </div>
+            </div>
+            <div class="modal-shell" style="background: linear-gradient(180deg, hsla(200, 25%, 15%, 0.85), hsla(200, 20%, 10%, 0.82), hsla(200, 15%, 6%, 0.88));">
+              <div class="modal-header">
+                <div class="title">Identity</div>
+                <button class="close"><svg width="16" height="16"><use href="#icon-x"/></svg></button>
+              </div>
+              <div class="v5-body">
+                <div class="v5-column role">
+                  <div class="v5-column-header" style="color: hsl(200, 60%, 75%);"><svg width="10" height="10"><use href="#icon-users"/></svg>Role · box-maintainer</div>
+                  <div class="v5-card empty">
+                    <div class="v5-card-title"><span>Role file</span><svg><use href="#icon-file"/></svg></div>
+                    <div class="v5-card-body pv-dim" style="font-style:italic">not loaded — coordinators don't read the role file</div>
+                  </div>
+                  <div class="v5-card empty">
+                    <div class="v5-card-title"><span>Bounties</span><svg><use href="#icon-target"/></svg></div>
+                    <div class="v5-card-body pv-dim" style="font-style:italic">routed to actors, not held here</div>
+                  </div>
+                  <div class="v5-card empty">
+                    <div class="v5-card-title"><span>History</span><svg><use href="#icon-clock"/></svg></div>
+                    <div class="v5-card-body pv-dim" style="font-style:italic">actor context</div>
+                  </div>
+                  <div class="v5-card" style="background: hsla(200, 60%, 30%, 0.15); border-color: hsla(200, 60%, 50%, 0.3);">
+                    <div class="v5-card-title" style="color: hsl(200, 60%, 90%)"><span>Role wakeups</span><svg><use href="#icon-alarm"/></svg></div>
+                    <div class="v5-card-body">
+                      <div style="margin-bottom:4px; color: hsl(200, 40%, 90%)"><span style="font-weight:600">morning-triage</span> · 09:00 UTC</div>
+                      <div style="color: hsl(200, 40%, 90%)"><span style="font-weight:600">weekly-audit</span> · mon 10:00</div>
+                    </div>
+                    <button style="margin-top:8px; background: hsla(200, 60%, 45%, 0.25); border:1px solid hsla(200, 60%, 55%, 0.4); color:#fff; border-radius:6px; padding:4px 10px; font-size:11px; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:4px;"><svg width="10" height="10"><use href="#icon-plus"/></svg>Add role wakeup</button>
+                  </div>
+                </div>
+                <div class="v5-column identity">
+                  <div class="v5-column-header"><svg width="10" height="10"><use href="#icon-user"/></svg>Identity · Coordinator</div>
+                  <div class="v5-card">
+                    <div class="v5-card-title"><span>Identity file</span><svg><use href="#icon-file"/></svg></div>
+                    <div class="v5-card-body"><span class="pv-code" style="font-size:10px">coordinator: true</span> · router for box-maintainer</div>
+                  </div>
+                  <div class="v5-card empty">
+                    <div class="v5-card-title"><span>Identity wakeups</span><svg><use href="#icon-alarm"/></svg></div>
+                    <div class="v5-card-body pv-dim" style="font-style:italic">coordinators use role-scope only</div>
+                  </div>
+                  <div class="v5-card empty">
+                    <div class="v5-card-title"><span>Handoff</span><svg><use href="#icon-handshake"/></svg></div>
+                    <div class="v5-card-body pv-dim" style="font-style:italic">dispatch is stateless</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="pv-compose"><div class="pv-compose-box">Message Coordinator…</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="variant-notes">
+      <h3>Variant E read</h3>
+      <p>Most divergent from the current modal — no tabs at all, replaced by scannable cards. Each card shows a preview; tap opens a full editor. The coordinator case is the strongest here: the one meaningful card (Role wakeups) visibly dominates while empty cards fade with explanatory captions.</p>
+      <ul class="pros">
+        <li>At-a-glance overview of everything without clicking</li>
+        <li>Coordinator case reads perfectly — the one live card stands out</li>
+        <li>Empty states become informative rather than embarrassing</li>
+        <li>Wakeup scope is inherent to which column the card lives in</li>
+      </ul>
+      <ul class="cons">
+        <li>Biggest departure from the current modal — highest reimplementation cost</li>
+        <li>Tap-to-open-editor adds a modal-in-modal or route change layer</li>
+        <li>Two-column on 390px means each card is narrow — text truncation risk</li>
+        <li>Loses the "focus on one thing at a time" property tabs give you</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
