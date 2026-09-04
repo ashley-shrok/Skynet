@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-04T07:58:23.468Z"
+last_updated: "2026-09-04T09:31:55.111Z"
 last_activity: 2026-09-04
 progress:
   total_phases: 73
   completed_phases: 61
   total_plans: 268
-  completed_plans: 259
+  completed_plans: 261
   percent: 84
 ---
 
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 72 (identity-modal-role-identity-scope-split-with-role-level-wak) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 
-Last activity: 2026-09-04 — Completed Phase 72 Plan 02: Frontend WakeupsTab refactor for full CRUD parity. WakeupsTab now accepts `scope: "role" | "identity"` + `onCreate` + `onDelete` callback props (parent WS-plumbing responsibility); renders a hue-tinted "Add wakeup" pill at top of the tab (both data + empty-state branches so first-wakeup flow is reachable), a Radix Dialog-in-Dialog sub-modal (AddWakeupDialog, 12 tests) with the 6 CONTEXT.md-locked form fields including the optional IANA Timezone override (hidden for Interval, visible for Daily/Weekly/One-shot; blank falls back to auto-detected browser tz), a per-row trash icon opening a Radix AlertDialog confirm with slug-in-description + error-surface-inline-on-rejection, and a per-row scope pill so scope is visible at a glance (satisfies CONTEXT.md's "every wakeup visibly declares its scope" spirit-violation guardrail). Non-behavior-change refactor extracted FormSchedule / hydrate / build / validate / RestrictToDaysChips into a new co-located WakeupFormShared.tsx module so both the inline row editor and the new sub-modal consume the same helpers (dedupe). IdentityModal L1905 call site patched with STUB values (scope="identity", no-op async onCreate/onDelete) + a `TODO Wave 3` comment — deliberately over @ts-expect-error suppression to avoid TS2578/TS2741 diagnostic instability across three required props; Plan 03 Task 2a replaces the stubs with real WS wiring. WakeupsTab.test.tsx extended with 11 new tests (13-23) covering both scopes' dialog titles, onCreate spec-shape, trash-icon count, delete-confirm slug-in-description, onDelete slug arg, cancel no-op, rejection error surfacing, per-scope pill text, and empty-state Add button reachability. Regression sweep: WakeupsTab (23/23), AddWakeupDialog (12/12), IdentityModal (12/12), IdentityModal.role-tab (4/4), IdentityModal.stays-awake (6/6), IdentityModal.voice (8/8), IdentityModal.bounties-filter (11/11), IdentityModal.lazy-archive (6/6) — all green, no regressions from the stub patch. `npx tsc --noEmit` exit 0. Three atomic commits on `feat/tab-title-from-tmux`: `e7aa6e00` (refactor extraction), `20f13402` (AddWakeupDialog + 12 tests), `0d485305` (WakeupsTab affordances + IdentityModal stub). NO push, NO docker build, NO deploy per executor rules. Wave 3 next: scope-switch in IdentityModal + Zustand modal-scope-store + per-scope conditional NAV_SECTIONS + real WS wiring for create/delete replacing the stubs.
+Last activity: 2026-09-04
 Last activity (prior): 2026-09-04
 Last activity: 2026-09-03 — Completed quick task 260903-7e8: instrument dormant-send flow with `[diag-dormant-send]` prefix at 13 frontend + 15 backend transition sites (arm/fire/cleanup/dedup/watchdog stages) so Ashley's next natural repro of the red-bubble + duplicate-real-bubble failure mode reconstructs a full mqid-keyed timeline from a single grep across `console-forward.log` + `docker compose logs skynet`. Phase 62 (b98f81f1, widened client pending-send timer to 220s for dormant sends) is in the deployed image but the symptom persists in a new form — logs will discriminate between four hypotheses (A: timer fires early despite dormant flag, B: dedup gap on the incoming real message, C: watchdog re-dispatch → duplicate delivery, D: cleanup-on-late-arrival never wired). Single atomic diag commit `7666c569` in `adb90600` shape (no logic changes, additive `console.info` / `sshLogger.info` only, `mqid` correlation id threaded through). Three files: `src/ui/features/pretty-view/PrettyView.tsx` (arm/fire/cleanup sites + `dormantRef` read at arm), `src/backend/claude-session/pv-send-watchdog.ts` (marker-poll fresh/fallback boundaries, retry/full-resend/give-up firing), `src/backend/claude-session/claude-session-server.ts` (dormant-send-start entry, sentinel drop, dispatch). Ship: `sudo docker build -f docker/Dockerfile -t skynet-patched:local .` OK → `sudo docker compose -f /opt/skynet/docker-compose.yml up -d --force-recreate skynet` OK → HTTPS 200 confirmed on term.gigaashley.click. Container clean startup, no stack traces. Ashley (or peer instance) hits the bug in normal use, then grep `[diag-dormant-send]` in both log streams → timeline reveals which hypothesis fires. SUMMARY at `.planning/quick/260903-7e8-diag-instrument-dormant-send-flow-to-cat/260903-7e8-SUMMARY.md`. Prior activity:
 Last activity: 2026-09-03 -- Phase 70 planning complete
@@ -206,7 +206,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 98%
+Progress: [██████████] 99%
 Progress: [██████████] 100%
 
 ## Performance Metrics
@@ -325,6 +325,7 @@ Progress: [██████████] 100%
 | Phase 70 P03 | ~10 min | 2 tasks | 4 files |
 | Phase 70-branding-config P04 | ~15 min | 2 tasks | 5 files |
 | Phase 72 P01 | 25min | 2 tasks | 6 files |
+| Phase 72 P03 | 40min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -501,6 +502,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 72-01: reused writeIdentityWakeupUpdate REMOTE python3 pattern for four new create/update writers (byte-shape parity)
 - [Phase ?]: 72-01: slug derivation is server-side only from spec.name (defense against slug/name mismatch)
 - [Phase ?]: 72-01: create writers throw on clobber (rushed double-tap protection); update writers stay last-writer-wins
+- [Phase ?]: Radix TabsContent id-suffix pattern (/content-<value>$/) used for active-pane identity assertion — no data-value attribute exists
+- [Phase ?]: modal-scope-store is browser-session-only (in-memory Map) — no localStorage/sessionStorage, closes 'no surprising memory across identity swaps / sessions' failure mode
+- [Phase ?]: activeTab auto-resets on scope-flip via useEffect(scope) — avoids stale-tab-not-in-new-NAV_SECTIONS edge case
 
 ### Pending Todos
 
@@ -784,7 +788,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-04T07:57:58.111Z
+Last session: 2026-09-04T09:31:09.609Z
 Stopped at: Completed 72-01-PLAN.md — backend wakeup CRUD parity + WS handlers landed
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
@@ -793,4 +797,4 @@ Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 3
 Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
-Resume file: 72-02-PLAN.md
+Resume file: None

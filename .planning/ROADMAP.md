@@ -1793,7 +1793,7 @@ Plans:
 **Goal:** Coordinator and actor identities each open the modal into the scope that matters for them — coordinators land on Role view (their only meaningful state is role-scope wakeups), actors land on Identity view — and a segmented Role/Identity control at the top of the modal lets either flip between the two. Both scopes carry full wakeup CRUD parity (list/edit/add/enable-disable/delete), reading + writing the correct on-disk folder by construction. Every wakeup visibly wears its scope so ambiguity is impossible.
 **Requirements**: TBD
 **Depends on:** Phase 71
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 Plans:
 **Wave 1**
 
@@ -1805,7 +1805,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 72-03-PLAN.md — Scope switch + tab reshuffle in IdentityModal + Zustand-shaped modal-scope-store: segmented Role/Identity control at top, per-scope conditional NAV_SECTIONS (4 tabs Role / 3 tabs Identity), two Wakeups TabsContent panes (one per scope), coord-vs-actor default derivation, scope-derived activeTab reset, per-scope WS-plumbing for create/update/delete; updates all 4 existing IdentityModal test files + new scope-switch test file (wave 3, depends on 72-01+72-02)
+- [x] 72-03-PLAN.md — Scope switch + tab reshuffle in IdentityModal + Zustand-shaped modal-scope-store: segmented Role/Identity control at top, per-scope conditional NAV_SECTIONS (4 tabs Role / 3 tabs Identity), two Wakeups TabsContent panes (one per scope), coord-vs-actor default derivation, scope-derived activeTab reset, per-scope WS-plumbing for create/update/delete; updates all 4 existing IdentityModal test files + new scope-switch test file (wave 3, depends on 72-01+72-02)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
