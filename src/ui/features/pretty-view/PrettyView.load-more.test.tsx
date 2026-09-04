@@ -234,6 +234,10 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
     HTMLElement.prototype,
     "offsetHeight",
   );
+  const originalScrollHeightDescriptor = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "scrollHeight",
+  );
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -272,6 +276,26 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
         return 0;
       },
     });
+    // Phase 71 (2026-09-04, HEAD 79d14042) rewrote PrettyView auto-scroll with
+    // a hide-pin-reveal mount-landing pattern: the scroll container is wrapped
+    // in a `visibility: hidden` div until the useAutoScroll hook observes a
+    // non-zero `scrollHeight` on the container and dispatches effect="reveal".
+    // JSDOM defaults scrollHeight to 0 for every element, so without an
+    // override the wrapper never becomes visible and Testing Library's
+    // getByRole (which filters out inaccessible elements per WAI-ARIA) can't
+    // find the LoadMoreOlderButton. Return a positive value for the scroll
+    // container so the mount-landing reveal fires exactly like it does in a
+    // real browser.
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get(): number {
+        const cls = (this.className as string) || "";
+        if (typeof cls === "string" && cls.includes("overflow-y-auto")) {
+          return 1000;
+        }
+        return 0;
+      },
+    });
   });
 
   afterEach(() => {
@@ -283,6 +307,17 @@ describe("PrettyView load-more button + cap-off + prepend behavior", () => {
         "offsetHeight",
         originalOffsetHeightDescriptor,
       );
+    }
+    if (originalScrollHeightDescriptor) {
+      Object.defineProperty(
+        HTMLElement.prototype,
+        "scrollHeight",
+        originalScrollHeightDescriptor,
+      );
+    } else {
+      // JSDOM's default has no descriptor — delete our override.
+      delete (HTMLElement.prototype as unknown as Record<string, unknown>)
+        .scrollHeight;
     }
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
