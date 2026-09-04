@@ -1,9 +1,10 @@
 /**
  * Phase 20 (IDUI-04): Identity avatar batch generation route.
+ * Phase 74 Plan 03: config-driven aesthetic director spec + gamma.
  *
  * Mounts on /identities/avatar (in database.ts) and provides:
  *   POST /batch   — LLM archetype draft + 3 parallel gpt-image-1 calls
- *                   + gamma 0.7 correction + in-memory candidate cache
+ *                   + gamma correction + in-memory candidate cache
  *   GET  /candidate/:id — serves cached candidate PNG bytes
  *
  * OpenAI API key: read from process.env.OPENAI_API_KEY at request time.
@@ -12,9 +13,15 @@
  * Candidate cache TTL: 10 minutes. Scoped by userId so User A's
  * candidates are not accessible to User B.
  *
- * Gamma correction: sharp().gamma(1/0.7) ≈ 1.4286, which applies
- * output = input^0.7 per the avatar-flow runbook § 5. Verified: input
- * value 128 (mid-grey) maps to ≈177 post-correction.
+ * Gamma correction: sharp().gamma(1/gamma), which applies
+ * output = input^gamma per the operator's avatarGammaDefault (from
+ * branding config). Verified: input value 128 (mid-grey) with the
+ * shipped default gamma=0.7 maps to ≈157 post-correction.
+ *
+ * Aesthetic director system prompt: read at request time from
+ * branding config's avatarDirectorSpec. The app owns zero aesthetic
+ * content — a differently-branded instance produces entirely different
+ * avatars purely by editing branding.json.
  *
  * TTL sweeper: runs every 60s, skipped when NODE_ENV === "test".
  */
@@ -25,6 +32,7 @@ import multer from "multer";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { AuthManager } from "../../utils/auth-manager.js";
+import { loadBrandingConfig } from "../../branding/branding-config-loader.js";
 import type { AuthenticatedRequest } from "../../../types/index.js";
 
 const router = express.Router();
@@ -119,18 +127,20 @@ function evictIfNeeded(userId: string): void {
 
 // ---------------------------------------------------------------------------
 // Gamma correction helper
-// Applies gamma 0.7 per the avatar-flow runbook § 5:
-//   output = input^0.7   (normalized: output_norm = input_norm^0.7)
+// Applies operator-configured gamma per branding config's avatarGammaDefault:
+//   output = input^gamma   (normalized: output_norm = input_norm^gamma)
 //
 // Sharp's .gamma(g) applies sRGB linearization (not a plain power curve),
 // so we do raw pixel manipulation: decode PNG → iterate channels → apply
-// Math.pow(v/255, 0.7) * 255 → re-encode PNG.
+// Math.pow(v/255, gamma) * 255 → re-encode PNG. That reasoning is
+// independent of the gamma value chosen.
 //
-// Verification: input 128 → (128/255)^0.7 * 255 ≈ 157 (rounds to 157).
-// Alpha channels (channels===4) are left untouched.
+// Verification with the shipped default (gamma=0.7): input 128 →
+// (128/255)^0.7 * 255 ≈ 157 (rounds to 157). Alpha channels (channels===4)
+// are left untouched.
 // ---------------------------------------------------------------------------
 
-async function applyGamma07(pngBuffer: Buffer): Promise<Buffer> {
+async function applyGamma(pngBuffer: Buffer, gamma: number): Promise<Buffer> {
   const { data, info } = await sharp(pngBuffer)
     .raw()
     .toBuffer({ resolveWithObject: true });
@@ -139,7 +149,7 @@ async function applyGamma07(pngBuffer: Buffer): Promise<Buffer> {
   for (let i = 0; i < data.length; i++) {
     // Skip alpha channel (every 4th byte when RGBA)
     if (channels === 4 && (i + 1) % 4 === 0) continue;
-    data[i] = Math.round(Math.pow(data[i] / 255, 0.7) * 255);
+    data[i] = Math.round(Math.pow(data[i] / 255, gamma) * 255);
   }
 
   return sharp(data, {
@@ -150,13 +160,18 @@ async function applyGamma07(pngBuffer: Buffer): Promise<Buffer> {
 }
 
 // ---------------------------------------------------------------------------
-// Palette constraint: HSL hue degree → color-name hint for the LLM archetype
-// draft. When the identity has a chosen colorHue (set in the birth dialog),
-// the drafted image-gen prompt must center on that hue so the generated
-// avatar matches the badge/bubble tint. Without this, the LLM picks palette
-// freely and defaults to blue/cyan (cyberpunk-adjacent gravity in the system
-// prompt) regardless of the user's pick — the "picked pink, got all blue"
-// bug. hue===null → return "" so the LLM falls back to freewheel palette.
+// Palette-hue mechanics (Phase 74 Plan 03 split):
+//   - hueName() is the mechanical HSL-degree → color-name mapping. App-owned
+//     per 74-CONTEXT.md Philosophy ("The app owns mechanics.").
+//   - paletteHueLine() emits ONLY the mechanical fact ("hue X° reads as Y")
+//     when the identity has a chosen colorHue. It's appended to the user
+//     message so the drafter knows which hue to center on.
+//   - The AESTHETIC instruction language for how to use that hue (e.g. "±30
+//     degrees", "don't default to blue/cyan just because the background reads
+//     cyberpunk-adjacent") lives in the operator-authored avatarDirectorSpec
+//     in branding.json — NOT in this file. Per 74-CONTEXT.md Philosophy
+//     ("The config owns instructions.") and 74-CONTEXT.md D-06.
+//   - hue===null → return "" so the drafter falls back to freewheel palette.
 // ---------------------------------------------------------------------------
 
 function hueName(hue: number): string {
@@ -171,31 +186,10 @@ function hueName(hue: number): string {
   return "red-pink";
 }
 
-function paletteConstraintLine(hue: number | null): string {
+function paletteHueLine(hue: number | null): string {
   if (hue === null) return "";
-  return `\n\nPALETTE CONSTRAINT (LOAD-BEARING): the identity's chosen hue on the HSL color wheel is ${hue} degrees, which reads as ${hueName(hue)}. The drafted image-gen prompt's palette section MUST center on this hue — dominant color and rim-light in ${hueName(hue)}, accents within roughly ±30 degrees of ${hue}°. Do NOT default to blue / cyan just because the background reads cyberpunk-adjacent. The generated avatar has to match the identity's UI badge and chat-bubble tint, which are driven from this same hue.`;
+  return `\n\nIdentity color hue: ${hue}° (reads as ${hueName(hue)}).`;
 }
-
-// ---------------------------------------------------------------------------
-// Archetype system prompt (adapted from avatar-flow runbook § 2-3)
-// ---------------------------------------------------------------------------
-
-const ARCHETYPE_SYSTEM_PROMPT = `You are a MOBA-champion character-art director specializing in LoL champion-select splash portraits.
-
-Given a fleet identity's name, title, and brief role description, produce a single tight image-generation prompt for gpt-image-1.
-
-The prompt MUST:
-- Open with: "MOBA-champion character portrait illustration — a strong distinct character concept in the tradition of League of Legends champion-select splash art. Painterly cel-shaded with THICK BOLD BLACK CEL-SHADED OUTLINES suitable for viewing at small avatar sizes (~60px, will be cropped to a circle). HIGHLY SATURATED GLOWING colors. Larger-than-life character energy. NOT a generic anime portrait."
-- Specify TIGHT HEAD-AND-SHOULDERS composition: head + iconic signature head feature, face, top of shoulders. Chin around bottom third. NO waist, NO arms. Face LARGE in frame. Square 1:1.
-- Define an archetype character concept: name — the archetype title, one-sentence larger-than-life vibe. NOT mundane — mythic. Reference a LoL champion parallel.
-- List DISTINCT SILHOUETTE FEATURES (primary head feature, 2nd signature feature, 3rd feature at head level, hair, eyes, expression, collar/wardrobe with title woven patch in bold sans-serif).
-- Describe a thematic cyberpunk-adjacent background with ambient color, rim light, drifting themed glyphs.
-- Specify the palette (dominant + accents). State skin tone with NEUTRAL/COOL lighting — AVOID warm yellow cast.
-- End with: "No text overlays other than title patch. No watermarks. LoL champion select roster tier."
-
-Use SATURATED, GLOWING, LUMINOUS, BRIGHT, THICK BOLD throughout — avoid faint/subtle/soft modifiers.
-
-Produce the image-generation prompt ONLY. No preamble. No explanation. Just the prompt.`;
 
 // ---------------------------------------------------------------------------
 // POST /batch
@@ -245,6 +239,24 @@ router.post(
       return;
     }
 
+    // Phase 74 Plan 03: read branding-config for the aesthetic director spec
+    // and gamma value. Fresh per-request read preserves the Phase 70 hot-swap
+    // property. Request-time defense-in-depth per 74-RESEARCH.md § Pitfall 2:
+    // even though Plan 02's boot gate catches missing spec at startup, an
+    // operator runtime edit that introduces a shape violation silently reverts
+    // to bundled defaults (empty spec). Guard here mirrors the OPENAI_API_KEY
+    // 503 pattern above so the route either has a real spec or short-circuits
+    // before ever calling OpenAI. NO fallback to a hardcoded constant — that
+    // would defeat the whole point of moving the aesthetic into the config
+    // (74-CONTEXT.md § "What would make it wrong" §5).
+    const branding = await loadBrandingConfig();
+    const directorSpec = (branding.avatarDirectorSpec ?? "").trim();
+    if (directorSpec.length === 0) {
+      res.status(503).json({ error: "avatar generation misconfigured" });
+      return;
+    }
+    const gammaValue = branding.avatarGammaDefault;
+
     // ------------------------------------------------------------------
     // Step 1: LLM archetype draft (called ONCE per request)
     // ------------------------------------------------------------------
@@ -262,10 +274,10 @@ router.post(
         body: JSON.stringify({
           model: "gpt-4o-mini",
           messages: [
-            { role: "system", content: ARCHETYPE_SYSTEM_PROMPT },
+            { role: "system", content: directorSpec },
             {
               role: "user",
-              content: `Name: ${name}\nTitle: ${title}\nBrief: ${brief}${paletteConstraintLine(paletteHue)}\n\nProduce the image-generation prompt only. No preamble. No explanation. Just the prompt.`,
+              content: `Name: ${name}\nTitle: ${title}\nBrief: ${brief}${paletteHueLine(paletteHue)}\n\nProduce the image-generation prompt only. No preamble. No explanation. Just the prompt.`,
             },
           ],
         }),
@@ -337,14 +349,18 @@ router.post(
     }
 
     // ------------------------------------------------------------------
-    // Step 3: Apply gamma 0.7 to each image via sharp
+    // Step 3: Apply operator-configured gamma to each image via sharp.
+    // Phase 74 Plan 03: gamma value threaded from branding config's
+    // avatarGammaDefault, not hardcoded 0.7. The shipped bundled default
+    // still carries 0.7 for backwards compatibility with the pre-Phase-74
+    // aesthetic; operators can override per-branding.
     // ------------------------------------------------------------------
     let gammaCorrected: Buffer[];
     try {
       gammaCorrected = await Promise.all(
         b64Results.map(async (b64) => {
           const pngBuffer = Buffer.from(b64, "base64");
-          return applyGamma07(pngBuffer);
+          return applyGamma(pngBuffer, gammaValue);
         }),
       );
     } catch {
@@ -569,12 +585,19 @@ export function _evictIfNeededForTest(userId: string): void {
 }
 
 /**
- * Gamma spot-check helper for Test 4.
- * Applies the same gamma(1/0.7) pipeline to a single 8-bit channel value
- * and returns the result as an 8-bit integer.
- * (128/255)^0.7 * 255 ≈ 177
+ * Gamma spot-check helper for Test 4 + Phase 74 Plan 03 Test 11.
+ * Applies the same gamma pipeline to a single 8-bit channel value and
+ * returns the result as an 8-bit integer. The gamma parameter defaults
+ * to 0.7 to preserve backwards compatibility with Test 4's
+ * `_applyCorrectionForTest(128)` signature; Phase 74 tests pass an
+ * explicit gamma to assert the parameter is actually threaded through
+ * the pipeline (not silently ignored).
+ * Spot check: (128/255)^0.7 * 255 ≈ 157; (128/255)^0.5 * 255 ≈ 181.
  */
-export async function _applyCorrectionForTest(inputValue: number): Promise<number> {
+export async function _applyCorrectionForTest(
+  inputValue: number,
+  gamma: number = 0.7,
+): Promise<number> {
   if (process.env.NODE_ENV !== "test") return 0;
   // Create a 1x1 PNG with raw pixel value
   const raw = Buffer.alloc(inputValue >= 0 && inputValue <= 255 ? 3 : 3, inputValue);
@@ -585,7 +608,7 @@ export async function _applyCorrectionForTest(inputValue: number): Promise<numbe
     .png()
     .toBuffer();
 
-  const corrected = await applyGamma07(pngBuffer);
+  const corrected = await applyGamma(pngBuffer, gamma);
 
   // Extract the red channel of the 1x1 corrected PNG
   const { data } = await sharp(corrected).raw().toBuffer({ resolveWithObject: true });
