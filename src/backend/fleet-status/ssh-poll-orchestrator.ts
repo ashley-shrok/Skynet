@@ -53,6 +53,13 @@ import type { SubscriptionRegistry } from "./subscription-registry.js";
 import type { SessionState } from "./wire-protocol.js";
 import type { HostRecord } from "./host-id-resolver.js";
 import { writeSessionFileCache } from "./session-file-cache.js";
+// Phase 72 Plan 04 — fleet-substrate sweep hook (piggybacks on
+// tryAcquireHostChannel's success moment; fire-and-forget from the poll's
+// perspective; see 72-CONTEXT.md § Shape).
+import { readFile, stat } from "node:fs/promises";
+import { runSweepForHost } from "../distributor/run-sweep.js";
+import { FLEET_SUBSTRATE_CATALOG } from "../distributor/catalog.js";
+import { logSweepHookError } from "../distributor/log-tags.js";
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -180,6 +187,23 @@ export async function readStatWithSentinel(
 // ---------------------------------------------------------------------------
 // Internal types
 // ---------------------------------------------------------------------------
+
+/**
+ * Phase 72 Plan 04 — narrow extension of HostRecord that adds the
+ * runs_fleet_substrate opt-in flag (Plan 02's Drizzle column). Kept
+ * INTERNAL to this file (rather than surfacing on HostRecord itself)
+ * because the flag is only meaningful to the sweep hook — the rest of
+ * ssh-poll-orchestrator does not care.
+ *
+ * The listIdentityHostingHosts implementation in starter.ts is
+ * expected to project the column into the returned records. Until
+ * that wire-through lands, the field is undefined on every returned
+ * host and the sweep is inert — intentional fail-closed behavior
+ * consistent with the shape doc's "default off" invariant.
+ */
+interface IdentityHostingHostRecord extends HostRecord {
+  runsFleetSubstrate?: boolean;
+}
 
 interface PidCacheEntry {
   sessionId: string;
@@ -789,6 +813,11 @@ export function createSshPollOrchestrator(
   // -----------------------------------------------------------------------
   const inFlight = new Set<string>();
   const skipCount = new Map<string, number>();
+  // Phase 72 Plan 04 — fleet-substrate sweep-hook once-per-host gating.
+  // Populated on first successful channel acquisition per host per Skynet
+  // instance lifetime. Container restart wipes the Set (dies with the
+  // closure) so the sweep naturally re-fires on next acquisition.
+  const sweepedThisInstance = new Set<string>();
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let sweepTimer: ReturnType<typeof setInterval> | null = null;
   let pollTickCount = 0;
@@ -1992,6 +2021,29 @@ export function createSshPollOrchestrator(
   }
 
   // ---------------------------------------------------------------------------
+  // Phase 72 Plan 04 — pure adapter for bundled-file reads (fs → SweepDeps).
+  //
+  // Reads the bundled file from the container's /app/fleet-substrate/
+  // filesystem. Injected into runSweepForHost via SweepDeps.readBundledBytes
+  // so the sweep composer stays testable without touching disk. Never
+  // throws — returns null on any fs failure; sweep-logic.ts's decideItemAction
+  // treats null as skip("bundled-read-failed").
+  // ---------------------------------------------------------------------------
+  const bundledReaderFromDisk = async (
+    bundledPath: string,
+  ): Promise<{ bytes: Buffer; mode: number } | null> => {
+    try {
+      const [bytes, statResult] = await Promise.all([
+        readFile(bundledPath),
+        stat(bundledPath),
+      ]);
+      return { bytes, mode: statResult.mode };
+    } catch {
+      return null;
+    }
+  };
+
+  // ---------------------------------------------------------------------------
   // Try to acquire an SSH channel for a host (fail-open)
   // ---------------------------------------------------------------------------
 
@@ -2018,6 +2070,60 @@ export function createSshPollOrchestrator(
         // state per identity.
         identityRecycleState: new Map(),
       });
+
+      // ---------------------------------------------------------------------
+      // Phase 72 Plan 04 — fleet-substrate sweep hook. Piggyback on the
+      // natural moment this channel first became usable for this host in
+      // this instance lifetime. Fire-and-forget: NEVER await, NEVER let a
+      // sweep failure degrade the 2s poll.
+      //
+      // Guarded by:
+      //   1. sweepedThisInstance Set — once per host per Skynet instance
+      //   2. host.runsFleetSubstrate flag — operator opt-in per shape doc
+      //
+      // Container restart wipes both the Set and perHostState, so next
+      // acquisition naturally re-fires. See 72-CONTEXT.md § Shape
+      // "A trigger that fires at most once per host per Skynet instance
+      // lifetime."
+      //
+      // TODO(72-05 or follow-up): wire runsFleetSubstrate through starter.ts's
+      // listIdentityHostingHosts Drizzle projection so the flag reaches this
+      // hook site as a truthy value on opt-in hosts. Until then, every host
+      // sees runsFleetSubstrate=undefined and the sweep is inert — intentional
+      // fail-closed behavior consistent with the shape doc's "default off"
+      // invariant. See src/backend/starter.ts listIdentityHostingHosts.
+      const extHost = host as IdentityHostingHostRecord;
+      if (extHost.runsFleetSubstrate === true && !sweepedThisInstance.has(host.id)) {
+        sweepedThisInstance.add(host.id);
+        // WARN-3 (plan-checker): use queueMicrotask, NOT setImmediate. Both
+        // unblock the acquire path so pollAllHosts() proceeds regardless of
+        // sweep duration, but queueMicrotask is drainable in tests with a
+        // plain `await Promise.resolve()`. setImmediate under vi.useFakeTimers
+        // does NOT drain via tick() — it needs vi.runAllTimersAsync() or a
+        // fresh macrotask cycle, and Test D + Test E can silently produce
+        // false-green if the primitive isn't drained explicitly.
+        queueMicrotask(() => {
+          runSweepForHost(
+            channel,
+            { id: host.id, name: host.name },
+            FLEET_SUBSTRATE_CATALOG,
+            { readBundledBytes: bundledReaderFromDisk },
+          ).catch((err) => {
+            // Defense-in-depth. runSweepForHost's own fire-and-forget
+            // contract says it never rejects; this catch is here for the
+            // one-in-a-million edge case (e.g. a synchronous throw before
+            // the composer's outer try). Route through logSweepHookError
+            // from Plan 03's log-tags module rather than inlining
+            // systemLogger.warn — keeps the fleet_substrate_* log surface
+            // unified (WARN-2 fix from the plan-checker revision).
+            logSweepHookError({
+              hostId: host.id,
+              hostName: host.name,
+              errorMessage: err instanceof Error ? err.message : "unknown",
+            });
+          });
+        });
+      }
     } catch (err) {
       systemLogger.warn("Fleet-status: SSH channel acquire threw for host", {
         operation: "fleet_status_host_ssh_unreachable",
@@ -2170,6 +2276,11 @@ export function createSshPollOrchestrator(
         }
       }
       perHostState.clear();
+      // Phase 72 Plan 04 — clear sweep-hook gating alongside perHostState.
+      // The Set dies with the closure anyway on garbage collection, but
+      // keeping the cleanup symmetric with perHostState.clear() is good
+      // hygiene and makes the once-per-instance invariant obvious.
+      sweepedThisInstance.clear();
 
       systemLogger.info("Fleet-status orchestrator stopped", {
         operation: "fleet_status_orchestrator_stopped",
