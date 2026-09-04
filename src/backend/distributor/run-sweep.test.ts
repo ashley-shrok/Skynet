@@ -346,8 +346,16 @@ describe("runSweepForHost", () => {
     const bundled = Buffer.from("bundled");
     const stale = Buffer.from("stale");
     const catalog: CatalogEntry[] = [
-      catalogEntry({ slug: "exec-bit", installPath: "~/exec" }),
-      catalogEntry({ slug: "no-exec", installPath: "~/plain" }),
+      catalogEntry({
+        slug: "exec-bit",
+        installPath: "~/exec",
+        bundledPath: "/app/exec-bit",
+      }),
+      catalogEntry({
+        slug: "no-exec",
+        installPath: "~/plain",
+        bundledPath: "/app/no-exec",
+      }),
     ];
     const { channel, exec } = makeChannelSequenced((cmd) => {
       if (cmd.includes("base64 -w0")) return b64Ok(stale);
@@ -356,8 +364,7 @@ describe("runSweepForHost", () => {
     });
     const deps: SweepDeps = {
       readBundledBytes: vi.fn(async (path: string) => {
-        if (path.includes("exec-bit") || path === catalog[0].bundledPath)
-          return { bytes: bundled, mode: 0o755 };
+        if (path === "/app/exec-bit") return { bytes: bundled, mode: 0o755 };
         return { bytes: bundled, mode: 0o644 };
       }),
     };
