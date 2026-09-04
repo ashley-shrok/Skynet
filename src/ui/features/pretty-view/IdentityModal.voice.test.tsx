@@ -97,6 +97,12 @@ vi.mock("@/api/voice-api", () => ({
 import { updateIdentity } from "@/api/identities-api";
 import { IdentityModal } from "./IdentityModal";
 import { postSpeak, getVoices } from "@/api/voice-api";
+// Phase 72 Plan 03: defensive per-test reset of the modal-scope-store so
+// scope memory from one test never leaks into the next. Voice picker lives
+// in the title bar above the scope switch — tests here don't touch scope-
+// conditional tabs — but the reset is cheap insurance against future
+// interaction and matches the pattern in every other IdentityModal test file.
+import { __resetModalScopeForTest } from "@/state/modal-scope-store";
 
 const mockedUpdateIdentity = vi.mocked(updateIdentity);
 const mockedGetVoices = vi.mocked(getVoices);
@@ -148,6 +154,7 @@ function renderModal(identityOverrides?: Partial<Identity>) {
 describe("IdentityModal voice picker (patch #223)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetModalScopeForTest();
     vi.stubGlobal("Audio", MockAudio);
     vi.stubGlobal("URL", {
       createObjectURL: vi.fn(() => "blob:mock-voice"),

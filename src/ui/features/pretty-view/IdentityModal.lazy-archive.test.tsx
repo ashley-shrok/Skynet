@@ -130,6 +130,9 @@ vi.mock("@/state/bounty-counts-store", async (importOriginal) => {
 
 // ── Late imports ────────────────────────────────────────────────────────────
 import { IdentityModal } from "./IdentityModal";
+// Phase 72 Plan 03: per-test reset of the modal-scope-store so scope memory
+// from one test never leaks into the next.
+import { __resetModalScopeForTest } from "@/state/modal-scope-store";
 
 // ── Shared fixture ──────────────────────────────────────────────────────────
 // Phase 68: Identity no longer has id/createdAt/updatedAt; avatarUrl bakes
@@ -147,6 +150,19 @@ const BASE_IDENTITY: Identity = {
   coordinator: false,
 };
 
+// Phase 72 Plan 03: tap the segmented Role/Identity scope switch that lives
+// above the Tabs component. Archive lives inside the Bounties tab which
+// lives under Role scope; the actor mount defaults to scope='identity' so
+// every test here must flip scope + click Bounties before the accordion
+// becomes reachable.
+function switchScope(scope: "role" | "identity"): void {
+  const btn = document.querySelector(
+    `[data-testid="scope-switch-${scope}"]`,
+  ) as HTMLButtonElement | null;
+  if (!btn) throw new Error(`scope-switch-${scope} button not found`);
+  fireEvent.click(btn);
+}
+
 function renderModal() {
   const onOpenChangeSpy = vi.fn();
   render(
@@ -159,6 +175,18 @@ function renderModal() {
       container={document.body}
     />,
   );
+  // Phase 72 Plan 03: flip scope to Role + click the Bounties nav so the
+  // Archive accordion (which lives inside the Bounties tab pane) is the
+  // active pane. Radix TabsContent hides inactive panes from the
+  // accessibility tree, so tests relying on getByRole("button", { name:
+  // /^Archive$/ }) require the Bounties pane to be active.
+  switchScope("role");
+  const bountiesNavBtn = Array.from(
+    document.querySelectorAll(".shrink-0.flex.items-stretch button"),
+  ).find((b) => b.textContent?.includes("Bounties")) as
+    | HTMLButtonElement
+    | undefined;
+  if (bountiesNavBtn) fireEvent.click(bountiesNavBtn);
   return { onOpenChangeSpy };
 }
 
@@ -185,6 +213,7 @@ describe("IdentityModal — lazy-load archived bounties (quick 260823-80r)", () 
   beforeEach(() => {
     openedSockets.length = 0;
     vi.clearAllMocks();
+    __resetModalScopeForTest();
   });
 
   afterEach(() => {

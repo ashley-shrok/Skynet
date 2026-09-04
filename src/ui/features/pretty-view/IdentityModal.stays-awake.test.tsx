@@ -103,6 +103,12 @@ vi.mock("sonner", () => ({
 import { getIdentityNoDormancy, setIdentityNoDormancy } from "@/api/identities-api";
 import { toast } from "sonner";
 import { IdentityModal } from "./IdentityModal";
+// Phase 72 Plan 03: defensive per-test reset of the modal-scope-store so
+// scope memory from one test never leaks into the next. Stays-awake switch
+// lives in the title bar above the scope switch — tests here don't touch
+// scope-conditional tabs — but the reset is cheap insurance against future
+// interaction and matches the pattern in every other IdentityModal test file.
+import { __resetModalScopeForTest } from "@/state/modal-scope-store";
 
 const mockedGetIdentityNoDormancy = vi.mocked(getIdentityNoDormancy);
 const mockedSetIdentityNoDormancy = vi.mocked(setIdentityNoDormancy);
@@ -144,6 +150,7 @@ function renderModal(identityOverrides?: Partial<Identity>) {
 describe("IdentityModal 'Stays awake' switch (Quick 260811-ax1)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetModalScopeForTest();
     // Default: sentinel not present
     mockedGetIdentityNoDormancy.mockResolvedValue(false);
     // Default: setIdentityNoDormancy echoes back the requested state

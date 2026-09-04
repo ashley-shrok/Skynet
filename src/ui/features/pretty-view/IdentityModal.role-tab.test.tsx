@@ -103,6 +103,9 @@ vi.mock("@/state/bounty-counts-store", async (importOriginal) => {
 
 // ── Late imports ─────────────────────────────────────────────────────────────
 import { IdentityModal } from "./IdentityModal";
+// Phase 72 Plan 03: per-test reset of the modal-scope-store so scope memory
+// from one test never leaks into the next (the store lives at module scope).
+import { __resetModalScopeForTest } from "@/state/modal-scope-store";
 
 // ── Fixture ──────────────────────────────────────────────────────────────────
 // Phase 68: Identity no longer has id/createdAt/updatedAt; avatarUrl bakes
@@ -120,17 +123,30 @@ const BASE_IDENTITY: Identity = {
   coordinator: false,
 };
 
-function renderModal(): void {
+function renderModal(identityOverrides?: Partial<Identity>): void {
+  const identity: Identity = { ...BASE_IDENTITY, ...identityOverrides };
   render(
     <IdentityModal
       open={true}
       onOpenChange={vi.fn()}
-      identity={BASE_IDENTITY}
+      identity={identity}
       hue={200}
       hostId={1}
       container={document.body}
     />,
   );
+}
+
+// Phase 72 Plan 03: tap the segmented Role/Identity scope switch that lives
+// above the Tabs component in IdentityModal. Tests below use it to reach the
+// Role-scope-only tabs (Role file, Bounties, History, role-wakeups) from an
+// actor mount whose default scope is now "identity".
+function switchScope(scope: "role" | "identity"): void {
+  const btn = document.querySelector(
+    `[data-testid="scope-switch-${scope}"]`,
+  ) as HTMLButtonElement | null;
+  if (!btn) throw new Error(`scope-switch-${scope} button not found`);
+  fireEvent.click(btn);
 }
 
 /**
@@ -153,6 +169,7 @@ function findSocketForRequestType(reqType: string): WsStub | undefined {
 beforeEach(() => {
   vi.clearAllMocks();
   openedSockets.length = 0;
+  __resetModalScopeForTest();
 });
 
 afterEach(() => {
@@ -165,64 +182,118 @@ afterAll(() => {
   vi.restoreAllMocks();
 });
 
-// ──────────────────────────────────────────────────────────────────────
-// Test 21 — default activeTab is "bounties" (Ashley 2026-08-05: bounties
-// is the tab you actually want to see first on identity-badge click,
-// changed from "role" which was the SRIC-06 default).
-// ──────────────────────────────────────────────────────────────────────
-describe("IdentityModal — default tab and position", () => {
-  it("test 21: opens with exactly one active tab pane on initial render (default = 'bounties')", () => {
-    renderModal();
+// Tests 21-24 — Phase 72 scope-split rewrite: actor default scope='identity'
+// (Identity file pane); coordinator default scope='role' (Role file pane).
+// Tests that reach into Role-scope tabs (Bounties, History, Role file,
+// role-wakeups) must call switchScope('role') first when starting from an
+// actor mount.
 
-    // Exactly one TabsContent has data-state="active" on initial render.
-    // The active pane is Bounties per the 2026-08-05 default change.
+// ──────────────────────────────────────────────────────────────────────
+// Tests 21a / 21b — default scope + default active pane per coordinator flag
+// ──────────────────────────────────────────────────────────────────────
+describe("IdentityModal — default scope on open (Phase 72 Plan 03)", () => {
+  it("test 21a: actor identity (coordinator: false) mounts with scope='identity' + Identity file pane active", () => {
+    renderModal({ coordinator: false });
+
+    // Segmented scope switch reads Identity-side pressed.
+    const identityBtn = document.querySelector(
+      '[data-testid="scope-switch-identity"]',
+    );
+    const roleBtn = document.querySelector(
+      '[data-testid="scope-switch-role"]',
+    );
+    expect(identityBtn?.getAttribute("aria-pressed")).toBe("true");
+    expect(roleBtn?.getAttribute("aria-pressed")).toBe("false");
+
+    // Exactly one TabsContent pane is active; its value is "identity"
+    // (the Identity file tab is the scope's default landing tab).
     const tabPanels = document.querySelectorAll('[role="tabpanel"]');
     const activePanels = Array.from(tabPanels).filter(
       (el) => el.getAttribute("data-state") === "active",
     );
     expect(activePanels).toHaveLength(1);
-    expect(activePanels[0].getAttribute("data-state")).toBe("active");
+    // Radix TabsContent encodes its `value` prop into the pane's `id`
+    // attribute as "radix-<hash>-content-<value>" (no data-value attribute).
+    // Assert the id ends with the expected value.
+    expect(activePanels[0].getAttribute("id")).toMatch(/content-identity$/);
   });
 
-  // ──────────────────────────────────────────────────────────────────────
-  // Test 22 — NAV_SECTIONS position 0 is Role
-  // ──────────────────────────────────────────────────────────────────────
-  it("test 22: bottom nav's FIRST button is the 'Role' tab (position 0)", () => {
-    renderModal();
+  it("test 21b: coordinator identity (coordinator: true) mounts with scope='role' + Role file pane active", () => {
+    renderModal({ coordinator: true });
 
-    // The bottom nav renders one <button> per NAV_SECTIONS entry. First
-    // button in DOM order should carry the label "Role".
-    const navButtons = document
-      .querySelector(".shrink-0.flex.items-stretch")
-      ?.querySelectorAll("button");
-    expect(navButtons).toBeDefined();
-    expect(navButtons!.length).toBe(6); // role + 5 existing
-    // First button label = "Role"
-    expect(navButtons![0].textContent).toContain("Role");
-    // Sanity: second button should be "Identity" (existing tab moved to position 1)
-    expect(navButtons![1].textContent).toContain("Identity");
+    const identityBtn = document.querySelector(
+      '[data-testid="scope-switch-identity"]',
+    );
+    const roleBtn = document.querySelector(
+      '[data-testid="scope-switch-role"]',
+    );
+    expect(roleBtn?.getAttribute("aria-pressed")).toBe("true");
+    expect(identityBtn?.getAttribute("aria-pressed")).toBe("false");
+
+    const tabPanels = document.querySelectorAll('[role="tabpanel"]');
+    const activePanels = Array.from(tabPanels).filter(
+      (el) => el.getAttribute("data-state") === "active",
+    );
+    expect(activePanels).toHaveLength(1);
+    expect(activePanels[0].getAttribute("id")).toMatch(/content-role$/);
   });
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// Test 23 — Sixth openOneShot fires identity:get-role-file
+// Tests 22a / 22b — bottom-nav button count + first-tab label per scope
+// ──────────────────────────────────────────────────────────────────────
+describe("IdentityModal — per-scope NAV_SECTIONS (Phase 72 Plan 03)", () => {
+  it("test 22a: under Role scope, bottom nav has 4 buttons; first button label is 'Role file'", () => {
+    renderModal({ coordinator: false });
+    // Actor mount starts in Identity scope — flip to Role.
+    switchScope("role");
+
+    const navButtons = document
+      .querySelector(".shrink-0.flex.items-stretch")
+      ?.querySelectorAll("button");
+    expect(navButtons).toBeDefined();
+    expect(navButtons!.length).toBe(4); // role / bounties / history / role-wakeups
+    expect(navButtons![0].textContent).toContain("Role file");
+    // Sanity: second button is Bounties.
+    expect(navButtons![1].textContent).toContain("Bounties");
+  });
+
+  it("test 22b: under Identity scope, bottom nav has 3 buttons; first button label is 'Identity file'", () => {
+    renderModal({ coordinator: false });
+    // Actor mount starts in Identity scope — no switch needed. Sanity-flip
+    // to prove the button count assertion below is scope-conditional.
+    const navButtons = document
+      .querySelector(".shrink-0.flex.items-stretch")
+      ?.querySelectorAll("button");
+    expect(navButtons).toBeDefined();
+    expect(navButtons!.length).toBe(3); // identity / identity-wakeups / handoff
+    expect(navButtons![0].textContent).toContain("Identity file");
+    // Sanity: second button is Wakeups (identity-wakeups pane).
+    expect(navButtons![1].textContent).toContain("Wakeups");
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Test 23 — get-role-file fetch fires on MOUNT regardless of active tab,
+// but rendering the Box Maintainer markdown requires scope='role' + the
+// Role file tab active.
 // ──────────────────────────────────────────────────────────────────────
 describe("IdentityModal — role-file fetch on open (Phase 22 SRIC-06)", () => {
   it("test 23: fires identity:get-role-file WS request with (identityKey, hostId); response sets roleFileState to ready", async () => {
-    renderModal();
+    renderModal({ coordinator: false });
 
     // Give the queueMicrotask a chance to fire the onopen handlers so send
     // is invoked on each fake socket.
     await new Promise((r) => setTimeout(r, 0));
 
-    // 2026-08-05: default tab changed from "role" to "bounties" — click the
-    // Role nav button so the Role pane is active and RoleFileTab renders.
-    // The get-role-file WS request itself fires on modal MOUNT regardless of
-    // the active tab, so this click only affects the "render the markdown"
-    // assertion further down.
+    // Phase 72: actor default is scope='identity' — the Role nav button is
+    // NOT visible until we flip scope. get-role-file itself fires on modal
+    // MOUNT (all artifact fetches are scope-agnostic), so the switchScope
+    // call only affects the markdown-render assertion further down.
+    switchScope("role");
     const roleNavBtn = Array.from(
       document.querySelectorAll(".shrink-0.flex.items-stretch button"),
-    ).find((b) => b.textContent?.includes("Role")) as HTMLButtonElement;
+    ).find((b) => b.textContent?.includes("Role file")) as HTMLButtonElement;
     fireEvent.click(roleNavBtn);
 
     // Find the socket that sent identity:get-role-file
@@ -262,15 +333,16 @@ describe("IdentityModal — role-file fetch on open (Phase 22 SRIC-06)", () => {
 // ──────────────────────────────────────────────────────────────────────
 describe("IdentityModal — updateRoleFile save handler (Phase 22 SRIC-06)", () => {
   it("test 24: clicking Save after edit sends identity:update-role-file; response identity:role-file-updated re-hydrates state", async () => {
-    renderModal();
+    renderModal({ coordinator: false });
     await new Promise((r) => setTimeout(r, 0));
 
-    // 2026-08-05: default tab changed from "role" to "bounties" — click the
-    // Role nav button so the Role pane is active and RoleFileTab renders
-    // (Edit + Save buttons only exist when the pane is mounted).
+    // Phase 72: actor default is scope='identity' — flip scope so the Role
+    // nav button becomes visible + the Role file pane can mount its Edit
+    // button (RoleFileTab renders Edit only when state.status === 'ready').
+    switchScope("role");
     const roleNavBtn = Array.from(
       document.querySelectorAll(".shrink-0.flex.items-stretch button"),
-    ).find((b) => b.textContent?.includes("Role")) as HTMLButtonElement;
+    ).find((b) => b.textContent?.includes("Role file")) as HTMLButtonElement;
     fireEvent.click(roleNavBtn);
 
     // First, hydrate the role file state with an initial payload so the

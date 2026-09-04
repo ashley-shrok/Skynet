@@ -116,6 +116,9 @@ vi.mock("@/state/bounty-counts-store", async (importOriginal) => {
 
 // ── Late imports ─────────────────────────────────────────────────────────────
 import { IdentityModal } from "./IdentityModal";
+// Phase 72 Plan 03: per-test reset of the modal-scope-store so scope memory
+// from one test never leaks into the next.
+import { __resetModalScopeForTest } from "@/state/modal-scope-store";
 import type { Bounty } from "@/api/claude-session-api";
 
 // ── Fixture ──────────────────────────────────────────────────────────────────
@@ -255,9 +258,22 @@ function deliverInitialBounties(bounties: Bounty[] = OPEN_BOUNTIES): void {
   });
 }
 
+// Phase 72 Plan 03: tap the segmented Role/Identity scope switch. Bounties
+// lives under Role scope in the new shape; the actor mount defaults to
+// scope='identity' so we must flip to Role before the Bounties nav button
+// becomes visible.
+function switchScope(scope: "role" | "identity"): void {
+  const btn = document.querySelector(
+    `[data-testid="scope-switch-${scope}"]`,
+  ) as HTMLButtonElement | null;
+  if (!btn) throw new Error(`scope-switch-${scope} button not found`);
+  fireEvent.click(btn);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared setup — the modal defaults to the Bounties tab (2026-08-05 change);
-// we click it explicitly anyway to make intent obvious and future-proof.
+// Shared setup — Phase 72 Plan 03: actor identities now default to
+// scope='identity'; Bounties tab lives under scope='role'. Flip scope FIRST,
+// then click the Bounties nav button (which is only rendered under Role).
 // ─────────────────────────────────────────────────────────────────────────────
 async function renderModalOnBountiesTab(): Promise<void> {
   renderModal();
@@ -265,6 +281,7 @@ async function renderModalOnBountiesTab(): Promise<void> {
   await act(async () => {
     await new Promise((r) => setTimeout(r, 0));
   });
+  switchScope("role");
   const bountiesNavBtn = Array.from(
     document.querySelectorAll(".shrink-0.flex.items-stretch button"),
   ).find((b) => b.textContent?.includes("Bounties")) as
@@ -279,6 +296,7 @@ async function renderModalOnBountiesTab(): Promise<void> {
 beforeEach(() => {
   vi.clearAllMocks();
   openedSockets.length = 0;
+  __resetModalScopeForTest();
 });
 
 afterEach(() => {
@@ -642,9 +660,10 @@ describe("IdentityModal Bounties filter — clear", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe("IdentityModal Bounties filter — focus", () => {
   it("Test K: opening the modal on the Bounties tab does NOT autofocus the search input", async () => {
-    renderModal();
-    // Let mount effects settle.
-    await new Promise((r) => setTimeout(r, 0));
+    // Phase 72 Plan 03: actor default scope='identity' — the Bounties tab
+    // isn't the active pane until we flip scope + click the Bounties nav.
+    // Use the shared helper so the search input is queryable via getByRole.
+    await renderModalOnBountiesTab();
     deliverInitialBounties();
 
     const input = screen.getByRole("textbox", { name: /search bounties/i });
