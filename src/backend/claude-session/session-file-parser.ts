@@ -1171,9 +1171,20 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
     typeof obj.content === "string"
   ) {
     const qopContent = obj.content;
+    // When a session is busy, Claude Code writes queued slash-command
+    // invocations to the JSONL as a queue-operation with RAW plain-text
+    // content (e.g. content:"/id reset"), then later writes the wrapped
+    // real user turn (<command-name>/id</command-name>...) once it
+    // dequeues. The wrapped form is skipped downstream at L1290; without
+    // the mirroring skip here, the enqueue branch renders the raw text
+    // as a plain-text user bubble. Parity: match the same commands the
+    // wrapper-form path silences (slash_id + slash_exit).
+    const trimmedStart = qopContent.trimStart();
     if (qopContent.trim().length > 0
         && !qopContent.startsWith("<task-notification>")
-        && !qopContent.startsWith("<system-reminder>")) {
+        && !qopContent.startsWith("<system-reminder>")
+        && !trimmedStart.startsWith("/id ")
+        && !trimmedStart.startsWith("/exit")) {
       const rawTs = obj.timestamp;
       let ts = Date.now();
       let tsStrForHash = "";

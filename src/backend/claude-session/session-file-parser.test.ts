@@ -1013,6 +1013,55 @@ describe("parseSessionLine — queue-operation enqueue as kind:message (Phase 50
     expect(parsed.kind).toBe("skip");
   });
 
+  it("Test QO-3c (negative — /id slash-command skipped): enqueue whose content starts with /id does NOT emit message", () => {
+    // Ashley 2026-09-04: when Claude Code is busy and a slash-command is
+    // queued, the enqueue entry carries the RAW plain-text payload (no
+    // <command-name> wrapper). Wrapper form is skipped downstream at
+    // parser L1290; this test locks the mirroring enqueue skip so the raw
+    // text doesn't render as a plain-text user bubble in PrettyView.
+    for (const content of ["/id reset", "/id save", "/id tanya", "/id reset (glued transcript)"]) {
+      const parsed = parseSessionLine(
+        line({
+          type: "queue-operation",
+          operation: "enqueue",
+          content,
+          timestamp: "2026-09-04T12:00:00.000Z",
+        }),
+        "sess-A",
+      );
+      expect(parsed.kind).toBe("skip");
+    }
+  });
+
+  it("Test QO-3d (negative — /exit slash-command skipped): enqueue whose content starts with /exit does NOT emit message", () => {
+    const parsed = parseSessionLine(
+      line({
+        type: "queue-operation",
+        operation: "enqueue",
+        content: "/exit",
+        timestamp: "2026-09-04T12:00:01.000Z",
+      }),
+      "sess-A",
+    );
+    expect(parsed.kind).toBe("skip");
+  });
+
+  it("Test QO-3e (positive — prose containing /id substring still emits): a real message that mentions /id does NOT get skipped", () => {
+    // Guard against overzealous suppression: only leading `/id ` (or `/exit`)
+    // is a slash-command; prose that happens to contain the substring is
+    // real speech and must render.
+    const parsed = parseSessionLine(
+      line({
+        type: "queue-operation",
+        operation: "enqueue",
+        content: "remember that /id reset recycles the session",
+        timestamp: "2026-09-04T12:00:02.000Z",
+      }),
+      "sess-A",
+    );
+    expect(parsed.kind).toBe("message");
+  });
+
   it("Test QO-4 (negative — non-enqueue operation): operation:dequeue does NOT emit message", () => {
     const parsed = parseSessionLine(
       line({
