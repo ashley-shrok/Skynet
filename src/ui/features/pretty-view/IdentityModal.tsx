@@ -87,7 +87,32 @@ import {
   type IdentityRoleFileEvent,
   type IdentityUpdateRoleFilePayload,
   type IdentityRoleFileUpdatedEvent,
+  // Phase 72 Plan 01: role-scope + identity-scope wakeup CRUD wire types
+  // consumed by the two Wakeups panes in Wave 3 (identity:*-wakeup for
+  // identity scope, identity:*-role-wakeup for role scope).
+  type WakeupSpecWire,
+  type IdentityListRoleWakeupsPayload,
+  type IdentityRoleWakeupsEvent,
+  type IdentityCreateRoleWakeupPayload,
+  type IdentityRoleWakeupCreatedEvent,
+  type IdentityUpdateRoleWakeupPayload,
+  type IdentityRoleWakeupUpdatedEvent,
+  type IdentityDeleteRoleWakeupPayload,
+  type IdentityRoleWakeupDeletedEvent,
+  type IdentityCreateWakeupPayload,
+  type IdentityWakeupCreatedEvent,
+  type IdentityDeleteWakeupPayload,
+  type IdentityWakeupDeletedEvent,
 } from "@/api/claude-session-api";
+// Phase 72 Plan 03: per-identity scope memory for the segmented Role/Identity
+// switch that lives above the Tabs component. Store is browser-session-only
+// (in-memory Map); the modal derives the coord-vs-actor default when
+// useModalScope returns undefined.
+import {
+  useModalScope,
+  setModalScope,
+  type ModalScope,
+} from "@/state/modal-scope-store";
 import type { Identity } from "@/api/identities-api";
 import { BountyCard } from "./BountyCard";
 import { cn } from "@/lib/utils";
@@ -213,12 +238,29 @@ export function IdentityModal({
   // failed fetch and the retry click would fire `onValueChange("")` instead,
   // silently no-op'ing.
   const [archiveAccordionValue, setArchiveAccordionValue] = useState<string>("");
-  // Phase 22 SRIC-06 / Plan 22-06: Role tab is FIRST and DEFAULT per D-CONTEXT
-  // §UX rules ("Role tab is FIRST and DEFAULT — not slotted after Identity,
-  // not toggleable in position"). Locked with Ashley 2026-08-04.
-  // 2026-08-05: default to Bounties on open (Ashley) — the tab you actually
-  // want to see first when clicking an identity badge.
-  const [activeTab, setActiveTab] = useState("bounties");
+  // Phase 72 Plan 03: Role/Identity scope memory. Store returns undefined when
+  // this identity has no scope entry yet; caller derives the coord-vs-actor
+  // default (coordinator → "role", actor → "identity"). activeTab is derived
+  // from scope below.
+  const storedScope = useModalScope(identity.identityKey);
+  const defaultScope: ModalScope = identity.coordinator ? "role" : "identity";
+  const scope: ModalScope = storedScope ?? defaultScope;
+  const onScopeChange = useCallback(
+    (next: ModalScope) => setModalScope(identity.identityKey, next),
+    [identity.identityKey],
+  );
+  // Phase 22 SRIC-06 / Plan 22-06 → Phase 72 Plan 03: default active tab used
+  // to be flat "bounties" (Ashley 2026-08-05). Now derives from scope: Role
+  // scope defaults to Role file tab, Identity scope defaults to Identity file
+  // tab. Scope-change auto-resets activeTab because tabs are scope-conditional
+  // (see useEffect below).
+  const [activeTab, setActiveTab] = useState<string>(scope === "role" ? "role" : "identity");
+  useEffect(() => {
+    // Reset activeTab to the scope's default landing tab when scope flips —
+    // the previously-selected tab may not exist in the new scope's NAV_SECTIONS
+    // (e.g. "bounties" is Role-scope only, "handoff" is Identity-scope only).
+    setActiveTab(scope === "role" ? "role" : "identity");
+  }, [scope]);
   // refetchKey increments on Retry to re-trigger the fetch effect.
   const [refetchKey, setRefetchKey] = useState(0);
 
@@ -251,22 +293,30 @@ export function IdentityModal({
   // Patch #191: bottom icon-bar nav for section switching (Telegram-shape).
   // Replaces the previous shadcn TabsList strip, which (a) aesthetically didn't
   // match Skynet's pretty-view visual language and (b) got CUT OFF on narrow
-  // mobile viewports (w-auto self-start, no overflow handling). Bottombar is
-  // mobile-safe by construction — 5 evenly-flexed slots + icon-first labels.
-  // Tuner arc: list / dropdown / bottombar variants shipped in commit 8e35dae,
-  // Ashley UAT'd all three, bottombar picked as the winner; this commit locks
-  // it in and drops the tuner + losing variants.
-  // Phase 22 SRIC-06 / Plan 22-06: Role tab inserted at position 0 (FIRST).
-  // Ordering is LOCKED per D-CONTEXT §UX rules — not toggleable in position.
-  // Users icon from lucide-react per D-CONTEXT §Claude's Discretion.
-  const NAV_SECTIONS = [
-    { value: "role", label: "Role", Icon: Users },
-    { value: "identity", label: "Identity", Icon: User },
+  // mobile viewports. Bottombar is mobile-safe by construction — evenly-flexed
+  // slots + icon-first labels.
+  //
+  // Phase 72 Plan 03: single 6-item NAV_SECTIONS split into two per-scope
+  // variants. Role scope shows 4 tabs (Role file / Bounties / History /
+  // Wakeups); Identity scope shows 3 tabs (Identity file / Wakeups / Handoff).
+  // The Wakeups tab under Role scope carries value="role-wakeups" and routes
+  // through the role-scope WS handlers; under Identity scope it carries
+  // value="identity-wakeups" and routes through the identity-scope handlers.
+  // The bottom-bar labels intentionally use "Role file" / "Identity file"
+  // instead of just "Role" / "Identity" — the top segmented scope switch
+  // already disambiguates scope, so the tab label describes the artifact.
+  const NAV_SECTIONS_ROLE = [
+    { value: "role", label: "Role file", Icon: Users },
     { value: "bounties", label: "Bounties", Icon: Target },
     { value: "history", label: "History", Icon: Clock },
-    { value: "wakeups", label: "Wakeups", Icon: AlarmClock },
+    { value: "role-wakeups", label: "Wakeups", Icon: AlarmClock },
+  ] as const;
+  const NAV_SECTIONS_IDENTITY = [
+    { value: "identity", label: "Identity file", Icon: User },
+    { value: "identity-wakeups", label: "Wakeups", Icon: AlarmClock },
     { value: "handoff", label: "Handoff", Icon: Handshake },
   ] as const;
+  const NAV_SECTIONS = scope === "role" ? NAV_SECTIONS_ROLE : NAV_SECTIONS_IDENTITY;
 
   // Patch #17g: independent state slots for each new artifact tab.
   const [identityFileState, setIdentityFileState] = useState<TabState<string>>({ status: "loading" });
@@ -277,7 +327,14 @@ export function IdentityModal({
   // Phase 18 / IDMEDIT-02: widened from TabState<string[]> to carry both
   // entries (read-mode list rendering) and markdown (edit-mode textarea seed).
   const [historyState, setHistoryState] = useState<TabState<{ entries: string[]; markdown: string }>>({ status: "loading" });
-  const [wakeupsState, setWakeupsState] = useState<TabState<Wakeup[]>>({ status: "loading" });
+  // Phase 72 Plan 03: renamed the identity-scope slot for scope clarity —
+  // it always held identity-scope wakeups but the old name (pre-72) no longer
+  // disambiguates now that a parallel role-scope slot lives beside it.
+  // `roleWakeupsState` is fed by a parallel identity:list-role-wakeups fetch
+  // on modal open so both scopes' Wakeups tabs render instantly on scope
+  // switch.
+  const [identityWakeupsState, setIdentityWakeupsState] = useState<TabState<Wakeup[]>>({ status: "loading" });
+  const [roleWakeupsState, setRoleWakeupsState] = useState<TabState<Wakeup[]>>({ status: "loading" });
   const [handoffState, setHandoffState] = useState<TabState<string>>({ status: "loading" });
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -300,11 +357,14 @@ export function IdentityModal({
     setArchivedError(null);
     setArchiveAccordionValue("");
 
-    // Reset all 5 artifact state slots to loading (identity file + Plan 22-06 role file + 3 others).
+    // Reset all 6 artifact state slots to loading (Phase 72 Plan 03: added
+    // roleWakeupsState as the sixth slot alongside the renamed
+    // identityWakeupsState).
     setIdentityFileState({ status: "loading" });
     setRoleFileState({ status: "loading" });
     setHistoryState({ status: "loading" });
-    setWakeupsState({ status: "loading" });
+    setIdentityWakeupsState({ status: "loading" });
+    setRoleWakeupsState({ status: "loading" });
     setHandoffState({ status: "loading" });
 
     let cancelled = false;
@@ -440,10 +500,22 @@ export function IdentityModal({
     openOneShot<IdentityListWakeupsPayload, IdentityWakeupsEvent>(
       { type: "identity:list-wakeups", identityKey: identity.identityKey, hostId, },
       "identity:wakeups",
-      (ev) => setWakeupsState(ev.error
+      (ev) => setIdentityWakeupsState(ev.error
         ? { status: "error", error: ev.error }
         : { status: "ready", data: ev.wakeups }),
-      (e) => setWakeupsState({ status: "error", error: e }),
+      (e) => setIdentityWakeupsState({ status: "error", error: e }),
+    );
+
+    // Phase 72 Plan 03: parallel fetch for role-scope wakeups so scope-switching
+    // to Role reveals the list without a wait. Byte-shape mirror of the
+    // identity-scope fetch above; swaps the wire type and target state slot.
+    openOneShot<IdentityListRoleWakeupsPayload, IdentityRoleWakeupsEvent>(
+      { type: "identity:list-role-wakeups", identityKey: identity.identityKey, hostId, },
+      "identity:role-wakeups",
+      (ev) => setRoleWakeupsState(ev.error
+        ? { status: "error", error: ev.error }
+        : { status: "ready", data: ev.wakeups }),
+      (e) => setRoleWakeupsState({ status: "error", error: e }),
     );
 
     openOneShot<IdentityGetHandoffPayload, IdentityHandoffEvent>(
@@ -683,7 +755,103 @@ export function IdentityModal({
       "identity:wakeup-updated",
     );
     if (res.error) throw new Error(res.error);
-    setWakeupsState({ status: "ready", data: res.wakeups });
+    setIdentityWakeupsState({ status: "ready", data: res.wakeups });
+  }
+
+  // Phase 72 Plan 03: identity-scope create handler. Consumed by the
+  // WakeupsTab under Identity scope; the sub-modal (AddWakeupDialog from
+  // Wave 2) hands us a WakeupSpecWire — we route it through the WS handler
+  // added in Plan 01. Reject-on-error semantics let AddWakeupDialog surface
+  // the reason inline without closing.
+  async function createIdentityWakeup(spec: WakeupSpecWire): Promise<void> {
+    if (!identity.identityKey) throw new Error("no identity key");
+    const payload: IdentityCreateWakeupPayload = {
+      type: "identity:create-wakeup",
+      identityKey: identity.identityKey,
+      hostId,
+      spec,
+    };
+    const res = await sendIdentityMutation<IdentityCreateWakeupPayload, IdentityWakeupCreatedEvent>(
+      payload,
+      "identity:wakeup-created",
+    );
+    if (res.error) throw new Error(res.error);
+    setIdentityWakeupsState({ status: "ready", data: res.wakeups });
+  }
+
+  // Phase 72 Plan 03: identity-scope delete handler. Byte-shape mirror of
+  // createIdentityWakeup; server responds with the fresh list post-delete.
+  async function deleteIdentityWakeup(wakeupSlug: string): Promise<void> {
+    if (!identity.identityKey) throw new Error("no identity key");
+    const payload: IdentityDeleteWakeupPayload = {
+      type: "identity:delete-wakeup",
+      identityKey: identity.identityKey,
+      hostId,
+      wakeupSlug,
+    };
+    const res = await sendIdentityMutation<IdentityDeleteWakeupPayload, IdentityWakeupDeletedEvent>(
+      payload,
+      "identity:wakeup-deleted",
+    );
+    if (res.error) throw new Error(res.error);
+    setIdentityWakeupsState({ status: "ready", data: res.wakeups });
+  }
+
+  // Phase 72 Plan 03: role-scope update handler. Mirrors updateWakeup but
+  // hits the identity:update-role-wakeup wire type (backend two-step resolves
+  // identityKey → role → ~/.claude/roles/<role>/wakeups/<slug>.json).
+  async function updateRoleWakeup(
+    wakeupSlug: string,
+    updates: { enabled?: boolean; schedule?: unknown; name?: string; instruction?: string },
+  ): Promise<void> {
+    if (!identity.identityKey) throw new Error("no identity key");
+    const payload: IdentityUpdateRoleWakeupPayload = {
+      type: "identity:update-role-wakeup",
+      identityKey: identity.identityKey,
+      hostId,
+      wakeupSlug,
+      updates,
+    };
+    const res = await sendIdentityMutation<IdentityUpdateRoleWakeupPayload, IdentityRoleWakeupUpdatedEvent>(
+      payload,
+      "identity:role-wakeup-updated",
+    );
+    if (res.error) throw new Error(res.error);
+    setRoleWakeupsState({ status: "ready", data: res.wakeups });
+  }
+
+  // Phase 72 Plan 03: role-scope create handler.
+  async function createRoleWakeup(spec: WakeupSpecWire): Promise<void> {
+    if (!identity.identityKey) throw new Error("no identity key");
+    const payload: IdentityCreateRoleWakeupPayload = {
+      type: "identity:create-role-wakeup",
+      identityKey: identity.identityKey,
+      hostId,
+      spec,
+    };
+    const res = await sendIdentityMutation<IdentityCreateRoleWakeupPayload, IdentityRoleWakeupCreatedEvent>(
+      payload,
+      "identity:role-wakeup-created",
+    );
+    if (res.error) throw new Error(res.error);
+    setRoleWakeupsState({ status: "ready", data: res.wakeups });
+  }
+
+  // Phase 72 Plan 03: role-scope delete handler.
+  async function deleteRoleWakeup(wakeupSlug: string): Promise<void> {
+    if (!identity.identityKey) throw new Error("no identity key");
+    const payload: IdentityDeleteRoleWakeupPayload = {
+      type: "identity:delete-role-wakeup",
+      identityKey: identity.identityKey,
+      hostId,
+      wakeupSlug,
+    };
+    const res = await sendIdentityMutation<IdentityDeleteRoleWakeupPayload, IdentityRoleWakeupDeletedEvent>(
+      payload,
+      "identity:role-wakeup-deleted",
+    );
+    if (res.error) throw new Error(res.error);
+    setRoleWakeupsState({ status: "ready", data: res.wakeups });
   }
 
   // Phase 18 / IDMEDIT-01: save handler for the identity file (<key>.md).
@@ -1556,11 +1724,80 @@ export function IdentityModal({
           </div>
         )}
 
+        {/* Phase 72 Plan 03: segmented Role/Identity scope switch. Mounts
+            between the title/avatar editor region above and the Tabs
+            component below. Two rounded-pill buttons in a hue-tinted glass
+            capsule; the selected side wears an inset ring + hue-tinted fill
+            matching the selected-tab pill treatment in the bottom icon-bar
+            (see the NAV_SECTIONS loop below). aria-pressed encodes the
+            selection state for screen readers + tests. The variant D sketch
+            (.planning/sketches/001-identity-modal-role-vs-identity-split)
+            grounds the visual. Coord vs actor default is derived from
+            identity.coordinator when useModalScope returns undefined; taps
+            write to the store and re-render the modal (which also flips
+            activeTab via the scope-effect above). */}
+        <div className="shrink-0 px-4 pt-3 pb-2 flex justify-center">
+          <div
+            role="group"
+            aria-label="Scope"
+            className="inline-flex rounded-full border border-white/15 p-0.5"
+            style={{ background: `hsla(${hue}, 30%, 15%, 0.4)` }}
+          >
+            <button
+              type="button"
+              data-testid="scope-switch-role"
+              aria-pressed={scope === "role"}
+              onClick={() => onScopeChange("role")}
+              className={cn(
+                "px-4 py-1 rounded-full text-xs font-semibold cursor-pointer transition-colors",
+                scope === "role"
+                  ? "text-[#f0ebe0]"
+                  : "text-[#a89a80] hover:text-[#e8e4d8]",
+              )}
+              style={
+                scope === "role"
+                  ? {
+                      background: `hsla(${hue}, 80%, 60%, 0.28)`,
+                      boxShadow: `inset 0 0 0 1px hsla(${hue}, 80%, 70%, 0.4)`,
+                    }
+                  : undefined
+              }
+            >
+              Role
+            </button>
+            <button
+              type="button"
+              data-testid="scope-switch-identity"
+              aria-pressed={scope === "identity"}
+              onClick={() => onScopeChange("identity")}
+              className={cn(
+                "px-4 py-1 rounded-full text-xs font-semibold cursor-pointer transition-colors",
+                scope === "identity"
+                  ? "text-[#f0ebe0]"
+                  : "text-[#a89a80] hover:text-[#e8e4d8]",
+              )}
+              style={
+                scope === "identity"
+                  ? {
+                      background: `hsla(${hue}, 80%, 60%, 0.28)`,
+                      boxShadow: `inset 0 0 0 1px hsla(${hue}, 80%, 70%, 0.4)`,
+                    }
+                  : undefined
+              }
+            >
+              Identity
+            </button>
+          </div>
+        </div>
+
         {/* Tabs — patch #17g: Identity / Bounties / History / Wakeups / Handoff
             Phase 22 SRIC-06 / Plan 22-06: Role tab inserted at position 0 (FIRST)
             per D-CONTEXT §UX rules ("Role tab is FIRST and DEFAULT").
             Patch #191: shadcn TabsList replaced with a bottom icon-bar
-            (rendered after the TabsContent blocks below). */}
+            (rendered after the TabsContent blocks below).
+            Phase 72 Plan 03: NAV_SECTIONS now scope-conditional (4 tabs Role /
+            3 tabs Identity); the two Wakeups panes below carry
+            value="role-wakeups" and value="identity-wakeups" respectively. */}
         <Tabs
           value={activeTab}
           onValueChange={setActiveTab}
@@ -1897,19 +2134,37 @@ export function IdentityModal({
             <HistoryTab state={historyState} onSave={updateHistory} />
           </TabsContent>
 
-          {/* Wakeups tab — patch #17g: wakeups/*.json cards */}
+          {/* Wakeups tabs — Phase 72 Plan 03: split into two panes, one per
+              scope, each wired to the matching scope's WS handlers. Only one
+              pane is reachable at a time because NAV_SECTIONS is scope-
+              conditional (Role scope shows the role-wakeups tab; Identity
+              scope shows the identity-wakeups tab). Both state slots are
+              pre-fetched on modal open so a scope switch reveals the list
+              without a wait. */}
           <TabsContent
-            value="wakeups"
+            value="identity-wakeups"
             className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
           >
-            {/* TODO Wave 3: replace stubs with real wiring (scope + onCreate + onDelete land in Plan 03 Task 2a) */}
             <WakeupsTab
-              state={wakeupsState}
+              state={identityWakeupsState}
               hue={hue}
-              onUpdate={updateWakeup}
               scope="identity"
-              onCreate={async () => {}}
-              onDelete={async () => {}}
+              onUpdate={updateWakeup}
+              onCreate={createIdentityWakeup}
+              onDelete={deleteIdentityWakeup}
+            />
+          </TabsContent>
+          <TabsContent
+            value="role-wakeups"
+            className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
+          >
+            <WakeupsTab
+              state={roleWakeupsState}
+              hue={hue}
+              scope="role"
+              onUpdate={updateRoleWakeup}
+              onCreate={createRoleWakeup}
+              onDelete={deleteRoleWakeup}
             />
           </TabsContent>
 
