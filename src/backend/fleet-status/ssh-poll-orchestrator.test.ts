@@ -54,7 +54,24 @@ vi.mock("../utils/logger.js", () => ({
   },
 }));
 
+// Phase 72 Plan 04 — mock the fleet-substrate sweep-hook composer + log-tags.
+// The default runSweepForHost stub is a no-op resolver so the existing test
+// suite (which never sets runsFleetSubstrate=true) is unaffected. Individual
+// phase-72 tests override the mock's implementation per-test via
+// vi.mocked(runSweepForHost).mockImplementation(...).
+vi.mock("../distributor/run-sweep.js", () => ({
+  runSweepForHost: vi.fn(async () => {}),
+}));
+vi.mock("../distributor/log-tags.js", () => ({
+  logSweepResult: vi.fn(),
+  logItemChanged: vi.fn(),
+  logItemFailed: vi.fn(),
+  logSweepHookError: vi.fn(),
+}));
+
 import { systemLogger } from "../utils/logger.js";
+import { runSweepForHost } from "../distributor/run-sweep.js";
+import { logSweepHookError } from "../distributor/log-tags.js";
 
 // ---------------------------------------------------------------------------
 // MockSshChannel
@@ -6922,5 +6939,177 @@ describe("transport-vs-dead distinction in stat read (bounty 9c8d4a72)", () => {
     expect(deps.registry.publishedGone).toHaveLength(1);
     expect(deps.registry.publishedGone[0].hostId).toBe("host-1");
     expect(deps.registry.publishedGone[0].sessionId).toBe("test-session-id");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 72 Plan 04 — fleet-substrate sweep hook
+//
+// The hook lives inside tryAcquireHostChannel's success branch and:
+//   1. Fires runSweepForHost via queueMicrotask (drainable in tests with
+//      `await Promise.resolve()`) so channel acquisition + poll cadence are
+//      NEVER blocked by sweep duration.
+//   2. Guards on host.runsFleetSubstrate === true (opt-in flag; default off).
+//   3. Guards on !sweepedThisInstance.has(host.id) (once per host per
+//      Skynet-instance lifetime; container restart wipes the Set so the
+//      sweep re-fires on next acquisition).
+//   4. Wraps the promise in .catch(err => logSweepHookError(...)) as
+//      defense-in-depth for the fire-and-forget contract.
+// ---------------------------------------------------------------------------
+
+describe("phase-72 fleet-substrate sweep hook", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __clearAllSessionFileCacheForTests();
+  });
+
+  it("Test A: sweep fires once when runsFleetSubstrate flag is true", async () => {
+    const deps = buildDeps({
+      listIdentityHostingHosts: vi
+        .fn()
+        .mockResolvedValue([
+          { id: "h1", name: "host1", runsFleetSubstrate: true },
+        ]),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+    // Drain the queueMicrotask that schedules runSweepForHost + the
+    // .catch handler (two microtask hops).
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(runSweepForHost).toHaveBeenCalledTimes(1);
+    const call = vi.mocked(runSweepForHost).mock.calls[0];
+    // Args: (channel, host{id,name}, catalog, deps)
+    expect(call[1]).toEqual({ id: "h1", name: "host1" });
+
+    orchestrator.stop();
+  });
+
+  it("Test B: sweep does NOT fire when runsFleetSubstrate flag is false", async () => {
+    const deps = buildDeps({
+      listIdentityHostingHosts: vi
+        .fn()
+        .mockResolvedValue([
+          { id: "h1", name: "host1", runsFleetSubstrate: false },
+        ]),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(runSweepForHost).not.toHaveBeenCalled();
+
+    orchestrator.stop();
+  });
+
+  it("Test C: sweep does NOT fire when acquireSshChannel returns null (acquisition failure)", async () => {
+    const deps = buildDeps({
+      listIdentityHostingHosts: vi
+        .fn()
+        .mockResolvedValue([
+          { id: "h1", name: "host1", runsFleetSubstrate: true },
+        ]),
+      acquireSshChannel: vi.fn().mockResolvedValue(null),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(runSweepForHost).not.toHaveBeenCalled();
+
+    orchestrator.stop();
+  });
+
+  it("Test D: sweep never blocks poll cadence — start() completes even when runSweepForHost hangs", async () => {
+    // Never-resolving sweep — pre-fix would block start()/pollAllHosts.
+    vi.mocked(runSweepForHost).mockImplementation(() => new Promise(() => {}));
+
+    const deps = buildDeps({
+      listIdentityHostingHosts: vi
+        .fn()
+        .mockResolvedValue([
+          { id: "h1", name: "host1", runsFleetSubstrate: true },
+        ]),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    // start() must resolve within a tight bound even though runSweepForHost
+    // is a pending-forever promise. The queueMicrotask schedule ensures the
+    // hook body does not enter the acquire flow's await path.
+    const startPromise = orchestrator.start();
+    const raced = await Promise.race([
+      startPromise.then(() => "started"),
+      new Promise<string>((resolve) => setTimeout(() => resolve("timeout"), 5000)),
+    ]);
+    expect(raced).toBe("started");
+    // Poll tick count advanced from the immediate first pollAllHosts inside start()
+    expect(orchestrator.getPollTickCount()).toBeGreaterThan(0);
+
+    orchestrator.stop();
+  });
+
+  it("Test E: sweep errors are contained — logSweepHookError fires, orchestrator continues", async () => {
+    vi.mocked(runSweepForHost).mockImplementation(async () => {
+      throw new Error("boom");
+    });
+
+    const deps = buildDeps({
+      listIdentityHostingHosts: vi
+        .fn()
+        .mockResolvedValue([
+          { id: "h1", name: "host1", runsFleetSubstrate: true },
+        ]),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+    // Drain: queueMicrotask schedule + runSweepForHost microtask + .catch handler
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(logSweepHookError).toHaveBeenCalledTimes(1);
+    const call = vi.mocked(logSweepHookError).mock.calls[0][0];
+    expect(call.hostId).toBe("h1");
+    expect(call.hostName).toBe("host1");
+    expect(call.errorMessage).toBe("boom");
+    // Orchestrator still alive — poll counted the initial pollAllHosts tick
+    expect(orchestrator.getPollTickCount()).toBeGreaterThan(0);
+
+    orchestrator.stop();
+  });
+
+  it("Test F: sweepedThisInstance is per-orchestrator-instance — fresh instance re-fires the sweep", async () => {
+    const buildOrchestratorWith = () => {
+      const deps = buildDeps({
+        listIdentityHostingHosts: vi
+          .fn()
+          .mockResolvedValue([
+            { id: "h1", name: "host1", runsFleetSubstrate: true },
+          ]),
+      });
+      return { orchestrator: createSshPollOrchestrator(deps), deps };
+    };
+
+    const first = buildOrchestratorWith();
+    await first.orchestrator.start();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(runSweepForHost).toHaveBeenCalledTimes(1);
+    first.orchestrator.stop();
+
+    const second = buildOrchestratorWith();
+    await second.orchestrator.start();
+    await Promise.resolve();
+    await Promise.resolve();
+    // Fresh instance: sweepedThisInstance starts empty → sweep re-fires
+    expect(runSweepForHost).toHaveBeenCalledTimes(2);
+    second.orchestrator.stop();
   });
 });
