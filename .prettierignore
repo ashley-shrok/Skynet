@@ -17,3 +17,7 @@ db
 *.min.js
 *.min.css
 openapi.json
+
+# Vendored fleet substrate — canonical shape lives in the box-maintainer role;
+# do not reformat (feature 02 slice 1).
+substrate
