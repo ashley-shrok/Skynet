@@ -170,6 +170,10 @@ function fireAssistantMessage(ws: WsStub, eventId: string, content: string) {
 
 describe("PrettyView — editable-file modal wiring (Plan 40-04)", () => {
   let resizeObserverStub: ReturnType<typeof vi.fn>;
+  const originalScrollHeightDescriptor = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "scrollHeight",
+  );
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -185,9 +189,38 @@ describe("PrettyView — editable-file modal wiring (Plan 40-04)", () => {
       return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
     });
     vi.stubGlobal("ResizeObserver", resizeObserverStub);
+    // Phase 71 (2026-09-04, HEAD 79d14042) rewrote PrettyView auto-scroll with
+    // a hide-pin-reveal mount-landing pattern: the scroll container is wrapped
+    // in a `visibility: hidden` div until the useAutoScroll hook observes a
+    // non-zero scrollHeight and dispatches effect="reveal". JSDOM defaults
+    // scrollHeight to 0 for every element, so under Phase 71 the wrapper
+    // never reveals — Testing Library's getByRole (which filters out elements
+    // inside visibility:hidden) cannot find the editable-file affordance
+    // button. Return a positive value for the scroll container so mount-
+    // landing reveal fires exactly like it does in a real browser.
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get(): number {
+        const cls = (this.className as string) || "";
+        if (typeof cls === "string" && cls.includes("overflow-y-auto")) {
+          return 1000;
+        }
+        return 0;
+      },
+    });
   });
 
   afterEach(() => {
+    if (originalScrollHeightDescriptor) {
+      Object.defineProperty(
+        HTMLElement.prototype,
+        "scrollHeight",
+        originalScrollHeightDescriptor,
+      );
+    } else {
+      delete (HTMLElement.prototype as unknown as Record<string, unknown>)
+        .scrollHeight;
+    }
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
