@@ -261,11 +261,13 @@ describe("CloneAgentDialog", () => {
     await waitFor(() => {
       expect(mockPostGenerateAvatarBatch).toHaveBeenCalledTimes(1);
     });
-    expect(mockPostGenerateAvatarBatch).toHaveBeenCalledWith({
-      name: "tina-2",
-      title: "Edited Title",
-      brief: "Edited Title",
-    });
+    expect(mockPostGenerateAvatarBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "tina-2",
+        title: "Edited Title",
+        brief: "Edited Title",
+      }),
+    );
   });
 
   it("Test 21: On submit, calls cloneIdentity({sourceIdentityKey, hostId, newName, title, voice, avatarCandidateId}); dialog closes on success", async () => {

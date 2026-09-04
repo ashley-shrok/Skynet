@@ -7076,7 +7076,7 @@ describe("phase-72 fleet-substrate sweep hook", () => {
 
     expect(logSweepHookError).toHaveBeenCalledTimes(1);
     const call = vi.mocked(logSweepHookError).mock.calls[0][0];
-    expect(call.hostId).toBe("h1");
+    expect(call.fleetHostId).toBe("h1");
     expect(call.hostName).toBe("host1");
     expect(call.errorMessage).toBe("boom");
     // Orchestrator still alive — poll counted the initial pollAllHosts tick

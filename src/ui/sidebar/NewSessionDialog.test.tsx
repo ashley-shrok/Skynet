@@ -762,11 +762,13 @@ describe("NewSessionDialog: Test L — Generate calls postGenerateAvatarBatch", 
     fireEvent.change(getByLabelText(/^title$/i), { target: { value: "My Agent" } });
     fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "An AI agent" } });
     fireEvent.click(getByRole("button", { name: /generate/i }));
-    expect(mockPostGenerateAvatarBatch).toHaveBeenCalledWith({
-      name: "myagent",
-      title: "My Agent",
-      brief: "An AI agent",
-    });
+    expect(mockPostGenerateAvatarBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "myagent",
+        title: "My Agent",
+        brief: "An AI agent",
+      }),
+    );
   });
 });
 

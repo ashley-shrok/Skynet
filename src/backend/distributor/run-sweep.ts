@@ -111,7 +111,7 @@ export async function runSweepForHost(
           const reason =
             installedResult.readOk === false ? installedResult.reason : "unknown";
           logItemFailed({
-            hostId: host.id,
+            fleetHostId: host.id,
             hostName: host.name,
             entrySlug: entry.slug,
             installPath: entry.installPath,
@@ -123,7 +123,7 @@ export async function runSweepForHost(
         if (decision.reason === "bundled-read-failed") {
           itemsFailed++;
           logItemFailed({
-            hostId: host.id,
+            fleetHostId: host.id,
             hostName: host.name,
             entrySlug: entry.slug,
             installPath: entry.installPath,
@@ -149,7 +149,7 @@ export async function runSweepForHost(
       if (writeResult.ok === false) {
         itemsFailed++;
         logItemFailed({
-          hostId: host.id,
+          fleetHostId: host.id,
           hostName: host.name,
           entrySlug: entry.slug,
           installPath: entry.installPath,
@@ -179,7 +179,7 @@ export async function runSweepForHost(
         if (restartResult.ok === false) {
           itemsFailed++;
           logItemFailed({
-            hostId: host.id,
+            fleetHostId: host.id,
             hostName: host.name,
             entrySlug: entry.slug,
             installPath: entry.installPath,
@@ -190,7 +190,7 @@ export async function runSweepForHost(
       }
 
       logItemChanged({
-        hostId: host.id,
+        fleetHostId: host.id,
         hostName: host.name,
         entrySlug: entry.slug,
         installPath: entry.installPath,
@@ -203,7 +203,7 @@ export async function runSweepForHost(
       // through (e.g. a throw inside deps.readBundledBytes). Never re-throw.
       itemsFailed++;
       logItemFailed({
-        hostId: host.id,
+        fleetHostId: host.id,
         hostName: host.name,
         entrySlug: entry.slug,
         installPath: entry.installPath,
@@ -214,7 +214,7 @@ export async function runSweepForHost(
   }
 
   logSweepResult({
-    hostId: host.id,
+    fleetHostId: host.id,
     hostName: host.name,
     itemsChecked,
     itemsChanged,

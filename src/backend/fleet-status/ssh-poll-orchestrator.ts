@@ -2118,7 +2118,7 @@ export function createSshPollOrchestrator(
             // systemLogger.warn — keeps the fleet_substrate_* log surface
             // unified (WARN-2 fix from the plan-checker revision).
             logSweepHookError({
-              hostId: host.id,
+              fleetHostId: host.id,
               hostName: host.name,
               errorMessage: err instanceof Error ? err.message : "unknown",
             });

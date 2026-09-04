@@ -42,7 +42,7 @@ import { systemLogger } from "../utils/logger.js";
  * ran on a given host across a Skynet restart cycle.
  */
 export function logSweepResult(payload: {
-  hostId: string;
+  fleetHostId: string;
   hostName: string;
   itemsChecked: number;
   itemsChanged: number;
@@ -69,7 +69,7 @@ export function logSweepResult(payload: {
  *   - null             → no restart hook applied for this item
  */
 export function logItemChanged(payload: {
-  hostId: string;
+  fleetHostId: string;
   hostName: string;
   entrySlug: string;
   installPath: string;
@@ -93,7 +93,7 @@ export function logItemChanged(payload: {
  * new bytes, chmod them, or fire the restart hook.
  */
 export function logItemFailed(payload: {
-  hostId: string;
+  fleetHostId: string;
   hostName: string;
   entrySlug: string;
   installPath: string;
@@ -119,7 +119,7 @@ export function logItemFailed(payload: {
  * something broke in the sweep-runner's error containment.
  */
 export function logSweepHookError(payload: {
-  hostId: string;
+  fleetHostId: string;
   hostName: string;
   errorMessage: string;
 }): void {

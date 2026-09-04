@@ -38,7 +38,7 @@ beforeEach(() => {
 describe("log-tags helpers", () => {
   it("Test 1: logSweepResult emits fleet_substrate_sweep_result with full payload on info", () => {
     logSweepResult({
-      hostId: "host-abc",
+      fleetHostId: "host-abc",
       hostName: "exec-vm-1",
       itemsChecked: 19,
       itemsChanged: 2,
@@ -55,7 +55,7 @@ describe("log-tags helpers", () => {
     expect(payload).toEqual(
       expect.objectContaining({
         operation: "fleet_substrate_sweep_result",
-        hostId: "host-abc",
+        fleetHostId: "host-abc",
         hostName: "exec-vm-1",
         itemsChecked: 19,
         itemsChanged: 2,
@@ -67,7 +67,7 @@ describe("log-tags helpers", () => {
 
   it("Test 2: logItemChanged emits fleet_substrate_item_changed with full payload on info", () => {
     logItemChanged({
-      hostId: "host-abc",
+      fleetHostId: "host-abc",
       hostName: "exec-vm-1",
       entrySlug: "agent-supervisor",
       installPath: "~/.local/bin/agent-supervisor",
@@ -84,7 +84,7 @@ describe("log-tags helpers", () => {
     expect(payload).toEqual(
       expect.objectContaining({
         operation: "fleet_substrate_item_changed",
-        hostId: "host-abc",
+        fleetHostId: "host-abc",
         hostName: "exec-vm-1",
         entrySlug: "agent-supervisor",
         installPath: "~/.local/bin/agent-supervisor",
@@ -96,7 +96,7 @@ describe("log-tags helpers", () => {
 
   it("Test 3: logItemFailed emits fleet_substrate_item_failed with full payload on warn", () => {
     logItemFailed({
-      hostId: "host-abc",
+      fleetHostId: "host-abc",
       hostName: "exec-vm-1",
       entrySlug: "id-skill",
       installPath: "~/.claude/skills/id/SKILL.md",
@@ -113,7 +113,7 @@ describe("log-tags helpers", () => {
     expect(payload).toEqual(
       expect.objectContaining({
         operation: "fleet_substrate_item_failed",
-        hostId: "host-abc",
+        fleetHostId: "host-abc",
         hostName: "exec-vm-1",
         entrySlug: "id-skill",
         installPath: "~/.claude/skills/id/SKILL.md",
@@ -126,7 +126,7 @@ describe("log-tags helpers", () => {
   it("Test 4: all four helpers pass payload as the SECOND argument (spy-shape discipline)", () => {
     // Sweep result → info, 2 args, second arg is the payload object.
     logSweepResult({
-      hostId: "h",
+      fleetHostId: "h",
       hostName: "n",
       itemsChecked: 1,
       itemsChanged: 0,
@@ -140,7 +140,7 @@ describe("log-tags helpers", () => {
 
     // Item changed → info, same 2-arg shape.
     logItemChanged({
-      hostId: "h",
+      fleetHostId: "h",
       hostName: "n",
       entrySlug: "s",
       installPath: "~/p",
@@ -154,7 +154,7 @@ describe("log-tags helpers", () => {
 
     // Item failed → warn, 2-arg shape.
     logItemFailed({
-      hostId: "h",
+      fleetHostId: "h",
       hostName: "n",
       entrySlug: "s",
       installPath: "~/p",
@@ -167,7 +167,7 @@ describe("log-tags helpers", () => {
     warnMock.mockClear();
 
     // Sweep hook error → warn, 2-arg shape.
-    logSweepHookError({ hostId: "h", hostName: "n", errorMessage: "e" });
+    logSweepHookError({ fleetHostId: "h", hostName: "n", errorMessage: "e" });
     expect(warnMock.mock.calls[0]).toHaveLength(2);
     expect(typeof warnMock.mock.calls[0][0]).toBe("string");
     expect(typeof warnMock.mock.calls[0][1]).toBe("object");
@@ -175,7 +175,7 @@ describe("log-tags helpers", () => {
 
   it("Test 5: logSweepHookError emits fleet_substrate_sweep_hook_error with full payload on warn", () => {
     logSweepHookError({
-      hostId: "host-abc",
+      fleetHostId: "host-abc",
       hostName: "exec-vm-1",
       errorMessage: "runSweepForHost rejected: TypeError foo",
     });
@@ -189,7 +189,7 @@ describe("log-tags helpers", () => {
     expect(payload).toEqual(
       expect.objectContaining({
         operation: "fleet_substrate_sweep_hook_error",
-        hostId: "host-abc",
+        fleetHostId: "host-abc",
         hostName: "exec-vm-1",
         errorMessage: "runSweepForHost rejected: TypeError foo",
       }),
