@@ -272,7 +272,7 @@ describe("PrettyView plain-DOM render — Phase 43 Plan 43-07a", () => {
     }
   });
 
-  it("Test 2: outer scroll container className does NOT contain [overflow-anchor:none] — browser default overflow-anchor:auto is load-bearing", async () => {
+  it("Test 2: outer scroll container className DOES contain [overflow-anchor:none] — Phase 71 (2026-09-04) retired the browser default so the JS state machine owns scroll position exclusively", async () => {
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={() => true} isVisible={true} />,
     );
@@ -319,13 +319,14 @@ describe("PrettyView plain-DOM render — Phase 43 Plan 43-07a", () => {
     expect(scrollContainer).toBeTruthy();
 
     const cls = (scrollContainer!.className as string) || "";
-    // The Tailwind arbitrary-value class must be gone.
-    expect(cls).not.toContain("[overflow-anchor:none]");
-    // The literal CSS string must also not appear (defense against a
-    // future author writing `style="overflow-anchor: none"` inline).
-    expect(cls).not.toContain("overflow-anchor:none");
-    // The inline style (if any) must not disable overflow-anchor either.
-    expect(scrollContainer!.style.overflowAnchor || "").not.toBe("none");
+    // Phase 71 (2026-09-04, HEAD 79d14042) rewrote PrettyView auto-scroll from
+    // first principles. The rewrite explicitly disables the browser's built-in
+    // scroll-anchoring feature (`overflow-anchor:none`) so the JS state machine
+    // in `use-auto-scroll.ts` owns scroll position exclusively — no silent
+    // browser adjustments contending with the state machine's writes.
+    // See `src/ui/features/pretty-view/PrettyView.tsx` "Phase 70 (rewrite):
+    // [overflow-anchor:none] RESTORED" comment on the scroll container div.
+    expect(cls).toContain("[overflow-anchor:none]");
   });
 
   it("Test 3: aside-arm walk preserved — isIdle:false→true on an identity-attached session with a trailing /id user turn suppresses aside_arm (walk finds isIdCommand and returns early)", async () => {
