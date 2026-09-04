@@ -1790,10 +1790,23 @@ Plans:
 
 ### Phase 72: Identity modal role/identity scope split with role-level wakeups management — rework the identity modal so a top segmented control switches between Role view (role file / bounties / history / role-scope wakeups) and Identity view (identity file / identity-scope wakeups / handoff); bottom icon-bar reshuffles per scope. Adds the load-bearing new capability: role-scope wakeup CRUD (list/edit/add/enable-disable/delete) reading + writing ~/.claude/roles/<role>/wakeups/ — mirror the existing identity-scope wakeup surface. Coordinator identities default to Role view on open (their only meaningful state is role wakeups); actor identities default to Identity view (current default preserved). Scope switch position remembered per-identity within a session. Every wakeup visibly wears its scope. Preserves all existing modal behavior (bounty search, archive lazy-load, live pinned-count invalidation, inline title/avatar/hue/voice editors, stays-awake switch). Shape: .planning/shapes/shape-identity-modal-scope-split.md. Sketch (variant D — Top Scope Switch — chosen): .planning/sketches/001-identity-modal-role-vs-identity-split/.
 
-**Goal:** [To be planned]
+**Goal:** Coordinator and actor identities each open the modal into the scope that matters for them — coordinators land on Role view (their only meaningful state is role-scope wakeups), actors land on Identity view — and a segmented Role/Identity control at the top of the modal lets either flip between the two. Both scopes carry full wakeup CRUD parity (list/edit/add/enable-disable/delete), reading + writing the correct on-disk folder by construction. Every wakeup visibly wears its scope so ambiguity is impossible.
 **Requirements**: TBD
 **Depends on:** Phase 71
-**Plans:** 0 plans
-
+**Plans:** 4 plans
 Plans:
-- [ ] TBD (run /gsd-plan-phase 72 to break down)
+**Wave 1**
+
+- [ ] 72-01-PLAN.md — Backend CRUD parity: 6 new WS handlers (4 role-scope + 2 identity-scope create/delete), 6 new reader/writer functions in identity-artifact-reader.ts mirroring readIdentityWakeups + writeIdentityWakeupUpdate + readRoleFile two-step, 12 new wire types in claude-session-api.ts, backend test coverage (wave 1, no deps)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 72-02-PLAN.md — Frontend WakeupsTab refactor: accepts scope prop, threads onCreate/onDelete callbacks, adds hue-tinted Add-wakeup pill + Radix Dialog-in-Dialog sub-modal for create + trash-icon + AlertDialog confirm for delete + per-row scope pill; extracts shared form helpers to WakeupFormShared; new AddWakeupDialog component + test file; extended WakeupsTab.test.tsx coverage (wave 2, depends on 72-01)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 72-03-PLAN.md — Scope switch + tab reshuffle in IdentityModal + Zustand-shaped modal-scope-store: segmented Role/Identity control at top, per-scope conditional NAV_SECTIONS (4 tabs Role / 3 tabs Identity), two Wakeups TabsContent panes (one per scope), coord-vs-actor default derivation, scope-derived activeTab reset, per-scope WS-plumbing for create/update/delete; updates all 4 existing IdentityModal test files + new scope-switch test file (wave 3, depends on 72-01+72-02)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 72-04-PLAN.md — Coordinator empty states + visual polish + Ashley browser walk-through: WakeupsTab + HandoffTab accept isCoordinator prop; coordinator-Identity-view Wakeups renders 'Coordinators use role-scope wakeups only. Switch to Role view to manage.'; coordinator-Identity-view Handoff renders 'Coordinators are stateless routers — no handoff to display.'; Add-wakeup pill matches sketch variant D hue-tint; human-verify checkpoint gates ship (wave 4, depends on 72-03)
