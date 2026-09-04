@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-last_updated: "2026-09-04T09:59:36.064Z"
+status: executing
+last_updated: "2026-09-04T21:39:58.505Z"
 last_activity: 2026-09-04
 progress:
-  total_phases: 73
-  completed_phases: 62
-  total_plans: 268
-  completed_plans: 262
-  percent: 85
+  total_phases: 75
+  completed_phases: 63
+  total_plans: 277
+  completed_plans: 268
+  percent: 84
 ---
 
 # Project State
@@ -20,13 +20,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** Ashley never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 72 — identity-modal-role-identity-scope-split-with-role-level-wak
+**Current focus:** Phase 74 — control-style-of-avatar-generation-through-branding-config
 
 ## Current Position
 
-Phase: 72 (identity-modal-role-identity-scope-split-with-role-level-wak) — EXECUTING
-Plan: 4 of 4
-Status: Phase complete — ready for verification
+Phase: 74 (control-style-of-avatar-generation-through-branding-config) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
 
 Last activity: 2026-09-04
 Last activity (prior): 2026-09-04
@@ -206,7 +206,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 99%
+Progress: [██████████] 98%
 Progress: [██████████] 100%
 
 ## Performance Metrics
@@ -327,6 +327,7 @@ Progress: [██████████] 100%
 | Phase 72 P01 | 25min | 2 tasks | 6 files |
 | Phase 72 P03 | 40min | 3 tasks | 11 files |
 | Phase 72 P04 | 15min | 1 tasks | 4 files |
+| Phase 74 P01 | 6m | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -510,6 +511,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 72 Plan 04: HandoffTab coord short-circuit at TOP of render body so stray handoff.md on disk still yields caption
 - [Phase ?]: Phase 72 Plan 04: AddWakeupPill shared component (2 render sites) — pill-in-both-branches invariant verified at runtime by test C5
 - [Phase ?]: Phase 72 complete: spirit-violation guardrail closed by top scope switch (P03) + per-row scope pills (P02) + coord empty captions (P04) — every empty state now reads as intentional
+- [Phase ?]: Phase 74 Plan 01: shape guard tested indirectly through loadBrandingConfig
+- [Phase ?]: Phase 74 Plan 01: Left frontend isBrandingConfig runtime guard unchanged (out of atomic scope); tsc --noEmit exits 0. Deferred to a plan that revisits branding-fetch.ts.
 
 ### Pending Todos
 
@@ -797,8 +800,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-04T09:57:13.538Z
-Stopped at: Completed 72-01-PLAN.md — backend wakeup CRUD parity + WS handlers landed
+Last session: 2026-09-04T21:39:58.039Z
+Stopped at: Completed 74-01-PLAN.md
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
 Last session: 2026-08-19T03:53:37.643Z
