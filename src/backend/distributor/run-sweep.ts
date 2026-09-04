@@ -64,12 +64,31 @@ export interface SweepDeps {
  * continues. If the entire loop body throws unexpectedly, the outer catch
  * still emits the summary and resolves.
  */
+// Bounded retry for SSH-transport-only failures (channel died mid-exec, not
+// a real remote-side error). Retries up to `maxTries` with `backoffMs` between
+// attempts. Non-transient results (structural failures, success) return
+// immediately without further attempts. See § substrate-sweep-no-retry bounty.
+async function retryOnTransport<T>(
+  fn: () => Promise<T>,
+  isTransient: (result: T) => boolean,
+  maxTries: number = 3,
+  backoffMs: number = 200,
+): Promise<T> {
+  let last: T = await fn();
+  for (let i = 1; i < maxTries; i++) {
+    if (!isTransient(last)) return last;
+    await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    last = await fn();
+  }
+  return last;
+}
+
 export async function runSweepForHost(
   channel: SshChannel,
   host: { id: string; name: string },
   catalog: readonly CatalogEntry[],
   deps: SweepDeps,
-): Promise<void> {
+): Promise<{ itemsChecked: number; itemsChanged: number; itemsFailed: number }> {
   const now = deps.now ?? Date.now;
   const startMs = now();
   let itemsChecked = 0;
@@ -88,7 +107,10 @@ export async function runSweepForHost(
       let installedResult: Awaited<ReturnType<typeof readInstalledBytes>>;
       try {
         bundledResult = await deps.readBundledBytes(entry.bundledPath);
-        installedResult = await readInstalledBytes(channel, entry.installPath);
+        installedResult = await retryOnTransport(
+          () => readInstalledBytes(channel, entry.installPath),
+          (r) => r.readOk === false && r.reason === "transport",
+        );
       } catch (readErr) {
         // Route through the outer catch-all for a single fail-log site.
         throw readErr;
@@ -139,11 +161,15 @@ export async function runSweepForHost(
       // Safe non-null: the decision layer only returns push when bundledBytes
       // was non-null (otherwise it returns skip("bundled-read-failed")).
       const mode = computeInstallMode(bundledResult!.mode);
-      const writeResult = await writeInstalledBytesWithMode(
-        channel,
-        entry.installPath,
-        bundledResult!.bytes,
-        mode,
+      const writeResult = await retryOnTransport(
+        () =>
+          writeInstalledBytesWithMode(
+            channel,
+            entry.installPath,
+            bundledResult!.bytes,
+            mode,
+          ),
+        (r) => r.ok === false && r.errorMessage === "channel returned null",
       );
 
       if (writeResult.ok === false) {
@@ -221,4 +247,6 @@ export async function runSweepForHost(
     itemsFailed,
     durationMs: now() - startMs,
   });
+
+  return { itemsChecked, itemsChanged, itemsFailed };
 }

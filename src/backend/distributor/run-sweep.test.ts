@@ -189,8 +189,11 @@ describe("runSweepForHost", () => {
     const { channel, exec } = makeChannelSequenced((cmd) => {
       if (cmd.includes("base64 -w0")) {
         readIdx++;
-        // items a and b return null (transport), item c returns matching bytes
-        if (readIdx <= 2) return null;
+        // Items a and b return null (transport) on every attempt including
+        // all retries. retryOnTransport retries up to 3 times, so items a
+        // and b exhaust their retry budget across reads 1-6 (2 items × 3
+        // tries). Item c's single read lands at idx=7 and returns matching.
+        if (readIdx <= 6) return null;
         return b64Ok(matching);
       }
       throw new Error(`unexpected: ${cmd}`);
@@ -304,7 +307,7 @@ describe("runSweepForHost", () => {
 
     await expect(
       runSweepForHost(throwingChannel, HOST, catalog, deps),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ itemsChecked: 1, itemsChanged: 0, itemsFailed: 1 });
 
     // ssh-push's readInstalledBytes catches the throw and returns
     // { readOk: false, reason: "transport" }. That surfaces as
@@ -412,5 +415,117 @@ describe("runSweepForHost", () => {
     await runSweepForHost(channel, HOST, catalog, deps);
 
     expect(readOrder).toEqual(["~/1", "~/2", "~/3"]);
+  });
+
+  // ------------------------------------------------------------------
+  // Retry-on-transport tests (substrate-sweep-no-retry bounty fix).
+  // ------------------------------------------------------------------
+
+  it("Test 12: transient read transport error recovers on retry — no logItemFailed", async () => {
+    const bundled = Buffer.from("bundled");
+    const catalog: CatalogEntry[] = [
+      catalogEntry({ slug: "flaky-read", installPath: "~/x" }),
+    ];
+    let readIdx = 0;
+    const { channel } = makeChannelSequenced((cmd) => {
+      if (cmd.includes("base64 -w0")) {
+        readIdx++;
+        // First read transports (null). Second read succeeds with matching bytes.
+        if (readIdx === 1) return null;
+        return b64Ok(bundled);
+      }
+      throw new Error(`unexpected: ${cmd}`);
+    });
+    const deps: SweepDeps = {
+      readBundledBytes: vi.fn(async () => ({ bytes: bundled, mode: 0o644 })),
+    };
+
+    const result = await runSweepForHost(channel, HOST, catalog, deps);
+
+    expect(result).toEqual({ itemsChecked: 1, itemsChanged: 0, itemsFailed: 0 });
+    expect(logItemFailed).not.toHaveBeenCalled();
+  });
+
+  it("Test 13: transient write channel-null recovers on retry — writes succeed, no logItemFailed", async () => {
+    const bundled = Buffer.from("bundled");
+    const stale = Buffer.from("stale");
+    const catalog: CatalogEntry[] = [
+      catalogEntry({ slug: "flaky-write", installPath: "~/x" }),
+    ];
+    let writeIdx = 0;
+    const { channel } = makeChannelSequenced((cmd) => {
+      if (cmd.includes("base64 -w0")) return b64Ok(stale);
+      if (cmd.includes("base64 -d")) {
+        writeIdx++;
+        // First write returns null (channel died mid-write). Second succeeds.
+        if (writeIdx === 1) return null;
+        return "__WRITE_OK__";
+      }
+      throw new Error(`unexpected: ${cmd}`);
+    });
+    const deps: SweepDeps = {
+      readBundledBytes: vi.fn(async () => ({ bytes: bundled, mode: 0o644 })),
+    };
+
+    const result = await runSweepForHost(channel, HOST, catalog, deps);
+
+    expect(result).toEqual({ itemsChecked: 1, itemsChanged: 1, itemsFailed: 0 });
+    expect(logItemFailed).not.toHaveBeenCalled();
+  });
+
+  it("Test 14: retry budget exhausted — 3 consecutive null writes still fails", async () => {
+    const bundled = Buffer.from("bundled");
+    const stale = Buffer.from("stale");
+    const catalog: CatalogEntry[] = [
+      catalogEntry({ slug: "dead-write", installPath: "~/x" }),
+    ];
+    let writeIdx = 0;
+    const { channel } = makeChannelSequenced((cmd) => {
+      if (cmd.includes("base64 -w0")) return b64Ok(stale);
+      if (cmd.includes("base64 -d")) {
+        writeIdx++;
+        return null; // channel dies on every attempt
+      }
+      throw new Error(`unexpected: ${cmd}`);
+    });
+    const deps: SweepDeps = {
+      readBundledBytes: vi.fn(async () => ({ bytes: bundled, mode: 0o644 })),
+    };
+
+    const result = await runSweepForHost(channel, HOST, catalog, deps);
+
+    expect(result).toEqual({ itemsChecked: 1, itemsChanged: 0, itemsFailed: 1 });
+    expect(writeIdx).toBe(3); // 3 tries consumed
+    expect(logItemFailed).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: "write", errorMessage: "channel returned null" }),
+    );
+  });
+
+  it("Test 15: structural write failure (__WRITE_FAIL__) does NOT retry", async () => {
+    const bundled = Buffer.from("bundled");
+    const stale = Buffer.from("stale");
+    const catalog: CatalogEntry[] = [
+      catalogEntry({ slug: "real-fail-write", installPath: "~/x" }),
+    ];
+    let writeIdx = 0;
+    const { channel } = makeChannelSequenced((cmd) => {
+      if (cmd.includes("base64 -w0")) return b64Ok(stale);
+      if (cmd.includes("base64 -d")) {
+        writeIdx++;
+        return "__WRITE_FAIL__"; // real remote-side failure, not transient
+      }
+      throw new Error(`unexpected: ${cmd}`);
+    });
+    const deps: SweepDeps = {
+      readBundledBytes: vi.fn(async () => ({ bytes: bundled, mode: 0o644 })),
+    };
+
+    const result = await runSweepForHost(channel, HOST, catalog, deps);
+
+    expect(result).toEqual({ itemsChecked: 1, itemsChanged: 0, itemsFailed: 1 });
+    expect(writeIdx).toBe(1); // exactly ONE attempt, no retry
+    expect(logItemFailed).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: "write" }),
+    );
   });
 });

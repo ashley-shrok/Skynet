@@ -820,10 +820,17 @@ export function createSshPollOrchestrator(
   const inFlight = new Set<string>();
   const skipCount = new Map<string, number>();
   // Phase 72 Plan 04 — fleet-substrate sweep-hook once-per-host gating.
-  // Populated on first successful channel acquisition per host per Skynet
-  // instance lifetime. Container restart wipes the Set (dies with the
-  // closure) so the sweep naturally re-fires on next acquisition.
+  // Populated on first FULLY-SUCCESSFUL channel-acquire+sweep per host per
+  // Skynet instance lifetime (post-substrate-sweep-no-retry bounty fix).
+  // A partial-failure sweep leaves the host un-marked so the next poll cycle
+  // re-attempts (paired with per-item retry inside run-sweep.ts). Container
+  // restart wipes the Set (dies with the closure) so the sweep naturally
+  // re-fires on next acquisition.
   const sweepedThisInstance = new Set<string>();
+  // Prevents concurrent double-fire on the same host while an in-flight sweep
+  // hasn't yet settled — without this, a re-acquire during a running sweep
+  // would kick off a second sweep that races the first.
+  const sweepInFlight = new Set<string>();
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let sweepTimer: ReturnType<typeof setInterval> | null = null;
   let pollTickCount = 0;
@@ -2094,8 +2101,12 @@ export function createSshPollOrchestrator(
       //
       // Opt-in flag runsFleetSubstrate populated by starter.ts's listIdentityHostingHosts (wired through 72-05).
       const extHost = host as IdentityHostingHostRecord;
-      if (extHost.runsFleetSubstrate === true && !sweepedThisInstance.has(host.id)) {
-        sweepedThisInstance.add(host.id);
+      if (
+        extHost.runsFleetSubstrate === true &&
+        !sweepedThisInstance.has(host.id) &&
+        !sweepInFlight.has(host.id)
+      ) {
+        sweepInFlight.add(host.id);
         // WARN-3 (plan-checker): use queueMicrotask, NOT setImmediate. Both
         // unblock the acquire path so pollAllHosts() proceeds regardless of
         // sweep duration, but queueMicrotask is drainable in tests with a
@@ -2103,13 +2114,25 @@ export function createSshPollOrchestrator(
         // does NOT drain via tick() — it needs vi.runAllTimersAsync() or a
         // fresh macrotask cycle, and Test D + Test E can silently produce
         // false-green if the primitive isn't drained explicitly.
-        queueMicrotask(() => {
-          runSweepForHost(
-            channel,
-            { id: host.id, name: host.name },
-            FLEET_SUBSTRATE_CATALOG,
-            { readBundledBytes: bundledReaderFromDisk },
-          ).catch((err) => {
+        queueMicrotask(async () => {
+          try {
+            const result = await runSweepForHost(
+              channel,
+              { id: host.id, name: host.name },
+              FLEET_SUBSTRATE_CATALOG,
+              { readBundledBytes: bundledReaderFromDisk },
+            );
+            // Only mark swept-this-instance on a CLEAN sweep (0 failures).
+            // A partial-failure sweep leaves the host un-marked so the next
+            // poll cycle's acquire attempt re-fires the sweep — pairs with
+            // per-item retry inside run-sweep.ts. Undefined result (test
+            // stub) counts as success for backward compat with existing
+            // orchestrator tests.
+            const failed = result?.itemsFailed ?? 0;
+            if (failed === 0) {
+              sweepedThisInstance.add(host.id);
+            }
+          } catch (err) {
             // Defense-in-depth. runSweepForHost's own fire-and-forget
             // contract says it never rejects; this catch is here for the
             // one-in-a-million edge case (e.g. a synchronous throw before
@@ -2122,7 +2145,9 @@ export function createSshPollOrchestrator(
               hostName: host.name,
               errorMessage: err instanceof Error ? err.message : "unknown",
             });
-          });
+          } finally {
+            sweepInFlight.delete(host.id);
+          }
         });
       }
     } catch (err) {
@@ -2282,6 +2307,7 @@ export function createSshPollOrchestrator(
       // keeping the cleanup symmetric with perHostState.clear() is good
       // hygiene and makes the once-per-instance invariant obvious.
       sweepedThisInstance.clear();
+      sweepInFlight.clear();
 
       systemLogger.info("Fleet-status orchestrator stopped", {
         operation: "fleet_status_orchestrator_stopped",
