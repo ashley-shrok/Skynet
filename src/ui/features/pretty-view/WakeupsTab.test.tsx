@@ -38,6 +38,8 @@ const BASE_WAKEUP: Wakeup = {
 };
 
 // Helper: render the tab with a single BASE_WAKEUP and return the onUpdate spy.
+// Phase 72 Plan 02 Task 2: WakeupsTab now requires scope + onCreate + onDelete;
+// helper passes no-op defaults so existing tests keep working without change.
 function renderTab(wakeupOverrides?: Partial<Wakeup>): {
   onUpdate: ReturnType<typeof vi.fn>;
 } {
@@ -47,7 +49,10 @@ function renderTab(wakeupOverrides?: Partial<Wakeup>): {
     <WakeupsTab
       state={{ status: "ready", data: [wakeup] }}
       hue={200}
+      scope="identity"
       onUpdate={onUpdate}
+      onCreate={vi.fn().mockResolvedValue(undefined)}
+      onDelete={vi.fn().mockResolvedValue(undefined)}
     />,
   );
   return { onUpdate };
@@ -408,5 +413,250 @@ describe("WakeupsTab — form-based wakeup editor (quick 260731-2pa)", () => {
     // FRI→fri, mon→mon, 42→drop, null→drop, xyz→drop, WED→wed, " tue "→tue
     // Sorted: mon, tue, wed, fri
     expect(schedule.days).toEqual(["mon", "tue", "wed", "fri"]);
+  });
+
+  // ── Phase 72 Plan 02 Task 2: scope prop + Add-wakeup + Delete + scope pill ──
+  // WakeupsTab now accepts scope: "role" | "identity" + onCreate + onDelete
+  // callbacks. The tab renders an Add-wakeup pill button + AddWakeupDialog
+  // sub-modal at the top, a trash icon per row that opens an AlertDialog
+  // confirm, and a scope pill on every row so scope is visible at a glance.
+
+  it("13: scope='identity' — Add-wakeup button click opens AddWakeupDialog with identity-scope title", () => {
+    const onCreate = vi.fn().mockResolvedValue(undefined);
+    render(
+      <WakeupsTab
+        state={{ status: "ready", data: [BASE_WAKEUP] }}
+        hue={200}
+        scope="identity"
+        onUpdate={vi.fn().mockResolvedValue(undefined)}
+        onCreate={onCreate}
+        onDelete={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    // Add-wakeup pill exists.
+    const addBtn = screen.getByTestId("wakeup-add-button");
+    expect(addBtn).toBeTruthy();
+    // Dialog is not open initially.
+    expect(screen.queryByTestId("add-wakeup-dialog")).toBeNull();
+    // Click opens dialog.
+    fireEvent.click(addBtn);
+    expect(screen.getByTestId("add-wakeup-dialog")).toBeTruthy();
+    // Title reflects identity-scope.
+    expect(screen.getByText(/Add identity-scope wakeup/i)).toBeTruthy();
+  });
+
+  it("14: scope='role' — Add-wakeup button click opens AddWakeupDialog with role-scope title", () => {
+    render(
+      <WakeupsTab
+        state={{ status: "ready", data: [BASE_WAKEUP] }}
+        hue={200}
+        scope="role"
+        onUpdate={vi.fn().mockResolvedValue(undefined)}
+        onCreate={vi.fn().mockResolvedValue(undefined)}
+        onDelete={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("wakeup-add-button"));
+    expect(screen.getByTestId("add-wakeup-dialog")).toBeTruthy();
+    expect(screen.getByText(/Add role-scope wakeup/i)).toBeTruthy();
+  });
+
+  it("15: onCreate fires with correctly-shaped spec when the sub-dialog Save button is clicked", async () => {
+    const onCreate = vi.fn().mockResolvedValue(undefined);
+    render(
+      <WakeupsTab
+        state={{ status: "ready", data: [BASE_WAKEUP] }}
+        hue={200}
+        scope="identity"
+        onUpdate={vi.fn().mockResolvedValue(undefined)}
+        onCreate={onCreate}
+        onDelete={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("wakeup-add-button"));
+
+    // Fill required fields.
+    fireEvent.change(screen.getByLabelText(/Name/i), { target: { value: "morning-standup" } });
+    fireEvent.change(screen.getByLabelText(/Instruction/i), { target: { value: "check the box" } });
+
+    // Click Save.
+    fireEvent.click(screen.getByTestId("add-wakeup-save"));
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(1));
+
+    const spec = onCreate.mock.calls[0][0] as {
+      name: string;
+      enabled: boolean;
+      schedule: Record<string, unknown>;
+      instruction: string;
+    };
+    expect(spec.name).toBe("morning-standup");
+    expect(spec.enabled).toBe(true);
+    expect(spec.instruction).toBe("check the box");
+    // Default schedule is daily.
+    expect(spec.schedule.type).toBe("daily");
+  });
+
+  it("16: trash icon renders on every wakeup row", () => {
+    const twoWakeups: Wakeup[] = [
+      BASE_WAKEUP,
+      { ...BASE_WAKEUP, slug: "second-wakeup", name: "second-wakeup" },
+    ];
+    render(
+      <WakeupsTab
+        state={{ status: "ready", data: twoWakeups }}
+        hue={200}
+        scope="identity"
+        onUpdate={vi.fn().mockResolvedValue(undefined)}
+        onCreate={vi.fn().mockResolvedValue(undefined)}
+        onDelete={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    const trashIcons = screen.getAllByTestId("wakeup-delete-icon");
+    expect(trashIcons.length).toBe(2);
+  });
+
+  it("17: clicking trash icon opens AlertDialog confirm; slug appears in description", () => {
+    render(
+      <WakeupsTab
+        state={{ status: "ready", data: [BASE_WAKEUP] }}
+        hue={200}
+        scope="identity"
+        onUpdate={vi.fn().mockResolvedValue(undefined)}
+        onCreate={vi.fn().mockResolvedValue(undefined)}
+        onDelete={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("wakeup-delete-icon"));
+
+    // AlertDialog confirm present; slug appears in body. Query by description
+    // role so we're not matching the wakeup-name span in the header row too.
+    expect(screen.getByText(/Delete wakeup\?/i)).toBeTruthy();
+    const description = screen.getByRole("alertdialog").querySelector('[data-slot="alert-dialog-description"]');
+    expect(description).toBeTruthy();
+    expect(description!.textContent).toContain("daily-box-check");
+  });
+
+  it("18: clicking Delete-confirm calls onDelete with the row's slug", async () => {
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    render(
+      <WakeupsTab
+        state={{ status: "ready", data: [BASE_WAKEUP] }}
+        hue={200}
+        scope="identity"
+        onUpdate={vi.fn().mockResolvedValue(undefined)}
+        onCreate={vi.fn().mockResolvedValue(undefined)}
+        onDelete={onDelete}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("wakeup-delete-icon"));
+    fireEvent.click(screen.getByTestId("wakeup-delete-confirm"));
+
+    await waitFor(() => expect(onDelete).toHaveBeenCalledTimes(1));
+    expect(onDelete).toHaveBeenCalledWith("daily-box-check");
+  });
+
+  it("19: clicking Cancel in the AlertDialog does NOT call onDelete", () => {
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    render(
+      <WakeupsTab
+        state={{ status: "ready", data: [BASE_WAKEUP] }}
+        hue={200}
+        scope="identity"
+        onUpdate={vi.fn().mockResolvedValue(undefined)}
+        onCreate={vi.fn().mockResolvedValue(undefined)}
+        onDelete={onDelete}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("wakeup-delete-icon"));
+    // AlertDialog Cancel button is rendered by AlertDialogCancel — accessible role="button" name /Cancel/i.
+    // Some Radix versions render two dialogs (portal); scope to a container.
+    fireEvent.click(screen.getByRole("button", { name: /^Cancel$/i }));
+
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it("20: onDelete rejection surfaces error text in the AlertDialog and does not close it", async () => {
+    const onDelete = vi.fn().mockRejectedValue(new Error("nope"));
+    render(
+      <WakeupsTab
+        state={{ status: "ready", data: [BASE_WAKEUP] }}
+        hue={200}
+        scope="identity"
+        onUpdate={vi.fn().mockResolvedValue(undefined)}
+        onCreate={vi.fn().mockResolvedValue(undefined)}
+        onDelete={onDelete}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("wakeup-delete-icon"));
+    fireEvent.click(screen.getByTestId("wakeup-delete-confirm"));
+
+    await waitFor(() => expect(onDelete).toHaveBeenCalledTimes(1));
+    // Error text surfaces inline; dialog still shows the title.
+    await waitFor(() => expect(screen.getByText(/nope/)).toBeTruthy());
+    expect(screen.getByText(/Delete wakeup\?/i)).toBeTruthy();
+  });
+
+  it("21: scope='role' — every wakeup row's scope pill reads 'role'", () => {
+    const twoWakeups: Wakeup[] = [
+      BASE_WAKEUP,
+      { ...BASE_WAKEUP, slug: "second-wakeup", name: "second-wakeup" },
+    ];
+    render(
+      <WakeupsTab
+        state={{ status: "ready", data: twoWakeups }}
+        hue={200}
+        scope="role"
+        onUpdate={vi.fn().mockResolvedValue(undefined)}
+        onCreate={vi.fn().mockResolvedValue(undefined)}
+        onDelete={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    const pills = screen.getAllByTestId("wakeup-scope-pill");
+    expect(pills.length).toBe(2);
+    for (const pill of pills) {
+      expect(pill.textContent).toBe("role");
+    }
+  });
+
+  it("22: scope='identity' — every wakeup row's scope pill reads 'identity'", () => {
+    render(
+      <WakeupsTab
+        state={{ status: "ready", data: [BASE_WAKEUP] }}
+        hue={200}
+        scope="identity"
+        onUpdate={vi.fn().mockResolvedValue(undefined)}
+        onCreate={vi.fn().mockResolvedValue(undefined)}
+        onDelete={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    const pill = screen.getByTestId("wakeup-scope-pill");
+    expect(pill.textContent).toBe("identity");
+  });
+
+  it("23: empty-state branch still renders 'No scheduled wake-ups.' AND renders the Add-wakeup button so first-wakeup flow is reachable", () => {
+    render(
+      <WakeupsTab
+        state={{ status: "ready", data: [] }}
+        hue={200}
+        scope="identity"
+        onUpdate={vi.fn().mockResolvedValue(undefined)}
+        onCreate={vi.fn().mockResolvedValue(undefined)}
+        onDelete={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    expect(screen.getByText(/No scheduled wake-ups\./i)).toBeTruthy();
+    // Add-wakeup pill remains reachable so the user can add the FIRST wakeup.
+    expect(screen.getByTestId("wakeup-add-button")).toBeTruthy();
   });
 });

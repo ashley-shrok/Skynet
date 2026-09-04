@@ -1902,7 +1902,15 @@ export function IdentityModal({
             value="wakeups"
             className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
           >
-            <WakeupsTab state={wakeupsState} hue={hue} onUpdate={updateWakeup} />
+            {/* TODO Wave 3: replace stubs with real wiring (scope + onCreate + onDelete land in Plan 03 Task 2a) */}
+            <WakeupsTab
+              state={wakeupsState}
+              hue={hue}
+              onUpdate={updateWakeup}
+              scope="identity"
+              onCreate={async () => {}}
+              onDelete={async () => {}}
+            />
           </TabsContent>
 
           {/* Handoff tab — patch #17g: handoff.md as markdown */}

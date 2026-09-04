@@ -1,10 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronDown, Pencil, X } from "lucide-react";
+import { Check, ChevronDown, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Skeleton } from "@/components/skeleton";
 import { Button } from "@/components/button";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/alert-dialog";
 import { cn } from "@/lib/utils";
-import type { Wakeup } from "@/api/claude-session-api";
+import type { Wakeup, WakeupSpecWire } from "@/api/claude-session-api";
 import type { TabState } from "./IdentityFileTab";
+import { AddWakeupDialog } from "./AddWakeupDialog";
 // Phase 72 Plan 02 Task 1: FormSchedule + hydrate/build/validate helpers +
 // RestrictToDaysChips lifted into a shared module so the new AddWakeupDialog
 // (add-wakeup sub-modal) can consume them. Non-behavior-change refactor.
@@ -54,15 +63,55 @@ type OnUpdate = (
   updates: { enabled?: boolean; schedule?: unknown; name?: string; instruction?: string },
 ) => Promise<void>;
 
+// Phase 72 Plan 02 Task 2: Add-wakeup pill — hue-tinted rounded-full button
+// mirroring the sticky search bar hue-tint from IdentityModal L1618. Rendered
+// at the top of both the data branch AND the empty-state branch so the
+// first-wakeup flow is always reachable.
+function AddWakeupPill({
+  hue,
+  onClick,
+}: {
+  hue: number;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      data-testid="wakeup-add-button"
+      onClick={onClick}
+      className={cn(
+        "self-start cursor-pointer inline-flex items-center gap-1.5",
+        "rounded-full px-3 py-1 text-xs font-medium",
+        "text-[#f0ebe0] border transition-opacity hover:opacity-90",
+      )}
+      style={{
+        background: `hsla(${hue}, 45%, 25%, 0.82)`,
+        borderColor: `hsla(${hue}, 65%, 55%, 0.32)`,
+      }}
+    >
+      <Plus className="h-3.5 w-3.5" />
+      Add wakeup
+    </button>
+  );
+}
+
 export function WakeupsTab({
   state,
   hue,
+  scope,
   onUpdate,
+  onCreate,
+  onDelete,
 }: {
   state: TabState<Wakeup[]>;
   hue: number;
+  scope: "role" | "identity";
   onUpdate: OnUpdate;
+  onCreate: (spec: WakeupSpecWire) => Promise<void>;
+  onDelete: (slug: string) => Promise<void>;
 }) {
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+
   if (state.status === "loading") {
     return (
       <div className="flex flex-col gap-3">
@@ -83,22 +132,42 @@ export function WakeupsTab({
 
   if (state.data.length === 0) {
     return (
-      <div className="text-sm text-[var(--color-pv-fg-muted)]">
-        No scheduled wake-ups.
+      <div className="flex flex-col gap-3">
+        <AddWakeupPill hue={hue} onClick={() => setAddDialogOpen(true)} />
+        <div className="text-sm text-[var(--color-pv-fg-muted)]">
+          No scheduled wake-ups.
+        </div>
+        <AddWakeupDialog
+          open={addDialogOpen}
+          onOpenChange={setAddDialogOpen}
+          hue={hue}
+          scope={scope}
+          onSubmit={onCreate}
+        />
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-3">
+      <AddWakeupPill hue={hue} onClick={() => setAddDialogOpen(true)} />
       {state.data.map((wakeup) => (
         <WakeupRow
           key={wakeup.slug}
           wakeup={wakeup}
           hue={hue}
+          scope={scope}
           onUpdate={onUpdate}
+          onDelete={onDelete}
         />
       ))}
+      <AddWakeupDialog
+        open={addDialogOpen}
+        onOpenChange={setAddDialogOpen}
+        hue={hue}
+        scope={scope}
+        onSubmit={onCreate}
+      />
     </div>
   );
 }
@@ -106,11 +175,15 @@ export function WakeupsTab({
 function WakeupRow({
   wakeup,
   hue,
+  scope,
   onUpdate,
+  onDelete,
 }: {
   wakeup: Wakeup;
   hue: number;
+  scope: "role" | "identity";
   onUpdate: OnUpdate;
+  onDelete: (slug: string) => Promise<void>;
 }) {
   const detectedTz = useMemo(detectBrowserTimezone, []);
 
@@ -128,6 +201,23 @@ function WakeupRow({
   );
   const [saving, setSaving] = useState<null | "enabled" | "form">(null);
   const [error, setError] = useState<string | null>(null);
+  // Phase 72 Plan 02 Task 2: delete-confirm AlertDialog state.
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function handleDelete(): Promise<void> {
+    setDeleteError(null);
+    setDeleting(true);
+    try {
+      await onDelete(wakeup.slug);
+      setDeleteConfirmOpen(false);
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   // Reset all drafts when the underlying wakeup identity changes (post-save
   // refresh, or a different card rendered into the same slot).
@@ -232,6 +322,18 @@ function WakeupRow({
               "focus:outline-none focus:border-white/25",
             )}
           />
+          {/* Phase 72 Plan 02 Task 2: scope pill — always visible per
+              CONTEXT.md "every wakeup visibly declares its scope". */}
+          <span
+            data-testid="wakeup-scope-pill"
+            className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide border text-[#f0ebe0]"
+            style={{
+              background: `hsla(${hue}, 45%, 25%, 0.55)`,
+              borderColor: `hsla(${hue}, 65%, 55%, 0.32)`,
+            }}
+          >
+            {scope}
+          </span>
           <button
             type="button"
             onClick={toggleEnabled}
@@ -248,49 +350,147 @@ function WakeupRow({
           >
             {wakeup.enabled ? "on" : "off"}
           </button>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-expanded={expanded}
-          className="flex items-center gap-2 flex-wrap w-full text-left cursor-pointer"
-        >
-          <span className="flex flex-col min-w-0 flex-1 text-left">
-            <span className="font-semibold text-[15px] text-[#f0ebe0] truncate">
-              {wakeup.name}
-            </span>
-            <span className="text-xs text-[var(--color-pv-fg-muted)] font-mono truncate leading-tight">
-              {wakeup.scheduleHuman}
-            </span>
-          </span>
+          {/* Phase 72 Plan 02 Task 2: trash icon — opens AlertDialog confirm. */}
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              void toggleEnabled();
-            }}
-            disabled={saving === "enabled"}
-            aria-label={wakeup.enabled ? "Disable this wakeup" : "Enable this wakeup"}
-            title={wakeup.enabled ? "Disable" : "Enable"}
-            className={cn(
-              "shrink-0 cursor-pointer px-2 py-0.5 rounded-full text-[11px] font-medium uppercase tracking-wide border transition-opacity",
-              saving === "enabled" && "opacity-50 cursor-wait",
-              wakeup.enabled
-                ? "bg-emerald-500/25 text-emerald-200 border-emerald-500/40 hover:bg-emerald-500/35"
-                : "bg-slate-500/25 text-slate-300 border-slate-500/40 hover:bg-slate-500/35",
-            )}
+            data-testid="wakeup-delete-icon"
+            onClick={() => setDeleteConfirmOpen(true)}
+            aria-label="Delete this wakeup"
+            title="Delete"
+            className="cursor-pointer p-1 rounded text-[#a89a80] hover:text-rose-300 transition-colors"
           >
-            {wakeup.enabled ? "on" : "off"}
+            <Trash2 className="h-3.5 w-3.5" />
           </button>
-          <ChevronDown
-            className={cn(
-              "h-4 w-4 shrink-0 text-[#a89a80] transition-transform duration-150",
-              expanded && "rotate-180",
-            )}
-          />
-        </button>
+        </div>
+      ) : (
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            className="flex items-center gap-2 flex-wrap w-full text-left cursor-pointer pr-2"
+          >
+            <span className="flex flex-col min-w-0 flex-1 text-left">
+              <span className="font-semibold text-[15px] text-[#f0ebe0] truncate">
+                {wakeup.name}
+              </span>
+              <span className="text-xs text-[var(--color-pv-fg-muted)] font-mono truncate leading-tight">
+                {wakeup.scheduleHuman}
+              </span>
+            </span>
+            {/* Phase 72 Plan 02 Task 2: scope pill — always visible per
+                CONTEXT.md "every wakeup visibly declares its scope". Non-
+                interactive <span>, safe to nest inside the disclosure button. */}
+            <span
+              data-testid="wakeup-scope-pill"
+              className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide border text-[#f0ebe0]"
+              style={{
+                background: `hsla(${hue}, 45%, 25%, 0.55)`,
+                borderColor: `hsla(${hue}, 65%, 55%, 0.32)`,
+              }}
+            >
+              {scope}
+            </span>
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                void toggleEnabled();
+              }}
+              role="button"
+              tabIndex={0}
+              aria-label={wakeup.enabled ? "Disable this wakeup" : "Enable this wakeup"}
+              title={wakeup.enabled ? "Disable" : "Enable"}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void toggleEnabled();
+                }
+              }}
+              className={cn(
+                "shrink-0 cursor-pointer px-2 py-0.5 rounded-full text-[11px] font-medium uppercase tracking-wide border transition-opacity inline-flex items-center",
+                saving === "enabled" && "opacity-50 cursor-wait",
+                wakeup.enabled
+                  ? "bg-emerald-500/25 text-emerald-200 border-emerald-500/40 hover:bg-emerald-500/35"
+                  : "bg-slate-500/25 text-slate-300 border-slate-500/40 hover:bg-slate-500/35",
+              )}
+            >
+              {wakeup.enabled ? "on" : "off"}
+            </span>
+            {/* Phase 72 Plan 02 Task 2: trash icon — nested via <span role="button">
+                because the outer disclosure button forbids a real <button>
+                child (invalid HTML — buttons can't nest). Same pattern as
+                the enable toggle above. */}
+            <span
+              data-testid="wakeup-delete-icon"
+              onClick={(e) => {
+                e.stopPropagation();
+                setDeleteConfirmOpen(true);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setDeleteConfirmOpen(true);
+                }
+              }}
+              role="button"
+              tabIndex={0}
+              aria-label="Delete this wakeup"
+              title="Delete"
+              className="shrink-0 cursor-pointer p-1 rounded text-[#a89a80] hover:text-rose-300 transition-colors inline-flex items-center"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </span>
+            <ChevronDown
+              className={cn(
+                "h-4 w-4 shrink-0 text-[#a89a80] transition-transform duration-150",
+                expanded && "rotate-180",
+              )}
+            />
+          </button>
+        </div>
       )}
+
+      {/* Phase 72 Plan 02 Task 2: delete-confirm AlertDialog. Mounted outside
+          the header button hierarchy so the portal-rendered content is not
+          affected by any parent-button click boundaries. */}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete wakeup?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete &apos;{wakeup.slug}&apos;? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteError && (
+            <div className="text-xs text-rose-300 whitespace-pre-wrap">
+              {deleteError}
+            </div>
+          )}
+          <AlertDialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={deleting}
+              onClick={() => setDeleteConfirmOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              data-testid="wakeup-delete-confirm"
+              disabled={deleting}
+              onClick={handleDelete}
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Row 2: edit-schedule pencil (view-mode, only when expanded) OR form
           editor. Schedule human already lives in the header row, so we don't
