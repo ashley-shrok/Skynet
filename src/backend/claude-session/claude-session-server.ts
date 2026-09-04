@@ -65,7 +65,13 @@ import {
   readIdentityBounties,
   readIdentityBountyCounts,
   readRoleFile,
+  readRoleWakeups,
   writeIdentityWakeupUpdate,
+  writeRoleWakeupUpdate,
+  writeRoleWakeupCreate,
+  writeRoleWakeupDelete,
+  writeIdentityWakeupCreate,
+  writeIdentityWakeupDelete,
   writeIdentityFile,
   writeIdentityHistory,
   writeIdentityHandoff,
@@ -80,6 +86,7 @@ import {
   type BountyPriority,
   type BountyStatus,
   type BountyFieldsPatch,
+  type WakeupSpec,
 } from "./identity-artifact-reader.js";
 
 /**
@@ -96,9 +103,15 @@ import {
  *     { type: "identity:get-role-file", identityKey: string, hostId?: number }     // Phase 22 SRIC-06: fetch ~/.claude/roles/<role>/<role>.md via backend two-step (identity file → role: frontmatter → role artifact)
  *     { type: "identity:get-history", identityKey: string, hostId?: number }       // patch #17g/#92: fetch history.md
  *     { type: "identity:list-wakeups", identityKey: string, hostId?: number }      // patch #17g/#92: list wakeups/*.json
+ *     { type: "identity:list-role-wakeups", identityKey: string, hostId?: number } // Phase 72 Plan 01: list role-scope wakeups via two-step (identity file frontmatter -> role folder). Mirrors list-wakeups for role scope.
  *     { type: "identity:get-handoff", identityKey: string, hostId?: number }       // patch #17g/#92: fetch handoff.md
  *     // patch #154: first WRITE paths on identity artifacts. Same hostId routing.
  *     { type: "identity:update-wakeup", identityKey: string, hostId?: number, wakeupSlug: string, updates: { enabled?: boolean, schedule?: object } } // patch #154: patch wakeups/<slug>.json
+ *     { type: "identity:update-role-wakeup", identityKey: string, hostId?: number, wakeupSlug: string, updates: { enabled?, schedule?, name?, instruction? } } // Phase 72 Plan 01: patch a role-scope wakeup (roles/<role>/wakeups/<slug>.json) via two-step. Same shape as update-wakeup.
+ *     { type: "identity:create-role-wakeup", identityKey: string, hostId?: number, spec: { name, enabled, schedule, instruction } } // Phase 72 Plan 01: create a new role-scope wakeup. Slug derived from spec.name (kebab-case). Throws "wakeup with this name already exists" on clobber.
+ *     { type: "identity:delete-role-wakeup", identityKey: string, hostId?: number, wakeupSlug: string } // Phase 72 Plan 01: delete a role-scope wakeup (idempotent).
+ *     { type: "identity:create-wakeup", identityKey: string, hostId?: number, spec: { name, enabled, schedule, instruction } } // Phase 72 Plan 01: identity-scope parity gap closure — create a new identity-scope wakeup. Same shape as create-role-wakeup.
+ *     { type: "identity:delete-wakeup", identityKey: string, hostId?: number, wakeupSlug: string } // Phase 72 Plan 01: identity-scope parity gap closure — delete an identity-scope wakeup (idempotent).
  *     { type: "identity:update-bounty-priority", identityKey: string, hostId?: number, bountySlug: string, priority: "urgent"|"high"|"medium"|"low"|"unprioritized" } // patch #154: patch bounties/<slug>/bounty.json
  *     { type: "identity:update-bounty-status", identityKey: string, hostId?: number, bountySlug: string, status: "in_progress"|"waiting_on_someone_else"|"done"|"dropped" } // quick 260727-v0b / patch #168: patch bounties/<slug>/bounty.json status field. Allowed values: in_progress, waiting_on_someone_else, done, dropped. "pinned" removed from enum (now an independent boolean field). Folder NOT moved even for done/dropped — supports Ashley's resurrect flow via a pure JSON patch.
  *     { type: "identity:update-bounty-pinned", identityKey: string, hostId?: number, bountySlug: string, pinned: boolean } // quick 260728-sqk / patch #172: patch bounties/<slug>/bounty.json pinned field. `pinned` is an independent boolean orthogonal to status per fleet migration #168. Byte-shape mirror of update-bounty-status — flips the boolean, bumps updated_at, appends timeline line, folder untouched.
@@ -145,9 +158,15 @@ import {
  *     { type: "identity:role-file", markdown: string, error?: string }      // Phase 22 SRIC-06: response to identity:get-role-file
  *     { type: "identity:history", entries: string[], error?: string }       // patch #17g: response to identity:get-history
  *     { type: "identity:wakeups", wakeups: Wakeup[], error?: string }       // patch #17g: response to identity:list-wakeups
+ *     { type: "identity:role-wakeups", wakeups: Wakeup[], error?: string }  // Phase 72 Plan 01: response to identity:list-role-wakeups (via two-step)
  *     { type: "identity:handoff", markdown: string, error?: string }        // patch #17g: response to identity:get-handoff
  *     // patch #154: post-write responses carry the FRESH list so the client can atomically re-render without a follow-up read.
  *     { type: "identity:wakeup-updated", wakeups: Wakeup[], error?: string }  // patch #154: response to identity:update-wakeup (includes refreshed list)
+ *     { type: "identity:role-wakeup-updated", wakeups: Wakeup[], error?: string } // Phase 72 Plan 01: response to identity:update-role-wakeup (fresh role-scope list)
+ *     { type: "identity:role-wakeup-created", wakeups: Wakeup[], error?: string } // Phase 72 Plan 01: response to identity:create-role-wakeup (fresh role-scope list)
+ *     { type: "identity:role-wakeup-deleted", wakeups: Wakeup[], error?: string } // Phase 72 Plan 01: response to identity:delete-role-wakeup (fresh role-scope list)
+ *     { type: "identity:wakeup-created", wakeups: Wakeup[], error?: string } // Phase 72 Plan 01: response to identity:create-wakeup (fresh identity-scope list)
+ *     { type: "identity:wakeup-deleted", wakeups: Wakeup[], error?: string } // Phase 72 Plan 01: response to identity:delete-wakeup (fresh identity-scope list)
  *     { type: "identity:bounty-priority-updated", bounties, archivedBounties, error?: string } // patch #154: response to identity:update-bounty-priority (includes refreshed lists)
  *     { type: "identity:bounty-status-updated", bounties, archivedBounties, error?: string } // quick 260727-v0b: response to identity:update-bounty-status (includes refreshed lists)
  *     { type: "identity:bounty-pinned-updated", bounties, archivedBounties, error?: string } // quick 260728-sqk / patch #172: response to identity:update-bounty-pinned (includes refreshed lists — normalizeBounty carries `pinned:boolean` on every bounty)
@@ -1441,6 +1460,496 @@ export async function handleIdentityUpdateRoleFile(
 // above. Vitest drives the handlers directly with mocked reader/writer helpers.
 export const __handleIdentityGetRoleFileForTests = handleIdentityGetRoleFile;
 export const __handleIdentityUpdateRoleFileForTests = handleIdentityUpdateRoleFile;
+
+// ─── Phase 72 Plan 01: role-scope wakeup CRUD + identity-scope create/delete ──
+//
+// Six new WS handlers mirror the byte-shape of identity:list-wakeups and
+// identity:update-wakeup (the existing inline handlers at L4962/L5026),
+// extracted as top-level functions so vitest can drive them directly with
+// mocked reader/writer helpers — same test-seam convention as
+// handleIdentityGetRoleFile above.
+//
+// Wire shapes (mirror the existing wakeup pairs, adjusted for scope + verb):
+//   identity:list-role-wakeups   {identityKey, hostId?}                              -> identity:role-wakeups         {wakeups, error?}
+//   identity:update-role-wakeup  {identityKey, hostId?, wakeupSlug, updates}         -> identity:role-wakeup-updated  {wakeups, error?}
+//   identity:create-role-wakeup  {identityKey, hostId?, spec: WakeupSpec}            -> identity:role-wakeup-created  {wakeups, error?}
+//   identity:delete-role-wakeup  {identityKey, hostId?, wakeupSlug}                  -> identity:role-wakeup-deleted  {wakeups, error?}
+//   identity:create-wakeup       {identityKey, hostId?, spec: WakeupSpec}            -> identity:wakeup-created       {wakeups, error?}
+//   identity:delete-wakeup       {identityKey, hostId?, wakeupSlug}                  -> identity:wakeup-deleted       {wakeups, error?}
+//
+// Role-scope handlers rely on writeRoleWakeup*/readRoleWakeups doing the
+// two-step (identity file frontmatter -> role folder) INTERNALLY — the WS
+// handler is oblivious to role resolution, exactly as handleIdentityGetRoleFile
+// is oblivious to it (writeRoleFile does the two-step). Missing role
+// frontmatter surfaces as {error: "..."} on the response envelope.
+//
+// Create handlers accept a `spec` payload (WakeupSpec: name/enabled/schedule/
+// instruction). The writer does the slug-normalization + clobber-check +
+// validation; the handler only surfaces the writer's throws as {error} strings.
+// After a successful write the writer re-lists internally and returns fresh
+// {wakeups}, which the handler passes through so the client can atomically
+// re-render without a follow-up read.
+//
+// Delete handlers use IDENTITY_SLUG_RE double-belt (belt + suspenders — the
+// writer also checks; the handler check short-circuits without opening SSH
+// for a bad slug).
+
+/** Validate a WakeupSpec-shaped payload from an untrusted `msg.spec` field.
+ *  Returns the typed spec on success, or throws an Error with a specific
+ *  per-field message. Shared between the four create-handlers so validation
+ *  is identical across scopes. */
+function extractWakeupSpec(rawSpec: unknown): WakeupSpec {
+  if (typeof rawSpec !== "object" || rawSpec === null) {
+    throw new Error("spec must be an object");
+  }
+  const s = rawSpec as Record<string, unknown>;
+  if (typeof s.name !== "string" || s.name.length === 0) {
+    throw new Error("spec.name must be a non-empty string");
+  }
+  if (typeof s.enabled !== "boolean") {
+    throw new Error("spec.enabled must be a boolean");
+  }
+  if (typeof s.instruction !== "string") {
+    throw new Error("spec.instruction must be a string");
+  }
+  if (typeof s.schedule !== "object" || s.schedule === null) {
+    throw new Error("spec.schedule must be an object");
+  }
+  const t = (s.schedule as Record<string, unknown>).type;
+  if (typeof t !== "string" || t.length === 0) {
+    throw new Error("spec.schedule.type must be a non-empty string");
+  }
+  return {
+    name: s.name,
+    enabled: s.enabled,
+    schedule: s.schedule as Record<string, unknown>,
+    instruction: s.instruction,
+  };
+}
+
+export async function handleIdentityListRoleWakeups(
+  ws: WebSocket,
+  msg: unknown,
+  userId: string | undefined,
+): Promise<void> {
+  const m = (msg ?? {}) as { identityKey?: unknown; hostId?: unknown };
+  const rawKey = m.identityKey;
+  if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+    try {
+      ws.send(JSON.stringify({ type: "identity:role-wakeups", wakeups: [], error: "invalid identityKey" }));
+    } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeups err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+    return;
+  }
+  const identityKey = rawKey;
+  const rawHostId = m.hostId;
+  const hostIdNum =
+    typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+      ? rawHostId
+      : undefined;
+  const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+
+  try {
+    let wakeups: Awaited<ReturnType<typeof readRoleWakeups>>["wakeups"];
+    if (useLocal) {
+      ({ wakeups } = await readRoleWakeups(null, identityKey));
+      sshLogger.info("identity:list-role-wakeups", {
+        operation: "identity_list_role_wakeups",
+        userId, identityKey, hostId: hostIdNum, useLocal: true, payloadSize: wakeups.length,
+      });
+    } else {
+      const resolved = await resolveHostById(hostIdNum!, userId!);
+      if (!resolved) {
+        try { ws.send(JSON.stringify({ type: "identity:role-wakeups", wakeups: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeups err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+        return;
+      }
+      const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+      try {
+        ({ wakeups } = await readRoleWakeups(conn, identityKey));
+        sshLogger.info("identity:list-role-wakeups", {
+          operation: "identity_list_role_wakeups",
+          userId, identityKey, hostId: hostIdNum, useLocal: false, payloadSize: wakeups.length,
+        });
+      } finally {
+        try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+      }
+    }
+    try { ws.send(JSON.stringify({ type: "identity:role-wakeups", wakeups })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeups err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+  } catch (err) {
+    sshLogger.error(
+      "identity:list-role-wakeups unexpected error",
+      err instanceof Error ? err : new Error(String(err)),
+      { operation: "identity_list_role_wakeups_error", userId, identityKey, hostId: hostIdNum },
+    );
+    try {
+      ws.send(JSON.stringify({ type: "identity:role-wakeups", wakeups: [], error: err instanceof Error ? err.message : String(err) }));
+    } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeups err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+  }
+}
+
+export async function handleIdentityUpdateRoleWakeup(
+  ws: WebSocket,
+  msg: unknown,
+  userId: string | undefined,
+): Promise<void> {
+  const raw = (msg ?? {}) as { identityKey?: unknown; hostId?: unknown; wakeupSlug?: unknown; updates?: unknown };
+  const rawKey = raw.identityKey;
+  const rawSlug = raw.wakeupSlug;
+  const rawUpdates = raw.updates;
+  if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+    try { ws.send(JSON.stringify({ type: "identity:role-wakeup-updated", wakeups: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+    return;
+  }
+  if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
+    try { ws.send(JSON.stringify({ type: "identity:role-wakeup-updated", wakeups: [], error: "invalid wakeup slug" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+    return;
+  }
+  if (typeof rawUpdates !== "object" || rawUpdates === null) {
+    try { ws.send(JSON.stringify({ type: "identity:role-wakeup-updated", wakeups: [], error: "invalid updates" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+    return;
+  }
+  const identityKey = rawKey;
+  const wakeupSlug = rawSlug;
+  const updates = rawUpdates as { enabled?: unknown; schedule?: unknown; name?: unknown; instruction?: unknown };
+  const filtered: { enabled?: boolean; schedule?: unknown; name?: string; instruction?: string } = {};
+  if (updates.enabled !== undefined) {
+    if (typeof updates.enabled !== "boolean") {
+      try { ws.send(JSON.stringify({ type: "identity:role-wakeup-updated", wakeups: [], error: "enabled must be boolean" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+      return;
+    }
+    filtered.enabled = updates.enabled;
+  }
+  if (updates.schedule !== undefined) {
+    filtered.schedule = updates.schedule;
+  }
+  if (updates.name !== undefined) {
+    if (typeof updates.name !== "string" || updates.name.length === 0) {
+      try { ws.send(JSON.stringify({ type: "identity:role-wakeup-updated", wakeups: [], error: "name must be a non-empty string" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+      return;
+    }
+    filtered.name = updates.name;
+  }
+  if (updates.instruction !== undefined) {
+    if (typeof updates.instruction !== "string") {
+      try { ws.send(JSON.stringify({ type: "identity:role-wakeup-updated", wakeups: [], error: "instruction must be a string" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+      return;
+    }
+    filtered.instruction = updates.instruction;
+  }
+  if (filtered.enabled === undefined && filtered.schedule === undefined && filtered.name === undefined && filtered.instruction === undefined) {
+    try { ws.send(JSON.stringify({ type: "identity:role-wakeup-updated", wakeups: [], error: "no updates" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+    return;
+  }
+  const rawHostId = raw.hostId;
+  const hostIdNum =
+    typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+      ? rawHostId
+      : undefined;
+  const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+  try {
+    let wakeups: Awaited<ReturnType<typeof readRoleWakeups>>["wakeups"];
+    if (useLocal) {
+      await writeRoleWakeupUpdate(null, identityKey, wakeupSlug, filtered);
+      ({ wakeups } = await readRoleWakeups(null, identityKey));
+      sshLogger.info("identity:update-role-wakeup", {
+        operation: "identity_update_role_wakeup",
+        userId, identityKey, wakeupSlug, hostId: hostIdNum, useLocal: true,
+        fields: Object.keys(filtered).join(","),
+      });
+    } else {
+      const resolved = await resolveHostById(hostIdNum!, userId!);
+      if (!resolved) {
+        try { ws.send(JSON.stringify({ type: "identity:role-wakeup-updated", wakeups: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+        return;
+      }
+      const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+      try {
+        await writeRoleWakeupUpdate(conn, identityKey, wakeupSlug, filtered);
+        ({ wakeups } = await readRoleWakeups(conn, identityKey));
+        sshLogger.info("identity:update-role-wakeup", {
+          operation: "identity_update_role_wakeup",
+          userId, identityKey, wakeupSlug, hostId: hostIdNum, useLocal: false,
+          fields: Object.keys(filtered).join(","),
+        });
+      } finally {
+        try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+      }
+    }
+    try { ws.send(JSON.stringify({ type: "identity:role-wakeup-updated", wakeups })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+  } catch (err) {
+    sshLogger.error(
+      "identity:update-role-wakeup unexpected error",
+      err instanceof Error ? err : new Error(String(err)),
+      { operation: "identity_update_role_wakeup_error", userId, identityKey, wakeupSlug, hostId: hostIdNum },
+    );
+    try {
+      ws.send(JSON.stringify({ type: "identity:role-wakeup-updated", wakeups: [], error: err instanceof Error ? err.message : String(err) }));
+    } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+  }
+}
+
+export async function handleIdentityCreateRoleWakeup(
+  ws: WebSocket,
+  msg: unknown,
+  userId: string | undefined,
+): Promise<void> {
+  const raw = (msg ?? {}) as { identityKey?: unknown; hostId?: unknown; spec?: unknown };
+  const rawKey = raw.identityKey;
+  if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+    try { ws.send(JSON.stringify({ type: "identity:role-wakeup-created", wakeups: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-created err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+    return;
+  }
+  let spec: WakeupSpec;
+  try {
+    spec = extractWakeupSpec(raw.spec);
+  } catch (err) {
+    try { ws.send(JSON.stringify({ type: "identity:role-wakeup-created", wakeups: [], error: err instanceof Error ? err.message : String(err) })); } catch (err2) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-created err="${err2 instanceof Error ? err2.message : String(err2)}"`, { operation: "ws_send_failed" }); }
+    return;
+  }
+  const identityKey = rawKey;
+  const rawHostId = raw.hostId;
+  const hostIdNum =
+    typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+      ? rawHostId
+      : undefined;
+  const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+  try {
+    let wakeups: Awaited<ReturnType<typeof readRoleWakeups>>["wakeups"];
+    if (useLocal) {
+      ({ wakeups } = await writeRoleWakeupCreate(null, identityKey, spec));
+      sshLogger.info("identity:create-role-wakeup", {
+        operation: "identity_create_role_wakeup",
+        userId, identityKey, hostId: hostIdNum, useLocal: true,
+        name: spec.name,
+      });
+    } else {
+      const resolved = await resolveHostById(hostIdNum!, userId!);
+      if (!resolved) {
+        try { ws.send(JSON.stringify({ type: "identity:role-wakeup-created", wakeups: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-created err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+        return;
+      }
+      const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+      try {
+        ({ wakeups } = await writeRoleWakeupCreate(conn, identityKey, spec));
+        sshLogger.info("identity:create-role-wakeup", {
+          operation: "identity_create_role_wakeup",
+          userId, identityKey, hostId: hostIdNum, useLocal: false,
+          name: spec.name,
+        });
+      } finally {
+        try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+      }
+    }
+    try { ws.send(JSON.stringify({ type: "identity:role-wakeup-created", wakeups })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-created err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+  } catch (err) {
+    sshLogger.error(
+      "identity:create-role-wakeup unexpected error",
+      err instanceof Error ? err : new Error(String(err)),
+      { operation: "identity_create_role_wakeup_error", userId, identityKey, hostId: hostIdNum },
+    );
+    try {
+      ws.send(JSON.stringify({ type: "identity:role-wakeup-created", wakeups: [], error: err instanceof Error ? err.message : String(err) }));
+    } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-created err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+  }
+}
+
+export async function handleIdentityDeleteRoleWakeup(
+  ws: WebSocket,
+  msg: unknown,
+  userId: string | undefined,
+): Promise<void> {
+  const raw = (msg ?? {}) as { identityKey?: unknown; hostId?: unknown; wakeupSlug?: unknown };
+  const rawKey = raw.identityKey;
+  const rawSlug = raw.wakeupSlug;
+  if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+    try { ws.send(JSON.stringify({ type: "identity:role-wakeup-deleted", wakeups: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+    return;
+  }
+  if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
+    try { ws.send(JSON.stringify({ type: "identity:role-wakeup-deleted", wakeups: [], error: "invalid wakeup slug" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+    return;
+  }
+  const identityKey = rawKey;
+  const wakeupSlug = rawSlug;
+  const rawHostId = raw.hostId;
+  const hostIdNum =
+    typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+      ? rawHostId
+      : undefined;
+  const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+  try {
+    let wakeups: Awaited<ReturnType<typeof readRoleWakeups>>["wakeups"];
+    if (useLocal) {
+      ({ wakeups } = await writeRoleWakeupDelete(null, identityKey, wakeupSlug));
+      sshLogger.info("identity:delete-role-wakeup", {
+        operation: "identity_delete_role_wakeup",
+        userId, identityKey, wakeupSlug, hostId: hostIdNum, useLocal: true,
+      });
+    } else {
+      const resolved = await resolveHostById(hostIdNum!, userId!);
+      if (!resolved) {
+        try { ws.send(JSON.stringify({ type: "identity:role-wakeup-deleted", wakeups: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+        return;
+      }
+      const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+      try {
+        ({ wakeups } = await writeRoleWakeupDelete(conn, identityKey, wakeupSlug));
+        sshLogger.info("identity:delete-role-wakeup", {
+          operation: "identity_delete_role_wakeup",
+          userId, identityKey, wakeupSlug, hostId: hostIdNum, useLocal: false,
+        });
+      } finally {
+        try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+      }
+    }
+    try { ws.send(JSON.stringify({ type: "identity:role-wakeup-deleted", wakeups })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+  } catch (err) {
+    sshLogger.error(
+      "identity:delete-role-wakeup unexpected error",
+      err instanceof Error ? err : new Error(String(err)),
+      { operation: "identity_delete_role_wakeup_error", userId, identityKey, wakeupSlug, hostId: hostIdNum },
+    );
+    try {
+      ws.send(JSON.stringify({ type: "identity:role-wakeup-deleted", wakeups: [], error: err instanceof Error ? err.message : String(err) }));
+    } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:role-wakeup-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+  }
+}
+
+export async function handleIdentityCreateWakeup(
+  ws: WebSocket,
+  msg: unknown,
+  userId: string | undefined,
+): Promise<void> {
+  const raw = (msg ?? {}) as { identityKey?: unknown; hostId?: unknown; spec?: unknown };
+  const rawKey = raw.identityKey;
+  if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+    try { ws.send(JSON.stringify({ type: "identity:wakeup-created", wakeups: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-created err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+    return;
+  }
+  let spec: WakeupSpec;
+  try {
+    spec = extractWakeupSpec(raw.spec);
+  } catch (err) {
+    try { ws.send(JSON.stringify({ type: "identity:wakeup-created", wakeups: [], error: err instanceof Error ? err.message : String(err) })); } catch (err2) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-created err="${err2 instanceof Error ? err2.message : String(err2)}"`, { operation: "ws_send_failed" }); }
+    return;
+  }
+  const identityKey = rawKey;
+  const rawHostId = raw.hostId;
+  const hostIdNum =
+    typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+      ? rawHostId
+      : undefined;
+  const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+  try {
+    let wakeups: Awaited<ReturnType<typeof readIdentityWakeups>>["wakeups"];
+    if (useLocal) {
+      ({ wakeups } = await writeIdentityWakeupCreate(null, identityKey, spec));
+      sshLogger.info("identity:create-wakeup", {
+        operation: "identity_create_wakeup",
+        userId, identityKey, hostId: hostIdNum, useLocal: true,
+        name: spec.name,
+      });
+    } else {
+      const resolved = await resolveHostById(hostIdNum!, userId!);
+      if (!resolved) {
+        try { ws.send(JSON.stringify({ type: "identity:wakeup-created", wakeups: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-created err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+        return;
+      }
+      const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+      try {
+        ({ wakeups } = await writeIdentityWakeupCreate(conn, identityKey, spec));
+        sshLogger.info("identity:create-wakeup", {
+          operation: "identity_create_wakeup",
+          userId, identityKey, hostId: hostIdNum, useLocal: false,
+          name: spec.name,
+        });
+      } finally {
+        try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+      }
+    }
+    try { ws.send(JSON.stringify({ type: "identity:wakeup-created", wakeups })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-created err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+  } catch (err) {
+    sshLogger.error(
+      "identity:create-wakeup unexpected error",
+      err instanceof Error ? err : new Error(String(err)),
+      { operation: "identity_create_wakeup_error", userId, identityKey, hostId: hostIdNum },
+    );
+    try {
+      ws.send(JSON.stringify({ type: "identity:wakeup-created", wakeups: [], error: err instanceof Error ? err.message : String(err) }));
+    } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-created err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+  }
+}
+
+export async function handleIdentityDeleteWakeup(
+  ws: WebSocket,
+  msg: unknown,
+  userId: string | undefined,
+): Promise<void> {
+  const raw = (msg ?? {}) as { identityKey?: unknown; hostId?: unknown; wakeupSlug?: unknown };
+  const rawKey = raw.identityKey;
+  const rawSlug = raw.wakeupSlug;
+  if (typeof rawKey !== "string" || !IDENTITY_KEY_RE.test(rawKey)) {
+    try { ws.send(JSON.stringify({ type: "identity:wakeup-deleted", wakeups: [], error: "invalid identityKey" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+    return;
+  }
+  if (typeof rawSlug !== "string" || !IDENTITY_SLUG_RE.test(rawSlug)) {
+    try { ws.send(JSON.stringify({ type: "identity:wakeup-deleted", wakeups: [], error: "invalid wakeup slug" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+    return;
+  }
+  const identityKey = rawKey;
+  const wakeupSlug = rawSlug;
+  const rawHostId = raw.hostId;
+  const hostIdNum =
+    typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+      ? rawHostId
+      : undefined;
+  const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+  try {
+    let wakeups: Awaited<ReturnType<typeof readIdentityWakeups>>["wakeups"];
+    if (useLocal) {
+      ({ wakeups } = await writeIdentityWakeupDelete(null, identityKey, wakeupSlug));
+      sshLogger.info("identity:delete-wakeup", {
+        operation: "identity_delete_wakeup",
+        userId, identityKey, wakeupSlug, hostId: hostIdNum, useLocal: true,
+      });
+    } else {
+      const resolved = await resolveHostById(hostIdNum!, userId!);
+      if (!resolved) {
+        try { ws.send(JSON.stringify({ type: "identity:wakeup-deleted", wakeups: [], error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+        return;
+      }
+      const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+      try {
+        ({ wakeups } = await writeIdentityWakeupDelete(conn, identityKey, wakeupSlug));
+        sshLogger.info("identity:delete-wakeup", {
+          operation: "identity_delete_wakeup",
+          userId, identityKey, wakeupSlug, hostId: hostIdNum, useLocal: false,
+        });
+      } finally {
+        try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+      }
+    }
+    try { ws.send(JSON.stringify({ type: "identity:wakeup-deleted", wakeups })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+  } catch (err) {
+    sshLogger.error(
+      "identity:delete-wakeup unexpected error",
+      err instanceof Error ? err : new Error(String(err)),
+      { operation: "identity_delete_wakeup_error", userId, identityKey, wakeupSlug, hostId: hostIdNum },
+    );
+    try {
+      ws.send(JSON.stringify({ type: "identity:wakeup-deleted", wakeups: [], error: err instanceof Error ? err.message : String(err) }));
+    } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-deleted err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+  }
+}
+
+// Test seams — Phase 72 Plan 01. Mirrors the __handleIdentityGetRoleFileForTests
+// convention. Vitest drives the handlers directly with mocked reader/writer
+// helpers and mocked connectOneShot/resolveHostById.
+export const __handleIdentityListRoleWakeupsForTests = handleIdentityListRoleWakeups;
+export const __handleIdentityUpdateRoleWakeupForTests = handleIdentityUpdateRoleWakeup;
+export const __handleIdentityCreateRoleWakeupForTests = handleIdentityCreateRoleWakeup;
+export const __handleIdentityDeleteRoleWakeupForTests = handleIdentityDeleteRoleWakeup;
+export const __handleIdentityCreateWakeupForTests = handleIdentityCreateWakeup;
+export const __handleIdentityDeleteWakeupForTests = handleIdentityDeleteWakeup;
 
 // ─── Phase 47 Plan 03 Hunk C: handleFetchOlderRange WS handler ────────────────
 //
@@ -5111,6 +5620,36 @@ wss.on("connection", async (ws: WebSocket, req) => {
           ws.send(JSON.stringify({ type: "identity:wakeup-updated", wakeups: [], error: err instanceof Error ? err.message : String(err) }));
         } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=identity:wakeup-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
       }
+      return;
+    }
+
+    // Phase 72 Plan 01: role-scope wakeup CRUD (4 handlers) + identity-scope
+    // create/delete parity-gap closure (2 handlers). All six extracted at
+    // L1450+ for the test seams; here we dispatch by msg.type. Handler
+    // functions are byte-shape mirrors of identity:list-wakeups /
+    // identity:update-wakeup above — see handler prologue for details.
+    if (msg.type === "identity:list-role-wakeups") {
+      await handleIdentityListRoleWakeups(ws, msg, userId);
+      return;
+    }
+    if (msg.type === "identity:update-role-wakeup") {
+      await handleIdentityUpdateRoleWakeup(ws, msg, userId);
+      return;
+    }
+    if (msg.type === "identity:create-role-wakeup") {
+      await handleIdentityCreateRoleWakeup(ws, msg, userId);
+      return;
+    }
+    if (msg.type === "identity:delete-role-wakeup") {
+      await handleIdentityDeleteRoleWakeup(ws, msg, userId);
+      return;
+    }
+    if (msg.type === "identity:create-wakeup") {
+      await handleIdentityCreateWakeup(ws, msg, userId);
+      return;
+    }
+    if (msg.type === "identity:delete-wakeup") {
+      await handleIdentityDeleteWakeup(ws, msg, userId);
       return;
     }
 

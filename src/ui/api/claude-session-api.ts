@@ -402,6 +402,13 @@ export type ClaudeSessionServerEvent =
   | IdentityWakeupsEvent
   | IdentityHandoffEvent
   | IdentityWakeupUpdatedEvent
+  // Phase 72 Plan 01: role-scope wakeup CRUD + identity-scope create/delete parity
+  | IdentityRoleWakeupsEvent
+  | IdentityRoleWakeupUpdatedEvent
+  | IdentityRoleWakeupCreatedEvent
+  | IdentityRoleWakeupDeletedEvent
+  | IdentityWakeupCreatedEvent
+  | IdentityWakeupDeletedEvent
   | IdentityBountyPriorityUpdatedEvent
   | IdentityBountyStatusUpdatedEvent
   | IdentityBountyPinnedUpdatedEvent
@@ -718,6 +725,124 @@ export type IdentityUpdateWakeupPayload = {
 };
 export type IdentityWakeupUpdatedEvent = {
   type: "identity:wakeup-updated";
+  wakeups: Wakeup[];
+  error?: string;
+};
+
+// ─── Phase 72 Plan 01: role-scope wakeup CRUD + identity-scope create/delete ──
+//
+// Six new wire type pairs land the backend WS handlers that let the
+// IdentityModal role-view Wakeups tab list/create/edit/delete role-scope
+// wakeups (~/.claude/roles/<role>/wakeups/*.json) plus close the
+// identity-scope parity gap (create + delete for identity-scope wakeups,
+// which today only supports list + update).
+//
+// Role-scope wire types (four pairs — full CRUD for role-scope wakeups):
+//   - identity:list-role-wakeups   / identity:role-wakeups         (list)
+//   - identity:update-role-wakeup  / identity:role-wakeup-updated  (patch)
+//   - identity:create-role-wakeup  / identity:role-wakeup-created  (create)
+//   - identity:delete-role-wakeup  / identity:role-wakeup-deleted  (delete)
+//
+// Identity-scope wire types (two pairs — parity-gap closure only, list +
+// update already existed):
+//   - identity:create-wakeup / identity:wakeup-created (create)
+//   - identity:delete-wakeup / identity:wakeup-deleted (delete)
+//
+// All six events echo the FRESH {wakeups} list on success so the client can
+// atomically re-render without a follow-up read (same convention as
+// IdentityWakeupUpdatedEvent). Role-scope handlers do the two-step
+// (identity file frontmatter -> role folder) INTERNALLY inside the backend
+// writer/reader — the wire contract stays (identityKey, hostId, spec/slug).
+
+/** Shared wire-side shape for the create-wakeup payloads (identity + role
+ *  scope). Mirror of the backend WakeupSpec type. Slug is derived server-side
+ *  from `name` via kebab-case normalization — client does NOT compute it. */
+export type WakeupSpecWire = {
+  name: string;
+  enabled: boolean;
+  schedule: unknown;
+  instruction: string;
+};
+
+// ─── role-scope wakeup CRUD ──────────────────────────────────────────
+
+export type IdentityListRoleWakeupsPayload = {
+  type: "identity:list-role-wakeups";
+  identityKey: string;
+  /** Pane's SSH host id — backend routes reads to the pane's box. */
+  hostId: number;
+};
+export type IdentityRoleWakeupsEvent = {
+  type: "identity:role-wakeups";
+  wakeups: Wakeup[];
+  error?: string;
+};
+
+export type IdentityUpdateRoleWakeupPayload = {
+  type: "identity:update-role-wakeup";
+  identityKey: string;
+  hostId: number;
+  /** filename stem of roles/<role>/wakeups/<slug>.json — regex-validated on the server. */
+  wakeupSlug: string;
+  updates: {
+    enabled?: boolean;
+    schedule?: unknown;
+    name?: string;
+    instruction?: string;
+  };
+};
+export type IdentityRoleWakeupUpdatedEvent = {
+  type: "identity:role-wakeup-updated";
+  wakeups: Wakeup[];
+  error?: string;
+};
+
+export type IdentityCreateRoleWakeupPayload = {
+  type: "identity:create-role-wakeup";
+  identityKey: string;
+  hostId: number;
+  spec: WakeupSpecWire;
+};
+export type IdentityRoleWakeupCreatedEvent = {
+  type: "identity:role-wakeup-created";
+  wakeups: Wakeup[];
+  error?: string;
+};
+
+export type IdentityDeleteRoleWakeupPayload = {
+  type: "identity:delete-role-wakeup";
+  identityKey: string;
+  hostId: number;
+  wakeupSlug: string;
+};
+export type IdentityRoleWakeupDeletedEvent = {
+  type: "identity:role-wakeup-deleted";
+  wakeups: Wakeup[];
+  error?: string;
+};
+
+// ─── identity-scope wakeup CRUD parity-gap closure ─────────────────────
+
+export type IdentityCreateWakeupPayload = {
+  type: "identity:create-wakeup";
+  identityKey: string;
+  hostId: number;
+  spec: WakeupSpecWire;
+};
+export type IdentityWakeupCreatedEvent = {
+  type: "identity:wakeup-created";
+  wakeups: Wakeup[];
+  error?: string;
+};
+
+export type IdentityDeleteWakeupPayload = {
+  type: "identity:delete-wakeup";
+  identityKey: string;
+  hostId: number;
+  wakeupSlug: string;
+};
+export type IdentityWakeupDeletedEvent = {
+  type: "identity:wakeup-deleted";
   wakeups: Wakeup[];
   error?: string;
 };
