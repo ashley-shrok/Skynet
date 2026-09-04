@@ -555,6 +555,35 @@ export function AppShell({
         if (prev[tabId] === sessionName) return prev;
         return { ...prev, [tabId]: sessionName };
       });
+      // Also patch tab.targetTmuxSession in the `tabs` React state so the
+      // conversation-store row for this tab reflects the runtime session
+      // name. Otherwise for a non-identity tab created with
+      // targetTmuxSession:null (backend picks a fresh skynet-<id>-<hash>),
+      // the row.targetTmuxSession stays null and the Kill context-menu item
+      // (gated on non-null targetTmuxSession at PrettyConversationRow.tsx
+      // line ~1408) never appears until page refresh re-hydrates from
+      // server-side fleet-status. Guard on non-null to avoid clobbering a
+      // known target when a transient null fires (e.g. session_expired).
+      if (sessionName !== null) {
+        setTabs((prev) => {
+          let changed = false;
+          const next = prev.map((t) => {
+            if (t.id === tabId && t.targetTmuxSession !== sessionName) {
+              changed = true;
+              return { ...t, targetTmuxSession: sessionName };
+            }
+            return t;
+          });
+          return changed ? next : prev;
+        });
+        // Persist to server-side open_tabs so a page refresh sees the
+        // current session name without waiting for a fleet-status
+        // catch-up cycle. Silent catch: local state is already correct;
+        // server persistence is best-effort.
+        import("@/main-axios").then(({ patchOpenTab }) => {
+          patchOpenTab(tabId, { targetTmuxSession: sessionName }).catch(() => {});
+        });
+      }
     },
     [],
   );
