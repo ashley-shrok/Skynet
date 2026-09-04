@@ -1793,7 +1793,7 @@ Plans:
 **Goal:** Coordinator and actor identities each open the modal into the scope that matters for them — coordinators land on Role view (their only meaningful state is role-scope wakeups), actors land on Identity view — and a segmented Role/Identity control at the top of the modal lets either flip between the two. Both scopes carry full wakeup CRUD parity (list/edit/add/enable-disable/delete), reading + writing the correct on-disk folder by construction. Every wakeup visibly wears its scope so ambiguity is impossible.
 **Requirements**: TBD
 **Depends on:** Phase 71
-**Plans:** 1/4 plans executed
+**Plans:** 2/4 plans executed
 Plans:
 **Wave 1**
 
@@ -1801,7 +1801,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 72-02-PLAN.md — Frontend WakeupsTab refactor: accepts scope prop, threads onCreate/onDelete callbacks, adds hue-tinted Add-wakeup pill + Radix Dialog-in-Dialog sub-modal for create + trash-icon + AlertDialog confirm for delete + per-row scope pill; extracts shared form helpers to WakeupFormShared; new AddWakeupDialog component + test file; extended WakeupsTab.test.tsx coverage (wave 2, depends on 72-01)
+- [x] 72-02-PLAN.md — Frontend WakeupsTab refactor: accepts scope prop, threads onCreate/onDelete callbacks, adds hue-tinted Add-wakeup pill + Radix Dialog-in-Dialog sub-modal for create + trash-icon + AlertDialog confirm for delete + per-row scope pill; extracts shared form helpers to WakeupFormShared; new AddWakeupDialog component + test file; extended WakeupsTab.test.tsx coverage (wave 2, depends on 72-01)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
