@@ -186,7 +186,7 @@ Remaining ship-day work is orchestrator-owned (see Deferred Items above): pre-de
 
 | Hash | Type | Scope | Description |
 |------|------|-------|-------------|
-| _(pending)_ | docs | 74-04 | Complete runbook + prompt-archive deletion plan (SUMMARY + STATE + ROADMAP) |
+| `8a1d4415` | docs | 74-04 | Complete runbook + prompt-archive deletion plan (SUMMARY + STATE + ROADMAP) |
 
 The five local-filesystem `rm`s themselves produced **zero commits** against the Skynet repo — those files were never in the repo tree. This SUMMARY commit is the sole audit-trail record.
 
