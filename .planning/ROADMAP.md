@@ -1764,3 +1764,26 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 70-05-PLAN.md — End-of-phase verify: full tsc + vitest + docker build/up + four automated surface probes through nginx + six human-verified visual behaviors on t1000-no-config path (wave 4, depends on 70-02 + 70-04)
+
+### Phase 71: Rewrite PrettyView auto-scroll from first principles — two-state position-derived state machine
+
+**Goal:** Replace the reactive observer-stack in PrettyView auto-scroll with a deterministic two-state (at-bottom / not-at-bottom) position-derived state machine — a pure reducer + thin React wrapper — restoring bottom-anchor reliability across window resize, drag-drop pane changes, accessory-bubble mount/unmount, and cold session entry (hide-pin-reveal, no first-paint flash). Closes bounties: pretty-view-auto-scroll-three-bug-rewrite, conversations-scroll-to-bottom-on-load, pretty-view-scroll-to-bottom-after-send, and (informationally) conversation-list-scroll-delay-on-load. **Rescue-rebased from local Phase 70 slot** (renumbered to 71 — origin's Phase 70 slot was independently occupied by Tiffany's shipped `branding-config` phase; 26th known `gsd-sdk phase.add` cross-tree race). Commit messages retain `feat(70-XX)` / `plan(70)` prefixes per fleet no-`git rebase -i` rule (git history reflects what executor did at the time); on-disk planning artifacts renamed to 71-XX.
+**Requirements**: (none — scope lives in 71-CONTEXT.md; shape-file-authoritative pattern)
+**Depends on:** Phase 70 (numerical ordering only — no functional dependency)
+**Plans:** 4/4 plans complete (Waves 1-3 executed; Wave 4 sweep GREEN, Wave 4 human-verify awaiting ship + Ashley real-browser walk-through)
+
+**Wave 1**
+
+- [x] 71-01-PLAN.md — Pure `auto-scroll-machine.ts` reducer + truth-table tests (no I/O imports, exhaustiveness sentinel, 45 tests) (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 71-02-PLAN.md — Thin `use-auto-scroll.ts` wrapper + test-consumer-pattern hook tests (wave 2, depends on 71-01)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 71-03-PLAN.md — PrettyView.tsx integration: destructure new 5-key API, delete sentinel div, add `overflow-anchor:none`, add hide-pin-reveal wrapper, wire jump-to-bottom/send-fired/onGoodToGo, orphan-comment cleanup in CollapsedPanelCloseLane.tsx + ComposeBox.tsx, `[pv-scroll-diag]` → `[pv-scroll]` log rename (wave 3, depends on 71-02)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [x] 71-04-PLAN.md — Codebase contamination sweep (5 grep gates + 3 observer-invariant gates + 2 log-prefix gates, all independently re-run) + human-verify Ashley real-browser walk-through of 4 bounty scenarios (wave 4, depends on 71-03)
