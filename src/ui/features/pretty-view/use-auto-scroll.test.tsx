@@ -817,15 +817,12 @@ describe("API surface", () => {
     const { result } = renderHook(() => useAutoScroll("pane-A"));
 
     const keys = Object.keys(result.current).sort();
+    // This exact-key-set assertion is the single source of truth for the hook's
+    // API surface. Any legacy prop would cause a key-mismatch failure here — the
+    // allowed set is exhaustive (jumpToBottom, mode, onSendFired, revealed, scrollRef).
+    // No additional per-prop assertions are needed; the toEqual check already
+    // enforces the absence of any legacy identifiers.
     expect(keys).toEqual(["jumpToBottom", "mode", "onSendFired", "revealed", "scrollRef"]);
-
-    // Explicit no-legacy assertions. Cast via `unknown` first because the
-    // static type of result.current does not sufficiently overlap with
-    // Record<string, unknown> for a direct cast (TS2352).
-    const asRecord = result.current as unknown as Record<string, unknown>;
-    expect(asRecord.sentinelRef).toBeUndefined();
-    expect(asRecord.scrollToBottomAndFollow).toBeUndefined();
-    expect(asRecord.isPinnedToBottom).toBeUndefined();
   });
 });
 

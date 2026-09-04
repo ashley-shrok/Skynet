@@ -477,13 +477,13 @@ export function PrettyConversationsPanel({
   // the Tier 1 active-set render tier — the store's snapshot.activeSet is now
   // always an empty array, so the ref-and-iterate in the bounty-count poller
   // getTargets closure below was a trivially-empty no-op.
-  const pinnedRef = useRef(pinned);
+  const pinnedRowsRef = useRef(pinned);
   // Phase 41 Plan 01: refs for the new three-zone shape. `middleRef` replaces
   // `groupedRef`; `rdpGroupRef` is new. Both stay bumped on every render.
   const middleRef = useRef(middle);
   const rdpGroupRef = useRef(rdpGroup);
   const identitiesByKeyRef = useRef(identitiesByKey);
-  pinnedRef.current = pinned;
+  pinnedRowsRef.current = pinned;
   middleRef.current = middle;
   rdpGroupRef.current = rdpGroup;
   identitiesByKeyRef.current = identitiesByKey;
@@ -504,7 +504,7 @@ export function PrettyConversationsPanel({
         idsSeen.add(composite);
         targets.push({ identityKey: ident.identityKey, hostId });
       };
-      for (const row of pinnedRef.current) collect(row);
+      for (const row of pinnedRowsRef.current) collect(row);
       // Phase 41 Plan 01: walk `middle` (flat array) + `rdpGroup.rows` (via
       // the nullable rdpGroup) — replaces the retired grouped[].flatMap pass.
       // RDP rows have no identity resolution (rdpHostRow rows never match a
@@ -688,10 +688,10 @@ export function PrettyConversationsPanel({
   // cached Map reference, preventing the infinite re-render loop.
   const rowSessionStatesCacheRef = useRef<{
     dirty: boolean;
-    pinnedRef: typeof pinned;
+    pinnedRowsRef: typeof pinned;
     middleRef: typeof middle;
     result: Map<string, { isWorking: boolean; isDormant: boolean }>;
-  }>({ dirty: true, pinnedRef: pinned, middleRef: middle, result: new Map() });
+  }>({ dirty: true, pinnedRowsRef: pinned, middleRef: middle, result: new Map() });
 
   // Stable subscribe wrapper that marks the cache dirty on store notify, then
   // calls the useSyncExternalStore listener so React schedules a re-render.
@@ -710,7 +710,7 @@ export function PrettyConversationsPanel({
     () => {
       const cache = rowSessionStatesCacheRef.current;
       // Return cached result when the store has not notified AND input arrays unchanged.
-      if (!cache.dirty && cache.pinnedRef === pinned && cache.middleRef === middle) {
+      if (!cache.dirty && cache.pinnedRowsRef === pinned && cache.middleRef === middle) {
         return cache.result;
       }
       const snapshot = getSessionWorkingSnapshot();
@@ -725,7 +725,7 @@ export function PrettyConversationsPanel({
           isDormant: record.dormant === true,
         });
       }
-      rowSessionStatesCacheRef.current = { dirty: false, pinnedRef: pinned, middleRef: middle, result: out };
+      rowSessionStatesCacheRef.current = { dirty: false, pinnedRowsRef: pinned, middleRef: middle, result: out };
       return out;
     },
     () => new Map<string, { isWorking: boolean; isDormant: boolean }>(),
