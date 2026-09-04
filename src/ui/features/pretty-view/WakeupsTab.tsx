@@ -63,10 +63,16 @@ type OnUpdate = (
   updates: { enabled?: boolean; schedule?: unknown; name?: string; instruction?: string },
 ) => Promise<void>;
 
-// Phase 72 Plan 02 Task 2: Add-wakeup pill — hue-tinted rounded-full button
-// mirroring the sticky search bar hue-tint from IdentityModal L1618. Rendered
-// at the top of both the data branch AND the empty-state branch so the
-// first-wakeup flow is always reachable.
+// Phase 72 Plan 02 Task 2: Add-wakeup pill — hue-tinted rounded-full button.
+// Phase 72 Plan 04 Task 1: visual polish to match sketch variant D's
+// coordinator column "Add role wakeup" button — `hsla(hue, 60%, 45%, 0.25)`
+// background + `hsla(hue, 60%, 55%, 0.4)` border. Hover brightens background
+// to `hsla(hue, 65%, 50%, 0.35)` (managed via a small local hover state so
+// the hue-tinted values can be interpolated; tailwind's hover: doesn't
+// compose over inline styles). Rendered at the top of both the data branch
+// AND the non-coordinator-identity empty-state branch so the first-wakeup
+// flow is always reachable. The coordinator + scope='identity' empty
+// branch omits the pill entirely (see below).
 function AddWakeupPill({
   hue,
   onClick,
@@ -74,19 +80,26 @@ function AddWakeupPill({
   hue: number;
   onClick: () => void;
 }): JSX.Element {
+  const [hovered, setHovered] = useState(false);
   return (
     <button
       type="button"
       data-testid="wakeup-add-button"
       onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setHovered(true)}
+      onBlur={() => setHovered(false)}
       className={cn(
         "self-start cursor-pointer inline-flex items-center gap-1.5",
-        "rounded-full px-3 py-1 text-xs font-medium",
-        "text-[#f0ebe0] border transition-opacity hover:opacity-90",
+        "rounded-full px-3.5 py-1.5 text-[11px] font-semibold",
+        "text-[#f0ebe0] border transition-colors",
       )}
       style={{
-        background: `hsla(${hue}, 45%, 25%, 0.82)`,
-        borderColor: `hsla(${hue}, 65%, 55%, 0.32)`,
+        background: hovered
+          ? `hsla(${hue}, 65%, 50%, 0.35)`
+          : `hsla(${hue}, 60%, 45%, 0.25)`,
+        borderColor: `hsla(${hue}, 60%, 55%, 0.4)`,
       }}
     >
       <Plus className="h-3.5 w-3.5" />
@@ -99,6 +112,7 @@ export function WakeupsTab({
   state,
   hue,
   scope,
+  isCoordinator,
   onUpdate,
   onCreate,
   onDelete,
@@ -106,6 +120,14 @@ export function WakeupsTab({
   state: TabState<Wakeup[]>;
   hue: number;
   scope: "role" | "identity";
+  // Phase 72 Plan 04 Task 1: required, non-optional. Callers always know
+  // whether the identity is a coordinator (via identity.coordinator on the
+  // Identity type, Phase 67 addition). The empty-state branch below fires
+  // a coordinator-Identity-scope caption when this is true AND scope is
+  // identity — hiding the Add-wakeup pill so coord can't accidentally
+  // create identity-scope wakeups (coord meaningful wakeups are all role-
+  // scope; the caption tells them to switch to Role view).
+  isCoordinator: boolean;
   onUpdate: OnUpdate;
   onCreate: (spec: WakeupSpecWire) => Promise<void>;
   onDelete: (slug: string) => Promise<void>;
@@ -131,6 +153,28 @@ export function WakeupsTab({
   }
 
   if (state.data.length === 0) {
+    // Phase 72 Plan 04 Task 1: three-branch empty state.
+    //
+    // Branch 1: coordinator + Identity scope → caption ONLY, no Add-wakeup
+    // pill. Coordinators create wakeups from Role scope; the pill would
+    // let them create a wakeup that never fires (identity-scope wakeups on
+    // a coordinator identity are semantically undefined per the shape).
+    if (isCoordinator && scope === "identity") {
+      return (
+        <div
+          className="text-sm text-[var(--color-pv-fg-muted)]"
+          data-testid="wakeups-coordinator-empty-identity"
+        >
+          Coordinators use role-scope wakeups only. Switch to Role view to manage.
+        </div>
+      );
+    }
+
+    // Branch 2 + Branch 3: any non-(coord+identity) empty case → caption
+    // AND the Add-wakeup pill so the first-wakeup flow is reachable.
+    //   Branch 2 = coordinator + Role scope (empty role-wakeup list)
+    //   Branch 3 = actor      + Identity scope (empty identity-wakeup list)
+    //              actor      + Role scope     (empty role-wakeup list)
     return (
       <div className="flex flex-col gap-3">
         <AddWakeupPill hue={hue} onClick={() => setAddDialogOpen(true)} />

@@ -2149,6 +2149,7 @@ export function IdentityModal({
               state={identityWakeupsState}
               hue={hue}
               scope="identity"
+              isCoordinator={identity.coordinator}
               onUpdate={updateWakeup}
               onCreate={createIdentityWakeup}
               onDelete={deleteIdentityWakeup}
@@ -2162,18 +2163,26 @@ export function IdentityModal({
               state={roleWakeupsState}
               hue={hue}
               scope="role"
+              isCoordinator={identity.coordinator}
               onUpdate={updateRoleWakeup}
               onCreate={createRoleWakeup}
               onDelete={deleteRoleWakeup}
             />
           </TabsContent>
 
-          {/* Handoff tab — patch #17g: handoff.md as markdown */}
+          {/* Handoff tab — patch #17g: handoff.md as markdown.
+              Phase 72 Plan 04: isCoordinator threaded so coord identities
+              short-circuit to the "stateless routers" caption instead of
+              rendering the markdown editor / empty-carry fallback. */}
           <TabsContent
             value="handoff"
             className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
           >
-            <HandoffTab state={handoffState} onSave={updateHandoff} />
+            <HandoffTab
+              state={handoffState}
+              isCoordinator={identity.coordinator}
+              onSave={updateHandoff}
+            />
           </TabsContent>
 
           {/* Patch #191: bottom icon-bar section switcher (Telegram-shape). */}

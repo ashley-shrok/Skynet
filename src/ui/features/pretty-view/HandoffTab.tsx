@@ -21,15 +21,38 @@ import type { TabState } from "./IdentityFileTab";
 
 export function HandoffTab({
   state,
+  isCoordinator,
   onSave,
 }: {
   state: TabState<string>;
+  // Phase 72 Plan 04 Task 1: required, non-optional. When true, short-
+  // circuits the render body BEFORE the loading / error / empty-markdown
+  // checks below — even a coordinator with a stray handoff.md on disk
+  // gets the informative caption ("stateless routers — no handoff to
+  // display") because coordinator handoffs are semantically undefined
+  // per the shape file.
+  isCoordinator: boolean;
   onSave?: (contents: string) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Phase 72 Plan 04 Task 1: coordinator short-circuit — prepended BEFORE
+  // loading / error / empty / render-body branches. Coord identities never
+  // render the handoff editor or markdown pane; the caption alone is more
+  // informative than any of those states for a stateless router.
+  if (isCoordinator) {
+    return (
+      <div
+        className="text-sm text-[var(--color-pv-fg-muted)]"
+        data-testid="handoff-coordinator-empty"
+      >
+        Coordinators are stateless routers — no handoff to display.
+      </div>
+    );
+  }
 
   async function handleSave() {
     if (!onSave) return;
