@@ -1893,6 +1893,15 @@ app.use("/voice", voiceRoutes);
 app.use(brandingRoutes);
 
 const frontendDistPaths = [
+  // Phase 73 branding-nginx fix: the docker image copies the frontend build
+  // output from `/app/dist` (in the frontend-builder stage) to `/app/html`
+  // in the runtime image (see docker/Dockerfile L77 `COPY --from=frontend-
+  // builder /app/dist /app/html`). Without this entry the SPA fallback +
+  // getBrandedIndexHtml template middleware is dead code in production —
+  // Express never finds `frontendDist`, the whole `if (frontendDist) {...}`
+  // block is skipped, and any request that routes here (post-nginx-fix)
+  // gets Express's default 404 "Cannot GET /".
+  path.join(process.cwd(), "html"),
   path.join(__dirname, "../../../dist"),
   path.join(__dirname, "../../dist"),
   path.join(process.cwd(), "dist"),
