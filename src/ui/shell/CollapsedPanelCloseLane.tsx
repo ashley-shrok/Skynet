@@ -109,7 +109,10 @@ export default function CollapsedPanelCloseLane({
   // useEffect does NOT re-run (empty deps) — so the lane's coral/drop
   // handlers never fire even though the div is visibly on screen. Callback
   // ref → useState so React re-runs the listener effect the moment the div
-  // mounts, matching the sentinelRef pattern in use-auto-scroll.ts.
+  // mounts. (The analog this comment used to cite — the callback-ref pattern
+  // in use-auto-scroll.ts — was deleted by the Phase 70 auto-scroll rewrite;
+  // the callback-ref → useState pattern here remains correct for the reason
+  // described above regardless of the deleted analog.)
   const [outerEl, setOuterEl] = useState<HTMLDivElement | null>(null);
   const outerRef = useCallback((el: HTMLDivElement | null) => {
     setOuterEl(el);

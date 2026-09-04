@@ -398,17 +398,17 @@ function appendDedupWithCap<T extends { eventId: string; line?: number; ts?: num
       return c;
     })();
   if (withNew.length > cap) {
-    // pv-scroll-diag (2026-08-23): cap-drop is the primary suspect for
+    // pv-scroll (2026-08-23): cap-drop is the primary suspect for
     // Ashley's "message bubble area suddenly jumps up" report — when the
     // pane holds `cap` messages and a new one arrives, the oldest drops
     // off the front of the DOM. If she's scrolled up reading, and the
     // browser's overflow-anchor is defeated, the viewport shifts up by
     // the dropped bubble's height. This log tells us when the DOM shrink
-    // event happened and lets us correlate with the pv-scroll-diag
+    // event happened and lets us correlate with the pv-scroll
     // geometry timeline emitted by use-auto-scroll.ts.
     const dropped = withNew[0]!;
     console.info(
-      `[pv-scroll-diag] cap-drop prevLen=${prev.length} cap=${cap} droppedEid=${dropped.eventId.slice(0, 8)} newAddedEid=${next.eventId.slice(0, 8)}`,
+      `[pv-scroll] cap-drop prevLen=${prev.length} cap=${cap} droppedEid=${dropped.eventId.slice(0, 8)} newAddedEid=${next.eventId.slice(0, 8)}`,
     );
     return withNew.slice(withNew.length - cap);
   }

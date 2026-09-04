@@ -2490,7 +2490,7 @@ export function ComposeBox({
             size="icon-sm"
             variant="secondary"
             // Phase 32: /explain is a send path — fire onGoodToGo?.() (parent-bound to
-            // scrollToBottomAndFollow) alongside handleQuickSend, matching the 'thumbs up'
+            // jumpToBottom via the parent-bound onGoodToGo prop per Phase 70) alongside handleQuickSend, matching the 'thumbs up'
             // quick-button above. Per 32-CONTEXT.md § Wire into PrettyView "ALL send paths"
             // rule + 32-PATTERNS.md § 2d Send-path callsite swaps table.
             onClick={() => { onGoodToGo?.(); handleQuickSend("/explain the current situation"); }}
