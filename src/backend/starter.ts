@@ -265,6 +265,15 @@ if (process.env.VITEST !== "true") {
       operation: "backend_init_db",
     });
 
+    // Phase 74: fail-fast if the branding config lacks a non-empty
+    // avatarDirectorSpec. Placed AFTER initializeDatabase() so the DB
+    // logger stream is live, and BEFORE AuthManager + the dbServer
+    // route mounts at L292 so no HTTP routes come up if the gate fires.
+    const { assertBrandingConfigAtBoot } = await import(
+      "./branding/assert-boot.js"
+    );
+    await assertBrandingConfigAtBoot();
+
     const authManager = AuthManager.getInstance();
     await authManager.initialize();
     DataCrypto.initialize();
