@@ -54,6 +54,16 @@ export type BrandingConfig = {
   wordmarkPath: string;
   faviconPath: string;
   pwaIcons: Array<{ src: string; sizes: string; type: string }>;
+  // Phase 74 (avatar-style-through-branding-config) — required extended fields.
+  // MUST match backend src/backend/branding/branding-config-loader.ts
+  // BrandingConfig field-for-field, in the same order. Wire-format contract:
+  // GET /api/branding publishes the whole config; a shape mismatch here
+  // becomes a TypeScript compile error at the consumer. No React component
+  // reads these fields in Phase 74 (per 74-CONTEXT.md OUT-OF-SCOPE: no UI
+  // edit affordance) — the mirror exists solely to preserve type-safety
+  // across the wire boundary.
+  avatarDirectorSpec: string;
+  avatarGammaDefault: number;
 };
 
 // ─── Bundled-default sentinel ────────────────────────────────────────────────
@@ -74,6 +84,12 @@ function getBundledDefaultsSentinel(): BrandingConfig {
       { src: "/branding/pwa-icon-192.png", sizes: "192x192", type: "image/png" },
       { src: "/branding/pwa-icon-512.png", sizes: "512x512", type: "image/png" },
     ],
+    // Phase 74: values MUST match docker/branding-defaults/branding.json
+    // byte-for-byte (Plan 70-01 D-14 + Pitfall 5 mitigation contract).
+    // avatarDirectorSpec is empty on purpose — the boot gate in Plan 02
+    // requires operator to set it; a non-empty sentinel would defeat the gate.
+    avatarDirectorSpec: "",
+    avatarGammaDefault: 0.7,
   };
 }
 
