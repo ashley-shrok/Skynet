@@ -4700,3 +4700,33 @@ describe("PrettyConversationsPanel: Phase 59 — coral tint overlay on badge dro
     infoSpy.mockRestore();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Feature 09 (2026-09-04) — WeeklyUsageMeter admin-only visibility gate
+// ─────────────────────────────────────────────────────────────────────────────
+// The panel mounts WeeklyUsageMeter inside .pv-panel-header only when
+// isAdmin === true. Non-admin (default) hides it — feature 09 collapsed
+// to a visibility gate on the existing single-source meter.
+
+describe("PrettyConversationsPanel: WeeklyUsageMeter admin gate (feature 09)", () => {
+  it("mounts .pv-usage-meter when isAdmin is true", () => {
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        isAdmin={true}
+        onDeactivateRow={() => {}}
+      />,
+    );
+    expect(container.querySelector(".pv-usage-meter")).not.toBeNull();
+  });
+
+  it("hides .pv-usage-meter when isAdmin is false (default)", () => {
+    const { container } = render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        onDeactivateRow={() => {}}
+      />,
+    );
+    expect(container.querySelector(".pv-usage-meter")).toBeNull();
+  });
+});

@@ -2020,6 +2020,7 @@ export function AppShell({
           variant={isMobile ? "mobile" : "desktop"}
           sidebarToggleOverlaps={isMobile && !isTouchDevice && sidebarOpen}
           visibleInSplitTreeTabIds={visibleInSplitTreeTabIds}
+          isAdmin={isAdmin}
           // Phase 58 PV58-CONVLIST-DROP-TARGET-CLOSE + PV58-DOCLOSETAB-TREE-
           // RECONCILE: badge drop on the conv-list panel closes the tab.
           // closeTab already reconciles splitTree via removeLeaf inside

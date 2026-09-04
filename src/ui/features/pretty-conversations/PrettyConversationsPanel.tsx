@@ -282,6 +282,7 @@ export function PrettyConversationsPanel({
   visibleInSplitTreeTabIds,
   onCloseSession,
   openTabIds = [],
+  isAdmin = false,
 }: {
   // NEW in Wave 2: drives BOTH the header layout branching AND the child
   // rows' pin mechanism (mobile=swipe / desktop=hover-reveal). AppShell
@@ -359,6 +360,12 @@ export function PrettyConversationsPanel({
   // non-AppShell caller default to "no tab is open" and every drop is a
   // silent no-op.
   openTabIds?: readonly string[];
+  // Feature 09 (per-user usage meter) collapsed 2026-09-04 to an admin-only
+  // visibility gate on the existing single-source WeeklyUsageMeter. Non-admin
+  // users don't see anyone's usage — not their own, not the box aggregate.
+  // Sourced from /users/me.is_admin (AppShell state); default false so tests
+  // and any non-AppShell caller render as non-admin (meter hidden).
+  isAdmin?: boolean;
 }) {
   const visibleInSplitTree = visibleInSplitTreeTabIds ?? EMPTY_VISIBLE_SET;
   const { t } = useTranslation();
@@ -1636,8 +1643,9 @@ export function PrettyConversationsPanel({
         </div>
         {/* Plan 260729-1vd (WEEKLY-METER-01): dual-race split-bar meter.
             Sibling of .pv-panel-header-row, still INSIDE .pv-panel-header.
-            Polls /api/usage every 15s; gracefully retains last values on failure. */}
-        <WeeklyUsageMeter />
+            Polls /api/usage every 15s; gracefully retains last values on failure.
+            Feature 09 (2026-09-04): admin-only visibility. */}
+        {isAdmin && <WeeklyUsageMeter />}
       </div>
 
       {/* Scroll region: safe-area padding lives on outer container (patch #131)
