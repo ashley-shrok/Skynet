@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-09-04T09:31:55.111Z"
+status: verifying
+last_updated: "2026-09-04T09:59:36.064Z"
 last_activity: 2026-09-04
 progress:
   total_phases: 73
-  completed_phases: 61
+  completed_phases: 62
   total_plans: 268
-  completed_plans: 261
-  percent: 84
+  completed_plans: 262
+  percent: 85
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 Phase: 72 (identity-modal-role-identity-scope-split-with-role-level-wak) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 
 Last activity: 2026-09-04
 Last activity (prior): 2026-09-04
@@ -326,6 +326,7 @@ Progress: [██████████] 100%
 | Phase 70-branding-config P04 | ~15 min | 2 tasks | 5 files |
 | Phase 72 P01 | 25min | 2 tasks | 6 files |
 | Phase 72 P03 | 40min | 3 tasks | 11 files |
+| Phase 72 P04 | 15min | 1 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -505,6 +506,10 @@ Recent decisions affecting current work:
 - [Phase ?]: Radix TabsContent id-suffix pattern (/content-<value>$/) used for active-pane identity assertion — no data-value attribute exists
 - [Phase ?]: modal-scope-store is browser-session-only (in-memory Map) — no localStorage/sessionStorage, closes 'no surprising memory across identity swaps / sessions' failure mode
 - [Phase ?]: activeTab auto-resets on scope-flip via useEffect(scope) — avoids stale-tab-not-in-new-NAV_SECTIONS edge case
+- [Phase ?]: Phase 72 Plan 04: coord+identity-scope Wakeups empty branch omits Add-wakeup pill — coord meaningful wakeups all live in role scope
+- [Phase ?]: Phase 72 Plan 04: HandoffTab coord short-circuit at TOP of render body so stray handoff.md on disk still yields caption
+- [Phase ?]: Phase 72 Plan 04: AddWakeupPill shared component (2 render sites) — pill-in-both-branches invariant verified at runtime by test C5
+- [Phase ?]: Phase 72 complete: spirit-violation guardrail closed by top scope switch (P03) + per-row scope pills (P02) + coord empty captions (P04) — every empty state now reads as intentional
 
 ### Pending Todos
 
@@ -788,7 +793,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-04T09:31:09.609Z
+Last session: 2026-09-04T09:57:13.538Z
 Stopped at: Completed 72-01-PLAN.md — backend wakeup CRUD parity + WS handlers landed
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)

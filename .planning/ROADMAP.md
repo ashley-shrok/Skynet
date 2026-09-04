@@ -1793,7 +1793,7 @@ Plans:
 **Goal:** Coordinator and actor identities each open the modal into the scope that matters for them — coordinators land on Role view (their only meaningful state is role-scope wakeups), actors land on Identity view — and a segmented Role/Identity control at the top of the modal lets either flip between the two. Both scopes carry full wakeup CRUD parity (list/edit/add/enable-disable/delete), reading + writing the correct on-disk folder by construction. Every wakeup visibly wears its scope so ambiguity is impossible.
 **Requirements**: TBD
 **Depends on:** Phase 71
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 Plans:
 **Wave 1**
 
@@ -1809,4 +1809,4 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 72-04-PLAN.md — Coordinator empty states + visual polish + Ashley browser walk-through: WakeupsTab + HandoffTab accept isCoordinator prop; coordinator-Identity-view Wakeups renders 'Coordinators use role-scope wakeups only. Switch to Role view to manage.'; coordinator-Identity-view Handoff renders 'Coordinators are stateless routers — no handoff to display.'; Add-wakeup pill matches sketch variant D hue-tint; human-verify checkpoint gates ship (wave 4, depends on 72-03)
+- [x] 72-04-PLAN.md — Coordinator empty states + visual polish + Ashley browser walk-through: WakeupsTab + HandoffTab accept isCoordinator prop; coordinator-Identity-view Wakeups renders 'Coordinators use role-scope wakeups only. Switch to Role view to manage.'; coordinator-Identity-view Handoff renders 'Coordinators are stateless routers — no handoff to display.'; Add-wakeup pill matches sketch variant D hue-tint; human-verify checkpoint gates ship (wave 4, depends on 72-03)
