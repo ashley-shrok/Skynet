@@ -21,42 +21,6 @@ peers. Rooms are unencrypted (the tailnet is the perimeter). Matrix is just an H
 API — do everything with curl + jq. The four operations you need are register, join, send, and
 sync (receive); each is one HTTP call.
 
-## Self-update first — every time this skill is invoked
-
-This skill is distributed pull-based, so the copy on this machine may be stale while a newer one
-sits on the home server. **Before doing anything else, do a REAL diff-and-replace.** A reachability
-ping is NOT enough — these three steps are required, and only a network *failure* lets you skip:
-
-1. **Fetch the skill BODY** from the exact raw-markdown endpoint:
-   **`http://thenasty/vms/home/skill/agent-relay`** (use `http://100.113.23.63/vms/home/skill/agent-relay`
-   if `thenasty` maps to loopback because you're ON the server). ⚠️ Do **NOT** fetch `http://thenasty/`
-   (the home page) — it's a dynamic app whose HTML does **not** contain the skill text; the body lives
-   only at the `/vms/home/skill/...` path. A bare `curl -fsS <homepage>` that just checks for HTTP 200
-   is the **#1 false pass** — it "succeeds" while leaving you on a stale copy. Don't do that.
-2. **Compare** the fetched body against your installed copy at
-   `~/.claude/skills/agent-relay/SKILL.md`.
-3. **If they differ, overwrite** the installed copy with the fetched body and **re-read it** — the
-   fresh version supersedes whatever is in your context, so follow THAT.
-
-"Best-effort / never block" means exactly one thing: **if the fetch itself fails** (server
-unreachable because you're off the tailnet), keep the cached copy and carry on. It does **not**
-license skipping the diff/replace when the fetch succeeds. Do it once per invocation. Use whatever
-fetch/diff/write tooling you like — but you must actually fetch the body, diff it, and write on
-difference. Concretely:
-
-    S=~/.claude/skills/agent-relay/SKILL.md
-    if curl -fsS http://thenasty/vms/home/skill/agent-relay -o /tmp/ar.new 2>/dev/null \
-       || curl -fsS http://100.113.23.63/vms/home/skill/agent-relay -o /tmp/ar.new 2>/dev/null; then
-      cmp -s /tmp/ar.new "$S" || { cp /tmp/ar.new "$S"; echo "skill updated — RE-READ $S now"; }
-    fi   # fetch failed (off-tailnet) -> keep cached copy, carry on
-    # ALSO refresh the receiver SIDE FILE (recv.sh) that ships with this skill — it's the
-    # canonical receiver you launch below. Same self-update discipline: fetch + replace on diff.
-    R=~/.claude/skills/agent-relay/recv.sh
-    if curl -fsS http://thenasty/vms/home/skill/agent-relay/recv.sh -o /tmp/ar-recv.new 2>/dev/null \
-       || curl -fsS http://100.113.23.63/vms/home/skill/agent-relay/recv.sh -o /tmp/ar-recv.new 2>/dev/null; then
-      cmp -s /tmp/ar-recv.new "$R" 2>/dev/null || { cp /tmp/ar-recv.new "$R"; chmod +x "$R"; }
-    fi   # fetch failed (off-tailnet) -> keep cached copy, carry on
-
 Use this **on demand** — when the user has asked you to coordinate with an agent on another
 machine, or when you genuinely need a peer. Don't register an account or start a receive loop
 until there's a reason to.
@@ -384,7 +348,7 @@ relay account. Cross-talk between two sessions on one box is prevented by the pe
 `STATE_DIR` + each session's own account (its own token), NOT by scoping rooms.
 
 The receiver is the canonical script **`recv.sh` that ships with this skill as a side file**
-(`~/.claude/skills/agent-relay/recv.sh`, refreshed by the self-update step at the top). It is ONE
+(`~/.claude/skills/agent-relay/recv.sh`). It is ONE
 well-tested implementation: self-message filter, single-instance dedup (pidfile keyed on the cursor
 so a prior session's receiver is superseded), silent invite auto-join + post-join backfill,
 encrypted-room wake, and read receipts. **Do NOT hand-roll your own receiver** — a divergent copy
@@ -456,13 +420,8 @@ and neither does any peer's.
 
 ## Updating this skill
 
-You normally don't have to — the **"Self-update first"** step at the top refreshes this skill from the
-home server on every invocation, so installed copies keep themselves current automatically (the only
-exception is a box offline at invoke time; it catches up the next time it runs the skill on the
-tailnet). If the user asks you to "update the relay skill" out-of-band, just do what the self-update
-step does on demand: get the latest copy from the home server's home page (`http://thenasty/` →
-Skills section) and overwrite your installed copy, then confirm it landed.
-
-(One-time seeding caveat: a box still running a PRE-self-update copy won't auto-update until it first
-receives a copy that *contains* the self-update step — so this version's first rollout has to be
-pushed/nudged once; after that it's self-sustaining.)
+You normally don't have to — the Skynet distributor pushes fresh copies to every managed
+host that runs agent substrate, on Skynet container restart per first successful channel
+acquisition. If the user asks you to "update the relay skill" out-of-band, ship a new
+version through the normal Skynet path (edit under `~/skynet-<name>/substrate/skills/agent-relay/`,
+commit, push, docker build + `--force-recreate` on t1000) and let the distributor propagate.

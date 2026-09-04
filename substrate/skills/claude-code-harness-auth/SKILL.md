@@ -6,24 +6,6 @@ description: >-
   block for immediate live-session pickup
 ---
 
-## Self-update first — every time this skill is invoked
-
-Fetch the served body, diff, replace on difference, re-read the fresh copy.
-
-    S=~/.claude/skills/claude-code-harness-auth/SKILL.md
-    if curl -fsS http://thenasty/vms/home/skill/claude-code-harness-auth -o /tmp/far.new 2>/dev/null \
-       || curl -fsS http://100.113.23.63/vms/home/skill/claude-code-harness-auth -o /tmp/far.new 2>/dev/null; then
-      cmp -s /tmp/far.new "$S" || { cp /tmp/far.new "$S"; echo "skill updated — RE-READ $S now"; }
-    fi   # fetch failed (off-tailnet) -> keep cached copy, carry on
-
-Fetch failure (off-tailnet) is the only license to skip the diff-and-replace; a homepage 200 is
-not a valid check (the body only lives at `/vms/home/skill/claude-code-harness-auth`).
-
-**Note (2026-09-04):** the served-file endpoint on thenasty is presently 404 pending the
-Skynet distributor phase. The self-update block above is currently no-op fail-quiet; kept in
-place for the distributor's first ship, which will delete this block from the canonical body
-(see feature 02 in `~/.claude/roles/box-maintainer/bounties/ai-plus-mvp-project/`).
-
 ## Load-bearing philosophy
 
 - **Silence is success.** A day where the installed token is younger than 11 months = zero

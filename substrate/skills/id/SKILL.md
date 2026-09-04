@@ -6,52 +6,6 @@ description: >-
 
 # Identity Skill
 
-## Self-update first — every time this skill is invoked
-
-This skill is distributed pull-based, so the copy on this machine may be stale while a newer one
-sits on the home server. **Before doing anything else, do a REAL diff-and-replace.** A reachability
-ping is NOT enough — these three steps are required, and only a network *failure* lets you skip:
-
-1. **Fetch the skill BODY** from the exact raw-markdown endpoint:
-   **`http://thenasty/vms/home/skill/id`** (use `http://100.113.23.63/vms/home/skill/id` if
-   `thenasty` maps to loopback because you're ON the server). ⚠️ Do **NOT** fetch `http://thenasty/`
-   (the home page) — it's a dynamic app whose HTML does **not** contain the skill text. A bare
-   `curl -fsS <homepage>` that just checks for HTTP 200 is the **#1 false pass** — it "succeeds"
-   while leaving you on a stale copy.
-2. **Compare** the fetched body against your installed copy at `~/.claude/skills/id/SKILL.md`.
-3. **If they differ, overwrite** the installed copy with the fetched body and **re-read it** — the
-   fresh version supersedes whatever is in your context, so follow THAT.
-
-"Best-effort / never block" means exactly one thing: **if the fetch itself fails** (server
-unreachable because you're off the tailnet), keep the cached copy and carry on. It does **not**
-license skipping the diff/replace when the fetch succeeds. Concretely:
-
-    S=~/.claude/skills/id/SKILL.md
-    N=/tmp/id.$$.new
-    if curl -fsS http://thenasty/vms/home/skill/id -o "$N" 2>/dev/null \
-       || curl -fsS http://100.113.23.63/vms/home/skill/id -o "$N" 2>/dev/null; then
-      cmp -s "$N" "$S" 2>/dev/null || { cp "$N" "$S"; echo "skill updated — RE-READ $S now"; }
-      rm -f "$N"
-    fi   # fetch failed (off-tailnet) -> keep cached copy, carry on
-
-**Also fetch the coordinator companion files** in the same block. These are side files that
-ship with the id skill (see § Coordinator mode below) — they're only READ by identities
-whose frontmatter carries `coordinator: true`, but every box gets a fresh local copy so the
-lazy-load at coordinator identity load has no network dependency. Non-coordinators never
-open them, so this costs nothing at their load time.
-
-    for F in coordinator-instructions.md clone-picker-prompt.md actor-status-prompt.md; do
-      T=~/.claude/skills/id/$F
-      N=/tmp/id-$F.$$.new
-      if curl -fsS "http://thenasty/vms/home/skill/id/$F" -o "$N" 2>/dev/null \
-         || curl -fsS "http://100.113.23.63/vms/home/skill/id/$F" -o "$N" 2>/dev/null; then
-        cmp -s "$N" "$T" 2>/dev/null || cp "$N" "$T"
-        rm -f "$N"
-      fi
-    done
-
----
-
 ## What this skill does
 
 `/id <name>` gives you a persistent role that survives across sessions.
@@ -492,10 +446,9 @@ Actor identities of the same role continue to load normally.
 1. Do NOT load the role file. Do NOT load any deeper role-reference file. The coordinator
    doesn't do role work and doesn't need role directives.
 2. Read `~/.claude/skills/id/coordinator-instructions.md` into context — the coordinator's
-   dispatch instructions, kept fresh by the id skill's self-update block (see § Self-update
-   first). If the file is missing on this box, the self-update block should have fetched
-   it; re-run the self-update, and if it still doesn't appear, stop and tell the user the
-   coordinator companion is missing rather than pretending to be an actor.
+   dispatch instructions, kept current on every Skynet container restart by the distributor.
+   If the file is missing on this box, stop and tell the user the coordinator companion is
+   missing rather than pretending to be an actor.
 3. Note the on-disk paths to `~/.claude/skills/id/clone-picker-prompt.md` (spawned
    picker sub-agents at dispatch time) AND `~/.claude/skills/id/actor-status-prompt.md`
    (spawned status sub-agents when Ashley asks "who's working on what?"). Do NOT read
@@ -588,14 +541,10 @@ launch the served script, never a hand-authored one. ⚠️ **Do NOT guess the U
 agents have independently hallucinated `/vms/home/relay/recv.sh` (which never existed);
 the canonical served path is exactly the one below.
 
-Fetch the current served copy each wake so edits propagate, then launch:
+Launch the receiver that shipped with your substrate install. The Skynet distributor keeps
+`~/.claude/skills/agent-relay/recv.sh` current on every container restart; you just launch it:
 
-    R=~/.claude/skills/agent-relay/recv.sh
-    mkdir -p "$(dirname "$R")"
-    curl -fsS http://thenasty/vms/home/skill/agent-relay/recv.sh -o "$R" \
-      || curl -fsS http://100.113.23.63/vms/home/skill/agent-relay/recv.sh -o "$R"
-    chmod +x "$R"
-    # then, via the harness Monitor tool (persistent:true), after exporting STATE_DIR +
+    # via the harness Monitor tool (persistent:true), after exporting STATE_DIR +
     # SINCE_FILE per the paragraph below:
     #   description:  [ambient] <name> relay receiver
     #   command:      bash ~/.claude/skills/agent-relay/recv.sh
@@ -634,23 +583,18 @@ The receiver wakes you when a **message** wants your attention. Its sibling — 
 meant to check on a schedule. Start it once per session, right after the receiver,
 using the same primitive (a persistent `Monitor`).
 
-It's a served, dependency-free helper (like the receiver's `recv.sh`) — **launch this
-served script, do NOT hand-roll your own.** Fetch the current copy each wake so edits
-propagate, drop it beside your schedule specs, and launch it as a persistent Monitor
-pointed at your identity dir:
+It's a shipped, dependency-free helper (like the receiver's `recv.sh`) — **launch this
+shipped script, do NOT hand-roll your own.** The Skynet distributor keeps
+`~/.claude/identities/<name>/wakeups/wakeup-scheduler.py` current on every container
+restart; launch it as a persistent Monitor pointed at your identity dir:
 
-    ID=~/.claude/identities/<name>
-    mkdir -p "$ID/wakeups"
-    curl -fsS http://thenasty/vms/home/wakeup-scheduler.py -o "$ID/wakeups/wakeup-scheduler.py" \
-      || curl -fsS http://100.113.23.63/vms/home/wakeup-scheduler.py -o "$ID/wakeups/wakeup-scheduler.py"
-    # then, via the harness Monitor tool (persistent:true):
+    # via the harness Monitor tool (persistent:true):
     #   description:  [ambient] <name> wake-up scheduler
     #   command:      python3 ~/.claude/identities/<name>/wakeups/wakeup-scheduler.py ~/.claude/identities/<name>
 
 Each due wake-up prints one line — `⏰ [scheduled: <name>] <instruction>` — which
 arrives as an async wake. When you get one, **do the instruction**, then carry on;
-it's a self-check, not a message from anyone. If the fetch fails (off-tailnet),
-skip it — you keep whatever copy you have. If there are no specs yet, the scheduler
+it's a self-check, not a message from anyone. If there are no specs yet, the scheduler
 just idles (nothing to fire), which is fine — start it anyway so it's ready the
 moment a schedule is added.
 
@@ -670,15 +614,12 @@ So instead of trusting a degrading cache, we recycle into a fresh `/id <name>` l
 which is perfectly faithful — at a controlled moment before the window fills.)
 
 Start it once per session, right after the scheduler, same primitive (a persistent
-`Monitor`). It's a served, dependency-free helper — **launch this served script, do NOT
-hand-roll your own**; fetch the current copy each wake so edits propagate, then launch it
-pointed at your identity dir:
+`Monitor`). It's a shipped, dependency-free helper — **launch this shipped script, do NOT
+hand-roll your own.** The Skynet distributor keeps
+`~/.claude/identities/<name>/ctxwatch/context-watch.py` current on every container restart;
+launch it pointed at your identity dir:
 
-    ID=~/.claude/identities/<name>
-    mkdir -p "$ID/ctxwatch"
-    curl -fsS http://thenasty/vms/home/context-watch.py -o "$ID/ctxwatch/context-watch.py" \
-      || curl -fsS http://100.113.23.63/vms/home/context-watch.py -o "$ID/ctxwatch/context-watch.py"
-    # then, via the harness Monitor tool (persistent:true):
+    # via the harness Monitor tool (persistent:true):
     #   description:  [ambient] <name> context watch
     #   command:      python3 ~/.claude/identities/<name>/ctxwatch/context-watch.py ~/.claude/identities/<name>
 
@@ -699,9 +640,8 @@ is missed. At **~95%** (which shouldn't happen if you heeded the nudge) it print
 LOUD line telling you to ping @ashley on the relay and save + drop the sentinel
 immediately — the human backstop.
 
-If the fetch fails (off-tailnet), skip it — you keep whatever copy you have. Start it
-even though it will usually sit silent for a very long time (an Opus 1M-context session
-reaching 80% is a lot of turns) — it's a safety valve, not a chatty monitor.
+Start it even though it will usually sit silent for a very long time (an Opus 1M-context
+session reaching 80% is a lot of turns) — it's a safety valve, not a chatty monitor.
 
 ---
 
@@ -898,13 +838,12 @@ rushed — it means each write goes in its right lane.
 When invoked:
 
 1. **If no identity is loaded**, say so and stop — there's nothing to save into.
-2. **Skip the self-update step** — the self-update adds nothing to a save. Skip it.
-3. **Summarize the session** to yourself — what happened, decisions made, what's
+2. **Summarize the session** to yourself — what happened, decisions made, what's
    mid-flight. This is the raw material for the writes below (don't dump it to a file).
-4. **Sweep your harness task list for anything worth keeping.** Incomplete tasks in your
+3. **Sweep your harness task list for anything worth keeping.** Incomplete tasks in your
    harness task list are per-session and vanish when the session ends — promote any that
    still matter into a bounty (or a handoff line) before they're lost.
-5. **Land the substantive detail in bounties.** For each meaningful thread this session
+4. **Land the substantive detail in bounties.** For each meaningful thread this session
    touched: update its bounty (bump `updated_at`, add a `timeline[]` line, tick/adjust
    `todos[]`, change `status`), or create one — **only for approved work touched this
    session that lacks a bounty** (see § What a bounty is). Passively-noticed threads
@@ -914,12 +853,12 @@ When invoked:
    banking to the role or slim identity file, **propose it to the user and write on
    greenlight** (see § Editing the role file — including the ambiguous-scope ask) —
    don't self-promote.
-6. **Append to `~/.claude/roles/<role>/history.md`** — one short line per notable
+5. **Append to `~/.claude/roles/<role>/history.md`** — one short line per notable
    thread, referencing the bounty slug rather than restating detail:
    `YYYY-MM-DD · one-line gist · slugs: foo,bar` (a thread with no bounty still gets a
    line, just no slug). History is shared across identities — no per-identity attribution;
    the role's story is one story.
-7. **Overwrite `~/.claude/identities/<name>/handoff.md`** (the identity folder —
+6. **Overwrite `~/.claude/identities/<name>/handoff.md`** (the identity folder —
    handoff is per-identity) with the new session summary, any **Start-on-wake** items
    the user pre-authorized this session, and your current set of open multi-session
    plans. The open-plans set = the still-open survivors from the handoff you read at
@@ -945,9 +884,9 @@ When invoked:
    Omit the `## Start on wake` section entirely if there are no pre-authorized items —
    its presence is the signal.
 
-8. **Trim `~/.claude/roles/<role>/history.md`** to the last 80 lines, as the final step:
+7. **Trim `~/.claude/roles/<role>/history.md`** to the last 80 lines, as the final step:
    `tail -n 80 ~/.claude/roles/<role>/history.md > /tmp/h.$$ && mv /tmp/h.$$ ~/.claude/roles/<role>/history.md`
-9. **Confirm in one line** what you saved, e.g.:
+8. **Confirm in one line** what you saved, e.g.:
 
    > Saved: history +2, handoff rewritten, updated bounties `forms-cluster`,`login-bug`.
    > Safe to reset — start a new session and run `/id vicky` to resume.

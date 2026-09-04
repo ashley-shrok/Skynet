@@ -5,8 +5,8 @@ wants its attention; this wakes it when the CLOCK does. Same primitive: it's
 launched once on wake as a persistent `Monitor` and prints one line per due
 wake-up; each printed line is an async wake for the agent.
 
-Served from thenasty at `/vms/home/wakeup-scheduler.py`; the id skill fetches it
-into the identity's `wakeups/` dir and launches it. Stdlib only.
+Vendored into Skynet's substrate and distributed to every host running agent substrate
+via the Skynet distributor (see feature 02). Stdlib only.
 
 Schedule specs live at `~/.claude/identities/<name>/wakeups/<slug>.json`:
 

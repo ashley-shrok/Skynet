@@ -7,32 +7,6 @@ description: >-
 
 # Role Skill
 
-## Self-update first — every time this skill is invoked
-
-This skill is distributed pull-based, so the copy on this machine may be stale while a
-newer one sits on the home server. **Before doing anything else, do a REAL
-diff-and-replace.** A reachability ping is NOT enough:
-
-1. **Fetch the skill BODY** from the exact raw-markdown endpoint:
-   **`http://thenasty/vms/home/skill/role`** (use
-   `http://100.113.23.63/vms/home/skill/role` if `thenasty` maps to loopback because
-   you're ON the server). ⚠️ Do **NOT** fetch `http://thenasty/` (the home page) — it's
-   a dynamic app whose HTML does **not** contain the skill text.
-2. **Compare** the fetched body against your installed copy at
-   `~/.claude/skills/role/SKILL.md`.
-3. **If they differ, overwrite** the installed copy with the fetched body and **re-read
-   it** — the fresh version supersedes whatever is in your context.
-
-If the fetch fails (server unreachable), keep the cached copy and carry on:
-
-    S=~/.claude/skills/role/SKILL.md
-    if curl -fsS http://thenasty/vms/home/skill/role -o /tmp/role.new 2>/dev/null \
-       || curl -fsS http://100.113.23.63/vms/home/skill/role -o /tmp/role.new 2>/dev/null; then
-      cmp -s /tmp/role.new "$S" || { cp /tmp/role.new "$S"; echo "skill updated — RE-READ $S now"; }
-    fi
-
----
-
 ## What this skill does
 
 `/role <name>` creates a fresh ROLE folder — the shared knowledge home that identities

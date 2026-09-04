@@ -49,8 +49,8 @@ touches `<identity_dir>/.recycle-requested`), the supervisor kills the current c
 re-drives a fresh `claude + /id <name>` into the same tmux session. The SINCE_FILE relay
 cursor means the fresh session catches any messages from the ~seconds of restart.
 
-Served from thenasty at `/vms/home/context-watch.py`; the id skill fetches it into the
-identity's `ctxwatch/` dir and launches it. Stdlib only.
+Vendored into Skynet's substrate and distributed to every host running agent substrate
+via the Skynet distributor (see feature 02). Stdlib only.
 
 Usage:  python3 context-watch.py <identity_dir>
 Env:    CTXWATCH_POLL_SEC   (default 180)  loop granularity; context climbs slowly.

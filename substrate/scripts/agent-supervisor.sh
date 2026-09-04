@@ -23,7 +23,6 @@
 #   # CHECK_INTERVAL=30            # seconds between reconcile passes in loop mode
 #   # STAGGER_SECONDS=8            # extra gap between launches during a bring-up
 #   # SETTLE_SECONDS=6             # time budget to blind-drive past the trust prompt before sending /id
-#   # SELF_UPDATE=1                # best-effort pull of a newer copy on start (no-op if unreachable)
 set -uo pipefail
 
 CONF="${AGENT_SUPERVISOR_CONF:-$HOME/.claude/agent-supervisor.conf}"
@@ -43,7 +42,6 @@ IDENTITIES=()
 CHECK_INTERVAL=15
 STAGGER_SECONDS=8
 SETTLE_SECONDS=6
-SELF_UPDATE=1
 MEMORY_CAP="disabled"    # 2026-08-08 fleet policy (Ashley + Stacy catch): cap mechanism was unsafe
                          # at scale (below WSS = thrash; cgroup child-inheritance broke Stacy's t800
                          # builds). Session-dormancy replaces it for idle reclamation (bounty
@@ -85,23 +83,6 @@ fi
 # copy-mode, wedged buffer) would hang the entire loop indefinitely. Caught 2026-08-10: stacy's
 # supervisor stuck 20h on a hanging `tmux send-keys deco cd`, blocking every identity's
 # matrix_peek/schedule_peek so no dormant agent could wake. 10s bounded, SIGKILL 5s after.
-
-# ---- best-effort self-update (served from the home app; no-op if the route/host is absent) ----
-self_update() {
-  [ "${SELF_UPDATE:-1}" = 1 ] || return 0
-  [ -w "$SELF_PATH" ] || return 0
-  local url tmp; tmp="$(mktemp)"
-  for url in http://thenasty/vms/home/agent-supervisor http://100.113.23.63/vms/home/agent-supervisor; do
-    if curl -fsS --max-time 6 "$url" -o "$tmp" 2>/dev/null && [ -s "$tmp" ] && head -1 "$tmp" | grep -q '^#!/bin/bash'; then
-      if ! cmp -s "$tmp" "$SELF_PATH"; then
-        cp "$tmp" "$SELF_PATH"; chmod +x "$SELF_PATH"
-        log "self-updated from $url — re-exec"; rm -f "$tmp"; exec "$SELF_PATH" "$@"
-      fi
-      break
-    fi
-  done
-  rm -f "$tmp"
-}
 
 # ---- fleet baseline: ensure Agent Teams (resumable sub-agents) is on for every future session ----
 # CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 must be set user-wide so sub-agents are resumable everywhere.
@@ -1379,7 +1360,6 @@ reconcile() {
 }
 
 # ---- main ----
-self_update "$@"
 ensure_agent_teams_env
 resolve_memory_wrapper
 case "${1:-}" in

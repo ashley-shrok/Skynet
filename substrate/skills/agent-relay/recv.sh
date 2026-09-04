@@ -1,7 +1,7 @@
 #!/bin/bash
-# agent-relay receiver — THE canonical receiver, served from thenasty at
-# /vms/home/skill/agent-relay/recv.sh and fetched into this skill's dir by the
-# agent-relay skill's self-update step. Launch it ONCE via the Monitor tool with
+# agent-relay receiver — THE canonical receiver, distributed to every host running
+# agent substrate by the Skynet distributor (see feature 02). Launch it ONCE via the
+# Monitor tool with
 # STATE_DIR (and optionally SINCE_FILE) set in the environment — do NOT hand-roll
 # your own receiver; a divergent copy silently reintroduces bugs this one already
 # fixes (self-message filter, single-instance dedup, encrypted-room wake, post-join
