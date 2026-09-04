@@ -113,8 +113,35 @@ export async function readInstalledBytes(
  * Write bundled bytes to the installed path AND chmod to the given octal
  * mode, in a single atomic exec (one round-trip per item).
  *
- * Command shape:
- *   `mkdir -p '<parentDir>' && echo '<b64>' | base64 -d > '<installPath>' && chmod <mode> '<installPath>' && echo __WRITE_OK__ || echo __WRITE_FAIL__`
+ * Command shape (heredoc form — phase-72 HIGH fix):
+ *   `(mkdir -p '<parentDir>' && base64 -d > '<installPath>' <<'GSD_B64_EOF' && chmod <mode> '<installPath>' && echo __WRITE_OK__
+ *   <b64>
+ *   GSD_B64_EOF
+ *   ) || echo __WRITE_FAIL__`
+ *
+ * WHY HEREDOC (not `echo '<b64>' | base64 -d`):
+ *   The prior implementation inlined the entire base64 blob as a single-
+ *   quoted argument to echo. Works for current catalog (agent-supervisor.sh
+ *   ~108 KB) but any future item slightly larger will hit sshd channel-
+ *   buffer limits (typically ARG_MAX ~128 KB effective on many systems)
+ *   producing an opaque `channel returned null` failure. Heredoc streams
+ *   the base64 body through stdin, sidestepping the command-line-argument
+ *   limit entirely.
+ *
+ * WHY THE `&&` CHAIN GOES BEFORE THE HEREDOC BODY:
+ *   Shell requires the heredoc terminator (`GSD_B64_EOF` on its own line,
+ *   no leading whitespace) to sit alone. Placing `&& chmod ... && echo …`
+ *   on the same command line as `base64 -d > path <<'GSD_B64_EOF'` (BEFORE
+ *   the body) makes the whole chain parse as one compound command whose
+ *   input redirection is fulfilled by the heredoc body. Placing `&&` on
+ *   a fresh line AFTER the terminator is a syntax error.
+ *
+ * HEREDOC MARKER SAFETY:
+ *   Marker `GSD_B64_EOF` — base64 alphabet is [A-Za-z0-9+/=], no
+ *   underscores, so no legitimate base64 body can accidentally match the
+ *   marker even on a line boundary. Single-quoted marker (<<'GSD_B64_EOF')
+ *   prevents shell variable/backtick expansion inside the body — critical
+ *   because base64 output can contain characters like `$` in some encodings.
  *
  * Parent-dir extraction: manual `installPath.slice(0, installPath.lastIndexOf('/'))`.
  * Never spawns a second exec — one atomic command per push per item, to keep
@@ -134,8 +161,12 @@ export async function writeInstalledBytesWithMode(
     const b64 = bytes.toString("base64");
     const modeStr = modeOctal.toString(8);
 
+    // Heredoc form. Literal newlines are load-bearing: the heredoc body
+    // starts on the line AFTER the opening `<<'GSD_B64_EOF'` and ends on
+    // a line whose ONLY content is `GSD_B64_EOF` (no leading whitespace).
+    // The `&&` chain sits on the first line before the body — see docblock.
     const cmd =
-      `(mkdir -p ${escapedParent} && echo ${shellSingleQuote(b64)} | base64 -d > ${escapedPath} && chmod ${modeStr} ${escapedPath} && echo __WRITE_OK__) || echo __WRITE_FAIL__`;
+      `(mkdir -p ${escapedParent} && base64 -d > ${escapedPath} <<'GSD_B64_EOF' && chmod ${modeStr} ${escapedPath} && echo __WRITE_OK__\n${b64}\nGSD_B64_EOF\n) || echo __WRITE_FAIL__`;
 
     const raw = await channel.exec(cmd);
 

@@ -389,9 +389,18 @@ describe("runSweepForHost", () => {
     const readOrder: string[] = [];
     const { channel } = makeChannelSequenced((cmd) => {
       if (cmd.includes("base64 -w0")) {
-        // Capture which install path is being read in order
-        const match = /base64 -w0 '([^']+)'/.exec(cmd);
-        if (match) readOrder.push(match[1]);
+        // Capture which install path is being read in order. Phase-72 BLOCKER
+        // fix (tilde preservation): install paths are now emitted with an
+        // unquoted `~/` prefix followed by the remainder single-quoted, so
+        // for `~/1` the command contains `base64 -w0 ~/'1'`. Match both the
+        // tilde form and the (unlikely) fully-quoted form for robustness.
+        const tildeMatch = /base64 -w0 ~\/'([^']*)'/.exec(cmd);
+        if (tildeMatch) {
+          readOrder.push("~/" + tildeMatch[1]);
+        } else {
+          const quotedMatch = /base64 -w0 '([^']+)'/.exec(cmd);
+          if (quotedMatch) readOrder.push(quotedMatch[1]);
+        }
         return b64Ok(bundled);
       }
       throw new Error(`unexpected: ${cmd}`);

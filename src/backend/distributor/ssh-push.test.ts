@@ -63,7 +63,7 @@ describe("readInstalledBytes", () => {
 });
 
 describe("writeInstalledBytesWithMode", () => {
-  it("Test 5: happy path — __WRITE_OK__ sentinel returns {ok:true}; exec command includes base64 -d and chmod", async () => {
+  it("Test 5: happy path — __WRITE_OK__ sentinel returns {ok:true}; exec command uses heredoc form with base64 -d and chmod", async () => {
     const { channel, exec } = makeChannel(async () => "__WRITE_OK__");
     const bytes = Buffer.from("bundled-content");
 
@@ -77,14 +77,61 @@ describe("writeInstalledBytesWithMode", () => {
     expect(result).toEqual({ ok: true });
     expect(exec).toHaveBeenCalledTimes(1);
     const cmd = exec.mock.calls[0][0] as string;
-    // The command must include base64 -d for decoding + chmod 644
+    // The command must include base64 -d for decoding + chmod 644.
+    // Phase-72 HIGH fix: heredoc form now streams the b64 body via stdin
+    // instead of `echo '<b64>' | base64 -d`, to sidestep sshd channel-
+    // buffer limits on large payloads.
     expect(cmd).toContain("base64 -d");
     expect(cmd).toContain("chmod 644");
-    // The base64-encoded bytes must be present in the command
+    // Heredoc shape: opening `<<'GSD_B64_EOF'` and closing `GSD_B64_EOF` marker
+    expect(cmd).toContain("<<'GSD_B64_EOF'");
+    expect(cmd).toContain("\nGSD_B64_EOF\n");
+    // The base64-encoded bytes must be present in the command (in heredoc body)
     expect(cmd).toContain(bytes.toString("base64"));
     // Sentinel echoes for success/failure
     expect(cmd).toContain("__WRITE_OK__");
     expect(cmd).toContain("__WRITE_FAIL__");
+    // Prove the OLD `echo '<b64>' | base64 -d` form is GONE — this is the
+    // load-bearing anti-regression assertion for the HIGH fix.
+    expect(cmd).not.toContain(`echo '${bytes.toString("base64")}'`);
+  });
+
+  it("Test 5b: large payload (128 KB) uses heredoc form, NOT echo-pipe — sshd channel-buffer safety", async () => {
+    // Phase-72 HIGH fix: prior `echo '<b64>' | base64 -d` form would hit
+    // sshd channel-buffer limits (typically ARG_MAX ~128 KB effective on
+    // many systems) producing an opaque `channel returned null` failure.
+    // Heredoc streams the body via stdin, unaffected by ARG_MAX.
+    const { channel, exec } = makeChannel(async () => "__WRITE_OK__");
+    // 128 KB of pseudo-random bytes — larger than agent-supervisor.sh (~108 KB)
+    // and past the size where argv-list limits typically bite.
+    const bytes = Buffer.alloc(128 * 1024);
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = (i * 2654435761) & 0xff; // cheap deterministic pseudo-random
+    }
+
+    const result = await writeInstalledBytesWithMode(
+      channel,
+      "~/.claude/skills/large/blob.bin",
+      bytes,
+      0o644,
+    );
+
+    expect(result).toEqual({ ok: true });
+    const cmd = exec.mock.calls[0][0] as string;
+
+    // Heredoc form present
+    expect(cmd).toContain("<<'GSD_B64_EOF'");
+    expect(cmd).toContain("\nGSD_B64_EOF\n");
+    // The b64-body is present in the emitted command (inside heredoc)
+    const b64 = bytes.toString("base64");
+    expect(cmd).toContain(b64);
+    // Anti-regression: the OLD echo-pipe form must NOT be present. Prior
+    // impl emitted `echo '<b64>' | base64 -d` — assert that exact substring
+    // (with the actual b64 body inside single quotes) is gone.
+    expect(cmd).not.toContain(`echo '${b64}'`);
+    // Even more conservative anti-regression: no `echo '` immediately
+    // followed by the base64 body prefix.
+    expect(cmd).not.toContain(`echo '${b64.slice(0, 32)}`);
   });
 
   it("Test 6: failure — channel.exec returns null → {ok:false, stage, errorMessage}", async () => {
