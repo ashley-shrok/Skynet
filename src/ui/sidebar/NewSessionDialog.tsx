@@ -607,7 +607,7 @@ export function NewSessionDialog({
     setGenLoading(true);
     setGenError(null);
     try {
-      const cands = await postGenerateAvatarBatch({ name, title, brief });
+      const cands = await postGenerateAvatarBatch({ name, title, brief, colorHue });
       setCandidates(cands);
       // Force re-pick per D-CONTEXT §Avatar — on explicit Regen, clear picked candidate
       // so user must pick from the fresh set. This is intentional.

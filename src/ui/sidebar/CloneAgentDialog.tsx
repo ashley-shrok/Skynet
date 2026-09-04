@@ -234,6 +234,9 @@ export function CloneAgentDialog({
         name,
         title,
         brief: title, // Plan Action step 1: use title as brief seed.
+        // Clone inherits colorHue LOCKED from source (see line ~294); pass
+        // it here so regenerated avatars respect the source hue too.
+        colorHue: sourceIdentity.colorHue,
       });
       setCandidates(cands);
       // Clear pick so user must pick from the fresh set.

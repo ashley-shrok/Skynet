@@ -140,6 +140,13 @@ export async function postGenerateAvatarBatch(input: {
   name: string;
   title: string;
   brief: string;
+  // Identity's chosen hue on the standard HSL color wheel (0-359). Backend
+  // instructs the LLM to center the drafted palette on this hue so the
+  // generated avatar matches the identity's badge/bubble tint. Null =
+  // no constraint (LLM picks freely). Fixes the "picked pink, got all blue"
+  // bug where colorHue was stored on the identity but never plumbed into
+  // avatar generation.
+  colorHue?: number | null;
 }): Promise<AvatarCandidate[]> {
   try {
     // Patch #314: per-call timeout override. Default authApi timeout is

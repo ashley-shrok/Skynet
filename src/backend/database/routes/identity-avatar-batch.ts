@@ -150,6 +150,33 @@ async function applyGamma07(pngBuffer: Buffer): Promise<Buffer> {
 }
 
 // ---------------------------------------------------------------------------
+// Palette constraint: HSL hue degree → color-name hint for the LLM archetype
+// draft. When the identity has a chosen colorHue (set in the birth dialog),
+// the drafted image-gen prompt must center on that hue so the generated
+// avatar matches the badge/bubble tint. Without this, the LLM picks palette
+// freely and defaults to blue/cyan (cyberpunk-adjacent gravity in the system
+// prompt) regardless of the user's pick — the "picked pink, got all blue"
+// bug. hue===null → return "" so the LLM falls back to freewheel palette.
+// ---------------------------------------------------------------------------
+
+function hueName(hue: number): string {
+  if (hue < 15) return "red";
+  if (hue < 40) return "orange";
+  if (hue < 70) return "yellow / amber";
+  if (hue < 160) return "green";
+  if (hue < 200) return "teal / cyan";
+  if (hue < 250) return "blue";
+  if (hue < 290) return "purple / violet";
+  if (hue < 340) return "magenta / pink";
+  return "red-pink";
+}
+
+function paletteConstraintLine(hue: number | null): string {
+  if (hue === null) return "";
+  return `\n\nPALETTE CONSTRAINT (LOAD-BEARING): the identity's chosen hue on the HSL color wheel is ${hue} degrees, which reads as ${hueName(hue)}. The drafted image-gen prompt's palette section MUST center on this hue — dominant color and rim-light in ${hueName(hue)}, accents within roughly ±30 degrees of ${hue}°. Do NOT default to blue / cyan just because the background reads cyberpunk-adjacent. The generated avatar has to match the identity's UI badge and chat-bubble tint, which are driven from this same hue.`;
+}
+
+// ---------------------------------------------------------------------------
 // Archetype system prompt (adapted from avatar-flow runbook § 2-3)
 // ---------------------------------------------------------------------------
 
@@ -181,7 +208,7 @@ router.post(
     const userId = (req as AuthenticatedRequest).userId;
 
     // Validate required inputs
-    const { name, title, brief } = req.body as Record<string, unknown>;
+    const { name, title, brief, colorHue } = req.body as Record<string, unknown>;
     if (
       typeof name !== "string" ||
       !name.trim() ||
@@ -192,6 +219,23 @@ router.post(
     ) {
       res.status(400).json({ error: "name, title, and brief are required non-empty strings" });
       return;
+    }
+    // Optional colorHue: number in [0, 360) OR null (unset, LLM picks palette
+    // freely). Any other type = 400. NaN/Infinity/out-of-range rejected too.
+    let paletteHue: number | null = null;
+    if (colorHue !== undefined && colorHue !== null) {
+      if (
+        typeof colorHue !== "number" ||
+        !Number.isFinite(colorHue) ||
+        colorHue < 0 ||
+        colorHue >= 360
+      ) {
+        res
+          .status(400)
+          .json({ error: "colorHue must be a number in [0, 360) or null" });
+        return;
+      }
+      paletteHue = colorHue;
     }
 
     // Read API key at request time — 503 if missing (no boot crash)
@@ -221,7 +265,7 @@ router.post(
             { role: "system", content: ARCHETYPE_SYSTEM_PROMPT },
             {
               role: "user",
-              content: `Name: ${name}\nTitle: ${title}\nBrief: ${brief}\n\nProduce the image-generation prompt only. No preamble. No explanation. Just the prompt.`,
+              content: `Name: ${name}\nTitle: ${title}\nBrief: ${brief}${paletteConstraintLine(paletteHue)}\n\nProduce the image-generation prompt only. No preamble. No explanation. Just the prompt.`,
             },
           ],
         }),
