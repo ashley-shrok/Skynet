@@ -1621,16 +1621,18 @@ export function ComposeBox({
       : (queueSlots.find((s) => s.id === target)?.text ?? "");
     const result = await voice.endAppend(baseText);
     if (result) {
+      // Trailing space so the next dictation chunk joins without needing a manual space.
+      const appended = result.glued + " ";
       if (target === "primary") {
-        setText(result.glued);
-        scheduleAutosave(result.glued, latestQueueSlotsRef.current);
+        setText(appended);
+        scheduleAutosave(appended, latestQueueSlotsRef.current);
       } else {
         setQueueSlots((prev) =>
-          prev.map((s) => s.id === target ? { ...s, text: result.glued } : s),
+          prev.map((s) => s.id === target ? { ...s, text: appended } : s),
         );
         // Mark slots dirty so autosave picks up the change.
         const nextSlots = latestQueueSlotsRef.current.map((s) =>
-          s.id === target ? { ...s, text: result.glued } : s,
+          s.id === target ? { ...s, text: appended } : s,
         );
         scheduleAutosave(latestBodyRef.current, nextSlots);
       }
