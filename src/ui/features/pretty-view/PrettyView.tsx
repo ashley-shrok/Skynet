@@ -152,19 +152,24 @@ export const PENDING_SEND_TIMEOUT_MS_DORMANT = 220_000;
 //      is "message" becomes a bubble; the parser (Plan 01-01) and the
 //      WS server (Plan 01-02) already drop non-text blocks upstream.
 //
-//   2. RENDER-03 auto-scroll: pinned-follow via `useAutoScroll(paneKey,
-//      messages.length)`. Three engines: (a) messageCount effect fires on
-//      each new message frame; (b) MutationObserver + ResizeObserver on
-//      the scroll container's children re-anchor on accessory mount/unmount
-//      (WipBubble / WaitingBubble / PlanPendingBubble / AsideBubble; the
-//      former dormant-overlay sibling was deleted in Phase 56 Plan 03)
-//      AND on in-bubble content growth (streaming, image
-//      decode, markdown re-render); (c) scrollEl-mount / paneKey-change
-//      effect resets pinned=true and jumps for session enter + identity
-//      swap. Every write is gated on pinned=true so scrolled-up state
-//      suppresses yanking (Test 5 in use-auto-scroll.test.ts). Send-path
-//      callers + the jump-to-bottom pill share the single
-//      `scrollToBottomAndFollow` action. See use-auto-scroll.ts header.
+//   2. RENDER-03 auto-scroll: two-state position-derived state machine via
+//      `useAutoScroll(paneKey)`. Modes: `at-bottom` (chase-on-content-change)
+//      and `not-at-bottom` (frozen). Transitions: OUT-of-at-bottom ONLY on
+//      user-input events (wheel/touch/scrollbar/keyboard) outside a ~28px
+//      tolerance; INTO-at-bottom on jump-clicked, send-fired, or user-input
+//      inside tolerance. Programmatic writes NEVER transition mode. Symmetric
+//      event handling: new messages, WIP indicator appear/disappear, accessory
+//      bubbles (WipBubble / WaitingBubble / PlanPendingBubble / AsideBubble)
+//      appear/disappear, window resize, pane-count / split-layout change —
+//      all one event class ('content-changed' or 'container-resized') consumed
+//      uniformly by the reducer. Chase writes are instant (no smooth-scroll),
+//      coalesced one-per-RAF. Browser scroll-anchoring (`overflow-anchor:none`)
+//      disabled on the container — the hook owns scroll position exclusively.
+//      Mount-landing via hide-pin-reveal: the content wrapper starts
+//      `visibility:hidden`, the hook waits for the first non-zero
+//      content-height measurement, jumps to bottom, then flips `revealed`.
+//      See use-auto-scroll.ts + auto-scroll-machine.ts headers and
+//      .planning/shapes/shape-pv-autoscroll-rewrite.md for LOCKED shape.
 //
 //   3. FALLBACK-01 clean inactive render: on `type:"inactive"` we
 //      render exactly one literal string (see the JSX below) inside a
@@ -3108,11 +3113,14 @@ export function PrettyView({
           // on end-of-scroll. Without it, iOS locks the touch for 10-15s while its
           // arbitrator hunts for a scroll owner (AppShell's outer chain is all
           // overflow-hidden), and the surface becomes unresponsive to swipes.
-          // Phase 43 (plan 43-07a): [overflow-anchor:none] REMOVED — browser default
-          // overflow-anchor:auto is load-bearing for prepend/growth preservation.
-          // With TanStack Virtual gone, the browser's native scroll-anchoring is the
-          // sole scroll-position authority through measurement changes.
-          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3"
+          // Phase 70 (rewrite): [overflow-anchor:none] RESTORED — the state machine in
+          // useAutoScroll owns scroll position exclusively (shape-file § Explicit ownership
+          // LOCKED). Browser scroll-anchoring fighting explicit `scrollTop = scrollHeight`
+          // writes was one of the six pitfalls named in shape-file § What would make it wrong.
+          // Load-more anchor preservation (the reason Phase 43 removed this) is deferred to
+          // the follow-on `load-more-scroll-and-order-corruption` bounty per Phase 70 § Scope
+          // edges Out-of-scope.
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain [overflow-anchor:none] px-4 py-3"
         >
           {/* Phase 47 (load-more button) — mounted at the TOP of the scroll
               container, immediately above the messages.map. Visibility gate
@@ -3123,6 +3131,13 @@ export function PrettyView({
               in-flow structural convention as the accessory siblings below
               (WipBubble/WaitingBubble/etc.) — plain child of the same scroll
               container, no position:absolute. */}
+          {/* hide-pin-reveal wrapper: content starts invisible during mount-landing.
+              The hook waits for the first non-zero content-height measurement, jumps
+              to bottom, then flips revealed=true (effect:"reveal" from the reducer).
+              visibility:hidden (not display:none) preserves layout so the scroll
+              container's geometry is measurable during the landing window.
+              Per shape-pv-autoscroll-rewrite.md § Mount landing LOCKED. */}
+          <div style={{ visibility: revealed ? "visible" : "hidden" }}>
           <LoadMoreOlderButton
             hasOlder={hasOlderMessages}
             status={loadOlderState}
@@ -3260,32 +3275,34 @@ export function PrettyView({
               into a dormant pane triggers invisible wake at the backend send-
               path (Plan 56-01) with the widened watchdog window (Plan 56-02). */}
           {/* Phase 27 Plan 27-02 Step B: AsideBubble mounts as an in-flow
-              sibling immediately after the sized virtualizer container inside
-              the scroll container. Post-refactor (Phase 27), it is no longer
+              sibling immediately after the messages.map output inside the
+              scroll container. Post-refactor (Phase 27), it is no longer
               a child of the flex column that holds the messages — that column
               became the virtualizer's absolute-positioned sized container.
               AsideBubble stays visually below the message list.
-              useAutoScroll's MutationObserver + per-child ResizeObserver
-              catches this accessory's mount (re-anchors when pinned).
+              useAutoScroll's MutationObserver on the scroll container's children
+              dispatches a single {kind:'content-changed'} event to the state
+              machine — symmetric with every other content-mount signal per
+              shape § Symmetric event handling. No per-accessory-type wiring.
               In-flow per ASIDE-05 — NOT an overlay, popup, or fixed-
               position element. */}
           {asideText !== null && <AsideBubble text={asideText} />}
-          {/* Jump-to-bottom pill — sibling of the content wrapper, still
+          {/* Jump-to-bottom pill — inside the hide-pin-reveal wrapper,
               inside the scroll container so `sticky bottom-2` anchors it
               to the bottom-right of the visible viewport. Shown only when
-              the user has scrolled up.
-              `scrollToBottomAndFollow` forces pinned=true and jumps
-              regardless of prior scroll position. Async content settle
-              (image decode, batched WS backfill) is handled by the
-              MutationObserver + ResizeObserver in useAutoScroll — no
-              re-arm timer needed here. `isPinnedToBottom` is hook-derived
-              from the single scroll listener. */}
-          {!isPinnedToBottom && messages.length > 0 && (
+              the user has scrolled up (mode === "not-at-bottom").
+              `jumpToBottom` dispatches {kind:"jump-clicked"} to the reducer,
+              which transitions to at-bottom and schedules a RAF chase-write.
+              Async content settle (image decode, batched WS backfill) is handled
+              by the MutationObserver + ResizeObserver in useAutoScroll — no
+              re-arm timer needed here. `mode` is reducer-derived from the
+              isTrusted scroll listener. */}
+          {mode === "not-at-bottom" && messages.length > 0 && (
             <div className="sticky bottom-2 pointer-events-none flex justify-end">
               <Button
                 size="icon-sm"
                 variant="secondary"
-                onClick={scrollToBottomAndFollow}
+                onClick={jumpToBottom}
                 aria-label="Jump to latest"
                 title="Jump to latest"
                 className={cn(
@@ -3319,22 +3336,7 @@ export function PrettyView({
               </Button>
             </div>
           )}
-          {/* inline-260830-pv-scroll-sentinel-inside-scroller (Ashley 2026-08-30,
-              taylor): invisible 1px bottom-sentinel used by useAutoScroll's
-              IntersectionObserver to compute the AUTHORITATIVE pinned-to-bottom
-              state. MUST be a descendant of the scroll container (the element
-              passed as IO `root`) — a non-descendant target never fires the IO
-              callback, so pinnedRef stays initialized-true and every message
-              yanks to bottom regardless of scroll position. Originally shipped
-              260823 (commit 9703fe9f) as a sibling of the scroll container by
-              mistake; moved inside here so IO actually fires. Height of 1px so
-              it always has measurable area; aria-hidden because purely structural. */}
-          <div
-            ref={sentinelRef}
-            data-pv-scroll-sentinel
-            aria-hidden="true"
-            style={{ height: 1, minHeight: 1, width: "100%" }}
-          />
+          </div>
         </div>
       )}
 
