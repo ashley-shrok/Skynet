@@ -6,6 +6,23 @@
  * in this project's test environment). Auth middleware is mocked via
  * vi.mock on the auth-manager module.
  *
+ * Phase 74 Plan 03 additions:
+ *   - vi.mock of the branding-config-loader module (LOAD-BEARING per
+ *     74-RESEARCH.md § Pitfall 4 — without it, tests silently read
+ *     bundled defaults with empty avatarDirectorSpec and every /batch
+ *     test breaks via the new request-time 503 defense).
+ *   - Mutable module-scope `mockConfig` object mirroring the mockUserId
+ *     pattern so per-test config injection is straightforward.
+ *   - Test 10: POST /batch sends avatarDirectorSpec verbatim as chat
+ *     system message (Behavior 3 — spec-flow contract).
+ *   - Test 11: gamma value flowing to sharp equals mocked
+ *     avatarGammaDefault (Behavior 4 — gamma-flow contract).
+ *   - Test 12: POST /batch returns 503 when avatarDirectorSpec is
+ *     empty at request time (Behavior 5 — Pitfall 2 defense-in-depth).
+ *   - Test 13: POST /batch returns 503 when avatarDirectorSpec is
+ *     whitespace-only at request time (Behavior 6 — trim-then-length
+ *     mirrors boot gate).
+ *
  * Test coverage:
  *   1: returns 3 candidates on happy path
  *   2: archetype draft called ONCE per request, not thrice
@@ -16,6 +33,10 @@
  *   7: 401 without JWT — fetch never called
  *   8: propagates OpenAI failure with 502 — no upstream body leak
  *   9: 400 on missing required inputs — fetch never called
+ *  10: POST /batch sends avatarDirectorSpec verbatim (Phase 74)
+ *  11: gamma value comes from avatarGammaDefault, not hardcoded (Phase 74)
+ *  12: 503 when avatarDirectorSpec empty at request time (Phase 74)
+ *  13: 503 when avatarDirectorSpec whitespace-only at request time (Phase 74)
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -50,6 +71,52 @@ vi.mock("../../utils/auth-manager.js", () => {
   };
   return { AuthManager };
 });
+
+// ---------------------------------------------------------------------------
+// Phase 74 Plan 03: Branding-config-loader mock — LOAD-BEARING per
+// 74-RESEARCH.md § Pitfall 4. Without this mock the loader reads the real
+// container filesystem (/etc/skynet/branding/branding.json), which doesn't
+// exist in the test environment → loader falls back to bundled defaults with
+// avatarDirectorSpec="" → the /batch handler's Phase 74 request-time 503
+// defense fires → every /batch test breaks.
+//
+// The mock's default state has a non-empty avatarDirectorSpec so existing
+// Tests 1-9 stay GREEN. New Phase 74 tests mutate mockConfig per-test to
+// exercise empty/whitespace/spec-verbatim/custom-gamma branches. beforeEach
+// resets mockConfig to defaults to prevent cross-test bleed.
+// ---------------------------------------------------------------------------
+
+const DEFAULT_MOCK_DIRECTOR_SPEC =
+  "TEST DIRECTOR SPEC — not the real thing";
+const DEFAULT_MOCK_GAMMA = 0.7;
+
+let mockConfig: {
+  appName: string;
+  shortName: string;
+  iconPath: string;
+  wordmarkPath: string;
+  faviconPath: string;
+  pwaIcons: Array<{ src: string; sizes: string; type: string }>;
+  avatarDirectorSpec: string;
+  avatarGammaDefault: number;
+} = {
+  appName: "Skynet",
+  shortName: "Skynet",
+  iconPath: "/branding/icon.png",
+  wordmarkPath: "/branding/wordmark.png",
+  faviconPath: "/branding/favicon.svg",
+  pwaIcons: [
+    { src: "/branding/pwa-icon-192.png", sizes: "192x192", type: "image/png" },
+    { src: "/branding/pwa-icon-512.png", sizes: "512x512", type: "image/png" },
+  ],
+  avatarDirectorSpec: DEFAULT_MOCK_DIRECTOR_SPEC,
+  avatarGammaDefault: DEFAULT_MOCK_GAMMA,
+};
+
+vi.mock("../../branding/branding-config-loader.js", () => ({
+  loadBrandingConfig: async () => mockConfig,
+  getBundledDefaults: () => mockConfig,
+}));
 
 // ---------------------------------------------------------------------------
 // Helpers: HTTP request wrapper
@@ -260,6 +327,10 @@ async function startServer(): Promise<http.Server> {
 beforeEach(async () => {
   vi.useFakeTimers();
   mockUserId = "user-1";
+  // Phase 74: reset mockConfig to a valid non-empty default so per-test
+  // mutations (Tests 10-13) don't leak into subsequent tests.
+  mockConfig.avatarDirectorSpec = DEFAULT_MOCK_DIRECTOR_SPEC;
+  mockConfig.avatarGammaDefault = DEFAULT_MOCK_GAMMA;
   // Ensure OPENAI_API_KEY is set so routes don't return 503
   process.env.OPENAI_API_KEY = "test-key-not-real";
   // Dynamic import to get the clear helper
@@ -848,5 +919,113 @@ describe("POST /candidate/manual", () => {
     const body = res.body as { error?: string };
     expect(body.error).toMatch(/missing avatar field/i);
     expect(cache.size).toBe(sizeBefore);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 74 Plan 03: config-driven director spec + gamma + request-time defense
+// ---------------------------------------------------------------------------
+
+describe("Phase 74 Plan 03: config-driven avatar batch", () => {
+  it("Test 10: POST /batch sends avatarDirectorSpec verbatim as chat-completions system message", async () => {
+    // Sentinel spec value — unique so we know it flowed byte-for-byte
+    const SENTINEL_SPEC =
+      "SENTINEL DIRECTOR SPEC 12345 UNIQUE MARKER — must appear verbatim in the system slot";
+    mockConfig.avatarDirectorSpec = SENTINEL_SPEC;
+
+    let capturedSystemContent: string | null = null;
+
+    vi.stubGlobal(
+      "fetch",
+      buildMockFetch(async (_url, opts) => {
+        const parsed = JSON.parse(opts.body as string) as {
+          messages: Array<{ role: string; content: string }>;
+        };
+        // messages[0] is the system slot per the /batch handler
+        capturedSystemContent = parsed.messages[0].content;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            choices: [{ message: { content: CANNED_ARCHETYPE } }],
+          }),
+        } as unknown as Response;
+      }),
+    );
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/avatar/batch",
+      body: { name: "spectest", title: "Spec Test", brief: "spec-flow test" },
+    });
+
+    expect(res.status).toBe(200);
+    // The system-message content MUST equal the mocked spec byte-for-byte.
+    // No prefix, no suffix, no wrapping — verbatim.
+    expect(capturedSystemContent).toBe(SENTINEL_SPEC);
+  });
+
+  it("Test 11: gamma value comes from avatarGammaDefault (not hardcoded 0.7)", async () => {
+    const mod = await import("./identity-avatar-batch.js");
+    // (128/255)^0.5 * 255 = ~180.9 → rounds to ~181, distinguishable from
+    // the ~157 that gamma=0.7 produces. If the pipeline were still
+    // hardcoded to 0.7 this assertion would fail.
+    const resultAt05 = await mod._applyCorrectionForTest(128, 0.5);
+    expect(resultAt05).toBeGreaterThanOrEqual(179);
+    expect(resultAt05).toBeLessThanOrEqual(183);
+
+    // Sanity: the default gamma=0.7 branch still gives ~157
+    const resultAt07 = await mod._applyCorrectionForTest(128, 0.7);
+    expect(resultAt07).toBeGreaterThanOrEqual(155);
+    expect(resultAt07).toBeLessThanOrEqual(160);
+
+    // The two values must differ — proves the gamma parameter is actually
+    // threaded through the pipeline (not silently ignored).
+    expect(resultAt05).not.toBe(resultAt07);
+  });
+
+  it("Test 12: POST /batch returns 503 when avatarDirectorSpec is empty at request time (Pitfall 2 defense-in-depth)", async () => {
+    mockConfig.avatarDirectorSpec = "";
+
+    let fetchCalled = false;
+    vi.stubGlobal("fetch", async () => {
+      fetchCalled = true;
+      throw new Error("fetch must not be called when spec is empty");
+    });
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/avatar/batch",
+      body: { name: "emptyspec", title: "Empty Spec Test", brief: "test" },
+    });
+
+    expect(res.status).toBe(503);
+    const body = res.body as { error: string };
+    expect(body.error).toBe("avatar generation misconfigured");
+    // Route must short-circuit BEFORE hitting OpenAI
+    expect(fetchCalled).toBe(false);
+  });
+
+  it("Test 13: POST /batch returns 503 when avatarDirectorSpec is whitespace-only at request time", async () => {
+    // Trim-then-length pattern mirrors the boot gate — whitespace-only is
+    // as-good-as-empty. 74-CONTEXT.md § "What would make it wrong" §3.
+    mockConfig.avatarDirectorSpec = "   \n\t  ";
+
+    let fetchCalled = false;
+    vi.stubGlobal("fetch", async () => {
+      fetchCalled = true;
+      throw new Error("fetch must not be called when spec is whitespace-only");
+    });
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/avatar/batch",
+      body: { name: "wsspec", title: "Whitespace Spec Test", brief: "test" },
+    });
+
+    expect(res.status).toBe(503);
+    const body = res.body as { error: string };
+    expect(body.error).toBe("avatar generation misconfigured");
+    expect(fetchCalled).toBe(false);
   });
 });
