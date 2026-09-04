@@ -7112,4 +7112,107 @@ describe("phase-72 fleet-substrate sweep hook", () => {
     expect(runSweepForHost).toHaveBeenCalledTimes(2);
     second.orchestrator.stop();
   });
+
+  it("Test G: sweepedThisInstance guard prevents re-firing across two pollAllHosts() ticks within the same instance", async () => {
+    // Reset the runSweepForHost stub back to a no-op resolver — Test D/E
+    // above swap in `mockImplementation` (never-resolve; throw "boom") and
+    // `vi.clearAllMocks()` in beforeEach clears call history but preserves
+    // mock implementations. Without this reset, Test G inherits Test E's
+    // throw and the guard-suppressed path is masked by a spurious sweep
+    // error surface.
+    vi.mocked(runSweepForHost).mockImplementation(async () => {});
+
+    // Phase-72 HIGH regression (code review). The `sweepedThisInstance` Set
+    // is the load-bearing invariant that guarantees the fleet-substrate
+    // sweep runs at most ONCE per host per Skynet-instance lifetime. This
+    // test forces the sweep-hook code path (tryAcquireHostChannel) to fire
+    // for the SAME host in two separate pollAllHosts() ticks and asserts
+    // runSweepForHost is called exactly ONCE across both.
+    //
+    // Mechanism: to force tryAcquireHostChannel to run twice for the same
+    // host, we exploit the pollAllHosts eviction path — when a host present
+    // in perHostState is absent from the fresh host list, it is evicted;
+    // on the NEXT refresh when it reappears, tryAcquireHostChannel fires
+    // again (because perHostState no longer has it). Without the
+    // sweepedThisInstance guard, the sweep would re-fire on that
+    // re-acquisition. WITH the guard, it must NOT.
+    //
+    // We wire hostRefreshEveryNTicks to 1 (staleSweepIntervalMs ==
+    // pollIntervalMs) so every tick refreshes the host list, and drive
+    // the poll timer manually via setIntervalFns.
+    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
+    const HOST = {
+      id: "h1",
+      name: "host1",
+      runsFleetSubstrate: true,
+    } as HostRecord;
+
+    // listIdentityHostingHosts sequence:
+    //   call 1 (initial start()): [HOST] → acquire + sweep fires
+    //   call 2 (refresh in 2nd pollAllHosts): []      → HOST evicted
+    //   call 3 (refresh in 3rd pollAllHosts): [HOST]  → HOST re-acquired,
+    //                                                    sweep MUST NOT re-fire
+    const listMock = vi
+      .fn()
+      .mockResolvedValueOnce([HOST])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([HOST]);
+
+    const deps = buildDeps({
+      listIdentityHostingHosts: listMock,
+      // Setting the refresh interval == poll interval makes every tick
+      // refresh the host list.
+      pollIntervalMs: 2000,
+      staleSweepIntervalMs: 2000,
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<
+          typeof setInterval
+        >;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+    // Drain the queueMicrotask that fires runSweepForHost + its .catch hop
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // After start(): sweep fired once for HOST.
+    expect(runSweepForHost).toHaveBeenCalledTimes(1);
+
+    // Trigger a second pollAllHosts() tick. This is refresh-tick 1
+    // (pollTickCount === 2, 2 % 1 === 0), listMock returns [] → HOST
+    // is evicted from perHostState.
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn();
+    }
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Trigger a third pollAllHosts() tick. Refresh returns [HOST] again;
+    // because HOST is no longer in perHostState, tryAcquireHostChannel
+    // re-fires. THIS is where the sweepedThisInstance guard earns its
+    // keep — the sweep must NOT re-fire because HOST.id was recorded in
+    // the Set on the first acquisition and never cleared (stop() clears
+    // it, but we never called stop()).
+    if (pollFn) {
+      await pollFn.fn();
+    }
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Load-bearing assertion: sweep fired ONCE across three pollAllHosts()
+    // ticks, proving the guard prevents re-firing even when
+    // tryAcquireHostChannel runs a second time for the same host in the
+    // same instance.
+    expect(runSweepForHost).toHaveBeenCalledTimes(1);
+    // And logSweepHookError must NOT have fired — the guard-suppressed
+    // path never runs the sweep, so no error surface either.
+    expect(logSweepHookError).not.toHaveBeenCalled();
+
+    orchestrator.stop();
+  });
 });
