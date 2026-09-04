@@ -1787,3 +1787,13 @@ Plans:
 **Wave 4** *(blocked on Wave 3 completion)*
 
 - [x] 71-04-PLAN.md — Codebase contamination sweep (5 grep gates + 3 observer-invariant gates + 2 log-prefix gates, all independently re-run) + human-verify Ashley real-browser walk-through of 4 bounty scenarios (wave 4, depends on 71-03)
+
+### Phase 72: Identity modal role/identity scope split with role-level wakeups management — rework the identity modal so a top segmented control switches between Role view (role file / bounties / history / role-scope wakeups) and Identity view (identity file / identity-scope wakeups / handoff); bottom icon-bar reshuffles per scope. Adds the load-bearing new capability: role-scope wakeup CRUD (list/edit/add/enable-disable/delete) reading + writing ~/.claude/roles/<role>/wakeups/ — mirror the existing identity-scope wakeup surface. Coordinator identities default to Role view on open (their only meaningful state is role wakeups); actor identities default to Identity view (current default preserved). Scope switch position remembered per-identity within a session. Every wakeup visibly wears its scope. Preserves all existing modal behavior (bounty search, archive lazy-load, live pinned-count invalidation, inline title/avatar/hue/voice editors, stays-awake switch). Shape: .planning/shapes/shape-identity-modal-scope-split.md. Sketch (variant D — Top Scope Switch — chosen): .planning/sketches/001-identity-modal-role-vs-identity-split/.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 71
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 72 to break down)
