@@ -1050,13 +1050,14 @@ export function PrettyView({
   //
   // Phase 32 (see .planning/phases/32-.../32-CONTEXT.md): paneKey moved upstream from its
   // original L743 site so the useAutoScroll hook call below is upstream of handleComposeSend,
-  // letting handleComposeSend close over scrollToBottomAndFollow directly at declaration time
+  // letting handleComposeSend close over onSendFired directly at declaration time
   // (no TDZ, no ref-mirror indirection). paneKey's WS-effect consumers at ~L1015/L1055 still
   // resolve to this moved declaration.
   const paneKey = `${hostId}::${tmuxSession}`;
-  // Phase 32: three-case sticky-bottom auto-scroll (session load / follow-when-at-bottom /
-  // force-on-send). See 32-CONTEXT.md § Decisions LOCKED.
-  const { scrollRef, sentinelRef, scrollToBottomAndFollow, isPinnedToBottom } = useAutoScroll(paneKey, messages.length);
+  // Phase 70: two-state position-derived state machine auto-scroll (at-bottom / not-at-bottom).
+  // paneKey is passed FOR LOGGING ONLY — the hook does not react to paneKey changes per
+  // shape-file § Session re-entry. See use-auto-scroll.ts header + shape-pv-autoscroll-rewrite.md.
+  const { scrollRef, jumpToBottom, onSendFired, mode, revealed } = useAutoScroll(paneKey);
 
   // Phase 50 D-18 (Blocker #4 middle): widened to (text, mqid?) so the
   // ComposeBox-generated mqid threads through to the parent's onSend
@@ -1078,9 +1079,9 @@ export function PrettyView({
     }
     // A send is the strongest possible "I want to see the reply" signal —
     // force stick + jump regardless of prior scroll position.
-    scrollToBottomAndFollow();
+    onSendFired();
     return onSend ? onSend(text, mqid) : false;
-  }, [onSend, scrollToBottomAndFollow]);
+  }, [onSend, onSendFired]);
 
   // ── Phase 50 Plan 03 (D-01..D-08 + D-15/D-19/D-20/D-21) ──────────────
   // pendingSends: FIFO queue of optimistic-bubble state. Seeded by
@@ -1454,7 +1455,7 @@ export function PrettyView({
   // previously living here — scrollElRef, rowVirtualizer, observeElementRect,
   // getItemKey, estimateSize, initialRect, scrollMargin — is deleted.
   // composeScrollRefs collapsed: the outer scroll container now binds
-  // directly to useAutoScroll's scrollRef (43-06's frozen API surface).
+  // directly to useAutoScroll's scrollRef (phase-70 rewrite's stable API surface).
   // Plan 43-07b will compose a local ref if it needs a second reader.
 
   // Patch #108: IdentityModal anchors its Radix Portal to this DOM element
@@ -1580,8 +1581,9 @@ export function PrettyView({
     // On a fresh pane (hostId/tmuxSession changed), reset ALL state and the attempt
     // counter. On a retry re-run (same pane, retryKey bumped), preserve messages/
     // status so the UI does not flash blank while reconnecting.
-    // paneKey is computed in the render body (line 465) and passed into useAutoScroll;
-    // reuse the same value here.
+    // paneKey is computed in the render body (line 1056) and passed into useAutoScroll;
+    // paneKey is now parameter-carried FOR LOGGING ONLY — the hook does not react to
+    // paneKey changes per shape-file § Session re-entry. Reuse the same value here.
     if (paneKey !== paneKeyRef.current) {
       // Fresh pane mount — full reset.
       setMessages([]);
@@ -2140,8 +2142,9 @@ export function PrettyView({
           // poller OR Wave 2's connect-time re-attach probe for a
           // late-mounting tab per ASIDE-09). Flip asideText to the
           // extracted text — AsideBubble mounts as the last child of
-          // the message-stream flex column and useAutoScroll pins the
-          // viewport to it. Cross-tab dismiss coherence (ASIDE-11) is
+          // the message-stream flex column and useAutoScroll's MutationObserver
+          // dispatches {kind:'content-changed'} on this mount; the reducer's
+          // at-bottom → chase branch anchors the viewport. Cross-tab dismiss coherence (ASIDE-11) is
           // handled by the aside_dismissed case below fanned out from
           // the backend broadcast primitive.
           //
@@ -3479,7 +3482,7 @@ export function PrettyView({
           hostId={hostId}
           tmuxSession={tmuxSession}
           identityName={pvIdentity?.displayName}
-          onGoodToGo={scrollToBottomAndFollow}
+          onGoodToGo={jumpToBottom}
           onInterrupt={onInterrupt}
           // Phase 05 upload wiring — all sourced from the local
           // usePrettyViewUploads hook. Patch #123 split the old single
