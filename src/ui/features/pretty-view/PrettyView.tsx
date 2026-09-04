@@ -153,7 +153,7 @@ export const PENDING_SEND_TIMEOUT_MS_DORMANT = 220_000;
 //      WS server (Plan 01-02) already drop non-text blocks upstream.
 //
 //   2. RENDER-03 auto-scroll: two-state position-derived state machine via
-//      `useAutoScroll(paneKey)`. Modes: `at-bottom` (chase-on-content-change)
+//      `useAutoScroll`. Modes: `at-bottom` (chase-on-content-change)
 //      and `not-at-bottom` (frozen). Transitions: OUT-of-at-bottom ONLY on
 //      user-input events (wheel/touch/scrollbar/keyboard) outside a ~28px
 //      tolerance; INTO-at-bottom on jump-clicked, send-fired, or user-input
