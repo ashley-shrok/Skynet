@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-04T21:52:34.936Z"
+last_updated: "2026-09-04T22:06:21.407Z"
 last_activity: 2026-09-04
 progress:
   total_phases: 75
   completed_phases: 63
   total_plans: 277
-  completed_plans: 269
+  completed_plans: 270
   percent: 84
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 74 (control-style-of-avatar-generation-through-branding-config) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 
 Last activity: 2026-09-04
@@ -329,6 +329,7 @@ Progress: [██████████] 100%
 | Phase 72 P04 | 15min | 1 tasks | 4 files |
 | Phase 74 P01 | 6m | 2 tasks | 4 files |
 | Phase 74 P02 | 7m | 2 tasks | 3 files |
+| Phase 74 P03 | 8m | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -517,6 +518,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 74-02: boot gate in separate module (assert-boot.ts) so Phase 70 loader stays never-throws and /api/branding HTTP route cannot crash
 - [Phase ?]: Phase 74-02: gate reads avatarDirectorSpec ONLY per Ashley resolution #5 — gamma is optional-with-code-default and not gated
 - [Phase ?]: Phase 74-02: gate trims BEFORE length-check so whitespace-only strings are rejected per 74-CONTEXT.md
+- [Phase ?]: Phase 74-03: split hueName / paletteHueLine so app owns mechanical hue-to-color-name mapping; aesthetic instruction language moved out of code entirely (belongs in operator-authored avatarDirectorSpec)
+- [Phase ?]: Phase 74-03: request-time 503 defense-in-depth guard on empty/whitespace avatarDirectorSpec is belt-and-suspenders for operator runtime edits that introduce shape violations; NOT a replacement for Plan 02's boot gate
+- [Phase ?]: Phase 74-03: TDD RED-first cadence (test additions committed before source rewire) — required because loader mock is LOAD-BEARING; without it Task 1's source changes would break existing tests via the new request-time 503 defense
 
 ### Pending Todos
 
@@ -804,8 +808,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-04T21:51:27.460Z
-Stopped at: Completed 74-01-PLAN.md
+Last session: 2026-09-04T22:06:20.512Z
+Stopped at: Completed 74-03-PLAN.md
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
 Last session: 2026-08-19T03:53:37.643Z
