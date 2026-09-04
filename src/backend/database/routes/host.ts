@@ -236,6 +236,15 @@ router.post(
       username || rdpUser || vncUser || telnetUser || "";
     const effectiveName =
       name || (effectiveUsername ? `${effectiveUsername}@${ip}` : String(ip));
+    // Default runsFleetSubstrate=true for new SSH hosts; every SSH-reachable
+    // host in the fleet should receive the reconcile sweep unless the operator
+    // explicitly opts out. Non-SSH hosts (RDP/VNC/Telnet) can't run the
+    // agent-supervisor substrate, so they default false. An explicit value on
+    // input wins over both defaults.
+    const effectiveRunsFleetSubstrate =
+      runsFleetSubstrate !== undefined
+        ? !!runsFleetSubstrate
+        : effectiveConnectionType === "ssh";
     const sshDataObj: Record<string, unknown> = {
       userId: userId,
       connectionType: effectiveConnectionType,
@@ -314,9 +323,7 @@ router.post(
       rdpIgnoreCert: rdpIgnoreCert ? 1 : 0,
       vncUser: vncUser || null,
       telnetUser: telnetUser || null,
-      // Phase 73 (feature 02 slice 2): opt-in flag for the Skynet-side
-      // fleet-substrate reconcile sweep.
-      runsFleetSubstrate: runsFleetSubstrate ? 1 : 0,
+      runsFleetSubstrate: effectiveRunsFleetSubstrate ? 1 : 0,
     };
 
     // For non-SSH hosts (RDP, VNC, Telnet), always save password if provided
@@ -1176,6 +1183,7 @@ router.get(
           vncPassword: hosts.vncPassword,
           telnetUser: hosts.telnetUser,
           telnetPassword: hosts.telnetPassword,
+          runsFleetSubstrate: hosts.runsFleetSubstrate,
 
           ownerId: hosts.userId,
           isShared: sql<boolean>`${hostAccess.id} IS NOT NULL AND ${hosts.userId} != ${userId}`,
