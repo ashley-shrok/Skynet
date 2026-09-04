@@ -199,6 +199,11 @@ router.post(
       vncUser,
       telnetUser,
       telnetPassword,
+      // Phase 73 (feature 02 slice 2): opt-in flag for the Skynet-side
+      // fleet-substrate reconcile sweep. Default false at the DB layer;
+      // operator flips true per identity-hosting host that should receive
+      // freshest bundled substrate bytes. Falsy on input = 0 stored.
+      runsFleetSubstrate,
     } = hostData;
     databaseLogger.info("[host-db] create-host-start", {
       operation: "host_create",
@@ -309,6 +314,9 @@ router.post(
       rdpIgnoreCert: rdpIgnoreCert ? 1 : 0,
       vncUser: vncUser || null,
       telnetUser: telnetUser || null,
+      // Phase 73 (feature 02 slice 2): opt-in flag for the Skynet-side
+      // fleet-substrate reconcile sweep.
+      runsFleetSubstrate: runsFleetSubstrate ? 1 : 0,
     };
 
     // For non-SSH hosts (RDP, VNC, Telnet), always save password if provided
@@ -737,6 +745,11 @@ router.put(
       vncUser,
       telnetUser,
       telnetPassword,
+      // Phase 73 (feature 02 slice 2): opt-in flag for the Skynet-side
+      // fleet-substrate reconcile sweep. Default false at the DB layer;
+      // operator flips true per identity-hosting host that should receive
+      // freshest bundled substrate bytes. Falsy on input = 0 stored.
+      runsFleetSubstrate,
     } = hostData;
     databaseLogger.info("[host-db] update-host-start", {
       operation: "host_update",
@@ -844,6 +857,9 @@ router.put(
       rdpIgnoreCert: rdpIgnoreCert ? 1 : 0,
       vncUser: vncUser || null,
       telnetUser: telnetUser || null,
+      // Phase 73 (feature 02 slice 2): opt-in flag for the Skynet-side
+      // fleet-substrate reconcile sweep.
+      runsFleetSubstrate: runsFleetSubstrate ? 1 : 0,
     };
 
     // For non-SSH hosts (RDP, VNC, Telnet), always save password if provided
@@ -1552,6 +1568,12 @@ router.get(
             portKnockSequence: resolvedHost.portKnockSequence
               ? JSON.parse(resolvedHost.portKnockSequence as string)
               : null,
+            // Phase 73 (feature 02 slice 2): opt-in flag for the Skynet-side
+            // fleet-substrate reconcile sweep. Only meaningful for SSH-like
+            // identity-hosting hosts — RDP/VNC/Telnet targets don't run
+            // agent-supervisor, so the flag is omitted from the remote-desktop
+            // export branch by construction.
+            runsFleetSubstrate: !!resolvedHost.runsFleetSubstrate,
           };
 
       sshLogger.success("[host-db] export-host-ok", {

@@ -126,6 +126,14 @@ export type Host = {
 
   guacamoleConfig?: Record<string, unknown>;
   forceKeyboardInteractive?: boolean;
+
+  // Phase 73 (feature 02 slice 2): opt-in flag for the Skynet-side fleet-
+  // substrate reconcile sweep. Only meaningful for SSH-like identity-hosting
+  // hosts. Absent = false (default at the DB layer, migration adds the column
+  // with DEFAULT 0). Exposed on GET /db/host/:id/export and accepted on
+  // POST /db/host + PUT /db/host/:id — no UI toggle yet (operator flips via
+  // curl or admin console for now).
+  runsFleetSubstrate?: boolean;
 };
 
 export type Credential = {
