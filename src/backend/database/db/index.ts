@@ -968,6 +968,26 @@ const migrateSchema = async () => {
     "INTEGER NOT NULL DEFAULT 0",
   );
 
+  // Phase 72 Plan 02 — opt-in flag for the fleet-substrate reconcile sweep.
+  // Default 0 means no host is swept until an operator explicitly flips it.
+  // Migration is idempotent via addColumnIfNotExists (probes SELECT, ALTER on
+  // throw); safe on fresh installs (column added on first successful boot)
+  // and upgraded installs (column added once, then no-op on every subsequent
+  // boot). The Drizzle mirror lives at schema.ts hosts.runsFleetSubstrate.
+  addColumnIfNotExists("ssh_data", "runs_fleet_substrate", "INTEGER NOT NULL DEFAULT 0");
+  try {
+    await DatabaseSaveTrigger.forceSave("phase-72-add-runs-fleet-substrate");
+  } catch (saveError) {
+    databaseLogger.warn(
+      "[phase-72] forceSave failed post-add (non-fatal — addColumnIfNotExists is idempotent, next boot retries)",
+      {
+        operation: "schema_migration_force_save_post_add",
+        reason: "phase-72-add-runs-fleet-substrate",
+        error: saveError,
+      },
+    );
+  }
+
   addColumnIfNotExists("ssh_credentials", "private_key", "TEXT");
   addColumnIfNotExists("ssh_credentials", "public_key", "TEXT");
   addColumnIfNotExists("ssh_credentials", "detected_key_type", "TEXT");

@@ -23,6 +23,7 @@ import {
   runIdentitiesCosmeticDrops,
   runIdentitiesTableDrop,
 } from "./index.js";
+import { hosts } from "./schema.js";
 
 // The OLD identities CREATE TABLE — verbatim from db/index.ts pre-Phase-66.
 const OLD_IDENTITIES_CREATE_SQL = `
@@ -280,5 +281,168 @@ describe("Phase 68-05 migration — drop identities table entirely", () => {
 
     const pragmaRows = db.prepare("PRAGMA table_info(identities)").all();
     expect(pragmaRows).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 72 Plan 02 — add runs_fleet_substrate column to ssh_data.
+//
+// Contract under test: the migration adds a BOOLEAN column (stored as
+// INTEGER NOT NULL DEFAULT 0) via the same addColumnIfNotExists shape the
+// rest of db/index.ts uses. Since addColumnIfNotExists is bound to the
+// module-level sqlite singleton (and per Plan 02 must NOT be re-exported as
+// runFleetSubstrateColumnAdd), the tests reproduce the same idempotent
+// ALTER TABLE ADD COLUMN pattern directly against a test-owned in-memory
+// database — the behavior contract is what matters:
+//   - present on OLD schema after add
+//   - unchanged on NEW schema (already-present, no throw, no dup)
+//   - existing rows backfilled to 0
+//   - Drizzle hosts.runsFleetSubstrate column exported
+// ---------------------------------------------------------------------------
+
+// The OLD ssh_data schema — subset of columns pre-Phase-72, WITHOUT
+// runs_fleet_substrate. Mirrors the CREATE TABLE literal shape at
+// db/index.ts L199-236, trimmed to what the migration test needs.
+const OLD_SSH_DATA_CREATE_SQL = `
+  CREATE TABLE ssh_data (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    name TEXT,
+    ip TEXT NOT NULL,
+    port INTEGER NOT NULL,
+    username TEXT NOT NULL,
+    auth_type TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+// The NEW ssh_data schema — includes runs_fleet_substrate already.
+const NEW_SSH_DATA_CREATE_SQL = `
+  CREATE TABLE ssh_data (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    name TEXT,
+    ip TEXT NOT NULL,
+    port INTEGER NOT NULL,
+    username TEXT NOT NULL,
+    auth_type TEXT NOT NULL,
+    runs_fleet_substrate INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+// Local reproduction of the addColumnIfNotExists shape from db/index.ts
+// L634-659 — same probe-then-alter logic, but bound to a passed-in db
+// so the tests don't touch the module singleton. Behavior contract is
+// identical: probe via SELECT, on throw run ALTER TABLE ADD COLUMN.
+function addColumnIfNotExistsOn(
+  db: Database.Database,
+  table: string,
+  column: string,
+  definition: string,
+): void {
+  try {
+    db.prepare(`SELECT "${column}" FROM ${table} LIMIT 1`).get();
+  } catch {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN "${column}" ${definition};`);
+  }
+}
+
+describe("Phase 72-02 migration — add runs_fleet_substrate to ssh_data", () => {
+  it("Test A: OLD schema (no runs_fleet_substrate) → migrate → column present", () => {
+    const db = new Database(":memory:");
+    db.exec(OLD_SSH_DATA_CREATE_SQL);
+
+    // Sanity: column absent pre-migration.
+    const preCols = columnNames(db, "ssh_data");
+    expect(preCols).not.toContain("runs_fleet_substrate");
+
+    addColumnIfNotExistsOn(
+      db,
+      "ssh_data",
+      "runs_fleet_substrate",
+      "INTEGER NOT NULL DEFAULT 0",
+    );
+
+    const postCols = columnNames(db, "ssh_data");
+    expect(postCols).toContain("runs_fleet_substrate");
+  });
+
+  it("Test B: NEW schema (column already present) → migrate is idempotent no-op", () => {
+    const db = new Database(":memory:");
+    db.exec(NEW_SSH_DATA_CREATE_SQL);
+
+    // Seed a row with runs_fleet_substrate = 1 to prove the value survives
+    // the no-op migration path (no duplicate column, no default overwrite).
+    db.prepare(
+      `INSERT INTO ssh_data
+       (user_id, name, ip, port, username, auth_type, runs_fleet_substrate)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run("user-1", "exec-vm-1", "10.0.0.1", 22, "ubuntu", "password", 1);
+
+    const preCols = columnNames(db, "ssh_data").sort();
+
+    expect(() =>
+      addColumnIfNotExistsOn(
+        db,
+        "ssh_data",
+        "runs_fleet_substrate",
+        "INTEGER NOT NULL DEFAULT 0",
+      ),
+    ).not.toThrow();
+
+    const postCols = columnNames(db, "ssh_data").sort();
+    expect(postCols).toEqual(preCols);
+
+    // Existing row's value survives — the no-op path did NOT overwrite it
+    // with the default.
+    const row = db
+      .prepare("SELECT runs_fleet_substrate FROM ssh_data WHERE user_id = ?")
+      .get("user-1") as { runs_fleet_substrate: number };
+    expect(row.runs_fleet_substrate).toBe(1);
+
+    // No duplicate column — column count for runs_fleet_substrate is exactly 1.
+    const matches = postCols.filter((c) => c === "runs_fleet_substrate");
+    expect(matches.length).toBe(1);
+  });
+
+  it("Test C: existing rows backfilled to 0 after ALTER TABLE ADD COLUMN NOT NULL DEFAULT 0", () => {
+    const db = new Database(":memory:");
+    db.exec(OLD_SSH_DATA_CREATE_SQL);
+
+    // Seed a row BEFORE the migration — the pre-slice-2 state where the
+    // column doesn't exist yet.
+    db.prepare(
+      `INSERT INTO ssh_data
+       (user_id, name, ip, port, username, auth_type)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run("user-1", "legacy-host", "10.0.0.2", 22, "ubuntu", "password");
+
+    addColumnIfNotExistsOn(
+      db,
+      "ssh_data",
+      "runs_fleet_substrate",
+      "INTEGER NOT NULL DEFAULT 0",
+    );
+
+    // Existing row exists with runs_fleet_substrate backfilled to 0
+    // (SQLite's ALTER TABLE ADD COLUMN NOT NULL DEFAULT 0 backfills).
+    const row = db
+      .prepare(
+        "SELECT runs_fleet_substrate FROM ssh_data WHERE user_id = ?",
+      )
+      .get("user-1") as { runs_fleet_substrate: number };
+    expect(row).toBeDefined();
+    expect(row.runs_fleet_substrate).toBe(0);
+  });
+
+  it("Test D: Drizzle hosts.runsFleetSubstrate column is exported and typed", () => {
+    // Static-shape proof — the Drizzle schema declares the column so
+    // Plan 04's typed query (db.select({ runsFleetSubstrate:
+    // hosts.runsFleetSubstrate }).from(hosts)) compiles.
+    expect(hosts.runsFleetSubstrate).toBeDefined();
+    expect(hosts.runsFleetSubstrate).not.toBeNull();
   });
 });

@@ -134,6 +134,11 @@ export const hosts = sqliteTable("ssh_data", {
   enableVnc: integer("enable_vnc", { mode: "boolean" }).notNull().default(false),
   enableTelnet: integer("enable_telnet", { mode: "boolean" }).notNull().default(false),
 
+  // Phase 72 Plan 02 — opt-in flag for the fleet-substrate reconcile sweep.
+  // Default false means no host is touched by the sweep unless an operator
+  // (or the provisioning path for freshly-created exec VMs) flips it to true.
+  runsFleetSubstrate: integer("runs_fleet_substrate", { mode: "boolean" }).notNull().default(false),
+
   sshPort: integer("ssh_port").default(22),
   rdpPort: integer("rdp_port").default(3389),
   vncPort: integer("vnc_port").default(5900),
