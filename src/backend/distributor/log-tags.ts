@@ -49,7 +49,11 @@ export function logSweepResult(payload: {
   itemsFailed: number;
   durationMs: number;
 }): void {
-  systemLogger.info("Fleet-substrate sweep completed for host", {
+  // Message includes hostName so systemLogger's per-message rate limit
+  // (10 identical messages / 60s window, keyed by `level:message`) sees each
+  // per-host event as distinct. Without this, a burst of concurrent sweeps
+  // across many hosts silently drops all but the first 10 detail lines.
+  systemLogger.info(`Fleet-substrate sweep completed for host ${payload.hostName}`, {
     operation: "fleet_substrate_sweep_result",
     ...payload,
   });
@@ -76,10 +80,13 @@ export function logItemChanged(payload: {
   changeKind: "installed-new" | "bytes-updated";
   restartHookFired: string | null;
 }): void {
-  systemLogger.info("Fleet-substrate item changed on host", {
-    operation: "fleet_substrate_item_changed",
-    ...payload,
-  });
+  systemLogger.info(
+    `Fleet-substrate item changed: ${payload.entrySlug} on ${payload.hostName}`,
+    {
+      operation: "fleet_substrate_item_changed",
+      ...payload,
+    },
+  );
 }
 
 /**
@@ -100,10 +107,13 @@ export function logItemFailed(payload: {
   stage: "read-installed" | "read-bundled" | "write" | "chmod" | "restart";
   errorMessage: string;
 }): void {
-  systemLogger.warn("Fleet-substrate item failed on host", {
-    operation: "fleet_substrate_item_failed",
-    ...payload,
-  });
+  systemLogger.warn(
+    `Fleet-substrate item failed: ${payload.entrySlug} on ${payload.hostName}`,
+    {
+      operation: "fleet_substrate_item_failed",
+      ...payload,
+    },
+  );
 }
 
 /**
@@ -123,8 +133,11 @@ export function logSweepHookError(payload: {
   hostName: string;
   errorMessage: string;
 }): void {
-  systemLogger.warn("Fleet-substrate sweep hook rejected (unexpected)", {
-    operation: "fleet_substrate_sweep_hook_error",
-    ...payload,
-  });
+  systemLogger.warn(
+    `Fleet-substrate sweep hook rejected (unexpected) for ${payload.hostName}`,
+    {
+      operation: "fleet_substrate_sweep_hook_error",
+      ...payload,
+    },
+  );
 }
