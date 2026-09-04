@@ -105,7 +105,7 @@ describe("writeInstalledBytesWithMode", () => {
     }
   });
 
-  it("Test 7: installPath tilde expansion — command contains the install path (either as ~/ or $HOME-substituted)", async () => {
+  it("Test 7: installPath tilde expansion — command references the install path with a shell-expandable tilde prefix", async () => {
     const { channel, exec } = makeChannel(async () => "__WRITE_OK__");
     const bytes = Buffer.from("y");
     const installPath = "~/.claude/skills/id/SKILL.md";
@@ -113,12 +113,14 @@ describe("writeInstalledBytesWithMode", () => {
     await writeInstalledBytesWithMode(channel, installPath, bytes, 0o644);
 
     const cmd = exec.mock.calls[0][0] as string;
-    // Either the raw ~/ path is present (remote sh expands) OR a $HOME
-    // substitution is present. Either is acceptable per the plan's action
-    // block, but SOMETHING pointing at the file must be there.
-    const hasTilde = cmd.includes("~/.claude/skills/id/SKILL.md");
+    // The tilde-preservation fix (phase-72 BLOCKER) emits `~/` UNQUOTED so
+    // the remote shell expands it, followed by the rest of the path
+    // shell-single-quoted for safety. So the command contains the sequence
+    // `~/'.claude/skills/id/SKILL.md'`. The alternative `$HOME/...` form is
+    // still accepted for forward-compat.
+    const hasTildeQuoted = cmd.includes("~/'.claude/skills/id/SKILL.md'");
     const hasHome = cmd.includes("$HOME/.claude/skills/id/SKILL.md");
-    expect(hasTilde || hasHome).toBe(true);
+    expect(hasTildeQuoted || hasHome).toBe(true);
   });
 
   it("Test 8: mkdir -p parent — command mkdir -p's the parent dir before writing", async () => {
@@ -134,10 +136,52 @@ describe("writeInstalledBytesWithMode", () => {
 
     const cmd = exec.mock.calls[0][0] as string;
     expect(cmd).toContain("mkdir -p");
-    // Parent dir path (either ~ or $HOME form) must be present in the mkdir
-    const hasParentTilde = cmd.includes("~/.claude/skills/id");
+    // Parent dir path with the tilde-preservation fix: `~/'.claude/skills/id'`
+    // (unquoted `~/` prefix, single-quoted remainder). `$HOME` form accepted
+    // as a forward-compat alternative.
+    const hasParentTildeQuoted = cmd.includes("~/'.claude/skills/id'");
     const hasParentHome = cmd.includes("$HOME/.claude/skills/id");
-    expect(hasParentTilde || hasParentHome).toBe(true);
+    expect(hasParentTildeQuoted || hasParentHome).toBe(true);
+  });
+
+  it("Test 8b: tilde-preservation — no `'~/` literal (single-quoted tilde-slash) appears in the write command for a catalog-shaped path", async () => {
+    // BLOCKER regression (phase-72 code review): the previous implementation
+    // wrapped `~/.claude/skills/id/SKILL.md` in shellSingleQuote(...) producing
+    // `'~/.claude/skills/id/SKILL.md'`. Shell tilde expansion does NOT run
+    // inside single quotes, so the remote shell would create a literal `~`
+    // directory in cwd (typically $HOME) instead of writing into $HOME. This
+    // test asserts the emitted command NEVER contains the single-quote-tilde-
+    // slash sequence anywhere (mkdir target, write target, chmod target).
+    const { channel, exec } = makeChannel(async () => "__WRITE_OK__");
+    const bytes = Buffer.from("catalog-shaped");
+
+    await writeInstalledBytesWithMode(
+      channel,
+      "~/.claude/skills/id/SKILL.md",
+      bytes,
+      0o644,
+    );
+
+    const cmd = exec.mock.calls[0][0] as string;
+    // The load-bearing assertion: the literal `'~/` (single-quote-tilde-slash)
+    // MUST NOT appear anywhere in the emitted command. The fix quotes only
+    // the segment AFTER the `~/` prefix so the shell performs home expansion.
+    expect(cmd).not.toContain("'~/");
+    // Positive assertion: the raw `~/` tilde prefix DOES appear (unquoted),
+    // proving the shell will expand it to $HOME.
+    expect(cmd).toContain("~/");
+  });
+
+  it("Test 8c: readInstalledBytes tilde-preservation — no `'~/` literal in the read command for a catalog-shaped path", async () => {
+    // Same BLOCKER regression as Test 8b, but for the read path
+    // (base64 -w0 '<path>') which also embeds the install path.
+    const { channel, exec } = makeChannel(async () => "__READ_ENOENT__");
+
+    await readInstalledBytes(channel, "~/.claude/skills/id/SKILL.md");
+
+    const cmd = exec.mock.calls[0][0] as string;
+    expect(cmd).not.toContain("'~/");
+    expect(cmd).toContain("~/");
   });
 });
 

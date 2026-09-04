@@ -34,6 +34,23 @@ import type { SshChannel } from "../fleet-status/ssh-poll-orchestrator.js";
 import { shellSingleQuote } from "../claude-session/discover-identity-session-file.js";
 
 /**
+ * Single-quote a path for safe shell interpolation, EXCEPT leave a leading
+ * `~/` unquoted so the target shell performs home-directory expansion.
+ * Shell tilde-expansion does NOT happen inside single quotes, so wrapping
+ * a catalog install path like `~/.claude/skills/id/SKILL.md` in
+ * shellSingleQuote(...) produces `'~/.claude/skills/id/SKILL.md'`, which
+ * the remote shell treats as a literal `~/` directory in cwd rather than
+ * $HOME. The catalog uses `~/…` paths pervasively (BLOCKER, phase 72
+ * code review), so this helper is the correct wrapper at every push site.
+ */
+function quotePathPreservingTilde(path: string): string {
+  if (path.startsWith("~/")) {
+    return "~/" + shellSingleQuote(path.slice(2));
+  }
+  return shellSingleQuote(path);
+}
+
+/**
  * Result shape for readInstalledBytes. Matches the ItemInputs.installedRead
  * contract in src/backend/distributor/sweep-logic.ts:
  *   - readOk:true + bytes:Buffer  → file read, contents known
@@ -60,7 +77,7 @@ export async function readInstalledBytes(
   installPath: string,
 ): Promise<InstalledReadResult> {
   try {
-    const escaped = shellSingleQuote(installPath);
+    const escaped = quotePathPreservingTilde(installPath);
     const cmd = `base64 -w0 ${escaped} 2>/dev/null && echo __READ_OK__ || echo __READ_ENOENT__`;
     const raw = await channel.exec(cmd);
 
@@ -110,10 +127,10 @@ export async function writeInstalledBytesWithMode(
   modeOctal: number,
 ): Promise<{ ok: true } | { ok: false; stage: "write" | "chmod"; errorMessage: string }> {
   try {
-    const escapedPath = shellSingleQuote(installPath);
+    const escapedPath = quotePathPreservingTilde(installPath);
     const lastSlash = installPath.lastIndexOf("/");
     const parentDir = lastSlash >= 0 ? installPath.slice(0, lastSlash) : ".";
-    const escapedParent = shellSingleQuote(parentDir);
+    const escapedParent = quotePathPreservingTilde(parentDir);
     const b64 = bytes.toString("base64");
     const modeStr = modeOctal.toString(8);
 
