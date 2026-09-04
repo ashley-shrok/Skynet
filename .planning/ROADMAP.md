@@ -1793,11 +1793,11 @@ Plans:
 **Goal:** Coordinator and actor identities each open the modal into the scope that matters for them — coordinators land on Role view (their only meaningful state is role-scope wakeups), actors land on Identity view — and a segmented Role/Identity control at the top of the modal lets either flip between the two. Both scopes carry full wakeup CRUD parity (list/edit/add/enable-disable/delete), reading + writing the correct on-disk folder by construction. Every wakeup visibly wears its scope so ambiguity is impossible.
 **Requirements**: TBD
 **Depends on:** Phase 71
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 Plans:
 **Wave 1**
 
-- [ ] 72-01-PLAN.md — Backend CRUD parity: 6 new WS handlers (4 role-scope + 2 identity-scope create/delete), 6 new reader/writer functions in identity-artifact-reader.ts mirroring readIdentityWakeups + writeIdentityWakeupUpdate + readRoleFile two-step, 12 new wire types in claude-session-api.ts, backend test coverage (wave 1, no deps)
+- [x] 72-01-PLAN.md — Backend CRUD parity: 6 new WS handlers (4 role-scope + 2 identity-scope create/delete), 6 new reader/writer functions in identity-artifact-reader.ts mirroring readIdentityWakeups + writeIdentityWakeupUpdate + readRoleFile two-step, 12 new wire types in claude-session-api.ts, backend test coverage (wave 1, no deps)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 

@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-04T07:25:28.195Z"
-last_activity: 2026-09-04 -- Phase 72 planning complete
+last_updated: "2026-09-04T07:58:23.468Z"
+last_activity: 2026-09-04
 progress:
   total_phases: 73
   completed_phases: 61
   total_plans: 268
-  completed_plans: 258
+  completed_plans: 259
   percent: 84
 ---
 
@@ -20,15 +20,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** Ashley never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 70 — branding-config
+**Current focus:** Phase 72 — identity-modal-role-identity-scope-split-with-role-level-wak
 
 ## Current Position
 
-Phase: 70 (branding-config) — EXECUTING
-Plan: 5 of 5
+Phase: 72 (identity-modal-role-identity-scope-split-with-role-level-wak) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
 
-Last activity: 2026-09-04 -- Phase 72 planning complete
+Last activity: 2026-09-04
 Last activity: 2026-09-03 — Completed quick task 260903-7e8: instrument dormant-send flow with `[diag-dormant-send]` prefix at 13 frontend + 15 backend transition sites (arm/fire/cleanup/dedup/watchdog stages) so Ashley's next natural repro of the red-bubble + duplicate-real-bubble failure mode reconstructs a full mqid-keyed timeline from a single grep across `console-forward.log` + `docker compose logs skynet`. Phase 62 (b98f81f1, widened client pending-send timer to 220s for dormant sends) is in the deployed image but the symptom persists in a new form — logs will discriminate between four hypotheses (A: timer fires early despite dormant flag, B: dedup gap on the incoming real message, C: watchdog re-dispatch → duplicate delivery, D: cleanup-on-late-arrival never wired). Single atomic diag commit `7666c569` in `adb90600` shape (no logic changes, additive `console.info` / `sshLogger.info` only, `mqid` correlation id threaded through). Three files: `src/ui/features/pretty-view/PrettyView.tsx` (arm/fire/cleanup sites + `dormantRef` read at arm), `src/backend/claude-session/pv-send-watchdog.ts` (marker-poll fresh/fallback boundaries, retry/full-resend/give-up firing), `src/backend/claude-session/claude-session-server.ts` (dormant-send-start entry, sentinel drop, dispatch). Ship: `sudo docker build -f docker/Dockerfile -t skynet-patched:local .` OK → `sudo docker compose -f /opt/skynet/docker-compose.yml up -d --force-recreate skynet` OK → HTTPS 200 confirmed on term.gigaashley.click. Container clean startup, no stack traces. Ashley (or peer instance) hits the bug in normal use, then grep `[diag-dormant-send]` in both log streams → timeline reveals which hypothesis fires. SUMMARY at `.planning/quick/260903-7e8-diag-instrument-dormant-send-flow-to-cat/260903-7e8-SUMMARY.md`. Prior activity:
 Last activity: 2026-09-03 -- Phase 70 planning complete
 Last activity: 2026-09-03
@@ -205,7 +205,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 100%
+Progress: [██████████] 98%
 Progress: [██████████] 100%
 
 ## Performance Metrics
@@ -322,6 +322,7 @@ Progress: [██████████] 100%
 | Phase 70 P02 | ~5 min | 2 tasks | 4 files |
 | Phase 70 P03 | ~10 min | 2 tasks | 4 files |
 | Phase 70-branding-config P04 | ~15 min | 2 tasks | 5 files |
+| Phase 72 P01 | 25min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -495,6 +496,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Boot fetch is void fire-and-forget in main.tsx; createRoot NOT gated; bundled-default sentinel defends first paint (Pitfall 5)
 - [Phase ?]: publishBrandingConfig uses JSON.stringify no-op guard for whole-object deep-equal without helper deps
 - [Phase ?]: Phase 70 Plan 04: fifth-surface (auth.loginTitle) addressed via Option 1 locale-neutralize (en.json 'Login to SKYNET' → 'Login') rather than dynamic template. Smaller diff, operator-neutral in both directions. Discrepancy noted: plan claimed Auth.tsx L1314 uses t('auth.loginTitle') but the only live consumer is dead LoginPage.tsx; neutralization is defense-in-depth for potential future LoginPage revival.
+- [Phase ?]: 72-01: reused writeIdentityWakeupUpdate REMOTE python3 pattern for four new create/update writers (byte-shape parity)
+- [Phase ?]: 72-01: slug derivation is server-side only from spec.name (defense against slug/name mismatch)
+- [Phase ?]: 72-01: create writers throw on clobber (rushed double-tap protection); update writers stay last-writer-wins
 
 ### Pending Todos
 
@@ -778,8 +782,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-04T06:41:30.034Z
-Stopped at: Phase 72 context gathered
+Last session: 2026-09-04T07:57:58.111Z
+Stopped at: Completed 72-01-PLAN.md — backend wakeup CRUD parity + WS handlers landed
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
 Last session: 2026-08-19T03:53:37.643Z
@@ -787,4 +791,4 @@ Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 3
 Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
-Resume file: .planning/phases/72-identity-modal-role-identity-scope-split-with-role-level-wak/72-CONTEXT.md
+Resume file: 72-02-PLAN.md
