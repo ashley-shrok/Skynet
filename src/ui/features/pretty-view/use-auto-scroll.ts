@@ -141,6 +141,13 @@ export function useAutoScroll(paneKey: string): UseAutoScrollResult {
   const isTouchDeviceRef = useRef<boolean>(isTouchDevice);
   isTouchDeviceRef.current = isTouchDevice;
 
+  // scrollElRef — always-current mirror of scrollEl state so RAF callbacks,
+  // jumpToBottom, and onSendFired can access the live element without stale
+  // closures. Refs are synchronously updated on every render, so event handlers
+  // that close over scrollElRef.current always get the latest element.
+  const scrollElRef = useRef<HTMLElement | null>(null);
+  scrollElRef.current = scrollEl;
+
   // ---- Scroll callback ref --------------------------------------------------
   const scrollRef = useCallback((el: HTMLElement | null) => {
     setScrollEl(el);
@@ -156,12 +163,16 @@ export function useAutoScroll(paneKey: string): UseAutoScrollResult {
   /** scheduleRafChase — idempotent RAF scheduler for chase-writes. Guards by
    *  rafHandleRef so at most one frame is scheduled per RAF cycle. The write
    *  inside the callback is instant (scrollTop = scrollHeight — no smooth API).
+   *  Uses scrollElRef.current (not scrollEl from closure) so the RAF callback
+   *  always writes to the latest bound element even if jumpToBottom/onSendFired
+   *  were memoized at a time when scrollEl was null.
    */
   function scheduleRafChase(): void {
     if (rafHandleRef.current !== null) return; // already scheduled for this frame
     rafHandleRef.current = requestAnimationFrame(() => {
-      if (pendingChaseRef.current && scrollEl) {
-        scrollEl.scrollTop = scrollEl.scrollHeight;
+      const el = scrollElRef.current;
+      if (pendingChaseRef.current && el) {
+        el.scrollTop = el.scrollHeight;
         pendingChaseRef.current = false;
       }
       rafHandleRef.current = null;
