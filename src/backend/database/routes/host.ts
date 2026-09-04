@@ -3,7 +3,7 @@ import express from "express";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
-import { db } from "../db/index.js";
+import { db, DatabaseSaveTrigger } from "../db/index.js";
 import {
   hosts,
   sshCredentials,
@@ -1498,6 +1498,7 @@ router.get(
       const exportData = isRemoteDesktop
         ? {
             ...baseExportData,
+            enableSsh: !!resolvedHost.enableSsh,
             enableRdp: !!resolvedHost.enableRdp,
             enableVnc: !!resolvedHost.enableVnc,
             enableTelnet: !!resolvedHost.enableTelnet,
@@ -1526,6 +1527,14 @@ router.get(
             credentialId: resolvedHost.credentialId || null,
             overrideCredentialUsername:
               !!resolvedHost.overrideCredentialUsername,
+            // The four connection-type enable flags are all included in the
+            // export so a round-trip (GET /export → modify → PUT) preserves
+            // them. The PUT handler treats a missing enable* field as false,
+            // so omitting them here would silently drop them on any PUT.
+            enableSsh: !!resolvedHost.enableSsh,
+            enableRdp: !!resolvedHost.enableRdp,
+            enableVnc: !!resolvedHost.enableVnc,
+            enableTelnet: !!resolvedHost.enableTelnet,
             enableTerminal: !!resolvedHost.enableTerminal,
             enableTunnel: !!resolvedHost.enableTunnel,
             enableFileManager: !!resolvedHost.enableFileManager,
@@ -1842,6 +1851,22 @@ router.delete(
       await db
         .delete(hosts)
         .where(and(eq(hosts.id, numericHostId), eq(hosts.userId, userId)));
+
+      // Skynet's DB is in-memory-decrypted SQLite; direct db.delete().run() writes
+      // reach RAM only. Without an explicit save call, this delete survives to
+      // disk only if SIGTERM's graceful flush wins the deploy race. Force the
+      // save here so the delete is durable before we ACK.
+      try {
+        await DatabaseSaveTrigger.forceSave("host_delete");
+      } catch (saveErr) {
+        databaseLogger.warn("Force-save after host delete failed", {
+          operation: "host_delete_save_failed",
+          userId,
+          hostId: parseInt(hostId),
+          error:
+            saveErr instanceof Error ? saveErr.message : "Unknown error",
+        });
+      }
 
       databaseLogger.success("[host-db] delete-host-ok", {
         operation: "host_delete_success",
