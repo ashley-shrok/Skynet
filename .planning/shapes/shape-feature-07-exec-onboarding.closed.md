@@ -74,3 +74,57 @@ Key references the implementer wants to keep close:
 - The proof-of-concept's tear-down learnings for what worked and what needed the settings-file polish
 
 The identity doing the work is tiffany, on this box, on the current branch. Sub-agents don't deploy — deploy motion (if any code lands and needs shipping) is orchestrator scope per standing rules. The deploy-window boundary sits at the push moment, not at the recreate moment — no push happens without a fresh "may I?" from the account owner.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-04
+**Vehicle used:** inline this session, tracked via harness tasks — as recorded at open time
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · one operator-facing runbook plus one furnishing script, exactly the two-artifact shape agreed
+- **Shape — Moment 1: Mint the seat** — present · runbook Moment 1 uses existing self-scoped endpoints, generates initial password, no new endpoints
+- **Shape — Moment 2: Enroll MFA (operator computes code locally)** — present · runbook Moment 2 does the setup + local six-digit compute + enable, same pattern as existing accounts
+- **Shape — Moment 3: Issue a per-user access key** — present · admin creates a tmx_ token scoped to the new user's ID, captured for later host registration
+- **Shape — Moment 4: Coordinate the box birth (Ivy exclusively for now)** — present · runbook Moment 4 names Ivy exclusively during current standup, dispatch-model post-standup, three-field ask + defaults + SSH probe
+- **Shape — Moment 5: Furnish the box (browser auth touchpoint stays with account owner)** — present · Ashley drives the OAuth touchpoint on the fresh VM; furnishing script then runs the mechanical pass
+- **Shape — Moment 6: Register the box under the exec's ownership using their access key** — present · POST /host/db/host with Bearer of the user's tmx_, verified by re-listing under the user
+- **Shape — Moment 7: Verify + vault-share** — present · Ashley logs in as the user, confirms box + assistant, packages creds into Zoho Vault + shares via Zoho
+- **Shape — Furnishing script installs the enumerated substrate** — present · runtime, shell surface, assistant, supervisor, identity machinery, receiver, wakeup scheduler, context-pressure watcher all installed
+- **Shape — Furnishing script seeds the executive's initial world** — present · one general-purpose role, one starter identity, .no-dormancy sentinel, user-wide CLAUDE.md preamble naming the user
+- **Shape — Furnishing script is idempotent (no state file, no resume machinery)** — present · each step checks whether already done; no resume-from-state added
+- **Shape — Starter config file heads off the first-launch trap** — present · settings.json ships with skipDangerousModePermissionPrompt: true (the POC polish item)
+- **Philosophy — isolation is already free, not being built here** — present · no new isolation code; relies on existing per-user host scoping
+- **Philosophy — runbook, not orchestrator** — present · plain-english document with one script inside; no automation swallows the six moments
+- **Philosophy — trust operator to problem-solve breakage in the moment** — present · loose triage section only; no recovery framework; script is idempotent so re-run is safe
+- **Philosophy — seat-minting discovered to need no new endpoints** — present · existing endpoints + operator-computed code pattern, per the shape
+- **Prior context — dissolution banner on feature 03** — present · fresh 2026-09-04 dissolution banner at top of feature-03 file, redirects to the onboarding runbook
+- **Prior context — dissolution banner on the second adjacent-feature file (feature 05)** — present · feature-05 dissolution banner in place from the earlier pivot; still stands
+- **What would make it wrong — iterate-in-use is the guard, not preemptive defense** — present · runbook does not front-load enumerated failure modes; only a loose triage section
+- **Scope edges — runbook document in the role folder alongside other runbooks** — present · user-onboarding.md landed in the box-maintainer runbooks folder
+- **Scope edges — runbook written in general 'user' language, not project-specific** — present · runbook explicitly names 'non-admin user' and calls out that it applies to any Skynet instance using the one-VM-per-user model
+- **Scope edges — furnishing script + bundled substrate in the box-maintainer substrate staging area** — present · furnish.sh + agent-supervisor.service in substrate/user-onboarding/; existing substrate tree bundled from ~/.claude/roles/box-maintainer/substrate/
+- **Scope edges — role file's Runbooks section gains an entry** — present · user-onboarding.md entry added at box-maintainer.md § Runbooks with triggers + summary
+- **Scope edges — dry-run end-to-end against a scratch VM (torn down after)** — drifted · account owner deferred: trust-the-runbook, iterate at first real onboarding — same iteration-is-the-guard stance as the shape's failure-mode facet
+- **Out of scope — no production onboarding of real executives** — present · no production onboarding happened; nothing in the material provisions a real exec
+- **Out of scope — no ongoing substrate update mechanism** — present · furnishing script is one-shot install; no update machinery added
+- **Out of scope — no post-vault handholding of the exec** — present · runbook explicitly ends at vault-share; 'user is now on their own'
+- **Tempting but no — no one-command orchestrator** — present · runbook remains six operator-driven moments; no single command wraps them
+- **Tempting but no — no new backend endpoint for seat-mint or MFA enrollment** — present · only existing self-scoped endpoints are called; feature-03 file confirms the dissolution
+- **Tempting but no — no resume-from-state recovery framework** — present · script is idempotent, script-header comment explicitly says do NOT build resume-from-state machinery
+- **Tempting but no — no admin UI** — present · no UI code in the material
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+- When the first real onboarding happens, run the runbook + furnishing script end-to-end and iterate on whatever surfaces — this replaces the pre-flight scratch-VM dry-run that was in scope at open time — accepted-as-drift
+
+### Notes
+
+The runbook adds a Moment 8 (Cleanup — wipe scratch cookie jars, credentials, env vars) that is not one of the shape's six moments; it reads as pure hygiene enforcing the runbook's own standing rule #5 (never leave scratch state on disk), not a new feature, so not called out as an addition. The runbook is written in general 'non-admin user' language rather than 'executive' language, which matches the shape's scope-edge note about durability across Skynet instances — worth remembering when the pattern spreads beyond the AI+ instance. Two artifacts (runbook + one script) exactly match the shape's stated shape of the deliverable.

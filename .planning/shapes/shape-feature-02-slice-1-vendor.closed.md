@@ -59,3 +59,48 @@ Later slices of feature 02 (reconcile loop backend, admin surface, per-identity 
 Working dir: `~/skynet-tiffany` (branch `feat/tab-title-from-tmux`, standard box-maintainer working tree).
 
 Related bounty: `ai-plus-mvp-project` (feature 02 lives inside it).
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-04
+**Vehicle used:** inline (harness task tracking) — single atomic commit 6e19c839 on feat/tab-title-from-tmux
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · canonical copy of the 15 items lives at /substrate; Dockerfile copies it into the built image
+- **Shape: truth moves into Skynet's code tree at a top-level folder mirroring install layout** — present · new /substrate/{skills,scripts}/ at repo root mirrors ~/.claude/skills/ and standalone-scripts install shape
+- **Shape: image build learns to copy that folder into a known place inside the built image** — present · Dockerfile line 79 adds COPY --chown=node:node substrate /app/fleet-substrate
+- **Shape: image build stays self-contained (reproducible from fresh clone, no fleet deps, no network at build)** — present · only local COPY used; no curl/git-submodule/network fetch introduced
+- **Shape: nothing runs the equipment differently yet** — present · no entrypoint/service/reconcile changes; nothing calls into /app/fleet-substrate at runtime
+- **Philosophy: single source of truth in app's own repo** — present · no artifacts repo, no submodule, no build-time fetch — Skynet repo owns it
+- **Philosophy: vendored layout mirrors install layout** — present · skills/ vs scripts/ split matches managed-host layout
+- **Philosophy: substrate as a peer of application source, not tucked in docker inputs** — present · substrate/ sits at repo root, not under docker/
+- **Philosophy: no behavior change in this slice** — present · commit touches only shape doc, one Dockerfile line, and vendored bytes
+- **Prior context: harness-auth vendored is the setup-token + settings.json body, not the /login-based pre-redesign baseline** — present · vendored SKILL.md is byte-identical to staging (redesigned body) and matches the described flow; the pre-redesign-baseline sibling was excluded
+- **Prior context: sibling files (README.md, REDESIGN-NOTES.md, SKILL.md.pre-redesign-baseline, user-onboarding/) do not vendor** — present · none of these appear in /substrate or in the commit
+- **Prior context: all 15 items land — identity system, messaging surface, seven single-file skills, six standalone scripts** — present · 9 skill folders (id + 3 companions, agent-relay + recv.sh, plus 7 single-file skills) and 6 helper scripts — 19 files total
+- **What would make it wrong: image build reaches out to the tailnet or the role folder during build** — present · guarded — Dockerfile change is a local COPY only, no network calls added
+- **What would make it wrong: vendored layout doesn't mirror install layout** — present · guarded — skills/ vs scripts/ split preserved; internal folder shape matches host layout
+- **What would make it wrong: sibling metadata files ride along by accident** — present · guarded — no README.md, REDESIGN-NOTES.md, SKILL.md.pre-redesign-baseline, or user-onboarding/ in the vendored tree
+- **What would make it wrong: image ends up NOT containing substrate at the expected location** — present · guarded — .dockerignore does not exclude substrate/; Dockerfile line copies it to /app/fleet-substrate/; commit message asserts a temp-tagged build showed 19 files at expected paths and correct ownership
+- **What would make it wrong: behavior changes leak in** — present · guarded — commit adds no runtime code, no push mechanism, no entrypoint changes; only bytes-on-disk and one COPY line
+- **Scope edges IN: 15 items in tree, image copy step, sanity check, commit on working branch** — present · all four IN items delivered in atomic commit 6e19c839 on feat/tab-title-from-tmux
+- **Scope edges OUT: reconcile loop, host-table column, admin surface, push, self-update-block retirement** — present · none of these appear in the commit — correctly deferred to later slices
+- **Scope edges OUT: per-identity CLAUDE.md manifest** — present · no manifest-templating code introduced
+- **Scope edges OUT: fleet-substrate-artifacts github repo (task #22)** — present · no separate artifacts repo — in-tree vendoring replaces it as intended
+- **Scope edges DEFERRED: staging area at ~/.claude/roles/box-maintainer/substrate/ not pruned** — present · staging area still intact with all its contents including the excluded sibling files
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+Clean slice. Every one of the 19 vendored files is byte-identical to the staging area at `~/.claude/roles/box-maintainer/substrate/` (verified via diff -q). Commit is tightly scoped: shape doc + one Dockerfile line + vendored bytes, nothing else. The 'lightweight sanity check' from the IN scope is documented in the commit message rather than committed as a script (commit asserts a temp-tagged build showed 19 files at expected paths, correct ownership, and the redesigned harness-auth body); the image itself is not retained locally, so the check exists as an assertion in commit history — consistent with the 'quiet slice' philosophy. Working tree has an unrelated stray folder named `""/` with a `.tmp` file at repo root; it is untracked and NOT part of the slice's commit — noted for hygiene only. This slice sets up later slices cleanly: canonical path `/app/fleet-substrate/` inside the image, mirrored install layout, no translation glue needed for rsync/byte-compare.
