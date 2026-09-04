@@ -82,3 +82,49 @@ Push is NOT authorized as part of slice 2's execution. Executor motion stops at 
 Slice 2 execution must not touch anything under the bundled substrate location — the substrate is for pushing to hosts, not for Skynet to execute against itself. Any runtime code inside Skynet that reaches into the bundled path is a red flag against the philosophy.
 
 The existing per-host polling machinery is `src/backend/fleet-status/ssh-poll-orchestrator.ts` (2183 lines, load-bearing). The hook site is inside `tryAcquireHostChannel` (or wherever channel acquisition is confirmed successful, once discovery in planning nails the exact insertion point). Whoever plans this phase must read that file end-to-end and hold its per-host state model, in-flight guard, refresh-tick logic, and evict-branch behavior in their head before writing the hook — the entire slice's philosophical guardrail is "don't degrade this system."
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-04
+**Vehicle used:** GSD phase (72-feature-02-slice-2-reconcile-loop, 5 plans across 4 waves)
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is — quiet plumbing slice that starts bundled bytes reaching opt-in hosts** — present · Distributor module + schema column + hook into existing per-host channel machinery; no user-visible surface added
+- **Shape — per-host sweep** — present · runSweepForHost iterates catalog sequentially, byte-compares, pushes on mismatch, fires restart hook when catalog names one
+- **Shape — trigger fires at most once per host per Skynet instance** — present · sweepedThisInstance in-memory Set inside tryAcquireHostChannel success branch; wiped by container restart with the closure
+- **Shape — per-host opt-in flag with migration** — present · runs_fleet_substrate boolean column, default 0, added via addColumnIfNotExists; drizzle mirror + projection helper wired end-to-end from DB to hook site
+- **Shape — grep-friendly trail: summary + per-item detail** — present · fleet_substrate_sweep_result always emitted; fleet_substrate_item_changed / _failed only on non-current outcomes; plus _sweep_hook_error for defense-in-depth; each carries hostId+hostName+entrySlug
+- **Shape — mode mirrored from bundled file's git-committed mode** — present · bundledReaderFromDisk reads fs.stat.mode; computeInstallMode masks to 0o777; chmod fired in the same atomic exec as the write
+- **Shape — single ubuntu Linux user (no per-user iteration)** — present · installPath values use bare '~/' expansions; no user-enumeration loop anywhere
+- **Philosophy — quiet slice, no user-facing surface** — present · Zero OrchestratorDeps additions, zero routes, zero frontend refs; opt-in flag read via internal type-narrow cast at the hook site
+- **Philosophy — piggyback, don't build parallel infrastructure** — present · Same channel the poll holds; no new SSH pool, no new timer, no scheduling primitive
+- **Philosophy — zero coupling: sweep errors contained, poll unaffected** — present · Fire-and-forget via queueMicrotask; runSweepForHost never rejects (outer + inner try/catch); orchestrator-side .catch as defense-in-depth
+- **Philosophy — trail lives in existing console-forward log surface** — present · All four helpers call systemLogger.info/warn with fleet_substrate_* operation tags; no new persistence
+- **Philosophy — catalog is small, hand-maintained, reviewable** — present · Static const with 19 rows covering the 15 items; per-file rows explained in docblock so byte-compare is per-file
+- **What would make it wrong: sweep is not actually quiet** — present · No OrchestratorDeps additions, no route/UI, no frontend refs, no new persisted state beyond the opt-in column
+- **What would make it wrong: sweep degrades the 2s poll** — present · queueMicrotask + never-await + never-throw composer + outer .catch through logSweepHookError; all existing poll paths byte-identical
+- **What would make it wrong: sweep runs when the flag is off** — present · Hook guarded by extHost.runsFleetSubstrate === true; projectRunsFleetSubstrate is strict fail-closed on false/0/null/undefined/other
+- **What would make it wrong: container restart re-pushes matching bytes** — present · decideItemAction returns skip('bytes-match') on Buffer.equals; only mismatch or ENOENT triggers push
+- **What would make it wrong: modes don't come across** — present · Bundled file mode read at push time, masked to 0o777, chmod fired in same atomic exec as the base64 write
+- **What would make it wrong: trail is unreadable** — present · Grep-anchor operation strings + hostName + entrySlug + installPath in every payload; summary tag always emitted
+- **What would make it wrong: downstream reader designed in** — present · No new schema/table/endpoint beyond the single opt-in boolean column
+- **What would make it wrong: runtime code executes bundled substrate against itself** — present · Only reader of the bundled path is bundledReaderFromDisk which reads bytes to push over the channel; nothing invokes the bundled scripts locally
+- **Scope edges IN — all listed items present** — present · Sweep runner, opt-in flag + migration, 15-item catalog, byte-compare + mode-mirror push, restart hook for the one item, natural-moment trigger, summary + per-item log lines, error containment, tests covering happy/mismatch/ssh-failed/write-failed/restart-failed
+- **Scope edges OUT — nothing excluded crept in** — present · No admin UI, no per-identity manifest file, no self-update-block deletion, no interval timer/cron, no admin-triggered endpoint, no ControlMaster config, no per-user iteration, no drift-from-below healing
+- **Scope edges — no ship of slice 2** — present · Commits on branch feat/tab-title-from-tmux; last commit is docs marking plans complete; no push, no deploy
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+The catalog models per-file rows (19) rather than per-item (15) — this is an internal modeling choice that supports byte-compare cleanly and is explicitly reconciled in the catalog docblock; it is faithful to the shape's per-file byte-compare rather than a divergence. The sweep is intentionally inert until an operator flips a host's runs_fleet_substrate flag to 1; the plan-05 wire-through removed the earlier stub TODO. Overall the slice reads as a textbook expression of the shape: transport primitives cleanly separated from pure decision logic from composer from hook site, with the load-bearing polling machinery touched additively-only (111 additions, 0 deletions per the summary).
