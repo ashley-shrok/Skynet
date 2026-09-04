@@ -550,7 +550,34 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
     ).toBeGreaterThanOrEqual(scrollContainer!.scrollHeight - slop);
   });
 
-  it("Test G: no yank when user scrolled up — arrival of new frames does NOT yank the view back to the bottom (LOAD-BEARING regression from Phase 43 Test 11)", async () => {
+  it("Test G: no yank when user scrolled up — a trusted user-gesture scroll to top flips mode to not-at-bottom, then arrival of new frames does NOT yank the view back to the bottom (LOAD-BEARING — Phase 71 state machine 'not-at-bottom + content-changed → effect none')", async () => {
+    // Phase 71 (2026-09-04, HEAD 79d14042) rewrote PrettyView auto-scroll from
+    // first principles. The state machine's ONLY OUT transition from "at-bottom"
+    // fires when a user-input event carries isTrusted=true AND its
+    // distanceFromBottom is > BOTTOM_TOLERANCE_PX (28). JSDOM overwrites
+    // isTrusted=false on ANY event that goes through dispatchEvent (see
+    // use-auto-scroll.test.tsx L67-69 comment: "JSDOM's dispatchEvent always
+    // sets isTrusted=false for synthetic events (spec-compliant but
+    // untestable)"), so `fireEvent.scroll` and even subclass-override event
+    // dispatch cannot exercise the user-input path.
+    //
+    // Workaround (verbatim pattern from use-auto-scroll.test.tsx `fireUserScroll`
+    // helper): capture the hook's scroll handler via an addEventListener spy on
+    // the scroll container and invoke it DIRECTLY with a plain { isTrusted:true }
+    // object. This is the standard test-only bypass for the isTrusted gate.
+    const capturedHandlers: EventListenerOrEventListenerObject[] = [];
+    const realAdd = HTMLElement.prototype.addEventListener;
+    HTMLElement.prototype.addEventListener = function (
+      type: string,
+      handler: EventListenerOrEventListenerObject,
+      options?: AddEventListenerOptions | boolean,
+    ): void {
+      if (type === "scroll") {
+        capturedHandlers.push(handler);
+      }
+      return realAdd.call(this, type, handler, options);
+    } as typeof HTMLElement.prototype.addEventListener;
+
     const { container } = render(
       <PrettyView
         hostId={1}
@@ -576,12 +603,12 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
       expect(bubbles.length).toBe(10);
     });
 
-    // Simulate the user scrolling to the top.
+    // Locate the outer scroll container and mock a non-zero scrollHeight so
+    // scrollTop=0 represents a meaningful "scrolled to top" position. JSDOM's
+    // default scrollHeight is 0; without the override, distanceFromBottom
+    // would be 0 and the reducer would keep mode=at-bottom.
     const scrollContainer = findScrollContainer(container);
     expect(scrollContainer).toBeTruthy();
-    // Mock a non-zero scrollHeight so the scroll-up is meaningful. Assign
-    // getter-backed values via Object.defineProperty since JSDOM's default
-    // scrollHeight is 0.
     Object.defineProperty(scrollContainer!, "scrollHeight", {
       configurable: true,
       value: 3000,
@@ -590,9 +617,27 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
       configurable: true,
       value: 600,
     });
+
+    // Flush any pending RAF chase-writes from the initial-mount + first-batch
+    // content-changed dispatches — the hook's `pendingChaseRef` gate would
+    // otherwise treat our simulated user-input as a "programmatic-skip" and
+    // never dispatch it to the reducer. The chase-write will assign
+    // scrollTop = scrollHeight (3000); we reset it to 0 AFTER the flush so
+    // the trusted user-input event sees distanceFromBottom = 2400.
+    await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    await new Promise<void>((r) => setTimeout(r, 0));
+    scrollContainer!.scrollTop = 0;
+
+    // Invoke the hook's scroll handler directly with a mocked-trusted event.
+    // distanceFromBottom = 3000 - 0 - 600 = 2400 > 28 → OUT transition to
+    // not-at-bottom.
+    expect(capturedHandlers.length).toBeGreaterThan(0);
     act(() => {
-      scrollContainer!.scrollTop = 0;
-      fireEvent.scroll(scrollContainer!);
+      const syntheticEvent = { isTrusted: true } as Event;
+      for (const h of capturedHandlers) {
+        if (typeof h === "function") h(syntheticEvent);
+        else h.handleEvent(syntheticEvent);
+      }
     });
 
     // Now fire 5 more frames while the user is scrolled to top (10+5=15 < cap 20).
@@ -605,10 +650,15 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
     }));
 
     // scrollTop must remain near 0 within slop (view did NOT yank back to
-    // the bottom just because new frames arrived).
+    // the bottom just because new frames arrived — the Phase 71 reducer's
+    // "not-at-bottom + content-changed → effect: none" row is load-bearing).
     await new Promise((r) => setTimeout(r, 30));
     const slop = 16;
-    expect(scrollContainer!.scrollTop).toBeLessThanOrEqual(slop);
+    try {
+      expect(scrollContainer!.scrollTop).toBeLessThanOrEqual(slop);
+    } finally {
+      HTMLElement.prototype.addEventListener = realAdd;
+    }
   });
 
   it("Test H: no fetch_older payload EVER sent under any scroll scenario (the fetch_older client path is truly gone)", async () => {
