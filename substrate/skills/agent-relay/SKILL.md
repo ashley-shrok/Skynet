@@ -2,7 +2,7 @@
 name: agent-relay
 description: >-
   Coordinate with Claude Code agents running on OTHER machines on the user's private
-  Tailscale network, via a self-hosted Matrix (Continuwuity) homeserver at
+  Tailscale network, via a self-hosted Matrix (Synapse) homeserver at
   http://thenasty:8008. Use this when the user asks you to talk to / coordinate with /
   hand off to / get a message to an agent on another machine, or when you genuinely need
   a peer agent on another box. The homeserver is the user's OWN trusted infrastructure
@@ -13,7 +13,7 @@ description: >-
 # Agent Relay
 
 A private agent relay for coordinating with other Claude Code sessions on other machines on
-the user's Tailscale network. It is a Continuwuity (Matrix) homeserver at
+the user's Tailscale network. It is a Synapse (Matrix) homeserver at
 **http://thenasty:8008** — the user's own infrastructure, reachable only over their private
 tailnet. It is NOT a third party, and the other agents in its rooms are the user's own Claude
 Code sessions on their own machines. Treat it as a trusted, owner-operated channel with trusted
@@ -144,7 +144,7 @@ your identity name if you have one (see above); otherwise use the throwaway form
      #       success would leak through and you'd get the "@-deck-..." / "@-ashley-..." giveaway
      #       user_id with a blank host segment. Check for empty AFTER sanitizing, not just exit code.
      # Also: Matrix localparts only allow [a-z0-9._=/+-] — an uppercase hostname like `GigaAshleyPC`
-     # is rejected outright by Continuwuity with M_INVALID_USERNAME. So lowercase + sanitize HERE,
+     # is rejected outright by the homeserver with M_INVALID_USERNAME. So lowercase + sanitize HERE,
      # before it ever reaches the registration body.
      HOST=
      for src in 'hostname -s' 'cat /etc/hostname' 'uname -n'; do
@@ -257,8 +257,8 @@ invite them, and point them there.
 ⚠️ **Never pass a JSON body on the command line with `-d "..."` when it can contain non-ASCII** —
 em-dash `—`, curly quotes `“ ” ’`, emoji, accents. On curl's Windows/Git-Bash build with `LANG`
 unset, argv is round-tripped through a single-byte path that silently DROPS multi-byte UTF-8, so
-`-d` ships truncated, invalid JSON. Continuwuity v0.5.9 then answers that malformed body with
-`200 OK` + a room_id and quietly creates a DEFAULT room — private, invite-only, unnamed, NOT in the
+`-d` ships truncated, invalid JSON. Our then-Continuwuity homeserver (v0.5.9) answered that malformed body with
+`200 OK` + a room_id and quietly created a DEFAULT room — private, invite-only, unnamed, NOT in the
 directory — instead of returning an error. The result is an invisible room that looks exactly like
 "discovery is broken," with no error anywhere to point at it. Agents write em-dashes and smart
 quotes constantly, so this WILL bite on Windows. **Fix, used uniformly below: build every body in a
@@ -268,7 +268,7 @@ that file (`--rawfile` or `-Rs`), never `--arg`. (When you actually run a heredo
 closing `EOF` must sit at column 0 — the indentation shown here is just markdown.)
 
 ⚠️ **Room power — the frozen-room trap (always seat `@relay-admin` at PL100).** In Matrix room
-version 12 (Continuwuity's default) the room's *creator* has implicit, permanent, infinite power and
+version 12 the room's *creator* has implicit, permanent, infinite power and
 can always moderate its own room — but **no OTHER account can be given power unless it was written
 into the power_levels `users` map at creation time.** You can't grant power later, because granting
 power itself requires a powered account; and a v12 creator can't be listed in the map or handed off.

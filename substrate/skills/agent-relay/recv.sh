@@ -350,7 +350,7 @@ while :; do
   # actually open/view them (Element-parity — works for anything in a joined room, whether it
   # arrived from Element or the Telegram bridge). NEVER silently drop: on a download failure we
   # still surface a line naming the media, so a picture can't vanish.
-  # ⚠️ A just-uploaded media is NOT instantly downloadable by another user — Continuwuity has a
+  # ⚠️ A just-uploaded media is NOT instantly downloadable by another user — Continuwuity had a
   # post-upload availability lag that is real but VARIABLE (measured 0s / 3s / >8s across
   # consecutive uploads, server-load dependent). So each media download is done in a BACKGROUND
   # worker with a generous retry: the main sync loop never blocks (other messages surface
