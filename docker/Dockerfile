@@ -67,9 +67,9 @@ ENV DATA_DIR=/app/data \
 RUN apt-get update && apt-get install -y nginx gettext-base openssl ca-certificates gosu wget && \
     update-ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
-    mkdir -p /app/data /app/uploads /app/data/.opk /app/nginx /tmp/nginx && \
-    chown -R node:node /app /tmp/nginx && \
-    chmod 755 /app/data /app/uploads /app/data/.opk /app/nginx /tmp/nginx
+    mkdir -p /app/data /app/uploads /app/data/.opk /app/nginx /tmp/nginx /var/log/skynet/console-forward && \
+    chown -R node:node /app /tmp/nginx /var/log/skynet && \
+    chmod 755 /app/data /app/uploads /app/data/.opk /app/nginx /tmp/nginx /var/log/skynet /var/log/skynet/console-forward
 
 COPY docker/nginx.conf /app/nginx/nginx.conf.template
 COPY docker/nginx-https.conf /app/nginx/nginx-https.conf.template
