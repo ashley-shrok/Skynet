@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-09-04T22:25:47.294Z"
-last_activity: 2026-09-04
+last_updated: "2026-09-05T10:43:31.334Z"
+last_activity: "2026-09-05 — Completed quick task 260905-d79: optimistic session-recycling overlay with 10-min upper bound."
 progress:
-  total_phases: 75
-  completed_phases: 64
-  total_plans: 277
-  completed_plans: 271
-  percent: 85
+  total_phases: 76
+  completed_phases: 62
+  total_plans: 269
+  completed_plans: 269
+  percent: 82
 ---
 
 # Project State
@@ -815,8 +815,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-04T22:24:13.741Z
-Stopped at: Completed 74-03-PLAN.md
+Last session: 2026-09-05T10:43:29.567Z
+Stopped at: Phase 75 context gathered
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
 Last session: 2026-08-19T03:53:37.643Z
@@ -824,4 +824,4 @@ Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 3
 Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
-Resume file: None
+Resume file: .planning/phases/75-server-side-substrate-bootstrap-startup-driven-install-pass-/75-CONTEXT.md
