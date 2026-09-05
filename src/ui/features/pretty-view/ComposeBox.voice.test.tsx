@@ -270,8 +270,10 @@ describe("ComposeBox — Phase 16 voice flow", () => {
 
     // Wait for the fetch to complete and the textarea to update.
     const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+    // Trailing space appended per fix 49b5712d — enables seamless
+    // multi-chunk dictation (subsequent chunks concatenate cleanly).
     await waitFor(() => {
-      expect(textarea.value).toBe("hello world");
+      expect(textarea.value).toBe("hello world ");
     });
 
     // Fetch was called to /voice/transcribe.
