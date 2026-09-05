@@ -18,6 +18,14 @@
  *      true`. Merges the flag in without clobbering any other keys (OAuth
  *      token, permissions, env, etc.). Creates the file if absent. Idempotent.
  *
+ *   3. gsd-context-monitor cleanup (fleet-wide retirement):
+ *      Strip any `.hooks.PostToolUse[]` entry whose command references
+ *      `gsd-context-monitor.js` from ~/.claude/settings.json AND remove the
+ *      hook file at ~/.claude/hooks/gsd-context-monitor.js if present. The
+ *      hook is redundant with the ambient context-watch.py Monitor and gave
+ *      false pressure warnings (the harness context meter overstates actual
+ *      usage). Idempotent — no-op after first sweep on each host.
+ *
  * NEVER-THROW CONTRACT:
  *   runBootstrapForHost NEVER rejects. All risky calls are wrapped in
  *   try/catch; failures are logged and the function resolves. The caller
@@ -44,6 +52,8 @@ export interface BootstrapResult {
   daemonReloadRan: boolean;
   /** Whether the settings.json patch was applied or already present. */
   settingsPatchOk: boolean;
+  /** Whether the gsd-context-monitor cleanup ran (settings strip + hook rm). */
+  gsdContextMonitorCleanupOk: boolean;
   /** True if any sub-step encountered an error. */
   hadError: boolean;
 }
@@ -105,6 +115,7 @@ export async function runBootstrapForHost(
   let bootstrapRan = false;
   let daemonReloadRan = false;
   let settingsPatchOk = false;
+  let gsdContextMonitorCleanupOk = false;
   let hadError = false;
 
   // -------------------------------------------------------------------------
@@ -258,11 +269,57 @@ export async function runBootstrapForHost(
     );
   }
 
+  // -------------------------------------------------------------------------
+  // Step 3: gsd-context-monitor cleanup — fleet-wide retirement.
+  //         (a) Strip any settings.json .hooks.PostToolUse[] entry whose
+  //             command references gsd-context-monitor.js.
+  //         (b) rm -f the hook file at ~/.claude/hooks/gsd-context-monitor.js.
+  //         Idempotent: no-op after first sweep on each host.
+  // -------------------------------------------------------------------------
+  try {
+    // The jq strip is guarded by an `any(...)` check so we only rewrite the
+    // file when a matching entry is actually present — keeps the sweep cheap
+    // on already-clean hosts. rm -f is unconditionally idempotent (no error
+    // if the file is absent) so no guard needed there.
+    const cleanupCmd = [
+      `S_FILE="$HOME/.claude/settings.json"`,
+      `if [ -f "$S_FILE" ] && jq -e '.hooks.PostToolUse // [] | any(.hooks[]?.command // ""; test("gsd-context-monitor"))' "$S_FILE" > /dev/null 2>&1; then`,
+      `  jq '.hooks.PostToolUse |= map(select(any(.hooks[]?.command // ""; test("gsd-context-monitor")) | not))' "$S_FILE" > "$S_FILE.new" && mv "$S_FILE.new" "$S_FILE"`,
+      `fi`,
+      `rm -f "$HOME/.claude/hooks/gsd-context-monitor.js"`,
+      `echo "__CLEANUP_OK__"`,
+    ].join("\n");
+
+    const cleanupRaw = await channel.exec(cleanupCmd);
+
+    if (cleanupRaw === null) {
+      hadError = true;
+      logBootstrapFailed(host, "gsd-context-monitor-cleanup", "channel returned null");
+    } else if (!cleanupRaw.trimEnd().endsWith("__CLEANUP_OK__")) {
+      hadError = true;
+      logBootstrapFailed(
+        host,
+        "gsd-context-monitor-cleanup",
+        cleanupRaw.trimEnd().slice(0, 500) || "cleanup failed",
+      );
+    } else {
+      gsdContextMonitorCleanupOk = true;
+    }
+  } catch (err) {
+    hadError = true;
+    logBootstrapFailed(
+      host,
+      "gsd-context-monitor-cleanup",
+      err instanceof Error ? err.message : "unknown throw",
+    );
+  }
+
   const result: BootstrapResult = {
     alreadyEnabled,
     bootstrapRan,
     daemonReloadRan,
     settingsPatchOk,
+    gsdContextMonitorCleanupOk,
     hadError,
   };
 

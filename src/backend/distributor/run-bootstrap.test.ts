@@ -78,6 +78,7 @@ describe("runBootstrapForHost", () => {
       "is-enabled": "enabled\nEXIT:0",
       "daemon-reload": "__RELOAD_OK__",
       "SETTINGS": "__SETTINGS_OK__",
+      "gsd-context-monitor": "__CLEANUP_OK__",
     });
 
     const result = await runBootstrapForHost(channel, HOST);
@@ -103,6 +104,7 @@ describe("runBootstrapForHost", () => {
       "is-enabled": "disabled\nEXIT:1",
       "enable-linger": "__BOOTSTRAP_OK__",
       "SETTINGS": "__SETTINGS_OK__",
+      "gsd-context-monitor": "__CLEANUP_OK__",
     });
 
     const result = await runBootstrapForHost(channel, HOST);
@@ -135,6 +137,7 @@ describe("runBootstrapForHost", () => {
       "is-enabled": "enabled\nEXIT:0",
       "daemon-reload": "__RELOAD_OK__",
       "SETTINGS": "__SETTINGS_OK__",
+      "gsd-context-monitor": "__CLEANUP_OK__",
     });
 
     const result = await runBootstrapForHost(channel, HOST);
@@ -150,6 +153,7 @@ describe("runBootstrapForHost", () => {
       "is-enabled": "enabled\nEXIT:0",
       "daemon-reload": "__RELOAD_OK__",
       "SETTINGS": "__SETTINGS_OK__",
+      "gsd-context-monitor": "__CLEANUP_OK__",
     });
 
     const result = await runBootstrapForHost(channel, HOST);
@@ -164,6 +168,7 @@ describe("runBootstrapForHost", () => {
       "is-enabled": "enabled\nEXIT:0",
       "daemon-reload": "__RELOAD_OK__",
       "SETTINGS": "__SETTINGS_OK__",
+      "gsd-context-monitor": "__CLEANUP_OK__",
     });
 
     const result = await runBootstrapForHost(channel, HOST);
@@ -177,6 +182,7 @@ describe("runBootstrapForHost", () => {
       "is-enabled": null,
       "daemon-reload": "__RELOAD_OK__",
       "SETTINGS": "__SETTINGS_OK__",
+      "gsd-context-monitor": "__CLEANUP_OK__",
     });
 
     const result = await runBootstrapForHost(channel, HOST);
@@ -192,6 +198,7 @@ describe("runBootstrapForHost", () => {
       "is-enabled": "enabled\nEXIT:0",
       "daemon-reload": "__RELOAD_OK__",
       "SETTINGS": null,
+      "gsd-context-monitor": "__CLEANUP_OK__",
     });
 
     const result = await runBootstrapForHost(channel, HOST);
@@ -206,6 +213,7 @@ describe("runBootstrapForHost", () => {
       "is-enabled": "enabled\nEXIT:0",
       "daemon-reload": "Failed to reload daemon\n",  // no __RELOAD_OK__ sentinel
       "SETTINGS": "__SETTINGS_OK__",
+      "gsd-context-monitor": "__CLEANUP_OK__",
     });
 
     const result = await runBootstrapForHost(channel, HOST);
@@ -223,6 +231,7 @@ describe("runBootstrapForHost", () => {
       "enable-linger": "Failed to enable linger\n",  // no __BOOTSTRAP_OK__
       "daemon-reload": "__RELOAD_OK__",
       "SETTINGS": "__SETTINGS_OK__",
+      "gsd-context-monitor": "__CLEANUP_OK__",
     });
 
     const result = await runBootstrapForHost(channel, HOST);
@@ -232,6 +241,44 @@ describe("runBootstrapForHost", () => {
     expect(result.hadError).toBe(true);
     // Since bootstrap sequence failed, we fall through to the separate
     // daemon-reload (daemonReloadRan may be true from that path)
+  });
+
+  it("(k) gsd-context-monitor cleanup: sentinel returns ok, cleanupOk=true, cleanup command references both settings strip and hook rm", async () => {
+    const { channel, exec } = makeChannel({
+      "is-enabled": "enabled\nEXIT:0",
+      "daemon-reload": "__RELOAD_OK__",
+      "SETTINGS": "__SETTINGS_OK__",
+      "gsd-context-monitor": "__CLEANUP_OK__",
+    });
+
+    const result = await runBootstrapForHost(channel, HOST);
+
+    expect(result.gsdContextMonitorCleanupOk).toBe(true);
+    expect(result.hadError).toBe(false);
+
+    const cmds = captureCommands(exec);
+    const cleanupCmd = cmds.find((c) => c.includes("gsd-context-monitor"));
+    expect(cleanupCmd).toBeDefined();
+    // Cleanup command must reference both the settings.json strip and the hook file rm
+    expect(cleanupCmd).toContain(".hooks.PostToolUse");
+    expect(cleanupCmd).toContain("rm -f");
+    expect(cleanupCmd).toContain("hooks/gsd-context-monitor.js");
+  });
+
+  it("(l) gsd-context-monitor cleanup: channel returns null — hadError=true, cleanupOk=false, still resolves", async () => {
+    const { channel } = makeChannel({
+      "is-enabled": "enabled\nEXIT:0",
+      "daemon-reload": "__RELOAD_OK__",
+      "SETTINGS": "__SETTINGS_OK__",
+      "gsd-context-monitor": null,
+    });
+
+    const result = await runBootstrapForHost(channel, HOST);
+
+    expect(result.gsdContextMonitorCleanupOk).toBe(false);
+    expect(result.hadError).toBe(true);
+    // Settings patch must still have succeeded — cleanup failure is independent
+    expect(result.settingsPatchOk).toBe(true);
   });
 
   it("(j) never-throw: channel.exec throws synchronously — resolves with hadError=true", async () => {
