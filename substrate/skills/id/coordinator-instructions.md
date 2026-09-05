@@ -412,7 +412,7 @@ bring the fresh actor's session up in the background while you continue.
 Then start three ambient Monitors: the relay receiver and context-watch as any identity
 does, plus a wake-up scheduler pointed at the **role folder** (not your identity folder):
 
-    python3 ~/.claude/identities/<your-name>/wakeups/wakeup-scheduler.py ~/.claude/roles/<role>
+    python3 ~/.local/bin/wakeup-scheduler ~/.claude/roles/<role>
 
 Ambient description: `[ambient] <your-name> role-level wake-up scheduler` — the
 `[ambient]` prefix stays load-bearing for the isWorking filter. The scheduler is

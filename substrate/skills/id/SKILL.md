@@ -585,12 +585,14 @@ using the same primitive (a persistent `Monitor`).
 
 It's a shipped, dependency-free helper (like the receiver's `recv.sh`) — **launch this
 shipped script, do NOT hand-roll your own.** The Skynet distributor keeps
-`~/.claude/identities/<name>/wakeups/wakeup-scheduler.py` current on every container
-restart; launch it as a persistent Monitor pointed at your identity dir:
+`~/.local/bin/wakeup-scheduler` current on every container restart; launch it as a
+persistent Monitor pointed at your identity dir (the identity dir is the argument
+where the scheduler reads specs from `wakeups/*.json` and persists state under
+`wakeups/.state/`):
 
     # via the harness Monitor tool (persistent:true):
     #   description:  [ambient] <name> wake-up scheduler
-    #   command:      python3 ~/.claude/identities/<name>/wakeups/wakeup-scheduler.py ~/.claude/identities/<name>
+    #   command:      python3 ~/.local/bin/wakeup-scheduler ~/.claude/identities/<name>
 
 Each due wake-up prints one line — `⏰ [scheduled: <name>] <instruction>` — which
 arrives as an async wake. When you get one, **do the instruction**, then carry on;
@@ -615,13 +617,13 @@ which is perfectly faithful — at a controlled moment before the window fills.)
 
 Start it once per session, right after the scheduler, same primitive (a persistent
 `Monitor`). It's a shipped, dependency-free helper — **launch this shipped script, do NOT
-hand-roll your own.** The Skynet distributor keeps
-`~/.claude/identities/<name>/ctxwatch/context-watch.py` current on every container restart;
-launch it pointed at your identity dir:
+hand-roll your own.** The Skynet distributor keeps `~/.local/bin/context-watch` current
+on every container restart; launch it pointed at your identity dir (the identity dir is
+the argument where context-watch persists state under `ctxwatch/.state/`):
 
     # via the harness Monitor tool (persistent:true):
     #   description:  [ambient] <name> context watch
-    #   command:      python3 ~/.claude/identities/<name>/ctxwatch/context-watch.py ~/.claude/identities/<name>
+    #   command:      python3 ~/.local/bin/context-watch ~/.claude/identities/<name>
 
 It scrapes your own tmux pane's live context % and stays silent until a threshold. At
 **~80%** it prints ONE nudge:
@@ -964,8 +966,8 @@ Two peer folders at the top of `~/.claude/`, each with lowercased names (see §1
 - `<name>.md` — slim identity pointer file (`role:` frontmatter + optional per-identity
   tweaks)
 - `handoff.md` — session carry (overwritten each save)
-- `wakeups/` — per-identity scheduled wake-up specs
-- `ctxwatch/` — context-watch helper installed on wake
+- `wakeups/` — per-identity scheduled wake-up specs + scheduler state (`.state/`)
+- `ctxwatch/` — context-watch runtime state (`.state/`)
 - `relay.json` — durable per-identity Matrix account credentials
 - `relay-state/` — per-identity relay cursor + token
 - `.no-dormancy` — optional sentinel; present = always-on / exempt from
