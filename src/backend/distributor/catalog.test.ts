@@ -32,39 +32,50 @@ function bundledPathToRepoPath(bundledPath: string): string {
 }
 
 describe("FLEET_SUBSTRATE_CATALOG", () => {
-  it("Test 1: contains exactly 19 entries (15 conceptual items across 19 files)", () => {
+  it("Test 1: contains exactly 20 entries (15 conceptual items + agent-supervisor.service unit)", () => {
     // 15 = 7 single-file skills + agent-relay (SKILL.md + recv.sh counted as
     // one item) + id (SKILL.md + 3 companions counted as one item) + 6 helper
     // scripts. Per-FILE row layout is required by the byte-compare mechanism
-    // in Plan 03, so the array has 13 skill-side rows + 6 scripts-side rows.
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(19);
+    // in Plan 03, so the array has 13 skill-side rows + 6 scripts-side rows +
+    // 1 user-onboarding row (agent-supervisor.service).
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(20);
   });
 
-  it("Test 2: every bundledPath starts with /app/fleet-substrate/skills/ or /app/fleet-substrate/scripts/", () => {
+  it("Test 2: every bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
     for (const entry of FLEET_SUBSTRATE_CATALOG) {
       const ok =
         entry.bundledPath.startsWith("/app/fleet-substrate/skills/") ||
-        entry.bundledPath.startsWith("/app/fleet-substrate/scripts/");
+        entry.bundledPath.startsWith("/app/fleet-substrate/scripts/") ||
+        entry.bundledPath.startsWith("/app/fleet-substrate/user-onboarding/");
       expect(ok, `bad bundledPath: ${entry.bundledPath}`).toBe(true);
     }
   });
 
-  it("Test 3: every installPath starts with ~/.claude/skills/ or ~/.local/bin/", () => {
+  it("Test 3: every installPath starts with ~/.claude/skills/, ~/.local/bin/, or ~/.config/systemd/user/", () => {
     for (const entry of FLEET_SUBSTRATE_CATALOG) {
       const ok =
         entry.installPath.startsWith("~/.claude/skills/") ||
-        entry.installPath.startsWith("~/.local/bin/");
+        entry.installPath.startsWith("~/.local/bin/") ||
+        entry.installPath.startsWith("~/.config/systemd/user/");
       expect(ok, `bad installPath: ${entry.installPath}`).toBe(true);
     }
   });
 
-  it("Test 4: exactly one entry has a non-null restartHook, and it is the agent-supervisor entry", () => {
+  it("Test 4: exactly two entries have non-null restartHooks — agent-supervisor binary + .service unit", () => {
     const withRestart = FLEET_SUBSTRATE_CATALOG.filter(
       (e: CatalogEntry) => e.restartHook !== null,
     );
-    expect(withRestart.length).toBe(1);
-    expect(withRestart[0].restartHook).toBe("agent-supervisor.service");
-    expect(withRestart[0].installPath).toBe("~/.local/bin/agent-supervisor");
+    expect(withRestart.length).toBe(2);
+    // Both fire the same unit name (agent-supervisor.service).
+    for (const entry of withRestart) {
+      expect(entry.restartHook).toBe("agent-supervisor.service");
+    }
+    // One is the binary, one is the unit file.
+    const slugs = withRestart.map((e) => e.slug).sort();
+    expect(slugs).toEqual([
+      "agent-supervisor",
+      "agent-supervisor-service-unit",
+    ]);
   });
 
   it("Test 5: every slug is unique", () => {
@@ -73,17 +84,22 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     expect(uniq.size).toBe(slugs.length);
   });
 
-  it("Test 6: skill-side + scripts-side partitioning matches the shape doc enumeration", () => {
+  it("Test 6: skill-side + scripts-side + user-onboarding partitioning matches the shape doc enumeration", () => {
     const skillRows = FLEET_SUBSTRATE_CATALOG.filter((e) =>
       e.bundledPath.startsWith("/app/fleet-substrate/skills/"),
     );
     const scriptRows = FLEET_SUBSTRATE_CATALOG.filter((e) =>
       e.bundledPath.startsWith("/app/fleet-substrate/scripts/"),
     );
+    const userOnboardingRows = FLEET_SUBSTRATE_CATALOG.filter((e) =>
+      e.bundledPath.startsWith("/app/fleet-substrate/user-onboarding/"),
+    );
 
     // 13 skill-side files: 4 under id/ + 2 under agent-relay/ + 7 single-file skills
     expect(skillRows.length).toBe(13);
     expect(scriptRows.length).toBe(6);
+    // 1 user-onboarding file: agent-supervisor.service
+    expect(userOnboardingRows.length).toBe(1);
 
     // id has 4 entries (SKILL.md + 3 companions)
     const idRows = skillRows.filter((e) =>
@@ -121,6 +137,28 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
     for (const row of scriptRows) {
       expect(row.installPath.startsWith("~/.local/bin/")).toBe(true);
     }
+
+    // The 1 user-onboarding file lands under ~/.config/systemd/user/
+    for (const row of userOnboardingRows) {
+      expect(row.installPath.startsWith("~/.config/systemd/user/")).toBe(true);
+    }
+  });
+
+  it("Test 8: agent-supervisor-service-unit entry has correct bundledPath and installPath", () => {
+    const entry = FLEET_SUBSTRATE_CATALOG.find(
+      (e) => e.slug === "agent-supervisor-service-unit",
+    );
+    expect(
+      entry,
+      "agent-supervisor-service-unit entry not found in catalog",
+    ).toBeDefined();
+    expect(entry!.bundledPath).toBe(
+      "/app/fleet-substrate/user-onboarding/agent-supervisor.service",
+    );
+    expect(entry!.installPath).toBe(
+      "~/.config/systemd/user/agent-supervisor.service",
+    );
+    expect(entry!.restartHook).toBe("agent-supervisor.service");
   });
 
   // Test 7 is a sanity check against the developer's on-disk substrate/ tree.

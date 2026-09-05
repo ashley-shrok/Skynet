@@ -23,6 +23,18 @@ vi.mock("./log-tags.js", () => ({
   logSweepHookError: vi.fn(),
 }));
 
+// Mock runBootstrapForHost so sweep tests don't need to handle bootstrap
+// channel commands. The bootstrap is tested in run-bootstrap.test.ts.
+vi.mock("./run-bootstrap.js", () => ({
+  runBootstrapForHost: vi.fn(async () => ({
+    alreadyEnabled: true,
+    bootstrapRan: false,
+    daemonReloadRan: true,
+    settingsPatchOk: true,
+    hadError: false,
+  })),
+}));
+
 import {
   logSweepResult,
   logItemChanged,
@@ -66,7 +78,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("runSweepForHost", () => {
-  it("Test 1: all-match sweep on full 19-entry catalog — 0 changes, 0 failures, 0 writes", async () => {
+  it("Test 1: all-match sweep on full 20-entry catalog — 0 changes, 0 failures, 0 writes", async () => {
     const bundledBytes = Buffer.from("matching-bundle-content");
     // For every catalog entry, read returns __READ_OK__ with the same bytes
     // as the bundled reader. The decision layer skips them all.
@@ -83,7 +95,7 @@ describe("runSweepForHost", () => {
 
     expect(logSweepResult).toHaveBeenCalledTimes(1);
     const call = (logSweepResult as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(call.itemsChecked).toBe(19);
+    expect(call.itemsChecked).toBe(20);
     expect(call.itemsChanged).toBe(0);
     expect(call.itemsFailed).toBe(0);
     expect(logItemChanged).not.toHaveBeenCalled();
@@ -99,17 +111,18 @@ describe("runSweepForHost", () => {
     expect(restartCalls).toHaveLength(0);
   });
 
-  it("Test 2: one-mismatch sweep with restart — 1 push + 1 restart, logItemChanged with restartHookFired", async () => {
+  it("Test 2: agent-supervisor binary mismatch only — 1 push + 1 restart, logItemChanged with restartHookFired", async () => {
     const bundled = Buffer.from("bundled-agent-supervisor-v2");
     const installedMatching = Buffer.from("matching-bytes");
     const installedStale = Buffer.from("bundled-agent-supervisor-v1");
-    // For agent-supervisor: read returns installedStale (mismatch)
-    // For all others: read returns bundled bytes (match)
-    // Bundled reader returns bundled bytes for agent-supervisor and
-    // installedMatching for the rest (so the byte-compare skips them).
+    // For agent-supervisor BINARY only: read returns installedStale (mismatch).
+    // For all others (including the .service unit): read returns bundled bytes (match).
+    // Bundled reader returns the new bundled bytes for the binary only, and
+    // installedMatching for everything else (so the byte-compare skips them).
     const { channel, exec } = makeChannelSequenced((cmd) => {
       if (cmd.includes("base64 -w0")) {
-        if (cmd.includes("agent-supervisor")) return b64Ok(installedStale);
+        // Match only the binary install path, not the .service unit path
+        if (cmd.includes("local/bin/agent-supervisor")) return b64Ok(installedStale);
         return b64Ok(installedMatching);
       }
       if (cmd.includes("base64 -d")) return "__WRITE_OK__";
@@ -118,7 +131,7 @@ describe("runSweepForHost", () => {
     });
     const deps: SweepDeps = {
       readBundledBytes: vi.fn(async (path: string) => {
-        if (path.includes("agent-supervisor")) return { bytes: bundled, mode: 0o755 };
+        if (path.includes("scripts/agent-supervisor.sh")) return { bytes: bundled, mode: 0o755 };
         return { bytes: installedMatching, mode: 0o644 };
       }),
     };
