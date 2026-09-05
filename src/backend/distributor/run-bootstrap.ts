@@ -312,7 +312,13 @@ export async function runBootstrapForHost(
     // if the file is absent) so no guard needed there.
     const cleanupCmd = [
       `S_FILE="$HOME/.claude/settings.json"`,
-      `if [ -f "$S_FILE" ] && jq -e '.hooks.PostToolUse // [] | any(.hooks[]?.command // ""; test("gsd-context-monitor"))' "$S_FILE" > /dev/null 2>&1; then`,
+      // `.[]?.hooks[]?.command` — iterate the PostToolUse array THEN dive into
+      // each entry's inner hooks. An earlier `.hooks[]?.command` (without the
+      // outer `.[]?`) tried to index the array itself with "hooks", jq exited
+      // 5, the `if` treated that as false, the strip was silently skipped, and
+      // every host got fleet-wide "PostToolUse:Bash hook error" noise on every
+      // tool call (2026-09-05). The regression is guarded by test (k).
+      `if [ -f "$S_FILE" ] && jq -e '.hooks.PostToolUse // [] | any(.[]?.hooks[]?.command // ""; test("gsd-context-monitor"))' "$S_FILE" > /dev/null 2>&1; then`,
       `  jq '.hooks.PostToolUse |= map(select(any(.hooks[]?.command // ""; test("gsd-context-monitor")) | not))' "$S_FILE" > "$S_FILE.new" && mv "$S_FILE.new" "$S_FILE"`,
       `fi`,
       `rm -f "$HOME/.claude/hooks/gsd-context-monitor.js"`,

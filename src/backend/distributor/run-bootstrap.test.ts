@@ -307,6 +307,13 @@ describe("runBootstrapForHost", () => {
     expect(cleanupCmd).toContain(".hooks.PostToolUse");
     expect(cleanupCmd).toContain("rm -f");
     expect(cleanupCmd).toContain("hooks/gsd-context-monitor.js");
+    // Guard filter MUST iterate the array with `.[]?.hooks[]?` — an earlier
+    // `.hooks[]?` (without the outer `.[]?`) tried to index the array itself
+    // with "hooks", jq exited 5, the shell `if` treated that as false, the
+    // strip was silently skipped, and every host got fleet-wide
+    // "PostToolUse:Bash hook error" noise on every tool call (2026-09-05
+    // regression guard).
+    expect(cleanupCmd).toContain(".[]?.hooks[]?.command");
   });
 
   it("(l) gsd-context-monitor cleanup: channel returns null — hadError=true, cleanupOk=false, still resolves", async () => {
