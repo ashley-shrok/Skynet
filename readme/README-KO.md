@@ -211,47 +211,6 @@ Skynet는 오픈 소스이며 영구 무료인 셀프 호스팅 올인원 서버
 
 <br />
 
-## 설치
-
-모든 플랫폼에 Skynet를 설치하는 방법에 대한 자세한 내용은 Skynet [문서](https://docs.skynet.site/install)를 방문하세요. 다음은 Docker Compose 파일 예시입니다(원격 데스크톱 기능을 사용할 계획이 없다면 guacd와 네트워크를 생략할 수 있습니다):
-
-```yaml
-services:
-  skynet:
-    image: ghcr.io/lukegus/skynet:latest
-    container_name: skynet
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    volumes:
-      - skynet-data:/app/data
-    environment:
-      PORT: "8080"
-    depends_on:
-      - guacd
-    networks:
-      - skynet-net
-
-  guacd:
-    image: guacamole/guacd:1.6.0
-    container_name: guacd
-    restart: unless-stopped
-    ports:
-      - "4822:4822"
-    networks:
-      - skynet-net
-
-volumes:
-  skynet-data:
-    driver: local
-
-networks:
-  skynet-net:
-    driver: bridge
-```
-
-<br />
-
 ## 스크린샷
 
 <div align="center">

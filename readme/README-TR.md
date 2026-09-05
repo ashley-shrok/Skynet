@@ -211,47 +211,6 @@ Yaklasik 30 dil icin yerlesik destek ([Crowdin](https://docs.skynet.site/transla
 
 <br />
 
-## Kurulum
-
-Skynet'i tum platformlara nasil kuracaginiz hakkinda daha fazla bilgi icin Skynet [Belgelerine](https://docs.skynet.site/install) bakin. Ornek bir Docker Compose dosyasini asagida inceleyebilirsiniz (uzak masaustu ozelliklerini kullanmayi planlamiyorsaniz guacd'yi ve agi cikarabilirsiniz):
-
-```yaml
-services:
-  skynet:
-    image: ghcr.io/lukegus/skynet:latest
-    container_name: skynet
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    volumes:
-      - skynet-data:/app/data
-    environment:
-      PORT: "8080"
-    depends_on:
-      - guacd
-    networks:
-      - skynet-net
-
-  guacd:
-    image: guacamole/guacd:1.6.0
-    container_name: guacd
-    restart: unless-stopped
-    ports:
-      - "4822:4822"
-    networks:
-      - skynet-net
-
-volumes:
-  skynet-data:
-    driver: local
-
-networks:
-  skynet-net:
-    driver: bridge
-```
-
-<br />
-
 ## Ekran Goruntuleri
 
 <div align="center">

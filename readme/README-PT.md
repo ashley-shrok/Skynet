@@ -211,47 +211,6 @@ Suporte integrado para aproximadamente 30 idiomas (gerenciado pelo [Crowdin](htt
 
 <br />
 
-## Instalacao
-
-Visite a [documentacao](https://docs.skynet.site/install) do Skynet para mais informacoes sobre como instalar o Skynet em todas as plataformas. Caso contrario, veja um arquivo Docker Compose de exemplo aqui (voce pode omitir o guacd e a rede se nao planeja usar recursos de area de trabalho remota):
-
-```yaml
-services:
-  skynet:
-    image: ghcr.io/lukegus/skynet:latest
-    container_name: skynet
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    volumes:
-      - skynet-data:/app/data
-    environment:
-      PORT: "8080"
-    depends_on:
-      - guacd
-    networks:
-      - skynet-net
-
-  guacd:
-    image: guacamole/guacd:1.6.0
-    container_name: guacd
-    restart: unless-stopped
-    ports:
-      - "4822:4822"
-    networks:
-      - skynet-net
-
-volumes:
-  skynet-data:
-    driver: local
-
-networks:
-  skynet-net:
-    driver: bridge
-```
-
-<br />
-
 ## Capturas de Tela
 
 <div align="center">

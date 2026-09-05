@@ -211,47 +211,6 @@ Ho tro tich hop khoang 30 ngon ngu (duoc quan ly boi [Crowdin](https://docs.skyn
 
 <br />
 
-## Cai Dat
-
-Truy cap [Tai Lieu](https://docs.skynet.site/install) Skynet de biet them thong tin ve cach cai dat Skynet tren tat ca cac nen tang. Ngoai ra, xem tep Docker Compose mau tai day (ban co the bo qua guacd va mang neu khong co y dinh su dung cac tinh nang dieu khien may tinh tu xa):
-
-```yaml
-services:
-  skynet:
-    image: ghcr.io/lukegus/skynet:latest
-    container_name: skynet
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    volumes:
-      - skynet-data:/app/data
-    environment:
-      PORT: "8080"
-    depends_on:
-      - guacd
-    networks:
-      - skynet-net
-
-  guacd:
-    image: guacamole/guacd:1.6.0
-    container_name: guacd
-    restart: unless-stopped
-    ports:
-      - "4822:4822"
-    networks:
-      - skynet-net
-
-volumes:
-  skynet-data:
-    driver: local
-
-networks:
-  skynet-net:
-    driver: bridge
-```
-
-<br />
-
 ## Anh Chup Man Hinh
 
 <div align="center">

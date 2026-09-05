@@ -211,47 +211,6 @@ Skynet एक ओपन-सोर्स, हमेशा के लिए मु
 
 <br />
 
-## इंस्टॉलेशन
-
-सभी प्लेटफ़ॉर्म पर Skynet इंस्टॉल करने के बारे में अधिक जानकारी के लिए Skynet [डॉक्स](https://docs.skynet.site/install) पर जाएँ। यहाँ एक नमूना Docker Compose फ़ाइल देखें (यदि आप रिमोट डेस्कटॉप सुविधाओं का उपयोग करने की योजना नहीं बना रहे हैं तो आप guacd और नेटवर्क को हटा सकते हैं):
-
-```yaml
-services:
-  skynet:
-    image: ghcr.io/lukegus/skynet:latest
-    container_name: skynet
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    volumes:
-      - skynet-data:/app/data
-    environment:
-      PORT: "8080"
-    depends_on:
-      - guacd
-    networks:
-      - skynet-net
-
-  guacd:
-    image: guacamole/guacd:1.6.0
-    container_name: guacd
-    restart: unless-stopped
-    ports:
-      - "4822:4822"
-    networks:
-      - skynet-net
-
-volumes:
-  skynet-data:
-    driver: local
-
-networks:
-  skynet-net:
-    driver: bridge
-```
-
-<br />
-
 ## स्क्रीनशॉट
 
 <div align="center">

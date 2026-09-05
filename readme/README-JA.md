@@ -211,47 +211,6 @@ Skynetは、オープンソースで永久無料のセルフホスト型オー�
 
 <br />
 
-## インストール
-
-すべてのプラットフォームへのSkynetのインストール方法については、Skynetの[ドキュメント](https://docs.skynet.site/install)をご覧ください。また、以下のサンプルDocker Composeファイルをご覧ください（リモートデスクトップ機能を使用する予定がない場合は、guacdとネットワークの設定を省略できます）：
-
-```yaml
-services:
-  skynet:
-    image: ghcr.io/lukegus/skynet:latest
-    container_name: skynet
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    volumes:
-      - skynet-data:/app/data
-    environment:
-      PORT: "8080"
-    depends_on:
-      - guacd
-    networks:
-      - skynet-net
-
-  guacd:
-    image: guacamole/guacd:1.6.0
-    container_name: guacd
-    restart: unless-stopped
-    ports:
-      - "4822:4822"
-    networks:
-      - skynet-net
-
-volumes:
-  skynet-data:
-    driver: local
-
-networks:
-  skynet-net:
-    driver: bridge
-```
-
-<br />
-
 ## スクリーンショット
 
 <div align="center">

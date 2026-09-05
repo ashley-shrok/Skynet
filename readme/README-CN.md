@@ -211,47 +211,6 @@ Skynet 是一个开源、永久免费、自托管的一体化服务器管理平�
 
 <br />
 
-## 安装
-
-访问 [Skynet 文档](https://docs.skynet.site/install) 了解有关如何在所有平台上安装 Skynet 的更多信息。此外，这里有一个示例 Docker Compose 文件（如果您不打算使用远程桌面功能，可以省略 guacd 和网络部分）：
-
-```yaml
-services:
-  skynet:
-    image: ghcr.io/lukegus/skynet:latest
-    container_name: skynet
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    volumes:
-      - skynet-data:/app/data
-    environment:
-      PORT: "8080"
-    depends_on:
-      - guacd
-    networks:
-      - skynet-net
-
-  guacd:
-    image: guacamole/guacd:1.6.0
-    container_name: guacd
-    restart: unless-stopped
-    ports:
-      - "4822:4822"
-    networks:
-      - skynet-net
-
-volumes:
-  skynet-data:
-    driver: local
-
-networks:
-  skynet-net:
-    driver: bridge
-```
-
-<br />
-
 ## 展示
 
 <div align="center">

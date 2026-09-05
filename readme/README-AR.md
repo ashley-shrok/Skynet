@@ -211,47 +211,6 @@ Skynet هي منصة مفتوحة المصدر ومجانية للأبد وذا�
 
 <br />
 
-## التثبيت
-
-قم بزيارة [وثائق](https://docs.skynet.site/install) Skynet للحصول على مزيد من المعلومات حول كيفية تثبيت Skynet على جميع المنصات. يمكنك الاطلاع على نموذج ملف Docker Compose هنا (يمكنك حذف guacd والشبكة إذا كنت لا تخطط لاستخدام ميزات سطح المكتب البعيد):
-
-```yaml
-services:
-  skynet:
-    image: ghcr.io/lukegus/skynet:latest
-    container_name: skynet
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    volumes:
-      - skynet-data:/app/data
-    environment:
-      PORT: "8080"
-    depends_on:
-      - guacd
-    networks:
-      - skynet-net
-
-  guacd:
-    image: guacamole/guacd:1.6.0
-    container_name: guacd
-    restart: unless-stopped
-    ports:
-      - "4822:4822"
-    networks:
-      - skynet-net
-
-volumes:
-  skynet-data:
-    driver: local
-
-networks:
-  skynet-net:
-    driver: bridge
-```
-
-<br />
-
 ## لقطات الشاشة
 
 <div align="center">

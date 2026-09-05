@@ -211,47 +211,6 @@ SSH-сессии и вкладки остаются открытыми на вс
 
 <br />
 
-## Установка
-
-Посетите [документацию](https://docs.skynet.site/install) Skynet для получения дополнительной информации об установке Skynet на всех платформах. Также вы можете ознакомиться с примером файла Docker Compose здесь (вы можете опустить guacd и сеть, если не планируете использовать функции удаленного рабочего стола):
-
-```yaml
-services:
-  skynet:
-    image: ghcr.io/lukegus/skynet:latest
-    container_name: skynet
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    volumes:
-      - skynet-data:/app/data
-    environment:
-      PORT: "8080"
-    depends_on:
-      - guacd
-    networks:
-      - skynet-net
-
-  guacd:
-    image: guacamole/guacd:1.6.0
-    container_name: guacd
-    restart: unless-stopped
-    ports:
-      - "4822:4822"
-    networks:
-      - skynet-net
-
-volumes:
-  skynet-data:
-    driver: local
-
-networks:
-  skynet-net:
-    driver: bridge
-```
-
-<br />
-
 ## Скриншоты
 
 <div align="center">
