@@ -242,7 +242,7 @@ describe("installStopHook", () => {
     const channel = new MockSshChannel();
     // remote $HOME resolution (patch #454) — must come before other responses
     // so callers get an absolute-path expansion of `~/…` defaults.
-    channel.setResponse("echo $HOME", "/home/testuser\n");
+    channel.setResponse('(cd ~ 2>/dev/null && pwd) || printf "%s" "$HOME"', "/home/testuser\n");
     // literal `~` cleanup (patch #454) — no-op response OK
     channel.setResponse('rm -rf "/home/testuser/~"', "");
     // mkdir succeeds
@@ -337,8 +337,10 @@ describe("installStopHook", () => {
       remoteHookPath: "~/.claude/hooks/skynet-fleet-status-stop.sh",
     });
 
-    // echo $HOME must have been dispatched
-    expect(channel.countCallsMatching("echo $HOME")).toBeGreaterThan(0);
+    // $HOME resolution command must have been dispatched
+    expect(
+      channel.countCallsMatching('(cd ~ 2>/dev/null && pwd) || printf "%s" "$HOME"'),
+    ).toBeGreaterThan(0);
 
     // Every mkdir/mv/test command must have the absolute path — NO literal `~/`
     // inside double-quoted paths (the bug this patch fixes).
@@ -421,10 +423,10 @@ describe("installStopHook", () => {
     expect(rmCall).toBeDefined();
   });
 
-  it("Test 15: echo $HOME returning empty/tilde/non-absolute throws with structured log", async () => {
+  it("Test 15: $HOME resolution returning empty/tilde/non-absolute throws with structured log", async () => {
     const channel = new MockSshChannel();
     // $HOME resolution comes back empty (SSH exec succeeded but returned nothing)
-    channel.setResponse("echo $HOME", "");
+    channel.setResponse('(cd ~ 2>/dev/null && pwd) || printf "%s" "$HOME"', "");
 
     await expect(
       installStopHook(channel, {
@@ -446,7 +448,7 @@ describe("installStopHook", () => {
 
   it("Test 9: SSH read error on settings.json → throws with structured log", async () => {
     const channel = new MockSshChannel();
-    channel.setResponse("echo $HOME", "/home/testuser\n");
+    channel.setResponse('(cd ~ 2>/dev/null && pwd) || printf "%s" "$HOME"', "/home/testuser\n");
     channel.setResponse('rm -rf "/home/testuser/~"', "");
     channel.setResponse("mkdir -p", "");
     channel.setResponse("STOPHOOK_EOF", "");
@@ -471,7 +473,7 @@ describe("installStopHook", () => {
 
   it("Test 10: invalid JSON in settings.json → throws, does NOT overwrite", async () => {
     const channel = new MockSshChannel();
-    channel.setResponse("echo $HOME", "/home/testuser\n");
+    channel.setResponse('(cd ~ 2>/dev/null && pwd) || printf "%s" "$HOME"', "/home/testuser\n");
     channel.setResponse('rm -rf "/home/testuser/~"', "");
     channel.setResponse("mkdir -p", "");
     channel.setResponse("STOPHOOK_EOF", "");
@@ -697,7 +699,7 @@ describe("installStopHook (Phase 62 extended shape)", () => {
 
   function buildPhase62Channel(settingsJson?: string): MockSshChannel {
     const channel = new MockSshChannel();
-    channel.setResponse("echo $HOME", "/home/testuser\n");
+    channel.setResponse('(cd ~ 2>/dev/null && pwd) || printf "%s" "$HOME"', "/home/testuser\n");
     channel.setResponse('rm -rf "/home/testuser/~"', "");
     channel.setResponse("mkdir -p", "");
     channel.setResponse("STOPHOOK_EOF", "");
@@ -1076,7 +1078,7 @@ describe("installStopHook (Phase 62 extended shape)", () => {
 
   it("Test P62-7: activity-hook verify failure throws with a script-specific error message identifying WHICH script failed", async () => {
     const channel = new MockSshChannel();
-    channel.setResponse("echo $HOME", "/home/testuser\n");
+    channel.setResponse('(cd ~ 2>/dev/null && pwd) || printf "%s" "$HOME"', "/home/testuser\n");
     channel.setResponse('rm -rf "/home/testuser/~"', "");
     channel.setResponse("mkdir -p", "");
     channel.setResponse("STOPHOOK_EOF", "");
@@ -1109,7 +1111,7 @@ describe("installStopHook (Phase 62 extended shape)", () => {
     // Same as P62-7 but stopped-hook is the failing script — proves the
     // per-script identification is not hard-coded to activity-hook.
     const channel = new MockSshChannel();
-    channel.setResponse("echo $HOME", "/home/testuser\n");
+    channel.setResponse('(cd ~ 2>/dev/null && pwd) || printf "%s" "$HOME"', "/home/testuser\n");
     channel.setResponse('rm -rf "/home/testuser/~"', "");
     channel.setResponse("mkdir -p", "");
     channel.setResponse("STOPHOOK_EOF", "");

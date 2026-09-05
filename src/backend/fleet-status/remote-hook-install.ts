@@ -468,7 +468,16 @@ export async function installStopHook(
   // $HOME (patch #453 aftermath — file landed at /home/ubuntu/~/.claude/…).
   // Resolving to an absolute path also means settings.json stores an absolute
   // command (not `~/...`), which is what Claude Code's hook runner expects.
-  const homeRaw = await channel.exec("echo $HOME");
+  //
+  // Use `cd ~ && pwd` rather than `echo $HOME` — tilde expansion goes through
+  // the passwd entry (independent of the $HOME env var), and pwd emits an
+  // absolute path. Fall back to $HOME env for exotic shells that don't do
+  // tilde. Previously `echo $HOME` returned the literal string `$HOME` on
+  // thenasty (fleet_status_hook_install_home_resolve_failed, 2026-09-04) —
+  // some shell config path was not doing variable expansion for that user.
+  const homeRaw = await channel.exec(
+    '(cd ~ 2>/dev/null && pwd) || printf "%s" "$HOME"',
+  );
   const home = homeRaw?.trim() ?? "";
   if (!home || home.startsWith("~") || !home.startsWith("/")) {
     systemLogger.warn(
