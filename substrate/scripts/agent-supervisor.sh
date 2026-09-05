@@ -882,21 +882,34 @@ pending_check() {
   return 0
 }
 
-# matrix_peek: returns 0 if THIS identity has new events since it went dormant.
-# REUSES the identity's own recv.sh token + since cursor (from ~/.claude/identities/<name>/
-# relay-state/{token,since}). Why: the receiver's cursor was captured at time-of-dormancy, so
+# matrix_peek: returns 0 if THIS identity has new events since it went dormant on ANY of its
+# Matrix accounts. Enumerates <idroot>/relay.json (primary) + <idroot>/*/relay.json (secondaries,
+# exactly one level deep — no deeper). For each discovered account it calls _matrix_peek_one
+# which REUSES that account's own recv.sh token + since cursor (from <account-dir>/relay-state/
+# {token,since}). Why cursor-reuse: the receiver's cursor was captured at time-of-dormancy, so
 # /sync?since=<that> returns EXACTLY the events that arrived while dormant — no need for a
 # separate supervisor-owned device, no fresh-login/first-seed issues (which caused the earlier
 # design to be blind to invites arriving before its own first sync). Since the receiver died
 # with the CC session, there's no concurrent user of the token. Supervisor does NOT write back
 # to since — receiver picks up from the same cursor on wake and backfills naturally.
 #
-# On 401 (token expired/revoked), fall back to fresh login using relay.json password + save the
-# NEW token back to relay-state/token (matches recv.sh's own 401 behavior — that path is proven).
-matrix_peek() {
+# On 401 (token expired/revoked) for a given account, _matrix_peek_one falls back to fresh login
+# using THAT account's relay.json password + saves the NEW token back to THAT account's own
+# relay-state/token (matches recv.sh's own 401 behavior — that path is proven; per-account isolation
+# ensures a stale primary token doesn't clobber a healthy secondary and vice versa).
+#
+# The enumerator does NOT early-return on wake — it iterates every account so each one's own 401
+# refresh runs each cycle (no cursor rot on quiet-but-stale-token accounts).
+_matrix_peek_one() {
   local name="$1"
-  local rj="$HOME/.claude/identities/$name/relay.json"
-  local rs="$HOME/.claude/identities/$name/relay-state"
+  local rj="$2"
+  local rs="$3"
+  local account
+  if [ "$(dirname "$rj")" = "$HOME/.claude/identities/$name" ]; then
+    account="primary"
+  else
+    account=$(basename "$(dirname "$rj")")
+  fi
   [ -f "$rj" ] || return 1
   [ -d "$rs" ] || return 1
   local base mxid self tok since
@@ -907,7 +920,7 @@ matrix_peek() {
   since=$(cat "$rs/since" 2>/dev/null)
   # Missing state is only expected on a brand-new identity whose receiver never ran; safe default
   # is "no wake" (receiver will seed on first wake anyway).
-  [ -n "$tok" ] && [ -n "$since" ] || { metric event=matrix-peek identity="$name" result=no-state; return 1; }
+  [ -n "$tok" ] && [ -n "$since" ] || { metric event=matrix-peek identity="$name" account="$account" result=no-state; return 1; }
   local resp; resp=$(curl -sS --max-time 15 -H "Authorization: Bearer $tok" \
     "$base/sync?timeout=0&since=$since" 2>/dev/null)
   # 401 → re-login with password, save new token back to receiver's location so the receiver
@@ -923,9 +936,9 @@ matrix_peek() {
     new_tok=$(echo "$lr" | jq -r '.access_token // empty')
     if [ -n "$new_tok" ]; then
       printf '%s' "$new_tok" > "$rs/token"
-      metric event=matrix-peek identity="$name" result=token-refreshed
+      metric event=matrix-peek identity="$name" account="$account" result=token-refreshed
     else
-      metric event=matrix-peek identity="$name" result=relogin-fail
+      metric event=matrix-peek identity="$name" account="$account" result=relogin-fail
     fi
     return 1                                # skip this cycle; next cycle uses fresh token
   fi
@@ -938,11 +951,32 @@ matrix_peek() {
     '[.rooms.join // {} | to_entries[] | .value.timeline.events[]? | select(.sender != $self)] | length' 2>/dev/null)
   ic=$(echo "$resp" | jq '[.rooms.invite // {} | keys[]] | length' 2>/dev/null)
   if [ "${ec:-0}" -gt 0 ] || [ "${ic:-0}" -gt 0 ]; then
-    metric event=matrix-peek identity="$name" result=wake events="${ec:-0}" invites="${ic:-0}"
+    metric event=matrix-peek identity="$name" account="$account" result=wake events="${ec:-0}" invites="${ic:-0}"
     return 0
   fi
-  metric event=matrix-peek identity="$name" result=quiet
+  metric event=matrix-peek identity="$name" account="$account" result=quiet
   return 1
+}
+
+matrix_peek() {
+  local name="$1"
+  local idroot="$HOME/.claude/identities/$name"
+  local wake=1
+  # nullglob so an empty <idroot>/*/relay.json glob yields zero iterations, not a literal '*'
+  # string. Save & restore prior nullglob state so we don't leak the option to the caller.
+  local restore_nullglob
+  restore_nullglob=$(shopt -p nullglob)
+  shopt -s nullglob
+  local rj rs rc
+  for rj in "$idroot/relay.json" "$idroot"/*/relay.json; do
+    rs="$(dirname "$rj")/relay-state"
+    _matrix_peek_one "$name" "$rj" "$rs"; rc=$?
+    # Do NOT break on wake — remaining accounts still need their own 401-refresh cycle to run
+    # so stale tokens on quiet accounts don't rot. wake tracks the "any account woke" bit.
+    [ "$rc" -eq 0 ] && wake=0
+  done
+  eval "$restore_nullglob"
+  return "$wake"
 }
 
 # schedule_peek: returns 0 if any of the identity's wakeup specs fire within FALSE_KILL_MINUTES.
