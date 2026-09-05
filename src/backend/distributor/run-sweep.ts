@@ -39,6 +39,7 @@ import {
   restartUserUnit,
 } from "./ssh-push.js";
 import { logSweepResult, logItemChanged, logItemFailed } from "./log-tags.js";
+import { runBootstrapForHost } from "./run-bootstrap.js";
 
 /**
  * Injected dependencies for the sweep composer. `readBundledBytes` reads the
@@ -94,6 +95,16 @@ export async function runSweepForHost(
   let itemsChecked = 0;
   let itemsChanged = 0;
   let itemsFailed = 0;
+
+  // Pre-sweep bootstrap: idempotent systemd enable + daemon-reload +
+  // settings.json patch. Runs BEFORE the catalog loop so that:
+  //   (a) On a fresh host, the .service unit is enabled before the catalog
+  //       loop's restart hook fires agent-supervisor.service.
+  //   (b) daemon-reload runs before any restart hook in the catalog loop,
+  //       so systemd sees updated unit-file bytes pushed earlier this sweep.
+  // runBootstrapForHost is fire-and-forget per its never-throw contract;
+  // any failure is logged there — we do not propagate errors upward.
+  await runBootstrapForHost(channel, host);
 
   for (const entry of catalog) {
     itemsChecked++;
