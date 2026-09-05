@@ -1837,3 +1837,13 @@ Plans:
 - [x] 74-02-PLAN.md — Boot-time presence check: new src/backend/branding/assert-boot.ts exports assertBrandingConfigAtBoot() that trims + length-checks avatarDirectorSpec and process.exit(1)'s on missing/empty/whitespace-only; wired into starter.ts boot IIFE after initializeDatabase and before dbServer import; assert-boot.test.ts covers pass + fail + whitespace-only + gamma-not-gated (wave 2, depends on 74-01)
 - [x] 74-03-PLAN.md — Route rewire: delete ARCHETYPE_SYSTEM_PROMPT constant + aesthetic prose in paletteConstraintLine; split into mechanical-only paletteHueLine (hueName preserved); rewire POST /identities/avatar/batch to await loadBrandingConfig() at request time, use config.avatarDirectorSpec verbatim as system message, parameterize applyGamma() with config.avatarGammaDefault, return 503 defense-in-depth on empty spec; scrub avatar-flow runbook refs from header comments at L16/L122/L180; add vi.mock of branding-config-loader at test-file top + 3 new tests (spec verbatim / gamma flow / empty-spec 503) (wave 2, depends on 74-01)
 - [x] 74-04-PLAN.md — Runbook + prompt-archive deletion: checkpoint:human-verify re-confirms all outrigger content retired (per CONTEXT.md § 'What would make it wrong' §4); then rm ~/.claude/roles/box-maintainer/runbooks/avatar-flow.md + 4 files under avatar-prompts/; final repo-wide grep sweep for any stray avatar-flow / avatar-prompts references outside historical .planning/phases/20-* artifacts (local-filesystem deletion, NOT git rm — files are not in the repo) (wave 3, depends on 74-03)
+
+### Phase 75: Server-side substrate bootstrap: startup-driven install pass, system-key credentials for substrate hosts, migration
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 74
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 75 to break down)
