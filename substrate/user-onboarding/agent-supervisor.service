@@ -1,0 +1,14 @@
+[Unit]
+Description=Agent supervisor — keep this box's /id Claude Code sessions alive
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/agent-supervisor
+Restart=always
+RestartSec=10
+KillMode=process
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target
