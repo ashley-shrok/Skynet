@@ -537,22 +537,24 @@ The "credentials require the owner to be present to decrypt" property is relaxed
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Inline-credential substrate hosts (the critical fork)**
-   - What we know: `hosts` table has no CSKEK columns; `sshCredentials` table has them; `SimpleDBOps` already writes CSKEK for `ssh_credentials` tableName.
-   - What's unclear: Whether any existing `runsFleetSubstrate:true` hosts on the live instances use inline credentials (no credentialId).
-   - Recommendation: **Enforce at API layer** — `runsFleetSubstrate:true` requires `credentialId` to be non-null. Return 400 otherwise. The provisioning path for new substrate hosts (feature-07 runbook) uses named credentials by default, so this should not break anything in practice. Planner should confirm with Ashley before finalizing.
+All three open questions raised at research time have been resolved during planning. Resolutions are recorded here for traceability; the phase plans referenced below implement each resolution.
 
-2. **Migration script: password derivation internals**
-   - What we know: `UserCrypto.setupUserEncryption(userId, password)` uses PBKDF2 with 100k iterations. The salt is stored in the `settings` table keyed to `userId`.
-   - What's unclear: The exact exported method on `UserCrypto` that derives a key from (userId, password, salt) for external use — the `migrateUserCredentials` path calls `DataCrypto.getUserDataKey()` which requires an in-memory session. The migration needs a sessionless derivation path.
-   - Recommendation: Planner must read `UserCrypto.setupUserEncryption` and adjacent methods carefully to find the right derivation call. May need to add a `UserCrypto.deriveKeyForMigration(userId, password)` method that reads the KEK salt from the DB and derives the DEK without requiring a session.
+1. **Inline-credential substrate hosts (the critical fork)** — **RESOLVED**
+   - What we knew: `hosts` table has no CSKEK columns; `sshCredentials` table has them; `SimpleDBOps` already writes CSKEK for `ssh_credentials` tableName.
+   - What was unclear: Whether any existing `runsFleetSubstrate:true` hosts on the live instances use inline credentials (no credentialId).
+   - **Resolution**: Two-layer defense. **Plan 75-04** installs an API-layer 400 guard on POST /host/db/host and PUT /host/db/host/:id that rejects any create/update setting `runsFleetSubstrate=true` with `credentialId=null` — this prevents NEW inline-credential substrate hosts from being written. **Plan 75-08 Task 2** implements a pre-check in the migration module that queries for `runsFleetSubstrate=true AND credentialId IS NULL` before any writes; if any PRE-EXISTING inline-credential substrate hosts are found (rows that predate the 75-04 guard), the migration aborts loudly with the offending host IDs surfaced via `substrate_migration_precheck_aborted` operation tag, exit code 1, and `aborted: true` in the result JSON. Ashley must resolve any flagged rows manually before re-running the migration.
 
-3. **`bundledReaderFromDisk` location**
-   - What we know: It's defined inside `ssh-poll-orchestrator.ts` as a local function at line ~2123 (inferred from context).
-   - What's unclear: Whether it's exported or needs to be extracted to a shared module for the new orchestrator.
-   - Recommendation: Extract `bundledReaderFromDisk` to `src/backend/distributor/bundled-reader.ts` (or export it from the orchestrator module) so both the old and new orchestrators can share it. Wave 0 task.
+2. **Migration script: password derivation internals** — **RESOLVED**
+   - What we knew: `UserCrypto.setupUserEncryption(userId, password)` uses PBKDF2 with 100k iterations. The salt is stored in the `settings` table keyed to `userId`.
+   - What was unclear: The exact exported method on `UserCrypto` that derives a key from (userId, password, salt) for external use — the `migrateUserCredentials` path calls `DataCrypto.getUserDataKey()` which requires an in-memory session. The migration needs a sessionless derivation path.
+   - **Resolution**: **Plan 75-08 Task 1** adds a new public instance method `UserCrypto.deriveDekForMigration(userId, password): Promise<Buffer>`. Verification of the private-method chain during planning confirmed all four required internals are reachable via `this.*` from a new public method on the same class: `getKEKSalt` at user-crypto.ts:566-582, `deriveKEK` at user-crypto.ts:493-501, `getEncryptedDEK` at user-crypto.ts:606-622, `decryptDEK` at user-crypto.ts:533-545. No refactor of the existing private surface is required. The new method mirrors `authenticateUser` (user-crypto.ts:114-165) lines 119-140 but skips the `userSessions.set` step (lines 149-152) so the derivation is sessionless. The returned Buffer is caller-owned and the migration module zeroes it in a `finally` block.
+
+3. **`bundledReaderFromDisk` location** — **RESOLVED**
+   - What we knew: It's defined inside `ssh-poll-orchestrator.ts` as a local function at line ~2123 (inferred from context).
+   - What was unclear: Whether it's exported or needs to be extracted to a shared module for the new orchestrator.
+   - **Resolution**: **Plan 75-01 Task 1** (Wave 0) extracts `bundledReaderFromDisk` to `src/backend/distributor/bundled-reader.ts` as a first-class exported function with its own unit test covering the never-throw contract (returns `{bytes, mode}` on success; returns null on ENOENT; returns null on EACCES). The legacy sweep hook at ssh-poll-orchestrator.ts:2117-2124 continues to call the same function via the new import, so both the legacy hook (in the transition window before 75-07 removes it) and the new server-context orchestrator (75-02) share a single canonical implementation.
 
 ---
 

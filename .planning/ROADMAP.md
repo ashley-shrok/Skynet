@@ -1819,6 +1819,7 @@ Plans:
 **Plans:** 5/5 plans complete
 
 Plans:
+
 - [x] 73-01-PLAN.md — Catalog module: hand-maintained TypeScript array enumerating 19 files across 15 conceptual substrate items with bundled/install paths + restart hook (wave 1)
 - [x] 73-02-PLAN.md — Migration: add runs_fleet_substrate BOOLEAN column to ssh_data via addColumnIfNotExists + Drizzle schema + forceSave wrap (wave 1)
 - [x] 73-03-PLAN.md — Pure sweep-decide logic (byte-compare / mode-mirror / restart-hook selection) + log-tag helpers with fleet_substrate_* operation strings (wave 2, depends on 73-01)
@@ -1833,6 +1834,7 @@ Plans:
 **Plans:** 4/4 plans complete
 
 Plans:
+
 - [x] 74-01-PLAN.md — Schema extension: extend BrandingConfig type + shape guard + HARDCODED_FALLBACK on backend loader; mirror on frontend store + sentinel; add avatarDirectorSpec:"" + avatarGammaDefault:0.7 to docker/branding-defaults/branding.json (empty spec is load-bearing — bundled default MUST NOT silently satisfy the boot gate); new branding-config-loader.test.ts covering the shape-guard branches (wave 1)
 - [x] 74-02-PLAN.md — Boot-time presence check: new src/backend/branding/assert-boot.ts exports assertBrandingConfigAtBoot() that trims + length-checks avatarDirectorSpec and process.exit(1)'s on missing/empty/whitespace-only; wired into starter.ts boot IIFE after initializeDatabase and before dbServer import; assert-boot.test.ts covers pass + fail + whitespace-only + gamma-not-gated (wave 2, depends on 74-01)
 - [x] 74-03-PLAN.md — Route rewire: delete ARCHETYPE_SYSTEM_PROMPT constant + aesthetic prose in paletteConstraintLine; split into mechanical-only paletteHueLine (hueName preserved); rewire POST /identities/avatar/batch to await loadBrandingConfig() at request time, use config.avatarDirectorSpec verbatim as system message, parameterize applyGamma() with config.avatarGammaDefault, return 503 defense-in-depth on empty spec; scrub avatar-flow runbook refs from header comments at L16/L122/L180; add vi.mock of branding-config-loader at test-file top + 3 new tests (spec verbatim / gamma flow / empty-spec 503) (wave 2, depends on 74-01)
@@ -1840,10 +1842,25 @@ Plans:
 
 ### Phase 75: Server-side substrate bootstrap: startup-driven install pass, system-key credentials for substrate hosts, migration
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Reshape fleet-substrate distribution from per-user browser-driven to system-driven. On Skynet container startup, walk every `runsFleetSubstrate:true` host serially and run the install pass; fire immediately fire-and-forget on host-create with the flag on; retry unreachable hosts on the existing 30s host-list refresh cadence; loud structured-log alert after N consecutive failures per host. Remove the browser-driven install-pass hook. Wrap substrate-host SSH credentials with `SystemCrypto.getCredentialSharingKey()` (CSKEK) at create + flag-flip-on + credential-update — the install pass reads through the system key, and owner browser terminals also read through the system key (one representation). Non-substrate hosts keep per-user DEK wrap unchanged. Ship a one-shot operator-run migration script for existing substrate hosts.
+**Requirements**: D-01 through D-19 (all locked in 75-CONTEXT.md — see plan `decisions_addressed` frontmatter for per-plan coverage)
 **Depends on:** Phase 74
-**Plans:** 0 plans
-
+**Plans:** 9 plans
 Plans:
-- [ ] TBD (run /gsd-plan-phase 75 to break down)
+**Wave 1**
+
+- [ ] 75-01-PLAN.md — Extract `bundledReaderFromDisk` into a shared `src/backend/distributor/bundled-reader.ts` module (Wave 0 refactor, unblocks 02 + 07)
+- [ ] 75-02-PLAN.md — Create `server-substrate-orchestrator.ts` with startup pass + 30s retry tick + N-failure alerting; extend log-tags with `logPersistentFailure` (D-01, D-03, D-05, D-06, D-07, D-17)
+- [ ] 75-03-PLAN.md — Create session-less substrate-host enumerator `list-substrate-hosts.ts` with CSKEK-based credential decrypt (D-08, D-10, half of D-17)
+- [ ] 75-04-PLAN.md — Enforce credentialId requirement for substrate hosts in host.ts POST/PUT; add CSKEK decrypt branch in host-resolver.ts for owner browser terminals (D-08, D-09, D-10, D-16)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 75-05-PLAN.md — Wire server-substrate-orchestrator into starter.ts boot IIFE; create substrate-orchestrator singleton for host.ts consumption (D-01, D-05, enables D-02)
+- [ ] 75-06-PLAN.md — Add on-add fire-and-forget install-pass trigger to POST /host/db/host; add flag-flip + credential-change triggers to PUT (D-02, D-08 update-side, D-18)
+- [ ] 75-07-PLAN.md — Remove browser-driven substrate-sweep hook from ssh-poll-orchestrator.ts (Wave 2, deferred after 05/06 to ensure server-context path is live first) (D-04)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 75-08-PLAN.md — Add `UserCrypto.deriveDekForMigration` sessionless method + one-shot migration module + CLI entrypoint `scripts/migrate-substrate-credentials.ts` (D-12, D-13, D-14, D-15, D-19)
+- [ ] 75-09-PLAN.md — End-to-end integration test proving startup pass, retry loop, persistent-failure alert, and on-add trigger work when composed with real modules (D-17, D-18 end-to-end)
