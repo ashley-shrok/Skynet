@@ -6,11 +6,14 @@
  *       still runs, settings check still runs.
  *   (b) Fresh host (is-enabled exit 1): linger + daemon-reload + enable --now
  *       fires in order as a single chained command; no separate daemon-reload.
- *   (c) settings.json already has skipDangerousModePermissionPrompt: true —
+ *   (c) settings.json already has all 5 fleet-required keys correct —
  *       the patch command still runs but the jq branch is not reached (we
  *       verify via the __SETTINGS_OK__ sentinel).
- *   (d) settings.json missing — file created with flag (sentinel returns ok).
- *   (e) settings.json exists without flag — jq merge applied (sentinel ok).
+ *   (d) settings.json missing — file created with all 5 keys (sentinel ok).
+ *   (e) settings.json exists without some keys — jq merge applied (sentinel ok).
+ *   (e2) command shape: settings patch command references all 5 fleet-required
+ *       keys AND the idempotency check covers all 5 (regression guard against
+ *       accidental key drop).
  *   (f) Channel returns null on is-enabled check — hadError=true, still resolves.
  *   (g) Channel returns null on settings patch — hadError=true, still resolves.
  *   (h) Already-enabled host with daemon-reload failure — hadError=true, resolves.
@@ -175,6 +178,47 @@ describe("runBootstrapForHost", () => {
 
     expect(result.settingsPatchOk).toBe(true);
     expect(result.hadError).toBe(false);
+  });
+
+  it("(e2) settings command references all 5 fleet-required keys in both merge and check", async () => {
+    // Regression guard: the settings.json patch must enforce ALL 5 keys, not
+    // regress to a subset. Both the MERGE (what gets written) and the CHECK
+    // (the idempotency short-circuit predicate) must name each key.
+    const { channel, exec } = makeChannel({
+      "is-enabled": "enabled\nEXIT:0",
+      "daemon-reload": "__RELOAD_OK__",
+      "SETTINGS": "__SETTINGS_OK__",
+      "gsd-context-monitor": "__CLEANUP_OK__",
+    });
+
+    await runBootstrapForHost(channel, HOST);
+
+    const cmds = captureCommands(exec);
+    const settingsCmd = cmds.find(
+      (c) => c.includes("SETTINGS=") && c.includes("MERGE=") && c.includes("CHECK="),
+    );
+    expect(settingsCmd).toBeDefined();
+    if (!settingsCmd) return;
+
+    // All 5 keys must appear in the MERGE side (what gets written to disk).
+    expect(settingsCmd).toContain(`"AskUserQuestion"`);
+    expect(settingsCmd).toContain(`.askUserQuestionTimeout = "never"`);
+    expect(settingsCmd).toContain(`.DISABLE_AUTOUPDATER = "1"`);
+    expect(settingsCmd).toContain(`.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1"`);
+    expect(settingsCmd).toContain(`.skipDangerousModePermissionPrompt = true`);
+
+    // All 5 keys must also appear in the CHECK side (idempotency predicate).
+    // Without this, a partial-state settings.json would keep getting rewritten
+    // every sweep, OR a missing key would go undetected.
+    expect(settingsCmd).toContain(`.skipDangerousModePermissionPrompt == true`);
+    expect(settingsCmd).toContain(`.askUserQuestionTimeout == "never"`);
+    expect(settingsCmd).toContain(`.permissions.deny // []) | contains(["AskUserQuestion"])`);
+    expect(settingsCmd).toContain(`.env.DISABLE_AUTOUPDATER == "1"`);
+    expect(settingsCmd).toContain(`.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS == "1"`);
+
+    // Absent-file path must use the same MERGE template applied to {}
+    // (single source of truth for what "correct" means).
+    expect(settingsCmd).toContain(`echo '{}' | jq "$MERGE"`);
   });
 
   it("(f) channel returns null on is-enabled check — hadError=true, still resolves", async () => {
