@@ -126,6 +126,12 @@ ensure_agent_teams_env() {
 # the config key, the scrape still catches the prompt.
 CLAUDE_LAUNCH_ENV="CLAUDE_CODE_RESUME_THRESHOLD_MINUTES=99999999 CLAUDE_CODE_RESUME_TOKEN_THRESHOLD=99999999 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=99"
 
+# Flags passed to every `claude` launch. Consolidated so all 4 launch sites (redrive+drive × resume+fresh)
+# stay in sync — an inline-per-site spelling means a flag can silently fall off some but not others
+# (2026-09-04, Ashley: fleet came back on Sonnet by default after supervisor recycles because --model opus
+# was never wired in). Adding a flag = one edit here, applies everywhere.
+CLAUDE_LAUNCH_FLAGS="--model opus --dangerously-skip-permissions"
+
 # ---- memory cap (2026-08-06) — wrap claude launches in a systemd scope with MemoryHigh ----
 # Rationale: claude's baseline is ~500 MB RSS per session (Ink React TUI + Node/V8, architectural).
 # On boxes with zram-primary swap, reclaim under a soft MemoryHigh ceiling is cheap enough (LZO
@@ -454,9 +460,9 @@ redrive_claude() {
   timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
   sleep 0.5
   if [ -n "$resume" ]; then
-    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume --dangerously-skip-permissions" 2>/dev/null
+    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume $CLAUDE_LAUNCH_FLAGS" 2>/dev/null
   else
-    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env $CLAUDE_LAUNCH_ENV $CLAUDE --dangerously-skip-permissions" 2>/dev/null
+    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env $CLAUDE_LAUNCH_ENV $CLAUDE $CLAUDE_LAUNCH_FLAGS" 2>/dev/null
   fi
   timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
 }
@@ -518,7 +524,7 @@ drive() {
     # the known resume-auto-compact bug (GH #56271 / #64923) at source, so the historical Ctrl-C
     # train that fought it post-hoc is gone — ~9s wall-time savings per wake.
     # bash command-scoped assignment — vars apply to this claude only, not the shell.
-    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume --dangerously-skip-permissions" 2>/dev/null
+    timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume $CLAUDE_LAUNCH_FLAGS" 2>/dev/null
     timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
     # ⚠️ VERIFY CLAUDE ACTUALLY LAUNCHED (2026-08-29, Ashley witnessed a live failure on workstation).
     # send-keys drops bytes into the pane and returns 0 whether or not they became a viable command.
@@ -591,7 +597,7 @@ drive() {
   # Env-var prefix is harmless on a fresh launch (there's no session to summarize) but cheap insurance
   # if a fresh claude ever picks up an older recorded session unexpectedly.
   log "'$name' drive fresh: typing claude launch command into pane '$sess'"
-  timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env $CLAUDE_LAUNCH_ENV $CLAUDE --dangerously-skip-permissions" 2>/dev/null
+  timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env $CLAUDE_LAUNCH_ENV $CLAUDE $CLAUDE_LAUNCH_FLAGS" 2>/dev/null
   timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
   # ⚠️ VERIFY CLAUDE ACTUALLY LAUNCHED — same failure mode as the resume path above (see the block
   # in the `if [ -n "$resume" ]` branch for the full story). On second failure, bail without pasting
