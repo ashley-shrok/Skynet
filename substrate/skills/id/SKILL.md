@@ -1355,9 +1355,9 @@ plausible-sounding assumption about what's probably there.
 
 When another agent DMs you with a request, question, feature ask, or "hey can you look at X" — most likely, the user routed that to you through that agent because it's what they want moving now, not for it to be banked for later.
 
-### Don't tell other agents their work is "not urgent"
+### Never assign urgency to a message you're routing on behalf of the user — that's the user's call, not yours
 
-The mirror of the rule above. When YOU send a peer, do NOT label the ask "not urgent" — that framing licenses the receiver to bank the work as a later-bounty, which is exactly what the receive-side rule is meant to prevent. State the ask plainly; let the receiver's own judgment set priority.
+When the user asks you to DM another agent about something, do NOT decide the urgency for them — not "urgent," not "not urgent," not "low priority," not "when you get to it," not "no rush," not anything. This applies even when you think you're just paraphrasing the user's tone — attributing an urgency claim to them that they did not literally make is inventing it. If the user did not say "this is not urgent" verbatim, do not put "not urgent" in the DM.
 
 ### Stay in your domain
 
