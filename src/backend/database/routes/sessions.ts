@@ -253,7 +253,7 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
       } else if (h.terminalConfig && typeof h.terminalConfig === "object") {
         cfg = h.terminalConfig as Record<string, unknown>;
       }
-      return cfg.autoTmux === true;
+      return cfg.autoTmux !== false;
     });
 
     const results = await Promise.all(

@@ -17,7 +17,7 @@ export function isSshLaunchableHost(h: Host): boolean {
 // session on connect. The click handler uses this to decide whether to pop
 // the name dialog vs. open a plain terminal.
 export function isAutoTmuxHost(h: Host): boolean {
-  return Boolean(h.enableSsh && h.terminalConfig?.autoTmux === true);
+  return Boolean(h.enableSsh && h.terminalConfig?.autoTmux !== false);
 }
 
 // Mirrors RemoteHostChips visually (same chip styling, same row layout)

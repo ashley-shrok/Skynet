@@ -1930,7 +1930,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
             }, 1000);
           }
 
-          const autoTmux = hostConfig.terminalConfig?.autoTmux === true;
+          const autoTmux = hostConfig.terminalConfig?.autoTmux !== false;
 
           // Helper to run initialPath/executeCommand after the shell
           // (or tmux session) is ready
