@@ -1759,17 +1759,15 @@ export function ComposeBox({
   // reaches onSend.
 
   // Synchronous UI effects — MUST run BEFORE any await in the recording
-  // branch (patch #122 latency guarantee: SessionHoldingOverlay pops on
+  // branch (patch #122 latency guarantee: drain-sweep animation fires on
   // click, not after the ~1-3s STT round-trip).
+  //
+  // quick 260905-d79 invariant: onResetClicked is NOT called here any more.
+  // It moved into dispatchResetPayload's `if (dispatched)` branch so that
+  // a disconnected socket (funnel.send returns false) does NOT falsely mount
+  // the overlay for 10 minutes. The drain-sweep / pulse animation below
+  // still fires unconditionally on click as an always-fire visual affordance.
   function fireResetSyncFx() {
-    // Patch #122: fire the PrettyView `isHolding` signal synchronously so
-    // `SessionHoldingOverlay`'s 350ms delay-arm timer starts NOW, not when
-    // the backend's `session_holding` WS frame arrives (~seconds later).
-    // The `/id reset` payload still routes through the normal `onSend`
-    // path in dispatchResetPayload below — this is purely a UI-latency
-    // shortcut.
-    onResetClicked?.();
-
     // Vehicle C v2: source-scoped cancel — reset dequeues primary only
     // (reset acts on the primary textarea's context). Other armed
     // sources persist through the cadence.
@@ -1817,6 +1815,10 @@ export function ComposeBox({
     // the mqid regardless of whether the bubble will render.
     const dispatched = funnel.send(payload, { trigger: "reset" });
     if (dispatched) {
+      // quick 260905-d79: onResetClicked fires on dispatch SUCCESS only — not
+      // on click — so a disconnected socket (funnel.send returns false) does
+      // not falsely mount the optimistic overlay for 10 minutes.
+      onResetClicked?.();
       setText("");
       clearAfterSend();
     } else {

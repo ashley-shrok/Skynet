@@ -735,39 +735,59 @@ export function PrettyView({
   const [autoplayArmed, setAutoplayArmed] = useState<boolean>(false);
   const [autoplayTargetEventId, setAutoplayTargetEventId] = useState<string | null>(null);
   const autoplayArmedRef = useRef<boolean>(false);
-  // Phase 30 (PS30-05): patch #381's client-hint anti-pattern is DELETED.
+  // quick 260905-d79 — client-hint-with-backend-override reintroduced.
   //
-  // Pre-Phase-30 this callback synchronously flipped local isHolding=true
-  // AND flipped the client-inferred first-frame axis to "session_holding"
-  // so the SessionHoldingOverlay could mount BEFORE the backend confirmed
-  // the /id reset — a user-gesture hint working around the client-
-  // inference gap. Phase 30 removes that gap: the backend's session-file
-  // parser (Plan 30-02) detects /id reset in the JSONL tail and the
-  // pane_state emitter (Plan 30-01) fires `{type:"pane_state",
-  // state:"holding", reason:"id_reset"}` within milliseconds — the
-  // ~10-30ms round-trip includes SSH exec + tmux send-keys + Claude Code
-  // processing + JSONL write, and dominates by 50-100× over the WS emit-
-  // and-receive path. Patch #381 was working around a client-inference
-  // sourcing gap, not a network-latency gap; with the sourcing gap
-  // closed, the client hint is redundant and DELETED.
+  // Phase 30 (PS30-05) deleted patch #381's client-hint as redundant once
+  // Plan 30-02's JSONL-tail scan closed the sourcing gap. UAT then surfaced
+  // a DIFFERENT gap: source B's SSH poll cadence + SSH exec round-trip still
+  // introduces a few-seconds lag between the user pressing reset and the
+  // `recycling` axis flipping on the wire. This implementation is the
+  // "documented fallback" the Phase 30 comment explicitly named.
   //
-  // If UAT surfaces a visible-flash regression, the documented fallback
-  // (client-hint-with-backend-override) is: `onClick={() => {
-  // setPaneState("holding"); /* tmux keystroke fires as normal */ }}` —
-  // a one-line optimistic hint that the NEXT pane_state frame from the
-  // backend overrides unconditionally. Distinct from patch #381 in that
-  // patch #381 was a client-source-of-truth that could disagree with the
-  // backend indefinitely (until a client-inference update overrode it);
-  // this fallback design has the backend override on the very next frame
-  // no matter what. Not implemented here; deferred to deploy-orchestrator
-  // UAT loop per Plan 30-03 § F4 acknowledgment.
-  //
-  // The reset button's UI role (tmux keystroke firing /id reset into the
-  // pane) lives elsewhere in the ComposeBox reset-cell component; this
-  // callback is a no-op placeholder for the ComposeBox prop contract.
+  // Design:
+  //   - optimisticRecycling: per-pane React state (NOT promoted to
+  //     session-working-store — Ashley's explicit decision this session;
+  //     source B catches the JSONL append within seconds so the
+  //     "user switches tabs mid-recycle" window is small enough to accept
+  //     losing overlay-across-mount).
+  //   - Flipped true ONLY on dispatch success (funnel.send returns true),
+  //     so a disconnected socket does NOT falsely show the overlay for 10 min.
+  //   - Self-clears after 10 minutes if the backend authoritative frame never
+  //     arrives (upper-bound safety net).
+  //   - Backend takeover: when isRecycling flips true the optimistic slot is
+  //     cleared early — the overlay stays mounted via isRecycling; when
+  //     isRecycling subsequently flips false the overlay unmounts cleanly.
+  //   - All three consumer sites (overlay mount gate, isHolding, recycleActive)
+  //     now read from effectiveRecycling = isRecycling || optimisticRecycling.
+  const [optimisticRecycling, setOptimisticRecycling] = useState(false);
+  const optimisticRecyclingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const onResetClicked = useCallback(() => {
-    // No-op — see comment above.
+    if (optimisticRecyclingTimerRef.current !== null) {
+      clearTimeout(optimisticRecyclingTimerRef.current);
+    }
+    setOptimisticRecycling(true);
+    optimisticRecyclingTimerRef.current = setTimeout(() => {
+      optimisticRecyclingTimerRef.current = null;
+      setOptimisticRecycling(false);
+    }, 10 * 60 * 1000);
   }, []);
+
+  // Cleanup timeout on unmount.
+  useEffect(() => {
+    return () => {
+      if (optimisticRecyclingTimerRef.current !== null) {
+        clearTimeout(optimisticRecyclingTimerRef.current);
+        optimisticRecyclingTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // NOTE: The backend-takeover useEffect (watching isRecycling) lives further
+  // below, after `isRecycling` is declared via useSessionIsRecycling. Hooks must
+  // reference the variable AFTER its `const` declaration — placing the effect here
+  // would cause a temporal dead zone ReferenceError. Search for
+  // "backend-takeover clear" to find the effect.
 
   // Quick 260811-8we: long-press speak callback for the pane-scoped autoplay
   // toggle. Toggles armed state: arm on first press (sets target to the pressed
@@ -1292,6 +1312,23 @@ export function PrettyView({
   // isHolding + recycleActive props. Reuses sessionWorkingKey (line above) —
   // same key shape.
   const isRecycling = useSessionIsRecycling(sessionWorkingKey);
+  // quick 260905-d79: composite for all three overlay/ComposeBox consumer sites.
+  // effectiveRecycling = backend-authoritative OR client-optimistic (dispatch success).
+  const effectiveRecycling = isRecycling || optimisticRecycling;
+
+  // quick 260905-d79: backend-takeover clear — when backend authoritative recycling
+  // flips true, the optimistic slot is cleared early. The overlay stays mounted via
+  // `isRecycling`; when isRecycling subsequently flips false the overlay unmounts.
+  // This effect lives HERE (after isRecycling's const declaration) rather than with
+  // the other onResetClicked effects above to avoid a temporal dead zone ReferenceError
+  // (`const isRecycling` is only in scope from this line forward).
+  useEffect(() => {
+    if (isRecycling && optimisticRecyclingTimerRef.current !== null) {
+      clearTimeout(optimisticRecyclingTimerRef.current);
+      optimisticRecyclingTimerRef.current = null;
+      setOptimisticRecycling(false);
+    }
+  }, [isRecycling]);
 
   // Phase 41 Plan 01: re-source isIdle from the fleet-status broadcast store
   // instead of reading the isIdle prop (which was always null in production
@@ -3065,8 +3102,11 @@ export function PrettyView({
           reading the caretaker's `.recycled-at` sentinel per Plan 53-01.
           The connection-drop overlay (a separate concern per CONTEXT.md)
           stays on `wsTransportState`. Phase 30 PS30-06 `error` prop was
-          retired in Phase 29 and stays retired. */}
-      {isRecycling && <SessionHoldingOverlay />}
+          retired in Phase 29 and stays retired.
+          quick 260905-d79: now gated on `effectiveRecycling` (= isRecycling
+          || optimisticRecycling) — single source for all three consumer sites
+          (this mount gate, isHolding, recycleActive). */}
+      {effectiveRecycling && <SessionHoldingOverlay />}
       {/* Phase 30 (PS30-06) + phase-30-restore-resolving-overlay-paint-delay
           (2026-08-10): PrettyViewLoadingOverlay is the resolving-state
           spinner. Mount gate is `showResolvingSpinner` — a boolean flipped
@@ -3452,12 +3492,17 @@ export function PrettyView({
           // (working-store Axis E) — one source for all three ComposeBox +
           // overlay recycle sites per CONTEXT.md scope-lock. Previously
           // derived from `renderedState === "holding"` (Phase 30 PS30-04).
-          isHolding={isRecycling}
+          // quick 260905-d79: updated to effectiveRecycling (= isRecycling ||
+          // optimisticRecycling) so controls disable optimistically on dispatch
+          // success, preventing the user from hammering reset again mid-recycle.
+          isHolding={effectiveRecycling}
           // Phase 53 Plan 03 — recycleActive now derives from `isRecycling`
           // (same source as isHolding above and the overlay mount). Semantic
           // preserved (WS-side-effecting controls disabled while the holding
           // overlay is up). Previously derived from `renderedState === "holding"`.
-          recycleActive={isRecycling}
+          // quick 260905-d79: updated to effectiveRecycling — same source as
+          // isHolding and overlay mount gate per "one source for all three sites".
+          recycleActive={effectiveRecycling}
           // Phase 24: same disable treatment as recycleActive but for
           // the plan-mode approval-prompt window. When the WS
           // plan_pending state is non-null (the [Approve]/[Feedback]

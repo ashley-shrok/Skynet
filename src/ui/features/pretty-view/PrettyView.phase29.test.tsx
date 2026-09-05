@@ -267,7 +267,11 @@ describe("Phase 30 — structural-grep gates (PS30-04 + PS30-05 + PS30-06)", () 
     // (iii) New hook consumed from the working-store.
     expect(pvSrc).toMatch(/useSessionIsRecycling/);
     // (iv) Overlay mount gate reads isRecycling (not renderedState === "holding").
-    expect(pvSrc).toMatch(/\{isRecycling && <SessionHoldingOverlay/);
+    // quick 260905-d79: mount gate now uses `effectiveRecycling` (= isRecycling ||
+    // optimisticRecycling) — still derived from isRecycling as the authoritative
+    // backend axis; the composite is declared immediately after the hook call.
+    // Accept either the old direct form or the new composite form.
+    expect(pvSrc).toMatch(/\{(?:isRecycling|effectiveRecycling) && <SessionHoldingOverlay/);
   });
 
   it("usePaneResolvingMachine.ts: reduced to trivial derivation (<60 LOC, zero React state/effect machinery)", () => {

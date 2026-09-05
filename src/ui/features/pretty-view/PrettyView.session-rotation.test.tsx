@@ -30,7 +30,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, act, waitFor } from "@testing-library/react";
+import { render, act, waitFor, screen, fireEvent } from "@testing-library/react";
+import {
+  publishFleetStatusSessionState,
+  __resetForTest as resetWorkingStore,
+} from "@/state/session-working-store";
 
 type WsStub = {
   readyState: number;
@@ -341,5 +345,230 @@ describe("PrettyView — session-file rotation detection at fresh-WS attach", ()
 
     await new Promise((r) => setTimeout(r, 20));
     expect(container.querySelectorAll("[data-pv-bubble]").length).toBe(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// quick 260905-d79 — optimistic session-recycling overlay cases
+//
+// Three new invariants that prove the client-hint-with-backend-override
+// design works end-to-end:
+//   D1 — reset click → SessionHoldingOverlay mounts immediately, no wire
+//        frame required.
+//   D2 — optimistic mount + backend recycling:true (overlay stays) →
+//        backend recycling:false (overlay unmounts, proving optimistic slot
+//        was cleared by the backend-takeover useEffect).
+//   D3 — optimistic mount + NO backend signal → 10-min timer self-clears
+//        the overlay.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function makeRecyclingState(recycling: boolean) {
+  return {
+    hostId: "1",
+    tmuxSession: "s1",
+    sessionId: "test-session",
+    pid: 12345,
+    status: "idle" as const,
+    backgroundTasks: [] as never[],
+    updatedAt: Date.now(),
+    lastMessageAt: null,
+    aiTitle: null,
+    dormant: false,
+    recycling,
+  };
+}
+
+describe("PrettyView — quick 260905-d79 optimistic session-recycling overlay", () => {
+  const originalGetBoundingClientRect =
+    HTMLElement.prototype.getBoundingClientRect;
+  const originalOffsetHeightDescriptor = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "offsetHeight",
+  );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    wsStubs.length = 0;
+    useSessionIdentityMock.mockReturnValue({
+      identity: null,
+      identityHue: null,
+    });
+    vi.stubGlobal(
+      "ResizeObserver",
+      vi.fn(function () {
+        return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+      }),
+    );
+    HTMLElement.prototype.getBoundingClientRect = function (): DOMRect {
+      if (this.hasAttribute && this.hasAttribute("data-pv-bubble")) {
+        return {
+          top: 0,
+          left: 0,
+          right: 1024,
+          bottom: 80,
+          width: 1024,
+          height: 80,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        } as DOMRect;
+      }
+      return originalGetBoundingClientRect.call(this);
+    };
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get(): number {
+        if (this.hasAttribute && this.hasAttribute("data-pv-bubble")) {
+          return 80;
+        }
+        return 0;
+      },
+    });
+  });
+
+  afterEach(() => {
+    HTMLElement.prototype.getBoundingClientRect =
+      originalGetBoundingClientRect;
+    if (originalOffsetHeightDescriptor) {
+      Object.defineProperty(
+        HTMLElement.prototype,
+        "offsetHeight",
+        originalOffsetHeightDescriptor,
+      );
+    }
+    act(() => { resetWorkingStore(); });
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("Test D1: reset click immediately mounts SessionHoldingOverlay without any recycling wire frame", async () => {
+    const { container } = render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        onSend={() => true}
+        isVisible={true}
+      />,
+    );
+    const ws = getCurrentWs();
+    // Open WS and send session frame so the compose box is available.
+    sendSessionFrame(ws, "/tmp/d1.jsonl");
+
+    // Wait for the reset button to appear.
+    await waitFor(() => {
+      const btn = container.querySelector('button[aria-label="Reset context window"]');
+      expect(btn).not.toBeNull();
+    });
+
+    // No overlay yet — no wire frame published.
+    expect(screen.queryByText(/Session recycling/i)).toBeNull();
+
+    // Click reset.
+    const resetBtn = container.querySelector(
+      'button[aria-label="Reset context window"]',
+    ) as HTMLButtonElement;
+    act(() => {
+      fireEvent.click(resetBtn);
+    });
+
+    // Overlay mounts immediately — optimistic slot flipped on dispatch success.
+    await waitFor(() => {
+      expect(screen.queryByText(/Session recycling/i)).not.toBeNull();
+    });
+  });
+
+  it("Test D2: backend recycling:true → overlay stays (optimistic cleared early) → backend recycling:false → overlay unmounts", async () => {
+    const { container } = render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        onSend={() => true}
+        isVisible={true}
+      />,
+    );
+    const ws = getCurrentWs();
+    sendSessionFrame(ws, "/tmp/d2.jsonl");
+
+    await waitFor(() => {
+      const btn = container.querySelector('button[aria-label="Reset context window"]');
+      expect(btn).not.toBeNull();
+    });
+
+    // Click reset — optimistic slot set.
+    const resetBtn = container.querySelector(
+      'button[aria-label="Reset context window"]',
+    ) as HTMLButtonElement;
+    act(() => {
+      fireEvent.click(resetBtn);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Session recycling/i)).not.toBeNull();
+    });
+
+    // Backend authoritative frame lands: recycling:true — overlay stays mounted,
+    // optimistic slot is cleared (backend takeover useEffect fires).
+    await act(async () => {
+      publishFleetStatusSessionState("1", makeRecyclingState(true));
+    });
+    expect(screen.queryByText(/Session recycling/i)).not.toBeNull();
+
+    // Backend frame: recycling:false — overlay must unmount.
+    // If the optimistic slot were still set, overlay would stay, and this fails —
+    // proving the backend-takeover useEffect correctly cleared the optimistic slot.
+    await act(async () => {
+      publishFleetStatusSessionState("1", makeRecyclingState(false));
+    });
+    await waitFor(() => {
+      expect(screen.queryByText(/Session recycling/i)).toBeNull();
+    });
+  });
+
+  it("Test D3: optimistic mount with no backend signal → 10-min timer self-clears overlay", async () => {
+    // Switch to fake timers for this test only — restored in afterEach via vi.useRealTimers().
+    vi.useFakeTimers();
+
+    const { container } = render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        onSend={() => true}
+        isVisible={true}
+      />,
+    );
+    const ws = getCurrentWs();
+
+    // Open WS and send session frame (synchronous act so React effects flush).
+    act(() => {
+      ws.onopen?.();
+      ws.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "session", pid: 1, sessionFile: "/tmp/d3.jsonl" }),
+        }),
+      );
+    });
+
+    // Advance timers to let any delay-arm effects settle (resolving spinner guard etc.)
+    act(() => { vi.advanceTimersByTime(500); });
+
+    // Reset button should now be present (streaming state → canSend=true → not disabled).
+    const resetBtn = container.querySelector(
+      'button[aria-label="Reset context window"]',
+    ) as HTMLButtonElement | null;
+    expect(resetBtn).not.toBeNull();
+
+    // Click reset — optimistic slot set + 10-min self-clear timer armed.
+    act(() => { fireEvent.click(resetBtn!); });
+
+    // Overlay must be mounted immediately (synchronous state update).
+    expect(screen.queryByText(/Session recycling/i)).not.toBeNull();
+
+    // Advance fake timers by 10 minutes + 1 ms — setTimeout callback fires,
+    // setOptimisticRecycling(false) → React re-renders → overlay unmounts.
+    act(() => { vi.advanceTimersByTime(10 * 60 * 1000 + 1); });
+
+    // Overlay must be gone — the 10-min upper-bound self-clear fired.
+    expect(screen.queryByText(/Session recycling/i)).toBeNull();
   });
 });

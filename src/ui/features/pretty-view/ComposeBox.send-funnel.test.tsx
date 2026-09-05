@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, act, waitFor, fireEvent } from "@testing-library/react";
+import { render, act, waitFor, fireEvent, screen } from "@testing-library/react";
 import { getComposeDraft } from "@/api/compose-drafts-api";
 
 type WsStub = {
@@ -404,5 +404,82 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
     expect(inputFrame!.messageQueueItemId).toBe(onSendMqidCapture);
 
     unmount();
+  });
+
+  // quick 260905-d79 — dispatch-success-vs-fail gate for onResetClicked.
+  //
+  // onResetClicked?.() was moved from fireResetSyncFx (always fires on click)
+  // into dispatchResetPayload's `if (dispatched)` branch (fires only when
+  // funnel.send returns true). These two cases lock that invariant:
+  //   Test 6a: dispatch success (onSend returns true) → overlay mounts.
+  //   Test 6b: dispatch fail (onSend returns false) → overlay stays absent.
+  //
+  // The observable proxy for onResetClicked firing is SessionHoldingOverlay
+  // mounting: PrettyView's onResetClicked sets optimisticRecycling=true which
+  // effectiveRecycling=isRecycling||optimisticRecycling gates to true.
+
+  it("Test 6a: reset with dispatch success (onSend returns true) → SessionHoldingOverlay mounts optimistically", async () => {
+    const successOnSend = vi.fn(() => true);
+    const { container } = render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        isVisible={true}
+        onSend={successOnSend}
+      />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+
+    await waitFor(() =>
+      expect(container.querySelector('button[aria-label="Reset context window"]')).not.toBeNull(),
+    );
+
+    // No overlay before reset.
+    expect(screen.queryByText(/Session recycling/i)).toBeNull();
+
+    // Click reset — funnel.send will call onSend which returns true.
+    const resetBtn = container.querySelector(
+      'button[aria-label="Reset context window"]',
+    ) as HTMLButtonElement;
+    act(() => { fireEvent.click(resetBtn); });
+
+    // Overlay mounts — onResetClicked fired because dispatch succeeded.
+    await waitFor(() => {
+      expect(screen.queryByText(/Session recycling/i)).not.toBeNull();
+    });
+  });
+
+  it("Test 6b: reset with dispatch fail (onSend returns false) → SessionHoldingOverlay does NOT mount", async () => {
+    const failOnSend = vi.fn(() => false);
+    const { container } = render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        isVisible={true}
+        onSend={failOnSend}
+      />,
+    );
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+
+    await waitFor(() =>
+      expect(container.querySelector('button[aria-label="Reset context window"]')).not.toBeNull(),
+    );
+
+    // No overlay before reset.
+    expect(screen.queryByText(/Session recycling/i)).toBeNull();
+
+    // Click reset — funnel.send calls onSend which returns false (disconnected).
+    const resetBtn = container.querySelector(
+      'button[aria-label="Reset context window"]',
+    ) as HTMLButtonElement;
+    act(() => { fireEvent.click(resetBtn); });
+
+    // Give React time to process any state updates.
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Overlay must NOT mount — onResetClicked was NOT called because dispatch failed.
+    expect(screen.queryByText(/Session recycling/i)).toBeNull();
   });
 });
