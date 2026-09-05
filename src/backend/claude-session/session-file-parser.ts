@@ -1279,6 +1279,17 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
     return { kind: "skip", why: "empty_content" };
   }
 
+  // "No response requested." — harness plumbing, never a real message from
+  // either role. Original 2026-09-02 fix landed inside the isUser-only block
+  // below, but the phrase is emitted by Claude Code as a synthetic assistant
+  // turn (model:"<synthetic>") when a turn closes without needing a response,
+  // e.g. after /exit — so gating on isUser missed it entirely. Exact-match on
+  // trim, role-agnostic; a real user or model message that merely CONTAINS
+  // the phrase still renders.
+  if (content.trim() === "No response requested.") {
+    return { kind: "skip", why: "no_response_requested" };
+  }
+
   // Quick-260829-r9i: skip 5 session-lifecycle noise shapes that render as
   // user-role bubbles in PrettyView but aren't real user speech — they're
   // supervisor-injected slash commands, resume sentinels, goodbye echoes, and
@@ -1310,15 +1321,9 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
     if (content.trim().replace(/[\x00-\x1F]/g, "") === "") {
       return { kind: "skip", why: "ctrl_c_kill" };
     }
-    // Ashley 2026-09-02: relay-hygiene closer phrase — a bare "No response
-    // requested." user turn is peer-agent signaling with no conversational
-    // payload. Exact-match on trim (mirrors goodbye_echo's closed-set posture,
-    // NOT a substring/suffix strip) — a real user message that ENDS with or
-    // CONTAINS the phrase still renders so any real prose around it is
-    // preserved.
-    if (content.trim() === "No response requested.") {
-      return { kind: "skip", why: "no_response_requested" };
-    }
+    // (The "No response requested." skip lives ABOVE the isUser gate now —
+    // it needed to cover synthetic assistant turns too. See the comment
+    // just after the empty_content skip.)
   }
 
   // Skip harness-injected wrapper-only user turns. The Monitor tool

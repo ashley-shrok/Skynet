@@ -1457,6 +1457,28 @@ describe("parseSessionLine — session-lifecycle noise skips (quick-260829-r9i)"
     expect(parsed.why).toBe("no_response_requested");
   });
 
+  it("Test R9I-9c: no_response_requested — synthetic assistant turn (model:'<synthetic>') is skipped", () => {
+    // Regression: original 2026-09-02 fix gated the phrase check on isUser,
+    // but Claude Code emits it as a synthetic assistant turn after /exit
+    // (model:'<synthetic>'). The bubble rendered on Stacy's T800 instance
+    // because the gate missed the assistant path. Check is now role-agnostic.
+    const parsed = parseSessionLine(
+      line({
+        type: "assistant",
+        uuid: "u-r9i-9c",
+        timestamp: "2026-09-05T08:34:13.790Z",
+        message: {
+          model: "<synthetic>",
+          role: "assistant",
+          content: [{ type: "text", text: "No response requested." }],
+        },
+      }),
+    );
+    expect(parsed.kind).toBe("skip");
+    if (parsed.kind !== "skip") throw new Error("unreachable");
+    expect(parsed.why).toBe("no_response_requested");
+  });
+
   it("Test R9I-9b: substring / suffix does NOT trigger no_response_requested — real prose passes through", () => {
     // Guard against widening this to a substring/suffix match by accident —
     // a real informational user turn that ENDS with the phrase must still
