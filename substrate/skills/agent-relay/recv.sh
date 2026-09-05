@@ -163,8 +163,29 @@ emit_body(){  # room sender event_id body -> echo the line to surface (spilling 
   # PATH first (survives any truncation), a bounded preview LAST (harmless if it gets cut)
   printf '%s' "${prefix}[long message, ${#body} chars — full text at ${path} — Read it] «${body:0:160}…»"
 }
+# --- Orphan-monitor guard (added 2026-09-05 after Noelle ate a Nelly dispatch) ---
+# Capture the harness (Claude Code) PID at startup. Our direct parent is the bash-c wrapper
+# the Monitor tool spawns; the wrapper stays alive as a waiter even after Claude dies, so
+# checking $PPID would always succeed. The GRANDPARENT is the Claude process — that's what
+# we need to track. Read it from /proc/$PPID/status which is stable across the child fork.
+# In the main loop below, kill -0 the grandparent each iteration; if it's gone, exit(0)
+# BEFORE any sync/state changes. This closes the orphan bug where recv.sh kept polling for
+# days after Claude was killed, silently advancing SINCE past messages nobody ever saw
+# (the SIGPIPE never fired because a socket stdout only EPIPEs on actual write failure, and
+# the poll loop rarely writes). If we can't resolve the grandparent (unusual launch shape),
+# fall back to skipping the check — better to keep polling than to accidentally self-exit.
+HARNESS_PID=$(awk '/^PPid:/{print $2}' "/proc/$PPID/status" 2>/dev/null)
+if [ -z "$HARNESS_PID" ] || [ "$HARNESS_PID" = "0" ] || [ "$HARNESS_PID" = "1" ]; then
+  echo "recv.sh: orphan-check disabled (couldn't resolve grandparent from /proc/$PPID/status)" >&2
+  HARNESS_PID=""
+fi
 # -------------------------------------------------------------------------------------------
 while :; do
+  # Orphan-monitor guard: if Claude Code died, self-exit before touching Matrix state.
+  # kill -0 sends no signal; it just tests process existence. Cheap check per iteration.
+  if [ -n "$HARNESS_PID" ] && ! kill -0 "$HARNESS_PID" 2>/dev/null; then
+    exit 0
+  fi
   # If SINCE is empty (fresh identity's first wake, or corrupted cursor), do an INITIAL SYNC
   # by omitting the `since` param — Matrix returns the full current account state including
   # any pending invites in `.rooms.invite`. Initial sync returns immediately (timeout is

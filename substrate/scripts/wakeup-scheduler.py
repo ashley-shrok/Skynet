@@ -229,7 +229,33 @@ def main():
         open(last_path(key), "w").write(str(ts))
 
     warned = set()          # (key, kind) — one-shot LOUD alert per issue per session
+
+    # Orphan-monitor guard (added 2026-09-05 after Noelle ate a Nelly dispatch).
+    # Capture harness (Claude Code) PID at startup — our GRANDPARENT, not $PPID (which is
+    # the bash-c wrapper the Monitor tool spawns; the wrapper stays alive as a waiter even
+    # when Claude dies). Check per iteration below; if Claude is gone, exit(0) BEFORE any
+    # spec fires — matches the fix in recv.sh. See bounty orphan-monitor-self-suicide-check.
+    harness_pid = None
+    try:
+        with open("/proc/%d/status" % os.getppid()) as f:
+            for line in f:
+                if line.startswith("PPid:"):
+                    p = int(line.split()[1])
+                    if p > 1:
+                        harness_pid = p
+                    break
+    except (OSError, ValueError):
+        pass
+    if harness_pid is None:
+        print("wakeup-scheduler: orphan-check disabled (couldn't resolve grandparent)",
+              file=sys.stderr, flush=True)
+
     while True:
+        if harness_pid is not None:
+            try:
+                os.kill(harness_pid, 0)  # signal 0: existence check only, sends nothing
+            except OSError:
+                sys.exit(0)              # harness gone — self-exit before firing anything
         now_ts = time.time()
         for spec in _load_specs(wdir):
             key = spec["_key"]
