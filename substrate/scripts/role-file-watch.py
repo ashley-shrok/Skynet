@@ -106,9 +106,20 @@ def _atomic_write_baseline(baseline_dir, last_snapshot_path, data):
 
 def _run_diff(baseline_path, role_file_path):
     """Run unified diff between baseline and current role file. Returns stdout str.
-    diff exits 1 when files differ — that is the normal/expected case; capture anyway."""
+    diff exits 1 when files differ — that is the normal/expected case; capture anyway.
+
+    --label flags replace the file paths in the `---`/`+++` header lines so the event
+    doesn't leak the internal snapshot path (~150-250 chars of noise per event) into
+    every wake. The agent only cares that the two sides are baseline vs current.
+    """
     result = subprocess.run(
-        ["diff", "-u", str(baseline_path), str(role_file_path)],
+        [
+            "diff", "-u",
+            "--label", "baseline",
+            "--label", "current",
+            str(baseline_path),
+            str(role_file_path),
+        ],
         capture_output=True,
         text=True,
     )
@@ -116,9 +127,16 @@ def _run_diff(baseline_path, role_file_path):
 
 
 def _emit_event(role, diff_stdout, spill_dir):
-    """Emit one event line (or spill to file if over INLINE_MAX)."""
+    """Emit one event line (or spill to file if over INLINE_MAX).
+
+    INLINE_MAX is a BYTE cap (the harness measures the emitted line in UTF-8 bytes),
+    so we check `len(line.encode("utf-8"))` — not `len(line)`, which counts code points.
+    Role files routinely contain multi-byte chars (curly quotes, em-dashes, emoji in
+    directives); a line at len==460 code points can be well over 460 bytes and get
+    truncated by the harness — exactly the failure mode the spill exists to prevent.
+    """
     line = "📝 [role-file: %s] %s" % (role, diff_stdout)
-    if len(line) <= INLINE_MAX:
+    if len(line.encode("utf-8")) <= INLINE_MAX:
         print(line, flush=True)
     else:
         # Spill: create spill_dir lazily, write full diff, emit pointer-only line.
@@ -185,17 +203,20 @@ def main():
     identity_file_path = os.path.join(ident_dir, "%s.md" % name)
     role, err = _parse_role_from_frontmatter(identity_file_path)
     if err:
+        # Setup-failure diagnostics go to BOTH stdout and stderr. Stdout so the AGENT
+        # gets woken with the diagnostic — a stderr-only failure produces a
+        # silent-deaf watch the agent never learns about (mirrors recv.sh's
+        # HARD-FAIL PREAMBLE convention against silent-deaf receivers).
+        print("📝 [role-file-watch] SETUP FAILED: %s" % err, flush=True)
         print("⚠️ [role-file-watch] %s" % err, file=sys.stderr, flush=True)
         sys.exit(1)
 
     # --- Resolve role file path ---
     role_file_path = os.path.expanduser("~/.claude/roles/%s/%s.md" % (role, role))
     if not os.path.exists(role_file_path):
-        print(
-            "⚠️ [role-file-watch] role file not found: %s" % role_file_path,
-            file=sys.stderr,
-            flush=True,
-        )
+        msg = "role file not found: %s" % role_file_path
+        print("📝 [role-file-watch] SETUP FAILED: %s" % msg, flush=True)
+        print("⚠️ [role-file-watch] %s" % msg, file=sys.stderr, flush=True)
         sys.exit(1)
 
     # --- State dirs ---
@@ -241,11 +262,9 @@ def main():
     if not os.path.exists(last_snapshot_path):
         current = _read_bytes(role_file_path)
         if current is None:
-            print(
-                "⚠️ [role-file-watch] role file unreadable at startup: %s" % role_file_path,
-                file=sys.stderr,
-                flush=True,
-            )
+            msg = "role file unreadable at startup: %s" % role_file_path
+            print("📝 [role-file-watch] SETUP FAILED: %s" % msg, flush=True)
+            print("⚠️ [role-file-watch] %s" % msg, file=sys.stderr, flush=True)
             sys.exit(1)
         _atomic_write_baseline(baseline_dir, last_snapshot_path, current)
         # Emit NOTHING to stdout on cold start (shape file "silent on cold start" invariant)
