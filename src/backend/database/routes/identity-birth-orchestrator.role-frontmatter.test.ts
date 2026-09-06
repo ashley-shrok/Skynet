@@ -739,6 +739,126 @@ it("Test 24a: writeAvatarSiblingFile throws → step:2:failed, Steps 3/4/5 never
   expect(step3Started).toBeUndefined();
 }, 30_000);
 
+// ---------------------------------------------------------------------------
+// Phase 80 Plan 80-03 — task field frontmatter emission
+// ---------------------------------------------------------------------------
+//
+// buildIdentityFileBody must emit `task: <value>` in the frontmatter after
+// the `avatar` key when opts.task is a non-empty (after-trim) string. Absent,
+// null, empty, or whitespace-only → task key omitted (absent-⇒-omit).
+// Task strings containing YAML metacharacters (colons, quotes) must be
+// correctly quoted by yaml.dump — round-trip via yaml.load must yield the
+// exact input string (T-80-03-01 mitigation).
+
+it("Test T-80-03-a: opts.task present + non-empty → frontmatter contains task after avatar; round-trip preserves value", async () => {
+  const writeAtomic = vi.fn().mockResolvedValue(undefined);
+  const deps = makeDeps({ writeMarkdownFileAtomic: writeAtomic });
+  const opts = makeOpts({
+    name: "testkey",
+    role: "box-maintainer",
+    task: "build the pool-pick endpoint" as unknown as never,
+  } as unknown as Partial<BirthOptions>);
+
+  const { emit } = collectEvents();
+  const birthPromise = birthIdentity(opts, emit, deps);
+  await vi.runAllTimersAsync();
+  await birthPromise;
+
+  expect(writeAtomic).toHaveBeenCalled();
+  const [, , contents] = writeAtomic.mock.calls[0] as [unknown, string, string];
+  const match = contents.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  expect(match).not.toBeNull();
+  const parsed = yaml.load(match![1]) as Record<string, unknown>;
+
+  expect(parsed.task).toBe("build the pool-pick endpoint");
+
+  // Ordering: task must come AFTER avatar (avatar always emitted here since candidate has bytes).
+  const keys = Object.keys(parsed);
+  const avatarIdx = keys.indexOf("avatar");
+  const taskIdx = keys.indexOf("task");
+  expect(avatarIdx).toBeGreaterThanOrEqual(0);
+  expect(taskIdx).toBeGreaterThan(avatarIdx);
+}, 30_000);
+
+it("Test T-80-03-b: opts.task = '' (empty string) → NO task: key in frontmatter", async () => {
+  const writeAtomic = vi.fn().mockResolvedValue(undefined);
+  const deps = makeDeps({ writeMarkdownFileAtomic: writeAtomic });
+  const opts = makeOpts({
+    name: "testkey",
+    role: "box-maintainer",
+    task: "" as unknown as never,
+  } as unknown as Partial<BirthOptions>);
+
+  const { emit } = collectEvents();
+  const birthPromise = birthIdentity(opts, emit, deps);
+  await vi.runAllTimersAsync();
+  await birthPromise;
+
+  const [, , contents] = writeAtomic.mock.calls[0] as [unknown, string, string];
+  const match = contents.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const parsed = yaml.load(match![1]) as Record<string, unknown>;
+  expect("task" in parsed).toBe(false);
+}, 30_000);
+
+it("Test T-80-03-c: opts.task = '   ' (whitespace-only) → NO task: key in frontmatter (absent-⇒-omit)", async () => {
+  const writeAtomic = vi.fn().mockResolvedValue(undefined);
+  const deps = makeDeps({ writeMarkdownFileAtomic: writeAtomic });
+  const opts = makeOpts({
+    name: "testkey",
+    role: "box-maintainer",
+    task: "   " as unknown as never,
+  } as unknown as Partial<BirthOptions>);
+
+  const { emit } = collectEvents();
+  const birthPromise = birthIdentity(opts, emit, deps);
+  await vi.runAllTimersAsync();
+  await birthPromise;
+
+  const [, , contents] = writeAtomic.mock.calls[0] as [unknown, string, string];
+  const match = contents.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const parsed = yaml.load(match![1]) as Record<string, unknown>;
+  expect("task" in parsed).toBe(false);
+}, 30_000);
+
+it("Test T-80-03-d: opts.task undefined → NO task: key in frontmatter (backward-compat with pre-Phase-80 callers)", async () => {
+  const writeAtomic = vi.fn().mockResolvedValue(undefined);
+  const deps = makeDeps({ writeMarkdownFileAtomic: writeAtomic });
+  const opts = makeOpts({ name: "testkey", role: "box-maintainer" });
+
+  const { emit } = collectEvents();
+  const birthPromise = birthIdentity(opts, emit, deps);
+  await vi.runAllTimersAsync();
+  await birthPromise;
+
+  const [, , contents] = writeAtomic.mock.calls[0] as [unknown, string, string];
+  const match = contents.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const parsed = yaml.load(match![1]) as Record<string, unknown>;
+  expect("task" in parsed).toBe(false);
+}, 30_000);
+
+it("Test T-80-03-e: task containing colon 'fix the pool: shape gate' → yaml.dump quotes correctly; round-trip preserves exact string (T-80-03-01 mitigation)", async () => {
+  const writeAtomic = vi.fn().mockResolvedValue(undefined);
+  const deps = makeDeps({ writeMarkdownFileAtomic: writeAtomic });
+  const opts = makeOpts({
+    name: "testkey",
+    role: "box-maintainer",
+    task: "fix the pool: shape gate" as unknown as never,
+  } as unknown as Partial<BirthOptions>);
+
+  const { emit } = collectEvents();
+  const birthPromise = birthIdentity(opts, emit, deps);
+  await vi.runAllTimersAsync();
+  await birthPromise;
+
+  const [, , contents] = writeAtomic.mock.calls[0] as [unknown, string, string];
+  const match = contents.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const parsed = yaml.load(match![1]) as Record<string, unknown>;
+  // Round-trip via yaml.load must yield the exact input (yaml.dump's
+  // forceQuotes:false auto-quotes strings containing YAML metacharacters
+  // per T-66-01-04 precedent).
+  expect(parsed.task).toBe("fix the pool: shape gate");
+}, 30_000);
+
 it("Test 24b: mkdir+touch fired ONCE + writeMarkdownFileAtomic fired ONCE before the avatar-write throw (partial identity folder preserved)", async () => {
   const callOrder: string[] = [];
 
