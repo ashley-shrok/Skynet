@@ -53,16 +53,6 @@ import type { SubscriptionRegistry } from "./subscription-registry.js";
 import type { SessionState } from "./wire-protocol.js";
 import type { HostRecord } from "./host-id-resolver.js";
 import { writeSessionFileCache } from "./session-file-cache.js";
-// Phase 72 Plan 04 — fleet-substrate sweep hook (piggybacks on
-// tryAcquireHostChannel's success moment; fire-and-forget from the poll's
-// perspective; see 72-CONTEXT.md § Shape).
-// Phase 75-01: bundledReaderFromDisk extracted to a shared module so both
-// the legacy sweep hook and the new server-substrate-orchestrator (75-02)
-// consume the same implementation.
-import { bundledReaderFromDisk } from "../distributor/bundled-reader.js";
-import { runSweepForHost } from "../distributor/run-sweep.js";
-import { FLEET_SUBSTRATE_CATALOG } from "../distributor/catalog.js";
-import { logSweepHookError } from "../distributor/log-tags.js";
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -192,17 +182,13 @@ export async function readStatWithSentinel(
 // ---------------------------------------------------------------------------
 
 /**
- * Phase 72 Plan 04 — narrow extension of HostRecord that adds the
- * runs_fleet_substrate opt-in flag (Plan 02's Drizzle column). Kept
- * scoped to the sweep-hook usage because the flag is only meaningful to
- * the sweep hook — the rest of ssh-poll-orchestrator does not care.
- *
- * Phase 72 Plan 05 — promoted to `export` so starter.ts's
- * listIdentityHostingHosts + starter.test.ts's compile-time shape check
- * can reference it directly. The projection helper
- * `projectRunsFleetSubstrate` (starter.ts) normalizes the Drizzle column
- * value into the strict boolean field this type declares, so consumers
- * see fail-closed behavior on any legacy NULL / undefined / non-1 row.
+ * Narrow extension of HostRecord that adds the runs_fleet_substrate opt-in
+ * flag (Phase 72 Plan 02's Drizzle column). Exported so starter.ts's
+ * listIdentityHostingHosts + starter.test.ts's compile-time shape check can
+ * reference it directly. The projection helper `projectRunsFleetSubstrate`
+ * (starter.ts) normalizes the Drizzle column value into the strict boolean
+ * field this type declares, so consumers see fail-closed behavior on any
+ * legacy NULL / undefined / non-1 row.
  *
  * `_connDetails` is the decrypted SSH host record packaged by
  * listIdentityHostingHosts for the acquireSshChannel path; it is opaque
@@ -822,18 +808,6 @@ export function createSshPollOrchestrator(
   // -----------------------------------------------------------------------
   const inFlight = new Set<string>();
   const skipCount = new Map<string, number>();
-  // Phase 72 Plan 04 — fleet-substrate sweep-hook once-per-host gating.
-  // Populated on first FULLY-SUCCESSFUL channel-acquire+sweep per host per
-  // Skynet instance lifetime (post-substrate-sweep-no-retry bounty fix).
-  // A partial-failure sweep leaves the host un-marked so the next poll cycle
-  // re-attempts (paired with per-item retry inside run-sweep.ts). Container
-  // restart wipes the Set (dies with the closure) so the sweep naturally
-  // re-fires on next acquisition.
-  const sweepedThisInstance = new Set<string>();
-  // Prevents concurrent double-fire on the same host while an in-flight sweep
-  // hasn't yet settled — without this, a re-acquire during a running sweep
-  // would kick off a second sweep that races the first.
-  const sweepInFlight = new Set<string>();
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let sweepTimer: ReturnType<typeof setInterval> | null = null;
   let pollTickCount = 0;
@@ -2063,73 +2037,6 @@ export function createSshPollOrchestrator(
         // state per identity.
         identityRecycleState: new Map(),
       });
-
-      // ---------------------------------------------------------------------
-      // Phase 72 Plan 04 — fleet-substrate sweep hook. Piggyback on the
-      // natural moment this channel first became usable for this host in
-      // this instance lifetime. Fire-and-forget: NEVER await, NEVER let a
-      // sweep failure degrade the 2s poll.
-      //
-      // Guarded by:
-      //   1. sweepedThisInstance Set — once per host per Skynet instance
-      //   2. host.runsFleetSubstrate flag — operator opt-in per shape doc
-      //
-      // Container restart wipes both the Set and perHostState, so next
-      // acquisition naturally re-fires. See 72-CONTEXT.md § Shape
-      // "A trigger that fires at most once per host per Skynet instance
-      // lifetime."
-      //
-      // Opt-in flag runsFleetSubstrate populated by starter.ts's listIdentityHostingHosts (wired through 72-05).
-      const extHost = host as IdentityHostingHostRecord;
-      if (
-        extHost.runsFleetSubstrate === true &&
-        !sweepedThisInstance.has(host.id) &&
-        !sweepInFlight.has(host.id)
-      ) {
-        sweepInFlight.add(host.id);
-        // WARN-3 (plan-checker): use queueMicrotask, NOT setImmediate. Both
-        // unblock the acquire path so pollAllHosts() proceeds regardless of
-        // sweep duration, but queueMicrotask is drainable in tests with a
-        // plain `await Promise.resolve()`. setImmediate under vi.useFakeTimers
-        // does NOT drain via tick() — it needs vi.runAllTimersAsync() or a
-        // fresh macrotask cycle, and Test D + Test E can silently produce
-        // false-green if the primitive isn't drained explicitly.
-        queueMicrotask(async () => {
-          try {
-            const result = await runSweepForHost(
-              channel,
-              { id: host.id, name: host.name },
-              FLEET_SUBSTRATE_CATALOG,
-              { readBundledBytes: bundledReaderFromDisk },
-            );
-            // Only mark swept-this-instance on a CLEAN sweep (0 failures).
-            // A partial-failure sweep leaves the host un-marked so the next
-            // poll cycle's acquire attempt re-fires the sweep — pairs with
-            // per-item retry inside run-sweep.ts. Undefined result (test
-            // stub) counts as success for backward compat with existing
-            // orchestrator tests.
-            const failed = result?.itemsFailed ?? 0;
-            if (failed === 0) {
-              sweepedThisInstance.add(host.id);
-            }
-          } catch (err) {
-            // Defense-in-depth. runSweepForHost's own fire-and-forget
-            // contract says it never rejects; this catch is here for the
-            // one-in-a-million edge case (e.g. a synchronous throw before
-            // the composer's outer try). Route through logSweepHookError
-            // from Plan 03's log-tags module rather than inlining
-            // systemLogger.warn — keeps the fleet_substrate_* log surface
-            // unified (WARN-2 fix from the plan-checker revision).
-            logSweepHookError({
-              fleetHostId: host.id,
-              hostName: host.name,
-              errorMessage: err instanceof Error ? err.message : "unknown",
-            });
-          } finally {
-            sweepInFlight.delete(host.id);
-          }
-        });
-      }
     } catch (err) {
       systemLogger.warn("Fleet-status: SSH channel acquire threw for host", {
         operation: "fleet_status_host_ssh_unreachable",
@@ -2282,12 +2189,6 @@ export function createSshPollOrchestrator(
         }
       }
       perHostState.clear();
-      // Phase 72 Plan 04 — clear sweep-hook gating alongside perHostState.
-      // The Set dies with the closure anyway on garbage collection, but
-      // keeping the cleanup symmetric with perHostState.clear() is good
-      // hygiene and makes the once-per-instance invariant obvious.
-      sweepedThisInstance.clear();
-      sweepInFlight.clear();
 
       systemLogger.info("Fleet-status orchestrator stopped", {
         operation: "fleet_status_orchestrator_stopped",

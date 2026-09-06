@@ -19,10 +19,10 @@
  *
  * INJECTED BUNDLED-READ:
  *   deps.readBundledBytes is normally implemented as `fs.readFile + fs.stat`
- *   against the container's local /app/fleet-substrate/ path (see Plan 04
- *   Task 3's bundledReaderFromDisk inside ssh-poll-orchestrator.ts). In
- *   tests it's a stub returning `{ bytes, mode }` or `null`. This keeps
- *   unit tests off the real filesystem.
+ *   against the container's local /app/fleet-substrate/ path (see Phase 75-01's
+ *   bundledReaderFromDisk in distributor/bundled-reader.ts). In tests it's a
+ *   stub returning `{ bytes, mode }` or `null`. This keeps unit tests off the
+ *   real filesystem.
  *
  * SEQUENTIAL PER-ITEM ITERATION:
  *   The composer is a straight for-of loop (no parallel primitive). Keeping
