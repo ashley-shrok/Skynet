@@ -728,3 +728,176 @@ describe("POST /db/host — on-add fire-and-forget sweep trigger (T1-T5)", () =>
     expect(unhandledRejections).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 75-06: PUT flag-flip + credentialId-change trigger tests (T6-T10)
+// ---------------------------------------------------------------------------
+
+/**
+ * Helper: set up db.select to return a "before" host state that the PUT handler reads.
+ * The chain returns a single row with the given before-state fields.
+ */
+async function mockDbSelectForPut(beforeState: {
+  runsFleetSubstrate: boolean;
+  credentialId: number | null;
+}) {
+  const { db } = await import("../../database/db/index.js");
+  const selectChain = {
+    from: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
+    limit: vi.fn(() =>
+      Promise.resolve([
+        {
+          userId: "user-1",
+          credentialId: beforeState.credentialId,
+          authType: "password",
+          runsFleetSubstrate: beforeState.runsFleetSubstrate,
+        },
+      ]),
+    ),
+  };
+  (db.select as ReturnType<typeof vi.fn>).mockReturnValue(selectChain);
+}
+
+describe("PUT /db/host/:id — on-update flag-flip + credentialId-change sweep trigger (T6-T10)", () => {
+  it("T6: flag-flip-on (false→true) → sweepOneHost called once, response resolves before sweep", async () => {
+    // Before: not substrate. After: substrate with credentialId 42.
+    await mockDbSelectForPut({ runsFleetSubstrate: false, credentialId: null });
+
+    let sweepStarted = false;
+    const slowSweep = vi.fn(async () => {
+      sweepStarted = true;
+      await new Promise<void>((resolve) => setTimeout(resolve, 500));
+    });
+    (getSubstrateOrchestrator as ReturnType<typeof vi.fn>).mockReturnValue({
+      sweepOneHost: slowSweep,
+    });
+
+    const req = makePutReq("999", {
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: true,
+      credentialId: 42,
+    });
+    const res = makeMockRes();
+
+    const start = Date.now();
+    await putHandler!(req, res);
+    const elapsed = Date.now() - start;
+
+    expect(res._status).toBe(200);
+    // Response resolves well before the 500ms sweep
+    expect(elapsed).toBeLessThan(200);
+
+    // Drain microtasks so sweepOneHost is at least called
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(sweepStarted).toBe(true);
+    expect(slowSweep).toHaveBeenCalledTimes(1);
+    expect(slowSweep).toHaveBeenCalledWith({
+      id: "999",
+      name: expect.any(String),
+    });
+  });
+
+  it("T7: flag stays true + credentialId changes → sweepOneHost called (credential rotation)", async () => {
+    // Before: substrate with credentialId 42. After: substrate with credentialId 99.
+    await mockDbSelectForPut({ runsFleetSubstrate: true, credentialId: 42 });
+
+    const sweepFn = vi.fn(async () => undefined);
+    (getSubstrateOrchestrator as ReturnType<typeof vi.fn>).mockReturnValue({
+      sweepOneHost: sweepFn,
+    });
+
+    const req = makePutReq("999", {
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: true,
+      credentialId: 99,
+    });
+    const res = makeMockRes();
+
+    await putHandler!(req, res);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(res._status).toBe(200);
+    expect(sweepFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("T8: flag stays true + credentialId unchanged → sweepOneHost NOT called (metadata-only edit)", async () => {
+    // Before: substrate with credentialId 42. After: substrate with credentialId 42 (name changed).
+    await mockDbSelectForPut({ runsFleetSubstrate: true, credentialId: 42 });
+
+    const sweepFn = vi.fn();
+    (getSubstrateOrchestrator as ReturnType<typeof vi.fn>).mockReturnValue({
+      sweepOneHost: sweepFn,
+    });
+
+    const req = makePutReq("999", {
+      ip: "1.1.1.1",
+      port: 22,
+      name: "new-name",
+      runsFleetSubstrate: true,
+      credentialId: 42,
+    });
+    const res = makeMockRes();
+
+    await putHandler!(req, res);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(res._status).toBe(200);
+    expect(sweepFn).not.toHaveBeenCalled();
+  });
+
+  it("T9: flag flip-off (true→false) → sweepOneHost NOT called (leaving substrate)", async () => {
+    // Before: substrate. After: not substrate.
+    await mockDbSelectForPut({ runsFleetSubstrate: true, credentialId: 42 });
+
+    const sweepFn = vi.fn();
+    (getSubstrateOrchestrator as ReturnType<typeof vi.fn>).mockReturnValue({
+      sweepOneHost: sweepFn,
+    });
+
+    const req = makePutReq("999", {
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: false,
+      credentialId: null,
+    });
+    const res = makeMockRes();
+
+    await putHandler!(req, res);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(res._status).toBe(200);
+    expect(sweepFn).not.toHaveBeenCalled();
+  });
+
+  it("T10: never-substrate stays never-substrate → sweepOneHost NOT called", async () => {
+    // Before: not substrate. After: still not substrate but credentialId changed.
+    await mockDbSelectForPut({ runsFleetSubstrate: false, credentialId: 42 });
+
+    const sweepFn = vi.fn();
+    (getSubstrateOrchestrator as ReturnType<typeof vi.fn>).mockReturnValue({
+      sweepOneHost: sweepFn,
+    });
+
+    const req = makePutReq("999", {
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: false,
+      credentialId: 99,
+    });
+    const res = makeMockRes();
+
+    await putHandler!(req, res);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(res._status).toBe(200);
+    expect(sweepFn).not.toHaveBeenCalled();
+  });
+});
