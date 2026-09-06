@@ -62,6 +62,12 @@ vi.mock("../../utils/logger.js", () => ({
     error: vi.fn(),
     success: vi.fn(),
   },
+  systemLogger: {
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+  },
   logger: {
     warn: vi.fn(),
     info: vi.fn(),
@@ -150,10 +156,20 @@ vi.mock("../../utils/stats-monitor.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Phase 75-06: Mock substrate orchestrator singleton
+// ---------------------------------------------------------------------------
+
+vi.mock("../../distributor/substrate-orchestrator-singleton.js", () => ({
+  getSubstrateOrchestrator: vi.fn(() => ({ sweepOneHost: vi.fn() })),
+}));
+
+// ---------------------------------------------------------------------------
 // Import under test
 // ---------------------------------------------------------------------------
 
 import { SimpleDBOps } from "../../utils/simple-db-ops.js";
+import { getSubstrateOrchestrator } from "../../distributor/substrate-orchestrator-singleton.js";
+import { systemLogger } from "../../utils/logger.js";
 import { beforeAll } from "vitest";
 
 // ---------------------------------------------------------------------------
@@ -303,9 +319,13 @@ beforeEach(async () => {
   const selectChain = {
     from: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
-    limit: vi.fn(() => Promise.resolve([{ userId: "user-1", credentialId: null, authType: "password" }])),
+    limit: vi.fn(() => Promise.resolve([{ userId: "user-1", credentialId: null, authType: "password", runsFleetSubstrate: false }])),
   };
   (db.select as ReturnType<typeof vi.fn>).mockReturnValue(selectChain);
+
+  // Phase 75-06: restore default orchestrator mock (returns orchestrator with sweepOneHost)
+  const mockOrch = { sweepOneHost: vi.fn(async () => undefined) };
+  (getSubstrateOrchestrator as ReturnType<typeof vi.fn>).mockReturnValue(mockOrch);
 });
 
 // ---------------------------------------------------------------------------
@@ -486,5 +506,225 @@ describe("PUT /db/host/:id — credentialId guard (U1-U5)", () => {
     await putHandler!(req, res);
 
     expect(res._status).not.toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 75-06: POST on-add fire-and-forget trigger tests (T1-T5)
+// ---------------------------------------------------------------------------
+
+describe("POST /db/host — on-add fire-and-forget sweep trigger (T1-T5)", () => {
+  it("T1 (D-02): substrate host → sweepOneHost called once, response returned before sweep completes", async () => {
+    // Set up a slow sweepOneHost (500ms) to confirm response resolves before sweep completes
+    let sweepStarted = false;
+    let sweepCompleted = false;
+    const slowSweep = vi.fn(async () => {
+      sweepStarted = true;
+      await new Promise<void>((resolve) => setTimeout(resolve, 500));
+      sweepCompleted = true;
+    });
+    (getSubstrateOrchestrator as ReturnType<typeof vi.fn>).mockReturnValue({
+      sweepOneHost: slowSweep,
+    });
+
+    // Insert returns a substrate host
+    (SimpleDBOps.insert as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 123,
+      userId: "user-1",
+      ip: "1.1.1.1",
+      port: 22,
+      name: "substrate-host",
+      connectionType: "ssh",
+      runsFleetSubstrate: true,
+      credentialId: 42,
+      authType: "password",
+    });
+
+    const req = makePostReq({
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: true,
+      credentialId: 42,
+    });
+    const res = makeMockRes();
+
+    const handlerStart = Date.now();
+    await postHandler!(req, res);
+    const handlerDone = Date.now();
+
+    // Response resolves quickly (well under 500ms sweep delay)
+    expect(handlerDone - handlerStart).toBeLessThan(200);
+    // The response is the resolved host
+    expect(res._status).toBe(200);
+    // Sweep has NOT completed yet (it started async)
+    expect(sweepCompleted).toBe(false);
+
+    // Drain microtasks so sweepOneHost was at least called
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(sweepStarted).toBe(true);
+    expect(slowSweep).toHaveBeenCalledTimes(1);
+    expect(slowSweep).toHaveBeenCalledWith({
+      id: "123",
+      name: expect.any(String),
+    });
+  });
+
+  it("T2 (D-02 no-trigger): runsFleetSubstrate:false → sweepOneHost NOT called", async () => {
+    const sweepFn = vi.fn();
+    (getSubstrateOrchestrator as ReturnType<typeof vi.fn>).mockReturnValue({
+      sweepOneHost: sweepFn,
+    });
+
+    (SimpleDBOps.insert as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 124,
+      userId: "user-1",
+      ip: "1.1.1.1",
+      port: 22,
+      name: "non-substrate-host",
+      connectionType: "ssh",
+      runsFleetSubstrate: false,
+      credentialId: 42,
+      authType: "password",
+    });
+
+    const req = makePostReq({
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: false,
+      credentialId: 42,
+    });
+    const res = makeMockRes();
+
+    await postHandler!(req, res);
+    // Drain microtasks
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(res._status).toBe(200);
+    expect(sweepFn).toHaveBeenCalledTimes(0);
+  });
+
+  it("T3: null singleton → response 200, systemLogger.warn with fleet_substrate_on_add_no_orchestrator, no exception", async () => {
+    // Mock orchestrator returns null
+    (getSubstrateOrchestrator as ReturnType<typeof vi.fn>).mockReturnValue(null);
+
+    (SimpleDBOps.insert as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 125,
+      userId: "user-1",
+      ip: "1.1.1.1",
+      port: 22,
+      name: "substrate-host",
+      connectionType: "ssh",
+      runsFleetSubstrate: true,
+      credentialId: 42,
+      authType: "password",
+    });
+
+    const req = makePostReq({
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: true,
+      credentialId: 42,
+    });
+    const res = makeMockRes();
+
+    await postHandler!(req, res);
+    // Drain microtasks so the queueMicrotask body runs
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(res._status).toBe(200);
+    expect(res._body).toBeTruthy();
+
+    const warnCalls = (systemLogger.warn as ReturnType<typeof vi.fn>).mock.calls;
+    const onAddNullCall = warnCalls.find(
+      (args: unknown[]) =>
+        args[1] &&
+        typeof args[1] === "object" &&
+        (args[1] as Record<string, unknown>).operation === "fleet_substrate_on_add_no_orchestrator",
+    );
+    expect(onAddNullCall).toBeDefined();
+  });
+
+  it("T4 (defense-in-depth sync throw): sweepOneHost throws synchronously → response 200, error swallowed", async () => {
+    const throwingSweep = vi.fn(() => {
+      throw new Error("Sync sweep error");
+    });
+    (getSubstrateOrchestrator as ReturnType<typeof vi.fn>).mockReturnValue({
+      sweepOneHost: throwingSweep,
+    });
+
+    (SimpleDBOps.insert as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 126,
+      userId: "user-1",
+      ip: "1.1.1.1",
+      port: 22,
+      name: "substrate-host",
+      connectionType: "ssh",
+      runsFleetSubstrate: true,
+      credentialId: 42,
+      authType: "password",
+    });
+
+    const req = makePostReq({
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: true,
+      credentialId: 42,
+    });
+    const res = makeMockRes();
+
+    await postHandler!(req, res);
+    // Drain microtasks so the queueMicrotask body runs
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Response is unaffected by the sweep throw
+    expect(res._status).toBe(200);
+    expect(res._body).toBeTruthy();
+  });
+
+  it("T5 (defense-in-depth async rejection): sweepOneHost returns rejected promise → response 200, no unhandledRejection", async () => {
+    const unhandledRejections: unknown[] = [];
+    const unhandledHandler = (err: unknown) => unhandledRejections.push(err);
+    process.on("unhandledRejection", unhandledHandler);
+
+    const rejectingSweep = vi.fn(() => Promise.reject(new Error("Async sweep rejection")));
+    (getSubstrateOrchestrator as ReturnType<typeof vi.fn>).mockReturnValue({
+      sweepOneHost: rejectingSweep,
+    });
+
+    (SimpleDBOps.insert as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 127,
+      userId: "user-1",
+      ip: "1.1.1.1",
+      port: 22,
+      name: "substrate-host",
+      connectionType: "ssh",
+      runsFleetSubstrate: true,
+      credentialId: 42,
+      authType: "password",
+    });
+
+    const req = makePostReq({
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: true,
+      credentialId: 42,
+    });
+    const res = makeMockRes();
+
+    await postHandler!(req, res);
+    // Drain microtasks so queueMicrotask body runs and the catch handles rejection
+    await Promise.resolve();
+    await Promise.resolve();
+    // Give event loop a beat for unhandledRejection to fire if it were going to
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    process.off("unhandledRejection", unhandledHandler);
+
+    expect(res._status).toBe(200);
+    expect(unhandledRejections).toHaveLength(0);
   });
 });
