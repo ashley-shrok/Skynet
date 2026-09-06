@@ -157,7 +157,16 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
       .join("-");
 
     // Shuffle a copy so the pool order isn't a covert stability signal.
-    const shuffled = [...pool].sort(() => Math.random() - 0.5);
+    // Fisher-Yates — `sort(() => Math.random() - 0.5)` is a biased shuffle
+    // (compare function violates transitivity; V8 TimSort skews permutations),
+    // which would cluster picks against the shape's "recycle the pool evenly"
+    // goal. See RESEARCH §Landmine 8 (pool exhaustion) — biased shuffle would
+    // exhaust some names dramatically faster than others.
+    const shuffled = [...pool];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
 
     for (const candidate of shuffled) {
       // Defense-in-depth normalization: pool.json entries are PascalCase by
@@ -169,6 +178,14 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
       // FULL base-handle MXID — blocker 2 fix. NEVER compose the bare shape
       // `@${candidate.toLowerCase()}:${serverHost}` — that produces false-
       // negatives against real accounts minted as `@Willow-Skynet-Maintainer`.
+      // Note: Synapse admin `user_id=<mxid>` is a SUBSTRING match, so this
+      // probe also matches any `@<base>-N:server` ordinals (e.g. `-2`, `-3`).
+      // Consequence: once ANY ordinal of a base handle exists, this picker
+      // considers the base "taken" even if the exact bare handle is free
+      // (recycled after all `-N` accounts were deactivated). The birth
+      // orchestrator's `deriveMxidWithOrdinal` still finds a free slot at
+      // creation time (checking each ordinal individually), so this is a
+      // picker-freshness note only — birth uniqueness is preserved.
       const baseHandleMxid = `@${pascalCandidate}-${pascalRole}:${serverHost}`;
 
       const result = await countUsersMatching(baseHandleMxid);

@@ -514,7 +514,7 @@ const POOL_NAME_RE = /^[a-z][a-z0-9]*$/;
  * digits at segment starts and any [a-z0-9-] shape) — required for MXID
  * composition where the derived PascalCase output must be deterministic and
  * segment boundaries must be well-formed. */
-const ROLE_NAME_RE = /^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$/;
+export const ROLE_NAME_RE = /^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$/;
 
 /** Ordinal-search safety cap. Pool exhaustion beyond 100 accounts of the same
  * handle indicates operator intervention needed — pool-list expansion or
@@ -542,13 +542,20 @@ export const MXID_ORDINAL_MAX = 100;
  *   composeMxidLocalpart("willow", "foo-bar-baz")       → "Willow-Foo-Bar-Baz"
  */
 export function composeMxidLocalpart(name: string, role: string): string {
-  if (!POOL_NAME_RE.test(name)) {
+  // Phase 80 review fix (H5): defensive lowercase — the frontend already
+  // lowercases via `name.toLowerCase()` at NewSessionDialog submit-time, but a
+  // client bypassing that path (curl, hand-rolled tool) could submit `Willow`
+  // (PascalCase from the pool.json seed). Without this, POOL_NAME_RE rejects
+  // and Step 6 falls back to legacy `@Willow:server` — an uppercase-localpart
+  // MXID that Synapse rejects. Normalize here so backend is source-of-truth.
+  const normalizedName = name.toLowerCase();
+  if (!POOL_NAME_RE.test(normalizedName)) {
     throw new Error(`mxid_name_not_pool_shape: ${name}`);
   }
   if (!ROLE_NAME_RE.test(role)) {
     throw new Error(`mxid_role_malformed: ${role}`);
   }
-  const pascalName = name[0].toUpperCase() + name.slice(1);
+  const pascalName = normalizedName[0].toUpperCase() + normalizedName.slice(1);
   const pascalRole = role
     .split("-")
     .map((seg) => seg[0].toUpperCase() + seg.slice(1))

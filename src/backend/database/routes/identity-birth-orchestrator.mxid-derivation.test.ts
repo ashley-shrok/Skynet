@@ -226,6 +226,31 @@ describe("composeMxidLocalpart", () => {
       /mxid_name_not_pool_shape/,
     );
   });
+
+  // Phase 80 review fix H5 — defensive lowercase on backend side. Frontend
+  // lowercases via name.toLowerCase() at NewSessionDialog submit, but a
+  // client bypassing that path (curl, hand-rolled tool) could submit
+  // 'Willow' (PascalCase from the pool.json seed). Without the defensive
+  // lowercase, POOL_NAME_RE rejects and Step 6 would fall back to legacy
+  // `@Willow:server` — an uppercase-localpart MXID that Synapse rejects.
+  // Backend should normalize to canonical.
+  it("(h2, review H5) Willow (PascalCase input) + skynet-maintainer → Willow-Skynet-Maintainer (normalized, does NOT throw)", () => {
+    expect(composeMxidLocalpart("Willow", "skynet-maintainer")).toBe(
+      "Willow-Skynet-Maintainer",
+    );
+  });
+
+  it("(h3, review H5) WILLOW (all-caps input) + skynet-maintainer → Willow-Skynet-Maintainer (normalized)", () => {
+    expect(composeMxidLocalpart("WILLOW", "skynet-maintainer")).toBe(
+      "Willow-Skynet-Maintainer",
+    );
+  });
+
+  it("(h4, review H5) WilloW (mixed-case) + coordinator → Willow-Coordinator (normalized)", () => {
+    expect(composeMxidLocalpart("WilloW", "coordinator")).toBe(
+      "Willow-Coordinator",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

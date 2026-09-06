@@ -31,6 +31,7 @@ import {
   birthIdentity,
   runRelayMintAndWrite,
   ROLE_NAME_PATTERN,
+  ROLE_NAME_RE,
   SSH_CONNECT_TIMEOUT_MS,
   type BirthEvent,
   type BirthDeps,
@@ -165,6 +166,20 @@ router.post(
     // the legacy branch.
     if (poolPicked !== undefined && typeof poolPicked !== "boolean") {
       res.status(400).json({ error: "poolPicked must be a boolean" });
+      return;
+    }
+
+    // Phase 80 review fix (H3): when poolPicked === true, role MUST match the
+    // stricter ROLE_NAME_RE (no leading digit per segment, no empty segments)
+    // because composeMxidLocalpart's derivation uses the same regex and will
+    // rethrow mid-birth (Step 6 failure) on malformed segments — leaving a
+    // partial state (identity folder on disk, no relay account). Reject at
+    // the HTTP door instead of falling into the orchestrator's throw-path.
+    if (poolPicked === true && !ROLE_NAME_RE.test(role.trim())) {
+      res.status(400).json({
+        error:
+          "role must be kebab-case-lowercase with no leading digit per segment when poolPicked=true",
+      });
       return;
     }
 

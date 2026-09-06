@@ -38,6 +38,8 @@ vi.mock("./identity-birth-orchestrator.js", () => ({
   TMUX_NEW_SESSION_FLAGS: "-x 220 -y 50",
   // Phase 22 SRIC-02 — kebab-case-lowercase; must match orchestrator export
   ROLE_NAME_PATTERN: /^[a-z0-9-]+$/,
+  // Phase 80 review fix (H3) — stricter regex for poolPicked=true role validation
+  ROLE_NAME_RE: /^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$/,
 }));
 
 // Mock SSH dependencies
@@ -608,4 +610,41 @@ it("Test T-80-03b-birth-d: poolPicked='yes' (non-boolean) → 400 with 'poolPick
   expect(parsed.error).toMatch(/poolPicked/i);
   expect(parsed.error).toMatch(/boolean/i);
   expect(mockBirthIdentity).not.toHaveBeenCalled();
+});
+
+// Phase 80 review fix H3 — when poolPicked=true, role MUST match the stricter
+// ROLE_NAME_RE (no leading digit per segment, no empty segments). Rejecting at
+// the HTTP door prevents partial-state births where the identity folder lands
+// on disk but Step 6 throws mid-derivation and never mints the relay account.
+it("Test T-80-03b-birth-e (review H3): poolPicked=true + role='2foo' (leading digit) → 400, orchestrator not called", async () => {
+  const result = await httpPost(port, "/identities/birth", {
+    ...VALID_BODY,
+    role: "2foo",
+    poolPicked: true,
+  });
+  // The loose ROLE_NAME_PATTERN accepts '2foo'; the stricter ROLE_NAME_RE
+  // (used only when poolPicked=true) rejects it. Assert we 400 with the
+  // pool-picked-specific error message.
+  expect(result.status).toBe(400);
+  const parsed = JSON.parse(result.body);
+  expect(parsed.error).toMatch(/poolPicked=true/i);
+  expect(mockBirthIdentity).not.toHaveBeenCalled();
+});
+
+it("Test T-80-03b-birth-f (review H3): poolPicked=false + role='2foo' → 200 (loose regex still applies on legacy branch)", async () => {
+  let capturedOpts: unknown;
+  mockBirthIdentity.mockImplementation(
+    async (opts: unknown, _emit: unknown, _deps: unknown) => {
+      capturedOpts = opts;
+    },
+  );
+  const result = await httpPost(port, "/identities/birth", {
+    ...VALID_BODY,
+    role: "2foo",
+    poolPicked: false,
+  });
+  expect(result.status).toBe(200);
+  const o = capturedOpts as Record<string, unknown>;
+  expect(o.role).toBe("2foo");
+  expect(o.poolPicked).toBe(false);
 });
