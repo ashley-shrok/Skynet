@@ -25,6 +25,7 @@ import {
   logItemChanged,
   logItemFailed,
   logSweepHookError,
+  logPersistentFailure,
 } from "./log-tags.js";
 
 const infoMock = systemLogger.info as ReturnType<typeof vi.fn>;
@@ -194,5 +195,38 @@ describe("log-tags helpers", () => {
         errorMessage: "runSweepForHost rejected: TypeError foo",
       }),
     );
+  });
+});
+
+describe("logPersistentFailure", () => {
+  it("Test 1: triggers systemLogger.warn exactly once", () => {
+    logPersistentFailure({ fleetHostId: "h1", hostName: "web1", consecutiveFailures: 3 });
+    expect(warnMock).toHaveBeenCalledTimes(1);
+    expect(infoMock).not.toHaveBeenCalled();
+  });
+
+  it("Test 2: warn call second argument contains operation: fleet_substrate_host_persistent_failure", () => {
+    logPersistentFailure({ fleetHostId: "h1", hostName: "web1", consecutiveFailures: 3 });
+    const [, payload] = warnMock.mock.calls[0];
+    expect(payload).toMatchObject({
+      operation: "fleet_substrate_host_persistent_failure",
+    });
+  });
+
+  it("Test 3: warn call second argument contains all three payload fields", () => {
+    logPersistentFailure({ fleetHostId: "h1", hostName: "web1", consecutiveFailures: 3 });
+    const [, payload] = warnMock.mock.calls[0];
+    expect(payload).toMatchObject({
+      fleetHostId: "h1",
+      hostName: "web1",
+      consecutiveFailures: 3,
+    });
+  });
+
+  it("Test 4: warn call first argument (message) includes host name and failure count", () => {
+    logPersistentFailure({ fleetHostId: "h1", hostName: "web1", consecutiveFailures: 3 });
+    const [message] = warnMock.mock.calls[0];
+    expect(message).toContain("web1");
+    expect(message).toContain("3");
   });
 });
