@@ -195,7 +195,18 @@ async function fillFormForSubmit(opts: {
 }
 
 beforeEach(() => {
+  // Clear call history AND drain any leftover mockResolvedValueOnce queues so
+  // an unconsumed Once-value from a prior test cannot leak into this one.
+  // We do NOT use resetAllMocks() because that wipes the vi.mock() factory-
+  // returned function bodies (mockListRolesForHost etc.) and breaks every
+  // test that relies on them being callable at all.
   vi.clearAllMocks();
+  mockListRolesForHost.mockReset();
+  mockPickPoolName.mockReset();
+  mockOpenBirthStream.mockReset();
+  mockListIdentities.mockReset();
+  mockGetIdentityExistsOnHost.mockReset();
+  mockPostGenerateAvatarBatch.mockReset();
   // Default: one role available, so identity-mode form is submittable
   mockListRolesForHost.mockResolvedValue([
     { name: "box-maintainer", description: "" },

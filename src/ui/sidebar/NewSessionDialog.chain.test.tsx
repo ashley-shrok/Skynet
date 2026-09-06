@@ -36,6 +36,12 @@ const mockPostGenerateAvatarBatch = vi.fn();
 const mockGetIdentityExistsOnHost = vi.fn().mockResolvedValue(false);
 const mockOpenBirthStream = vi.fn();
 const mockListRolesForHost = vi.fn();
+// Phase 80 Plan 80-06 Task 2: NewSessionDialog now fires pickPoolName on role
+// changes in identity-mode. Reject silently so this chain-prefill suite does
+// not exercise pool prefill.
+const mockPickPoolName = vi.fn().mockRejectedValue(
+  new Error("pickPoolName not exercised in chain.test.tsx"),
+);
 
 vi.mock("@/api/identities-api", async (importOriginal) => {
   const orig = (await importOriginal()) as Record<string, unknown>;
@@ -48,6 +54,7 @@ vi.mock("@/api/identities-api", async (importOriginal) => {
       mockGetIdentityExistsOnHost(...args),
     openBirthStream: (...args: unknown[]) => mockOpenBirthStream(...args),
     listRolesForHost: (...args: unknown[]) => mockListRolesForHost(...args),
+    pickPoolName: (...args: unknown[]) => mockPickPoolName(...args),
   };
 });
 

@@ -58,6 +58,7 @@ import {
   getIdentityExistsOnHost,
   openBirthStream,
   listRolesForHost,
+  pickPoolName,
   type AvatarCandidate,
   type BirthEvent,
   type RoleSummary,
@@ -567,6 +568,44 @@ export function NewSessionDialog({
       setSelectedRole("");
     }
   }, [rolesForHost, rolesLoading, selectedRole]);
+
+  // Phase 80 Plan 80-06 Task 2: auto-prefill Name via pickPoolName on role
+  // change. Fires whenever selectedRole, selectedHost, or identityMode changes
+  // and only when all three are present. Backend picks an unused pool name
+  // for the (role, host) pair; frontend prefills the Name input ONLY if the
+  // user hasn't typed anything yet (name === "") — pool is a suggestion
+  // source, not a restriction (D-01). Records the returned value in
+  // `poolPickedName` so the birth-submit path can decide whether to send
+  // `poolPicked: true` (A1 MXID lock). Silent on failure — user simply types
+  // a name manually. cancelled-flag pattern guards against stale responses
+  // when role/host changes mid-flight (T-80-06-04 threat mitigation).
+  useEffect(() => {
+    if (!identityMode || !selectedRole || !selectedHost) return;
+    const hostIdNum = parseInt(String(selectedHost.id), 10);
+    if (!Number.isFinite(hostIdNum)) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { name: poolName } = await pickPoolName(selectedRole, hostIdNum);
+        if (cancelled) return;
+        // Only prefill if user hasn't typed a custom name yet. User-typed
+        // names are preserved (shape §Frontend creation flow: "user can
+        // override the name field").
+        if (name === "") {
+          setName(poolName);
+          setPoolPickedName(poolName);
+        }
+      } catch {
+        // Silent: pool endpoint failure just means no prefill. User can type
+        // a name manually. Do NOT surface an inline error banner — pool is a
+        // suggestion source, not a hard requirement (T-80-06-03 mitigation).
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRole, selectedHost, identityMode]);
 
   // Collision precheck: fired on name blur (debounced 300ms).
   // Fires both listIdentities + getIdentityExistsOnHost in parallel.

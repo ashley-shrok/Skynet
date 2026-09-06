@@ -38,6 +38,14 @@ const mockPostManualAvatarCandidate = vi.fn();
 const mockListRolesForHost = vi.fn().mockResolvedValue([
   { name: "box-maintainer", description: "" },
 ]);
+// Phase 80 Plan 80-06 Task 2: NewSessionDialog fires pickPoolName on every
+// role-change in identity-mode. Rejecting silently by default so this test
+// file's flow (which does not exercise pool prefill) behaves as before — no
+// name-field mutation from a pool prefill, no unhandled promise rejections
+// eating render budget on the already-flaky Test G / Test R flow.
+const mockPickPoolName = vi.fn().mockRejectedValue(
+  new Error("pickPoolName not exercised in this test file"),
+);
 
 vi.mock("@/api/identities-api", async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
@@ -49,6 +57,7 @@ vi.mock("@/api/identities-api", async (importOriginal) => {
     openBirthStream: (...args: unknown[]) => mockOpenBirthStream(...args),
     listRolesForHost: (...args: unknown[]) => mockListRolesForHost(...args),
     postManualAvatarCandidate: (...args: unknown[]) => mockPostManualAvatarCandidate(...args),
+    pickPoolName: (...args: unknown[]) => mockPickPoolName(...args),
   };
 });
 
