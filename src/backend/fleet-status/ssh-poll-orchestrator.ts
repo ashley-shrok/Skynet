@@ -56,7 +56,10 @@ import { writeSessionFileCache } from "./session-file-cache.js";
 // Phase 72 Plan 04 — fleet-substrate sweep hook (piggybacks on
 // tryAcquireHostChannel's success moment; fire-and-forget from the poll's
 // perspective; see 72-CONTEXT.md § Shape).
-import { readFile, stat } from "node:fs/promises";
+// Phase 75-01: bundledReaderFromDisk extracted to a shared module so both
+// the legacy sweep hook and the new server-substrate-orchestrator (75-02)
+// consume the same implementation.
+import { bundledReaderFromDisk } from "../distributor/bundled-reader.js";
 import { runSweepForHost } from "../distributor/run-sweep.js";
 import { FLEET_SUBSTRATE_CATALOG } from "../distributor/catalog.js";
 import { logSweepHookError } from "../distributor/log-tags.js";
@@ -2032,29 +2035,6 @@ export function createSshPollOrchestrator(
       }
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // Phase 72 Plan 04 — pure adapter for bundled-file reads (fs → SweepDeps).
-  //
-  // Reads the bundled file from the container's /app/fleet-substrate/
-  // filesystem. Injected into runSweepForHost via SweepDeps.readBundledBytes
-  // so the sweep composer stays testable without touching disk. Never
-  // throws — returns null on any fs failure; sweep-logic.ts's decideItemAction
-  // treats null as skip("bundled-read-failed").
-  // ---------------------------------------------------------------------------
-  const bundledReaderFromDisk = async (
-    bundledPath: string,
-  ): Promise<{ bytes: Buffer; mode: number } | null> => {
-    try {
-      const [bytes, statResult] = await Promise.all([
-        readFile(bundledPath),
-        stat(bundledPath),
-      ]);
-      return { bytes, mode: statResult.mode };
-    } catch {
-      return null;
-    }
-  };
 
   // ---------------------------------------------------------------------------
   // Try to acquire an SSH channel for a host (fail-open)
