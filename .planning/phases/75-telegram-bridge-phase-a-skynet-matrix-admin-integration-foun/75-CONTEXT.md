@@ -8,7 +8,20 @@ Per the `/build` skill convention on this box, `/gsd-discuss-phase` is seeded di
 
 **Related bounty:** `~/.claude/roles/box-maintainer/bounties/skynet-matrix-admin-integration/` — has parked `@skynet-admin` credentials Nicole minted on 2026-09-05 in `credentials.txt` (chmod 600). Phase A adopts this bounty; it either winds down or merges into the phase.
 
-**Open flag for Phase A discuss-phase:** shape file line 46 makes a load-bearing claim about Nina's bridge (that it stores each human's Matrix password on disk so it can re-log-in when the token dies). That claim was written during the /open discussion but has NOT been verified against `bridge.sh` directly. If the claim is wrong — if the bridge already gets by without human passwords — a big chunk of the "why this matters" security-surface story loses weight (though the "user owns their credentials" philosophy still stands on its own). Ground-truth against `/home/thenasty/.config/tg-bridge/bridge.sh` early in discuss-phase.
+**Open flag for research (carried into `/gsd-plan-phase`):** the shape's Prior-context paragraph makes a load-bearing claim about Nina's bridge (that it stores each human's Matrix password on disk so it can re-log-in when the token dies). That claim was written during the /open discussion but has NOT been verified against `bridge.sh` directly. If the claim is wrong — if the bridge already gets by without human passwords — a big chunk of the "why this matters" security-surface story loses weight (though the "user owns their credentials" philosophy still stands on its own). The phase-researcher should ground-truth this against `/home/thenasty/.config/tg-bridge/bridge.sh` early.
+
+## Locked implementation decisions from discuss-phase (2026-09-06)
+
+Three questions surfaced during discuss-phase; all three resolved with Ashley. Planner should treat these as decided:
+
+**Q1 — Non-UI human-mxid registration mechanism: backend endpoint.**
+A new admin-gated Skynet backend endpoint (shape: `POST /users/:id/mxid { mxid: "@name:homeserver" }` or similar — planner's call on exact URL shape). Same endpoint handles both cases: the new-user provisioning runbook calls it once per new user, and the one-shot import for the three pre-existing hand-made accounts (Ashley, Zoe, Laura) is three calls against existing user rows. Consistent with Skynet's existing admin surface (`POST /users/create`, PATCH settings, admin cookie + TOTP gated). Rejected alternatives: (b) CLI script on the box, (c) config file entry per user.
+
+**Q2 — Atomicity failure mode for Skynet-driven agent creation: partial tolerated + surface error, NO rollback.**
+Rationale is a real race: agent-supervisor on the target host sees the on-disk identity folder as soon as Skynet writes it (step 1 of the 3-step sequence) and can start spinning up a tmux session for that identity before Skynet even knows step 2 (Matrix admin create) or step 3 (write relay.json to disk) failed. Rolling back the folder at that point would delete something the supervisor is already dealing with. The partial state is also already handled gracefully by the id skill's existing "carry on without relay.json, create it on next wake or by hand" failure mode. See § Storage → Failure mode below for the full sequence + rationale. Rejected alternatives: (a) full rollback, (c) retry-with-backoff then fallback.
+
+**Q3 — Where the human mxid mapping lives: new column on Skynet's users table.**
+New `mxid TEXT` column on the users table, alongside username / password hash / TOTP secret. Consistent with "users are Skynet's SQLite record"; mxid is an identifier (not a credential), so the disk-source-of-truth convention that governs agent relay creds doesn't apply the same way; small enough to be one column, not a new table. Rejected alternatives: (b) invent a new disk convention for humans, (c) separate SQLite table.
 
 ---
 
@@ -20,9 +33,31 @@ Underneath the bridge work is a bigger shift: Skynet stops being a downstream co
 
 ## Shape (Phase A scope only)
 
-**The foundation: Skynet becomes Matrix admin of the relay.** Skynet holds an admin identity on the relay and treats its credentials the same way it treats every other credential — encrypted, on disk, managed by Skynet. With that admin power, creating a Skynet agent-identity also creates its relay identity in one operation. Humans keep ownership of their relay credentials so they can use their account outside Skynet if they ever want to (Element on a phone, another Matrix client); their accounts get created externally — the three hand-made accounts today (Ashley, Zoe, Laura) are already done, and for future users it happens via runbook when the Skynet user is provisioned. Skynet stores only the Skynet-user-to-mxid mapping. When it needs to act as a human (inbound bridge traffic), it mints a token via admin — the human's password never sits on disk anywhere in Skynet or the bridge. Skynet can also create the DMs between agents and humans with exactly the shape the relay needs, and can force itself into rooms it didn't create so it can manage legacy rooms too.
+**The foundation: Skynet becomes Matrix admin of the relay.** Skynet holds an admin identity on the relay and treats those admin credentials the same way it treats every other secret — encrypted, on disk, managed by Skynet. With that admin power, creating a Skynet agent-identity also creates its relay identity in one operation, with the returned credentials landing on the target host's disk per the existing fleet convention (`~/.claude/identities/<name>/relay.json`) — see § Storage below for the three-tier detail. Humans keep ownership of their relay credentials so they can use their account outside Skynet if they ever want to (Element on a phone, another Matrix client); their accounts get created externally — the three hand-made accounts today (Ashley, Zoe, Laura) are already done, and for future users it happens via runbook when the Skynet user is provisioned. Skynet stores only the Skynet-user-to-mxid mapping (see § Storage). When it needs to act as a human (inbound bridge traffic), it mints a token via admin — the human's password never sits on disk anywhere in Skynet or the bridge. Skynet can also create the DMs between agents and humans with exactly the shape the relay needs, and can force itself into rooms it didn't create so it can manage legacy rooms too.
 
 (Phase B — Telegram bridge substrate promotion + identity modal Telegram section — is out of scope here; it gets added to the roadmap after Phase A completes.)
+
+## Storage
+
+Three tiers of credentials, three homes — chosen to preserve the existing disk-source-of-truth convention for agents, respect user ownership for humans, and give the admin account the single mutable secret it needs.
+
+**The `@skynet-admin` account credentials.** Skynet's existing encrypted-secrets store (same pattern that holds host SSH keys today). One entry, used only by Skynet's Matrix admin client to make admin API calls. This is the ONLY relay credential that lives in Skynet's own storage.
+
+**Agent relay credentials.** `~/.claude/identities/<name>/relay.json` on the target host's disk — the existing fleet convention (established with the id skill's self-register path). Skynet does NOT duplicate these anywhere else. When Skynet is the one creating an agent, it writes this file (via SSH to the target host) after minting the account through admin, following the same shape the id skill's self-register path already produces. When the id skill self-registers (agent-created, hand-created, or any other non-Skynet-driven path), that path is untouched — Skynet is the creator only when it drives the creation, and the reader in every other case (fleet-scan reads relay.json to know an existing agent's mxid).
+
+**Human relay credentials.** Not stored anywhere in Skynet or on disk — owned entirely by the human. Only the **mxid** (an identifier, not a credential) has to be looked up by Skynet, and that goes into a new column on Skynet's users table (`mxid TEXT`, alongside username, password hash, TOTP secret). Users are already Skynet's SQLite record; mxid rides along in the same row. No new disk convention for humans, no duplicate storage.
+
+### Failure mode for Skynet-driven agent creation
+
+The Skynet-driven agent creation sequence is three steps on the target host:
+
+1. Write the identity folder + `<name>.md` + frontmatter (SSH, existing Phase 66 pattern).
+2. Call Matrix admin API on the relay to create the account (returns credentials).
+3. Write `~/.claude/identities/<name>/relay.json` to disk on the target host (SSH).
+
+If step 2 or 3 fails, Skynet does NOT roll back step 1. The identity folder stays on disk; Skynet surfaces a "relay account creation failed, identity exists but is not relay-reachable" error and offers a retry path.
+
+The rationale is a real race: agent-supervisor on the target host sees the on-disk identity folder as soon as step 1 lands and can start spinning up a tmux session for that identity before Skynet even knows step 2 or 3 failed. Rolling back the folder at that point would delete something the supervisor is already dealing with — worse than leaving a partial state. The partial state is also already handled gracefully by the id skill's existing "carry on without relay.json, create it on next wake or by hand" failure mode; nothing new to invent.
 
 ## Philosophy (all apply to Phase A)
 
@@ -64,9 +99,9 @@ If two different Skynet boxes ever share a relay, a bridge, or an admin, the des
 
 **In.**
 - A Matrix admin client on the Skynet side that wraps the relay's admin API (`/_synapse/admin/v1` and `/_synapse/admin/v2`).
-- Storage of Matrix admin credentials in Skynet's existing encrypted-secrets pattern (same pattern that holds host SSH keys today).
-- Skynet identity-creation propagating to relay-account creation for **agents** — Skynet creates and owns the agent's relay account, since agents don't need external Matrix access. Atomic: either both succeed or both roll back.
-- For **humans**, a **non-UI** path — backend/CLI/config — to register their externally-created mxid with Skynet, whether at initial user provisioning (via runbook) or as an import step for the three accounts that pre-date this work (Ashley, Zoe, Laura). Human relay accounts are always created externally and remain owned by the human; Skynet stores the mapping and mints tokens on demand via admin.
+- Storage of the `@skynet-admin` account credentials in Skynet's existing encrypted-secrets pattern (see § Storage — this is the ONLY relay credential in Skynet's own storage).
+- Skynet identity-creation propagating to relay-account creation for **agents** — Skynet mints the account via admin and writes `~/.claude/identities/<name>/relay.json` to disk on the target host per the existing fleet convention. Skynet does NOT duplicate the agent's credentials in its own DB or encrypted-secrets store. Failure mode is partial-tolerated (NOT rollback) — see § Storage → Failure mode.
+- For **humans**, a **non-UI backend endpoint** (admin-gated, same pattern as `POST /users/create`) that registers an externally-created mxid against a Skynet user, landing it in a new `mxid` column on the users table. Same endpoint serves both the new-user provisioning runbook and the one-shot import for the three pre-existing hand-made accounts (Ashley, Zoe, Laura). Human relay accounts are always created externally and remain owned by the human; Skynet stores only the mapping and mints tokens on demand via admin.
 - Skynet ability to force-manage any relay room via the admin API (join, elevate self to admin in the room, cover legacy-room mess).
 
 **Out.**
