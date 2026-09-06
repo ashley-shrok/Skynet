@@ -1912,7 +1912,7 @@ Plans:
 **Wave 1**
 
 - [x] 80-01-PLAN.md — Pool JSON seed + Docker COPY + never-throws memoized pool-loader (D-01)
-- [ ] 80-02-PLAN.md — countUsersMatching primitive on matrix-admin-client (Synapse admin count for ordinal derivation)
+- [x] 80-02-PLAN.md — countUsersMatching primitive on matrix-admin-client (Synapse admin count for ordinal derivation)
 - [ ] 80-03-PLAN.md — Task field wiring end-to-end on backend disk-read/write (extract, publicIdentity, BirthOptions, buildIdentityFileBody, birth+clone POST validation) — D-05
 
 **Wave 2** *(blocked on Wave 1 completion)*
