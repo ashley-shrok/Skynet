@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-06T01:02:39.463Z"
-last_activity: 2026-09-06 -- Phase 75 execution started
+last_updated: "2026-09-06T01:10:47.453Z"
+last_activity: 2026-09-06
 progress:
   total_phases: 76
   completed_phases: 62
   total_plans: 278
-  completed_plans: 269
+  completed_plans: 270
   percent: 82
 ---
 
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 75 (server-side-substrate-bootstrap) — EXECUTING
-Plan: 1 of 9
-Status: Executing Phase 75
+Plan: 2 of 9
+Status: Ready to execute
 
-Last activity: 2026-09-06 -- Phase 75 execution started
+Last activity: 2026-09-06
 Last activity (prior): 2026-09-04
 Last activity (prior): 2026-09-04
 Last activity: 2026-09-03 — Completed quick task 260903-7e8: instrument dormant-send flow with `[diag-dormant-send]` prefix at 13 frontend + 15 backend transition sites (arm/fire/cleanup/dedup/watchdog stages) so Ashley's next natural repro of the red-bubble + duplicate-real-bubble failure mode reconstructs a full mqid-keyed timeline from a single grep across `console-forward.log` + `docker compose logs skynet`. Phase 62 (b98f81f1, widened client pending-send timer to 220s for dormant sends) is in the deployed image but the symptom persists in a new form — logs will discriminate between four hypotheses (A: timer fires early despite dormant flag, B: dedup gap on the incoming real message, C: watchdog re-dispatch → duplicate delivery, D: cleanup-on-late-arrival never wired). Single atomic diag commit `7666c569` in `adb90600` shape (no logic changes, additive `console.info` / `sshLogger.info` only, `mqid` correlation id threaded through). Three files: `src/ui/features/pretty-view/PrettyView.tsx` (arm/fire/cleanup sites + `dormantRef` read at arm), `src/backend/claude-session/pv-send-watchdog.ts` (marker-poll fresh/fallback boundaries, retry/full-resend/give-up firing), `src/backend/claude-session/claude-session-server.ts` (dormant-send-start entry, sentinel drop, dispatch). Ship: `sudo docker build -f docker/Dockerfile -t skynet-patched:local .` OK → `sudo docker compose -f /opt/skynet/docker-compose.yml up -d --force-recreate skynet` OK → HTTPS 200 confirmed on term.gigaashley.click. Container clean startup, no stack traces. Ashley (or peer instance) hits the bug in normal use, then grep `[diag-dormant-send]` in both log streams → timeline reveals which hypothesis fires. SUMMARY at `.planning/quick/260903-7e8-diag-instrument-dormant-send-flow-to-cat/260903-7e8-SUMMARY.md`. Prior activity:
@@ -332,6 +332,7 @@ Progress: [██████████] 100%
 | Phase 74 P02 | 7m | 2 tasks | 3 files |
 | Phase 74 P03 | 8m | 2 tasks | 2 files |
 | Phase 74 P04 | 3m | 1 tasks | 0 files |
+| Phase 75 P75-01 | 312 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -815,7 +816,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-05T10:43:29.567Z
+Last session: 2026-09-06T01:10:47.231Z
 Stopped at: Phase 75 context gathered
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
@@ -824,4 +825,4 @@ Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 3
 Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
-Resume file: .planning/phases/75-server-side-substrate-bootstrap-startup-driven-install-pass-/75-CONTEXT.md
+Resume file: None
