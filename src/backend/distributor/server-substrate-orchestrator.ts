@@ -155,17 +155,10 @@ export function createServerSubstrateOrchestrator(
    *   - !sweepInFlight.has(host.id)
    * And has already done sweepInFlight.add(host.id).
    */
-  async function executeSweeForHost(host: { id: string; name: string }): Promise<void> {
-    // Build a minimal SubstrateHostRecord for acquireChannel
-    const hostRecord: SubstrateHostRecord = {
-      id: host.id,
-      name: host.name,
-      _connDetails: {},
-    };
-
+  async function executeSweeForHost(host: SubstrateHostRecord): Promise<void> {
     let channel: SshChannel | null = null;
     try {
-      channel = await deps.acquireChannel(hostRecord);
+      channel = await deps.acquireChannel(host);
 
       if (channel === null) {
         // Channel acquire failed — record as a sweep failure
@@ -230,7 +223,7 @@ export function createServerSubstrateOrchestrator(
       sweepInFlight.delete(host.id);
       if (channel !== null) {
         try {
-          deps.releaseChannel(hostRecord, channel);
+          deps.releaseChannel(host, channel);
         } catch {
           // release errors are logged nowhere — they cannot throw into orchestrator
         }
@@ -243,7 +236,7 @@ export function createServerSubstrateOrchestrator(
    * Called from both the startup pass (via sweepOne) and the retry tick.
    * Also the implementation of the public sweepOneHost entrypoint.
    */
-  function queueSweepForHost(host: { id: string; name: string }): void {
+  function queueSweepForHost(host: SubstrateHostRecord): void {
     if (stopped) return;
     if (sweepedThisInstance.has(host.id)) return;
     if (sweepInFlight.has(host.id)) return;
@@ -339,9 +332,10 @@ export function createServerSubstrateOrchestrator(
       if (sweepInFlight.has(host.id)) return;
 
       sweepInFlight.add(host.id);
-      // Fire-and-forget via queueMicrotask — caller does not await the sweep
+      // Fire-and-forget via queueMicrotask — caller does not await the sweep.
+      // Pass the resolved hostRecord (with _connDetails), NOT the narrowed input.
       queueMicrotask(async () => {
-        await executeSweeForHost(host);
+        await executeSweeForHost(hostRecord);
       });
     },
 

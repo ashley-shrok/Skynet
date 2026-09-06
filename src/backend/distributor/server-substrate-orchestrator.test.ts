@@ -51,6 +51,7 @@ vi.mock("./bundled-reader.js", () => ({
 }));
 
 import { createServerSubstrateOrchestrator } from "./server-substrate-orchestrator.js";
+import type { SubstrateHostRecord } from "./list-substrate-hosts.js";
 import { runSweepForHost } from "./run-sweep.js";
 import { logSweepHookError, logPersistentFailure } from "./log-tags.js";
 
@@ -91,7 +92,7 @@ function makeDeps(overrides: {
 
   const acquireChannel =
     overrides.acquireChannel ??
-    vi.fn(async (_host: { id: string; name: string }) => channel);
+    vi.fn(async (_host: SubstrateHostRecord) => channel);
 
   const releaseChannel = vi.fn();
 
