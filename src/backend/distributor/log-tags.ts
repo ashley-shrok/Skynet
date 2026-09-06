@@ -141,3 +141,22 @@ export function logSweepHookError(payload: {
     },
   );
 }
+
+/**
+ * Emit a per-host persistent-failure alert. Fired ONCE per host per Skynet
+ * uptime when consecutiveFailures reaches the configured threshold (default 3).
+ * Reset when the next sweep for that host succeeds.
+ *
+ * Warn level so it surfaces in operator alerts. Never-log-credentials invariant
+ * preserved — payload contains only host identity + failure count, no key material.
+ */
+export function logPersistentFailure(payload: {
+  fleetHostId: string;
+  hostName: string;
+  consecutiveFailures: number;
+}): void {
+  systemLogger.warn(
+    `Fleet-substrate persistent failure: ${payload.hostName} has failed ${payload.consecutiveFailures} consecutive sweeps`,
+    { operation: "fleet_substrate_host_persistent_failure", ...payload },
+  );
+}
