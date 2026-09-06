@@ -91,6 +91,7 @@ router.post(
       voice,
       avatarCandidateId,
       role,
+      task,
     } = req.body as Record<string, unknown>;
 
     if (
@@ -137,9 +138,26 @@ router.post(
       return;
     }
 
+    // Phase 80 Plan 80-03: task is optional (nullable). Validate BEFORE
+    // flushHeaders so a 400 lands as JSON, not as an SSE frame after the
+    // stream opens (RESEARCH §7 landmine parity with existing shape).
+    // Hard-cap at 500 chars (T-80-03-02 DoS mitigation) — frontend soft-caps
+    // ~200 chars; server hard-caps 500 as defense-in-depth.
+    if (task !== null && task !== undefined && typeof task !== "string") {
+      res.status(400).json({ error: "task must be a string or null" });
+      return;
+    }
+    if (typeof task === "string" && task.length > 500) {
+      res.status(400).json({ error: "task must be ≤500 chars" });
+      return;
+    }
+
     const parsedColorHue = (typeof colorHue === "number" ? colorHue : null) as number | null;
     const parsedVoice = (typeof voice === "string" ? voice : null) as string | null;
     const parsedPath = (typeof path === "string" ? path : "~") as string;
+    // Phase 80 Plan 80-03: trim task string here so orchestrator's absent-⇒-omit
+    // guard (opts.task.trim().length > 0) sees the canonical value. Null → null.
+    const parsedTask = (typeof task === "string" ? task.trim() : null) as string | null;
 
     // -----------------------------------------------------------------------
     // Phase 75 Plan 04 — fail-early 503 when matrix admin creds absent.
@@ -241,6 +259,10 @@ router.post(
           voice: parsedVoice,
           avatarCandidateId: avatarCandidateId.trim(),
           role: role.trim(),
+          // Phase 80 Plan 80-03: thread task through opts. ?? undefined so
+          // parsedTask=null → orchestrator sees undefined (omit-empty matches
+          // BirthOptions optional shape).
+          task: parsedTask ?? undefined,
         },
         emit,
         deps,

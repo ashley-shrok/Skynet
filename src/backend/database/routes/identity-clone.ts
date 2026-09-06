@@ -295,6 +295,11 @@ router.post(
     const rawColorHue = body.colorHue;
     const rawCandidateId = body.avatarCandidateId;
     const rawPath = body.path;
+    // Phase 80 Plan 80-03: task is per-spawn (never inherited from the source
+    // identity per A3 lock — the clone gets a fresh task per each new spawn,
+    // set by the caller, NEVER copied from the source's frontmatter).
+    // Optional + nullable body field; server hard-caps at 500 chars.
+    const rawTask = body.task;
 
     if (typeof rawSource !== "string" || rawSource.length === 0) {
       res.status(400).json({ error: "sourceIdentityKey is required" });
@@ -373,6 +378,17 @@ router.post(
       res.status(400).json({ error: `path must be ≤${MAX_PATH_LEN} chars` });
       return;
     }
+    // Phase 80 Plan 80-03: task body validation. Nullable optional; hard-cap
+    // 500 chars (T-80-03-02 DoS mitigation matching identity-birth.ts). Task
+    // is NEVER inherited from the source per A3 lock — always the request value.
+    if (rawTask !== null && rawTask !== undefined && typeof rawTask !== "string") {
+      res.status(400).json({ error: "task must be a string or null" });
+      return;
+    }
+    if (typeof rawTask === "string" && rawTask.length > 500) {
+      res.status(400).json({ error: "task must be ≤500 chars" });
+      return;
+    }
 
     const sourceIdentityKey = rawSource;
     const newName = rawNewName;
@@ -385,6 +401,10 @@ router.post(
         ? rawCandidateId
         : null;
     const path = rawPath.trim();
+    // Phase 80 Plan 80-03: trim so the frontmatter-emission guard sees
+    // canonical value; null when body omits or explicitly nulls task.
+    const parsedTask: string | null =
+      typeof rawTask === "string" ? rawTask.trim() : null;
 
     // -----------------------------------------------------------------------
     // Phase 68: source existence is verified by SSH — resolveRoleForIdentity
@@ -662,6 +682,14 @@ router.post(
       }
       if (avatarExt !== null) {
         cloneFrontmatterPairs.push(["avatar", `${newName}.${avatarExt}`]);
+      }
+      // Phase 80 Plan 80-03: task after avatar (absent-⇒-omit; mirrors
+      // buildIdentityFileBody's ordering). A3 lock: use parsedTask from the
+      // REQUEST body ONLY — the source identity's on-disk frontmatter task
+      // field (if any) is deliberately NOT re-read here. Task is per-spawn,
+      // not inherited.
+      if (parsedTask !== null && parsedTask.length > 0) {
+        cloneFrontmatterPairs.push(["task", parsedTask]);
       }
       const cloneYamlBody = yaml.dump(
         Object.fromEntries(cloneFrontmatterPairs),
