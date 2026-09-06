@@ -265,6 +265,25 @@ if (process.env.VITEST !== "true") {
       operation: "backend_init_db",
     });
 
+    // Phase 79 Plan 04 — bridge-config-writer
+    // Write /state/config.env + registry.json + <human>.token
+    // + <identityKey>.bottoken files for the tg-bridge Docker service.
+    // Fire-and-forget: bridge tolerates a 5-min cold-start delay per
+    // RESEARCH.md § Assumption A9. Failure here is non-fatal — Plan 08's
+    // reconcile loop will re-attempt any missing human tokens on its
+    // next tick, and Plan 03's /telegram/activate handler calls
+    // rewriteRegistryFromCurrentState on every activation so
+    // first-user-activation self-heals a startup miss.
+    // See CONTEXT § 4C for the reliability check.
+    void import("./telegram/bridge-config-writer.js")
+      .then((m) => m.ensureBridgeConfigWritten())
+      .catch((err) => {
+        systemLogger.warn("ensureBridgeConfigWritten failed at startup", {
+          operation: "bridge_config_write_startup_failed",
+          error: err instanceof Error ? err.message : "unknown",
+        });
+      });
+
     // Phase 74: fail-fast if the branding config lacks a non-empty
     // avatarDirectorSpec. Placed AFTER initializeDatabase() so the DB
     // logger stream is live, and BEFORE AuthManager + the dbServer
