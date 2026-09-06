@@ -1907,7 +1907,7 @@ Plans:
 **Goal:** Ship the Skynet-side changes that let a new identity be born as a task-scoped worker with a pool-picked name and a task string, and surface the task on both display surfaces (chat pill + conversation list row) with graceful fallback when the field is absent.
 **Requirements**: TBD
 **Depends on:** Phase 77
-**Plans:** 8/10 plans executed
+**Plans:** 9/10 plans executed
 Plans:
 **Wave 1**
 
@@ -1925,7 +1925,7 @@ Plans:
 
 - [x] 80-06-PLAN.md — NewSessionDialog unified rebuild: task textarea + pool-name auto-prefill + role-select bug fix (extend, do NOT rewrite — RESEARCH §10)
 - [x] 80-07-PLAN.md — Task pill on PrettyView chat surface (glass treatment hue-tinted from colorHue — D-02) with D-06 fallback
-- [ ] 80-08-PLAN.md — Task-primary conversation-list row (task top-line + role-prominent-name-parens subtitle) with D-06 fallback verbatim
+- [x] 80-08-PLAN.md — Task-primary conversation-list row (task top-line + role-prominent-name-parens subtitle) with D-06 fallback verbatim
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
