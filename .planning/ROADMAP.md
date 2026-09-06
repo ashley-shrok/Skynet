@@ -1845,7 +1845,7 @@ Plans:
 **Goal:** Reshape fleet-substrate distribution from per-user browser-driven to system-driven. On Skynet container startup, walk every `runsFleetSubstrate:true` host serially and run the install pass; fire immediately fire-and-forget on host-create with the flag on; retry unreachable hosts on the existing 30s host-list refresh cadence; loud structured-log alert after N consecutive failures per host. Remove the browser-driven install-pass hook. Wrap substrate-host SSH credentials with `SystemCrypto.getCredentialSharingKey()` (CSKEK) at create + flag-flip-on + credential-update — the install pass reads through the system key, and owner browser terminals also read through the system key (one representation). Non-substrate hosts keep per-user DEK wrap unchanged. Ship a one-shot operator-run migration script for existing substrate hosts.
 **Requirements**: D-01 through D-19 (all locked in 75-CONTEXT.md — see plan `decisions_addressed` frontmatter for per-plan coverage)
 **Depends on:** Phase 74
-**Plans:** 8/9 plans executed
+**Plans:** 9/9 plans complete
 Plans:
 **Wave 1**
 
@@ -1863,4 +1863,4 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 75-08-PLAN.md — Add `UserCrypto.deriveDekForMigration` sessionless method + one-shot migration module + CLI entrypoint `scripts/migrate-substrate-credentials.ts` (D-12, D-13, D-14, D-15, D-19)
-- [ ] 75-09-PLAN.md — End-to-end integration test proving startup pass, retry loop, persistent-failure alert, and on-add trigger work when composed with real modules (D-17, D-18 end-to-end)
+- [x] 75-09-PLAN.md — End-to-end integration test proving startup pass, retry loop, persistent-failure alert, and on-add trigger work when composed with real modules (D-17, D-18 end-to-end)

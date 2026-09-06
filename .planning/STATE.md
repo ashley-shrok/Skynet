@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-09-06T02:59:15.753Z"
+status: verifying
+last_updated: "2026-09-06T03:13:45.851Z"
 last_activity: 2026-09-06
 progress:
   total_phases: 76
-  completed_phases: 62
+  completed_phases: 63
   total_plans: 278
-  completed_plans: 277
-  percent: 82
+  completed_plans: 278
+  percent: 83
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 Phase: 75 (server-side-substrate-bootstrap) — EXECUTING
 Plan: 9 of 9
-Status: Ready to execute
+Status: Phase complete — ready for verification
 
 Last activity: 2026-09-06
 Last activity (prior): 2026-09-04
@@ -338,6 +338,7 @@ Progress: [██████████] 100%
 | Phase 75 P05 | 600 | 2 tasks | 3 files |
 | Phase 75 P06 | 20 | 2 tasks | 2 files |
 | Phase 75 P07 | 20 | 1 tasks | 3 files |
+| Phase 75 P09 | 15min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -538,6 +539,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 75-06 POST+PUT sweep triggers
 - [Phase ?]: 75-06 before-state detection
 - [Phase ?]: D-04 delivered: browser-driven fleet-substrate install-pass hook removed from ssh-poll-orchestrator.ts; server-context path (75-02/75-05/75-06) is the sole sweep trigger
+- [Phase ?]: Exec mock sentinel contract for fake-timer-safe integration tests: channel.exec must return __READ_ENOENT__ to avoid retryOnTransport setTimeout backoff under fake timers
 
 ### Pending Todos
 
@@ -829,8 +831,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-06T02:59:14.827Z
-Stopped at: Completed 75-07: remove browser-driven substrate-sweep hook from ssh-poll-orchestrator
+Last session: 2026-09-06T03:13:45.741Z
+Stopped at: Completed 75-09-PLAN.md
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
 Last session: 2026-08-19T03:53:37.643Z
