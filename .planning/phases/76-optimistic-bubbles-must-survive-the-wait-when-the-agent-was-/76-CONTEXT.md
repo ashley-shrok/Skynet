@@ -1,216 +1,147 @@
-# Shape: Optimistic bubbles must survive the wait when the agent was asleep at send time
+# Phase 76: Optimistic bubbles must survive the wait when the agent was asleep at send time — Context
 
-**Opened:** 2026-09-06
-**Vehicle:** GSD phase
+**Gathered:** 2026-09-06
+**Status:** Ready for planning
+**Source:** Seeded from `/open` shape file `.planning/shapes/shape-optimistic-during-dormant-wake.md` per /build skill's express-path directive ("seed discuss-phase from the shape file — do not re-do the discovery /open already did"). No additional gray areas surfaced during the /open session that were not resolved there; interactive discuss-phase gray-area round skipped. Ashley 2026-09-06 verbatim on framing: *"do whatever you need to get there"* (full reliability), and *"I have no fucking idea what the right time is... just open the fucking build"* (delegating implementation-detail decisions to shape/plan).
 
-## What this is
+<domain>
+## Phase Boundary
 
-When Ashley sends a message to an agent that is currently asleep, the message-in-flight
-bubble prematurely gives up. The server has a real plan for this case — it holds the
-message, taps the sleeping agent awake, waits up to about three minutes for the agent to be
-ready, then delivers. The frontend has its own separate stopwatch, and although a previous
-round of work built the widened stopwatch that should cover the "asleep at send" case, the
-widened branch is not being taken in practice — the frontend is defaulting to the tight
-twenty-second stopwatch, giving up before the server has finished the delivery. So the
-bubble flips to "failed," and moments later the actual delivery lands as a real message
-bubble above the failed one. This work makes the frontend actually take its widened branch
-whenever the agent was, in truth, asleep at the moment of the send.
+Unify the two frontend dormancy signals into a single authoritative source, and wire the pending-send timer to read that source at arm time — so Phase 62's already-shipped widened-timeout branch (`PENDING_SEND_TIMEOUT_MS_DORMANT = 220_000`, `src/ui/features/pretty-view/PrettyView.tsx:140`) actually gets taken when the agent was, in truth, dormant at the moment of send. Also: whole-bubble red visual on flip-to-failed (semantic upgrade — the failed state is now rare-and-truthful post-fix, not the common false alarm it was). Also: verify Phase 62's multi-send-during-wake claim under real conditions (in-process test with reconnect-mid-dormancy setup — Phase 62's CONTEXT explicitly deferred race handling; this phase closes that deferral). Also: enumerate every frontend surface that reads asleep-versus-awake state or arms a pending-related timer, and migrate any such surface reading from the drift-prone signal onto the authoritative one.
 
-## Shape
+**Scope inherits directly from the shape file** — see the "Scope edges" section of `.planning/shapes/shape-optimistic-during-dormant-wake.md`. Recap: reconciling the two dormancy signals into an authoritative source; wiring the pending-send timer at arm time; sourcing the widened value by reference to the backend's give-up constants (`MARKER_FALLBACK_MS_MIRROR + GIVE_UP_MS_DORMANT`, `src/backend/claude-session/pv-send-watchdog.ts:83-100`); surface inventory; multi-send verification; whole-bubble red on failed. Explicitly out: duplicate-real-bubble bug (sister bounty `pv-queue-op-dedup-doesnt-survive-wake-recycle`, still in Phase 62's Wave 2 instrumentation lane), reconnect-during-the-widened-wait behavior (rare, follow-up only if it bites).
 
-There is a send happening. The moment the send is made, one of two facts is true: the
-agent was asleep at that moment, or the agent was awake at that moment. That fact is
-latched — it belongs to that particular send for its entire lifetime, and it does not
-change if the agent wakes up mid-flight or goes back to sleep. This is the same principle
-the server already uses on its side.
+</domain>
 
-For sends where the agent was awake at send time, the frontend's stopwatch stays where it
-is today — around twenty seconds. That was never the broken case.
+<decisions>
+## Implementation Decisions
 
-For sends where the agent was asleep at send time, the frontend's stopwatch extends to
-match whatever the server's own "we give up" moment is for a sleeping-agent send. When the
-frontend's stopwatch fires, it fires at approximately the same time the server would have
-stopped trying — so a failed bubble means the server actually stopped, not that the
-frontend impatiently walked away while the server was still working.
+### Signal reconciliation
 
-The core problem this work is fixing is that the frontend has two separate signals from
-the server telling it whether an agent is asleep. The two are supposed to say the same
-thing but they can drift out of sync — one of them updates only on the *change* moments
-(agent transitions from awake to asleep or back), the other one gets a fresh full
-readout every time the connection re-establishes. When the frontend's connection to the
-server hiccups or reconnects — which happens routinely as tabs move around, phones sleep,
-networks switch — the change-only signal never gets re-sent for the sleeping-state Ashley
-is actually in, and the frontend's model of that agent quietly reverts to "she's awake"
-even though she isn't. The previous round of work wired the widened stopwatch to that
-change-only signal, so the widening exists but almost never gets used when it should.
+- **D-01: Two signal sources exist and must be reconciled into a single authoritative dormancy source.** Signal A: `{type:"dormant", dormant:boolean}` — emit-on-change from `claude-session-server.ts:2440-2447` (only fires on transitions). Signal B: `{type:"pane_state", state:"active"|"holding"|"dormant"|"inactive"|"error"}` — full re-emit on WS attach from the pane-state-emitter (goes through `startActiveSessionFlow`). Phase 62 wired the widened pending-send timer to Signal A via `dormantRef.current`, which goes stale on any WS reconnect while dormant (backend does not re-emit type:"dormant" on reconnect because state has not "changed" from its perspective). Signal B does not go stale — every WS attach hydrates paneState.
 
-The fix is to unify the two signals into a single authoritative source that the pending
-stopwatch reads, so that "was she asleep at send time" is answered from something that
-stays correct through reconnects — not from a channel that only fires on transitions and
-silently drifts. Alongside that, the work does what the previous round should have done
-and looks across the rest of the frontend for anything else that reads asleep-versus-awake
-state or arms a timer tied to a pending send's lifetime, so we don't fix this specific
-instance and leave the same class of drift open in a neighboring surface.
+- **D-02: The authoritative source is derived from BOTH signals, with a preference for the more recent / less-stale-vulnerable of the two.** Concrete decision on the derivation function is left to plan-phase, but the derivation lives in one place (a single ref or derived value), not scattered across consumers. Candidates for plan-phase to weigh: (a) make `setDormant` fire from BOTH the type:"dormant" case AND the type:"pane_state" case-when-state===dormant, so `dormantRef` becomes authoritative through both channels; (b) introduce a new `isDormantAuthoritative` derived from `dormant || paneState === "dormant"` and migrate consumers off `dormantRef`. Whichever is chosen: the pending-send timer, and every other surface identified in the inventory (D-04), reads from the authoritative source.
 
-Alongside the stopwatch itself, one visual change: when a pending send does finally give
-up and flip to "failed" — which post-fix is a rare and truthful event, not the common
-false alarm it is today — the bubble's whole appearance shifts to communicate that
-decisively. The current treatment is a red border on an otherwise-normal bubble. That was
-fine when a failed state was mostly a false positive Ashley had learned to ignore for a
-few seconds. Post-fix, a failed bubble means the server tried its full budget and actually
-gave up. That is a real failure and it should look like one — the whole bubble in red, not
-just an outline.
+- **D-03: The read is at arm time and latched to the pending-send.** Same principle Phase 62 established for `dormantRef.current` (Phase 62 CONTEXT §Wave 1 D-62-03). The fact that the agent was dormant at send-time belongs to that particular pending-send for its lifetime — does not change if the agent wakes mid-flight or sleeps again. This is symmetric with the backend `__applyInputMessageForTests` entry-time read of `dormantLastEmitted`.
 
-## Philosophy
+### Symmetric-surface inventory
 
-The whole point of this round is to *not* repeat the shape of the last failure. Last time,
-the shape file did not name the fact that the frontend has two dormancy signals; it talked
-about "the state" as if it were a single unified thing. There were two. The widened
-stopwatch got wired to the one that quietly drifts. The bug persisted in a new coat. That
-is exactly the failure this round exists to prevent.
+- **D-04: Plan phase must produce an explicit inventory of every frontend surface that reads asleep-versus-awake state or arms a timer tied to a pending-send's lifetime.** Known starting points (confirmed by 2026-09-06 grep): the `dormant` state slot (`PrettyView.tsx:715`), `dormantRef` (`PrettyView.tsx:1413`) and its mirror useEffect (`PrettyView.tsx:2555-2559`), consumers of `dormantRef.current` at `PrettyView.tsx:1233` (pending-send arm site — the load-bearing consumer), `PrettyView.tsx:1741` (WS onmessage stale-closure guard), and the `paneState` slot (`PrettyView.tsx:1447`) + `paneStateRef` (`PrettyView.tsx:1451`) which feeds `usePaneResolvingMachine` for overlay mount gates. Plan-phase must produce the full inventory as a required artifact — not just take this starting list as complete. Every surface on the inventory that currently reads from Signal A gets migrated onto the authoritative source unified in D-02.
 
-So the stance here is deliberate:
+### Timeout value sourcing
 
-- **Symmetry is the whole point.** The intent is not "make the number bigger" — the number
-  was already made bigger. The intent is "make the client's model of a sleeping-agent send
-  match the server's model of a sleeping-agent send, everywhere those two models touch,
-  including at moments the connection has been re-established."
-- **A single authoritative dormancy signal for pending-send decisions.** The pending-send
-  timer must read from a source that is guaranteed to be correct at the moment of send,
-  including on a freshly-hydrated pane after a reconnect. If the source itself is
-  synthesized from multiple underlying frames, that synthesis is the fix, and it lives in
-  one place — not scattered across every consumer that happens to need to know.
-- **Nothing gets widened by hand.** The widened value must reference the server's give-up
-  moment rather than a hardcoded local constant. If the server's number ever changes, the
-  frontend's number should follow without another round of work.
-- **The inventory of symmetric surfaces is a required artifact, not an afterthought.** The
-  work must produce, as part of its planning, a list of every place on the frontend that
-  reads the asleep-versus-awake state or arms a timer tied to a pending send's lifetime.
-  That list has to exist before code changes, not after. Any surface on that list that
-  reads from the drift-prone signal has to be moved onto the authoritative one.
-- **Claims from the previous attempt are verified, not assumed.** The previous work is
-  believed to have implemented the "multiple pending sends during a wake all deliver in
-  order when the wake completes" behavior. Nobody has verified it under real conditions.
-  This work verifies that claim; if it turns out to be broken, we fix it here.
-- **The failed state is now a real signal.** Because failed-flip becomes rare and truthful
-  post-fix, the visual carries a stronger meaning and looks the part.
+- **D-05: Widened timeout value continues to be sourced by reference to the backend's give-up constants, not an independent hardcoded number.** Phase 62 already did this correctly — `PENDING_SEND_TIMEOUT_MS_DORMANT = 220_000` was derived from `MARKER_FALLBACK_MS_MIRROR (90_000) + GIVE_UP_MS_DORMANT (120_000) + 10_000ms margin = 220_000` (Phase 62 CONTEXT §Wave 1 sizing rationale). Preserve that. If the backend's give-up ceiling changes, the frontend value follows. Plan-phase should confirm the current constants are still authoritative and add a drift-catch comment/test if warranted.
 
-## Prior context
+### Failed-state visual
 
-Ashley has been hitting this specific bug for a long time. The visible pattern is always
-the same: send while the agent is asleep, watch the pending spinner spin, watch the bubble
-turn red after about twenty seconds, and then watch a real message bubble arrive above the
-failed one seconds later. Sometimes a duplicate real bubble also shows up. Ashley has
-learned to squint at the red bubble and wait a few seconds to see if a real one shows up
-above it before believing the failure.
+- **D-06: Whole-bubble red fill on the flip-to-failed state, not just a red border.** Ashley 2026-09-06 verbatim: *"I imagined that like the original red bubble concept was that the whole bubble would just turn red instead of the blue hue that normal messages have from the user instead of what actually is what I got, which is just a red border. So it would be nice to change that visual during this. and then you know it's kind of more fitting anyways since hopefully after we do this work a failed bubble will be a truly failed bubble and that is worth being that loud about."* Rationale: post-fix, a failed bubble means the server tried its full budget and actually gave up — the visual should carry that stronger meaning. Plan-phase decides the exact CSS/tailwind approach; the intent is "whole bubble red fill, decisive."
 
-There has been one prior attempt at fixing this. That round shipped a widened stopwatch on
-the frontend that reads the frontend's dormancy signal at the moment the send is armed —
-if the signal says the agent is asleep at that moment, the pending gets the widened
-timeout; otherwise it gets the tight twenty-second one. The mechanism itself works when
-the signal is correct. What that round did not account for is that the specific dormancy
-signal it hooked into fires only on transition moments and does not get replayed on
-reconnect. In practice, Ashley's tab spends most of its life connected to sessions that
-went dormant before the current WS connection was established (or since the last hydration),
-which means the frontend's local model of "is she asleep right now" defaults to false
-regardless of the truth. So the widened branch almost never triggers, and Ashley sees the
-same 20-second false-red as before. Diagnostic logs from a repro today (2026-09-06) show
-`dormant_at_arm=false` and `timeoutMs=20000` on sends to an agent the server knew perfectly
-well was dormant at that moment.
+### Multi-send verification
 
-The frontend has a *second* dormancy signal that arrives on a richer channel — the pane
-state feed — which does get a full re-emit on reconnect. If the widened stopwatch had been
-wired to that signal (or to a unified source that drew from both), the previous round
-would have shipped a working fix. It didn't; the shape file for that round treated
-dormancy as a single-source concept, and the phase followed the shape.
+- **D-07: Multi-send during a widened wait must be verified under real conditions in an in-process test, including a reconnect-mid-dormancy setup.** Phase 62's implementation claim was that multiple pending sends during a wake all deliver in order when the wake completes. Nobody has confirmed that under real conditions, and the specific failure mode Phase 76 fixes (dormantRef stale after reconnect) is exactly the setup where the multi-send claim would break. In-process test drives: agent goes dormant → WS reconnects (dormant frame emit-on-change does not re-fire) → Ashley sends TWO messages back-to-back → both must land as real bubbles in order after the wake completes. Ashley 2026-09-06 verbatim: *"that exact model was agreed upon when we first tried to implement this. So I imagine there's an attempt to have that already be happening in the current code. Although I don't think I've ever tried to send a follow-up message, so I can't really confirm if it works or not."* Verify, not assume.
 
-There is a separate, related bug — the duplicate real bubble — that also manifests in the
-same dormant-send flow. Deliberately not being fixed by this work. Priority two, sequenced
-follow-up, needs instrumentation-then-repro first.
+### Awake-case unchanged
 
-There is another related concern — what happens if the frontend's connection to the server
-drops during the widened wait, does the pending survive reconnect. Ashley considers this
-rare enough that spending custom mechanism budget on it here is scope creep. Follow-up
-bounty only if it bites her in practice. Note: this is a distinct concern from the
-authoritative-signal issue above — this fix does need to handle the general case of
-"reconnect can happen between when the agent went dormant and when Ashley sends," but it
-does not need to handle the case of "reconnect happens during the three-minute widened
-wait itself."
+- **D-08: The awake-case pending-send stopwatch (20s / `PENDING_SEND_TIMEOUT_MS_NORMAL`) is unchanged.** It was never the broken case. If the fix accidentally widens the awake case too (e.g., by applying the widened timeout uniformly instead of on the latched "asleep-at-send" fact), that trades one bug for another. Plan-phase confirms every arm site correctly branches on the authoritative signal.
 
-## What would make it wrong
+### Claude's Discretion
 
-- **If a pending bubble ever flips to "failed" while the server is still actively trying
-  to deliver.** That is the exact bug this work exists to kill, and any scenario where it
-  can still happen means this work has missed the point.
-- **If the widened branch triggers correctly for the first send after a fresh reconnect but
-  not for subsequent ones, or vice versa** — the authoritative source has to be reliable at
-  every arm moment, not just some of them.
-- **If the widened value drifts from whatever the server actually uses.** The two must move
-  together. If the server's give-up moment ever changes and the frontend does not follow,
-  the symmetry is broken and this work has left a trap for the next round.
-- **If a sending-while-awake bubble now has a longer stopwatch than it needs.** The awake
-  case was never broken; if awake sends now spin for three minutes because the widening
-  was applied uniformly instead of on the "asleep at send" latched fact, this work has
-  traded one bug for another.
-- **If Ashley sends two messages in a row to a sleeping agent and they do not both
-  eventually arrive as real bubbles in the same order she sent them.** The multi-send-
-  during-wake claim from the previous attempt must actually work.
-- **If a symmetric surface exists on the frontend that reads asleep-versus-awake state or
-  arms a pending-related timer, and this work does not touch it because nobody noticed it
-  during planning.** That is the previous round's failure mode returning in new form.
-- **If a failed bubble still looks like a normal user-bubble with a red border rather than
-  a whole-bubble red treatment.** The visual change is small but it is intentional and
-  part of the shape.
+The following are implementation details the planner is free to decide, subject to the D-01–D-08 decisions above:
 
-## Scope edges
+- Exact derivation function for the authoritative dormancy source (candidates in D-02).
+- Test framework choice for the multi-send-during-reconnect scenario — pick whatever fits the existing PrettyView test infrastructure.
+- Wave split (single-plan vs. multi-plan phase) — whichever produces cleaner atomic commits + review surface.
+- Exact CSS/tailwind approach for whole-bubble red (D-06).
+- Whether to retain the "dormant" state slot at all after unification, or collapse it into paneState-derived logic.
 
-**In:**
-- Reconciling the two frontend dormancy signals into a single authoritative source that
-  stays correct across reconnects and mounts.
-- Wiring the pending-send timer to that authoritative source at the moment of arm (the
-  "latched at send" principle already agreed).
-- Sourcing the widened timeout value by reference to the server's give-up moment, not an
-  independent local constant.
-- Inventory of every frontend surface that reads asleep-versus-awake state or arms a
-  pending-related timer. Any surface on that inventory that reads from the drift-prone
-  signal is migrated to the authoritative one.
-- Verifying the "multiple pending sends during a wake all deliver in order" claim from the
-  previous attempt under real conditions.
-- Whole-bubble red treatment for the failed state (not just border).
+</decisions>
 
-**Out:**
-- The duplicate real bubble bug. Priority two, sequenced follow-up, needs instrumentation-
-  then-repro first.
-- Reconnect-during-the-widened-wait behavior. Rare enough scenario that custom mechanism
-  for it is scope creep. Follow-up bounty only if it bites Ashley in practice.
+<canonical_refs>
+## Canonical References
 
-**Deferred:**
-- Any change to how the awake-case stopwatch works. It was never broken.
+**Downstream agents MUST read these before planning or implementing.**
 
-**Tempting but no:**
-- Adding a cancel-in-flight affordance during the widened wait.
-- Adding interim status text during the spin.
+### Shape and phase-scope
 
-## Vehicle notes
+- `.planning/shapes/shape-optimistic-during-dormant-wake.md` — full /open shape file: what this is, shape, philosophy, prior context, what would make it wrong, scope edges. Every decision above traces back to this. The scope edges section is authoritative for what's in / out / deferred.
 
-GSD phase, chosen deliberately over lighter vehicles. The whole reason this work exists is
-that the previous attempt shipped without doing the enumerate-symmetric-surfaces work and
-without noticing that the frontend had two dormancy signals. A GSD phase makes both of
-those first-class plan artifacts — they live in the plan, they get reviewed, they can't be
-silently skipped by the executor. Inline / plan mode / quick would all trust the
-implementer to remember to look for the second signal, and the whole point of the ceremony
-this round is to structurally not trust that.
+### Directly upstream phase
 
-Discuss-phase should seed from this shape file directly. Plan phase must produce both an
-explicit inventory of frontend surfaces that read asleep-versus-awake state or arm pending-
-related timers, and an explicit decision on what the unified authoritative source is
-before any code changes. Test coverage must include actual verification of the multi-send-
-during-wake claim under a reconnect-mid-dormancy setup — the specific scenario that
-demonstrates the current bug.
+- `.planning/phases/62-invisible-dormancy-client-side-follow-up-widen-client-pendin/62-CONTEXT.md` — Phase 62 CONTEXT, especially §Wave 1 (the widening that got shipped but got wired to the drift-prone signal), the race-handling deferral note ("If the dormant frame arrives AFTER the send... Race handling is out of scope for this phase"), and the sizing rationale for `PENDING_SEND_TIMEOUT_MS_DORMANT`.
+- `.planning/phases/62-invisible-dormancy-client-side-follow-up-widen-client-pendin/62-01-SUMMARY.md` — Phase 62 Wave 1 SUMMARY: exact files touched, exact test added (Test 5b in `PrettyView.optimistic-bubbles.test.tsx`), exact constants introduced.
 
-Reference materials:
-- Bounty `~/.claude/roles/box-maintainer/bounties/pv-client-pending-send-timer-dormancy-blind/`
-  has log traces from the current 2026-09-06 repro showing `dormant_at_arm=false`
-  on sends to a server-side dormant session.
-- Phase 62 planning artifacts at `~/skynet-tabitha/.planning/phases/62-invisible-dormancy-client-side-follow-up-widen-client-pendin/`
-  show what the previous attempt did and where its shape reasoning went wrong.
+### Phase 60 (the upstream backend widening that Phase 62 tried to mirror)
+
+- `.planning/shapes/shape-invisible-dormancy.closed.md` — the shape file that used the singular "widen THE watchdog" language, which is the root process cause of the Phase 62 miss. Reading this makes clear what Phase 76 must NOT do (assume a single-signal / single-surface fix).
+- Phase 60 SUMMARY files under `.planning/phases/60-invisible-dormancy-wakes-.../` — Phase 60 backend side (send-path + backend watchdog widening + deletion patterns) — these are what Phase 62 mirrored on the client, and they're what defines the backend's give-up ceiling that D-05 references.
+
+### Live diagnosis
+
+- `~/.claude/roles/box-maintainer/bounties/pv-client-pending-send-timer-dormancy-blind/bounty.json` — bounty premise + log traces. 2026-08-30 trace (Phase 62 diagnosis moment) and 2026-09-06 trace (tiffany repro that surfaced the reconnect-drift root cause) both matter.
+
+### Sister-bounty (out of scope for Phase 76 but relevant context)
+
+- `~/.claude/roles/box-maintainer/bounties/pv-queue-op-dedup-doesnt-survive-wake-recycle/bounty.json` — the duplicate real bubble bug. Phase 62 Wave 2 shipped instrumentation for this; the actual fix is deferred. Phase 76 must NOT widen the dedup gap.
+
+</canonical_refs>
+
+<code_context>
+## Existing Code Insights
+
+### Reusable Assets
+
+- **`PENDING_SEND_TIMEOUT_MS_NORMAL` (20_000) and `PENDING_SEND_TIMEOUT_MS_DORMANT` (220_000)** — `src/ui/features/pretty-view/PrettyView.tsx:139-140`. Phase 62 shipped both. Reuse verbatim; do not re-derive.
+- **`dormantRef` mirror useEffect** — `src/ui/features/pretty-view/PrettyView.tsx:2555-2559`. Established stale-closure-safe pattern; extend or replace per D-02.
+- **`paneStateRef` mirror useEffect** — same pattern, parallel to `dormantRef`.
+- **`handleOptimisticSend` arm site** — `src/ui/features/pretty-view/PrettyView.tsx:1227-1245`. Phase 62 added the `armedDormant = dormantRef.current === true` read at line 1233. This is the LOAD-BEARING consumer to migrate first.
+- **`[diag-dormant-send] arm` / `fire` / `flip-to-failed` diagnostic logging** — already in place at the pending-send lifecycle (see `PrettyView.tsx:1243` for arm log). Existing log fields let the fix be verified from console-forward-logs post-deploy without new instrumentation.
+- **`PrettyView.optimistic-bubbles.test.tsx` Test 5 and Test 5b** — Phase 62's test scaffolding for the pending-send timer. Test 5b in particular exercises the dormant-branch defer + eventual fire behavior. Extend with a Test 5c (or similar) covering the reconnect-mid-dormancy setup for the authoritative-signal path.
+
+### Established Patterns
+
+- **Ref-mirrors-state via useEffect** — pattern used for `dormantRef`, `paneStateRef`, `isVisibleRef`, `statusRef`, `autoplayArmedRef`. If the authoritative dormancy source is a new derived value, its ref mirror follows this pattern.
+- **Named constant + rationale comment coupling across frontend/backend** — Phase 62 used this for `PENDING_SEND_TIMEOUT_MS_DORMANT` referencing backend constants that can't be imported. Preserve this pattern; do not introduce independent constants that could silently drift.
+- **Arm-time read of ref, not state, inside async callbacks** — established pattern to avoid stale-closure bugs. `handleOptimisticSend` reads `dormantRef.current` at arm time (line 1233); the fix must preserve this semantics for the authoritative source.
+
+### Integration Points
+
+- **The wire contract is unchanged.** Backend continues to emit `{type:"dormant"}` and `{type:"pane_state"}` as it does today; the fix is entirely inside PrettyView. No backend changes, no wire-format changes, no new API surface.
+- **`usePaneResolvingMachine`** — currently reads `paneState` for overlay mount gates. If the authoritative source is derived from paneState, this consumer stays authoritative naturally.
+- **WS onmessage handler in PrettyView (line 1741 area)** — currently uses `dormantRef.current` inside a stale-closure guard. Depending on D-02 choice, this consumer either migrates to the authoritative source or stays put (guard purpose may not be dormancy-truth-dependent).
+
+</code_context>
+
+<specifics>
+## Specific Ideas
+
+- **Ashley 2026-09-06 on framing (verbatim, load-bearing):** *"such shoddy work gets done in this app where things are just touched without considering how it affects other pieces. And things constantly break and are unreliable because of it."* Every decision above (D-01–D-08) traces back to preventing this exact class of miss — Phase 60 shipped assuming one watchdog; Phase 62 shipped assuming one dormancy signal. Phase 76 must produce the surface inventory as a hard artifact so this iteration cannot ship the same class of miss for a third time.
+
+- **Ashley 2026-09-06 on the 20s vs longer-window UX tradeoff:** *"For now the silent three-minute spin is acceptable because most of the time it doesn't take anywhere near that to wake the agent up."* Silent spin is fine. Do NOT add interim status text, wake-progress indicators, cancel-in-flight affordances, or any new UX surfaces during this phase.
+
+- **Ashley 2026-09-06 on the 90s-vs-190s question:** she waved this off — decision was made in-shape to source the value by reference to the backend give-up ceiling (D-05), not by picking a number. Do not re-litigate.
+
+- **Multi-send-during-wake user model:** two spinning bubbles in flight during a widened wait, both deliver in order when wake completes, no bubbles lost or reordered, no dedup collision. Ashley confirmed this is the intended model — verify it works.
+
+</specifics>
+
+<deferred>
+## Deferred Ideas
+
+- **Duplicate real bubble on wake-triggered session recycle** — sister bounty `pv-queue-op-dedup-doesnt-survive-wake-recycle`. Priority two behind this phase per Ashley's ordering. Phase 62 Wave 2 shipped instrumentation for this; actual fix requires a repro with the instrumentation live to nail the mechanism. Follow-up build after the next dormant-wake repro produces the trace.
+
+- **Reconnect during the widened wait (survive-and-re-anchor pending)** — Ashley 2026-09-06 verbatim: *"you're talking about a rare scenario that probably needs a bunch of its own custom mechanisms. So I'm trying not to push my luck here."* Scope creep. Follow-up bounty only if it bites in practice.
+
+- **Cancel-in-flight affordance during a widened wait** — three minutes of silent spin might feel like an eternity if Ashley regrets sending. She confirmed silent spin is acceptable because wakes usually complete well before ceiling. Not adding new UX surface here.
+
+- **Interim status text during the spin** — "waking her up" / "sending" / etc. Same rationale: no new UX surface during this phase.
+
+- **Retire the `dormant` state slot entirely** — if D-02 lands on "collapse into paneState-derived logic," there may be no need for a separate `dormant` state slot at all. Plan-phase discretion; may fall out of the implementation naturally, or may be its own follow-up cleanup.
+
+</deferred>
+
+---
+
+*Phase: 76-optimistic-bubbles-must-survive-the-wait-when-the-agent-was-*
+*Context gathered: 2026-09-06*
+*Express path per /build skill: shape file drove decisions; interactive gray-area round skipped by design.*
+</content>
