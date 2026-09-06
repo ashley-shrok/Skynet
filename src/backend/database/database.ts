@@ -24,6 +24,10 @@ import telegramRoutes from "../telegram/routes.js";
 // Phase 22 (SRIC-03): identity clone endpoint — mounted alongside birth/exists
 // with the same match-precedence discipline (specific paths BEFORE /identities).
 import identityCloneRoutes from "./routes/identity-clone.js";
+// Phase 80 Plan 04: pool-name picker router — mounted at /identities/pool
+// alongside the other /identities/xxx sub-routers, BEFORE the generic
+// /identities mount (see mount block comment for landmine detail).
+import identityPoolRoutes from "../pool/pool-routes.js";
 import rolesListForHostRoutes from "./routes/roles-list-for-host.js";
 import rolesCreateRoutes from "./routes/roles-create.js";
 import globalFilesListRoutes from "./routes/global-files.js";
@@ -1844,6 +1848,12 @@ app.use("/identities/birth", identityBirthRoutes);
 // BEFORE the general /identities mount so the exact path wins. Same mount-
 // order discipline as /identities/birth above.
 app.use("/identities/clone", identityCloneRoutes);
+// Phase 80 Plan 04: pool-name picker — mount BEFORE /identities so
+// /identities/pool/pick resolves here and does not fall through to the
+// generic identitiesRoutes /:identityKey handler (which would 400
+// "identityKey must match [a-z0-9_-]{1,64}" because "pool" fails the
+// pattern). RESEARCH §Landmine 4 — same discipline as avatar/birth/clone.
+app.use("/identities/pool", identityPoolRoutes);
 // Phase 20 (IDUI-05): target-host-side identity name collision probe — mount
 // BEFORE /identities so /identities/exists-on-host resolves here first.
 app.use("/identities", identityExistsOnHostRoutes);
