@@ -414,9 +414,12 @@ describe("ChatMessage — pendingState (Phase 50 Plan 03 Task 1)", () => {
     expect(bubble).not.toBeNull();
     // Assert whole-bubble red fill: background shorthand must be the saturated-red
     // value, NOT the barely-visible 0.08-alpha tint from the old implementation.
-    expect(bubble.style.background).toBe("hsla(0, 60%, 35%, 0.9)");
+    // Note: jsdom normalizes hsla() → rgba() in computed style. The source CSS
+    // uses hsla(0, 60%, 35%, 0.90) which jsdom converts to rgba(143, 36, 36, 0.9).
+    expect(bubble.style.background).toBe("rgba(143, 36, 36, 0.9)");
     // Assert saturated red border.
-    expect(bubble.style.borderColor).toBe("hsla(0, 70%, 50%, 0.85)");
+    // hsla(0, 70%, 50%, 0.85) → jsdom normalizes to rgba(217, 38, 38, 0.85).
+    expect(bubble.style.borderColor).toBe("rgba(217, 38, 38, 0.85)");
   });
 
   it("Test 5 — assistant bubbles ignore pendingState (no spinner, no failed attribute)", () => {

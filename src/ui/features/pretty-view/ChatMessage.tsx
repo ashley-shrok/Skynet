@@ -388,22 +388,28 @@ export function ChatMessage({
   }), [eventId, onOpenEditor, eligibleUrls]);
   // Phase 50 Plan 03 Task 1 (D-01/D-03/D-06/D-19): user-only pending-state
   // gate. Assistant bubbles ignore the prop; failed supersedes sending
-  // (mutually exclusive per Test 6). Muted-red palette per D-06 Discretion:
-  // no new theme token — inline hsla values match the "not-a-saturated-
-  // alarm-red" posture.
+  // (mutually exclusive per Test 6).
+  //
+  // Phase 76 Plan 02 — D-06 semantic upgrade (Ashley 2026-09-06 verbatim:
+  // "hopefully after we do this work a failed bubble will be a truly failed
+  // bubble and that is worth being that loud about"). Post-Phase-76, a failed
+  // bubble means the backend spent its FULL 210s give-up ceiling and actually
+  // gave up — it is a rare, truly-failed event. The visual must carry that
+  // weight: whole-bubble red fill, not just a red border + faint tint.
+  //
+  // CSS approach: use the `background` SHORTHAND (not `backgroundColor`) in
+  // the inline style. `background` overrides `background-image` (which is what
+  // the Tailwind `bg-[linear-gradient(...)]` utility class at line 451 sets),
+  // while `backgroundColor` alone would lose to the gradient in the cascade.
+  // Inline-style specificity beats any className utility, so the saturated-red
+  // `background` replaces the base blue-gray gradient entirely.
   const showSendingSpinner = isUser && pendingState === "sending";
   const showFailedBubble = isUser && pendingState === "failed";
-  // Base "position: relative" preserved; failed state layers the muted-red
-  // border/tint over the existing bubble styling. borderColor overrides the
-  // user-bubble border class; backgroundColor tints WITHOUT replacing the
-  // gradient (composited over it via the layered `linear-gradient(..)` on
-  // the base class — which we cannot override via inline style — so use a
-  // subtle inline bg-color that most closely reads as "failed" per D-06).
   const bubbleInlineStyle: React.CSSProperties = showFailedBubble
     ? {
         position: "relative",
-        borderColor: "hsla(0, 60%, 55%, 0.4)",
-        backgroundColor: "hsla(0, 40%, 50%, 0.08)",
+        background: "hsla(0, 60%, 35%, 0.90)",
+        borderColor: "hsla(0, 70%, 50%, 0.85)",
       }
     : { position: "relative" };
   return (
