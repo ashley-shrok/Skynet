@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-06T15:16:37.427Z"
+last_updated: "2026-09-06T17:57:35.383Z"
 last_activity: 2026-09-06
 progress:
   total_phases: 79
   completed_phases: 65
   total_plans: 296
-  completed_plans: 292
+  completed_plans: 293
   percent: 82
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 80 (id skill revamp Phase A) — EXECUTING
-Plan: 6 of 10
+Plan: 7 of 10
 Status: Ready to execute
 
 Last activity: 2026-09-06
@@ -350,6 +350,7 @@ Progress: [██████████] 100%
 | Phase 80 P03b | 20min | 2 tasks | 4 files |
 | Phase 80 P04 | 12min | 2 tasks | 3 files |
 | Phase 80 P05 | 8min | 1 tasks | 1 files |
+| Phase 80 P80-06 | 154min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -561,6 +562,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Silent-fallback branch narrowly scoped to mxid_name_not_pool_shape error tag; mxid_role_malformed rethrows to fail Step 6 loudly
 - [Phase ?]: MXID derivation inside Step 6's runStep (no new numbered SSE step) preserves Q2 no-rollback invariant and keeps frontend BirthProgress checklist untouched
 - [Phase ?]: Phase 80 Plan 04: Local duplication of ROLE_NAME_PATTERN in pool-routes.ts (mirrors identity-birth.ts:63 IDENTITY_KEY_RE style) — private ROLE_NAME_RE in identity-birth-orchestrator not exported; JSDoc documents sync requirement
+- [Phase ?]: 80-06: chose Approach A (visible 'Pick a host to see available roles' hint) over Approach B (widen host auto-pick) — fleet lacks deterministic local-host identifier
+- [Phase ?]: 80-06: poolPickedName is NOT reset per keystroke — edit-detection is submit-time name.trim()===poolPickedName equality check, handles edit-then-revert correctly
+- [Phase ?]: 80-06: task textarea positioned ABOVE Name input — task is primary framing question, name is downstream detail
 
 ### Pending Todos
 
@@ -859,8 +863,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-06T15:15:37.203Z
-Stopped at: Completed 80-03b-PLAN.md
+Last session: 2026-09-06T17:57:34.429Z
+Stopped at: Completed 80-06-PLAN.md
 Last session: 2026-09-06T12:17:07.176Z
 Stopped at: Phase 80 context gathered
 Last session: 2026-08-14T22:37:15.928Z
