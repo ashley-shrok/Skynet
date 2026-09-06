@@ -1,0 +1,130 @@
+# Phase 79 Plan 06 — canonical Skynet Docker Compose.
+#
+# Blocker B-5 (revision pass): host-varying paths (bind-mount sources,
+# env_file, Caddyfile) are parametrized via a SKYNET_HOST_DIR env-var
+# with a /opt/skynet default, so `docker compose -f docker/docker-compose.yml
+# config` works both in the repo (default resolves to the live /opt/skynet
+# layout) and on any host that sets SKYNET_HOST_DIR to a different root.
+#
+# Two-file reality: this file is the REPO canonical shape. On the live
+# deploy target the same file is mirrored to /opt/skynet/docker-compose.yml
+# by Plan 09's cutover step. Both files are byte-identical; SKYNET_HOST_DIR
+# is set by /opt/skynet/.env-compose (or shell env) at compose-up time.
+services:
+  skynet:
+    image: skynet-patched:local
+    container_name: skynet
+    restart: unless-stopped
+    expose:
+      - "8080"
+    volumes:
+      - skynet-data:/app/data
+      - ${SKYNET_HOST_DIR:-/opt/skynet}/console-forward-logs:/var/log/skynet/console-forward
+      - ${SKYNET_HOST_DIR:-/opt/skynet}/stt-recordings:/app/stt-recordings
+      # Phase 70: branding config + assets — single directory bind-mount from
+      # host, read-only. The operator drops branding.json AND asset files
+      # into /opt/skynet/branding/ side-by-side (matching the bundled defaults
+      # layout at /app/branding-defaults/). One directory mount avoids the
+      # docker create_host_path file-vs-directory ambiguity (a missing file
+      # source would auto-create as an empty DIRECTORY, breaking the loader);
+      # a missing directory source auto-creates as an empty directory cleanly,
+      # and the loader's per-file ENOENT fallback then serves bundled defaults.
+      - type: bind
+        source: ${SKYNET_HOST_DIR:-/opt/skynet}/branding
+        target: /etc/skynet/branding
+        read_only: true
+        bind:
+          create_host_path: true
+      # Phase 79 Plan 06 — shared named volume with tg-bridge service.
+      # Skynet writes config.env (Plan 04) + registry.json + <human>.token
+      # + <identityKey>.bottoken files here. Bridge (tg-bridge service,
+      # defined below) reads them + writes per-human .since cursors +
+      # .token-dead sentinels back.
+      # NOT read_only — Skynet writes from the container.
+      - tg-bridge-state:/state
+    env_file:
+      - ${SKYNET_HOST_DIR:-/opt/skynet}/skynet.env
+    environment:
+      PORT: "8080"
+      SKYNET_CONSOLE_FORWARD_LOG_PATH: "/var/log/skynet/console-forward/console-forward.log"
+    depends_on:
+      - guacd
+    networks:
+      - skynet-net
+
+  guacd:
+    image: guacamole/guacd:1.6.0
+    container_name: guacd
+    restart: unless-stopped
+    networks:
+      - skynet-net
+
+  filestash:
+    image: filestash-patched:local
+    container_name: filestash
+    restart: unless-stopped
+    expose:
+      - "8334"
+    environment:
+      APPLICATION_URL: "files.gigaashley.click"
+      CANARY: "true"
+    volumes:
+      - filestash-data:/app/data/state/
+      - ${SKYNET_HOST_DIR:-/opt/skynet}/keys:/keys:ro
+    networks:
+      - skynet-net
+
+  caddy:
+    image: caddy:2
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ${SKYNET_HOST_DIR:-/opt/skynet}/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - skynet-net
+
+  # Phase 79 Plan 06 — Telegram <-> Matrix bridge, co-located with Skynet.
+  # Bridge script + Dockerfile at substrate/services/tg-bridge/. Reads all
+  # config from /state/config.env (written by Skynet at boot per Plan 04).
+  # NO environment: block for MATRIX_ROOT/STT_URL — CONTEXT § 4C enforces
+  # "config values come from Skynet's config" as a HARD requirement, so
+  # the bridge sources /state/config.env at boot instead of receiving env
+  # vars at compose-up time. This keeps Skynet the single source of truth.
+  tg-bridge:
+    build:
+      context: ../substrate/services/tg-bridge
+      dockerfile: Dockerfile.tg-bridge
+    image: tg-bridge:local
+    container_name: tg-bridge
+    restart: always
+    volumes:
+      - tg-bridge-state:/state
+    depends_on:
+      - skynet
+    networks:
+      - skynet-net
+
+volumes:
+  skynet-data:
+    driver: local
+  caddy-data:
+    driver: local
+  caddy-config:
+    driver: local
+  filestash-data:
+    driver: local
+  # Phase 79 Plan 06 — shared state volume for tg-bridge <-> skynet handshake.
+  # Contents: config.env, registry.json, <human>.token, <human>.since,
+  # <human>.token-dead, <identityKey>.bottoken, offset.<agent>, work/.
+  # Skynet writes config + tokens + registry + .bottoken; bridge writes cursor + sentinels.
+  tg-bridge-state:
+    driver: local
+
+networks:
+  skynet-net:
+    driver: bridge
