@@ -312,6 +312,58 @@ describe("extractCosmeticsFromFrontmatter — coordinator field (Phase 67 Plan 6
 });
 
 // ===========================================================================
+// Phase 80 Plan 80-03: task field narrowing
+// ===========================================================================
+//
+// Phase 80 adds ONE MORE optional cosmetic scalar to the on-disk YAML
+// frontmatter: `task: <string>` (write-once at identity creation per D-05).
+// Purely additive extension of the Phase 66 pipeline. Cases mirror the
+// existing narrowing contract: present-and-non-empty keeps it, empty string
+// drops it, non-string drops it, absent drops it, malformed YAML returns {}.
+
+describe("extractCosmeticsFromFrontmatter — task field (Phase 80 Plan 80-03)", () => {
+  it("TASK-1: frontmatter with task: 'build the pool-pick endpoint' → task returned verbatim", async () => {
+    const md =
+      "---\nrole: box-maintainer\ndisplayName: Tina\ntask: build the pool-pick endpoint\n---\n\n# body\n";
+    const result = extractCosmeticsFromFrontmatter(md);
+    expect(result.displayName).toBe("Tina");
+    expect(result.task).toBe("build the pool-pick endpoint");
+  });
+
+  it("TASK-2: frontmatter with task: '' (empty string) → task DROPPED (absent-⇒-omit)", async () => {
+    const md =
+      "---\nrole: box-maintainer\ndisplayName: Tina\ntask: \"\"\n---\n\n# body\n";
+    const result = extractCosmeticsFromFrontmatter(md);
+    expect(result.displayName).toBe("Tina");
+    expect("task" in result).toBe(false);
+  });
+
+  it("TASK-3: frontmatter with task: 42 (non-string number) → task DROPPED", async () => {
+    const md =
+      "---\nrole: box-maintainer\ndisplayName: Tina\ntask: 42\n---\n\n# body\n";
+    const result = extractCosmeticsFromFrontmatter(md);
+    expect(result.displayName).toBe("Tina");
+    expect("task" in result).toBe(false);
+  });
+
+  it("TASK-4: frontmatter with NO task key → task absent from result", async () => {
+    const md =
+      "---\nrole: box-maintainer\ndisplayName: Tina\ntitle: The Coder\n---\n\n# body\n";
+    const result = extractCosmeticsFromFrontmatter(md);
+    expect(result.displayName).toBe("Tina");
+    expect("task" in result).toBe(false);
+  });
+
+  it("TASK-5: malformed YAML block → {} returned; task absent (parse-error swallow preserved — RESEARCH §5 landmine)", async () => {
+    const md =
+      "---\n: : broken : : yaml : :\n  invalid: [unclosed\ntask: something\n---\n\n# body\n";
+    const result = extractCosmeticsFromFrontmatter(md);
+    expect(result).toEqual({});
+    expect("task" in result).toBe(false);
+  });
+});
+
+// ===========================================================================
 // Invalid identityKey guard
 // ===========================================================================
 
