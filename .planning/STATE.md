@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-06T02:25:52.213Z"
+last_updated: "2026-09-06T02:33:58.706Z"
 last_activity: 2026-09-06
 progress:
   total_phases: 76
   completed_phases: 62
   total_plans: 278
-  completed_plans: 274
+  completed_plans: 275
   percent: 82
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 75 (server-side-substrate-bootstrap) — EXECUTING
-Plan: 6 of 9
+Plan: 7 of 9
 Status: Ready to execute
 
 Last activity: 2026-09-06
@@ -335,6 +335,7 @@ Progress: [██████████] 100%
 | Phase 75 P75-01 | 312 | 2 tasks | 3 files |
 | Phase 75 P03 | 376s | 1 tasks | 2 files |
 | Phase 75 P02 | 11 | 2 tasks | 4 files |
+| Phase 75 P05 | 600 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -531,6 +532,7 @@ Recent decisions affecting current work:
 - [Phase ?]: LEFT JOIN on sshCredentials (not INNER JOIN) to surface no-credentialId hosts for defense-in-depth warn+skip (D-08 enforcement)
 - [Phase ?]: key_password field name (snake_case) confirmed for CSKEK decryption of system_key_password column per credential-system-encryption-migration.ts:93
 - [Phase ?]: persistentFailureThreshold=3 for fleet_substrate_host_persistent_failure: surfaces persistent failures within 90s (30s x 3), absorbs single-tick transients (D-06 Claude's Discretion)
+- [Phase ?]: 75-05: fire-and-forget .catch() form locked for substrate orchestrator start() per D-01
 
 ### Pending Todos
 
@@ -822,8 +824,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-06T02:25:51.980Z
-Stopped at: Completed 75-02-PLAN.md
+Last session: 2026-09-06T02:33:58.525Z
+Stopped at: Completed 75-05-PLAN.md (substrate orchestrator wire-in)
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
 Last session: 2026-08-19T03:53:37.643Z
