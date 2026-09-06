@@ -165,4 +165,107 @@ router.get("/branding/*splat", async (req: Request, res: Response) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// bounty branding-favicon-coverage-gap:
+//   Size-suffixed favicons + apple-touch icons served through the branding
+//   override cascade so operators can rebrand every favicon surface without
+//   fork changes.
+//
+//   These 7 URLs are hardcoded at the ROOT path in index.html (not under
+//   /branding/*), so the existing /branding/*splat handler above never sees
+//   them. Each URL gets its own Express route that runs the same
+//   override → bundled-default → NEXT() cascade as /branding/*, with one
+//   difference: on "missing", we call next() instead of returning 404 so the
+//   downstream Express static middleware for frontendDist (/app/html/) serves
+//   the fork's baked-in public/<filename>. This preserves D-14 parity — a
+//   no-config deploy produces byte-identical responses to the pre-change
+//   behavior (nginx used to serve /app/html/<filename> directly).
+//
+//   Nginx parity (CLAUDE.md caveat — mirror header comment L13-20 above):
+//   matching location blocks live in BOTH docker/nginx.conf AND
+//   docker/nginx-https.conf. The nginx blocks MUST appear ABOVE the
+//   `~* \.(js|css|png|...)$` static-serve regex or nginx serves
+//   /app/html/*.png directly and Express never sees these URLs. Updates to
+//   the FAVICON_URLS list below REQUIRE parallel updates to both nginx confs.
+//
+//   apply-favicon.ts invariant preserved: the frontend hook only rewrites
+//   <link rel="icon"> hrefs (favicon-{16,32}); the apple-touch links are
+//   intentionally left alone. The BACKEND serves overridden apple-touch bytes
+//   at the SAME public URLs, so no runtime <link> rewrite is needed to get
+//   operator-branded apple-touch icons through.
+// ---------------------------------------------------------------------------
+
+/** Size-suffixed favicon + apple-touch URLs served through the branding
+ * cascade. Filename == route path (with leading `/`). Keep in sync with the
+ * regex in docker/nginx.conf + docker/nginx-https.conf. */
+const FAVICON_CASCADE_FILENAMES = [
+  "favicon-16.png",
+  "favicon-32.png",
+  "apple-touch-icon-60.png",
+  "apple-touch-icon-76.png",
+  "apple-touch-icon-120.png",
+  "apple-touch-icon-152.png",
+  "apple-touch-icon-180.png",
+] as const;
+
+export const FAVICON_CASCADE_URLS: readonly string[] =
+  FAVICON_CASCADE_FILENAMES.map((f) => `/${f}`);
+
+/**
+ * Shared handler for the 7 favicon cascade URLs.
+ * Cascade: override → bundled-default → next() (Express static fallback).
+ * MIME type is inferred by res.sendFile from the file extension.
+ */
+async function serveCascadeAsset(
+  filename: string,
+  _req: Request,
+  res: Response,
+  next: (err?: unknown) => void,
+): Promise<void> {
+  let resolved: { path: string; source: "override" | "default" | "missing" };
+  try {
+    resolved = await resolveAssetPath(filename);
+  } catch (err) {
+    // Defensive: `filename` is a compile-time literal so containment escape is
+    // unreachable in practice. Kept for symmetry with the /branding/*splat
+    // handler (400 with empty body, no filesystem paths echoed — V13).
+    sshLogger.error(
+      "branding-routes: favicon cascade path containment violation",
+      {
+        operation: "branding_route_favicon_cascade_escape",
+        error: err instanceof Error ? err.message : String(err),
+        filename,
+      },
+    );
+    res.status(400).end();
+    return;
+  }
+
+  if (resolved.source === "missing") {
+    // Fall through to the frontendDist static middleware (serves the fork's
+    // public/<filename>). Preserves D-14 no-config-deploy parity.
+    return next();
+  }
+
+  res.setHeader("Cache-Control", ASSET_CACHE);
+  res.sendFile(resolved.path, (err) => {
+    if (err) {
+      sshLogger.error("branding-routes: favicon cascade sendFile error", {
+        operation: "branding_route_favicon_cascade_send",
+        error: err instanceof Error ? err.message : String(err),
+        path: resolved.path,
+      });
+      if (!res.headersSent) {
+        res.status(500).end();
+      }
+    }
+  });
+}
+
+for (const filename of FAVICON_CASCADE_FILENAMES) {
+  router.get(`/${filename}`, (req, res, next) => {
+    void serveCascadeAsset(filename, req, res, next);
+  });
+}
+
 export default router;
