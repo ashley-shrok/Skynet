@@ -8,10 +8,12 @@
 // three existing document.title assignments prove out the imperative style
 // (see 70-RESEARCH.md § "Standard Stack" for the ban rationale).
 //
-// Where to call from: a top-level always-mounted component. The recommended
-// site (per plan output handoff notes) is inside AppShell so the favicon
-// applies pre-login as well as post-login. Plan 70-04 owns that wiring
-// decision — this hook is the primitive; the wiring is 70-04's job.
+// Where to call from: a top-level always-mounted component. Called from
+// App() in src/main.tsx, which wraps BOTH <Auth> (login) and <AppShell>
+// (post-login) — the hook needs to run pre-login too so operator
+// branding.faviconPath overrides the fork's hardcoded /favicon-32.png on
+// the login screen (bounty branding-favicon-coverage-gap). Originally
+// mounted in AppShell — moved out because AppShell only mounts post-login.
 //
 // Threat model: none new. faviconPath is an operator-controlled URL string
 // treated as a same-origin path by the browser; the /branding/* backend

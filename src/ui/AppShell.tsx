@@ -14,7 +14,6 @@ import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 // the tab-init / document.title / tab-reset fallback chains that used to
 // hardcode the brand string.
 import { useBrandingConfig } from "@/branding/branding-store";
-import { useBrandingFavicon } from "@/branding/apply-favicon";
 import { useGamepadTabNav } from "@/hooks/use-gamepad-tab-nav";
 import { useKeyboardTabNav } from "@/hooks/use-keyboard-tab-nav";
 import { useKeyboardCloseTab } from "@/hooks/use-keyboard-close-tab";
@@ -234,12 +233,15 @@ export function AppShell({
   // Phase 70 Plan 04: consume the branding store (Plan 70-03) so the three
   // prior hardcoded-brand fallbacks below (initial tab label, document.title
   // last-fallback slot, tab-reset-on-close label) use the operator-configured
-  // brandingConfig.appName instead. useBrandingFavicon() has no return value
-  // — it runs a useEffect keyed on faviconPath that rewrites <link rel="icon">
-  // hrefs. Placed in AppShell so the favicon applies pre-login too (AppShell
-  // is mounted throughout the auth + post-auth lifecycle).
+  // brandingConfig.appName instead.
+  //
+  // bounty branding-favicon-coverage-gap: the favicon hook (see
+  // src/ui/branding/apply-favicon.ts) used to be called here too, but
+  // AppShell only mounts post-login — the login screen therefore never got
+  // operator favicon overrides. The call was lifted to App() in
+  // src/main.tsx (which wraps BOTH <Auth> and <AppShell>). Do NOT re-add
+  // the call here — that would double-rewrite <link rel="icon"> hrefs.
   const brandingConfig = useBrandingConfig();
-  useBrandingFavicon();
   const [tabs, setTabs] = useState<Tab[]>([
     {
       id: "dashboard",

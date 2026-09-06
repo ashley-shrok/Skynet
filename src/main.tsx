@@ -18,6 +18,7 @@ import { snapshotPendingTab } from "@/lib/tab-url";
 import { initConsoleForwarder } from "@/lib/console-forwarder";
 import { startDiagEmitter } from "@/lib/diag-emitter";
 import { fetchBrandingConfig } from "@/branding/branding-fetch";
+import { useBrandingFavicon } from "@/branding/apply-favicon";
 
 // Patch #146: install console-forwarder before anything else so all
 // subsequent console.log/warn/error calls are intercepted and batched
@@ -105,6 +106,17 @@ function FullscreenApp() {
 }
 
 function App() {
+  // bounty branding-favicon-coverage-gap: called here (not inside AppShell)
+  // so the operator's branding.faviconPath overrides <link rel="icon"> hrefs
+  // on BOTH the login (<Auth>) and post-login (<AppShell>) branches. Previously
+  // scoped to AppShell — AppShell only mounts post-login, so the login page
+  // always rendered the fork's hardcoded /favicon-32.png default and no
+  // operator branding-config override reached the browser tab pre-auth.
+  //
+  // NOT mounted in RootApp: that component short-circuits to <FullscreenApp>
+  // for ?view= popouts and <ElectronVersionCheck> for the Electron gate;
+  // neither branch needs favicon rewrites (out of scope for this bounty).
+  useBrandingFavicon();
   const stored = getStoredAuth();
   const [phase, setPhase] = useState<Phase>(
     stored?.loggedIn ? "verifying" : "idle-auth",
