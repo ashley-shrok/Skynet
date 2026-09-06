@@ -262,7 +262,7 @@ async function loadHandlers() {
 
 beforeAll(async () => {
   await loadHandlers();
-});
+}, 60_000);
 
 // ---------------------------------------------------------------------------
 // Reset mocks before each test

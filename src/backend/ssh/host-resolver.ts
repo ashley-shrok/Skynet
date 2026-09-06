@@ -4,6 +4,8 @@ import { eq, and } from "drizzle-orm";
 import { SimpleDBOps } from "../utils/simple-db-ops.js";
 import { logger } from "../utils/logger.js";
 import type { SSHHost } from "../../types/index.js";
+import { SystemCrypto } from "../utils/system-crypto.js";
+import { FieldCrypto } from "../utils/field-crypto.js";
 
 const sshLogger = logger;
 
@@ -73,6 +75,73 @@ export async function resolveHostById(
 
   // Resolve credential if using credential-based auth
   if (host.credentialId) {
+    // Phase 75-04 D-08 + D-09: substrate hosts route through CSKEK, not per-user DEK.
+    // Explicit branch — not a fallback — so non-substrate hosts remain byte-identical
+    // to the pre-Phase-75 behavior (D-10 scope boundary).
+    //
+    // Load runsFleetSubstrate directly from the hosts row (not carried in the
+    // input `host` object today — belt-and-suspenders correctness).
+    try {
+      const substrateRows = await db
+        .select({ runsFleetSubstrate: hosts.runsFleetSubstrate })
+        .from(hosts)
+        .where(eq(hosts.id, hostId))
+        .limit(1);
+      const isSubstrate = substrateRows[0]?.runsFleetSubstrate === true;
+
+      if (isSubstrate) {
+        try {
+          const CSKEK = await SystemCrypto.getInstance().getCredentialSharingKey();
+          const rawRows = await db
+            .select()
+            .from(sshCredentials)
+            .where(eq(sshCredentials.id, host.credentialId as number))
+            .limit(1);
+          if (rawRows.length === 0) {
+            sshLogger.warn("Substrate host credential row not found", {
+              operation: "host_resolver_substrate_missing_credential",
+              hostId,
+              credentialId: host.credentialId,
+            });
+            return null; // fail closed — do NOT fall through to user-DEK
+          }
+          const cred = rawRows[0] as Record<string, unknown>;
+          const credIdStr = String(cred.id);
+          host.password = cred.systemPassword
+            ? FieldCrypto.decryptField(cred.systemPassword as string, CSKEK, credIdStr, "password")
+            : null;
+          host.key = cred.systemKey
+            ? FieldCrypto.decryptField(cred.systemKey as string, CSKEK, credIdStr, "key")
+            : null;
+          host.keyPassword = cred.systemKeyPassword
+            ? FieldCrypto.decryptField(cred.systemKeyPassword as string, CSKEK, credIdStr, "key_password")
+            : null;
+          host.keyType = cred.keyType;
+          if (!host.overrideCredentialUsername) {
+            host.username = cred.username;
+          }
+          host.authType = host.key ? "key" : host.password ? "password" : "none";
+          return host as unknown as SSHHost; // EXPLICIT return — no fall-through
+        } catch (e) {
+          sshLogger.warn("Failed to resolve CSKEK credential for substrate host", {
+            operation: "host_resolver_substrate_cskek",
+            hostId,
+            error: e instanceof Error ? e.message : "Unknown",
+          });
+          return null; // fail closed — never leak to user-DEK path
+        }
+      }
+    } catch (e) {
+      // If we can't determine substrate status, log and fall through to user-DEK.
+      // This handles the case where the runsFleetSubstrate lookup itself fails
+      // (e.g., DB error) — we do NOT silently change crypto behavior.
+      sshLogger.warn("Failed to check runsFleetSubstrate for host, falling through to user-DEK", {
+        operation: "host_resolver_substrate_check_failed",
+        hostId,
+        error: e instanceof Error ? e.message : "Unknown",
+      });
+    }
+
     const ownerId = (host.userId || userId) as string;
     try {
       // Try user's own override credential first
