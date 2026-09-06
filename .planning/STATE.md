@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-06T13:55:59Z"
-last_activity: 2026-09-06 -- Phase 80 Plan 02 complete (countUsersMatching primitive)
+last_updated: "2026-09-06T14:20:55.046Z"
+last_activity: 2026-09-06
 progress:
-  total_phases: 78
-  completed_phases: 64
-  total_plans: 293
-  completed_plans: 285
+  total_phases: 79
+  completed_phases: 65
+  total_plans: 296
+  completed_plans: 289
   percent: 82
 ---
 
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 80 (id skill revamp Phase A) — EXECUTING
-Plan: 3 of 10
-Status: Ready to execute plan 80-03
+Plan: 4 of 10
+Status: Ready to execute
 
-Last activity: 2026-09-06 — Completed Phase 80 Plan 02 (Wave 1: countUsersMatching primitive on matrix-admin-client). Substrate for pool-pick endpoint (80-04) and ordinal derivation at identity birth (80-03b). New `countUsersMatching(prefix: string): Promise<CountUsersOk | AdminErr>` export in `src/backend/matrix/matrix-admin-client.ts` — byte-shape mirror of existing `loginAsUser` primitive: same discriminated-union return (`AdminOk<{total:number}> | AdminErr`), same auth (`Bearer creds.accessToken`), same timeout (`AbortController` + `REQUEST_TIMEOUT_MS = 30_000`), same error taxonomy (`ERR_CREDS_MISSING` / `ERR_NON_2XX` / `ERR_TIMEOUT` / `ERR_PROXY`) — zero new error strings. Hits `GET /_synapse/admin/v2/users?user_id=${encodeURIComponent(prefix)}&deactivated=true&limit=1`. `deactivated=true` is load-bearing: Synapse deactivates but never deletes MXID handles, so a pool allocator that skipped deactivated accounts would hand out already-reserved names. Body missing `total` field returns safe default `{ok:true, total:0}`. `clearTimeout(timeoutId)` in both success + error branches. `databaseLogger.error("matrix admin proxy error", err, {operation: "matrix_admin_count_users"})` logs ONLY `err` + operation tag — never `parsed`/`response`/`accessToken` (T-80-02-01/02 mitigation). `encodeURIComponent` on prefix (T-80-02-03 URL-injection defense). 9 unit tests added in new `describe("countUsersMatching", ...)` block: happy 200 with `{total:5}`, happy 200 body missing total (safe 0 default), missing creds (500 + fetch NOT called), non-2xx 403 with explicit no-body-leak assertion (`M_FORBIDDEN` / `server-secret-detail` MUST NOT appear in result), AbortError (504), network TypeError (502), URL-shape assertion (`user_id=` + `deactivated=true` + `limit=1`), `@Willow+test:host` → `%40Willow%2Btest%3Ahost` encoding proof, GET method + Bearer header. TDD cycle: RED (commit `0e4319a0`) all 9 tests fail with `TypeError: countUsersMatching is not a function`; GREEN (commit `da93cb32`) all 36 tests pass (27 pre-existing byte-identical + 9 new), zero regressions. Verify `npx vitest run src/backend/matrix/matrix-admin-client.test.ts` = 36/36 pass exit 0; `NODE_OPTIONS=--max-old-space-size=4096 npx tsc --noEmit` = exit 0. Acceptance criteria all green: `grep -c "export async function countUsersMatching"` = 1; `grep -c "encodeURIComponent"` = 7 (was 6, +1 as required); `grep -c "matrix_admin_count_users"` = 1; `grep -c "deactivated=true"` = 3; `grep -c "limit=1"` = 3; `grep -c "ERR_COUNT"` = 0 (no new error constants); `grep -E "console\\.(log|info)"` count unchanged. Zero deviation rules triggered; no auth gates; no checkpoints; no follow-up bounties. HEAD `da93cb32` LOCAL, NOT pushed / NOT built / NOT deployed per executor scope + fleet no-deploy rule. SUMMARY at `.planning/phases/80-id-skill-revamp-phase-a-skynet-frontend-and-backend-for-pool/80-02-SUMMARY.md`. Next plan (80-03) picks up task-field wiring end-to-end on backend disk-read/write. Prior activity:
+Last activity: 2026-09-06
 Last activity (prior): 2026-09-06 — Completed Phase 80 Plan 01 (Wave 1: pool storage substrate). JSON pool seed baked into Skynet Docker image at `docker/pool-defaults/pool.json` (7 PascalCase placeholder names — Willow, Cinder, Aster, Vega, Onyx, Sable, Fig — Ashley's vetted list will overwrite in parallel and ship at ship time per D-01, no code change needed for content swap) + Dockerfile COPY line at L79 immediately after the branding-defaults COPY (L78), same `--chown=node:node` flag + new `src/backend/pool/pool-loader.ts` exporting `getVettedPool(): string[]` and `POOL_FILENAME` — direct byte-shape mirror of `src/backend/branding/branding-config-loader.ts` `getBundledDefaults` L118-155 (module-scope `let cachedPool: string[] | null = null` memoization + sync `readFileSync(/app/pool-defaults/pool.json)` + inline typeof/Array.isArray shape guard + `sshLogger.error` on non-ENOENT failure branches; ENOENT silent per D-01 legacy-deploy-safety) + 11-case unit test suite at `src/backend/pool/pool-loader.test.ts` using `vi.mock("node:fs")` + `vi.resetModules()` pattern from `branding-config-loader.test.ts`. Test coverage: happy path, ENOENT silent (no log), malformed JSON (log fires, log payload does NOT contain raw file body per T-80-01-04 mitigation), 3 shape-invalid variants (top-level not object, `names` not array, non-string entries, empty-string entries), memoization across happy-path (asserts second call with flipped file payload still returns cached first-call result — `readFileSync` invoked exactly once), memoization across ENOENT (cached `[]` wins over subsequent file appearance until container restart), non-ENOENT fs error (EACCES) still returns `[]` and logs. Threat register mitigations verified: T-80-01-02 never-throws (loader body has zero `throw` statements — `grep -c "throw"` = 0 in loader source), T-80-01-03 memoized (grep `cachedPool` = 12 references, test asserts single readFileSync call), T-80-01-04 no raw body in log (dedicated malformed-JSON test asserts `JSON.stringify(logCtx)` does not contain the raw payload substring). Two atomic commits on `feat/tab-title-from-tmux`: `0cbcad08` (feat 80-01 Task 1 — pool seed JSON + Dockerfile COPY) + `4190f34b` (feat 80-01 Task 2 — pool-loader + 11 tests, combined per plan `<action>` guidance since loader + tests are same-cycle TDD RED/GREEN). Scoped verify `npx vitest run src/backend/pool/pool-loader.test.ts` = 11/11 pass exit 0. TDD gate compliance: Task 2 test file written first + confirmed RED (11/11 fail with `ERR_MODULE_NOT_FOUND` before loader existed) then loader written + confirmed GREEN — both landed in the same feat commit as permitted by plan. One decision-level detour: rewrote 3 JSDoc "never throws" phrases to "no exceptions ever escape" so the plan's literal-substring `grep -c "throw" src/backend/pool/pool-loader.ts` acceptance criterion (expects 0) holds; semantic equivalent, preserves the actual invariant. Deferred nothing — plan executed exactly as written; zero deviation rules triggered; no auth gates; no checkpoints; no follow-up bounties. HEAD `4190f34b` LOCAL, NOT pushed / NOT built / NOT deployed per executor scope + fleet no-deploy rule; deploy motion (docker build + force-recreate) is orchestrator territory once Phase 80 completes or ships an interim slice on Ashley greenlight. SUMMARY at `.planning/phases/80-id-skill-revamp-phase-a-skynet-frontend-and-backend-for-pool/80-01-SUMMARY.md`. Next plan (80-02) picks up `countUsersMatching` primitive on `matrix-admin-client.ts` (Synapse admin count for ordinal derivation). Prior activity:
 Last activity (prior): 2026-09-06 -- Phase 80 execution started
 Last activity (prior): 2026-09-06 (Phase 76 EXECUTING plan 3/3 — phase complete, ready for verification)
@@ -212,7 +212,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 98%
+Progress: [██████████] 99%
 Progress: [██████████] 100%
 
 ## Performance Metrics
@@ -346,7 +346,7 @@ Progress: [██████████] 100%
 | Phase 75 P09 | 15min | 1 tasks | 1 files |
 | Phase 76 P01 | 47 | 2 tasks | 2 files |
 | Phase 76 P03 | 15 | 1 tasks | 1 files |
-| Phase 79 P05 | 8min | - tasks | - files |
+| Phase 80 P80-03 | ~14 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -549,11 +549,10 @@ Recent decisions affecting current work:
 - [Phase ?]: D-04 delivered: browser-driven fleet-substrate install-pass hook removed from ssh-poll-orchestrator.ts; server-context path (75-02/75-05/75-06) is the sole sweep trigger
 - [Phase ?]: Exec mock sentinel contract for fake-timer-safe integration tests: channel.exec must return __READ_ENOENT__ to avoid retryOnTransport setTimeout backoff under fake timers
 - [Phase ?]: Plan 76-03 complete
-- [Phase ?]: 79-05: Kill relogin/acred/password-file path entirely — bridge does not know passwords
-- [Phase ?]: 79-05: SINCE_FILE per-human cursor persistence + CURSOR GUARD mirrors recv.sh pattern verbatim
-- [Phase ?]: 79-05: Bot tokens read from /state/{agent}.bottoken via atg() (blocker B-1)
-- [Phase ?]: 79-05: inotifywait -m on /state/registry.json + exec $0 for restart-free hot reload
-- [Phase ?]: 79-05: cursor-persistence-repro.sh with ALL REPROS PASS sentinel — Plan 09 automation battery gate (B-3)
+- [Phase ?]: 80-03: task field cap 500 chars on server (defense-in-depth vs frontend soft-cap ~200 chars) — T-80-03-02 DoS mitigation
+- [Phase ?]: 80-03: task validation lands BEFORE flushHeaders in identity-birth.ts — 400s emit as JSON not SSE (RESEARCH §7 landmine preserved)
+- [Phase ?]: 80-03: task emitted AFTER avatar in buildIdentityFileBody — extends canonical role/displayName/title/colorHue/voice/avatar/task ordering
+- [Phase ?]: 80-03 A3 lock: identity-clone.ts contains zero source.task reads (grep gate = 0); regression test asserts request task overrides source's on-disk task
 
 ### Pending Todos
 
@@ -852,8 +851,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-06T13:55:59Z
-Stopped at: Completed 80-02-PLAN.md
+Last session: 2026-09-06T14:19:29.447Z
+Stopped at: Completed 80-03-PLAN.md
 Last session: 2026-09-06T12:17:07.176Z
 Stopped at: Phase 80 context gathered
 Last session: 2026-08-14T22:37:15.928Z
@@ -863,4 +862,4 @@ Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 3
 Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
-Resume file: .planning/phases/80-id-skill-revamp-phase-a-skynet-frontend-and-backend-for-pool/80-CONTEXT.md
+Resume file: None
