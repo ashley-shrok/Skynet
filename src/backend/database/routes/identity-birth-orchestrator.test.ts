@@ -132,6 +132,30 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
       readFile: vi.fn(),
       writeFile: vi.fn(),
     },
+    // Phase 75 Plan 04 — four new BirthDeps fields wired to happy-path mocks
+    // so existing Steps 1-5 tests keep passing. The Step 6/7/8 sequence runs
+    // for remote-branch tests and succeeds silently unless a specific test
+    // overrides these mocks (see the Phase 75 describe block below).
+    matrixCreateOrUpdateUser: vi
+      .fn()
+      .mockResolvedValue({ ok: true, mxid: "@test:example.com", password: "pw", status: 201 }),
+    matrixLoginAsUser: vi
+      .fn()
+      .mockResolvedValue({ ok: true, accessToken: "syt_fake_access_token" }),
+    matrixHomeserver: "http://synapse.example.com:8008",
+    buildRelayJsonBody: vi.fn().mockReturnValue(
+      JSON.stringify(
+        {
+          base: "http://synapse.example.com:8008/_matrix/client/v3",
+          user_id: "@test:example.com",
+          password: "pw",
+          token: "syt_fake_access_token",
+          access_token: "syt_fake_access_token",
+        },
+        null,
+        2,
+      ),
+    ),
     ...overrides,
   };
 }
@@ -247,11 +271,18 @@ it("Test 1: happy path, remote host, emits all 5 steps in order", async () => {
   await vi.runAllTimersAsync();
   await birthPromise;
 
-  // Expect 11 events: 5×started + 5×completed + 1×ended
-  expect(events.length).toBe(11);
+  // Phase 75 Plan 04: expect 17 events on remote-branch happy path:
+  //   5 pre-existing steps × 2 (started+completed) = 10
+  //   3 new steps (6/7/8) × 2 (started+completed) = 6
+  //   1 ended{ok:true} = 1
+  //   total = 17
+  // (Rule 1 auto-fix: prior expectation of 11 was correct for pre-Phase-75
+  //  orchestrator; the widening from D-OQ6 lock adds Steps 6/7/8 to the
+  //  remote-branch happy path.)
+  expect(events.length).toBe(17);
 
-  // Check step sequence in order
-  for (let n = 1; n <= 5; n++) {
+  // Check step sequence in order (all 8 steps present)
+  for (let n = 1; n <= 8; n++) {
     const startedIdx = events.findIndex(
       (e) => e.type === "step" && e.n === n && e.phase === "started",
     );

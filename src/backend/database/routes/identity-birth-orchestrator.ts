@@ -21,6 +21,7 @@
  * syntax errors on send-keys (Nelly §3).
  */
 
+import { randomBytes } from "node:crypto";
 import type { Client as SSHClient } from "ssh2";
 import yaml from "js-yaml";
 import { startHarnessOnIdentity } from "./identity-harness-start.js";
@@ -99,8 +100,12 @@ export const IDENTITY_FILE_SEED_COMMENT =
 // Types
 // ---------------------------------------------------------------------------
 
+// Phase 75 Plan 04 — step-number union widened to 1..8 for the three new
+// admin-mint + relay.json write steps. Frontend BirthProgress checklist quietly
+// ignores unknown step numbers today; the union widening here is backend-only
+// (frontend widening is a Phase B concern per 75-RESEARCH.md Assumption A4).
 export type BirthEvent =
-  | { type: "step"; n: 1 | 2 | 3 | 4 | 5; phase: "started" | "completed" | "failed"; reason?: string }
+  | { type: "step"; n: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8; phase: "started" | "completed" | "failed"; reason?: string }
   | { type: "ended"; ok: boolean; failedStep?: number; identityId?: string; sessionName?: string };
 
 export interface BirthOptions {
@@ -179,6 +184,61 @@ export interface BirthDeps {
     ext: AvatarExt,
     bytes: Buffer,
   ) => Promise<void>;
+  /**
+   * Phase 75 Plan 04 (D-OQ6 lock) — Matrix admin mint primitive from Plan 02.
+   * Called by runRelayMintAndWrite at Step 6. Wired in identity-birth.ts to
+   * matrix-admin-client.ts's createOrUpdateUser export (PUT /_synapse/admin/v2
+   * /users/<mxid>, treats 200 update AND 201 create as success per Pitfall 5).
+   * `displayname` is optional (D-OQ2 lock: pass frontmatter displayName when set,
+   * else omit for graceful fallback).
+   */
+  matrixCreateOrUpdateUser: (
+    mxid: string,
+    password: string,
+    displayname?: string,
+  ) => Promise<
+    | { ok: true; mxid: string; password: string; status: number }
+    | { ok: false; status: number; error: string }
+  >;
+  /**
+   * Phase 75 Plan 04 (D-OQ6 lock) — Matrix admin login-as-user primitive from
+   * Plan 02. Called by runRelayMintAndWrite between Step 6 and Step 7. Mints
+   * a fresh access_token for the freshly-created mxid so relay.json carries a
+   * real (non-empty) token from birth-time — recv.sh does not have to relogin
+   * on first read. POST /_synapse/admin/v1/users/<mxid>/login. Separate from
+   * matrixCreateOrUpdateUser to preserve Plan 02's "each primitive is one
+   * endpoint" contract (see D-OQ6 in 75-04-PLAN.md § objective).
+   */
+  matrixLoginAsUser: (
+    mxid: string,
+    validUntilMs?: number,
+  ) => Promise<
+    | { ok: true; accessToken: string }
+    | { ok: false; status: number; error: string }
+  >;
+  /**
+   * Phase 75 Plan 04 — Matrix homeserver base URL (with scheme + port). Used
+   * two ways inside runRelayMintAndWrite: (a) as the `homeserverBase` field of
+   * buildRelayJsonBody so recv.sh's `base` becomes `<homeserverBase>/_matrix/
+   * client/v3`; (b) the hostname portion (extracted from the URL) becomes the
+   * server-name suffix of the mxid: `@<name>:<server-name>`. Sourced in
+   * identity-birth.ts from getMatrixAdminCreds().homeserverBase — the
+   * first-class column on matrix_admin_creds. NEVER a hardcoded fallback per
+   * D-OQ7 (island-model per 75-CONTEXT.md § Philosophy).
+   */
+  matrixHomeserver: string;
+  /**
+   * Phase 75 Plan 04 — pure builder for the relay.json JSON body that Step 8
+   * writes to `~/.claude/identities/<name>/relay.json` on the target host.
+   * Wired to Plan 02's buildRelayJsonBody export. Emits exactly five keys
+   * (base, user_id, password, token, access_token) per agent-relay/SKILL.md.
+   */
+  buildRelayJsonBody: (opts: {
+    mxid: string;
+    password: string;
+    accessToken: string;
+    homeserverBase: string;
+  }) => string;
 }
 
 // ---------------------------------------------------------------------------
@@ -320,6 +380,208 @@ function buildIdentityFileBody(
 }
 
 // ---------------------------------------------------------------------------
+// Phase 75 Plan 04 — runRelayMintAndWrite helper (Steps 6, 7, 8)
+// ---------------------------------------------------------------------------
+//
+// Extracted so BOTH birthIdentity AND the retry endpoint (identity-birth.ts
+// POST /identities/birth/retry/:key) can drive the same three-step sequence:
+//
+//   Step 6: admin-mint (createOrUpdateUser) — generates a fresh 48-char hex
+//           password locally, calls PUT /_synapse/admin/v2/users/<mxid>, then
+//           calls POST /_synapse/admin/v1/users/<mxid>/login to mint a real
+//           access_token (D-OQ6 lock — matrixLoginAsUser is invoked inside
+//           Step 6 rather than requiring a separate primitive downstream).
+//   Step 7: build the relay.json JSON body via deps.buildRelayJsonBody. Guards
+//           against an empty access_token from the login call — throws before
+//           writing to disk if the token is missing.
+//   Step 8: SFTP-write ~/.claude/identities/<name>/relay.json (atomic tmp +
+//           ext_openssh_rename), then chmod 600. A chmod failure DOES fail
+//           the step (world-readable relay.json is a security regression per
+//           agent-relay/SKILL.md:105 fleet convention, T-75-18).
+//
+// Failure semantics (Q2 partial-tolerated, NO ROLLBACK):
+//   - Any throw from Step 6/7/8 is caught by runStep which emits
+//     step:N:failed + ended{ok:false, failedStep:N} and re-throws BirthAborted.
+//   - NO folder-cleanup (rm/unlink) logic anywhere in this helper or its
+//     callers. The Q2 lock is documented in the comment on runStep's catch
+//     (above) and here.
+//   - Every consumer of this helper MUST NOT wrap it in a try/catch that adds
+//     rollback behavior — the identity folder from Step 1 stays on disk on
+//     any failure, and the id skill's self-register fallback handles the
+//     partial-state case (agent-relay/SKILL.md:65-87).
+
+/** Generate a fresh 48-char hex password (96 bits of entropy) for the relay
+ * account. Used ONLY by Step 6; the value is passed to Synapse via the admin
+ * PUT body and to the target host via the SFTP-written relay.json. Never
+ * logged. */
+function generateAgentPassword(): string {
+  return randomBytes(24).toString("hex");
+}
+
+/** Extract the server-name portion (host:port stripped, scheme stripped) from
+ * a homeserver base URL. Used for mxid construction only.
+ * Examples:
+ *   "https://matrix.example.com:8448" → "matrix.example.com"
+ *   "http://100.113.23.63:8008"       → "100.113.23.63"
+ *   "matrix.example.com"              → "matrix.example.com"
+ */
+function extractServerName(homeserverBase: string): string {
+  // Strip scheme prefix if present (http:// or https://)
+  let s = homeserverBase.replace(/^https?:\/\//, "");
+  // Strip trailing slash and any path
+  s = s.split("/")[0];
+  // Strip port suffix
+  s = s.split(":")[0];
+  return s;
+}
+
+/**
+ * Run Step 6 (admin-mint + login), Step 7 (build relay.json body), and Step 8
+ * (SFTP write + chmod 600) via the same runStep-shaped wrapper that
+ * birthIdentity uses. Exported so identity-birth.ts POST /retry/:key can
+ * invoke this directly against an existing identity folder (Q2 partial-
+ * failure recovery path).
+ *
+ * Emits: step:6:started, step:6:completed, step:7:started, step:7:completed,
+ *        step:8:started, step:8:completed on happy path.
+ *        step:N:failed + ended{ok:false, failedStep:N} on any failure.
+ *
+ * Throws BirthAborted on step failure so callers can distinguish "step
+ * failed, event already emitted" from "unexpected error, emit ended{ok:false}".
+ *
+ * Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode + agent-
+ * supervisor race. This helper NEVER deletes the identity folder on failure;
+ * neither may any caller.
+ */
+export async function runRelayMintAndWrite(
+  opts: { name: string; displayName?: string },
+  emit: (e: BirthEvent) => void,
+  deps: BirthDeps,
+  conn: SSHClient,
+): Promise<void> {
+  // Local runStep — same shape as birthIdentity's inner runStep so events emit
+  // with identical framing whether we're inside birthIdentity or the retry
+  // route. Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode +
+  // agent-supervisor race. NO folder-cleanup in this catch, ever.
+  async function runStep(
+    n: 6 | 7 | 8,
+    fn: () => Promise<void>,
+  ): Promise<void> {
+    emit({ type: "step", n, phase: "started" });
+    try {
+      await fn();
+      emit({ type: "step", n, phase: "completed" });
+    } catch (e) {
+      // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode + agent-supervisor race
+      const reason = sanitizeError(e);
+      emit({ type: "step", n, phase: "failed", reason });
+      emit({ type: "ended", ok: false, failedStep: n });
+      throw new BirthAborted(n);
+    }
+  }
+
+  // Server-name suffix for the mxid — extracted from the homeserver URL so
+  // the deps only need to carry one homeserver value. NEVER a hardcoded
+  // fallback per D-OQ7 (island-model per 75-CONTEXT.md § Philosophy).
+  const serverName = extractServerName(deps.matrixHomeserver);
+  const mxid = `@${opts.name}:${serverName}`;
+
+  // Closure-scoped state passed between the three steps.
+  let agentPassword = "";
+  let mintedAccessToken = "";
+
+  // -------------------------------------------------------------------------
+  // Step 6: admin-mint (createOrUpdateUser) + inline login-as-user
+  //
+  // D-OQ6 lock: matrixLoginAsUser is called immediately after
+  // matrixCreateOrUpdateUser inside the same runStep so the relay.json body
+  // built in Step 7 carries a real (non-empty) access_token — recv.sh does
+  // not have to relogin on first read. A login failure attributes to Step 6
+  // (still an admin-mint concern from the caller's POV).
+  // -------------------------------------------------------------------------
+  await runStep(6, async () => {
+    agentPassword = generateAgentPassword();
+    const mintResult = await deps.matrixCreateOrUpdateUser(
+      mxid,
+      agentPassword,
+      opts.displayName,
+    );
+    if (!mintResult.ok) {
+      // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode + agent-supervisor race
+      throw new Error(
+        `admin_mint_failed: ${mintResult.error} (${mintResult.status})`,
+      );
+    }
+    // D-OQ6: mint a real access_token so relay.json carries it from birth-time.
+    const loginResult = await deps.matrixLoginAsUser(mxid);
+    if (!loginResult.ok) {
+      // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode + agent-supervisor race
+      throw new Error(
+        `admin_login_failed: ${loginResult.error} (${loginResult.status})`,
+      );
+    }
+    mintedAccessToken = loginResult.accessToken;
+  });
+
+  // -------------------------------------------------------------------------
+  // Step 7: build relay.json body via the pure Plan-02 helper
+  //
+  // Guards against an empty access_token propagating to disk — that would
+  // silently break recv.sh's first-read semantics without failing loudly here.
+  // -------------------------------------------------------------------------
+  let relayJsonBody = "";
+  await runStep(7, async () => {
+    if (!mintedAccessToken) {
+      // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode + agent-supervisor race
+      throw new Error("empty_access_token_from_login");
+    }
+    relayJsonBody = deps.buildRelayJsonBody({
+      mxid,
+      password: agentPassword,
+      accessToken: mintedAccessToken,
+      homeserverBase: deps.matrixHomeserver,
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Step 8: SFTP write + chmod 600
+  //
+  // The tmp+ext_openssh_rename atomic-overwrite discipline in
+  // writeMarkdownFileAtomic (identity-artifact-reader.ts:1849-1903) handles
+  // the concurrency case where a retry lands on an existing relay.json —
+  // Pitfall 3 / #2924. `writeMarkdownFileAtomic` is content-agnostic despite
+  // the name (its prologue documents this).
+  //
+  // chmod 600 is REQUIRED (not best-effort) per S-1 lock — a world-readable
+  // relay.json exposes the agent's Matrix credentials to any other target-
+  // host user (T-75-18). Matches agent-relay/SKILL.md:105 fleet convention.
+  // -------------------------------------------------------------------------
+  await runStep(8, async () => {
+    const relayJsonPath = `$HOME/.claude/identities/${opts.name}/relay.json`;
+    await deps.writeMarkdownFileAtomic(conn, relayJsonPath, relayJsonBody);
+
+    // chmod 600 — required, not best-effort. Path is single-quoted for shell
+    // safety even though opts.name is already gated by IDENTITY_KEY_RE +
+    // TMUX_SAFE_NAME_RE upstream (defense-in-depth per T-75-16).
+    const quotedPath = "'" + relayJsonPath.replace(/'/g, "'\\''") + "'";
+    // execCommand resolves to stdout — non-zero exit codes throw synchronously
+    // via ssh2's stream event, which propagates as a rejection through
+    // execCommand's promise. If chmod 600 fails (e.g. permission denied on the
+    // parent dir, or the file was rm'd between write and chmod), the throw
+    // fails Step 8 loudly rather than shipping a world-readable relay.json.
+    // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode + agent-supervisor race
+    try {
+      await deps.execCommand(conn, `chmod 600 ${quotedPath}`);
+    } catch (chmodErr) {
+      // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode + agent-supervisor race
+      throw new Error(
+        `chmod_600_failed: ${chmodErr instanceof Error ? chmodErr.message : String(chmodErr)}`,
+      );
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
 
@@ -380,7 +642,10 @@ export async function birthIdentity(
   // 0c. runStep helper — wraps each step in started/completed/failed events
   // -------------------------------------------------------------------------
   async function runStep(
-    n: 1 | 2 | 3 | 4 | 5,
+    // Phase 75 Plan 04 — n widened to include the three new admin-mint +
+    // relay.json write steps (6: createOrUpdateUser, 7: buildRelayJsonBody,
+    // 8: SFTP write + chmod 600).
+    n: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,
     fn: () => Promise<void>,
     failReasonOverride?: string,
   ): Promise<void> {
@@ -389,6 +654,13 @@ export async function birthIdentity(
       await fn();
       emit({ type: "step", n, phase: "completed" });
     } catch (e) {
+      // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode + agent-supervisor race
+      // A step:N:failed here MUST NOT trigger any folder-cleanup of the
+      // on-disk identity folder created at Step 1. The agent-supervisor race
+      // (Pitfall 6) means the supervisor may already have started a tmux
+      // session for the identity; deleting the folder would delete something
+      // the supervisor is actively dealing with. The id skill's self-register
+      // fallback handles the partial-state case gracefully.
       const reason = failReasonOverride ?? sanitizeError(e);
       emit({ type: "step", n, phase: "failed", reason });
       emit({ type: "ended", ok: false, failedStep: n });
@@ -592,6 +864,34 @@ export async function birthIdentity(
         await deps.writeAvatarSiblingFile(conn, opts.name, avatarExt, cand.bytes);
       }
     });
+
+    // -----------------------------------------------------------------------
+    // Phase 75 Plan 04 — Steps 6, 7, 8 (remote branch only, D-OQ3 lock):
+    // admin-mint relay account + write relay.json to target host with a real
+    // access_token. Local-branch self-birth SKIPS these entirely (mirrors the
+    // Step 2.5 pre-write skip at L523 above — Phase A UAT is remote fleet
+    // hosts only).
+    //
+    // The helper handles all three steps' event emission and error handling.
+    // Its runStep wrapper throws BirthAborted on failure which propagates
+    // through the outer try/catch below (L634-644) exactly like Steps 1-3.
+    //
+    // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode +
+    // agent-supervisor race. The helper does NOT delete the identity folder
+    // on any Step 6/7/8 failure; this call site MUST NOT either.
+    // -----------------------------------------------------------------------
+    if (!useLocal && conn) {
+      const displayName =
+        opts.name.length > 0
+          ? opts.name[0].toUpperCase() + opts.name.slice(1)
+          : opts.name;
+      await runRelayMintAndWrite(
+        { name: opts.name, displayName },
+        emit,
+        deps,
+        conn,
+      );
+    }
 
     // -----------------------------------------------------------------------
     // Steps 3-5: post-tmux Claude-harness bootstrap.
