@@ -1845,12 +1845,12 @@ Plans:
 **Goal:** Reshape fleet-substrate distribution from per-user browser-driven to system-driven. On Skynet container startup, walk every `runsFleetSubstrate:true` host serially and run the install pass; fire immediately fire-and-forget on host-create with the flag on; retry unreachable hosts on the existing 30s host-list refresh cadence; loud structured-log alert after N consecutive failures per host. Remove the browser-driven install-pass hook. Wrap substrate-host SSH credentials with `SystemCrypto.getCredentialSharingKey()` (CSKEK) at create + flag-flip-on + credential-update — the install pass reads through the system key, and owner browser terminals also read through the system key (one representation). Non-substrate hosts keep per-user DEK wrap unchanged. Ship a one-shot operator-run migration script for existing substrate hosts.
 **Requirements**: D-01 through D-19 (all locked in 75-CONTEXT.md — see plan `decisions_addressed` frontmatter for per-plan coverage)
 **Depends on:** Phase 74
-**Plans:** 4/9 plans executed
+**Plans:** 5/9 plans executed
 Plans:
 **Wave 1**
 
 - [x] 75-01-PLAN.md — Extract `bundledReaderFromDisk` into a shared `src/backend/distributor/bundled-reader.ts` module (Wave 0 refactor, unblocks 02 + 07)
-- [ ] 75-02-PLAN.md — Create `server-substrate-orchestrator.ts` with startup pass + 30s retry tick + N-failure alerting; extend log-tags with `logPersistentFailure` (D-01, D-03, D-05, D-06, D-07, D-17)
+- [x] 75-02-PLAN.md — Create `server-substrate-orchestrator.ts` with startup pass + 30s retry tick + N-failure alerting; extend log-tags with `logPersistentFailure` (D-01, D-03, D-05, D-06, D-07, D-17)
 - [x] 75-03-PLAN.md — Create session-less substrate-host enumerator `list-substrate-hosts.ts` with CSKEK-based credential decrypt (D-08, D-10, half of D-17)
 - [x] 75-04-PLAN.md — Enforce credentialId requirement for substrate hosts in host.ts POST/PUT; add CSKEK decrypt branch in host-resolver.ts for owner browser terminals (D-08, D-09, D-10, D-16)
 
