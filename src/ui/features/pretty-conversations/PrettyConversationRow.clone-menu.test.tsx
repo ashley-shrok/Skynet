@@ -1,14 +1,20 @@
 // ─── PrettyConversationRow — Clone menu item coverage (Phase 22 SRIC-03) ─────
-// Companion test file to PrettyConversationRow.test.tsx covering the new
-// Clone entry in the context-menu items[] builder.
+// Companion test file to PrettyConversationRow.test.tsx covering the
+// Spawn-under-this-role entry in the context-menu items[] builder.
 //
-// Behavior spec (Tests 13-15 from 22-03-PLAN.md):
+// Phase 80-09: label renamed "Clone" → "Spawn under this role" (context-menu
+// action now spawns a fresh agent under the same role via the unified
+// NewSessionDialog chain-hook, rather than opening the retired
+// CloneAgentDialog). The prop is still `onClone` for backwards compat; only
+// the visible label + user intent changed.
+//
+// Behavior spec (Tests 13-15):
 //   Test 13: onClone provided AND row.host !== null AND identity resolved
-//     from row.targetTmuxSession → items[] builder emits a Clone entry
-//     (label "Clone", onClick fires onClone).
-//   Test 14: onClone NOT provided → no Clone entry in items[].
+//     from row.targetTmuxSession → items[] builder emits a spawn entry
+//     (label "Spawn under this role", onClick fires onClone).
+//   Test 14: onClone NOT provided → no spawn entry in items[].
 //   Test 15: onClone provided but row has no identity (sessionMatchKey → null
-//     OR useIdentities().byKey.get() returns undefined) → no Clone entry.
+//     OR useIdentities().byKey.get() returns undefined) → no spawn entry.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -118,7 +124,7 @@ beforeEach(() => {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: Clone menu item", () => {
-  it("Test 13: onClone provided + row.host !== null + identity resolved → Clone menu item present + onClick fires onClone", () => {
+  it("Test 13: onClone provided + row.host !== null + identity resolved → 'Spawn under this role' menu item present + onClick fires onClone", () => {
     currentIdentity = makeIdentity("nelly");
     const onClone = vi.fn();
     const { container } = render(
@@ -141,16 +147,18 @@ describe("PrettyConversationRow: Clone menu item", () => {
     // Trigger the context menu
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
 
-    // Clone item should be present in the portal-mounted menu
-    const cloneItem = screen.getByRole("menuitem", { name: /clone/i });
-    expect(cloneItem).toBeTruthy();
+    // "Spawn under this role" item should be present in the portal-mounted menu
+    const spawnItem = screen.getByRole("menuitem", {
+      name: /spawn under this role/i,
+    });
+    expect(spawnItem).toBeTruthy();
 
-    // Click Clone → onClone fires
-    fireEvent.click(cloneItem);
+    // Click → onClone fires (prop name unchanged; only label changed in 80-09)
+    fireEvent.click(spawnItem);
     expect(onClone).toHaveBeenCalledTimes(1);
   });
 
-  it("Test 14: onClone NOT provided → no Clone menu item", () => {
+  it("Test 14: onClone NOT provided → no spawn menu item", () => {
     currentIdentity = makeIdentity("nelly");
     const { container } = render(
       <PrettyConversationRow
@@ -170,10 +178,10 @@ describe("PrettyConversationRow: Clone menu item", () => {
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
 
-    expect(screen.queryByRole("menuitem", { name: /clone/i })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /spawn under this role/i })).toBeNull();
   });
 
-  it("Test 15: onClone provided but row has no identity → no Clone menu item", () => {
+  it("Test 15: onClone provided but row has no identity → no spawn menu item", () => {
     // currentIdentity stays null → useIdentities().byKey.get() returns undefined
     currentIdentity = null;
     const onClone = vi.fn();
@@ -195,7 +203,7 @@ describe("PrettyConversationRow: Clone menu item", () => {
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
 
-    expect(screen.queryByRole("menuitem", { name: /clone/i })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /spawn under this role/i })).toBeNull();
     expect(onClone).not.toHaveBeenCalled();
   });
 });
