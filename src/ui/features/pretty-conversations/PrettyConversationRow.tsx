@@ -1270,20 +1270,45 @@ export function PrettyConversationRow({
               `||` (not `??`) so empty-string title falls through to hostname.
               The CSS class name `pv-hostname-suffix` is kept for backward
               compat — it now styles a title OR hostname parenthetical. */}
+        {/* Phase 80 Plan 08: gated task-primary body swap (D-03, D-06).
+            When `identity?.task` is truthy → task-primary display:
+              - Top line: the task string alone (reuses .pv-label typography).
+              - Subtitle: role prominent via <strong> + (displayName) muted
+                via existing .pv-hostname-suffix class.
+              - The aiTitle drops entirely from this branch — Ashley greenlit
+                the drop per 80-CONTEXT specifics §last bullet ("do NOT quietly
+                preserve it").
+            When `identity?.task` is null/empty → fallback branch preserves the
+            pre-Phase-80 markup VERBATIM (D-06 graceful degradation for legacy
+            identities without task). Reuses .pv-label / .pv-hostname-suffix /
+            .pv-ai-title verbatim per D-03 — no new CSS selectors invented at
+            plan time. */}
         <div className="pv-body">
-          <span className="pv-label">
-            {identity ? identity.displayName : row.label}
-            {(identity?.title || row.host?.name) && (
-              <span className="pv-hostname-suffix">
-                {" "}
-                ({identity?.title || row.host?.name})
+          {identity?.task ? (
+            <>
+              <span className="pv-label">{identity.task}</span>
+              <span className="pv-ai-title">
+                <strong>{identity.role}</strong>{" "}
+                <span className="pv-hostname-suffix">({identity.displayName})</span>
               </span>
-            )}
-          </span>
-          {aiTitle !== null ? (
-            <span className="pv-ai-title">{aiTitle}</span>
+            </>
           ) : (
-            <span className="pv-ai-title pv-ai-title--placeholder">…</span>
+            <>
+              <span className="pv-label">
+                {identity ? identity.displayName : row.label}
+                {(identity?.title || row.host?.name) && (
+                  <span className="pv-hostname-suffix">
+                    {" "}
+                    ({identity?.title || row.host?.name})
+                  </span>
+                )}
+              </span>
+              {aiTitle !== null ? (
+                <span className="pv-ai-title">{aiTitle}</span>
+              ) : (
+                <span className="pv-ai-title pv-ai-title--placeholder">…</span>
+              )}
+            </>
           )}
         </div>
 
