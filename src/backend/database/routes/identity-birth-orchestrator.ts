@@ -136,6 +136,18 @@ export interface BirthOptions {
    * an atomic write with no downstream consumers beyond the disk file.
    */
   task?: string;
+  /**
+   * Phase 80 Plan 80-03b A1 lock: when true, MXID composition follows the
+   * DIVERGE shape (`<PoolName>-<Role>[-N]` PascalCase-hyphenated per shape
+   * file) — identity folder key stays lowercase (`willow`) while the Matrix
+   * account MXID becomes `@Willow-Skynet-Maintainer:server` (with silent
+   * auto-suffix `-2`, `-3`, ... on collision). When false/absent, the legacy
+   * `@<name>:<serverName>` shape is used (backward compat for pre-Phase-80
+   * identities and manually-typed names — Taylor, Tina, Tabitha, etc. keep
+   * their existing `@taylor:server` MXIDs). Frontend NewSessionDialog sets
+   * true when the name field was pool-picked (plan 80-06).
+   */
+  poolPicked?: boolean;
 }
 
 export interface BirthDeps {
@@ -248,6 +260,20 @@ export interface BirthDeps {
     accessToken: string;
     homeserverBase: string;
   }) => string;
+  /**
+   * Phase 80 Plan 80-03b A1 lock — wired to matrix-admin-client.countUsersMatching
+   * from plan 80-02. Called by deriveMxidWithOrdinal inside Step 6 (before the
+   * matrixCreateOrUpdateUser call) to find the first unused ordinal for the
+   * composed base handle. The derivation is gated on opts.poolPicked === true;
+   * legacy births (poolPicked absent/false) never invoke this dep. Returns the
+   * same discriminated-union shape as the other matrix-admin primitives — a
+   * failure here propagates through Step 6's runStep as an `admin_count_failed`
+   * step failure (Q2 no-rollback discipline preserved).
+   */
+  matrixCountUsersMatching: (mxid: string) => Promise<
+    | { ok: true; total: number }
+    | { ok: false; status: number; error: string }
+  >;
 }
 
 // ---------------------------------------------------------------------------
@@ -451,6 +477,132 @@ function extractServerName(homeserverBase: string): string {
   return s;
 }
 
+// ---------------------------------------------------------------------------
+// Phase 80 Plan 80-03b — A1 lock MXID derivation helpers
+// ---------------------------------------------------------------------------
+//
+// composeMxidLocalpart + deriveMxidWithOrdinal implement the A1 DIVERGE
+// decision: identity KEY (folder name, IDENTITY_KEY_RE gate) stays lowercase
+// (e.g. `willow`) while the Matrix account MXID localpart becomes PascalCase-
+// hyphenated `<PoolName>-<Role>[-N]` (e.g. `Willow-Skynet-Maintainer`,
+// `Willow-Skynet-Maintainer-2`, ...). Both helpers are pure (side-effect-free
+// modulo deriveMxidWithOrdinal's injected countFn) so they're testable in
+// isolation without matrix mocking.
+//
+// Casing convention (locked to shape file 2026-09-06):
+//   - PoolName PascalCase (`willow` → `Willow`): first letter uppercased,
+//     rest verbatim. Pool names are single-lowercase-word (POOL_NAME_RE) so
+//     this is safe.
+//   - Role name PascalCase-hyphenated (`skynet-maintainer` → `Skynet-Maintainer`):
+//     each hyphen-separated segment's first letter uppercased, rest verbatim.
+//     Applies to role shapes matching ROLE_NAME_RE.
+//   - Malformed role → throws `mxid_role_malformed` (Step 6 does NOT catch —
+//     malformed role is a genuine bug).
+//   - Non-pool-shape name → throws `mxid_name_not_pool_shape` (Step 6 catches
+//     and falls back to legacy `@<name>:<server>` — user may have edited a
+//     pool-picked name to a non-pool form; silent fallback per shape file).
+
+/** Pool-name regex: single-word lowercase, no hyphens, no leading digit.
+ * Enforces the pool-restriction in composeMxidLocalpart — if the operator has
+ * edited the name field to a non-pool shape (e.g. legacy `taylor-2` or
+ * user-typed `my-custom`), throws `mxid_name_not_pool_shape` which Step 6
+ * catches as a signal to fall back to the legacy MXID shape. */
+const POOL_NAME_RE = /^[a-z][a-z0-9]*$/;
+
+/** Role-name regex: kebab-case-lowercase, no leading digit per segment, no
+ * empty segments. Stricter than the existing ROLE_NAME_PATTERN (which accepts
+ * digits at segment starts and any [a-z0-9-] shape) — required for MXID
+ * composition where the derived PascalCase output must be deterministic and
+ * segment boundaries must be well-formed. */
+const ROLE_NAME_RE = /^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$/;
+
+/** Ordinal-search safety cap. Pool exhaustion beyond 100 accounts of the same
+ * handle indicates operator intervention needed — pool-list expansion or
+ * manual renaming. Exceeding the cap throws `mxid_ordinal_exhausted` which
+ * propagates through Step 6's runStep as a step-failed SSE event (Q2
+ * no-rollback discipline preserved). */
+export const MXID_ORDINAL_MAX = 100;
+
+/**
+ * Compose the MXID localpart from a pool-picked name + role per the A1 DIVERGE
+ * shape file lock. Pure — no I/O, no state. See constants above for casing
+ * convention.
+ *
+ * Throws:
+ *   - `Error("mxid_role_malformed: <role>")` when role fails ROLE_NAME_RE.
+ *     Step 6 does NOT catch this — malformed role is a genuine bug that must
+ *     surface as a Step 6 failure.
+ *   - `Error("mxid_name_not_pool_shape: <name>")` when name fails POOL_NAME_RE.
+ *     Step 6 catches this and falls back to `@<name>:<server>` — the operator
+ *     may have edited a pool-picked name to a non-pool shape.
+ *
+ * Examples:
+ *   composeMxidLocalpart("willow", "skynet-maintainer") → "Willow-Skynet-Maintainer"
+ *   composeMxidLocalpart("aster", "coordinator")        → "Aster-Coordinator"
+ *   composeMxidLocalpart("willow", "foo-bar-baz")       → "Willow-Foo-Bar-Baz"
+ */
+export function composeMxidLocalpart(name: string, role: string): string {
+  if (!POOL_NAME_RE.test(name)) {
+    throw new Error(`mxid_name_not_pool_shape: ${name}`);
+  }
+  if (!ROLE_NAME_RE.test(role)) {
+    throw new Error(`mxid_role_malformed: ${role}`);
+  }
+  const pascalName = name[0].toUpperCase() + name.slice(1);
+  const pascalRole = role
+    .split("-")
+    .map((seg) => seg[0].toUpperCase() + seg.slice(1))
+    .join("-");
+  return `${pascalName}-${pascalRole}`;
+}
+
+/**
+ * Derive an unused MXID by iterating ordinal suffixes against the Synapse
+ * admin API until an unused handle is found. Silent auto-suffix per CONTEXT.md
+ * `<domain>` bullet: caller (Step 6) never sees the ordinal choice — the
+ * returned MXID is opaquely usable.
+ *
+ * Algorithm:
+ *   1. Try `@<baseHandle>:<serverName>`. If countFn returns total===0 → use it.
+ *   2. Iterate n=2..MXID_ORDINAL_MAX: try `@<baseHandle>-<n>:<serverName>`.
+ *      Return the first total===0.
+ *   3. All busy → throws `mxid_ordinal_exhausted: <baseHandle>`.
+ *
+ * Any countFn failure (ok:false) throws `admin_count_failed: <error> (<status>)`
+ * which Step 6's runStep catches and attributes to step 6 as a step-failed
+ * SSE event (mirrors the existing admin_mint_failed / admin_login_failed
+ * error-attribution pattern in runRelayMintAndWrite).
+ */
+export async function deriveMxidWithOrdinal(
+  baseHandle: string,
+  serverName: string,
+  countFn: (
+    mxid: string,
+  ) => Promise<
+    | { ok: true; total: number }
+    | { ok: false; status: number; error: string }
+  >,
+): Promise<string> {
+  // n=1 is the bare handle (no ordinal suffix); n=2..MXID_ORDINAL_MAX carry
+  // the `-<n>` suffix. Cap total iterations at MXID_ORDINAL_MAX per T-80-03b-02.
+  for (let n = 1; n <= MXID_ORDINAL_MAX; n++) {
+    const candidate =
+      n === 1
+        ? `@${baseHandle}:${serverName}`
+        : `@${baseHandle}-${n}:${serverName}`;
+    const result = await countFn(candidate);
+    if (!result.ok) {
+      throw new Error(
+        `admin_count_failed: ${result.error} (${result.status})`,
+      );
+    }
+    if (result.total === 0) {
+      return candidate;
+    }
+  }
+  throw new Error(`mxid_ordinal_exhausted: ${baseHandle}`);
+}
+
 /**
  * Run Step 6 (admin-mint + login), Step 7 (build relay.json body), and Step 8
  * (SFTP write + chmod 600) via the same runStep-shaped wrapper that
@@ -470,7 +622,28 @@ function extractServerName(homeserverBase: string): string {
  * neither may any caller.
  */
 export async function runRelayMintAndWrite(
-  opts: { name: string; displayName?: string },
+  opts: {
+    name: string;
+    displayName?: string;
+    /**
+     * Phase 80 Plan 80-03b A1 lock: kebab-case-lowercase role name (matches
+     * BirthOptions.role). Only consumed when poolPicked === true — used by
+     * composeMxidLocalpart to build the PascalCase-hyphenated MXID base handle.
+     * Optional so the retry route (which does not know the role from its
+     * request body) can invoke this helper without triggering derivation —
+     * retry always takes the legacy MXID branch (poolPicked undefined).
+     */
+    role?: string;
+    /**
+     * Phase 80 Plan 80-03b A1 lock: when true, Step 6 derives the MXID from
+     * composeMxidLocalpart(name, role) + deriveMxidWithOrdinal instead of
+     * using the legacy `@<name>:<server>` shape. Retry route leaves this
+     * undefined so retry always uses the legacy shape (retry operates on the
+     * already-on-disk identity folder, so the folder name IS the correct
+     * MXID localpart source for the retry semantics).
+     */
+    poolPicked?: boolean;
+  },
   emit: (e: BirthEvent) => void,
   deps: BirthDeps,
   conn: SSHClient,
@@ -500,7 +673,10 @@ export async function runRelayMintAndWrite(
   // the deps only need to carry one homeserver value. NEVER a hardcoded
   // fallback per D-OQ7 (island-model per 75-CONTEXT.md § Philosophy).
   const serverName = extractServerName(deps.matrixHomeserver);
-  const mxid = `@${opts.name}:${serverName}`;
+  // Phase 80 Plan 80-03b: mxid is now a `let` — Step 6 assigns based on the
+  // poolPicked branch (derived MXID for the pool-picked path, legacy shape
+  // otherwise). Steps 7 and 8 read the final value.
+  let mxid: string;
 
   // Closure-scoped state passed between the three steps.
   let agentPassword = "";
@@ -509,6 +685,11 @@ export async function runRelayMintAndWrite(
   // -------------------------------------------------------------------------
   // Step 6: admin-mint (createOrUpdateUser) + inline login-as-user
   //
+  // Phase 80 Plan 80-03b A1 lock: MXID derivation lives INSIDE Step 6's runStep
+  // (BEFORE matrixCreateOrUpdateUser) so derivation failures attribute to
+  // step 6 as an SSE step-failed event — Q2 no-rollback discipline preserved,
+  // no new numbered SSE step introduced.
+  //
   // D-OQ6 lock: matrixLoginAsUser is called immediately after
   // matrixCreateOrUpdateUser inside the same runStep so the relay.json body
   // built in Step 7 carries a real (non-empty) access_token — recv.sh does
@@ -516,6 +697,44 @@ export async function runRelayMintAndWrite(
   // (still an admin-mint concern from the caller's POV).
   // -------------------------------------------------------------------------
   await runStep(6, async () => {
+    // Phase 80 Plan 80-03b A1 lock — derive MXID when poolPicked === true.
+    // Legacy branch (poolPicked absent/false OR retry-route caller) uses the
+    // existing `@<name>:<server>` shape unchanged. See CONTEXT.md `<domain>`
+    // for the DIVERGE rationale.
+    if (opts.poolPicked === true && typeof opts.role === "string") {
+      let baseHandle: string | null = null;
+      try {
+        baseHandle = composeMxidLocalpart(opts.name, opts.role);
+      } catch (e) {
+        // Silent fallback for `mxid_name_not_pool_shape` ONLY — matches shape
+        // file's "user can edit the name to anything" invariant. Other errors
+        // (e.g. `mxid_role_malformed`) rethrow to fail Step 6 loudly since
+        // role names are gate-validated upstream (ROLE_NAME_PATTERN in the
+        // route handler + Step 2.5 re-check) so a malformed role at Step 6
+        // is a genuine bug.
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!msg.startsWith("mxid_name_not_pool_shape")) {
+          throw e;
+        }
+        baseHandle = null;
+      }
+      if (baseHandle !== null) {
+        mxid = await deriveMxidWithOrdinal(
+          baseHandle,
+          serverName,
+          deps.matrixCountUsersMatching,
+        );
+      } else {
+        // Silent-fallback branch (name-not-pool-shape catch above).
+        mxid = `@${opts.name}:${serverName}`;
+      }
+    } else {
+      // Legacy branch — unchanged behavior for pre-Phase-80 identities, the
+      // retry route (opts.poolPicked undefined), and any manually-created
+      // identity whose name was not pool-picked by the frontend.
+      mxid = `@${opts.name}:${serverName}`;
+    }
+
     agentPassword = generateAgentPassword();
     const mintResult = await deps.matrixCreateOrUpdateUser(
       mxid,
@@ -904,8 +1123,17 @@ export async function birthIdentity(
         opts.name.length > 0
           ? opts.name[0].toUpperCase() + opts.name.slice(1)
           : opts.name;
+      // Phase 80 Plan 80-03b A1 lock: thread role + poolPicked into the helper
+      // so its Step 6 can derive the PascalCase-hyphenated MXID when the
+      // frontend pool-picked the name. Absent poolPicked → helper takes the
+      // legacy `@<name>:<server>` branch (backward compat preserved).
       await runRelayMintAndWrite(
-        { name: opts.name, displayName },
+        {
+          name: opts.name,
+          displayName,
+          role: opts.role,
+          poolPicked: opts.poolPicked,
+        },
         emit,
         deps,
         conn,
