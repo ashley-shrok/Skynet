@@ -63,10 +63,11 @@ function makeScrollEl(opts: {
   getScrollTop: () => number;
   addEventListenerSpy: ReturnType<typeof vi.fn>;
   removeEventListenerSpy: ReturnType<typeof vi.fn>;
-  /** Call the registered scroll listener directly with isTrusted=true.
-   *  JSDOM's dispatchEvent always sets isTrusted=false for synthetic events
-   *  (spec-compliant but untestable). This escape hatch captures the listener
-   *  via the addEventListenerSpy and invokes it with a mocked-trusted event. */
+  /** Dispatch a wheel event on the element (the hook's user-input origin
+   *  signal for mouse/trackpad scroll). Also flushes RAF so the coalesced
+   *  scheduleUserInputMeasure callback runs. Replaces the pre-2026-09-06
+   *  scroll+isTrusted plumbing, which is gone (see § INPUT-ORIGIN BIT in
+   *  use-auto-scroll.ts). */
   fireUserScroll: () => void;
 } {
   const el = document.createElement("div");
@@ -128,22 +129,18 @@ function makeScrollEl(opts: {
     el as unknown as { removeEventListener: typeof removeEventListenerSpy }
   ).removeEventListener = removeEventListenerSpy;
 
-  /** Invoke the registered scroll handler directly with isTrusted=true.
-   *  JSDOM always overrides isTrusted=false on dispatchEvent; this bypass
-   *  calls the handler with a plain object that has isTrusted=true so the
-   *  hook's user-input gate fires correctly in tests. */
+  /** Dispatch a wheel event on the element AND advance fake timers by 16ms
+   *  so the RAF-coalesced scheduleUserInputMeasure callback runs. The hook
+   *  no longer listens for scroll events — it listens for direct user-input
+   *  events (wheel/touchmove/keydown/pointerdown/scrollend) per the shape
+   *  file's § Shape para 2 "user input event (wheel, touch drag, scrollbar
+   *  drag, keyboard)" requirement. See § INPUT-ORIGIN BIT in
+   *  use-auto-scroll.ts for the full rationale. */
   function fireUserScroll(): void {
-    const handlers = registeredHandlers.get("scroll") ?? [];
-    for (const handler of handlers) {
-      const syntheticEvent = { isTrusted: true } as Event;
-      act(() => {
-        if (typeof handler === "function") {
-          handler(syntheticEvent);
-        } else {
-          handler.handleEvent(syntheticEvent);
-        }
-      });
-    }
+    act(() => {
+      el.dispatchEvent(new Event("wheel", { bubbles: true }));
+      vi.advanceTimersByTime(16);
+    });
   }
 
   return {
@@ -159,52 +156,6 @@ function makeScrollEl(opts: {
     removeEventListenerSpy,
     fireUserScroll,
   };
-}
-
-// ---------------------------------------------------------------------------
-// fireScroll / fireProgrammaticScroll — synthetic-event helpers
-// (PRESERVED from current file L120-128 with isTrusted modification)
-//
-// isTrusted on DOM Event is non-configurable in JSDOM (setting it via
-// Object.defineProperty throws "Cannot redefine property: isTrusted").
-// To control isTrusted, we subclass Event and override the getter — this is
-// the only reliable approach that works in both JSDOM and real browsers.
-// ---------------------------------------------------------------------------
-
-/** A subclass of Event that allows overriding isTrusted for test purposes. */
-class TrustedScrollEvent extends Event {
-  override get isTrusted(): boolean {
-    return true;
-  }
-}
-
-class UntrustedScrollEvent extends Event {
-  override get isTrusted(): boolean {
-    return false;
-  }
-}
-
-/**
- * Fire a trusted scroll event (isTrusted=true) on the mock element under act()
- * so React flushes the state updates the hook triggers from its scroll listener.
- * Uses TrustedScrollEvent subclass because isTrusted is non-configurable on
- * DOM Event instances in JSDOM — Object.defineProperty throws.
- */
-function fireScroll(el: HTMLElement): void {
-  act(() => {
-    el.dispatchEvent(new TrustedScrollEvent("scroll", { bubbles: true }));
-  });
-}
-
-/**
- * Fire a programmatic (untrusted) scroll event — isTrusted=false.
- * JSDOM synthetic events already default to isTrusted=false; this helper
- * makes test intent explicit by using UntrustedScrollEvent.
- */
-function fireProgrammaticScroll(el: HTMLElement): void {
-  act(() => {
-    el.dispatchEvent(new UntrustedScrollEvent("scroll", { bubbles: true }));
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -587,9 +538,11 @@ describe("scroll-listener user-input transitions", () => {
     expect(probe.getAttribute("data-mode")).toBe("at-bottom");
   });
 
-  it("T12: programmatic write never triggers mode transition", () => {
+  it("T12: programmatic scroll write never triggers mode transition", () => {
     // § What would make it wrong bullet 2: programmatic scroll write must NOT
-    // transition mode — the recursive-bug pattern the current code trips on.
+    // transition mode. Enforced STRUCTURALLY (2026-09-06): the hook no longer
+    // listens for scroll events at all — chase-writes fire scroll events but
+    // nothing observes them, so they cannot loop back into the reducer.
     const { el, setScrollTop } = makeScrollEl({
       scrollHeight: 1000,
       clientHeight: 400,
@@ -600,9 +553,7 @@ describe("scroll-listener user-input transitions", () => {
       render(<TestConsumer paneKey="pane-A" el={el} />);
     });
 
-    // Reveal surface + flush RAF so pendingChaseRef is clear. This ensures
-    // the following test specifically targets the isTrusted gate (not the
-    // pendingChase gate) when it checks that the programmatic scroll is skipped.
+    // Reveal surface.
     const ro = ResizeObserverStub.lastInstance;
     act(() => {
       ro!.trigger();
@@ -612,14 +563,18 @@ describe("scroll-listener user-input transitions", () => {
     const probe = screen.getByTestId("probe");
     expect(probe.getAttribute("data-mode")).toBe("at-bottom");
 
-    // Simulate a programmatic scroll (isTrusted=false — chase-write position).
-    // JSDOM always sets isTrusted=false on dispatchEvent, which is exactly what
-    // we want here: the hook's isTrusted gate must block this from transitioning mode.
-    setScrollTop(100); // would be "not-at-bottom" if isTrusted were true
-    fireProgrammaticScroll(el);
+    // Simulate a programmatic scroll: move scrollTop and fire a scroll event.
+    // JSDOM sets isTrusted=false; a real browser would fire isTrusted=true
+    // for programmatic scrollTop assignment. Either way, the hook must not
+    // react — it doesn't listen for scroll events.
+    setScrollTop(100); // would be "not-at-bottom" if the hook interpreted this as user input
+    act(() => {
+      el.dispatchEvent(new Event("scroll", { bubbles: true }));
+      vi.advanceTimersByTime(16);
+    });
 
     // § What would make it wrong bullet 2: mode must NOT have changed.
-    // The isTrusted gate in the scroll listener must have blocked this.
+    // The hook has no scroll listener; the scroll event goes nowhere.
     expect(probe.getAttribute("data-mode")).toBe("at-bottom");
   });
 });
@@ -796,11 +751,19 @@ describe("cleanup", () => {
       unmount();
     });
 
-    // Scroll listener removed.
-    const scrollRemoveCalls = removeEventListenerSpy.mock.calls.filter(
-      ([type]: [string]) => type === "scroll",
+    // Direct user-input listeners removed (wheel/touchmove/keydown/pointerdown/scrollend).
+    // The hook no longer attaches a "scroll" listener — see § INPUT-ORIGIN BIT
+    // in use-auto-scroll.ts.
+    const removedTypes = new Set(
+      removeEventListenerSpy.mock.calls.map(
+        ([type]: [string]) => type,
+      ),
     );
-    expect(scrollRemoveCalls.length).toBeGreaterThanOrEqual(1);
+    expect(removedTypes.has("wheel")).toBe(true);
+    expect(removedTypes.has("touchmove")).toBe(true);
+    expect(removedTypes.has("keydown")).toBe(true);
+    expect(removedTypes.has("pointerdown")).toBe(true);
+    expect(removedTypes.has("scrollend")).toBe(true);
 
     // Observers disconnected.
     expect(ro!.disconnectSpy).toHaveBeenCalled();

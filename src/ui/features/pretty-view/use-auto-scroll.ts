@@ -2,7 +2,7 @@
 /**
  * Thin React wrapper around the pure `auto-scroll-machine` reducer.
  *
- * Phase 70 rewrites this file to a thin hook wrapping the pure reducer in
+ * Phase 70 rewrote this file to a thin hook wrapping the pure reducer in
  * ./auto-scroll-machine.ts. The hook exists as a named seam so callers
  * have a stable named point — the contract is testable in isolation via
  * renderHook AND via the pure reducer's own tests in auto-scroll-machine.test.ts.
@@ -12,16 +12,43 @@
  * wiring, the [pv-scroll] logging, and the hide-pin-reveal mount-landing.
  * Nothing else.
  *
+ * INPUT-ORIGIN BIT (2026-09-06 fix):
+ *
+ *   The shape file (shape-pv-autoscroll-rewrite.md § Shape para 2) names the
+ *   input-origin bit for OUT transitions concretely: "a real user input event
+ *   (wheel, touch drag, scrollbar drag, keyboard)". This hook listens for
+ *   those events DIRECTLY and dispatches user-input from them. It does NOT
+ *   listen for `scroll` events, because scroll events fire for both user
+ *   gestures AND programmatic writes (isTrusted=true in both cases) AND for
+ *   browser-driven reflows during layout changes (drag reorder, portal
+ *   switch). Using scroll as the origin signal — even gated by isTrusted or
+ *   pending-write flags — is the "guessing user intent from ambiguous signals"
+ *   the shape file § Philosophy explicitly rejected.
+ *
+ *   The listener set:
+ *     - wheel        → mouse wheel / trackpad two-finger scroll
+ *     - touchmove    → touch drag
+ *     - keydown      → arrow keys, PageUp/Down, Home/End, Space
+ *     - pointerdown  → scrollbar drag start (also covers other pointer
+ *                      interactions with the scroll surface)
+ *     - scrollend    → post-momentum landing on touch devices (fires when
+ *                      iOS momentum concludes, so a fling-back-to-bottom
+ *                      correctly transitions IN even without a final
+ *                      touchmove)
+ *
+ *   Each fires → schedule a RAF-coalesced measure of distanceFromBottom →
+ *   dispatch {kind:"user-input", ...} to the reducer. RAF timing ensures we
+ *   measure AFTER the browser has processed the input and updated scrollTop.
+ *
  * INVARIANTS (from shape-pv-autoscroll-rewrite.md § What would make it wrong):
  *
  *   (1) No special-casing per event kind — every bottom-moving event is treated
  *       uniformly via the reducer. No `if (event.kind === "content-changed") {...}`
  *       branching in this file; the reducer handles all of it.
  *
- *   (2) Programmatic scroll writes NEVER transition mode — the `event.isTrusted`
- *       gate on the scroll listener ensures chase-writes don't loop back into
- *       the reducer. This file enforces it via the `isTrusted` check + the
- *       `pendingChaseRef` belt-and-suspenders guard on the scroll listener.
+ *   (2) Programmatic scroll writes NEVER transition mode — enforced STRUCTURALLY
+ *       by not listening for scroll events at all. Chase writes fire scroll
+ *       events but nothing observes them.
  *
  *   (3) Mount-time landing has no visible flash at the top — the hide-pin-reveal
  *       pattern: surface is invisible (`revealed = false`) while content mounts,
@@ -29,8 +56,9 @@
  *       non-zero contentHeight, THEN `revealed` flips true.
  *
  *   (4) iOS momentum-scroll rubber-band never produces a silent out-of-at-bottom
- *       flip during a chase — the `isTrusted` gate and `BOTTOM_TOLERANCE_TOUCH_EXTRA_PX`
- *       absorb momentum overshoot before it can trigger the OUT transition.
+ *       flip during a chase — chase-writes don't feed back as user-input
+ *       (structural, per invariant 2), and `scrollend` catches post-momentum
+ *       landing so momentum-back-to-bottom transitions IN correctly.
  *
  *   (5) Browser scroll-anchoring is disabled on the container — the consumer
  *       (PrettyView.tsx) adds `overflow-anchor: none` to the scroll container.
@@ -45,6 +73,8 @@
  *   Observer count gate: 1 MutationObserver + 1 ResizeObserver, no IO, no sentinel-div.
  *   No smooth-scroll gate: only instant scrollTop assignment writes; no
  *     smooth-behavior scrollTo, no scroll-into-view, no CSS scroll-behavior. Instant writes only.
+ *   No scroll-listener gate: this file does NOT attach a listener for the
+ *     "scroll" event. Grep: `addEventListener\("scroll"` → 0 hits in this file.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -81,6 +111,21 @@ export interface UseAutoScrollResult {
   revealed: boolean;
 }
 
+// ── Scroll-key set — keyboard input-origin bit ────────────────────────────────
+
+// Keys the browser treats as scroll input on a focused scrollable element.
+// Space is included (Page Down when scroll container is focused; also
+// Shift+Space for Page Up, both share the same key.code "Space").
+const SCROLL_KEYS = new Set<string>([
+  "ArrowUp",
+  "ArrowDown",
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+  " ",
+]);
+
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 export function useAutoScroll(paneKey: string): UseAutoScrollResult {
@@ -106,17 +151,22 @@ export function useAutoScroll(paneKey: string): UseAutoScrollResult {
   // in React state (which would require an extra render cycle to update).
   const stateRef = useRef<AutoScrollState>(createInitialState());
 
-  // rafHandleRef — pending requestAnimationFrame handle for chase-write
-  // coalescing. This is a ref (not state) because reads happen inside the RAF
-  // callback; setting it must not trigger a re-render.
-  const rafHandleRef = useRef<number | null>(null);
+  // chaseRafRef — pending requestAnimationFrame handle for chase-write
+  // coalescing. Separate from userInputRafRef so a pending chase and a pending
+  // user-input measure can coexist (they do different things).
+  const chaseRafRef = useRef<number | null>(null);
 
-  // pendingChaseRef — boolean flag: does the current RAF frame need to write
-  // scrollTop = scrollHeight? This is a ref (not state) because it is written
-  // inside the scroll listener (which fires at high frequency) and read inside
-  // the RAF callback — triggering a re-render on every scroll event would be
-  // catastrophically expensive.
-  const pendingChaseRef = useRef<boolean>(false);
+  // userInputRafRef — pending requestAnimationFrame handle for user-input
+  // measurement coalescing. Set when a user input event fires; cleared when
+  // the RAF callback dispatches the user-input event. Coalesces bursts of
+  // wheel/touchmove/keydown into one measure per frame.
+  const userInputRafRef = useRef<number | null>(null);
+
+  // userInputIsTouchRef — the isTouch value to attach to the next pending
+  // user-input dispatch. Written by the input listeners (touchmove sets true,
+  // wheel/keydown/pointerdown/scrollend fall back to isTouchDeviceRef). Read
+  // by the RAF callback.
+  const userInputIsTouchRef = useRef<boolean>(false);
 
   // mutationObserverRef — the MutationObserver watching scroll-container
   // children (childList + subtree). Stored in a ref so cleanup can disconnect
@@ -161,31 +211,54 @@ export function useAutoScroll(paneKey: string): UseAutoScrollResult {
   }
 
   /** scheduleRafChase — idempotent RAF scheduler for chase-writes. Guards by
-   *  rafHandleRef so at most one frame is scheduled per RAF cycle. The write
+   *  chaseRafRef so at most one frame is scheduled per RAF cycle. The write
    *  inside the callback is instant (scrollTop = scrollHeight — no smooth API).
    *  Uses scrollElRef.current (not scrollEl from closure) so the RAF callback
    *  always writes to the latest bound element even if jumpToBottom/onSendFired
    *  were memoized at a time when scrollEl was null.
    */
   function scheduleRafChase(): void {
-    if (rafHandleRef.current !== null) return; // already scheduled for this frame
-    rafHandleRef.current = requestAnimationFrame(() => {
+    if (chaseRafRef.current !== null) return; // already scheduled for this frame
+    chaseRafRef.current = requestAnimationFrame(() => {
       const el = scrollElRef.current;
-      if (pendingChaseRef.current && el) {
+      if (el) {
         el.scrollTop = el.scrollHeight;
-        pendingChaseRef.current = false;
       }
-      rafHandleRef.current = null;
+      chaseRafRef.current = null;
+    });
+  }
+
+  /** scheduleUserInputMeasure — RAF-coalesced user-input dispatch. Called from
+   *  the direct input listeners (wheel/touchmove/keydown/pointerdown/scrollend).
+   *  Measures distanceFromBottom AFTER the browser has processed the input and
+   *  updated scrollTop (RAF fires post-paint-schedule but pre-paint, so
+   *  scrollTop reflects the input's effect by then), then dispatches user-input
+   *  to the reducer. If a measure is already scheduled, latches the isTouch
+   *  value and no-ops (last-writer-wins for isTouch within a single frame is
+   *  fine — touchmove and wheel don't co-occur in normal use).
+   */
+  function scheduleUserInputMeasure(isTouch: boolean): void {
+    userInputIsTouchRef.current = isTouch;
+    if (userInputRafRef.current !== null) return;
+    userInputRafRef.current = requestAnimationFrame(() => {
+      userInputRafRef.current = null;
+      const el = scrollElRef.current;
+      if (!el) return;
+      dispatch({
+        kind: "user-input",
+        distanceFromBottom: computeDistance(el),
+        isTouch: userInputIsTouchRef.current,
+      });
     });
   }
 
   /** dispatch — the single seam. Every event goes through here.
    *
-   *  Order (per 70-02-PLAN.md § <behavior> dispatch-wrapper spec):
+   *  Order:
    *   (i)   reduce + update stateRef
    *   (ii)  log mode-in/mode-out on transition + call setMode
    *   (iii) on effect:"reveal" → setRevealed(true), clear mountLandingActiveRef, log mount-land
-   *   (iv)  on effect:"chase" → set pendingChaseRef, call scheduleRafChase, log chase-write
+   *   (iv)  on effect:"chase" → schedule RAF chase-write, log chase-write
    *   (v)   on effect:"none" + bottom-moving event + mode=not-at-bottom → log chase-skip
    */
   function dispatch(event: AutoScrollEvent): void {
@@ -213,7 +286,6 @@ export function useAutoScroll(paneKey: string): UseAutoScrollResult {
       );
     } else if (effect === "chase") {
       // (iv) chase effect → schedule RAF write
-      pendingChaseRef.current = true;
       scheduleRafChase();
       console.info(
         `[pv-scroll] chase-write event=${event.kind} mode=${next.mode} dist=${next.lastMeasuredDistance} paneKey=${paneKey}`,
@@ -234,7 +306,7 @@ export function useAutoScroll(paneKey: string): UseAutoScrollResult {
     }
   }
 
-  // ---- Observer + scroll listener setup ────────────────────────────────────
+  // ---- Observer + user-input listener setup ────────────────────────────────
   useEffect(() => {
     if (!scrollEl) return;
 
@@ -242,29 +314,27 @@ export function useAutoScroll(paneKey: string): UseAutoScrollResult {
     // remounted scroll container goes through hide-pin-reveal correctly.
     mountLandingActiveRef.current = true;
 
-    // ── Scroll listener (user-input origin gate) ──────────────────────────
-    const onScroll = (event: Event): void => {
-      // Skip programmatic writes (chase-writes land here with isTrusted=false)
-      // and skip if we are inside the same RAF as a pending chase-write
-      // (belt-and-suspenders against rapid scroll-event coalescing edge case).
-      if (!event.isTrusted || pendingChaseRef.current) {
-        console.info(
-          `[pv-scroll] programmatic-skip isTrusted=${event.isTrusted} pendingChase=${pendingChaseRef.current} paneKey=${paneKey}`,
-        );
-        return;
-      }
-      const distanceFromBottom = computeDistance(scrollEl);
-      console.info(
-        `[pv-scroll] user-gesture dist=${distanceFromBottom} isTouch=${isTouchDeviceRef.current} paneKey=${paneKey}`,
-      );
-      dispatch({
-        kind: "user-input",
-        distanceFromBottom,
-        isTouch: isTouchDeviceRef.current,
-      });
+    // ── Direct user-input listeners (per shape file § Shape para 2) ────────
+    // These are the ONLY signal used for the OUT transition. Scroll events
+    // are NOT listened to — they fire for both user gestures and programmatic
+    // writes and are therefore not a sound origin signal (shape file
+    // § Philosophy: "Nothing is inferred from position drift, layout timing,
+    // or watcher race outcomes").
+    const onWheel = (): void => scheduleUserInputMeasure(false);
+    const onTouchMove = (): void => scheduleUserInputMeasure(true);
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (SCROLL_KEYS.has(e.key)) scheduleUserInputMeasure(false);
     };
+    const onPointerDown = (): void =>
+      scheduleUserInputMeasure(isTouchDeviceRef.current);
+    const onScrollEnd = (): void =>
+      scheduleUserInputMeasure(isTouchDeviceRef.current);
 
-    scrollEl.addEventListener("scroll", onScroll, { passive: true });
+    scrollEl.addEventListener("wheel", onWheel, { passive: true });
+    scrollEl.addEventListener("touchmove", onTouchMove, { passive: true });
+    scrollEl.addEventListener("keydown", onKeyDown);
+    scrollEl.addEventListener("pointerdown", onPointerDown);
+    scrollEl.addEventListener("scrollend", onScrollEnd);
 
     // ── MutationObserver — one instance on scroll container children ───────
     // Observes childList+subtree so new messages, WipBubble, WaitingBubble,
@@ -277,9 +347,12 @@ export function useAutoScroll(paneKey: string): UseAutoScrollResult {
     mutationObserverRef.current = mo;
 
     // ── ResizeObserver — one instance on scroll container itself ───────────
-    // Fires on window resize, pane-count/split-layout change, browser zoom.
-    // Always dispatches container-resized. During mount-landing window also
-    // dispatches a measured event (via mountLandingActiveRef check).
+    // Fires on window resize, pane-count/split-layout change, browser zoom,
+    // and — critically — on portal reparent during split-view drag reorder
+    // (the reparent changes the container's ancestor chain which changes
+    // clientHeight/scrollHeight and RO fires). Always dispatches
+    // container-resized. During mount-landing also dispatches a measured
+    // event (via mountLandingActiveRef check).
     // One RO per scroll container (observer count gate enforced).
     const ro = new ResizeObserver(() => {
       // Always dispatch the container-resized event.
@@ -298,17 +371,25 @@ export function useAutoScroll(paneKey: string): UseAutoScrollResult {
     resizeObserverRef.current = ro;
 
     return () => {
-      scrollEl.removeEventListener("scroll", onScroll);
+      scrollEl.removeEventListener("wheel", onWheel);
+      scrollEl.removeEventListener("touchmove", onTouchMove);
+      scrollEl.removeEventListener("keydown", onKeyDown);
+      scrollEl.removeEventListener("pointerdown", onPointerDown);
+      scrollEl.removeEventListener("scrollend", onScrollEnd);
       mo.disconnect();
       mutationObserverRef.current = null;
       ro.disconnect();
       resizeObserverRef.current = null;
-      // Cancel any pending RAF on cleanup to avoid writing into a detached element.
-      if (rafHandleRef.current !== null) {
-        cancelAnimationFrame(rafHandleRef.current);
-        rafHandleRef.current = null;
+      // Cancel any pending RAFs on cleanup to avoid writing into a detached
+      // element.
+      if (chaseRafRef.current !== null) {
+        cancelAnimationFrame(chaseRafRef.current);
+        chaseRafRef.current = null;
       }
-      pendingChaseRef.current = false;
+      if (userInputRafRef.current !== null) {
+        cancelAnimationFrame(userInputRafRef.current);
+        userInputRafRef.current = null;
+      }
     };
   }, [scrollEl]); // eslint-disable-line react-hooks/exhaustive-deps
 
