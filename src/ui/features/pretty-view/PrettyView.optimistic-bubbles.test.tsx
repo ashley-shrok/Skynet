@@ -444,6 +444,113 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     expect(textarea.value).toBe("");
   });
 
+  it("Test 5c: pane_state:dormant hydrates dormantRef after WS reconnect — reconnect-mid-dormancy send arms 220s branch even when type:dormant frame is NOT re-delivered (Phase 76 — signal unification)", async () => {
+    // This test proves the Phase 62 miss scenario: after a WS reconnect while
+    // dormant, the backend may NOT re-emit {type:"dormant"} (Signal A) because
+    // the cached-session fast-path fires instead of the inactive-branch dormancy
+    // probe. Phase 76 fix (option a): `case "pane_state"` now also calls
+    // setDormant(true) when parsed.state === "dormant", so dormantRef stays
+    // authoritative even when Signal A is absent on the fresh connection.
+    //
+    // Test sequence:
+    //   ws1: establish dormancy via BOTH Signal A + Signal B
+    //   ws1: close (simulate reconnect)
+    //   ws2: deliver ONLY Signal B (pane_state:dormant) — NO Signal A (type:dormant)
+    //   ws2: send — assert 220s branch armed (no flip at T+20001ms)
+    //         then assert flip at T+220001ms cumulative
+    //
+    // Under Phase 62 code (before fix): dormantRef.current is false on ws2
+    // because case "pane_state" did NOT write setDormant → 20s branch fires →
+    // [data-pv-bubble-failed] present at T+20001ms (test FAILS at step 12).
+    // Under Phase 76 code (after fix): dormantRef.current is true on ws2
+    // because case "pane_state" now writes setDormant(true) → 220s branch fires →
+    // [data-pv-bubble-failed] absent at T+20001ms (test PASSES).
+    vi.useFakeTimers();
+    const { container } = mount();
+
+    // Step 1: Mount and get ws1
+    const ws1 = getCurrentWs();
+    flipToStreaming(ws1);
+
+    // Let mirror useEffects settle
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Step 2: Establish initial dormancy on ws1 via BOTH signals
+    // Signal A: {type:"dormant", dormant:true}
+    sendWsFrame(ws1, { type: "dormant", dormant: true });
+    // Signal B: {type:"pane_state", state:"dormant"}
+    sendWsFrame(ws1, { type: "pane_state", state: "dormant" });
+
+    // Step 3: Let mirror useEffects settle (dormantRef.current syncs after this)
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Step 4: Simulate WS close → triggers PrettyView reconnect path.
+    // The onclose handler schedules a reconnect setTimeout (0..2000ms jitter).
+    // With fake timers we must advance time to fire it.
+    act(() => {
+      ws1.readyState = 3; // CLOSED
+      ws1.onclose?.();
+    });
+
+    // Step 5: Advance past reconnect backoff window (max 2000ms) to let the
+    // reconnect timer fire and push a new WS stub. Then flush microtasks.
+    await act(async () => {
+      vi.advanceTimersByTime(2001);
+      await Promise.resolve();
+    });
+
+    // Step 6: Get ws2 and assert it is a fresh connection
+    const ws2 = getCurrentWs();
+    expect(ws2).not.toBe(ws1);
+    flipToStreaming(ws2);
+
+    // Step 7: Deliver ONLY Signal B on ws2 — THE RACE: backend did NOT re-emit
+    // the {type:"dormant"} (Signal A) frame because cached-session fast-path
+    // fired instead of the inactive-branch dormancy probe (the exact Phase 62
+    // miss scenario). We intentionally omit any Signal A frame on ws2.
+    sendWsFrame(ws2, { type: "pane_state", state: "dormant" });
+
+    // Step 8: Let effects settle
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Step 9: Send a message on the fresh dormant connection
+    typeAndEnter(container, "reconnect-dormant-send-payload");
+
+    // Step 10: Pending bubble should be present and spinning
+    expect(countPendingBubbles(container)).toBe(1);
+    expect(container.querySelector("[data-pv-bubble-spinner]")).not.toBeNull();
+
+    // Step 11: Advance past NORMAL 20000ms ceiling
+    await act(async () => {
+      vi.advanceTimersByTime(20001);
+      await Promise.resolve();
+    });
+
+    // Step 12: [data-pv-bubble-failed] MUST be null (dormant branch armed —
+    // 220s ceiling, not 20s). Under Phase 62 code this assertion FAILS because
+    // dormantRef.current was false on ws2 (pane_state handler did not call
+    // setDormant). Under Phase 76 code this assertion PASSES.
+    expect(container.querySelector("[data-pv-bubble-failed]")).toBeNull();
+    expect(container.querySelector("[data-pv-bubble-spinner]")).not.toBeNull();
+
+    // Step 13: Advance to just past DORMANT 220000ms ceiling
+    // (total from arm = 20001 + 200000 = 220001ms)
+    await act(async () => {
+      vi.advanceTimersByTime(200000);
+      await Promise.resolve();
+    });
+
+    // Step 14: Now the widened ceiling fires — bubble must be failed
+    expect(container.querySelector("[data-pv-bubble-failed]")).not.toBeNull();
+    expect(container.querySelector("[data-pv-bubble-spinner]")).toBeNull();
+  });
+
   it("Test 6: paste_send_failed WS frame flips to failed and cancels 20s timer", async () => {
     vi.useFakeTimers();
     const { container } = mount();
