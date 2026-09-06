@@ -1867,13 +1867,19 @@ Plans:
 
 ### Phase 76: Optimistic bubbles must survive the wait when the agent was asleep at send time — unify the two frontend dormancy signals into a single authoritative source and wire the pending-send timer to it. Phase 62 shipped PENDING_SEND_TIMEOUT_MS_DORMANT=220_000 but wired it to dormantRef (from emit-on-change type:dormant frame), which goes stale on any WS reconnect while dormant. Result: dormant_at_arm=false in diag logs even when server knows session is dormant, widened branch never triggers, Ashley gets same 20s red flip as before Phase 62. Fix: unify with the pane_state signal (full re-emit on WS attach) into one authoritative dormancy source. Also: whole-bubble red visual on flip-to-failed (semantic upgrade). Multi-send-during-wake claim from Phase 62 verified under real conditions. Shape: .planning/shapes/shape-optimistic-during-dormant-wake.md. Bounty: pv-client-pending-send-timer-dormancy-blind.
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Unify the two frontend dormancy signals (Signal A `{type:"dormant"}` emit-on-change + Signal B `{type:"pane_state"}` full-re-emit-on-attach) into a single authoritative source so the pending-send timer branch takes the widened 220s ceiling when the agent is truly dormant — including the reconnect-mid-dormancy case Phase 62 missed. Also: whole-bubble red on flip-to-failed (D-06 semantic upgrade). Also: verify Phase 62's multi-send-during-wake claim under real conditions (D-07). Decisions D-01 through D-08 in `.planning/phases/76-.../76-CONTEXT.md` are the de-facto requirements.
+**Requirements**: No new REQ-IDs. CONTEXT.md decisions D-01 through D-08 serve as the requirements; every plan's `requirements` frontmatter maps to at least one D-XX.
 **Depends on:** Phase 75
-**Plans:** 0 plans
+**Plans:** 3 plans
 
-Plans:
-- [ ] TBD (run /gsd-plan-phase 76 to break down)
+**Wave 1**
+
+- [ ] 76-01-PLAN.md — Signal unification (option a: feed setDormant from BOTH case "dormant" AND case "pane_state") + TDD Test 5c reconnect-mid-dormancy RED→GREEN + D-04 symmetric-surface inventory + D-05 backend-constant verification (D-01, D-02, D-03, D-04, D-05, D-08)
+
+**Wave 2** *(blocked on Wave 1 completion — Test 5d depends on Plan 01's fix; both plans below can run in parallel with each other since they touch disjoint files)*
+
+- [ ] 76-02-PLAN.md — Whole-bubble red inline style upgrade in ChatMessage.tsx (D-06) + Test 4b pin test RED→GREEN + end-of-phase Ashley UAT human-check
+- [ ] 76-03-PLAN.md — Test 5d D-07 verification: multi-send during widened wait with reconnect-mid-dormancy setup (proves Phase 62 multi-send claim under real conditions; escalates to follow-up plan if test fails)
 
 ### Phase 77: Telegram bridge Phase A: Skynet Matrix admin integration — foundation for /build telegram-bridge
 
