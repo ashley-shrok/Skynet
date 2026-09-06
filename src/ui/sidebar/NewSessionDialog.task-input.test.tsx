@@ -425,23 +425,46 @@ describe("NewSessionDialog task input: poolPicked wire signal end-to-end", () =>
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("NewSessionDialog role-select bug fix: host-null affordance", () => {
-  it("Task 3c: identityMode on + no host picked → 'pick a host' hint is visible", async () => {
-    // Use two-host tree so no auto-select fires → selectedHost stays null on open
+  it("Task 3c: identityMode on + no host picked → 'Pick a host to see available roles' hint is visible", async () => {
+    // Use two-host tree so no auto-select fires → selectedHost stays null on
+    // open. The literal we check for is DISTINCT from the modal-description
+    // text ("Pick a host and (optionally) name the agent.") so this cannot
+    // be satisfied by the pre-existing L787 description alone — it must be
+    // the new Task-3 hint block rendered inside the identity cluster.
     renderDialog({ hostTree: twoHostTree });
-    // Expect the "pick a host" hint to appear inside the identity cluster
-    // (role dropdown itself is still host-gated at L961 — the hint fills the gap)
     await waitFor(() => {
-      expect(screen.queryByText(/pick a host/i)).toBeTruthy();
+      expect(
+        screen.queryByText(/pick a host to see available roles/i),
+      ).toBeTruthy();
     });
-    // Sanity: role dropdown is still absent when host is null
+    // Sanity: role dropdown is still absent when host is null (existing
+    // L1022 gate {selectedHost !== null && (...)} unchanged by Approach A).
     expect(screen.queryByLabelText(/^role$/i)).toBeFalsy();
   });
 
-  it("Task 3d: identityMode on + one host auto-picked → 'pick a host' hint is NOT visible + role dropdown appears", async () => {
+  it("Task 3d: identityMode on + one host auto-picked → hint is NOT visible + role dropdown appears", async () => {
     renderDialog({ hostTree: oneHostTree });
     // Wait for auto-pick to resolve
     await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
     // Hint should be gone (host is now picked)
-    expect(screen.queryByText(/pick a host to see available roles/i)).toBeFalsy();
+    expect(
+      screen.queryByText(/pick a host to see available roles/i),
+    ).toBeFalsy();
+  });
+
+  it("Task 3e: identityMode OFF + no host picked → hint is NOT visible (hint is identity-mode-only)", async () => {
+    const { getByRole } = renderDialog({ hostTree: twoHostTree });
+    // Toggle off identity-mode
+    const checkbox = getByRole("checkbox", {
+      name: /create with new identity/i,
+    });
+    fireEvent.click(checkbox);
+    // Hint must NOT be visible outside identity-mode — it lives inside the
+    // identity cluster, so toggling the cluster off toggles the hint off.
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/pick a host to see available roles/i),
+      ).toBeFalsy();
+    });
   });
 });

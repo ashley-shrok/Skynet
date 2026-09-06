@@ -1014,6 +1014,18 @@ export function NewSessionDialog({
           {identityMode && (
             <div className="flex flex-col gap-3 pt-1 border-t border-[color:var(--color-pv-border-quiet)]">
 
+              {/* Phase 80 Plan 80-06 Task 3 (RESEARCH §Landmine 2 fix,
+                  Approach A per A4 lock): when identityMode is ON but no host
+                  is picked yet, the role dropdown wrap below stays hidden
+                  (host-gated at L1022) — surface a visible affordance instead
+                  of leaving the user staring at an empty gap. Uses the same
+                  muted-label CSS as other inline hints in this cluster. */}
+              {selectedHost === null && (
+                <div className="text-xs italic text-[color:var(--color-pv-fg-muted)]">
+                  Pick a host to see available roles.
+                </div>
+              )}
+
               {/* Phase 22 SRIC-02: REQUIRED Role dropdown — positioned near the
                   host picker (first field in the identity cluster). Populates
                   via GET /roles?hostId=<n> whenever the selected host changes.
