@@ -1870,7 +1870,7 @@ Plans:
 **Goal:** Unify the two frontend dormancy signals (Signal A `{type:"dormant"}` emit-on-change + Signal B `{type:"pane_state"}` full-re-emit-on-attach) into a single authoritative source so the pending-send timer branch takes the widened 220s ceiling when the agent is truly dormant — including the reconnect-mid-dormancy case Phase 62 missed. Also: whole-bubble red on flip-to-failed (D-06 semantic upgrade). Also: verify Phase 62's multi-send-during-wake claim under real conditions (D-07). Decisions D-01 through D-08 in `.planning/phases/76-.../76-CONTEXT.md` are the de-facto requirements.
 **Requirements**: No new REQ-IDs. CONTEXT.md decisions D-01 through D-08 serve as the requirements; every plan's `requirements` frontmatter maps to at least one D-XX.
 **Depends on:** Phase 75
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 **Wave 1**
 
@@ -1879,7 +1879,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion — Test 5d depends on Plan 01's fix; both plans below can run in parallel with each other since they touch disjoint files)*
 
 - [x] 76-02-PLAN.md — Whole-bubble red inline style upgrade in ChatMessage.tsx (D-06) + Test 4b pin test RED→GREEN + end-of-phase Ashley UAT human-check
-- [ ] 76-03-PLAN.md — Test 5d D-07 verification: multi-send during widened wait with reconnect-mid-dormancy setup (proves Phase 62 multi-send claim under real conditions; escalates to follow-up plan if test fails)
+- [x] 76-03-PLAN.md — Test 5d D-07 verification: multi-send during widened wait with reconnect-mid-dormancy setup (proves Phase 62 multi-send claim under real conditions; escalates to follow-up plan if test fails)
 
 ### Phase 77: Telegram bridge Phase A: Skynet Matrix admin integration — foundation for /build telegram-bridge
 
