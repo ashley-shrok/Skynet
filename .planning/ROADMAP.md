@@ -1865,6 +1865,16 @@ Plans:
 - [x] 75-08-PLAN.md — Add `UserCrypto.deriveDekForMigration` sessionless method + one-shot migration module + CLI entrypoint `scripts/migrate-substrate-credentials.ts` (D-12, D-13, D-14, D-15, D-19)
 - [x] 75-09-PLAN.md — End-to-end integration test proving startup pass, retry loop, persistent-failure alert, and on-add trigger work when composed with real modules (D-17, D-18 end-to-end)
 
+### Phase 76: Optimistic bubbles must survive the wait when the agent was asleep at send time — unify the two frontend dormancy signals into a single authoritative source and wire the pending-send timer to it. Phase 62 shipped PENDING_SEND_TIMEOUT_MS_DORMANT=220_000 but wired it to dormantRef (from emit-on-change type:dormant frame), which goes stale on any WS reconnect while dormant. Result: dormant_at_arm=false in diag logs even when server knows session is dormant, widened branch never triggers, Ashley gets same 20s red flip as before Phase 62. Fix: unify with the pane_state signal (full re-emit on WS attach) into one authoritative dormancy source. Also: whole-bubble red visual on flip-to-failed (semantic upgrade). Multi-send-during-wake claim from Phase 62 verified under real conditions. Shape: .planning/shapes/shape-optimistic-during-dormant-wake.md. Bounty: pv-client-pending-send-timer-dormancy-blind.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 75
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 76 to break down)
+
 ### Phase 77: Telegram bridge Phase A: Skynet Matrix admin integration — foundation for /build telegram-bridge
 
 **Goal:** Land the Matrix-admin foundation that Phase B (Telegram bridge substrate promotion + identity modal Telegram section) sits on top of. Ships a Matrix admin client wrapping the relay's `/_synapse/admin/v1+v2` API, storage of the single `@skynet-admin` account credentials in Skynet's encrypted-secrets pattern, agent-identity creation propagating to relay-account creation (Skynet mints via admin + writes `~/.claude/identities/<name>/relay.json` to the target host via SFTP per the existing fleet convention — Skynet does NOT duplicate the agent's credentials in its DB), a non-UI admin-gated backend endpoint (`POST /users/:id/mxid`) that registers externally-created human mxids against Skynet user rows landing in a new `mxid TEXT` column, an ingestion endpoint (`POST /matrix-admin/creds`) that serves both one-shot bootstrap and future rotation, a retry endpoint (`POST /identities/birth/retry/:key`) for Q2 partial-failure recovery, and Skynet's ability to force-manage any relay room via the admin API. **Explicit failure-mode invariant (Q2):** partial-tolerated + surface error, NO rollback — the agent-supervisor on the target host may already have started spinning up a tmux session for a Skynet-birthed identity by the time steps 6/7/8 fail, so rolling back would race with the supervisor. Human relay accounts are always created externally and remain owned by the human (Element on a phone, another Matrix client) — Skynet stores only the mxid mapping and mints tokens on demand via admin. Explicit scope-out: any new frontend UI, deletion/rename propagation (no Skynet deletion/rename surface exists), the Telegram bridge itself (Phase B).
