@@ -245,6 +245,51 @@ class UserCrypto {
     }
   }
 
+  /**
+   * Derives the user's DEK (Data Encryption Key) without creating a user session.
+   *
+   * Intended EXCLUSIVELY for operator-driven one-shot data migrations (Phase 75-08).
+   * DO NOT use this method in authenticated user flows — use `authenticateUser` instead.
+   *
+   * Contract:
+   * (a) Sessionless: does NOT call userSessions.set; the user's session state is
+   *     completely unaffected. isUserUnlocked() returns false before and after.
+   * (b) The returned Buffer is caller-owned. The CALLER MUST zero the Buffer via
+   *     `dek.fill(0)` after use. Failing to do so keeps key material in memory.
+   * (c) Throws when the user has no KEK salt (user may not be onboarded yet).
+   * (d) Throws when the password does not decrypt the stored encrypted DEK
+   *     (wrong password → AES-GCM authTag mismatch → error from decipher.final()).
+   */
+  async deriveDekForMigration(userId: string, password: string): Promise<Buffer> {
+    const kekSalt = await this.getKEKSalt(userId);
+    if (!kekSalt) {
+      throw new Error(
+        `No KEK salt for user ${userId} — user may not be onboarded`,
+      );
+    }
+
+    const encryptedDEK = await this.getEncryptedDEK(userId);
+    if (!encryptedDEK) {
+      throw new Error(
+        `No encrypted DEK for user ${userId} — user may not be onboarded`,
+      );
+    }
+
+    const KEK = this.deriveKEK(password, kekSalt);
+    try {
+      const DEK = this.decryptDEK(encryptedDEK, KEK);
+      if (!DEK || DEK.length === 0) {
+        throw new Error(
+          `Wrong password for user ${userId} — DEK decryption produced empty result`,
+        );
+      }
+      // Return a copy so the caller's dek.fill(0) only zeroes their reference.
+      return Buffer.from(DEK);
+    } finally {
+      KEK.fill(0);
+    }
+  }
+
   getUserDataKey(userId: string): Buffer | null {
     const session = this.userSessions.get(userId);
     if (!session) {
