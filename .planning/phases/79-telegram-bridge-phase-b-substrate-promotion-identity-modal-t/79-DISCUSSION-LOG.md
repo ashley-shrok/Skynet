@@ -112,3 +112,38 @@ Full list in `79-CONTEXT.md § Research questions`. Highlights:
 - CONTEXT.md written with locked decisions, scope-outs, deferrals, success definition, canonical refs (12 items), code context (6 items), and 7 research questions.
 - No SPEC.md or advisor mode in play.
 - Ready for `/gsd-plan-phase 79`.
+
+---
+
+## Addendum — 2026-09-06 course-correction (post-research, pre-plan-checker)
+
+Research completed cleanly (11/11 questions answered, high confidence across the board). Pattern-mapper completed (22 files classified). Planner ran and produced 5 PLAN.md files. **Before plan-checker fired, Tabitha DM'd me with an observation from Ashley that surfaced two material errors in my planning framing.** Course-corrected — the 5 PLAN.md files were built on wrong assumptions and are deleted; planner will re-run against updated CONTEXT.md.
+
+### What was wrong
+
+1. **False attribution — "Ashley 2026-08-30 normalized substrate services as user-scope."** I recorded this as fact when I recommended USER-scope systemd for the bridge. Ashley never said this. I pattern-matched from agent-supervisor being USER-scope and packaged the inference as her decision. Ashley 2026-09-06 verbatim: *"decisions get attributed to me that I didn't actually make. Because I don't even know why I would care about user scoping."* Standing rule going forward: no attributions without her literal words.
+
+2. **False architectural assumption — "wire an SSH credential to host id 6" as install pathway.** I assumed the Skynet host is guaranteed to be self-registered in Skynet's own host DB, so distributor SSHs to it like any other host. Ashley 2026-09-06 corrected: *"the host machine that the app is running on will actually be a host that is registered into Skynet"* → NOT guaranteed. That framing is coincidental to t1000 today, not the general case.
+
+### What I found while investigating
+
+- Tabitha's observation: `~/.local/bin/agent-supervisor` on t1000 IS byte-identical to `substrate/scripts/agent-supervisor.sh`, timestamp Sep 5 09:07 (~36 min after commit). But Skynet fleet-substrate distributor is definitively NOT the mechanism — docker logs prove it's skipping. Someone (a maintainer) manually `cp`'d it there. Current de-facto install is a fragile out-of-band step.
+- During daily-box-check the same day: multiple established SSH sessions from Skynet container to t1000 host, `ubuntu@notty`, using `ssh2` Node client per `src/backend/starter.ts:445`. But the DEST is always t1000's own IP, and docker logs say host id 6 has no credential. Contradicts. Handed off as a bounty to Tabitha (not blocking Phase 79).
+
+### What's changed in CONTEXT.md (see § Attribution corrections + § 4C-revised)
+
+- **Bridge is now a Docker Compose service** (Option B), not a host-side systemd unit. New `tg-bridge` service block in `docker/docker-compose.yml`, shared named Docker volume `tg-bridge-state` mounted by both `skynet` and `tg-bridge` containers.
+- **Zero operator burden per deployment** — `docker compose up` brings the bridge alongside the other services. Ashley: *"do we need to put any burden on the operator? [...] can we just standardize that and not require that to be filled in?"* → yes.
+- **No systemd unit, no host-side install, no SSH-to-self, no runsFleetSubstrate flag for the bridge, no bind-mount to host paths, no distribution via fleet-substrate distributor for the bridge.** All obsolete under Option B.
+- **Kept from original locks:** STT_URL extraction into shared TS constant module (Ashley-locked #3), dead-token detection via `.token-dead` sentinel files (Ashley-locked #4 — mechanism is the same, now sentinel files live in shared docker volume), migration endpoint `POST /matrix-admin/migrate-cred-files` (Ashley-locked #5).
+
+### Planner replan
+
+- Deleting the 5 existing PLAN.md files (built on wrong assumptions).
+- Re-firing planner with updated CONTEXT.md.
+- Research is still valid (RESEARCH.md's 11 answers still ground the technical reality — install pathway is the only thing changed).
+- Pattern-mapper output partially valid — the "add rows to distributor catalog + wire restart hooks" section is now dead; the "backend telegram module mirrors matrix module" section still stands. Will note this in the planner prompt so it re-scopes its use of PATTERNS.md.
+
+### Standing directive burned into role file (proposed to Ashley)
+
+Attribution discipline: never record "Ashley decided X" without her literal words in the transcript. If inference, label it *"my inference"* or *"mirrors existing X pattern"*. This is the fleet directive *"Capture the user's words verbatim — don't paraphrase into attribution"* — I violated it and need to bake it into pre-write reflex.
