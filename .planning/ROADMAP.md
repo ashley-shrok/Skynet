@@ -1901,3 +1901,13 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 77-05-PLAN.md — E2E integration test (gated on INTEGRATION_TESTS=1 strict) proving loginAsUser + send-message round-trip works via the admin foundation; light update to substrate/skills/agent-relay/SKILL.md reflecting Skynet's new admin role; human checkpoint covering @skynet-admin creds ingestion via POST /matrix-admin/creds + three-user mxid import (Ashley/Zoe on t1000, Laura on T800 side by Stacy) + doc coherence review (MXA-01, MXA-06)
+
+### Phase 79: Telegram bridge Phase B: substrate promotion + identity modal Telegram section — package Nina bridge (/home/thenasty/.config/tg-bridge/bridge.sh) into fleet distributor as managed service, add Matrix-cursor disk persistence mirroring recv.sh, new Telegram section in identity modal per identity, activation flow (bot-token paste → Skynet writes bridge registry → restart bridge → user sends /start). Sits on top of Phase 77 (matrix-admin foundation, shipped). Shape: .planning/shapes/shape-telegram-bridge.md § Vehicle notes Phase B.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 77
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 79 to break down)
