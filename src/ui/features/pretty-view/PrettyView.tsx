@@ -1812,14 +1812,34 @@ export function PrettyView({
           //
           // "error" pane_state is deliberately NOT handled here — it is a WS-transport-
           // level state, not a session-dormancy assertion (Risk 2 rationale).
+          //
+          // Post-review nit fixes:
+          // - Symmetric diagnostic on BOTH true and false writes (so a future
+          //   dormant_at_arm=false mystery has a trail for the false branch too).
+          // - Transition-dedup on the diag log — mirrors the paneStateRef
+          //   transition-log dedup above so long dormancies don't spam the
+          //   console-forward server with idempotent frames.
+          //
+          // The `pane_state:holding` → setDormant(false) mapping is load-bearing
+          // in tandem with the ComposeBox mount gate below at ~L3496, which
+          // deliberately EXCLUDES renderedState === "holding" — so no send
+          // can arm during holding. If that mount gate ever adds "holding",
+          // this branch must be reconsidered (holding is Claude relaunching,
+          // not "awake and ready for input" — arming a 20s branch during
+          // holding would misfire).
           if (parsed.state === "dormant") {
-            console.info(`[diag-dormant-send] pane-state-drove-dormant state=${parsed.state} sessionId=${tmuxSession ?? 'null'}`);
+            if (dormantRef.current !== true) {
+              console.info(`[diag-dormant-send] pane-state-drove-dormant state=${parsed.state} prev=${dormantRef.current} sessionId=${tmuxSession ?? 'null'}`);
+            }
             setDormant(true);
           } else if (
             parsed.state === "active" ||
             parsed.state === "holding" ||
             parsed.state === "inactive"
           ) {
+            if (dormantRef.current !== false) {
+              console.info(`[diag-dormant-send] pane-state-drove-awake state=${parsed.state} prev=${dormantRef.current} sessionId=${tmuxSession ?? 'null'}`);
+            }
             setDormant(false);
           }
           // pane_state === "error" — leave dormant unchanged (Risk 2).
@@ -3493,6 +3513,16 @@ export function PrettyView({
           it goes back to as if I'm not recording, and so I lose that
           recording." Regression locked by "Test 4 (cold-dormant→active
           preserves compose state)" below. */}
+      {/* LOAD-BEARING INVARIANT (Phase 76 post-review): this gate deliberately
+          EXCLUDES `renderedState === "holding"` — during holding, Claude is
+          being relaunched and the pane cannot receive input. The pane_state
+          WS handler at ~L1815 relies on this: it maps `pane_state:"holding"`
+          to `setDormant(false)` (because holding is not asleep-at-send-time),
+          which is only safe because no send can arm during holding. If a
+          future change adds "holding" to this mount gate, the WS handler's
+          holding branch must be reconsidered — otherwise a send armed during
+          holding would take the 20s branch even though the pane is
+          transiently unavailable. */}
       {onSend && (status === "streaming" || status === "error" || renderedState === "error" || renderedState === "dormant" || renderedState === "active") && (
         <ComposeBox
           onSend={handleComposeSend}
