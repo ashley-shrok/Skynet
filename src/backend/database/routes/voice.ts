@@ -8,6 +8,10 @@ import { databaseLogger } from "../../utils/logger.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { WAKE_WORD_REGEX, applyServerSlashTransform } from "../../voice/slashCommandTransform.js";
 import { fetchSkillCatalog, DEFAULT_SKILL_CATALOG_TIMEOUT_MS } from "../../voice/skill-catalog.js";
+// Phase 79 Plan 02 (D-03): STT/TTS endpoint URLs live in a shared TS module
+// so the tg-bridge (Plan 04) reads the same values Skynet does. See
+// src/backend/config/media-endpoints.ts for the byte-identical originals.
+import { STT_URL, TTS_URL, TTS_STREAM_URL, VOICES_URL } from "../../config/media-endpoints.js";
 
 // Patch #155: POST /voice/transcribe — authenticated reverse-proxy to tailnet
 // faster-whisper STT service on GigaAshleyPC.
@@ -25,13 +29,12 @@ import { fetchSkillCatalog, DEFAULT_SKILL_CATALOG_TIMEOUT_MS } from "../../voice
 //             FormData is constructed for the STT request — no content-type smuggling
 
 // --- Locked STT endpoint (Nelly-verified live, 2026-07-27) ---
-const STT_URL = "http://100.80.122.111:8000/v1/audio/transcriptions";
-
 // --- Patch #223: TTS endpoints (Chatterbox on tailnet) ---
-const TTS_URL = "http://100.80.122.111:8001/v1/audio/speech";
 // --- Patch #237: Streaming TTS endpoint (Chatterbox /tts, not /v1/audio/speech) ---
-const TTS_STREAM_URL = "http://100.80.122.111:8001/tts";
-const VOICES_URL = "http://100.80.122.111:8001/get_predefined_voices";
+// Phase 79 Plan 02 (D-03): the four constants above (STT_URL, TTS_URL,
+// TTS_STREAM_URL, VOICES_URL) moved to src/backend/config/media-endpoints.ts
+// so the tg-bridge Docker service reads the same values. Values themselves
+// are unchanged (byte-for-byte).
 export const DEFAULT_VOICE = "Elena.wav";
 export const SPEAK_TEXT_MAX = 25000;
 export const SAMPLE_PHRASE = "Hi, this is your voice.";
@@ -281,7 +284,8 @@ export async function handleSpeak(req: Request, res: Response): Promise<Response
 // Non-negotiable (19-CONTEXT.md § Backend route shape):
 //   - Pipe-through ONLY: await response.arrayBuffer()/.text()/.blob() are FORBIDDEN here.
 //   - Response headers: Content-Type: audio/wav + X-Accel-Buffering: no (set before pipe starts).
-//   - Upstream URL: TTS_STREAM_URL (http://100.80.122.111:8001/tts) — NOT TTS_URL.
+//   - Upstream URL: TTS_STREAM_URL (Chatterbox /tts on tailnet, see
+//     src/backend/config/media-endpoints.ts) — NOT TTS_URL.
 //   - T-19-04 (T-16-03 analog): non-2xx → fixed error shape, upstream body NOT forwarded.
 //   - T-19-05: AbortController 300s timeout (same cap as handleSpeak).
 export async function handleSpeakStream(req: Request, res: Response): Promise<void> {
