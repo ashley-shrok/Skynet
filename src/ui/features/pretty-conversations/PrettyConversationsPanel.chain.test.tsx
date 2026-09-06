@@ -210,10 +210,10 @@ vi.mock("@/sidebar/CreateRoleDialog", () => ({
   },
 }));
 
-// Also mock CloneAgentDialog so the panel doesn't crash on the mount
-vi.mock("@/sidebar/CloneAgentDialog", () => ({
-  CloneAgentDialog: () => null,
-}));
+// Phase 80: the prior clone-dialog module mock is no longer needed — the
+// standalone clone dialog was deleted; the panel's clone entry-point now
+// routes through the unified NewSessionDialog which this suite already
+// exercises.
 
 // Phase 23 (GEFM-01): mock GlobalFilesModal + API so chain test doesn't pull
 // in the full modal dep tree. The modal is open=false in every test here.

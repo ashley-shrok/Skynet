@@ -286,17 +286,24 @@ export async function pickPoolName(
   }
 }
 
-// ─── Phase 22 (SRIC-03): clone identity on same host ─────────────────────────
+// ─── Phase 22 (SRIC-03) → Phase 80: clone identity on same host ─────────────
 // Backing route: src/backend/database/routes/identity-clone.ts
 // POST /identities/clone with JSON body {sourceIdentityKey, hostId, newName,
 //   title, voice, avatarCandidateId} → 201 publicIdentity(newRow)
-// Consumed by CloneAgentDialog's submit handler (see plan 22-03 Task 2).
+//
+// Phase 80: the standalone clone dialog that used to consume this client was
+// deleted; the "Spawn under this role" context-menu path now routes through
+// the unified NewSessionDialog, which does its own POST /identities/birth
+// (identity-birth flow). This cloneIdentity() client is currently unused by
+// the UI but preserved for backend parity — the route still exists and other
+// automation (or a future path) may consume it. If confirmed dead across all
+// callers, safe to remove in a follow-up.
 //
 // Contract intentionally JSON-only (NOT multipart) — sidesteps Phase 20 patch
 // #77 silent-no-op trap per RESEARCH Pitfall 2; backend enforces via 415 gate.
 //
-// Error handling: 409 collisions surface as a typed error the dialog renders
-// inline (`Name "<name>" already exists on the source host`). All other
+// Error handling: 409 collisions surface as a typed error inline consumers
+// render (`Name "<name>" already exists on the source host`). All other
 // non-2xx responses surface via handleApiError.
 
 export class IdentityCloneCollisionError extends Error {
@@ -318,8 +325,9 @@ export interface CloneIdentityInput {
   colorHue: number | null;
   avatarCandidateId: string | null;
   /** Working directory for the new identity on the target host. Backend
-   *  mkdir -p's this path. Required (default "~" in CloneAgentDialog).
-   *  Mirrors birth's `path` param — supports "~", "~/foo", or absolute. */
+   *  mkdir -p's this path. Required (formerly defaulted to "~" in the
+   *  removed clone dialog). Mirrors birth's `path` param — supports "~",
+   *  "~/foo", or absolute. */
   path: string;
 }
 
