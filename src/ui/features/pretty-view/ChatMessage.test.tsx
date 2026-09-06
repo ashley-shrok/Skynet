@@ -390,6 +390,35 @@ describe("ChatMessage — pendingState (Phase 50 Plan 03 Task 1)", () => {
     expect(failedBubble).not.toBeNull();
   });
 
+  it("Test 4b — whole-bubble red fill on pendingState=failed (D-06: saturated red overrides base gradient)", () => {
+    // Phase 76 Plan 02 — D-06 pin test (Ashley 2026-09-06 verbatim intent:
+    // "the whole bubble would just turn red instead of the blue hue that normal
+    // messages have from the user"). Post-Phase-76 a failed bubble is a TRULY
+    // failed event (backend spent its full 210s ceiling; gave up). The visual
+    // must carry that semantic weight — whole-bubble saturated red, not
+    // "blue-gray gradient with a red outline."
+    //
+    // Chosen CSS tuple (Task 2 implementation target):
+    //   background:   "hsla(0, 60%, 35%, 0.90)" — opaque-enough red that defeats
+    //                 the base linear-gradient(160deg,...) className at
+    //                 ChatMessage.tsx:451 via inline-style specificity.
+    //                 Note: jsdom normalizes alpha trailing zeros, so 0.90 → 0.9.
+    //   borderColor:  "hsla(0, 70%, 50%, 0.85)" — saturated red border that
+    //                 reads coherent with the fill.
+    //
+    // This test MUST FAIL under the current pre-Task-2 ChatMessage.tsx because
+    // the current bubbleInlineStyle sets backgroundColor: "hsla(0, 40%, 50%, 0.08)"
+    // which does not match the target.
+    render(<ChatMessage role="user" content="hello" pendingState="failed" />);
+    const bubble = document.querySelector("[data-pv-bubble-failed]") as HTMLElement;
+    expect(bubble).not.toBeNull();
+    // Assert whole-bubble red fill: background shorthand must be the saturated-red
+    // value, NOT the barely-visible 0.08-alpha tint from the old implementation.
+    expect(bubble.style.background).toBe("hsla(0, 60%, 35%, 0.9)");
+    // Assert saturated red border.
+    expect(bubble.style.borderColor).toBe("hsla(0, 70%, 50%, 0.85)");
+  });
+
   it("Test 5 — assistant bubbles ignore pendingState (no spinner, no failed attribute)", () => {
     render(<ChatMessage role="assistant" content="hi" pendingState="sending" />);
     const spinner = document.querySelector("[data-pv-bubble-spinner]");
