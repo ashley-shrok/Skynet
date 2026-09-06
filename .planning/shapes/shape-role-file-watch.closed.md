@@ -92,3 +92,49 @@ Handoff notes for the implementer:
 - The identity currently doing this work is the tanya identity of the box-maintainer role. Fleet-substrate ownership sits with this role per the recent transfer from nicole, so this change is in-lane.
 - The four ambient watches all live under one owner now (this role), so no cross-role coordination is needed for the id-skill body edit.
 - Follow the standing rule: build + commit locally, do NOT push, do NOT deploy — Ashley greenlights push separately per the tightened deploy-window boundary rule.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-06
+**Vehicle used:** gsd quick (`/gsd:quick` 260906-2aw)
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · fourth ambient watch on the role file, wakes agents on peer-identity edits mid-session.
+- **Shape: What it watches** — present · exactly the role file, no reference files, no identity pointer, no handoff.
+- **Shape: What it does when the file changes** — present · one event per change, diff-carrying, inline when small and spilled-to-file with a pointer when large.
+- **Shape: What the agent does with the event** — present · watcher emits raw diff, agent judges adopt-vs-ignore from content. No self-echo filtering at the watcher layer.
+- **Shape: How it decides what's new** — present · persisted per-identity baseline, diff current-vs-baseline on every event, update baseline after emit.
+- **Shape: Where the baseline lives** — present · per-identity under the identity's dir, sibling to the relay cursor; not role-scoped.
+- **Shape: When it starts** — present · fourth ambient watch on the on-wake sequence, dies with the session.
+- **Shape: Scope of applicability** — drifted (endorsed) · id skill body enrolls actor identities on wake; coordinator-mode section still lists only three. Ashley: "Coordinators should not get this monitor because they don't read the role file and wouldn't need to know the updates." The shape's "every identity holding every role" language is superseded — the correct scope is every ACTOR identity holding every role. Coordinators are intentionally excluded.
+- **Philosophy: live-sync aid, not source of truth** — present · `/id` load still reads the whole role file; the watch is purely additive.
+- **Philosophy: diff-first, not re-read-first** — present · event carries diff, no re-read prompt.
+- **Philosophy: dumb, on purpose** — present · watcher has no authorship detection, no self-edit filter, no importance judgment.
+- **Philosophy: symmetric with the existing three** — present · same primitive (persistent Monitor), same lifecycle, same distribution channel.
+- **Prior context: multi-identity role gap** — present · the design directly addresses the box-maintainer multi-identity case.
+- **What would make it wrong: wakes on every self-edit and confuses the agent** — present · design bets diff-content is enough for self-vs-other recognition; ships as-designed, real-world verification is future UAT.
+- **What would make it wrong: re-reads the whole file on every event** — present · design uses diff throughout; agent-side re-read is a behavioral risk not designed-around here.
+- **What would make it wrong: doesn't fire on the case it exists for** — present · watcher targets the exact file path derived from identity frontmatter, inotify primary + mtime fallback covers the fire path.
+- **What would make it wrong: baseline gets corrupt or diverges** — present · atomic baseline write via os.replace after each emit; self-correcting on next real edit.
+- **What would make it wrong: first-run rule fires anyway** — present · script snapshots silently on missing baseline before entering the watch loop.
+- **What would make it wrong: it's expensive** — present · inotify blocks with no CPU cost in steady state; polling fallback is 2s cadence; helper is stdlib-only.
+- **Scope edges (In)** — present.
+- **Scope edges (Out)** — present · no smarts, no coordination, no edit-grammar changes, no `/id` load changes, redundant-fire window accepted.
+- **Scope edges (Deferred)** — present · wider watch net and auto-restart-on-crash both deferred as named.
+- **Scope edges (Tempting but no)** — present · no watcher-layer self-edit filter, no burst coalescing.
+
+### Additions (in the result, not in the shape)
+
+- None found by the reviewer.
+
+### Follow-ups
+
+- Shape's "every identity holding every role" language is superseded by Ashley's coord-exclusion call; if the shape ever gets re-read as source of truth, note the sharpening: "every actor identity holding every role." — accepted-as-drift
+
+### Notes
+
+The reviewer noted one belt-and-suspenders concern worth carrying forward as awareness: the script itself does not detect coordinator mode; if a coordinator accidentally starts the watch (e.g. hand-launched, or a future id-skill change re-adds it), the script will happily watch the role file. The id skill body is the sole gate on coord exclusion. Fine as-is per the shape's "dumb, on purpose" philosophy, but if coord identities ever start acquiring the monitor spuriously, the fix is to tighten the id skill's coord-mode section, not to add coord-mode detection into the script.
