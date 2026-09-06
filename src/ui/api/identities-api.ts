@@ -20,6 +20,11 @@ export interface Identity {
    *  publicIdentity safe-default contract, so Wave 2's surface components
    *  can branch on it without null-safety plumbing. */
   coordinator: boolean;
+  /** Phase 80: task string from identity file frontmatter. Null when absent
+   *  (existing pre-Phase-80 identities and coord-spawned identities without
+   *  task). Present-and-truthy gates the task-primary UI treatment on chat +
+   *  list surfaces (D-06 fallback semantics). */
+  task: string | null;
 }
 
 export interface IdentityInput {
@@ -258,6 +263,29 @@ export async function listRolesForHost(hostId: number): Promise<RoleSummary[]> {
   }
 }
 
+// ─── Phase 80 Plan 80-05: pool name picker ───────────────────────────────────
+// Backing route: src/backend/pool/pool-routes.ts (plan 80-04)
+// POST /identities/pool/pick with JSON body {role, hostId} → { name: string }
+// Consumed by NewSessionDialog's name-field prefill (plan 80-06).
+
+/**
+ * Phase 80: fetch an unused pool name for the given role on the given host.
+ * Backend picks a bare pool name (lowercase) not currently in use as a Matrix
+ * account on the target server. User can edit thereafter (pool is a suggestion
+ * source, not a restriction). Errors surface via handleApiError.
+ */
+export async function pickPoolName(
+  role: string,
+  hostId: number,
+): Promise<{ name: string }> {
+  try {
+    const response = await authApi.post("/identities/pool/pick", { role, hostId });
+    return response.data as { name: string };
+  } catch (error) {
+    handleApiError(error, "pick pool name");
+  }
+}
+
 // ─── Phase 22 (SRIC-03): clone identity on same host ─────────────────────────
 // Backing route: src/backend/database/routes/identity-clone.ts
 // POST /identities/clone with JSON body {sourceIdentityKey, hostId, newName,
@@ -381,6 +409,17 @@ export interface BirthRequest {
   avatarCandidateId: string;
   /** Phase 22 SRIC-02: kebab-case-lowercase role name from the target host. */
   role: string;
+  /** Phase 80: optional task string ("what will this agent work on?").
+   *  Frontend soft-caps ~200 chars; backend hard-caps 500 chars. */
+  task?: string;
+  /** Phase 80 A1 lock: when true, backend composes MXID as
+   *  `@<PoolName>-<Role>[-N]:<server>` PascalCase-hyphenated (plan 80-03b
+   *  DIVERGE). When false/absent, backend uses legacy `@<name>:<server>`
+   *  shape (backward compat for manually-typed names and pre-Phase-80
+   *  identities). NewSessionDialog (plan 80-06) sets true when the name
+   *  field value came from `pickPoolName` prefill AND the user did not edit
+   *  it further. */
+  poolPicked?: boolean;
 }
 
 export type BirthEvent =
