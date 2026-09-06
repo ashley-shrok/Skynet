@@ -386,6 +386,22 @@ router.post(
     sshDataObj.vncPassword = vncPassword || null;
     sshDataObj.telnetPassword = telnetPassword || null;
 
+    // D-08 guard (Phase 75-04): substrate hosts must use a named credential.
+    // Inline credentials on the hosts row have no CSKEK columns, so the
+    // server-context orchestrator's CSKEK decrypt path (75-03) would fail.
+    // Enforce at the API boundary to make the invariant permanent.
+    if (effectiveRunsFleetSubstrate && !credentialId) {
+      sshLogger.warn("[host-db] substrate-host-requires-credential-id", {
+        operation: "host_create_substrate_no_credential",
+        userId,
+        name,
+        ip,
+      });
+      return res.status(400).json({
+        error: "Hosts with runsFleetSubstrate=true must use a named credential (credentialId required)",
+      });
+    }
+
     try {
       const result = await SimpleDBOps.insert(
         hosts,
@@ -1017,6 +1033,19 @@ router.put(
             .delete(hostAccess)
             .where(eq(hostAccess.hostId, Number(hostId)));
         }
+      }
+
+      // D-08 guard (Phase 75-04): substrate hosts must use a named credential.
+      // Same invariant as POST — enforced on update including flag-flip-on.
+      if (!!runsFleetSubstrate && !credentialId) {
+        sshLogger.warn("[host-db] substrate-host-requires-credential-id", {
+          operation: "host_update_substrate_no_credential",
+          userId,
+          hostId: parseInt(hostId),
+        });
+        return res.status(400).json({
+          error: "Hosts with runsFleetSubstrate=true must use a named credential (credentialId required)",
+        });
       }
 
       await SimpleDBOps.update(
