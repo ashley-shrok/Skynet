@@ -1904,10 +1904,29 @@ Plans:
 
 ### Phase 80: id skill revamp phase A: Skynet frontend and backend for pool-based naming, task-scoped creation modal, task pill on chat, task-primary conversation list rows, task field on disk
 
-**Goal:** [To be planned]
+**Goal:** Ship the Skynet-side changes that let a new identity be born as a task-scoped worker with a pool-picked name and a task string, and surface the task on both display surfaces (chat pill + conversation list row) with graceful fallback when the field is absent.
 **Requirements**: TBD
 **Depends on:** Phase 77
-**Plans:** 0 plans
-
+**Plans:** 10 plans
 Plans:
-- [ ] TBD (run /gsd-plan-phase 80 to break down)
+**Wave 1**
+
+- [ ] 80-01-PLAN.md — Pool JSON seed + Docker COPY + never-throws memoized pool-loader (D-01)
+- [ ] 80-02-PLAN.md — countUsersMatching primitive on matrix-admin-client (Synapse admin count for ordinal derivation)
+- [ ] 80-03-PLAN.md — Task field wiring end-to-end on backend disk-read/write (extract, publicIdentity, BirthOptions, buildIdentityFileBody, birth+clone POST validation) — D-05
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 80-03b-PLAN.md — MXID DIVERGE derivation (composeMxidLocalpart + deriveMxidWithOrdinal in birth-orchestrator Step 6, gated on opts.poolPicked) — A1 lock 2026-09-06
+- [ ] 80-04-PLAN.md — POST /identities/pool/pick router with full auth/host/creds/pool gates; mounted before generic /identities (A2 Shape A)
+- [ ] 80-05-PLAN.md — Frontend Identity.task + BirthRequest.task + pickPoolName API client
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 80-06-PLAN.md — NewSessionDialog unified rebuild: task textarea + pool-name auto-prefill + role-select bug fix (extend, do NOT rewrite — RESEARCH §10)
+- [ ] 80-07-PLAN.md — Task pill on PrettyView chat surface (glass treatment hue-tinted from colorHue — D-02) with D-06 fallback
+- [ ] 80-08-PLAN.md — Task-primary conversation-list row (task top-line + role-prominent-name-parens subtitle) with D-06 fallback verbatim
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 80-09-PLAN.md — Clone entry-point repurpose: delete CloneAgentDialog, rewire handleRowClone to unified NewSessionDialog, rename context-menu 'Clone' → 'Spawn under this role'
