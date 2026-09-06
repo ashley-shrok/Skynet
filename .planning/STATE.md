@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-06T01:10:47.453Z"
+last_updated: "2026-09-06T01:20:19.527Z"
 last_activity: 2026-09-06
 progress:
   total_phases: 76
   completed_phases: 62
   total_plans: 278
-  completed_plans: 270
+  completed_plans: 271
   percent: 82
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 75 (server-side-substrate-bootstrap) — EXECUTING
-Plan: 2 of 9
+Plan: 3 of 9
 Status: Ready to execute
 
 Last activity: 2026-09-06
@@ -333,6 +333,7 @@ Progress: [██████████] 100%
 | Phase 74 P03 | 8m | 2 tasks | 2 files |
 | Phase 74 P04 | 3m | 1 tasks | 0 files |
 | Phase 75 P75-01 | 312 | 2 tasks | 3 files |
+| Phase 75 P03 | 376s | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -525,6 +526,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 74-03: request-time 503 defense-in-depth guard on empty/whitespace avatarDirectorSpec is belt-and-suspenders for operator runtime edits that introduce shape violations; NOT a replacement for Plan 02's boot gate
 - [Phase ?]: Phase 74-03: TDD RED-first cadence (test additions committed before source rewire) — required because loader mock is LOAD-BEARING; without it Task 1's source changes would break existing tests via the new request-time 503 defense
 - [Phase 74]: Phase 74-04: Retired 5 local-filesystem avatar-generation outrigger files (avatar-flow runbook 471 lines + 4 per-identity prompt archives 397 lines, 48112B total) from ~/.claude/roles/box-maintainer/; local rm not git rm; parent dirs preserved; zero live-code repo refs remain — closes Phase 74 STYLE-08 + STYLE-09 requirements; gated by Ashley human-verify checkpoint approval 2026-09-04
+- [Phase ?]: getDb injected via deps to keep list-substrate-hosts.ts a side-effect-free leaf module
+- [Phase ?]: LEFT JOIN on sshCredentials (not INNER JOIN) to surface no-credentialId hosts for defense-in-depth warn+skip (D-08 enforcement)
+- [Phase ?]: key_password field name (snake_case) confirmed for CSKEK decryption of system_key_password column per credential-system-encryption-migration.ts:93
 
 ### Pending Todos
 
@@ -816,8 +820,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-06T01:10:47.231Z
-Stopped at: Phase 75 context gathered
+Last session: 2026-09-06T01:20:19.092Z
+Stopped at: Completed 75-03-PLAN.md
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
 Last session: 2026-08-19T03:53:37.643Z
