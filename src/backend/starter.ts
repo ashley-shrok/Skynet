@@ -284,6 +284,29 @@ if (process.env.VITEST !== "true") {
         });
       });
 
+    // Phase 79 Plan 08 — start the 30s reconcile-dead-tokens loop.
+    // Reactive-to-401s only (RESEARCH § Q6 — admin-minted tokens don't
+    // TTL-expire). Fire-and-forget: startReconcileLoop returns a timer
+    // handle that we don't store (loop runs for container lifetime).
+    // Errors inside the loop log a warn and continue; the loop never
+    // crashes the container (T-79-08-06).
+    //
+    // Ordering (blocker W-1): this block MUST come after the Plan 04
+    // `bridge_config_write_startup_failed` block; the reconcile loop
+    // assumes the shared volume has been initialized (config.env +
+    // registry.json + at least an initial pass at .token / .bottoken
+    // files).
+    void import("./telegram/reconcile-dead-tokens.js")
+      .then((m) => {
+        m.startReconcileLoop(30_000);
+      })
+      .catch((err) => {
+        systemLogger.warn("startReconcileLoop failed to start", {
+          operation: "reconcile_dead_tokens_start_failed",
+          error: err instanceof Error ? err.message : "unknown",
+        });
+      });
+
     // Phase 74: fail-fast if the branding config lacks a non-empty
     // avatarDirectorSpec. Placed AFTER initializeDatabase() so the DB
     // logger stream is live, and BEFORE AuthManager + the dbServer
