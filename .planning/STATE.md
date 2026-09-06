@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-09-06T08:15:19.380Z"
+last_updated: "2026-09-06T17:25:46.654Z"
 last_activity: 2026-09-06
 progress:
-  total_phases: 77
-  completed_phases: 64
-  total_plans: 281
-  completed_plans: 281
-  percent: 83
+  total_phases: 79
+  completed_phases: 67
+  total_plans: 303
+  completed_plans: 294
+  percent: 85
 ---
 
 # Project State
@@ -209,7 +209,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 100%
+Progress: [██████████] 98%
 Progress: [██████████] 100%
 
 ## Performance Metrics
@@ -343,6 +343,7 @@ Progress: [██████████] 100%
 | Phase 75 P09 | 15min | 1 tasks | 1 files |
 | Phase 76 P01 | 47 | 2 tasks | 2 files |
 | Phase 76 P03 | 15 | 1 tasks | 1 files |
+| Phase 79 P05 | 8min | - tasks | - files |
 
 ## Accumulated Context
 
@@ -545,6 +546,11 @@ Recent decisions affecting current work:
 - [Phase ?]: D-04 delivered: browser-driven fleet-substrate install-pass hook removed from ssh-poll-orchestrator.ts; server-context path (75-02/75-05/75-06) is the sole sweep trigger
 - [Phase ?]: Exec mock sentinel contract for fake-timer-safe integration tests: channel.exec must return __READ_ENOENT__ to avoid retryOnTransport setTimeout backoff under fake timers
 - [Phase ?]: Plan 76-03 complete
+- [Phase ?]: 79-05: Kill relogin/acred/password-file path entirely — bridge does not know passwords
+- [Phase ?]: 79-05: SINCE_FILE per-human cursor persistence + CURSOR GUARD mirrors recv.sh pattern verbatim
+- [Phase ?]: 79-05: Bot tokens read from /state/{agent}.bottoken via atg() (blocker B-1)
+- [Phase ?]: 79-05: inotifywait -m on /state/registry.json + exec $0 for restart-free hot reload
+- [Phase ?]: 79-05: cursor-persistence-repro.sh with ALL REPROS PASS sentinel — Plan 09 automation battery gate (B-3)
 
 ### Pending Todos
 
@@ -842,8 +848,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-06T08:15:18.182Z
-Stopped at: Completed 75-09-PLAN.md
+Last session: 2026-09-06T17:24:50.588Z
+Stopped at: Completed 79-05-PLAN.md
 Last session: 2026-08-14T22:37:15.928Z
 Stopped at: Completed 40-04-PLAN.md (all Wave 3 wiring shipped, tests +15, all gates green)
 Last session: 2026-08-19T03:53:37.643Z
