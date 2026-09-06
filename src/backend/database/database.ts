@@ -20,6 +20,7 @@ import identityExistsOnHostRoutes from "./routes/identity-exists-on-host.js";
 import identityNoDormancyRoutes from "./routes/identity-no-dormancy.js";
 import identityBirthRoutes from "./routes/identity-birth.js";
 import matrixAdminRoutes from "../matrix/matrix-admin-routes.js";
+import telegramRoutes from "../telegram/routes.js";
 // Phase 22 (SRIC-03): identity clone endpoint — mounted alongside birth/exists
 // with the same match-precedence discipline (specific paths BEFORE /identities).
 import identityCloneRoutes from "./routes/identity-clone.js";
@@ -1816,6 +1817,11 @@ app.use("/users", userRoutes);
 // (authenticateJWT + requireAdmin middleware). Same endpoint serves the one-shot
 // bootstrap AND future rotation calls (returns rotation:true when overwriting).
 app.use("/matrix-admin", matrixAdminRoutes);
+// Phase 79 Plan 03 — Telegram bridge routes (validate, activate, disconnect, status).
+// Auth-gated via authManager.createAuthMiddleware() inside routes.ts.
+// activate + disconnect handlers fire Plan 04's file writers + registry
+// rewrite as a side-effect (blockers B-1 + B-2 fix).
+app.use("/telegram", telegramRoutes);
 app.use("/host", hostRoutes);
 app.use("/alerts", alertRoutes);
 app.use("/credentials", credentialsRoutes);

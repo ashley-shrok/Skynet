@@ -181,7 +181,7 @@ function request(
 // Shared valid payloads.
 // ---------------------------------------------------------------------------
 
-const VALID_TOKEN = "1234567890:AAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLLLMMM";
+const VALID_TOKEN = "1234567890:AAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLL";
 const ACTIVATE_BODY = {
   identityKey: "alexander",
   botToken: VALID_TOKEN,
