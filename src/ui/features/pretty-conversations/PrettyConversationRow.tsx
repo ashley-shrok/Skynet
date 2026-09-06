@@ -232,12 +232,16 @@ export function PrettyConversationRow({
   // When provided, the Hide/Show item appears in the context menu between
   // Pin/Unpin and Deactivate. RDP rows never receive this prop.
   onToggleHide?: () => void;
-  // Phase 22 (SRIC-03): fired when Ashley clicks the Clone context menu
-  // item. Provided by PrettyConversationsPanel when the row has an identity
-  // AND row.host !== null. Undefined otherwise (RDP rows never get it —
-  // onRowContextMenu is not wired for isRdp). See
-  // PrettyConversationsPanel.handleRowClone for the source-identity + hostId
-  // capture that opens CloneAgentDialog.
+  // Phase 22 (SRIC-03) → Phase 80: fired when Ashley clicks the "Spawn under
+  // this role" context menu item (formerly labeled "Clone"). Prop name
+  // `onClone` is kept for now (rename is deferred as out-of-scope creep — this
+  // phase was a user-facing label change plus a rewire of what the handler
+  // does upstream). Provided by PrettyConversationsPanel when the row has an
+  // identity AND row.host !== null. Undefined otherwise (RDP rows never get
+  // it — onRowContextMenu is not wired for isRdp). See
+  // PrettyConversationsPanel.handleRowClone: the handler seeds the unified
+  // NewSessionDialog with initialHost + initialRole from the row (no dedicated
+  // clone dialog exists anymore — Landmine 11: reuse, don't build new).
   onClone?: () => void;
   /**
    * quick-260810-n3a: Fired when Ashley clicks the red Kill menu item.
@@ -1342,8 +1346,9 @@ export function PrettyConversationRow({
       </div>
       {/* Right-click menu portal. Items filter by row eligibility: Pin
           renders for any row; Hide/Show only when onToggleHide is provided;
-          Clone only when onClone AND identity resolve (RDP rows have no
-          identity → Clone auto-hidden); Deactivate only when inActiveSet &&
+          "Spawn under this role" (Phase 80 — formerly labeled "Clone") only
+          when onClone AND identity resolve (RDP rows have no identity → the
+          spawn item auto-hides); Deactivate only when inActiveSet &&
           onDeactivate; Open/Move in new window renders on desktop for any
           row where specForTab produces a spec. RDP rows now open the menu
           (quick-260804-uo4 dropped the row-level isRdp gate). */}
@@ -1367,14 +1372,20 @@ export function PrettyConversationRow({
                 onClick: onToggleHide,
               });
             }
-            // Phase 22 (SRIC-03): Clone item — inserted between Hide/Show and
+            // Phase 80: "Spawn under this role" item (formerly "Clone" —
+            // Phase 22 SRIC-03). Inserted between Hide/Show and
             // Open/Move-in-new-window. Only rendered when onClone is provided AND
-            // the row has a resolvable identity (clone requires a source identity —
-            // meaningless without it). RDP rows have no identity → Clone is
-            // auto-hidden by the identity gate.
+            // the row has a resolvable identity (spawning-under-role requires a
+            // source identity to read its role from — meaningless without it).
+            // RDP rows have no identity → the item is auto-hidden by the
+            // identity gate. The prop name `onClone` is kept for now — this is
+            // a user-facing label change only; renaming the prop everywhere is
+            // out-of-scope creep. Semantic: the handler upstream (see
+            // PrettyConversationsPanel.handleRowClone) now seeds the unified
+            // NewSessionDialog with the row's host + identity.role.
             if (onClone && identity) {
               items.push({
-                label: "Clone",
+                label: "Spawn under this role",
                 onClick: onClone,
               });
             }
