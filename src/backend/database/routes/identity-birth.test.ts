@@ -117,6 +117,10 @@ vi.mock("../../matrix/matrix-admin-client.js", () => ({
   makeRoomAdmin: vi.fn(),
   listRooms: vi.fn(),
   buildRelayJsonBody: vi.fn(),
+  // Phase 80 Plan 80-03b: countUsersMatching primitive (from plan 80-02) — the
+  // birth route wires this into BirthDeps.matrixCountUsersMatching so Step 6
+  // can derive the ordinal-suffixed MXID when opts.poolPicked === true.
+  countUsersMatching: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -422,6 +426,9 @@ it("Test 5: orchestrator called with body opts + userId + all required dep keys"
   expect(typeof d.writeMarkdownFileAtomic).toBe("function");
   // Phase 66 Plan 66-01: writeAvatarSiblingFile dep for Step 2.5 avatar write
   expect(typeof d.writeAvatarSiblingFile).toBe("function");
+  // Phase 80 Plan 80-03b: matrixCountUsersMatching dep for Step 6 MXID
+  // ordinal derivation — wired from plan 80-02's countUsersMatching export.
+  expect(typeof d.matrixCountUsersMatching).toBe("function");
 });
 
 // ---------------------------------------------------------------------------
@@ -533,4 +540,72 @@ it("Test T-80-03-birth-e: task absent from body → orchestrator sees task=undef
   expect(result.status).toBe(200);
   const o = capturedOpts as Record<string, unknown>;
   expect(o.task).toBeUndefined();
+});
+
+// ---------------------------------------------------------------------------
+// Phase 80 Plan 80-03b: poolPicked body field validation + threading
+// ---------------------------------------------------------------------------
+
+it("Test T-80-03b-birth-a: poolPicked=true → 200, orchestrator receives opts.poolPicked === true", async () => {
+  let capturedOpts: unknown;
+  mockBirthIdentity.mockImplementation(
+    async (opts: unknown, _emit: unknown, _deps: unknown) => {
+      capturedOpts = opts;
+    },
+  );
+
+  const result = await httpPost(port, "/identities/birth", {
+    ...VALID_BODY,
+    poolPicked: true,
+  });
+
+  expect(result.status).toBe(200);
+  const o = capturedOpts as Record<string, unknown>;
+  expect(o.poolPicked).toBe(true);
+});
+
+it("Test T-80-03b-birth-b: poolPicked=false → 200, orchestrator receives opts.poolPicked === false", async () => {
+  let capturedOpts: unknown;
+  mockBirthIdentity.mockImplementation(
+    async (opts: unknown, _emit: unknown, _deps: unknown) => {
+      capturedOpts = opts;
+    },
+  );
+
+  const result = await httpPost(port, "/identities/birth", {
+    ...VALID_BODY,
+    poolPicked: false,
+  });
+
+  expect(result.status).toBe(200);
+  const o = capturedOpts as Record<string, unknown>;
+  expect(o.poolPicked).toBe(false);
+});
+
+it("Test T-80-03b-birth-c: poolPicked absent → 200, orchestrator receives opts.poolPicked === undefined (backward compat)", async () => {
+  let capturedOpts: unknown;
+  mockBirthIdentity.mockImplementation(
+    async (opts: unknown, _emit: unknown, _deps: unknown) => {
+      capturedOpts = opts;
+    },
+  );
+
+  const result = await httpPost(port, "/identities/birth", VALID_BODY);
+
+  expect(result.status).toBe(200);
+  const o = capturedOpts as Record<string, unknown>;
+  expect(o.poolPicked).toBeUndefined();
+});
+
+it("Test T-80-03b-birth-d: poolPicked='yes' (non-boolean) → 400 with 'poolPicked must be a boolean'", async () => {
+  const result = await httpPost(port, "/identities/birth", {
+    ...VALID_BODY,
+    poolPicked: "yes",
+  });
+
+  expect(result.status).toBe(400);
+  const parsed = JSON.parse(result.body);
+  expect(parsed.error).toMatch(/poolPicked/i);
+  expect(parsed.error).toMatch(/boolean/i);
+  expect(mockBirthIdentity).not.toHaveBeenCalled();
 });

@@ -40,10 +40,13 @@ import {
   consumeCandidateForBirth,
 } from "./identity-avatar-batch.js";
 // Phase 75 Plan 04 — Matrix admin client (Plan 02) + creds store (Plan 01).
+// Phase 80 Plan 80-03b — countUsersMatching (Plan 02) for Step 6 MXID ordinal
+// derivation when opts.poolPicked === true.
 import {
   createOrUpdateUser as matrixCreateOrUpdateUser,
   loginAsUser as matrixLoginAsUser,
   buildRelayJsonBody,
+  countUsersMatching as matrixCountUsersMatching,
 } from "../../matrix/matrix-admin-client.js";
 import { getMatrixAdminCreds } from "../../matrix/matrix-admin-creds-store.js";
 import type { AuthenticatedRequest } from "../../../types/index.js";
@@ -92,6 +95,7 @@ router.post(
       avatarCandidateId,
       role,
       task,
+      poolPicked,
     } = req.body as Record<string, unknown>;
 
     if (
@@ -152,12 +156,30 @@ router.post(
       return;
     }
 
+    // Phase 80 Plan 80-03b: poolPicked is optional (nullable). When true, Step 6
+    // derives MXID via composeMxidLocalpart + deriveMxidWithOrdinal from the
+    // pool-picked name + role. When false/absent, legacy `@<name>:<server>`
+    // shape is used (backward compat for pre-Phase-80 identities and
+    // manually-typed names). Validated as boolean-or-undefined; 400 on any
+    // other type so client bugs surface loudly rather than silently taking
+    // the legacy branch.
+    if (poolPicked !== undefined && typeof poolPicked !== "boolean") {
+      res.status(400).json({ error: "poolPicked must be a boolean" });
+      return;
+    }
+
     const parsedColorHue = (typeof colorHue === "number" ? colorHue : null) as number | null;
     const parsedVoice = (typeof voice === "string" ? voice : null) as string | null;
     const parsedPath = (typeof path === "string" ? path : "~") as string;
     // Phase 80 Plan 80-03: trim task string here so orchestrator's absent-⇒-omit
     // guard (opts.task.trim().length > 0) sees the canonical value. Null → null.
     const parsedTask = (typeof task === "string" ? task.trim() : null) as string | null;
+    // Phase 80 Plan 80-03b: parsedPoolPicked preserves the tri-state (true / false /
+    // undefined). undefined → orchestrator takes legacy branch. false is threaded
+    // as-is (explicit opt-out from a client that knows the field exists but wants
+    // legacy shape).
+    const parsedPoolPicked =
+      typeof poolPicked === "boolean" ? poolPicked : undefined;
 
     // -----------------------------------------------------------------------
     // Phase 75 Plan 04 — fail-early 503 when matrix admin creds absent.
@@ -242,6 +264,11 @@ router.post(
         matrixLoginAsUser(mxid, validUntilMs),
       matrixHomeserver: creds.homeserverBase,
       buildRelayJsonBody: (opts) => buildRelayJsonBody(opts),
+      // Phase 80 Plan 80-03b — countUsersMatching primitive from plan 80-02.
+      // Called by deriveMxidWithOrdinal inside Step 6 to find the first unused
+      // ordinal for the composed base handle when opts.poolPicked === true.
+      // Never invoked on the legacy path (poolPicked absent/false).
+      matrixCountUsersMatching: (mxid) => matrixCountUsersMatching(mxid),
     };
 
     // -----------------------------------------------------------------------
@@ -263,6 +290,11 @@ router.post(
           // parsedTask=null → orchestrator sees undefined (omit-empty matches
           // BirthOptions optional shape).
           task: parsedTask ?? undefined,
+          // Phase 80 Plan 80-03b: thread poolPicked through opts. undefined
+          // (absent from body) → orchestrator takes legacy `@<name>:<server>`
+          // MXID branch. true → derivation path. false → legacy branch
+          // (explicit opt-out preserved as boolean, distinct from undefined).
+          poolPicked: parsedPoolPicked,
         },
         emit,
         deps,

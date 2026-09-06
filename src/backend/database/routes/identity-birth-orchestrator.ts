@@ -591,7 +591,12 @@ export async function deriveMxidWithOrdinal(
         ? `@${baseHandle}:${serverName}`
         : `@${baseHandle}-${n}:${serverName}`;
     const result = await countFn(candidate);
-    if (!result.ok) {
+    if (result.ok === false) {
+      // Explicit `=== false` narrowing matches the existing pattern at Step 6's
+      // mintResult / loginResult guards (L677+). `!result.ok` fails to narrow
+      // the discriminated union under tsconfig.node.json's strict setup —
+      // build tsc sees the full union inside the guard instead of just the
+      // ok:false variant.
       throw new Error(
         `admin_count_failed: ${result.error} (${result.status})`,
       );
