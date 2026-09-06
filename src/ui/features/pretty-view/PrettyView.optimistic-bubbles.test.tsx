@@ -551,6 +551,149 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     expect(container.querySelector("[data-pv-bubble-spinner]")).toBeNull();
   });
 
+  it("Test 5d: multi-send during widened wait after reconnect-mid-dormancy — two sends arm 220s branch, both clear in FIFO order when matching frames arrive (D-07 verification of Phase 62 multi-send claim)", async () => {
+    // This test verifies Phase 62's multi-send-during-wake claim under real conditions
+    // including the exact reconnect-mid-dormancy failure mode that Plan 01 fixed.
+    //
+    // D-07 verbatim: "Multiple pending sends during a wake all deliver in order when
+    // wake completes." Nobody had confirmed this under real conditions.
+    //
+    // Test sequence:
+    //   ws1: establish dormancy via BOTH Signal A + Signal B
+    //   ws1: close (simulate reconnect)
+    //   ws2: deliver ONLY Signal B (pane_state:dormant) — NO Signal A (type:dormant)
+    //   ws2: send "message-one" → countPendingBubbles === 1
+    //   ws2: send "message-two" → countPendingBubbles === 2
+    //   Advance past T+20001ms → BOTH pendings still exist (220s branch armed for both)
+    //   Deliver {type:"message", role:"user", content:"message-one"} → first clears (FIFO)
+    //   Deliver {type:"message", role:"user", content:"message-two"} → second clears
+    //   Final: countPendingBubbles === 0, countConfirmedBubbles === 2, no failed bubbles
+    //
+    // PASS → Phase 62 multi-send claim upheld; D-07 verified; phase ships.
+    // FAIL → Phase 62 multi-send claim was wrong; escalate to follow-up plan.
+    vi.useFakeTimers();
+    const { container } = mount();
+
+    // Step 1: Mount and get ws1
+    const ws1 = getCurrentWs();
+    flipToStreaming(ws1);
+
+    // Let mirror useEffects settle
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Step 2: Establish initial dormancy on ws1 via BOTH signals (Signal A + Signal B)
+    sendWsFrame(ws1, { type: "dormant", dormant: true });
+    sendWsFrame(ws1, { type: "pane_state", state: "dormant" });
+
+    // Step 3: Let mirror useEffects settle (dormantRef.current syncs after this)
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Step 4: Simulate WS close → triggers PrettyView reconnect path.
+    act(() => {
+      ws1.readyState = 3; // CLOSED
+      ws1.onclose?.();
+    });
+
+    // Step 5: Advance past reconnect backoff window (max 2000ms) to fire the
+    // reconnect timer, which pushes a new WS stub. Then flush microtasks.
+    await act(async () => {
+      vi.advanceTimersByTime(2001);
+      await Promise.resolve();
+    });
+
+    // Step 6: Get ws2 and assert it is a fresh connection
+    const ws2 = getCurrentWs();
+    expect(ws2).not.toBe(ws1);
+    flipToStreaming(ws2);
+
+    // Step 7: Deliver ONLY Signal B on ws2 — THE RACE: backend did NOT re-emit
+    // {type:"dormant"} (Signal A) because cached-session fast-path fired instead
+    // of the inactive-branch dormancy probe. This is the exact Phase 62 miss
+    // scenario. Plan 01 fixed dormantRef to stay authoritative via pane_state:dormant.
+    sendWsFrame(ws2, { type: "pane_state", state: "dormant" });
+
+    // Step 8: Let effects settle (dormantRef.current hydrated via pane_state handler)
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Step 9: First send during dormancy-after-reconnect
+    typeAndEnter(container, "message-one");
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // One pending bubble after first send
+    expect(countPendingBubbles(container)).toBe(1);
+
+    // Step 10: Second send during dormancy-after-reconnect (back-to-back)
+    typeAndEnter(container, "message-two");
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // Two pending bubbles after both sends
+    expect(countPendingBubbles(container)).toBe(2);
+
+    // Step 11: No failed bubbles — both sends should be in "sending" state
+    expect(container.querySelectorAll("[data-pv-bubble-failed]").length).toBe(0);
+
+    // Step 12: Advance past NORMAL 20000ms ceiling — BOTH pendings must still exist.
+    // This proves BOTH sends armed the 220s branch (D-07 multi-send claim):
+    // - Under Phase 62 code (before Plan 01 fix): FIRST send might arm 220s but
+    //   the handleOptimisticSend for the second could see stale dormantRef → 20s
+    // - Under Phase 76 code (Plan 01 fix): dormantRef stays authoritative for BOTH
+    //   sends because pane_state:dormant hydrates it before either send
+    await act(async () => {
+      vi.advanceTimersByTime(20001);
+      await Promise.resolve();
+    });
+    // Both pendings still present — 220s branch armed for both sends
+    expect(countPendingBubbles(container)).toBe(2);
+    // Still no failed bubbles — neither send flipped at 20s
+    expect(container.querySelectorAll("[data-pv-bubble-failed]").length).toBe(0);
+
+    // Step 13: Deliver first matching user-role frame for "message-one" (FIFO head)
+    // The FIFO head-match clears the OLDEST pending (message-one sent first).
+    sendWsFrame(ws2, {
+      type: "message",
+      role: "user",
+      content: "message-one",
+      eventId: "ev-5d-1",
+      line: 1,
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Step 14: First pending cleared in FIFO order
+    expect(countPendingBubbles(container)).toBe(1);
+    // First message now confirmed
+    expect(countConfirmedBubbles(container)).toBe(1);
+
+    // Step 15: Deliver second matching user-role frame for "message-two"
+    sendWsFrame(ws2, {
+      type: "message",
+      role: "user",
+      content: "message-two",
+      eventId: "ev-5d-2",
+      line: 2,
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Step 16: Both pendings cleared — FIFO discipline held for both sends
+    expect(countPendingBubbles(container)).toBe(0);
+    // Both messages now confirmed
+    expect(countConfirmedBubbles(container)).toBe(2);
+
+    // Step 17: No failed bubbles anywhere — D-07 verification complete
+    expect(container.querySelectorAll("[data-pv-bubble-failed]").length).toBe(0);
+  });
+
   it("Test 6: paste_send_failed WS frame flips to failed and cancels 20s timer", async () => {
     vi.useFakeTimers();
     const { container } = mount();
