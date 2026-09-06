@@ -1,14 +1,26 @@
-// ─── PrettyConversationsPanel — Clone dialog wiring coverage (Phase 22 SRIC-03)
+// ─── PrettyConversationsPanel — "Spawn under this role" wiring coverage
 //
-// Test 16 (from the plan's <behavior> spec): PrettyConversationsPanel threads
-// onClone from panel state into the row wrappers. Clicking Clone on a row
-// context menu opens CloneAgentDialog with the row's identity + host as props.
+// Phase 80: replaces the Phase 22 SRIC-03 clone-dialog wiring suite. The
+// standalone clone dialog was deleted; the row context-menu action (label
+// rebranded from "Clone" to "Spawn under this role") now routes through
+// the unified NewSessionDialog via the existing chain-hook mechanism
+// (initialHost + initialRole props — same path CreateRoleDialog uses).
 //
-// Kept as a sibling test file to isolate the new Clone surface — same pattern
-// as PrettyConversationsPanel.new-role-button.test.tsx.
+// These tests assert the PANEL wiring:
+//   Test 1: clicking the row context-menu item invokes onClone → panel seeds
+//           NewSessionDialog with initialHost === row.host + initialRole ===
+//           identity.role.
+//   Test 2: NewSessionDialog `open` prop flips from false → true after the
+//           entry-point is invoked.
+//   Test 3 (A3 lock): the task/brief field is NOT prefilled — the panel does
+//           NOT pass initialBrief (initialBrief prop is null/undefined so the
+//           dialog's field-seed effect leaves the brief empty).
+//
+// Sibling test file kept for isolation; same pattern as
+// PrettyConversationsPanel.new-role-button.test.tsx.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent, waitFor, screen } from "@testing-library/react";
+import { render, fireEvent, screen } from "@testing-library/react";
 import type { Host, HostFolder } from "@/types/ui-types";
 import type { Identity } from "@/api/identities-api";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
@@ -28,17 +40,17 @@ vi.mock("@/features/terminal/session-hue", () => ({
     name ? name.toLowerCase() : null,
 }));
 
-// Seed one identity so the Clone menu-item guard passes on any row whose
-// targetTmuxSession matches this key.
-// Phase 68: Identity no longer has id/createdAt/updatedAt; avatarUrl bakes
-// hostId at backend (no avatarUrlWithHost on frontend).
+// Seed one identity so the "Spawn under this role" menu-item guard passes
+// on any row whose targetTmuxSession matches this key. `role` must be
+// non-null — handleRowClone in Phase 80 gates on identity.role (there's no
+// role to spawn under if the source identity is roleless).
 const stubIdentity: Identity = {
   identityKey: "tina",
   displayName: "tina",
   title: "Fleet Operator",
   colorHue: 128,
   voice: "Elena.wav",
-  role: null,
+  role: "operator",
   avatarMime: "image/png",
   avatarUrl: "/identities/tina/avatar?hostId=5",
   avatarEtag: "etag-1",
@@ -52,6 +64,7 @@ vi.mock("@/state/identities-store", () => ({
     loaded: true,
     refresh: async () => {},
   }),
+  refreshIdentities: async () => {},
 }));
 
 vi.mock("@/state/bounty-counts-store", () => ({
@@ -66,8 +79,8 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
   useIsTouchDevice: () => false,
 }));
 
-// Seed one conversation row in the "grouped" bucket so the panel actually
-// renders a PrettyConversationRow we can right-click.
+// Seed one conversation row so the panel renders a PrettyConversationRow
+// we can right-click.
 const stubHost: Host = {
   id: "5",
   name: "thenasty",
@@ -108,10 +121,6 @@ vi.mock("@/state/conversation-store", () => ({
   useConversations: () => ({
     activeSet: [],
     pinned: [],
-    // Phase 41 Plan 01: three-zone shape — flat `middle` + nullable `rdpGroup`
-    // replace the retired `grouped: HostGroup[]`. Seed the single stubRow into
-    // the flat middle so the panel renders it and downstream row-click wiring
-    // (the actual thing this test suite exercises via ContextMenu → Clone) works.
     middle: [stubRow],
     rdpGroup: null,
   }),
@@ -128,9 +137,11 @@ vi.mock("@/state/conversation-store", () => ({
   fleetRowId: (hostId: number, sessionName: string) =>
     `fleet::${hostId}::${sessionName}`,
   hydratePinnedIdsFromServer: () => {},
+  pinConversationRemote: () => {},
   hideConversation: () => {},
   unhideConversation: () => {},
   hydrateHiddenIdsFromServer: () => {},
+  updateFleetSessions: () => {},
 }));
 
 vi.mock("@/api/user-preferences-api", () => ({
@@ -140,73 +151,64 @@ vi.mock("@/api/user-preferences-api", () => ({
   putHiddenIds: vi.fn().mockResolvedValue([]),
 }));
 
-// Phase 41 Plan 03: conversation-store now imports subscribeSessionWorkingStore
-// + getSessionLastMessageAt at module init to bridge the working-store's
-// lastMessageAt cache into row derivation. Both stubbed as no-ops here so
-// module init does not throw when this test file mocks the working-store.
 vi.mock("@/state/session-working-store", () => ({
   useSessionIsWorking: () => false,
   useSessionLastMessageAt: () => null,
   getSessionLastMessageAt: () => null,
   subscribeSessionWorkingStore: (_cb: () => void) => () => {},
-  // Phase 47 Plan 04: PrettyConversationRowLive now subscribes to the
-  // working-store's aiTitle axis (Plan 47-03 chokepoint). Returns null
-  // for every key so the threaded aiTitle prop stays null in this
-  // clone-dialog suite (Plan 47-05 owns the visual render; this suite
-  // does not exercise the ai-title surface).
   useSessionAiTitle: () => null,
-  // Phase 52 Plan 03 (plan-checker B-2 fix): Panel.tsx now imports
-  // getSessionWorkingSnapshot + useSessionIsDormant. Without these
-  // stubs every existing test throws TypeError on render.
   getSessionWorkingSnapshot: () => new Map(),
   useSessionIsDormant: () => false,
-  // Phase 53 Plan 03: Panel.tsx now imports useSessionIsRecycling from the
-  // working-store (retired client-side recycling bridge deleted). Without this
-  // stub every render throws TypeError.
   useSessionIsRecycling: () => false,
 }));
-// Phase 53 Plan 03 — the retired recycling bridge mock was removed here
-// (the store no longer exists; Panel now uses useSessionIsRecycling above).
 
 vi.mock("@/state/session-queue-pending-store", () => ({
   useSessionQueuePending: () => null,
 }));
 
-// quick-260806-bz7: mock the identities-api surface so CloneAgentDialog can
-// actually submit inside jsdom without pulling the real network. Mirrors
-// CloneAgentDialog.test.tsx's pattern. Kept module-top so vi.mock hoists it.
-const mockCloneIdentity = vi.fn();
-const mockPostGenerateAvatarBatch = vi.fn();
+// ─── NewSessionDialog spy mock ───────────────────────────────────────────────
+// Capture the props the panel passes so we can assert:
+//   - initialHost === stubHost (referentially equal — panel forwards row.host by ref)
+//   - initialRole === stubIdentity.role
+//   - initialBrief is null (A3 lock: task NOT inherited)
+//   - open flips from false → true after invocation
+//
+// Rendered as a <div data-testid> that mirrors the interesting props as data
+// attributes so tests can screen-read the value without needing a spy hook.
 
-vi.mock("@/api/identities-api", async (importOriginal) => {
-  const orig = (await importOriginal()) as Record<string, unknown>;
-  return {
-    ...orig,
-    cloneIdentity: (...args: unknown[]) => mockCloneIdentity(...args),
-    postGenerateAvatarBatch: (...args: unknown[]) =>
-      mockPostGenerateAvatarBatch(...args),
-  };
-});
+const newSessionDialogSpy = vi.fn();
 
-// Mock VoicePicker to a simple <input> so the dialog renders in jsdom without
-// pulling the real picker (which fetches voices over the network).
-vi.mock("@/features/pretty-view/pickers/VoicePicker", () => ({
-  VoicePicker: (props: {
-    value: string;
-    onChange: (v: string) => void;
-    id?: string;
-    ariaLabel?: string;
-    disabled?: boolean;
-  }) => (
-    <input
-      data-testid="voice-picker-mock"
-      id={props.id}
-      aria-label={props.ariaLabel ?? "Voice"}
-      value={props.value}
-      onChange={(e) => props.onChange(e.target.value)}
-      disabled={props.disabled}
-    />
-  ),
+vi.mock("@/sidebar/NewSessionDialog", () => ({
+  NewSessionDialog: (props: {
+    open: boolean;
+    onClose: () => void;
+    hostTree: unknown;
+    onCreate: (opts: unknown) => void;
+    initialHost?: Host | null;
+    initialRole?: string | null;
+    initialBrief?: string | null;
+  }) => {
+    newSessionDialogSpy(props);
+    return (
+      <div
+        data-testid="new-session-dialog-mock"
+        data-open={String(props.open)}
+        data-initial-host-id={props.initialHost ? props.initialHost.id : ""}
+        data-initial-role={props.initialRole ?? ""}
+        data-initial-brief={
+          props.initialBrief === null || props.initialBrief === undefined
+            ? "<null>"
+            : props.initialBrief
+        }
+      />
+    );
+  },
+}));
+
+// CreateRoleDialog is mounted alongside NewSessionDialog in the panel; stub
+// it out so its render doesn't pull deps we don't care about here.
+vi.mock("@/sidebar/CreateRoleDialog", () => ({
+  CreateRoleDialog: () => null,
 }));
 
 // ─── Component under test (import AFTER mocks) ──────────────────────────────
@@ -250,28 +252,11 @@ const ONE_HOST_TREE: HostFolder = {
 };
 
 beforeEach(() => {
-  vi.clearAllMocks();
-  // Seed the mock clone response so a successful submit resolves with a
-  // fresh Identity whose identityKey doubles as the tmux session name.
-  // Phase 68: Identity no longer has id/createdAt/updatedAt; avatarUrl bakes
-  // hostId at backend (no avatarUrlWithHost on frontend).
-  mockCloneIdentity.mockResolvedValue({
-    identityKey: "tina-2",
-    displayName: "tina-2",
-    title: "Fleet Operator",
-    colorHue: 128,
-    voice: "Elena.wav",
-    role: null,
-    avatarMime: "image/png",
-    avatarUrl: "/identities/tina-2/avatar?hostId=5",
-    avatarEtag: "e",
-    coordinator: false,
-  });
-  mockPostGenerateAvatarBatch.mockResolvedValue([]);
+  newSessionDialogSpy.mockClear();
 });
 
-describe("PrettyConversationsPanel: Clone dialog wiring", () => {
-  it("Test 16: right-click row → Clone menu item → CloneAgentDialog opens with source identity + hostId", () => {
+describe("PrettyConversationsPanel: 'Spawn under this role' wiring (Phase 80)", () => {
+  it("Test 1: right-click row → 'Spawn under this role' menu item → NewSessionDialog receives initialHost + initialRole seeded from row", () => {
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -281,83 +266,112 @@ describe("PrettyConversationsPanel: Clone dialog wiring", () => {
       />,
     );
 
-    // Find the rendered row body (only one row seeded above)
+    // Initial mount: dialog is present but closed with no seed
+    const dialogMock = screen.getByTestId("new-session-dialog-mock");
+    expect(dialogMock.getAttribute("data-open")).toBe("false");
+    expect(dialogMock.getAttribute("data-initial-host-id")).toBe("");
+    expect(dialogMock.getAttribute("data-initial-role")).toBe("");
+
+    // Right-click the row body to open the context menu
     const rowWrapper = document.querySelector(
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     expect(rowWrapper).toBeTruthy();
     const rowBody = rowWrapper.querySelector('[role="button"]') as HTMLElement;
-
-    // No dialog before we click
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
-
-    // Right-click to open context menu
     fireEvent.contextMenu(rowBody, { clientX: 100, clientY: 100 });
 
-    // Clone menu item should be present
-    const cloneItem = screen.getByRole("menuitem", { name: /clone/i });
-    expect(cloneItem).toBeTruthy();
+    // "Spawn under this role" menu item should be present (formerly "Clone")
+    const spawnItem = screen.getByRole("menuitem", {
+      name: /spawn under this role/i,
+    });
+    expect(spawnItem).toBeTruthy();
 
-    // Click Clone → CloneAgentDialog opens
-    fireEvent.click(cloneItem);
+    // Click the spawn item → panel opens NewSessionDialog with seeded props.
+    fireEvent.click(spawnItem);
 
-    // Dialog appears — assert on a text unique to CloneAgentDialog (e.g., the
-    // source identity's displayName in the header "Cloning from tina").
-    const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null;
-    expect(dialog).toBeTruthy();
-    // Assert the dialog knows about the source identity
-    expect(dialog!.textContent).toMatch(/tina/);
-    // Assert the source-host lock note (dialog does NOT expose host picker but
-    // the header mentions the source's name for context — see Test 17 in
-    // CloneAgentDialog.test.tsx for the full dialog contract).
-    expect(dialog!.textContent?.toLowerCase()).toContain("clone");
+    // Re-read the dialog mock (it re-renders on state change)
+    const dialogAfter = screen.getByTestId("new-session-dialog-mock");
+    expect(dialogAfter.getAttribute("data-open")).toBe("true");
+    expect(dialogAfter.getAttribute("data-initial-host-id")).toBe("5");
+    expect(dialogAfter.getAttribute("data-initial-role")).toBe("operator");
+
+    // Confirm the spy captured a call with the row's host BY REFERENCE
+    // (panel forwards row.host through chainPrefill.host without cloning).
+    const opened = newSessionDialogSpy.mock.calls
+      .map((c) => c[0] as { open: boolean; initialHost?: Host | null })
+      .find((p) => p.open === true);
+    expect(opened).toBeTruthy();
+    expect(opened!.initialHost).toBe(stubHost); // referentially equal
   });
 
-  it("Test 16b (quick-260806-bz7): successful clone fires panel's onCreateSession with identityMode:'existing' opts BEFORE onClose", async () => {
-    const onCreateSessionMock = vi.fn();
+  it("Test 2: NewSessionDialog open prop flips false → true after the spawn-under-role entry-point is invoked", () => {
     render(
       <PrettyConversationsPanel
         variant="desktop"
         hostTree={ONE_HOST_TREE}
-        onCreateSession={onCreateSessionMock}
+        onCreateSession={vi.fn()}
         onDeactivateRow={() => {}}
       />,
     );
 
-    // Right-click row → open context menu → click Clone
+    // Baseline: first render passes open=false.
+    const firstProps = newSessionDialogSpy.mock.calls[0][0] as { open: boolean };
+    expect(firstProps.open).toBe(false);
+
+    // Invoke: right-click → click spawn item.
     const rowWrapper = document.querySelector(
       '[data-conversation-id="conv-1"]',
     ) as HTMLElement;
     const rowBody = rowWrapper.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(rowBody, { clientX: 100, clientY: 100 });
-    fireEvent.click(screen.getByRole("menuitem", { name: /clone/i }));
-
-    // Dialog opens — fill the name and click Create.
-    // (Title is pre-filled from source's title; path defaults to "~".)
-    fireEvent.change(screen.getByLabelText(/^name/i), {
-      target: { value: "tina-2" },
-    });
     fireEvent.click(
-      screen.getByRole("button", { name: /clone|submit|create/i }),
+      screen.getByRole("menuitem", { name: /spawn under this role/i }),
     );
 
-    // cloneIdentity resolves → dialog fires onCreateSession → onClose.
-    await waitFor(() => expect(mockCloneIdentity).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(onCreateSessionMock).toHaveBeenCalledTimes(1),
+    // After invocation: the most-recent render passed open=true.
+    const propHistory = newSessionDialogSpy.mock.calls.map(
+      (c) => c[0] as { open: boolean },
+    );
+    const openedAtLeastOnce = propHistory.some((p) => p.open === true);
+    expect(openedAtLeastOnce).toBe(true);
+  });
+
+  it("Test 3 (A3 lock): the task/brief field is NOT prefilled — initialBrief stays null when the entry-point is the spawn-under-role path", () => {
+    render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={ONE_HOST_TREE}
+        onCreateSession={vi.fn()}
+        onDeactivateRow={() => {}}
+      />,
     );
 
-    // The panel forwarded its onCreateSession by reference and the dialog
-    // called it with the widened identityMode:"existing" opts shape derived
-    // from the mock resolved Identity. `host` must be the stubHost the panel
-    // captured off row.host (referentially equal — same object reference).
-    expect(onCreateSessionMock).toHaveBeenCalledWith({
-      host: stubHost,
-      sessionName: "tina-2",
-      path: "~/",
-      identityMode: "existing",
-      identityName: "tina-2",
-      identityId: "tina-2",
-    });
+    // Invoke the entry-point.
+    const rowWrapper = document.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const rowBody = rowWrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(rowBody, { clientX: 100, clientY: 100 });
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: /spawn under this role/i }),
+    );
+
+    // Assert the panel never passed a truthy initialBrief on any render where
+    // the dialog is open. The panel builds chainPrefill with NO description
+    // field on the spawn path, so initialBrief resolves to null via
+    // `chainPrefill?.description ?? null` at the mount site.
+    const openedRenderProps = newSessionDialogSpy.mock.calls
+      .map((c) => c[0] as { open: boolean; initialBrief?: string | null })
+      .filter((p) => p.open === true);
+    expect(openedRenderProps.length).toBeGreaterThan(0);
+    for (const p of openedRenderProps) {
+      // initialBrief must be null (or undefined) — never a string.
+      expect(p.initialBrief == null).toBe(true);
+    }
+
+    // Also assert via the rendered data-attribute on the mock — the sentinel
+    // "<null>" is emitted when initialBrief was null-or-undefined.
+    const dialogEl = screen.getByTestId("new-session-dialog-mock");
+    expect(dialogEl.getAttribute("data-initial-brief")).toBe("<null>");
   });
 });
