@@ -1907,7 +1907,7 @@ Plans:
 **Goal:** Ship the Skynet-side changes that let a new identity be born as a task-scoped worker with a pool-picked name and a task string, and surface the task on both display surfaces (chat pill + conversation list row) with graceful fallback when the field is absent.
 **Requirements**: TBD
 **Depends on:** Phase 77
-**Plans:** 9/10 plans executed
+**Plans:** 10/10 plans complete
 Plans:
 **Wave 1**
 
@@ -1929,4 +1929,4 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 80-09-PLAN.md — Clone entry-point repurpose: delete CloneAgentDialog, rewire handleRowClone to unified NewSessionDialog, rename context-menu 'Clone' → 'Spawn under this role'
+- [x] 80-09-PLAN.md — Clone entry-point repurpose: delete CloneAgentDialog, rewire handleRowClone to unified NewSessionDialog, rename context-menu 'Clone' → 'Spawn under this role'
