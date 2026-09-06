@@ -127,6 +127,15 @@ export interface BirthOptions {
    * re-validated at Step 2.5 entry (defense in depth per T-22-02-01).
    */
   role: string;
+  /**
+   * Phase 80 Plan 80-03: optional task string written to frontmatter at birth
+   * time (write-once per D-05 — no in-UI edit, disk-only, no DB caching).
+   * Absent / null / empty / whitespace-only → no `task:` key emitted
+   * (absent-⇒-omit invariant matches title/voice pattern). Route handler
+   * hard-caps at 500 chars; orchestrator does not re-cap since Step 2.5 is
+   * an atomic write with no downstream consumers beyond the disk file.
+   */
+  task?: string;
 }
 
 export interface BirthDeps {
@@ -368,6 +377,13 @@ function buildIdentityFileBody(
   }
   // avatar: always emitted (Step 2.5 only runs when candidate bytes exist)
   pairs.push(["avatar", avatarFilename]);
+  // Phase 80 Plan 80-03: task: absent-⇒-omit — position AFTER avatar per plan
+  // spec. yaml.dump correctly quotes strings containing YAML metacharacters
+  // (colons, quotes, newlines) via forceQuotes:false (T-66-01-04 precedent) —
+  // do NOT hand-quote here. Round-trip test asserts value preservation.
+  if (typeof opts.task === "string" && opts.task.trim().length > 0) {
+    pairs.push(["task", opts.task]);
+  }
 
   const yamlBody = yaml.dump(Object.fromEntries(pairs), {
     sortKeys: false,
