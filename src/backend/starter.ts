@@ -681,6 +681,199 @@ if (process.env.VITEST !== "true") {
       );
     }
 
+    // =========================================================================
+    // Phase 75-05: Server-substrate orchestrator wire-in
+    //
+    // PURPOSE: Delivers D-01 (startup pass runs at container boot) and enables
+    // D-02 (singleton exposed so host-create route in 75-06 can trigger per-host
+    // sweeps on demand).
+    //
+    // WHAT THIS BLOCK DOES:
+    //   - Walks every runsFleetSubstrate:true host serially via 75-03's
+    //     listSubstrateHosts (session-less CSKEK path — no browser required).
+    //   - Retries failures on a 30-second tick (D-03 piggybacks on existing cadence).
+    //   - Alerts loudly after N=3 consecutive failures per host (D-06/D-07).
+    //   - Populates substrate-orchestrator singleton so host.ts on-add trigger
+    //     (75-06) can call getSubstrateOrchestrator().sweepOneHost(host).
+    //   - start() is called fire-and-forget (.catch(), NOT await) so the boot
+    //     IIFE does NOT block on network I/O to substrate hosts. See rationale
+    //     comment on the start() call below.
+    //   - Independent of fleet-status subscription lifecycle: no browser, no
+    //     per-user DEK, no onFirstSubscriber gate. Reads substrate-host
+    //     credentials through CSKEK per D-08.
+    //
+    // PLACEMENT: After fleet-status block (line 682) — DB is ready because
+    //   `await (dbServer as ...).serverReady` was done at line 302.
+    //   RESEARCH.md Pitfall 3: starting the orchestrator before DB is ready
+    //   causes listSubstrateHosts to throw on an uninitialized DB handle.
+    // =========================================================================
+    {
+      const { createServerSubstrateOrchestrator } = await import(
+        "./distributor/server-substrate-orchestrator.js"
+      );
+      const { listSubstrateHosts: listSubstrateHostsFn } = await import(
+        "./distributor/list-substrate-hosts.js"
+      );
+      const { setSubstrateOrchestrator } = await import(
+        "./distributor/substrate-orchestrator-singleton.js"
+      );
+      const { connectOneShot: connectOneShotSub } = await import(
+        "./ssh/ssh-one-shot.js"
+      );
+      const { execCommand: execCommandSub } = await import(
+        "./ssh/tmux-helper.js"
+      );
+      const { getDb: getDbForSubstrate } = await import(
+        "./database/db/index.js"
+      );
+
+      // Per-host ssh2 Client pool — independent of fleet-status hostClients Map
+      // so the two lifecycles do not contaminate each other.
+      const substrateHostClients = new Map<string, import("ssh2").Client>();
+
+      // Per-host semaphore Map — lazy-created per host on first acquire.
+      // makeSemaphore(8) matches the wilma-incident MaxSessions=10 fix
+      // (fleet-status uses the same cap at starter.ts:520).
+      const substrateHostSemaphores = new Map<
+        string,
+        ReturnType<typeof makeSemaphore>
+      >();
+
+      async function substrateAcquireChannel(host: {
+        id: string;
+        name: string;
+        _connDetails: Record<string, unknown>;
+      }) {
+        try {
+          // Lazy-init client: reuse existing or open a fresh one-shot connection.
+          let client = substrateHostClients.get(host.id);
+          if (!client) {
+            client = await connectOneShotSub(
+              host._connDetails as Parameters<typeof connectOneShotSub>[0],
+              10000,
+            );
+            substrateHostClients.set(host.id, client);
+            // Auto-evict on disconnect so the next acquire creates a fresh client.
+            client.on("end", () => substrateHostClients.delete(host.id));
+            client.on("close", () => substrateHostClients.delete(host.id));
+            client.on("error", () => substrateHostClients.delete(host.id));
+          }
+
+          // Lazy-init semaphore: one per host, capped at 8 in-flight execs.
+          let sem = substrateHostSemaphores.get(host.id);
+          if (!sem) {
+            sem = makeSemaphore(8);
+            substrateHostSemaphores.set(host.id, sem);
+          }
+
+          const capturedClient = client;
+          const capturedSem = sem;
+          return {
+            exec: async (cmd: string): Promise<string | null> => {
+              try {
+                return await capturedSem.run(async () =>
+                  execCommandSub(capturedClient, cmd),
+                );
+              } catch {
+                return null;
+              }
+            },
+          };
+        } catch (err) {
+          // SECURITY: never include host._connDetails (plaintext creds) or
+          // err.stack in the log call — only err.message is safe to surface.
+          systemLogger.warn(
+            "Substrate-orchestrator SSH channel acquire failed",
+            {
+              operation: "fleet_substrate_channel_acquire_failed",
+              fleetHostId: host.id,
+              hostName: host.name,
+              error: err instanceof Error ? err.message : "unknown",
+            },
+          );
+          return null;
+        }
+      }
+
+      // No-op: the underlying ssh2 Client is reused across sweeps for the
+      // container lifetime. Cleanup happens on SIGTERM via substrateHostClients.
+      function substrateReleaseChannel(
+        _host: { id: string; name: string },
+        _channel: unknown,
+      ): void {
+        // intentional no-op — see comment above
+      }
+
+      const substrateOrch = createServerSubstrateOrchestrator({
+        listSubstrateHosts: () =>
+          listSubstrateHostsFn({ getDb: getDbForSubstrate }),
+        acquireChannel: substrateAcquireChannel as Parameters<
+          typeof createServerSubstrateOrchestrator
+        >[0]["acquireChannel"],
+        releaseChannel: substrateReleaseChannel as Parameters<
+          typeof createServerSubstrateOrchestrator
+        >[0]["releaseChannel"],
+        setInterval,
+        clearInterval,
+        now: () => Date.now(),
+        retryIntervalMs: 30000,
+        persistentFailureThreshold: 3,
+      });
+
+      // Populate the singleton so the host-create route (75-06) can reach it.
+      setSubstrateOrchestrator(substrateOrch);
+
+      // Fire-and-forget start() — LOAD-BEARING, do NOT convert to `await`.
+      //
+      // RATIONALE: D-01 says the pass "runs at container start," NOT "boot
+      // blocks until pass completes." Awaiting start() would serialize the
+      // boot IIFE on however long it takes to walk all substrate hosts —
+      // on Stacy's box with unreachable VMs this could be minutes. Fire-and-
+      // forget lets the container become fully ready quickly while the pass
+      // runs in the background. If a future decision changes this (e.g.,
+      // health-check probes need the pass to complete before serving traffic),
+      // swap .catch(...) for `await` — trivial one-line change.
+      //
+      // The orchestrator's own start() has never-reject contracts (75-02 tests
+      // NT1/NT2), so the .catch() is defense-in-depth. Any actual rejection
+      // means a bug in the orchestrator itself and is loud-logged.
+      substrateOrch.start().catch((err) => {
+        systemLogger.warn(
+          "Substrate orchestrator start() rejected (unexpected)",
+          {
+            operation: "fleet_substrate_orchestrator_start_failed",
+            error: err instanceof Error ? err.message : "unknown",
+          },
+        );
+      });
+
+      systemLogger.info("Server-substrate orchestrator started", {
+        operation: "fleet_substrate_orchestrator_started",
+        retryIntervalMs: 30000,
+        persistentFailureThreshold: 3,
+      });
+
+      // SIGTERM cleanup — separate from the gracefulShutdown handler below
+      // which handles the full process exit. This handler runs the orchestrator's
+      // stop() immediately when SIGTERM arrives, clearing the retry interval
+      // and closing all substrate ssh2 Clients before the process exits.
+      process.once("SIGTERM", () => {
+        systemLogger.info("Substrate orchestrator stopping on SIGTERM", {
+          operation: "fleet_substrate_orchestrator_lifecycle",
+        });
+        substrateOrch.stop();
+        for (const [, client] of substrateHostClients) {
+          try {
+            client.end();
+          } catch {
+            /* best-effort — client may already be dead */
+          }
+        }
+        substrateHostClients.clear();
+        substrateHostSemaphores.clear();
+      });
+    }
+
     // Initialize log level from database settings
     const { getDb: getDbForSettings } = await import("./database/db/index.js");
     const settingsDb = getDbForSettings();
