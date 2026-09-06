@@ -1132,3 +1132,467 @@ describe("CR-02: TMUX_SAFE_NAME_RE stricter gate", () => {
     expect(mockGetCandidate).toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 75 Plan 04: relay-mint extensions (Steps 6, 7, 8)
+//
+// Test coverage:
+//   A: happy path 1-8 — full sequence emits step:6/7/8 completed events
+//   B: step 6 failure does NOT roll back folder (Q2 agent-supervisor race)
+//   B2: step 6.5 (matrixLoginAsUser) failure does NOT roll back folder
+//       (Q2 agent-supervisor race)
+//   C: step 8 (SFTP write) failure does NOT roll back folder or Synapse
+//      account (Q2 agent-supervisor race)
+//   C2: chmod 600 failure fails step 8 without rollback
+//       (Q2 agent-supervisor race)
+//   D: useLocal skips 6-8 entirely
+//   E: retry helper idempotency (runRelayMintAndWrite called twice succeeds)
+//
+// The Q2 no-rollback lock is proven by:
+//   - Test name containing the phrase "Q2 agent-supervisor race" (W-3 lock —
+//     grep-recoverable rationale that survives casual refactors)
+//   - Explicit assertion that mockExecCommand.mock.calls contains no
+//     `rm -rf` string in any invocation (anti-rollback grep pattern)
+// ---------------------------------------------------------------------------
+
+import { runRelayMintAndWrite } from "./identity-birth-orchestrator.js";
+
+describe("Phase 75 Plan 04: relay-mint extensions (Steps 6, 7, 8)", () => {
+  // Anti-rollback assertion helper — asserts NO execCommand call issued any
+  // `rm -rf` (or `rm ` in general) that would delete the identity folder.
+  // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode +
+  // agent-supervisor race.
+  function assertNoRmRfInExecCalls(mockFn: Mock): void {
+    const rmCalls = mockFn.mock.calls.filter(
+      (call: unknown[]) =>
+        typeof call[1] === "string" && /rm\s+-rf|rm\s+-r|rm\s+-f/.test(call[1] as string),
+    );
+    expect(rmCalls).toHaveLength(0);
+  }
+
+  // ---- Test A: happy path 1-8 ----
+  it("Test A: happy path — emits step:6/7/8 in order, calls matrixLoginAsUser between step 6 and step 7, applies chmod 600", async () => {
+    mockIsLocalHostId.mockReturnValue(false);
+    const mockConn = { end: vi.fn() };
+    mockConnectOneShot.mockResolvedValue(mockConn);
+    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+        return Promise.resolve("/home/ubuntu\n");
+      }
+      return Promise.resolve("");
+    });
+
+    const mockCreateOrUpdate = vi
+      .fn()
+      .mockResolvedValue({ ok: true, mxid: "@agent1:matrix.local", password: "pw", status: 201 });
+    const mockLoginAsUser = vi
+      .fn()
+      .mockResolvedValue({ ok: true, accessToken: "syt_real_token_abc123" });
+    const mockBuildRelay = vi.fn().mockImplementation((o) =>
+      JSON.stringify({
+        base: `${o.homeserverBase}/_matrix/client/v3`,
+        user_id: o.mxid,
+        password: o.password,
+        token: o.accessToken,
+        access_token: o.accessToken,
+      }),
+    );
+    const mockWriteMd = vi.fn().mockResolvedValue(undefined);
+
+    const deps = makeDeps({
+      matrixCreateOrUpdateUser: mockCreateOrUpdate,
+      matrixLoginAsUser: mockLoginAsUser,
+      buildRelayJsonBody: mockBuildRelay,
+      matrixHomeserver: "http://matrix.local:8008",
+      writeMarkdownFileAtomic: mockWriteMd,
+    });
+    const opts = makeOpts({ name: "agent1" });
+    const { events, emit } = collectEvents();
+
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    // Assert step 6/7/8 emit sequence
+    for (const n of [6, 7, 8]) {
+      const startedIdx = events.findIndex(
+        (e) => e.type === "step" && e.n === n && e.phase === "started",
+      );
+      const completedIdx = events.findIndex(
+        (e) => e.type === "step" && e.n === n && e.phase === "completed",
+      );
+      expect(startedIdx).toBeGreaterThanOrEqual(0);
+      expect(completedIdx).toBeGreaterThan(startedIdx);
+    }
+
+    // Ended with ok:true
+    const endedEvent = events.find((e) => e.type === "ended");
+    expect(endedEvent).toBeDefined();
+    expect((endedEvent as { ok: boolean }).ok).toBe(true);
+
+    // matrixCreateOrUpdateUser called with mxid + hex password + displayname
+    expect(mockCreateOrUpdate).toHaveBeenCalledTimes(1);
+    const [mxidArg, passwordArg, displaynameArg] = mockCreateOrUpdate.mock.calls[0];
+    expect(mxidArg).toBe("@agent1:matrix.local");
+    expect(passwordArg).toMatch(/^[a-f0-9]{48}$/); // 48-char hex from crypto.randomBytes(24)
+    expect(displaynameArg).toBe("Agent1"); // capitalize(opts.name)
+
+    // matrixLoginAsUser called with same mxid (D-OQ6 proof)
+    expect(mockLoginAsUser).toHaveBeenCalledTimes(1);
+    expect(mockLoginAsUser.mock.calls[0][0]).toBe("@agent1:matrix.local");
+
+    // buildRelayJsonBody called with non-empty accessToken (from login)
+    expect(mockBuildRelay).toHaveBeenCalledTimes(1);
+    const relayArg = mockBuildRelay.mock.calls[0][0];
+    expect(relayArg.accessToken).toBe("syt_real_token_abc123");
+    expect(relayArg.accessToken.length).toBeGreaterThan(0);
+    expect(relayArg.mxid).toBe("@agent1:matrix.local");
+
+    // writeMarkdownFileAtomic called with the relay.json path
+    const writeCalls = mockWriteMd.mock.calls;
+    const relayJsonWrite = writeCalls.find(
+      (c: unknown[]) => typeof c[1] === "string" && (c[1] as string).endsWith("/relay.json"),
+    );
+    expect(relayJsonWrite).toBeDefined();
+    expect(relayJsonWrite![1]).toContain("$HOME/.claude/identities/agent1/relay.json");
+
+    // chmod 600 was called on the relay.json path — S-1 lock proof
+    const chmodCalls = mockExecCommand.mock.calls.filter(
+      (c: unknown[]) =>
+        typeof c[1] === "string" && /chmod\s+600\s+.*relay\.json/.test(c[1] as string),
+    );
+    expect(chmodCalls.length).toBeGreaterThanOrEqual(1);
+  }, 30_000);
+
+  // ---- Test B: step 6 failure does NOT roll back folder (Q2 agent-supervisor race) ----
+  it("Test B: step 6 (createOrUpdateUser) failure does NOT roll back folder (Q2 agent-supervisor race)", async () => {
+    mockIsLocalHostId.mockReturnValue(false);
+    const mockConn = { end: vi.fn() };
+    mockConnectOneShot.mockResolvedValue(mockConn);
+    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+        return Promise.resolve("/home/ubuntu\n");
+      }
+      return Promise.resolve("");
+    });
+
+    const mockCreateOrUpdate = vi
+      .fn()
+      .mockResolvedValue({ ok: false, status: 502, error: "admin_api_proxy_error" });
+    const mockLoginAsUser = vi.fn();
+
+    const deps = makeDeps({
+      matrixCreateOrUpdateUser: mockCreateOrUpdate,
+      matrixLoginAsUser: mockLoginAsUser,
+    });
+    const opts = makeOpts({ name: "agent1" });
+    const { events, emit } = collectEvents();
+
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    // step:6:failed emitted with admin_mint_failed reason
+    const failedEvent = events.find(
+      (e) => e.type === "step" && e.n === 6 && e.phase === "failed",
+    );
+    expect(failedEvent).toBeDefined();
+    expect((failedEvent as { reason?: string }).reason).toMatch(/admin_mint_failed/);
+
+    // ended{ok:false, failedStep:6}
+    const endedEvent = events.find((e) => e.type === "ended");
+    expect(endedEvent).toBeDefined();
+    expect((endedEvent as { ok: boolean }).ok).toBe(false);
+    expect((endedEvent as { failedStep?: number }).failedStep).toBe(6);
+
+    // Step 1 folder-create completed (proves the folder is still on disk)
+    const step1Completed = events.find(
+      (e) => e.type === "step" && e.n === 1 && e.phase === "completed",
+    );
+    expect(step1Completed).toBeDefined();
+
+    // matrixLoginAsUser was NEVER called (createOrUpdateUser failed first)
+    expect(mockLoginAsUser).not.toHaveBeenCalled();
+
+    // Q2 anti-rollback assertion: NO rm/rm -rf call in any execCommand invocation
+    assertNoRmRfInExecCalls(mockExecCommand);
+  }, 30_000);
+
+  // ---- Test B2: step 6.5 (matrixLoginAsUser) failure does NOT roll back ----
+  it("Test B2: step 6.5 (matrixLoginAsUser) failure does NOT roll back folder (Q2 agent-supervisor race)", async () => {
+    mockIsLocalHostId.mockReturnValue(false);
+    const mockConn = { end: vi.fn() };
+    mockConnectOneShot.mockResolvedValue(mockConn);
+    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+        return Promise.resolve("/home/ubuntu\n");
+      }
+      return Promise.resolve("");
+    });
+
+    const mockCreateOrUpdate = vi
+      .fn()
+      .mockResolvedValue({ ok: true, mxid: "@agent1:matrix.local", password: "pw", status: 201 });
+    const mockLoginAsUser = vi
+      .fn()
+      .mockResolvedValue({ ok: false, status: 502, error: "admin_api_proxy_error" });
+
+    const deps = makeDeps({
+      matrixCreateOrUpdateUser: mockCreateOrUpdate,
+      matrixLoginAsUser: mockLoginAsUser,
+    });
+    const opts = makeOpts({ name: "agent1" });
+    const { events, emit } = collectEvents();
+
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    // Failure attributed to step 6 (login inside runStep(6) per D-OQ6 lock)
+    const failedEvent = events.find(
+      (e) => e.type === "step" && e.n === 6 && e.phase === "failed",
+    );
+    expect(failedEvent).toBeDefined();
+    expect((failedEvent as { reason?: string }).reason).toMatch(/admin_login_failed/);
+
+    // ended{ok:false, failedStep:6}
+    const endedEvent = events.find((e) => e.type === "ended");
+    expect(endedEvent).toBeDefined();
+    expect((endedEvent as { ok: boolean }).ok).toBe(false);
+
+    // createOrUpdateUser was called (succeeded) but login failed
+    expect(mockCreateOrUpdate).toHaveBeenCalledTimes(1);
+    expect(mockLoginAsUser).toHaveBeenCalledTimes(1);
+
+    // Q2 anti-rollback assertion
+    assertNoRmRfInExecCalls(mockExecCommand);
+  }, 30_000);
+
+  // ---- Test C: step 8 SFTP write failure does NOT roll back (Q2 agent-supervisor race) ----
+  it("Test C: step 8 (SFTP write) failure does NOT roll back folder or Synapse account (Q2 agent-supervisor race)", async () => {
+    mockIsLocalHostId.mockReturnValue(false);
+    const mockConn = { end: vi.fn() };
+    mockConnectOneShot.mockResolvedValue(mockConn);
+    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+        return Promise.resolve("/home/ubuntu\n");
+      }
+      return Promise.resolve("");
+    });
+
+    const mockCreateOrUpdate = vi
+      .fn()
+      .mockResolvedValue({ ok: true, mxid: "@agent1:matrix.local", password: "pw", status: 201 });
+    const mockLoginAsUser = vi
+      .fn()
+      .mockResolvedValue({ ok: true, accessToken: "syt_real_token" });
+
+    // writeMarkdownFileAtomic succeeds for the .md/.png writes but fails on
+    // the relay.json write. Mock tracks call count so first two succeed, third
+    // (relay.json) throws.
+    let writeCallCount = 0;
+    const mockWriteMd = vi.fn().mockImplementation((_conn, targetPath) => {
+      writeCallCount += 1;
+      if (typeof targetPath === "string" && targetPath.endsWith("/relay.json")) {
+        return Promise.reject(new Error("sftp_write_failed"));
+      }
+      return Promise.resolve(undefined);
+    });
+
+    const deps = makeDeps({
+      matrixCreateOrUpdateUser: mockCreateOrUpdate,
+      matrixLoginAsUser: mockLoginAsUser,
+      writeMarkdownFileAtomic: mockWriteMd,
+    });
+    const opts = makeOpts({ name: "agent1" });
+    const { events, emit } = collectEvents();
+
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    // step:8:failed + ended{ok:false, failedStep:8}
+    const failedEvent = events.find(
+      (e) => e.type === "step" && e.n === 8 && e.phase === "failed",
+    );
+    expect(failedEvent).toBeDefined();
+    const endedEvent = events.find((e) => e.type === "ended");
+    expect(endedEvent).toBeDefined();
+    expect((endedEvent as { ok: boolean }).ok).toBe(false);
+    expect((endedEvent as { failedStep?: number }).failedStep).toBe(8);
+
+    // Step 6 completed (mint succeeded — proves no inverse admin-delete)
+    const step6Completed = events.find(
+      (e) => e.type === "step" && e.n === 6 && e.phase === "completed",
+    );
+    expect(step6Completed).toBeDefined();
+
+    // Q2 anti-rollback assertion: NO rm/rm -rf, no folder-cleanup
+    assertNoRmRfInExecCalls(mockExecCommand);
+
+    // Confirm writeMarkdownFileAtomic was invoked (proves we reached step 8)
+    expect(writeCallCount).toBeGreaterThanOrEqual(2); // .md write + relay.json write attempt
+  }, 30_000);
+
+  // ---- Test C2: chmod 600 failure fails step 8 without rollback (Q2 agent-supervisor race) ----
+  it("Test C2: chmod 600 failure fails step 8 without rollback (Q2 agent-supervisor race)", async () => {
+    mockIsLocalHostId.mockReturnValue(false);
+    const mockConn = { end: vi.fn() };
+    mockConnectOneShot.mockResolvedValue(mockConn);
+
+    // Make execCommand fail specifically on chmod 600 — other commands succeed.
+    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+        return Promise.resolve("/home/ubuntu\n");
+      }
+      if (typeof cmd === "string" && /chmod\s+600/.test(cmd)) {
+        return Promise.reject(new Error("chmod: permission denied"));
+      }
+      return Promise.resolve("");
+    });
+
+    const mockCreateOrUpdate = vi
+      .fn()
+      .mockResolvedValue({ ok: true, mxid: "@agent1:matrix.local", password: "pw", status: 201 });
+    const mockLoginAsUser = vi
+      .fn()
+      .mockResolvedValue({ ok: true, accessToken: "syt_real_token" });
+    // writeMarkdownFileAtomic SUCCEEDS for relay.json — only chmod fails
+    const mockWriteMd = vi.fn().mockResolvedValue(undefined);
+
+    const deps = makeDeps({
+      matrixCreateOrUpdateUser: mockCreateOrUpdate,
+      matrixLoginAsUser: mockLoginAsUser,
+      writeMarkdownFileAtomic: mockWriteMd,
+    });
+    const opts = makeOpts({ name: "agent1" });
+    const { events, emit } = collectEvents();
+
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    // step:8:failed with chmod_600_failed reason
+    const failedEvent = events.find(
+      (e) => e.type === "step" && e.n === 8 && e.phase === "failed",
+    );
+    expect(failedEvent).toBeDefined();
+    expect((failedEvent as { reason?: string }).reason).toMatch(/chmod_600_failed/);
+
+    // ended{ok:false, failedStep:8}
+    const endedEvent = events.find((e) => e.type === "ended");
+    expect(endedEvent).toBeDefined();
+    expect((endedEvent as { ok: boolean }).ok).toBe(false);
+    expect((endedEvent as { failedStep?: number }).failedStep).toBe(8);
+
+    // Q2 anti-rollback: no rm -rf even after chmod failure
+    assertNoRmRfInExecCalls(mockExecCommand);
+  }, 30_000);
+
+  // ---- Test D: useLocal skips 6-8 entirely ----
+  it("Test D: useLocal=true (self-birth) skips step 6/7/8 entirely — matrixCreateOrUpdateUser + matrixLoginAsUser never called", async () => {
+    mockIsLocalHostId.mockReturnValue(true);
+
+    const mockCreateOrUpdate = vi.fn();
+    const mockLoginAsUser = vi.fn();
+    const mockBuildRelay = vi.fn();
+
+    const deps = makeDeps({
+      execLocal: vi.fn().mockResolvedValue(""),
+      matrixCreateOrUpdateUser: mockCreateOrUpdate,
+      matrixLoginAsUser: mockLoginAsUser,
+      buildRelayJsonBody: mockBuildRelay,
+    });
+    const opts = makeOpts({ hostId: 5 });
+    const { events, emit } = collectEvents();
+
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    // Assert NO step:6/7/8 event of any phase is present
+    const phase75Events = events.filter(
+      (e) => e.type === "step" && (e.n === 6 || e.n === 7 || e.n === 8),
+    );
+    expect(phase75Events).toHaveLength(0);
+
+    // Assert Phase 75 deps were NEVER called
+    expect(mockCreateOrUpdate).not.toHaveBeenCalled();
+    expect(mockLoginAsUser).not.toHaveBeenCalled();
+    expect(mockBuildRelay).not.toHaveBeenCalled();
+
+    // ended{ok:true}
+    const endedEvent = events.find((e) => e.type === "ended");
+    expect(endedEvent).toBeDefined();
+    expect((endedEvent as { ok: boolean }).ok).toBe(true);
+  }, 30_000);
+
+  // ---- Test E: retry helper idempotency ----
+  it("Test E: runRelayMintAndWrite called twice succeeds — both calls emit full step:6/7/8 sequence", async () => {
+    const mockConn = { end: vi.fn() };
+    mockExecCommand.mockResolvedValue("");
+
+    const mockCreateOrUpdate = vi
+      .fn()
+      .mockResolvedValue({ ok: true, mxid: "@agent1:matrix.local", password: "pw", status: 200 });
+    const mockLoginAsUser = vi
+      .fn()
+      .mockResolvedValue({ ok: true, accessToken: "syt_fresh_token" });
+    const mockBuildRelay = vi.fn().mockReturnValue("{}");
+    const mockWriteMd = vi.fn().mockResolvedValue(undefined);
+
+    const deps = makeDeps({
+      matrixCreateOrUpdateUser: mockCreateOrUpdate,
+      matrixLoginAsUser: mockLoginAsUser,
+      buildRelayJsonBody: mockBuildRelay,
+      writeMarkdownFileAtomic: mockWriteMd,
+      matrixHomeserver: "http://matrix.local:8008",
+    });
+
+    const { events: events1, emit: emit1 } = collectEvents();
+    const { events: events2, emit: emit2 } = collectEvents();
+
+    // First invocation
+    await runRelayMintAndWrite(
+      { name: "agent1", displayName: "Agent1" },
+      emit1,
+      deps,
+      mockConn as unknown as Parameters<typeof runRelayMintAndWrite>[3],
+    );
+
+    // Second invocation (retry)
+    await runRelayMintAndWrite(
+      { name: "agent1", displayName: "Agent1" },
+      emit2,
+      deps,
+      mockConn as unknown as Parameters<typeof runRelayMintAndWrite>[3],
+    );
+
+    // Both calls emit step:6/7/8 completed
+    for (const events of [events1, events2]) {
+      for (const n of [6, 7, 8]) {
+        const startedIdx = events.findIndex(
+          (e) => e.type === "step" && e.n === n && e.phase === "started",
+        );
+        const completedIdx = events.findIndex(
+          (e) => e.type === "step" && e.n === n && e.phase === "completed",
+        );
+        expect(startedIdx).toBeGreaterThanOrEqual(0);
+        expect(completedIdx).toBeGreaterThan(startedIdx);
+      }
+    }
+
+    // Each mock was called twice (once per invocation)
+    expect(mockCreateOrUpdate).toHaveBeenCalledTimes(2);
+    expect(mockLoginAsUser).toHaveBeenCalledTimes(2);
+    expect(mockBuildRelay).toHaveBeenCalledTimes(2);
+    expect(mockWriteMd).toHaveBeenCalledTimes(2);
+
+    // chmod 600 called twice
+    const chmodCalls = mockExecCommand.mock.calls.filter(
+      (c: unknown[]) =>
+        typeof c[1] === "string" && /chmod\s+600/.test(c[1] as string),
+    );
+    expect(chmodCalls.length).toBeGreaterThanOrEqual(2);
+  }, 30_000);
+});
