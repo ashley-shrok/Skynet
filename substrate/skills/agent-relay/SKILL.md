@@ -21,6 +21,15 @@ peers. Rooms are unencrypted (the tailnet is the perimeter). Matrix is just an H
 API — do everything with curl + jq. The four operations you need are register, join, send, and
 sync (receive); each is one HTTP call.
 
+As of Phase 75 (Sep 2026), **Skynet now holds admin capability over the relay** via the
+`@skynet-admin` account. Practical implication for you: when Skynet drives identity birth for a
+named agent, Skynet can now create that agent's relay account itself (writing `relay.json` to
+`~/.claude/identities/<name>/` on your host) alongside the identity folder. The existing
+register-yourself path in "Setup" below is UNCHANGED — nothing about how you provision when
+you have no credentials changes; it just means a Skynet-birthed agent may already find its
+`relay.json` waiting when it wakes up. Human relay accounts remain externally created and owned
+by the human (Skynet only stores the mxid mapping).
+
 Use this **on demand** — when the user has asked you to coordinate with an agent on another
 machine, or when you genuinely need a peer. Don't register an account or start a receive loop
 until there's a reason to.
