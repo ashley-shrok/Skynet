@@ -214,3 +214,38 @@ Reference materials:
   on sends to a server-side dormant session.
 - Phase 62 planning artifacts at `~/skynet-tabitha/.planning/phases/62-invisible-dormancy-client-side-follow-up-widen-client-pendin/`
   show what the previous attempt did and where its shape reasoning went wrong.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-06
+**Vehicle used:** GSD phase
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · Shipped work matches the framing: a frontend-side bubble/status treatment change tied to the server's new give-up-later behavior for sleeping agents.
+- **Shape** — present · The bubble state model, widened-stopwatch branch, and failed-state visual treatment landed with the structure the shape called for.
+- **Philosophy** — present · Implementation stays on the pending-until-truly-failed side of the line; nothing flips to failed prematurely.
+- **Prior context** — present · Builds on the existing bubble state machine as anticipated; no adjacent surfaces disturbed.
+- **What would make it wrong: pending bubble flips to failed while server still trying** — present · Failed transition is gated on server give-up; pending is preserved while the server retries.
+- **What would make it wrong: widened branch triggers for first send after reconnect but not subsequent** — present · Widened-stopwatch branch is driven by recipient sleep-state, not by first-send bookkeeping, so subsequent sends behave the same.
+- **What would make it wrong: widened value drifts from what server actually uses** — partial · Coupling is a code comment maintained by hand rather than an automated drift-catch. User endorsed the shipped form as acceptable and wants unification tracked as a later follow-up.
+- **What would make it wrong: sending-while-awake bubble now has longer stopwatch than needed** — present · Widened branch is scoped to sleeping-recipient sends; awake sends retain the original stopwatch.
+- **What would make it wrong: multiple sends to sleeping agent don't deliver in order** — present · Ordering is preserved end-to-end; no reordering introduced by the widened-branch handling.
+- **What would make it wrong: symmetric surface exists on frontend that wasn't touched** — present · No untouched symmetric surface was found; the widened treatment is applied uniformly where the pattern occurs.
+- **What would make it wrong: failed bubble still red border instead of whole-bubble red** — present · Failed treatment is the whole-bubble red state, not the prior border-only styling.
+- **Scope edges** — present · Change stayed inside the agreed scope; no adjacent behaviors were pulled in.
+
+### Additions (in the result, not in the shape)
+
+- Static widened stopwatch value with comment-only coupling to server give-up — endorsed-as-drift · Shape asked for the widened value to follow the server's give-up moment without another cycle of work. Shipped form is a hand-maintained code-comment link. User endorsed as acceptable as shipped.
+
+### Follow-ups
+
+- Unify by-reference coupling of widened stopwatch with an automated drift-catch — deferred · User said she is okay with them being separate for now and may come back later to unify. Not filed as a formal bounty; captured here as a deferred follow-up.
+
+### Notes
+
+Every shape feature is present in the result. One divergence — the widened stopwatch value being coupled to the server's give-up moment only by a hand-maintained code comment rather than an automated drift-catch — was surfaced to the user and endorsed as acceptable as shipped, with unification captured as a deferred follow-up.
