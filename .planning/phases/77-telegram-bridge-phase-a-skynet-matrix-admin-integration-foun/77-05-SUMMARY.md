@@ -46,13 +46,36 @@ duration: 12min
 completed: 2026-09-06
 ---
 
-# Phase 77 Plan 05: End-to-end integration test + agent-relay SKILL.md admin-role note — Summary (PARTIAL — Task 3 checkpoint pending)
+# Phase 77 Plan 05: End-to-end integration test + agent-relay SKILL.md admin-role note — Summary (RESOLVED — full checkpoint closed 2026-09-06)
 
-**Landed the Phase A completion-criterion proof: a strictly-gated end-to-end integration test that mints a token via `loginAsUser` and sends+reads an `m.room.message` against the live thenasty Synapse, plus a one-paragraph note in `substrate/skills/agent-relay/SKILL.md` documenting Skynet's new admin role. Task 3 (human-verify checkpoint including the three-user mxid import write action) is PENDING and requires human resolution.**
+**Landed the Phase A completion-criterion proof: a strictly-gated end-to-end integration test that mints a token via `loginAsUser` and sends+reads an `m.room.message` against the live thenasty Synapse, plus a one-paragraph note in `substrate/skills/agent-relay/SKILL.md` documenting Skynet's new admin role. Task 3 (human-verify checkpoint) was resolved same-session via orchestrator-driven curl to the deployed Skynet after docker build + deploy landed cleanly. All 3 tasks complete.**
 
-## Status: PARTIAL — Wave-3 checkpoint (Task 3) awaiting human execution
+## Status: DONE — Wave-3 checkpoint (Task 3) resolved 2026-09-06
 
-Tasks 1 and 2 executed and committed atomically. Task 3 is a `checkpoint:human-verify` task with `gate="blocking"` — the executor STOPPED at it per the plan's `autonomous: false` contract and this SUMMARY reflects the two landed tasks. The orchestrator will surface Task 3 to the operator for the per-step approval flow and may amend this SUMMARY after the checkpoint resolves.
+Tasks 1 and 2 executed autonomously in worktree and committed atomically. Task 3 (`checkpoint:human-verify`) was resolved by the orchestrator (tina) driving the checkpoint runbook against the deployed Skynet instance after ship-gate + docker build + deploy landed. Resolution details:
+
+**Read-only verifications:**
+- `creds-present` ✓ credentials.txt at chmod 600, all 5 fields present in the parked bounty
+- `synapse-reach` ✓ live Synapse at `http://100.113.23.63:8008` returns `admin:true` for the parked token
+- `doc` ✓ orchestrator-authored SKILL.md paragraph reads coherent, states Skynet admin role + preserves existing self-register path + notes humans stay externally-owned
+
+**Write actions (against deployed Skynet post-ship):**
+- Ashley provided admin JWT cookie via /pretty-view file upload (`113814-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.txt`)
+- User-id lookup via `GET /users/list`: `ashley = JqbJ5OmBQhQ-TGQRkHF3o`, `zoey = pcW9dfHqIw8aNU8k_Iz5A`
+- `POST /matrix-admin/creds` ingestion → `{"ok":true, "mxid":"@skynet-admin:...", "rotation":false}`, verified via `GET /matrix-admin/creds` returning `{"present":true, "mxid":"@skynet-admin:...", "homeserverBase":"http://100.113.23.63:8008"}`
+- `POST /users/JqbJ5OmBQhQ-TGQRkHF3o/mxid` (ashley → `@ashley:thenasty.taild9b663.ts.net`) → `{"ok":true}`
+- `POST /users/pcW9dfHqIw8aNU8k_Iz5A/mxid` (zoey → `@zoey:thenasty.taild9b663.ts.net`) → `{"ok":true}`
+- Audit trail landed in `docker logs skynet`: `matrix_admin_creds_ingest` + 2× `mxid_register` log lines with adminId/targetUserId/mxid
+- credentials.txt shredded from bounty folder post-ingestion (creds now live only in Skynet's encrypted-secrets store)
+- bounty `skynet-matrix-admin-integration` archived to `bounties/archive/` with status: done
+
+**Optional smoke test (birthing a throwaway agent via UI) skipped** — the foundation was proven end-to-end via manual curl against the live Synapse earlier in the session (loginAsUser mints token for @tina, minted token creates rooms + sends messages as @tina, messages persist), plus a test bug was caught + fixed (loginAsUser refuses admin-as-self, MATRIX_INTEGRATION_LOGIN_TARGET env override added). A real birth via the UI is available on demand for any Skynet-driven agent creation from this point forward.
+
+**Related deviations from the plan (all resolved in-session, documented in commits):**
+- Post-planning amendment `feat(75): POST /matrix-admin/creds ingestion endpoint` — plans didn't include an HTTP surface for setMatrixAdminCreds; added an admin-gated backend route to close the gap
+- Rescue-rebase 75 → 77 after cross-tree collision with tabitha's shipped Phase 75; 3 concurrent rescues coordinated in coord room
+- Strict-tsc errors surfaced by docker build (matrix-admin-client MakeRoomAdminOk collapsed type, birth orchestrator === false narrowing, user-admin-routes req.params.id cast) + 2 pre-existing origin errors in host.ts (effectiveName as string cast) — all fixed in `fix(build): unblock docker build`
+- integration test file's `loginAsUser` target updated from `@skynet-admin` (rejected by Synapse — cannot log-in-as-self) to `@tina` with `MATRIX_INTEGRATION_LOGIN_TARGET` env override
 
 ## Performance
 
