@@ -3076,6 +3076,44 @@ export function PrettyView({
           tabId={tabId}
         />
       )}
+      {/* Phase 80 Plan 07: centered task pill in the top bar. Sibling to
+          IdentityBadge (which stays top-right at z-[101]). Renders iff
+          the identity resolves AND carries a truthy `task` string (D-06
+          fallback — absent/empty task → no pill). Glass treatment mirrors
+          IdentityBadge (hsla ratios + hue tint from `pvIdentity.colorHue
+          ?? 35` matching IdentityBadge L101 fallback; smaller padding +
+          shadow so the pill reads as a subordinate sibling to the badge).
+          z-[100] sits BELOW the badge's z-[101] so badge drag/click stays
+          priority (RESEARCH §Stream 7 A5). Text truncates via nowrap +
+          maxWidth 50% rather than wrapping — long tasks read as a single
+          horizontal line clipped with ellipsis. Task is rendered as a
+          plain React child (auto-escaped) — no raw-HTML injection path
+          (T-80-07-01 mitigation: XSS via user-supplied task string). */}
+      {pvIdentityKey && pvIdentity?.task && (
+        <div
+          data-testid="pv-task-pill"
+          className="pv-identity-breathe absolute top-4 left-1/2 -translate-x-1/2 z-[100] select-none font-[Inter_Variable,ui-sans-serif,system-ui,sans-serif]"
+          style={{
+            borderRadius: 20,
+            padding: "6px 14px",
+            maxWidth: "50%",
+            background: `linear-gradient(160deg, hsla(${pvIdentity.colorHue ?? 35}, 45%, 25%, 0.72), hsla(${pvIdentity.colorHue ?? 35}, 40%, 15%, 0.82))`,
+            backdropFilter: "blur(24px) saturate(1.4)",
+            WebkitBackdropFilter: "blur(24px) saturate(1.4)",
+            border: `1px solid hsla(${pvIdentity.colorHue ?? 35}, 65%, 55%, 0.4)`,
+            boxShadow: `0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,220,170,0.14), 0 0 24px hsla(${pvIdentity.colorHue ?? 35}, 65%, 55%, 0.24)`,
+            color: "#e8e4d8",
+            fontSize: 13,
+            fontWeight: 500,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            animation: "pv-identity-breathe 5s ease-in-out infinite",
+          }}
+        >
+          {pvIdentity.task}
+        </div>
+      )}
       {/* Patch #87: identity bounties modal. Portals to document.body via
           shadcn Dialog so it escapes this root's relative/overflow context.
           Mount guarded by pvIdentity non-null (Modal needs displayName,
