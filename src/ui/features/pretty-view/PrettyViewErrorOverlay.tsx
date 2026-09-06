@@ -55,9 +55,8 @@
 //   user acknowledgment; screen readers announce alerts more assertively
 //   than statuses.
 //
-// COPY (D-08): "Connection failed — retry". Em-dash is U+2014, matching
-//   the style used in SessionHoldingOverlay ("Session recycle failed —
-//   refresh to check") and DormancyOverlay ("Couldn't wake — <error>").
+// COPY: "Connection failed". The Retry button sits directly below and
+//   speaks for itself — no need to say "— retry" in the copy row.
 //
 // GATING:
 //   The parent (`PrettyView.tsx` post Plan 29-04 rewire) decides whether to
@@ -135,14 +134,14 @@ export function PrettyViewErrorOverlay({
           "flex flex-col items-center gap-3 text-sm",
         )}
       >
-        {/* Glyph + copy row: STATIC RefreshCcw + "Connection failed — retry".
+        {/* Glyph + copy row: STATIC RefreshCcw + "Connection failed".
             Motion-channel guardrail applies — see file header. */}
         <div className="flex items-center gap-3">
           <RefreshCcw
             className="h-4 w-4 shrink-0 text-[hsl(0,72%,60%)]"
             aria-hidden="true"
           />
-          <span>Connection failed — retry</span>
+          <span>Connection failed</span>
         </div>
 
         {/* Retry button — UX shape verbatim from DormancyOverlay Wake button

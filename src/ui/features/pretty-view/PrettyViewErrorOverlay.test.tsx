@@ -4,7 +4,7 @@
 // state overlay landed in the previous commit (feat(29-02): add
 // PrettyViewErrorOverlay ...):
 //
-//   Test 1: Renders the "Connection failed — retry" copy AND an enabled
+//   Test 1: Renders the "Connection failed" copy AND an enabled
 //           Retry button (D-08 copy + D-09 button-shape checks).
 //   Test 2: The overlay carries role="alert" — NOT role="status". Terminal
 //           urgent failure requires ARIA-correct role distinct from the
@@ -33,9 +33,8 @@ import { PrettyViewErrorOverlay } from "./PrettyViewErrorOverlay";
 // ─── Test 1 ───────────────────────────────────────────────────────────────────
 
 describe("PrettyViewErrorOverlay — render", () => {
-  it('renders "Connection failed — retry" copy and an enabled Retry button', () => {
+  it('renders "Connection failed" copy and an enabled Retry button', () => {
     render(<PrettyViewErrorOverlay onRetry={vi.fn()} />);
-    // D-08 copy: em-dash is U+2014, matching sibling overlays' style.
     // Match with a permissive regex so a future copy tweak like "Connection
     // failed. Retry?" would still light this up.
     expect(screen.getByText(/Connection failed/i)).toBeTruthy();
