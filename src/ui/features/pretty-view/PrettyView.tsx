@@ -1784,6 +1784,45 @@ export function PrettyView({
             console.info(`[pane-state] state-transition from=${paneStateRef.current ?? 'null'} to=${parsed.state} trigger=pane-state-frame sessionId=${tmuxSession ?? 'null'} hostId=${hostId}`);
           }
           setPaneState(parsed.state);
+          // Phase 76 Plan 01 — D-01/D-02 signal unification (option a):
+          //
+          // D-01: Two dormancy signal sources exist. Signal A ({type:"dormant"})
+          // is emit-on-change and can go stale on WS reconnect while dormant —
+          // the backend does not re-emit it if the cached-session fast-path fires
+          // (claude-session-server.ts:7774 condition result.reason === "not_claude"
+          // is not met). Signal B ({type:"pane_state"}) is always re-emitted on
+          // every WS attach via startActiveSessionFlow — it is never stale.
+          //
+          // D-02: Feed setDormant from BOTH signal cases so dormantRef stays
+          // authoritative through both channels (option a — strictly additive,
+          // zero consumer migration). The arm-site read at handleOptimisticSend
+          // (PrettyView.tsx:1233 — "const armedDormant = dormantRef.current === true")
+          // is UNCHANGED; it now reads a correctly-populated ref.
+          //
+          // D-04: This is the ONLY added write site. case "dormant" at
+          // PrettyView.tsx:2147 is deliberately preserved as the Signal A write
+          // site (removing it would regress the Wave 1 live-frame auto-dismiss
+          // path at PrettyView.tsx:1741-1754 which relies on Signal A). The
+          // dormantRef mirror useEffect at PrettyView.tsx:2555-2560 is unchanged.
+          //
+          // Root cause of the Phase 62 miss: reconnect while dormant → backend
+          // skips the {type:"dormant"} re-emit on the fresh WS → dormantRef.current
+          // stays false → handleOptimisticSend arms the 20s branch instead of 220s.
+          // pane_state:dormant always arrives on reconnect and now writes dormant=true.
+          //
+          // "error" pane_state is deliberately NOT handled here — it is a WS-transport-
+          // level state, not a session-dormancy assertion (Risk 2 rationale).
+          if (parsed.state === "dormant") {
+            console.info(`[diag-dormant-send] pane-state-drove-dormant state=${parsed.state} sessionId=${tmuxSession ?? 'null'}`);
+            setDormant(true);
+          } else if (
+            parsed.state === "active" ||
+            parsed.state === "holding" ||
+            parsed.state === "inactive"
+          ) {
+            setDormant(false);
+          }
+          // pane_state === "error" — leave dormant unchanged (Risk 2).
           break;
         }
         case "session": {
