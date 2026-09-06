@@ -22,7 +22,8 @@ import { eq, and, or, isNull, gte, sql, inArray, desc } from "drizzle-orm";
 import type { Request, Response } from "express";
 import axios from "axios";
 import multer from "multer";
-import { sshLogger, databaseLogger } from "../../utils/logger.js";
+import { sshLogger, databaseLogger, systemLogger } from "../../utils/logger.js";
+import { getSubstrateOrchestrator } from "../../distributor/substrate-orchestrator-singleton.js";
 import { SimpleDBOps } from "../../utils/simple-db-ops.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { PermissionManager } from "../../utils/permission-manager.js";
@@ -439,6 +440,49 @@ router.post(
         req.headers,
         "host_create",
       );
+
+      // Phase 75-06 (D-02) — on-add fire-and-forget install pass. Substrate
+      // hosts get an immediate sweep so the freshly-provisioned host is
+      // bootstrapped without waiting for the 30s retry tick. Fire-and-forget
+      // from this handler's perspective: the HTTP response has ALREADY been
+      // sent (res.json above); the microtask runs after the response resolves.
+      //
+      // Uses queueMicrotask (NOT setImmediate) per WARN-3 discipline from
+      // ssh-poll-orchestrator.ts:2110-2117 — queueMicrotask is drainable in
+      // tests via `await Promise.resolve()`, setImmediate under vi.useFakeTimers
+      // is not.
+      //
+      // Errors from sweepOneHost are contained by the orchestrator's never-
+      // reject contract (75-02 test NT2). The wrapper's try/catch is defense-
+      // in-depth to satisfy the phase-level invariant "fire-and-forget install-
+      // pass errors must NEVER surface to the host-create HTTP response."
+      if (effectiveRunsFleetSubstrate && effectiveConnectionType === "ssh") {
+        queueMicrotask(async () => {
+          const orch = getSubstrateOrchestrator();
+          if (!orch) {
+            systemLogger.warn("Substrate orchestrator not available for on-add sweep", {
+              operation: "fleet_substrate_on_add_no_orchestrator",
+              fleetHostId: String(createdHost.id),
+              hostName: effectiveName,
+            });
+            return;
+          }
+          try {
+            await orch.sweepOneHost({
+              id: String(createdHost.id),
+              name: effectiveName,
+            });
+          } catch (err) {
+            // Defense-in-depth. Should be unreachable per 75-02 NT2.
+            systemLogger.warn("On-add sweep threw unexpectedly", {
+              operation: "fleet_substrate_on_add_sweep_error",
+              fleetHostId: String(createdHost.id),
+              hostName: effectiveName,
+              error: err instanceof Error ? err.message : "unknown",
+            });
+          }
+        });
+      }
     } catch (err) {
       sshLogger.error("[host-db] create-host-failed", err, {
         operation: "host_create",
