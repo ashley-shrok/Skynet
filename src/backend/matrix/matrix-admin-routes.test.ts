@@ -107,6 +107,17 @@ vi.mock("../telegram/human-token-writer.js", () => ({
   mintAndWriteHumanToken: mintAndWriteHumanTokenMock,
 }));
 
+// Phase 79 Plan 08 — shared-volume.ts computes TG_BRIDGE_STATE_DIR as a
+// const at module-load time from TG_BRIDGE_STATE_DIR_OVERRIDE. Because
+// matrix-admin-routes.js is imported at file scope (below), the const
+// is frozen before the per-test tempDir is set. Mock the export directly
+// with a getter that always reads the current env var.
+vi.mock("../telegram/shared-volume.js", () => ({
+  get TG_BRIDGE_STATE_DIR() {
+    return process.env.TG_BRIDGE_STATE_DIR_OVERRIDE || "/state";
+  },
+}));
+
 // Silence logger noise
 vi.mock("../utils/logger.js", () => ({
   authLogger: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
