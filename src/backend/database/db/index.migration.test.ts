@@ -24,6 +24,7 @@ import {
   runIdentitiesTableDrop,
 } from "./index.js";
 import { hosts } from "./schema.js";
+import { FieldCrypto } from "../../utils/field-crypto.js";
 
 // The OLD identities CREATE TABLE — verbatim from db/index.ts pre-Phase-66.
 const OLD_IDENTITIES_CREATE_SQL = `
@@ -444,5 +445,166 @@ describe("Phase 72-02 migration — add runs_fleet_substrate to ssh_data", () =>
     // hosts.runsFleetSubstrate }).from(hosts)) compiles.
     expect(hosts.runsFleetSubstrate).toBeDefined();
     expect(hosts.runsFleetSubstrate).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 75 Plan 01 — matrix_admin_creds table + users.mxid column.
+//
+// Contract under test: the boot-time DDL adds the singleton matrix_admin_creds
+// table (id, homeserver_base, user_id, access_token, password, created_at,
+// updated_at) and one users.mxid TEXT column, both idempotent across sequential
+// boots. FieldCrypto declares both secret columns as encrypted at rest.
+//
+// The DatabaseSaveTrigger.forceSave('phase-75-matrix-admin-schema') call in
+// db/index.ts is exercised by boot, not by these unit tests — mirrors the
+// existing L810-821 phase-68 block which is not directly unit-tested either.
+// Acceptance-criteria grep of `phase-75-matrix-admin-schema` in db/index.ts
+// covers the presence-check for the persist call.
+// ---------------------------------------------------------------------------
+
+// Local reproduction of the addColumnIfNotExists shape from db/index.ts
+// L634-659 (also defined further above as addColumnIfNotExistsOn) — this
+// alias makes the phase-75 cases self-describing without touching the
+// module singleton.
+function addColumnIfNotExistsMxid(
+  db: Database.Database,
+  table: string,
+  column: string,
+  definition: string,
+): void {
+  try {
+    db.prepare(`SELECT "${column}" FROM ${table} LIMIT 1`).get();
+  } catch {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN "${column}" ${definition};`);
+  }
+}
+
+// The users CREATE TABLE — verbatim shape from db/index.ts L150-168
+// (post-Phase-72), used to seed a realistic starting point for the
+// mxid idempotency test.
+const USERS_CREATE_SQL_PRE_MXID = `
+  CREATE TABLE users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    is_oidc INTEGER NOT NULL DEFAULT 0,
+    oidc_identifier TEXT,
+    client_id TEXT,
+    client_secret TEXT,
+    issuer_url TEXT,
+    authorization_url TEXT,
+    token_url TEXT,
+    identifier_path TEXT,
+    name_path TEXT,
+    scopes TEXT DEFAULT 'openid email profile',
+    totp_secret TEXT,
+    totp_enabled INTEGER NOT NULL DEFAULT 0,
+    totp_backup_codes TEXT
+  );
+`;
+
+// The matrix_admin_creds CREATE TABLE — mirrors the exact shape added to
+// db/index.ts by Task 1. Encoded here so the idempotency test can run the
+// DDL twice and assert the schema doesn't drift.
+const MATRIX_ADMIN_CREDS_CREATE_SQL = `
+  CREATE TABLE IF NOT EXISTS matrix_admin_creds (
+    id INTEGER PRIMARY KEY,
+    homeserver_base TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    access_token TEXT NOT NULL,
+    password TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+describe("Phase 75-01 migration — matrix_admin_creds table + users.mxid column", () => {
+  it("Test P75-1: matrix_admin_creds CREATE TABLE IF NOT EXISTS is idempotent across two boots and schema matches expected columns", () => {
+    const db = new Database(":memory:");
+
+    // Boot 1 — table absent, DDL creates it.
+    db.exec(MATRIX_ADMIN_CREDS_CREATE_SQL);
+
+    const postBoot1Tables = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='matrix_admin_creds'",
+      )
+      .all();
+    expect(postBoot1Tables.length).toBe(1);
+
+    const postBoot1Cols = columnNames(db, "matrix_admin_creds").sort();
+    expect(postBoot1Cols).toEqual(
+      [
+        "access_token",
+        "created_at",
+        "homeserver_base",
+        "id",
+        "password",
+        "updated_at",
+        "user_id",
+      ].sort(),
+    );
+
+    // Boot 2 — DDL is re-run; IF NOT EXISTS makes it a no-op.
+    expect(() => db.exec(MATRIX_ADMIN_CREDS_CREATE_SQL)).not.toThrow();
+
+    // Exactly one table still (no duplicate).
+    const postBoot2Tables = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='matrix_admin_creds'",
+      )
+      .all();
+    expect(postBoot2Tables.length).toBe(1);
+
+    // Columns unchanged after the second boot.
+    const postBoot2Cols = columnNames(db, "matrix_admin_creds").sort();
+    expect(postBoot2Cols).toEqual(postBoot1Cols);
+  });
+
+  it("Test P75-2: users.mxid TEXT column added exactly once across two boots and is queryable without throwing", () => {
+    const db = new Database(":memory:");
+    db.exec(USERS_CREATE_SQL_PRE_MXID);
+
+    // Sanity: mxid absent pre-migration.
+    const preCols = columnNames(db, "users");
+    expect(preCols).not.toContain("mxid");
+
+    // Boot 1 — add the column.
+    addColumnIfNotExistsMxid(db, "users", "mxid", "TEXT");
+    const postBoot1Cols = columnNames(db, "users");
+    expect(postBoot1Cols).toContain("mxid");
+
+    // Boot 2 — re-run; addColumnIfNotExists is idempotent, no throw.
+    expect(() =>
+      addColumnIfNotExistsMxid(db, "users", "mxid", "TEXT"),
+    ).not.toThrow();
+
+    // Exactly one mxid column post-boot-2 (no duplicate).
+    const postBoot2Cols = columnNames(db, "users");
+    const mxidMatches = postBoot2Cols.filter((c) => c === "mxid");
+    expect(mxidMatches.length).toBe(1);
+
+    // Column is queryable — `SELECT mxid FROM users LIMIT 1` does not throw.
+    expect(() => db.prepare("SELECT mxid FROM users LIMIT 1").get()).not.toThrow();
+  });
+
+  it("Test P75-3: FieldCrypto.shouldEncryptField declares matrix_admin_creds.access_token AND matrix_admin_creds.password as encrypted", () => {
+    // Task 1 ENCRYPTED_FIELDS entry: matrix_admin_creds: new Set(["access_token", "password"]).
+    expect(
+      FieldCrypto.shouldEncryptField("matrix_admin_creds", "access_token"),
+    ).toBe(true);
+    expect(
+      FieldCrypto.shouldEncryptField("matrix_admin_creds", "password"),
+    ).toBe(true);
+
+    // Negative controls — other column names on the same table are NOT encrypted.
+    expect(
+      FieldCrypto.shouldEncryptField("matrix_admin_creds", "user_id"),
+    ).toBe(false);
+    expect(
+      FieldCrypto.shouldEncryptField("matrix_admin_creds", "homeserver_base"),
+    ).toBe(false);
   });
 });
