@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-05T11:45:45.090Z"
-last_activity: 2026-09-05 -- Phase 75 planning complete
+last_updated: "2026-09-06T01:02:39.463Z"
+last_activity: 2026-09-06 -- Phase 75 execution started
 progress:
   total_phases: 76
   completed_phases: 62
@@ -20,15 +20,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** Ashley never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 74 — control-style-of-avatar-generation-through-branding-config
+**Current focus:** Phase 75 — server-side-substrate-bootstrap
 
 ## Current Position
 
-Phase: 74 (control-style-of-avatar-generation-through-branding-config) — EXECUTING
-Plan: 4 of 4
-Status: Ready to execute
+Phase: 75 (server-side-substrate-bootstrap) — EXECUTING
+Plan: 1 of 9
+Status: Executing Phase 75
 
-Last activity: 2026-09-05 -- Phase 75 planning complete
+Last activity: 2026-09-06 -- Phase 75 execution started
 Last activity (prior): 2026-09-04
 Last activity (prior): 2026-09-04
 Last activity: 2026-09-03 — Completed quick task 260903-7e8: instrument dormant-send flow with `[diag-dormant-send]` prefix at 13 frontend + 15 backend transition sites (arm/fire/cleanup/dedup/watchdog stages) so Ashley's next natural repro of the red-bubble + duplicate-real-bubble failure mode reconstructs a full mqid-keyed timeline from a single grep across `console-forward.log` + `docker compose logs skynet`. Phase 62 (b98f81f1, widened client pending-send timer to 220s for dormant sends) is in the deployed image but the symptom persists in a new form — logs will discriminate between four hypotheses (A: timer fires early despite dormant flag, B: dedup gap on the incoming real message, C: watchdog re-dispatch → duplicate delivery, D: cleanup-on-late-arrival never wired). Single atomic diag commit `7666c569` in `adb90600` shape (no logic changes, additive `console.info` / `sshLogger.info` only, `mqid` correlation id threaded through). Three files: `src/ui/features/pretty-view/PrettyView.tsx` (arm/fire/cleanup sites + `dormantRef` read at arm), `src/backend/claude-session/pv-send-watchdog.ts` (marker-poll fresh/fallback boundaries, retry/full-resend/give-up firing), `src/backend/claude-session/claude-session-server.ts` (dormant-send-start entry, sentinel drop, dispatch). Ship: `sudo docker build -f docker/Dockerfile -t skynet-patched:local .` OK → `sudo docker compose -f /opt/skynet/docker-compose.yml up -d --force-recreate skynet` OK → HTTPS 200 confirmed on term.gigaashley.click. Container clean startup, no stack traces. Ashley (or peer instance) hits the bug in normal use, then grep `[diag-dormant-send]` in both log streams → timeline reveals which hypothesis fires. SUMMARY at `.planning/quick/260903-7e8-diag-instrument-dormant-send-flow-to-cat/260903-7e8-SUMMARY.md`. Prior activity:
