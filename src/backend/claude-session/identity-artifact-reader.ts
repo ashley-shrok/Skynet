@@ -2099,6 +2099,13 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
   voice?: string;
   avatar?: string;
   coordinator?: boolean;
+  /**
+   * Phase 80 Plan 80-03: task string written at identity creation (write-once
+   * per D-05). Same narrowing shape as voice/title — non-empty string kept,
+   * anything else dropped. Never defaulted; caller distinguishes absent from
+   * present-with-bad-value via `"task" in cosmetics`.
+   */
+  task?: string;
 } {
   const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return {};
@@ -2117,6 +2124,7 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
     voice?: string;
     avatar?: string;
     coordinator?: boolean;
+    task?: string;
   } = {};
   if (typeof src.displayName === "string" && src.displayName.length > 0) {
     out.displayName = src.displayName;
@@ -2140,6 +2148,10 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
   }
   if (typeof src.coordinator === "boolean") {
     out.coordinator = src.coordinator;
+  }
+  // Phase 80 Plan 80-03: task narrowing — mirrors voice/title pattern.
+  if (typeof src.task === "string" && src.task.length > 0) {
+    out.task = src.task;
   }
   return out;
 }

@@ -117,6 +117,10 @@ export function publicIdentity(
     avatarMime?: string;
     avatarEtag?: string;
     coordinator?: boolean;
+    /** Phase 80 Plan 80-03: task string from identity file frontmatter.
+     *  When present-and-string, surfaced verbatim; otherwise emitted as null
+     *  (matches voice/title null-fallback shape). */
+    task?: string;
   } = {},
   role: string | null = null,
 ) {
@@ -129,6 +133,10 @@ export function publicIdentity(
     title: typeof cosmetics.title === "string" ? cosmetics.title : null,
     colorHue: typeof cosmetics.colorHue === "number" ? cosmetics.colorHue : null,
     voice: typeof cosmetics.voice === "string" ? cosmetics.voice : null,
+    // Phase 80 Plan 80-03: task surfaces on every identity object (D-05
+    // write-once semantics — read straight from disk frontmatter via
+    // extractCosmeticsFromFrontmatter's task narrowing).
+    task: typeof cosmetics.task === "string" ? cosmetics.task : null,
     avatarMime:
       typeof cosmetics.avatarMime === "string" ? cosmetics.avatarMime : "",
     // Phase 68: hostId baked into avatarUrl so the frontend no longer needs
