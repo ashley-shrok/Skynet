@@ -56,11 +56,16 @@ import { getMatrixAdminCreds } from "./matrix-admin-creds-store.js";
 // ---------------------------------------------------------------------------
 const gate = process.env.INTEGRATION_TESTS === "1";
 
-// The default admin user we impersonate for the send round trip. Any real
-// mxid registered on the relay would work; using @skynet-admin itself keeps
-// the test dependency-free (no fresh account to provision) and mirrors the
-// same account the human-checkpoint step-2 (`synapse-reach`) uses.
-const ADMIN_MXID_DEFAULT = "@skynet-admin:thenasty.taild9b663.ts.net";
+// The target user we impersonate via loginAsUser. MUST NOT be @skynet-admin —
+// Synapse's admin-login endpoint refuses to mint a token FOR the admin itself
+// ("Cannot use admin API to login as self", verified 2026-09-06 during Phase 75
+// human-checkpoint verification). The real Phase B use-case is admin → human
+// impersonation (bridge inbound), so this test uses a non-admin fleet account.
+// Default target is @tina, a durable long-lived non-admin account on the fleet
+// relay; operator can override via env for testing against another account.
+const LOGIN_TARGET_DEFAULT = "@tina:thenasty.taild9b663.ts.net";
+const LOGIN_TARGET_MXID =
+  process.env.MATRIX_INTEGRATION_LOGIN_TARGET ?? LOGIN_TARGET_DEFAULT;
 
 // Optional operator override for the target room. If unset, the test creates
 // a fresh room. Set via `MATRIX_INTEGRATION_ROOM_ID=!abc:server npx vitest ...`.
@@ -107,7 +112,7 @@ async function createIntegrationRoom(
   });
   if (!response.ok) {
     throw new Error(
-      `createRoom failed: HTTP ${response.status} — operator should verify @skynet-admin can create rooms`,
+      `createRoom failed: HTTP ${response.status} — the minted token for the target user may not have room-creation permission; verify the target account is unlocked + non-guest`,
     );
   }
   const parsed = (await response.json()) as { room_id?: string };
@@ -143,17 +148,19 @@ describe.skipIf(!gate)(
         expect(creds.homeserverBase).toMatch(/^https?:\/\/.+/);
 
         // ---- 1. loginAsUser: mint a fresh access_token ---------------------
-        const targetMxid = creds.userId || ADMIN_MXID_DEFAULT;
+        // Target MUST be non-admin — Synapse refuses admin-login-as-self.
+        const targetMxid = LOGIN_TARGET_MXID;
         const loginResult = await loginAsUser(targetMxid);
         if (!loginResult.ok) {
           throw new Error(
             `loginAsUser failed: status=${loginResult.status} error=${loginResult.error} — ` +
-              "check that @skynet-admin still has admin:true on the Synapse relay " +
-              "(curl -s -H 'Authorization: Bearer <token>' " +
+              `check that target ${targetMxid} exists on the relay and is NOT the ` +
+              "admin account itself (Synapse refuses admin-login-as-self). Override " +
+              "via MATRIX_INTEGRATION_LOGIN_TARGET=@othermxid:server env var if needed. " +
+              "Verify with: curl -s -H 'Authorization: Bearer <admin-token>' " +
               creds.homeserverBase +
               "/_synapse/admin/v2/users/" +
-              encodeURIComponent(targetMxid) +
-              ")",
+              encodeURIComponent(targetMxid),
           );
         }
         // Basic shape assertions on the returned token — Synapse tokens are
