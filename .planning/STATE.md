@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-06T14:49:42.081Z"
+last_updated: "2026-09-06T15:09:39.952Z"
 last_activity: 2026-09-06
 progress:
   total_phases: 79
   completed_phases: 65
   total_plans: 296
-  completed_plans: 290
+  completed_plans: 291
   percent: 82
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 80 (id skill revamp Phase A) — EXECUTING
-Plan: 4 of 10
+Plan: 5 of 10
 Status: Ready to execute
 
 Last activity: 2026-09-06
@@ -212,7 +212,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 99%
+Progress: [██████████] 100%
 Progress: [██████████] 100%
 
 ## Performance Metrics
@@ -348,6 +348,7 @@ Progress: [██████████] 100%
 | Phase 76 P03 | 15 | 1 tasks | 1 files |
 | Phase 80 P80-03 | ~14 min | 3 tasks | 10 files |
 | Phase 80 P03b | 20min | 2 tasks | 4 files |
+| Phase 80 P04 | 12min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -558,6 +559,7 @@ Recent decisions affecting current work:
 - [Phase ?]: MXID_ORDINAL_MAX=100 cap: pool exhaustion beyond 100 same-handle accounts indicates operator intervention needed
 - [Phase ?]: Silent-fallback branch narrowly scoped to mxid_name_not_pool_shape error tag; mxid_role_malformed rethrows to fail Step 6 loudly
 - [Phase ?]: MXID derivation inside Step 6's runStep (no new numbered SSE step) preserves Q2 no-rollback invariant and keeps frontend BirthProgress checklist untouched
+- [Phase ?]: Phase 80 Plan 04: Local duplication of ROLE_NAME_PATTERN in pool-routes.ts (mirrors identity-birth.ts:63 IDENTITY_KEY_RE style) — private ROLE_NAME_RE in identity-birth-orchestrator not exported; JSDoc documents sync requirement
 
 ### Pending Todos
 
@@ -856,7 +858,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-06T14:48:43.309Z
+Last session: 2026-09-06T15:09:29.094Z
 Stopped at: Completed 80-03b-PLAN.md
 Last session: 2026-09-06T12:17:07.176Z
 Stopped at: Phase 80 context gathered
