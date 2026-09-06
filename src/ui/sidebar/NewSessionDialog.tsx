@@ -308,6 +308,10 @@ export function NewSessionDialog({
   const [voice, setVoice] = useState<string>("");
   const [colorHue, setColorHue] = useState<number>(() => Math.floor(Math.random() * 360)); // random hue per open, so never-touched identities aren't all cyan-blue
 
+  // Phase 80 Plan 80-06: task-description field state (see textarea below).
+  const [task, setTask] = useState<string>("");
+  const [poolPickedName, setPoolPickedName] = useState<string | null>(null);
+
   // Avatar batch state
   const [candidates, setCandidates] = useState<AvatarCandidate[]>([]);
   const [pickedCandidateId, setPickedCandidateId] = useState<string | null>(null);
@@ -428,6 +432,9 @@ export function NewSessionDialog({
       setBrief("");
       setVoice("");
       setColorHue(Math.floor(Math.random() * 360));
+      // Phase 80 Plan 80-06: reset task-input + pool-pick tracking on close.
+      setTask("");
+      setPoolPickedName(null);
       setCandidates([]);
       setPickedCandidateId(null);
       setGenLoading(false);
@@ -676,6 +683,21 @@ export function NewSessionDialog({
           avatarCandidateId: pickedCandidateId,
           // Phase 22 SRIC-02: required role from the dropdown.
           role: selectedRole,
+          // Phase 80 Plan 80-06: optional task string (soft-cap 200 client-side,
+          // backend hard-caps 500 defense-in-depth). Empty/whitespace-only →
+          // undefined so the backend treats absence as legacy shape.
+          task: task.trim() || undefined,
+          // Phase 80 Plan 80-06 (A1 MXID lock signal): true iff the current
+          // name state EXACTLY matches the last pool-picked value AND a
+          // pool-pick actually happened. Any user edit flips this to false
+          // by breaking the equality; a null poolPickedName (no pool-pick
+          // fired, or pickPoolName rejected) also yields undefined. Backend
+          // re-validates via composeMxidLocalpart shape check per plan
+          // 80-03b Task 2 — a lying client cannot force a malformed MXID.
+          poolPicked:
+            poolPickedName !== null && name.trim() === poolPickedName
+              ? true
+              : undefined,
         },
         abortControllerRef.current.signal,
       );
@@ -1008,6 +1030,32 @@ export function NewSessionDialog({
                     )}
                 </div>
               )}
+
+              {/* Phase 80 Plan 80-06: task-description textarea.
+                  Positioned ABOVE the Name input inside the identity cluster
+                  (gated on identityMode along with the whole cluster). Soft-
+                  cap 200 chars (D-Claude's Discretion — executor may retune
+                  when badge widths render in plan 80-07). Backend hard-caps
+                  500 chars (defense-in-depth per plan 80-03). */}
+              <div className="flex flex-col gap-1.5">
+                <label
+                  htmlFor="new-identity-task"
+                  className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
+                >
+                  What will this agent work on?
+                </label>
+                <textarea
+                  id="new-identity-task"
+                  aria-label="Task"
+                  value={task}
+                  onChange={(e) => setTask(e.target.value)}
+                  maxLength={200}
+                  rows={2}
+                  placeholder="Describe the task in 15-20 words…"
+                  disabled={formDisabled}
+                  className="w-full rounded-sm border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] px-3 py-2 text-xs text-[color:var(--color-pv-fg)] placeholder:text-[color:var(--color-pv-fg-dim)] outline-none disabled:opacity-50 resize-none"
+                />
+              </div>
 
               {/* Identity name field */}
               <div className="flex flex-col gap-1.5">
