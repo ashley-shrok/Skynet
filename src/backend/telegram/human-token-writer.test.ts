@@ -35,14 +35,19 @@ vi.mock("../utils/logger.js", () => ({
 
 let tempDir: string;
 
-beforeEach(() => {
+beforeEach(async () => {
   infoSpy.mockClear();
   warnSpy.mockClear();
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tg-bridge-hti-"));
   process.env.TG_BRIDGE_STATE_DIR_OVERRIDE = tempDir;
   // Reset module cache so shared-volume.ts re-reads the env var, and the
-  // writer module re-binds against the new path helpers.
+  // writer module re-binds against the new path helpers. Then clear the
+  // loginAsUser mock's per-call history (vi.resetModules alone does not
+  // reset the mock's call log — that survives across tests and would
+  // pollute the "never called" assertion in Test 3).
   vi.resetModules();
+  const { loginAsUser } = await import("../matrix/matrix-admin-client.js");
+  vi.mocked(loginAsUser).mockClear();
 });
 
 afterEach(() => {
