@@ -92,6 +92,33 @@ vi.mock("../../utils/logger.js", () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 
+// Phase 77 (Plan 04) added a 503 fail-early gate at POST / and POST /retry/:key
+// when matrix admin foundation isn't ingested. Tests here focus on SSE +
+// orchestrator-invocation behavior, not the fail-early path, so mock the store
+// to return non-null creds so the gate passes and the handler proceeds.
+vi.mock("../../matrix/matrix-admin-creds-store.js", () => ({
+  getMatrixAdminCreds: vi.fn().mockResolvedValue({
+    homeserverBase: "http://mock.homeserver.local:8008",
+    userId: "@mock-admin:mock.homeserver.local",
+    password: "mock-admin-password",
+    accessToken: "syt_mock_admin_token_test",
+  }),
+  setMatrixAdminCreds: vi.fn().mockResolvedValue(undefined),
+}));
+
+// Also mock the matrix admin client — the birth route wires these into
+// BirthDeps at request time; Test 5 asserts d.matrixCreateOrUpdateUser etc.
+// are wired as functions, so the module must export functions (even if
+// unused in these orchestrator-mocked tests).
+vi.mock("../../matrix/matrix-admin-client.js", () => ({
+  createOrUpdateUser: vi.fn(),
+  loginAsUser: vi.fn(),
+  joinRoom: vi.fn(),
+  makeRoomAdmin: vi.fn(),
+  listRooms: vi.fn(),
+  buildRelayJsonBody: vi.fn(),
+}));
+
 // ---------------------------------------------------------------------------
 // Auth manager mock
 // ---------------------------------------------------------------------------
@@ -99,20 +126,29 @@ vi.mock("../../utils/logger.js", () => ({
 let mockUserId: string | null = "1";
 
 vi.mock("../../utils/auth-manager.js", () => {
+  // Shared middleware body — used by both createAuthMiddleware (Phase 20 birth
+  // handler) and createAdminMiddleware (Phase 77 retry handler at
+  // POST /identities/birth/retry/:key). Both middlewares gate on mockUserId
+  // being non-null; the admin-gate distinction is not exercised in these
+  // orchestrator-layer tests since the mocked orchestrator is where all the
+  // real Phase 77 logic lives.
+  const middleware =
+    () =>
+    (
+      req: express.Request,
+      res: express.Response,
+      next: express.NextFunction,
+    ) => {
+      if (mockUserId === null) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      (req as express.Request & { userId: string }).userId = mockUserId;
+      next();
+    };
   const AuthManager = {
     getInstance: () => ({
-      createAuthMiddleware: () =>
-        (
-          req: express.Request,
-          res: express.Response,
-          next: express.NextFunction,
-        ) => {
-          if (mockUserId === null) {
-            return res.status(401).json({ error: "Unauthorized" });
-          }
-          (req as express.Request & { userId: string }).userId = mockUserId;
-          next();
-        },
+      createAuthMiddleware: middleware,
+      createAdminMiddleware: middleware,
     }),
   };
   return { AuthManager };

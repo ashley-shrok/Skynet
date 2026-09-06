@@ -506,15 +506,18 @@ export async function runRelayMintAndWrite(
       agentPassword,
       opts.displayName,
     );
-    if (!mintResult.ok) {
+    if (mintResult.ok === false) {
       // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode + agent-supervisor race
+      // Explicit `=== false` narrowing: `!mintResult.ok` fails to narrow the
+      // discriminated union under tsconfig.node.json's strict setup (build tsc
+      // sees the full union inside the guard instead of just the ok:false variant).
       throw new Error(
         `admin_mint_failed: ${mintResult.error} (${mintResult.status})`,
       );
     }
     // D-OQ6: mint a real access_token so relay.json carries it from birth-time.
     const loginResult = await deps.matrixLoginAsUser(mxid);
-    if (!loginResult.ok) {
+    if (loginResult.ok === false) {
       // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode + agent-supervisor race
       throw new Error(
         `admin_login_failed: ${loginResult.error} (${loginResult.status})`,

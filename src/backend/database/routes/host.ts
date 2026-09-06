@@ -470,7 +470,7 @@ router.post(
           try {
             await orch.sweepOneHost({
               id: String(createdHost.id),
-              name: effectiveName,
+              name: effectiveName as string,
             });
           } catch (err) {
             // Defense-in-depth. Should be unreachable per 75-02 NT2.
@@ -1179,7 +1179,7 @@ router.put(
             try {
               await orch.sweepOneHost({
                 id: String(hostId),
-                name: effectiveName,
+                name: effectiveName as string,
               });
             } catch (err) {
               systemLogger.warn("On-update sweep threw unexpectedly", {

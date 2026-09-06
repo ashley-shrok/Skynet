@@ -230,7 +230,11 @@ export async function joinRoom(
 // makeRoomAdmin — POST /_synapse/admin/v1/rooms/{roomIdOrAlias}/make_room_admin
 // ---------------------------------------------------------------------------
 
-export type MakeRoomAdminOk = AdminOk<Record<string, never>>;
+// `AdminOk<Record<string, never>>` collapses to an impossible type under
+// strict build settings (Docker build's tsc rejects `{ok:true}` as violating
+// Record<string, never>). This primitive has no payload beyond the ok flag —
+// just declare that directly.
+export type MakeRoomAdminOk = { ok: true };
 
 /**
  * Elevate a user (default: @skynet-admin itself) to PL100 in a room. Used

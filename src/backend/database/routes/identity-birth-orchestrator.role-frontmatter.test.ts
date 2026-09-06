@@ -128,6 +128,29 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
       readFile: vi.fn(),
       writeFile: vi.fn(),
     },
+    // Phase 77 matrix admin foundation deps (Plan 04) — successful-stub defaults
+    // so pre-existing tests reach steps 3-5 without hitting Step 6 fail-early.
+    // The route handler enforces "creds must exist" via 503; orchestrator-layer
+    // tests just need the deps to be callable and return {ok:true}.
+    matrixHomeserver: "http://mock.homeserver.local:8008",
+    matrixCreateOrUpdateUser: vi.fn().mockResolvedValue({
+      ok: true,
+      mxid: "@testkey:mock.homeserver.local",
+      password: "mock-agent-password",
+      status: 200,
+    }),
+    matrixLoginAsUser: vi.fn().mockResolvedValue({
+      ok: true,
+      accessToken: "syt_mock_access_token_test",
+      status: 200,
+    }),
+    buildRelayJsonBody: vi.fn().mockReturnValue({
+      base: "http://mock.homeserver.local:8008/_matrix/client/v3",
+      user_id: "@testkey:mock.homeserver.local",
+      password: "mock-agent-password",
+      token: "syt_mock_access_token_test",
+      access_token: "syt_mock_access_token_test",
+    }),
     ...overrides,
   } as BirthDeps;
 }
@@ -320,7 +343,7 @@ it("Test 13: Step 2.5 execs mkdir wakeups + touch handoff.md via execCommand", a
 // Test 14: no new SSE event types — Step 2.5 is silent inside Step 2's flow
 // ---------------------------------------------------------------------------
 
-it("Test 14: no new SSE event types — Step 2.5 emits nothing extra beyond the existing step:1..5", async () => {
+it("Test 14: SSE event types — steps 1..5 pre-Phase-77 + steps 6..8 Phase-77 relay-mint additions", async () => {
   const deps = makeDeps();
   const opts = makeOpts();
   const { events, emit } = collectEvents();
@@ -328,13 +351,16 @@ it("Test 14: no new SSE event types — Step 2.5 emits nothing extra beyond the 
   await vi.runAllTimersAsync();
   await birthPromise;
 
-  // Only step:1..5 + ended; no extra "step 2.5" or otherwise-numbered events
+  // Phase 77 (Plan 04) extended the orchestrator to emit step:6, step:7,
+  // step:8 in addition to the original step:1..5. This assertion allows
+  // both the pre-Phase-77 steps and the Phase-77 relay-mint additions;
+  // no other step numbers may leak.
   const stepEvents = events.filter((e) => e.type === "step");
   for (const e of stepEvents) {
-    expect([1, 2, 3, 4, 5]).toContain(e.n);
+    expect([1, 2, 3, 4, 5, 6, 7, 8]).toContain(e.n);
   }
-  // 5 steps × 2 phases (started+completed) = 10 step events + 1 ended = 11 events
-  expect(events.length).toBe(11);
+  // 8 steps × 2 phases (started+completed) = 16 step events + 1 ended = 17 events
+  expect(events.length).toBe(17);
   const endedEvent = events.find((e) => e.type === "ended");
   expect(endedEvent).toBeDefined();
   expect((endedEvent as { ok: boolean }).ok).toBe(true);

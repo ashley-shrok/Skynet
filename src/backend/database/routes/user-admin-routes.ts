@@ -295,7 +295,10 @@ export function registerUserAdminRoutes(
    */
   router.post("/:id/mxid", authenticateJWT, async (req, res) => {
     const userId = (req as AuthenticatedRequest).userId;
-    const targetId = req.params.id;
+    // Express types req.params[key] as `string | string[]` (legacy wildcards).
+    // Drizzle's eq() only accepts `string | SQLWrapper`, so narrow at the
+    // handler boundary. Under strict tsconfig.node.json, this cast is required.
+    const targetId = req.params.id as string;
     const { mxid } = req.body ?? {};
 
     // T-75-10 mitigation: regex-gate BEFORE any DB touch, URL construction,
