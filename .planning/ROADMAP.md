@@ -1904,7 +1904,7 @@ Plans:
 
 ### Phase 79: Telegram bridge Phase B: substrate promotion + identity modal Telegram section — package Nina bridge (/home/thenasty/.config/tg-bridge/bridge.sh) into fleet distributor as managed service, add Matrix-cursor disk persistence mirroring recv.sh, new Telegram section in identity modal per identity, activation flow (bot-token paste → Skynet writes bridge registry → restart bridge → user sends /start). Sits on top of Phase 77 (matrix-admin foundation, shipped). Shape: .planning/shapes/shape-telegram-bridge.md § Vehicle notes Phase B.
 
-**Goal:** [To be planned]
+**Goal:** [To be replanned — install pathway course-corrected 2026-09-06 to Docker Compose service. See .planning/phases/79-*/79-CONTEXT.md § Attribution corrections + § 4C for the revised architecture.]
 **Requirements**: TBD
 **Depends on:** Phase 77
 **Plans:** 0 plans
