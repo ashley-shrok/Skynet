@@ -1907,7 +1907,7 @@ Plans:
 **Goal:** Ship the Skynet-side changes that let a new identity be born as a task-scoped worker with a pool-picked name and a task string, and surface the task on both display surfaces (chat pill + conversation list row) with graceful fallback when the field is absent.
 **Requirements**: TBD
 **Depends on:** Phase 77
-**Plans:** 5/10 plans executed
+**Plans:** 6/10 plans executed
 Plans:
 **Wave 1**
 
@@ -1919,7 +1919,7 @@ Plans:
 
 - [x] 80-03b-PLAN.md — MXID DIVERGE derivation (composeMxidLocalpart + deriveMxidWithOrdinal in birth-orchestrator Step 6, gated on opts.poolPicked) — A1 lock 2026-09-06
 - [x] 80-04-PLAN.md — POST /identities/pool/pick router with full auth/host/creds/pool gates; mounted before generic /identities (A2 Shape A)
-- [ ] 80-05-PLAN.md — Frontend Identity.task + BirthRequest.task + pickPoolName API client
+- [x] 80-05-PLAN.md — Frontend Identity.task + BirthRequest.task + pickPoolName API client
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
