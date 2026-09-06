@@ -258,7 +258,7 @@ describe("IdentityModal — per-scope NAV_SECTIONS (Phase 72 Plan 03)", () => {
     expect(navButtons![1].textContent).toContain("Bounties");
   });
 
-  it("test 22b: under Identity scope, bottom nav has 3 buttons; first button label is 'Identity file'", () => {
+  it("test 22b: under Identity scope, bottom nav has 4 buttons; first button label is 'Identity file'", () => {
     renderModal({ coordinator: false });
     // Actor mount starts in Identity scope — no switch needed. Sanity-flip
     // to prove the button count assertion below is scope-conditional.
@@ -266,10 +266,14 @@ describe("IdentityModal — per-scope NAV_SECTIONS (Phase 72 Plan 03)", () => {
       .querySelector(".shrink-0.flex.items-stretch")
       ?.querySelectorAll("button");
     expect(navButtons).toBeDefined();
-    expect(navButtons!.length).toBe(3); // identity / identity-wakeups / handoff
+    // Phase 79 Plan 07 — Telegram tab added as the 4th Identity-scope entry
+    // (CONTEXT § Locked decisions #2 fixed real-estate). Was 3 before.
+    expect(navButtons!.length).toBe(4); // identity / identity-wakeups / handoff / telegram
     expect(navButtons![0].textContent).toContain("Identity file");
     // Sanity: second button is Wakeups (identity-wakeups pane).
     expect(navButtons![1].textContent).toContain("Wakeups");
+    // Sanity: fourth button (Phase 79) is Telegram.
+    expect(navButtons![3].textContent).toContain("Telegram");
   });
 });
 

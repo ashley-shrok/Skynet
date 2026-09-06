@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlarmClock, Clock, Handshake, Pencil, Target, User, Users, X } from "lucide-react";
+import { AlarmClock, Clock, Handshake, Pencil, Send, Target, User, Users, X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import {
   DialogHeader,
@@ -121,6 +121,15 @@ import { RoleFileTab } from "./RoleFileTab";
 import { HistoryTab } from "./HistoryTab";
 import { WakeupsTab } from "./WakeupsTab";
 import { HandoffTab } from "./HandoffTab";
+// Phase 79 Plan 07 — Telegram bridge tab (identity-scope, fixed real-estate
+// per CONTEXT § Locked decisions #2). TelegramState is threaded from a
+// useState slot in this component and reset on modal open/identity switch.
+import { TelegramTab, type TelegramState } from "./TelegramTab";
+// Phase 79 Plan 07 (blocker W-3) — resolve the authenticated user's userId
+// on modal open so we can pass it as humanUserId to TelegramTab. Mirrors the
+// AppShell.tsx:412 / FullScreenAppWrapper.tsx:43 / LoginPage.tsx pattern for
+// the same source of truth.
+import { getUserInfo } from "@/main-axios";
 
 // Patch #87: tabbed near-fullscreen modal for the identity's bounties.
 // Patch #17g: renamed Standing Directives → Identity; promoted Identity to
@@ -315,6 +324,8 @@ export function IdentityModal({
     { value: "identity", label: "Identity file", Icon: User },
     { value: "identity-wakeups", label: "Wakeups", Icon: AlarmClock },
     { value: "handoff", label: "Handoff", Icon: Handshake },
+    // Phase 79 Plan 07 — Telegram bridge tab (CONTEXT § 2 fixed real-estate).
+    { value: "telegram", label: "Telegram", Icon: Send },
   ] as const;
   const NAV_SECTIONS = scope === "role" ? NAV_SECTIONS_ROLE : NAV_SECTIONS_IDENTITY;
 
@@ -336,6 +347,15 @@ export function IdentityModal({
   const [identityWakeupsState, setIdentityWakeupsState] = useState<TabState<Wakeup[]>>({ status: "loading" });
   const [roleWakeupsState, setRoleWakeupsState] = useState<TabState<Wakeup[]>>({ status: "loading" });
   const [handoffState, setHandoffState] = useState<TabState<string>>({ status: "loading" });
+  // Phase 79 Plan 07 — Telegram bridge tab state. Fetched on modal open via
+  // getTelegramStatus (see effect below).
+  const [telegramState, setTelegramState] = useState<TelegramState>({ status: "loading" });
+  // Phase 79 Plan 07 (blocker W-3) — authenticated user's userId. Sourced
+  // from getUserInfo() on modal open (mirrors AppShell.tsx:412 pattern).
+  // Empty string until fetch resolves; TelegramTab's Submit gates on non-
+  // empty. Backend re-verifies via authenticateJWT.req.userId — even a
+  // spoofed empty humanUserId gets rejected there (Plan 03 T-79-03-01).
+  const [authUserId, setAuthUserId] = useState<string>("");
 
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -366,6 +386,10 @@ export function IdentityModal({
     setIdentityWakeupsState({ status: "loading" });
     setRoleWakeupsState({ status: "loading" });
     setHandoffState({ status: "loading" });
+    // Phase 79 Plan 07 — reset Telegram tab state + authUserId on modal
+    // open / identity switch. Effects below re-fetch both.
+    setTelegramState({ status: "loading" });
+    setAuthUserId("");
 
     let cancelled = false;
     const ws = openClaudeSessionSocket();
@@ -657,6 +681,63 @@ export function IdentityModal({
     );
     return () => { cancelled = true; };
   }, [open, identity.identityKey, hostId]);
+
+  // Phase 79 Plan 07 (blocker W-3) — resolve the authenticated user's userId
+  // once per modal open. Same mechanism AppShell.tsx:412 uses at app root.
+  // Identity switches inside the same session reuse the userId (getUserInfo
+  // hits /users/me which is JWT-cookie-authenticated so it's fast).
+  //
+  // On failure: authUserId stays empty, TelegramTab renders the "couldn't
+  // verify session" hint + disabled Submit. Other tabs (Identity file /
+  // Wakeups / Handoff) handle their own auth via the WebSocket path — no
+  // change to them.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const info = await getUserInfo();
+        if (cancelled) return;
+        setAuthUserId(info.userId);
+      } catch (err) {
+        if (cancelled) return;
+        // Non-fatal for the modal open. Do NOT toast — the missing session
+        // is surfaced inside the Telegram tab where it actually matters.
+        console.warn("IdentityModal: getUserInfo failed", err);
+        setAuthUserId("");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open]);
+
+  // Phase 79 Plan 07 — fetch initial Telegram bridge status on modal open /
+  // identity switch. Dynamic import keeps the modal chunk lean.
+  useEffect(() => {
+    if (!open || !identity.identityKey) return;
+    let cancelled = false;
+    (async () => {
+      const { getTelegramStatus } = await import("../../api/telegram-api");
+      const result = await getTelegramStatus(identity.identityKey);
+      if (cancelled) return;
+      if (result.status === "error") {
+        setTelegramState({ status: "error", error: result.error });
+      } else if (result.status === "connected") {
+        setTelegramState({
+          status: "connected",
+          botUsername: result.botUsername,
+          // Filled in once we learn the human's TG handle via chat_id lookup
+          // (deferred to a later plan — the wire response today carries only
+          // botUsername + telegramChatId; humanHandle resolution is a follow-
+          // up). "unknown" is a placeholder that CONTEXT § 3A's minimal
+          // connected view still reads cleanly.
+          telegramHandle: "unknown",
+        });
+      } else {
+        setTelegramState({ status: "unconfigured" });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, identity.identityKey]);
 
   // Patch #172: pinned-first partition. `pinned` is now an independent
   // boolean field (fleet migration #168), so ANY bounty with pinned===true
@@ -2182,6 +2263,23 @@ export function IdentityModal({
               state={handoffState}
               isCoordinator={identity.coordinator}
               onSave={updateHandoff}
+            />
+          </TabsContent>
+
+          {/* Phase 79 Plan 07 — Telegram bridge tab (identity-scope only).
+              humanUserId sourced from getUserInfo() in the useEffect above
+              (blocker W-3 fix); empty until fetch resolves, which disables
+              TelegramTab's Submit inside the component. */}
+          <TabsContent
+            value="telegram"
+            className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
+          >
+            <TelegramTab
+              state={telegramState}
+              identityKey={identity.identityKey}
+              identityName={identity.displayName ?? identity.identityKey}
+              humanUserId={authUserId}
+              onStateChange={setTelegramState}
             />
           </TabsContent>
 
