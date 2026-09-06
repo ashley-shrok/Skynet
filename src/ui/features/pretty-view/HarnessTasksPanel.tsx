@@ -1,4 +1,5 @@
-import { ArrowRight, Circle, CircleDot } from "lucide-react";
+import { useState } from "react";
+import { ArrowRight, ChevronDown, Circle, CircleDot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { HarnessTask } from "@/api/claude-session-api";
 
@@ -39,6 +40,7 @@ function statusIcon(status: string) {
 }
 
 export function HarnessTasksPanel({ tasks, className }: HarnessTasksPanelProps) {
+  const [collapsed, setCollapsed] = useState(false);
   return (
     <div
       className={cn(
@@ -62,12 +64,24 @@ export function HarnessTasksPanel({ tasks, className }: HarnessTasksPanelProps) 
       )}
       aria-label="Harness tasks"
     >
-      <div className="py-1 text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase tracking-wide flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => setCollapsed((c) => !c)}
+        className="w-full py-1 text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase tracking-wide flex items-center gap-2 cursor-pointer hover:text-[var(--color-pv-fg)] transition-colors"
+        aria-expanded={!collapsed}
+      >
+        <ChevronDown
+          className={cn(
+            "size-3.5 shrink-0 transition-transform",
+            collapsed && "-rotate-90",
+          )}
+        />
         <span>Tasks</span>
         <span className="text-[var(--color-pv-fg-dim)] normal-case font-normal">
           ({tasks.length})
         </span>
-      </div>
+      </button>
+      {!collapsed && (
       <ul className="pb-1 flex flex-col gap-1">
         {tasks.map((t) => {
           // In-progress tasks: show activeForm ("Refactoring foo") over the
@@ -96,6 +110,7 @@ export function HarnessTasksPanel({ tasks, className }: HarnessTasksPanelProps) 
           );
         })}
       </ul>
+      )}
     </div>
   );
 }

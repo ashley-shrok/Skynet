@@ -1,4 +1,5 @@
-import { ArrowRight } from "lucide-react";
+import { useState } from "react";
+import { ArrowRight, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { BackgroundedAgent } from "@/api/claude-session-api";
 
@@ -30,6 +31,7 @@ export function BackgroundedAgentsPanel({
   agents,
   className,
 }: BackgroundedAgentsPanelProps) {
+  const [collapsed, setCollapsed] = useState(false);
   return (
     <div
       className={cn(
@@ -47,12 +49,24 @@ export function BackgroundedAgentsPanel({
       )}
       aria-label="Backgrounded agents"
     >
-      <div className="py-1 text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase tracking-wide flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => setCollapsed((c) => !c)}
+        className="w-full py-1 text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase tracking-wide flex items-center gap-2 cursor-pointer hover:text-[var(--color-pv-fg)] transition-colors"
+        aria-expanded={!collapsed}
+      >
+        <ChevronDown
+          className={cn(
+            "size-3.5 shrink-0 transition-transform",
+            collapsed && "-rotate-90",
+          )}
+        />
         <span>Agents</span>
         <span className="text-[var(--color-pv-fg-dim)] normal-case font-normal">
           ({agents.length})
         </span>
-      </div>
+      </button>
+      {!collapsed && (
       <ul className="pb-1 flex flex-col gap-1">
         {agents.map((a) => {
           const tag = a.subagentType || "Agent";
@@ -91,6 +105,7 @@ export function BackgroundedAgentsPanel({
           );
         })}
       </ul>
+      )}
     </div>
   );
 }
