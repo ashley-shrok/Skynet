@@ -320,6 +320,22 @@ async function initializeCompleteDatabase(): Promise<void> {
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     );
 
+    -- Phase 75 Plan 01 — singleton store for the @skynet-admin Matrix
+    -- relay credentials. Written via matrix-admin-creds-store.ts, which
+    -- eagerly encrypts access_token + password through FieldCrypto before
+    -- INSERT/UPDATE. IF NOT EXISTS keeps the DDL idempotent across boots.
+    -- id=1 by convention (singleton row); no user-id FK because these are
+    -- Skynet-instance-wide creds, not user-scoped.
+    CREATE TABLE IF NOT EXISTS matrix_admin_creds (
+        id INTEGER PRIMARY KEY,
+        homeserver_base TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        access_token TEXT NOT NULL,
+        password TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS snippets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id TEXT NOT NULL,
@@ -851,6 +867,41 @@ const migrateSchema = async () => {
   addColumnIfNotExists("users", "totp_secret", "TEXT");
   addColumnIfNotExists("users", "totp_enabled", "INTEGER NOT NULL DEFAULT 0");
   addColumnIfNotExists("users", "totp_backup_codes", "TEXT");
+
+  // Phase 75 Plan 01 (Q3 locked decision) — mxid column for the Matrix
+  // relay mapping. Nullable: populated via POST /users/:id/mxid (Plan 03)
+  // for humans; agents' mxids live on-disk in relay.json per fleet
+  // convention. Idempotent via addColumnIfNotExists (probes SELECT, ALTER
+  // on throw). The Drizzle mirror lives at schema.ts users.mxid.
+  addColumnIfNotExists("users", "mxid", "TEXT");
+
+  // Phase 75 Plan 01 — persist the new matrix_admin_creds table + users.mxid
+  // column to the encrypted SQLite file. Both DDLs (CREATE TABLE IF NOT
+  // EXISTS matrix_admin_creds in the top-level exec block, and the
+  // addColumnIfNotExists above) execute against the RAM SQLite; without an
+  // explicit forceSave the new schema lives only in memory until an unrelated
+  // write fires the debounced save trigger. A restart before that first
+  // unrelated write loses the schema and re-runs the DDL on next boot.
+  //
+  // Wrapped in try/catch with a non-fatal warn: DatabaseSaveTrigger may not
+  // yet be initialized on the first-ever boot (handlePostInitFileEncryption
+  // wires it AFTER migrateSchema returns per index.ts init order). Both the
+  // CREATE TABLE IF NOT EXISTS and the addColumnIfNotExists probe-then-ALTER
+  // are idempotent, so a save failure retries on the next boot cycle.
+  // Mirrors the precedent at L810-821 (phase-68 drop) — same shape, same
+  // reason, same tolerance for uninitialized-trigger races.
+  try {
+    await DatabaseSaveTrigger.forceSave("phase-75-matrix-admin-schema");
+  } catch (saveError) {
+    databaseLogger.warn(
+      "[phase-75] forceSave failed post-schema (non-fatal — CREATE IF NOT EXISTS + addColumnIfNotExists are idempotent, next boot retries)",
+      {
+        operation: "schema_migration_force_save_post_add",
+        reason: "phase-75-matrix-admin-schema",
+        error: saveError,
+      },
+    );
+  }
 
   addColumnIfNotExists("ssh_data", "name", "TEXT");
   addColumnIfNotExists("ssh_data", "folder", "TEXT");

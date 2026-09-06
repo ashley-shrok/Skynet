@@ -43,6 +43,11 @@ class FieldCrypto {
       "publicKey",
     ]),
     opkssh_tokens: new Set(["sshCert", "privateKey"]),
+    // Phase 75 Plan 01 — @skynet-admin Matrix relay credentials, encrypted
+    // at rest via FieldCrypto. Column names use snake_case (DB column form)
+    // because matrix-admin-creds-store.ts calls encryptField/decryptField
+    // with fieldName="access_token" / "password" against the DB rows.
+    matrix_admin_creds: new Set(["access_token", "password"]),
   };
 
   static encryptField(

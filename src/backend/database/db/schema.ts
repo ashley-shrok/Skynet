@@ -23,6 +23,13 @@ export const users = sqliteTable("users", {
     .notNull()
     .default(false),
   totpBackupCodes: text("totp_backup_codes"),
+
+  // Phase 75 Plan 01 (Q3 locked decision) — mxid mapping for the Matrix
+  // relay. Nullable: only humans with a registered relay account have one,
+  // and it's populated via POST /users/:id/mxid (Plan 03) or the one-shot
+  // import for Ashley/Zoe/Laura. Not a credential; agents' relay identifiers
+  // live on-disk in ~/.claude/identities/<name>/relay.json per fleet convention.
+  mxid: text("mxid"),
 });
 
 export const settings = sqliteTable("settings", {
@@ -654,6 +661,34 @@ export const apiKeys = sqliteTable("api_keys", {
   expiresAt: text("expires_at"),
   lastUsedAt: text("last_used_at"),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+});
+
+// Phase 75 Plan 01 — singleton store for the @skynet-admin Matrix relay
+// credentials. One row (id=1 by convention) holds the homeserver base URL,
+// the admin mxid, the admin access_token, and the admin password.
+//
+// The `access_token` and `password` columns are FieldCrypto-encrypted at
+// rest per field-crypto.ts ENCRYPTED_FIELDS["matrix_admin_creds"] — writes
+// go through matrix-admin-creds-store.ts (Task 2 below), which eagerly
+// encrypts before Drizzle INSERT/UPDATE, and reads round-trip through
+// FieldCrypto.decryptField.
+//
+// This is the ONLY relay credential that lives in Skynet's own storage.
+// Agent relay creds live on-disk at ~/.claude/identities/<name>/relay.json
+// (fleet convention, Phase 69); human relay creds are owned by the human
+// and never stored anywhere in Skynet.
+export const matrixAdminCreds = sqliteTable("matrix_admin_creds", {
+  id: integer("id").primaryKey(),
+  homeserverBase: text("homeserver_base").notNull(),
+  userId: text("user_id").notNull(),
+  accessToken: text("access_token").notNull(),
+  password: text("password").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
 });
 
 // Phase 68: identities table dropped; identity IS the disk folder on some
