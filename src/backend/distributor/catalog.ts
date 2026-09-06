@@ -30,7 +30,7 @@
  *   `systemctl --user daemon-reload` at the start of every sweep, so systemd
  *   has already re-read the unit before the restart hook fires.
  *
- * ROW-COUNT RECONCILIATION (15 items vs. 20 rows):
+ * ROW-COUNT RECONCILIATION (15 items vs. 21 rows):
  *   The shape doc counts "15 items" — that's 7 single-file skills + 1 skill
  *   with 1 companion (agent-relay: SKILL.md + recv.sh) + 1 skill with 3
  *   companions (id: SKILL.md + actor-status-prompt + clone-picker-prompt +
@@ -42,9 +42,11 @@
  *     - 7 rows for the single-file skills (backlog, bounty,
  *       claude-code-harness-auth, next-bounty, promote-to-coordinator,
  *       queue, role)
- *     - 6 rows for helper scripts under scripts/
+ *     - 7 rows for helper scripts under scripts/
+ *       (role-file-watch is the fourth ambient monitor, sibling of
+ *       wakeup-scheduler + context-watch)
  *     - 1 row for user-onboarding/agent-supervisor.service
- *   Total = 20.
+ *   Total = 21.
  */
 
 /**
@@ -85,7 +87,7 @@ export interface CatalogEntry {
 }
 
 /**
- * The 20-row hand-maintained catalog. Ordered skills-side first, then
+ * The 21-row hand-maintained catalog. Ordered skills-side first, then
  * scripts-side, then user-onboarding/ files. Within skills, multi-file skills
  * (id, agent-relay) appear before single-file skills for reviewability.
  */
@@ -176,7 +178,7 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
-  // --- helper scripts (6 rows, all under ~/.local/bin/) ---
+  // --- helper scripts (7 rows, all under ~/.local/bin/) ---
   // agent-supervisor is the sole entry with a restart hook: bytes must be
   // re-executed for the daemon to run the new version, and its unit is
   // KillMode=process so `systemctl --user restart agent-supervisor` does not
@@ -197,6 +199,12 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     slug: "context-watch",
     bundledPath: "/app/fleet-substrate/scripts/context-watch.py",
     installPath: "~/.local/bin/context-watch",
+    restartHook: null,
+  },
+  {
+    slug: "role-file-watch",
+    bundledPath: "/app/fleet-substrate/scripts/role-file-watch.py",
+    installPath: "~/.local/bin/role-file-watch",
     restartHook: null,
   },
   {

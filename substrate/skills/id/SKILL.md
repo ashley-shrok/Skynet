@@ -489,11 +489,11 @@ do NOT do role work yourself, ever, even if it looks trivial.
 
 ## On-wake Monitors: `description: [ambient] ...` — filter contract
 
-The three on-wake Monitors below (receiver, wake-up scheduler, context-watch), plus
-any additional persistent Monitor you launch as background plumbing (e.g. a
-second-server relay receiver on another homeserver), are **ambient** — they run for
-the whole session as infrastructure, not as active work. Skynet's PrettyView filters
-them out of the "isWorking" fleet-status count by matching
+The four on-wake Monitors below (receiver, wake-up scheduler, context-watch,
+role-file watch), plus any additional persistent Monitor you launch as background
+plumbing (e.g. a second-server relay receiver on another homeserver), are **ambient**
+— they run for the whole session as infrastructure, not as active work. Skynet's
+PrettyView filters them out of the "isWorking" fleet-status count by matching
 **`description.startsWith("[ambient] ")`** on the Stop-hook payload. Without the
 prefix, every identity looks permanently working forever and the ready-dot never
 appears.
@@ -501,7 +501,8 @@ appears.
 **Rule:** every persistent-Monitor launched by this skill (or by an identity as
 ambient plumbing) uses a description of the form **`[ambient] <what>`** —
 `[ambient] <name> relay receiver`, `[ambient] <name> wake-up scheduler`,
-`[ambient] <name> context watch`, `[ambient] <name>@<other-server> relay receiver`,
+`[ambient] <name> context watch`, `[ambient] <name> role-file watch`,
+`[ambient] <name>@<other-server> relay receiver`,
 etc. Active-work Monitors (e.g. `gh pr checks --watch` for a specific PR you're
 babysitting) do NOT get the prefix — those SHOULD show as work. (2026-08-13, Tina,
 Skynet Phase 34; filter code lives in
@@ -644,6 +645,47 @@ immediately — the human backstop.
 
 Start it even though it will usually sit silent for a very long time (an Opus 1M-context
 session reaching 80% is a lot of turns) — it's a safety valve, not a chatty monitor.
+
+---
+
+## On wake: start your role-file watch
+
+The receiver wakes you on a **message**, the scheduler on the **clock**, the context-watch
+on **context pressure** — this fourth Monitor wakes you on a **role-file change**, so
+mid-session edits by one identity of a multi-identity role become visible to peer identities
+of that role while they are still running. It closes the gap where your in-context copy of
+the role file has diverged from disk because another identity edited it — a `remember X` or
+`forget X` made in another session lands in the file immediately, but running peer identities
+carry a now-stale copy until their next full recycle.
+
+The watch is **diff-first, not re-read-first**: it fires the unified diff of what changed
+— inline in the wake event when the diff is small (under the harness's per-event character
+cap), and spilled to a file on disk with a pointer in the event when the diff is too large
+to fit (same pattern the relay receiver uses for long inbound messages). No summarization,
+no interpretation — the diff itself is what you read.
+
+Start it once per session, right after the context-watch, same primitive (a persistent
+`Monitor`). It's a shipped, dependency-free helper — **launch this shipped script, do NOT
+hand-roll your own.** The Skynet distributor keeps `~/.local/bin/role-file-watch` current
+on every container restart; launch it pointed at your identity dir:
+
+    # via the harness Monitor tool (persistent:true):
+    #   description:  [ambient] <name> role-file watch
+    #   command:      python3 ~/.local/bin/role-file-watch ~/.claude/identities/<name>
+
+**Agent-side reading protocol:** when the watch fires with a diff, read it. If you recognize
+the change as one you made yourself (via `remember X` / `always X` / `forget X` / `never X`
+acting on the user's word), ignore it — it's your own write echoing back. If it came from
+another identity of your role, adopt it: your mental model of the role file updates
+in-session without needing a full re-read. The watch is dumb on purpose — it doesn't try to
+detect who made the edit; that judgment lives with you, in the diff content itself.
+
+The watch is silent on its very first run for an identity (cold start) — it snapshots the
+current role file as a baseline without firing, because a fresh identity has just read the
+file anyway. On subsequent runs, it catches any changes that happened between sessions.
+
+See `.planning/shapes/shape-role-file-watch.md` in the box-maintainer role's Skynet repo
+for the full design rationale and scope edges.
 
 ---
 
@@ -968,6 +1010,7 @@ Two peer folders at the top of `~/.claude/`, each with lowercased names (see §1
 - `handoff.md` — session carry (overwritten each save)
 - `wakeups/` — per-identity scheduled wake-up specs + scheduler state (`.state/`)
 - `ctxwatch/` — context-watch runtime state (`.state/`)
+- `role-file-watch/` — role-file-watch runtime state (`.state/`, `spilled/`, `last-snapshot` baseline)
 - `relay.json` — durable per-identity Matrix account credentials
 - `relay-state/` — per-identity relay cursor + token
 - `.no-dormancy` — optional sentinel; present = always-on / exempt from

@@ -32,13 +32,15 @@ function bundledPathToRepoPath(bundledPath: string): string {
 }
 
 describe("FLEET_SUBSTRATE_CATALOG", () => {
-  it("Test 1: contains exactly 20 entries (15 conceptual items + agent-supervisor.service unit)", () => {
+  it("Test 1: contains exactly 21 entries (15 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor)", () => {
     // 15 = 7 single-file skills + agent-relay (SKILL.md + recv.sh counted as
     // one item) + id (SKILL.md + 3 companions counted as one item) + 6 helper
     // scripts. Per-FILE row layout is required by the byte-compare mechanism
-    // in Plan 03, so the array has 13 skill-side rows + 6 scripts-side rows +
+    // in Plan 03, so the array has 13 skill-side rows + 7 scripts-side rows +
     // 1 user-onboarding row (agent-supervisor.service).
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(20);
+    // role-file-watch is the 7th helper script (fourth ambient monitor alongside
+    // wakeup-scheduler and context-watch).
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(21);
   });
 
   it("Test 2: every bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -97,7 +99,10 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
 
     // 13 skill-side files: 4 under id/ + 2 under agent-relay/ + 7 single-file skills
     expect(skillRows.length).toBe(13);
-    expect(scriptRows.length).toBe(6);
+    // 7 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
+    // role-file-watch (4th ambient monitor) + usage-reporter + install-usage-reporter +
+    // claude-usage-collector
+    expect(scriptRows.length).toBe(7);
     // 1 user-onboarding file: agent-supervisor.service
     expect(userOnboardingRows.length).toBe(1);
 
@@ -133,7 +138,7 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
       );
     }
 
-    // All 6 scripts land under ~/.local/bin/
+    // All 7 scripts land under ~/.local/bin/
     for (const row of scriptRows) {
       expect(row.installPath.startsWith("~/.local/bin/")).toBe(true);
     }
