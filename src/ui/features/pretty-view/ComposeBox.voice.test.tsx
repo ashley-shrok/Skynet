@@ -492,11 +492,10 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     const resetBtn = screen.getByRole("button", { name: "Reset context window" });
     fireEvent.click(resetBtn);
 
-    // onResetClicked fires SYNC on click (patch #122 latency guarantee) —
-    // no waitFor needed for this assertion; it MUST have fired before the
-    // await voice.endSend even resolves.
-    expect(onResetClicked).toHaveBeenCalled();
-
+    // quick 260905-d79: onResetClicked now fires on dispatch SUCCESS (inside
+    // dispatchResetPayload's `if (dispatched)` branch) — not sync-on-click —
+    // so a disconnected socket doesn't falsely mount the overlay. Still fires
+    // after the endSend round-trip resolves and the funnel dispatch succeeds.
     // onSend fires with the glued payload after endSend resolves.
     await waitFor(() => {
       // Phase 68 Plan 02: dispatchResetPayload now routes through the funnel
@@ -504,6 +503,7 @@ describe("ComposeBox — Phase 16 voice flow", () => {
       // fires on dormant reset like main-textarea sends).
       expect(onSend).toHaveBeenCalledWith("/id reset (hi there and one more thing)", expect.stringMatching(/^pv-optim-/));
     });
+    expect(onResetClicked).toHaveBeenCalled();
 
     // Textarea cleared after successful dispatch.
     await waitFor(() => {
@@ -544,8 +544,6 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     const resetBtn = screen.getByRole("button", { name: "Reset context window" });
     fireEvent.click(resetBtn);
 
-    expect(onResetClicked).toHaveBeenCalled();
-
     // KEY assertion: onSend fires with the EXISTING textarea body — NOT
     // plain "/id reset", NOT a silent no-op.
     await waitFor(() => {
@@ -554,6 +552,9 @@ describe("ComposeBox — Phase 16 voice flow", () => {
       // fires on dormant reset like main-textarea sends).
       expect(onSend).toHaveBeenCalledWith("/id reset (existing body)", expect.stringMatching(/^pv-optim-/));
     });
+    // quick 260905-d79: onResetClicked now fires on dispatch SUCCESS (inside
+    // dispatchResetPayload's `if (dispatched)` branch) — not sync-on-click.
+    expect(onResetClicked).toHaveBeenCalled();
   });
 
   it("Test 15 (quick 260803-7vf): transcribing state disables the reset button", async () => {
@@ -582,5 +583,80 @@ describe("ComposeBox — Phase 16 voice flow", () => {
       const btn = screen.getByRole("button", { name: "Reset context window" }) as HTMLButtonElement;
       expect(btn.disabled).toBe(true);
     });
+  });
+
+  it("Test 16: Append with empty transcript + empty textarea leaves textarea empty (no lone space)", async () => {
+    // STT returns {text:""} — e.g. mic muted / silence / no speech detected.
+    // With baseText also empty, the textarea MUST NOT gain a lone trailing
+    // space (bounty voice-empty-transcript-silent-noop UX symptom fix).
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ text: "" }),
+      }),
+    );
+
+    const onSend = vi.fn(() => true);
+    render(<ComposeBox {...baseProps({ onSend })} />);
+
+    const micBtn = screen.getByRole("button", { name: "Record voice" });
+    fireEvent.click(micBtn);
+
+    const appendBtn = await screen.findByRole("button", { name: "Append transcript" });
+
+    act(() => {
+      const recorder = MockMediaRecorder.instances[0];
+      recorder.emitData(new Blob(["audio"], { type: "audio/webm" }));
+    });
+
+    fireEvent.click(appendBtn);
+
+    // State returns to idle (MicButton re-renders) — proves the append
+    // round-trip completed.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Record voice" })).toBeTruthy();
+    });
+
+    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+    expect(textarea.value).toBe("");
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("Test 17: Send with empty transcript + empty textarea does not fire onSend and leaves textarea empty", async () => {
+    // Symmetric to Test 16 for the Send button. Empty-empty send MUST NOT
+    // dispatch an empty payload through handleSend.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ text: "" }),
+      }),
+    );
+
+    const onSend = vi.fn(() => true);
+    render(<ComposeBox {...baseProps({ onSend })} />);
+
+    const micBtn = screen.getByRole("button", { name: "Record voice" });
+    fireEvent.click(micBtn);
+
+    const sendTranscriptBtn = await screen.findByRole("button", { name: "Send transcript" });
+
+    act(() => {
+      const recorder = MockMediaRecorder.instances[0];
+      recorder.emitData(new Blob(["audio"], { type: "audio/webm" }));
+    });
+
+    fireEvent.click(sendTranscriptBtn);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Record voice" })).toBeTruthy();
+    });
+
+    const textarea = screen.getByPlaceholderText(/message/i) as HTMLTextAreaElement;
+    expect(textarea.value).toBe("");
+    expect(onSend).not.toHaveBeenCalled();
   });
 });

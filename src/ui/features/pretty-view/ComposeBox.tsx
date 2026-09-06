@@ -1621,6 +1621,11 @@ export function ComposeBox({
       : (queueSlots.find((s) => s.id === target)?.text ?? "");
     const result = await voice.endAppend(baseText);
     if (result) {
+      // Empty transcript + empty baseText → do not dirty the textarea with a
+      // lone trailing space. Error sound already played inside voice.endAppend.
+      if (result.transcript === "" && baseText === "") {
+        return;
+      }
       // Trailing space so the next dictation chunk joins without needing a manual space.
       const appended = result.glued + " ";
       if (target === "primary") {
@@ -1647,6 +1652,12 @@ export function ComposeBox({
       : (queueSlots.find((s) => s.id === target)?.text ?? "");
     const result = await voice.endSend(baseText);
     if (result) {
+      // Empty transcript + empty baseText → do not send an empty payload or
+      // dirty a slot. Error sound already played inside voice.endSend.
+      if (result.transcript === "" && baseText === "") {
+        setMicTarget("primary");
+        return;
+      }
       if (target === "primary") {
         setText(result.glued);
         scheduleAutosave(result.glued, latestQueueSlotsRef.current);
