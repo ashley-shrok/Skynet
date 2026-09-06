@@ -19,6 +19,7 @@ import identityAvatarBatchRoutes from "./routes/identity-avatar-batch.js";
 import identityExistsOnHostRoutes from "./routes/identity-exists-on-host.js";
 import identityNoDormancyRoutes from "./routes/identity-no-dormancy.js";
 import identityBirthRoutes from "./routes/identity-birth.js";
+import matrixAdminRoutes from "../matrix/matrix-admin-routes.js";
 // Phase 22 (SRIC-03): identity clone endpoint — mounted alongside birth/exists
 // with the same match-precedence discipline (specific paths BEFORE /identities).
 import identityCloneRoutes from "./routes/identity-clone.js";
@@ -1811,6 +1812,10 @@ app.post("/database/restore", requireAdmin, async (req, res) => {
 });
 
 app.use("/users", userRoutes);
+// Phase 75 amendment: matrix-admin creds ingestion + rotation surface. Admin-gated
+// (authenticateJWT + requireAdmin middleware). Same endpoint serves the one-shot
+// bootstrap AND future rotation calls (returns rotation:true when overwriting).
+app.use("/matrix-admin", matrixAdminRoutes);
 app.use("/host", hostRoutes);
 app.use("/alerts", alertRoutes);
 app.use("/credentials", credentialsRoutes);
