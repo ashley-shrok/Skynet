@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-06T14:20:55.046Z"
+last_updated: "2026-09-06T14:49:42.081Z"
 last_activity: 2026-09-06
 progress:
   total_phases: 79
   completed_phases: 65
   total_plans: 296
-  completed_plans: 289
+  completed_plans: 290
   percent: 82
 ---
 
@@ -347,6 +347,7 @@ Progress: [██████████] 100%
 | Phase 76 P01 | 47 | 2 tasks | 2 files |
 | Phase 76 P03 | 15 | 1 tasks | 1 files |
 | Phase 80 P80-03 | ~14 min | 3 tasks | 10 files |
+| Phase 80 P03b | 20min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -553,6 +554,10 @@ Recent decisions affecting current work:
 - [Phase ?]: 80-03: task validation lands BEFORE flushHeaders in identity-birth.ts — 400s emit as JSON not SSE (RESEARCH §7 landmine preserved)
 - [Phase ?]: 80-03: task emitted AFTER avatar in buildIdentityFileBody — extends canonical role/displayName/title/colorHue/voice/avatar/task ordering
 - [Phase ?]: 80-03 A3 lock: identity-clone.ts contains zero source.task reads (grep gate = 0); regression test asserts request task overrides source's on-disk task
+- [Phase ?]: MXID PascalCase-first-letter rule locked: pool name rest-verbatim (not full titlecase) — safe under POOL_NAME_RE gate + tolerant to future pool-restriction loosening
+- [Phase ?]: MXID_ORDINAL_MAX=100 cap: pool exhaustion beyond 100 same-handle accounts indicates operator intervention needed
+- [Phase ?]: Silent-fallback branch narrowly scoped to mxid_name_not_pool_shape error tag; mxid_role_malformed rethrows to fail Step 6 loudly
+- [Phase ?]: MXID derivation inside Step 6's runStep (no new numbered SSE step) preserves Q2 no-rollback invariant and keeps frontend BirthProgress checklist untouched
 
 ### Pending Todos
 
@@ -851,8 +856,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-06T14:19:29.447Z
-Stopped at: Completed 80-03-PLAN.md
+Last session: 2026-09-06T14:48:43.309Z
+Stopped at: Completed 80-03b-PLAN.md
 Last session: 2026-09-06T12:17:07.176Z
 Stopped at: Phase 80 context gathered
 Last session: 2026-08-14T22:37:15.928Z
