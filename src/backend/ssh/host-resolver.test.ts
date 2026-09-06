@@ -8,10 +8,14 @@
  *
  * Testing approach:
  *   - vi.mock for getDb, SimpleDBOps, SystemCrypto, FieldCrypto, logger
- *   - The CSKEK branch does a fresh DB query for runsFleetSubstrate, then queries
- *     sshCredentials for system_* columns, then decrypts
- *   - SimpleDBOps.select is the tell for the user-DEK path
- *   - FieldCrypto.decryptField is the tell for the CSKEK path
+ *   - The CSKEK branch makes TWO direct db.select calls (inside the implementation,
+ *     not via SimpleDBOps.select):
+ *       1. db.select({runsFleetSubstrate}).from(hosts).where(...).limit(1)
+ *       2. db.select().from(sshCredentials).where(...).limit(1)
+ *   - The initial host load goes through SimpleDBOps.select (mocked separately)
+ *   - NOTE: db.select() is also called as the query-builder argument to SimpleDBOps.select.
+ *     These calls build a chain but do NOT call .limit() — we differentiate by tracking
+ *     which chains have .limit() awaited on them.
  *
  * Test groups:
  *   C1-C3: CSKEK branch happy path (D-09)
@@ -59,50 +63,45 @@ vi.mock("../utils/system-crypto.js", () => ({
 
 vi.mock("../utils/field-crypto.js", () => ({
   FieldCrypto: {
-    decryptField: vi.fn((ct: string, _key: Buffer, id: string, field: string) => `decrypted-${field}-${id}`),
+    decryptField: vi.fn((_ct: string, _key: Buffer, id: string, field: string) => `decrypted-${field}-${id}`),
   },
 }));
 
 // ---------------------------------------------------------------------------
 // DB mock infrastructure
+//
+// The key challenge: db.select() is called in TWO contexts in resolveHostById:
+//   1. As a query-builder argument to SimpleDBOps.select: db.select().from(hosts)...
+//      → .limit() is never called on this chain (SimpleDBOps.select handles query execution)
+//   2. Directly in the CSKEK branch (two calls): .limit(1) IS awaited
+//
+// We track .limit() calls to differentiate. limitCallCount is what counts.
 // ---------------------------------------------------------------------------
 
-// We need fine-grained control over each db.select chain call because the
-// CSKEK branch makes TWO sequential selects:
-//   1. db.select({runsFleetSubstrate}).from(hosts).where(...).limit(1)
-//   2. db.select().from(sshCredentials).where(...).limit(1)
-// Plus SimpleDBOps.select is called for the initial host load.
+// Queue of responses for direct db.select chains that DO call .limit()
+let limitCallQueue: Array<unknown[]> = [];
 
-type SelectChain = {
-  from: ReturnType<typeof vi.fn>;
-  where: ReturnType<typeof vi.fn>;
-  limit: ReturnType<typeof vi.fn>;
-};
+function enqueueLimitResponse(response: unknown[]) {
+  limitCallQueue.push(response);
+}
 
-let selectCallCount = 0;
-// Array of responses to return on successive select() calls
-let selectResponses: Array<unknown[]> = [];
-
-function makeSelectChain(response: unknown[]): SelectChain {
+function makeSelectChain() {
   const chain = {
-    from: vi.fn().mockReturnThis(),
-    where: vi.fn().mockReturnThis(),
-    limit: vi.fn(() => Promise.resolve(response)),
+    from: vi.fn(() => chain),
+    where: vi.fn(() => chain),
+    limit: vi.fn(async () => {
+      const response = limitCallQueue.shift() ?? [];
+      return response;
+    }),
   };
-  chain.from = vi.fn(() => chain);
-  chain.where = vi.fn(() => chain);
   return chain;
 }
 
-const mockDbSelect = vi.fn(() => {
-  const response = selectResponses[selectCallCount] ?? [];
-  selectCallCount++;
-  return makeSelectChain(response);
-});
+const mockDbSelectFn = vi.fn(() => makeSelectChain());
 
 vi.mock("../database/db/index.js", () => ({
   getDb: vi.fn(() => ({
-    select: mockDbSelect,
+    select: mockDbSelectFn,
   })),
 }));
 
@@ -123,7 +122,7 @@ import { SimpleDBOps } from "../utils/simple-db-ops.js";
 import { logger } from "../utils/logger.js";
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Type helpers
 // ---------------------------------------------------------------------------
 
 type HostRow = {
@@ -168,8 +167,8 @@ type CredRow = {
   keyType: string | null;
   password?: string | null;
   key?: string | null;
-  keyPassword?: string | null;
   privateKey?: string | null;
+  keyPassword?: string | null;
   certPublicKey?: string | null;
 };
 
@@ -186,46 +185,18 @@ function makeCredRow(overrides: Partial<CredRow> = {}): CredRow {
   };
 }
 
-/**
- * Set up selectResponses for a CSKEK path test.
- * The CSKEK branch makes two direct db.select calls:
- *   call 0: runsFleetSubstrate lookup → [{runsFleetSubstrate: true}]
- *   call 1: sshCredentials lookup → [credRow]
- */
-function setupCskekDbCalls(runsFleetSubstrate: boolean, credRow: CredRow | null) {
-  selectResponses = [
-    [{ runsFleetSubstrate }],
-    credRow ? [credRow] : [],
-  ];
-  selectCallCount = 0;
-}
-
-/**
- * Set up for non-substrate path (SimpleDBOps.select handles everything).
- * The CSKEK branch does a single direct db.select call to check runsFleetSubstrate,
- * gets false, then falls through to SimpleDBOps.select path.
- */
-function setupNonSubstrateDbCalls(hostRow: HostRow, credRow: CredRow | null = null) {
-  // Direct db.select call: runsFleetSubstrate check returns false
-  selectResponses = [
-    [{ runsFleetSubstrate: false }],
-    credRow ? [credRow] : [],
-  ];
-  selectCallCount = 0;
-  // SimpleDBOps.select returns the host
-  (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([hostRow]);
-}
-
 // ---------------------------------------------------------------------------
 // Reset mocks before each test
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
   vi.clearAllMocks();
-  selectCallCount = 0;
-  selectResponses = [];
+  limitCallQueue = [];
 
-  // Default: no CSKEK key issues
+  // Restore fresh select chain factory
+  mockDbSelectFn.mockImplementation(() => makeSelectChain());
+
+  // Default: CSKEK works
   (SystemCrypto.getInstance as ReturnType<typeof vi.fn>).mockReturnValue({
     getCredentialSharingKey: vi.fn(async () => FAKE_CSKEK),
   });
@@ -233,7 +204,7 @@ beforeEach(() => {
   (FieldCrypto.decryptField as ReturnType<typeof vi.fn>).mockImplementation(
     (_ct: string, _key: Buffer, id: string, field: string) => `decrypted-${field}-${id}`,
   );
-  // Default: SimpleDBOps.select returns empty (will be overridden per test)
+  // Default: SimpleDBOps.select returns empty
   (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 });
 
@@ -246,20 +217,19 @@ describe("CSKEK branch happy path (C1-C3)", () => {
     const hostRow = makeHostRow({ id: 1, credentialId: 10, runsFleetSubstrate: true });
     const credRow = makeCredRow({ id: 10, systemPassword: "ct-password", systemKey: null });
 
-    // SimpleDBOps.select returns the host row (initial host load)
     (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([hostRow]);
-    setupCskekDbCalls(true, credRow);
+    // CSKEK branch will call .limit() twice:
+    //   1. runsFleetSubstrate lookup → [{runsFleetSubstrate: true}]
+    //   2. sshCredentials lookup → [credRow]
+    enqueueLimitResponse([{ runsFleetSubstrate: true }]);
+    enqueueLimitResponse([credRow]);
 
     const result = await resolveHostById(1, "user-1");
 
     expect(result).not.toBeNull();
-    // decryptField called for password (field=password, id="10")
     expect(FieldCrypto.decryptField).toHaveBeenCalledWith("ct-password", FAKE_CSKEK, "10", "password");
     expect(result!.password).toBe("decrypted-password-10");
     expect(result!.authType).toBe("password");
-    // MUST NOT fall through to user-DEK path
-    // The user-DEK path uses SimpleDBOps.select for credentials — after host load it's called once
-    // any subsequent call would be the user-DEK path; CSKEK branch returns before that
   });
 
   it("C2: substrate host with systemKey (key auth) → decrypted key, password null", async () => {
@@ -273,8 +243,8 @@ describe("CSKEK branch happy path (C1-C3)", () => {
     });
 
     (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([hostRow]);
-    selectResponses = [[{ runsFleetSubstrate: true }], [credRow]];
-    selectCallCount = 0;
+    enqueueLimitResponse([{ runsFleetSubstrate: true }]);
+    enqueueLimitResponse([credRow]);
 
     const result = await resolveHostById(2, "user-1");
 
@@ -295,8 +265,8 @@ describe("CSKEK branch happy path (C1-C3)", () => {
     });
 
     (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([hostRow]);
-    selectResponses = [[{ runsFleetSubstrate: true }], [credRow]];
-    selectCallCount = 0;
+    enqueueLimitResponse([{ runsFleetSubstrate: true }]);
+    enqueueLimitResponse([credRow]);
 
     const result = await resolveHostById(3, "user-1");
 
@@ -309,7 +279,7 @@ describe("CSKEK branch happy path (C1-C3)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// S1-S3: Non-substrate host scope boundary (D-10)
+// S1-S3: Non-substrate scope boundary (D-10)
 // ---------------------------------------------------------------------------
 
 describe("Non-substrate scope boundary (S1-S3)", () => {
@@ -320,37 +290,35 @@ describe("Non-substrate scope boundary (S1-S3)", () => {
     (SimpleDBOps.select as ReturnType<typeof vi.fn>)
       // First call: initial host load
       .mockResolvedValueOnce([hostRow])
-      // Second call: user-DEK credential resolve (NOT expected for CSKEK path)
+      // Second call: user-DEK credential resolve
       .mockResolvedValueOnce([credRow]);
-    // CSKEK path check: runsFleetSubstrate=false
-    selectResponses = [[{ runsFleetSubstrate: false }]];
-    selectCallCount = 0;
+    // CSKEK branch checks runsFleetSubstrate → false
+    enqueueLimitResponse([{ runsFleetSubstrate: false }]);
 
     await resolveHostById(4, "user-1");
 
     // FieldCrypto.decryptField must NOT have been called (CSKEK branch not triggered)
     expect(FieldCrypto.decryptField).not.toHaveBeenCalled();
-    // SimpleDBOps.select WAS called (user-DEK path)
+    // SimpleDBOps.select WAS called for both host load and credential resolve
     expect(SimpleDBOps.select).toHaveBeenCalled();
   });
 
   it("S2: runsFleetSubstrate=undefined (legacy row) → treated as non-substrate, CSKEK not triggered", async () => {
     const hostRow = makeHostRow({ id: 5, credentialId: 50, runsFleetSubstrate: undefined as unknown as boolean });
-    const credRow = makeCredRow({ id: 50, systemPassword: null });
+    const credRow = makeCredRow({ id: 50, systemPassword: null, password: "old-pw" });
 
     (SimpleDBOps.select as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce([hostRow])
       .mockResolvedValueOnce([credRow]);
-    // CSKEK path check returns runsFleetSubstrate=false (undefined/null → not substrate)
-    selectResponses = [[{ runsFleetSubstrate: false }]];
-    selectCallCount = 0;
+    // runsFleetSubstrate lookup returns null/undefined/0 → not true → non-substrate
+    enqueueLimitResponse([{ runsFleetSubstrate: null }]);
 
     await resolveHostById(5, "user-1");
 
     expect(FieldCrypto.decryptField).not.toHaveBeenCalled();
   });
 
-  it("S3: non-substrate host with credentialId → return value shape is equivalent to pre-plan behavior (regression)", async () => {
+  it("S3: non-substrate host with credentialId → password comes from user-DEK SimpleDBOps.select path (regression)", async () => {
     const hostRow = makeHostRow({
       id: 6,
       credentialId: 60,
@@ -372,8 +340,7 @@ describe("Non-substrate scope boundary (S1-S3)", () => {
     (SimpleDBOps.select as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce([hostRow])
       .mockResolvedValueOnce([credRow]);
-    selectResponses = [[{ runsFleetSubstrate: false }]];
-    selectCallCount = 0;
+    enqueueLimitResponse([{ runsFleetSubstrate: false }]);
 
     const result = await resolveHostById(6, "user-1");
 
@@ -396,8 +363,8 @@ describe("Fail-closed contract (FC1-FC3)", () => {
     const credRow = makeCredRow({ id: 70, systemPassword: "ct-pass" });
 
     (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([hostRow]);
-    selectResponses = [[{ runsFleetSubstrate: true }], [credRow]];
-    selectCallCount = 0;
+    enqueueLimitResponse([{ runsFleetSubstrate: true }]);
+    enqueueLimitResponse([credRow]);
 
     (FieldCrypto.decryptField as ReturnType<typeof vi.fn>).mockImplementation(() => {
       throw new Error("decrypt failed");
@@ -406,8 +373,7 @@ describe("Fail-closed contract (FC1-FC3)", () => {
     const result = await resolveHostById(7, "user-1");
 
     expect(result).toBeNull();
-    // SimpleDBOps.select was called for initial host load (once)
-    // But NOT called again for user-DEK credential resolve
+    // SimpleDBOps.select called once (initial host load) — NOT again for user-DEK
     expect(SimpleDBOps.select).toHaveBeenCalledTimes(1);
     // Warn logged
     const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
@@ -420,15 +386,15 @@ describe("Fail-closed contract (FC1-FC3)", () => {
 
     (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([hostRow]);
     // runsFleetSubstrate=true, then credential query returns empty
-    selectResponses = [[{ runsFleetSubstrate: true }], []];
-    selectCallCount = 0;
+    enqueueLimitResponse([{ runsFleetSubstrate: true }]);
+    enqueueLimitResponse([]); // empty cred result
 
     const result = await resolveHostById(8, "user-1");
 
     expect(result).toBeNull();
     // FieldCrypto.decryptField was NOT called (no cred row)
     expect(FieldCrypto.decryptField).not.toHaveBeenCalled();
-    // SimpleDBOps.select called once (initial host load), NOT again for user-DEK
+    // SimpleDBOps.select called once (initial host load) — NOT again for user-DEK
     expect(SimpleDBOps.select).toHaveBeenCalledTimes(1);
     // Warn logged
     const warnCalls = (logger.warn as ReturnType<typeof vi.fn>).mock.calls;
@@ -441,8 +407,8 @@ describe("Fail-closed contract (FC1-FC3)", () => {
     const credRow = makeCredRow({ id: 90, systemPassword: "ct-pass" });
 
     (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([hostRow]);
-    selectResponses = [[{ runsFleetSubstrate: true }], [credRow]];
-    selectCallCount = 0;
+    enqueueLimitResponse([{ runsFleetSubstrate: true }]);
+    enqueueLimitResponse([credRow]);
 
     (SystemCrypto.getInstance as ReturnType<typeof vi.fn>).mockReturnValue({
       getCredentialSharingKey: vi.fn(async () => {
@@ -467,22 +433,21 @@ describe("Fail-closed contract (FC1-FC3)", () => {
 // ---------------------------------------------------------------------------
 
 describe("Edge cases (E1)", () => {
-  it("E1: runsFleetSubstrate=true but credentialId=null → CSKEK branch not triggered (no credentialId check fails early)", async () => {
+  it("E1: runsFleetSubstrate=true but credentialId=null → CSKEK branch not triggered (credentialId guard fails early)", async () => {
     const hostRow = makeHostRow({ id: 11, credentialId: null, runsFleetSubstrate: true });
 
     (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([hostRow]);
-    // No db.select calls should be made for the CSKEK path since credentialId is null
-    selectResponses = [];
-    selectCallCount = 0;
+    // No limit-queue entries needed — CSKEK branch won't run (credentialId null skips entire block)
+    limitCallQueue = [];
 
     const result = await resolveHostById(11, "user-1");
 
-    // Should not null out — returns the host without credential resolve
     // CSKEK branch: requires credentialId, so it should NOT trigger
     // FieldCrypto.decryptField must not be called
     expect(FieldCrypto.decryptField).not.toHaveBeenCalled();
-    // result may or may not be null (depends on existing behavior for no-credentialId hosts)
-    // The key assertion is that CSKEK was not invoked
-    expect(SystemCrypto.getInstance).not.toHaveBeenCalledWith();
+    // No substrate check DB query needed
+    // The host is returned as-is (no credentials resolved)
+    expect(result).not.toBeNull();
+    expect(result!.id).toBe(11);
   });
 });
