@@ -1027,11 +1027,15 @@ router.put(
         });
       }
 
+      // Phase 75-06 — load BEFORE-state along with ownership fields so we can
+      // detect substrate-relevant transitions (flag flip-on OR credentialId
+      // change on already-substrate) for the fire-and-forget sweep trigger.
       const hostRecord = await db
         .select({
           userId: hosts.userId,
           credentialId: hosts.credentialId,
           authType: hosts.authType,
+          runsFleetSubstrate: hosts.runsFleetSubstrate,
         })
         .from(hosts)
         .where(eq(hosts.id, Number(hostId)))
@@ -1131,6 +1135,63 @@ router.put(
 
       res.json(resolvedHost);
       notifyStatsHostUpdated(parseInt(hostId), req.headers, "host_update");
+
+      // Phase 75-06 (D-08) — on-update fire-and-forget install pass.
+      // Triggers when:
+      //   (a) runsFleetSubstrate transitioned false→true (flag flip-on), OR
+      //   (b) runsFleetSubstrate stays true AND credentialId changed
+      //       (SSH key rotation, password change, etc.).
+      // Non-triggers:
+      //   - Flag stays false (never was, still isn't substrate)
+      //   - Flag flipped true→false (leaving substrate — nothing to sweep)
+      //   - Flag stays true, credentialId unchanged (metadata-only edit)
+      //
+      // Same fire-and-forget shape as POST (Task 1) — queueMicrotask, null-
+      // orchestrator check, defense-in-depth try/catch.
+      {
+        const nowIsSubstrate = !!runsFleetSubstrate;
+        const currentCredentialId = (credentialId as number | null) ?? null;
+        const wasSubstrate = hostRecord[0].runsFleetSubstrate === true;
+        const previousCredentialId =
+          (hostRecord[0].credentialId as number | null) ?? null;
+
+        const flagFlippedOn = !wasSubstrate && nowIsSubstrate;
+        const credentialChangedOnSubstrate =
+          wasSubstrate &&
+          nowIsSubstrate &&
+          previousCredentialId !== currentCredentialId;
+
+        if (flagFlippedOn || credentialChangedOnSubstrate) {
+          queueMicrotask(async () => {
+            const orch = getSubstrateOrchestrator();
+            if (!orch) {
+              systemLogger.warn(
+                "Substrate orchestrator not available for on-update sweep",
+                {
+                  operation: "fleet_substrate_on_add_no_orchestrator",
+                  fleetHostId: String(hostId),
+                  hostName: effectiveName,
+                  reason: flagFlippedOn ? "flag_flip_on" : "credential_change",
+                },
+              );
+              return;
+            }
+            try {
+              await orch.sweepOneHost({
+                id: String(hostId),
+                name: effectiveName,
+              });
+            } catch (err) {
+              systemLogger.warn("On-update sweep threw unexpectedly", {
+                operation: "fleet_substrate_on_add_sweep_error",
+                fleetHostId: String(hostId),
+                hostName: effectiveName,
+                error: err instanceof Error ? err.message : "unknown",
+              });
+            }
+          });
+        }
+      }
     } catch (err) {
       sshLogger.error("[host-db] update-host-failed", err, {
         operation: "host_update",
