@@ -1,0 +1,28 @@
+# Phase 79 Plan 05 — tg-bridge Docker image.
+# Small debian-slim image with bash, curl, jq, and inotify-tools.
+# Consumed by the tg-bridge service in docker-compose.yml (Plan 06).
+#
+# The bridge is pure bash — no Node runtime, no Python. Nina's live bridge
+# at .planning/refs/79-nina-bridge-snapshot.sh uses only bash + curl + jq
+# (voice transcription is offloaded to a self-hosted Whisper STT box via
+# an HTTP POST); Phase B adds inotifywait for registry hot-reload. If Nina
+# ever grew a Python transcode step, we'd add python3 to the apt list and
+# document the deviation in the plan SUMMARY.
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      bash curl jq inotify-tools ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY bridge.sh /app/bridge.sh
+RUN chmod +x /app/bridge.sh
+
+# The bridge reads config from /state/config.env (bind-mounted named
+# Docker volume, shared with the skynet container — see docker-compose.yml).
+# It waits up to 5 min for the file to appear (see bridge.sh header comment)
+# with milestone log lines at attempts 1, 10, 20, 30, 40, 50, 60 for
+# observability during first boot (blocker W-7).
+ENTRYPOINT ["/app/bridge.sh"]
