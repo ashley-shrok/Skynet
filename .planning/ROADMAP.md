@@ -1864,3 +1864,24 @@ Plans:
 
 - [x] 75-08-PLAN.md — Add `UserCrypto.deriveDekForMigration` sessionless method + one-shot migration module + CLI entrypoint `scripts/migrate-substrate-credentials.ts` (D-12, D-13, D-14, D-15, D-19)
 - [x] 75-09-PLAN.md — End-to-end integration test proving startup pass, retry loop, persistent-failure alert, and on-add trigger work when composed with real modules (D-17, D-18 end-to-end)
+
+### Phase 77: Telegram bridge Phase A: Skynet Matrix admin integration — foundation for /build telegram-bridge
+
+**Goal:** Land the Matrix-admin foundation that Phase B (Telegram bridge substrate promotion + identity modal Telegram section) sits on top of. Ships a Matrix admin client wrapping the relay's `/_synapse/admin/v1+v2` API, storage of the single `@skynet-admin` account credentials in Skynet's encrypted-secrets pattern, agent-identity creation propagating to relay-account creation (Skynet mints via admin + writes `~/.claude/identities/<name>/relay.json` to the target host via SFTP per the existing fleet convention — Skynet does NOT duplicate the agent's credentials in its DB), a non-UI admin-gated backend endpoint (`POST /users/:id/mxid`) that registers externally-created human mxids against Skynet user rows landing in a new `mxid TEXT` column, an ingestion endpoint (`POST /matrix-admin/creds`) that serves both one-shot bootstrap and future rotation, a retry endpoint (`POST /identities/birth/retry/:key`) for Q2 partial-failure recovery, and Skynet's ability to force-manage any relay room via the admin API. **Explicit failure-mode invariant (Q2):** partial-tolerated + surface error, NO rollback — the agent-supervisor on the target host may already have started spinning up a tmux session for a Skynet-birthed identity by the time steps 6/7/8 fail, so rolling back would race with the supervisor. Human relay accounts are always created externally and remain owned by the human (Element on a phone, another Matrix client) — Skynet stores only the mxid mapping and mints tokens on demand via admin. Explicit scope-out: any new frontend UI, deletion/rename propagation (no Skynet deletion/rename surface exists), the Telegram bridge itself (Phase B).
+**Requirements**: MXA-01 through MXA-06 (all locked in 77-CONTEXT.md preamble § Locked implementation decisions from discuss-phase — see plan `requirements` frontmatter for per-plan coverage)
+**Depends on:** none (additive backend surface; no upstream Skynet surfaces disturbed)
+**Plans:** 5/5 plans complete (Wave 1: schema + admin client · Wave 2: mxid endpoint + birth-orchestrator extension · Wave 3: E2E integration test + agent-relay skill doc + human checkpoint). Amendment: `POST /matrix-admin/creds` ingestion route + nginx block + tests (`feat(75): POST /matrix-admin/creds ingestion endpoint`).
+Plans:
+**Wave 1**
+
+- [x] 77-01-PLAN.md — matrix_admin_creds table (FieldCrypto-encrypted access_token + password) + users.mxid TEXT column + matrix-admin-creds-store module with eager encrypt-on-write / decrypt-on-read (MXA-02)
+- [x] 77-02-PLAN.md — matrix-admin-client: 5 free async functions wrapping Synapse admin API (createOrUpdateUser, loginAsUser, joinRoom, makeRoomAdmin, listRooms) + buildRelayJsonBody helper matching recv.sh's exact JSON shape (MXA-01, MXA-05)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 77-03-PLAN.md — POST /users/:id/mxid admin-gated endpoint with MXID_RE validation + previousMxid audit-log capture for overwrite forensics (MXA-04)
+- [x] 77-04-PLAN.md — identity-birth-orchestrator extended with steps 6/7/8 (admin-mint account, mint access_token via loginAsUser, SFTP-write relay.json + chmod 600). Q2 no-rollback invariant baked in. 503 fail-early on missing admin creds (D-OQ7 lock — no hardcoded homeserver). POST /identities/birth/retry/:key endpoint for Q2 partial-failure recovery (MXA-03)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 77-05-PLAN.md — E2E integration test (gated on INTEGRATION_TESTS=1 strict) proving loginAsUser + send-message round-trip works via the admin foundation; light update to substrate/skills/agent-relay/SKILL.md reflecting Skynet's new admin role; human checkpoint covering @skynet-admin creds ingestion via POST /matrix-admin/creds + three-user mxid import (Ashley/Zoe on t1000, Laura on T800 side by Stacy) + doc coherence review (MXA-01, MXA-06)

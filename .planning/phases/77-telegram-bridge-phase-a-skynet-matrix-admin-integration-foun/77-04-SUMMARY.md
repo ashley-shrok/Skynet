@@ -7,9 +7,9 @@ tags: [matrix, identity-birth, orchestrator, retry, atomic-birth, no-rollback, s
 # Dependency graph
 requires:
   - phase: 75
-    provides: "Plan 75-01 — matrix-admin-creds-store (getMatrixAdminCreds returning MatrixAdminCreds{homeserverBase, userId, accessToken, password} or null)"
+    provides: "Plan 77-01 — matrix-admin-creds-store (getMatrixAdminCreds returning MatrixAdminCreds{homeserverBase, userId, accessToken, password} or null)"
   - phase: 75
-    provides: "Plan 75-02 — matrix-admin-client (createOrUpdateUser, loginAsUser, buildRelayJsonBody exports)"
+    provides: "Plan 77-02 — matrix-admin-client (createOrUpdateUser, loginAsUser, buildRelayJsonBody exports)"
   - phase: 22
     provides: "SRIC-02 identity-birth-orchestrator Step 2.5 pre-write pattern (mirrored for D-OQ3 local-branch skip)"
   - phase: 66
@@ -22,7 +22,7 @@ provides:
   - "503 fail-early gate at both POST / and POST /retry/:key when matrix admin foundation not ingested (T-75-28 mitigation)"
   - "chmod 600 as REQUIRED (not best-effort) post-write for relay.json (T-75-18 mitigation)"
   - "7 new test cases proving happy path 1-8 + Q2 no-rollback invariant at 3 catch surfaces + useLocal skip + retry idempotency + chmod-600 enforcement"
-affects: [75-05, phase-b-telegram-bridge, agent-relay-substrate]
+affects: [77-05, phase-b-telegram-bridge, agent-relay-substrate]
 
 # Tech tracking
 tech-stack:
@@ -39,12 +39,12 @@ key-files:
   modified:
     - src/backend/database/routes/identity-birth-orchestrator.ts (+274 lines: BirthEvent union, BirthDeps interface, runRelayMintAndWrite helper, birthIdentity integration point, extractServerName, generateAgentPassword)
     - src/backend/database/routes/identity-birth.ts (+215 lines: matrix imports, 503 fail-early gates, BirthDeps wiring for 4 new deps, POST /retry/:key route)
-    - src/backend/database/routes/identity-birth-orchestrator.test.ts (+464 lines: 7 Phase 75 test cases + makeDeps update for 4 new deps + Test 1 event count update)
+    - src/backend/database/routes/identity-birth-orchestrator.test.ts (+464 lines: 7 Phase 77 test cases + makeDeps update for 4 new deps + Test 1 event count update)
 
 key-decisions:
   - "D-OQ6 landed VERBATIM as documented: matrixLoginAsUser is a fourth BirthDeps field, invoked inside runRelayMintAndWrite between the createOrUpdateUser call and the buildRelayJsonBody call. NOT coupled into createOrUpdateUser (would dilute Plan 02's 'one primitive per endpoint' contract). The relay.json body carries a real (non-empty) access_token from birth-time — recv.sh does not have to relogin on first read."
   - "D-OQ7 landed VERBATIM: NO hardcoded homeserver fallback anywhere in identity-birth.ts. The 503 fail-early check at deps-assembly time is the sole path — a fresh non-ingested deployment surfaces {error: matrix_admin_foundation_not_ingested, detail: matrix admin foundation not ingested — see deploy runbook} instead of falling through to a fake homeserver. Rationale: island-model per CONTEXT.md § Philosophy."
-  - "Q2 partial-tolerated + NO ROLLBACK is enforced by (a) inline code comment `Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode + agent-supervisor race` at every catch surface in the orchestrator + retry route (10 occurrences), (b) test names containing the phrase `Q2 agent-supervisor race` for Tests B/B2/C/C2 (W-3 lock — grep-recoverable rationale), (c) explicit assertion helper `assertNoRmRfInExecCalls` in the tests that fails if ANY execCommand call contains rm/rm -rf."
+  - "Q2 partial-tolerated + NO ROLLBACK is enforced by (a) inline code comment `Q2 no-rollback lock — see 77-CONTEXT.md § Storage failure mode + agent-supervisor race` at every catch surface in the orchestrator + retry route (10 occurrences), (b) test names containing the phrase `Q2 agent-supervisor race` for Tests B/B2/C/C2 (W-3 lock — grep-recoverable rationale), (c) explicit assertion helper `assertNoRmRfInExecCalls` in the tests that fails if ANY execCommand call contains rm/rm -rf."
   - "chmod 600 is REQUIRED (not best-effort) per S-1 lock. A chmod failure throws `chmod_600_failed` from Step 8, emitting step:8:failed + ended{ok:false, failedStep:8}. Test C2 pins this behavior. Rationale: world-readable relay.json exposes the agent's Matrix credentials to any other target-host user (T-75-18)."
   - "D-OQ3 local-branch skip (useLocal=true) skips Steps 6/7/8 entirely by mirroring the existing Step 2.5 pre-write skip pattern. Phase A UAT is remote fleet hosts only; local-branch self-birth remains pre-Phase-75 behavior. Test D pins this."
   - "D-OQ1 retry mount lands under /identities/birth (inherits nginx /identities coverage per RESEARCH.md § Pitfall 1 — no new location blocks required in docker/nginx.conf or docker/nginx-https.conf). Alternative mount under a new /matrix-admin/... base was rejected."
@@ -63,7 +63,7 @@ duration: 55min
 completed: 2026-09-06
 ---
 
-# Phase 75 Plan 04: Birth orchestrator relay-mint extensions + retry endpoint Summary
+# Phase 77 Plan 04: Birth orchestrator relay-mint extensions + retry endpoint Summary
 
 **Landed the phase's headline behavioral change: a single `POST /identities/birth` now atomically creates the on-disk identity folder, mints the relay account through the Matrix admin API, and writes `~/.claude/identities/<name>/relay.json` with a real (non-empty) access_token — chmod'd 0600 — in one operation. Plus the Q2 partial-failure recovery surface: `POST /identities/birth/retry/:key` re-runs Steps 6/7/8 for an existing identity folder using the same shared `runRelayMintAndWrite` helper.**
 
@@ -82,7 +82,7 @@ completed: 2026-09-06
 
 - **The atomic-birth completion criterion (MXA-03) now holds:** a Skynet-driven `POST /identities/birth` against a remote fleet host ends with the identity folder + relay account + relay.json all landed. No two-worlds gap between "Skynet-side identity" and "relay-side identity" anymore.
 - **The relay.json body carries a real access_token at birth-time** (D-OQ6 lock): `runRelayMintAndWrite` calls `matrixLoginAsUser` between the admin-mint and the buildRelayJsonBody call, so recv.sh does not have to invoke its `relogin()` self-heal on the very first read. This is the correctness improvement over the pre-revision plan's "empty accessToken OK" story.
-- **The Q2 no-rollback lock is enforced three ways** (belt-and-braces per W-3): (a) inline code comment `Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode + agent-supervisor race` at every catch surface in production code (10 occurrences across orchestrator + retry route), (b) the Phase 75 test names contain the exact phrase `Q2 agent-supervisor race` for Tests B/B2/C/C2 (grep-recoverable rationale that survives casual refactors), (c) an explicit test-side `assertNoRmRfInExecCalls` helper that fails if any execCommand invocation contains rm/rm -rf/rm -r/rm -f.
+- **The Q2 no-rollback lock is enforced three ways** (belt-and-braces per W-3): (a) inline code comment `Q2 no-rollback lock — see 77-CONTEXT.md § Storage failure mode + agent-supervisor race` at every catch surface in production code (10 occurrences across orchestrator + retry route), (b) the Phase 77 test names contain the exact phrase `Q2 agent-supervisor race` for Tests B/B2/C/C2 (grep-recoverable rationale that survives casual refactors), (c) an explicit test-side `assertNoRmRfInExecCalls` helper that fails if any execCommand invocation contains rm/rm -rf/rm -r/rm -f.
 - **chmod 600 is a hard step-8 requirement** (S-1): a chmod failure throws `chmod_600_failed` from Step 8, emitting `step:8:failed + ended{ok:false, failedStep:8}`. Test C2 pins this behavior. Rationale: a world-readable relay.json exposes the agent's Matrix credentials to any other target-host user (T-75-18 mitigation).
 - **No hardcoded homeserver fallback** (D-OQ7 / T-75-28): both POST / and POST /retry/:key run a `getMatrixAdminCreds()` check as their first non-validation step. If it returns null, respond `503 {error: "matrix_admin_foundation_not_ingested", detail: "matrix admin foundation not ingested — see deploy runbook"}` and RETURN before opening SSE. `grep -c "thenasty.taild9b663.ts.net" src/backend/database/routes/identity-birth.ts` returns 0.
 - **Retry endpoint lands with no new nginx config** (D-OQ1): `POST /identities/birth/retry/:key` mounts inside identity-birth.ts's router under the existing `/identities/birth` mount, inheriting the existing nginx `/identities` location block. Admin-gated via `createAdminMiddleware`. Validation order: 401 → 403 → 400 (bad key) → 400 (missing hostId) → 503 (missing creds) → 404 (unknown host) → SSE.
@@ -93,7 +93,7 @@ Each task committed atomically per plan:
 
 1. **Task 1 — orchestrator extension:** `2fdc66ac` (feat) — BirthEvent union + BirthDeps interface + runRelayMintAndWrite helper + birthIdentity integration + updated test's makeDeps for the 4 new deps + Test 1 event count 11→17.
 2. **Task 2 — identity-birth.ts wiring + retry route:** `15f3d437` (feat) — matrix imports + 503 fail-early gate at both handlers + BirthDeps wiring for 4 new deps + POST /retry/:key route with full validation ladder.
-3. **Task 3 — Phase 75 test cases:** `9b44ca18` (test) — 7 new tests (A/B/B2/C/C2/D/E) with Q2 agent-supervisor race phrase in Tests B/B2/C/C2 names.
+3. **Task 3 — Phase 77 test cases:** `9b44ca18` (test) — 7 new tests (A/B/B2/C/C2/D/E) with Q2 agent-supervisor race phrase in Tests B/B2/C/C2 names.
 
 ## Widened Shapes (Output item 1)
 
@@ -105,7 +105,7 @@ export type BirthEvent =
   | { type: "ended"; ok: boolean; failedStep?: number; identityId?: string; sessionName?: string };
 ```
 
-Backend-only widening. Frontend BirthProgress checklist quietly ignores unknown step numbers today; the frontend widening is a Phase B concern (75-RESEARCH.md Assumption A4).
+Backend-only widening. Frontend BirthProgress checklist quietly ignores unknown step numbers today; the frontend widening is a Phase B concern (77-RESEARCH.md Assumption A4).
 
 ### BirthDeps (four new fields)
 
@@ -113,7 +113,7 @@ Backend-only widening. Frontend BirthProgress checklist quietly ignores unknown 
 export interface BirthDeps {
   // ...pre-existing fields unchanged...
 
-  /** Phase 75 Plan 04 (D-OQ6 lock) — Matrix admin mint primitive from Plan 02. */
+  /** Phase 77 Plan 04 (D-OQ6 lock) — Matrix admin mint primitive from Plan 02. */
   matrixCreateOrUpdateUser: (
     mxid: string,
     password: string,
@@ -123,7 +123,7 @@ export interface BirthDeps {
     | { ok: false; status: number; error: string }
   >;
 
-  /** Phase 75 Plan 04 (D-OQ6 lock) — Matrix admin login-as-user primitive from Plan 02. */
+  /** Phase 77 Plan 04 (D-OQ6 lock) — Matrix admin login-as-user primitive from Plan 02. */
   matrixLoginAsUser: (
     mxid: string,
     validUntilMs?: number,
@@ -132,10 +132,10 @@ export interface BirthDeps {
     | { ok: false; status: number; error: string }
   >;
 
-  /** Phase 75 Plan 04 — Matrix homeserver base URL (with scheme + port). */
+  /** Phase 77 Plan 04 — Matrix homeserver base URL (with scheme + port). */
   matrixHomeserver: string;
 
-  /** Phase 75 Plan 04 — pure builder for the relay.json JSON body. */
+  /** Phase 77 Plan 04 — pure builder for the relay.json JSON body. */
   buildRelayJsonBody: (opts: {
     mxid: string;
     password: string;
@@ -166,7 +166,7 @@ matrixLoginAsUser is NOT coupled into createOrUpdateUser (would dilute Plan 02's
 
 ## Test count + green status + Q2 phrase locations (Output item 3)
 
-- **Total tests:** 38 (31 pre-existing + 7 new Phase 75 tests). All green.
+- **Total tests:** 38 (31 pre-existing + 7 new Phase 77 tests). All green.
 - **Vitest:** `npx vitest run src/backend/database/routes/identity-birth-orchestrator.test.ts` → 38/38 pass, ~13s runtime.
 - **tsc:** `npx tsc --noEmit` → exit 0, clean.
 
@@ -234,7 +234,7 @@ await runStep(8, async () => {
   try {
     await deps.execCommand(conn, `chmod 600 ${quotedPath}`);
   } catch (chmodErr) {
-    // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode + agent-supervisor race
+    // Q2 no-rollback lock — see 77-CONTEXT.md § Storage failure mode + agent-supervisor race
     throw new Error(`chmod_600_failed: ${chmodErr instanceof Error ? chmodErr.message : String(chmodErr)}`);
   }
 });
@@ -318,9 +318,9 @@ None. No new network endpoints beyond the two documented in the threat model. No
 
 ## Follow-ups for downstream work
 
-- **Plan 75-05** (end-to-end integration test) can now exercise the full birth → Synapse admin PUT → login-as-user → SFTP write → chmod 600 chain against live thenasty and verify that (a) the relay.json file lands with mode 0600, (b) its access_token field is a real syt_... token (not empty), (c) recv.sh's first read succeeds without invoking `relogin()`.
+- **Plan 77-05** (end-to-end integration test) can now exercise the full birth → Synapse admin PUT → login-as-user → SFTP write → chmod 600 chain against live thenasty and verify that (a) the relay.json file lands with mode 0600, (b) its access_token field is a real syt_... token (not empty), (c) recv.sh's first read succeeds without invoking `relogin()`.
 - **Phase B** (Telegram bridge substrate promotion + identity-modal Telegram section) can build on top of the retry endpoint's admin-gate + SSE-envelope pattern for its own admin surfaces (e.g., "add telegram to identity" flow). The runRelayMintAndWrite shared-helper pattern is the template for any future orchestrator/retry pair.
-- **Frontend Phase B** will need to widen the BirthProgress checklist union to include steps 6/7/8 so the operator sees per-step progress in the birth UI (currently: unknown step numbers are quietly ignored — a Phase B concern per 75-RESEARCH.md Assumption A4).
+- **Frontend Phase B** will need to widen the BirthProgress checklist union to include steps 6/7/8 so the operator sees per-step progress in the birth UI (currently: unknown step numbers are quietly ignored — a Phase B concern per 77-RESEARCH.md Assumption A4).
 - **Deploy runbook** (Wave 3) MUST include the initial-ingestion step for `matrix_admin_creds` via `setMatrixAdminCreds` — otherwise POST /identities/birth returns 503 on every call.
 
 ## Self-Check: PASSED
@@ -328,9 +328,9 @@ None. No new network endpoints beyond the two documented in the threat model. No
 Verified:
 - `src/backend/database/routes/identity-birth-orchestrator.ts` modified (contains `runRelayMintAndWrite`, `matrixLoginAsUser`, chmod 600, Q2 no-rollback lock) ✓
 - `src/backend/database/routes/identity-birth.ts` modified (contains 503 fail-early, retry route, no hardcoded homeserver) ✓
-- `src/backend/database/routes/identity-birth-orchestrator.test.ts` modified (contains 7 new Phase 75 tests with Q2 agent-supervisor race phrase) ✓
+- `src/backend/database/routes/identity-birth-orchestrator.test.ts` modified (contains 7 new Phase 77 tests with Q2 agent-supervisor race phrase) ✓
 - Commits present: `2fdc66ac`, `15f3d437`, `9b44ca18` — all found in `git log` ✓
-- `.planning/phases/75-telegram-bridge-phase-a-skynet-matrix-admin-integration-foun/75-04-SUMMARY.md` exists (this file) ✓
+- `.planning/phases/77-telegram-bridge-phase-a-skynet-matrix-admin-integration-foun/77-04-SUMMARY.md` exists (this file) ✓
 
 ---
 *Phase: 75-telegram-bridge-phase-a-skynet-matrix-admin-integration-foun*

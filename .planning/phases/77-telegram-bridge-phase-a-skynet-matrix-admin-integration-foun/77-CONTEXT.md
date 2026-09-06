@@ -1,4 +1,4 @@
-# Phase 75 — CONTEXT
+# Phase 77 — CONTEXT
 
 **Seeded from:** `.planning/shapes/shape-telegram-bridge.md` (opened + locked 2026-09-05 via `/build` → `/open`; amended 2026-09-06 with humans-own-their-credentials philosophy + no-new-frontend-UI scope-out, greenlit `thumbs up` same session).
 
@@ -29,7 +29,7 @@ New `mxid TEXT` column on the users table, alongside username / password hash / 
 
 Ashley wants to hold her fleet from her wrist. Skynet has no watch app; Telegram does. The relay that already carries messages between Ashley and her agents also already has a hand-built Telegram bridge running as a service on the same box — one bot per agent, two-way, media and voice included, half of the fleet is wired up today. This is the plan to promote that bridge from a hand-configured one-off into a first-class piece of Skynet: shipped by the fleet distributor, configured through the identity modal one identity at a time, running alongside the relay it depends on.
 
-Underneath the bridge work is a bigger shift: Skynet stops being a downstream consumer of the relay and becomes its admin. That shift is what makes the bridge integration clean — and it unlocks other things too — but it is real work in its own right and lands first. **Phase 75 is this foundation.**
+Underneath the bridge work is a bigger shift: Skynet stops being a downstream consumer of the relay and becomes its admin. That shift is what makes the bridge integration clean — and it unlocks other things too — but it is real work in its own right and lands first. **Phase 77 is this foundation.**
 
 ## Shape (Phase A scope only)
 
@@ -121,7 +121,7 @@ If two different Skynet boxes ever share a relay, a bridge, or an admin, the des
 
 ## Vehicle notes
 
-GSD phase (this Phase 75) inside `/build telegram-bridge`. Sequential to Phase B.
+GSD phase (this Phase 77) inside `/build telegram-bridge`. Sequential to Phase B.
 
 **Phase A completion criterion:** creating a Skynet agent-identity creates its relay account in the same operation (atomic), human users have their externally-created relay mxid registered with Skynet via a non-UI provisioning path (both new-user runbook and import for the three existing accounts), and Skynet can force-manage any relay room via the admin API.
 

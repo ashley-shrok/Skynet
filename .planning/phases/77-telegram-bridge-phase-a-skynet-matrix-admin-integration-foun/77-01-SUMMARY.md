@@ -16,7 +16,7 @@ provides:
   - matrix-admin-creds-store module — free-function API (getMatrixAdminCreds, setMatrixAdminCreds) for eager encrypt-on-write + decrypt-on-read
   - FieldCrypto ENCRYPTED_FIELDS["matrix_admin_creds"] declaration
   - Idempotent boot-time DDL + DatabaseSaveTrigger.forceSave("phase-75-matrix-admin-schema") persist
-affects: [75-02, 75-03, 75-04, 75-05, matrix-admin-client, identity-birth-orchestrator, telegram-bridge]
+affects: [77-02, 77-03, 77-04, 77-05, matrix-admin-client, identity-birth-orchestrator, telegram-bridge]
 
 # Tech tracking
 tech-stack:
@@ -51,7 +51,7 @@ duration: 25min
 completed: 2026-09-06
 ---
 
-# Phase 75 Plan 01: Matrix admin schema substrate Summary
+# Phase 77 Plan 01: Matrix admin schema substrate Summary
 
 **Landed the storage substrate for the @skynet-admin Matrix relay credentials — new encrypted `matrix_admin_creds` singleton table + `users.mxid` column + a two-function store module that eagerly encrypts on write and decrypts on read via the existing FieldCrypto pattern.**
 
@@ -97,7 +97,7 @@ _TDD REFACTOR step: not applicable — both GREEN implementations were minimal-a
 - `src/backend/database/db/schema.ts` — added `mxid: text("mxid")` to `users` (nullable) and a new `matrixAdminCreds` sqliteTable with 7 columns (id, homeserverBase, userId, accessToken, password, createdAt, updatedAt). Both column names carry Phase-75 comments.
 - `src/backend/database/db/index.ts` — added `CREATE TABLE IF NOT EXISTS matrix_admin_creds` in the top-level exec block (near ssh_credential_usage at L312), one `addColumnIfNotExists("users", "mxid", "TEXT")` in the users column sweep (alongside totp_backup_codes), and a `DatabaseSaveTrigger.forceSave("phase-75-matrix-admin-schema")` call wrapped in try/catch + `databaseLogger.warn`. Mirrors L810-821 phase-68 shape exactly.
 - `src/backend/utils/field-crypto.ts` — added `matrix_admin_creds: new Set(["access_token", "password"])` to `ENCRYPTED_FIELDS`.
-- `src/backend/database/db/index.migration.test.ts` — appended `FieldCrypto` import and a new `describe("Phase 75-01 migration — ...")` block with three cases (P75-1, P75-2, P75-3).
+- `src/backend/database/db/index.migration.test.ts` — appended `FieldCrypto` import and a new `describe("Phase 77-01 migration — ...")` block with three cases (P75-1, P75-2, P75-3).
 
 ## Exact schema+DDL diffs applied (per plan.md § Output item 1)
 
@@ -108,7 +108,7 @@ export const users = sqliteTable("users", {
   // ...existing columns unchanged...
   totpBackupCodes: text("totp_backup_codes"),
 
-  // Phase 75 Plan 01 (Q3 locked decision) — mxid mapping for the Matrix
+  // Phase 77 Plan 01 (Q3 locked decision) — mxid mapping for the Matrix
   // relay. Nullable: only humans with a registered relay account have one,
   // and it's populated via POST /users/:id/mxid (Plan 03) or the one-shot
   // import for Ashley/Zoe/Laura. Not a credential; agents' relay identifiers
@@ -149,7 +149,7 @@ CREATE TABLE IF NOT EXISTS matrix_admin_creds (
 
 ```typescript
 addColumnIfNotExists("users", "totp_backup_codes", "TEXT");
-addColumnIfNotExists("users", "mxid", "TEXT");   // ← Phase 75 Plan 01
+addColumnIfNotExists("users", "mxid", "TEXT");   // ← Phase 77 Plan 01
 ```
 
 ## FieldCrypto ENCRYPTED_FIELDS entry (per plan.md § Output item 2)
@@ -157,7 +157,7 @@ addColumnIfNotExists("users", "mxid", "TEXT");   // ← Phase 75 Plan 01
 ```typescript
 // src/backend/utils/field-crypto.ts:46-51
 opkssh_tokens: new Set(["sshCert", "privateKey"]),
-// Phase 75 Plan 01 — @skynet-admin Matrix relay credentials, encrypted
+// Phase 77 Plan 01 — @skynet-admin Matrix relay credentials, encrypted
 // at rest via FieldCrypto. Column names use snake_case (DB column form)
 // because matrix-admin-creds-store.ts calls encryptField/decryptField
 // with fieldName="access_token" / "password" against the DB rows.
@@ -173,7 +173,7 @@ Immediately AFTER `addColumnIfNotExists("users", "mxid", "TEXT")` in `migrateSch
 ```typescript
 addColumnIfNotExists("users", "mxid", "TEXT");
 
-// Phase 75 Plan 01 — persist the new matrix_admin_creds table + users.mxid
+// Phase 77 Plan 01 — persist the new matrix_admin_creds table + users.mxid
 // column to the encrypted SQLite file. Both DDLs (CREATE TABLE IF NOT
 // EXISTS matrix_admin_creds in the top-level exec block, and the
 // addColumnIfNotExists above) execute against the RAM SQLite; without an
@@ -192,7 +192,7 @@ try {
   await DatabaseSaveTrigger.forceSave("phase-75-matrix-admin-schema");
 } catch (saveError) {
   databaseLogger.warn(
-    "[phase-75] forceSave failed post-schema (non-fatal — CREATE IF NOT EXISTS + addColumnIfNotExists are idempotent, next boot retries)",
+    "[phase-77] forceSave failed post-schema (non-fatal — CREATE IF NOT EXISTS + addColumnIfNotExists are idempotent, next boot retries)",
     {
       operation: "schema_migration_force_save_post_add",
       reason: "phase-75-matrix-admin-schema",
@@ -227,7 +227,7 @@ export async function setMatrixAdminCreds(creds: MatrixAdminCreds): Promise<void
 
 - **Migration tests (index.migration.test.ts):** 14/14 green (11 pre-existing + 3 new P75 cases)
 - **Store tests (matrix-admin-creds-store.test.ts):** 4/4 green
-- **Total new cases in Plan 75-01:** 7
+- **Total new cases in Plan 77-01:** 7
 - **Typecheck:** `npx tsc --noEmit` → exit 0 (clean)
 - **Combined verification command:** `npx vitest run src/backend/database/db/index.migration.test.ts src/backend/matrix/ --reporter=default` → 18/18 green (both files)
 
@@ -252,10 +252,10 @@ Worktree setup note (out-of-scope for the plan, adjacent to it): The worktree wa
 
 ## Follow-ups for the next plans in the wave
 
-- **Plan 75-02** can `import { getMatrixAdminCreds } from "../matrix/matrix-admin-creds-store.js"` without any runtime "table does not exist" errors on a fresh boot.
-- **Plan 75-03** (POST /users/:id/mxid) can `set({ mxid })` on the users table via Drizzle — the column exists after boot.
-- **Plan 75-04** (birth orchestrator extension) can call `setMatrixAdminCreds` for the initial one-shot ingestion of the parked `credentials.txt`, OR that ingestion may happen via a separate runbook step per plan 75-04's exact spec.
-- **Plan 75-05** (retry endpoint) has the store to load admin creds from.
+- **Plan 77-02** can `import { getMatrixAdminCreds } from "../matrix/matrix-admin-creds-store.js"` without any runtime "table does not exist" errors on a fresh boot.
+- **Plan 77-03** (POST /users/:id/mxid) can `set({ mxid })` on the users table via Drizzle — the column exists after boot.
+- **Plan 77-04** (birth orchestrator extension) can call `setMatrixAdminCreds` for the initial one-shot ingestion of the parked `credentials.txt`, OR that ingestion may happen via a separate runbook step per plan 77-04's exact spec.
+- **Plan 77-05** (retry endpoint) has the store to load admin creds from.
 
 ## Threat Flags
 

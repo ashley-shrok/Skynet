@@ -7,12 +7,12 @@ tags: [matrix, synapse, http-client, fetch, admin-api, discriminated-union]
 # Dependency graph
 requires:
   - phase: 75-telegram-bridge-phase-a-skynet-matrix-admin-integration-foun
-    provides: "Plan 75-01 (parallel wave-1 sister) — matrix-admin-creds-store.ts exporting getMatrixAdminCreds() / setMatrixAdminCreds() / MatrixAdminCreds"
+    provides: "Plan 77-01 (parallel wave-1 sister) — matrix-admin-creds-store.ts exporting getMatrixAdminCreds() / setMatrixAdminCreds() / MatrixAdminCreds"
 provides:
   - "src/backend/matrix/matrix-admin-client.ts — five free async functions wrapping Synapse admin endpoints (createOrUpdateUser, loginAsUser, joinRoom, makeRoomAdmin, listRooms) + pure buildRelayJsonBody helper"
   - "Stable discriminated-union return contract: {ok:true, ...} | {ok:false, status, error} — five stable error codes (matrix_admin_creds_missing, admin_api_non_2xx, admin_api_timeout, admin_api_proxy_error, admin_api_no_token)"
   - "27-test Vitest suite covering happy path + every documented failure mode for every primitive + the pure helper"
-affects: [75-03, 75-04, 75-05, phase-b-telegram-bridge]
+affects: [77-03, 77-04, 77-05, phase-b-telegram-bridge]
 
 # Tech tracking
 tech-stack:
@@ -47,7 +47,7 @@ duration: 8min
 completed: 2026-09-06
 ---
 
-# Phase 75 Plan 02: Matrix admin client — Summary
+# Phase 77 Plan 02: Matrix admin client — Summary
 
 **Five free async functions wrapping the Synapse admin API (`/_synapse/admin/v1|v2`) + a pure `buildRelayJsonBody` helper, all sharing a stable `{ok:true} | {ok:false, status, error}` discriminated-union contract that never leaks the admin token or upstream response bodies.**
 
@@ -117,9 +117,9 @@ Error shape (all primitives share): `{ok:false, status: number, error: string}` 
 
 **1. Wave-1 parallel dependency: matrix-admin-creds-store.ts not yet present**
 
-Plan 75-01 (running concurrently in a sister worktree) owns `src/backend/matrix/matrix-admin-creds-store.ts`. Since wave-1 worktrees run in parallel with `depends_on: []`, that file does not exist in this worktree at execution time — but Plan 75-02's `matrix-admin-client.ts` imports `getMatrixAdminCreds` from it, and `tsc --noEmit` would fail if the import target is missing.
+Plan 77-01 (running concurrently in a sister worktree) owns `src/backend/matrix/matrix-admin-creds-store.ts`. Since wave-1 worktrees run in parallel with `depends_on: []`, that file does not exist in this worktree at execution time — but Plan 77-02's `matrix-admin-client.ts` imports `getMatrixAdminCreds` from it, and `tsc --noEmit` would fail if the import target is missing.
 
-**Resolution:** Created a **minimal, uncommitted** stub at `src/backend/matrix/matrix-admin-creds-store.ts` (interface + no-op implementations) inside this worktree so tsc could resolve the import. The stub was NOT staged and NOT committed — it lives only on the worktree filesystem for local verification. When the orchestrator merges wave 1 into the parent branch, Plan 75-01's real file becomes the sole `matrix-admin-creds-store.ts` in tree and my `matrix-admin-client.ts` binds to it at runtime with no conflict.
+**Resolution:** Created a **minimal, uncommitted** stub at `src/backend/matrix/matrix-admin-creds-store.ts` (interface + no-op implementations) inside this worktree so tsc could resolve the import. The stub was NOT staged and NOT committed — it lives only on the worktree filesystem for local verification. When the orchestrator merges wave 1 into the parent branch, Plan 77-01's real file becomes the sole `matrix-admin-creds-store.ts` in tree and my `matrix-admin-client.ts` binds to it at runtime with no conflict.
 
 This is the standard parallel-wave pattern for hard cross-plan dependencies. Documented here for the wave-merge reviewer's benefit.
 
@@ -141,13 +141,13 @@ None. This plan lands the primitive layer only — the trust boundaries and thre
 
 ## User Setup Required
 
-None. This is a pure library module; no environment variables, no dashboard config. Deploy runbook items (ingesting the parked `@skynet-admin` credentials into `matrix_admin_creds` via `setMatrixAdminCreds`) belong to Plan 75-01 + Wave 3 orchestration.
+None. This is a pure library module; no environment variables, no dashboard config. Deploy runbook items (ingesting the parked `@skynet-admin` credentials into `matrix_admin_creds` via `setMatrixAdminCreds`) belong to Plan 77-01 + Wave 3 orchestration.
 
 ## Next Phase Readiness
 
-- **Plan 75-03** (mxid registration endpoint) can proceed independently — it does not import from this module.
-- **Plan 75-04** (birth-orchestrator extension) can `import { createOrUpdateUser, buildRelayJsonBody } from "../../matrix/matrix-admin-client.js"` immediately after wave 1 merges. Signatures match the extension shape in PATTERNS.md § identity-birth-orchestrator.ts.
-- **Plan 75-05** (integration test against live thenasty Synapse) can import all five primitives and drive them behind an env flag. The stable discriminated-union return contract means integration assertions can be written against `result.ok`/`result.status`/`result.error` without probing internal shapes.
+- **Plan 77-03** (mxid registration endpoint) can proceed independently — it does not import from this module.
+- **Plan 77-04** (birth-orchestrator extension) can `import { createOrUpdateUser, buildRelayJsonBody } from "../../matrix/matrix-admin-client.js"` immediately after wave 1 merges. Signatures match the extension shape in PATTERNS.md § identity-birth-orchestrator.ts.
+- **Plan 77-05** (integration test against live thenasty Synapse) can import all five primitives and drive them behind an env flag. The stable discriminated-union return contract means integration assertions can be written against `result.ok`/`result.status`/`result.error` without probing internal shapes.
 - **Phase B token-minting for humans** can call `loginAsUser(mxid)` with no change to this module.
 
 ## Self-Check: PASSED

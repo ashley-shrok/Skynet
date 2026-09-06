@@ -13,7 +13,7 @@ provides:
   - POST /users/:id/mxid endpoint (admin-gated, MXID_RE-validated, previousMxid audit-logged)
   - MXID_RE module-scoped regex constant reusable if other routes ever need Matrix-id validation
   - Test scaffold for admin-gated user-scoped POST routes (bare Express + Node http.request, vi.hoisted mock refs)
-affects: [75-04, 75-05, telegram-bridge-phase-b, provisioning-runbook, Ashley/Zoe/Laura one-shot import]
+affects: [77-04, 77-05, telegram-bridge-phase-b, provisioning-runbook, Ashley/Zoe/Laura one-shot import]
 
 # Tech tracking
 tech-stack:
@@ -51,7 +51,7 @@ duration: 10min
 completed: 2026-09-06
 ---
 
-# Phase 75 Plan 03: POST /users/:id/mxid admin-gated handler Summary
+# Phase 77 Plan 03: POST /users/:id/mxid admin-gated handler Summary
 
 **Landed the admin-gated backend endpoint that registers an externally-created Matrix mxid against a Skynet user row, with a previousMxid-capturing audit log that makes T-75-12 (replay-overwrite) a grep-recoverable accept-risk rather than a MITIGATE-required threat.**
 
@@ -128,9 +128,9 @@ const MXID_RE = /^@[a-z0-9._=/+-]{1,255}:[a-z0-9.-]{1,255}$/;
 
 ## Test count + green status (per plan.md § Output item 3)
 
-- **Tests:** 10 / 10 green (single `describe("POST /users/:id/mxid — Phase 75 Plan 03 (MXA-04)")` block)
+- **Tests:** 10 / 10 green (single `describe("POST /users/:id/mxid — Phase 77 Plan 03 (MXA-04)")` block)
 - **Verification command:** `npx vitest run src/backend/database/routes/user-admin-routes.test.ts` → all 10 pass
-- **Typecheck:** `npx tsc --noEmit` → exit 0 (no errors added by Plan 75-03; the whole repo tsc-clean was preserved)
+- **Typecheck:** `npx tsc --noEmit` → exit 0 (no errors added by Plan 77-03; the whole repo tsc-clean was preserved)
 
 Test coverage:
 - Tests 1-4: MXID_RE regex-gate (bad shape, wrong type, uppercase localpart, missing `@`) — all 400 with no DB touch, no audit log
@@ -212,8 +212,8 @@ Every future human onboarding calls this endpoint as its final provisioning step
 
 ## Follow-ups for downstream plans
 
-- **Plan 75-04** (identity birth orchestrator extension) — no direct dependency on this endpoint, but the audit-log shape here (with `previousMxid`) is the reference pattern to mirror when the orchestrator writes similar mutation logs for agent-side account creation.
-- **Plan 75-05** (retry endpoint) — same pattern applies if that endpoint ever mutates a persisted field; capture-previous-value-then-audit is the discipline established here.
+- **Plan 77-04** (identity birth orchestrator extension) — no direct dependency on this endpoint, but the audit-log shape here (with `previousMxid`) is the reference pattern to mirror when the orchestrator writes similar mutation logs for agent-side account creation.
+- **Plan 77-05** (retry endpoint) — same pattern applies if that endpoint ever mutates a persisted field; capture-previous-value-then-audit is the discipline established here.
 - **Phase B — Telegram bridge substrate promotion** — can `SELECT mxid FROM users WHERE id = ?` and get a populated value for every provisioned human, because this endpoint has been called for each of Ashley/Zoe/Laura (import) and every future user (runbook).
 - **Deploy-time runbook (Wave 3)** — must add three POSTs (one per pre-existing account) to the Phase-75 deploy checklist. Suggested placement: after `docker compose up -d` succeeds, before the first Phase-B smoke test.
 

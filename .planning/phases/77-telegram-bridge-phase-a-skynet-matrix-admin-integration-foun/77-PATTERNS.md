@@ -1,4 +1,4 @@
-# Phase 75: Telegram bridge Phase A — Matrix admin integration — Pattern Map
+# Phase 77: Telegram bridge Phase A — Matrix admin integration — Pattern Map
 
 **Mapped:** 2026-09-06
 **Files analyzed:** 11 new/modified files
@@ -122,7 +122,7 @@ private static readonly ENCRYPTED_FIELDS = {
     "password", "privateKey", "keyPassword", "key", "publicKey",
   ]),
   opkssh_tokens: new Set(["sshCert", "privateKey"]),
-  // NEW for Phase 75:
+  // NEW for Phase 77:
   matrix_admin_creds: new Set(["access_token", "password"]),
 };
 ```
@@ -143,7 +143,7 @@ export const users = sqliteTable("users", {
   passwordHash: text("password_hash").notNull(),
   // ...existing columns unchanged...
   totpBackupCodes: text("totp_backup_codes"),
-  mxid: text("mxid"),   // NEW — Phase 75 Q3 decision, alongside totp/password
+  mxid: text("mxid"),   // NEW — Phase 77 Q3 decision, alongside totp/password
 });
 ```
 
@@ -193,13 +193,13 @@ try {
   await DatabaseSaveTrigger.forceSave("phase-75-matrix-admin-schema");
 } catch (saveError) {
   databaseLogger.warn(
-    "[phase-75] forceSave failed post-schema (non-fatal — CREATE IF NOT EXISTS is idempotent, next boot retries)",
+    "[phase-77] forceSave failed post-schema (non-fatal — CREATE IF NOT EXISTS is idempotent, next boot retries)",
     { operation: "schema_migration_force_save", error: saveError },
   );
 }
 ```
 
-**Idempotency contract:** every DDL statement above tolerates repeat execution. The `addColumnIfNotExists` helper (index.ts:634-659) probes existence via `SELECT "${column}" FROM ${table} LIMIT 1` inside try/catch; the CREATE block uses `IF NOT EXISTS`. No `DROP` needed for Phase 75.
+**Idempotency contract:** every DDL statement above tolerates repeat execution. The `addColumnIfNotExists` helper (index.ts:634-659) probes existence via `SELECT "${column}" FROM ${table} LIMIT 1` inside try/catch; the CREATE block uses `IF NOT EXISTS`. No `DROP` needed for Phase 77.
 
 ---
 
@@ -295,12 +295,12 @@ router.post("/:id/mxid", authenticateJWT, async (req, res) => {
 
 2. Widen `BirthDeps` interface (L127-182) with 3 new deps:
    ```typescript
-   /** Phase 75: Matrix admin client — mints the relay account for the agent. */
+   /** Phase 77: Matrix admin client — mints the relay account for the agent. */
    matrixCreateOrUpdateUser: (mxid: string, password: string) =>
      Promise<{ ok: true; mxid: string; password: string } | { ok: false; status: number; error: string }>;
-   /** Phase 75: Homeserver base to build the mxid (server_name suffix). */
+   /** Phase 77: Homeserver base to build the mxid (server_name suffix). */
    matrixHomeserver: string;   // e.g. "thenasty.taild9b663.ts.net"
-   /** Phase 75: relay.json builder — pure function, given mxid+pw returns JSON body per agent-relay convention. */
+   /** Phase 77: relay.json builder — pure function, given mxid+pw returns JSON body per agent-relay convention. */
    buildRelayJsonBody: (opts: { mxid: string; password: string; accessToken: string; homeserverBase: string }) => string;
    ```
    Reuse the existing `writeMarkdownFileAtomic` dep (L162-166) for the step-8 write — the helper is content-agnostic per its prologue at `identity-artifact-reader.ts:1849-1903` ("filename ends .json but writeMarkdownFileAtomic is content-agnostic — its name reflects historical caller, not a format constraint" — quoted in RESEARCH.md).
@@ -391,7 +391,7 @@ const deps: BirthDeps = {
     writeMarkdownFileAtomic(conn, targetPath, contents),
   writeAvatarSiblingFile: async (conn, identityKey, ext, bytes) =>
     writeAvatarSiblingFile(conn, identityKey, ext, bytes),
-  // NEW Phase 75:
+  // NEW Phase 77:
   matrixCreateOrUpdateUser: (mxid, password) => matrixCreateOrUpdateUser(mxid, password),
   matrixHomeserver: "thenasty.taild9b663.ts.net",  // TODO: read from matrix-admin-creds-store
   buildRelayJsonBody: buildRelayJsonBodyImpl,   // pure function, likely lives in matrix-admin-client.ts
@@ -479,7 +479,7 @@ Recommend eager encryption on the initial ingestion (avoids plaintext-on-disk wi
 
 ### Persistence trigger after DB writes
 **Source:** `src/backend/utils/database-save-trigger.ts` + `src/backend/database/routes/host-autostart-routes.ts:173-181`
-**Apply to:** All DB writes in Phase 75 (mxid update, creds ingestion).
+**Apply to:** All DB writes in Phase 77 (mxid update, creds ingestion).
 
 Two flavors:
 - `DatabaseSaveTrigger.triggerSave(reason)` — 2s debounced; use for row updates.
@@ -528,7 +528,7 @@ NEVER log: Matrix admin token, admin password, agent-mint password, response bod
 
 ## No Analog Found
 
-All Phase 75 files have strong in-tree analogs. No file falls into this bucket.
+All Phase 77 files have strong in-tree analogs. No file falls into this bucket.
 
 ## Metadata
 
@@ -544,4 +544,4 @@ All Phase 75 files have strong in-tree analogs. No file falls into this bucket.
 
 **Pattern extraction date:** 2026-09-06
 
-**Key insight (echoed from RESEARCH.md):** Almost every piece of Phase 75 is composition of existing Skynet primitives — the only genuinely new code is the ~150-line matrix-admin-client (a thin fetch wrapper mirroring voice.ts) and the ~50-line orchestrator extension for steps 6-8 (mirroring the existing `runStep` + `writeMarkdownFileAtomic` pattern already used by step 2.5). Nothing warrants a subsystem-scale build.
+**Key insight (echoed from RESEARCH.md):** Almost every piece of Phase 77 is composition of existing Skynet primitives — the only genuinely new code is the ~150-line matrix-admin-client (a thin fetch wrapper mirroring voice.ts) and the ~50-line orchestrator extension for steps 6-8 (mirroring the existing `runStep` + `writeMarkdownFileAtomic` pattern already used by step 2.5). Nothing warrants a subsystem-scale build.

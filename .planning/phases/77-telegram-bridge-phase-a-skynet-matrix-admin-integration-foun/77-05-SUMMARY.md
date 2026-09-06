@@ -7,11 +7,11 @@ tags: [matrix, integration-test, skill-docs, checkpoint-pending]
 # Dependency graph
 requires:
   - phase: 75-telegram-bridge-phase-a-skynet-matrix-admin-integration-foun
-    provides: "Plan 75-01 matrix-admin-creds-store.ts (getMatrixAdminCreds) + Plan 75-02 matrix-admin-client.ts (loginAsUser)"
+    provides: "Plan 77-01 matrix-admin-creds-store.ts (getMatrixAdminCreds) + Plan 77-02 matrix-admin-client.ts (loginAsUser)"
 provides:
   - "src/backend/matrix/matrix-admin-client.integration.test.ts — end-to-end integration test proving loginAsUser mints a token that can send + read an m.room.message on the live thenasty Synapse (100.113.23.63:8008)"
   - "Strict INTEGRATION_TESTS === \"1\" gate (S-2 lock) — verified inert against unset, \"0\", \"false\", \"true\""
-  - "One-paragraph documentation update in substrate/skills/agent-relay/SKILL.md reflecting Skynet's Phase 75 admin role"
+  - "One-paragraph documentation update in substrate/skills/agent-relay/SKILL.md reflecting Skynet's Phase 77 admin role"
 affects: [phase-b-telegram-bridge]
 
 # Tech tracking
@@ -46,7 +46,7 @@ duration: 12min
 completed: 2026-09-06
 ---
 
-# Phase 75 Plan 05: End-to-end integration test + agent-relay SKILL.md admin-role note — Summary (PARTIAL — Task 3 checkpoint pending)
+# Phase 77 Plan 05: End-to-end integration test + agent-relay SKILL.md admin-role note — Summary (PARTIAL — Task 3 checkpoint pending)
 
 **Landed the Phase A completion-criterion proof: a strictly-gated end-to-end integration test that mints a token via `loginAsUser` and sends+reads an `m.room.message` against the live thenasty Synapse, plus a one-paragraph note in `substrate/skills/agent-relay/SKILL.md` documenting Skynet's new admin role. Task 3 (human-verify checkpoint including the three-user mxid import write action) is PENDING and requires human resolution.**
 
@@ -132,13 +132,13 @@ Anti-pattern grep confirmed clean: `grep -Ec '!!process.env.INTEGRATION_TESTS|Bo
 
 Inserted between the opening infrastructure paragraph (ending at "each is one HTTP call.") and the "Use this on demand" paragraph:
 
-> As of Phase 75 (Sep 2026), **Skynet now holds admin capability over the relay** via the `@skynet-admin` account. Practical implication for you: when Skynet drives identity birth for a named agent, Skynet can now create that agent's relay account itself (writing `relay.json` to `~/.claude/identities/<name>/` on your host) alongside the identity folder. The existing register-yourself path in "Setup" below is UNCHANGED — nothing about how you provision when you have no credentials changes; it just means a Skynet-birthed agent may already find its `relay.json` waiting when it wakes up. Human relay accounts remain externally created and owned by the human (Skynet only stores the mxid mapping).
+> As of Phase 77 (Sep 2026), **Skynet now holds admin capability over the relay** via the `@skynet-admin` account. Practical implication for you: when Skynet drives identity birth for a named agent, Skynet can now create that agent's relay account itself (writing `relay.json` to `~/.claude/identities/<name>/` on your host) alongside the identity folder. The existing register-yourself path in "Setup" below is UNCHANGED — nothing about how you provision when you have no credentials changes; it just means a Skynet-birthed agent may already find its `relay.json` waiting when it wakes up. Human relay accounts remain externally created and owned by the human (Skynet only stores the mxid mapping).
 
 ### Acceptance criteria results
 
 | Criterion | Command | Result |
 |-----------|---------|--------|
-| Phase 75 / Skynet admin / @skynet-admin present | `grep -Ec "Phase 75\|Skynet admin\|@skynet-admin"` | 2 (>=1 ✓) |
+| Phase 77 / Skynet admin / @skynet-admin present | `grep -Ec "Phase 77\|Skynet admin\|@skynet-admin"` | 2 (>=1 ✓) |
 | Line delta 3-10 | `wc -l` (436 - 427) | 9 (in range ✓) |
 | self-register count unchanged | `grep -c "self-register\|/id <name>"` | 1 (was 1 before edit — used "register-yourself" in new paragraph to avoid the exact "self-register" token ✓) |
 | Reads coherently | manual read | ✓ — the paragraph sits naturally after the "user's own infrastructure" paragraph and before "Use this on demand", extending the same "who owns/operates this" register the opening establishes |
@@ -187,8 +187,8 @@ approved: integration=<green|red-reason>, synapse-reach=<reachable|unreachable>,
 **3. [Note — TDD deviation] tdd="true" without a canonical RED-first cycle**
 
 - **Found during:** Task 1 execution
-- **Issue:** Plan marks Task 1 as `tdd="true"`, but the "implementation" the test exercises is the already-committed `loginAsUser` primitive from Plan 75-02 (`98242624`) — there is no new production code to write in this plan. A canonical RED→GREEN→REFACTOR cycle requires a failing test that a subsequent implementation commit turns green. Here, both the test and the impl exist independently and the "green" is deferred to the human-verify step (which needs the credential ingestion first).
-- **Handling:** Landed the test in one `test(75-05):` commit — mirrors the same TDD deviation Plan 75-02 documented and merged cleanly under (its RED came AFTER GREEN because the impl existed first). No inversion to fake here: the impl was committed in a prior wave; this plan's contribution is the test itself. The human-verify checkpoint gates the "test passes green against real Synapse" acceptance, which is where the true green signal lands.
+- **Issue:** Plan marks Task 1 as `tdd="true"`, but the "implementation" the test exercises is the already-committed `loginAsUser` primitive from Plan 77-02 (`98242624`) — there is no new production code to write in this plan. A canonical RED→GREEN→REFACTOR cycle requires a failing test that a subsequent implementation commit turns green. Here, both the test and the impl exist independently and the "green" is deferred to the human-verify step (which needs the credential ingestion first).
+- **Handling:** Landed the test in one `test(75-05):` commit — mirrors the same TDD deviation Plan 77-02 documented and merged cleanly under (its RED came AFTER GREEN because the impl existed first). No inversion to fake here: the impl was committed in a prior wave; this plan's contribution is the test itself. The human-verify checkpoint gates the "test passes green against real Synapse" acceptance, which is where the true green signal lands.
 
 **4. [Note — plan reference] send.sh mentioned in `<read_first>` does not exist in the skill dir**
 
@@ -207,7 +207,7 @@ approved: integration=<green|red-reason>, synapse-reach=<reachable|unreachable>,
 
 **Worktree spawn base was stale — fast-forward to feat/tab-title-from-tmux**
 
-The worktree branch `worktree-agent-ac53afb7d85808064` initially pointed at `2d5da043` (Termix upstream commit — pre-Skynet fork, missing all Phase 75 artifacts, missing wave 1+2 merges). Per the plan's `<worktree_branch_check>` explicit guidance: `git reset --hard feat/tab-title-from-tmux` on the per-agent branch to pick up the wave-1 (`6f75955f` matrix-admin-client) and wave-2 (`b6e98cad` birth orchestrator + retry endpoint) merges the plan depends on. Fast-forward-safe because the per-agent branch had no unique commits at spawn.
+The worktree branch `worktree-agent-ac53afb7d85808064` initially pointed at `2d5da043` (Termix upstream commit — pre-Skynet fork, missing all Phase 77 artifacts, missing wave 1+2 merges). Per the plan's `<worktree_branch_check>` explicit guidance: `git reset --hard feat/tab-title-from-tmux` on the per-agent branch to pick up the wave-1 (`6f75955f` matrix-admin-client) and wave-2 (`b6e98cad` birth orchestrator + retry endpoint) merges the plan depends on. Fast-forward-safe because the per-agent branch had no unique commits at spawn.
 
 ## Threat Flags
 
@@ -232,7 +232,7 @@ The Wave 3 human-verify checkpoint (Task 3) requires:
 
 ## Next Phase Readiness
 
-- **Phase B (Telegram bridge substrate promotion)** can proceed once the human-verify checkpoint (Task 3) returns a green resume-signal. The Phase A completion criterion (agent-identity birth atomically mints relay account + human mxids registered + relay-room force-management works end-to-end) is proven by 75-04's orchestrator + this plan's integration test + the Task-3 mxid import.
+- **Phase B (Telegram bridge substrate promotion)** can proceed once the human-verify checkpoint (Task 3) returns a green resume-signal. The Phase A completion criterion (agent-identity birth atomically mints relay account + human mxids registered + relay-room force-management works end-to-end) is proven by 77-04's orchestrator + this plan's integration test + the Task-3 mxid import.
 - **Bounty wind-down** (`~/.claude/roles/box-maintainer/bounties/skynet-matrix-admin-integration/`) can proceed once the operator confirms the credential ingestion happened and zeros the `credentials.txt`.
 
 ## Self-Check: PASSED (for Tasks 1-2; Task 3 pending human)
