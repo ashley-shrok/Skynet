@@ -336,6 +336,24 @@ async function initializeCompleteDatabase(): Promise<void> {
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Phase 79 Plan 01 — per-identity Telegram bot tokens. One row per
+    -- identity (identity_key PRIMARY KEY). Writes go through
+    -- src/backend/telegram/tokens-store.ts, which FieldCrypto-encrypts
+    -- bot_token (AES-256-GCM) before INSERT/UPDATE. IF NOT EXISTS keeps
+    -- the DDL idempotent across boots. Persisted via a forceSave() block
+    -- below alongside the phase-75 matrix_admin_creds save so the new
+    -- table survives container restart even without an unrelated write
+    -- firing the debounced trigger.
+    CREATE TABLE IF NOT EXISTS telegram_bot_tokens (
+        identity_key TEXT PRIMARY KEY,
+        bot_token TEXT NOT NULL,
+        bot_username TEXT NOT NULL,
+        human_user_id TEXT NOT NULL,
+        telegram_chat_id TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS snippets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id TEXT NOT NULL,
@@ -898,6 +916,30 @@ const migrateSchema = async () => {
       {
         operation: "schema_migration_force_save_post_add",
         reason: "phase-75-matrix-admin-schema",
+        error: saveError,
+      },
+    );
+  }
+
+  // Phase 79 Plan 01 — persist the new telegram_bot_tokens table to the
+  // encrypted SQLite file. Same reason as phase-75: the CREATE TABLE
+  // executes against RAM SQLite, and without an explicit forceSave the new
+  // schema lives only in memory until an unrelated write fires the
+  // debounced save trigger. A restart before that first unrelated write
+  // loses the schema and re-runs the DDL on next boot.
+  //
+  // Wrapped in try/catch with a non-fatal warn: DatabaseSaveTrigger may
+  // not yet be initialized on the first-ever boot; the CREATE TABLE IF
+  // NOT EXISTS is idempotent, so a save failure retries on the next boot.
+  // Mirrors phase-75 precedent exactly (same shape, same reason).
+  try {
+    await DatabaseSaveTrigger.forceSave("phase-79-telegram-bot-tokens-schema");
+  } catch (saveError) {
+    databaseLogger.warn(
+      "[phase-79] forceSave failed post-schema (non-fatal — CREATE IF NOT EXISTS is idempotent, next boot retries)",
+      {
+        operation: "schema_migration_force_save_post_add",
+        reason: "phase-79-telegram-bot-tokens-schema",
         error: saveError,
       },
     );

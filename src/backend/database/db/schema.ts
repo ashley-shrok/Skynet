@@ -691,6 +691,28 @@ export const matrixAdminCreds = sqliteTable("matrix_admin_creds", {
     .default(sql`CURRENT_TIMESTAMP`),
 });
 
+// Phase 79 Plan 01 — per-identity Telegram bot tokens. One row per identity
+// (identity_key primary key), mirrors the matrix_admin_creds FieldCrypto shape
+// per identity (not singleton). The `bot_token` column is AES-256-GCM
+// encrypted at rest via field-crypto.ts ENCRYPTED_FIELDS["telegram_bot_tokens"]
+// — writes go through tokens-store.ts, which eagerly encrypts before Drizzle
+// INSERT/UPDATE. `bot_username` is display-only (safe to log); `human_user_id`
+// is the authz key (only that Skynet user can activate/disconnect this row);
+// `telegram_chat_id` is nullable until the first `/start` message is seen.
+export const telegramBotTokens = sqliteTable("telegram_bot_tokens", {
+  identityKey: text("identity_key").primaryKey(),
+  botToken: text("bot_token").notNull(),
+  botUsername: text("bot_username").notNull(),
+  humanUserId: text("human_user_id").notNull(),
+  telegramChatId: text("telegram_chat_id"),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});
+
 // Phase 68: identities table dropped; identity IS the disk folder on some
 // host per .planning/shapes/shape-kill-identities-table.md. The `identities`
 // schema export is removed — the table no longer exists in any install.

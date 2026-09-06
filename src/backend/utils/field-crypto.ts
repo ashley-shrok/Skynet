@@ -48,6 +48,11 @@ class FieldCrypto {
     // because matrix-admin-creds-store.ts calls encryptField/decryptField
     // with fieldName="access_token" / "password" against the DB rows.
     matrix_admin_creds: new Set(["access_token", "password"]),
+    // Phase 79 Plan 01 — per-identity Telegram bot tokens, AES-256-GCM.
+    // Column name uses snake_case (DB form); tokens-store.ts calls
+    // encryptField/decryptField with fieldName="bot_token" and
+    // recordId=String(identityKey) (per-row HKDF context, not singleton).
+    telegram_bot_tokens: new Set(["bot_token"]),
   };
 
   static encryptField(
