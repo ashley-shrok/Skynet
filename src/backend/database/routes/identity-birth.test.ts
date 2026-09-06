@@ -454,3 +454,83 @@ it("Test 19: role fails ROLE_NAME_PATTERN → 400, orchestrator not called", asy
   expect(parsed.error).toMatch(/role/i);
   expect(mockBirthIdentity).not.toHaveBeenCalled();
 });
+
+// ---------------------------------------------------------------------------
+// Phase 80 Plan 80-03: task field body validation
+// ---------------------------------------------------------------------------
+
+it("Test T-80-03-birth-a: task='build the pool-pick endpoint' → orchestrator receives task", async () => {
+  let capturedOpts: unknown;
+  mockBirthIdentity.mockImplementation(
+    async (opts: unknown, _emit: unknown, _deps: unknown) => {
+      capturedOpts = opts;
+    },
+  );
+
+  const result = await httpPost(port, "/identities/birth", {
+    ...VALID_BODY,
+    task: "build the pool-pick endpoint",
+  });
+
+  expect(result.status).toBe(200); // SSE opens
+  const o = capturedOpts as Record<string, unknown>;
+  expect(o.task).toBe("build the pool-pick endpoint");
+});
+
+it("Test T-80-03-birth-b: task=null → orchestrator sees task=undefined (parsedTask?? -> undefined)", async () => {
+  let capturedOpts: unknown;
+  mockBirthIdentity.mockImplementation(
+    async (opts: unknown, _emit: unknown, _deps: unknown) => {
+      capturedOpts = opts;
+    },
+  );
+
+  const result = await httpPost(port, "/identities/birth", {
+    ...VALID_BODY,
+    task: null,
+  });
+
+  expect(result.status).toBe(200);
+  const o = capturedOpts as Record<string, unknown>;
+  expect(o.task).toBeUndefined();
+});
+
+it("Test T-80-03-birth-c: task=42 (non-string, non-null) → 400 with 'task must be a string or null'", async () => {
+  const result = await httpPost(port, "/identities/birth", {
+    ...VALID_BODY,
+    task: 42,
+  });
+
+  expect(result.status).toBe(400);
+  const parsed = JSON.parse(result.body);
+  expect(parsed.error).toMatch(/task/i);
+  expect(mockBirthIdentity).not.toHaveBeenCalled();
+});
+
+it("Test T-80-03-birth-d: task with 501 chars → 400 with '≤500 chars' cap", async () => {
+  const result = await httpPost(port, "/identities/birth", {
+    ...VALID_BODY,
+    task: "x".repeat(501),
+  });
+
+  expect(result.status).toBe(400);
+  const parsed = JSON.parse(result.body);
+  expect(parsed.error).toMatch(/task/i);
+  expect(parsed.error).toMatch(/500/);
+  expect(mockBirthIdentity).not.toHaveBeenCalled();
+});
+
+it("Test T-80-03-birth-e: task absent from body → orchestrator sees task=undefined (backward-compat with pre-Phase-80 clients)", async () => {
+  let capturedOpts: unknown;
+  mockBirthIdentity.mockImplementation(
+    async (opts: unknown, _emit: unknown, _deps: unknown) => {
+      capturedOpts = opts;
+    },
+  );
+
+  const result = await httpPost(port, "/identities/birth", VALID_BODY);
+
+  expect(result.status).toBe(200);
+  const o = capturedOpts as Record<string, unknown>;
+  expect(o.task).toBeUndefined();
+});

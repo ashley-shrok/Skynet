@@ -941,6 +941,156 @@ describe("POST /identities/clone", () => {
     expect(provisionExec).toContain("tmux new-session -d -s tina-abs -c '/opt/projects/thing'");
   });
 
+  // ---------------------------------------------------------------------------
+  // Phase 80 Plan 80-03: task field body validation + frontmatter emission +
+  // A3 regression (clone does NOT inherit source.task).
+  // ---------------------------------------------------------------------------
+
+  it("Test T-80-03-clone-a: task='build the endpoint' → clone succeeds; emitted frontmatter contains task after avatar/voice/colorHue block", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify({
+        sourceIdentityKey: "tina",
+        hostId: 5,
+        newName: "tina-t1",
+        title: "Cloned Op",
+        voice: null,
+        avatarCandidateId: null,
+        path: "~",
+        task: "build the pool-pick endpoint",
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
+    const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    expect(stubBody).toContain("task: build the pool-pick endpoint");
+  });
+
+  it("Test T-80-03-clone-b: task absent from body → clone succeeds; NO task: key in emitted frontmatter", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify({
+        sourceIdentityKey: "tina",
+        hostId: 5,
+        newName: "tina-t2",
+        title: "Cloned Op",
+        voice: null,
+        avatarCandidateId: null,
+        path: "~",
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    expect(stubBody).not.toMatch(/^task:/m);
+  });
+
+  it("Test T-80-03-clone-c: task=42 → 400 with 'task must be a string or null'", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify({
+        sourceIdentityKey: "tina",
+        hostId: 5,
+        newName: "tina-t3",
+        title: "Cloned Op",
+        voice: null,
+        avatarCandidateId: null,
+        path: "~",
+        task: 42,
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toMatch(/task/i);
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+  });
+
+  it("Test T-80-03-clone-d: task with 501 chars → 400 with '≤500 chars' cap", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify({
+        sourceIdentityKey: "tina",
+        hostId: 5,
+        newName: "tina-t4",
+        title: "Cloned Op",
+        voice: null,
+        avatarCandidateId: null,
+        path: "~",
+        task: "x".repeat(501),
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect((res.body as { error: string }).error).toMatch(/task/i);
+    expect((res.body as { error: string }).error).toMatch(/500/);
+    expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
+  });
+
+  it("Test T-80-03-clone-e: task=null → clone succeeds; NO task: key in frontmatter", async () => {
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify({
+        sourceIdentityKey: "tina",
+        hostId: 5,
+        newName: "tina-t5",
+        title: "Cloned Op",
+        voice: null,
+        avatarCandidateId: null,
+        path: "~",
+        task: null,
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    expect(stubBody).not.toMatch(/^task:/m);
+  });
+
+  it("Test T-80-03-clone-f (A3 regression): source frontmatter has task='original' + request body has task='fresh' → emitted frontmatter task is 'fresh' (or absent), NEVER 'original'; clone handler does NOT read source.task", async () => {
+    // Simulate a source identity whose on-disk frontmatter (if the clone
+    // handler were to re-read it and copy) would carry task="original task".
+    // The clone MUST NOT inherit this — task is per-spawn per A3 lock.
+    // We assert the clone endpoint honors the request body's `task` value,
+    // and that when the request supplies "fresh task", the frontmatter emits
+    // "fresh task" (never "original task").
+    (readIdentityFile as Mock).mockResolvedValue({
+      markdown:
+        "---\nrole: box-maintainer\ndisplayName: Tina\ntask: original task\n---\n\n# tina\n",
+    });
+    (extractCosmeticsFromFrontmatter as Mock).mockReturnValue({
+      displayName: "Tina",
+      task: "original task",
+    });
+
+    const res = await httpRequest(server, {
+      method: "POST",
+      path: "/identities/clone",
+      body: JSON.stringify({
+        sourceIdentityKey: "tina",
+        hostId: 5,
+        newName: "tina-t6",
+        title: "Cloned Op",
+        voice: null,
+        avatarCandidateId: null,
+        path: "~",
+        task: "fresh task",
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
+    // Emitted frontmatter carries the REQUEST's task, not the source's:
+    expect(stubBody).toContain("task: fresh task");
+    // Explicit negative — emitted frontmatter MUST NOT carry "original task":
+    expect(stubBody).not.toContain("task: original task");
+  });
+
   it("Test 18: startHarnessOnIdentity rejection → 502 AND DB insert does NOT run [260806-dwe]", async () => {
     // The helper's failure surface widens the clone endpoint's 502 case: any
     // rejection during the ~25s harness-start dance (trust-flag write, claude
