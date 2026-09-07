@@ -346,6 +346,65 @@ export async function listRooms(
 }
 
 // ---------------------------------------------------------------------------
+// countUsersMatching — GET /_synapse/admin/v2/users?user_id=<prefix>&deactivated=true&limit=1
+// ---------------------------------------------------------------------------
+//
+// Substring filter on user_id; deactivated=true INCLUDES deactivated accounts
+// (crucial — Synapse deactivates but never deletes; deactivated usernames stay
+// reserved per Phase 80 pool-name allocator design). limit=1 because callers
+// only need `total` — the users array is discarded.
+//
+// Substrate used by:
+//   - Phase 80-03b (identity birth): compute ordinal suffix from current count
+//     (e.g. `Willow-Skynet-Maintainer-2` when Willow-* count is 1).
+//   - Phase 80-04 (`/identities/pool/pick`): confirm a pool-derived MXID handle
+//     is still free before returning it to the frontend picker.
+
+export type CountUsersOk = AdminOk<{ total: number }>;
+
+export async function countUsersMatching(
+  prefix: string,
+): Promise<CountUsersOk | AdminErr> {
+  const creds = await getMatrixAdminCreds();
+  if (!creds) {
+    return { ok: false, status: 500, error: ERR_CREDS_MISSING };
+  }
+
+  const url = `${creds.homeserverBase}/_synapse/admin/v2/users?user_id=${encodeURIComponent(prefix)}&deactivated=true&limit=1`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: ERR_NON_2XX };
+    }
+    const parsed = (await response.json()) as { total?: number };
+    return {
+      ok: true,
+      total: typeof parsed.total === "number" ? parsed.total : 0,
+    };
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return { ok: false, status: 504, error: ERR_TIMEOUT };
+    }
+    databaseLogger.error("matrix admin proxy error", err, {
+      operation: "matrix_admin_count_users",
+    });
+    return { ok: false, status: 502, error: ERR_PROXY };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // buildRelayJsonBody — pure helper
 // ---------------------------------------------------------------------------
 
@@ -381,7 +440,6 @@ export function buildRelayJsonBody(opts: BuildRelayJsonBodyOpts): string {
   };
   return JSON.stringify(body, null, 2);
 }
-
 // ---------------------------------------------------------------------------
 // getSharedDMRoom — free helper composing joined_rooms + rooms/members
 // ---------------------------------------------------------------------------
@@ -393,7 +451,7 @@ export function buildRelayJsonBody(opts: BuildRelayJsonBodyOpts): string {
  * call fails, or when creds are absent.
  *
  * Never throws — every error path collapses to null so the caller
- * (bridge-config-writer.ts Plan 83-04) can Promise.all across pairs
+ * (bridge-config-writer.ts Plan 81-04) can Promise.all across pairs
  * without try/catch at every site. Discriminated-union errors would
  * force the caller to unwrap on every element; a nullable is cleaner
  * for the "best-effort discover then fall back" pattern.
