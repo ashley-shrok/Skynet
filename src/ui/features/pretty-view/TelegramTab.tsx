@@ -18,7 +18,7 @@
 //
 // AlertDialog confirm text (CONTEXT § 3D) is VERBATIM. Do not paraphrase.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Skeleton } from "@/components/skeleton";
 import { Button } from "@/components/button";
 import {
@@ -35,6 +35,7 @@ import {
   postTelegramValidate,
   postTelegramActivate,
   postTelegramDisconnect,
+  getTelegramPendingStatus,
 } from "../../api/telegram-api";
 
 // ─── State shape ─────────────────────────────────────────────────────────────
@@ -71,6 +72,66 @@ export function TelegramTab({
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  // ── Phase 83 Plan 06 — pending-start poll ────────────────────────────────
+  //
+  // Poll GET /telegram/status every 3s while awaiting the user's /start
+  // message. When the bridge reports a non-null chatId (Plan 83-03 has
+  // reconciled the sentinel into the DB), transition to "connected".
+  //
+  // Per CONTEXT § 5, poll errors are silently swallowed — no timeout that
+  // flips to an error state ("human gets to it when they get to it").
+  //
+  // Cleanup semantics: interval is cleared on unmount AND on any state
+  // transition away from pending-start (deps array below). A local flag
+  // guards against a late-resolving tick calling onStateChange after
+  // React has already torn down.
+  //
+  // Dep-array notes:
+  //   • state.status keys the effect on/off pending-start.
+  //   • The ternary for botUsername pulls the value from the discriminated-
+  //     union variant that owns it; other variants pass "" so React sees
+  //     no dep change from unrelated state changes.
+  //   • identityKey is included so that a mid-poll identity switch restarts
+  //     the interval with the new key (PLL-06).
+  //   • onStateChange is stable-referenced by the parent modal; still
+  //     included per exhaustive-deps hygiene.
+  const pendingBotUsername =
+    state.status === "pending-start" ? state.botUsername : "";
+  useEffect(() => {
+    if (state.status !== "pending-start") return;
+    const currentBotUsername = pendingBotUsername;
+    let cancelled = false;
+
+    async function tick(): Promise<void> {
+      if (cancelled) return;
+      try {
+        const resp = await getTelegramPendingStatus(identityKey);
+        if (cancelled) return;
+        if (resp.ok === true && resp.chatId !== null) {
+          onStateChange({
+            status: "connected",
+            botUsername: currentBotUsername,
+            telegramHandle: resp.chatId,
+          });
+        }
+        // Errors are silently swallowed — CONTEXT § 5 "no timeout that flips
+        // to error". Next tick retries.
+      } catch {
+        // Defensive: swallow any thrown error too. The client wrapper
+        // returns { ok:false } on axios failures, but guard anyway.
+      }
+    }
+
+    const handle = setInterval(() => {
+      void tick();
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, [state.status, pendingBotUsername, identityKey, onStateChange]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 

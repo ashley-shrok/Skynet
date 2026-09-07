@@ -42,6 +42,7 @@ import {
   writeRegistry,
 } from "./registry-writer.js";
 import { getMatrixAdminCreds } from "../matrix/matrix-admin-creds-store.js";
+import { getSharedDMRoom } from "../matrix/matrix-admin-client.js";
 import { db } from "../database/db/index.js";
 import { users } from "../database/db/schema.js";
 import { databaseLogger } from "../utils/logger.js";
@@ -266,11 +267,55 @@ export async function rewriteRegistryFromCurrentState(): Promise<
       }
     }
 
+    // Step 6.5: discover Matrix DM rooms per (agentMxid, humanMxid) pair.
+    // Phase 83 Plan 04 — getSharedDMRoom returns the 2-member Matrix DM
+    // room where a bridge can safely route MX→TG replies. Failures for
+    // individual pairs collapse to null in the map; registry.json emits
+    // humans[].room = null for those pairs and the bridge falls back to
+    // not routing MX→TG for that pair (bridge.sh:243 filter). Acceptable
+    // per CONTEXT § 4 — a later reconcile can retry.
+    //
+    // No caching (CONTEXT § 4 explicit): every rewrite re-queries. Cheap
+    // because rewrites fire only on activate/disconnect/reconcile, never
+    // per-message.
+    //
+    // Key format is `${agentMxid}\t${humanMxid}` — tab is never valid
+    // inside a Matrix mxid (@localpart:dns-name), so no collision risk.
+    const roomByAgentHumanMxidPair = new Map<string, string | null>();
+    const pairs: Array<[string, string]> = [];
+    for (const row of rows) {
+      const agent = agentsByIdentityKey.get(row.identityKey);
+      const human = humansByUserId.get(row.humanUserId);
+      if (!agent || !human) continue;
+      pairs.push([agent.mxid, human.mxid]);
+    }
+    await Promise.all(
+      pairs.map(async ([agentMxid, humanMxid]) => {
+        const key = `${agentMxid}\t${humanMxid}`;
+        try {
+          const roomId = await getSharedDMRoom(agentMxid, humanMxid);
+          roomByAgentHumanMxidPair.set(key, roomId);
+        } catch (err) {
+          databaseLogger.warn(
+            "rewriteRegistryFromCurrentState: room lookup failed for pair",
+            {
+              operation: "bridge_registry_room_lookup_failed",
+              agentMxid,
+              humanMxid,
+              error: err instanceof Error ? err.message : "unknown",
+            },
+          );
+          roomByAgentHumanMxidPair.set(key, null);
+        }
+      }),
+    );
+
     // Step 7: build + write registry.json.
     const registry = buildRegistryFromRows(
       rows,
       humansByUserId,
       agentsByIdentityKey,
+      roomByAgentHumanMxidPair,
     );
     await writeRegistry(registry);
 

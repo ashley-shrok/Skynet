@@ -269,6 +269,60 @@ router.post(
 );
 
 // ---------------------------------------------------------------------------
+// GET /telegram/status?identityKey=<key>
+//
+// Phase 83 Plan 05 — read-only endpoint the TelegramTab frontend polls
+// (every ~3s per Plan 83-06) while in the "waiting for /start" state.
+// Returns { chatId: string | null } for the caller's own identity.
+//
+// Distinct from GET /telegram/:identityKey (below): that endpoint returns
+// { status, botUsername, telegramChatId } for the modal's initial paint;
+// this one is a hot poll that returns only the chatId and does NOT
+// include botUsername (frontend already has it from the pending-start
+// state) so the payload is minimal.
+//
+// Ownership check: matches /telegram/disconnect L225-228 — 403 when the
+// row's humanUserId does not match the JWT-authed userId.
+//
+// ROUTE ORDERING: /status must be registered BEFORE /:identityKey — Express
+// matches routes in registration order; a bare /status would otherwise
+// match /:identityKey with identityKey="status".
+// ---------------------------------------------------------------------------
+
+router.get(
+  "/status",
+  authenticateJWT,
+  async (req: Request, res: Response): Promise<void> => {
+    const authUserId = (req as AuthenticatedRequest).userId;
+    const { identityKey } = req.query as Record<string, unknown>;
+
+    if (typeof identityKey !== "string" || !IDENTITY_KEY_RE.test(identityKey)) {
+      res
+        .status(400)
+        .json({ error: "identityKey must match [a-z0-9][a-z0-9_-]{0,63}" });
+      return;
+    }
+
+    try {
+      const row = await getTelegramBotToken(identityKey);
+      if (row === null) {
+        res.status(404).json({ error: "no telegram binding for identity" });
+        return;
+      }
+      if (row.humanUserId !== authUserId) {
+        res.status(403).json({ error: "not your identity" });
+        return;
+      }
+      // Minimal payload — chatId only. Bot token NEVER included.
+      res.json({ chatId: row.telegramChatId });
+    } catch (err) {
+      authLogger.error("Failed to read telegram pending status", err);
+      res.status(500).json({ error: "Failed to read telegram status" });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
 // GET /telegram/:identityKey
 // ---------------------------------------------------------------------------
 

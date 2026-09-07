@@ -152,3 +152,48 @@ export async function getTelegramStatus(
     return { status: "error", error: formatError(err) };
   }
 }
+
+interface PendingStatusWireResp {
+  chatId?: string | null;
+  error?: string;
+}
+
+/**
+ * Phase 83 Plan 05 — poll endpoint the TelegramTab hits every ~3s while
+ * awaiting the user's /start message. Returns `{ chatId }` (may be null
+ * if the bridge hasn't seen a /start yet).
+ *
+ * Distinct from getTelegramStatus above (which returns the full
+ * connect-page shape used for initial modal paint). This one is the
+ * hot poll — minimal payload, no botUsername (caller already has it
+ * from the pending-start state).
+ *
+ * Wire: identityKey is passed as an axios `params` query param (URL-encoded
+ * by axios), NOT URL-embedded — matches CONTEXT § 5 endpoint shape and the
+ * backend's `req.query.identityKey` parse.
+ */
+export async function getTelegramPendingStatus(
+  identityKey: string,
+): Promise<
+  | { ok: true; chatId: string | null }
+  | { ok: false; error: string; status?: number }
+> {
+  try {
+    const resp = await authApi.get<PendingStatusWireResp>(
+      `/telegram/status`,
+      { params: { identityKey } },
+    );
+    const data = resp.data ?? {};
+    if ("chatId" in data) {
+      return { ok: true, chatId: data.chatId ?? null };
+    }
+    return { ok: false, error: data.error ?? "unexpected response" };
+  } catch (err) {
+    const anyErr = err as { response?: { status?: number } };
+    return {
+      ok: false,
+      error: formatError(err),
+      status: anyErr.response?.status,
+    };
+  }
+}

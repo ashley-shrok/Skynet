@@ -182,3 +182,36 @@ describe("path helpers refuse traversal (guard applied at every callsite)", () =
     expect(() => botTokenFilePath("../evil")).toThrow();
   });
 });
+
+// Phase 83 Plan 03 Task 1 — pendingChatIdPath (mirror shape of humanTokenDeadPath).
+// The tg-bridge (Plan 83-01) writes `<agentName>.pending-chat-id` sentinels when
+// its poller sees an unknown chat_id; the Skynet reconcile loop (Plan 83-03)
+// reads them, persists to telegram_bot_tokens.telegramChatId, and unlinks.
+describe("pendingChatIdPath (Plan 83-03: pending chat_id sentinels)", () => {
+  beforeEach(() => {
+    delete process.env.TG_BRIDGE_STATE_DIR_OVERRIDE;
+    vi.resetModules();
+  });
+
+  it("SV-01: pendingChatIdPath('alexander') returns '/state/alexander.pending-chat-id'", async () => {
+    const { pendingChatIdPath } = await import("./shared-volume.js");
+    expect(pendingChatIdPath("alexander")).toBe(
+      "/state/alexander.pending-chat-id",
+    );
+  });
+
+  it("SV-02: pendingChatIdPath('../etc/passwd') throws (path traversal rejected)", async () => {
+    const { pendingChatIdPath } = await import("./shared-volume.js");
+    expect(() => pendingChatIdPath("../etc/passwd")).toThrow();
+  });
+
+  it("SV-03: pendingChatIdPath('Alexander') throws (uppercase rejected)", async () => {
+    const { pendingChatIdPath } = await import("./shared-volume.js");
+    expect(() => pendingChatIdPath("Alexander")).toThrow();
+  });
+
+  it("SV-04: pendingChatIdPath(65-char name) throws (64-char cap)", async () => {
+    const { pendingChatIdPath } = await import("./shared-volume.js");
+    expect(() => pendingChatIdPath("a".repeat(65))).toThrow();
+  });
+});

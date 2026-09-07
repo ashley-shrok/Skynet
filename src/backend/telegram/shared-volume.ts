@@ -82,3 +82,19 @@ export function botTokenFilePath(identityKey: string): string {
   assertSafeHumanName(identityKey);
   return `${TG_BRIDGE_STATE_DIR}/${identityKey}.bottoken`;
 }
+
+/**
+ * Path to the per-agent pending-chat-id sentinel file the tg-bridge writes
+ * when its poller sees a message from an unknown chat_id (Plan 83-01).
+ * Skynet's reconcile-pending-chat-ids loop (Plan 83-03) reads this file,
+ * parses the raw signed-integer chat_id, updates telegram_bot_tokens, and
+ * unlinks the sentinel.
+ *
+ * agentName is the identityKey slug — same shape as identityKey slugs
+ * validated at /telegram/activate (IDENTITY_KEY_RE at routes.ts:51) and
+ * matching the assertSafeHumanName regex here.
+ */
+export function pendingChatIdPath(agentName: string): string {
+  assertSafeHumanName(agentName);
+  return `${TG_BRIDGE_STATE_DIR}/${agentName}.pending-chat-id`;
+}

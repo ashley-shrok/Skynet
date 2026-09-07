@@ -18,30 +18,38 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 
 vi.mock("../../api/telegram-api", () => ({
   postTelegramValidate: vi.fn(),
   postTelegramActivate: vi.fn(),
   postTelegramDisconnect: vi.fn(),
   getTelegramStatus: vi.fn(),
+  getTelegramPendingStatus: vi.fn(),
 }));
 
 import {
   postTelegramValidate,
   postTelegramActivate,
   postTelegramDisconnect,
+  getTelegramPendingStatus,
 } from "../../api/telegram-api";
 import { TelegramTab, type TelegramState } from "./TelegramTab";
 
 const mockValidate = postTelegramValidate as unknown as ReturnType<typeof vi.fn>;
 const mockActivate = postTelegramActivate as unknown as ReturnType<typeof vi.fn>;
 const mockDisconnect = postTelegramDisconnect as unknown as ReturnType<typeof vi.fn>;
+const mockGetTelegramPendingStatus =
+  getTelegramPendingStatus as unknown as ReturnType<typeof vi.fn>;
 
 const VALID_TOKEN = "1234567890:AAAsecretsecretsecretsecretsecretse";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default: poll returns null chatId so pre-existing tests that end in
+  // pending-start (Test 1) don't crash when the interval fires. Individual
+  // PLL tests override this via mockResolvedValueOnce chains.
+  mockGetTelegramPendingStatus.mockResolvedValue({ ok: true, chatId: null });
 });
 
 afterEach(() => {
@@ -247,5 +255,327 @@ describe("Test 7 — raw bot token does NOT appear in the DOM (T-79-07-02)", () 
     // Post-flow: input has been cleared (state transition scrubs token
     // from local state); the raw token substring is nowhere in the DOM.
     expect(document.body.innerHTML.includes(VALID_TOKEN)).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 80 Plan 06 — pending-start poll suite
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// This suite lives in its own describe block with its own beforeEach/afterEach
+// wiring fake timers. The prior suites use real timers (they rely on
+// waitFor + microtask flushing for async state updates). Keeping the fake-
+// timer setup scoped to this block avoids cross-suite interference.
+//
+// Cadence: 3000ms per CONTEXT § 5 (chosen from the 3-5s range).
+// Error semantics: poll errors are silently swallowed — no error-state flip
+// per CONTEXT § 5 "human gets to it when they get to it".
+
+describe("Phase 80 Plan 06 — pending-start 3s poll", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetTelegramPendingStatus.mockResolvedValue({ ok: true, chatId: null });
+    vi.useFakeTimers({
+      toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"],
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  // Helper: advance timers AND flush the microtask queue so any Promise
+  // resolutions kicked off by the timer callback settle before assertions.
+  // Wrapped in act() because React state updates may follow.
+  async function tick(ms: number): Promise<void> {
+    await act(async () => {
+      vi.advanceTimersByTime(ms);
+      // Drain microtasks: one macrotask hop plus a Promise flush is enough
+      // for the poll's single `await getTelegramPendingStatus(...)` chain.
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  // ─── PLL-01: poll fires on pending-start entry, at 3s cadence ─────────────
+  it("PLL-01: poll fires every 3s with identityKey while in pending-start", async () => {
+    const { rerender } = render(
+      <TelegramTab
+        state={{
+          status: "pending-start",
+          botUsername: "alex_bot",
+          botLink: "https://t.me/alex_bot",
+        }}
+        identityKey="alexander"
+        identityName="Alexander"
+        humanUserId="user-42"
+        onStateChange={vi.fn()}
+      />,
+    );
+
+    // No poll before the first interval tick
+    expect(mockGetTelegramPendingStatus).not.toHaveBeenCalled();
+
+    await tick(3000);
+    expect(mockGetTelegramPendingStatus).toHaveBeenCalledTimes(1);
+    expect(mockGetTelegramPendingStatus).toHaveBeenLastCalledWith("alexander");
+
+    await tick(3000);
+    expect(mockGetTelegramPendingStatus).toHaveBeenCalledTimes(2);
+    expect(mockGetTelegramPendingStatus).toHaveBeenLastCalledWith("alexander");
+
+    // Silence unused-var lint
+    void rerender;
+  });
+
+  // ─── PLL-02: transitions to connected on non-null chatId ──────────────────
+  it("PLL-02: transitions to connected on non-null chatId; stops polling after", async () => {
+    mockGetTelegramPendingStatus
+      .mockResolvedValueOnce({ ok: true, chatId: null })
+      .mockResolvedValueOnce({ ok: true, chatId: "12345678" })
+      .mockResolvedValue({ ok: true, chatId: "12345678" });
+
+    const onStateChange = vi.fn();
+
+    // The parent normally rerenders with the new state after onStateChange.
+    // Simulate that by rerendering into the connected state on the call.
+    let currentState: TelegramState = {
+      status: "pending-start",
+      botUsername: "alex_bot",
+      botLink: "https://t.me/alex_bot",
+    };
+    onStateChange.mockImplementation((next: TelegramState) => {
+      currentState = next;
+    });
+
+    const { rerender } = render(
+      <TelegramTab
+        state={currentState}
+        identityKey="alexander"
+        identityName="Alexander"
+        humanUserId="user-42"
+        onStateChange={onStateChange}
+      />,
+    );
+
+    // First tick — chatId null → no transition
+    await tick(3000);
+    expect(onStateChange).not.toHaveBeenCalled();
+
+    // Second tick — chatId "12345678" → transition to connected
+    await tick(3000);
+    expect(onStateChange).toHaveBeenCalledTimes(1);
+    expect(onStateChange).toHaveBeenCalledWith({
+      status: "connected",
+      botUsername: "alex_bot",
+      telegramHandle: "12345678",
+    });
+
+    // Parent-simulated rerender with the new state — poll effect should
+    // clean up now that state.status !== "pending-start"
+    rerender(
+      <TelegramTab
+        state={currentState}
+        identityKey="alexander"
+        identityName="Alexander"
+        humanUserId="user-42"
+        onStateChange={onStateChange}
+      />,
+    );
+
+    const callsAfterTransition = mockGetTelegramPendingStatus.mock.calls.length;
+
+    // Third tick — no new poll should fire (we're in connected state)
+    await tick(3000);
+    expect(mockGetTelegramPendingStatus.mock.calls.length).toBe(
+      callsAfterTransition,
+    );
+    expect(onStateChange).toHaveBeenCalledTimes(1);
+  });
+
+  // ─── PLL-03: poll swallows errors — does NOT flip to error state ──────────
+  it("PLL-03: poll errors do NOT transition state (no error-state flip per CONTEXT § 5)", async () => {
+    mockGetTelegramPendingStatus.mockResolvedValue({
+      ok: false,
+      error: "network down",
+    });
+
+    const onStateChange = vi.fn();
+    render(
+      <TelegramTab
+        state={{
+          status: "pending-start",
+          botUsername: "alex_bot",
+          botLink: "https://t.me/alex_bot",
+        }}
+        identityKey="alexander"
+        identityName="Alexander"
+        humanUserId="user-42"
+        onStateChange={onStateChange}
+      />,
+    );
+
+    await tick(3000);
+    await tick(3000);
+    await tick(3000);
+
+    expect(mockGetTelegramPendingStatus).toHaveBeenCalledTimes(3);
+    expect(onStateChange).not.toHaveBeenCalled();
+
+    // Still rendering pending-start UI
+    expect(screen.getByText(/Waiting for you to send/)).toBeTruthy();
+  });
+
+  // ─── PLL-04: poll stopped on unmount ──────────────────────────────────────
+  it("PLL-04: cleanup on unmount — no polls fire after unmount", async () => {
+    const { unmount } = render(
+      <TelegramTab
+        state={{
+          status: "pending-start",
+          botUsername: "alex_bot",
+          botLink: "https://t.me/alex_bot",
+        }}
+        identityKey="alexander"
+        identityName="Alexander"
+        humanUserId="user-42"
+        onStateChange={vi.fn()}
+      />,
+    );
+
+    await tick(3000);
+    const callsBeforeUnmount = mockGetTelegramPendingStatus.mock.calls.length;
+    expect(callsBeforeUnmount).toBe(1);
+
+    unmount();
+
+    await tick(6000);
+    expect(mockGetTelegramPendingStatus.mock.calls.length).toBe(
+      callsBeforeUnmount,
+    );
+  });
+
+  // ─── PLL-05: poll does NOT start in other states ──────────────────────────
+  it("PLL-05: poll does NOT start in unconfigured / connected / restart-failed / loading / error", async () => {
+    const states: TelegramState[] = [
+      { status: "unconfigured" },
+      { status: "connected", botUsername: "alex_bot", telegramHandle: "12345678" },
+      { status: "restart-failed", error: "boom" },
+      { status: "loading" },
+      { status: "error", error: "boom" },
+    ];
+
+    for (const s of states) {
+      const { unmount } = render(
+        <TelegramTab
+          state={s}
+          identityKey="alexander"
+          identityName="Alexander"
+          humanUserId="user-42"
+          onStateChange={vi.fn()}
+        />,
+      );
+      await tick(6000);
+      unmount();
+    }
+
+    expect(mockGetTelegramPendingStatus).not.toHaveBeenCalled();
+  });
+
+  // ─── PLL-06: poll re-keys on identityKey change ───────────────────────────
+  it("PLL-06: identityKey change restarts interval with the new key", async () => {
+    const { rerender } = render(
+      <TelegramTab
+        state={{
+          status: "pending-start",
+          botUsername: "alex_bot",
+          botLink: "https://t.me/alex_bot",
+        }}
+        identityKey="alexander"
+        identityName="Alexander"
+        humanUserId="user-42"
+        onStateChange={vi.fn()}
+      />,
+    );
+
+    await tick(3000);
+    expect(mockGetTelegramPendingStatus).toHaveBeenLastCalledWith("alexander");
+    const callsAfterFirst = mockGetTelegramPendingStatus.mock.calls.length;
+
+    rerender(
+      <TelegramTab
+        state={{
+          status: "pending-start",
+          botUsername: "alex_bot",
+          botLink: "https://t.me/alex_bot",
+        }}
+        identityKey="bravo"
+        identityName="Bravo"
+        humanUserId="user-42"
+        onStateChange={vi.fn()}
+      />,
+    );
+
+    await tick(3000);
+    // Must have fired at least one more poll and the most recent must be
+    // with the new key.
+    expect(mockGetTelegramPendingStatus.mock.calls.length).toBeGreaterThan(
+      callsAfterFirst,
+    );
+    expect(mockGetTelegramPendingStatus).toHaveBeenLastCalledWith("bravo");
+  });
+
+  // ─── PLL-07: after transition, no further polls even if chatId arrives ─────
+  it("PLL-07: no further polls after pending-start → connected transition even after 30s", async () => {
+    mockGetTelegramPendingStatus.mockResolvedValueOnce({
+      ok: true,
+      chatId: "42",
+    });
+
+    const onStateChange = vi.fn();
+    let currentState: TelegramState = {
+      status: "pending-start",
+      botUsername: "alex_bot",
+      botLink: "https://t.me/alex_bot",
+    };
+    onStateChange.mockImplementation((next: TelegramState) => {
+      currentState = next;
+    });
+
+    const { rerender } = render(
+      <TelegramTab
+        state={currentState}
+        identityKey="alexander"
+        identityName="Alexander"
+        humanUserId="user-42"
+        onStateChange={onStateChange}
+      />,
+    );
+
+    await tick(3000);
+    expect(onStateChange).toHaveBeenCalledWith({
+      status: "connected",
+      botUsername: "alex_bot",
+      telegramHandle: "42",
+    });
+
+    rerender(
+      <TelegramTab
+        state={currentState}
+        identityKey="alexander"
+        identityName="Alexander"
+        humanUserId="user-42"
+        onStateChange={onStateChange}
+      />,
+    );
+
+    const callsAfterTransition = mockGetTelegramPendingStatus.mock.calls.length;
+    // Advance 30s — many potential interval firings
+    await tick(30_000);
+    expect(mockGetTelegramPendingStatus.mock.calls.length).toBe(
+      callsAfterTransition,
+    );
   });
 });

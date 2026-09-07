@@ -267,6 +267,12 @@ tg_poller(){
       # drop all TG->MX messages (bit us 2026-07-30, Wilma + Hilda).
       match=$(jq -c --arg c "$fc" '.[] | select((.chat_id|tostring)==$c)' <<<"$humans_json")
       if [ -z "$match" ]; then
+        # Fix B: write pending-chat-id sentinel so Skynet reconcile can populate
+        # telegram_bot_tokens.telegramChatId. Raw bytes only — no newline, no JSON —
+        # Skynet parses via readFile().trim() (see reconcile-pending-chat-ids.ts).
+        # Overwrites are idempotent by design: next unknown chat_id for this same
+        # agent updates the sentinel; the reconcile loop unlinks after DB update.
+        printf '%s' "$fc" > "${STATE_DIR}/${name}.pending-chat-id"
         log "TG->MX[$name]: no human owns chat_id=$fc — dropped (misrouted or unauthorized)"
         continue
       fi

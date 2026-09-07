@@ -307,6 +307,30 @@ if (process.env.VITEST !== "true") {
         });
       });
 
+    // Phase 83 Plan 03 — start the 30s reconcile-pending-chat-ids loop.
+    // Reads /state/<agent>.pending-chat-id sentinels the bridge writes when
+    // tg_poller sees an unknown chat_id (Plan 83-01), persists chat_id to
+    // telegram_bot_tokens.telegramChatId, and triggers registry rewrite.
+    // Fire-and-forget: startReconcilePendingChatIdsLoop returns a
+    // .unref()'d timer handle that we don't store. Errors inside the loop
+    // log a warn and continue; the loop never crashes the container
+    // (T-83-03 mirrors T-79-08-06 fail-open contract).
+    //
+    // Ordering: MUST come after the Plan 04 bridge_config_write block AND
+    // after reconcile-dead-tokens (same shared-volume assumption). Placed
+    // as a sibling of reconcile-dead-tokens for symmetry — both loops
+    // consume /state sentinels at the same cadence.
+    void import("./telegram/reconcile-pending-chat-ids.js")
+      .then((m) => {
+        m.startReconcilePendingChatIdsLoop(30_000);
+      })
+      .catch((err) => {
+        systemLogger.warn("startReconcilePendingChatIdsLoop failed to start", {
+          operation: "reconcile_pending_chat_id_start_failed",
+          error: err instanceof Error ? err.message : "unknown",
+        });
+      });
+
     // Phase 74: fail-fast if the branding config lacks a non-empty
     // avatarDirectorSpec. Placed AFTER initializeDatabase() so the DB
     // logger stream is live, and BEFORE AuthManager + the dbServer

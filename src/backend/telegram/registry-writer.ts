@@ -25,7 +25,7 @@ export interface RegistryHumanEntry {
   name: string;
   mxid: string;
   chat_id: string | null;
-  room: string | null; // Phase B always null — room-mgmt out of scope.
+  room: string | null; // Phase 83: populated via getSharedDMRoom lookup map (fallback null when absent/unknown).
   token: string; // filename only (e.g. "ashley.token"), NOT contents.
 }
 
@@ -48,6 +48,11 @@ export interface RegistryFile {
  *     where mxid is non-null).
  *   - agentsByIdentityKey: identityKey -> {name, mxid} lookup (derived from
  *     the row's identityKey + the resolved matrix homeserver hostname).
+ *   - roomByAgentHumanMxidPair (optional, Phase 83 Plan 04): Map keyed by
+ *     `${agentMxid}\t${humanMxid}` → room_id (string) or null. When
+ *     provided, humans[].room is looked up here; when absent or key
+ *     missing, humans[].room defaults to null. Tab is the separator
+ *     because it never appears inside a Matrix mxid.
  *
  * Emits one agent entry per distinct identityKey. Each agent's humans[]
  * contains one entry per row whose humanUserId resolves in humansByUserId;
@@ -63,6 +68,7 @@ export function buildRegistryFromRows(
   }>,
   humansByUserId: Map<string, { name: string; mxid: string }>,
   agentsByIdentityKey: Map<string, { name: string; mxid: string }>,
+  roomByAgentHumanMxidPair?: Map<string, string | null>,
 ): RegistryFile {
   // Group rows by identityKey so multiple humans per identity — deferred in
   // v1 UI but supported by the bridge — collapse into a single agent entry.
@@ -92,7 +98,9 @@ export function buildRegistryFromRows(
         name: human.name,
         mxid: human.mxid,
         chat_id: row.telegramChatId ?? null,
-        room: null,
+        room:
+          roomByAgentHumanMxidPair?.get(`${agentMeta.mxid}\t${human.mxid}`) ??
+          null,
         token: `${human.name}.token`,
       });
     }

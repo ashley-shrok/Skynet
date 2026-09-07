@@ -38,7 +38,7 @@ import {
   makeRoomAdmin,
   listRooms,
   buildRelayJsonBody,
-  countUsersMatching,
+  getSharedDMRoom,
 } from "./matrix-admin-client.js";
 import { getMatrixAdminCreds } from "./matrix-admin-creds-store.js";
 
@@ -379,113 +379,6 @@ describe("listRooms", () => {
 });
 
 // ---------------------------------------------------------------------------
-// countUsersMatching (Phase 80-02) — GET /_synapse/admin/v2/users?user_id=<prefix>&deactivated=true&limit=1
-// ---------------------------------------------------------------------------
-
-describe("countUsersMatching", () => {
-  it("happy path 200 with {total:5} → {ok:true, total:5}", async () => {
-    stubFetchOk(200, { total: 5, users: [{ name: "@willow-x:host" }] });
-    const result = await countUsersMatching("@Willow-");
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.total).toBe(5);
-    }
-  });
-
-  it("happy path 200 with body missing total → {ok:true, total:0} (safe default)", async () => {
-    stubFetchOk(200, { users: [] });
-    const result = await countUsersMatching("@Nobody-");
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.total).toBe(0);
-    }
-  });
-
-  it("no creds available → {ok:false, status:500, error:'matrix_admin_creds_missing'}", async () => {
-    vi.mocked(getMatrixAdminCreds).mockResolvedValue(null);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        throw new Error("fetch must not be called when creds are missing");
-      }),
-    );
-    const result = await countUsersMatching("@Willow-");
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.status).toBe(500);
-      expect(result.error).toBe("matrix_admin_creds_missing");
-    }
-  });
-
-  it("non-2xx 403 → {ok:false, status:403, error:'admin_api_non_2xx'} — no upstream body leak", async () => {
-    stubFetchOk(403, {
-      errcode: "M_FORBIDDEN",
-      error: "server-secret-detail",
-    });
-    const result = await countUsersMatching("@Willow-");
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.status).toBe(403);
-      expect(result.error).toBe("admin_api_non_2xx");
-      expect(JSON.stringify(result)).not.toContain("server-secret-detail");
-      expect(JSON.stringify(result)).not.toContain("M_FORBIDDEN");
-    }
-  });
-
-  it("AbortError (timeout) → {ok:false, status:504, error:'admin_api_timeout'}", async () => {
-    stubFetchAbort();
-    const result = await countUsersMatching("@Willow-");
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.status).toBe(504);
-      expect(result.error).toBe("admin_api_timeout");
-    }
-  });
-
-  it("network error → {ok:false, status:502, error:'admin_api_proxy_error'}", async () => {
-    stubFetchNetworkError();
-    const result = await countUsersMatching("@Willow-");
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.status).toBe(502);
-      expect(result.error).toBe("admin_api_proxy_error");
-    }
-  });
-
-  it("URL contains user_id, deactivated=true, and limit=1 query params", async () => {
-    const fetchMock = vi.fn(async () => mockFetchResponse(200, { total: 0 }));
-    vi.stubGlobal("fetch", fetchMock);
-    await countUsersMatching("@Willow-");
-    const url = fetchMock.mock.calls[0][0] as string;
-    expect(url).toContain("/_synapse/admin/v2/users");
-    expect(url).toContain("user_id=");
-    expect(url).toContain("deactivated=true");
-    expect(url).toContain("limit=1");
-  });
-
-  it("prefix with special chars is encodeURIComponent'd in the URL", async () => {
-    const fetchMock = vi.fn(async () => mockFetchResponse(200, { total: 0 }));
-    vi.stubGlobal("fetch", fetchMock);
-    await countUsersMatching("@Willow+test:host");
-    const url = fetchMock.mock.calls[0][0] as string;
-    // '@' → %40, '+' → %2B, ':' → %3A
-    expect(url).toContain("%40Willow%2Btest%3Ahost");
-    expect(url).not.toContain("@Willow+test:host");
-  });
-
-  it("sends GET method with Authorization: Bearer <accessToken> header", async () => {
-    const fetchMock = vi.fn(async () => mockFetchResponse(200, { total: 0 }));
-    vi.stubGlobal("fetch", fetchMock);
-    await countUsersMatching("@Willow-");
-    const opts = fetchMock.mock.calls[0][1] as RequestInit;
-    expect(opts.method).toBe("GET");
-    const headers = opts.headers as Record<string, string>;
-    expect(headers["Authorization"]).toBe(`Bearer ${HAPPY_CREDS.accessToken}`);
-    expect(headers["Content-Type"]).toBe("application/json");
-  });
-});
-
-// ---------------------------------------------------------------------------
 // buildRelayJsonBody (pure helper — no fetch, no creds)
 // ---------------------------------------------------------------------------
 
@@ -527,5 +420,165 @@ describe("buildRelayJsonBody", () => {
     const parsed = JSON.parse(buildRelayJsonBody(BUILD_OPTS));
     expect(parsed.user_id).toBe(BUILD_OPTS.mxid);
     expect(parsed.password).toBe(BUILD_OPTS.password);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getSharedDMRoom (Plan 83-02 — FIXB-03)
+// ---------------------------------------------------------------------------
+
+describe("getSharedDMRoom", () => {
+  const AGENT = "@alexander:server";
+  const HUMAN = "@ashley:server";
+
+  it("G-01 happy path 2-member shared room resolves to that room_id", async () => {
+    // Sequenced fetch: (1) agent joined_rooms, (2) human joined_rooms,
+    // (3) members lookup for the intersecting room.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockFetchResponse(200, {
+          joined_rooms: ["!roomA:server", "!roomB:server"],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockFetchResponse(200, {
+          joined_rooms: ["!roomB:server", "!roomC:server"],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockFetchResponse(200, {
+          members: ["@alexander:server", "@ashley:server"],
+          total: 2,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getSharedDMRoom(AGENT, HUMAN);
+    expect(result).toBe("!roomB:server");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    // Verify encodeURIComponent applied to mxids in first two calls.
+    const call0Url = fetchMock.mock.calls[0][0] as string;
+    const call1Url = fetchMock.mock.calls[1][0] as string;
+    expect(call0Url).toContain(encodeURIComponent(AGENT));
+    expect(call0Url).toContain("/joined_rooms");
+    expect(call1Url).toContain(encodeURIComponent(HUMAN));
+    expect(call1Url).toContain("/joined_rooms");
+    // Verify encodeURIComponent applied to room_id in third call.
+    const call2Url = fetchMock.mock.calls[2][0] as string;
+    expect(call2Url).toContain(encodeURIComponent("!roomB:server"));
+    expect(call2Url).toContain("/members");
+  });
+
+  it("G-02 no shared room returns null without members lookup", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockFetchResponse(200, { joined_rooms: ["!roomA:server"] }),
+      )
+      .mockResolvedValueOnce(
+        mockFetchResponse(200, { joined_rooms: ["!roomC:server"] }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getSharedDMRoom(AGENT, HUMAN);
+    expect(result).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("G-03 3-member shared room filtered out (returns null)", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockFetchResponse(200, { joined_rooms: ["!bigroom:server"] }),
+      )
+      .mockResolvedValueOnce(
+        mockFetchResponse(200, { joined_rooms: ["!bigroom:server"] }),
+      )
+      .mockResolvedValueOnce(
+        mockFetchResponse(200, {
+          members: [
+            "@alexander:server",
+            "@ashley:server",
+            "@somebody-else:server",
+          ],
+          total: 3,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getSharedDMRoom(AGENT, HUMAN);
+    expect(result).toBeNull();
+    // Members endpoint IS called for the shared room; result filtered.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("G-04 joined_rooms 500 returns null (short-circuits)", async () => {
+    // Both calls fire in Promise.all — the second one succeeding is fine;
+    // implementation short-circuits AFTER the pair resolves when either
+    // is null. So we expect exactly 2 calls (no members lookup).
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(mockFetchResponse(500, {}))
+      .mockResolvedValueOnce(
+        mockFetchResponse(200, { joined_rooms: ["!roomX:server"] }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getSharedDMRoom(AGENT, HUMAN);
+    expect(result).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("G-05 missing creds returns null without fetch call", async () => {
+    vi.mocked(getMatrixAdminCreds).mockResolvedValue(null);
+    const fetchMock = vi.fn(async () => {
+      throw new Error("fetch must not be called when creds are missing");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getSharedDMRoom(AGENT, HUMAN);
+    expect(result).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("G-06 AbortError on first fetch returns null", async () => {
+    stubFetchAbort();
+    const result = await getSharedDMRoom(AGENT, HUMAN);
+    expect(result).toBeNull();
+    // No unhandled rejection: if clearTimeout weren't called, the test
+    // process would emit warnings — vitest surfaces those. Absence is
+    // the (indirect) proof.
+  });
+
+  it("G-07 encodeURIComponent applied to mxids and room_id (path-traversal defense)", async () => {
+    // mxid already contains a %2f — encodeURIComponent double-encodes to %252f.
+    const traversalMxid = "@alex%2fetc:server";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockFetchResponse(200, { joined_rooms: ["!weird/room:server"] }),
+      )
+      .mockResolvedValueOnce(
+        mockFetchResponse(200, { joined_rooms: ["!weird/room:server"] }),
+      )
+      .mockResolvedValueOnce(
+        mockFetchResponse(200, {
+          members: [traversalMxid, HUMAN],
+          total: 2,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getSharedDMRoom(traversalMxid, HUMAN);
+    // Agent mxid URL: %40alex%252fetc%3Aserver (double-encoded slash).
+    const agentUrl = fetchMock.mock.calls[0][0] as string;
+    expect(agentUrl).toContain("%40alex%252fetc%3Aserver");
+    expect(agentUrl).not.toContain("%2fetc"); // raw %2f must not survive
+    // Room_id URL must encodeURIComponent the '/' in the room name.
+    const roomUrl = fetchMock.mock.calls[2][0] as string;
+    expect(roomUrl).toContain(encodeURIComponent("!weird/room:server"));
+    expect(roomUrl).not.toContain("!weird/room:server");
   });
 });

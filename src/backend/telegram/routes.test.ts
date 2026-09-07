@@ -632,3 +632,166 @@ describe("GET /telegram/:identityKey", () => {
     expect(res.body).not.toContain("bot_token");
   });
 });
+
+// -------------------------- GET /telegram/status ---------------------------
+//
+// Phase 83 Plan 05 — hot-poll endpoint. Frontend TelegramTab (Plan 83-06)
+// hits this every ~3s while in the "waiting for /start" state. Returns
+// { chatId: string | null } only — no botUsername, no bot token.
+//
+// Distinct from GET /:identityKey above: /status is a bare, minimal-payload
+// poll; /:identityKey is the modal's initial paint.
+//
+// Route ordering matters: /status must be registered BEFORE /:identityKey
+// in routes.ts (Express matches in registration order — a bare /status
+// would otherwise match /:identityKey with identityKey="status").
+
+describe("GET /telegram/status", () => {
+  // Test STS-01 — happy path, chat_id populated.
+  it("STS-01: 200 {chatId} when row exists with telegramChatId populated", async () => {
+    getTelegramBotTokenMock.mockResolvedValue({
+      identityKey: "alexander",
+      botToken: VALID_TOKEN,
+      botUsername: "alex_bot",
+      humanUserId: MOCK_USER_ID_DEFAULT,
+      telegramChatId: "123456789",
+      createdAt: "",
+      updatedAt: "",
+    });
+    const res = await request(
+      server.port,
+      "GET",
+      "/telegram/status?identityKey=alexander",
+    );
+    expect(res.status).toBe(200);
+    const parsed = JSON.parse(res.body);
+    expect(parsed).toEqual({ chatId: "123456789" });
+    // Belt-and-braces: bot token NEVER in response.
+    expect(res.body).not.toContain(VALID_TOKEN);
+    expect(res.body).not.toContain("botToken");
+    expect(res.body).not.toContain("bot_token");
+    expect(res.body).not.toContain("botUsername");
+  });
+
+  // Test STS-02 — happy path, chat_id null while waiting for /start.
+  it("STS-02: 200 {chatId:null} when row exists but telegramChatId is null", async () => {
+    getTelegramBotTokenMock.mockResolvedValue({
+      identityKey: "alexander",
+      botToken: VALID_TOKEN,
+      botUsername: "alex_bot",
+      humanUserId: MOCK_USER_ID_DEFAULT,
+      telegramChatId: null,
+      createdAt: "",
+      updatedAt: "",
+    });
+    const res = await request(
+      server.port,
+      "GET",
+      "/telegram/status?identityKey=alexander",
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ chatId: null });
+  });
+
+  // Test STS-03 — missing query param.
+  it("STS-03: 400 with regex-error when identityKey query param missing", async () => {
+    const res = await request(server.port, "GET", "/telegram/status");
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: "identityKey must match [a-z0-9][a-z0-9_-]{0,63}",
+    });
+    expect(getTelegramBotTokenMock).not.toHaveBeenCalled();
+  });
+
+  // Test STS-04 — malformed query param (uppercase not allowed).
+  it("STS-04: 400 with regex-error when identityKey has uppercase", async () => {
+    const res = await request(
+      server.port,
+      "GET",
+      "/telegram/status?identityKey=Alexander",
+    );
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: "identityKey must match [a-z0-9][a-z0-9_-]{0,63}",
+    });
+    expect(getTelegramBotTokenMock).not.toHaveBeenCalled();
+  });
+
+  // Test STS-05 — path-traversal in query param blocked by regex.
+  it("STS-05: 400 with regex-error when identityKey is path-traversal (../etc)", async () => {
+    const res = await request(
+      server.port,
+      "GET",
+      "/telegram/status?identityKey=..%2Fetc",
+    );
+    expect(res.status).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({
+      error: "identityKey must match [a-z0-9][a-z0-9_-]{0,63}",
+    });
+    expect(getTelegramBotTokenMock).not.toHaveBeenCalled();
+  });
+
+  // Test STS-06 — no row for identityKey.
+  it("STS-06: 404 with binding-error when no row exists for identityKey", async () => {
+    getTelegramBotTokenMock.mockResolvedValue(null);
+    const res = await request(
+      server.port,
+      "GET",
+      "/telegram/status?identityKey=alexander",
+    );
+    expect(res.status).toBe(404);
+    expect(JSON.parse(res.body)).toEqual({
+      error: "no telegram binding for identity",
+    });
+  });
+
+  // Test STS-07 — not owner.
+  it("STS-07: 403 with not-your-identity when row humanUserId != auth userId", async () => {
+    mockUserId = "user-99";
+    getTelegramBotTokenMock.mockResolvedValue({
+      identityKey: "alexander",
+      botToken: VALID_TOKEN,
+      botUsername: "alex_bot",
+      humanUserId: "user-42",
+      telegramChatId: "123456789",
+      createdAt: "",
+      updatedAt: "",
+    });
+    const res = await request(
+      server.port,
+      "GET",
+      "/telegram/status?identityKey=alexander",
+    );
+    expect(res.status).toBe(403);
+    expect(JSON.parse(res.body)).toEqual({ error: "not your identity" });
+  });
+
+  // Test STS-08 — no auth (mocked middleware short-circuits to 401).
+  it("STS-08: 401 when no auth (JWT middleware short-circuits)", async () => {
+    mockUserId = null;
+    const res = await request(
+      server.port,
+      "GET",
+      "/telegram/status?identityKey=alexander",
+    );
+    expect(res.status).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({
+      error: "Missing authentication token",
+    });
+    expect(getTelegramBotTokenMock).not.toHaveBeenCalled();
+  });
+
+  // Test STS-09 — internal error path.
+  it("STS-09: 500 with failure-error when getTelegramBotToken throws", async () => {
+    getTelegramBotTokenMock.mockRejectedValue(new Error("db offline"));
+    const res = await request(
+      server.port,
+      "GET",
+      "/telegram/status?identityKey=alexander",
+    );
+    expect(res.status).toBe(500);
+    expect(JSON.parse(res.body)).toEqual({
+      error: "Failed to read telegram status",
+    });
+  });
+});

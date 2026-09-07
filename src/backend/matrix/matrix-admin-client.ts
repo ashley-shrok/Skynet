@@ -346,65 +346,6 @@ export async function listRooms(
 }
 
 // ---------------------------------------------------------------------------
-// countUsersMatching — GET /_synapse/admin/v2/users?user_id=<prefix>&deactivated=true&limit=1
-// ---------------------------------------------------------------------------
-//
-// Substring filter on user_id; deactivated=true INCLUDES deactivated accounts
-// (crucial — Synapse deactivates but never deletes; deactivated usernames stay
-// reserved per Phase 80 pool-name allocator design). limit=1 because callers
-// only need `total` — the users array is discarded.
-//
-// Substrate used by:
-//   - Phase 80-03b (identity birth): compute ordinal suffix from current count
-//     (e.g. `Willow-Skynet-Maintainer-2` when Willow-* count is 1).
-//   - Phase 80-04 (`/identities/pool/pick`): confirm a pool-derived MXID handle
-//     is still free before returning it to the frontend picker.
-
-export type CountUsersOk = AdminOk<{ total: number }>;
-
-export async function countUsersMatching(
-  prefix: string,
-): Promise<CountUsersOk | AdminErr> {
-  const creds = await getMatrixAdminCreds();
-  if (!creds) {
-    return { ok: false, status: 500, error: ERR_CREDS_MISSING };
-  }
-
-  const url = `${creds.homeserverBase}/_synapse/admin/v2/users?user_id=${encodeURIComponent(prefix)}&deactivated=true&limit=1`;
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${creds.accessToken}`,
-        "Content-Type": "application/json",
-      },
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-    if (!response.ok) {
-      return { ok: false, status: response.status, error: ERR_NON_2XX };
-    }
-    const parsed = (await response.json()) as { total?: number };
-    return {
-      ok: true,
-      total: typeof parsed.total === "number" ? parsed.total : 0,
-    };
-  } catch (err: unknown) {
-    clearTimeout(timeoutId);
-    if (err instanceof DOMException && err.name === "AbortError") {
-      return { ok: false, status: 504, error: ERR_TIMEOUT };
-    }
-    databaseLogger.error("matrix admin proxy error", err, {
-      operation: "matrix_admin_count_users",
-    });
-    return { ok: false, status: 502, error: ERR_PROXY };
-  }
-}
-
-// ---------------------------------------------------------------------------
 // buildRelayJsonBody — pure helper
 // ---------------------------------------------------------------------------
 
@@ -439,4 +380,105 @@ export function buildRelayJsonBody(opts: BuildRelayJsonBodyOpts): string {
     access_token: opts.accessToken,
   };
   return JSON.stringify(body, null, 2);
+}
+
+// ---------------------------------------------------------------------------
+// getSharedDMRoom — free helper composing joined_rooms + rooms/members
+// ---------------------------------------------------------------------------
+
+/**
+ * Return the first Matrix room_id where BOTH agentMxid and humanMxid are
+ * joined AND the total joined-member count is exactly 2 (i.e. a DM room).
+ * Returns null when no such room exists, when either user's joined_rooms
+ * call fails, or when creds are absent.
+ *
+ * Never throws — every error path collapses to null so the caller
+ * (bridge-config-writer.ts Plan 83-04) can Promise.all across pairs
+ * without try/catch at every site. Discriminated-union errors would
+ * force the caller to unwrap on every element; a nullable is cleaner
+ * for the "best-effort discover then fall back" pattern.
+ *
+ * Path-traversal defense: encodeURIComponent on every mxid AND every
+ * candidate room_id (T-75-05 — matches createOrUpdateUser L76 pattern).
+ *
+ * Timeouts: each fetch wrapped in a fresh AbortController + 30s timeout
+ * matching REQUEST_TIMEOUT_MS. clearTimeout on both branches.
+ */
+export async function getSharedDMRoom(
+  agentMxid: string,
+  humanMxid: string,
+): Promise<string | null> {
+  const creds = await getMatrixAdminCreds();
+  if (!creds) return null;
+
+  // Helper: fetch a user's joined_rooms; returns null on any non-2xx or throw.
+  async function joinedRooms(mxid: string): Promise<string[] | null> {
+    const url = `${creds!.homeserverBase}/_synapse/admin/v1/users/${encodeURIComponent(mxid)}/joined_rooms`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${creds!.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (!response.ok) return null;
+      const parsed = (await response.json()) as { joined_rooms?: unknown };
+      return Array.isArray(parsed.joined_rooms)
+        ? (parsed.joined_rooms.filter((r) => typeof r === "string") as string[])
+        : null;
+    } catch {
+      clearTimeout(timeoutId);
+      return null;
+    }
+  }
+
+  const [agentRooms, humanRooms] = await Promise.all([
+    joinedRooms(agentMxid),
+    joinedRooms(humanMxid),
+  ]);
+  if (agentRooms === null || humanRooms === null) return null;
+
+  const humanSet = new Set(humanRooms);
+  const shared = agentRooms.filter((r) => humanSet.has(r));
+  if (shared.length === 0) return null;
+
+  // Serialize member-count checks so we short-circuit on the first match
+  // (typical case: at most 1-2 shared rooms — parallelizing gives no win).
+  for (const roomId of shared) {
+    const url = `${creds.homeserverBase}/_synapse/admin/v1/rooms/${encodeURIComponent(roomId)}/members`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${creds.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (!response.ok) continue;
+      const parsed = (await response.json()) as {
+        members?: unknown;
+        total?: unknown;
+      };
+      const total =
+        typeof parsed.total === "number"
+          ? parsed.total
+          : Array.isArray(parsed.members)
+            ? parsed.members.length
+            : -1;
+      if (total === 2) return roomId;
+    } catch {
+      clearTimeout(timeoutId);
+      continue;
+    }
+  }
+  return null;
 }

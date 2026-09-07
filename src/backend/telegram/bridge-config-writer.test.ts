@@ -32,6 +32,10 @@ vi.mock("../matrix/matrix-admin-creds-store.js", () => ({
   getMatrixAdminCreds: vi.fn(),
 }));
 
+vi.mock("../matrix/matrix-admin-client.js", () => ({
+  getSharedDMRoom: vi.fn(),
+}));
+
 vi.mock("./tokens-store.js", () => ({
   listTelegramBotTokens: vi.fn(),
 }));
@@ -115,6 +119,10 @@ beforeEach(async () => {
   const rw = await import("./registry-writer.js");
   vi.mocked(rw.buildRegistryFromRows).mockReset();
   vi.mocked(rw.writeRegistry).mockReset();
+  const mac2 = await import("../matrix/matrix-admin-client.js");
+  vi.mocked(mac2.getSharedDMRoom).mockReset();
+  // Default: no shared room discovered. Individual tests override.
+  vi.mocked(mac2.getSharedDMRoom).mockResolvedValue(null);
 
   usersSelectResult.execute.mockReset();
   // The db.select().from(users) chain returns a thenable/awaitable array in
@@ -489,6 +497,375 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     expect(serverNameFromMxid("no-colon")).toBeNull();
     expect(serverNameFromMxid(":no-localpart")).toBeNull();
     expect(serverNameFromMxid("@trailing-colon:")).toBeNull();
+  });
+
+  // ------------------------------------------------------------------
+  // Phase 83 Plan 04 — getSharedDMRoom per-pair thread + map assembly.
+  // ------------------------------------------------------------------
+
+  it("BCW-M1: computes (agent, human) pairs from rows, calls getSharedDMRoom per pair, threads Map into buildRegistryFromRows", async () => {
+    const { getMatrixHomeserverBase } = await import(
+      "../config/media-endpoints.js"
+    );
+    vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
+      "http://100.113.23.63:8008",
+    );
+
+    const { listTelegramBotTokens } = await import("./tokens-store.js");
+    vi.mocked(listTelegramBotTokens).mockResolvedValue([
+      {
+        identityKey: "alexander",
+        botToken: "1111:AAA",
+        botUsername: "alexander_bot",
+        humanUserId: "u1",
+        telegramChatId: "-100001",
+        createdAt: "2026-09-07T00:00:00Z",
+        updatedAt: "2026-09-07T00:00:00Z",
+      },
+      {
+        identityKey: "alexander",
+        botToken: "1111:AAA",
+        botUsername: "alexander_bot",
+        humanUserId: "u2",
+        telegramChatId: "-100002",
+        createdAt: "2026-09-07T00:00:00Z",
+        updatedAt: "2026-09-07T00:00:00Z",
+      },
+    ]);
+    await stubUsersQuery([
+      {
+        id: "u1",
+        username: "ashley",
+        mxid: "@ashley:thenasty.taild9b663.ts.net",
+      },
+      {
+        id: "u2",
+        username: "zoey",
+        mxid: "@zoey:thenasty.taild9b663.ts.net",
+      },
+    ]);
+
+    const { syncAllBotTokenFiles } = await import(
+      "./bot-token-file-writer.js"
+    );
+    vi.mocked(syncAllBotTokenFiles).mockResolvedValue({
+      written: 1,
+      failed: 0,
+    });
+    const { mintAndWriteHumanToken } = await import(
+      "./human-token-writer.js"
+    );
+    vi.mocked(mintAndWriteHumanToken).mockResolvedValue({ ok: true });
+
+    const { getSharedDMRoom } = await import(
+      "../matrix/matrix-admin-client.js"
+    );
+    vi.mocked(getSharedDMRoom).mockImplementation(
+      async (_agent: string, human: string) => {
+        if (human === "@ashley:thenasty.taild9b663.ts.net") return "!ashley-room";
+        if (human === "@zoey:thenasty.taild9b663.ts.net") return "!zoey-room";
+        return null;
+      },
+    );
+
+    const { buildRegistryFromRows, writeRegistry } = await import(
+      "./registry-writer.js"
+    );
+    vi.mocked(buildRegistryFromRows).mockReturnValue({ agents: [] });
+    vi.mocked(writeRegistry).mockResolvedValue(undefined);
+
+    const { rewriteRegistryFromCurrentState } = await import(
+      "./bridge-config-writer.js"
+    );
+    const result = await rewriteRegistryFromCurrentState();
+    expect(result.ok).toBe(true);
+
+    // getSharedDMRoom called exactly twice (one per pair).
+    expect(getSharedDMRoom).toHaveBeenCalledTimes(2);
+    const calls = vi.mocked(getSharedDMRoom).mock.calls;
+    const callArgSets = calls.map((c) => new Set(c));
+    // Assert both pair-arg-sets exist among the calls (order-independent).
+    expect(
+      callArgSets.some(
+        (s) =>
+          s.has("@alexander:thenasty.taild9b663.ts.net") &&
+          s.has("@ashley:thenasty.taild9b663.ts.net"),
+      ),
+    ).toBe(true);
+    expect(
+      callArgSets.some(
+        (s) =>
+          s.has("@alexander:thenasty.taild9b663.ts.net") &&
+          s.has("@zoey:thenasty.taild9b663.ts.net"),
+      ),
+    ).toBe(true);
+
+    // buildRegistryFromRows called with a 4th argument that is a Map with
+    // both pair keys populated to the mocked room ids.
+    expect(buildRegistryFromRows).toHaveBeenCalled();
+    const bcwArgs = vi.mocked(buildRegistryFromRows).mock.calls[0];
+    const roomMap = bcwArgs[3] as Map<string, string | null> | undefined;
+    expect(roomMap).toBeInstanceOf(Map);
+    expect(roomMap!.size).toBe(2);
+    expect(
+      roomMap!.get(
+        "@alexander:thenasty.taild9b663.ts.net\t@ashley:thenasty.taild9b663.ts.net",
+      ),
+    ).toBe("!ashley-room");
+    expect(
+      roomMap!.get(
+        "@alexander:thenasty.taild9b663.ts.net\t@zoey:thenasty.taild9b663.ts.net",
+      ),
+    ).toBe("!zoey-room");
+  });
+
+  it("BCW-M2: getSharedDMRoom returns null for one pair — map has explicit null; rewrite still succeeds", async () => {
+    const { getMatrixHomeserverBase } = await import(
+      "../config/media-endpoints.js"
+    );
+    vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
+      "http://100.113.23.63:8008",
+    );
+
+    const { listTelegramBotTokens } = await import("./tokens-store.js");
+    vi.mocked(listTelegramBotTokens).mockResolvedValue([
+      {
+        identityKey: "alexander",
+        botToken: "1111:AAA",
+        botUsername: "alexander_bot",
+        humanUserId: "u1",
+        telegramChatId: null,
+        createdAt: "2026-09-07T00:00:00Z",
+        updatedAt: "2026-09-07T00:00:00Z",
+      },
+      {
+        identityKey: "alexander",
+        botToken: "1111:AAA",
+        botUsername: "alexander_bot",
+        humanUserId: "u2",
+        telegramChatId: null,
+        createdAt: "2026-09-07T00:00:00Z",
+        updatedAt: "2026-09-07T00:00:00Z",
+      },
+    ]);
+    await stubUsersQuery([
+      {
+        id: "u1",
+        username: "ashley",
+        mxid: "@ashley:thenasty.taild9b663.ts.net",
+      },
+      {
+        id: "u2",
+        username: "zoey",
+        mxid: "@zoey:thenasty.taild9b663.ts.net",
+      },
+    ]);
+
+    const { syncAllBotTokenFiles } = await import(
+      "./bot-token-file-writer.js"
+    );
+    vi.mocked(syncAllBotTokenFiles).mockResolvedValue({
+      written: 1,
+      failed: 0,
+    });
+    const { mintAndWriteHumanToken } = await import(
+      "./human-token-writer.js"
+    );
+    vi.mocked(mintAndWriteHumanToken).mockResolvedValue({ ok: true });
+
+    const { getSharedDMRoom } = await import(
+      "../matrix/matrix-admin-client.js"
+    );
+    vi.mocked(getSharedDMRoom).mockImplementation(
+      async (_agent: string, human: string) => {
+        if (human === "@ashley:thenasty.taild9b663.ts.net") return "!ashley-room";
+        return null; // zoey: no shared DM room discovered
+      },
+    );
+
+    const { buildRegistryFromRows, writeRegistry } = await import(
+      "./registry-writer.js"
+    );
+    vi.mocked(buildRegistryFromRows).mockReturnValue({ agents: [] });
+    vi.mocked(writeRegistry).mockResolvedValue(undefined);
+
+    const { rewriteRegistryFromCurrentState } = await import(
+      "./bridge-config-writer.js"
+    );
+    const result = await rewriteRegistryFromCurrentState();
+    expect(result.ok).toBe(true);
+
+    const roomMap = vi.mocked(buildRegistryFromRows).mock.calls[0][3] as
+      | Map<string, string | null>
+      | undefined;
+    expect(roomMap).toBeInstanceOf(Map);
+    expect(
+      roomMap!.get(
+        "@alexander:thenasty.taild9b663.ts.net\t@ashley:thenasty.taild9b663.ts.net",
+      ),
+    ).toBe("!ashley-room");
+    // Zoey key present but value is null (not undefined).
+    expect(
+      roomMap!.has(
+        "@alexander:thenasty.taild9b663.ts.net\t@zoey:thenasty.taild9b663.ts.net",
+      ),
+    ).toBe(true);
+    expect(
+      roomMap!.get(
+        "@alexander:thenasty.taild9b663.ts.net\t@zoey:thenasty.taild9b663.ts.net",
+      ),
+    ).toBeNull();
+  });
+
+  it("BCW-M3: getSharedDMRoom throws for a pair — pair collapses to null, other pairs unaffected, warn logged, no propagation", async () => {
+    const { getMatrixHomeserverBase } = await import(
+      "../config/media-endpoints.js"
+    );
+    vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
+      "http://100.113.23.63:8008",
+    );
+
+    const { listTelegramBotTokens } = await import("./tokens-store.js");
+    vi.mocked(listTelegramBotTokens).mockResolvedValue([
+      {
+        identityKey: "alexander",
+        botToken: "1111:AAA",
+        botUsername: "alexander_bot",
+        humanUserId: "u1",
+        telegramChatId: null,
+        createdAt: "2026-09-07T00:00:00Z",
+        updatedAt: "2026-09-07T00:00:00Z",
+      },
+      {
+        identityKey: "alexander",
+        botToken: "1111:AAA",
+        botUsername: "alexander_bot",
+        humanUserId: "u2",
+        telegramChatId: null,
+        createdAt: "2026-09-07T00:00:00Z",
+        updatedAt: "2026-09-07T00:00:00Z",
+      },
+    ]);
+    await stubUsersQuery([
+      {
+        id: "u1",
+        username: "ashley",
+        mxid: "@ashley:thenasty.taild9b663.ts.net",
+      },
+      {
+        id: "u2",
+        username: "zoey",
+        mxid: "@zoey:thenasty.taild9b663.ts.net",
+      },
+    ]);
+
+    const { syncAllBotTokenFiles } = await import(
+      "./bot-token-file-writer.js"
+    );
+    vi.mocked(syncAllBotTokenFiles).mockResolvedValue({
+      written: 1,
+      failed: 0,
+    });
+    const { mintAndWriteHumanToken } = await import(
+      "./human-token-writer.js"
+    );
+    vi.mocked(mintAndWriteHumanToken).mockResolvedValue({ ok: true });
+
+    const { getSharedDMRoom } = await import(
+      "../matrix/matrix-admin-client.js"
+    );
+    vi.mocked(getSharedDMRoom).mockImplementation(
+      async (_agent: string, human: string) => {
+        if (human === "@ashley:thenasty.taild9b663.ts.net") return "!ashley-room";
+        throw new Error("simulated admin API failure for zoey");
+      },
+    );
+
+    const { buildRegistryFromRows, writeRegistry } = await import(
+      "./registry-writer.js"
+    );
+    vi.mocked(buildRegistryFromRows).mockReturnValue({ agents: [] });
+    vi.mocked(writeRegistry).mockResolvedValue(undefined);
+
+    const { rewriteRegistryFromCurrentState } = await import(
+      "./bridge-config-writer.js"
+    );
+    const result = await rewriteRegistryFromCurrentState();
+    // Overall pipeline still succeeds — no throw propagation.
+    expect(result.ok).toBe(true);
+
+    const roomMap = vi.mocked(buildRegistryFromRows).mock.calls[0][3] as
+      | Map<string, string | null>
+      | undefined;
+    expect(
+      roomMap!.get(
+        "@alexander:thenasty.taild9b663.ts.net\t@ashley:thenasty.taild9b663.ts.net",
+      ),
+    ).toBe("!ashley-room");
+    expect(
+      roomMap!.get(
+        "@alexander:thenasty.taild9b663.ts.net\t@zoey:thenasty.taild9b663.ts.net",
+      ),
+    ).toBeNull();
+
+    // Structured warn logged for the failed pair.
+    const failCall = warnSpy.mock.calls.find((c) => {
+      const meta = c[1] as { operation?: string } | undefined;
+      return meta?.operation === "bridge_registry_room_lookup_failed";
+    });
+    expect(failCall).toBeDefined();
+    const failMeta = failCall![1] as {
+      agentMxid?: string;
+      humanMxid?: string;
+      error?: string;
+    };
+    expect(failMeta.agentMxid).toBe("@alexander:thenasty.taild9b663.ts.net");
+    expect(failMeta.humanMxid).toBe("@zoey:thenasty.taild9b663.ts.net");
+    expect(failMeta.error).toMatch(/simulated admin API failure/);
+  });
+
+  it("BCW-M4: no rows → getSharedDMRoom NOT called; buildRegistryFromRows receives an empty Map as 4th arg", async () => {
+    const { getMatrixHomeserverBase } = await import(
+      "../config/media-endpoints.js"
+    );
+    vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
+      "http://100.113.23.63:8008",
+    );
+
+    const { listTelegramBotTokens } = await import("./tokens-store.js");
+    vi.mocked(listTelegramBotTokens).mockResolvedValue([]);
+    await stubUsersQuery([]);
+
+    const { syncAllBotTokenFiles } = await import(
+      "./bot-token-file-writer.js"
+    );
+    vi.mocked(syncAllBotTokenFiles).mockResolvedValue({
+      written: 0,
+      failed: 0,
+    });
+
+    const { getSharedDMRoom } = await import(
+      "../matrix/matrix-admin-client.js"
+    );
+
+    const { buildRegistryFromRows, writeRegistry } = await import(
+      "./registry-writer.js"
+    );
+    vi.mocked(buildRegistryFromRows).mockReturnValue({ agents: [] });
+    vi.mocked(writeRegistry).mockResolvedValue(undefined);
+
+    const { rewriteRegistryFromCurrentState } = await import(
+      "./bridge-config-writer.js"
+    );
+    const result = await rewriteRegistryFromCurrentState();
+    expect(result.ok).toBe(true);
+
+    expect(getSharedDMRoom).not.toHaveBeenCalled();
+    const roomMap = vi.mocked(buildRegistryFromRows).mock.calls[0][3] as
+      | Map<string, string | null>
+      | undefined;
+    expect(roomMap).toBeInstanceOf(Map);
+    expect(roomMap!.size).toBe(0);
   });
 
   it("tolerates single mintAndWriteHumanToken failure (best-effort loop)", async () => {
