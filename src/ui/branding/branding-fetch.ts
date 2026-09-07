@@ -50,6 +50,7 @@ function isBrandingConfig(v: unknown): v is BrandingConfig {
   if (typeof o.iconPath !== "string") return false;
   if (typeof o.wordmarkPath !== "string") return false;
   if (typeof o.faviconPath !== "string") return false;
+  if (typeof o.wipIndicatorPath !== "string") return false;
   if (!Array.isArray(o.pwaIcons)) return false;
   return true;
 }
