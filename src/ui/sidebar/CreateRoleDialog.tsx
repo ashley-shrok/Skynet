@@ -3,20 +3,19 @@
 // PrettyConversationsPanel header's `+ New role` button. Provisions a new
 // role folder on the picked target host via POST /roles (roles-create.ts).
 //
-// Fields (from D-CONTEXT §Frontend surfaces):
+// Fields:
 //   - Name (required, kebab-case-lowercase; validated by ROLE_NAME_PATTERN)
-//   - Description (required, multi-line textarea per RESEARCH Open Q 4)
-//   - Host picker (same visual pattern as NewSessionDialog's inline listbox)
-//   - `Then create an identity with this role` checkbox — DEFAULT `true` per
-//     D-CONTEXT §UX rules ("obviously going to want an identity to take on
-//     the new role otherwise you'll have a role without any identities").
+//   - Description (required, multi-line textarea)
+//   - Host picker (same visual pattern as NewSessionDialog's inline listbox;
+//     suppressed when only one pickable host — auto-selected in-place)
 //
-// Chain hook: `onChainToCreateIdentity({role, host})` is an OPTIONAL callback
-// prop invoked on successful submit when the checkbox is CHECKED. Plan 22-05
-// (SRIC-05) wires the callback to open NewSessionDialog with role+host pre-
-// filled; in Plan 22-04 the callback is NEVER provided by the panel — the
-// extension point is exposed but unused (undefined-safe: no crash when caller
-// doesn't provide it).
+// Chain hook: `onChainToCreateIdentity({role, host, description})` is an
+// OPTIONAL callback prop invoked UNCONDITIONALLY on successful submit —
+// roles-without-identities is a modeling accident the UI no longer advertises,
+// so the primary button always advances to the identity dialog on success.
+// The prop is optional and undefined-safe (guard-checked before invocation);
+// PrettyConversationsPanel wires it to open NewSessionDialog with role/host/
+// description pre-filled.
 //
 // Not touched: NewSessionDialog surface, PrettyConversationRow.tsx, existing
 // clone/identity flows. This dialog is a standalone leaf next to
@@ -95,15 +94,11 @@ export interface CreateRoleDialogProps {
    */
   onCreated?: (result: { name: string; description: string; host: Host }) => void;
   /**
-   * Phase 22 SRIC-05 chain hook — invoked with {role, host, description} after
-   * 201 IFF the `Then create an identity with this role` checkbox is CHECKED at
-   * submit time. Plan 22-04 does NOT provide this callback from the panel
-   * mount (the wiring lives in Plan 22-05). The prop is optional and
-   * undefined-safe (guard-checked before invocation).
-   *
-   * `description` is the same text captured in the role's description field —
-   * pre-fills the agent brief in NewSessionDialog since they're usually the
-   * same thing (Ashley 2026-08-05).
+   * Chain hook — invoked UNCONDITIONALLY with {role, host, description} after
+   * a successful 201. The prop is optional and undefined-safe (guard-checked
+   * before invocation). `description` is the same text captured in the role's
+   * description field — pre-fills the agent brief in NewSessionDialog since
+   * they're usually the same thing.
    */
   onChainToCreateIdentity?: (opts: { role: string; host: Host; description: string }) => void;
 }
@@ -149,8 +144,7 @@ export function CreateRoleDialog({
   // ─── Effect: reset state on close + auto-select single host on open ──────
   // Mirrors NewSessionDialog L328-366 pattern. On open: auto-select if the
   // tree has exactly one host (matches sibling picker UX). On close: reset
-  // all state including the chain checkbox back to CHECKED default so
-  // re-open starts fresh.
+  // all state so re-open starts fresh.
   useEffect(() => {
     if (open) {
       if (flatHosts.length === 1) {

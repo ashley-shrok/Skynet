@@ -142,6 +142,13 @@ describe("CreateRoleDialog", () => {
       />,
     );
 
+    // Phase 84 (Plan 84-01 CHANGE E.2): title conforms to dropdown label
+    // — "New role", not "Create a role". Regression here would revert the
+    // dropdown↔modal alignment intent.
+    expect(
+      screen.getByRole("heading", { name: /^new role$/i }),
+    ).toBeTruthy();
+
     // Name input
     expect(screen.getByLabelText(/name/i)).toBeTruthy();
     // Description textarea (multi-line)

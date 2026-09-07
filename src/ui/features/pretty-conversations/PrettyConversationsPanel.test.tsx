@@ -1298,8 +1298,15 @@ describe("PrettyConversationsPanel: header menu opens NewSessionDialog", () => {
     // (conforms DOWN to the "New agent" dropdown item at
     // PrettyConversationsPanel.tsx:2036 — dropdown is source of truth).
     // The i18n key nav.newSessionTitle is unchanged; only its English
-    // defaultValue changed in place.
-    expect(dialog!.textContent).toMatch(/new agent/i);
+    // defaultValue changed in place. Target the dialog title element
+    // specifically — matching against dialog.textContent is too loose (the
+    // phrase "new agent" also appears in the header menu items rendered
+    // in the same portal DOM).
+    const dialogTitle = dialog!.querySelector(
+      '[data-slot="dialog-title"]',
+    ) as HTMLElement | null;
+    expect(dialogTitle).toBeTruthy();
+    expect(dialogTitle!.textContent).toMatch(/^\s*new agent\s*$/i);
   });
 });
 
