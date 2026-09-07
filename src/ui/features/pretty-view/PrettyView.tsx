@@ -1515,6 +1515,28 @@ export function PrettyView({
   const uploads = usePrettyViewUploads({
     ws: uploadWs,
     onUploadReadyToInject: ({ messageQueueItemId, files, caption }) => {
+      // Phase 81 D-02: seed pending bubble at upload_ready_to_inject time
+      // (post-upload, pre-echo). mqid === messageQueueItemId === batchId
+      // — RESEARCH.md Pitfall #2. Seed MUST precede formatInjectedUserTurn
+      // + onInjectedTurnReady so FIFO head-match at L1900 finds the pending
+      // record when the harness echo returns (Phase 50 D-01). Superseded /
+      // upload-failure / WS-not-open paths are naturally gated by the
+      // readyFiredRef + batchId guards in use-pretty-view-uploads.ts — the
+      // callback simply does not fire in those cases, so no seed happens
+      // (D-12, D-13).
+      //
+      // attachments mapping strips landingPath + uploadTimestamp: those are
+      // settled-bubble-only fields (chip render doesn't display them, D-05).
+      handleOptimisticSend({
+        payload: caption,
+        mqid: messageQueueItemId,
+        immediateFailure: false,
+        attachments: files.map((f) => ({
+          filename: f.filename,
+          size: f.size,
+          mimetype: f.mimetype,
+        })),
+      });
       const injectedText = formatInjectedUserTurn({ caption, files });
       onInjectedTurnReady?.(injectedText, messageQueueItemId);
       // Clear staging after the injected turn is handed off.
@@ -3408,6 +3430,7 @@ export function PrettyView({
                   role="user"
                   content={p.content}
                   pendingState={computedPendingState}
+                  attachments={p.attachments}
                 />
               </div>
             );
