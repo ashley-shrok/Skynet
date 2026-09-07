@@ -1256,7 +1256,7 @@ describe("PrettyConversationsPanel: RDP sentinel at bottom", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationsPanel: header menu opens NewSessionDialog", () => {
-  it("Test 5 (Phase 23 GEFM-01 repoint): clicking the MoreVertical menu button + selecting 'New agent' opens the NewSessionDialog; menu button carries pv-pencil class + data-testid=pv-header-menu-button", async () => {
+  it("Test 5 (Phase 23 GEFM-01 repoint; Phase 84 Plan 02 title-conform): clicking the MoreVertical menu button + selecting 'New agent' opens the NewSessionDialog (title now reads 'New agent'); menu button carries pv-pencil class + data-testid=pv-header-menu-button", async () => {
     // Phase 23: the pencil + `+ New role` buttons are collapsed into a single
     // MoreVertical menu (data-testid="pv-header-menu-button", aria-label="More actions").
     // The "New agent" flow is: click menu button → menu portal appears → click "New agent"
@@ -1294,8 +1294,12 @@ describe("PrettyConversationsPanel: header menu opens NewSessionDialog", () => {
     // document.querySelector('[role="dialog"]') queries the whole document body.
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null;
     expect(dialog).toBeTruthy();
-    // The dialog contains "Start a new agent" title text (i18n defaultValue).
-    expect(dialog!.textContent).toMatch(/start a new agent/i);
+    // Phase 84 (Plan 84-02): NewSessionDialog title now reads "New agent"
+    // (conforms DOWN to the "New agent" dropdown item at
+    // PrettyConversationsPanel.tsx:2036 — dropdown is source of truth).
+    // The i18n key nav.newSessionTitle is unchanged; only its English
+    // defaultValue changed in place.
+    expect(dialog!.textContent).toMatch(/new agent/i);
   });
 });
 

@@ -201,7 +201,7 @@ describe("PrettyConversationsPanel: + New role button (Phase 23 GEFM-01 repoint)
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
-  it("Test 21c (repoint): clicking 'New role' from the menu opens CreateRoleDialog", () => {
+  it("Test 21c (Phase 23 GEFM-01 repoint; Phase 84 Plan 01 signal swap): clicking 'New role' from the menu opens CreateRoleDialog (detection signal now the header blurb, not the deleted 'then create an agent' checkbox)", () => {
     // Phase 23: the flow is: click menu button → click "New role" → CreateRoleDialog opens.
     render(
       <PrettyConversationsPanel
@@ -221,7 +221,16 @@ describe("PrettyConversationsPanel: + New role button (Phase 23 GEFM-01 repoint)
     // CreateRoleDialog is now rendered — look for its distinctive content.
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null;
     expect(dialog).toBeTruthy();
-    // Look for the chain checkbox — unique to CreateRoleDialog vs NewSessionDialog.
-    expect(dialog!.textContent).toMatch(/then create an agent with this role/i);
+    // Phase 84 (Plan 84-01): the "Then create an agent" checkbox that used
+    // to be this suite's dialog-detection signal was deleted from DOM (per
+    // D-CONTEXT item 3 — the checkbox goes away entirely because a role
+    // without an agent is a modeling accident the UI stops advertising).
+    //
+    // New detection signal: the header blurb "A role is what an agent
+    // does and how it thinks — many agents can share one." is unique to
+    // CreateRoleDialog. NewSessionDialog's description is "Pick a host
+    // and (optionally) name the agent." — no overlap in the matched
+    // substring "A role is what an agent does".
+    expect(dialog!.textContent).toMatch(/a role is what an agent does/i);
   });
 });
