@@ -3521,14 +3521,15 @@ export function PrettyView({
                   "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.85),rgba(60,50,32,0.9))]",
                   "hover:border-[rgba(255,240,215,0.22)]",
                   "hover:shadow-[0_6px_16px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,240,210,0.22),_0_0_20px_rgba(255,240,215,0.16)]",
-                  // Ashley 2026-08-23: bump DESKTOP to 64×64 with a 32px
-                  // icon, matching the mobile back-to-conversations button
-                  // (AppShell.tsx:1800-1801 inline `width: 64, height: 64`
-                  // with `<ChevronLeft className="size-8" />`) she named as
-                  // her size reference. Prior desktop base was shadcn's
-                  // `size="icon-sm"` variant (`size-7` = 28px, "kind of
-                  // small" per her).
-                  "size-16 [&_svg]:size-8",
+                  // Ashley 2026-09-07: shrink DESKTOP wrapper to 75% of the
+                  // 2026-08-23 baseline (64→48), keeping the 32px arrow
+                  // unchanged. Prior 64×64 matched the mobile back-to-
+                  // conversations button (AppShell.tsx:1800-1801 inline
+                  // `width: 64, height: 64` with `<ChevronLeft className=
+                  // "size-8" />`); the shrunk button is now 48×48 with
+                  // the same 32px arrow — icon-heavy proportions on
+                  // purpose. Mobile line below is untouched.
+                  "size-12 [&_svg]:size-8",
                   // Bounty jump-to-bottom-button-bigger-on-mobile
                   // (2026-08-01): mobile-only bump matching the aux row's
                   // new 75%-of-#165 mobile size (54×54 wrapper + 27px
