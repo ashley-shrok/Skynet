@@ -36,6 +36,9 @@ type LoadResult = {
   iconPath: string;
   wordmarkPath: string;
   faviconPath: string;
+  // Phase 82: required at the backend loader boundary — mirror the shape here
+  // so the fixture stays valid against the extended BrandingConfig type.
+  wipIndicatorPath: string;
   pwaIcons: Array<{ src: string; sizes: string; type: string }>;
   // Both fields are declared optional here purely so individual tests can
   // omit them (e.g. Test 2 deletes avatarDirectorSpec entirely). At the
@@ -57,6 +60,7 @@ function makeValidLoadResult(): LoadResult {
     iconPath: "/branding/icon.png",
     wordmarkPath: "/branding/wordmark.png",
     faviconPath: "/branding/favicon.svg",
+    wipIndicatorPath: "/branding/wip-cube.webp",
     pwaIcons: [
       { src: "/branding/pwa-icon-192.png", sizes: "192x192", type: "image/png" },
       { src: "/branding/pwa-icon-512.png", sizes: "512x512", type: "image/png" },
