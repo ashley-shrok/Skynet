@@ -30,6 +30,39 @@
 
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { createHash } from "node:crypto";
+
+// Bounty: pv-claude-session-ws-zombie-after-tmux-teardown — mock the logger
+// module so the new sshLogger.warn drop-log emitted at claude-session-server.ts
+// :2567 is silent AND assertable via vi.mocked(sshLogger.warn). Full logger
+// surface mocked so transitive imports in claude-session-server don't blow up
+// (mirrors context-pct-from-jsonl.test.ts and dormant-poll.test.ts).
+vi.mock("../utils/logger.js", () => {
+  const makeLogger = () => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+  });
+  const systemLogger = makeLogger();
+  return {
+    sshLogger: makeLogger(),
+    authLogger: makeLogger(),
+    databaseLogger: makeLogger(),
+    apiLogger: makeLogger(),
+    systemLogger,
+    fileLogger: makeLogger(),
+    statsLogger: makeLogger(),
+    tunnelLogger: makeLogger(),
+    dashboardLogger: makeLogger(),
+    guacLogger: makeLogger(),
+    versionLogger: makeLogger(),
+    logger: systemLogger,
+    setGlobalLogLevel: vi.fn(),
+    getGlobalLogLevel: vi.fn(() => "info"),
+  };
+});
+
 import {
   __applyInputMessageForTests,
   __applyInterruptMessageForTests,
@@ -41,6 +74,7 @@ import {
   clearPvSendWatchdog,
   __resetPvSendWatchdogForTests,
 } from "./pv-send-watchdog.js";
+import { sshLogger } from "../utils/logger.js";
 
 // Stub ssh2 Client — execCommand is injected so conn is never accessed.
 const fakeConn = {} as import("ssh2").Client;
@@ -79,6 +113,91 @@ describe("__applyInputMessageForTests", () => {
       }),
     ).resolves.toBeUndefined();
     expect(exec).not.toHaveBeenCalled();
+  });
+
+  // ── Bounty: pv-claude-session-ws-zombie-after-tmux-teardown ─────────────────
+  // The entry guard at claude-session-server.ts:2567 was silently returning;
+  // add coverage for the new sshLogger.warn drop-log with the bounty's exact
+  // payload shape. Close-with-reason on teardown (transitionToDead + FALLBACK
+  // -01) is not covered here — no test seam exists for teardownPane in this
+  // file, and Task 1 does not add one. Coverage for the close side of the fix
+  // is deferred to a future integration seam or manual UAT (bounty UAT #1:
+  // sending a message via PV triggers a client-side reconnect + fresh WS
+  // handshake). All three cases assert the log fires exactly once with the
+  // exact operation + payload keys; message-string content is prose and NOT
+  // asserted beyond the `operation` field (may drift).
+  it("input: guard-drop log fires when sshConn null (tmuxSession bound)", async () => {
+    vi.mocked(sshLogger.warn).mockClear();
+    const exec = vi.fn();
+    await __applyInputMessageForTests({
+      sshConn: null,
+      currentTmuxSession: "legit-session",
+      currentHostId: 1,
+      execCommand: exec,
+      data: "hello",
+      messageQueueItemId: "pv-optim-123",
+    });
+    expect(exec).not.toHaveBeenCalled();
+    expect(sshLogger.warn).toHaveBeenCalledTimes(1);
+    const [, payload] = vi.mocked(sshLogger.warn).mock.calls[0];
+    expect(payload).toMatchObject({
+      operation: "pv_input_drop_no_session",
+      mqid: "pv-optim-123",
+      hostId: 1,
+      hasSshConn: false,
+      hasTmuxSession: true,
+      dataLen: 5,
+    });
+  });
+
+  it("input: guard-drop log fires when currentTmuxSession null (sshConn bound; mqid omitted → 'none')", async () => {
+    vi.mocked(sshLogger.warn).mockClear();
+    const exec = vi.fn();
+    await __applyInputMessageForTests({
+      sshConn: fakeConn,
+      currentTmuxSession: null,
+      currentHostId: 7,
+      execCommand: exec,
+      data: "x",
+      // messageQueueItemId omitted → mqid stringified as "none" (matches :2597 idiom)
+    });
+    expect(exec).not.toHaveBeenCalled();
+    expect(sshLogger.warn).toHaveBeenCalledTimes(1);
+    const [, payload] = vi.mocked(sshLogger.warn).mock.calls[0];
+    expect(payload).toMatchObject({
+      operation: "pv_input_drop_no_session",
+      mqid: "none",
+      hostId: 7,
+      hasSshConn: true,
+      hasTmuxSession: false,
+      dataLen: 1,
+    });
+  });
+
+  it("input: guard-drop log fires when both null with empty data (drop-log ordering: sshConn/tmuxSession guard runs BEFORE the empty-data guard)", async () => {
+    // Note: the empty-data guard is BELOW the sshConn/tmuxSession guard in
+    // the current code (compose-send.ts :2585 vs. :2588), so the drop-log
+    // fires first even for empty data. This documents that ordering intent.
+    vi.mocked(sshLogger.warn).mockClear();
+    const exec = vi.fn();
+    await __applyInputMessageForTests({
+      sshConn: null,
+      currentTmuxSession: null,
+      currentHostId: null,
+      execCommand: exec,
+      data: "",
+    });
+    expect(exec).not.toHaveBeenCalled();
+    expect(sshLogger.warn).toHaveBeenCalledTimes(1);
+    const [, payload] = vi.mocked(sshLogger.warn).mock.calls[0];
+    expect(payload).toMatchObject({
+      operation: "pv_input_drop_no_session",
+      mqid: "none",
+      hostId: null,
+      hasSshConn: false,
+      hasTmuxSession: false,
+      dataLen: 0,
+    });
   });
 
   it("input: empty data → no execCommand call (regardless of mqid)", async () => {

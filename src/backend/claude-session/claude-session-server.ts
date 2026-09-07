@@ -2564,7 +2564,26 @@ export async function __applyInputMessageForTests(deps: {
   now?: () => number;
 }): Promise<void> {
   const { sshConn, currentTmuxSession, currentHostId, execCommand: exec } = deps;
-  if (!sshConn || !currentTmuxSession) return;
+  // Bounty: pv-claude-session-ws-zombie-after-tmux-teardown — forensic drop log
+  // for the class of failure diagnosed 2026-09-07 (WS OPEN, currentTmuxSession
+  // nulled server-side by tmux teardown, every subsequent input frame silently
+  // returning here with no log/no ack). Symmetric outbound broadcaster does NOT
+  // need its own log: activeViewers (L1058) is keyed by ${hostId}::${tmuxSession}
+  // and membership is torn down inside teardownPane (L4001-4006), so the fan-out
+  // iterates a valid registry and never touches orphan connections. Log-shape
+  // mirrors :2615 (sentinel drop failed) and :2704 (payload too large) — same
+  // (msg, { operation, ...ctx }) form.
+  if (!sshConn || !currentTmuxSession) {
+    sshLogger.warn("[pv-input] drop_no_session", {
+      operation: "pv_input_drop_no_session",
+      mqid: String(deps.messageQueueItemId ?? "none"),
+      hostId: currentHostId,
+      hasSshConn: !!sshConn,
+      hasTmuxSession: !!currentTmuxSession,
+      dataLen: (deps.data ?? "").length,
+    });
+    return;
+  }
   const data = String(deps.data ?? "");
   if (data.length === 0) return;
   // Phase 56 Plan 01 — send-while-dormant branch. Read dormantLastEmitted at
@@ -3947,6 +3966,24 @@ wss.on("connection", async (ws: WebSocket, req) => {
   let currentHostId: number | null = null;
   let currentTmuxSession: string | null = null;
 
+  // Bounty: pv-claude-session-ws-zombie-after-tmux-teardown.
+  // Called by server-driven teardown paths BEFORE nulling currentTmuxSession
+  // or sshConn so the client's onclose handler fires and reconnects into a
+  // fresh session-bind. Guarded on ws.readyState so the ws.on("close")
+  // teardown re-entry (L5131) does not attempt a redundant close, and the
+  // user-initiated pane switch at connectToPane (L6832) and the post-connect
+  // stopped race (L6863) are intentionally NOT wired — they are not
+  // teardown-under-the-client shapes.
+  const closeForTornDownSession = (): void => {
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.close(1011, "session_torn_down");
+      } catch {
+        /* ws may be mid-close; teardown proceeds regardless */
+      }
+    }
+  };
+
   const teardownPane = () => {
     if (currentHostId !== null || currentTmuxSession !== null) {
       databaseLogger.info(`[session-server] detach hostId=${currentHostId ?? 'null'} tmuxSession=${currentTmuxSession ?? 'null'} userId=${userId ?? 'null'}`, { operation: "session_detach" });
@@ -4981,6 +5018,12 @@ wss.on("connection", async (ws: WebSocket, req) => {
       tmuxSession: currentTmuxSession,
       currentSessionFile: finalSessionFile,
     });
+    // Bounty: pv-claude-session-ws-zombie-after-tmux-teardown — close the WS
+    // with 1011 so the client's onclose handler fires and reconnects into a
+    // fresh session-bind. MUST be BEFORE teardownPane() nulls the bindings;
+    // guarded internally on ws.readyState so we skip a redundant close if the
+    // socket is already closing.
+    closeForTornDownSession();
     // teardownPane resets changeoverState back to "active" among other
     // things — set `dead` AFTER teardown so the state accurately reflects
     // "terminal, no recovery attempts."
@@ -8162,6 +8205,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // no_pid_session_file, no_open_session_file, no_tmux_session,
       // exec_error), so no new information disclosure surface per T-30-01.
       paneStateEmitter.emit("inactive", result.reason);
+      // Bounty: pv-claude-session-ws-zombie-after-tmux-teardown — if the
+      // reset-window branch above (L8121-8122) seeded currentHostId /
+      // currentTmuxSession before falling through here, nulling sshConn below
+      // leaves the WS with a bound tmuxSession but no live SSH conn — a
+      // future input frame trips the entry-guard drop. Close the WS with
+      // 1011 so the client reconnects into a fresh session-bind. MUST be
+      // BEFORE `sshConn = null` below; guarded internally on ws.readyState.
+      closeForTornDownSession();
       // Keep sshConn open? No — releasing the SSH connection here keeps
       // idle inactive WSs cheap. A subsequent connectToPane will reopen.
       try {
