@@ -28,6 +28,10 @@ vi.mock("../config/media-endpoints.js", () => ({
   getMatrixHomeserverBase: vi.fn(),
 }));
 
+vi.mock("../matrix/matrix-admin-creds-store.js", () => ({
+  getMatrixAdminCreds: vi.fn(),
+}));
+
 vi.mock("./tokens-store.js", () => ({
   listTelegramBotTokens: vi.fn(),
 }));
@@ -92,6 +96,16 @@ beforeEach(async () => {
   // toHaveBeenCalledOnce() are not polluted by previous tests.
   const mep = await import("../config/media-endpoints.js");
   vi.mocked(mep.getMatrixHomeserverBase).mockReset();
+  const mac = await import("../matrix/matrix-admin-creds-store.js");
+  vi.mocked(mac.getMatrixAdminCreds).mockReset();
+  // Default: admin creds present, canonical server_name. Individual tests
+  // override for null/malformed cases.
+  vi.mocked(mac.getMatrixAdminCreds).mockResolvedValue({
+    homeserverBase: "http://100.113.23.63:8008",
+    userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+    accessToken: "admin-token",
+    password: "admin-pw",
+  });
   const ts = await import("./tokens-store.js");
   vi.mocked(ts.listTelegramBotTokens).mockReset();
   const btfw = await import("./bot-token-file-writer.js");
@@ -334,6 +348,147 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     if (!result.ok) {
       expect(result.error).toMatch(/simulated DB failure/);
     }
+  });
+
+  it("mxid derivation: agent mxid uses server_name from admin creds userId, NOT hostname parsed from homeserverBase URL (2026-09-07 fix)", async () => {
+    // Regression: bridge-config-writer used to derive server_name via
+    // `new URL(homeserverBase).hostname`, which yielded `100.113.23.63`
+    // when the URL was `http://100.113.23.63:8008`. The correct
+    // server_name lives in matrix_admin_creds.userId (`@name:server`).
+    // MX→TG routing scans events by sender mxid; a wrong-namespace mxid
+    // silently drops every outbound message.
+    const { getMatrixHomeserverBase } = await import(
+      "../config/media-endpoints.js"
+    );
+    // Deliberately IP-based URL — the OLD code would produce
+    // `@tina:100.113.23.63`, which is what the fix eliminates.
+    vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
+      "http://100.113.23.63:8008",
+    );
+
+    const { getMatrixAdminCreds } = await import(
+      "../matrix/matrix-admin-creds-store.js"
+    );
+    vi.mocked(getMatrixAdminCreds).mockResolvedValue({
+      homeserverBase: "http://100.113.23.63:8008",
+      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      accessToken: "admin-token",
+      password: "admin-pw",
+    });
+
+    const { listTelegramBotTokens } = await import("./tokens-store.js");
+    vi.mocked(listTelegramBotTokens).mockResolvedValue([
+      {
+        identityKey: "tina",
+        botToken: "1111:AAA",
+        botUsername: "tina_bot",
+        humanUserId: "u1",
+        telegramChatId: null,
+        createdAt: "2026-09-07T00:00:00Z",
+        updatedAt: "2026-09-07T00:00:00Z",
+      },
+    ]);
+    await stubUsersQuery([
+      { id: "u1", username: "ashley", mxid: "@ashley:thenasty.taild9b663.ts.net" },
+    ]);
+
+    const { syncAllBotTokenFiles } = await import(
+      "./bot-token-file-writer.js"
+    );
+    vi.mocked(syncAllBotTokenFiles).mockResolvedValue({ written: 1, failed: 0 });
+    const { mintAndWriteHumanToken } = await import(
+      "./human-token-writer.js"
+    );
+    vi.mocked(mintAndWriteHumanToken).mockResolvedValue({ ok: true });
+
+    const { buildRegistryFromRows, writeRegistry } = await import(
+      "./registry-writer.js"
+    );
+    vi.mocked(buildRegistryFromRows).mockReturnValue({ agents: [] });
+    vi.mocked(writeRegistry).mockResolvedValue(undefined);
+
+    const { rewriteRegistryFromCurrentState } = await import(
+      "./bridge-config-writer.js"
+    );
+    await rewriteRegistryFromCurrentState();
+
+    // Assertion: the agents map passed to buildRegistryFromRows has the
+    // CORRECT server_name (from admin creds userId), NOT the URL hostname.
+    expect(buildRegistryFromRows).toHaveBeenCalled();
+    const callArgs = vi.mocked(buildRegistryFromRows).mock.calls[0];
+    // buildRegistryFromRows(rows, humansByUserId, agentsByIdentityKey)
+    // — signature verified via registry-writer.ts. Agents map is arg index 2.
+    const agentsArg = callArgs[2] as Map<string, { name: string; mxid: string }>;
+    const tinaAgent = agentsArg.get("tina");
+    expect(tinaAgent).toBeDefined();
+    expect(tinaAgent!.mxid).toBe("@tina:thenasty.taild9b663.ts.net");
+    // Anti-regression — the wrong (URL-hostname) derivation must NEVER appear.
+    expect(tinaAgent!.mxid).not.toContain("100.113.23.63");
+  });
+
+  it("mxid derivation: skips agent when admin creds is null (no way to build a safe mxid)", async () => {
+    const { getMatrixHomeserverBase } = await import(
+      "../config/media-endpoints.js"
+    );
+    vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
+      "http://100.113.23.63:8008",
+    );
+
+    const { getMatrixAdminCreds } = await import(
+      "../matrix/matrix-admin-creds-store.js"
+    );
+    vi.mocked(getMatrixAdminCreds).mockResolvedValue(null);
+
+    const { listTelegramBotTokens } = await import("./tokens-store.js");
+    vi.mocked(listTelegramBotTokens).mockResolvedValue([
+      {
+        identityKey: "tina",
+        botToken: "1111:AAA",
+        botUsername: "tina_bot",
+        humanUserId: "u1",
+        telegramChatId: null,
+        createdAt: "2026-09-07T00:00:00Z",
+        updatedAt: "2026-09-07T00:00:00Z",
+      },
+    ]);
+    await stubUsersQuery([]);
+
+    const { syncAllBotTokenFiles } = await import(
+      "./bot-token-file-writer.js"
+    );
+    vi.mocked(syncAllBotTokenFiles).mockResolvedValue({ written: 0, failed: 0 });
+
+    const { buildRegistryFromRows, writeRegistry } = await import(
+      "./registry-writer.js"
+    );
+    vi.mocked(buildRegistryFromRows).mockReturnValue({ agents: [] });
+    vi.mocked(writeRegistry).mockResolvedValue(undefined);
+
+    const { rewriteRegistryFromCurrentState } = await import(
+      "./bridge-config-writer.js"
+    );
+    await rewriteRegistryFromCurrentState();
+
+    // With no admin creds, no agent mxid can be built — agents map empty.
+    expect(buildRegistryFromRows).toHaveBeenCalled();
+    const agentsArg = vi.mocked(buildRegistryFromRows).mock.calls[0][2] as Map<
+      string,
+      unknown
+    >;
+    expect(agentsArg.size).toBe(0);
+  });
+
+  it("serverNameFromMxid: extracts server_name portion", async () => {
+    const { serverNameFromMxid } = await import("./bridge-config-writer.js");
+    expect(serverNameFromMxid("@skynet-admin:thenasty.taild9b663.ts.net")).toBe(
+      "thenasty.taild9b663.ts.net",
+    );
+    expect(serverNameFromMxid("@ashley:matrix.org")).toBe("matrix.org");
+    expect(serverNameFromMxid("@a:b")).toBe("b");
+    // Malformed input returns null (not empty string).
+    expect(serverNameFromMxid("no-colon")).toBeNull();
+    expect(serverNameFromMxid(":no-localpart")).toBeNull();
+    expect(serverNameFromMxid("@trailing-colon:")).toBeNull();
   });
 
   it("tolerates single mintAndWriteHumanToken failure (best-effort loop)", async () => {

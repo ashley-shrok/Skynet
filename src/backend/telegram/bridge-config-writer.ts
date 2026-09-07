@@ -41,9 +41,34 @@ import {
   buildRegistryFromRows,
   writeRegistry,
 } from "./registry-writer.js";
+import { getMatrixAdminCreds } from "../matrix/matrix-admin-creds-store.js";
 import { db } from "../database/db/index.js";
 import { users } from "../database/db/schema.js";
 import { databaseLogger } from "../utils/logger.js";
+
+/**
+ * Extract Matrix server_name from a fully-qualified mxid.
+ *
+ * @example
+ *   serverNameFromMxid("@skynet-admin:thenasty.taild9b663.ts.net")
+ *   // => "thenasty.taild9b663.ts.net"
+ *
+ * Returns null on malformed input (missing colon).
+ *
+ * Why this exists: the Matrix homeserver base URL may use an IP (`http://
+ * 100.113.23.63:8008`), which is fine as a network endpoint but is NOT the
+ * server_name the Matrix federation/mxid space uses. Extracting hostname
+ * from that URL produces `100.113.23.63`, but agent+human mxids are
+ * `@name:thenasty.taild9b663.ts.net` — mismatched, causing MX→TG routing
+ * to silently drop (bridge scans events by sender mxid). Fix: derive
+ * server_name from the admin's own mxid (matrix_admin_creds.userId), which
+ * IS in the correct server_name space.
+ */
+export function serverNameFromMxid(mxid: string): string | null {
+  const colon = mxid.indexOf(":");
+  if (colon <= 0 || colon === mxid.length - 1) return null;
+  return mxid.slice(colon + 1);
+}
 
 export async function writeBridgeConfigEnv(): Promise<
   { ok: true } | { ok: false; reason: string }
@@ -121,19 +146,22 @@ export async function rewriteRegistryFromCurrentState(): Promise<
     // Step 1: pull all telegram_bot_tokens rows (decrypts eagerly).
     const rows = await listTelegramBotTokens();
 
-    // Step 2: resolve the homeserver hostname for building agent mxids.
-    const homeserverBase = await getMatrixHomeserverBase();
-    let homeserverHostname: string | null = null;
-    if (homeserverBase !== null) {
-      try {
-        homeserverHostname = new URL(homeserverBase).hostname;
-      } catch (err) {
+    // Step 2: resolve the Matrix server_name for building agent mxids.
+    // Sourced from the admin's own mxid — NOT from the homeserverBase URL,
+    // which may be an IP endpoint (`http://100.113.23.63:8008`) that
+    // produces a wrong-namespace `@tina:100.113.23.63` mxid. Admin userId
+    // is always canonical `@name:server_name` (verified by Synapse at
+    // ingest time via /whoami).
+    let serverName: string | null = null;
+    const adminCreds = await getMatrixAdminCreds();
+    if (adminCreds !== null) {
+      serverName = serverNameFromMxid(adminCreds.userId);
+      if (serverName === null) {
         databaseLogger.warn(
-          "rewriteRegistryFromCurrentState: could not parse homeserverBase URL",
+          "rewriteRegistryFromCurrentState: admin userId malformed",
           {
-            operation: "bridge_registry_url_parse_failed",
-            homeserverBase,
-            error: err instanceof Error ? err.message : "unknown",
+            operation: "bridge_registry_admin_mxid_parse_failed",
+            adminUserId: adminCreds.userId,
           },
         );
       }
@@ -175,14 +203,14 @@ export async function rewriteRegistryFromCurrentState(): Promise<
     >();
     for (const row of rows) {
       if (agentsByIdentityKey.has(row.identityKey)) continue;
-      if (!homeserverHostname) {
-        // Without a hostname we can't safely build an mxid — skip this
+      if (!serverName) {
+        // Without a server_name we can't safely build an mxid — skip this
         // agent from the registry rather than emit a malformed value.
         continue;
       }
       agentsByIdentityKey.set(row.identityKey, {
         name: row.identityKey,
-        mxid: `@${row.identityKey}:${homeserverHostname}`,
+        mxid: `@${row.identityKey}:${serverName}`,
       });
     }
 
