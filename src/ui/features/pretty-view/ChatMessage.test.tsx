@@ -576,7 +576,7 @@ describe("ChatMessage pending-with-attachments (Phase 80)", () => {
     expect(screen.getByText(/hello/)).toBeTruthy();
   });
 
-  it("Test F: settled injected branch FIRES FIRST when content contains valid ---attached files--- delimited body — verifies branch ordering (settled wins over pending)", () => {
+  it("Test F: settled injected branch FIRES FIRST when content contains valid `--- attached files ---` delimited body — verifies branch ordering (settled wins over pending)", () => {
     // Build a valid injected-turn content (parseInjectedUserTurn returns
     // non-null). Also pass an attachments prop — the settled branch must
     // still win because it appears before the pending branch in the ternary.
@@ -603,13 +603,16 @@ describe("ChatMessage pending-with-attachments (Phase 80)", () => {
     expect(screen.getByText(/logs\.txt/)).toBeTruthy();
   });
 
-  it("Test G: caption text containing the literal string '---attached files---' (without valid file lines) renders as pending-with-attachments (Pitfall #4)", () => {
+  it("Test G: caption text containing the literal `--- attached files ---` delimiter substring (without valid file lines) renders as pending-with-attachments (Pitfall #4)", () => {
     // parseInjectedUserTurn returns null when the delimiter is present but
     // no well-formed file lines follow (verified at protocol.ts:322-336).
-    // A caption that happens to contain the delimiter substring as raw
-    // text must still render as the pending-with-attachments branch.
+    // A caption that happens to contain the ACTUAL delimiter substring as
+    // raw text must still render as the pending-with-attachments branch.
+    // Uses the real INJECTED_DELIMITER form ("--- attached files ---" with
+    // spaces) — code-review M3 corrected the earlier no-spaces form which
+    // wouldn't collide with the real delimiter at all.
     const captionWithDelimiter =
-      "look at this weird string I found: ---attached files---";
+      "look at this weird string I found: --- attached files ---";
     render(
       <ChatMessage
         role="user"
@@ -625,7 +628,7 @@ describe("ChatMessage pending-with-attachments (Phase 80)", () => {
     expect(screen.getByText(/screenshot\.png/)).toBeTruthy();
     const captionSlot = document.querySelector(".pv-injected-caption");
     expect(captionSlot).not.toBeNull();
-    expect(captionSlot?.textContent).toContain("---attached files---");
+    expect(captionSlot?.textContent).toContain("--- attached files ---");
   });
 
   it("Test H: when pendingState === 'failed', outer bubble div carries the whole-bubble-red inline style (Phase 76 D-06 inheritance)", () => {
@@ -677,20 +680,17 @@ describe("ChatMessage pending-with-attachments (Phase 80)", () => {
         ]}
       />,
     );
-    // Assert the chip renders (branch fired) and the DOM does NOT contain
-    // an actual <script> element from the filename.
+    // Assert the chip renders (branch fired) and the rendered container
+    // does NOT contain an <script> element from the filename escape.
+    // Scoped to `container` (not global `document`) so this test doesn't
+    // flake if any earlier test / setup / testing-library helper injects
+    // an unrelated <script> element into `document` (code-review M5).
     expect(screen.getAllByTestId("attachment-chip")).toHaveLength(1);
-    // getElementsByTagName lowercases the tag — no <script> from
-    // the filename escape.
-    const scripts = document.querySelectorAll("script");
-    // Note: some environments (e.g. framework-injected inline scripts)
-    // COULD add scripts, but jsdom's minimal render env for this
-    // ChatMessage-only mount should have none from the component itself.
-    // We assert count === 0 to lock the XSS-escape guarantee.
+    const chip = screen.getAllByTestId("attachment-chip")[0]!;
+    const scripts = chip.querySelectorAll("script");
     expect(scripts.length).toBe(0);
     // Additionally verify the filename text appears escaped (visible as
     // its literal characters in innerHTML, not as an executed tag).
-    const chip = screen.getAllByTestId("attachment-chip")[0]!;
     // React escapes < and > in the HTML output as &lt; and &gt;.
     expect(chip.innerHTML).toContain("&lt;script&gt;evil.txt");
   });

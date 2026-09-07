@@ -552,10 +552,13 @@ export function ChatMessage({
               </div>
             )}
             <AttachmentChipStrip
-              attachments={attachments.map((f) => ({
-                // synthetic — pending records have no landingPath; used
-                // only as React key inside the short-lived pending bubble.
-                tempId: `pending-${f.filename}-${f.size}`,
+              attachments={attachments.map((f, idx) => ({
+                // Synthetic tempId — pending records have no landingPath;
+                // used only as React key inside the short-lived pending
+                // bubble. Index-based (not filename+size) so two identically-
+                // named identically-sized files in the same batch keep unique
+                // React keys (code-review M1, 2026-09-07).
+                tempId: `pending-${idx}`,
                 file: { name: f.filename, size: f.size, type: f.mimetype },
                 status: "complete",
                 bytesUploaded: f.size,

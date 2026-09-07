@@ -1680,7 +1680,7 @@ describe("PrettyView — attachment pending bubbles (Phase 81)", () => {
     expect(eventId).not.toMatch(/^pending-pv-optim-/);
   });
 
-  it("Test A10 (Pitfall #4 defense): caption containing literal \"---attached files---\" text (without valid file lines) still renders as pending-with-attachments branch, NOT as settled injected branch", async () => {
+  it("Test A10 (Pitfall #4 defense): caption containing literal `--- attached files ---` delimiter substring (without valid file lines) still renders as pending-with-attachments branch, NOT as settled injected branch", async () => {
     const { container } = mount();
     const ws = getCurrentWs();
     flipToStreaming(ws);
@@ -1690,11 +1690,13 @@ describe("PrettyView — attachment pending bubbles (Phase 81)", () => {
       ).not.toBeNull(),
     );
 
-    // Caption contains the delimiter substring but NO well-formed file lines.
-    // parseInjectedUserTurn returns null for this input → injected branch is
-    // false → pending-with-attachments branch fires. The pending bubble
-    // therefore renders the chip strip AND the caption text.
-    const spookyCaption = "look at this ---attached files--- no file lines follow";
+    // Caption contains the ACTUAL delimiter substring but NO well-formed
+    // file lines. parseInjectedUserTurn returns null for this input →
+    // injected branch is false → pending-with-attachments branch fires.
+    // Uses the real INJECTED_DELIMITER form ("--- attached files ---" with
+    // spaces) — code-review M3 corrected the earlier no-spaces form which
+    // wouldn't collide with the real delimiter at all.
+    const spookyCaption = "look at this --- attached files --- no file lines follow";
     const batchId = await stageAndSend(
       container,
       ws,
@@ -1718,6 +1720,6 @@ describe("PrettyView — attachment pending bubbles (Phase 81)", () => {
     // Chip contains the filename.
     expect(pendingEl.textContent).toContain("i.txt");
     // Caption text (including the delimiter substring) is rendered.
-    expect(pendingEl.textContent).toContain("---attached files---");
+    expect(pendingEl.textContent).toContain("--- attached files ---");
   });
 });

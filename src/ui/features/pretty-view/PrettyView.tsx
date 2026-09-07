@@ -1215,7 +1215,15 @@ export function PrettyView({
       // input frame (sendInput) is unchanged and still carries messageQueueItemId.
       // isIdCommand (L425-427) is module-scoped and recognizes both raw `/id `
       // prefix and the harness XML-wrapper form.
-      if (isIdCommand(payload)) { return; }
+      //
+      // Attachment sends (attachments && length > 0) bypass this gate: the
+      // caption in an attachment send is user-typed content that just happens
+      // to start with `/id `, NOT the harness /id-command intent. Skipping
+      // the seed for attachment sends would leave a real user-role echo
+      // arriving with no matching pending record, and the FIFO head-match
+      // would silently clear an unrelated in-flight pending (code-review M2,
+      // 2026-09-07 — /id-with-attachment corner case).
+      if (isIdCommand(payload) && !(attachments && attachments.length > 0)) { return; }
       const collapsed = collapseNewlinesForMatch(payload);
       if (immediateFailure) {
         // D-20: WS was not open on the ComposeBox side — this callback
