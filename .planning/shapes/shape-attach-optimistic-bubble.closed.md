@@ -163,3 +163,47 @@ CONTEXT.md and the injected-user-turn format spec are the closest
 reference for the settled bubble's chip render), and the compose-box
 send-funnel refactor phase (where the seed-and-dispatch primitive was
 extracted).
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-07
+**Vehicle used:** GSD phase (81-optimistic-bubble-for-every-compose-box-send, plans 01 + 02)
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is — every compose-box send produces an optimistic bubble, text-only and attachment-carrying** — present · Text-only trigger sites (primary/queue-slot/cadence/voice) all route through funnel.send (pre-existing Phase 68); attachment sends from every trigger site now seed via PrettyView's onUploadReadyToInject closure. Interrupt does not seed.
+- **Shape — queue-slot text sends and cadence auto-fires seed identically to primary Send** — present · handleQueueSlotSend, fireNextQueued, voice-slot send all invoke funnel.send; each yields a pending bubble with mqid via useComposeSend. Wiring pre-dates this phase but is intact.
+- **Shape — attachment sends seeded at inject-time (post-upload, pre-harness) with caption + read-only chip strip from every trigger site** — present · handleOptimisticSend fires inside PrettyView.onUploadReadyToInject. Runs for primary, queue-slot, and cadence attachment sends (all funnel into same PrettyView.startBatch→callback path).
+- **Shape — pending attachment bubble renders caption above chip strip; empty-caption elides caption** — present · ChatMessage conditionally renders caption then AttachmentChipStrip readOnly. Test A2/Test B lock the empty-caption elision.
+- **Shape — chips visually identical to settled attachment bubble** — present · Same AttachmentChipStrip component in readOnly mode with identical file-object shape. AttachmentChipStrip file is untouched (zero diff).
+- **Shape — failure turns whole bubble red, chips still visible; match-and-replace uses same mqid mechanism** — present · Phase 76 whole-bubble red inherited via outer bubble style — Test A4/Test H verify chips remain on red. mqid = batchId = messageQueueItemId invariant locked by Test A9.
+- **Philosophy — upload phase and confirmation phase are separate concerns; upload progress lives in compose chips** — present · AttachmentChipStrip.tsx unchanged; use-pretty-view-uploads.ts unchanged. Seed only fires on upload_ready_to_inject — no bubble during upload phase.
+- **Philosophy — no failure-path preservation of staged files or retry affordance for attachment sends** — present · Failure branch just renders red; no new preservation/retry surface added.
+- **Prior context — mqid minted at batch-start time is used as the pending record's mqid** — present · batchIdRef.current set at startBatch time; the same messageQueueItemId is passed as mqid in the seed call. Locked by Test A9.
+- **Failure mode — a compose-box send that produces no bubble** — present · Every trigger site covered.
+- **Failure mode — a bubble appearing during the upload phase** — present · Seed only fires from onUploadReadyToInject, which the hook only calls after upload_ready_to_inject frame — post-upload.
+- **Failure mode — upload-progress affordance reworked as side effect** — present · AttachmentChipStrip.tsx + use-pretty-view-uploads.ts + pretty-view-upload-protocol.ts all have zero diff.
+- **Failure mode — pending attachment bubble chips visually different from settled chips** — present · Same component, same readOnly mode, same file shape — visual identity guaranteed.
+- **Failure mode — upload's own failure states producing a pending bubble** — present · Test A6 (upload_failed → no seed), Test A7 (ws_not_open/silent → no seed), Test A5 (superseded → no seed). Callback is naturally gated by readyFiredRef + batchId gate in the upload hook.
+- **Failure mode — pending bubble surviving past the harness echo** — present · FIFO head-match removes oldest sending pending on incoming user-role frame in the same React commit as the confirmed message append — no ghost frame. Test A8 locks.
+- **Scope OUT — no changes to upload-progress rendering** — present · AttachmentChipStrip.tsx unchanged.
+- **Scope OUT — no preservation of staged files across failure** — present · Failure path just leaves red bubble; no staging preservation added.
+- **Scope OUT — no retry affordance for attachment sends** — present · No new retry surface added.
+- **Scope OUT — no changes to non-send compose actions (interrupt)** — present · Interrupt button unchanged; no seed call.
+- **Scope OUT — no rework of settled attachment bubble render** — present · ChatMessage's `injected` branch is unchanged; new pending-with-attachments branch is placed AFTER it so settled always wins.
+- **Scope 'Tempting but no' — pending bubble does not show upload progress inline** — present · Chips render with status:'complete' (post-upload state) — no progress ring.
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+Very tight, well-scoped implementation. Only 6 source files changed (3 production, 3 test), with total ~140 lines of production changes concentrated in exactly the surfaces the shape calls out: PendingSend record shape + handleOptimisticSend widening + ChatMessage render branch + a single seed call inside onUploadReadyToInject. AttachmentChipStrip, use-pretty-view-uploads, and pretty-view-upload-protocol are untouched — this is the cleanest possible evidence that upload-progress affordance and settled-bubble render were not reworked. Test coverage is thorough: 10 attachment-pending-bubble tests (including mqid invariant lock, spooky-caption defense, superseded/upload_failed/ws_not_open/silent negative cases, FIFO head-match cleanup), 9 ChatMessage unit tests covering the render branch (including branch ordering, empty-caption elision, XSS escape, failed-state red inheritance), and 1 end-to-end compose-send integration test that drives the actual file-picker → Send → upload_ready_to_inject path. mqid = batchId = messageQueueItemId invariant is explicitly asserted at Test A9 and Test 6, which is the single most important correctness property for the match-and-replace mechanism. Text-only trigger sites (queue-slot, cadence, voice) were already funneled through useComposeSend in prior phases (68); this phase adds the missing attachment-side seeding and the render branch that displays chips inside a pending bubble.
