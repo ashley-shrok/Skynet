@@ -33,6 +33,16 @@
 // Zero new npm deps. Reuses the fork's Dialog wrapper (@/components/dialog),
 // Button (@/components/button), Input (@/components/input), Plus/Search icons
 // from lucide-react.
+//
+// ─── Phase 84 (D-CONTEXT items 7 + 8) ─────────────────────────────────
+// UX pass paired with Plan 84-01 (CreateRoleDialog): modal title
+// conforms to "New agent" dropdown label at
+// PrettyConversationsPanel.tsx:2036 (defaultValue change in place at
+// L845-847, no new i18n key). Host search + host listbox hidden when
+// the user has exactly one pickable host — single host still auto-
+// selected by the existing open-effect. Same inline gate shape as
+// Plan 84-01 (not extracted into a shared symbol; refactor deferred
+// per shape file §Scope edges).
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -842,8 +852,15 @@ export function NewSessionDialog({
   const formDisabled = birthing || birthFailedStep !== null;
 
   const uiTitle = t("nav.newSession", { defaultValue: "New agent" });
+  // Phase 84 (D-CONTEXT item 7): modal title conforms DOWN to the dropdown
+  // label at PrettyConversationsPanel.tsx:2036 ("New agent"). Same i18n
+  // key, only the English defaultValue changes in place — no new key.
+  // Existing translations continue to render "Start a new agent" until
+  // re-translated; English is the source-of-truth locale for this bounty
+  // (per Copy-guard LOCKED in 84-CONTEXT.md). Paired with Plan 84-01's
+  // sibling change on CreateRoleDialog's title.
   const startTitle = t("nav.newSessionTitle", {
-    defaultValue: "Start a new agent",
+    defaultValue: "New agent",
   });
   const startDescription = t("nav.newSessionDescription", {
     defaultValue: "Pick a host and (optionally) name the agent.",
@@ -887,63 +904,80 @@ export function NewSessionDialog({
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
-          {/* Search input — same visual idiom as HostsPanel.tsx lines 331-347 */}
-          <div className="flex items-center gap-2 px-2.5 h-7 bg-[color:var(--color-pv-surface-quiet)] border border-[color:var(--color-pv-border-quiet-strong)] rounded-sm">
-            <Search className="size-3 text-[color:var(--color-pv-fg-dim)] shrink-0" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={searchPlaceholder}
-              aria-label={searchPlaceholder}
-              disabled={formDisabled}
-              className="flex-1 text-xs bg-transparent outline-none placeholder:text-[color:var(--color-pv-fg-dim)] text-[color:var(--color-pv-fg)] min-w-0 disabled:opacity-50"
-            />
-          </div>
-
-          {/* Scrollable host list */}
-          <div
-            className="flex flex-col max-h-72 overflow-y-auto border border-[color:var(--color-pv-border-quiet)] rounded-sm"
-            role="listbox"
-            aria-label={t("nav.newSessionHostList", { defaultValue: "Hosts" })}
-          >
-            {filteredHosts.length === 0 ? (
-              <div className="px-3 py-4 text-xs text-[color:var(--color-pv-fg-dim)] text-center">
-                {emptyHostsLabel}
+          {/*
+           * Phase 84 (D-CONTEXT item 8): hide the host search input + host listbox
+           * entirely when the user has exactly one pickable host. The existing
+           * open-effect at L413-414 (unchanged by this phase) still auto-selects
+           * that sole host into `selectedHost`, so downstream birth-flow and
+           * canOpen predicate at L822-833 still work. When the user has zero or
+           * ≥2 pickable hosts, both the search box and the listbox render as
+           * before. Rationale: Aither Health users (target segment) provision
+           * one dedicated VM per user and hit this case constantly. Matched by
+           * Plan 84-01's inline gate on CreateRoleDialog — same shape by design
+           * (shape file §Scope edges: shared primitive, but NOT an extracted
+           * symbol in this phase).
+           */}
+          {flatHosts.length !== 1 && (
+            <>
+              {/* Search input — same visual idiom as HostsPanel.tsx lines 331-347 */}
+              <div className="flex items-center gap-2 px-2.5 h-7 bg-[color:var(--color-pv-surface-quiet)] border border-[color:var(--color-pv-border-quiet-strong)] rounded-sm">
+                <Search className="size-3 text-[color:var(--color-pv-fg-dim)] shrink-0" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={searchPlaceholder}
+                  aria-label={searchPlaceholder}
+                  disabled={formDisabled}
+                  className="flex-1 text-xs bg-transparent outline-none placeholder:text-[color:var(--color-pv-fg-dim)] text-[color:var(--color-pv-fg)] min-w-0 disabled:opacity-50"
+                />
               </div>
-            ) : (
-              filteredHosts.map((h) => {
-                const selected = selectedHost?.id === h.id;
-                return (
-                  <button
-                    key={h.id}
-                    type="button"
-                    role="option"
-                    aria-selected={selected}
-                    disabled={formDisabled}
-                    onClick={() => !formDisabled && setSelectedHost(h)}
-                    className={`flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors border-b border-[color:var(--color-pv-border-quiet)] last:border-b-0 disabled:opacity-50 ${
-                      selected
-                        ? "bg-[hsla(var(--pv-hue,35),45%,28%,0.42)] text-[color:var(--color-pv-fg)]"
-                        : "hover:bg-[hsla(var(--pv-hue,35),40%,25%,0.18)] text-[color:var(--color-pv-fg)]"
-                    }`}
-                  >
-                    <span
-                      className={`size-1.5 rounded-full shrink-0 ${
-                        h.online ? "bg-green-500" : "bg-[color:var(--color-pv-fg-dim)]"
-                      }`}
-                      aria-hidden
-                    />
-                    <span className="font-semibold truncate flex-1">
-                      {h.name}
-                    </span>
-                    <span className="text-[10px] text-[color:var(--color-pv-fg-muted)] truncate">
-                      {h.username ? `${h.username}@${h.ip}` : h.ip}
-                    </span>
-                  </button>
-                );
-              })
-            )}
-          </div>
+
+              {/* Scrollable host list */}
+              <div
+                className="flex flex-col max-h-72 overflow-y-auto border border-[color:var(--color-pv-border-quiet)] rounded-sm"
+                role="listbox"
+                aria-label={t("nav.newSessionHostList", { defaultValue: "Hosts" })}
+              >
+                {filteredHosts.length === 0 ? (
+                  <div className="px-3 py-4 text-xs text-[color:var(--color-pv-fg-dim)] text-center">
+                    {emptyHostsLabel}
+                  </div>
+                ) : (
+                  filteredHosts.map((h) => {
+                    const selected = selectedHost?.id === h.id;
+                    return (
+                      <button
+                        key={h.id}
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        disabled={formDisabled}
+                        onClick={() => !formDisabled && setSelectedHost(h)}
+                        className={`flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors border-b border-[color:var(--color-pv-border-quiet)] last:border-b-0 disabled:opacity-50 ${
+                          selected
+                            ? "bg-[hsla(var(--pv-hue,35),45%,28%,0.42)] text-[color:var(--color-pv-fg)]"
+                            : "hover:bg-[hsla(var(--pv-hue,35),40%,25%,0.18)] text-[color:var(--color-pv-fg)]"
+                        }`}
+                      >
+                        <span
+                          className={`size-1.5 rounded-full shrink-0 ${
+                            h.online ? "bg-green-500" : "bg-[color:var(--color-pv-fg-dim)]"
+                          }`}
+                          aria-hidden
+                        />
+                        <span className="font-semibold truncate flex-1">
+                          {h.name}
+                        </span>
+                        <span className="text-[10px] text-[color:var(--color-pv-fg-muted)] truncate">
+                          {h.username ? `${h.username}@${h.ip}` : h.ip}
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </>
+          )}
 
           {/* Regular session-name input — only visible when identity-mode is OFF */}
           {!identityMode && (
