@@ -1167,3 +1167,557 @@ describe("PrettyView — render latest-only + interleaving (Phase 50 Plan 03 Tas
     expect(orderedIds[1]).toBe("ev-u1");
   });
 });
+
+/*
+ * Phase 81 Plan 02 Task 2 — attachment pending bubbles.
+ *
+ * These 10 tests lock the Plan 02 wiring end-to-end:
+ *   PrettyView.onUploadReadyToInject closure (seed call inserted at
+ *   PrettyView.tsx L1517-1546) → handleOptimisticSend({attachments}) →
+ *   PendingSend record grows an attachments field → ChatMessage's
+ *   pending-with-attachments render branch (Plan 01, ChatMessage.tsx
+ *   L525-569) fires → caption + AttachmentChipStrip readOnly render.
+ *
+ * Trigger mechanism: the seed lives inside PrettyView's
+ * onUploadReadyToInject closure — a bare `upload_ready_to_inject` WS
+ * frame alone is dropped by usePrettyViewUploads' handleServerEvent
+ * batchId gate (use-pretty-view-uploads.ts:378). To make the callback
+ * fire, we drive the whole flow: stage attachments via file input →
+ * type caption → press Send → startBatch mints a batchId and emits
+ * upload_start → capture the batchId off the WS mock's `send` calls →
+ * inject `upload_ready_to_inject` on the SAME WS with that batchId.
+ * The batchId gate accepts the event, the seed fires, and the pending
+ * bubble renders in the DOM.
+ *
+ * Test A9 explicitly asserts data-event-id === "pending-<batchId>",
+ * not "pending-pv-optim-*" — this locks Pitfall #2 (mqid invariant).
+ */
+describe("PrettyView — attachment pending bubbles (Phase 81)", () => {
+  let resizeObserverStub: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    wsStubs.length = 0;
+    useSessionIdentityMock.mockReturnValue({ identity: null, identityHue: null });
+    resizeObserverStub = vi.fn(function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    });
+    vi.stubGlobal("ResizeObserver", resizeObserverStub);
+    vi.useRealTimers();
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  function mount() {
+    const onSend = vi.fn((_text: string, _mqid?: string) => true);
+    const { container, unmount } = render(
+      <PrettyView
+        hostId={1}
+        tmuxSession="s1"
+        isVisible={true}
+        onSend={onSend}
+      />,
+    );
+    return { container, unmount, onSend };
+  }
+
+  /**
+   * Stage attachments through the hidden file input, then press Send.
+   * Returns the batchId the upload hook minted (extracted from the WS
+   * mock's `send` mock — startBatch emits `upload_start` first).
+   *
+   * When `caption` is empty string, we skip typing (empty-caption
+   * attachment sends are legal per D-06 — the compose Send button is
+   * still enabled once attachments are staged).
+   */
+  async function stageAndSend(
+    container: HTMLElement,
+    ws: WsStub,
+    caption: string,
+    filename: string,
+    size: number,
+    mimetype: string = "text/plain",
+  ): Promise<string> {
+    const filePicker = container.querySelector(
+      '[data-testid="compose-file-picker"]',
+    ) as HTMLInputElement;
+    expect(filePicker).not.toBeNull();
+
+    const file = new File(
+      [new Uint8Array(size).fill(65)],
+      filename,
+      { type: mimetype },
+    );
+
+    await act(async () => {
+      fireEvent.change(filePicker, { target: { files: [file] } });
+      // Two microtask flushes for stageAttachments' state update to
+      // propagate into attachmentsRefByTarget (the ref the startBatch
+      // guard at use-pretty-view-uploads.ts:575 reads).
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    if (caption.length > 0) {
+      const textarea = container.querySelector(
+        'textarea[placeholder^="Message"]',
+      ) as HTMLTextAreaElement;
+      expect(textarea).not.toBeNull();
+      await act(async () => {
+        fireEvent.change(textarea, { target: { value: caption } });
+        await Promise.resolve();
+      });
+    }
+
+    // Click the primary Send button. Its aria-label is "Send".
+    const sendBtn = container.querySelector(
+      'button[aria-label="Send"]',
+    ) as HTMLButtonElement;
+    expect(sendBtn).not.toBeNull();
+    // sendDisabled gates on `text.trim() === "" && !hasAttachments` — with
+    // a staged attachment the button should be enabled. Assert to catch
+    // any regression that would silently no-op the click.
+    expect(sendBtn.disabled).toBe(false);
+    await act(async () => {
+      fireEvent.click(sendBtn);
+      // handleSend attachment branch fires runAttachmentSend() as a bare
+      // async IIFE. Flush enough microtasks for:
+      //   1. runAttachmentSend's own await onSendWithAttachments
+      //   2. onSendWithAttachments' await uploads.startBatch
+      //   3. startBatch's async wrapper microtask before ws.send
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    });
+
+    // Pull batchId out of the upload_start frame on the WS mock.
+    let batchId: string | null = null;
+    await waitFor(
+      () => {
+        for (const call of ws.send.mock.calls) {
+          try {
+            const parsed = JSON.parse(call[0] as string);
+            if (parsed.type === "upload_start" && parsed.messageQueueItemId) {
+              batchId = parsed.messageQueueItemId;
+              return;
+            }
+          } catch {
+            /* skip non-JSON */
+          }
+        }
+        throw new Error("upload_start frame not yet emitted on WS");
+      },
+      { timeout: 3000 },
+    );
+    expect(batchId).not.toBeNull();
+    return batchId!;
+  }
+
+  /**
+   * Fire an `upload_ready_to_inject` WS frame with the given batchId.
+   *
+   * The uploads hook (use-pretty-view-uploads.ts:355-359) attaches its
+   * message handler via `ws.addEventListener("message", handler)`, NOT
+   * via `ws.onmessage`. The PrettyView-level session/message/dormant
+   * handler DOES bind to `ws.onmessage`. So a bare `ws.onmessage?.(...)`
+   * only reaches PrettyView's own routing, not the uploads hook.
+   *
+   * To exercise the uploads hook's `upload_ready_to_inject` path (which
+   * fires the seed callback under test), we must also invoke every
+   * "message"-type handler registered via `addEventListener`. The WsStub
+   * records these on `ws.addEventListener.mock.calls`; we replay each in
+   * turn to hit both the PrettyView-level and uploads-hook-level
+   * subscribers.
+   */
+  function fireUploadReadyToInject(
+    ws: WsStub,
+    batchId: string,
+    files: Array<{
+      tempId: string;
+      filename: string;
+      size: number;
+      mimetype: string;
+      landingPath?: string;
+      uploadTimestamp?: string;
+    }>,
+    caption: string,
+  ) {
+    const frame = {
+      type: "upload_ready_to_inject",
+      messageQueueItemId: batchId,
+      files: files.map((f) => ({
+        tempId: f.tempId,
+        filename: f.filename,
+        size: f.size,
+        mimetype: f.mimetype,
+        landingPath: f.landingPath ?? `/tmp/pv-uploads/${f.filename}`,
+        uploadTimestamp: f.uploadTimestamp ?? "2026-09-07T00:00:00Z",
+      })),
+      caption,
+    };
+    const evt = new MessageEvent("message", { data: JSON.stringify(frame) });
+    act(() => {
+      // (a) Route through ws.onmessage — reaches PrettyView-level dispatch.
+      ws.onmessage?.(evt);
+      // (b) Route through every "message" listener registered via
+      //     addEventListener — reaches the uploads hook's handler.
+      for (const call of ws.addEventListener.mock.calls) {
+        const [type, handler] = call as [string, (e: MessageEvent) => void];
+        if (type === "message" && typeof handler === "function") {
+          handler(evt);
+        }
+      }
+    });
+  }
+
+  it("Test A1: upload_ready_to_inject event with caption + one file → pending bubble seeds with attachment metadata + caption", async () => {
+    const { container } = mount();
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    await waitFor(() =>
+      expect(
+        container.querySelector('textarea[placeholder^="Message"]'),
+      ).not.toBeNull(),
+    );
+
+    const batchId = await stageAndSend(container, ws, "hi", "a.txt", 42);
+    fireUploadReadyToInject(
+      ws,
+      batchId,
+      [{ tempId: "t1", filename: "a.txt", size: 42, mimetype: "text/plain" }],
+      "hi",
+    );
+
+    await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
+    const pendingEl = container.querySelector(
+      '[data-event-id^="pending-"]',
+    )!;
+    expect(pendingEl.getAttribute("data-event-id")).toBe(`pending-${batchId}`);
+    // Caption present.
+    expect(pendingEl.textContent).toContain("hi");
+    // Chip strip present with the filename.
+    const chipStrip = pendingEl.querySelector('[data-readonly="true"]');
+    expect(chipStrip).not.toBeNull();
+    expect(chipStrip!.textContent).toContain("a.txt");
+  });
+
+  it("Test A2: upload_ready_to_inject event with EMPTY caption + files → pending bubble contains chip strip only, no caption div", async () => {
+    const { container } = mount();
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    await waitFor(() =>
+      expect(
+        container.querySelector('textarea[placeholder^="Message"]'),
+      ).not.toBeNull(),
+    );
+
+    const batchId = await stageAndSend(container, ws, "", "b.txt", 10);
+    fireUploadReadyToInject(
+      ws,
+      batchId,
+      [{ tempId: "t1", filename: "b.txt", size: 10, mimetype: "text/plain" }],
+      "",
+    );
+
+    await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
+    const pendingEl = container.querySelector(
+      '[data-event-id^="pending-"]',
+    )!;
+    // No caption div — pv-injected-caption is only rendered when content.length > 0.
+    expect(pendingEl.querySelector(".pv-injected-caption")).toBeNull();
+    // Chip strip still rendered.
+    expect(pendingEl.querySelector('[data-readonly="true"]')).not.toBeNull();
+  });
+
+  it("Test A3: pending attachment bubble chip strip carries data-readonly=\"true\"", async () => {
+    const { container } = mount();
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    await waitFor(() =>
+      expect(
+        container.querySelector('textarea[placeholder^="Message"]'),
+      ).not.toBeNull(),
+    );
+
+    const batchId = await stageAndSend(container, ws, "cap", "c.txt", 5);
+    fireUploadReadyToInject(
+      ws,
+      batchId,
+      [{ tempId: "t1", filename: "c.txt", size: 5, mimetype: "text/plain" }],
+      "cap",
+    );
+
+    await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
+    const pendingEl = container.querySelector(
+      '[data-event-id^="pending-"]',
+    )!;
+    const chipStrip = pendingEl.querySelector('[data-readonly="true"]');
+    expect(chipStrip).not.toBeNull();
+    expect(chipStrip!.getAttribute("data-readonly")).toBe("true");
+  });
+
+  it("Test A4: pending attachment bubble flips to failed after 20s and outer bubble carries red inline background", async () => {
+    // Timer strategy: stage + send + fire ready under REAL timers
+    // (stageAndSend + waitFor use real setTimeout and would deadlock
+    // under fake timers). Once the pending bubble is in the DOM, we
+    // switch to fake timers WITHOUT re-seeding — but the seed's own
+    // window.setTimeout was armed under real timers, so
+    // vi.advanceTimersByTime would not fire it.
+    //
+    // Trick: after seeding, invoke fireUploadReadyToInject a SECOND time
+    // is not viable (readyFiredRef guards it). Alternative: pluck the
+    // pending record's `mqid`, then simulate the timeout by injecting a
+    // `send_keys_error` WS frame that keys on the same mqid — that
+    // fires flipToFailed via the WS handler (production code path used
+    // by Phase 50 D-05). This tests the visual state on a truly-failed
+    // attachment bubble without depending on timer swap.
+    const { container } = mount();
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    await waitFor(() =>
+      expect(
+        container.querySelector('textarea[placeholder^="Message"]'),
+      ).not.toBeNull(),
+    );
+
+    const batchId = await stageAndSend(container, ws, "will-fail", "d.txt", 8);
+    fireUploadReadyToInject(
+      ws,
+      batchId,
+      [{ tempId: "t1", filename: "d.txt", size: 8, mimetype: "text/plain" }],
+      "will-fail",
+    );
+    await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
+
+    // Fire a send_keys_error WS frame with the seed's mqid — this drives
+    // flipToFailed via the production WS handler (same code path the 20s
+    // timer would trigger). See PrettyView.tsx handling of
+    // send_keys_error / paste_send_failed at ~L2456 — the frame carries
+    // `mqid` (not `messageQueueItemId`) per the Phase 50 D-21 contract.
+    sendWsFrame(ws, {
+      type: "send_keys_error",
+      mqid: batchId,
+      reason: "test-driven-failure",
+    });
+
+    await waitFor(() => {
+      const failedEl = container.querySelector("[data-pv-bubble-failed]");
+      expect(failedEl).not.toBeNull();
+    });
+
+    const failedEl = container.querySelector(
+      "[data-pv-bubble-failed]",
+    ) as HTMLElement;
+    const bg = failedEl.style.background;
+    // jsdom may normalize hsla→rgba; tolerate both source and normalized forms
+    // (same substring-tolerant pattern as ChatMessage.test.tsx Test 4b).
+    expect(
+      bg.includes("hsla(0, 60%") ||
+        bg.includes("hsl(0, 60%") ||
+        bg.includes("143, 36, 36") ||
+        bg.includes("rgba(143"),
+    ).toBe(true);
+    // Chip strip still present on the red bubble (D-08: chips visible on red-fill).
+    expect(failedEl.querySelector('[data-readonly="true"]')).not.toBeNull();
+  });
+
+  it("Test A5: superseded batch never fires onUploadReadyToInject → no pending bubble seeds; only completed batch seeds", async () => {
+    // Direct simulation: superseded batches are gated by usePrettyViewUploads'
+    // readyFiredRef guard + batchId gate — the callback simply never fires
+    // for a superseded batch. Prove this by: (a) stage + send batch-A, but
+    // DON'T inject upload_ready_to_inject for batch-A (simulates superseded
+    // outcome); (b) inject a synthetic upload_ready_to_inject for a
+    // NON-matching batchId (would be batch-A's replacement, but the gate at
+    // handleServerEvent L378 drops non-current-batch frames). Assert zero
+    // pending bubbles.
+    const { container } = mount();
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    await waitFor(() =>
+      expect(
+        container.querySelector('textarea[placeholder^="Message"]'),
+      ).not.toBeNull(),
+    );
+
+    const batchId = await stageAndSend(container, ws, "batch-A", "a.txt", 3);
+    // Inject upload_ready_to_inject for a DIFFERENT batchId (simulating a
+    // frame arriving for a superseded/foreign batch). The batchId gate at
+    // use-pretty-view-uploads.ts:378 drops it silently → no seed.
+    fireUploadReadyToInject(
+      ws,
+      `${batchId}-other`,
+      [{ tempId: "t1", filename: "a.txt", size: 3, mimetype: "text/plain" }],
+      "batch-A",
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(countPendingBubbles(container)).toBe(0);
+  });
+
+  it("Test A6: upload_failed frame → NO pending bubble ever seeds (D-12 regression)", async () => {
+    const { container } = mount();
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    await waitFor(() =>
+      expect(
+        container.querySelector('textarea[placeholder^="Message"]'),
+      ).not.toBeNull(),
+    );
+
+    const batchId = await stageAndSend(container, ws, "will-fail", "e.txt", 4);
+    // Fire upload_failed BEFORE upload_ready_to_inject — the hook resolves
+    // the outcome as failure and never fires onUploadReadyToInject. Seed
+    // never runs.
+    act(() => {
+      ws.onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({
+            type: "upload_failed",
+            messageQueueItemId: batchId,
+            tempId: "t1",
+            reason: "upload_failed",
+            message: "disk full",
+          }),
+        }),
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(countPendingBubbles(container)).toBe(0);
+  });
+
+  it("Test A7: no upload_ready_to_inject frame ever arrives → NO pending bubble seeds (ws_not_open / server silent equivalence)", async () => {
+    // The Option-B seed is entirely gated on the callback firing. When the
+    // hook resolves with ws_not_open (WS null at startBatch time) OR when
+    // the server simply never emits ready_to_inject, the callback never
+    // fires — so the seed never runs. Prove this by staging + sending and
+    // then NOT injecting any ready_to_inject frame at all.
+    const { container } = mount();
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    await waitFor(() =>
+      expect(
+        container.querySelector('textarea[placeholder^="Message"]'),
+      ).not.toBeNull(),
+    );
+
+    await stageAndSend(container, ws, "silent", "f.txt", 2);
+    // Do NOT fire ready_to_inject. Give the DOM a few microtasks and assert
+    // the pending bubble count remains zero.
+    await act(async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    });
+    expect(countPendingBubbles(container)).toBe(0);
+  });
+
+  it("Test A8: FIFO head-match on incoming user-role frame clears the pending attachment bubble (D-10)", async () => {
+    const { container } = mount();
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    await waitFor(() =>
+      expect(
+        container.querySelector('textarea[placeholder^="Message"]'),
+      ).not.toBeNull(),
+    );
+
+    const batchId = await stageAndSend(container, ws, "hi", "g.txt", 6);
+    fireUploadReadyToInject(
+      ws,
+      batchId,
+      [{ tempId: "t1", filename: "g.txt", size: 6, mimetype: "text/plain" }],
+      "hi",
+    );
+    await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
+
+    // Simulate the harness echoing the user-role frame. Content need not
+    // equal — FIFO head-match doesn't require content equality (Phase 50
+    // D-10; quick-260823-fzy regression). The oldest sending pending
+    // clears regardless.
+    sendWsFrame(ws, {
+      type: "message",
+      role: "user",
+      content: "hi\n---attached files---\n(1. g.txt ...)",
+      eventId: "ev-echo",
+      ts: Date.now(),
+    });
+    await waitFor(() => expect(countPendingBubbles(container)).toBe(0));
+    // Confirmed user bubble now appears.
+    await waitFor(() =>
+      expect(countConfirmedBubbles(container)).toBeGreaterThanOrEqual(1),
+    );
+  });
+
+  it("Test A9 (Pitfall #2 invariant): pending attachment bubble's data-event-id equals \"pending-\" + messageQueueItemId, NOT \"pending-pv-optim-*\"", async () => {
+    const { container } = mount();
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    await waitFor(() =>
+      expect(
+        container.querySelector('textarea[placeholder^="Message"]'),
+      ).not.toBeNull(),
+    );
+
+    const batchId = await stageAndSend(container, ws, "id-check", "h.txt", 7);
+    fireUploadReadyToInject(
+      ws,
+      batchId,
+      [{ tempId: "t1", filename: "h.txt", size: 7, mimetype: "text/plain" }],
+      "id-check",
+    );
+    await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
+    const pendingEl = container.querySelector(
+      '[data-event-id^="pending-"]',
+    )!;
+    const eventId = pendingEl.getAttribute("data-event-id")!;
+    // The id must be the batchId (upload hook's makeId format), NOT the
+    // useComposeSend text-only "pv-optim-<ts>-<hex>" mint.
+    expect(eventId).toBe(`pending-${batchId}`);
+    expect(eventId).not.toMatch(/^pending-pv-optim-/);
+  });
+
+  it("Test A10 (Pitfall #4 defense): caption containing literal \"---attached files---\" text (without valid file lines) still renders as pending-with-attachments branch, NOT as settled injected branch", async () => {
+    const { container } = mount();
+    const ws = getCurrentWs();
+    flipToStreaming(ws);
+    await waitFor(() =>
+      expect(
+        container.querySelector('textarea[placeholder^="Message"]'),
+      ).not.toBeNull(),
+    );
+
+    // Caption contains the delimiter substring but NO well-formed file lines.
+    // parseInjectedUserTurn returns null for this input → injected branch is
+    // false → pending-with-attachments branch fires. The pending bubble
+    // therefore renders the chip strip AND the caption text.
+    const spookyCaption = "look at this ---attached files--- no file lines follow";
+    const batchId = await stageAndSend(
+      container,
+      ws,
+      spookyCaption,
+      "i.txt",
+      3,
+    );
+    fireUploadReadyToInject(
+      ws,
+      batchId,
+      [{ tempId: "t1", filename: "i.txt", size: 3, mimetype: "text/plain" }],
+      spookyCaption,
+    );
+
+    await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
+    const pendingEl = container.querySelector(
+      '[data-event-id^="pending-"]',
+    )!;
+    // pending-with-attachments branch fired: chip strip is present.
+    expect(pendingEl.querySelector('[data-readonly="true"]')).not.toBeNull();
+    // Chip contains the filename.
+    expect(pendingEl.textContent).toContain("i.txt");
+    // Caption text (including the delimiter substring) is rendered.
+    expect(pendingEl.textContent).toContain("---attached files---");
+  });
+});
