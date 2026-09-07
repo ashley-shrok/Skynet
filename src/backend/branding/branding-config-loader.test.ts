@@ -248,4 +248,36 @@ describe("branding-config-loader — Phase 74 shape guard (avatarDirectorSpec + 
     // shortened pwaIcons array (single icon), whereas bundled default has 2.
     expect(cfg.pwaIcons.length).toBe(1);
   });
+
+  // ─── Phase 82 shape-guard tests (wipIndicatorPath) ────────────────────────
+
+  it("Test 8: rejects when wipIndicatorPath is missing → bundled defaults", async () => {
+    const { loadBrandingConfig } = await freshLoader();
+    const bad = validFixture() as Partial<ReturnType<typeof validFixture>>;
+    delete bad.wipIndicatorPath;
+    state.configError = null;
+    state.configJson = bad;
+
+    const cfg = await loadBrandingConfig();
+
+    // Shape guard rejected → bundled defaults returned (which carry the
+    // canonical wipIndicatorPath: "/branding/wip-cube.webp" per Phase 82).
+    expect(cfg.wipIndicatorPath).toBe("/branding/wip-cube.webp");
+  });
+
+  it("Test 9: rejects when wipIndicatorPath is a number → bundled defaults", async () => {
+    const { loadBrandingConfig } = await freshLoader();
+    const bad = { ...validFixture(), wipIndicatorPath: 42 };
+    state.configError = null;
+    state.configJson = bad;
+
+    const cfg = await loadBrandingConfig();
+
+    // Shape guard rejected at the typeof branch → bundled defaults returned.
+    // Assert BOTH the wipIndicatorPath value AND the 2-icon bundled shape
+    // (validFixture has 1 icon) to distinguish "got bundled default" from
+    // "got operator config unchanged".
+    expect(cfg.wipIndicatorPath).toBe("/branding/wip-cube.webp");
+    expect(cfg.pwaIcons.length).toBe(2);
+  });
 });
