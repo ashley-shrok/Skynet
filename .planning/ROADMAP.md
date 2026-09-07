@@ -1902,6 +1902,16 @@ Plans:
 
 - [x] 77-05-PLAN.md — E2E integration test (gated on INTEGRATION_TESTS=1 strict) proving loginAsUser + send-message round-trip works via the admin foundation; light update to substrate/skills/agent-relay/SKILL.md reflecting Skynet's new admin role; human checkpoint covering @skynet-admin creds ingestion via POST /matrix-admin/creds + three-user mxid import (Ashley/Zoe on t1000, Laura on T800 side by Stacy) + doc coherence review (MXA-01, MXA-06)
 
+### Phase 79: Telegram bridge Phase B: substrate promotion + identity modal Telegram section — package Nina bridge (/home/thenasty/.config/tg-bridge/bridge.sh) into fleet distributor as managed service, add Matrix-cursor disk persistence mirroring recv.sh, new Telegram section in identity modal per identity, activation flow (bot-token paste → Skynet writes bridge registry → restart bridge → user sends /start). Sits on top of Phase 77 (matrix-admin foundation, shipped). Shape: .planning/shapes/shape-telegram-bridge.md § Vehicle notes Phase B.
+
+**Goal:** [To be replanned — install pathway course-corrected 2026-09-06 to Docker Compose service. See .planning/phases/79-*/79-CONTEXT.md § Attribution corrections + § 4C for the revised architecture.]
+**Requirements**: TBD
+**Depends on:** Phase 77
+**Plans:** 6/9 plans executed
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 79 to break down)
+
 ### Phase 80: id skill revamp phase A: Skynet frontend and backend for pool-based naming, task-scoped creation modal, task pill on chat, task-primary conversation list rows, task field on disk
 
 **Goal:** Ship the Skynet-side changes that let a new identity be born as a task-scoped worker with a pool-picked name and a task string, and surface the task on both display surfaces (chat pill + conversation list row) with graceful fallback when the field is absent.
