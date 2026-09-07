@@ -60,6 +60,7 @@ export function ChatMessage({
   onLongPressSpeak,
   onOpenEditor,
   pendingState = null,
+  attachments,
 }: {
   role: "user" | "assistant";
   content: string;
@@ -84,6 +85,20 @@ export function ChatMessage({
   // data-pv-bubble-failed. null | undefined = no rendering change
   // (back-compat with every existing mount site).
   pendingState?: "sending" | "failed" | null;
+  // Phase 80 D-15: attachments carried on a pending-with-attachments seed
+  // (PendingSend.attachments — populated by Plan 02's onUploadReadyToInject
+  // wiring). When present + non-empty AND the existing `injected` branch
+  // condition is false, the new pending-with-attachments render branch
+  // fires: caption above AttachmentChipStrip in readOnly mode (mirrors the
+  // settled `injected` bubble shape but sources data from this prop rather
+  // than parseInjectedUserTurn(content)). Absent for text-only pending
+  // bubbles and for settled bubbles (backward-compat with every existing
+  // mount site).
+  attachments?: Array<{
+    filename: string;
+    size: number;
+    mimetype: string;
+  }>;
 }) {
   const isUser = role === "user";
   // D-01: hook fires for both roles; user messages never carry tailnet URLs
@@ -496,6 +511,51 @@ export function ChatMessage({
                 // is guaranteed unique by the backend's collision-suffix loop
                 // (Plan 01 orchestrator) so it doubles as a stable key.
                 tempId: f.landingPath,
+                file: { name: f.filename, size: f.size, type: f.mimetype },
+                status: "complete",
+                bytesUploaded: f.size,
+                error: null,
+              }))}
+              onRemove={() => {
+                /* readOnly — never fires */
+              }}
+              readOnly={true}
+            />
+          </>
+        ) : attachments && attachments.length > 0 ? (
+          // Phase 80 D-15: pending-with-attachments render. Fires when the
+          // pending seed carried attachments (from PrettyView's
+          // onUploadReadyToInject closure, Plan 02). Sources from the
+          // `attachments` prop directly — no parseInjectedUserTurn call
+          // because the pending record's `content` field carries only the
+          // caption. See RESEARCH.md § Pattern 3 for shape rationale.
+          //
+          // Placed AFTER the `injected` branch so a settled attachment
+          // bubble whose content parses cleanly always wins ordering
+          // (defense-in-depth against the pending record hanging around
+          // once the harness echoes and the FIFO head-match cleanup fires
+          // — the settled render should take over).
+          //
+          // Whole-bubble red on failure (Phase 76 D-06) is inherited for
+          // free via bubbleInlineStyle at the outer bubble div (L420) —
+          // no additional style work needed for pendingState === "failed".
+          //
+          // Duplicated inline (not extracted to a helper) per RESEARCH.md
+          // § "Share vs Duplicate": different caption source (content vs
+          // injected.caption), different tempId source (synthetic vs
+          // landingPath), different file-shape mapping (PendingSend
+          // triple vs ParsedInjectedTurn files), 8 lines of JSX total.
+          <>
+            {content.length > 0 && (
+              <div className="pv-injected-caption whitespace-pre-wrap mb-2">
+                {content}
+              </div>
+            )}
+            <AttachmentChipStrip
+              attachments={attachments.map((f) => ({
+                // synthetic — pending records have no landingPath; used
+                // only as React key inside the short-lived pending bubble.
+                tempId: `pending-${f.filename}-${f.size}`,
                 file: { name: f.filename, size: f.size, type: f.mimetype },
                 status: "complete",
                 bytesUploaded: f.size,

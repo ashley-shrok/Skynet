@@ -462,3 +462,236 @@ describe("ChatMessage — user bubble always-expanded regression guard (quick 26
     expect(wrapper).not.toBeNull();
   });
 });
+
+/**
+ * Phase 80 Plan 01 Task 2 — pending-with-attachments render branch tests.
+ *
+ * When a pending user bubble carries the new `attachments` prop (populated
+ * by PrettyView.PendingSend.attachments in Plan 02 via the
+ * onUploadReadyToInject seed call), ChatMessage renders a caption + inline
+ * chip strip in the SAME bubble — mirroring the settled-injected render
+ * shape but sourcing data from the prop directly (no parseInjectedUserTurn).
+ *
+ * Branch ordering: quick-reply → settled `injected` → pending-with-
+ * attachments (NEW) → ReactMarkdown fallback. Settled always wins to
+ * preserve pre-Phase-80 semantics.
+ */
+describe("ChatMessage pending-with-attachments (Phase 80)", () => {
+  const PENDING_F1 = {
+    filename: "screenshot.png",
+    size: 20480,
+    mimetype: "image/png",
+  };
+  const PENDING_F2 = {
+    filename: "logs.txt",
+    size: 3072,
+    mimetype: "text/plain",
+  };
+
+  it("Test A: renders caption above chip strip when both are present", () => {
+    render(
+      <ChatMessage
+        role="user"
+        content="review these"
+        pendingState="sending"
+        attachments={[PENDING_F1, PENDING_F2]}
+      />,
+    );
+    // Caption text is present.
+    expect(screen.getByText(/review these/)).toBeTruthy();
+    // Two chips render, one per file.
+    const chips = screen.getAllByTestId("attachment-chip");
+    expect(chips).toHaveLength(2);
+    // Chip content: filename + human-size.
+    expect(screen.getByText(/screenshot\.png/)).toBeTruthy();
+    expect(screen.getByText(/logs\.txt/)).toBeTruthy();
+    // Caption slot is present as a direct sibling above the strip.
+    const captionSlot = document.querySelector(".pv-injected-caption");
+    expect(captionSlot).not.toBeNull();
+    expect(captionSlot?.textContent).toContain("review these");
+  });
+
+  it("Test B: renders chip strip only when content is empty string (D-06)", () => {
+    render(
+      <ChatMessage
+        role="user"
+        content=""
+        pendingState="sending"
+        attachments={[PENDING_F1]}
+      />,
+    );
+    // One chip renders.
+    expect(screen.getAllByTestId("attachment-chip")).toHaveLength(1);
+    // Caption slot MUST NOT render — zero-height slot would still add
+    // margin (D-06 mirrors the settled bubble's
+    // injected.caption.length > 0 && gate at ChatMessage.tsx:488).
+    const captionSlot = document.querySelector(".pv-injected-caption");
+    expect(captionSlot).toBeNull();
+  });
+
+  it("Test C: chip strip has data-readonly=\"true\" attribute (Pitfall #6)", () => {
+    render(
+      <ChatMessage
+        role="user"
+        content="hi"
+        pendingState="sending"
+        attachments={[PENDING_F1]}
+      />,
+    );
+    // Every chip carries data-readonly="true" (verified at
+    // AttachmentChipStrip.tsx:107) — confirms readOnly={true} is passed.
+    const chips = screen.getAllByTestId("attachment-chip");
+    for (const chip of chips) {
+      expect(chip.getAttribute("data-readonly")).toBe("true");
+    }
+  });
+
+  it("Test D: pending-with-attachments branch does NOT fire when attachments prop is undefined (existing text render fires)", () => {
+    render(
+      <ChatMessage
+        role="user"
+        content="just a normal message"
+        pendingState="sending"
+      />,
+    );
+    // No chip strip at all.
+    expect(screen.queryByTestId("attachment-chip-strip")).toBeNull();
+    expect(screen.queryAllByTestId("attachment-chip")).toHaveLength(0);
+    // Normal message content still renders through markdown fallback.
+    expect(screen.getByText(/just a normal message/)).toBeTruthy();
+  });
+
+  it("Test E: pending-with-attachments branch does NOT fire when attachments prop is empty array", () => {
+    render(
+      <ChatMessage
+        role="user"
+        content="hello"
+        pendingState="sending"
+        attachments={[]}
+      />,
+    );
+    // Empty array — condition `attachments.length > 0` is false, so the
+    // markdown fallback branch fires.
+    expect(screen.queryByTestId("attachment-chip-strip")).toBeNull();
+    expect(screen.getByText(/hello/)).toBeTruthy();
+  });
+
+  it("Test F: settled injected branch FIRES FIRST when content contains valid ---attached files--- delimited body — verifies branch ordering (settled wins over pending)", () => {
+    // Build a valid injected-turn content (parseInjectedUserTurn returns
+    // non-null). Also pass an attachments prop — the settled branch must
+    // still win because it appears before the pending branch in the ternary.
+    const settledContent = formatInjectedUserTurn({
+      caption: "settled caption",
+      files: [F1, F2],
+    });
+    render(
+      <ChatMessage
+        role="user"
+        content={settledContent}
+        pendingState="sending"
+        attachments={[PENDING_F1]}
+      />,
+    );
+    // Settled render fires: two chips from F1 + F2 (NOT one chip from
+    // PENDING_F1). Also the settled caption ("settled caption") renders,
+    // not the pending caption path (which would render the raw content
+    // string literally as content).
+    expect(screen.getAllByTestId("attachment-chip")).toHaveLength(2);
+    expect(screen.getByText(/settled caption/)).toBeTruthy();
+    // The settled chip filenames appear (F1 + F2), not the pending one.
+    expect(screen.getByText(/screenshot\.png/)).toBeTruthy();
+    expect(screen.getByText(/logs\.txt/)).toBeTruthy();
+  });
+
+  it("Test G: caption text containing the literal string '---attached files---' (without valid file lines) renders as pending-with-attachments (Pitfall #4)", () => {
+    // parseInjectedUserTurn returns null when the delimiter is present but
+    // no well-formed file lines follow (verified at protocol.ts:322-336).
+    // A caption that happens to contain the delimiter substring as raw
+    // text must still render as the pending-with-attachments branch.
+    const captionWithDelimiter =
+      "look at this weird string I found: ---attached files---";
+    render(
+      <ChatMessage
+        role="user"
+        content={captionWithDelimiter}
+        pendingState="sending"
+        attachments={[PENDING_F1]}
+      />,
+    );
+    // Pending-with-attachments branch fires: one chip from PENDING_F1,
+    // caption slot present with the literal text.
+    const chips = screen.getAllByTestId("attachment-chip");
+    expect(chips).toHaveLength(1);
+    expect(screen.getByText(/screenshot\.png/)).toBeTruthy();
+    const captionSlot = document.querySelector(".pv-injected-caption");
+    expect(captionSlot).not.toBeNull();
+    expect(captionSlot?.textContent).toContain("---attached files---");
+  });
+
+  it("Test H: when pendingState === 'failed', outer bubble div carries the whole-bubble-red inline style (Phase 76 D-06 inheritance)", () => {
+    render(
+      <ChatMessage
+        role="user"
+        content="failed with attachments"
+        pendingState="failed"
+        attachments={[PENDING_F1]}
+      />,
+    );
+    // The pending-with-attachments branch renders inside the outer bubble;
+    // Phase 76 whole-bubble red is applied via bubbleInlineStyle at the
+    // outer bubble div (ChatMessage.tsx:420) — inherited regardless of
+    // inner content branch.
+    const bubble = document.querySelector(
+      "[data-pv-bubble-failed]",
+    ) as HTMLElement | null;
+    expect(bubble).not.toBeNull();
+    // Assert the background carries the saturated red (partial substring
+    // match on "60%" tolerates jsdom's hsla→rgba normalization — the
+    // canonical hsla(0, 60%, 35%, 0.9) normalizes to rgba(143, 36, 36, 0.9);
+    // either representation is acceptable evidence of the red-fill).
+    const bg = bubble!.style.background;
+    // Accept either the hsla source form (in case the runtime preserves it)
+    // OR the rgba jsdom-normalized form. rgba(143, 36, 36, 0.9) contains
+    // "143, 36, 36" which corresponds to hsl(0, 60%, 35%).
+    const looksRed =
+      bg.includes("hsla(0, 60%") ||
+      bg.includes("hsl(0, 60%") ||
+      bg.includes("143, 36, 36");
+    expect(looksRed).toBe(true);
+    // The chip strip is still visible (D-08 — chips still visible on red).
+    expect(screen.getByTestId("attachment-chip-strip")).toBeTruthy();
+  });
+
+  it("Test I: chip filenames render inside a <span> (React default text-node escaping — no dangerouslySetInnerHTML) — verify with a filename containing HTML metacharacters", () => {
+    // T-80-01 mitigation: filename with <script> metacharacters must NOT
+    // yield a live <script> element in the rendered DOM. React text-node
+    // escaping ({file.name} inside <span>) mitigates the XSS surface.
+    const evilName = "<script>evil.txt";
+    render(
+      <ChatMessage
+        role="user"
+        content="hi"
+        pendingState="sending"
+        attachments={[
+          { filename: evilName, size: 100, mimetype: "text/plain" },
+        ]}
+      />,
+    );
+    // Assert the chip renders (branch fired) and the DOM does NOT contain
+    // an actual <script> element from the filename.
+    expect(screen.getAllByTestId("attachment-chip")).toHaveLength(1);
+    // getElementsByTagName lowercases the tag — no <script> from
+    // the filename escape.
+    const scripts = document.querySelectorAll("script");
+    // Note: some environments (e.g. framework-injected inline scripts)
+    // COULD add scripts, but jsdom's minimal render env for this
+    // ChatMessage-only mount should have none from the component itself.
+    // We assert count === 0 to lock the XSS-escape guarantee.
+    expect(scripts.length).toBe(0);
+    // Additionally verify the filename text appears escaped (visible as
+    // its literal characters in innerHTML, not as an executed tag).
+    const chip = screen.getAllByTestId("attachment-chip")[0]!;
+    // React escapes < and > in the HTML output as &lt; and &gt;.
+    expect(chip.innerHTML).toContain("&lt;script&gt;evil.txt");
+  });
+});
