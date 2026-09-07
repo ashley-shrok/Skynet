@@ -551,32 +551,17 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
   });
 
   it("Test G: no yank when user scrolled up — a trusted user-gesture scroll to top flips mode to not-at-bottom, then arrival of new frames does NOT yank the view back to the bottom (LOAD-BEARING — Phase 71 state machine 'not-at-bottom + content-changed → effect none')", async () => {
-    // Phase 71 (2026-09-04, HEAD 79d14042) rewrote PrettyView auto-scroll from
-    // first principles. The state machine's ONLY OUT transition from "at-bottom"
-    // fires when a user-input event carries isTrusted=true AND its
-    // distanceFromBottom is > BOTTOM_TOLERANCE_PX (28). JSDOM overwrites
-    // isTrusted=false on ANY event that goes through dispatchEvent (see
-    // use-auto-scroll.test.tsx L67-69 comment: "JSDOM's dispatchEvent always
-    // sets isTrusted=false for synthetic events (spec-compliant but
-    // untestable)"), so `fireEvent.scroll` and even subclass-override event
-    // dispatch cannot exercise the user-input path.
+    // Phase 71 rewrote PrettyView auto-scroll from first principles. Commit
+    // 91698810 (2026-09-06) then replaced the scroll+isTrusted origin gate
+    // with direct user-input event listeners (wheel, touchmove, keydown,
+    // pointerdown, scrollend) — see use-auto-scroll.ts § INPUT-ORIGIN BIT.
+    // The reducer's OUT transition from at-bottom now fires when ANY of
+    // those events is received AND distanceFromBottom > BOTTOM_TOLERANCE_PX
+    // (28). No more isTrusted gate, no more addEventListener interception.
     //
-    // Workaround (verbatim pattern from use-auto-scroll.test.tsx `fireUserScroll`
-    // helper): capture the hook's scroll handler via an addEventListener spy on
-    // the scroll container and invoke it DIRECTLY with a plain { isTrusted:true }
-    // object. This is the standard test-only bypass for the isTrusted gate.
-    const capturedHandlers: EventListenerOrEventListenerObject[] = [];
-    const realAdd = HTMLElement.prototype.addEventListener;
-    HTMLElement.prototype.addEventListener = function (
-      type: string,
-      handler: EventListenerOrEventListenerObject,
-      options?: AddEventListenerOptions | boolean,
-    ): void {
-      if (type === "scroll") {
-        capturedHandlers.push(handler);
-      }
-      return realAdd.call(this, type, handler, options);
-    } as typeof HTMLElement.prototype.addEventListener;
+    // Test pattern (mirrors use-auto-scroll.test.tsx L139-144 fireUserScroll
+    // helper): dispatch a plain wheel event on the scroll container. The
+    // hook picks it up directly.
 
     const { container } = render(
       <PrettyView
@@ -619,26 +604,23 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
     });
 
     // Flush any pending RAF chase-writes from the initial-mount + first-batch
-    // content-changed dispatches — the hook's `pendingChaseRef` gate would
-    // otherwise treat our simulated user-input as a "programmatic-skip" and
-    // never dispatch it to the reducer. The chase-write will assign
-    // scrollTop = scrollHeight (3000); we reset it to 0 AFTER the flush so
-    // the trusted user-input event sees distanceFromBottom = 2400.
+    // content-changed dispatches. The chase-write assigns scrollTop =
+    // scrollHeight (3000); we reset it to 0 AFTER the flush so the user-input
+    // event sees distanceFromBottom = 2400.
     await new Promise<void>((r) => requestAnimationFrame(() => r()));
     await new Promise<void>((r) => setTimeout(r, 0));
     scrollContainer!.scrollTop = 0;
 
-    // Invoke the hook's scroll handler directly with a mocked-trusted event.
-    // distanceFromBottom = 3000 - 0 - 600 = 2400 > 28 → OUT transition to
-    // not-at-bottom.
-    expect(capturedHandlers.length).toBeGreaterThan(0);
+    // Dispatch a wheel event on the scroll container. The hook listens
+    // directly for wheel (per use-auto-scroll.ts § INPUT-ORIGIN BIT) and
+    // dispatches user-input to the reducer. distanceFromBottom = 3000 - 0 -
+    // 600 = 2400 > 28 → OUT transition to not-at-bottom.
     act(() => {
-      const syntheticEvent = { isTrusted: true } as Event;
-      for (const h of capturedHandlers) {
-        if (typeof h === "function") h(syntheticEvent);
-        else h.handleEvent(syntheticEvent);
-      }
+      scrollContainer!.dispatchEvent(new Event("wheel", { bubbles: true }));
     });
+    // Let the RAF-coalesced measure fire.
+    await new Promise<void>((r) => requestAnimationFrame(() => r()));
+    await new Promise<void>((r) => setTimeout(r, 0));
 
     // Now fire 5 more frames while the user is scrolled to top (10+5=15 < cap 20).
     fireMessageBatch(ws, 5, (i) => ({
@@ -654,11 +636,7 @@ describe("PrettyView — hydration cap (Phase 45)", () => {
     // "not-at-bottom + content-changed → effect: none" row is load-bearing).
     await new Promise((r) => setTimeout(r, 30));
     const slop = 16;
-    try {
-      expect(scrollContainer!.scrollTop).toBeLessThanOrEqual(slop);
-    } finally {
-      HTMLElement.prototype.addEventListener = realAdd;
-    }
+    expect(scrollContainer!.scrollTop).toBeLessThanOrEqual(slop);
   });
 
   it("Test H: no fetch_older payload EVER sent under any scroll scenario (the fetch_older client path is truly gone)", async () => {
