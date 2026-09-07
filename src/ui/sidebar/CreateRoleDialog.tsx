@@ -22,6 +22,14 @@
 // clone/identity flows. This dialog is a standalone leaf next to
 // NewSessionDialog in the sidebar layer.
 //
+// ─── Phase 84 (D-CONTEXT items 1-6, 8) ─────────────────────────────────
+// UX pass: header blurb below title, required-caption dropped,
+// "Then create an agent" checkbox deleted from DOM, primary button
+// ALWAYS advances to create-agent (chain callback unconditional),
+// modal title conforms to "New role" dropdown label, host picker
+// hidden when only one pickable host (single host still auto-picked).
+// Item 7 (sibling NewSessionDialog title conform) lives in Plan 84-02.
+//
 // Zero new npm deps. Reuses the fork's Dialog wrapper (@/components/dialog),
 // Button (@/components/button), Input (@/components/input), lucide-react icons
 // (Search only — no VoicePicker/ColorPicker/AvatarPicker here).
@@ -114,10 +122,6 @@ export function CreateRoleDialog({
   const [description, setDescription] = useState<string>("");
   const [selectedHost, setSelectedHost] = useState<Host | null>(null);
   const [search, setSearch] = useState<string>("");
-  // D-CONTEXT §UX rules: checkbox DEFAULT TRUE (Ashley: "obviously going to
-  // want an identity to take on the new role otherwise you'll have a role
-  // without any identities").
-  const [thenCreateIdentity, setThenCreateIdentity] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -157,8 +161,6 @@ export function CreateRoleDialog({
       setDescription("");
       setSelectedHost(null);
       setSearch("");
-      // D-CONTEXT default: checkbox back to TRUE on close.
-      setThenCreateIdentity(true);
       setSubmitting(false);
       setSubmitError(null);
     }
@@ -185,9 +187,14 @@ export function CreateRoleDialog({
         hostId: hostIdNum,
       });
 
-      // SRIC-05 chain hook: only fire when the checkbox is CHECKED AND the
-      // callback prop is provided. Undefined-safe per Test 17b.
-      if (thenCreateIdentity && onChainToCreateIdentity) {
+      // Phase 84 (D-CONTEXT items 4 + 5): the primary button always advances to
+      // the create-agent modal on success. No branching, no gating. Role name
+      // + description pre-fill carry via this callback unconditionally. The
+      // checkbox that used to gate this call is gone (D-CONTEXT item 3). The
+      // callback prop remains optional and undefined-safe for callers that
+      // don't opt in to the chain (test-only pattern; production panel wires
+      // it — see PrettyConversationsPanel.tsx chainPrefill).
+      if (onChainToCreateIdentity) {
         onChainToCreateIdentity({ role: name, host: selectedHost, description });
       }
       if (onCreated) {
@@ -209,12 +216,14 @@ export function CreateRoleDialog({
   }
 
   // ─── I18n strings (with defaultValue fallbacks) ──────────────────────────
+  // Phase 84 (D-CONTEXT item 6): modal title conforms DOWN to the dropdown
+  // label at PrettyConversationsPanel.tsx:2037 ("New role"). Same i18n key,
+  // only the English defaultValue changes in place — no new key. Existing
+  // translations continue to render "Create a role" until re-translated;
+  // English is the source-of-truth locale for this bounty (per Copy-guard
+  // LOCKED in 84-CONTEXT.md).
   const startTitle = t("nav.createRoleTitle", {
-    defaultValue: "Create a role",
-  });
-  const startDescription = t("nav.createRoleDescription", {
-    defaultValue:
-      "Provision a new role folder on the picked host. Name and description are required.",
+    defaultValue: "New role",
   });
   const searchPlaceholder = t("nav.createRoleSearchHosts", {
     defaultValue: "Search hosts",
@@ -233,9 +242,6 @@ export function CreateRoleDialog({
   });
   const descriptionPlaceholder = t("nav.createRoleDescriptionPlaceholder", {
     defaultValue: "What is this role responsible for?",
-  });
-  const chainCheckboxLabel = t("nav.createRoleChainLabel", {
-    defaultValue: "Then create an agent with this role",
   });
   const cancelLabel = t("common.cancel", { defaultValue: "Cancel" });
   const openLabel = t("common.create", { defaultValue: "Create" });
@@ -256,7 +262,22 @@ export function CreateRoleDialog({
       >
         <DialogHeader>
           <DialogTitle>{startTitle}</DialogTitle>
-          <DialogDescription>{startDescription}</DialogDescription>
+          {/*
+           * Phase 84 (D-CONTEXT item 1): one-sentence header blurb explaining
+           * what a role IS. Paired vocabulary with the future create-agent
+           * blurb (create-agent-modal-ux-pass bounty carries the sibling copy:
+           * "An agent is one specific worker doing a role, with its own name
+           * and history."). Product language, not engineering terms — see
+           * shape file §Philosophy.
+           *
+           * Phase 84 (D-CONTEXT item 2): the prior <DialogDescription> that
+           * said "Provision a new role folder on the picked host. Name and
+           * description are required." is DELETED — the fields themselves
+           * already signal required state, no separate caption needed.
+           */}
+          <DialogDescription>
+            A role is what an agent does and how it thinks — many agents can share one.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
@@ -300,73 +321,75 @@ export function CreateRoleDialog({
             />
           </label>
 
-          {/* Host search + picker (same shape as NewSessionDialog L638-696) */}
-          <div className="flex items-center gap-2 px-2.5 h-7 bg-[color:var(--color-pv-surface-quiet)] border border-[color:var(--color-pv-border-quiet-strong)] rounded-sm">
-            <Search className="size-3 text-[color:var(--color-pv-fg-dim)] shrink-0" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={searchPlaceholder}
-              aria-label={searchPlaceholder}
-              disabled={submitting}
-              className="flex-1 text-xs bg-transparent outline-none placeholder:text-[color:var(--color-pv-fg-dim)] text-[color:var(--color-pv-fg)] min-w-0 disabled:opacity-50"
-            />
-          </div>
-
-          <div
-            className="flex flex-col max-h-56 overflow-y-auto border border-[color:var(--color-pv-border-quiet)] rounded-sm"
-            role="listbox"
-            aria-label={t("nav.createRoleHostList", { defaultValue: "Hosts" })}
-          >
-            {filteredHosts.length === 0 ? (
-              <div className="px-3 py-4 text-xs text-[color:var(--color-pv-fg-dim)] text-center">
-                {emptyHostsLabel}
+          {/*
+           * Phase 84 (D-CONTEXT item 8): hide the host search input + host listbox
+           * entirely when the user has exactly one pickable host. The existing
+           * open-effect above (unchanged by this phase) still auto-selects
+           * that sole host into `selectedHost`, so submission still works. When
+           * the user has zero or ≥2 hosts, both the search box and the listbox
+           * render as before. Rationale: Aither Health users (target segment)
+           * provision one dedicated VM per user and hit this case constantly;
+           * Ashley hits it herself. Matched by Plan 84-02 for NewSessionDialog.
+           */}
+          {flatHosts.length !== 1 && (
+            <>
+              {/* Host search + picker (same shape as NewSessionDialog L638-696) */}
+              <div className="flex items-center gap-2 px-2.5 h-7 bg-[color:var(--color-pv-surface-quiet)] border border-[color:var(--color-pv-border-quiet-strong)] rounded-sm">
+                <Search className="size-3 text-[color:var(--color-pv-fg-dim)] shrink-0" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={searchPlaceholder}
+                  aria-label={searchPlaceholder}
+                  disabled={submitting}
+                  className="flex-1 text-xs bg-transparent outline-none placeholder:text-[color:var(--color-pv-fg-dim)] text-[color:var(--color-pv-fg)] min-w-0 disabled:opacity-50"
+                />
               </div>
-            ) : (
-              filteredHosts.map((h) => {
-                const selected = selectedHost?.id === h.id;
-                return (
-                  <button
-                    key={h.id}
-                    type="button"
-                    role="option"
-                    aria-selected={selected}
-                    disabled={submitting}
-                    onClick={() => !submitting && setSelectedHost(h)}
-                    className={`flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors border-b border-[color:var(--color-pv-border-quiet)] last:border-b-0 disabled:opacity-50 ${
-                      selected
-                        ? "bg-[hsla(var(--pv-hue,190),45%,28%,0.42)] text-[color:var(--color-pv-fg)]"
-                        : "hover:bg-[hsla(var(--pv-hue,190),40%,25%,0.18)] text-[color:var(--color-pv-fg)]"
-                    }`}
-                  >
-                    <span
-                      className={`size-1.5 rounded-full shrink-0 ${
-                        h.online ? "bg-green-500" : "bg-[color:var(--color-pv-fg-dim)]"
-                      }`}
-                    />
-                    <span className="flex-1 truncate">{h.name}</span>
-                    {h.username && (
-                      <span className="text-[10px] text-[color:var(--color-pv-fg-dim)] shrink-0">
-                        {h.username}
-                      </span>
-                    )}
-                  </button>
-                );
-              })
-            )}
-          </div>
 
-          {/* Chain-into-create-identity checkbox — CHECKED by default (D-CONTEXT §UX rules) */}
-          <label className="flex items-center gap-2 text-xs text-[color:var(--color-pv-fg)] cursor-pointer">
-            <input
-              type="checkbox"
-              checked={thenCreateIdentity}
-              onChange={(e) => setThenCreateIdentity(e.target.checked)}
-              disabled={submitting}
-              className="size-3.5 cursor-pointer"
-            />
-            <span>{chainCheckboxLabel}</span>
-          </label>
+              <div
+                className="flex flex-col max-h-56 overflow-y-auto border border-[color:var(--color-pv-border-quiet)] rounded-sm"
+                role="listbox"
+                aria-label={t("nav.createRoleHostList", { defaultValue: "Hosts" })}
+              >
+                {filteredHosts.length === 0 ? (
+                  <div className="px-3 py-4 text-xs text-[color:var(--color-pv-fg-dim)] text-center">
+                    {emptyHostsLabel}
+                  </div>
+                ) : (
+                  filteredHosts.map((h) => {
+                    const selected = selectedHost?.id === h.id;
+                    return (
+                      <button
+                        key={h.id}
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        disabled={submitting}
+                        onClick={() => !submitting && setSelectedHost(h)}
+                        className={`flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors border-b border-[color:var(--color-pv-border-quiet)] last:border-b-0 disabled:opacity-50 ${
+                          selected
+                            ? "bg-[hsla(var(--pv-hue,190),45%,28%,0.42)] text-[color:var(--color-pv-fg)]"
+                            : "hover:bg-[hsla(var(--pv-hue,190),40%,25%,0.18)] text-[color:var(--color-pv-fg)]"
+                        }`}
+                      >
+                        <span
+                          className={`size-1.5 rounded-full shrink-0 ${
+                            h.online ? "bg-green-500" : "bg-[color:var(--color-pv-fg-dim)]"
+                          }`}
+                        />
+                        <span className="flex-1 truncate">{h.name}</span>
+                        {h.username && (
+                          <span className="text-[10px] text-[color:var(--color-pv-fg-dim)] shrink-0">
+                            {h.username}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </>
+          )}
 
           {/* Inline submit error (409 collision OR generic) */}
           {submitError && (
