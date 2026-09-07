@@ -126,7 +126,19 @@ export async function scanAndReconcileDeadTokens(): Promise<ReconcileResult> {
       continue;
     }
 
-    if (mintResult.ok) {
+    // `=== false` narrowing — strict tsc doesn't narrow discriminated unions
+    // on `x.ok`-truthy branch; see commit 967ab598.
+    if (mintResult.ok === false) {
+      databaseLogger.warn(
+        "reconcile: mint failed — leaving sentinel for next-tick retry",
+        {
+          operation: "reconcile_dead_tokens_mint_failed",
+          humanName,
+          error: mintResult.error,
+        },
+      );
+      result.failed += 1;
+    } else {
       try {
         await fsp.unlink(humanTokenDeadPath(humanName));
         result.minted += 1;
@@ -148,16 +160,6 @@ export async function scanAndReconcileDeadTokens(): Promise<ReconcileResult> {
           },
         );
       }
-    } else {
-      databaseLogger.warn(
-        "reconcile: mint failed — leaving sentinel for next-tick retry",
-        {
-          operation: "reconcile_dead_tokens_mint_failed",
-          humanName,
-          error: mintResult.error,
-        },
-      );
-      result.failed += 1;
     }
   }
 

@@ -180,15 +180,20 @@ router.post(
         }
         try {
           const mintResult = await mintAndWriteHumanToken(row.mxid, humanName);
-          if (mintResult.ok) {
-            results.push({ humanName, mxid: row.mxid, status: "minted" });
-          } else {
+          // Note: use `=== false` narrowing (not `!mintResult.ok`) — strict tsc
+          // (tsconfig.node.json used by docker build) does not narrow
+          // discriminated unions on the truthy-`.ok` branch here, whereas
+          // `=== false` works. See commit 967ab598 (Phase 77 rescue) for the
+          // same fix pattern in identity-birth-orchestrator.ts.
+          if (mintResult.ok === false) {
             results.push({
               humanName,
               mxid: row.mxid,
               status: "failed",
               error: mintResult.error,
             });
+          } else {
+            results.push({ humanName, mxid: row.mxid, status: "minted" });
           }
         } catch (mintThrew) {
           // Defensive — mintAndWriteHumanToken shouldn't throw except on

@@ -211,7 +211,9 @@ export async function rewriteRegistryFromCurrentState(): Promise<
           human.mxid,
           human.name,
         );
-        if (!mintResult.ok) {
+        // `=== false` narrowing — strict tsc (docker build) doesn't narrow
+        // discriminated unions on `!x.ok`; see commit 967ab598.
+        if (mintResult.ok === false) {
           databaseLogger.warn(
             "rewriteRegistryFromCurrentState: mint failed for human",
             {
@@ -279,7 +281,9 @@ export async function rewriteRegistryFromCurrentState(): Promise<
 export async function ensureBridgeConfigWritten(): Promise<void> {
   try {
     const configResult = await writeBridgeConfigEnv();
-    if (!configResult.ok) {
+    // `=== false` narrowing — strict tsc doesn't narrow discriminated unions
+    // on `!x.ok`; see commit 967ab598.
+    if (configResult.ok === false) {
       databaseLogger.warn(
         "ensureBridgeConfigWritten: config write failed — skipping registry rewrite (bridge will retry for 5 min per RESEARCH A9)",
         {
@@ -291,7 +295,7 @@ export async function ensureBridgeConfigWritten(): Promise<void> {
     }
 
     const rewriteResult = await rewriteRegistryFromCurrentState();
-    if (!rewriteResult.ok) {
+    if (rewriteResult.ok === false) {
       databaseLogger.warn(
         "ensureBridgeConfigWritten: registry rewrite failed at startup",
         {

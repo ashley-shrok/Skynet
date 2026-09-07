@@ -36,7 +36,9 @@ export async function mintAndWriteHumanToken(
   const tmp = `${tokenPath}.tmp`;
 
   const result = await loginAsUser(mxid);
-  if (!result.ok) {
+  // `=== false` narrowing — strict tsc doesn't narrow discriminated unions on
+  // `!x.ok` for AdminErr | LoginAsUserOk; see commit 967ab598.
+  if (result.ok === false) {
     databaseLogger.warn("mintAndWriteHumanToken: loginAsUser rejected", {
       operation: "mint_and_write_human_token_failed",
       humanName,
