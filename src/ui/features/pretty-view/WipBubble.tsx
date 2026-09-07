@@ -17,7 +17,8 @@
 // Renderer source: scripts/render-wip-cube.py — Pillow-based, runs the same
 // rot3d + pulse math the canvas used, dumps 180 frames at 35ms/frame (30fps
 // effective, 6300ms total = 0.27% slow vs exact 2π, imperceptible).
-// Regenerate with `python3 scripts/render-wip-cube.py public/wip-cube.webp`.
+// Regenerate with `python3 scripts/render-wip-cube.py docker/branding-defaults/wip-cube.webp`.
+// 2026-09-07 (Phase 82): image src is now branding-configurable via useBrandingConfig().wipIndicatorPath; asset moved from public/ to docker/branding-defaults/ so it flows through the branding router's per-file fallback (override → bundled default). Operators drop /opt/skynet/branding/wip-cube.webp for a custom animation — no restart needed.
 //
 // Mount conditions unchanged from #86 — PrettyView.tsx renders <WipBubble />
 // as the last child of the content wrapper when EITHER (a) the Terminal PTY
@@ -28,12 +29,14 @@
 // said something." role="status" + aria-label carry semantics for AT.
 
 import { cn } from "@/lib/utils";
+import { useBrandingConfig } from "@/branding/branding-store";
 
 export function WipBubble() {
+  const { wipIndicatorPath } = useBrandingConfig();
   return (
     <div className={cn("flex", "justify-start", "mt-3")}>
       <img
-        src="/wip-cube.webp"
+        src={wipIndicatorPath}
         alt=""
         role="status"
         aria-label="Claude is working"
