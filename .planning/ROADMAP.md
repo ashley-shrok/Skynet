@@ -1985,3 +1985,13 @@ Plans:
 - [x] 83-04-PLAN.md — `buildRegistryFromRows` accepts optional `roomByAgentHumanMxidPair` map; `bridge-config-writer` computes pairs via `Promise.all(getSharedDMRoom)` and threads the map (wave 2, depends on 83-02)
 - [x] 83-05-PLAN.md — Backend `GET /telegram/status?identityKey=<key>` returning `{ chatId }` (ownership-checked, no bot token) + frontend `getTelegramPendingStatus` client method + 9 route tests (wave 2, depends on 83-03)
 - [x] 83-06-PLAN.md — TelegramTab useEffect 3s poll during `pending-start`; transitions to `connected` on non-null chatId; no timeout-to-error; 7 new tests (wave 3, depends on 83-05)
+
+### Phase 84: Create-role modal UX pass — header blurb, drop required-caption, delete then-create-agent checkbox, always advance to create-agent on success with role name+description pre-fill, modal title conforms to dropdown label, sibling create-agent title-conform, shared hide-host-picker-when-only-one-host primitive. Bounty: create-role-modal-ux-pass.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 83
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 84 to break down)
