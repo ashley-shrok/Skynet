@@ -2034,3 +2034,13 @@ Plans:
 - [x] 85-04-PLAN.md — Source-swap in ssh-poll-orchestrator per-tick block: `lastMessageAt` reads store instead of `scanTailForNewestMessageAt`; aiTitle scan preserved; scanners stay defined for D-08 consumers; round-trip test (wave 3, depends on 85-02)
 - [x] 85-05-PLAN.md — Source-swap in `/sessions/list` route: per-row `lastMessageAt` reads store instead of byte-parallel scanner copy; aiTitle scan preserved; byte-parallel copies stay defined per D-08 (wave 3, depends on 85-02)
 - [x] 85-06-PLAN.md — NEW frontend `identity-send-log-api.ts` + hook `useComposeSend.send` at `ComposeBox.tsx:447-493` with fire-and-forget backend POST + optimistic `seedSessionLastMessageAt` for instant row reorder (wave 4, depends on 85-03)
+
+### Phase 85: User avatars — baseline backend support (mandatory-at-create + change endpoint + serve endpoint + on-disk storage in encrypted data volume; see .planning/shapes/shape-user-avatars.md)
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 84
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 85 to break down)
