@@ -155,3 +155,56 @@ the entire bounty string is done. Consequences for this phase:
   no hand-off, no stakeholder notification for the campaign duration.
 - Every push still goes through git pull --rebase per the multi-identity
   rule before pushing.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-07
+**Vehicle used:** GSD phase — Phase 84, five commits (`993843ef` feat 84-01 CreateRoleDialog, `b3f5378a` feat 84-02 NewSessionDialog, `d33418d1` + `c308278d` test 84-03 test realignment, `f1443b04` docs 84-03 SUMMARY)
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · UX cleanup lands on both dialogs — form-shaped fields tightened toward lean opinionated flow
+- **Shape: header blurb explaining what a role IS** — present · One-sentence blurb `A role is what an agent does and how it thinks — many agents can share one.` replaces prior description
+- **Shape: required-fields caption removed** — present · Prior `Name and description are required.` caption deleted along with its i18n key
+- **Shape: "then create an agent" checkbox removed from DOM** — present · State, setter, label, i18n key, and entire checkbox element deleted — not CSS-hidden
+- **Shape: primary button always advances on success** — present · Chain callback fires unconditionally on 201 — no branching, no gating
+- **Shape: name + description carry as pre-fills** — present · Chain passes {role, host, description}; panel stashes; sibling dialog seeds via initialHost/initialRole/initialBrief
+- **Shape: role-modal title conforms to dropdown label** — present · defaultValue changed from `Create a role` to `New role` matching dropdown at panel line 2037
+- **Shape: agent-modal title conforms to dropdown label** — present · defaultValue changed from `Start a new agent` to `New agent` matching dropdown at panel line 2036
+- **Shape: hide host picker when only one pickable host (shared primitive across both dialogs)** — present · Inline gate `{flatHosts.length !== 1 && ...}` lands identically in both dialogs; auto-select of sole host preserved; extraction into shared symbol deferred per scope-edge note
+- **Philosophy: dialogs stop being forms, become opinionated flows** — present · Choice-surfacing checkbox gone; single-host picker suppressed; blurb replaces required-caption
+- **Philosophy: role-without-agents tolerated but not advertised** — present · createRole() awaited to completion before chain fires; Escape between success and step 2 leaves role committed server-side
+- **Philosophy: paired vocabulary between blurbs** — present · Role blurb uses shape's philosophy vocabulary verbatim; future agent blurb structurally reserved (out of scope)
+- **Philosophy: titles conform DOWN to dropdown labels** — present · Both dialog titles now equal their launching dropdown labels
+- **Philosophy: one short sentence per blurb** — present · Single sentence, ~18 words
+- **Philosophy: product language not engineering terms** — present · `What an agent does and how it thinks` — no engineering vocabulary
+- **What would make it wrong: role created but no auto-advance** — present · Chain callback fires unconditionally after successful create — guarded
+- **What would make it wrong: create-agent opens without pre-fill** — present · Panel wires chainPrefill.role/host/description → initialRole/initialHost/initialBrief on sibling dialog
+- **What would make it wrong: blurb sprawls / marketing-copy** — present · One concise sentence in product language
+- **What would make it wrong: blurbs use different words for same concept** — present · Role blurb uses shape's own philosophy vocabulary; sets up paired agent blurb in next bounty
+- **What would make it wrong: host picker still renders with one host** — present · Gate suppresses both search input and listbox when flatHosts.length === 1 in both dialogs
+- **What would make it wrong: titles don't match dropdown labels** — present · Both titles now equal their launching dropdown labels
+- **What would make it wrong: checkbox hidden with CSS** — present · State, setter, label, i18n key, and DOM node all deleted
+- **What would make it wrong: escape-hatch behavior broken** — present · createRole() awaits completion before chain fires; Escape after step 1 leaves role committed
+- **Scope edges (IN): all listed create-role changes plus paired create-agent title plus shared single-host primitive** — present · All eight in-scope items land
+- **Scope edges (OUT): rest of create-agent UX pass** — present · NewSessionDialog only receives title tweak and host-picker gate — no other identity-cluster changes touched
+- **Scope edges (OUT): dropdown labels unchanged** — present · Panel dropdown labels at lines 2036/2037 untouched
+- **Scope edges (OUT): create-agent blurb not added** — present · NewSessionDialog description still `Pick a host and (optionally) name the agent.` — untouched
+- **Scope edges (OUT): no rename of underlying components** — present · Component names unchanged; only user-visible defaultValues changed
+- **Scope edges (OUT): no cancel/back affordances added to handoff** — present · No new affordances between the two dialogs
+- **Scope edges (OUT): required-fields validation itself unchanged** — present · Only the reminder caption removed; ROLE_NAME_PATTERN and descriptionValid checks intact
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+The "shared primitive" commitment landed as an inline gate duplicated identically in both dialogs rather than an extracted symbol — the shape file explicitly permits this in Scope edges ("shared primitive... built once here, callable from both dialogs") and the material's inline comment cross-references the sibling gate. Existing non-English translations continue to render the prior long-form titles until re-translated — English is the source-of-truth locale per the phase's copy-guard, which aligns with the shape's philosophy that dropdown wording is source-of-truth. Historical comments in CreateRoleDialog still describe the old checkbox behaviour; they are historical narration only, not live UI.
