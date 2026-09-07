@@ -1910,6 +1910,7 @@ Plans:
 **Plans:** 6/9 plans executed
 
 Plans:
+
 - [ ] TBD (run /gsd-plan-phase 79 to break down)
 
 ### Phase 80: id skill revamp phase A: Skynet frontend and backend for pool-based naming, task-scoped creation modal, task pill on chat, task-primary conversation list rows, task field on disk
@@ -1988,10 +1989,16 @@ Plans:
 
 ### Phase 84: Create-role modal UX pass — header blurb, drop required-caption, delete then-create-agent checkbox, always advance to create-agent on success with role name+description pre-fill, modal title conforms to dropdown label, sibling create-agent title-conform, shared hide-host-picker-when-only-one-host primitive. Bounty: create-role-modal-ux-pass.
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Tighten the create-role dialog into an opinionated flow (not a form) and align its sibling create-agent dialog's title as a paired coherence tweak — eight discrete UX changes across two dialogs plus a shared "hide host picker when only one host" primitive. Item 1 of the 7-bounty UX-pass campaign (Ashley 2026-09-07).
+**Requirements**: N/A (phase scope IS the eight D-CONTEXT §Implementation Decisions items; no top-level project requirement IDs)
 **Depends on:** Phase 83
-**Plans:** 0 plans
-
+**Plans:** 3 plans
 Plans:
-- [ ] TBD (run /gsd-plan-phase 84 to break down)
+**Wave 1**
+
+- [ ] 84-01-PLAN.md — CreateRoleDialog.tsx: header blurb, drop required-caption, delete then-create-agent checkbox, always-chain onChainToCreateIdentity, title conforms to "New role", hide host picker when only one host (wave 1, autonomous)
+- [ ] 84-02-PLAN.md — NewSessionDialog.tsx: title conforms to "New agent", hide host picker when only one host (wave 1, autonomous, parallel with 84-01 — different file)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 84-03-PLAN.md — Test updates: PrettyConversationsPanel.test.tsx Test 5 title regex flip, PrettyConversationsPanel.new-role-button.test.tsx Test 21c signal swap, CreateRoleDialog.test.tsx Tests 11/15/17/20 updated + Test 18 deleted + new Test 22 for single-host picker suppression (wave 2, depends on 84-01 + 84-02)
