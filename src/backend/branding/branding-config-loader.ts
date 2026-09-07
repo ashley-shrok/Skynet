@@ -44,6 +44,8 @@ export type BrandingConfig = {
   iconPath: string;
   wordmarkPath: string;
   faviconPath: string;
+  // Phase 82: operator-overridable WIP indicator image; bundled default IS the fallback (unlike Phase 74's intentionally-empty avatarDirectorSpec — no boot gate needed).
+  wipIndicatorPath: string;
   pwaIcons: Array<{ src: string; sizes: string; type: string }>;
   // Phase 74 (avatar-style-through-branding-config) — required extended fields.
   // avatarDirectorSpec is the operator-authored aesthetic director prompt fed
@@ -79,6 +81,9 @@ const HARDCODED_FALLBACK: BrandingConfig = {
   iconPath: "/branding/icon.png",
   wordmarkPath: "/branding/wordmark.png",
   faviconPath: "/branding/favicon.svg",
+  // Phase 82: routes through the branding router's /branding/* handler which
+  // falls back to /app/branding-defaults/wip-cube.webp (relocated by Plan 82-02).
+  wipIndicatorPath: "/branding/wip-cube.webp",
   pwaIcons: [
     { src: "/branding/pwa-icon-192.png", sizes: "192x192", type: "image/png" },
     { src: "/branding/pwa-icon-512.png", sizes: "512x512", type: "image/png" },
@@ -174,6 +179,9 @@ function isValidBrandingShape(v: unknown): boolean {
     if (typeof e.sizes !== "string") return false;
     if (typeof e.type !== "string") return false;
   }
+  // Phase 82: wipIndicatorPath is required. Bundled default is the fallback
+  // (no boot gate needed) — but the field must exist and be a string.
+  if (typeof o.wipIndicatorPath !== "string") return false;
   // Phase 74: avatarDirectorSpec must be a string (empty allowed at loader
   // level — boot gate in assert-boot.ts enforces non-empty). avatarGammaDefault
   // must be a finite number — Number.isFinite() rejects NaN and Infinity too.

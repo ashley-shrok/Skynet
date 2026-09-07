@@ -47,6 +47,7 @@ const bundledDefaultJson = {
   iconPath: "/branding/icon.png",
   wordmarkPath: "/branding/wordmark.png",
   faviconPath: "/branding/favicon.svg",
+  wipIndicatorPath: "/branding/wip-cube.webp",
   pwaIcons: [
     { src: "/branding/pwa-icon-192.png", sizes: "192x192", type: "image/png" },
     { src: "/branding/pwa-icon-512.png", sizes: "512x512", type: "image/png" },
@@ -105,6 +106,7 @@ function validFixture() {
     iconPath: "/branding/icon.png",
     wordmarkPath: "/branding/wordmark.png",
     faviconPath: "/branding/favicon.svg",
+    wipIndicatorPath: "/branding/wip-cube.webp",
     pwaIcons: [
       {
         src: "/branding/pwa-icon-192.png",
