@@ -1946,7 +1946,7 @@ Plans:
 **Goal:** Extend the existing text-only-primary-Send-only optimistic-bubble machinery so it covers every compose-box send trigger (primary Send, queue-slot Send, cadence auto-fire, voice-submit) in BOTH text-only and attachment-carrying variants. Ashley 2026-09-07 rule: "if it comes out of the compose box, it should have an optimistic bubble." Rescue-rebased from Phase 80 slot after tina's `id skill revamp phase A` collision (29th known `gsd-sdk phase.add` cross-tree race).
 **Requirements**: TBD
 **Depends on:** Phase 80
-**Plans:** 1/2 plans complete (Plan 01 landed via rescue-rebase cherry-pick, Plan 02 pending)
+**Plans:** 2/2 plans complete
 Plans:
 **Wave 1**
 
@@ -1954,7 +1954,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 81-02-PLAN.md — Wire seed call inside PrettyView.onUploadReadyToInject closure (Option B) + attachments prop pass-through + 10 integration tests in optimistic-bubbles + 1 in compose-send
+- [x] 81-02-PLAN.md — Wire seed call inside PrettyView.onUploadReadyToInject closure (Option B) + attachments prop pass-through + 10 integration tests in optimistic-bubbles + 1 in compose-send
 
 ### Phase 82: Branding config: WIP indicator image overridable — extend BrandingConfig schema with wipIndicatorPath field (mirrors Phase 74 pattern for image-asset variant); relocate public/wip-cube.webp to docker/branding-defaults/ so it flows through the branding router per-file fallback (override then bundled default); rewire src/ui/features/pretty-view/WipBubble.tsx to read src from useBrandingConfig() instead of hardcoded /wip-cube.webp. Bounty: branding-config-wip-indicator-image-overridable.
 
