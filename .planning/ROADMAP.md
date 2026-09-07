@@ -2037,10 +2037,26 @@ Plans:
 
 ### Phase 85: User avatars — baseline backend support (mandatory-at-create + change endpoint + serve endpoint + on-disk storage in encrypted data volume; see .planning/shapes/shape-user-avatars.md)
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Add baseline backend support for Skynet's human users having avatars — one nullable pointer column on the users row, three backend endpoints (mandatory-at-create + change + serve), one shared byte-work helper, on-disk storage inside the encrypted data volume, delete-cleanup wired into all deletion paths, and the nginx edge sizing edit — with zero frontend surface. Downstream frontend build consumes this.
+**Requirements**: D-01 through D-23 (23 LOCKED decisions from 85-CONTEXT.md — REQUIREMENTS.md has no separate REQ-IDs for this phase)
 **Depends on:** Phase 84
-**Plans:** 0 plans
+**Plans:** 7 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 85 to break down)
+
+**Wave 1** *(parallel — no file overlap)*
+- [ ] 85-01-PLAN.md — schema + migration + migration test: add users.avatarPath column via addColumnIfNotExists + labeled forceSave, mirror Phase 75-2 mxid test shape (D-04, D-05, D-06, D-13, D-17, D-18)
+- [ ] 85-02-PLAN.md — user-avatar-storage.ts helper module + tests: multer config (5MB + png/jpeg/webp), userAvatarMulterErrorHandler, writeUserAvatar/unlinkUserAvatar/readUserAvatar, ext-in-filename convention (D-01, D-02, D-03, D-05, D-12, D-14, D-15, D-16)
+
+**Wave 2** *(blocked on Wave 1)*
+- [ ] 85-03-PLAN.md — extend POST /users/create to multipart with mandatory avatar: multer middleware, req.file guard, file-then-row ordering, extended INSERT for avatar_path, extended rollback at users.ts:198, labeled forceSave; new users.test.ts covers 7 create-endpoint variants (D-07, D-08, D-09, D-14, D-15, D-16, D-17, D-18)
+
+**Wave 3** *(blocked on Wave 2 — same file: users.ts)*
+- [ ] 85-04-PLAN.md — new PUT /users/:id/avatar (own-or-admin + new-file-then-row-then-old-unlink) + new GET /users/:id/avatar (authenticateJWT + mime-from-ext + ENOENT-to-404) + expanded users.test.ts covers 10 change + 7 serve variants (D-10, D-11, D-12, D-14, D-15, D-16, D-17, D-18, D-23)
+
+**Wave 4** *(parallel — no file overlap between plans 05 and 06)*
+- [ ] 85-05-PLAN.md — delete-cleanup wiring: unlinkUserAvatar into delete-user-data.ts:91 (covers admin-delete + OIDC-merge via helper) + users.ts DELETE /users/delete-account (self-serve, distinct path) + verify Plan 03 rollback wiring; new delete-user-data.test.ts with SOURCE ASSERTION for SELECT-before-DELETE ordering (D-22)
+- [ ] 85-06-PLAN.md — nginx edge sizing: add `client_max_body_size 6M;` to /users location block in BOTH docker/nginx.conf AND docker/nginx-https.conf (D-19, D-20, D-21)
+
+**Wave 5** *(blocked on all prior waves)*
+- [ ] 85-07-PLAN.md — end-to-end integration test (create → serve → change → serve → delete → verify-clean, real HTTP + real filesystem + save-trigger spies) + human-smoke checkpoint verifying nginx edge cap works against a running container (D-07, D-09, D-10, D-11, D-14, D-15, D-16, D-17, D-18, D-19, D-20, D-21, D-22)
