@@ -386,12 +386,28 @@ submit_id() {
 # there can be a multi-second gap. Retry-until-observable-outcome closes the gap without
 # guessing at a settle time.
 #
+# 2026-09-07 refinement (Ashley, bounty supervisor-resume-nudge-enter-only-retry): the original
+# 2026-09-02 shape retried the FULL dance (C-c + re-paste + Enter) up to 3 times, and the leading
+# C-c on each retry actively WIPED the successful paste from the prior attempt. That made the
+# 'paste landed but Enter didn't fire' failure mode structurally unfixable — the cycle stomped
+# on its own convergence path. Symptom shapes Ashley named: (a) nudge sits unsubmitted in the
+# harness compose, (b) nudge gets stacked on top of her next PV send. Both are the same root:
+# paste succeeded, Enter didn't. Fix: split inject vs commit. Initial dance is unchanged; INSIDE
+# each attempt's 10s poll window, if the JSONL landing check fails after ~2s, fire Enter alone
+# (no C-c, no re-paste) at ~2s intervals up to 3 times within the window. If paste is sitting
+# uncommitted, extra Enter commits it. If paste never landed, empty-compose Enter is a no-op at
+# a fresh claude prompt (or advances a modal harmlessly at worst). Outer 3-attempt loop stays
+# as the safety net for genuine ink-mount races and claude-DIED scenarios.
+#
 # Approach:
 #   1. Resolve the resumed jsonl by <cwd>/<resume_id>.jsonl (same sanitizer as submit_id).
-#   2. C-c + load-buffer + paste-buffer + Enter — same paste sequence as before.
-#   3. Poll the jsonl for a user turn matching the nudge signature.
+#   2. C-c + load-buffer + paste-buffer + Enter — initial inject, unchanged.
+#   3. Poll the jsonl for a user turn matching the nudge signature. Inside the 10s poll window,
+#      fire Enter alone every ~2s (up to 3 times per attempt) — NO C-c, NO re-paste. This is
+#      the load-bearing new behavior versus the 2026-09-02 shape.
 #   4. Three attempts × 10s each = 30s worst-case budget. Between attempts a C-c clears any
-#      partial paste sitting unsubmitted in compose (otherwise the retry appends a second copy).
+#      partial paste sitting unsubmitted in compose (the outer-attempt re-paste happens after
+#      the C-c so no doubling risk); within an attempt no C-c fires so no self-wipe risk.
 #   5. Final failure → LOUD log + return 1 so drive() knows not to mark the resume complete.
 submit_resume_nudge() {
   local name="$1" sess="$2" cwd="$3" resume_id="$4"
@@ -431,15 +447,28 @@ submit_resume_nudge() {
     sleep 0.5
     timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
 
+    # Poll 10s. If landing doesn't show within ~2s, fire Enter alone (no C-c, no re-paste) —
+    # commits an unsubmitted paste sitting in compose. Up to 3 enter-only retries per attempt.
     local deadline=$(($(date +%s) + 10))
+    local last_enter enter_retries=0
+    last_enter=$(date +%s)
     while [ $(date +%s) -lt "$deadline" ]; do
       sleep 0.5
       if _check_resume_nudge_landed "$jsonl"; then
-        log "'$name' submit_resume_nudge: nudge landed as user turn in $(basename "$jsonl") (attempt $attempt)"
+        if [ "$enter_retries" -gt 0 ]; then
+          log "'$name' submit_resume_nudge: nudge landed after $enter_retries enter-only retries in $(basename "$jsonl") (attempt $attempt)"
+        else
+          log "'$name' submit_resume_nudge: nudge landed as user turn in $(basename "$jsonl") (attempt $attempt)"
+        fi
         return 0
       fi
+      if [ "$enter_retries" -lt 3 ] && [ $(( $(date +%s) - last_enter )) -ge 2 ]; then
+        enter_retries=$((enter_retries + 1))
+        timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
+        last_enter=$(date +%s)
+      fi
     done
-    log "'$name' submit_resume_nudge attempt $attempt: 10s elapsed, no user turn with nudge signature — will retry"
+    log "'$name' submit_resume_nudge attempt $attempt: 10s elapsed, no user turn with nudge signature (fired $enter_retries enter-only retries) — will retry from full dance"
   done
 
   log "ERROR: '$name' submit_resume_nudge: no user turn with nudge signature after $max attempts × 10s — bailing, resumed agent will be relay-deaf until manually revived"
