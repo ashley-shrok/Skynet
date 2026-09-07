@@ -27,6 +27,30 @@
 // (react-i18next passthrough, session-hue / identities-store / touch-device
 // inert stubs). CreateRoleDialog does NOT depend on voice/avatar/color pickers,
 // so those mocks are omitted.
+//
+// ─── Phase 84 (Plan 84-03 test-side updates for Plan 84-01 code) ────────
+// The seven Plan 84-01 changes to CreateRoleDialog.tsx invalidate parts
+// of the original Phase 22 behavior spec above. Deltas:
+//   Test 11: no longer asserts checkbox; instead asserts the new
+//     header blurb ("A role is what an agent does and how it thinks —
+//     many agents can share one.") renders below the title, and asserts
+//     the deleted required-caption text ("Name and description are
+//     required") is NOT present.
+//   Test 15: auto-select-single-host behavior is preserved but the
+//     listbox is now HIDDEN when flatHosts.length === 1; the assertion
+//     shifts from "aria-selected on the option" to "no listbox, but
+//     the sole host is still selected as evidenced by canOpen".
+//   Test 17: onChainToCreateIdentity fires unconditionally on success
+//     (no more thenCreateIdentity gate). The two-part semantic split
+//     stays — cb-provided fires; cb-undefined is safe.
+//   Test 18: DELETED. The "checkbox UNCHECKED → chain does NOT fire"
+//     branch no longer exists (D-CONTEXT item 4: primary button ALWAYS
+//     advances).
+//   Test 20: state reset no longer includes the checkbox — the state
+//     hook itself was deleted (Plan 84-01 CHANGE A).
+//   Test 22 (NEW): single-host picker suppression — hostTree with one
+//     host renders no listbox + no search input, and Create is
+//     enable-able without a host click.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor, screen, act } from "@testing-library/react";
@@ -106,7 +130,7 @@ afterEach(() => {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe("CreateRoleDialog", () => {
-  it("Test 11: renders Name input, Description textarea, Host picker, and 'Then create an agent with this role' checkbox CHECKED by default", () => {
+  it("Test 11 (Phase 84 Plan 03): renders Name input, Description textarea, Host picker; header blurb present below title; required-caption + chain-checkbox both DELETED from DOM", () => {
     render(
       <CreateRoleDialog
         open={true}
@@ -129,12 +153,30 @@ describe("CreateRoleDialog", () => {
     expect(listbox).toBeTruthy();
     expect(screen.getByRole("option", { name: /hostA/ })).toBeTruthy();
     expect(screen.getByRole("option", { name: /hostB/ })).toBeTruthy();
-    // Chain-checkbox present + CHECKED by default (D-CONTEXT §UX rules)
-    const checkbox = screen.getByRole("checkbox", {
-      name: /then create an agent with this role/i,
-    }) as HTMLInputElement;
-    expect(checkbox).toBeTruthy();
-    expect(checkbox.checked).toBe(true);
+    // Phase 84 (Plan 84-01 CHANGE F.3): the chain-checkbox is DELETED
+    // from DOM entirely. Assert its ABSENCE rather than its presence.
+    expect(
+      screen.queryByRole("checkbox", {
+        name: /then create an agent with this role/i,
+      }),
+    ).toBeNull();
+
+    // Phase 84 (Plan 84-01 CHANGE F.1): the header blurb renders below
+    // the title, above the fields. Exact string from D-CONTEXT item 1
+    // (LOCKED for planning; user may redirect during execute).
+    expect(
+      screen.getByText(
+        /A role is what an agent does and how it thinks — many agents can share one\./,
+      ),
+    ).toBeTruthy();
+
+    // Phase 84 (Plan 84-01 CHANGE E.1 + F.1): the pre-Phase-84
+    // required-caption sentence ("... Name and description are
+    // required.") is DELETED from source — the DialogDescription now
+    // holds the blurb instead. Assert the old caption text is gone.
+    expect(
+      screen.queryByText(/Name and description are required/i),
+    ).toBeNull();
   });
 
   it("Test 12: Name validation — 'Box_Maintainer' shows inline error and disables Create; 'box-maintainer' clears the error", () => {
@@ -216,7 +258,7 @@ describe("CreateRoleDialog", () => {
     expect(createBtn.disabled).toBe(false);
   });
 
-  it("Test 15: Auto-select single host on open (mirrors NewSessionDialog)", () => {
+  it("Test 15 (Phase 84 Plan 03): Auto-select single host on open — listbox is HIDDEN per Plan 84-01 CHANGE F.2, but sole host is still auto-picked as evidenced by canOpen predicate", () => {
     render(
       <CreateRoleDialog
         open={true}
@@ -225,9 +267,24 @@ describe("CreateRoleDialog", () => {
       />,
     );
 
-    // Single-host tree → auto-select. The option should render aria-selected=true.
-    const opt = screen.getByRole("option", { name: /onlyHost/ });
-    expect(opt.getAttribute("aria-selected")).toBe("true");
+    // Phase 84 (Plan 84-01 CHANGE F.2): single-host picker suppression
+    // means the listbox is NOT rendered. Assert its absence.
+    expect(screen.queryByRole("listbox")).toBeNull();
+    // The search input is inside the same guard — also absent.
+    expect(screen.queryByPlaceholderText(/search hosts/i)).toBeNull();
+
+    // The auto-select branch in the open-effect (Plan 84-01 CHANGE B kept
+    // this intact) still fires. Evidence: after typing valid name + valid
+    // description, the Create button becomes enabled — which requires
+    // selectedHost !== null in the canOpen predicate.
+    fireEvent.change(screen.getByLabelText(/name/i), {
+      target: { value: "box-maintainer" },
+    });
+    fireEvent.change(screen.getByLabelText(/description/i), {
+      target: { value: "d1" },
+    });
+    const createBtn = screen.getByRole("button", { name: /create/i }) as HTMLButtonElement;
+    expect(createBtn.disabled).toBe(false);
   });
 
   it("Test 16: On submit, createRole is called with {name, description, hostId}", async () => {
@@ -257,7 +314,7 @@ describe("CreateRoleDialog", () => {
     });
   });
 
-  it("Test 17: On successful submit with checkbox CHECKED (default), onChainToCreateIdentity is invoked; also safe when undefined", async () => {
+  it("Test 17 (Phase 84 Plan 03): On successful submit, onChainToCreateIdentity is invoked UNCONDITIONALLY when the callback prop is provided (checkbox gate removed per Plan 84-01 CHANGE C); also safe when the callback prop is undefined", async () => {
     const chainSpy = vi.fn();
     const onClose = vi.fn();
     const { rerender } = render(
@@ -269,8 +326,14 @@ describe("CreateRoleDialog", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: "box-maintainer" } });
-    fireEvent.change(screen.getByLabelText(/description/i), { target: { value: "d1" } });
+    // Note: single-host tree means the listbox is suppressed and hostA
+    // is auto-picked (Plan 84-01 CHANGE F.2 + B). No option click needed.
+    fireEvent.change(screen.getByLabelText(/name/i), {
+      target: { value: "box-maintainer" },
+    });
+    fireEvent.change(screen.getByLabelText(/description/i), {
+      target: { value: "d1" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /create/i }));
 
     await waitFor(() => expect(chainSpy).toHaveBeenCalledTimes(1));
@@ -281,7 +344,10 @@ describe("CreateRoleDialog", () => {
     });
     expect(onClose).toHaveBeenCalled();
 
-    // Now render WITHOUT onChainToCreateIdentity — undefined callback must not crash
+    // Phase 84 (Plan 84-01 CHANGE C): the checkbox gate is gone; the
+    // callback fires whenever the callback prop is provided. Below we
+    // render WITHOUT the prop — the callback is undefined and the
+    // handleSubmit branch `if (onChainToCreateIdentity)` guards it.
     rerender(
       <CreateRoleDialog
         open={true}
@@ -289,9 +355,12 @@ describe("CreateRoleDialog", () => {
         hostTree={makeHostTree([makeHost("42", "hostA")])}
       />,
     );
-    // Fill + submit — this must not throw even though callback is undefined
-    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: "another-role" } });
-    fireEvent.change(screen.getByLabelText(/description/i), { target: { value: "d2" } });
+    fireEvent.change(screen.getByLabelText(/name/i), {
+      target: { value: "another-role" },
+    });
+    fireEvent.change(screen.getByLabelText(/description/i), {
+      target: { value: "d2" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /create/i }));
 
     await waitFor(() => {
@@ -300,31 +369,11 @@ describe("CreateRoleDialog", () => {
     });
   });
 
-  it("Test 18: On successful submit with checkbox UNCHECKED, onChainToCreateIdentity is NOT invoked", async () => {
-    const chainSpy = vi.fn();
-    render(
-      <CreateRoleDialog
-        open={true}
-        onClose={() => {}}
-        hostTree={makeHostTree([makeHost("42", "hostA")])}
-        onChainToCreateIdentity={chainSpy}
-      />,
-    );
-
-    // Uncheck the chain checkbox
-    const checkbox = screen.getByRole("checkbox", {
-      name: /then create an agent with this role/i,
-    }) as HTMLInputElement;
-    fireEvent.click(checkbox);
-    expect(checkbox.checked).toBe(false);
-
-    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: "box-maintainer" } });
-    fireEvent.change(screen.getByLabelText(/description/i), { target: { value: "d1" } });
-    fireEvent.click(screen.getByRole("button", { name: /create/i }));
-
-    await waitFor(() => expect(mockCreateRole).toHaveBeenCalledTimes(1));
-    expect(chainSpy).not.toHaveBeenCalled();
-  });
+  // Test 18 (Phase 84 Plan 03): DELETED. The behavior it verified
+  // ("checkbox UNCHECKED → chain does NOT fire") no longer exists in
+  // CreateRoleDialog — per D-CONTEXT item 4 LOCKED, the primary button
+  // ALWAYS advances to the create-agent modal on success. There is no
+  // un-chain path in the component anymore, so there is nothing to test.
 
   it("Test 19: On 409 conflict, dialog stays open and renders inline 'already exists on <host>' error", async () => {
     mockCreateRole.mockRejectedValueOnce(new RoleAlreadyExistsError("box-maintainer"));
@@ -355,7 +404,7 @@ describe("CreateRoleDialog", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("Test 20: On modal close, all state resets (name, description, host, checkbox → default true)", async () => {
+  it("Test 20 (Phase 84 Plan 03): On modal close, all state resets (name, description, host). The checkbox reset assertion is DELETED — the state hook itself was deleted (Plan 84-01 CHANGE A).", async () => {
     let openState = true;
     const setOpen = (v: boolean) => { openState = v; };
     const { rerender } = render(
@@ -369,15 +418,15 @@ describe("CreateRoleDialog", () => {
       />,
     );
 
-    // Fill fields + uncheck the chain checkbox
-    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: "box-maintainer" } });
-    fireEvent.change(screen.getByLabelText(/description/i), { target: { value: "d1" } });
+    // Fill fields — 2-host tree means the listbox IS rendered (Plan 84-01
+    // CHANGE F.2 only suppresses at length === 1). Click hostB to pick it.
+    fireEvent.change(screen.getByLabelText(/name/i), {
+      target: { value: "box-maintainer" },
+    });
+    fireEvent.change(screen.getByLabelText(/description/i), {
+      target: { value: "d1" },
+    });
     fireEvent.click(screen.getByRole("option", { name: /hostB/ }));
-    const checkbox = screen.getByRole("checkbox", {
-      name: /then create an agent with this role/i,
-    }) as HTMLInputElement;
-    fireEvent.click(checkbox); // uncheck
-    expect(checkbox.checked).toBe(false);
 
     // Close (open=false)
     rerender(
@@ -391,7 +440,7 @@ describe("CreateRoleDialog", () => {
       />,
     );
 
-    // Re-open — all state should be reset
+    // Re-open — all remaining state should be reset
     rerender(
       <CreateRoleDialog
         open={true}
@@ -408,11 +457,50 @@ describe("CreateRoleDialog", () => {
     // Description empty
     expect((screen.getByLabelText(/description/i) as HTMLTextAreaElement).value).toBe("");
     // Neither host selected (two hosts → no auto-select)
-    expect(screen.getByRole("option", { name: /hostA/ }).getAttribute("aria-selected")).toBe("false");
-    expect(screen.getByRole("option", { name: /hostB/ }).getAttribute("aria-selected")).toBe("false");
-    // Checkbox back to CHECKED default
     expect(
-      (screen.getByRole("checkbox", { name: /then create an agent with this role/i }) as HTMLInputElement).checked,
-    ).toBe(true);
+      screen.getByRole("option", { name: /hostA/ }).getAttribute("aria-selected"),
+    ).toBe("false");
+    expect(
+      screen.getByRole("option", { name: /hostB/ }).getAttribute("aria-selected"),
+    ).toBe("false");
+
+    // Phase 84 (Plan 84-01 CHANGE A): the thenCreateIdentity state hook
+    // was DELETED. There is no checkbox to assert reset-to-CHECKED on.
+    // Verify no such checkbox exists in the re-opened dialog at all:
+    expect(
+      screen.queryByRole("checkbox", {
+        name: /then create an agent with this role/i,
+      }),
+    ).toBeNull();
+  });
+
+  it("Test 22 (Phase 84 Plan 03; implements Plan 84-01 CHANGE F.2): with a single-host hostTree, the search input and the host listbox are NOT rendered; the sole host is still auto-picked into selectedHost, so Create becomes enabled once name + description are valid", () => {
+    render(
+      <CreateRoleDialog
+        open={true}
+        onClose={() => {}}
+        hostTree={makeHostTree([makeHost("42", "onlyHost")])}
+      />,
+    );
+
+    // Picker chrome absent
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(screen.queryByPlaceholderText(/search hosts/i)).toBeNull();
+
+    // The single host has no option button either — the whole subtree
+    // is guarded by flatHosts.length !== 1.
+    expect(screen.queryByRole("option", { name: /onlyHost/ })).toBeNull();
+
+    // But the sole host IS auto-picked into selectedHost (Plan 84-01
+    // CHANGE B kept the open-effect's auto-select-single-host branch
+    // intact). Evidence: Create button enables after valid name + desc.
+    fireEvent.change(screen.getByLabelText(/name/i), {
+      target: { value: "box-maintainer" },
+    });
+    fireEvent.change(screen.getByLabelText(/description/i), {
+      target: { value: "d1" },
+    });
+    const createBtn = screen.getByRole("button", { name: /create/i }) as HTMLButtonElement;
+    expect(createBtn.disabled).toBe(false);
   });
 });
