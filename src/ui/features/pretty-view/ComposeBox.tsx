@@ -184,10 +184,24 @@ export interface ComposeBoxProps {
   // The same mqid flows into both calls so PrettyView can track a single
   // PendingSend record and just update its state on the second call.
   // Optional so read-only or non-PrettyView callers stay backward-compat.
+  //
+  // Phase 80 D-16: optional attachments field for attachment-carrying
+  // pending seeds. Text-only funnel callsites (useComposeSend at L471 /
+  // L487) omit the field — backward-compat by construction. The seed for
+  // attachment sends does NOT fire from ComposeBox at all (per RESEARCH.md
+  // § Option B): it fires from PrettyView's onUploadReadyToInject closure
+  // in Plan 02, which passes attachments through to handleOptimisticSend.
+  // The prop-type widening here is what lets that Plan-02 call typecheck
+  // against the shared callback contract.
   onOptimisticSend?: (args: {
     payload: string;
     mqid: string;
     immediateFailure: boolean;
+    attachments?: Array<{
+      filename: string;
+      size: number;
+      mimetype: string;
+    }>;
   }) => void;
   // Phase 50 D-03 failure-path repopulate surface. When this prop
   // transitions from null/undefined → non-empty string, the useEffect

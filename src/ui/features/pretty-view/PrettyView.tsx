@@ -1121,6 +1121,17 @@ export function PrettyView({
     sentAt: number;
     state: "sending" | "failed";
     timer: number | null;
+    // Phase 80 D-14: attachment metadata carried on the pending record so
+    // ChatMessage renders caption + AttachmentChipStrip via the new
+    // pending-with-attachments branch (Phase 80 D-15). Populated by the
+    // Plan 02 wiring inside PrettyView's onUploadReadyToInject closure
+    // (RESEARCH.md § Option B). Absent for text-only pending sends —
+    // existing text pending flow unchanged.
+    attachments?: Array<{
+      filename: string;
+      size: number;
+      mimetype: string;
+    }>;
   };
   const [pendingSends, setPendingSends] = useState<PendingSend[]>([]);
   const pendingSendsRef = useRef<PendingSend[]>([]);
@@ -1180,8 +1191,22 @@ export function PrettyView({
   // 20000ms client-side timer that flips to failed if no matching parser
   // signal arrives.
   const handleOptimisticSend = useCallback(
-    (args: { payload: string; mqid: string; immediateFailure: boolean }) => {
-      const { payload, mqid, immediateFailure } = args;
+    // Phase 80 D-14/D-16: attachments carried on the pending record so
+    // ChatMessage renders caption+chip-strip via the new render branch
+    // (mqid === batchId === messageQueueItemId — RESEARCH.md Pitfall #2).
+    // Optional field: text-only funnel callers omit it (backward-compat
+    // with the Phase 50/68 text-only pending-bubble path).
+    (args: {
+      payload: string;
+      mqid: string;
+      immediateFailure: boolean;
+      attachments?: Array<{
+        filename: string;
+        size: number;
+        mimetype: string;
+      }>;
+    }) => {
+      const { payload, mqid, immediateFailure, attachments } = args;
       // Phase 68 Plan 02 D-03: render-blacklist for /id commands (reset, etc.).
       // The funnel ALWAYS generates and threads an mqid through — even for
       // render-blacklisted payloads — so the backend Phase 56 wake gate fires
@@ -1207,7 +1232,12 @@ export function PrettyView({
               p.mqid === mqid ? { ...p, state: "failed", timer: null } : p,
             );
           }
-          // Fallback: seed directly as failed.
+          // Fallback: seed directly as failed. Phase 80 D-14: include
+          // attachments only when present + non-empty so text-only records
+          // match the pre-Phase-80 shape byte-for-byte (no unnecessary
+          // undefined key). Not currently exercised for the attachment
+          // path (D-12 gates attachment seeds behind upload success), but
+          // kept consistent so consumers never have to special-case.
           return [
             ...prev,
             {
@@ -1216,6 +1246,9 @@ export function PrettyView({
               sentAt: Date.now(),
               state: "failed",
               timer: null,
+              ...(attachments && attachments.length > 0
+                ? { attachments }
+                : {}),
             },
           ];
         });
@@ -1237,7 +1270,7 @@ export function PrettyView({
       const timeoutReason = armedDormant
         ? "client_timeout_220s_dormant"
         : "client_timeout_20s_normal";
-      console.info(`[diag-dormant-send] arm mqid=${mqid} dormant=${armedDormant} timeoutMs=${timeoutMs} arm_reason=${timeoutReason} collapsedLen=${collapsed.length} pendingCount=${pendingSendsRef.current.length} now=${Date.now()}`);
+      console.info(`[diag-dormant-send] arm mqid=${mqid} dormant=${armedDormant} timeoutMs=${timeoutMs} arm_reason=${timeoutReason} collapsedLen=${collapsed.length} pendingCount=${pendingSendsRef.current.length} now=${Date.now()} attachmentCount=${attachments?.length ?? 0}`);
       const armSentAt = Date.now();
       const timerHandle = window.setTimeout(() => {
         console.info(`[diag-dormant-send] fire mqid=${mqid} elapsedMs=${Date.now() - armSentAt} dormant_at_arm=${armedDormant} dormant_at_fire=${dormantRef.current === true} branch=${armedDormant ? "widened" : "normal"} pendingCount=${pendingSendsRef.current.length} stillPending=${pendingSendsRef.current.some((p) => p.mqid === mqid && p.state === "sending")}`);
@@ -1251,6 +1284,11 @@ export function PrettyView({
           sentAt: Date.now(),
           state: "sending",
           timer: timerHandle,
+          // Phase 80 D-14: attach only when present + non-empty so text-only
+          // records match the pre-Phase-80 shape byte-for-byte (no stray
+          // undefined key). Populated by Plan 02 wiring in the
+          // onUploadReadyToInject closure.
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
         },
       ]);
     },
