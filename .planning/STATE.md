@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-06T18:46:10.575Z"
-last_activity: 2026-09-06
+last_updated: "2026-09-07T10:20:23.278Z"
+last_activity: 2026-09-07
 progress:
-  total_phases: 78
+  total_phases: 81
   completed_phases: 66
-  total_plans: 296
-  completed_plans: 296
-  percent: 84
+  total_plans: 309
+  completed_plans: 305
+  percent: 81
 ---
 
 # Project State
@@ -20,15 +20,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** Ashley never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 80 — id skill revamp Phase A
+**Current focus:** Phase 82 — Branding config: WIP indicator image overridable
 
 ## Current Position
 
-Phase: 80 (id skill revamp Phase A) — EXECUTING
-Plan: 9 of 10
+Phase: 82 (Branding config: WIP indicator image overridable) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
 
-Last activity: 2026-09-06
+Last activity: 2026-09-07
 Last activity (prior): 2026-09-06 — Completed Phase 80 Plan 01 (Wave 1: pool storage substrate). JSON pool seed baked into Skynet Docker image at `docker/pool-defaults/pool.json` (7 PascalCase placeholder names — Willow, Cinder, Aster, Vega, Onyx, Sable, Fig — Ashley's vetted list will overwrite in parallel and ship at ship time per D-01, no code change needed for content swap) + Dockerfile COPY line at L79 immediately after the branding-defaults COPY (L78), same `--chown=node:node` flag + new `src/backend/pool/pool-loader.ts` exporting `getVettedPool(): string[]` and `POOL_FILENAME` — direct byte-shape mirror of `src/backend/branding/branding-config-loader.ts` `getBundledDefaults` L118-155 (module-scope `let cachedPool: string[] | null = null` memoization + sync `readFileSync(/app/pool-defaults/pool.json)` + inline typeof/Array.isArray shape guard + `sshLogger.error` on non-ENOENT failure branches; ENOENT silent per D-01 legacy-deploy-safety) + 11-case unit test suite at `src/backend/pool/pool-loader.test.ts` using `vi.mock("node:fs")` + `vi.resetModules()` pattern from `branding-config-loader.test.ts`. Test coverage: happy path, ENOENT silent (no log), malformed JSON (log fires, log payload does NOT contain raw file body per T-80-01-04 mitigation), 3 shape-invalid variants (top-level not object, `names` not array, non-string entries, empty-string entries), memoization across happy-path (asserts second call with flipped file payload still returns cached first-call result — `readFileSync` invoked exactly once), memoization across ENOENT (cached `[]` wins over subsequent file appearance until container restart), non-ENOENT fs error (EACCES) still returns `[]` and logs. Threat register mitigations verified: T-80-01-02 never-throws (loader body has zero `throw` statements — `grep -c "throw"` = 0 in loader source), T-80-01-03 memoized (grep `cachedPool` = 12 references, test asserts single readFileSync call), T-80-01-04 no raw body in log (dedicated malformed-JSON test asserts `JSON.stringify(logCtx)` does not contain the raw payload substring). Two atomic commits on `feat/tab-title-from-tmux`: `0cbcad08` (feat 80-01 Task 1 — pool seed JSON + Dockerfile COPY) + `4190f34b` (feat 80-01 Task 2 — pool-loader + 11 tests, combined per plan `<action>` guidance since loader + tests are same-cycle TDD RED/GREEN). Scoped verify `npx vitest run src/backend/pool/pool-loader.test.ts` = 11/11 pass exit 0. TDD gate compliance: Task 2 test file written first + confirmed RED (11/11 fail with `ERR_MODULE_NOT_FOUND` before loader existed) then loader written + confirmed GREEN — both landed in the same feat commit as permitted by plan. One decision-level detour: rewrote 3 JSDoc "never throws" phrases to "no exceptions ever escape" so the plan's literal-substring `grep -c "throw" src/backend/pool/pool-loader.ts` acceptance criterion (expects 0) holds; semantic equivalent, preserves the actual invariant. Deferred nothing — plan executed exactly as written; zero deviation rules triggered; no auth gates; no checkpoints; no follow-up bounties. HEAD `4190f34b` LOCAL, NOT pushed / NOT built / NOT deployed per executor scope + fleet no-deploy rule; deploy motion (docker build + force-recreate) is orchestrator territory once Phase 80 completes or ships an interim slice on Ashley greenlight. SUMMARY at `.planning/phases/80-id-skill-revamp-phase-a-skynet-frontend-and-backend-for-pool/80-01-SUMMARY.md`. Next plan (80-02) picks up `countUsersMatching` primitive on `matrix-admin-client.ts` (Synapse admin count for ordinal derivation). Prior activity:
 Last activity (prior): 2026-09-06 -- Phase 80 execution started
 Last activity (prior): 2026-09-06 (Phase 76 EXECUTING plan 3/3 — phase complete, ready for verification)
@@ -354,6 +354,7 @@ Progress: [██████████] 100%
 | Phase 80 P07 | 14min | 2 tasks | 2 files |
 | Phase 80 P80-08 | 10min | 2 tasks | 2 files |
 | Phase 80 P09 | 14min | 3 tasks | 6 files |
+| Phase 82 P01 | 6 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -569,6 +570,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 80-06: poolPickedName is NOT reset per keystroke — edit-detection is submit-time name.trim()===poolPickedName equality check, handles edit-then-revert correctly
 - [Phase ?]: 80-06: task textarea positioned ABOVE Name input — task is primary framing question, name is downstream detail
 - [Phase ?]: 80-09: Repurposed clone entry-point into unified NewSessionDialog via chainPrefill (Landmine 11 reuse). CloneAgentDialog deleted (1252 LOC). Context-menu label 'Clone' → 'Spawn under this role'. A3 lock enforced by test — brief NOT prefilled.
+- [Phase ?]: 82-01: wipIndicatorPath placed after faviconPath / before pwaIcons (image-URL group)
+- [Phase ?]: 82-01: No boot gate for wipIndicatorPath — bundled default IS the fallback (unlike Phase 74 avatarDirectorSpec)
+- [Phase ?]: 82-01: assert-boot.test.ts fixture extended for hygiene only; assert-boot.ts production untouched
 
 ### Pending Todos
 
@@ -871,7 +875,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-06T18:45:45.300Z
+Last session: 2026-09-07T10:18:52.161Z
 Stopped at: Completed 80-08-PLAN.md
 Last session: 2026-09-06T12:17:07.176Z
 Stopped at: Phase 80 context gathered
