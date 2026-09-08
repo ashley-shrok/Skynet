@@ -37,10 +37,24 @@ import {
   unlinkUserAvatar,
   readUserAvatar,
 } from "./user-avatar-storage.js";
+import { createOrUpdateUser, deactivateUser } from "../../matrix/matrix-admin-client.js";
+import { buildHumanMxid, generateHumanRelayPassword, extractServerName } from "../../matrix/username-to-mxid.js";
+import { getMatrixAdminCreds } from "../../matrix/matrix-admin-creds-store.js";
 
 const authManager = AuthManager.getInstance();
 
 const router = express.Router();
+
+/**
+ * Derive a human-friendly displayname from a Skynet username (D-11).
+ * For simple usernames: title-case the whole string.
+ * For email-form usernames: take the pre-@ local part and title-case it.
+ * Examples: "ashley" → "Ashley", "ashley@aitherhealth.com" → "Ashley"
+ */
+function deriveDisplayname(username: string): string {
+  const localPart = username.includes("@") ? username.split("@")[0] : username;
+  return localPart.charAt(0).toUpperCase() + localPart.slice(1);
+}
 
 function isNonEmptyString(val: unknown): val is string {
   return typeof val === "string" && val.trim().length > 0;
@@ -148,6 +162,52 @@ router.post("/create", userAvatarUpload.single("avatar"), async (req, res) => {
     const password_hash = await bcrypt.hash(password, saltRounds);
     const id = nanoid();
 
+    // Step 3.5 (D-03, D-04, D-05, D-08, D-11): Mint the Matrix relay identity BEFORE
+    // any local side effect (avatar write, row INSERT). Mint failure → 500 with zero
+    // local side effects (D-04). Password is discarded immediately after mint (D-08).
+    const adminCreds = await getMatrixAdminCreds();
+    if (!adminCreds) {
+      authLogger.error("Matrix admin creds missing during user create", {
+        operation: "user_create_admin_creds_missing",
+        username,
+      });
+      return res.status(500).json({ error: "relay identity provisioning failed: admin creds missing" });
+    }
+    const serverName = extractServerName(adminCreds.homeserverBase);
+    const mintedMxid = buildHumanMxid(username, serverName);
+    const displayname = deriveDisplayname(username);
+    const relayPassword = generateHumanRelayPassword();
+    const mintResult = await createOrUpdateUser(mintedMxid, relayPassword, displayname);
+    if (mintResult.ok === false) {
+      authLogger.error("Matrix account mint failed during user create", {
+        operation: "user_create_matrix_mint_failed",
+        username,
+        mxid: mintedMxid,
+        status: mintResult.status,
+        error: mintResult.error,
+      });
+      // Zero side effects: no avatar written, no row inserted (D-04).
+      return res.status(500).json({ error: "relay identity provisioning failed" });
+    }
+    // The generated password is discarded here — never stored, logged, or returned in any response (D-08).
+
+    // Best-effort deactivation helper for post-mint rollback branches (D-05).
+    // Captures mintedMxid in scope; logs on failure but never blocks the 500 response.
+    const bestEffortDeactivate = async (reason: string) => {
+      const r = await deactivateUser(mintedMxid);
+      if (!r.ok) {
+        authLogger.warn(
+          "Matrix account deactivation failed during create rollback (orphaned mxid logged for future sweep)",
+          {
+            operation: reason,
+            mxid: mintedMxid,
+            status: r.status,
+            error: r.error,
+          },
+        );
+      }
+    };
+
     // Step 4 (T-85-07, file-then-row ordering): Write avatar file BEFORE the SQL
     // INSERT so that on SQL failure the file can be unlinked with no dangling pointer.
     // If the file-write itself fails, we abort before any DB change — clean failure.
@@ -156,16 +216,19 @@ router.post("/create", userAvatarUpload.single("avatar"), async (req, res) => {
       avatarFilename = await writeUserAvatar(id, req.file.mimetype, req.file.buffer);
     } catch (writeErr) {
       // M4: mime-mismatch (declared vs sniffed bytes) → 400, not 500.
+      // Deactivate the just-minted Matrix account (D-05 rollback) before returning.
       if (writeErr instanceof Error && writeErr.message.startsWith("avatar mime mismatch")) {
         authLogger.warn("Avatar mime mismatch on create", {
           operation: "user_create_avatar_mime_mismatch",
           error: writeErr.message,
         });
+        await bestEffortDeactivate("user_create_deactivate_after_avatar_fail");
         return res.status(400).json({ error: writeErr.message });
       }
       authLogger.error("Failed to write user avatar to disk", writeErr, {
         operation: "user_create_avatar_write_failed",
       });
+      await bestEffortDeactivate("user_create_deactivate_after_avatar_fail");
       return res.status(500).json({ error: "avatar write failed" });
     }
 
@@ -178,7 +241,7 @@ router.post("/create", userAvatarUpload.single("avatar"), async (req, res) => {
         const first = (countResult?.count || 0) === 0;
         db.$client
           .prepare(
-            "INSERT INTO users (id, username, password_hash, is_admin, is_oidc, client_id, client_secret, issuer_url, authorization_url, token_url, identifier_path, name_path, scopes, totp_secret, totp_enabled, totp_backup_codes, avatar_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO users (id, username, password_hash, is_admin, is_oidc, client_id, client_secret, issuer_url, authorization_url, token_url, identifier_path, name_path, scopes, totp_secret, totp_enabled, totp_backup_codes, avatar_path, mxid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
           )
           .run(
             id,
@@ -198,12 +261,15 @@ router.post("/create", userAvatarUpload.single("avatar"), async (req, res) => {
             0,
             null,
             avatarFilename,
+            mintedMxid,
           );
         return first;
       })();
     } catch (sqlErr) {
       // T-85-07: SQL INSERT failed — rollback the file we already wrote (ENOENT-tolerant).
       await unlinkUserAvatar(avatarFilename);
+      // D-05 rollback: deactivate the just-minted Matrix account (best-effort).
+      await bestEffortDeactivate("user_create_deactivate_after_insert_fail");
       authLogger.error("Failed to insert user row during registration", sqlErr, {
         operation: "user_create_insert_failed",
         userId: id,
@@ -246,6 +312,8 @@ router.post("/create", userAvatarUpload.single("avatar"), async (req, res) => {
       // BEFORE deleting the row so cleanup is complete even if db.delete throws.
       await unlinkUserAvatar(avatarFilename);
       await db.delete(users).where(eq(users.id, id));
+      // D-05 rollback: deactivate the just-minted Matrix account (best-effort).
+      await bestEffortDeactivate("user_create_deactivate_after_encryption_fail");
       authLogger.error(
         "Failed to setup user encryption, user creation rolled back",
         encryptionError,
@@ -283,6 +351,12 @@ router.post("/create", userAvatarUpload.single("avatar"), async (req, res) => {
       toast: { type: "success", message: `User created: ${username}` },
     });
   } catch (err) {
+    // Outer catch: unexpected throws from pure helpers or an unanticipated code path.
+    // Do NOT attempt deactivation here — if we are in the outer catch after mint success
+    // the mxid may be in scope, but we cannot distinguish "minted successfully and need rollback"
+    // from "threw before mint even reached the admin API". Best-effort orphan cleanup via log
+    // sweep handles the rare case. Local side effects are at most a partially-written state
+    // that the structured inner try/catch blocks were supposed to prevent.
     authLogger.error("Failed to create user", err);
     res.status(500).json({ error: "Failed to create user" });
   }
