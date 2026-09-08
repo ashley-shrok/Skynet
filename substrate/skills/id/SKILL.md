@@ -426,7 +426,7 @@ announce line; no read-in. This is what makes the identity AWARE that a set of r
 exists for this role; each runbook's content is read on demand only when it's actually
 invoked (see § Runbooks). If the role has no `runbooks/` folder, or it's empty, skip
 silently. Only subfolders are enumerated — stray files at `runbooks/` root are ignored.
-A subfolder missing its `<slug>.md` still enumerates by folder name; the missing-file
+A subfolder missing its `runbook.md` still enumerates by folder name; the missing-file
 error surfaces at read-time when it's actually invoked.
 
 Announce:
@@ -1310,13 +1310,15 @@ sees the same set.
 
 ### Storage
 
-`~/.claude/roles/<role>/runbooks/<runbook-slug>/<runbook-slug>.md` + whatever
+`~/.claude/roles/<role>/runbooks/<runbook-slug>/runbook.md` + whatever
 companions belong with that runbook (checklists, prompt archives, sample data,
 scripts) as siblings inside the same subfolder. Internal shape is **free-form** — no
 required title/triggers/procedure/gotchas spine. Whatever fits the runbook fits.
 
-**Naming**: slug is kebab-case (same rule as bounties). The main markdown MUST be
-named `<slug>.md` inside its subfolder — companion files can be named anything.
+**Naming**: slug is kebab-case (same rule as bounties). The main markdown MUST be named `runbook.md`
+inside its subfolder — companion files can be named anything. This mirrors the `SKILL.md` sentinel-file
+convention for skills: the folder names the thing, and a fixed sentinel inside makes every path
+expression predictable.
 
 ### Awareness on wake
 
