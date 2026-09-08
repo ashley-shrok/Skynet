@@ -32,6 +32,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
 import Database from "better-sqlite3";
+import bcrypt from "bcryptjs";
 
 // ---------------------------------------------------------------------------
 // In-memory SQLite DB — shared across tests, re-bootstrapped in beforeEach
@@ -1715,5 +1716,124 @@ describe("GET /users/:id/avatar (Phase 85 — serve endpoint)", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/image\/png/);
+  });
+});
+
+// =============================================================================
+// DELETE /users/delete-account — M5: forceSave after row deletion
+// =============================================================================
+
+/**
+ * deleteAccountWithAuth — DELETE /users/delete-account with JSON body.
+ */
+function deleteAccountWithAuth(
+  server: http.Server,
+  opts: { password: string; jwt: string },
+): Promise<{ status: number; body: unknown }> {
+  return new Promise((resolve, reject) => {
+    const { port } = server.address() as AddressInfo;
+    const bodyStr = JSON.stringify({ password: opts.password });
+    const req = http.request(
+      {
+        hostname: "127.0.0.1",
+        port,
+        method: "DELETE",
+        path: "/users/delete-account",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": String(Buffer.byteLength(bodyStr)),
+          "Authorization": `Bearer ${opts.jwt}`,
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          const raw = Buffer.concat(chunks);
+          let parsed: unknown;
+          try { parsed = JSON.parse(raw.toString()); } catch { parsed = raw.toString(); }
+          resolve({ status: res.statusCode ?? 0, body: parsed });
+        });
+      },
+    );
+    req.on("error", reject);
+    req.write(bodyStr);
+    req.end();
+  });
+}
+
+describe("DELETE /users/delete-account (M5 — forceSave after row deletion)", () => {
+  let deleteServer: http.Server;
+
+  beforeAll(async () => {
+    const mod = await import("./users.js");
+    const router = mod.default;
+    const app = express();
+    app.use(express.json());
+    app.use("/users", router);
+    deleteServer = await new Promise<http.Server>((resolve) => {
+      const s = app.listen(0, "127.0.0.1", () => resolve(s));
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    if (deleteServer) {
+      await new Promise<void>((resolve) => deleteServer.close(() => resolve()));
+    }
+  });
+
+  beforeEach(async () => {
+    sqliteDb?.close();
+    sqliteDb = new Database(":memory:");
+    bootstrapDb();
+
+    authControl.pass = true;
+    authControl.userId = "alice-id";
+
+    mockWriteUserAvatar.mockClear();
+    mockUnlinkUserAvatar.mockClear();
+    mockReadUserAvatar.mockClear();
+    mockForceSave.mockClear();
+    mockRegisterUser.mockClear();
+
+    mockWriteUserAvatar.mockImplementation(async (userId: string, mime: string) => {
+      const extMap: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
+      return `${userId}.${extMap[mime] ?? "png"}`;
+    });
+    mockUnlinkUserAvatar.mockResolvedValue(undefined);
+    mockReadUserAvatar.mockResolvedValue({ bytes: MINIMAL_PNG_BYTES, mime: "image/png" });
+    mockForceSave.mockResolvedValue(undefined);
+    mockRegisterUser.mockResolvedValue(undefined);
+
+    pendingWhereValue = null;
+  });
+
+  // M5: forceSave called with correct label on delete-account happy path
+  it("DELETE /users/delete-account — M5: forceSave called with 'phase-85-user-delete-account' after row deletion", async () => {
+    const password = "s3cret123";
+    const passwordHash = await bcrypt.hash(password, 4); // low rounds for test speed
+
+    // Insert Alice (non-admin, non-OIDC) with a real bcrypt hash so the
+    // password check in the handler succeeds.
+    sqliteDb
+      .prepare(
+        "INSERT OR REPLACE INTO users (id, username, password_hash, is_admin, is_oidc, avatar_path) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run("alice-id", "alice", passwordHash, 0, 0, "alice-id.png");
+
+    authControl.userId = "alice-id";
+
+    const res = await deleteAccountWithAuth(deleteServer, { password, jwt: "valid-jwt" });
+
+    expect(res.status).toBe(200);
+    const body = res.body as { message: string };
+    expect(body.message).toBe("Account deleted successfully");
+
+    // M5: forceSave must have been called with the exact label
+    expect(mockForceSave).toHaveBeenCalledWith("phase-85-user-delete-account");
+
+    // Row deleted
+    const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE id = ?").get("alice-id") as { c: number };
+    expect(count.c).toBe(0);
   });
 });

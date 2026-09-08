@@ -2309,6 +2309,19 @@ router.delete("/delete-account", authenticateJWT, async (req, res) => {
 
     await db.delete(users).where(eq(users.id, userId));
 
+    // M5: forceSave after row deletion — crown-jewel invariant (matches the
+    // pattern used by /create and PUT /:id/avatar). Failure logs but does NOT
+    // fail the request (the row deletion already succeeded in SQLite RAM and
+    // the debounce flush will eventually persist it).
+    try {
+      await DatabaseSaveTrigger.forceSave("phase-85-user-delete-account");
+    } catch (saveError) {
+      authLogger.error("Failed to persist delete-account to disk", saveError, {
+        operation: "delete_account_save_failed",
+        userId,
+      });
+    }
+
     authLogger.success(`User account deleted: ${userRecord.username}`);
     res.json({ message: "Account deleted successfully" });
   } catch (err) {
