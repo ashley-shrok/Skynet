@@ -1,5 +1,6 @@
 import type { AuthenticatedRequest } from "../../../types/index.js";
 import express from "express";
+import { createHash } from "node:crypto";
 import { db, DatabaseSaveTrigger } from "../db/index.js";
 import { users, settings, roles, userRoles } from "../db/schema.js";
 import { eq } from "drizzle-orm";
@@ -34,6 +35,7 @@ import {
   userAvatarMulterErrorHandler,
   writeUserAvatar,
   unlinkUserAvatar,
+  readUserAvatar,
 } from "./user-avatar-storage.js";
 
 const authManager = AuthManager.getInstance();
@@ -283,6 +285,188 @@ router.post("/create", userAvatarUpload.single("avatar"), async (req, res) => {
 // Must be placed AFTER the router.post("/create", ...) registration to only
 // catch errors from that route (pattern from identity-avatar-batch.ts:453-478).
 router.use("/create", userAvatarMulterErrorHandler);
+
+// ---------------------------------------------------------------------------
+// PUT /users/:id/avatar — replace an existing user's avatar (D-10, D-12, D-14,
+// D-15, D-16, D-17, D-23)
+//
+// Auth: authenticateJWT + own-or-admin guard (reads isAdmin from DB, not JWT,
+// per RESEARCH.md § 6 — defends against mid-session role revocation).
+//
+// Ordering: new-file-then-row-UPDATE-then-old-file-unlink per RESEARCH.md § 5.
+// Rollback: if UPDATE fails, new file is unlinked (if different name from old).
+// ---------------------------------------------------------------------------
+router.put("/:id/avatar", authenticateJWT, userAvatarUpload.single("avatar"), async (req, res) => {
+    const userId = (req as AuthenticatedRequest).userId;
+    const targetUserId = String(req.params.id);
+
+    if (!isNonEmptyString(targetUserId)) {
+      return res.status(400).json({ error: "user id required in path" });
+    }
+
+    try {
+      // Step 1: Verify caller exists in DB and get isAdmin from DB (not JWT).
+      const callerRows = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, userId));
+      if (!callerRows || callerRows.length === 0) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      const callerRecord = callerRows[0];
+
+      // Step 2: Own-or-admin guard — mirror user-session-routes.ts:154.
+      if (!callerRecord.isAdmin && targetUserId !== userId) {
+        return res
+          .status(403)
+          .json({ error: "Not authorized to change this user's avatar" });
+      }
+
+      // Step 3: Verify target user exists so a legit admin targeting a bogus id gets 404.
+      const targetRows = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, targetUserId))
+        .limit(1);
+      if (!targetRows || targetRows.length === 0) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      const targetRecord = targetRows[0];
+
+      // Step 4: Verify avatar file was provided.
+      if (!req.file) {
+        return res.status(400).json({ error: "missing avatar field" });
+      }
+
+      // Step 5 (CHANGE ordering — RESEARCH.md § 5):
+      // new-file-then-row-then-old-file-unlink.
+      const oldFilename = targetRecord.avatarPath ?? null;
+
+      // 5a: Write new file first.
+      let newFilename: string;
+      try {
+        newFilename = await writeUserAvatar(targetUserId, req.file.mimetype, req.file.buffer);
+      } catch (writeErr) {
+        authLogger.error("Failed to write user avatar to disk", writeErr, {
+          operation: "user_avatar_change_write_failed",
+          targetUserId,
+        });
+        return res.status(500).json({ error: "avatar write failed" });
+      }
+
+      // 5b: UPDATE users row pointer with raw SQL (CONTEXT.md "Raw SQL for users-table writes").
+      try {
+        db.$client
+          .prepare("UPDATE users SET avatar_path = ? WHERE id = ?")
+          .run(newFilename, targetUserId);
+      } catch (sqlErr) {
+        // Rollback: unlink the new file ONLY if it's a different name from the old
+        // (same name means new file overwrote the old in place — unlinking would
+        // delete the still-relevant file).
+        if (newFilename !== oldFilename) {
+          await unlinkUserAvatar(newFilename);
+        }
+        authLogger.error("Failed to update users row avatar_path", sqlErr, {
+          operation: "user_avatar_change_update_failed",
+          targetUserId,
+        });
+        return res.status(500).json({ error: "avatar update failed" });
+      }
+
+      // 5c: Best-effort unlink of old file — only if it's a DIFFERENT name from new.
+      // If same name, the new file has already overwritten it in place.
+      if (oldFilename && oldFilename !== newFilename) {
+        await unlinkUserAvatar(oldFilename);
+      }
+
+      // Step 6: Labeled forceSave — D-17/D-18 crown-jewel invariant.
+      try {
+        await DatabaseSaveTrigger.forceSave("phase-85-user-avatar-change");
+      } catch (saveError) {
+        authLogger.error(
+          "Failed to persist user avatar change to disk",
+          saveError,
+          {
+            operation: "user_avatar_change_save_failed",
+            userId: targetUserId,
+          },
+        );
+      }
+
+      return res.status(200).json({ id: targetUserId, avatarPath: newFilename });
+    } catch (err) {
+      authLogger.error("PUT /users/:id/avatar unexpected error", err, {
+        operation: "user_avatar_change_unexpected",
+        targetUserId,
+      });
+      return res.status(500).json({ error: "avatar change failed" });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// GET /users/:id/avatar — serve raw image bytes (D-11, D-12)
+//
+// Auth: authenticateJWT only — any logged-in user may fetch any user's avatar
+// (mirrors identity-avatar precedent per RESEARCH.md § Q2).
+// Content-Type derived from filename extension via EXT_TO_MIME in helper module.
+// ETag: yes (mirrors identities.ts:626 — per-response hash, no server-side store).
+// ---------------------------------------------------------------------------
+router.get("/:id/avatar", authenticateJWT, async (req, res) => {
+  const targetUserId = String(req.params.id);
+
+  if (!isNonEmptyString(targetUserId)) {
+    return res.status(400).json({ error: "user id required in path" });
+  }
+
+  // Step 1: Read avatar pointer from users row.
+  const rows = await db
+    .select({ avatarPath: users.avatarPath })
+    .from(users)
+    .where(eq(users.id, targetUserId))
+    .limit(1);
+
+  // Step 2: 404 for missing row OR null pointer (pre-Phase-85 user with no avatar).
+  if (rows.length === 0 || !rows[0].avatarPath) {
+    return res.status(404).json({ error: "no avatar for this user" });
+  }
+
+  const filename = rows[0].avatarPath;
+
+  // Step 3: Read bytes from disk via D-12 helper.
+  try {
+    const { bytes, mime } = await readUserAvatar(filename);
+
+    // ETag: per-response MD5 hash (mirrors identities.ts:626 — no-store but
+    // still allows 304 short-circuit within a single browser session).
+    const etag = `"disk-${createHash("md5").update(bytes).digest("hex")}"`;
+    if (req.headers["if-none-match"] === etag) {
+      return res.status(304).end();
+    }
+
+    res.setHeader("Content-Type", mime);
+    res.setHeader("Content-Length", String(bytes.byteLength));
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("ETag", etag);
+    return res.send(bytes);
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    if (e.code === "ENOENT") {
+      // Row pointer valid but file missing on disk (RESEARCH.md Pitfall 4).
+      return res.status(404).json({ error: "no avatar file on disk" });
+    }
+    authLogger.error("GET /users/:id/avatar unexpected read error", err, {
+      operation: "user_avatar_read_failed",
+      targetUserId,
+    });
+    return res.status(500).json({ error: "avatar read failed" });
+  }
+});
+
+// Multer error handler scoped to /:id/avatar — covers oversize (413), missing
+// part (400), bad mime (400) for the PUT change endpoint.
+// The GET handler does not use multer, so this is inert for GET requests.
+router.use("/:id/avatar", userAvatarMulterErrorHandler);
 
 /**
  * @openapi
