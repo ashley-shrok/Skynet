@@ -49,6 +49,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor, screen } from "@testing-library/react";
 
+// Phase 88 (Plan 88-03): single source of truth for the identity-mode
+// checkbox label regex. The old label "Create with new identity" was
+// flipped to "Just a shell — no agent" (Plan 88-02 Edit C) so all
+// getByRole("checkbox", { name: … }) sites below reference this constant
+// instead of an inline literal. Prevents label-drift regressions.
+const IDENTITY_MODE_CHECKBOX_RE = /just a shell.*no agent/i;
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, opts?: { defaultValue?: string }) =>
@@ -287,6 +294,8 @@ describe("NewSessionDialog: search filter", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: empty name accepted", () => {
   it("Test 5: empty name → Open enabled after host select → onCreate({host, sessionName: undefined})", () => {
+    // Phase 88 (Plan 88-02 Edit C): checkbox is admin-gated; pass isAdmin={true}
+    // so the checkbox renders. Click OPTS INTO shell mode (semantic-invert).
     const onCreate = vi.fn();
     const { getByRole, getByText } = render(
       <NewSessionDialog
@@ -294,11 +303,12 @@ describe("NewSessionDialog: empty name accepted", () => {
         onClose={vi.fn()}
         hostTree={threeHostTree}
         onCreate={onCreate}
+        isAdmin={true}
       />,
     );
 
-    // Turn off identity-mode to use the regular-session path
-    const checkbox = getByRole("checkbox", { name: /create with new identity/i });
+    // Click checkbox to opt into shell mode (regular-session path)
+    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
     fireEvent.click(checkbox);
 
     // Pre-select-host: Open is disabled
@@ -328,6 +338,7 @@ describe("NewSessionDialog: empty name accepted", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: non-empty name passthrough", () => {
   it("Test 6: valid name → onCreate({host, sessionName: 'my-session'})", () => {
+    // Phase 88: checkbox is admin-gated. Click OPTS INTO shell mode.
     const onCreate = vi.fn();
     const { getByRole, getByText, getByLabelText } = render(
       <NewSessionDialog
@@ -335,11 +346,12 @@ describe("NewSessionDialog: non-empty name passthrough", () => {
         onClose={vi.fn()}
         hostTree={threeHostTree}
         onCreate={onCreate}
+        isAdmin={true}
       />,
     );
 
-    // Turn off identity-mode to use the regular-session path
-    const checkbox = getByRole("checkbox", { name: /create with new identity/i });
+    // Click checkbox to opt into shell mode (regular-session path)
+    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
     fireEvent.click(checkbox);
 
     fireEvent.click(getByText("alpha"));
@@ -367,6 +379,7 @@ describe("NewSessionDialog: non-empty name passthrough", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: invalid name disables Open", () => {
   it("Test 7: name with shell-metachars disables Open + surfaces error message", () => {
+    // Phase 88: checkbox is admin-gated. Click OPTS INTO shell mode.
     const onCreate = vi.fn();
     const { getByRole, getByText, getByLabelText, queryByText } = render(
       <NewSessionDialog
@@ -374,10 +387,11 @@ describe("NewSessionDialog: invalid name disables Open", () => {
         onClose={vi.fn()}
         hostTree={threeHostTree}
         onCreate={onCreate}
+        isAdmin={true}
       />,
     );
-    // Turn off identity-mode to reveal the session-name input
-    const checkbox = getByRole("checkbox", { name: /create with new identity/i });
+    // Click checkbox to opt into shell mode → reveals session-name input
+    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
     fireEvent.click(checkbox);
 
     fireEvent.click(getByText("alpha"));
@@ -421,6 +435,8 @@ describe("NewSessionDialog: no host disables Open", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: single-host auto-select", () => {
   it("Test 9: hostTree with exactly one host → that host is pre-selected + Open enabled + click fires onCreate with the sole host", () => {
+    // Phase 88: checkbox is admin-gated. Click OPTS INTO shell mode (via
+    // single-host auto-selection alone Open becomes enabled without name/role).
     const onCreate = vi.fn();
     const { getByRole } = render(
       <NewSessionDialog
@@ -428,10 +444,11 @@ describe("NewSessionDialog: single-host auto-select", () => {
         onClose={vi.fn()}
         hostTree={oneHostTree}
         onCreate={onCreate}
+        isAdmin={true}
       />,
     );
-    // Turn off identity-mode so single-host auto-selection enables Open
-    const checkbox = getByRole("checkbox", { name: /create with new identity/i });
+    // Click checkbox to opt into shell mode
+    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
     fireEvent.click(checkbox);
 
     // Open button should be enabled immediately (sole host pre-selected + no extra fields needed)
@@ -539,11 +556,20 @@ describe("PrettyConversationsPanel: header pencil renders before rows", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Helper: render dialog with identity-mode capable component
+// Phase 88 (Plan 88-03): the helper now accepts an `isAdmin?: boolean`
+// override with a default of `true`. Most existing tests below were
+// written when the Path input + identity-mode checkbox were universal
+// (not admin-gated); keeping the helper's default at isAdmin=true
+// preserves their assumptions without churn. Tests that specifically
+// exercise the non-admin path pass `isAdmin: false` explicitly (see
+// the three new tests at the bottom of this file — Plan 88-03 Task 2
+// Edit F: T1 hides both, T2 renders both defaults, T3 wire contract).
 function renderDialog(overrides: {
   open?: boolean;
   onClose?: () => void;
   onCreate?: ReturnType<typeof vi.fn>;
   hostTree?: typeof threeHostTree;
+  isAdmin?: boolean;
 } = {}) {
   const onCreate = overrides.onCreate ?? vi.fn();
   const onClose = overrides.onClose ?? vi.fn();
@@ -553,6 +579,7 @@ function renderDialog(overrides: {
       onClose={onClose}
       hostTree={overrides.hostTree ?? threeHostTree}
       onCreate={onCreate}
+      isAdmin={overrides.isAdmin ?? true}
     />,
   );
   return { ...result, onCreate, onClose };
@@ -566,15 +593,20 @@ afterEach(() => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Test A: path field is visible in both modes
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test A — path field visible in both modes", () => {
-  it("Test A: path input present with identity-mode ON, and still present after toggling OFF", () => {
+describe("NewSessionDialog: Test A — path field visible in both modes (under isAdmin)", () => {
+  it("Test A: path input present in agent mode (Phase-88 default), and still present after clicking checkbox to opt into shell mode", () => {
+    // Phase 88 (Plan 88-02): the Path field is admin-gated. The renderDialog
+    // helper defaults isAdmin=true so the Path field is visible on mount.
+    // Agent mode is the new default (shellOnly=false); clicking the checkbox
+    // now OPTS INTO shell mode (was: opted out of identity mode). Path stays
+    // visible in both modes for admin users.
     const { getByLabelText, getByRole } = renderDialog();
-    // Identity-mode is ON by default → path should be visible
+    // Agent mode is default under isAdmin=true → path should be visible
     expect(getByLabelText(/^path$/i)).toBeTruthy();
-    // Toggle identity-mode OFF
-    const checkbox = getByRole("checkbox", { name: /create with new identity/i });
+    // Click checkbox to opt into shell mode
+    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
     fireEvent.click(checkbox);
-    // Path still present
+    // Path still present (visible in both modes for admin)
     expect(getByLabelText(/^path$/i)).toBeTruthy();
   });
 });
@@ -594,11 +626,13 @@ describe("NewSessionDialog: Test B — path defaults to ~/", () => {
 // Test C: path normalizes backslashes to forward slashes on Create
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test C — path normalizes backslashes", () => {
-  it("Test C: fill path with backslashes; Create in regular-session mode fires onCreate with normalized path", () => {
+  it("Test C: fill path with backslashes; Create in shell mode fires onCreate with normalized path", () => {
     const onCreate = vi.fn();
     const { getByLabelText, getByRole, getByText } = renderDialog({ onCreate });
-    // Switch to regular mode (uncheck identity-mode)
-    const checkbox = getByRole("checkbox", { name: /create with new identity/i });
+    // Phase 88 semantic-invert: click OPTS INTO shell mode (was: opted out
+    // of identity mode). Shell mode is the branch that calls onCreate with
+    // identityMode:false — the path we're testing the normalize for.
+    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
     fireEvent.click(checkbox);
     // Set backslash path
     const pathInput = getByLabelText(/^path$/i) as HTMLInputElement;
@@ -615,13 +649,20 @@ describe("NewSessionDialog: Test C — path normalizes backslashes", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test D: identity-mode checkbox defaults ON
+// Test D: identity-mode checkbox defaults UNCHECKED (Phase 88 — agent mode is default)
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test D — identity-mode defaults ON", () => {
-  it("Test D: initial render → identity-mode checkbox is checked", () => {
-    const { getByRole } = renderDialog();
-    const checkbox = getByRole("checkbox", { name: /create with new identity/i }) as HTMLInputElement;
-    expect(checkbox.checked).toBe(true);
+// Phase 88 (Plan 88-02 Edit D): the default flipped from checked-true
+// (identity mode ON was the default) to unchecked-false (agent mode IS
+// the default). The local state variable was renamed from `identityMode`
+// to `shellOnly` and its useState default flipped from `true` to `false`.
+// The checkbox is admin-gated (Plan 88-02 Edit C) so this test renders
+// under isAdmin=true (the renderDialog helper default) to see the
+// checkbox at all.
+describe("NewSessionDialog: Test D — identity-mode checkbox defaults UNCHECKED (admin-only, agent mode is default)", () => {
+  it("Test D: initial render with isAdmin=true → 'Just a shell — no agent' checkbox is unchecked", () => {
+    const { getByRole } = renderDialog({ isAdmin: true });
+    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }) as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
   });
 });
 
@@ -632,10 +673,13 @@ describe("NewSessionDialog: Test D — identity-mode defaults ON", () => {
 // assertion remains valid but trivially so. Preserved as a regression
 // guard against a future accidental re-introduction.
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test E — identity-mode OFF hides birth fields", () => {
-  it("Test E: unchecking identity-mode → identity-cluster fields (task, name, role, cosmetic residue) all absent from DOM", () => {
+describe("NewSessionDialog: Test E — shell mode hides birth fields (opt in via checkbox)", () => {
+  it("Test E: click 'Just a shell — no agent' → identity-cluster fields (task, name, role, cosmetic residue) all absent from DOM", () => {
+    // Phase 88 semantic-invert: click OPTS INTO shell mode (was: opted
+    // out of identity mode). Shell mode is the branch where the
+    // identity-cluster is not rendered — same assertion, inverted intent.
     const { getByRole, queryByLabelText } = renderDialog();
-    const checkbox = getByRole("checkbox", { name: /create with new identity/i });
+    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
     fireEvent.click(checkbox);
     // Identity-cluster fields gone
     expect(queryByLabelText(/^task$/i)).toBeNull();
@@ -838,14 +882,17 @@ describe("NewSessionDialog: Test R — onCreate payload with identity-mode ON", 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test S: onCreate payload when identity-mode OFF matches regular-session contract
+// Test S: onCreate payload when shell mode chosen matches regular-session contract
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test S — onCreate payload with identity-mode OFF", () => {
-  it("Test S: identity-mode OFF → onCreate called with {host, sessionName?, path, identityMode:false}", () => {
+describe("NewSessionDialog: Test S — onCreate payload with shell mode (identityMode:false)", () => {
+  it("Test S: click 'Just a shell — no agent' → onCreate called with {host, sessionName?, path, identityMode:false}", () => {
+    // Phase 88 semantic-invert: click OPTS INTO shell mode (was: opted out
+    // of identity mode). Public payload discriminant `identityMode: false`
+    // is preserved on the wire (Plan 88-02 Edit D — local var renamed to
+    // `shellOnly`, public discriminant unchanged).
     const onCreate = vi.fn();
     const { getByLabelText, getByRole } = renderDialog({ onCreate });
-    // Turn off identity-mode
-    const checkbox = getByRole("checkbox", { name: /create with new identity/i });
+    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
     fireEvent.click(checkbox);
     // Select host
     fireEvent.click(screen.getByText("bravo"));
@@ -883,13 +930,18 @@ describe("NewSessionDialog: Test U — modal state resets on close", () => {
     fireEvent.change(getByLabelText(/^path$/i), { target: { value: "/custom/path" } });
     fireEvent.change(getByLabelText(/^task$/i), { target: { value: "do things" } });
 
-    // Close the dialog
+    // Close the dialog.
+    // Phase 88 (Plan 88-01/88-02): pass isAdmin={true} on rerender so the
+    // Path field + shell-only checkbox remain rendered (Plan 88-02 admin-gate).
+    // NewSessionDialog defaults isAdmin=false fail-closed at destructure, so
+    // without this forward the Path + checkbox would not exist in the DOM.
     rerender(
       <NewSessionDialog
         open={false}
         onClose={onClose}
         hostTree={threeHostTree}
         onCreate={vi.fn()}
+        isAdmin={true}
       />
     );
     // Re-open
@@ -899,15 +951,19 @@ describe("NewSessionDialog: Test U — modal state resets on close", () => {
         onClose={onClose}
         hostTree={threeHostTree}
         onCreate={vi.fn()}
+        isAdmin={true}
       />
     );
     // Fields should reset
     expect((getByLabelText(/^name$/i) as HTMLInputElement).value).toBe("");
     expect((getByLabelText(/^path$/i) as HTMLInputElement).value).toBe("~/");
     expect((getByLabelText(/^task$/i) as HTMLTextAreaElement).value).toBe("");
-    // Identity-mode checkbox should be ON (default)
-    const checkbox = getByRole("checkbox", { name: /create with new identity/i }) as HTMLInputElement;
-    expect(checkbox.checked).toBe(true);
+    // Phase 88 (Plan 88-02 Edit D): the local state variable was renamed
+    // from `identityMode` to `shellOnly` and its default flipped from
+    // `true` to `false`. After close+reopen the shell-only checkbox
+    // re-arms to the new default: UNCHECKED (agent mode is the default).
+    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }) as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
   });
 });
 
@@ -1174,13 +1230,17 @@ describe("NewSessionDialog: Test CC — close after failure resets state", () =>
     // Wait for failure
     await waitFor(() => expect(document.querySelectorAll('[data-status="failed"]').length).toBeGreaterThanOrEqual(1));
 
-    // Close the dialog
+    // Close the dialog.
+    // Phase 88: pass isAdmin={true} on rerender so the admin-gated Path field
+    // + shell-only checkbox remain rendered (renderDialog helper's default
+    // isAdmin=true does not propagate through utils.rerender's raw JSX).
     utils.rerender(
       <NewSessionDialog
         open={false}
         onClose={onClose}
         hostTree={threeHostTree}
         onCreate={vi.fn()}
+        isAdmin={true}
       />
     );
     // Re-open
@@ -1190,6 +1250,7 @@ describe("NewSessionDialog: Test CC — close after failure resets state", () =>
         onClose={onClose}
         hostTree={threeHostTree}
         onCreate={vi.fn()}
+        isAdmin={true}
       />
     );
 
@@ -1220,6 +1281,11 @@ describe("NewSessionDialog: Test DD — birth in progress disables form fields, 
       // name input should be disabled
       expect((utils.getByLabelText(/^name$/i) as HTMLInputElement).disabled).toBe(true);
     });
+    // Phase 88: shell-only checkbox is disabled during birth (existing
+    // formDisabled binding; renderDialog helper defaults isAdmin=true so
+    // the checkbox is present to inspect).
+    const checkbox = utils.getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }) as HTMLInputElement;
+    expect(checkbox.disabled).toBe(true);
     // No cancel-birth button
     expect(screen.queryByRole("button", { name: /cancel.*birth|cancel birth/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /stop birth/i })).toBeNull();
@@ -1283,14 +1349,15 @@ describe("NewSessionDialog: Test FF — fetch error surfaces as step-1 failure",
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test GG: regular-session mode (identity-mode=false) does NOT call openBirthStream
+// Test GG: shell-mode (identity-mode=false payload) does NOT call openBirthStream
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test GG — regular session mode does NOT call openBirthStream", () => {
-  it("Test GG: uncheck identity-mode, click Create → openBirthStream NOT called; onCreate called with identityMode:false", () => {
+describe("NewSessionDialog: Test GG — shell mode does NOT call openBirthStream", () => {
+  it("Test GG: click 'Just a shell — no agent', click Create → openBirthStream NOT called; onCreate called with identityMode:false", () => {
+    // Phase 88 semantic-invert: click OPTS INTO shell mode. Payload
+    // discriminant `identityMode:false` on the wire is unchanged.
     const onCreate = vi.fn();
     const { getByRole } = renderDialog({ onCreate });
-    // Turn off identity-mode
-    fireEvent.click(getByRole("checkbox", { name: /create with new identity/i }));
+    fireEvent.click(getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }));
     // Select host
     fireEvent.click(screen.getByText("bravo"));
     // Click Create
@@ -1299,6 +1366,68 @@ describe("NewSessionDialog: Test GG — regular session mode does NOT call openB
     expect(mockOpenBirthStream).not.toHaveBeenCalled();
     expect(onCreate).toHaveBeenCalledTimes(1);
     expect(onCreate.mock.calls[0][0].identityMode).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 88 new tests (Plan 88-03 Task 2 Edit F): admin-gate behavior +
+// non-admin backend substitution round-trip. These lock the three
+// shape-file surface changes (Path admin-gate, checkbox admin-gate,
+// backend `~/<name>/` substitution) with regression coverage that did
+// not exist pre-Phase-88.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("NewSessionDialog: Phase 88 admin-gate + backend substitution", () => {
+  it("Phase 88 T1: isAdmin=false → no Path input AND no shell-only checkbox rendered", () => {
+    const { queryByLabelText, queryByRole } = renderDialog({ isAdmin: false });
+    // Path field is admin-gated (Plan 88-02 Edit B: {isAdmin && (…)} wrap).
+    expect(queryByLabelText(/^path$/i)).toBeNull();
+    // Shell-only checkbox is admin-gated (Plan 88-02 Edit C: {isAdmin && (…)} wrap).
+    expect(queryByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE })).toBeNull();
+  });
+
+  it("Phase 88 T2: isAdmin=true → Path input present with default value '~/' AND shell-only checkbox present unchecked", () => {
+    const { getByLabelText, getByRole } = renderDialog({ isAdmin: true });
+    const pathInput = getByLabelText(/^path$/i) as HTMLInputElement;
+    expect(pathInput).toBeTruthy();
+    // Plan 88-02 Edit B inner JSX preserves useState("~/") default.
+    expect(pathInput.value).toBe("~/");
+    const checkbox = getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }) as HTMLInputElement;
+    expect(checkbox).toBeTruthy();
+    // Plan 88-02 Edit D: local state var renamed identityMode → shellOnly,
+    // useState default flipped true → false → checkbox defaults UNCHECKED.
+    expect(checkbox.checked).toBe(false);
+  });
+
+  it("Phase 88 T3: isAdmin=false submit path sends path:'' — backend substitutes `~/<name>/` per Plan 88-01 narrow", async () => {
+    // Plan 88-02 Edit F: handleBirth's openBirthStream path arg is
+    // `isAdmin ? normalizedPath : ""`. Under isAdmin=false this test
+    // proves the client sends empty-string on the wire, handing off
+    // working-directory computation to Plan 88-01's backend narrow at
+    // identity-birth.ts:206 which substitutes `~/<name>/`.
+    //
+    // Mock pattern is the same as Test V above (empty stream that
+    // completes immediately + inspect mockOpenBirthStream.mock.calls[0]).
+    mockOpenBirthStream.mockReturnValueOnce(createMockStream([]));
+    const utils = renderDialog({ isAdmin: false });
+    await fillIdentityForm(utils);
+    const createBtn = utils.getByRole("button", {
+      name: /^(open|create|creating)/i,
+    }) as HTMLButtonElement;
+    fireEvent.click(createBtn);
+    await waitFor(() => {
+      expect(mockOpenBirthStream).toHaveBeenCalledTimes(1);
+    });
+    const [payload] = mockOpenBirthStream.mock.calls[0] as [
+      Record<string, unknown>,
+    ];
+    // The load-bearing assertion: non-admin's wire path is literal
+    // empty-string. Plan 88-01 identity-birth.ts:206 substitutes
+    // `~/<name>/` server-side; this test asserts only the client half of
+    // the round-trip (that empty-string arrives at the API surface).
+    expect(payload.path).toBe("");
+    // Sanity: name still passes through so backend substitution can
+    // compute `~/<name>/` from it.
+    expect(payload.name).toBe("alicia");
   });
 });
 
