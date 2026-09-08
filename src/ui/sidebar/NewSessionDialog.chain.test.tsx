@@ -22,6 +22,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor, screen } from "@testing-library/react";
 
+// Phase 88 (Plan 88-03): single source of truth for the identity-mode
+// checkbox label regex. The old label was flipped from "Create with new
+// identity" to "Just a shell — no agent" in Plan 88-02 Edit C; the
+// checkbox is admin-gated so any test that needs to reach it must render
+// under isAdmin={true} (see Test 10c + Test 9 below).
+const IDENTITY_MODE_CHECKBOX_RE = /just a shell.*no agent/i;
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, opts?: { defaultValue?: string }) =>
@@ -181,7 +188,13 @@ describe("NewSessionDialog chain: Test 1 — initialHost + initialRole pre-fill 
 // Test 2: no props → existing behavior preserved (regression gate)
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog chain: Test 2 — no props preserves existing behavior", () => {
-  it("Test 2a: open with 1-host tree + no props → auto-select-single-host + empty role", async () => {
+  it("Test 2a: open with 1-host tree + no props → auto-select-single-host (role dropdown appears with empty selection)", async () => {
+    // Phase 84 hide-picker-when-1-host (commit bc07561e): with a
+    // single-host tree the host listbox is suppressed entirely by the
+    // `flatHosts.length !== 1` guard at NewSessionDialog.tsx L921. The
+    // auto-select side effect (setSelectedHost(flatHosts[0])) still
+    // fires — its visible confirmation is the role dropdown appearing
+    // under the identity-cluster (which is host-gated).
     render(
       <NewSessionDialog
         open
@@ -190,12 +203,9 @@ describe("NewSessionDialog chain: Test 2 — no props preserves existing behavio
         onCreate={vi.fn()}
       />,
     );
-    // Auto-select happens because there's only one host
-    await waitFor(() => {
-      const hostRow = screen.getByRole("option", { name: /box-a/i });
-      expect(hostRow.getAttribute("aria-selected")).toBe("true");
-    });
-    // Role dropdown fetches roles for that host, but selection stays empty
+    // Role dropdown fetches roles for the auto-selected host and appears
+    // with empty selection — this is the observable proof that auto-
+    // select happened (dropdown is inside `{selectedHost !== null && …}`).
     await waitFor(() => {
       const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
       expect(sel.value).toBe("");
@@ -269,6 +279,9 @@ describe("NewSessionDialog chain: Test 4 — initialRole alone", () => {
   });
 
   it("Test 4b: initialRole='box-maintainer' + single-host tree → auto-select still runs; role empty (needs host-first seed)", async () => {
+    // Phase 84 hide-picker-when-1-host (commit bc07561e): with a
+    // single-host tree the host listbox is suppressed. The role
+    // dropdown appearance is the observable proof of auto-selection.
     render(
       <NewSessionDialog
         open
@@ -278,12 +291,7 @@ describe("NewSessionDialog chain: Test 4 — initialRole alone", () => {
         initialRole="box-maintainer"
       />,
     );
-    // Auto-select still runs (Test 2a behavior)
-    await waitFor(() => {
-      const hostRow = screen.getByRole("option", { name: /box-a/i });
-      expect(hostRow.getAttribute("aria-selected")).toBe("true");
-    });
-    // Role dropdown appears
+    // Role dropdown appears once the auto-selected host resolves
     await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
     // Role selection stays empty — initialRole is only seeded when initialHost is also provided
     const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
@@ -460,8 +468,14 @@ describe("NewSessionDialog chain: Test 8 — seed values do not persist across c
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 10 (2026-08-05): initialBrief pre-fills the Brief textarea
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog chain: Test 10 — initialBrief pre-fills brief", () => {
-  it("Test 10a: open with initialBrief='desc-from-role' + identity-mode ON → Brief textarea contains it", async () => {
+// Phase 86 Plan 86-04 stripped the Brief textarea (and all cosmetic UI)
+// from NewSessionDialog. The initialBrief prop still exists on
+// NewSessionDialogProps for API compatibility with PrettyConversationsPanel's
+// chain-prefill, but no field consumes it. Tests 10a/10b/10c are rewritten
+// as regression guards asserting the brief field STAYS deleted (per
+// D-CTX-86-surface-4 acceptance criteria).
+describe("NewSessionDialog chain: Test 10 — initialBrief ignored (brief field stripped in Phase 86)", () => {
+  it("Test 10a: open with initialBrief='desc-from-role' + agent mode default → Brief textarea NOT rendered (regression guard)", async () => {
     render(
       <NewSessionDialog
         open
@@ -473,18 +487,15 @@ describe("NewSessionDialog chain: Test 10 — initialBrief pre-fills brief", () 
         initialBrief="desc-from-role"
       />,
     );
-    await waitFor(() => {
-      const brief = screen.getByLabelText(/^brief$/i) as HTMLTextAreaElement;
-      expect(brief.value).toBe("desc-from-role");
-    });
-    // Brief is still editable — not disabled
-    const brief = screen.getByLabelText(/^brief$/i) as HTMLTextAreaElement;
-    expect(brief.disabled).toBe(false);
-    fireEvent.change(brief, { target: { value: "user-edit" } });
-    expect(brief.value).toBe("user-edit");
+    // Wait for role dropdown to appear so the identity-cluster is fully
+    // rendered before we assert brief-absence
+    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+    // The brief textarea was deleted in Phase 86 Plan 86-04. initialBrief
+    // is accepted for API compat with chain-prefill but no UI consumes it.
+    expect(screen.queryByLabelText(/^brief$/i)).toBeFalsy();
   });
 
-  it("Test 10b: open with no initialBrief → Brief textarea starts empty (regression gate)", async () => {
+  it("Test 10b: open with no initialBrief → Brief textarea NOT rendered (regression guard)", async () => {
     render(
       <NewSessionDialog
         open
@@ -493,13 +504,19 @@ describe("NewSessionDialog chain: Test 10 — initialBrief pre-fills brief", () 
         onCreate={vi.fn()}
       />,
     );
-    await waitFor(() => {
-      const brief = screen.getByLabelText(/^brief$/i) as HTMLTextAreaElement;
-      expect(brief.value).toBe("");
-    });
+    // Phase 86 Plan 86-04 stripped the brief textarea. Regression guard
+    // against accidental re-introduction.
+    expect(screen.queryByLabelText(/^brief$/i)).toBeFalsy();
   });
 
-  it("Test 10c: identity-mode OFF → initialBrief ignored (brief field is identity-mode-only)", async () => {
+  it("Test 10c: shell mode → brief field also absent (brief was identity-mode-only; now brief is always absent)", async () => {
+    // Phase 88 (Plan 88-03): checkbox is admin-gated. Pass isAdmin={true}
+    // so we can reach the checkbox at all. Click OPTS INTO shell mode
+    // (semantic-invert: post-Phase-88 the click enters shell mode; the
+    // brief field was always identity-cluster-only, and it's now
+    // always-absent post-Phase-86, so this assertion is trivially true
+    // — but the test still exercises the checkbox-click path as a
+    // regression guard on the admin-gate + label + click semantics.
     render(
       <NewSessionDialog
         open
@@ -508,10 +525,10 @@ describe("NewSessionDialog chain: Test 10 — initialBrief pre-fills brief", () 
         onCreate={vi.fn()}
         initialHost={hostA}
         initialBrief="desc-from-role"
+        isAdmin={true}
       />,
     );
-    // Toggle identity-mode OFF
-    const checkbox = screen.getByRole("checkbox", { name: /create with new identity/i });
+    const checkbox = screen.getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
     fireEvent.click(checkbox);
     await waitFor(() => {
       expect(screen.queryByLabelText(/^brief$/i)).toBeFalsy();
@@ -520,10 +537,14 @@ describe("NewSessionDialog chain: Test 10 — initialBrief pre-fills brief", () 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 9: identity-mode OFF → initialRole is IGNORED
+// Test 9: user opts into shell mode → initialRole is IGNORED (role dropdown gone)
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog chain: Test 9 — initialRole ignored when identity-mode OFF", () => {
-  it("Test 9: open with seed, then toggle identity-mode OFF → role dropdown gone; seed does not leak into session mode", async () => {
+// Phase 88 (Plan 88-03): semantic-inverted from the old "identity-mode OFF"
+// framing. Post-Phase-88 clicking the checkbox OPTS INTO shell mode
+// (was: opted out of identity mode). Same click, inverted intent. The
+// checkbox is admin-gated so this test renders under isAdmin={true}.
+describe("NewSessionDialog chain: Test 9 — initialRole ignored when user opts into shell mode", () => {
+  it("Test 9: open with seed → role dropdown populated; click 'Just a shell — no agent' → role dropdown gone; seed does not leak into shell mode", async () => {
     mockListRolesForHost.mockResolvedValue([
       { name: "box-maintainer", description: "" },
     ]);
@@ -535,6 +556,7 @@ describe("NewSessionDialog chain: Test 9 — initialRole ignored when identity-m
         onCreate={vi.fn()}
         initialHost={hostA}
         initialRole="box-maintainer"
+        isAdmin={true}
       />,
     );
     // Confirm role dropdown starts populated
@@ -543,7 +565,7 @@ describe("NewSessionDialog chain: Test 9 — initialRole ignored when identity-m
       expect(sel.value).toBe("box-maintainer");
     });
     // Toggle identity-mode OFF
-    const checkbox = screen.getByRole("checkbox", { name: /create with new identity/i });
+    const checkbox = screen.getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE });
     fireEvent.click(checkbox);
     // Role dropdown must be gone (CREATE-only surface per D-CONTEXT §UX rules)
     await waitFor(() => {
