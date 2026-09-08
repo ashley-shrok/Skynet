@@ -26,7 +26,11 @@ import {
 
 // Phase 47 Plan 01: cache key bumped v2 → v3 (FleetSession gained
 // optional aiTitle; see conversation-store.ts FLEET_CACHE_KEY comment).
-const CACHE_KEY = "skynet:convo-fleet-cache:v3";
+// Phase 90 Plan 01: cache key bumped v3 → v4 (FleetSession gained
+// optional `kind` discriminator + `roomId` + `roomTitle` — the
+// Phase-89-authored /sessions/list relay-room fields; see
+// conversation-store.ts FLEET_CACHE_KEY comment for the full rationale).
+const CACHE_KEY = "skynet:convo-fleet-cache:v4";
 
 const SAMPLE_A: FleetSession = {
   hostId: 1,
@@ -42,6 +46,14 @@ const SAMPLE_A: FleetSession = {
   // "no ai-title yet" wire value; the reader coerces undefined to null on
   // round-trip so consumers always see either null or a string.
   aiTitle: null,
+  // Phase 90 Plan 01: harness kind exercised on SAMPLE_A. The round-trip
+  // asserters below check that kind survives verbatim on the surviving
+  // entries. roomId + roomTitle are undefined/null respectively for a
+  // harness row (Matrix identity axis is not applicable) — the reader
+  // preserves undefined kind/roomId and coerces roomTitle to null via the
+  // same `?? null` treatment as lastMessageAt / aiTitle.
+  kind: "harness",
+  roomTitle: null,
 };
 
 const SAMPLE_B: FleetSession = {
@@ -54,6 +66,12 @@ const SAMPLE_B: FleetSession = {
   // Phase 47 Plan 01: populated string case — exercises the round-trip's
   // string-value branch. Combined with SAMPLE_A's null, both branches covered.
   aiTitle: "Fix cache round-trip",
+  // Phase 90 Plan 01: relay-room kind exercised on SAMPLE_B. Populated
+  // roomId + roomTitle exercise the string-preservation branch of the
+  // round-trip for relay identity fields.
+  kind: "relay-room",
+  roomId: "!room:matrix.example",
+  roomTitle: "Working session",
 };
 
 describe("FleetSession localStorage cache (quick-260805-tub)", () => {
@@ -106,15 +124,24 @@ describe("FleetSession localStorage cache (quick-260805-tub)", () => {
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw as string) as Record<string, unknown>[];
     expect(parsed).toHaveLength(1);
-    // Phase 47 Plan 01: canonical field set is now 7 (added aiTitle to the
-    // Phase 44 Plan 04 set of 6). Alphabetical order places aiTitle first.
+    // Phase 90 Plan 01: canonical field set grows by three — kind, roomId,
+    // roomTitle (the Phase-89 relay identity axis + kind discriminator).
+    // Alphabetical order. Note: JSON.stringify drops `undefined` values, so
+    // when SAMPLE_A + kind="harness" runs through with roomId=undefined
+    // that key does NOT appear in the parsed payload. The withExtra spread
+    // pattern here uses SAMPLE_A which does set `kind` + `roomTitle` (and
+    // leaves roomId undefined) — parsed keys therefore include kind +
+    // roomTitle but NOT roomId. This is the correct steady-state for a
+    // harness row: no Matrix roomId to persist.
     expect(Object.keys(parsed[0]).sort()).toEqual([
       "aiTitle",
       "created",
       "hostId",
       "hostName",
+      "kind",
       "lastMessageAt",
       "role",
+      "roomTitle",
       "sessionName",
     ]);
   });

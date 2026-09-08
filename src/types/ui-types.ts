@@ -205,6 +205,29 @@ export type Tab = {
     fit?: () => void;
     notifyResize?: () => void;
   } | null>;
+
+  // ─── Phase 90 Plan 01 — Phase-89 kind discriminator on the Tab model ───────
+  //
+  // Carries the Phase-89 `kind` marker from the sidebar row (see
+  // `FleetSession` in @/state/conversation-store) down to the pane-mount
+  // dispatcher (Plan 07's tabUtils.tsx widening) so the dispatcher can
+  // branch to `RelayRoomSessionPane` for `sessionKind === "relay-room"`
+  // without re-reading the sidebar store at mount time.
+  //
+  // Field name is `sessionKind` (NOT `kind`) intentionally: `Tab` already
+  // uses `type` for its own dispatch axis ("dashboard" | "terminal" | "rdp"
+  // | "vnc" | "telnet"), and a bare `kind` on this shape would read
+  // ambiguously alongside `type`. `sessionKind` names the axis clearly
+  // (which SESSION kind is this tab hosting?) and leaves room for future
+  // per-tab discriminators without collision.
+  //
+  // All three fields are optional — pre-Phase-90 persisted tabs and every
+  // non-relay tab (terminal / rdp / vnc / telnet / dashboard) simply omit
+  // them. Backward-compat rule: dispatcher treats `sessionKind === undefined`
+  // as harness/legacy (existing pane path).
+  sessionKind?: "harness" | "relay-room";
+  relayRoomId?: string;
+  relayRoomTitle?: string | null;
 };
 
 export type DashboardCardId =

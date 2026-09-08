@@ -163,6 +163,26 @@ export type FleetSession = {
   // predates this field) deserialize into a FleetSession object that simply
   // omits the field — seed loop then calls with `?? null`.
   aiTitle?: string | null;
+  // Phase 90 Plan 01 — Phase-89 `kind` discriminator + relay-room identity
+  // fields carried from /sessions/list (Phase 89 Plan 04). Row-shape mirror
+  // of `RemoteTmuxSession` (see @/api/sessions-api). All three fields
+  // optional so a v3 cache rehydrate (pre-Phase-90 client) deserializes
+  // into a FleetSession that simply omits them — backward-compat rule:
+  // consumers reading `kind` treat undefined as "harness".
+  //
+  // Consumed downstream at tab-open time: the sidebar row-click handler
+  // propagates `kind` + `roomId` + `roomTitle` onto the created Tab's
+  // `sessionKind` / `relayRoomId` / `relayRoomTitle` fields (see Plan 07),
+  // where the pane-mount dispatcher branches on `sessionKind` to render
+  // either PrettyView or RelayRoomSessionPane.
+  //
+  // Cache-version bump v3 → v4 (see FLEET_CACHE_KEY comment below) forces
+  // one clean cold-start after deploy so persisted v3 objects — which
+  // predate these fields — are discarded rather than deserialized into a
+  // stale shape without the new relay identity axis.
+  kind?: "harness" | "relay-room";
+  roomId?: string;
+  roomTitle?: string | null;
 };
 
 type SnapshotForTest = ConversationList & {
@@ -1070,7 +1090,21 @@ export function removeFleetSession(hostId: number, sessionName: string): void {
 // v2 cache). Because ai-title reconciliation is LAST-WINS (not max-wins),
 // we prefer a clean cold-start over a silently-empty rehydrate for cached
 // rows on deploy — small acceptable UX cost.
-const FLEET_CACHE_KEY = "skynet:convo-fleet-cache:v3";
+//
+// Phase 90 Plan 01 — bumped v3 → v4 because FleetSession gained the
+// Phase-89 `kind` discriminator + `roomId` / `roomTitle` relay identity
+// fields. A v3 rehydrate on a Phase-90 client would seed FleetSession
+// objects lacking the relay axis; while every downstream consumer treats
+// `kind === undefined` as `"harness"` (backward-compat rule, PATTERNS.md),
+// the CORRECT interpretation of a v3 cache is "we don't know which kind —
+// force a re-fetch". A cached row that IS a relay-room but rehydrates as
+// harness would route through the wrong pane on click (harness pane won't
+// find a matching tmux session, PrettyView error state). Forcing one clean
+// cold-start after deploy trades ~200ms of empty-sidebar paint for correct
+// pane routing on first click. Same rationale as v1→v2 (Phase 44) and
+// v2→v3 (Phase 47): small acceptable UX cost, avoids a semantic
+// misinterpretation on rehydrate.
+const FLEET_CACHE_KEY = "skynet:convo-fleet-cache:v4";
 
 function isFleetSession(x: unknown): x is FleetSession {
   if (!x || typeof x !== "object") return false;
@@ -1106,6 +1140,32 @@ function isFleetSession(x: unknown): x is FleetSession {
   ) {
     return false;
   }
+  // Phase 90 Plan 01: accept undefined OR the two known kind literals.
+  // Reject other strings defensively — a corrupt entry with kind="banana"
+  // could route a row through the wrong pane orchestrator downstream.
+  if (
+    r.kind !== undefined &&
+    r.kind !== "harness" &&
+    r.kind !== "relay-room"
+  ) {
+    return false;
+  }
+  // Phase 90 Plan 01: accept undefined or string for roomId. Reject other
+  // types — roomId is a Matrix opaque identifier, always a string when
+  // present. A non-string value would poison the tab-open handler.
+  if (r.roomId !== undefined && typeof r.roomId !== "string") {
+    return false;
+  }
+  // Phase 90 Plan 01: accept undefined, null, or string for roomTitle
+  // (Matrix rooms may have no title set — null is a legal value on the
+  // wire, mirroring the RelayRoomSessionRow contract).
+  if (
+    r.roomTitle !== undefined &&
+    r.roomTitle !== null &&
+    typeof r.roomTitle !== "string"
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -1136,6 +1196,17 @@ export function readFleetSessionsCache(): FleetSession[] {
         // consistent shape.
         // Phase 47 Plan 01 — same coerce-undefined-to-null treatment for
         // aiTitle; downstream (AppShell seed loop) always sees null or string.
+        // Phase 90 Plan 01 — carry `kind` / `roomId` / `roomTitle` through
+        // the round-trip. Unlike lastMessageAt/aiTitle, `kind` and `roomId`
+        // are NOT coerced to null on undefined: `kind === undefined` is a
+        // load-bearing signal that the row predates the Phase-90 wire
+        // extension (backward-compat rule: consumers treat undefined as
+        // "harness"). Preserving the undefined-vs-explicit distinction lets
+        // the tab-open handler distinguish "definitely harness" from
+        // "definitely relay-room" from "unknown, assume harness".
+        // (After the v3 → v4 cache bump this only matters for the
+        // theoretical case of a client that gets a v4-key entry from
+        // somewhere without kind populated — defense in depth.)
         valid.push({
           hostId: item.hostId,
           hostName: item.hostName,
@@ -1144,6 +1215,9 @@ export function readFleetSessionsCache(): FleetSession[] {
           role: item.role,
           lastMessageAt: item.lastMessageAt ?? null,
           aiTitle: item.aiTitle ?? null,
+          kind: item.kind,
+          roomId: item.roomId,
+          roomTitle: item.roomTitle ?? null,
         });
       }
     }
@@ -1171,6 +1245,12 @@ export function writeFleetSessionsCache(sessions: FleetSession[]): void {
     // Same rationale: a stale-but-close-enough ai-title on cold-start paint is
     // better than null (which renders the fallback ellipsis); the fresh fetch
     // overwrites within ~200ms.
+    // Phase 90 Plan 01 — persist `kind` / `roomId` / `roomTitle` so a page
+    // refresh paints the correct pane orchestrator on first click without
+    // waiting for the fresh /sessions/list. Undefined kind is intentionally
+    // preserved (JSON.stringify drops it) so a legacy row without the field
+    // rehydrates as kind=undefined → backward-compat "harness" fallback.
+    // roomTitle coerces undefined → null (Matrix's "no title" wire value).
     const canonical = sessions.map((s) => ({
       hostId: s.hostId,
       hostName: s.hostName,
@@ -1179,6 +1259,9 @@ export function writeFleetSessionsCache(sessions: FleetSession[]): void {
       role: s.role,
       lastMessageAt: s.lastMessageAt ?? null,
       aiTitle: s.aiTitle ?? null,
+      kind: s.kind,
+      roomId: s.roomId,
+      roomTitle: s.roomTitle ?? null,
     }));
     localStorage.setItem(FLEET_CACHE_KEY, JSON.stringify(canonical));
   } catch {

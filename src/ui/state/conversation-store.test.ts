@@ -1011,7 +1011,11 @@ describe("conversation-store (quick-260810-oig): removeFleetSession", () => {
   // FLEET_CACHE_KEY comment for rationale — aiTitle field addition on
   // FleetSession forces a fresh cold-start so v2 entries lacking aiTitle
   // do not rehydrate and seed working-store with missing/undefined aiTitle).
-  const FLEET_CACHE_KEY = "skynet:convo-fleet-cache:v3";
+  // Phase 90 Plan 01: cache key bumped v3 → v4 (kind + roomId + roomTitle
+  // addition on FleetSession forces a fresh cold-start so v3 entries
+  // lacking the relay identity axis do not rehydrate and misroute a
+  // relay-room row through the harness pane orchestrator).
+  const FLEET_CACHE_KEY = "skynet:convo-fleet-cache:v4";
 
   it("R1: removes present (hostId, sessionName) tuple, fires notify, trims cache", () => {
     const sessions: FleetSession[] = [
@@ -2981,18 +2985,21 @@ describe("conversation-store (Phase 41 Plan 03): real fleet-status wire-side sig
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("conversation-store (Phase 44 Plan 04): FleetSession lastMessageAt cache round-trip", () => {
-  // Phase 47 Plan 01: cache key bumped v2 → v3 (aiTitle addition). Local const
-  // renamed from the prior v2-suffixed name to track the current v3 key.
-  const FLEET_CACHE_KEY_V3 = "skynet:convo-fleet-cache:v3";
+  // Phase 47 Plan 01: cache key bumped v2 → v3 (aiTitle addition).
+  // Phase 90 Plan 01: cache key bumped v3 → v4 (kind + roomId + roomTitle
+  // addition). Local const tracks the current key so these round-trip
+  // tests exercise the actual reader/writer target, not a historical one.
+  const FLEET_CACHE_KEY_V4 = "skynet:convo-fleet-cache:v4";
 
   beforeEach(() => {
     try {
-      localStorage.removeItem(FLEET_CACHE_KEY_V3);
-      // Also clear any lingering v1 or v2 entry so a pre-bump cache from a
-      // previous test run does NOT leak into the v3 read (which would correctly
-      // return [] — this beforeEach is defense in depth).
+      localStorage.removeItem(FLEET_CACHE_KEY_V4);
+      // Also clear any lingering v1/v2/v3 entry so a pre-bump cache from a
+      // previous test run does NOT leak into the v4 read (which would
+      // correctly return [] — this beforeEach is defense in depth).
       localStorage.removeItem("skynet:convo-fleet-cache:v1");
       localStorage.removeItem("skynet:convo-fleet-cache:v2");
+      localStorage.removeItem("skynet:convo-fleet-cache:v3");
     } catch {
       /* jsdom localStorage always available */
     }
@@ -3026,16 +3033,16 @@ describe("conversation-store (Phase 44 Plan 04): FleetSession lastMessageAt cach
   });
 
   it("Task 1 – Test C: readFleetSessionsCache accepts current-key entries missing lastMessageAt (coerces to null)", () => {
-    // Simulate a v3 cache entry that predates the lastMessageAt field being
-    // populated by the writer — the isFleetSession predicate accepts the
-    // absence (optional), and the reader defensively coerces to null so
-    // downstream consumers (AppShell seed loop) have a consistent shape.
-    // (Phase 47 Plan 01: bumped v2 → v3; the read path shape-check is
-    // otherwise identical.)
+    // Simulate a current-key cache entry that predates the lastMessageAt
+    // field being populated by the writer — the isFleetSession predicate
+    // accepts the absence (optional), and the reader defensively coerces
+    // to null so downstream consumers (AppShell seed loop) have a
+    // consistent shape. (The read path shape-check is otherwise identical
+    // across cache bumps v1→v2→v3→v4.)
     const legacy = [
       { hostId: 4, hostName: "hD", sessionName: "s-legacy", created: 400, role: null },
     ];
-    localStorage.setItem(FLEET_CACHE_KEY_V3, JSON.stringify(legacy));
+    localStorage.setItem(FLEET_CACHE_KEY_V4, JSON.stringify(legacy));
     const read = readFleetSessionsCache();
     expect(read.length).toBe(1);
     expect(read[0].sessionName).toBe("s-legacy");
@@ -3051,37 +3058,37 @@ describe("conversation-store (Phase 44 Plan 04): FleetSession lastMessageAt cach
       { hostId: 5, hostName: "hE", sessionName: "s-bad", created: 500, role: null, lastMessageAt: "not-a-number" },
       { hostId: 6, hostName: "hF", sessionName: "s-good", created: 600, role: null, lastMessageAt: 6000 },
     ];
-    localStorage.setItem(FLEET_CACHE_KEY_V3, JSON.stringify(mixed));
+    localStorage.setItem(FLEET_CACHE_KEY_V4, JSON.stringify(mixed));
     const read = readFleetSessionsCache();
     expect(read.length).toBe(1);
     expect(read[0].sessionName).toBe("s-good");
     expect(read[0].lastMessageAt).toBe(6000);
   });
 
-  it("Task 1 – Test E: writeFleetSessionsCache writes to the v3 cache key (v2 not written)", () => {
-    // Phase 47 Plan 01: bump v2 → v3. Writer must not touch the old key.
+  it("Task 1 – Test E: writeFleetSessionsCache writes to the v4 cache key (v3 not written)", () => {
+    // Phase 90 Plan 01: bump v3 → v4. Writer must not touch the old key.
+    // (Prior bumps established the pattern — Phase 44 v1→v2, Phase 47
+    // v2→v3; this test locks the current invariant.)
     const sessions: FleetSession[] = [
       { hostId: 7, hostName: "hG", sessionName: "s-key-test", created: 700, role: null, lastMessageAt: 700 },
     ];
     writeFleetSessionsCache(sessions);
-    expect(localStorage.getItem("skynet:convo-fleet-cache:v3")).not.toBeNull();
-    expect(localStorage.getItem("skynet:convo-fleet-cache:v2")).toBeNull();
+    expect(localStorage.getItem("skynet:convo-fleet-cache:v4")).not.toBeNull();
+    expect(localStorage.getItem("skynet:convo-fleet-cache:v3")).toBeNull();
   });
 
-  it("Task 1 – Test F: readFleetSessionsCache returns [] when only a v2 (pre-Phase-47-bump) cache entry exists", () => {
-    // Phase 47 Plan 01: bumped v2 → v3. A leftover v2 cache from a pre-Phase-47
-    // client (post-Phase-44) must be ignored — the reader reads FROM v3, so
-    // the v2 entry contributes nothing. Forces a clean fresh-fetch on first
-    // Phase 47 load. Same rationale as Phase 44's v1→v2 bump: prevents
-    // rehydrate from seeding working-store with objects lacking aiTitle
-    // (which would flow undefined → null via readFleetSessionsCache's coerce
-    // → AppShell seed-loop calls seedSessionAiTitle with null → last-wins
-    // no-op → row renders the fallback ellipsis instead of the last-known
-    // ai-title from the v2 cache).
-    const v2data = [
-      { hostId: 8, hostName: "hH", sessionName: "s-v2-leftover", created: 800, role: null, lastMessageAt: 800 },
+  it("Task 1 – Test F: readFleetSessionsCache returns [] when only a v3 (pre-Phase-90-bump) cache entry exists", () => {
+    // Phase 90 Plan 01: bumped v3 → v4. A leftover v3 cache from a
+    // pre-Phase-90 client (post-Phase-47) must be ignored — the reader
+    // reads FROM v4, so the v3 entry contributes nothing. Forces a clean
+    // fresh-fetch on first Phase 90 load. Same rationale as prior version
+    // bumps: prevents a rehydrate from seeding working-store with objects
+    // lacking the new axis (here: kind + roomId + roomTitle), which would
+    // misroute relay-room rows through the harness pane orchestrator.
+    const v3data = [
+      { hostId: 8, hostName: "hH", sessionName: "s-v3-leftover", created: 800, role: null, lastMessageAt: 800, aiTitle: null },
     ];
-    localStorage.setItem("skynet:convo-fleet-cache:v2", JSON.stringify(v2data));
+    localStorage.setItem("skynet:convo-fleet-cache:v3", JSON.stringify(v3data));
     const read = readFleetSessionsCache();
     expect(read).toEqual([]);
   });
@@ -3097,13 +3104,16 @@ describe("conversation-store (Phase 44 Plan 04): FleetSession lastMessageAt cach
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("conversation-store (Phase 47 Plan 01): FleetSession aiTitle cache round-trip", () => {
-  const FLEET_CACHE_KEY_V3 = "skynet:convo-fleet-cache:v3";
+  // Phase 90 Plan 01: cache key bumped v3 → v4 (kind + relay fields
+  // addition). Local const tracks the current key.
+  const FLEET_CACHE_KEY_V4 = "skynet:convo-fleet-cache:v4";
 
   beforeEach(() => {
     try {
-      localStorage.removeItem(FLEET_CACHE_KEY_V3);
+      localStorage.removeItem(FLEET_CACHE_KEY_V4);
       localStorage.removeItem("skynet:convo-fleet-cache:v1");
       localStorage.removeItem("skynet:convo-fleet-cache:v2");
+      localStorage.removeItem("skynet:convo-fleet-cache:v3");
     } catch {
       /* jsdom localStorage always available */
     }
@@ -3133,7 +3143,7 @@ describe("conversation-store (Phase 47 Plan 01): FleetSession aiTitle cache roun
       { hostId: 12, hostName: "hL", sessionName: "s-bad-title", created: 1200, role: null, lastMessageAt: null, aiTitle: 42 },
       { hostId: 13, hostName: "hM", sessionName: "s-good-title", created: 1300, role: null, lastMessageAt: null, aiTitle: "OK" },
     ];
-    localStorage.setItem(FLEET_CACHE_KEY_V3, JSON.stringify(bad));
+    localStorage.setItem(FLEET_CACHE_KEY_V4, JSON.stringify(bad));
     const read = readFleetSessionsCache();
     expect(read.length).toBe(1);
     expect(read[0].sessionName).toBe("s-good-title");
@@ -3205,5 +3215,206 @@ describe("conversation-store (Phase 44 Plan 04): compareByRecencyDesc — null-t
     act(() => __setLastMessageAtForTest("r-real", 1000));
     const snap = __getSnapshotForTest();
     expect(snap.middle.map((r) => r.id)).toEqual(["r-real", "r-null"]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 90 Plan 01 — FleetSession kind + relay-room fields cache round-trip
+//
+// Task 1 coverage: FleetSession type gained optional `kind` discriminator
+// (`"harness" | "relay-room"`) plus optional `roomId` + `roomTitle`;
+// isFleetSession predicate accepts undefined/known-literal/valid-strings for
+// each (rejects other types/values); readFleetSessionsCache preserves the
+// fields (coerces roomTitle undefined → null, preserves kind + roomId
+// undefined-vs-explicit distinction); writeFleetSessionsCache persists them.
+// Cache key bumped v3 → v4 for the same clean-cold-start-over-stale-shape
+// rationale as v1→v2 (Phase 44) and v2→v3 (Phase 47).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("conversation-store (Phase 90 Plan 01): FleetSession kind + relay-room fields cache round-trip", () => {
+  const FLEET_CACHE_KEY_V4 = "skynet:convo-fleet-cache:v4";
+
+  beforeEach(() => {
+    try {
+      localStorage.removeItem(FLEET_CACHE_KEY_V4);
+      // Defense in depth: clear all prior-version keys so a leaked entry
+      // from an earlier test run doesn't seep into a v4 read (which would
+      // correctly ignore it — the reader reads FROM v4 — but the beforeEach
+      // isolates each test case from every other cache-write history).
+      localStorage.removeItem("skynet:convo-fleet-cache:v1");
+      localStorage.removeItem("skynet:convo-fleet-cache:v2");
+      localStorage.removeItem("skynet:convo-fleet-cache:v3");
+    } catch {
+      /* jsdom localStorage always available */
+    }
+  });
+
+  it("Task 1 – Test P: FleetSession accepts optional kind + roomId + roomTitle at the type level", () => {
+    // Type-level assertion: a FleetSession object carrying the new relay
+    // identity axis (kind + roomId + roomTitle) must be constructable
+    // through the exported type without a cast or assertion. Runtime-safe
+    // via a straight object literal + property reads.
+    const relayRow: FleetSession = {
+      hostId: 0,
+      hostName: "",
+      sessionName: "",
+      created: 0,
+      role: null,
+      lastMessageAt: null,
+      aiTitle: null,
+      kind: "relay-room",
+      roomId: "!abc:matrix.example",
+      roomTitle: "Ashley + team",
+    };
+    expect(relayRow.kind).toBe("relay-room");
+    expect(relayRow.roomId).toBe("!abc:matrix.example");
+    expect(relayRow.roomTitle).toBe("Ashley + team");
+
+    // Legacy shape (kind absent) also typechecks — backward-compat rule
+    // for pre-Phase-90 rehydrated caches.
+    const legacyRow: FleetSession = {
+      hostId: 1,
+      hostName: "thenasty",
+      sessionName: "tina",
+      created: 100,
+      role: null,
+    };
+    expect(legacyRow.kind).toBeUndefined();
+    // Backward-compat semantic: consumers treat `kind ?? "harness"`.
+    expect(legacyRow.kind ?? "harness").toBe("harness");
+  });
+
+  it("Task 1 – Test Q: writeFleetSessionsCache + readFleetSessionsCache round-trip preserves kind (both harness and relay-room)", () => {
+    // Both kinds together — this is exactly the shape /sessions/list returns
+    // post-Phase-89 (a merged list). Round-trip must preserve both.
+    const sessions: FleetSession[] = [
+      { hostId: 1, hostName: "hA", sessionName: "s-h", created: 100, role: null, lastMessageAt: null, aiTitle: null, kind: "harness" },
+      { hostId: 0, hostName: "", sessionName: "", created: 200, role: null, lastMessageAt: null, aiTitle: null, kind: "relay-room", roomId: "!room:example", roomTitle: "Team" },
+    ];
+    writeFleetSessionsCache(sessions);
+    const read = readFleetSessionsCache();
+    expect(read.length).toBe(2);
+    expect(read[0].kind).toBe("harness");
+    expect(read[1].kind).toBe("relay-room");
+    expect(read[1].roomId).toBe("!room:example");
+    expect(read[1].roomTitle).toBe("Team");
+  });
+
+  it("Task 1 – Test R: writeFleetSessionsCache coerces roomTitle undefined to null on the wire (read yields null)", () => {
+    // roomTitle uses the same undefined → null coerce as lastMessageAt +
+    // aiTitle: the Matrix wire has explicit `null` for "no title set", so
+    // consumers should never see `undefined` after a round-trip. JSON also
+    // can't represent undefined, so the coerce is a defense.
+    const sessions: FleetSession[] = [
+      { hostId: 2, hostName: "hB", sessionName: "s2", created: 200, role: null, kind: "relay-room", roomId: "!x:y" },
+    ];
+    writeFleetSessionsCache(sessions);
+    const read = readFleetSessionsCache();
+    expect(read.length).toBe(1);
+    expect(read[0].roomTitle).toBeNull();
+  });
+
+  it("Task 1 – Test S: readFleetSessionsCache preserves kind undefined-vs-explicit distinction (legacy row rehydrates as kind=undefined)", () => {
+    // A v4 cache entry could exist without a `kind` field (e.g. a
+    // hypothetical writer that didn't populate it, or a partially-migrated
+    // future entry). The reader must NOT synthesize a default of "harness"
+    // — that's the CONSUMER's job (backward-compat rule). Preserving the
+    // undefined signal lets downstream code distinguish "definitely
+    // harness" (kind === "harness") from "unknown, assume harness"
+    // (kind === undefined) for future forensics.
+    const legacy = [
+      { hostId: 3, hostName: "hC", sessionName: "s3", created: 300, role: null },
+    ];
+    localStorage.setItem(FLEET_CACHE_KEY_V4, JSON.stringify(legacy));
+    const read = readFleetSessionsCache();
+    expect(read.length).toBe(1);
+    expect(read[0].kind).toBeUndefined();
+    // Backward-compat semantic — the CONSUMER (tab-open handler) applies the
+    // default when it reads the field. Reader itself preserves undefined.
+    expect(read[0].kind ?? "harness").toBe("harness");
+  });
+
+  it("Task 1 – Test T: isFleetSession rejects kind that is neither known literal nor undefined", () => {
+    // A corrupt cache entry with `kind: "banana"` would route a row through
+    // the wrong pane orchestrator downstream. The reader filters the bad
+    // entry silently; the sibling with a valid kind survives.
+    const mixed = [
+      { hostId: 4, hostName: "hD", sessionName: "s-bad", created: 400, role: null, kind: "banana" },
+      { hostId: 5, hostName: "hE", sessionName: "s-good", created: 500, role: null, kind: "harness" },
+    ];
+    localStorage.setItem(FLEET_CACHE_KEY_V4, JSON.stringify(mixed));
+    const read = readFleetSessionsCache();
+    expect(read.length).toBe(1);
+    expect(read[0].sessionName).toBe("s-good");
+    expect(read[0].kind).toBe("harness");
+  });
+
+  it("Task 1 – Test U: isFleetSession rejects roomId of wrong type (number)", () => {
+    // roomId is a Matrix opaque identifier — always a string when present.
+    // A non-string roomId would poison the tab-open handler downstream
+    // (which passes it to the URL-safe encoder on WS-connect).
+    const bad = [
+      { hostId: 6, hostName: "hF", sessionName: "s-bad", created: 600, role: null, kind: "relay-room", roomId: 42 },
+      { hostId: 7, hostName: "hG", sessionName: "s-good", created: 700, role: null, kind: "relay-room", roomId: "!room:example" },
+    ];
+    localStorage.setItem(FLEET_CACHE_KEY_V4, JSON.stringify(bad));
+    const read = readFleetSessionsCache();
+    expect(read.length).toBe(1);
+    expect(read[0].sessionName).toBe("s-good");
+    expect(read[0].roomId).toBe("!room:example");
+  });
+
+  it("Task 1 – Test V: writeFleetSessionsCache writes to the v4 cache key (v3 not written)", () => {
+    // Phase 90 Plan 01 bump v3 → v4. Writer must not touch the old key —
+    // otherwise a partial rehydrate could combine v3 shape + v4 shape.
+    const sessions: FleetSession[] = [
+      { hostId: 8, hostName: "hH", sessionName: "s-key", created: 800, role: null, kind: "harness" },
+    ];
+    writeFleetSessionsCache(sessions);
+    expect(localStorage.getItem("skynet:convo-fleet-cache:v4")).not.toBeNull();
+    expect(localStorage.getItem("skynet:convo-fleet-cache:v3")).toBeNull();
+  });
+
+  it("Task 1 – Test W: readFleetSessionsCache returns [] when only a v3 (pre-Phase-90-bump) cache entry exists", () => {
+    // Phase 90 Plan 01 bump v3 → v4. A leftover v3 cache from a pre-Phase-90
+    // client (post-Phase-47) must be ignored — the reader reads FROM v4, so
+    // the v3 entry contributes nothing. Forces a clean fresh-fetch on first
+    // Phase 90 load. Same rationale as prior version bumps: prevents a
+    // rehydrate from seeding working-store with objects lacking the relay
+    // identity axis, which would misroute a click through the harness pane.
+    const v3data = [
+      { hostId: 9, hostName: "hI", sessionName: "s-v3-leftover", created: 900, role: null, lastMessageAt: 900, aiTitle: null },
+    ];
+    localStorage.setItem("skynet:convo-fleet-cache:v3", JSON.stringify(v3data));
+    const read = readFleetSessionsCache();
+    expect(read).toEqual([]);
+  });
+
+  it("Task 1 – Test X: round-trip a relay-room session end-to-end and confirm it can be identified by kind on rehydrate", () => {
+    // Integration lock — the store surface exposes the fields all the way
+    // through: writeFleetSessionsCache → localStorage → readFleetSessionsCache
+    // → downstream handler switches on kind. A relay-room row must survive
+    // the round-trip as a relay-room row (not silently reinterpreted as
+    // harness through some coerce-on-read misstep).
+    const original: FleetSession = {
+      hostId: 0,
+      hostName: "",
+      sessionName: "",
+      created: 1_700_000_000,
+      role: null,
+      lastMessageAt: 1_700_000_500,
+      aiTitle: null,
+      kind: "relay-room",
+      roomId: "!kittens:matrix.example",
+      roomTitle: "Kitten Fanciers",
+    };
+    writeFleetSessionsCache([original]);
+    const [round] = readFleetSessionsCache();
+    expect(round).toBeDefined();
+    // Downstream branch key — the tab-open handler switches on kind.
+    const effectiveKind = round.kind ?? "harness";
+    expect(effectiveKind).toBe("relay-room");
+    expect(round.roomId).toBe("!kittens:matrix.example");
+    expect(round.roomTitle).toBe("Kitten Fanciers");
   });
 });
