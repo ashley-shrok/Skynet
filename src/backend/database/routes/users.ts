@@ -6,7 +6,7 @@ import { users, settings, roles, userRoles } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { nanoid } from "nanoid";
-import type { Request, Response } from "express";
+import type { Request, Response, NextFunction } from "express";
 import { authLogger } from "../../utils/logger.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { DataCrypto } from "../../utils/data-crypto.js";
@@ -295,40 +295,75 @@ router.post("/create", userAvatarUpload.single("avatar"), async (req, res) => {
 router.use("/create", userAvatarMulterErrorHandler);
 
 // ---------------------------------------------------------------------------
+// assertOwnOrAdminForAvatarChange — M7: authz middleware that fires BEFORE
+// multer parse so we don't buffer 5 MB for unauthorized callers.
+//
+// Reads isAdmin from DB (not JWT) per RESEARCH.md § 6 — defends against
+// mid-session role revocation. Returns 403 if caller is neither the target
+// user nor an admin. Attaches callerRecord to req for the handler to reuse.
+// ---------------------------------------------------------------------------
+async function assertOwnOrAdminForAvatarChange(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  const userId = (req as AuthenticatedRequest).userId;
+  const targetUserId = String(req.params.id);
+
+  if (!isNonEmptyString(targetUserId)) {
+    res.status(400).json({ error: "user id required in path" });
+    return;
+  }
+
+  try {
+    // Read caller's isAdmin from DB (not JWT) — defends against mid-session revocation.
+    const callerRows = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId));
+    if (!callerRows || callerRows.length === 0) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+    const callerRecord = callerRows[0];
+
+    // Own-or-admin guard — mirror user-session-routes.ts:154.
+    if (!callerRecord.isAdmin && targetUserId !== userId) {
+      res.status(403).json({ error: "Not authorized to change this user's avatar" });
+      return;
+    }
+
+    // Attach callerRecord so the handler doesn't need to re-query.
+    (req as AuthenticatedRequest & { callerRecord: typeof callerRecord }).callerRecord = callerRecord;
+    next();
+  } catch (err) {
+    authLogger.error("assertOwnOrAdminForAvatarChange unexpected error", err, {
+      operation: "user_avatar_change_authz_error",
+      userId,
+      targetUserId,
+    });
+    res.status(500).json({ error: "authorization check failed" });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // PUT /users/:id/avatar — replace an existing user's avatar (D-10, D-12, D-14,
 // D-15, D-16, D-17, D-23)
 //
-// Auth: authenticateJWT + own-or-admin guard (reads isAdmin from DB, not JWT,
-// per RESEARCH.md § 6 — defends against mid-session role revocation).
+// Auth: authenticateJWT + assertOwnOrAdminForAvatarChange (M7: runs BEFORE
+// multer so 5 MB is not buffered for unauthorized callers) + multer.
 //
 // Ordering: new-file-then-row-UPDATE-then-old-file-unlink per RESEARCH.md § 5.
 // Rollback: if UPDATE fails, new file is unlinked (if different name from old).
 // ---------------------------------------------------------------------------
-router.put("/:id/avatar", authenticateJWT, userAvatarUpload.single("avatar"), async (req, res) => {
+router.put("/:id/avatar", authenticateJWT, assertOwnOrAdminForAvatarChange, userAvatarUpload.single("avatar"), async (req, res) => {
     const userId = (req as AuthenticatedRequest).userId;
     const targetUserId = String(req.params.id);
 
-    if (!isNonEmptyString(targetUserId)) {
-      return res.status(400).json({ error: "user id required in path" });
-    }
-
     try {
-      // Step 1: Verify caller exists in DB and get isAdmin from DB (not JWT).
-      const callerRows = await db
-        .select()
-        .from(users)
-        .where(eq(users.id, userId));
-      if (!callerRows || callerRows.length === 0) {
-        return res.status(404).json({ error: "User not found" });
-      }
-      const callerRecord = callerRows[0];
-
-      // Step 2: Own-or-admin guard — mirror user-session-routes.ts:154.
-      if (!callerRecord.isAdmin && targetUserId !== userId) {
-        return res
-          .status(403)
-          .json({ error: "Not authorized to change this user's avatar" });
-      }
+      // Step 1+2 (own-or-admin guard) already enforced by assertOwnOrAdminForAvatarChange
+      // middleware above (M7). Defense-in-depth: re-check here in case middleware is bypassed.
+      // Caller record is available on req.callerRecord (attached by middleware).
 
       // Step 3: Verify target user exists so a legit admin targeting a bogus id gets 404.
       // (Read performed outside the tx to keep the 404 path simple — the tx below

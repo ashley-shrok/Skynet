@@ -1468,6 +1468,35 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // M7: own-or-admin authz fires BEFORE multer — non-admin non-owner gets 403
+  // without writeUserAvatar (i.e., without any file processing in the handler)
+  // ---------------------------------------------------------------------------
+  it("PUT /:id/avatar — M7: non-admin non-owner returns 403 without invoking writeUserAvatar", async () => {
+    // Charlie is non-admin and is NOT Alice — authz must fire before body parse.
+    authControl.userId = "charlie-id";
+
+    const res = await putMultipartWithAuth(changeServer, {
+      path: "/users/alice-id/avatar",
+      file: { fieldName: "avatar", filename: "avatar.png", contentType: "image/png", bytes: MINIMAL_PNG_BYTES },
+      jwt: "valid-jwt",
+    });
+
+    // Must be 403 from the middleware (before multer buffers the file)
+    expect(res.status).toBe(403);
+    const body = res.body as { error: string };
+    expect(body.error).toMatch(/Not authorized to change this user/);
+
+    // writeUserAvatar MUST NOT have been called — proves the handler body was never reached
+    expect(mockWriteUserAvatar).not.toHaveBeenCalled();
+
+    // Alice's row must be unchanged
+    const row = sqliteDb.prepare("SELECT avatar_path FROM users WHERE id = ?").get("alice-id") as
+      | { avatar_path: string | null }
+      | undefined;
+    expect(row?.avatar_path).toBe("alice-id.png");
+  });
+
+  // ---------------------------------------------------------------------------
   // M3: EPERM on old-file unlink after successful UPDATE → 200, not 500
   // ---------------------------------------------------------------------------
   it("PUT /:id/avatar — M3: EPERM on old-file unlink returns 200 (not 500) after successful UPDATE", async () => {
