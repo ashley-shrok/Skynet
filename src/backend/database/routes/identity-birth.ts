@@ -113,6 +113,23 @@ router.post(
       return;
     }
 
+    // Phase 88 code-review M1 (defense-in-depth): gate `name` against
+    // IDENTITY_KEY_RE at the route layer for parity with the `role` gate at
+    // L146. The orchestrator revalidates `opts.name` before any shell/SFTP
+    // work (identity-birth-orchestrator.ts:862/871), so this is not the
+    // primary defense today — but Plan 88-01's parsedPath fallback at
+    // L228-232 substitutes `name.trim().toLowerCase()` into the working-
+    // directory path, and a future refactor that ever reorders those checks
+    // would turn a bad name into path traversal via `parsedPath` before the
+    // orchestrator's gate fires. Closing the asymmetry here removes the
+    // footgun for zero behavior change today.
+    if (!IDENTITY_KEY_RE.test(name.trim())) {
+      res
+        .status(400)
+        .json({ error: "name must match [a-z0-9._=/+-]+ (kebab-case)" });
+      return;
+    }
+
     // Phase 86 Plan 86-04: title-required gate deleted. Identities born without
     // a title inherit their role's title on landing (D-CTX-86-inherit) — the
     // orchestrator's absent-⇒-omit invariant at buildIdentityFileBody L392-395

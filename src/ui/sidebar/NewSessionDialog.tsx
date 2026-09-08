@@ -835,6 +835,19 @@ export function NewSessionDialog({
   // the field (isAdmin-gated at L1029) so they're vacuously valid.
   const pathValid = !isAdmin || path.trim() !== "";
 
+  // Phase 88 code-review M2 (defense-in-depth consistency): the "shell only"
+  // branch of the modal requires BOTH isAdmin AND shellOnly — a non-admin
+  // with a hypothetical stale-truthy shellOnly (rendering bug, state
+  // corruption, whatever) must still land in agent mode. Computing this at
+  // render scope lets both the birth-cluster JSX gate below AND the submit-
+  // onclick handler at L1310 read the SAME predicate — without this lift,
+  // the onclick had `!effectiveShellOnly` but the render gate used bare
+  // `!shellOnly`, so a non-admin+shellOnly-true state would hide the birth
+  // fields (name/role/task) while the onclick STILL routed to handleBirth,
+  // producing a silent 400 with no user-facing failure surface. Never fires
+  // in practice; the point is that if it EVER did, the two gates now agree.
+  const effectiveShellOnly = isAdmin && shellOnly;
+
   const canOpen = !birthing && (!shellOnly
     ? selectedHost !== null &&
       nameValid &&
@@ -1098,11 +1111,15 @@ export function NewSessionDialog({
             </div>
           )}
 
-          {/* Identity-birth field cluster — visible when agent mode is ON
-              (i.e. `!shellOnly`, the default when the admin-only checkbox is
-              unchecked or when a non-admin caller never sees the checkbox at
-              all per Edit C's isAdmin gate). */}
-          {!shellOnly && (
+          {/* Identity-birth field cluster — visible when agent mode is ON.
+              Phase 88 code-review M2: gated on `!effectiveShellOnly`
+              (= `!(isAdmin && shellOnly)`) rather than bare `!shellOnly`, so
+              a non-admin with a stale-truthy shellOnly still renders the
+              birth cluster instead of hiding it — matches the submit-onclick
+              gate at L1310 so both agree. Default is agent mode when the
+              admin-only checkbox is unchecked, or when a non-admin caller
+              never sees the checkbox at all per Edit C's isAdmin gate. */}
+          {!effectiveShellOnly && (
             <div className="flex flex-col gap-3 pt-1 border-t border-[color:var(--color-pv-border-quiet)]">
 
               {/* Phase 80 Plan 80-06 Task 3 (RESEARCH §Landmine 2 fix,
@@ -1291,8 +1308,9 @@ export function NewSessionDialog({
               // isAdmin AND shellOnly are true. Only admins who explicitly
               // checked the Phase-88 shell-only checkbox (see Edit C label
               // for LOCKED wording) reach the regular-session branch below.
-              const effectiveShellOnly = isAdmin && shellOnly;
-
+              // `effectiveShellOnly` is computed at render scope (near
+              // pathValid) so this handler shares the same predicate the
+              // birth-cluster render gate uses — see M2 comment above.
               if (!effectiveShellOnly) {
                 // Agent mode (default for non-admin, and default for admin
                 // unless the shell-only checkbox is explicitly checked):
