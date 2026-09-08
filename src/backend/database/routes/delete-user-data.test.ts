@@ -40,6 +40,9 @@ let testAvatarsDir: string = "/tmp/test-avatars";
 // Mock for unlinkUserAvatar so we can spy on calls and control behavior
 const mockUnlinkUserAvatar = vi.fn<[string | null | undefined], Promise<void>>();
 
+// Mock for deactivateUser — spy on calls and control Synapse-side behavior
+const mockDeactivateUser = vi.fn<[string], Promise<{ ok: true } | { ok: false; status: number; error: string }>>();
+
 // ---------------------------------------------------------------------------
 // Mock: ../db/index.js — real in-memory SQLite behind a Drizzle-shaped proxy
 // ---------------------------------------------------------------------------
@@ -120,23 +123,27 @@ vi.mock("../db/index.js", () => {
             const userId = pendingWhereValue;
             pendingWhereValue = null;
             if (fromTableName === "users") {
-              // Detect whether the projection is asking for avatarPath
+              // Detect whether the projection is asking for avatarPath and/or mxid
               const wantsAvatarPath = Object.keys(
                 projection ?? {},
               ).some((k) => k === "avatarPath");
-              if (wantsAvatarPath) {
+              const wantsMxid = Object.keys(
+                projection ?? {},
+              ).some((k) => k === "mxid");
+              if (wantsAvatarPath || wantsMxid) {
                 const rows = userId
                   ? sqliteDb
                       .prepare(
-                        "SELECT avatar_path FROM users WHERE id = ?",
+                        "SELECT avatar_path, mxid FROM users WHERE id = ?",
                       )
                       .all(userId)
                   : sqliteDb
-                      .prepare("SELECT avatar_path FROM users")
+                      .prepare("SELECT avatar_path, mxid FROM users")
                       .all();
                 resolve(
                   (rows as Record<string, unknown>[]).map((r) => ({
                     avatarPath: r.avatar_path ?? null,
+                    mxid: r.mxid ?? null,
                   })),
                 );
               } else {
@@ -233,6 +240,10 @@ vi.mock("./user-avatar-storage.js", async (importOriginal) => {
   };
 });
 
+vi.mock("../../matrix/matrix-admin-client.js", () => ({
+  deactivateUser: (...args: [string]) => mockDeactivateUser(...args),
+}));
+
 // ---------------------------------------------------------------------------
 // Mock: logger — suppress console noise in test output
 // ---------------------------------------------------------------------------
@@ -258,7 +269,8 @@ function bootstrapUsersTable(db: InstanceType<typeof Database>): void {
       password_hash TEXT NOT NULL DEFAULT '',
       is_admin INTEGER NOT NULL DEFAULT 0,
       is_oidc INTEGER NOT NULL DEFAULT 0,
-      avatar_path TEXT
+      avatar_path TEXT,
+      mxid TEXT
     )
   `);
   // settings table needed for the LIKE DELETE in the helper
@@ -276,10 +288,11 @@ function insertUser(
     id: string;
     username?: string;
     avatarPath?: string | null;
+    mxid?: string | null;
   },
 ): void {
   db.prepare(
-    "INSERT INTO users (id, username, password_hash, is_admin, is_oidc, avatar_path) VALUES (?, ?, ?, ?, ?, ?)",
+    "INSERT INTO users (id, username, password_hash, is_admin, is_oidc, avatar_path, mxid) VALUES (?, ?, ?, ?, ?, ?, ?)",
   ).run(
     opts.id,
     opts.username ?? opts.id,
@@ -287,6 +300,7 @@ function insertUser(
     0,
     0,
     opts.avatarPath ?? null,
+    opts.mxid ?? null,
   );
 }
 
@@ -314,6 +328,8 @@ describe("delete-user-data (Phase 85 avatar cleanup — D-22)", () => {
     mockUnlinkUserAvatar.mockClear();
     // Default: ENOENT-tolerant unlink (real unlinkUserAvatar semantics)
     mockUnlinkUserAvatar.mockResolvedValue(undefined);
+    mockDeactivateUser.mockClear();
+    mockDeactivateUser.mockResolvedValue({ ok: true });
   });
 
   afterEach(async () => {
@@ -437,5 +453,62 @@ describe("delete-user-data (Phase 85 avatar cleanup — D-22)", () => {
     expect(selectIdx).toBeGreaterThan(-1); // SELECT projection must be present
     expect(deleteIdx).toBeGreaterThan(-1); // DELETE call must be present
     expect(selectIdx).toBeLessThan(deleteIdx); // SELECT must precede DELETE
+  });
+
+  // -------------------------------------------------------------------------
+  // Test B (D-09): deleteUserAndRelatedData calls deactivateUser with mxid before row DELETE
+  // -------------------------------------------------------------------------
+
+  it("deleteUserAndRelatedData calls deactivateUser with mxid before row DELETE (D-09)", async () => {
+    const { deleteUserAndRelatedData } = await import("./delete-user-data.js");
+
+    insertUser(sqliteDb!, { id: "dave_id", avatarPath: null, mxid: "@dave_human:server" });
+
+    await deleteUserAndRelatedData("dave_id");
+
+    expect(mockDeactivateUser).toHaveBeenCalledTimes(1);
+    expect(mockDeactivateUser).toHaveBeenCalledWith("@dave_human:server");
+
+    const remaining = sqliteDb!.prepare("SELECT * FROM users WHERE id = ?").all("dave_id");
+    expect(remaining).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test C: deleteUserAndRelatedData skips deactivateUser when mxid is null
+  // -------------------------------------------------------------------------
+
+  it("deleteUserAndRelatedData skips deactivateUser when mxid is null", async () => {
+    const { deleteUserAndRelatedData } = await import("./delete-user-data.js");
+
+    insertUser(sqliteDb!, { id: "eve_id", avatarPath: null, mxid: null });
+
+    await deleteUserAndRelatedData("eve_id");
+
+    expect(mockDeactivateUser).not.toHaveBeenCalled();
+
+    const remaining = sqliteDb!.prepare("SELECT * FROM users WHERE id = ?").all("eve_id");
+    expect(remaining).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test D (D-10): deleteUserAndRelatedData proceeds with row delete on Synapse deactivate failure
+  // -------------------------------------------------------------------------
+
+  it("deleteUserAndRelatedData proceeds with row delete on Synapse deactivate failure (D-10 best-effort)", async () => {
+    const { deleteUserAndRelatedData } = await import("./delete-user-data.js");
+
+    insertUser(sqliteDb!, { id: "frank_id", avatarPath: null, mxid: "@frank_human:server" });
+
+    mockDeactivateUser.mockResolvedValueOnce({ ok: false, status: 504, error: "admin_api_timeout" });
+
+    // Critical: MUST NOT throw even though Synapse deactivation failed
+    await expect(deleteUserAndRelatedData("frank_id")).resolves.toBeUndefined();
+
+    expect(mockDeactivateUser).toHaveBeenCalledTimes(1);
+    expect(mockDeactivateUser).toHaveBeenCalledWith("@frank_human:server");
+
+    // Row is gone — proves delete PROCEEDED despite Synapse failure
+    const remaining = sqliteDb!.prepare("SELECT * FROM users WHERE id = ?").all("frank_id");
+    expect(remaining).toHaveLength(0);
   });
 });
