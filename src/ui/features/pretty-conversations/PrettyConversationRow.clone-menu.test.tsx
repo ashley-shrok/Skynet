@@ -1,17 +1,19 @@
 // ─── PrettyConversationRow — Clone menu item coverage (Phase 22 SRIC-03) ─────
 // Companion test file to PrettyConversationRow.test.tsx covering the
-// Spawn-under-this-role entry in the context-menu items[] builder.
+// create-new-agent-under-this-role entry in the context-menu items[] builder.
 //
 // Phase 80-09: label renamed "Clone" → "Spawn under this role" (context-menu
 // action now spawns a fresh agent under the same role via the unified
 // NewSessionDialog chain-hook, rather than opening the retired
 // CloneAgentDialog). The prop is still `onClone` for backwards compat; only
 // the visible label + user intent changed.
+// Bounty 260908-h78: label rewritten again to "create new agent under this
+// role" — this file's assertions track the current label verbatim.
 //
 // Behavior spec (Tests 13-15):
 //   Test 13: onClone provided AND row.host !== null AND identity resolved
 //     from row.targetTmuxSession → items[] builder emits a spawn entry
-//     (label "Spawn under this role", onClick fires onClone).
+//     (label "create new agent under this role", onClick fires onClone).
 //   Test 14: onClone NOT provided → no spawn entry in items[].
 //   Test 15: onClone provided but row has no identity (sessionMatchKey → null
 //     OR useIdentities().byKey.get() returns undefined) → no spawn entry.
@@ -124,7 +126,7 @@ beforeEach(() => {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: Clone menu item", () => {
-  it("Test 13: onClone provided + row.host !== null + identity resolved → 'Spawn under this role' menu item present + onClick fires onClone", () => {
+  it("Test 13: onClone provided + row.host !== null + identity resolved → 'create new agent under this role' menu item present + onClick fires onClone", () => {
     currentIdentity = makeIdentity("nelly");
     const onClone = vi.fn();
     const { container } = render(
@@ -147,13 +149,13 @@ describe("PrettyConversationRow: Clone menu item", () => {
     // Trigger the context menu
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
 
-    // "Spawn under this role" item should be present in the portal-mounted menu
+    // "create new agent under this role" item should be present in the portal-mounted menu
     const spawnItem = screen.getByRole("menuitem", {
-      name: /spawn under this role/i,
+      name: "create new agent under this role",
     });
     expect(spawnItem).toBeTruthy();
 
-    // Click → onClone fires (prop name unchanged; only label changed in 80-09)
+    // Click → onClone fires (prop name unchanged; only label changed in 80-09 and 260908-h78)
     fireEvent.click(spawnItem);
     expect(onClone).toHaveBeenCalledTimes(1);
   });
@@ -178,7 +180,7 @@ describe("PrettyConversationRow: Clone menu item", () => {
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
 
-    expect(screen.queryByRole("menuitem", { name: /spawn under this role/i })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "create new agent under this role" })).toBeNull();
   });
 
   it("Test 15: onClone provided but row has no identity → no spawn menu item", () => {
@@ -203,7 +205,7 @@ describe("PrettyConversationRow: Clone menu item", () => {
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
 
-    expect(screen.queryByRole("menuitem", { name: /spawn under this role/i })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "create new agent under this role" })).toBeNull();
     expect(onClone).not.toHaveBeenCalled();
   });
 });

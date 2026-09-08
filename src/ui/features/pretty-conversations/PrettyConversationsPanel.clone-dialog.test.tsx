@@ -1,9 +1,10 @@
-// ─── PrettyConversationsPanel — "Spawn under this role" wiring coverage
+// ─── PrettyConversationsPanel — "create new agent under this role" wiring coverage
 //
 // Phase 80: replaces the Phase 22 SRIC-03 clone-dialog wiring suite. The
 // standalone clone dialog was deleted; the row context-menu action (label
-// rebranded from "Clone" to "Spawn under this role") now routes through
-// the unified NewSessionDialog via the existing chain-hook mechanism
+// rebranded from "Clone" to "Spawn under this role", then rewritten again
+// to "create new agent under this role" in bounty 260908-h78) now routes
+// through the unified NewSessionDialog via the existing chain-hook mechanism
 // (initialHost + initialRole props — same path CreateRoleDialog uses).
 //
 // These tests assert the PANEL wiring:
@@ -15,6 +16,8 @@
 //   Test 3 (A3 lock): the task/brief field is NOT prefilled — the panel does
 //           NOT pass initialBrief (initialBrief prop is null/undefined so the
 //           dialog's field-seed effect leaves the brief empty).
+//   Test 4: panel forwards initialRole as a seed (no lock/readonly prop) →
+//           picker stays editable (shape-clone-modal-ux-pass In-4 contract).
 //
 // Sibling test file kept for isolation; same pattern as
 // PrettyConversationsPanel.new-role-button.test.tsx.
@@ -40,7 +43,7 @@ vi.mock("@/features/terminal/session-hue", () => ({
     name ? name.toLowerCase() : null,
 }));
 
-// Seed one identity so the "Spawn under this role" menu-item guard passes
+// Seed one identity so the "create new agent under this role" menu-item guard passes
 // on any row whose targetTmuxSession matches this key. `role` must be
 // non-null — handleRowClone in Phase 80 gates on identity.role (there's no
 // role to spawn under if the source identity is roleless).
@@ -255,8 +258,8 @@ beforeEach(() => {
   newSessionDialogSpy.mockClear();
 });
 
-describe("PrettyConversationsPanel: 'Spawn under this role' wiring (Phase 80)", () => {
-  it("Test 1: right-click row → 'Spawn under this role' menu item → NewSessionDialog receives initialHost + initialRole seeded from row", () => {
+describe("PrettyConversationsPanel: 'create new agent under this role' wiring (Phase 80 / bounty 260908-h78)", () => {
+  it("Test 1: right-click row → 'create new agent under this role' menu item → NewSessionDialog receives initialHost + initialRole seeded from row", () => {
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -280,9 +283,9 @@ describe("PrettyConversationsPanel: 'Spawn under this role' wiring (Phase 80)", 
     const rowBody = rowWrapper.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(rowBody, { clientX: 100, clientY: 100 });
 
-    // "Spawn under this role" menu item should be present (formerly "Clone")
+    // "create new agent under this role" menu item should be present (formerly "Clone", then "Spawn under this role")
     const spawnItem = screen.getByRole("menuitem", {
-      name: /spawn under this role/i,
+      name: "create new agent under this role",
     });
     expect(spawnItem).toBeTruthy();
 
@@ -325,7 +328,7 @@ describe("PrettyConversationsPanel: 'Spawn under this role' wiring (Phase 80)", 
     const rowBody = rowWrapper.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(rowBody, { clientX: 100, clientY: 100 });
     fireEvent.click(
-      screen.getByRole("menuitem", { name: /spawn under this role/i }),
+      screen.getByRole("menuitem", { name: "create new agent under this role" }),
     );
 
     // After invocation: the most-recent render passed open=true.
@@ -353,7 +356,7 @@ describe("PrettyConversationsPanel: 'Spawn under this role' wiring (Phase 80)", 
     const rowBody = rowWrapper.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(rowBody, { clientX: 100, clientY: 100 });
     fireEvent.click(
-      screen.getByRole("menuitem", { name: /spawn under this role/i }),
+      screen.getByRole("menuitem", { name: "create new agent under this role" }),
     );
 
     // Assert the panel never passed a truthy initialBrief on any render where
@@ -373,5 +376,41 @@ describe("PrettyConversationsPanel: 'Spawn under this role' wiring (Phase 80)", 
     // "<null>" is emitted when initialBrief was null-or-undefined.
     const dialogEl = screen.getByTestId("new-session-dialog-mock");
     expect(dialogEl.getAttribute("data-initial-brief")).toBe("<null>");
+  });
+
+  it("Test 4: panel forwards initialRole as a seed (no lock/readonly prop) → picker stays editable", () => {
+    // Contract test for shape-clone-modal-ux-pass In-4 "picker remains editable".
+    // NewSessionDialog's own role-dropdown suite
+    // (NewSessionDialog.role-dropdown.test.tsx) proves that when initialRole is
+    // set, selectedRole seeds to it but the <select> stays a plain, mutable
+    // dropdown. This test locks the panel-side contract: we pass a SEED prop
+    // (initialRole), never a lock/readonly/disabled prop.
+    render(
+      <PrettyConversationsPanel
+        variant="desktop"
+        hostTree={ONE_HOST_TREE}
+        onCreateSession={vi.fn()}
+        onDeactivateRow={() => {}}
+      />,
+    );
+
+    const rowWrapper = document.querySelector(
+      '[data-conversation-id="conv-1"]',
+    ) as HTMLElement;
+    const rowBody = rowWrapper.querySelector('[role="button"]') as HTMLElement;
+    fireEvent.contextMenu(rowBody, { clientX: 10, clientY: 10 });
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "create new agent under this role" }),
+    );
+
+    expect(newSessionDialogSpy).toHaveBeenCalled();
+    const lastProps = newSessionDialogSpy.mock.calls.at(-1)![0];
+    expect(lastProps.initialRole).toBe(stubIdentity.role);
+
+    // No lock prop: the panel MUST NOT be passing any prop that would signal
+    // "role is fixed" to the dialog.
+    for (const key of Object.keys(lastProps)) {
+      expect(key).not.toMatch(/lock|readonly|disabled/i);
+    }
   });
 });

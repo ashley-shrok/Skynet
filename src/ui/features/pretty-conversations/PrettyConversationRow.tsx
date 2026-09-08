@@ -1346,7 +1346,7 @@ export function PrettyConversationRow({
       </div>
       {/* Right-click menu portal. Items filter by row eligibility: Pin
           renders for any row; Hide/Show only when onToggleHide is provided;
-          "Spawn under this role" (Phase 80 — formerly labeled "Clone") only
+          "create new agent under this role" (bounty 260908-h78 — formerly 'Spawn under this role', originally 'Clone') only
           when onClone AND identity resolve (RDP rows have no identity → the
           spawn item auto-hides); Deactivate only when inActiveSet &&
           onDeactivate; Open/Move in new window renders on desktop for any
@@ -1372,8 +1372,8 @@ export function PrettyConversationRow({
                 onClick: onToggleHide,
               });
             }
-            // Phase 80: "Spawn under this role" item (formerly "Clone" —
-            // Phase 22 SRIC-03). Inserted between Hide/Show and
+            // Phase 80: "create new agent under this role" item (formerly 'Spawn under this role' until bounty 260908-h78,
+            // originally "Clone" — Phase 22 SRIC-03). Inserted between Hide/Show and
             // Open/Move-in-new-window. Only rendered when onClone is provided AND
             // the row has a resolvable identity (spawning-under-role requires a
             // source identity to read its role from — meaningless without it).
@@ -1385,7 +1385,7 @@ export function PrettyConversationRow({
             // NewSessionDialog with the row's host + identity.role.
             if (onClone && identity) {
               items.push({
-                label: "Spawn under this role",
+                label: "create new agent under this role",
                 onClick: onClone,
               });
             }
