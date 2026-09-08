@@ -232,8 +232,9 @@ export function PrettyConversationRow({
   // When provided, the Hide/Show item appears in the context menu between
   // Pin/Unpin and Deactivate. RDP rows never receive this prop.
   onToggleHide?: () => void;
-  // Phase 22 (SRIC-03) → Phase 80: fired when Ashley clicks the "Spawn under
-  // this role" context menu item (formerly labeled "Clone"). Prop name
+  // Phase 22 (SRIC-03) → Phase 80 → bounty 260908-h78: fired when Ashley clicks
+  // the 'create new agent under this role' context menu item (formerly
+  // 'Spawn under this role', originally 'Clone'). Prop name
   // `onClone` is kept for now (rename is deferred as out-of-scope creep — this
   // phase was a user-facing label change plus a rewire of what the handler
   // does upstream). Provided by PrettyConversationsPanel when the row has an
