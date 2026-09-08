@@ -33,6 +33,17 @@
  *      false pressure warnings (the harness context meter overstates actual
  *      usage). Idempotent — no-op after first sweep on each host.
  *
+ *   4. skynet-parent write (Phase 75 D-03):
+ *      Write ~/.claude/skynet-parent with the parent Skynet's HTTPS URL
+ *      (single-line, newline-terminated). Read the URL from
+ *      process.env.SKYNET_PUBLIC_URL. Idempotent: content-diff check
+ *      short-circuits when the file already matches (RESEARCH Pitfall 3 —
+ *      prevents mtime churn on every 2s sweep). Missing or malformed env
+ *      var: skip entirely (do NOT write empty string; agents surface a
+ *      clean "parent-Skynet config missing" error per D-03 when the file
+ *      is absent). Failure to write is logged and marked in hadError; the
+ *      never-throw contract is preserved.
+ *
  * NEVER-THROW CONTRACT:
  *   runBootstrapForHost NEVER rejects. All risky calls are wrapped in
  *   try/catch; failures are logged and the function resolves. The caller
@@ -64,6 +75,11 @@ export interface BootstrapResult {
   settingsPatchOk: boolean;
   /** Whether the gsd-context-monitor cleanup ran (settings strip + hook rm). */
   gsdContextMonitorCleanupOk: boolean;
+  /** Whether the ~/.claude/skynet-parent write succeeded (or was skipped
+   *  cleanly because SKYNET_PUBLIC_URL was missing/malformed). Phase 75 D-03.
+   *  A false value here does NOT by itself imply hadError — a missing env var
+   *  is a documented skip (RESEARCH Pitfall 4), not a per-host failure. */
+  skynetParentOk: boolean;
   /** True if any sub-step encountered an error. */
   hadError: boolean;
 }
@@ -124,11 +140,17 @@ export async function runBootstrapForHost(
   channel: SshChannel,
   host: { id: string; name: string },
 ): Promise<BootstrapResult> {
+  // Phase 75 D-03: parent Skynet's HTTPS URL, read at function top so it flows
+  // directly into step 4 without threading it through SweepDeps +
+  // ssh-poll-orchestrator + starter (per RESEARCH § Assumption A6).
+  const skynetPublicUrl = process.env.SKYNET_PUBLIC_URL ?? "";
+
   let alreadyEnabled = false;
   let bootstrapRan = false;
   let daemonReloadRan = false;
   let settingsPatchOk = false;
   let gsdContextMonitorCleanupOk = false;
+  let skynetParentOk = false;
   let hadError = false;
 
   // -------------------------------------------------------------------------
@@ -349,12 +371,78 @@ export async function runBootstrapForHost(
     );
   }
 
+  // -------------------------------------------------------------------------
+  // Step 4: Write ~/.claude/skynet-parent — parent-Skynet-domain config for
+  //         agent URL construction (Phase 75 D-03). Idempotent: content-diff
+  //         check short-circuits when the file already matches (RESEARCH
+  //         Pitfall 3 — no rewrite → no mtime churn). If SKYNET_PUBLIC_URL is
+  //         missing OR does not start with https://, skip entirely (do NOT
+  //         write an empty string; agents' D-03 fresh-box behavior surfaces a
+  //         clean "parent-Skynet config missing" error when the file is
+  //         absent). Missing env is a documented skip, not a per-host failure
+  //         — hadError is NOT set on the skip path (RESEARCH Pitfall 4).
+  // -------------------------------------------------------------------------
+  try {
+    if (!skynetPublicUrl || !/^https:\/\//.test(skynetPublicUrl)) {
+      // Skip path — log for observability but do not mark as error.
+      systemLogger.warn(
+        `Fleet-substrate bootstrap: SKYNET_PUBLIC_URL missing or malformed, skipping skynet-parent write for ${host.name}`,
+        {
+          operation: "fleet_substrate_bootstrap_result",
+          fleetHostId: host.id,
+          hostName: host.name,
+          step: "skynet-parent-write",
+        },
+      );
+    } else {
+      // Shell-safe single-quote escape: close-quote, escape a literal quote,
+      // reopen-quote. Keeps the NEW='...' assignment valid even when the URL
+      // itself contains an embedded single-quote character.
+      const safeUrl = skynetPublicUrl.replace(/'/g, "'\\''");
+      const cmd = [
+        `SP="$HOME/.claude/skynet-parent"`,
+        `mkdir -p "$HOME/.claude"`,
+        `NEW='${safeUrl}'`,
+        `if [ -f "$SP" ] && [ "$(cat "$SP")" = "$NEW" ]; then`,
+        `  :  # idempotent no-op (RESEARCH Pitfall 3 — do not churn mtime)`,
+        `else`,
+        `  printf '%s\\n' "$NEW" > "$SP.new" && mv "$SP.new" "$SP"`,
+        `fi`,
+        `echo "__SKYNET_PARENT_OK__"`,
+      ].join("\n");
+
+      const raw = await channel.exec(cmd);
+
+      if (raw === null) {
+        hadError = true;
+        logBootstrapFailed(host, "skynet-parent-write", "channel returned null");
+      } else if (!raw.trimEnd().endsWith("__SKYNET_PARENT_OK__")) {
+        hadError = true;
+        logBootstrapFailed(
+          host,
+          "skynet-parent-write",
+          raw.trimEnd().slice(0, 500) || "skynet-parent write failed",
+        );
+      } else {
+        skynetParentOk = true;
+      }
+    }
+  } catch (err) {
+    hadError = true;
+    logBootstrapFailed(
+      host,
+      "skynet-parent-write",
+      err instanceof Error ? err.message : "unknown throw",
+    );
+  }
+
   const result: BootstrapResult = {
     alreadyEnabled,
     bootstrapRan,
     daemonReloadRan,
     settingsPatchOk,
     gsdContextMonitorCleanupOk,
+    skynetParentOk,
     hadError,
   };
 

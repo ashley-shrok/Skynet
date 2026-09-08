@@ -13,6 +13,18 @@
  *   Backend has no use for either — it validates URLs the client has already
  *   extracted, using its own anchored `TAILNET_URL_RE` inside the fetch route.
  *
+ *   PHASE 75 D-01 MIRROR-RULE UPDATE (2026-09-06): the frontend twin has
+ *   gained a second URL regex `SKYNET_FILE_URL_RE_CLIENT` (sibling to
+ *   `TAILNET_URL_RE_CLIENT`) matching the new file-URL shape
+ *   `https://<domain>[:port]/file/<hostname>/<abs-path>`. This backend twin
+ *   does NOT re-export that regex — the backend route
+ *   `src/backend/database/routes/pretty-view-fetch-host-file.ts` (shipped
+ *   in Plan 75-01) does its own hostname + path validation with
+ *   `/^[a-zA-Z0-9._-]+$/` and explicit prefix/traversal checks. Same
+ *   rationale as `TAILNET_URL_RE_CLIENT` being client-only. The whitelist
+ *   DATA (EDITABLE_EXTENSIONS + EDITABLE_BASENAMES + classifyByExtension)
+ *   remains mirrored in lockstep as before.
+ *
  * Contract (D-02):
  *   Wholesale-accept files whose extension is in EDITABLE_EXTENSIONS, OR whose
  *   filename is in EDITABLE_BASENAMES. This is the FIRST-PASS check; extensionless

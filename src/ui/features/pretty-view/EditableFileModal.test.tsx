@@ -37,12 +37,16 @@ import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 
 vi.mock("@/api/editable-file-api", () => ({
   fetchTailnetUrl: vi.fn(),
+  fetchHostFileUrl: vi.fn(),
 }));
 
 // ── Late imports (after mocks are registered) ────────────────────────────────
 
 import EditableFileModal from "./EditableFileModal";
-import { fetchTailnetUrl } from "@/api/editable-file-api";
+import {
+  fetchTailnetUrl,
+  fetchHostFileUrl,
+} from "@/api/editable-file-api";
 
 // ── Fixture ──────────────────────────────────────────────────────────────────
 
@@ -393,5 +397,115 @@ describe("EditableFileModal — Phase 40 Plan 40-03 Task 2", () => {
     const xBtn = screen.getByRole("button", { name: /^close$/i });
     fireEvent.click(xBtn);
     expect(window.confirm).toHaveBeenCalledWith("Discard unsaved changes?");
+  });
+
+  // ─── Phase 75 Plan 75-02 Task 2 — file-URL dispatch + per-class error copy ─
+  //
+  // Contract additions:
+  //   - When the modal opens with a URL matching /^https:\/\/[^/]+\/file\//,
+  //     it fires fetchHostFileUrl(url), NOT fetchTailnetUrl.
+  //   - When it opens with a tailnet URL, it still fires fetchTailnetUrl.
+  //   - Backend error classes are surfaced as human-readable copy — no HTTP
+  //     status codes, no stack traces. The class-to-copy mapping lives at
+  //     modal L305-341 (extended in this plan).
+  //   - The D-04 fresh-fetch invariant + D-06 initialMtimeRef-once-at-success
+  //     invariant remain intact (no regression).
+
+  const FILE_URL_PROPS = {
+    ...DEFAULT_PROPS,
+    url: "https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md",
+    filename: "note.md",
+  };
+
+  const successFileFetch = () =>
+    (fetchHostFileUrl as ReturnType<typeof vi.fn>).mockResolvedValue({
+      contentBase64: btoa("hi from thenasty"),
+      sizeBytes: 16,
+      contentType: null,
+      extension: "md",
+      filename: "note.md",
+      isTextByExt: true,
+    });
+
+  const failFileFetch = (errorClass: string) =>
+    (fetchHostFileUrl as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error(errorClass),
+    );
+
+  it("test 17 (Phase 75): file URL open dispatches to fetchHostFileUrl, NOT fetchTailnetUrl", async () => {
+    successFileFetch();
+    render(<EditableFileModal {...FILE_URL_PROPS} />);
+    await waitFor(() => {
+      expect(fetchHostFileUrl).toHaveBeenCalledWith(FILE_URL_PROPS.url);
+    });
+    expect(fetchHostFileUrl).toHaveBeenCalledTimes(1);
+    expect(fetchTailnetUrl).not.toHaveBeenCalled();
+  });
+
+  it("test 18 (Phase 75): tailnet URL open still dispatches to fetchTailnetUrl (no regression)", async () => {
+    successFetch();
+    render(<EditableFileModal {...DEFAULT_PROPS} />);
+    await waitFor(() => {
+      expect(fetchTailnetUrl).toHaveBeenCalledWith(DEFAULT_PROPS.url);
+    });
+    expect(fetchTailnetUrl).toHaveBeenCalledTimes(1);
+    expect(fetchHostFileUrl).not.toHaveBeenCalled();
+  });
+
+  it("test 19 (Phase 75): host_unreachable error class renders \"Host unreachable\" human copy", async () => {
+    failFileFetch("host_unreachable");
+    render(<EditableFileModal {...FILE_URL_PROPS} />);
+    await waitFor(() => {
+      expect(screen.getByText(/Host unreachable/i)).toBeTruthy();
+    });
+    // T-40-05: no HTTP status codes, no stack traces
+    expect(screen.queryByText(/502/)).toBeNull();
+    expect(screen.queryByText(/stack/i)).toBeNull();
+  });
+
+  it("test 20 (Phase 75): not_found error class renders \"File not found\" human copy", async () => {
+    failFileFetch("not_found");
+    render(<EditableFileModal {...FILE_URL_PROPS} />);
+    await waitFor(() => {
+      expect(screen.getByText(/File not found/i)).toBeTruthy();
+    });
+    expect(screen.queryByText(/404/)).toBeNull();
+  });
+
+  it("test 21 (Phase 75): permission_denied error class renders \"Permission denied\" human copy referencing the hostname", async () => {
+    failFileFetch("permission_denied");
+    render(<EditableFileModal {...FILE_URL_PROPS} />);
+    await waitFor(() => {
+      expect(screen.getByText(/Permission denied/i)).toBeTruthy();
+    });
+    // The hostname is safe to include (user typed/saw it in the URL, no
+    // info leak — see plan action block for the copy design).
+    expect(screen.getByText(/thenasty/i)).toBeTruthy();
+    expect(screen.queryByText(/403/)).toBeNull();
+  });
+
+  it("test 22 (Phase 75): too_large error class explains the 2 MB cap", async () => {
+    failFileFetch("too_large");
+    render(<EditableFileModal {...FILE_URL_PROPS} />);
+    await waitFor(() => {
+      expect(screen.getByText(/2\s?MB/i)).toBeTruthy();
+    });
+    expect(screen.queryByText(/413/)).toBeNull();
+  });
+
+  it("test 23 (Phase 75): D-04 fresh-fetch invariant preserved — re-open fires fetch again", async () => {
+    successFileFetch();
+    const { rerender } = render(<EditableFileModal {...FILE_URL_PROPS} />);
+    await waitFor(() =>
+      expect(fetchHostFileUrl).toHaveBeenCalledTimes(1),
+    );
+    rerender(<EditableFileModal {...FILE_URL_PROPS} open={false} />);
+    await new Promise((r) => setTimeout(r, 20));
+    rerender(<EditableFileModal {...FILE_URL_PROPS} open={true} />);
+    await waitFor(() =>
+      expect(fetchHostFileUrl).toHaveBeenCalledTimes(2),
+    );
+    // Tailnet helper still never called
+    expect(fetchTailnetUrl).not.toHaveBeenCalled();
   });
 });

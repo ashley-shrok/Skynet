@@ -12,6 +12,16 @@ import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import { resolveRoleForIdentity } from "../../claude-session/identity-artifact-reader.js";
 import { discoverIdentitySessionFile } from "../../claude-session/discover-identity-session-file.js";
+// Phase 85 (D-07): identity-name-keyed send-log store — replaces the
+// byte-parallel `scanTailForNewestMessageAt` call for `/sessions/list`'s
+// `lastMessageAt` seed. AppShell reads `/sessions/list` on page load to
+// feed `seedSessionLastMessageAt` in the frontend working store; without
+// this swap the seed would be the stale JSONL-derived value and the next
+// WS-live orchestrator frame (Phase 85-04) would overwrite it ~2s later,
+// causing a visible flicker. The store lookup is DB-local, independent
+// of the SSH pathway, and cheap (indexed single-row SELECT per identity).
+// Phase 85-02 owns the module + monotonic-write + fail-open contracts.
+import { getIdentityLastSend } from "../../fleet-status/identity-send-log-store.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -144,6 +154,16 @@ function isAshleyRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok:
  * Predicate: isAshleyRealUserTurn (Ashley 2026-08-23 lock). The helper
  * returns {ok, ts} so a single JSON.parse feeds both the gate and the ts
  * extraction, avoiding a second parse on the keep path.
+ *
+ * Phase 85 (D-08): retired from the /sessions/list lastMessageAt
+ * derivation (see the Promise.all block in the route handler below —
+ * lastMessageAt now sources from getIdentityLastSend) but STAYS DEFINED
+ * as the byte-parallel copy of the ssh-poll-orchestrator export. If
+ * either copy changes, update BOTH per the file's parallel-copy
+ * discipline docblock above (L54-64). The `isAshleyRealUserTurn` helper
+ * this function calls (L93) is treated the same way — kept defined for
+ * the byte-parallel copy discipline even if this file has zero remaining
+ * callers post-swap. Do NOT delete either symbol.
  */
 function scanTailForNewestMessageAt(tailContents: string): number | null {
   let newest: number | null = null;
@@ -158,6 +178,26 @@ function scanTailForNewestMessageAt(tailContents: string): number | null {
     }
   }
   return newest;
+}
+
+/**
+ * Phase 85 (D-08): test-only re-export of scanTailForNewestMessageAt for the
+ * byte-parallel-copy predicate-matrix regression suite. Follows the same
+ * convention as `__scanTailForNewestMessageAtForTests` in
+ * `src/backend/fleet-status/ssh-poll-orchestrator.ts` (Phase 85-04). The
+ * `/sessions/list` route no longer calls `scanTailForNewestMessageAt` on
+ * the lastMessageAt axis (lookup swapped to the send-log store), but the
+ * function definition + its `isAshleyRealUserTurn` dependency stay alive
+ * per the D-08 parallel-copy discipline. This export lets the
+ * quick-260823-bap predicate-matrix suite continue to assert the byte-level
+ * shape of the retired scanner without going through the route observable.
+ *
+ * Do NOT import from non-test code.
+ */
+export function __scanTailForNewestMessageAtForTests(
+  tailContents: string,
+): number | null {
+  return scanTailForNewestMessageAt(tailContents);
 }
 
 // ---------------------------------------------------------------------------
@@ -300,16 +340,38 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
                 };
               });
 
-            // Resolve role AND derive recency-signals (lastMessageAt + aiTitle)
-            // for each session on the SAME already-open conn, in parallel. Both
-            // per-session blocks are dispatched concurrently so a slow discovery
-            // doesn't extend the wall-clock beyond max(roleResolve,
-            // recencySignals) for that session.
+            // Resolve role AND derive recency-signals for each session in
+            // parallel. Three independent per-session blocks dispatched
+            // concurrently:
             //
-            // Each per-session block wraps its work in Promise.race(PER_HOST_TIMEOUT_MS)
-            // + try/catch — one hung/failed frontmatter read OR JSONL discovery must
-            // NOT kill the whole host (Phase 43 Plan 01 <behavior> Test 3 lock;
-            // Phase 47 Plan 02 <behavior> Test 6 lock for the aiTitle axis).
+            //   1. roleResolveBlock — reads the identity's frontmatter over
+            //      the same already-open SSH conn.
+            //   2. sendLogLookupBlock — reads the identity-name-keyed send-log
+            //      store for `lastMessageAt`. INDEPENDENT of the SSH pathway
+            //      (in-process DB lookup) so a slow tail-scan cannot null the
+            //      recency signal, and a timeout on the ai-title scan below
+            //      cannot regress `row.lastMessageAt` because it's already set
+            //      by this block.
+            //   3. aiTitleBlock — reads the JSONL tail for the harness
+            //      ai-title line. Wrapped in Promise.race(PER_HOST_TIMEOUT_MS)
+            //      + try/catch so one hung discovery does NOT kill the whole
+            //      host (Phase 47 Plan 02 <behavior> Test 6 lock).
+            //
+            // Phase 85 (D-07): source-swap parallel to Plan 85-04. The
+            // `/sessions/list` route is the initial-seed path that AppShell
+            // reads on page-load to feed `seedSessionLastMessageAt` in the
+            // frontend working store. Without this swap a fresh page-load
+            // would seed the stale JSONL-derived value, then the WS-live
+            // orchestrator frame (Plan 85-04) would overwrite ~2s later
+            // (visible flicker as rows re-sort). Swapping the seed to the
+            // store makes the initial paint authoritative-consistent with
+            // the WS-live frame from the moment the page loads.
+            //
+            // Phase 85 (D-08): `scanTailForNewestMessageAt` STAYS DEFINED in
+            // this file (see docblock above the function definition) —
+            // byte-parallel copy discipline with the ssh-poll-orchestrator
+            // export. Only the CALL retires; the function + its
+            // `isAshleyRealUserTurn` dependency remain.
             await Promise.all(
               rows.map(async (row) => {
                 // Per-session role resolve (unchanged behavior).
@@ -336,66 +398,93 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
                   }
                 })();
 
-                // Per-session recency-signals derivation.
-                // Consolidates Phase 43 Plan 01 (lastMessageAt) + Phase 47 Plan
-                // 02 (aiTitle) into ONE discovery + ONE tail read. OPTION A per
-                // 47-02-PLAN.md Task 1 <action> + Phase 47 CONTEXT.md § Backend
-                // scraper mechanics: "the ai-title tail-read can share the
-                // same discovery lookup result to avoid a duplicate
-                // discoverIdentitySessionFile call per row." Tail width bumped
-                // from `tail -n 200` (line-count) to `tail -c 262144` (256KB
-                // byte-count) so an ai-title line older than the last 200
-                // message-bearing lines is still captured.
+                // Phase 85 (D-07): per-session send-log store lookup for
+                // `lastMessageAt`. Fleet convention: identity name ===
+                // tmux session name === /id target (see 79-CONTEXT.md § D-02).
+                // The store owns the max-wins + fail-open contracts (Phase
+                // 85-02); the try/catch here is belt-and-suspenders on the
+                // per-row path. On store-null or throw → row.lastMessageAt
+                // stays at its row-init `null`, which is the same D-09
+                // first-ship "natural fill" contract the WS-live orchestrator
+                // frame uses.
+                const sendLogLookupBlock = (async () => {
+                  try {
+                    const stored = await getIdentityLastSend(row.sessionName);
+                    row.lastMessageAt = stored;
+                    sshLogger.debug(
+                      "sessions/list: lastMessageAt derived from send-log store",
+                      {
+                        operation: "sessions_list_last_message_at_from_store",
+                        hostId,
+                        hostName,
+                        sessionName: row.sessionName,
+                        lookupResult: stored,
+                      },
+                    );
+                  } catch (e) {
+                    sshLogger.debug(
+                      "sessions/list: getIdentityLastSend failed — leaving lastMessageAt null",
+                      {
+                        operation: "sessions_list_send_log_lookup_failed",
+                        hostId,
+                        hostName,
+                        sessionName: row.sessionName,
+                        error: e instanceof Error ? e.message : "unknown",
+                      },
+                    );
+                    row.lastMessageAt = null;
+                  }
+                })();
+
+                // Per-session ai-title derivation.
+                // Phase 47 Plan 02 semantics preserved — ONE discovery +
+                // ONE tail read to feed `scanTailForLatestAiTitle`. Phase
+                // 79 (D-07) retired the sibling `scanTailForNewestMessageAt`
+                // call from this block; `lastMessageAt` now sources from
+                // the store lookup above. Tail width stays at 256KB
+                // (`tail -c 262144`) per Phase 47 CONTEXT.md § Backend
+                // scraper mechanics — an ai-title line older than the last
+                // handful of message-bearing lines is still captured.
                 //
-                // Step 1: discoverIdentitySessionFile(conn, row.sessionName)
-                //         locates the mtime-newest /id-first-turn JSONL.
-                // Step 2: tail -c 262144 of that JSONL — ONE exec.
-                // Step 3: run BOTH scanTailForNewestMessageAt AND
-                //         scanTailForLatestAiTitle over the same buffer.
-                // On any failure (discovery null, tail empty, timeout, throw):
-                // BOTH row.lastMessageAt AND row.aiTitle stay null and
-                // siblings are unaffected. Single catch block wipes both
-                // signals (rename `sessions_list_last_message_at_skip` →
-                // `sessions_list_recency_signals_skip` to reflect the
-                // consolidated scope).
-                const recencySignalsBlock = (async () => {
+                // On any failure (discovery null, tail empty, timeout,
+                // throw): row.aiTitle stays null and siblings are
+                // unaffected. `row.lastMessageAt` is NOT touched by this
+                // block — it was set independently by the store lookup
+                // above and cannot be regressed by an SSH failure here.
+                //
+                // The log-operation tag preserves the historical
+                // `sessions_list_recency_signals_skip` string so post-deploy
+                // log-tailing dashboards continue to match. Semantic scope
+                // has narrowed to the aiTitle axis only.
+                const aiTitleBlock = (async () => {
                   try {
                     const resolved = await Promise.race([
-                      (async (): Promise<{
-                        lastMessageAt: number | null;
-                        aiTitle: string | null;
-                      }> => {
+                      (async (): Promise<{ aiTitle: string | null }> => {
                         const jsonlPath = await discoverIdentitySessionFile(
                           conn,
                           row.sessionName,
                         );
                         if (jsonlPath === null) {
-                          return { lastMessageAt: null, aiTitle: null };
+                          return { aiTitle: null };
                         }
                         // jsonlPath is an absolute path shape returned by the
                         // discovery module (~/.claude/projects/<slug>/<uuid>.jsonl).
-                        // Single-quote-wrap defensively (mirrors ssh-poll-orchestrator's
-                        // fail-open path validation) even though the discovery module's
-                        // output has no shell-special chars by construction.
-                        // Tail width: 262144 bytes = 256KB per Phase 47
-                        // CONTEXT.md § Backend scraper mechanics.
+                        // Single-quote-wrap defensively (mirrors
+                        // ssh-poll-orchestrator's fail-open path validation)
+                        // even though the discovery module's output has no
+                        // shell-special chars by construction.
                         const tailRaw = await execCommand(
                           conn,
                           `tail -c 262144 '${jsonlPath}' 2>/dev/null || true`,
                         );
                         if (!tailRaw || tailRaw.trim() === "") {
-                          return { lastMessageAt: null, aiTitle: null };
+                          return { aiTitle: null };
                         }
-                        // ONE buffer, TWO scans.
                         return {
-                          lastMessageAt: scanTailForNewestMessageAt(tailRaw),
                           aiTitle: scanTailForLatestAiTitle(tailRaw),
                         };
                       })(),
-                      new Promise<{
-                        lastMessageAt: number | null;
-                        aiTitle: string | null;
-                      }>((_, reject) =>
+                      new Promise<{ aiTitle: string | null }>((_, reject) =>
                         setTimeout(
                           () =>
                             reject(
@@ -407,7 +496,6 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
                         ),
                       ),
                     ]);
-                    row.lastMessageAt = resolved.lastMessageAt;
                     row.aiTitle = resolved.aiTitle;
                   } catch (e) {
                     sshLogger.debug(
@@ -420,12 +508,15 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
                         error: e instanceof Error ? e.message : "unknown",
                       },
                     );
-                    row.lastMessageAt = null;
                     row.aiTitle = null;
                   }
                 })();
 
-                await Promise.all([roleResolveBlock, recencySignalsBlock]);
+                await Promise.all([
+                  roleResolveBlock,
+                  sendLogLookupBlock,
+                  aiTitleBlock,
+                ]);
               }),
             );
 

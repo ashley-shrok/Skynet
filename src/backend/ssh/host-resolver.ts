@@ -269,6 +269,136 @@ export async function resolveHostById(
 }
 
 /**
+ * Resolve a host with its credentials server-side by friendly name, scoped to
+ * the requesting user (Phase 75, Plan 75-01, Task 1).
+ *
+ * **Cross-user isolation invariant** (RESEARCH § Pitfall 7): `hosts.name` is
+ * a per-user friendly name and is NOT unique across users. If two users both
+ * have a host named `thenasty` (different physical boxes), filtering only by
+ * `name` would let user A trigger reads on user B's host by guessing the
+ * friendly name. The WHERE clause MUST be
+ * `and(eq(hosts.name, name), eq(hosts.userId, userId))` — filtering by BOTH.
+ *
+ * On zero results the function returns `null` (not throw) so the route
+ * boundary can map `null → 404 unknown_host` and avoid leaking cross-user
+ * host existence via a 403 differentiation.
+ *
+ * The credential-resolution tail (JSON-field parsing, override-credential
+ * fallback, shared-credential fallback, direct-credential resolution) is
+ * copied VERBATIM from `resolveHostById` above — only the WHERE clause
+ * changes. Do not re-derive the credential logic here.
+ */
+export async function resolveHostByName(
+  name: string,
+  userId: string,
+): Promise<SSHHost | null> {
+  const db = getDb();
+
+  const hostResults = await SimpleDBOps.select(
+    db
+      .select()
+      .from(hosts)
+      .where(and(eq(hosts.name, name), eq(hosts.userId, userId))),
+    "ssh_data",
+    userId,
+  );
+
+  if (hostResults.length === 0) return null;
+
+  const host = hostResults[0] as Record<string, unknown>;
+
+  // Parse JSON fields — mirrors resolveHostById L28-72.
+  if (typeof host.jumpHosts === "string" && host.jumpHosts) {
+    try {
+      host.jumpHosts = JSON.parse(host.jumpHosts as string);
+    } catch {
+      host.jumpHosts = [];
+    }
+  }
+  if (typeof host.tunnelConnections === "string") {
+    try {
+      host.tunnelConnections = JSON.parse(host.tunnelConnections as string);
+    } catch {
+      host.tunnelConnections = [];
+    }
+  }
+  if (typeof host.statsConfig === "string" && host.statsConfig) {
+    try {
+      host.statsConfig = JSON.parse(host.statsConfig as string);
+    } catch {
+      host.statsConfig = undefined;
+    }
+  }
+  if (typeof host.terminalConfig === "string" && host.terminalConfig) {
+    try {
+      host.terminalConfig = JSON.parse(host.terminalConfig as string);
+    } catch {
+      host.terminalConfig = undefined;
+    }
+  }
+  if (typeof host.socks5ProxyChain === "string" && host.socks5ProxyChain) {
+    try {
+      host.socks5ProxyChain = JSON.parse(host.socks5ProxyChain as string);
+    } catch {
+      host.socks5ProxyChain = [];
+    }
+  }
+  if (typeof host.quickActions === "string" && host.quickActions) {
+    try {
+      host.quickActions = JSON.parse(host.quickActions as string);
+    } catch {
+      host.quickActions = [];
+    }
+  }
+
+  // Resolve credential if using credential-based auth — mirrors
+  // resolveHostById L74-197 verbatim. Since the WHERE clause above already
+  // scoped by userId, `ownerId` here always equals `userId`; the user is the
+  // host's owner (no shared-access branch to walk).
+  const hostId = host.id as number;
+  if (host.credentialId) {
+    try {
+      const credentials = await SimpleDBOps.select(
+        db
+          .select()
+          .from(sshCredentials)
+          .where(
+            and(
+              eq(sshCredentials.id, host.credentialId as number),
+              eq(sshCredentials.userId, userId),
+            ),
+          ),
+        "ssh_credentials",
+        userId,
+      );
+
+      if (credentials.length > 0) {
+        const cred = credentials[0] as Record<string, unknown>;
+        host.password = cred.password;
+        // Prefer the normalised private key; fall back to raw key field
+        host.key = (cred.privateKey || cred.key) as string | null;
+        host.keyPassword = cred.keyPassword;
+        host.keyType = cred.keyType;
+        (host as Record<string, unknown>).certPublicKey =
+          cred.certPublicKey || null;
+        if (!host.overrideCredentialUsername) {
+          host.username = cred.username;
+        }
+        host.authType = host.key ? "key" : host.password ? "password" : "none";
+      }
+    } catch (e) {
+      sshLogger.warn("Failed to resolve credential for host", {
+        operation: "host_resolver_credential",
+        hostId,
+        error: e instanceof Error ? e.message : "Unknown",
+      });
+    }
+  }
+
+  return host as unknown as SSHHost;
+}
+
+/**
  * Check if a user has access to a host (owner or shared access).
  */
 export async function checkHostAccess(

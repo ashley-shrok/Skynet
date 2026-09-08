@@ -45,8 +45,19 @@ import skillsEditorRoutes from "./routes/skills-editor.js";
 // T-40-01 (SSRF) / T-40-02 (dir-listing spoof) mitigations enforced INSIDE
 // the route via strict CGNAT regex + path guards + content-type sniff.
 import prettyViewFetchTailnetUrlRoutes from "./routes/pretty-view-fetch-tailnet-url.js";
+import {
+  prettyViewFetchHostFileRoutes,
+  fileUrlRoutes,
+} from "./routes/pretty-view-fetch-host-file.js";
 import messageQueueRoutes from "./routes/message-queue.js";
 import composeDraftsRoutes from "./routes/compose-drafts.js";
+// Phase 85 (D-01, D-05, D-10): send-log POST /stamp — auth-gated backend
+// authority for middle-zone recency signal (called by frontend compose-send
+// funnel on every send-attempt, fire-and-forget). Router owns its own
+// AuthManager JWT middleware chain (no additional middleware wired here).
+// Both of Ashley's devices read from the same store on next fleet-status
+// frame → multi-device consistency without client sync.
+import identitySendLogRoutes from "../fleet-status/identity-send-log-routes.js";
 import sessionsRoutes from "./routes/sessions.js";
 import userPreferencesRoutes from "./routes/user-preferences.js";
 import debugRoutes from "./routes/debug.js";
@@ -1890,9 +1901,19 @@ app.use("/skills-editor", skillsEditorRoutes);
 // open path both consume this. Threat model T-40-01/T-40-02 mitigations
 // enforced inside the route.
 app.use("/pretty-view", prettyViewFetchTailnetUrlRoutes);
+// Phase 75 (D-01, D-04): SFTP-backed file fetch. Split-router pattern per
+// checker W-3 — each router mounted at exactly one prefix, no ghost URL
+// aliases. POST /pretty-view/fetch-host-file serves the modal JSON path;
+// GET /file/:host/* serves the verbatim URL agents write. Both routers
+// call the same shared fetch helper. Ghost aliases (POST /fetch-host-file
+// at root, GET /pretty-view/file/:host/*) return 404 by construction
+// because the wrong-prefix router has no matching handler.
+app.use("/pretty-view", prettyViewFetchHostFileRoutes);
+app.use("/", fileUrlRoutes);
 app.use("/identities", identitiesRoutes);
 app.use("/message-queue", messageQueueRoutes);
 app.use("/compose-drafts", composeDraftsRoutes);
+app.use("/identity-send-log", identitySendLogRoutes);
 app.use("/sessions", sessionsRoutes);
 app.use("/user-preferences", userPreferencesRoutes);
 // RELAYBUB-04 (Phase 17): /relay-pointer needs matching location blocks in BOTH docker/nginx.conf

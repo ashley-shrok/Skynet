@@ -9,7 +9,9 @@ import {
   getComposeDraft,
   putComposeDraft,
 } from "@/api/compose-drafts-api";
+import { stampIdentitySendLog } from "@/api/identity-send-log-api";
 import { publishSessionQueuePending } from "@/state/session-queue-pending-store";
+import { seedSessionLastMessageAt } from "@/state/session-working-store";
 import { AttachmentChipStrip, type StagedAttachmentLike } from "./AttachmentChipStrip";
 // Quick 260823-8ji: attachment-path awaits the batch outcome to gate the
 // compose textarea + attachment-chip clear on a genuine success signal.
@@ -454,10 +456,11 @@ export interface ComposeBoxProps {
 function useComposeSend(deps: {
   hostId: number;
   tmuxSession: string | null | undefined;
+  identityName?: string;
   onSend: ComposeBoxProps["onSend"];
   onOptimisticSend: ComposeBoxProps["onOptimisticSend"];
 }) {
-  const { hostId, tmuxSession, onSend, onOptimisticSend } = deps;
+  const { hostId, tmuxSession, identityName, onSend, onOptimisticSend } = deps;
   const send = useCallback(
     (
       payload: string,
@@ -472,6 +475,39 @@ function useComposeSend(deps: {
       console.info(
         `[compose] submit-entry hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${payload.length} attachmentCount=0 trigger=${trigger}`,
       );
+
+      // Phase 85 (D-03/D-04/D-05/D-06): fire the universal send-log stamp.
+      // (a) Backend POST to /identity-send-log/stamp — fire-and-forget so
+      //     attempts count regardless of delivery success (D-05).
+      // (b) Client-side optimistic advance of session-working-store so the
+      //     row reorders instantly on this device (D-06), before the next
+      //     fleet-status poll cadence would surface the backend change.
+      // Guard: neither call fires when identityName or tmuxSession is
+      // missing — the identity concept only applies inside a tmux session
+      // and requires the identity name as the D-02 store key.
+      if (identityName != null && identityName !== "" && tmuxSession != null) {
+        const stampTs = Date.now();
+        stampIdentitySendLog(identityName, stampTs);
+        seedSessionLastMessageAt(hostId, tmuxSession, stampTs);
+        console.info({
+          operation: "compose_send_log_stamped",
+          hostId,
+          tmuxSession,
+          identityName,
+          ts: stampTs,
+        });
+      } else {
+        console.info({
+          operation: "compose_send_log_skipped",
+          hostId,
+          tmuxSession,
+          identityName: identityName ?? null,
+          reason:
+            identityName == null || identityName === ""
+              ? "missing_identity_name"
+              : "missing_tmux_session",
+        });
+      }
 
       // Phase 50 D-01/D-18: generate the mqid ONCE per send. Pattern is
       // `pv-optim-<ms>-<8hex>` — deterministic-enough for FIFO ordering +
@@ -503,7 +539,7 @@ function useComposeSend(deps: {
 
       return dispatched;
     },
-    [hostId, tmuxSession, onSend, onOptimisticSend],
+    [hostId, tmuxSession, identityName, onSend, onOptimisticSend],
   );
 
   return { send };
@@ -1205,7 +1241,7 @@ export function ComposeBox({
   // arm-idle drainer can route through funnel.send. React hook-order rules
   // remain satisfied (useComposeSend's inner useCallback fires before
   // fireNextQueued's useCallback in the same consistent order every render).
-  const funnel = useComposeSend({ hostId, tmuxSession, onSend, onOptimisticSend });
+  const funnel = useComposeSend({ hostId, tmuxSession, identityName, onSend, onOptimisticSend });
 
   const fireNextQueued = useCallback(() => {
     if (queue.length === 0) return;

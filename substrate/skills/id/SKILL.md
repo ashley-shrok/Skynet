@@ -794,66 +794,81 @@ up.
 ## Sending files to the user
 
 When the user asks for a file — a diff, an artifact, a log, a screenshot, a built
-output — the canonical way is to serve it over the tailnet, NOT paste the bytes
-into chat. Two flavors, pick by size:
+output — the canonical way is to cite it as a **Skynet passthrough file URL** that
+Skynet renders with a pencil affordance in her chat view. Click → modal → view /
+edit → save-attaches-to-her-next-message. Two flavors, pick by size:
 
 **Small text (< ~5 KB)** — a short diff, a config snippet, a stack trace, a JSON
-blob — just paste it inline in a code block. Faster than any HTTP dance and she
-can copy from the chat directly.
+blob — just paste it inline in a code block. Faster than any URL round-trip and
+she can copy from the chat directly.
 
-**Anything larger, or binary** — serve it over HTTP on the tailnet IP and give
-her a **Markdown-formatted link** so it's clickable in her terminal (bare URLs
-don't get OSC-8 hyperlink escapes in Claude Code's CLI; `[label](url)` does):
+**Anything larger, or binary** — cite the file as a **Markdown-formatted Skynet
+file URL** so it's clickable in her chat (and openable in the editable-file
+modal Skynet renders around it). Grammar:
 
-    DIR=$(mktemp -d -t share-XXXXXX)
-    cp <your-file(s)> "$DIR/"           # or for multi-file, tar czf "$DIR/bundle.tar.gz" <files>
-    IP=$(tailscale ip -4 | head -1)
-    # ⚠️ Wrap http.server to declare charset=utf-8 on text/* AND return text/markdown
-    # for .md/.markdown — vanilla `python3 -m http.server` sends NO Content-Type at
-    # all for .md (Chrome sniffs → CP1252 fallback → em dashes render as `â€"`,
-    # curly quotes garble). 2026-08-27, tripped Ashley on a chapter outline (Sandy).
-    # Port comes off the wrapper's own stdout — no `ss -tlnp` parsing needed.
-    ( cd "$DIR" && exec python3 -c '
-    import http.server as h, socketserver, sys
-    class U(h.SimpleHTTPRequestHandler):
-        def guess_type(self, p):
-            t = super().guess_type(p)
-            if p.lower().endswith((".md", ".markdown")): return "text/markdown; charset=utf-8"
-            if t.startswith("text/") and "charset=" not in t: return t + "; charset=utf-8"
-            return t
-    s = socketserver.TCPServer((sys.argv[1], 0), U)
-    print(s.server_address[1], flush=True); s.serve_forever()
-    ' "$IP" ) > /tmp/share-$$.log 2>&1 &
-    PID=$!                              # NOT nohup — that wraps python in a shell so $! is wrong
-    disown
-    sleep 0.5
-    PORT=$(head -1 /tmp/share-$$.log)   # port comes off the wrapper's stdout
-    # Emit as CLICKABLE Markdown links, one per file:
-    for f in "$DIR"/*; do
-      name=$(basename "$f")
-      printf '[%s](http://%s:%s/%s)\n' "$name" "$IP" "$PORT" "$name"
-    done
-    # Auto-kill after 24 hours by EXPLICIT PID (NEVER pkill -f <pattern> — the pattern
-    # matches its OWN command line and SIGTERMs the current shell):
-    ( sleep 86400; kill "$PID" 2>/dev/null; rm -rf "$DIR" 2>/dev/null ) &
-    disown
+    <skynet-parent>/file/<hostname>/<absolute-path>
+
+Concrete example (with the parent-Skynet at `https://term.gigaashley.click`, this
+box named `thenasty`, and the file at `/home/ubuntu/note.md`):
+
+    https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md
+
+Construct one like so — read the parent-Skynet domain from `~/.claude/skynet-parent`
+(a single-line file the fleet distributor writes on every managed box) and pair
+it with `hostname` plus the file's absolute path:
+
+    SKYNET=$(cat ~/.claude/skynet-parent 2>/dev/null)
+    if [ -z "$SKYNET" ]; then
+      echo "I can't share files right now — my parent-Skynet config is missing." \
+           "Ask the box-maintainer role to check the distributor sweep." >&2
+      exit 1
+    fi
+    HOST=$(hostname)
+    FILE=/home/ubuntu/note.md            # MUST be an absolute path (leading /)
+    printf '[%s](%s/file/%s%s)\n' "$(basename "$FILE")" "$SKYNET" "$HOST" "$FILE"
+
+**Round-trip semantics — Skynet is READ-ONLY on your files.** When she clicks the
+link, Skynet's editable-file modal fetches the file's current bytes over its
+existing SSH machinery and shows them. If she edits and hits Save, Skynet does
+NOT overwrite the original file — the edit lands as an attachment on her NEXT
+message to you; treat it like any freshly-uploaded file when you receive it (read
+it, diff against the original, decide what to do). The file on disk at the
+original path is never touched by Skynet.
 
 **Rules that matter — bake them in every time:**
 
-- **Serve from a fresh `mktemp -d`, NEVER your identity dir / bounties / a repo.**
-  `python -m http.server` serves the whole directory root, so anything in the
-  serve dir is reachable while the server is up. Only put in `$DIR` what you
-  want her to see.
-- **Print the Markdown link(s) as your visible output; do NOT also paste the
-  file bytes alongside** — the whole point of serving is to avoid that.
-- **Kill by explicit PID after use; NEVER `pkill -f "<pattern>"`.** That's the
-  self-match trap: the pattern matches the killing command's own argv and
-  SIGTERMs the current shell.
-- ⚠️ **Chrome will show "insecure file download"** on anything grabbed this way
-  (plain HTTP; the tailnet cert path isn't available on Ashley's Tailscale
-  plan, and thenasty's own HTTPS via gigaashley.click isn't wired for this
-  yet). Tell her once in the message: *"Chrome will flag as insecure — click
-  Keep in the download tray."* That's just the workflow, not a bug.
+- **Use the hostname, not an IP.** Skynet resolves the hostname against its per-user
+  host records (`thenasty`, `t1000`, whatever this box's name is). An IP won't
+  match a host record and the fetch will 404 with `unknown_host`.
+- **Path must be absolute** (leading `/`). Relative paths land you an
+  `invalid path` error at the modal.
+- **Do NOT URL-encode the whole path** — browsers handle spaces/unicode at the
+  individual character; the path segments themselves stay literal, matching how
+  file URLs read elsewhere (GitHub blob URLs, etc.).
+- **Backend reads as this box's SSH user** (usually `ubuntu`). Files under
+  root-only paths — `/root/*`, `/etc/shadow`, `/proc/*`, `/sys/*`, `/dev/*` — will
+  fail with a clean `permission_denied` / `path_forbidden` error surface in the
+  modal. Don't try to sudo around this — ask the box owner to widen access if
+  she genuinely needs to see the file.
+- **Missing `~/.claude/skynet-parent` = surface a clean user-facing error**,
+  never guess a domain and never fall back to any other file-sharing pattern.
+  The exact user-facing sentence: *"I can't share files right now — my
+  parent-Skynet config is missing. Ask the box-maintainer role to check the
+  distributor sweep."* On a fresh or unregistered box the distributor may not
+  have populated it yet; surfacing the failure lets her fix the underlying
+  problem instead of debugging a broken URL.
+
+**Why we replaced the old tailnet HTTP-server recipe.** Serving files off the
+tailnet IP over plain HTTP had three chronic pain points: (1) Chrome flagged
+every download as "insecure file" because the tailnet has no cert path on
+Ashley's plan; (2) the tailnet-only reach meant customer VMs and any box off
+the tailnet (T800 today, future customer boxes tomorrow) simply couldn't be
+served this way; and (3) every share saddled you with agent-side server
+lifecycle burden — a backgrounded process to kill, `mktemp -d` staging dirs to
+clean up, port juggling, PID tracking, self-`pkill` traps. The Skynet
+passthrough URL scheme is the ONE and ONLY documented way to share files now:
+HTTPS end-to-end, works from anywhere Skynet reaches, and no agent-side
+process to babysit.
 
 ---
 

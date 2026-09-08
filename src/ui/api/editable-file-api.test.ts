@@ -32,7 +32,11 @@ vi.mock("@/main-axios", async (importOriginal) => {
 
 // ── Late imports (after mocks are registered) ──────────────────────────────
 
-import { fetchTailnetUrl, type TailnetFetchResult } from "./editable-file-api";
+import {
+  fetchTailnetUrl,
+  fetchHostFileUrl,
+  type TailnetFetchResult,
+} from "./editable-file-api";
 import { authApi } from "@/main-axios";
 
 // ── Shared fixture ─────────────────────────────────────────────────────────
@@ -127,5 +131,129 @@ describe("fetchTailnetUrl — POST /pretty-view/fetch-tailnet-url wrapper", () =
     await expect(
       fetchTailnetUrl("http://192.168.1.1:8000/x.md"),
     ).rejects.toBeTruthy();
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Phase 75 Plan 75-02 Task 2 — fetchHostFileUrl helper tests (5 tests).
+ *
+ * Contract under test:
+ *   fetchHostFileUrl(url: string): Promise<TailnetFetchResult>
+ *     - Parses url with /^https:\/\/[^/]+\/file\/([a-zA-Z0-9._-]+)\/(.*)$/
+ *     - On no match, throws Error("invalid file URL") synchronously (no
+ *       network call attempted)
+ *     - Extracts hostname = match[1], absolutePath = "/" + match[2] (D-01
+ *       re-add-leading-slash rule)
+ *     - POSTs {hostname, absolutePath} to /pretty-view/fetch-host-file via
+ *       authApi.post
+ *     - On axios error, extracts the backend {error: <class>} string from
+ *       response.data.error and throws Error(class) so the modal can render
+ *       human-readable copy per class (D-02, Rule 2 deviation — see
+ *       75-02-SUMMARY for justification; the plain handleApiError path
+ *       would collapse 404/5xx classes into generic ApiError.code strings,
+ *       destroying the taxonomy the modal needs to distinguish unknown_host
+ *       vs not_found vs host_unreachable vs ssh_timeout)
+ *     - Returns response.data as TailnetFetchResult on 200
+ * ───────────────────────────────────────────────────────────────────────── */
+
+describe("fetchHostFileUrl — POST /pretty-view/fetch-host-file wrapper (Phase 75 D-01)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("Test 1 (URL parsing): parses hostname + absolutePath and POSTs to /pretty-view/fetch-host-file", async () => {
+    (authApi.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: {
+        contentBase64: "aGVsbG8=",
+        sizeBytes: 5,
+        contentType: null,
+        extension: "md",
+        filename: "note.md",
+        isTextByExt: true,
+      },
+    });
+
+    await fetchHostFileUrl(
+      "https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md",
+    );
+
+    expect(authApi.post).toHaveBeenCalledTimes(1);
+    expect(authApi.post).toHaveBeenCalledWith(
+      "/pretty-view/fetch-host-file",
+      { hostname: "thenasty", absolutePath: "/home/ubuntu/note.md" },
+    );
+  });
+
+  it("Test 2 (URL with port on Skynet domain): parses hostname + absolutePath ignoring the Skynet-side port", async () => {
+    (authApi.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: {
+        contentBase64: "ZmxlZXQ=",
+        sizeBytes: 5,
+        contentType: null,
+        extension: null,
+        filename: "hostname",
+        isTextByExt: false,
+        isTextByBytes: true,
+      },
+    });
+
+    await fetchHostFileUrl(
+      "https://term.gigaashley.click:8080/file/thenasty/etc/hostname",
+    );
+
+    expect(authApi.post).toHaveBeenCalledWith(
+      "/pretty-view/fetch-host-file",
+      { hostname: "thenasty", absolutePath: "/etc/hostname" },
+    );
+  });
+
+  it("Test 3 (unparseable URL): throws Error(\"invalid file URL\") synchronously without any network call", async () => {
+    await expect(fetchHostFileUrl("garbage")).rejects.toThrow(
+      "invalid file URL",
+    );
+    expect(authApi.post).not.toHaveBeenCalled();
+  });
+
+  it("Test 4 (axios error carrying backend error class): throws with the classified error string as .message", async () => {
+    (authApi.post as ReturnType<typeof vi.fn>).mockRejectedValueOnce({
+      isAxiosError: true,
+      response: {
+        status: 404,
+        data: { error: "not_found" },
+      },
+      config: { url: "/pretty-view/fetch-host-file", method: "post" },
+      message: "Request failed with status code 404",
+    });
+
+    // The rejection carries the classified error class as .message so the
+    // modal can render distinct copy per class (D-02 human-readable-copy
+    // contract; the plan-mandated behavior in Test 13-16 of the modal
+    // suite requires this).
+    await expect(
+      fetchHostFileUrl(
+        "https://term.gigaashley.click/file/thenasty/nope.md",
+      ),
+    ).rejects.toThrow("not_found");
+  });
+
+  it("Test 5 (happy path): returns the exact TailnetFetchResult envelope from response.data", async () => {
+    const fixture: TailnetFetchResult = {
+      contentBase64: "aGVsbG8gd29ybGQ=",
+      sizeBytes: 11,
+      contentType: null,
+      extension: "md",
+      filename: "greeting.md",
+      isTextByExt: true,
+      isTextByBytes: undefined,
+    };
+    (authApi.post as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      data: fixture,
+    });
+
+    const result = await fetchHostFileUrl(
+      "https://term.gigaashley.click/file/thenasty/tmp/greeting.md",
+    );
+
+    expect(result).toEqual(fixture);
   });
 });

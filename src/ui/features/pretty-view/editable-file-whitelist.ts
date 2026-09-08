@@ -97,6 +97,53 @@ export const TAILNET_URL_RE_CLIENT =
   /http:\/\/100\.(?:6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\.\d{1,3}\.\d{1,3}:\d{1,5}\/[^\s)]+/g;
 
 /**
+ * Phase 75 D-01 URL shape: <skynet-domain>[:port]/file/<hostname>/<abs-path>
+ * Example: https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md
+ *
+ * Grammar (locked in Phase 75 D-01):
+ *   - scheme:      https:// only (agents on Skynet always run on the HTTPS
+ *                  deployment; the backend rejects http:// too)
+ *   - domain:      any DNS-legal hostname + optional :port
+ *                  ([a-zA-Z0-9.-]+(?::\d{1,5})?)
+ *   - literal:     /file/
+ *   - hostname:    [a-zA-Z0-9._-]+ — matches hosts.name for the fleet's
+ *                  simple-name convention; the backend route in Plan 75-01
+ *                  re-validates with the same character class
+ *   - literal:     /
+ *   - abs-path:    [^\s)?#]+ — stops at whitespace, closing paren, query
+ *                  start, or fragment start (same terminator style as
+ *                  TAILNET_URL_RE_CLIENT above)
+ *
+ * Trailing prose punctuation (`.,;:!?`) is trimmed downstream by
+ * stripTrailingPunct (H2 fix) — the regex itself is intentionally greedy
+ * on `.` so `notes.md` survives; the punctuation trim happens post-extract.
+ *
+ * The /g flag is INTENTIONAL: consumers scan message bodies for MULTIPLE
+ * matches per message. When using `.match()`, no state reset is needed
+ * (each call is stateless).
+ *
+ * ⚠️ Same /g gotcha as TAILNET_URL_RE_CLIENT (L89-91 above): NEVER call
+ * `.test()` on this regex — it mutates `.lastIndex` and returns alternating
+ * true/false. For dispatch decisions (which fetch helper to call), use a
+ * fresh non-global regex or `url.startsWith(...)`-shape guards. See
+ * `use-editable-file-eligibility.ts` and `EditableFileModal.tsx` for the
+ * dispatch pattern.
+ *
+ * MIRROR-RULE bookkeeping (Phase 40 D-02): the backend twin at
+ * src/backend/utils/editable-file-whitelist.ts holds the whitelist DATA
+ * (EDITABLE_EXTENSIONS + EDITABLE_BASENAMES + classifyByExtension) in
+ * lockstep, but does NOT re-export this regex — the backend route
+ * (pretty-view-fetch-host-file.ts from Plan 75-01) does its own hostname
+ * + path validation with `/^[a-zA-Z0-9._-]+$/` etc. Same reason
+ * TAILNET_URL_RE_CLIENT ships client-only today: the server uses its own
+ * anchored variant inside the fetch route. The backend twin's docblock
+ * carries a note referencing this export to preserve the mirror-rule
+ * paper trail.
+ */
+export const SKYNET_FILE_URL_RE_CLIENT =
+  /https:\/\/[a-zA-Z0-9.-]+(?::\d{1,5})?\/file\/[a-zA-Z0-9._-]+\/[^\s)?#]+/g;
+
+/**
  * Strip trailing prose punctuation from an extracted URL (rev-3 2026-08-14
  * code-review H2). GFM autolink literals trim `.,;:!?` from the end of a URL
  * when rendering an `<a>` (so `see http://100.64.0.1:8000/notes.md.` renders

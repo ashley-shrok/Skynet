@@ -558,6 +558,17 @@ async function initializeCompleteDatabase(): Promise<void> {
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     );
 
+    -- Phase 85 (D-01, D-02): identity_send_log — Ashley's per-identity
+    -- last-send timestamp. Keyed on identity name only (Skynet single-tenant).
+    -- Consumed by ssh-poll-orchestrator lastMessageAt derivation. No FK
+    -- references; identity names are freestanding strings. Drizzle mirror
+    -- at schema.ts identitySendLog.
+    CREATE TABLE IF NOT EXISTS identity_send_log (
+        identity_name TEXT PRIMARY KEY,
+        last_send_at INTEGER NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
 `);
 
   try {
@@ -1804,6 +1815,26 @@ const migrateSchema = async () => {
       operation: "schema_migration",
       error: seedError,
     });
+  }
+
+  // Phase 85 (D-01, D-02): persist the identity_send_log schema mutation to
+  // the encrypted disk file. The CREATE TABLE IF NOT EXISTS block above only
+  // mutates the in-RAM SQLite; DatabaseSaveTrigger.forceSave flushes to
+  // ciphertext so the new table survives non-graceful shutdown. Mirrors the
+  // phase-72-add-runs-fleet-substrate pattern: non-fatal on save failure
+  // (CREATE TABLE IF NOT EXISTS is idempotent — next boot retries the
+  // create-plus-save together).
+  try {
+    await DatabaseSaveTrigger.forceSave("phase-85-create-identity-send-log");
+  } catch (saveError) {
+    databaseLogger.warn(
+      "[phase-85] forceSave failed post-create (non-fatal — CREATE TABLE IF NOT EXISTS is idempotent, next boot retries)",
+      {
+        operation: "schema_migration_force_save_post_create",
+        reason: "phase-85-create-identity-send-log",
+        error: saveError,
+      },
+    );
   }
 
   databaseLogger.success("Schema migration completed", {

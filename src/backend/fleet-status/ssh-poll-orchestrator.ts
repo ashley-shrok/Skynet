@@ -53,6 +53,12 @@ import type { SubscriptionRegistry } from "./subscription-registry.js";
 import type { SessionState } from "./wire-protocol.js";
 import type { HostRecord } from "./host-id-resolver.js";
 import { writeSessionFileCache } from "./session-file-cache.js";
+// Phase 85 (D-07): per-tick `lastMessageAt` derivation reads Ashley's newest
+// send-time timestamp from the identity-name-keyed send-log store instead of
+// scanning the JSONL tail. `scanTailForNewestMessageAt` stays defined + exported
+// for byte-parallel consumers in `src/backend/database/routes/sessions.ts`
+// (D-08); only the in-file `derivedLastMessageAt` derivation retires from it.
+import { getIdentityLastSend } from "./identity-send-log-store.js";
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -414,6 +420,14 @@ interface PerHostState {
  *   content contains "<command-name>/exit</command-name>".
  * - Resumed-injection sentinel: supervisor injects "Your session was just
  *   resumed by the agent-supervisor…" as a type:"user" turn in some paths.
+ *
+ * Phase 85 (D-08): stays alive as a shared helper. Not called from this
+ * file's own lastMessageAt path anymore (retired — the derivation now reads
+ * from the identity-name-keyed send-log store via getIdentityLastSend), but
+ * the src/backend/database/routes/sessions.ts byte-parallel copy of
+ * scanTailForNewestMessageAt still depends on this predicate's contract, and
+ * scanTailForLayer1RecyclingSignal below still calls this to pre-filter real
+ * user turns from harness-synthetic noise.
  */
 function isAshleyRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok: false } {
   const trimmed = rawLine.trim();
@@ -504,7 +518,28 @@ const STALE_TAIL_REDISCOVERY_THRESHOLD = 5;
  * it is still called for other purposes elsewhere if needed). The predicate
  * returns {ok, ts} so a single JSON.parse feeds both the gate and the ts
  * extraction, avoiding a second parse on the keep path.
+ *
+ * Phase 85 (D-08): retired from the in-file lastMessageAt derivation but
+ * STAYS DEFINED — src/backend/database/routes/sessions.ts maintains a
+ * byte-parallel copy and hand-mirrors this scanner for the /sessions/list
+ * dormant-side derivation. If either copy changes, update BOTH. The
+ * in-orchestrator lastMessageAt axis now reads from the identity-name-keyed
+ * send-log store (Phase 85-02 identity-send-log-store) via
+ * getIdentityLastSend, so the function is no longer called from
+ * processPid's per-tick per-session block.
  */
+// Phase 85 (D-08 export): test-only export of the retired scanner so the
+// predicate-matrix suite in ssh-poll-orchestrator.test.ts can continue to
+// probe isAshleyRealUserTurn's contract at the byte level. The function is
+// no longer called from processPid but is still THE canonical predicate
+// implementation that sessions.ts byte-parallel-copies; keeping tests on
+// this observable preserves regression coverage of the predicate.
+export function __scanTailForNewestMessageAtForTests(
+  tailContents: string,
+): number | null {
+  return scanTailForNewestMessageAt(tailContents);
+}
+
 function scanTailForNewestMessageAt(tailContents: string): number | null {
   let newest: number | null = null;
   const lines = tailContents.split("\n");
@@ -1577,86 +1612,108 @@ export function createSshPollOrchestrator(
       jsonlPath = await discoverIdentityJsonlPathViaChannel(channel, tmuxSession);
     }
 
-    // Fail-open on the tail-scan: if the JSONL exec returns null or the
-    // tail is empty, keep whatever value the cache last saw (defaulting to
-    // null on cold-start) so a transient SSH hiccup does NOT wipe a valid
-    // recency signal. `2>/dev/null || true` mirrors the hook-payload
-    // pattern: if the file does not exist yet (fresh session with no JSONL
-    // writes), the shell suppresses the ENOENT stderr and returns exit 0
-    // with empty stdout — scanTailForNewestMessageAt returns null (no
-    // history), we keep the cached value (also null in this case).
+    // Phase 85 (D-07): `derivedLastMessageAt` now reads from the identity-
+    // name-keyed send-log store instead of scanning the JSONL tail. The
+    // store is populated on the frontend send funnel (D-04 hook in
+    // useComposeSend); every send Ashley fires — text submit, reset,
+    // thumbs-up, recap, any current-or-future compose-surface button —
+    // stamps the store, and the next poll tick here reads it back.
+    //
+    // The transcript-scan pipeline stays alive for the aiTitle axis (still
+    // consumes the same tail buffer below via scanTailForLatestAiTitle) and
+    // for every other consumer that hangs off scanTailForNewestMessageAt
+    // (D-08 — src/backend/database/routes/sessions.ts byte-parallel copy).
+    //
+    // Fail-open semantics preserved: on `getIdentityLastSend` returning null
+    // (identity has never been sent to — D-09 first-ship contract) OR
+    // throwing (transient DB hiccup), keep the cached value (null on
+    // cold-start, prior fresh value otherwise). The store module itself
+    // catches drizzle errors and returns null; the try/catch here is
+    // belt-and-suspenders on the hot per-tick path.
     let derivedLastMessageAt: number | null = cached?.lastMessageAt ?? null;
     let derivedAiTitle: string | null = cached?.aiTitle ?? null;
-    let nextStaleTailTickCount = cached?.staleTailTickCount ?? 0;
+    // Phase 85 (D-07): stale-tail rediscovery counter RETIRES from the
+    // lastMessageAt axis (the send-log store never rotates in the JSONL
+    // sense — the identity_send_log table is a durable single-row-per-
+    // identity keyed shape). The field stays on PidCacheEntry because
+    // source B (pollDormantOnlyIdentities) still uses the same
+    // STALE_TAIL_REDISCOVERY_THRESHOLD constant + counter mechanics for its
+    // Layer 1 recycling tail scan (~L1051 above). ai-title discovery
+    // rediscovery, if ever separately governed, would drive off
+    // scannedAiTitle; that's a future concern, not a Phase 85 concern.
+    // Preserve the cached value so the cache-write paths downstream stamp
+    // the field consistently — the counter simply never increments on this
+    // axis anymore.
+    const nextStaleTailTickCount = cached?.staleTailTickCount ?? 0;
+    if (tmuxSession !== null) {
+      try {
+        const stored = await getIdentityLastSend(tmuxSession);
+        systemLogger.debug(
+          "Fleet-status: lastMessageAt derived from send-log store",
+          {
+            operation: "fleet_status_last_message_at_from_store",
+            fleetHostId: host.id,
+            identityName: tmuxSession,
+            lookupResult: stored,
+          },
+        );
+        if (stored !== null) {
+          derivedLastMessageAt = stored;
+        }
+      } catch (err) {
+        systemLogger.debug(
+          "Fleet-status: getIdentityLastSend failed — keeping cached lastMessageAt",
+          {
+            operation: "fleet_status_send_log_lookup_failed",
+            fleetHostId: host.id,
+            identityName: tmuxSession,
+            error: err instanceof Error ? err.message : "unknown",
+          },
+        );
+      }
+    }
     // quick-260823-73o — Layer 1 /id reset scan REMOVED from source A. Source B
     // (pollDormantOnlyIdentities) now performs the Layer 1 tail scan per-identity
     // per-tick with its own per-identity jsonlPath cache. Source A's tail exec
-    // still fires here for the lastMessageAt + aiTitle derivations (unchanged).
+    // still fires here for the aiTitle derivation (Phase 85 D-07: the
+    // lastMessageAt scan retired above; aiTitle stays on the tail).
     if (jsonlPath !== null) {
       // Phase 47 Plan 02 — tail width bumped from a line-count-bounded
       // read to `tail -c 262144` (256KB byte-count) so an ai-title line
       // older than the last handful of message-bearing lines is still
       // captured. The sessions.ts /sessions/list route uses the same tail
       // shape; both backend read paths stay aligned.
-      // scanTailForNewestMessageAt iterates lines regardless of
-      // byte-vs-line-bound source, so the switch is semantically invisible
-      // to the lastMessageAt derivation.
+      // Phase 85 (D-07): scanTailForNewestMessageAt no longer called here —
+      // lastMessageAt now derives from getIdentityLastSend above. aiTitle
+      // continues to consume the same tail buffer (only consumer left).
       const tailRaw = await channel.exec(
         `tail -c 262144 ${jsonlPath} 2>/dev/null || true`,
       );
-      let scanned: number | null = null;
       let scannedAiTitle: string | null = null;
       if (tailRaw !== null && tailRaw.trim() !== "") {
-        // ONE buffer, TWO scans (lastMessageAt + aiTitle). The Layer 1 recycling
-        // scan is now in source B (quick-260823-73o migration).
-        scanned = scanTailForNewestMessageAt(tailRaw);
+        // ONE buffer, ONE scan (aiTitle only). Phase 85 (D-07): the
+        // lastMessageAt scan retired; only scanTailForLatestAiTitle
+        // consumes the tail buffer in source A now. Layer 1 recycling
+        // scan already lives in source B (quick-260823-73o migration).
         scannedAiTitle = scanTailForLatestAiTitle(tailRaw);
       }
       // Phase 47 Plan 02 — last-wins reconciliation for aiTitle. If the
       // fresh tail-scan returned a non-null string, use it; otherwise
       // preserve the cache (fail-open on transient SSH hiccup or a tick
-      // where the tail is empty — matches lastMessageAt's semantics). A
-      // truly-no-ai-title session's cache starts at null and stays null.
+      // where the tail is empty). A truly-no-ai-title session's cache
+      // starts at null and stays null.
       if (scannedAiTitle !== null) {
         derivedAiTitle = scannedAiTitle;
       }
-      // Phase 44 Plan 02 — TIGHTENED stale-tick condition. Three mutually-
-      // exclusive branches, evaluated in order:
-      //   1. Advance branch (fresher signal): reset counter to 0.
-      //   2. No-history branch (derivedLastMessageAt === null): leave
-      //      counter at whatever cache had (0 in practice) — do NOT tick.
-      //      Rationale: the stale threshold defends against JSONL rotation
-      //      mid-session, not against sessions that never emitted a
-      //      message-bearing frame. See 44-CONTEXT.md and the
-      //      PidCacheEntry.staleTailTickCount docblock above.
-      //   3. Stale branch (HAD a signal, tail failed to advance): the ONLY
-      //      increment path. Fires when there WAS a cached lastMessageAt
-      //      AND the fresh tail failed to advance it — the exact condition
-      //      the rotation-defense rationale targets.
-      if (
-        scanned !== null &&
-        (derivedLastMessageAt === null || scanned > derivedLastMessageAt)
-      ) {
-        derivedLastMessageAt = scanned;
-        nextStaleTailTickCount = 0;
-      } else if (derivedLastMessageAt === null) {
-        // No-history session — do NOT tick, do NOT reset.
-        nextStaleTailTickCount = cached?.staleTailTickCount ?? 0;
-      } else {
-        // derivedLastMessageAt !== null AND
-        // (scanned === null || scanned <= derivedLastMessageAt) —
-        // HAD a signal, tail failed to advance.
-        nextStaleTailTickCount = (cached?.staleTailTickCount ?? 0) + 1;
-      }
-      // Threshold check (invalidate on trip): null the cached path so the
-      // next tick re-fires discovery. Do NOT wipe derivedLastMessageAt —
-      // the fingerprint gate still owns publish semantics; a re-discovery
-      // that lands on the same path (no rotation happened) leaves the
-      // cached signal intact.
-      if (nextStaleTailTickCount >= STALE_TAIL_REDISCOVERY_THRESHOLD) {
-        jsonlPath = null;
-        nextStaleTailTickCount = 0;
-      }
+      // Phase 85 (D-07): lastMessageAt no longer derived from tail — see
+      // store lookup above. Stale-tail counter retires from this axis; the
+      // former three-branch increment/advance/no-history logic and the
+      // STALE_TAIL_REDISCOVERY_THRESHOLD trip that invalidated `jsonlPath`
+      // both dropped from source A. ai-title discovery rediscovery, if
+      // needed in future, would drive off scannedAiTitle. The threshold
+      // constant + counter field stay defined because source B
+      // (pollDormantOnlyIdentities) still uses them for its Layer 1 tail
+      // scan rediscovery contract.
     }
 
     // Liveness check — bounty 9c8d4a72: branch on the tagged statResult BEFORE

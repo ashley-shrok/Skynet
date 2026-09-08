@@ -26,16 +26,21 @@ import { renderHook, waitFor } from "@testing-library/react";
 
 vi.mock("@/api/editable-file-api", () => ({
   fetchTailnetUrl: vi.fn(),
+  fetchHostFileUrl: vi.fn(),
 }));
 
 // ── Late imports (after mocks are registered) ──────────────────────────────
 
 import { useEditableFileEligibility } from "./use-editable-file-eligibility";
-import { fetchTailnetUrl } from "@/api/editable-file-api";
+import {
+  fetchTailnetUrl,
+  fetchHostFileUrl,
+} from "@/api/editable-file-api";
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
 const mockFetch = fetchTailnetUrl as ReturnType<typeof vi.fn>;
+const mockFetchHostFile = fetchHostFileUrl as ReturnType<typeof vi.fn>;
 
 /** Baseline mock response — override per test via {...BASE, isTextByBytes: X}. */
 const BASE_RESPONSE = {
@@ -53,6 +58,7 @@ const BASE_RESPONSE = {
 describe("useEditableFileEligibility — per-message tailnet-URL eligibility scan", () => {
   beforeEach(() => {
     mockFetch.mockReset();
+    mockFetchHostFile.mockReset();
   });
 
   afterEach(() => {
@@ -321,5 +327,160 @@ describe("useEditableFileEligibility — per-message tailnet-URL eligibility sca
     for (const entry of result.current) {
       expect(typeof entry).toBe("string");
     }
+  });
+
+  // ── Phase 75 Plan 75-02 Task 2 — file-URL scan + dispatch (Tests 6-10) ──
+  //
+  // Contract additions:
+  //   - The match loop scans BOTH TAILNET_URL_RE_CLIENT and
+  //     SKYNET_FILE_URL_RE_CLIENT and dedupes results via stripTrailingPunct.
+  //   - Byte-sniff dispatch chooses fetchHostFileUrl for file URLs
+  //     (/^https:\/\/[^/]+\/file\//) and fetchTailnetUrl for everything else.
+  //   - The DISCARD-BYTES rule holds: bytes returned from either helper in
+  //     the byte-sniff path are NEVER stashed anywhere; the modal fires its
+  //     own fresh fetch on open.
+  //   - The rev-3 H3 closure-scoped cancellation pattern is preserved (no
+  //     regression to useRef(false)).
+
+  it("Test 6 (file URL with .md — sync whitelist hit, no fetch): includes the file URL in the eligibility Set", async () => {
+    const url =
+      "https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md";
+    const body = `check ${url}`;
+
+    const { result } = renderHook(() =>
+      useEditableFileEligibility("e1", body),
+    );
+
+    await waitFor(() => {
+      expect(result.current.has(url)).toBe(true);
+    });
+    // .md hits the extension whitelist → no fetch fires (sync path)
+    expect(mockFetchHostFile).toHaveBeenCalledTimes(0);
+    expect(mockFetch).toHaveBeenCalledTimes(0);
+  });
+
+  it("Test 7 (mixed tailnet + file URL — both in the Set): dedupes via Set + stripTrailingPunct", async () => {
+    const tailnet = "http://100.64.0.1:8000/notes.md";
+    const file =
+      "https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md";
+    const body = `see ${tailnet} and ${file} for details`;
+
+    const { result } = renderHook(() =>
+      useEditableFileEligibility("e1", body),
+    );
+
+    await waitFor(() => {
+      expect(result.current.has(tailnet)).toBe(true);
+      expect(result.current.has(file)).toBe(true);
+    });
+    // Both are extension-whitelist hits (.md) — no fetches fire.
+    expect(mockFetch).toHaveBeenCalledTimes(0);
+    expect(mockFetchHostFile).toHaveBeenCalledTimes(0);
+  });
+
+  it("Test 8 (byte-sniff dispatch by URL shape): fetchHostFileUrl called for file URLs, fetchTailnetUrl for tailnet URLs", async () => {
+    // Both mocks return text-by-bytes so both URLs land in the Set.
+    mockFetch.mockResolvedValue({
+      ...BASE_RESPONSE,
+      filename: "myscript",
+      isTextByExt: false,
+      isTextByBytes: true,
+    });
+    mockFetchHostFile.mockResolvedValue({
+      ...BASE_RESPONSE,
+      filename: "myscript",
+      isTextByExt: false,
+      isTextByBytes: true,
+    });
+
+    const tailnet = "http://100.64.0.1:8000/myscript";
+    const file =
+      "https://term.gigaashley.click/file/thenasty/home/ubuntu/myscript";
+    const body = `${tailnet}\n${file}`;
+
+    renderHook(() => useEditableFileEligibility("e1", body));
+
+    // Each helper called exactly once with the URL matching its shape.
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(tailnet);
+    });
+    await waitFor(() => {
+      expect(mockFetchHostFile).toHaveBeenCalledWith(file);
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetchHostFile).toHaveBeenCalledTimes(1);
+    // And crucially: fetchHostFileUrl was NOT called with the tailnet URL,
+    // and fetchTailnetUrl was NOT called with the file URL — dispatch is
+    // strict per URL shape.
+    expect(mockFetch).not.toHaveBeenCalledWith(file);
+    expect(mockFetchHostFile).not.toHaveBeenCalledWith(tailnet);
+  });
+
+  it("Test 9 (DISCARD-BYTES rule preserved for file URLs): bytes fetched here are never surfaced anywhere", async () => {
+    mockFetchHostFile.mockResolvedValue({
+      ...BASE_RESPONSE,
+      filename: "myscript",
+      contentBase64: "c2VjcmV0IHNhdWNl", // "secret sauce" — must never leak
+      isTextByExt: false,
+      isTextByBytes: true,
+    });
+
+    const file =
+      "https://term.gigaashley.click/file/thenasty/home/ubuntu/myscript";
+
+    const { result } = renderHook(() =>
+      useEditableFileEligibility("e1", file),
+    );
+
+    await waitFor(() => {
+      expect(result.current.has(file)).toBe(true);
+    });
+
+    // Structural check: the return is a Set instance — no wrapping object
+    // that could carry the byte payload alongside the URL.
+    expect(result.current).toBeInstanceOf(Set);
+    for (const entry of result.current) {
+      expect(typeof entry).toBe("string");
+      // The URL itself must not contain the base64 payload snuck in via
+      // any code path.
+      expect(entry).not.toContain("c2VjcmV0");
+    }
+    // No contentBase64 property attached to the Set.
+    expect(
+      typeof (result.current as unknown as { contentBase64?: unknown })
+        .contentBase64,
+    ).toBe("undefined");
+  });
+
+  it("Test 10 (rev-3 H3 cancellation pattern preserved): unmount before file-URL fetch resolves does not setState", async () => {
+    // Never-resolves promise for the file-URL fetch — proves the cleanup
+    // path prevents setState on the closure-scoped `cancelled` flag.
+    mockFetchHostFile.mockImplementation(() => new Promise(() => {}));
+    mockFetch.mockResolvedValue({ ...BASE_RESPONSE, isTextByBytes: false });
+
+    const file =
+      "https://term.gigaashley.click/file/thenasty/home/ubuntu/myscript";
+    const { unmount, result } = renderHook(() =>
+      useEditableFileEligibility("e1", file),
+    );
+
+    // Wait for the effect to actually fire the fetch before unmounting.
+    await waitFor(() => {
+      expect(mockFetchHostFile).toHaveBeenCalledTimes(1);
+    });
+
+    const initialSet = result.current;
+    unmount();
+
+    // Wait a tick — the closure-scoped `cancelled` guard should have been
+    // set true by the cleanup returned from the effect, preventing any
+    // future setState even if the promise resolved.
+    await new Promise((r) => setTimeout(r, 20));
+
+    // The Set snapshot from before unmount is the last state; if the
+    // closure-scoped cancel had regressed to useRef(false), a subsequent
+    // resolve would silently overwrite state after unmount and React would
+    // log a warning.
+    expect(initialSet.size).toBe(0);
   });
 });

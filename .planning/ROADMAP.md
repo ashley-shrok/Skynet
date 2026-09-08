@@ -1902,6 +1902,23 @@ Plans:
 
 - [x] 77-05-PLAN.md — E2E integration test (gated on INTEGRATION_TESTS=1 strict) proving loginAsUser + send-message round-trip works via the admin foundation; light update to substrate/skills/agent-relay/SKILL.md reflecting Skynet's new admin role; human checkpoint covering @skynet-admin creds ingestion via POST /matrix-admin/creds + three-user mxid import (Ashley/Zoe on t1000, Laura on T800 side by Stacy) + doc coherence review (MXA-01, MXA-06)
 
+### Phase 78: Passthrough URLs — file URL scheme (phase 1 of 2)
+
+**Goal:** Ship the file half of the two-phase passthrough-URL shape (`.planning/shapes/shape-skynet-passthrough-urls.md`) — a new URL grammar `<skynet-domain>/file/<hostname>/<absolute-path>` (per CONTEXT D-01) that agents cite in messages, backend SFTP-fetches from the target host via the existing SSH connection pool, frontend detects via a sibling regex extending Phase 40's editable-file affordance stack (whitelist + eligibility hook + modal + affordance), the fleet distributor pushes `~/.claude/skynet-parent` to every managed box (per D-03) so agents know their parent Skynet's HTTPS URL, and the id-skill "Sending files to the user" section is rewritten to retire the `python3 -m http.server` recipe entirely in favor of the new URL scheme.
+**Requirements**: N/A (this phase is derived from CONTEXT.md decisions D-01..D-04 + the shape file; no REQUIREMENTS.md IDs mapped — REQUIREMENTS.md scope is patch #43 pretty-view work, this phase is a separate fleet-substrate feature under the box-maintainer role's ownership stream)
+**Depends on:** Phase 74
+**Plans:** 4/4 plans complete
+Plans:
+**Wave 1**
+
+- [x] 78-01-PLAN.md — Backend SFTP-backed file-fetch route (POST /pretty-view/fetch-host-file mirroring Phase 40's tailnet-URL route) + resolveHostByName helper scoped by userId (RESEARCH Pitfall 7 cross-user isolation) + mount in database.ts (wave 1, autonomous)
+- [x] 78-02-PLAN.md — Frontend URL detection (SKYNET_FILE_URL_RE_CLIENT sibling regex) + eligibility hook extension + EditableFileModal fetch-dispatch by URL shape + fetchHostFileUrl API helper + backend whitelist mirror-rule docblock note (wave 1, autonomous)
+- [x] 78-03-PLAN.md — Distributor step 4 in runBootstrapForHost writes ~/.claude/skynet-parent idempotently from process.env.SKYNET_PUBLIC_URL with content-diff guard + missing-env skip (wave 1, autonomous)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 78-04-PLAN.md — id-skill "Sending files to the user" section rewrite: delete python3 -m http.server recipe entirely (RESEARCH Pitfall 5), teach new URL scheme with construction snippet + D-03 missing-file behavior + round-trip semantics (wave 2, depends on 78-03)
+
 ### Phase 79: Telegram bridge Phase B: substrate promotion + identity modal Telegram section — package Nina bridge (/home/thenasty/.config/tg-bridge/bridge.sh) into fleet distributor as managed service, add Matrix-cursor disk persistence mirroring recv.sh, new Telegram section in identity modal per identity, activation flow (bot-token paste → Skynet writes bridge registry → restart bridge → user sends /start). Sits on top of Phase 77 (matrix-admin foundation, shipped). Shape: .planning/shapes/shape-telegram-bridge.md § Vehicle notes Phase B.
 
 **Goal:** [To be replanned — install pathway course-corrected 2026-09-06 to Docker Compose service. See .planning/phases/79-*/79-CONTEXT.md § Attribution corrections + § 4C for the revised architecture.]
@@ -2002,3 +2019,18 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [ ] 84-03-PLAN.md — Test updates: PrettyConversationsPanel.test.tsx Test 5 title regex flip, PrettyConversationsPanel.new-role-button.test.tsx Test 21c signal swap, CreateRoleDialog.test.tsx Tests 11/15/17/20 updated + Test 18 deleted + new Test 22 for single-host picker suppression (wave 2, depends on 84-01 + 84-02)
+
+### Phase 85: middle-list recency from Skynet-side send-log — replace remote transcript-scan derivation with a Skynet-recorded send timestamp keyed on identity name, persisted in skynet-data, driving the middle-zone ranking only (rescue-rebased from local Phase 79 after tina's Phase 79 telegram-bridge collision)
+
+**Goal:** Middle-zone conversation-list rows in Skynet order by Ashley's own Skynet-recorded send-attempts, sourced from a durable per-identity send-log table in `skynet-data`, so that recycled/active identities never sink below stale ones and the row jumps instantly on send.
+**Requirements**: D-01, D-02, D-03, D-04, D-05, D-06, D-07, D-08, D-09, D-10
+**Depends on:** Phase 78
+**Plans:** 6/6 plans executed
+
+Plans:
+- [x] 85-01-PLAN.md — NEW `identity_send_log` SQLite table + in-process CREATE TABLE + forceSave contract + migration test coverage (wave 1, no deps)
+- [x] 85-02-PLAN.md — NEW `identity-send-log-store.ts` module: `stampIdentityLastSend` (monotonic upsert + forceSave) + `getIdentityLastSend` + 10-test spy-verified coverage (wave 2, depends on 85-01)
+- [x] 85-03-PLAN.md — NEW `/identity-send-log/stamp` auth-gated POST route + supertest coverage for auth/validation/success/error paths + mount in database.ts (wave 3, depends on 85-02)
+- [x] 85-04-PLAN.md — Source-swap in ssh-poll-orchestrator per-tick block: `lastMessageAt` reads store instead of `scanTailForNewestMessageAt`; aiTitle scan preserved; scanners stay defined for D-08 consumers; round-trip test (wave 3, depends on 85-02)
+- [x] 85-05-PLAN.md — Source-swap in `/sessions/list` route: per-row `lastMessageAt` reads store instead of byte-parallel scanner copy; aiTitle scan preserved; byte-parallel copies stay defined per D-08 (wave 3, depends on 85-02)
+- [x] 85-06-PLAN.md — NEW frontend `identity-send-log-api.ts` + hook `useComposeSend.send` at `ComposeBox.tsx:447-493` with fire-and-forget backend POST + optimistic `seedSessionLastMessageAt` for instant row reorder (wave 4, depends on 85-03)

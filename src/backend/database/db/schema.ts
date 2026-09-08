@@ -796,3 +796,16 @@ export const userPreferences = sqliteTable("user_preferences", {
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
 });
+
+// Phase 85 (D-01, D-02): identity_send_log — records when Ashley last sent a
+// message from Skynet's compose surface to this identity, keyed on identity
+// name only (Skynet single-tenant). Consumed by ssh-poll-orchestrator for the
+// middle-zone recency signal. `lastSendAt` holds unix millis (nullable never
+// at the SQL layer — a row only exists after Ashley's first send).
+export const identitySendLog = sqliteTable("identity_send_log", {
+  identityName: text("identity_name").primaryKey(),
+  lastSendAt: integer("last_send_at").notNull(),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});

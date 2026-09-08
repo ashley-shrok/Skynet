@@ -8,7 +8,10 @@ import {
   DialogClose,
 } from "@/components/dialog";
 import { cn } from "@/lib/utils";
-import { fetchTailnetUrl } from "@/api/editable-file-api";
+import {
+  fetchTailnetUrl,
+  fetchHostFileUrl,
+} from "@/api/editable-file-api";
 import GlobalFileTab, { type GlobalFileTabData } from "./GlobalFileTab";
 import type { TabState } from "./IdentityFileTab";
 
@@ -21,6 +24,127 @@ import type { TabState } from "./IdentityFileTab";
  * sentinel per modal-open lifecycle regardless of wall-clock resolution.
  */
 let mtimeCounter = 0;
+
+/**
+ * Phase 75 D-01 dispatch guard: fresh non-global regex used to decide which
+ * fetch helper to call at open-time. MUST be non-global — .test() on a /g
+ * regex mutates .lastIndex and returns alternating true/false (RESEARCH
+ * Pitfall 6 + docblock warning on SKYNET_FILE_URL_RE_CLIENT).
+ */
+const FILE_URL_DISPATCH_RE = /^https:\/\/[^/]+\/file\//;
+
+/**
+ * Phase 75 D-01 URL parser for the modal's error-copy layer. Used ONLY to
+ * extract the hostname to weave into the "Permission denied on <host>"
+ * copy per D-02. Kept module-private; the fetch helper does its own
+ * parsing for the network payload.
+ */
+const FILE_URL_HOSTNAME_RE =
+  /^https:\/\/[^/]+\/file\/([a-zA-Z0-9._-]+)\//;
+
+/**
+ * Phase 75 D-02 error-class → human-readable copy map for the modal's
+ * in-body error surface. Keys are the backend error-class strings emitted
+ * by `pretty-view-fetch-host-file.ts` from Plan 75-01. Values contain a
+ * heading (short) + body (sentence) rendered inside the modal's error
+ * panel. NEVER include HTTP status codes or stack traces (T-40-05
+ * invariant re-affirmed in the plan's threat model T-75-F2).
+ *
+ * `permission_denied` is special-cased at the render site because its
+ * body copy weaves in the hostname parsed from the URL (safe — the user
+ * typed/saw the URL in the message, no info leak).
+ *
+ * Unmapped classes (including axios error paths that do NOT carry a
+ * backend class, so the message becomes the generic ApiError text) fall
+ * back to the "generic" entry. This keeps the failure UX predictable:
+ * user always sees a clean sentence, never raw error internals.
+ */
+type ErrorCopy = { heading: string; body: string };
+const FILE_URL_ERROR_COPY: Record<string, ErrorCopy> = {
+  host_unreachable: {
+    heading: "Host unreachable",
+    body: "The box may be offline or the SSH channel is down. Try again in a moment.",
+  },
+  not_found: {
+    heading: "File not found",
+    body: "No such file at that path. Check the URL or ask the agent to re-send.",
+  },
+  too_large: {
+    heading: "File too large",
+    body: "The 2 MB cap keeps the editor responsive. Ask for a smaller slice of the file.",
+  },
+  not_a_file: {
+    heading: "Not a regular file",
+    body: "Directories, sockets, and device files aren't viewable via file URLs.",
+  },
+  path_forbidden: {
+    heading: "Path forbidden",
+    body: "/proc, /sys, and /dev are not accessible via file URLs.",
+  },
+  path_traversal: {
+    heading: "Invalid path",
+    body: ". and .. segments aren't allowed in file URLs.",
+  },
+  path_must_be_absolute: {
+    heading: "Invalid path",
+    body: "The path in a file URL must be absolute (start with /).",
+  },
+  unknown_host: {
+    heading: "Unknown host",
+    body: "That host is not registered in this Skynet, or you don't have access to it.",
+  },
+  ssh_timeout: {
+    heading: "SSH timeout",
+    body: "The host is slow or unreachable. Try again in a moment.",
+  },
+  invalid_hostname: {
+    heading: "Invalid hostname",
+    body: "The hostname in the URL contains unsupported characters.",
+  },
+  invalid_body: {
+    heading: "Invalid request",
+    body: "Something went wrong preparing the request. Refresh and try again.",
+  },
+  generic: {
+    heading: "Can't fetch the file",
+    body: "Something went wrong fetching the file. Try again, or check the URL.",
+  },
+};
+
+/**
+ * Phase 75 D-02: given a caught error and the original URL, return the
+ * human-readable copy to render in the modal's error panel. The
+ * `err.message` field carries the backend error-class string when the
+ * error originates from `fetchHostFileUrl` (which throws `Error(class)`
+ * on axios errors carrying `response.data.error === "<class>"`). For
+ * `permission_denied` we splice in the hostname parsed from the URL to
+ * make the sentence more actionable per the plan's suggested copy.
+ *
+ * For tailnet-URL errors (the Phase 40 flow), `err.message` is the raw
+ * error text — none of the class keys match, so the "generic" fallback
+ * renders. This preserves the Phase 40 in-body error UX. The Phase 40
+ * error copy about "the agent's temporary server may have shut down"
+ * is retained as the tailnet-specific override at the render site.
+ */
+function classifyModalError(
+  err: unknown,
+  url: string,
+): { heading: string; body: string } {
+  const message = err instanceof Error ? err.message : "";
+  // Special case FIRST: permission_denied weaves in the hostname parsed
+  // from the URL for a more actionable sentence. Keeping this before the
+  // map lookup avoids the need for a placeholder map entry.
+  if (message === "permission_denied") {
+    const hostMatch = url.match(FILE_URL_HOSTNAME_RE);
+    const host = hostMatch ? hostMatch[1] : "the host";
+    return {
+      heading: "Permission denied",
+      body: `The Skynet SSH user can't read this file on ${host}. Ask the box owner to widen access.`,
+    };
+  }
+  const copy = FILE_URL_ERROR_COPY[message];
+  return copy ?? FILE_URL_ERROR_COPY.generic;
+}
 
 /**
  * Phase 40 Plan 40-03 Task 2 — EditableFileModal.
@@ -119,7 +243,15 @@ export default function EditableFileModal({
     setIsDirty(false);
     savingRef.current = false;
 
-    fetchTailnetUrl(url)
+    // Phase 75 D-01: dispatch by URL shape. Both helpers return
+    // TailnetFetchResult so the .then() chain below is byte-identical
+    // for both. Uses a fresh non-global regex per RESEARCH Pitfall 6.
+    const isFileUrl = FILE_URL_DISPATCH_RE.test(url);
+    const fetchPromise = isFileUrl
+      ? fetchHostFileUrl(url)
+      : fetchTailnetUrl(url);
+
+    fetchPromise
       .then((result) => {
         if (cancelled) return;
         // Capture the mtime sentinel ONCE at success — stable across all
@@ -301,21 +433,29 @@ export default function EditableFileModal({
             </DialogClose>
           </DialogHeader>
 
-          {/* Body branches — loading / error / ready */}
+          {/* Body branches — loading / error / ready.
+              Phase 40 UI-SPEC L110 tailnet copy kept verbatim as the
+              tailnet-URL default (agent-server auto-kill guidance).
+              Phase 75 D-02 layers per-class human copy on top for file
+              URLs — see FILE_URL_ERROR_COPY + classifyModalError above.
+              We do NOT delegate to GlobalFileTab's error branch here
+              because the copy is Phase-40/75-specific. */}
           {fetchState.status === "error" ? (
-            // In-body error copy per UI-SPEC L110 (verbatim). We do NOT
-            // delegate to GlobalFileTab's error branch here because the
-            // copy is Phase-40-specific (agent-server auto-kill guidance).
             <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-8 text-center">
               <div className="text-lg font-semibold text-[#f0ebe0]">
-                {"Can't fetch the current file."}
+                {FILE_URL_DISPATCH_RE.test(url)
+                  ? classifyModalError(new Error(fetchState.error), url).heading
+                  : "Can't fetch the current file."}
               </div>
               <div className="text-sm text-[#a89a80] max-w-md">
-                {/* UI-SPEC L110 verbatim (Task 3 grep gate depends on the
-                    literal apostrophe — use a JS string expression to keep
-                    the source text exact without triggering the JSX
-                    react/no-unescaped-entities lint rule). */}
-                {"The agent's temporary server may have shut down (they auto-kill after 30 minutes) or the network is unreachable. Ask the agent to re-share the file if you still want to edit it."}
+                {/* UI-SPEC L110 verbatim tailnet copy — kept intact via
+                    the fallback branch below (the literal apostrophe is
+                    required by an existing grep gate so we render it as
+                    a JS string expression rather than JSX text to avoid
+                    the react/no-unescaped-entities lint rule). */}
+                {FILE_URL_DISPATCH_RE.test(url)
+                  ? classifyModalError(new Error(fetchState.error), url).body
+                  : "The agent's temporary server may have shut down (they auto-kill after 30 minutes) or the network is unreachable. Ask the agent to re-share the file if you still want to edit it."}
               </div>
               <button
                 type="button"

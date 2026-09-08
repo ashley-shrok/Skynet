@@ -449,6 +449,151 @@ describe("Phase 72-02 migration — add runs_fleet_substrate to ssh_data", () =>
 });
 
 // ---------------------------------------------------------------------------
+// Phase 85 Plan 01 — create identity_send_log table.
+//
+// Contract under test: initializeCompleteDatabase()'s CREATE TABLE IF NOT
+// EXISTS block lands the identity_send_log table with the D-01/D-02 shape:
+//   identity_name TEXT PRIMARY KEY
+//   last_send_at INTEGER NOT NULL
+//   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+// - present on fresh install (create against empty db)
+// - idempotent on second run (no throw, columns unchanged)
+// - PRAGMA table_info reports the correct shape
+// - upsert via INSERT OR REPLACE respects the primary key (no duplicates)
+//
+// The tests reproduce the exact CREATE TABLE SQL from db/index.ts as an
+// inline const (mirroring the OLD_IDENTITIES_CREATE_SQL / OLD_SSH_DATA_
+// CREATE_SQL pattern above), then exercise the shape contract against a
+// test-owned in-memory database. forceSave is a runtime concern of the
+// singleton boot path and is not exercised here (per plan Task 3 constraint).
+// ---------------------------------------------------------------------------
+
+const IDENTITY_SEND_LOG_CREATE_SQL =
+  "CREATE TABLE IF NOT EXISTS identity_send_log ( identity_name TEXT PRIMARY KEY, last_send_at INTEGER NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP );";
+
+type ColInfoFull = {
+  cid: number;
+  name: string;
+  type: string;
+  notnull: number;
+  dflt_value: string | null;
+  pk: number;
+};
+function columnInfo(db: Database.Database, table: string): ColInfoFull[] {
+  return db.prepare(`PRAGMA table_info(${table})`).all() as ColInfoFull[];
+}
+
+describe("Phase 85 migration — identity_send_log table", () => {
+  it("Test 79-01: fresh in-memory DB → CREATE TABLE lands with all three columns", () => {
+    const db = new Database(":memory:");
+
+    // Sanity: table absent pre-create.
+    const preRows = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='identity_send_log'",
+      )
+      .all();
+    expect(preRows.length).toBe(0);
+
+    db.exec(IDENTITY_SEND_LOG_CREATE_SQL);
+
+    const postRows = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='identity_send_log'",
+      )
+      .all();
+    expect(postRows.length).toBe(1);
+
+    const cols = columnNames(db, "identity_send_log").sort();
+    expect(cols).toEqual(
+      ["identity_name", "last_send_at", "updated_at"].sort(),
+    );
+  });
+
+  it("Test 79-02: running the CREATE a second time is a no-op (idempotent, no throw, shape unchanged)", () => {
+    const db = new Database(":memory:");
+    db.exec(IDENTITY_SEND_LOG_CREATE_SQL);
+
+    const preCols = columnNames(db, "identity_send_log").sort();
+
+    expect(() => db.exec(IDENTITY_SEND_LOG_CREATE_SQL)).not.toThrow();
+
+    const postCols = columnNames(db, "identity_send_log").sort();
+    expect(postCols).toEqual(preCols);
+  });
+
+  it("Test 79-03: PRAGMA table_info reports the correct column shape", () => {
+    const db = new Database(":memory:");
+    db.exec(IDENTITY_SEND_LOG_CREATE_SQL);
+
+    const info = columnInfo(db, "identity_send_log");
+    const byName = new Map(info.map((c) => [c.name, c]));
+
+    const identity = byName.get("identity_name");
+    expect(identity).toBeDefined();
+    expect(identity!.type.toUpperCase()).toBe("TEXT");
+    // In SQLite, PRIMARY KEY on a non-INTEGER column implies NOT NULL for
+    // strict interpretation, but the notnull flag in table_info still
+    // reports 0 unless NOT NULL is written explicitly. What we care about
+    // is pk=1 (primary key enforcement, which is our uniqueness contract).
+    expect(identity!.pk).toBe(1);
+
+    const lastSend = byName.get("last_send_at");
+    expect(lastSend).toBeDefined();
+    expect(lastSend!.type.toUpperCase()).toBe("INTEGER");
+    expect(lastSend!.notnull).toBe(1);
+    expect(lastSend!.pk).toBe(0);
+
+    const updated = byName.get("updated_at");
+    expect(updated).toBeDefined();
+    expect(updated!.type.toUpperCase()).toBe("TEXT");
+    expect(updated!.notnull).toBe(1);
+    expect(updated!.dflt_value).toBe("CURRENT_TIMESTAMP");
+    expect(updated!.pk).toBe(0);
+  });
+
+  it("Test 79-04: INSERT round-trip + INSERT OR REPLACE respects primary key (upsert, no duplicate row)", () => {
+    const db = new Database(":memory:");
+    db.exec(IDENTITY_SEND_LOG_CREATE_SQL);
+
+    // Initial insert.
+    db.prepare(
+      "INSERT INTO identity_send_log (identity_name, last_send_at) VALUES (?, ?)",
+    ).run("ivy", 1725625200000);
+
+    const firstRow = db
+      .prepare(
+        "SELECT identity_name, last_send_at FROM identity_send_log WHERE identity_name = ?",
+      )
+      .get("ivy") as { identity_name: string; last_send_at: number };
+    expect(firstRow).toBeDefined();
+    expect(firstRow.identity_name).toBe("ivy");
+    expect(firstRow.last_send_at).toBe(1725625200000);
+
+    // Upsert with newer ts — INSERT OR REPLACE respects the primary key.
+    db.prepare(
+      "INSERT OR REPLACE INTO identity_send_log (identity_name, last_send_at) VALUES (?, ?)",
+    ).run("ivy", 1725711600000);
+
+    // Row count for 'ivy' is still exactly 1 (no duplicate).
+    const count = db
+      .prepare(
+        "SELECT COUNT(*) AS c FROM identity_send_log WHERE identity_name = ?",
+      )
+      .get("ivy") as { c: number };
+    expect(count.c).toBe(1);
+
+    // last_send_at is the new value.
+    const updated = db
+      .prepare(
+        "SELECT last_send_at FROM identity_send_log WHERE identity_name = ?",
+      )
+      .get("ivy") as { last_send_at: number };
+    expect(updated.last_send_at).toBe(1725711600000);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Phase 75 Plan 01 — matrix_admin_creds table + users.mxid column.
 //
 // Contract under test: the boot-time DDL adds the singleton matrix_admin_creds

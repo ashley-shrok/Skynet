@@ -18,12 +18,28 @@
  *   (g) Channel returns null on settings patch — hadError=true, still resolves.
  *   (h) Already-enabled host with daemon-reload failure — hadError=true, resolves.
  *
+ * Phase 75 D-03 additions (step 4 — skynet-parent write):
+ *   (sp-1) BootstrapResult has skynetParentOk: boolean field.
+ *   (sp-2) SKYNET_PUBLIC_URL unset → step 4 skipped, no exec, no hadError.
+ *   (sp-3) SKYNET_PUBLIC_URL malformed (non-https) → step 4 skipped, no hadError.
+ *   (sp-4) SKYNET_PUBLIC_URL https → shell command shape check (mkdir, NEW=, diff, printf, sentinel).
+ *   (sp-5) Sentinel present → skynetParentOk=true, hadError not set.
+ *   (sp-6) Channel returns null → hadError=true, skynetParentOk=false, logBootstrapFailed(skynet-parent-write, "channel returned null").
+ *   (sp-7) Missing sentinel → hadError=true, logBootstrapFailed with trimmed output.
+ *   (sp-8) Channel throws → hadError=true, function still resolves (NEVER-THROW).
+ *   (sp-9) URL containing single-quote is shell-escaped safely ('\'' pattern).
+ *   (sp-10) logBootstrapResult receives payload containing skynetParentOk field.
+ *   (sp-11) Existing steps 1-3 outcomes unchanged (regression gate — implicit in
+ *           all pre-existing tests above; explicit assertion on skynetParentOk field
+ *           presence via sp-1).
+ *
  * NEVER-THROW contract: every test calls runBootstrapForHost and awaits the
  * result with `resolves` — it must never reject.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { SshChannel } from "../fleet-status/ssh-poll-orchestrator.js";
 import { runBootstrapForHost } from "./run-bootstrap.js";
+import { systemLogger } from "../utils/logger.js";
 
 // Suppress logger output in tests
 vi.mock("../utils/logger.js", () => ({
@@ -342,5 +358,279 @@ describe("runBootstrapForHost", () => {
     await expect(
       runBootstrapForHost(throwingChannel, HOST),
     ).resolves.toMatchObject({ hadError: true });
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 75 D-03: Step 4 — write ~/.claude/skynet-parent
+  // -------------------------------------------------------------------------
+
+  describe("step 4: skynet-parent write (Phase 75 D-03)", () => {
+    const ORIGINAL_ENV = process.env.SKYNET_PUBLIC_URL;
+
+    afterEach(() => {
+      if (ORIGINAL_ENV === undefined) {
+        delete process.env.SKYNET_PUBLIC_URL;
+      } else {
+        process.env.SKYNET_PUBLIC_URL = ORIGINAL_ENV;
+      }
+    });
+
+    it("(sp-1) BootstrapResult has skynetParentOk: boolean field", async () => {
+      process.env.SKYNET_PUBLIC_URL = "https://term.gigaashley.click";
+      const { channel } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-parent": "__SKYNET_PARENT_OK__",
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result).toHaveProperty("skynetParentOk");
+      expect(typeof result.skynetParentOk).toBe("boolean");
+    });
+
+    it("(sp-2) SKYNET_PUBLIC_URL unset → step 4 skipped cleanly (no exec of skynet-parent command, skynetParentOk=false, hadError NOT set solely due to missing env)", async () => {
+      delete process.env.SKYNET_PUBLIC_URL;
+      const { channel, exec } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result.skynetParentOk).toBe(false);
+      // Missing env is a clean skip, not a per-host failure (RESEARCH Pitfall 4).
+      expect(result.hadError).toBe(false);
+
+      const cmds = captureCommands(exec);
+      // No command should mention the skynet-parent write path.
+      expect(cmds.some((c) => c.includes("skynet-parent"))).toBe(false);
+      expect(cmds.some((c) => c.includes("__SKYNET_PARENT_OK__"))).toBe(false);
+    });
+
+    it("(sp-3) SKYNET_PUBLIC_URL malformed (non-https) → step 4 skipped cleanly (same as unset)", async () => {
+      process.env.SKYNET_PUBLIC_URL = "http://foo.example";
+      const { channel, exec } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result.skynetParentOk).toBe(false);
+      expect(result.hadError).toBe(false);
+
+      const cmds = captureCommands(exec);
+      expect(cmds.some((c) => c.includes("__SKYNET_PARENT_OK__"))).toBe(false);
+    });
+
+    it("(sp-3b) SKYNET_PUBLIC_URL is 'just a string' → step 4 skipped cleanly", async () => {
+      process.env.SKYNET_PUBLIC_URL = "just a string";
+      const { channel, exec } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result.skynetParentOk).toBe(false);
+      expect(result.hadError).toBe(false);
+
+      const cmds = captureCommands(exec);
+      expect(cmds.some((c) => c.includes("__SKYNET_PARENT_OK__"))).toBe(false);
+    });
+
+    it("(sp-4) valid https URL → shell command contains mkdir, NEW= assignment, content-diff, printf atomic write, sentinel", async () => {
+      process.env.SKYNET_PUBLIC_URL = "https://term.gigaashley.click";
+      const { channel, exec } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-parent": "__SKYNET_PARENT_OK__",
+      });
+
+      await runBootstrapForHost(channel, HOST);
+
+      const cmds = captureCommands(exec);
+      const spCmd = cmds.find((c) => c.includes("__SKYNET_PARENT_OK__"));
+      expect(spCmd).toBeDefined();
+      if (!spCmd) return;
+
+      // Must set the target path variable and mkdir the parent dir
+      expect(spCmd).toContain(`SP="$HOME/.claude/skynet-parent"`);
+      expect(spCmd).toContain(`mkdir -p "$HOME/.claude"`);
+      // Must define NEW as single-quoted URL literal
+      expect(spCmd).toContain(`NEW='https://term.gigaashley.click'`);
+      // Must include content-diff idempotency guard (RESEARCH Pitfall 3)
+      expect(spCmd).toContain(`[ -f "$SP" ]`);
+      expect(spCmd).toContain(`[ "$(cat "$SP")" = "$NEW" ]`);
+      // Must include atomic printf-then-mv write with newline termination
+      expect(spCmd).toContain(`printf '%s\\n' "$NEW"`);
+      expect(spCmd).toContain(`mv "$SP.new" "$SP"`);
+      // Must echo the sentinel at the end
+      expect(spCmd).toContain(`echo "__SKYNET_PARENT_OK__"`);
+    });
+
+    it("(sp-5) sentinel present → skynetParentOk=true, hadError=false", async () => {
+      process.env.SKYNET_PUBLIC_URL = "https://term.gigaashley.click";
+      const { channel } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-parent": "some benign chatter\n__SKYNET_PARENT_OK__",
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result.skynetParentOk).toBe(true);
+      expect(result.hadError).toBe(false);
+    });
+
+    it("(sp-6) channel returns null on skynet-parent write → hadError=true, skynetParentOk=false, logBootstrapFailed called with 'channel returned null'", async () => {
+      process.env.SKYNET_PUBLIC_URL = "https://term.gigaashley.click";
+      const { channel } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-parent": null,
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result.skynetParentOk).toBe(false);
+      expect(result.hadError).toBe(true);
+
+      const warnCalls = vi.mocked(systemLogger.warn).mock.calls;
+      const found = warnCalls.some(([msg, ctx]) => {
+        const c = (ctx ?? {}) as Record<string, unknown>;
+        return (
+          typeof msg === "string" &&
+          msg.includes("skynet-parent-write") &&
+          c.step === "skynet-parent-write" &&
+          c.errorMessage === "channel returned null"
+        );
+      });
+      expect(found).toBe(true);
+    });
+
+    it("(sp-7) missing sentinel → hadError=true, logBootstrapFailed called with trimmed output", async () => {
+      process.env.SKYNET_PUBLIC_URL = "https://term.gigaashley.click";
+      const { channel } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-parent": "mv: cannot move: Read-only file system\n",
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+
+      expect(result.skynetParentOk).toBe(false);
+      expect(result.hadError).toBe(true);
+
+      const warnCalls = vi.mocked(systemLogger.warn).mock.calls;
+      const found = warnCalls.some(([msg, ctx]) => {
+        const c = (ctx ?? {}) as Record<string, unknown>;
+        return (
+          typeof msg === "string" &&
+          msg.includes("skynet-parent-write") &&
+          c.step === "skynet-parent-write" &&
+          typeof c.errorMessage === "string" &&
+          (c.errorMessage as string).includes("Read-only file system")
+        );
+      });
+      expect(found).toBe(true);
+    });
+
+    it("(sp-8) channel.exec throws during step 4 → hadError=true, function still resolves (NEVER-THROW)", async () => {
+      process.env.SKYNET_PUBLIC_URL = "https://term.gigaashley.click";
+      const exec = vi.fn(async (cmd: string) => {
+        if (cmd.includes("is-enabled")) return "enabled\nEXIT:0";
+        if (cmd.includes("daemon-reload")) return "__RELOAD_OK__";
+        if (cmd.includes("SETTINGS=")) return "__SETTINGS_OK__";
+        if (cmd.includes("gsd-context-monitor")) return "__CLEANUP_OK__";
+        if (cmd.includes("skynet-parent")) {
+          throw new Error("boom");
+        }
+        return null;
+      });
+      const throwingChannel: SshChannel = { exec };
+
+      const result = await runBootstrapForHost(throwingChannel, HOST);
+
+      expect(result.skynetParentOk).toBe(false);
+      expect(result.hadError).toBe(true);
+
+      const warnCalls = vi.mocked(systemLogger.warn).mock.calls;
+      const found = warnCalls.some(([msg, ctx]) => {
+        const c = (ctx ?? {}) as Record<string, unknown>;
+        return (
+          typeof msg === "string" &&
+          msg.includes("skynet-parent-write") &&
+          c.step === "skynet-parent-write" &&
+          c.errorMessage === "boom"
+        );
+      });
+      expect(found).toBe(true);
+    });
+
+    it("(sp-9) URL containing single-quote is shell-escaped safely with the '\\'' pattern", async () => {
+      process.env.SKYNET_PUBLIC_URL = "https://example.com/a'b";
+      const { channel, exec } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-parent": "__SKYNET_PARENT_OK__",
+      });
+
+      const result = await runBootstrapForHost(channel, HOST);
+      expect(result.skynetParentOk).toBe(true);
+
+      const cmds = captureCommands(exec);
+      const spCmd = cmds.find((c) => c.includes("__SKYNET_PARENT_OK__"));
+      expect(spCmd).toBeDefined();
+      if (!spCmd) return;
+
+      // The generated assignment must escape the embedded single-quote via
+      // '\'' (close-quote, escaped literal quote, reopen-quote) so the assign
+      // stays within a valid single-quoted string.
+      expect(spCmd).toContain(`NEW='https://example.com/a'\\''b'`);
+    });
+
+    it("(sp-10) logBootstrapResult payload includes skynetParentOk field", async () => {
+      process.env.SKYNET_PUBLIC_URL = "https://term.gigaashley.click";
+      const { channel } = makeChannel({
+        "is-enabled": "enabled\nEXIT:0",
+        "daemon-reload": "__RELOAD_OK__",
+        "SETTINGS": "__SETTINGS_OK__",
+        "gsd-context-monitor": "__CLEANUP_OK__",
+        "skynet-parent": "__SKYNET_PARENT_OK__",
+      });
+
+      await runBootstrapForHost(channel, HOST);
+
+      const infoCalls = vi.mocked(systemLogger.info).mock.calls;
+      const summary = infoCalls.find(([_msg, ctx]) => {
+        const c = (ctx ?? {}) as Record<string, unknown>;
+        return c.operation === "fleet_substrate_bootstrap_result" && "hadError" in c;
+      });
+      expect(summary).toBeDefined();
+      if (!summary) return;
+      const ctx = summary[1] as Record<string, unknown>;
+      expect(ctx).toHaveProperty("skynetParentOk");
+      expect(ctx.skynetParentOk).toBe(true);
+    });
   });
 });

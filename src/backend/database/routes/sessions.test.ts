@@ -72,6 +72,15 @@ vi.mock("../../claude-session/discover-identity-session-file.js", () => ({
   discoverIdentitySessionFile: vi.fn(),
 }));
 
+// Phase 85 (D-07): mock the identity-name-keyed send-log store so tests
+// control what getIdentityLastSend returns per identity. Default resolution
+// is null (cold cache — no stamps written yet, matching the D-09 first-ship
+// contract). Individual Phase 85 tests override with mockResolvedValue /
+// mockImplementation to exercise store-populated + throw-fail-open paths.
+vi.mock("../../fleet-status/identity-send-log-store.js", () => ({
+  getIdentityLastSend: vi.fn(async () => null),
+}));
+
 // ---------------------------------------------------------------------------
 // Mock the db + SimpleDBOps layer. sessions.ts calls:
 //   SimpleDBOps.select(db.select().from(hosts).where(...), "ssh_data", userId)
@@ -116,8 +125,10 @@ import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { discoverIdentitySessionFile } from "../../claude-session/discover-identity-session-file.js";
+import { getIdentityLastSend } from "../../fleet-status/identity-send-log-store.js";
 
 const mockedDiscover = vi.mocked(discoverIdentitySessionFile);
+const mockedGetIdentityLastSend = vi.mocked(getIdentityLastSend);
 
 // ---------------------------------------------------------------------------
 // HTTP helper (mirrors roles-list-for-host.test.ts pattern)
@@ -244,7 +255,7 @@ function jsonlAiTitleLine(sessionId: string, aiTitle: string): string {
 // Import router under test
 // ---------------------------------------------------------------------------
 
-import router from "./sessions.js";
+import router, { __scanTailForNewestMessageAtForTests } from "./sessions.js";
 
 let server: http.Server;
 
@@ -259,6 +270,11 @@ beforeEach(() => {
   // Route emits lastMessageAt: null on every row. Tests that need a positive
   // discovery override with mockedDiscover.mockImplementation(...).
   mockedDiscover.mockResolvedValue(null);
+
+  // Phase 85 (D-07): default getIdentityLastSend returns null (cold cache).
+  // vi.clearAllMocks() above wipes the mock's initial implementation from
+  // the factory, so we must re-establish the default per-test.
+  mockedGetIdentityLastSend.mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -520,14 +536,18 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
     }>;
     expect(rows).toHaveLength(2);
 
-    // Ashley 2026-08-23 lock: tanya's tail has only an assistant message
-    // (excluded); lastMessageAt is null.
+    // Phase 85 (D-07): lastMessageAt now sources from the send-log store
+    // (getIdentityLastSend), NOT from the JSONL tail scan. This test's mock
+    // does not populate the store, so both rows come back with
+    // lastMessageAt: null regardless of tail content. The predicate-matrix
+    // suite below asserts the retired scanner's contract directly via
+    // __scanTailForNewestMessageAtForTests; store-lookup coverage lives in
+    // the Phase 85 describe block below.
     const tanya = rows.find((r) => r.sessionName === "tanya");
     expect(tanya?.lastMessageAt).toBeNull();
 
-    // Tiffany's user turn at ts=7000 is KEEP — still counts.
     const tiffany = rows.find((r) => r.sessionName === "tiffany");
-    expect(tiffany?.lastMessageAt).toBe(7000);
+    expect(tiffany?.lastMessageAt).toBeNull();
 
     // Phase 47 Plan 02 — server always emits aiTitle. Tail here has no
     // ai-title lines, so aiTitle is null on both rows.
@@ -740,10 +760,13 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
     }>;
     expect(rows).toHaveLength(1);
 
-    // Ashley 2026-08-23 lock: only the user turn at ts=1000 counts.
-    // The assistant turn (ts=2000), tool_use (1500), and bg-task (2500) excluded.
+    // Phase 85 (D-07): lastMessageAt now sources from the send-log store,
+    // NOT from the JSONL tail scan. The predicate-matrix suite below
+    // asserts the retired scanner's contract at the byte level via
+    // __scanTailForNewestMessageAtForTests. Store-lookup coverage lives
+    // in the Phase 85 describe block appended at the tail of the file.
     const tanya = rows.find((r) => r.sessionName === "tanya");
-    expect(tanya?.lastMessageAt).toBe(1000);
+    expect(tanya?.lastMessageAt).toBeNull();
     // Phase 47 Plan 02 — mixed tail with no ai-title lines → aiTitle:null.
     expect(tanya?.aiTitle).toBeNull();
   });
@@ -794,58 +817,28 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
 // ---------------------------------------------------------------------------
 
 describe("isAshleyRealUserTurn — Ashley 2026-08-23 lock predicate matrix", () => {
-  const TANYA_JSONL = "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/pred-matrix.jsonl";
+  // Phase 85 (D-08): the /sessions/list route no longer calls
+  // scanTailForNewestMessageAt on the lastMessageAt axis (source-swapped to
+  // the send-log store). But the function definition + its
+  // isAshleyRealUserTurn dependency stay alive in sessions.ts per the
+  // byte-parallel-copy discipline with ssh-poll-orchestrator. This
+  // predicate-matrix suite asserts the retired scanner's byte-level
+  // contract via the test-only export `__scanTailForNewestMessageAtForTests`
+  // (mirroring the pattern established in Phase 85-04 for the orchestrator
+  // side). The helpers below call the export directly, bypassing the
+  // orchestration layer that no longer exercises this code path.
 
-  // Helper: run a single raw JSONL line through /sessions/list and return
-  // lastMessageAt from the tanya row.
+  // Helper: run a single raw JSONL line through the byte-parallel scanner
+  // and return the extracted newest ts (or null).
   async function scanSingleLine(rawLine: string): Promise<number | null> {
-    const fakeConn = { end: vi.fn(), exec: vi.fn() };
-    (connectOneShot as Mock).mockResolvedValue(fakeConn);
-
-    mockedDiscover.mockImplementation(async (_conn, identityName: string) => {
-      if (identityName === "tanya") return TANYA_JSONL;
-      return null;
-    });
-
-    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
-      if (cmd.includes("tmux list-sessions")) return Promise.resolve("tanya|1000");
-      if (cmd.includes("identities/")) return Promise.resolve("---\nrole: box-maintainer\n---\n# Tanya\n");
-      if (cmd.includes(TANYA_JSONL)) return Promise.resolve(rawLine + "\n");
-      return Promise.resolve("");
-    });
-
-    makeApp();
-    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
-    expect(res.status).toBe(200);
-    const rows = res.body as Array<{ sessionName: string; lastMessageAt: number | null }>;
-    const tanya = rows.find((r) => r.sessionName === "tanya");
-    return tanya?.lastMessageAt ?? null;
+    return __scanTailForNewestMessageAtForTests(rawLine + "\n");
   }
 
-  // Helper: run multiple raw JSONL lines through /sessions/list and return
-  // lastMessageAt from the tanya row.
+  // Helper: run multiple raw JSONL lines through the byte-parallel scanner
+  // and return the extracted newest ts (or null). Preserved as an async
+  // function to keep test-body signatures unchanged.
   async function scanMultiLine(lines: string[]): Promise<number | null> {
-    const fakeConn = { end: vi.fn(), exec: vi.fn() };
-    (connectOneShot as Mock).mockResolvedValue(fakeConn);
-
-    mockedDiscover.mockImplementation(async (_conn, identityName: string) => {
-      if (identityName === "tanya") return TANYA_JSONL;
-      return null;
-    });
-
-    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
-      if (cmd.includes("tmux list-sessions")) return Promise.resolve("tanya|1000");
-      if (cmd.includes("identities/")) return Promise.resolve("---\nrole: box-maintainer\n---\n# Tanya\n");
-      if (cmd.includes(TANYA_JSONL)) return Promise.resolve(lines.join("\n") + "\n");
-      return Promise.resolve("");
-    });
-
-    makeApp();
-    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
-    expect(res.status).toBe(200);
-    const rows = res.body as Array<{ sessionName: string; lastMessageAt: number | null }>;
-    const tanya = rows.find((r) => r.sessionName === "tanya");
-    return tanya?.lastMessageAt ?? null;
+    return __scanTailForNewestMessageAtForTests(lines.join("\n") + "\n");
   }
 
   it("Case 1 (KEEP — typed prose): user turn with plain-string prose content counts", async () => {
@@ -1464,5 +1457,264 @@ describe("GET /sessions/list — connect vs discovery timeout split (quick-26082
     // back into one, this assertion fires and points at quick-260821-m36.
     expect(connectOneShot).toHaveBeenCalled();
     expect((connectOneShot as Mock).mock.calls[0][1]).toBe(5_000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 85 Plan 05 — /sessions/list lastMessageAt sourced from send-log store
+//
+// Round-trip coverage for the D-07 source-swap. The /sessions/list route is
+// the initial-seed path AppShell reads on page-load to feed
+// seedSessionLastMessageAt in the frontend working store. Plan 85-04 already
+// swapped the WS-live orchestrator frame to the store; this plan does the
+// same for the initial seed so both sources of truth converge from the
+// moment the page paints (no ~2s flicker).
+//
+// The 5 test cases mirror the plan's <behavior> block:
+//   85-05-01: no stamps → all rows lastMessageAt:null
+//   85-05-02: stampIdentityLastSend("ivy", 9000) → ivy row.lastMessageAt = 9000
+//             (other rows still null)
+//   85-05-03: aiTitle unaffected by the swap (tail-scan pathway intact)
+//   85-05-04: SSH tail timeout does NOT regress row.lastMessageAt (store
+//             lookup is independent of the SSH pathway)
+//   85-05-05: getIdentityLastSend throws → row.lastMessageAt:null,
+//             siblings unaffected (fail-open on the per-row block)
+// ---------------------------------------------------------------------------
+
+describe("GET /sessions/list — lastMessageAt from send-log store (Phase 85 Plan 05)", () => {
+  const TANYA_JSONL = "/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tanya/abc.jsonl";
+
+  it("Test 85-05-01 (cold cache): no stamps in store → every row lastMessageAt:null", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+
+    // Default beforeEach: mockedGetIdentityLastSend.mockResolvedValue(null).
+    // Do not override — every getIdentityLastSend(name) returns null.
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) {
+        return Promise.resolve("ivy|1000\nlulabelle|2000\nstacy|3000");
+      }
+      if (cmd.includes("identities/")) {
+        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+      }
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<{
+      sessionName: string;
+      lastMessageAt: number | null;
+    }>;
+    expect(rows).toHaveLength(3);
+
+    for (const row of rows) {
+      expect(row.lastMessageAt).toBeNull();
+    }
+
+    // getIdentityLastSend was called once per row (SSH pathway succeeded, so
+    // all three rows made it into the sendLogLookupBlock).
+    expect(mockedGetIdentityLastSend).toHaveBeenCalledWith("ivy");
+    expect(mockedGetIdentityLastSend).toHaveBeenCalledWith("lulabelle");
+    expect(mockedGetIdentityLastSend).toHaveBeenCalledWith("stacy");
+  });
+
+  it("Test 85-05-02 (store populated): stamp of ivy → 9000 makes ivy row.lastMessageAt:9000, others null", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+
+    // Simulate a prior stampIdentityLastSend("ivy", 9000) — the store returns
+    // 9000 for ivy, null for everyone else.
+    mockedGetIdentityLastSend.mockImplementation(
+      async (identityName: string): Promise<number | null> => {
+        if (identityName === "ivy") return 9000;
+        return null;
+      },
+    );
+
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) {
+        return Promise.resolve("ivy|1000\nlulabelle|2000");
+      }
+      if (cmd.includes("identities/")) {
+        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+      }
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<{
+      sessionName: string;
+      lastMessageAt: number | null;
+    }>;
+    expect(rows).toHaveLength(2);
+
+    const ivy = rows.find((r) => r.sessionName === "ivy");
+    expect(ivy?.lastMessageAt).toBe(9000);
+
+    const lulabelle = rows.find((r) => r.sessionName === "lulabelle");
+    expect(lulabelle?.lastMessageAt).toBeNull();
+  });
+
+  it("Test 85-05-03 (aiTitle unaffected by swap): tail carries ai-title → row.aiTitle preserved alongside store-sourced lastMessageAt", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+
+    // Store: tanya → 8500. AiTitle path unchanged; must still be scanned
+    // from the JSONL tail.
+    mockedGetIdentityLastSend.mockImplementation(
+      async (identityName: string): Promise<number | null> => {
+        if (identityName === "tanya") return 8500;
+        return null;
+      },
+    );
+
+    mockedDiscover.mockImplementation(async (_conn, identityName: string) => {
+      if (identityName === "tanya") return TANYA_JSONL;
+      return null;
+    });
+
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) {
+        return Promise.resolve("tanya|1000");
+      }
+      if (cmd.includes("identities/")) {
+        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+      }
+      if (cmd.includes(TANYA_JSONL)) {
+        // Tail with a single ai-title line — scanTailForLatestAiTitle must
+        // still fire and populate row.aiTitle.
+        return Promise.resolve(
+          jsonlAiTitleLine("sess-tanya", "Debugging websocket") + "\n",
+        );
+      }
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<{
+      sessionName: string;
+      lastMessageAt: number | null;
+      aiTitle: string | null;
+    }>;
+    expect(rows).toHaveLength(1);
+
+    const tanya = rows.find((r) => r.sessionName === "tanya");
+    // Store-sourced lastMessageAt.
+    expect(tanya?.lastMessageAt).toBe(8500);
+    // Tail-sourced aiTitle (unaffected by D-07 swap).
+    expect(tanya?.aiTitle).toBe("Debugging websocket");
+  });
+
+  it("Test 85-05-04 (SSH tail timeout does NOT null row.lastMessageAt): store lookup is independent of SSH pathway", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+
+    // Store: tanya → 7777.
+    mockedGetIdentityLastSend.mockImplementation(
+      async (identityName: string): Promise<number | null> => {
+        if (identityName === "tanya") return 7777;
+        return null;
+      },
+    );
+
+    // Discovery hangs — the recency-signals Promise.race trips and the
+    // aiTitleBlock catches → row.aiTitle = null. row.lastMessageAt was
+    // already set to 7777 by the independent sendLogLookupBlock.
+    mockedDiscover.mockImplementation(async (_conn, identityName: string) => {
+      if (identityName === "tanya") {
+        return new Promise<string | null>(() => undefined); // hang forever
+      }
+      return null;
+    });
+
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) {
+        return Promise.resolve("tanya|1000");
+      }
+      if (cmd.includes("identities/")) {
+        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+      }
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const startMs = Date.now();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+    const elapsedMs = Date.now() - startMs;
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<{
+      sessionName: string;
+      lastMessageAt: number | null;
+      aiTitle: string | null;
+    }>;
+    expect(rows).toHaveLength(1);
+
+    const tanya = rows.find((r) => r.sessionName === "tanya");
+    // The critical assertion: SSH timeout on the aiTitleBlock did NOT
+    // regress row.lastMessageAt. Pre-D-07 this test would have failed
+    // because the recency-signals catch wiped both signals to null.
+    expect(tanya?.lastMessageAt).toBe(7777);
+    // aiTitle IS null (SSH tail timed out).
+    expect(tanya?.aiTitle).toBeNull();
+
+    // Bounded by PER_HOST_TIMEOUT_MS (30_000ms).
+    expect(elapsedMs).toBeLessThan(35_000);
+  }, 40_000);
+
+  it("Test 85-05-05 (store throws → fail-open, siblings unaffected): getIdentityLastSend throws for one identity → that row lastMessageAt:null, other rows keep their values", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+
+    // ivy → throw; lulabelle → 4200; stacy → null.
+    mockedGetIdentityLastSend.mockImplementation(
+      async (identityName: string): Promise<number | null> => {
+        if (identityName === "ivy") {
+          throw new Error("simulated drizzle transient failure");
+        }
+        if (identityName === "lulabelle") return 4200;
+        return null;
+      },
+    );
+
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) {
+        return Promise.resolve("ivy|1000\nlulabelle|2000\nstacy|3000");
+      }
+      if (cmd.includes("identities/")) {
+        return Promise.resolve("---\nrole: chef\n---\n# X\n");
+      }
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<{
+      sessionName: string;
+      lastMessageAt: number | null;
+    }>;
+    expect(rows).toHaveLength(3);
+
+    const ivy = rows.find((r) => r.sessionName === "ivy");
+    // Store throw → try/catch in sendLogLookupBlock caught → null (fail-open).
+    expect(ivy?.lastMessageAt).toBeNull();
+
+    const lulabelle = rows.find((r) => r.sessionName === "lulabelle");
+    // Sibling unaffected by ivy's throw.
+    expect(lulabelle?.lastMessageAt).toBe(4200);
+
+    const stacy = rows.find((r) => r.sessionName === "stacy");
+    expect(stacy?.lastMessageAt).toBeNull();
   });
 });

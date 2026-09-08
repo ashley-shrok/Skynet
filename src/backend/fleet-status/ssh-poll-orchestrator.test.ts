@@ -22,6 +22,7 @@ import {
   createSshPollOrchestrator,
   type SshChannel,
   type OrchestratorDeps,
+  __scanTailForNewestMessageAtForTests,
 } from "./ssh-poll-orchestrator.js";
 import type { SubscriptionRegistry } from "./subscription-registry.js";
 import type { SessionState } from "./wire-protocol.js";
@@ -54,7 +55,23 @@ vi.mock("../utils/logger.js", () => ({
   },
 }));
 
+// Phase 85 (D-07): mock the identity-send-log-store module so tests can
+// drive per-scenario responses for `getIdentityLastSend`. Default resolves
+// to null (identity has never received a stamp — matches D-09 first-ship
+// "no backfill, natural fill" contract). Individual tests below override
+// with `.mockResolvedValueOnce(...)` or `.mockRejectedValueOnce(...)` to
+// exercise the swap-and-publish and fail-open paths respectively.
+//
+// The mock factory is hoisted (vi.mock behavior) — it MUST NOT close over
+// test-scope state. Tests reset via `vi.clearAllMocks()` in beforeEach and
+// override per-test via chained `.mockResolvedValueOnce` / `.mockRejectedValueOnce`.
+vi.mock("./identity-send-log-store.js", () => ({
+  getIdentityLastSend: vi.fn(async () => null),
+  stampIdentityLastSend: vi.fn(async () => {}),
+}));
+
 import { systemLogger } from "../utils/logger.js";
+import { getIdentityLastSend } from "./identity-send-log-store.js";
 
 // ---------------------------------------------------------------------------
 // MockSshChannel
@@ -1138,13 +1155,19 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
   //           lock — only Ashley's outbound user turns advance lastMessageAt.
   // ---------------------------------------------------------------------------
 
-  it("Test D: message-bearing filter — user msg + tool_use + assistant msg + bg-task → lastMessageAt = user MSG (assistant turn does NOT count — Ashley 2026-08-23 lock)", async () => {
-    const channel = new MockSshChannel();
+  it("Test D: message-bearing filter — user msg + tool_use + assistant msg + bg-task → scanTailForNewestMessageAt returns user MSG (Phase 85 D-08 direct-scan probe)", async () => {
     // Fixture: user message at ts=1000, tool_use at ts=1500, assistant
     // message at ts=2000, background-task start at ts=2500.
     // Ashley 2026-08-23 lock: only the USER message at ts=1000 counts;
     // the assistant turn (ts=2000), tool_use (1500), and bg-task (2500)
     // are all excluded by isAshleyRealUserTurn.
+    //
+    // Phase 85 (D-07/D-08): the orchestrator's `lastMessageAt` axis retired
+    // from this scanner (now reads from getIdentityLastSend). This test
+    // continues to probe scanTailForNewestMessageAt directly via the
+    // test-only export because sessions.ts's byte-parallel copy still
+    // depends on this predicate's contract — updating either copy without
+    // the other is a D-08 violation, and this test guards the shape.
     const jsonl =
       jsonlMessageLine(1000, "user", "hello") +
       "\n" +
@@ -1154,25 +1177,7 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
       "\n" +
       jsonlBackgroundTaskLine(2500) +
       "\n";
-    wireBaseResponses(channel, jsonl);
-
-    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-      setInterval: vi.fn((fn: () => void, ms: number) => {
-        setIntervalFns.push({ fn, ms });
-        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
-      }),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    const published = deps.registry.publishedStates[0];
-    // Ashley 2026-08-23 lock: only the user turn at ts=1000 qualifies.
-    // Assistant turn (2000), tool_use (1500), and bg-task (2500) excluded.
-    expect(published.state.lastMessageAt).toBe(1000);
+    expect(__scanTailForNewestMessageAtForTests(jsonl)).toBe(1000);
   });
 
   // ---------------------------------------------------------------------------
@@ -1216,28 +1221,15 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
   //           either direction, and ONLY that". User-only sessions count.
   // ---------------------------------------------------------------------------
 
-  it("Test F: JSONL with ONLY a user message at ts=3000 → lastMessageAt = 3000 (user-only counts, either direction)", async () => {
-    const channel = new MockSshChannel();
+  it("Test F: JSONL with ONLY a user message at ts=3000 → scanTailForNewestMessageAt returns 3000 (Phase 85 D-08 direct-scan probe)", async () => {
+    // Phase 85 (D-07/D-08): retired from orchestrator lastMessageAt axis.
+    // Probes the byte-parallel-copy contract directly via the test-only
+    // export. User-side send counts — Ashley 2026-08-14 verbatim:
+    // "activity counts as me sending them a message, or them sending me
+    // a message." The predicate itself (isAshleyRealUserTurn) is unchanged
+    // and still owns this shape for sessions.ts.
     const jsonl = jsonlMessageLine(3000, "user", "just typed something") + "\n";
-    wireBaseResponses(channel, jsonl);
-
-    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-      setInterval: vi.fn((fn: () => void, ms: number) => {
-        setIntervalFns.push({ fn, ms });
-        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
-      }),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    const published = deps.registry.publishedStates[0];
-    // User-side send counts — Ashley 2026-08-14 verbatim:
-    // "activity counts as me sending them a message, or them sending me a message."
-    expect(published.state.lastMessageAt).toBe(3000);
+    expect(__scanTailForNewestMessageAtForTests(jsonl)).toBe(3000);
   });
 });
 
@@ -1298,49 +1290,29 @@ describe("isAshleyRealUserTurn — Ashley 2026-08-23 lock predicate matrix", () 
     channel.setResponse("discovered.jsonl", jsonlContents);
   }
 
-  // Helper: run a single-line JSONL tail through the orchestrator's
-  // scanTailForNewestMessageAt by wiring it as the JSONL tail response.
-  // Returns the lastMessageAt value from the first published state.
+  // Phase 85 (D-07/D-08): the predicate-matrix suite historically drove the
+  // full orchestrator loop and observed the published `lastMessageAt`. That
+  // observable retired in Phase 85 (lastMessageAt now derives from the
+  // identity-name-keyed send-log store via getIdentityLastSend). The
+  // predicate implementation itself STAYS DEFINED (D-08 — sessions.ts
+  // byte-parallel copy still depends on it), so we probe it directly via
+  // the test-only export __scanTailForNewestMessageAtForTests. This
+  // preserves regression coverage of isAshleyRealUserTurn's contract while
+  // decoupling it from the retired orchestrator-observed axis.
+  //
+  // The helpers keep their old async signature so the individual `it()`
+  // bodies below stay unchanged.
+  //
+  // wireBaseResponses / buildDiscoveryFixture are retained above because
+  // the plan's D-08 contract keeps the scanner definition co-located with
+  // its historical exercise fixture; if the sessions.ts byte-parallel copy
+  // needs cross-testing later, these helpers stay available.
   async function scanSingleLine(rawLine: string): Promise<number | null> {
-    const channel = new MockSshChannel();
-    // Wrap the line in a newline as a real tail would.
-    wireBaseResponses(channel, rawLine + "\n");
-
-    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-      setInterval: vi.fn((fn: () => void, ms: number) => {
-        setIntervalFns.push({ fn, ms });
-        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
-      }),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    return deps.registry.publishedStates[0].state.lastMessageAt;
+    return __scanTailForNewestMessageAtForTests(rawLine + "\n");
   }
 
-  // Helper: run a multi-line JSONL tail through the orchestrator.
   async function scanMultiLine(lines: string[]): Promise<number | null> {
-    const channel = new MockSshChannel();
-    wireBaseResponses(channel, lines.join("\n") + "\n");
-
-    const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
-    const deps = buildDeps({
-      acquireSshChannel: vi.fn().mockResolvedValue(channel),
-      setInterval: vi.fn((fn: () => void, ms: number) => {
-        setIntervalFns.push({ fn, ms });
-        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
-      }),
-    });
-
-    const orchestrator = createSshPollOrchestrator(deps);
-    await orchestrator.start();
-
-    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
-    return deps.registry.publishedStates[0].state.lastMessageAt;
+    return __scanTailForNewestMessageAtForTests(lines.join("\n") + "\n");
   }
 
   it("Case 1 (KEEP — typed prose): user turn with plain-string prose content counts", async () => {
@@ -1743,13 +1715,26 @@ describe("Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
   // the tick count to match implementation semantics (see task 3, step 6).
   // ---------------------------------------------------------------------------
 
-  it("Test H: rediscovery on stale-tail threshold — session HAD a signal, 7 ticks yields exactly 2 discovery calls", async () => {
+  it("Test H: Phase 85 D-07 — source A stale-tail rediscovery retires from the lastMessageAt axis; 7 ticks yields exactly 1 discovery call", async () => {
+    // Phase 85 (D-07) rewrite: pre-Phase-79 this asserted that a session
+    // with a sticky lastMessageAt would tick the stale-tail counter each
+    // poll and trip STALE_TAIL_REDISCOVERY_THRESHOLD=5 to force
+    // rediscovery on tick 7 — a defense against Claude Code JSONL rotation
+    // for the lastMessageAt axis.
+    //
+    // Post-Phase-79 the lastMessageAt axis reads from the identity-name-
+    // keyed send-log store (getIdentityLastSend), so the JSONL tail is no
+    // longer the source of truth for that axis — the counter no longer
+    // increments from source A on this axis (the increment logic was
+    // removed with the swap; the counter mechanic itself stays defined
+    // because source B pollDormantOnlyIdentities still uses the constant
+    // + field for its Layer 1 recycling tail-scan rediscovery contract).
+    //
+    // Net observable change: 7 ticks in source A yields exactly 1
+    // discovery call (the cold-cache tick 1) — no rediscovery trip. The
+    // tail exec still fires every tick because the aiTitle scanner still
+    // consumes the buffer (D-08 co-tenant preserved).
     const channel = new MockSshChannel();
-    // Same tail contents every tick — carries an Ashley-real user turn
-    // (lastMessageAt=1000 stays sticky, never advances) so the stale
-    // branch (HAD a signal, tail failed to advance) ticks the counter.
-    // Ashley 2026-08-23 lock: must be a user turn (plain prose) for it to
-    // count; assistant turns no longer seed the lastMessageAt signal.
     const jsonl = jsonlMessageLine(1000, "user", "one and done") + "\n";
     wireBaseResponses(channel, jsonl);
 
@@ -1767,19 +1752,18 @@ describe("Phase 44 Plan 02 — discovery-based JSONL path derivation + caching +
 
     const pollFn = setIntervalFns.find((f) => f.ms === 2000);
     expect(pollFn).toBeDefined();
-    // Drive ticks 2 through 7 (6 more polls; start already ran tick 1).
     if (pollFn) {
       for (let i = 0; i < 6; i++) {
         await pollFn.fn();
       }
     }
 
-    // STALE_TAIL_REDISCOVERY_THRESHOLD=5. Ticks 2-6 increment counter 1→5;
-    // threshold trip on tick 6 nulls jsonlPath in cache; tick 7 re-fires
-    // discovery. Total = 2 discovery calls across 7 ticks.
-    expect(channel.countCallsMatching("IDENTITY=")).toBe(2);
-    // Tail fires every tick regardless. Phase 47 Plan 02: tail width now
-    // `tail -c 262144` (256KB) instead of `tail -n 200`.
+    // Phase 85 (D-07): source A never trips rediscovery on the
+    // lastMessageAt axis anymore — exactly 1 discovery call in 7 ticks
+    // (cold cache on tick 1, cached path reused every subsequent tick).
+    expect(channel.countCallsMatching("IDENTITY=")).toBe(1);
+    // Tail still fires every tick — aiTitle scanner is the sole
+    // consumer of the buffer in source A now.
     expect(channel.countCallsMatching("tail -c 262144")).toBe(7);
     expect(channel.countCallsMatching("tail -n 200")).toBe(0);
   });
@@ -2146,9 +2130,12 @@ describe("Phase 47 Plan 02 — aiTitle derivation and publish", () => {
     expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
     const published = deps.registry.publishedStates[0];
     expect(published.state.aiTitle).toBeNull();
-    // Corroborate: lastMessageAt — Ashley 2026-08-23 lock: only the user turn
-    // at ts=1000 counts; the assistant turn at ts=2000 is excluded.
-    expect(published.state.lastMessageAt).toBe(1000);
+    // Phase 85 (D-07): the lastMessageAt corroboration lock (was
+    // `expect(published.state.lastMessageAt).toBe(1000)`) is retired here —
+    // the axis now derives from getIdentityLastSend (identity-name-keyed
+    // send-log store), not the JSONL tail scan. The predicate-matrix suite
+    // above continues to guard the retired scanner's shape via the
+    // test-only export for the sessions.ts byte-parallel copy contract.
   });
 
   // ---------------------------------------------------------------------------
@@ -6922,5 +6909,299 @@ describe("transport-vs-dead distinction in stat read (bounty 9c8d4a72)", () => {
     expect(deps.registry.publishedGone).toHaveLength(1);
     expect(deps.registry.publishedGone[0].hostId).toBe("host-1");
     expect(deps.registry.publishedGone[0].sessionId).toBe("test-session-id");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 85 (D-07) — lastMessageAt source swap: send-log store round-trip
+//
+// Contract: the per-tick per-session block in processPid now reads
+// `derivedLastMessageAt` from getIdentityLastSend(tmuxSession) (Phase 85-02
+// identity-send-log-store) instead of scanTailForNewestMessageAt on the
+// JSONL tail. The store is keyed on identity name and populated by the
+// frontend compose-send funnel (D-04, wired in Phase 85-06). This suite
+// proves the read side of the round-trip:
+//   1. Cold-cache tick (store returns null) publishes lastMessageAt: null.
+//   2. Store advance → next tick publishes the fresh value.
+//   3. Second store advance → next tick publishes the newer value.
+//   4. Unchanged store value + unchanged axes → fingerprint suppresses publish.
+//   5. Store throw → cached value preserved (fail-open) + poll loop survives.
+//   6. Tail-empty + store-populated → store lookup is the only lastMessageAt
+//      signal (tail exec is unchanged for the aiTitle axis; the retired
+//      lastMessageAt tail-scan no longer runs).
+//
+// Test harness reuses `buildDeps` + `MockSshChannel`. Identity name is "ivy"
+// (per plan's naming). Fixtures resolve tmuxSession="ivy" via the mocked
+// tmux display-message command.
+// ---------------------------------------------------------------------------
+
+describe("Phase 85 lastMessageAt source swap — send-log store", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Reset the module-level mock to its default null return each test.
+    (getIdentityLastSend as unknown as ReturnType<typeof vi.fn>).mockReset();
+    (getIdentityLastSend as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+  });
+
+  // Build discovery + tail responses for identity "ivy" — mirrors the Phase
+  // 41 Plan 03 helpers but keyed on the ivy identity name.
+  function buildIvyDiscoveryFixture(discoveredPath: string): string {
+    const firstUserLine = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: `<command-name>/id</command-name><command-args>ivy</command-args>`,
+      },
+      timestamp: new Date(1000).toISOString(),
+      uuid: `uuid-discovery-ivy`,
+    });
+    const mtime = "1755000000.0";
+    return `${mtime}\t${discoveredPath}\n${firstUserLine}\n---GSDR-32---\n`;
+  }
+
+  function wireIvyResponses(
+    channel: MockSshChannel,
+    tailJsonl: string = "",
+  ): void {
+    channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
+    channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
+    channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
+    channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
+    channel.setResponse("tmux display-message", "ivy");
+    channel.setResponse("fleet-status/last-stop-payload.json", makeValidPayload());
+    // Discovery for identity "ivy".
+    channel.setResponse(
+      "IDENTITY=",
+      buildIvyDiscoveryFixture(
+        "~/.claude/projects/-home-ubuntu-skynet-ivy/discovered.jsonl",
+      ),
+    );
+    // Tail exec still fires (aiTitle scanner is the sole consumer post-D-07).
+    channel.setResponse("discovered.jsonl", tailJsonl);
+  }
+
+  function newSetIntervalFns(): Array<{ fn: () => void; ms: number }> {
+    return [];
+  }
+
+  // Test 85-04-01 — cold cache, store returns null → publish lastMessageAt: null.
+  // The tail exec still fires (aiTitle path); the retired scanner is not
+  // called on the tail (guaranteed by the Task 1 grep gates + Test 85-04-06
+  // below which explicitly asserts the tail-empty behavior).
+  it("Test 85-04-01: cold cache — getIdentityLastSend returns null → publishes lastMessageAt: null", async () => {
+    const channel = new MockSshChannel();
+    wireIvyResponses(channel);
+
+    const setIntervalFns = newSetIntervalFns();
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // Store was called with identity name (tmuxSession resolved to "ivy").
+    expect(getIdentityLastSend).toHaveBeenCalledWith("ivy");
+
+    // Published state has lastMessageAt: null (no prior stamp).
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    expect(published.state.tmuxSession).toBe("ivy");
+    expect(published.state.lastMessageAt).toBeNull();
+  });
+
+  // Test 85-04-02 — store advances to 5000 → next tick publishes 5000.
+  // Fingerprint delta (lastMessageAt null → 5000) triggers the publish.
+  it("Test 85-04-02: store advance to 5000 → next tick publishes lastMessageAt: 5000", async () => {
+    const channel = new MockSshChannel();
+    wireIvyResponses(channel);
+
+    const setIntervalFns = newSetIntervalFns();
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1 — cold, null
+
+    // Simulate stampIdentityLastSend("ivy", 5000) advancing the store.
+    (getIdentityLastSend as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(5000);
+
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn(); // tick 2 — store returns 5000
+    }
+
+    // At least two published states exist. The MOST-RECENT one (from tick 2)
+    // carries lastMessageAt: 5000.
+    const published = deps.registry.publishedStates;
+    expect(published.length).toBeGreaterThanOrEqual(2);
+    const latest = published[published.length - 1];
+    expect(latest.state.tmuxSession).toBe("ivy");
+    expect(latest.state.lastMessageAt).toBe(5000);
+  });
+
+  // Test 85-04-03 — successive store advance (5000 → 6000) → each tick
+  // publishes the fresher value. Fingerprint delta on each advance.
+  it("Test 85-04-03: successive store advances → each tick publishes the fresh value", async () => {
+    const channel = new MockSshChannel();
+    wireIvyResponses(channel);
+
+    const setIntervalFns = newSetIntervalFns();
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1 — cold, null
+
+    (getIdentityLastSend as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(5000);
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn(); // tick 2 — publishes 5000
+
+      (getIdentityLastSend as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(6000);
+      await pollFn.fn(); // tick 3 — publishes 6000
+    }
+
+    // Extract the lastMessageAt sequence from the published states.
+    const seq = deps.registry.publishedStates.map((p) => p.state.lastMessageAt);
+    // Cold tick published null; tick 2 published 5000; tick 3 published 6000.
+    // The sequence contains at minimum: null, 5000, 6000 in order.
+    expect(seq).toContain(null);
+    expect(seq).toContain(5000);
+    expect(seq).toContain(6000);
+    // 5000 must appear before 6000 (monotonic ordering assertion).
+    expect(seq.indexOf(5000)).toBeLessThan(seq.indexOf(6000));
+  });
+
+  // Test 85-04-04 — fingerprint suppression: unchanged store value + all
+  // other axes unchanged → tick 2 does NOT publish a duplicate frame.
+  // Verifies that the swap did NOT break the delta-driven publish contract.
+  it("Test 85-04-04: unchanged store value + unchanged axes → tick 2 does NOT publish (fingerprint suppression)", async () => {
+    const channel = new MockSshChannel();
+    wireIvyResponses(channel);
+    // Seed the store with a value from tick 1 onwards; it stays the same
+    // across both ticks so the fingerprint is stable.
+    (getIdentityLastSend as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(7000);
+
+    const setIntervalFns = newSetIntervalFns();
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1 — publishes lastMessageAt: 7000
+
+    const publishesAfterTick1 = deps.registry.publishedStates.length;
+    expect(publishesAfterTick1).toBeGreaterThan(0);
+    // Tick 1's published frame has lastMessageAt = 7000.
+    expect(
+      deps.registry.publishedStates[publishesAfterTick1 - 1].state.lastMessageAt,
+    ).toBe(7000);
+
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn(); // tick 2 — same store value, same axes
+    }
+
+    // Fingerprint suppression: publishedStates count is unchanged tick 1 → tick 2.
+    expect(deps.registry.publishedStates.length).toBe(publishesAfterTick1);
+  });
+
+  // Test 85-04-05 — fail-open on getIdentityLastSend throw. The poll loop
+  // must not blow up; cached value is preserved (null on cold-start); every
+  // other axis publishes normally.
+  it("Test 85-04-05: getIdentityLastSend throws → cached value preserved, poll loop continues", async () => {
+    const channel = new MockSshChannel();
+    wireIvyResponses(channel);
+    (getIdentityLastSend as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("simulated db unavailable"),
+    );
+
+    const setIntervalFns = newSetIntervalFns();
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    // The start() call MUST NOT throw — the try/catch in the swap block is
+    // load-bearing (the store module itself is fail-open, and the belt-and-
+    // suspenders try/catch here catches any surprise on the hot per-tick
+    // path).
+    await expect(orchestrator.start()).resolves.not.toThrow();
+
+    // A published state exists (other axes drive the publish).
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    // Cached value on cold-start is null; the throw does not corrupt it.
+    expect(published.state.lastMessageAt).toBeNull();
+
+    // Poll loop survives — a subsequent tick still fires the getIdentityLastSend
+    // call (fail-open does not disable the axis).
+    const pollFn = setIntervalFns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await expect(pollFn.fn()).resolves.not.toThrow();
+    }
+    // The store fn was called on tick 1 and tick 2 despite tick 1's throw.
+    expect(
+      (getIdentityLastSend as unknown as ReturnType<typeof vi.fn>).mock.calls.length,
+    ).toBeGreaterThanOrEqual(2);
+  });
+
+  // Test 85-04-06 — tail-empty + store-populated: the retired scanner is
+  // NOT called for lastMessageAt anymore. Prove this by wiring a tail that
+  // is completely EMPTY (would return null via scanTailForNewestMessageAt),
+  // then advancing the store — the publish carries the store value even
+  // though the tail scanner sees nothing.
+  it("Test 85-04-06: tail is EMPTY, store populated with 8000 → published lastMessageAt: 8000 (retired scanner not consulted)", async () => {
+    const channel = new MockSshChannel();
+    // Empty tail — the retired scanner would return null. If the swap were
+    // reverted, published.state.lastMessageAt would be null; the fact that
+    // it's 8000 proves the store lookup is the source of truth.
+    wireIvyResponses(channel, "");
+    (getIdentityLastSend as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(8000);
+
+    const setIntervalFns = newSetIntervalFns();
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        setIntervalFns.push({ fn, ms });
+        return setIntervalFns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    });
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(deps.registry.publishedStates.length).toBeGreaterThan(0);
+    const published = deps.registry.publishedStates[0];
+    expect(published.state.lastMessageAt).toBe(8000);
+    // Sanity: the tail exec fired (aiTitle scanner still consumes the buffer).
+    expect(channel.countCallsMatching("tail -c 262144")).toBeGreaterThan(0);
   });
 });

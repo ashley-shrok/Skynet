@@ -27,12 +27,25 @@
  */
 
 import { useEffect, useState } from "react";
-import { fetchTailnetUrl } from "@/api/editable-file-api";
+import {
+  fetchTailnetUrl,
+  fetchHostFileUrl,
+} from "@/api/editable-file-api";
 import {
   classifyByExtension,
   stripTrailingPunct,
   TAILNET_URL_RE_CLIENT,
+  SKYNET_FILE_URL_RE_CLIENT,
 } from "./editable-file-whitelist";
+
+/**
+ * Phase 75 D-01 dispatch guard: fresh non-global regex. MUST be
+ * non-global (no /g flag) so `.test()` does not mutate `.lastIndex` —
+ * see RESEARCH § Common Pitfalls Pitfall 6 (`/g + .test() = intermittent
+ * stale results`) and the docblock warning on SKYNET_FILE_URL_RE_CLIENT.
+ * Using this here instead of SKYNET_FILE_URL_RE_CLIENT.test(url).
+ */
+const FILE_URL_DISPATCH_RE = /^https:\/\/[^/]+\/file\//;
 
 export function useEditableFileEligibility(
   messageEventId: string | null,
@@ -61,14 +74,21 @@ export function useEditableFileEligibility(
 
     // TAILNET_URL_RE_CLIENT is /g — .match() is stateless (unlike .exec loops
     // which require .lastIndex reset). Empty-match short-circuits below.
+    // Phase 75 D-01: scan for BOTH tailnet URLs and Skynet file URLs, then
+    // merge + dedupe via Set so the byte-sniff loop sees each URL once
+    // regardless of which regex extracted it. Both regexes are /g and both
+    // use .match() (stateless).
     // Normalize each match via stripTrailingPunct (rev-3 H2) so prose-end
     // URLs like `see http://.../notes.md.` land as `notes.md` in the Set,
     // matching what GFM autolink strips into the anchor href for comparison.
     // Dedupe with a Set (rev-3 M8) so a message quoting the same URL twice
     // doesn't fire two duplicate proxy fetches.
-    const rawMatches = messageBody.match(TAILNET_URL_RE_CLIENT) ?? [];
+    const rawTailnet = messageBody.match(TAILNET_URL_RE_CLIENT) ?? [];
+    const rawFileUrl = messageBody.match(SKYNET_FILE_URL_RE_CLIENT) ?? [];
     const matches = Array.from(
-      new Set(rawMatches.map((u) => stripTrailingPunct(u))),
+      new Set(
+        [...rawTailnet, ...rawFileUrl].map((u) => stripTrailingPunct(u)),
+      ),
     );
     if (matches.length === 0) {
       return () => {
@@ -96,8 +116,17 @@ export function useEditableFileEligibility(
             continue;
           }
 
-          // Async path: byte-sniff via backend proxy.
-          const result = await fetchTailnetUrl(url);
+          // Async path: byte-sniff via backend proxy. Phase 75 D-01
+          // dispatch by URL shape — file URLs go to the SFTP-backed
+          // /pretty-view/fetch-host-file endpoint, tailnet URLs to the
+          // existing /pretty-view/fetch-tailnet-url. Both helpers return
+          // TailnetFetchResult so the isTextByBytes check below is
+          // uniform. Dispatch uses a fresh non-global regex per RESEARCH
+          // Pitfall 6 (never .test() on a /g regex — mutates lastIndex).
+          const isFileUrl = FILE_URL_DISPATCH_RE.test(url);
+          const result = isFileUrl
+            ? await fetchHostFileUrl(url)
+            : await fetchTailnetUrl(url);
           if (cancelled) return;
           // Belt-and-suspenders (rev-3 M9): accept isTextByExt too, in case
           // the frontend and backend whitelists have drifted. Both flags being
