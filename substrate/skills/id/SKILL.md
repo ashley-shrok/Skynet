@@ -763,6 +763,29 @@ silently.
 
 ---
 
+## User-wide file (~/.claude/CLAUDE.md) — same rule
+
+The user-wide `~/.claude/CLAUDE.md` is the user's own always-on instruction file: it loads
+at the start of every Claude session across every project and every identity, carrying
+standing directives, preferences, or defaults the user wants active fleet-wide. Because it
+sits above any single project, role, or identity, an edit there affects every session the
+user ever runs.
+
+Good times to suggest an edit: a preference or rule the user just expressed that clearly
+applies to ALL their Claude work (not scoped to this project, this role, or this identity)
+— something they'd otherwise have to re-state each session.
+
+The same edit-approval rule extends to it:
+
+- **User-initiated** (`remember X` / `always X` / `forget X` / `never X` scoped to the
+  user-wide file — "remember X for every session," "add X to my user-wide CLAUDE.md," or
+  direction to write there) is implicit approval — the user IS asking.
+- **Agent-proposed** (a self-directed bank you think belongs fleet-wide, an impulse to
+  "add this to the user-wide CLAUDE.md so every session gets it") is a PROPOSAL. Show
+  the user the exact diff and wait for a yes before writing. Silence isn't a yes.
+
+---
+
 ## Recall — always check bounties before treating anything as new
 
 When the user or another agent brings up a topic — a project, a decision, a name, a
