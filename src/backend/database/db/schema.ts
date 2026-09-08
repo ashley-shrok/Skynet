@@ -30,6 +30,16 @@ export const users = sqliteTable("users", {
   // import for Ashley/Zoe/Laura. Not a credential; agents' relay identifiers
   // live on-disk in ~/.claude/identities/<name>/relay.json per fleet convention.
   mxid: text("mxid"),
+
+  // Phase 85 (locked decision D-04) — pointer to this user's avatar image
+  // file on disk under ${DATA_DIR}/user-avatars/. NOT bytes, NOT an absolute
+  // path, NOT an external URL — just the filename (userId + ext) so the row
+  // is enough to reconstruct the file location given DATA_DIR alone (D-05:
+  // deterministic + resolvable from DATA_DIR). Nullable so pre-existing rows
+  // remain valid (D-13 defers backfill until a downstream mechanism sets one
+  // via PUT /users/:id/avatar per D-10). Mandatoriness on new-user creation
+  // is enforced at POST /users/create per D-07, not at the schema level (D-06).
+  avatarPath: text("avatar_path"),
 });
 
 export const settings = sqliteTable("settings", {
