@@ -24,7 +24,7 @@
  *  - HTTP server spun up on port 0 for each test via multipartRequestMixed helper
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from "vitest";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import express from "express";
@@ -54,6 +54,7 @@ let sqliteDb: InstanceType<typeof Database>;
 // These are hoisted at the top; we set their implementations in beforeEach.
 const mockWriteUserAvatar = vi.fn<[string, string, Buffer], Promise<string>>();
 const mockUnlinkUserAvatar = vi.fn<[string | null | undefined], Promise<void>>();
+const mockReadUserAvatar = vi.fn<[string], Promise<{ bytes: Buffer; mime: string }>>();
 const mockForceSave = vi.fn<[string], Promise<void>>();
 
 vi.mock("./user-avatar-storage.js", async (importOriginal) => {
@@ -64,6 +65,7 @@ vi.mock("./user-avatar-storage.js", async (importOriginal) => {
     ...real,
     writeUserAvatar: (...args: [string, string, Buffer]) => mockWriteUserAvatar(...args),
     unlinkUserAvatar: (...args: [string | null | undefined]) => mockUnlinkUserAvatar(...args),
+    readUserAvatar: (...args: [string]) => mockReadUserAvatar(...args),
   };
 });
 
@@ -194,9 +196,17 @@ vi.mock("../db/index.js", () => {
 
     const chain: Record<string, unknown> = {
       from(table: unknown) {
-        const t = table as { [key: string]: unknown };
-        const tName = (t?._ as Record<string, unknown>)?.name;
-        fromTable = typeof tName === "string" ? tName : String(table);
+        // Drizzle v0.30+ stores table name via Symbol.for("drizzle:Name") —
+        // t?._.name is undefined in current Drizzle versions. Fall back to
+        // legacy property path for forward compatibility.
+        const tSym = (table as Record<symbol, unknown>)[Symbol.for("drizzle:Name")];
+        if (typeof tSym === "string") {
+          fromTable = tSym;
+        } else {
+          const t = table as { [key: string]: unknown };
+          const tName = (t?._ as Record<string, unknown>)?.name;
+          fromTable = typeof tName === "string" ? tName : String(table);
+        }
         return chain;
       },
       where(predicate: unknown) {
@@ -260,15 +270,30 @@ vi.mock("drizzle-orm", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Mock: auth-manager — registerUser is stubbed; createAuthMiddleware passthrough
+// Mock: auth-manager — registerUser is stubbed; createAuthMiddleware configurable
+//
+// authControl is an object (not primitives) so the vi.mock factory can close
+// over the reference and read current values at middleware-call time.
+// Tests mutate authControl.userId and authControl.pass to control auth behavior.
 // ---------------------------------------------------------------------------
+
+// authControl must be declared before vi.mock (hoisted) but as an object so
+// the factory closes over the stable reference, not a snapshot value.
+const authControl = { userId: "caller-id", pass: true };
 
 const mockRegisterUser = vi.fn<[string, string], Promise<void>>();
 
 vi.mock("../../utils/auth-manager.js", () => ({
   AuthManager: {
     getInstance: () => ({
-      createAuthMiddleware: () => (_req: unknown, _res: unknown, next: () => void) => next(),
+      createAuthMiddleware: () => (req: unknown, res: unknown, next: () => void) => {
+        if (!authControl.pass) {
+          (res as import("express").Response).status(401).json({ error: "Unauthorized" });
+          return;
+        }
+        (req as Record<string, unknown>).userId = authControl.userId;
+        next();
+      },
       createAdminMiddleware: () => (_req: unknown, _res: unknown, next: () => void) => next(),
       registerUser: (...args: [string, string]) => mockRegisterUser(...args),
     }),
@@ -640,9 +665,14 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     sqliteDb = new Database(":memory:");
     bootstrapDb();
 
+    // Reset auth control to default (passthrough, "caller-id" as userId)
+    authControl.pass = true;
+    authControl.userId = "caller-id";
+
     // Reset mock call state (not implementations)
     mockWriteUserAvatar.mockClear();
     mockUnlinkUserAvatar.mockClear();
+    mockReadUserAvatar.mockClear();
     mockForceSave.mockClear();
     mockRegisterUser.mockClear();
 
@@ -659,6 +689,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     });
 
     mockUnlinkUserAvatar.mockResolvedValue(undefined);
+    mockReadUserAvatar.mockResolvedValue({ bytes: Buffer.from("fake-avatar-bytes"), mime: "image/png" });
     mockForceSave.mockResolvedValue(undefined);
     mockRegisterUser.mockResolvedValue(undefined);
 
@@ -902,5 +933,679 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     // No user row
     const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users").get() as { c: number };
     expect(count.c).toBe(0);
+  });
+});
+
+// =============================================================================
+// HTTP helpers for the change/serve endpoint tests
+// =============================================================================
+
+/**
+ * putMultipartWithAuth — PUT multipart request with a Bearer token.
+ * The mock auth middleware ignores the actual token value and reads from
+ * authControl.userId instead, so `jwt` just needs to be present (non-empty).
+ */
+function putMultipartWithAuth(
+  server: http.Server,
+  opts: {
+    path: string;
+    file: { fieldName: string; filename: string; contentType: string; bytes: Buffer };
+    jwt: string;
+  },
+): Promise<{ status: number; body: unknown }> {
+  return new Promise((resolve, reject) => {
+    const { port } = server.address() as AddressInfo;
+    const boundary = "test-boundary-put-85";
+    const body = buildMultipartBody(
+      opts.file.fieldName,
+      opts.file.filename,
+      opts.file.contentType,
+      opts.file.bytes,
+      boundary,
+    );
+
+    const req = http.request(
+      {
+        hostname: "127.0.0.1",
+        port,
+        method: "PUT",
+        path: opts.path,
+        headers: {
+          "Content-Type": `multipart/form-data; boundary=${boundary}`,
+          "Content-Length": String(body.length),
+          "Authorization": `Bearer ${opts.jwt}`,
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          const raw = Buffer.concat(chunks);
+          let parsed: unknown;
+          try { parsed = JSON.parse(raw.toString()); } catch { parsed = raw.toString(); }
+          resolve({ status: res.statusCode ?? 0, body: parsed });
+        });
+      },
+    );
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+/**
+ * putNoBodyWithAuth — PUT request with no multipart body (for missing-avatar test).
+ */
+function putNoBodyWithAuth(
+  server: http.Server,
+  opts: { path: string; jwt: string },
+): Promise<{ status: number; body: unknown }> {
+  return new Promise((resolve, reject) => {
+    const { port } = server.address() as AddressInfo;
+    const req = http.request(
+      {
+        hostname: "127.0.0.1",
+        port,
+        method: "PUT",
+        path: opts.path,
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": "0",
+          "Authorization": `Bearer ${opts.jwt}`,
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          const raw = Buffer.concat(chunks);
+          let parsed: unknown;
+          try { parsed = JSON.parse(raw.toString()); } catch { parsed = raw.toString(); }
+          resolve({ status: res.statusCode ?? 0, body: parsed });
+        });
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+/**
+ * putOversizeWithAuth — PUT request with a 6 MB multipart body (oversize test).
+ */
+function putOversizeWithAuth(
+  server: http.Server,
+  opts: { path: string; jwt: string },
+): Promise<{ status: number; body: unknown }> {
+  return putMultipartWithAuth(server, {
+    path: opts.path,
+    file: {
+      fieldName: "avatar",
+      filename: "big.png",
+      contentType: "image/png",
+      bytes: Buffer.alloc(6 * 1024 * 1024, 0xab),
+    },
+    jwt: opts.jwt,
+  });
+}
+
+/**
+ * getWithAuth — GET request with a Bearer token. Returns raw Buffer body for
+ * binary responses (200 image), or parsed JSON for error responses.
+ */
+function getWithAuth(
+  server: http.Server,
+  opts: { path: string; jwt: string },
+): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer | unknown }> {
+  return new Promise((resolve, reject) => {
+    const { port } = server.address() as AddressInfo;
+    const req = http.request(
+      {
+        hostname: "127.0.0.1",
+        port,
+        method: "GET",
+        path: opts.path,
+        headers: {
+          "Authorization": `Bearer ${opts.jwt}`,
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          const raw = Buffer.concat(chunks);
+          // Attempt JSON parse; if it fails, return raw Buffer (binary image).
+          let body: Buffer | unknown;
+          try {
+            body = JSON.parse(raw.toString());
+          } catch {
+            body = raw;
+          }
+          resolve({ status: res.statusCode ?? 0, headers: res.headers, body });
+        });
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+/**
+ * getNoAuth — GET request WITHOUT an Authorization header (unauthenticated test).
+ */
+function getNoAuth(
+  server: http.Server,
+  opts: { path: string },
+): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: unknown }> {
+  return new Promise((resolve, reject) => {
+    const { port } = server.address() as AddressInfo;
+    const req = http.request(
+      {
+        hostname: "127.0.0.1",
+        port,
+        method: "GET",
+        path: opts.path,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => {
+          const raw = Buffer.concat(chunks);
+          let parsed: unknown;
+          try { parsed = JSON.parse(raw.toString()); } catch { parsed = raw.toString(); }
+          resolve({ status: res.statusCode ?? 0, headers: res.headers, body: parsed });
+        });
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+// =============================================================================
+// DB helpers for change/serve tests
+// =============================================================================
+
+/**
+ * insertUser — directly inserts a users row into the in-memory SQLite DB for
+ * use as test seed data. Returns the inserted id.
+ * isAdmin: 0 = non-admin, 1 = admin (first user convention).
+ */
+function insertUser(opts: {
+  id: string;
+  username: string;
+  isAdmin?: 0 | 1;
+  avatarPath?: string | null;
+}): void {
+  sqliteDb
+    .prepare(
+      "INSERT OR IGNORE INTO users (id, username, password_hash, is_admin, is_oidc, avatar_path) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .run(
+      opts.id,
+      opts.username,
+      "hash-placeholder",
+      opts.isAdmin ?? 0,
+      0,
+      opts.avatarPath ?? null,
+    );
+}
+
+// =============================================================================
+// PUT /users/:id/avatar — change endpoint (Phase 85, D-10)
+// =============================================================================
+
+describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
+  // Reuse the global server spun up by the /create suite.
+  // Since vi.mock is hoisted and the server is shared, we just reset state in beforeEach.
+
+  let changeServer: http.Server;
+
+  // Start a dedicated server for this suite if globalServer is not available.
+  // (In practice, both describe blocks share the same module import via vi.mock,
+  //  so we start a new server here to avoid coupling to the /create suite's lifecycle.)
+  beforeAll(async () => {
+    const mod = await import("./users.js");
+    const router = mod.default;
+    const app = express();
+    app.use("/users", router);
+    changeServer = await new Promise<http.Server>((resolve) => {
+      const s = app.listen(0, "127.0.0.1", () => resolve(s));
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    if (changeServer) {
+      await new Promise<void>((resolve) => changeServer.close(() => resolve()));
+    }
+  });
+
+  beforeEach(async () => {
+    // Fresh DB slate
+    sqliteDb?.close();
+    sqliteDb = new Database(":memory:");
+    bootstrapDb();
+
+    // Reset auth control
+    authControl.pass = true;
+    authControl.userId = "alice-id";
+
+    // Reset mock calls
+    mockWriteUserAvatar.mockClear();
+    mockUnlinkUserAvatar.mockClear();
+    mockReadUserAvatar.mockClear();
+    mockForceSave.mockClear();
+    mockRegisterUser.mockClear();
+
+    // Default implementations
+    mockWriteUserAvatar.mockImplementation(async (userId: string, mime: string) => {
+      const extMap: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
+      return `${userId}.${extMap[mime] ?? "png"}`;
+    });
+    mockUnlinkUserAvatar.mockResolvedValue(undefined);
+    mockReadUserAvatar.mockResolvedValue({ bytes: MINIMAL_PNG_BYTES, mime: "image/png" });
+    mockForceSave.mockResolvedValue(undefined);
+    mockRegisterUser.mockResolvedValue(undefined);
+
+    pendingWhereValue = null;
+
+    // Seed: Alice (user, has existing avatar)
+    insertUser({ id: "alice-id", username: "alice", isAdmin: 0, avatarPath: "alice-id.png" });
+    // Seed: Bob (admin)
+    insertUser({ id: "bob-id", username: "bob", isAdmin: 1, avatarPath: "bob-id.png" });
+    // Seed: Charlie (non-admin, non-Alice)
+    insertUser({ id: "charlie-id", username: "charlie", isAdmin: 0, avatarPath: "charlie-id.png" });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 1: Own user happy path → 200, row updated, forceSave called
+  // ---------------------------------------------------------------------------
+  it("PUT /:id/avatar — own user happy path returns 200 with updated avatarPath", async () => {
+    authControl.userId = "alice-id";
+    mockWriteUserAvatar.mockResolvedValueOnce("alice-id.png");
+
+    const res = await putMultipartWithAuth(changeServer, {
+      path: "/users/alice-id/avatar",
+      file: { fieldName: "avatar", filename: "avatar.png", contentType: "image/png", bytes: MINIMAL_PNG_BYTES },
+      jwt: "valid-jwt",
+    });
+
+    expect(res.status).toBe(200);
+    const body = res.body as { id: string; avatarPath: string };
+    expect(body.id).toBe("alice-id");
+    expect(body.avatarPath).toBe("alice-id.png");
+    expect(mockWriteUserAvatar).toHaveBeenCalledWith("alice-id", "image/png", expect.any(Buffer));
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 2: Admin changes another user → 200
+  // ---------------------------------------------------------------------------
+  it("PUT /:id/avatar — admin can change another user's avatar → 200", async () => {
+    authControl.userId = "bob-id"; // Bob is admin
+    mockWriteUserAvatar.mockResolvedValueOnce("alice-id.png");
+
+    const res = await putMultipartWithAuth(changeServer, {
+      path: "/users/alice-id/avatar",
+      file: { fieldName: "avatar", filename: "avatar.png", contentType: "image/png", bytes: MINIMAL_PNG_BYTES },
+      jwt: "valid-jwt",
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockWriteUserAvatar).toHaveBeenCalledWith("alice-id", "image/png", expect.any(Buffer));
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 3: Non-admin changes another user → 403
+  // ---------------------------------------------------------------------------
+  it("PUT /:id/avatar — non-admin changing another user returns 403", async () => {
+    authControl.userId = "charlie-id"; // Charlie is non-admin
+
+    const res = await putMultipartWithAuth(changeServer, {
+      path: "/users/alice-id/avatar",
+      file: { fieldName: "avatar", filename: "avatar.png", contentType: "image/png", bytes: MINIMAL_PNG_BYTES },
+      jwt: "valid-jwt",
+    });
+
+    expect(res.status).toBe(403);
+    const body = res.body as { error: string };
+    expect(body.error).toMatch(/Not authorized to change this user/);
+
+    // No file written
+    expect(mockWriteUserAvatar).not.toHaveBeenCalled();
+
+    // Alice's row unchanged
+    const row = sqliteDb.prepare("SELECT avatar_path FROM users WHERE id = ?").get("alice-id") as
+      | { avatar_path: string | null }
+      | undefined;
+    expect(row?.avatar_path).toBe("alice-id.png");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 4: Ext-swap (PNG → JPEG) — old file unlinked, new file has .jpg ext
+  // ---------------------------------------------------------------------------
+  it("PUT /:id/avatar — ext-swap: old .png file unlinked, new .jpg file created", async () => {
+    authControl.userId = "alice-id";
+    // Alice currently has alice-id.png; new upload is JPEG → alice-id.jpg
+    mockWriteUserAvatar.mockResolvedValueOnce("alice-id.jpg");
+
+    const res = await putMultipartWithAuth(changeServer, {
+      path: "/users/alice-id/avatar",
+      file: { fieldName: "avatar", filename: "avatar.jpg", contentType: "image/jpeg", bytes: MINIMAL_PNG_BYTES },
+      jwt: "valid-jwt",
+    });
+
+    expect(res.status).toBe(200);
+    const body = res.body as { avatarPath: string };
+    expect(body.avatarPath).toBe("alice-id.jpg");
+
+    // Old file unlinked (alice-id.png !== alice-id.jpg → unlink called with old name)
+    expect(mockUnlinkUserAvatar).toHaveBeenCalledWith("alice-id.png");
+
+    // DB row updated
+    const row = sqliteDb.prepare("SELECT avatar_path FROM users WHERE id = ?").get("alice-id") as
+      | { avatar_path: string | null }
+      | undefined;
+    expect(row?.avatar_path).toBe("alice-id.jpg");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 5: Same-ext (PNG → PNG) — no old-file unlink (file overwritten in place)
+  // ---------------------------------------------------------------------------
+  it("PUT /:id/avatar — same-ext: no old-file unlink (file overwritten in place)", async () => {
+    authControl.userId = "alice-id";
+    // New upload is also PNG → alice-id.png (same name)
+    mockWriteUserAvatar.mockResolvedValueOnce("alice-id.png");
+
+    const res = await putMultipartWithAuth(changeServer, {
+      path: "/users/alice-id/avatar",
+      file: { fieldName: "avatar", filename: "avatar.png", contentType: "image/png", bytes: MINIMAL_PNG_BYTES },
+      jwt: "valid-jwt",
+    });
+
+    expect(res.status).toBe(200);
+
+    // unlinkUserAvatar must NOT have been called (same filename → overwrite in place)
+    expect(mockUnlinkUserAvatar).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 6: UPDATE rollback — new file unlinked if SQL fails
+  // ---------------------------------------------------------------------------
+  it("PUT /:id/avatar — SQL UPDATE failure: new file unlinked (rollback)", async () => {
+    authControl.userId = "alice-id";
+    // New upload is JPEG (ext-swap) → new filename differs from old
+    mockWriteUserAvatar.mockResolvedValueOnce("alice-id.jpg");
+
+    // Make the SQLite prepare().run() throw for UPDATE
+    const realPrepare = sqliteDb.prepare.bind(sqliteDb);
+    const originalPrepare = sqliteDb.prepare;
+    // Patch prepare to throw on the UPDATE statement
+    let patchInstalled = false;
+    sqliteDb.prepare = (sql: string) => {
+      if (!patchInstalled && sql.includes("UPDATE users SET avatar_path")) {
+        patchInstalled = true;
+        const stmt = realPrepare(sql);
+        // Return a fake statement whose run throws
+        return {
+          ...stmt,
+          run: (..._args: unknown[]) => { throw new Error("Simulated SQL UPDATE failure"); },
+        } as ReturnType<typeof originalPrepare>;
+      }
+      return realPrepare(sql);
+    };
+
+    try {
+      const res = await putMultipartWithAuth(changeServer, {
+        path: "/users/alice-id/avatar",
+        file: { fieldName: "avatar", filename: "avatar.jpg", contentType: "image/jpeg", bytes: MINIMAL_PNG_BYTES },
+        jwt: "valid-jwt",
+      });
+
+      expect(res.status).toBe(500);
+
+      // New file (different name) must be unlinked on rollback
+      expect(mockUnlinkUserAvatar).toHaveBeenCalledWith("alice-id.jpg");
+
+      // DB row unchanged
+      const row = sqliteDb.prepare("SELECT avatar_path FROM users WHERE id = ?").get("alice-id") as
+        | { avatar_path: string | null }
+        | undefined;
+      expect(row?.avatar_path).toBe("alice-id.png");
+    } finally {
+      // Restore prepare
+      sqliteDb.prepare = originalPrepare;
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 7: Target user doesn't exist → 404 BEFORE any file-write
+  // ---------------------------------------------------------------------------
+  it("PUT /:id/avatar — target user not found → 404 without file write", async () => {
+    authControl.userId = "bob-id"; // Admin trying to update nonexistent user
+
+    const res = await putMultipartWithAuth(changeServer, {
+      path: "/users/nonexistent-user-id/avatar",
+      file: { fieldName: "avatar", filename: "avatar.png", contentType: "image/png", bytes: MINIMAL_PNG_BYTES },
+      jwt: "valid-jwt",
+    });
+
+    expect(res.status).toBe(404);
+    const body = res.body as { error: string };
+    expect(body.error).toMatch(/User not found/);
+
+    // No file written
+    expect(mockWriteUserAvatar).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 8: Missing avatar field → 400 "missing avatar field"
+  // ---------------------------------------------------------------------------
+  it("PUT /:id/avatar — missing avatar field returns 400", async () => {
+    authControl.userId = "alice-id";
+
+    const res = await putNoBodyWithAuth(changeServer, {
+      path: "/users/alice-id/avatar",
+      jwt: "valid-jwt",
+    });
+
+    // multer receives no file → req.file is undefined → 400
+    expect(res.status).toBe(400);
+    const body = res.body as { error: string };
+    expect(body.error).toMatch(/missing avatar field/);
+
+    expect(mockWriteUserAvatar).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 9: Oversize upload → 413 via multer error handler
+  // ---------------------------------------------------------------------------
+  it("PUT /:id/avatar — 6 MB upload returns 413 via multer error handler", async () => {
+    authControl.userId = "alice-id";
+
+    const res = await putOversizeWithAuth(changeServer, {
+      path: "/users/alice-id/avatar",
+      jwt: "valid-jwt",
+    });
+
+    expect(res.status).toBe(413);
+    const body = res.body as { error: string };
+    expect(body.error).toMatch(/file too large/);
+
+    expect(mockWriteUserAvatar).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 10: Save trigger label verified
+  // ---------------------------------------------------------------------------
+  it("PUT /:id/avatar — happy path invokes forceSave with 'phase-85-user-avatar-change'", async () => {
+    authControl.userId = "alice-id";
+    mockWriteUserAvatar.mockResolvedValueOnce("alice-id.png");
+
+    const res = await putMultipartWithAuth(changeServer, {
+      path: "/users/alice-id/avatar",
+      file: { fieldName: "avatar", filename: "avatar.png", contentType: "image/png", bytes: MINIMAL_PNG_BYTES },
+      jwt: "valid-jwt",
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockForceSave).toHaveBeenCalledWith("phase-85-user-avatar-change");
+  });
+});
+
+// =============================================================================
+// GET /users/:id/avatar — serve endpoint (Phase 85, D-11)
+// =============================================================================
+
+describe("GET /users/:id/avatar (Phase 85 — serve endpoint)", () => {
+  let serveServer: http.Server;
+
+  beforeAll(async () => {
+    const mod = await import("./users.js");
+    const router = mod.default;
+    const app = express();
+    app.use("/users", router);
+    serveServer = await new Promise<http.Server>((resolve) => {
+      const s = app.listen(0, "127.0.0.1", () => resolve(s));
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    if (serveServer) {
+      await new Promise<void>((resolve) => serveServer.close(() => resolve()));
+    }
+  });
+
+  beforeEach(async () => {
+    sqliteDb?.close();
+    sqliteDb = new Database(":memory:");
+    bootstrapDb();
+
+    authControl.pass = true;
+    authControl.userId = "any-user-id";
+
+    mockWriteUserAvatar.mockClear();
+    mockUnlinkUserAvatar.mockClear();
+    mockReadUserAvatar.mockClear();
+    mockForceSave.mockClear();
+    mockRegisterUser.mockClear();
+
+    mockWriteUserAvatar.mockImplementation(async (userId: string, mime: string) => {
+      const extMap: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
+      return `${userId}.${extMap[mime] ?? "png"}`;
+    });
+    mockUnlinkUserAvatar.mockResolvedValue(undefined);
+    mockReadUserAvatar.mockResolvedValue({ bytes: MINIMAL_PNG_BYTES, mime: "image/png" });
+    mockForceSave.mockResolvedValue(undefined);
+    mockRegisterUser.mockResolvedValue(undefined);
+
+    pendingWhereValue = null;
+
+    // Seed Alice with a PNG avatar
+    insertUser({ id: "alice-id", username: "alice", isAdmin: 0, avatarPath: "alice-id.png" });
+    // Seed Bob with a webp avatar
+    insertUser({ id: "bob-id", username: "bob", isAdmin: 0, avatarPath: "bob-id.webp" });
+    // Seed Charlie with NO avatar (null pointer)
+    insertUser({ id: "charlie-id", username: "charlie", isAdmin: 0, avatarPath: null });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 1: Happy path PNG → 200 with Content-Type: image/png and bytes
+  // ---------------------------------------------------------------------------
+  it("GET /:id/avatar — serves PNG bytes with Content-Type: image/png", async () => {
+    mockReadUserAvatar.mockResolvedValueOnce({ bytes: MINIMAL_PNG_BYTES, mime: "image/png" });
+
+    const res = await getWithAuth(serveServer, { path: "/users/alice-id/avatar", jwt: "valid-jwt" });
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/image\/png/);
+    expect(mockReadUserAvatar).toHaveBeenCalledWith("alice-id.png");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 2: Happy path WebP → 200 with Content-Type: image/webp
+  // ---------------------------------------------------------------------------
+  it("GET /:id/avatar — serves WebP bytes with Content-Type: image/webp", async () => {
+    const webpBytes = Buffer.from([0x52, 0x49, 0x46, 0x46]); // RIFF header stub
+    mockReadUserAvatar.mockResolvedValueOnce({ bytes: webpBytes, mime: "image/webp" });
+
+    const res = await getWithAuth(serveServer, { path: "/users/bob-id/avatar", jwt: "valid-jwt" });
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/image\/webp/);
+    expect(mockReadUserAvatar).toHaveBeenCalledWith("bob-id.webp");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 3: Null avatar_path (pre-Phase-85 user) → 404 "no avatar for this user"
+  // ---------------------------------------------------------------------------
+  it("GET /:id/avatar — null avatar_path returns 404 with 'no avatar for this user'", async () => {
+    const res = await getWithAuth(serveServer, { path: "/users/charlie-id/avatar", jwt: "valid-jwt" });
+
+    expect(res.status).toBe(404);
+    const body = res.body as { error: string };
+    expect(body.error).toBe("no avatar for this user");
+
+    // readUserAvatar must NOT have been called (null pointer detected first)
+    expect(mockReadUserAvatar).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 4: Row doesn't exist → 404 "no avatar for this user"
+  // ---------------------------------------------------------------------------
+  it("GET /:id/avatar — nonexistent user returns 404", async () => {
+    const res = await getWithAuth(serveServer, { path: "/users/nonexistent-id/avatar", jwt: "valid-jwt" });
+
+    expect(res.status).toBe(404);
+    const body = res.body as { error: string };
+    expect(body.error).toBe("no avatar for this user");
+
+    expect(mockReadUserAvatar).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 5: Row exists with pointer, but file missing on disk → 404 (not 500)
+  // ---------------------------------------------------------------------------
+  it("GET /:id/avatar — file missing on disk (ENOENT) returns 404 not 500", async () => {
+    const enoentErr = Object.assign(new Error("ENOENT: no such file or directory"), { code: "ENOENT" });
+    mockReadUserAvatar.mockRejectedValueOnce(enoentErr);
+
+    const res = await getWithAuth(serveServer, { path: "/users/alice-id/avatar", jwt: "valid-jwt" });
+
+    expect(res.status).toBe(404);
+    const body = res.body as { error: string };
+    expect(body.error).toBe("no avatar file on disk");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 6: Unauthenticated caller → 401
+  // ---------------------------------------------------------------------------
+  it("GET /:id/avatar — unauthenticated (no JWT) returns 401", async () => {
+    // authControl.pass = false simulates the authenticateJWT middleware returning 401
+    authControl.pass = false;
+
+    const res = await getNoAuth(serveServer, { path: "/users/alice-id/avatar" });
+
+    // Note: getNoAuth sends no Authorization header; the mock middleware checks authControl.pass
+    // Since the request has no header, we need to make the middleware reject based on that.
+    // BUT: the mock middleware currently checks authControl.pass, not the header.
+    // For this test, set authControl.pass = false to simulate an unauthed request.
+    expect(res.status).toBe(401);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 7: Any logged-in user can fetch any other user's avatar (auth model check)
+  // ---------------------------------------------------------------------------
+  it("GET /:id/avatar — any authenticated user can fetch any other user's avatar", async () => {
+    // Dave (non-admin, non-Alice) fetches Alice's avatar
+    authControl.userId = "dave-id"; // Not in DB, but GET only checks auth, not row-ownership
+    // Insert Dave so the auth middleware doesn't fail user lookup (GET doesn't check DB for caller)
+    // Note: the GET handler does NOT do caller-DB-lookup — it only runs authenticateJWT then
+    // reads the target's row. So Dave doesn't need to exist in DB for this to work.
+    mockReadUserAvatar.mockResolvedValueOnce({ bytes: MINIMAL_PNG_BYTES, mime: "image/png" });
+
+    const res = await getWithAuth(serveServer, { path: "/users/alice-id/avatar", jwt: "valid-jwt" });
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/image\/png/);
   });
 });
