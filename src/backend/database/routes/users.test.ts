@@ -141,6 +141,7 @@ function camelizeUser(row: Record<string, unknown>) {
     isAdmin: row.is_admin === 1,
     isOidc: row.is_oidc === 1,
     avatarPath: row.avatar_path ?? null,
+    mxid: row.mxid ?? null,
   };
 }
 
@@ -1978,6 +1979,7 @@ describe("DELETE /users/delete-account (M5 — forceSave after row deletion)", (
     mockReadUserAvatar.mockClear();
     mockForceSave.mockClear();
     mockRegisterUser.mockClear();
+    mockDeactivateUser.mockClear();
 
     mockWriteUserAvatar.mockImplementation(async (userId: string, mime: string) => {
       const extMap: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
@@ -1987,6 +1989,7 @@ describe("DELETE /users/delete-account (M5 — forceSave after row deletion)", (
     mockReadUserAvatar.mockResolvedValue({ bytes: MINIMAL_PNG_BYTES, mime: "image/png" });
     mockForceSave.mockResolvedValue(undefined);
     mockRegisterUser.mockResolvedValue(undefined);
+    mockDeactivateUser.mockResolvedValue({ ok: true });
 
     pendingWhereValue = null;
   });
@@ -2016,6 +2019,87 @@ describe("DELETE /users/delete-account (M5 — forceSave after row deletion)", (
     expect(mockForceSave).toHaveBeenCalledWith("phase-85-user-delete-account");
 
     // Row deleted
+    const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE id = ?").get("alice-id") as { c: number };
+    expect(count.c).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test B (D-09): deactivateUser called with userRecord.mxid before row DELETE
+  // -------------------------------------------------------------------------
+
+  it("DELETE /users/delete-account — deactivateUser called with userRecord.mxid before row DELETE (D-09)", async () => {
+    const password = "s3cret123";
+    const passwordHash = await bcrypt.hash(password, 4);
+
+    sqliteDb
+      .prepare(
+        "INSERT OR REPLACE INTO users (id, username, password_hash, is_admin, is_oidc, avatar_path, mxid) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run("alice-id", "alice", passwordHash, 0, 0, null, "@alice_human:thenasty.taild9b663.ts.net");
+
+    authControl.userId = "alice-id";
+
+    const res = await deleteAccountWithAuth(deleteServer, { password, jwt: "valid-jwt" });
+
+    expect(res.status).toBe(200);
+    expect(mockDeactivateUser).toHaveBeenCalledTimes(1);
+    expect(mockDeactivateUser).toHaveBeenCalledWith("@alice_human:thenasty.taild9b663.ts.net");
+
+    const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE id = ?").get("alice-id") as { c: number };
+    expect(count.c).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test C: mxid=null skips deactivateUser (legacy/OIDC user)
+  // -------------------------------------------------------------------------
+
+  it("DELETE /users/delete-account — mxid=null skips deactivateUser (legacy/OIDC user)", async () => {
+    const password = "s3cret123";
+    const passwordHash = await bcrypt.hash(password, 4);
+
+    sqliteDb
+      .prepare(
+        "INSERT OR REPLACE INTO users (id, username, password_hash, is_admin, is_oidc, avatar_path, mxid) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run("bob-id", "bob", passwordHash, 0, 0, null, null);
+
+    authControl.userId = "bob-id";
+
+    const res = await deleteAccountWithAuth(deleteServer, { password, jwt: "valid-jwt" });
+
+    expect(res.status).toBe(200);
+    expect(mockDeactivateUser).not.toHaveBeenCalled();
+
+    const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE id = ?").get("bob-id") as { c: number };
+    expect(count.c).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test D (D-10): Synapse fail on deactivate logs warning and proceeds with DELETE
+  // -------------------------------------------------------------------------
+
+  it("DELETE /users/delete-account — Synapse fail on deactivate logs warning and proceeds with DELETE (D-10)", async () => {
+    const password = "s3cret123";
+    const passwordHash = await bcrypt.hash(password, 4);
+
+    sqliteDb
+      .prepare(
+        "INSERT OR REPLACE INTO users (id, username, password_hash, is_admin, is_oidc, avatar_path, mxid) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run("alice-id", "alice", passwordHash, 0, 0, null, "@alice_human:thenasty.taild9b663.ts.net");
+
+    authControl.userId = "alice-id";
+
+    mockDeactivateUser.mockResolvedValueOnce({ ok: false, status: 504, error: "admin_api_timeout" });
+
+    const res = await deleteAccountWithAuth(deleteServer, { password, jwt: "valid-jwt" });
+
+    // Key assertion: delete not blocked by Synapse failure
+    expect(res.status).toBe(200);
+    expect(mockDeactivateUser).toHaveBeenCalledTimes(1);
+    expect(mockDeactivateUser).toHaveBeenCalledWith("@alice_human:thenasty.taild9b663.ts.net");
+
+    // Row is gone — proves delete PROCEEDED despite Synapse failure
     const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE id = ?").get("alice-id") as { c: number };
     expect(count.c).toBe(0);
   });
