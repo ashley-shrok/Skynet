@@ -142,6 +142,53 @@ describe("runRegistryRoomsBackfill — settings gate (D-12 idempotency)", () => 
     expect(ensureSpy).not.toHaveBeenCalled();
   });
 
+  it("Test M-6 [fixup]: force:true bypasses the gate — re-enumerates humans even when has_backfilled='true'", async () => {
+    // Regression guard for M-6. Original behavior: gate='true' →
+    // { ok:true, skipped:true } no-op regardless. A deployer who added
+    // new humans and wanted to re-run backfill would silently hit the
+    // gate. With force:true, the gate check is bypassed and enumeration
+    // proceeds. joinHumanToHumansRegistry is idempotent (Synapse joinRoom
+    // on already-joined returns ok), so re-running is safe.
+    sqliteInstance
+      .prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
+      .run("has_backfilled_registry_rooms", "true");
+    sqliteInstance
+      .prepare("INSERT INTO users (id, username, mxid) VALUES (?, ?, ?)")
+      .run("u1", "alice", "@alice_human:server");
+    sqliteInstance
+      .prepare("INSERT INTO users (id, username, mxid) VALUES (?, ?, ?)")
+      .run("u2", "bob", "@bob_human:server");
+
+    // Default invocation → gate honored, skipped:true.
+    const gated = await runRegistryRoomsBackfill();
+    expect(gated).toEqual({ ok: true, skipped: true });
+    expect(joinHumanSpy).not.toHaveBeenCalled();
+
+    // Force invocation → gate bypassed, enumeration proceeds.
+    const forced = await runRegistryRoomsBackfill({ force: true });
+    expect(forced.ok).toBe(true);
+    if (forced.ok && !("skipped" in forced && forced.skipped === true)) {
+      expect(forced.humansAttempted).toBe(2);
+    }
+    expect(joinHumanSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("Test M-6b [fixup]: force logs a structured info entry so ops can trace intentional re-runs", async () => {
+    sqliteInstance
+      .prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
+      .run("has_backfilled_registry_rooms", "true");
+
+    await runRegistryRoomsBackfill({ force: true });
+
+    const forceLogEntry = loggerInfoSpy.mock.calls.find(
+      (call) =>
+        call[1] &&
+        typeof call[1] === "object" &&
+        (call[1] as { operation?: string }).operation === "registry_backfill_force",
+    );
+    expect(forceLogEntry).toBeDefined();
+  });
+
   it("Test 5: after successful backfill, a second call is a no-op via the gate", async () => {
     // Seed a human so the first call has work to do.
     sqliteInstance

@@ -307,6 +307,22 @@ Humans-only backfill remains sufficient to close the D-12 gap for the human-side
 
 **Repeat runs are safe.** The `has_backfilled_registry_rooms` gate makes subsequent runs a fast no-op. If a run fails midway, the gate stays false; next re-run picks up where it left off.
 
+**Deliberate re-runs after new-account onboarding (Phase 89 fixup M-6, 2026-09-08).** After the first successful backfill, the gate short-circuits later invocations. If you've added new humans / agents to the instance (e.g. via a follow-up onboarding bounty) and want to re-run the backfill to catch them up, pass `force: true` to bypass the gate:
+
+```bash
+sudo docker exec -i skynet node --input-type=module <<'EOF'
+const { runRegistryRoomsBackfill } = await import(
+  "/app/dist/backend/relay-sessions/registry-rooms-backfill.js"
+);
+// Bypass the gate — enumerates humans + (optionally) agents again.
+// joinRoom is idempotent on already-joined accounts, so re-runs are safe.
+const result = await runRegistryRoomsBackfill({ force: true });
+console.log(JSON.stringify(result, null, 2));
+EOF
+```
+
+The force path logs a structured `registry_backfill_force` info entry so ops can trace intentional re-runs in the container logs. Default (no `force`) preserves the gate-honoring behavior for the original one-shot post-deploy runbook.
+
 ---
 *Phase: 89-relay-mediated-group-conversations-sub-slice-b-session-model*
 *Plan: 02*

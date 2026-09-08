@@ -79,9 +79,18 @@ export type BackfillResult =
  * scope). If omitted (e.g. in tests, or if Plan 03 hasn't wired it yet),
  * agents backfill is a no-op — the D-11 mint hook will cover future
  * agents, and the enumerator can be added later without a schema change.
+ *
+ * Fixup M-6 (2026-09-08): `force` opt-in bypasses the has_backfilled gate
+ * so a deployer can safely re-run the utility after adding new humans /
+ * agents to their instance (e.g. as part of a follow-up onboarding
+ * bounty). joinHumanToHumansRegistry + joinAgentToAgentsRegistry are
+ * both idempotent (Synapse joinRoom on already-joined returns ok), so
+ * re-running is safe. Default (false) preserves the original
+ * gate-honoring behavior for backwards compat with the manual runbook.
  */
 export interface BackfillDeps {
   enumerateAgentMxids?: () => Promise<string[]>;
+  force?: boolean;
 }
 
 /**
@@ -92,12 +101,22 @@ export interface BackfillDeps {
 export async function runRegistryRoomsBackfill(
   deps: BackfillDeps = {},
 ): Promise<BackfillResult> {
-  // Fast path: gate already flipped → no-op.
-  const gate = db.$client
-    .prepare("SELECT value FROM settings WHERE key = ?")
-    .get(SETTINGS_KEY_HAS_BACKFILLED) as { value: string } | undefined;
-  if (gate?.value === "true") {
-    return { ok: true, skipped: true };
+  // Fast path: gate already flipped → no-op. Skipped when the caller
+  // explicitly passes `force: true` (fixup M-6, 2026-09-08).
+  if (deps.force !== true) {
+    const gate = db.$client
+      .prepare("SELECT value FROM settings WHERE key = ?")
+      .get(SETTINGS_KEY_HAS_BACKFILLED) as { value: string } | undefined;
+    if (gate?.value === "true") {
+      return { ok: true, skipped: true };
+    }
+  } else {
+    databaseLogger.info(
+      "registry backfill — force flag set, bypassing has_backfilled gate",
+      {
+        operation: "registry_backfill_force",
+      },
+    );
   }
 
   databaseLogger.info("registry backfill start", {
