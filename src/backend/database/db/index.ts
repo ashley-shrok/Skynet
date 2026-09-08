@@ -932,6 +932,35 @@ const migrateSchema = async () => {
     );
   }
 
+  // Phase 85 Plan 01 (locked decision D-04) — avatar_path column for the
+  // per-user avatar file pointer. Nullable: carries only the filename under
+  // ${DATA_DIR}/user-avatars/ (D-05, deterministic + resolvable from DATA_DIR
+  // alone); pre-existing users keep null (D-13 defers backfill). Mandatoriness
+  // on new rows is enforced at POST /users/create per D-07, not the schema (D-06).
+  // Idempotent via addColumnIfNotExists (probes SELECT, ALTER on throw).
+  // The Drizzle mirror lives at schema.ts users.avatarPath.
+  addColumnIfNotExists("users", "avatar_path", "TEXT");
+
+  // Phase 85 Plan 01 — persist the new users.avatar_path column to the
+  // encrypted SQLite file. The addColumnIfNotExists above executes against
+  // RAM SQLite; without an explicit forceSave the new schema lives only in
+  // memory until an unrelated write fires the debounced save trigger. A
+  // restart before that first unrelated write loses the schema and re-runs
+  // the DDL on next boot. Wrapped in try/catch with a non-fatal warn:
+  // addColumnIfNotExists is idempotent, so a save failure retries on next boot.
+  try {
+    await DatabaseSaveTrigger.forceSave("phase-85-user-avatar-schema");
+  } catch (saveError) {
+    databaseLogger.warn(
+      "[phase-85] forceSave failed post-schema (non-fatal — addColumnIfNotExists is idempotent, next boot retries)",
+      {
+        operation: "schema_migration_force_save_post_add",
+        reason: "phase-85-user-avatar-schema",
+        error: saveError,
+      },
+    );
+  }
+
   // Phase 79 Plan 01 — persist the new telegram_bot_tokens table to the
   // encrypted SQLite file. Same reason as phase-75: the CREATE TABLE
   // executes against RAM SQLite, and without an explicit forceSave the new
