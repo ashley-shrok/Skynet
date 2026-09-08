@@ -1435,6 +1435,50 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // M2: old-filename is the value AT UPDATE time (atomic SELECT+UPDATE tx)
+  // ---------------------------------------------------------------------------
+  it("PUT /:id/avatar — M2: old filename unlinked is the atomic tx-read value, not a stale pre-read", async () => {
+    // Set up Alice with old avatar "alice-id.png"
+    authControl.userId = "alice-id";
+    // New upload produces "alice-id.jpg"
+    mockWriteUserAvatar.mockResolvedValueOnce("alice-id.jpg");
+
+    // Patch db.$client.transaction to spy that it is called (proving the
+    // SELECT+UPDATE runs in a single tx, not two separate calls).
+    const realTransaction = sqliteDb.transaction.bind(sqliteDb);
+    let transactionCalled = false;
+    sqliteDb.transaction = (fn: (...args: unknown[]) => unknown) => {
+      transactionCalled = true;
+      return realTransaction(fn);
+    };
+
+    try {
+      const res = await putMultipartWithAuth(changeServer, {
+        path: "/users/alice-id/avatar",
+        file: { fieldName: "avatar", filename: "avatar.jpg", contentType: "image/jpeg", bytes: MINIMAL_PNG_BYTES },
+        jwt: "valid-jwt",
+      });
+
+      expect(res.status).toBe(200);
+
+      // The atomic transaction must have been used
+      expect(transactionCalled).toBe(true);
+
+      // Old filename (alice-id.png) must have been unlinked
+      expect(mockUnlinkUserAvatar).toHaveBeenCalledWith("alice-id.png");
+
+      // Row updated to new filename
+      const row = sqliteDb.prepare("SELECT avatar_path FROM users WHERE id = ?").get("alice-id") as
+        | { avatar_path: string | null }
+        | undefined;
+      expect(row?.avatar_path).toBe("alice-id.jpg");
+    } finally {
+      // Restore transaction
+      sqliteDb.transaction = realTransaction;
+    }
+  });
+
+  // ---------------------------------------------------------------------------
   // Test 10: Save trigger label verified
   // ---------------------------------------------------------------------------
   it("PUT /:id/avatar — happy path invokes forceSave with 'phase-85-user-avatar-change'", async () => {

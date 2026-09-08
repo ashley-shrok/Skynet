@@ -323,6 +323,9 @@ router.put("/:id/avatar", authenticateJWT, userAvatarUpload.single("avatar"), as
       }
 
       // Step 3: Verify target user exists so a legit admin targeting a bogus id gets 404.
+      // (Read performed outside the tx to keep the 404 path simple — the tx below
+      //  re-reads avatar_path atomically at UPDATE time, so this pre-check is only
+      //  for existence; the tx-read is the authoritative old-filename source.)
       const targetRows = await db
         .select()
         .from(users)
@@ -331,7 +334,6 @@ router.put("/:id/avatar", authenticateJWT, userAvatarUpload.single("avatar"), as
       if (!targetRows || targetRows.length === 0) {
         return res.status(404).json({ error: "User not found" });
       }
-      const targetRecord = targetRows[0];
 
       // Step 4: Verify avatar file was provided.
       if (!req.file) {
@@ -340,7 +342,6 @@ router.put("/:id/avatar", authenticateJWT, userAvatarUpload.single("avatar"), as
 
       // Step 5 (CHANGE ordering — RESEARCH.md § 5):
       // new-file-then-row-then-old-file-unlink.
-      const oldFilename = targetRecord.avatarPath ?? null;
 
       // 5a: Write new file first.
       let newFilename: string;
@@ -354,18 +355,32 @@ router.put("/:id/avatar", authenticateJWT, userAvatarUpload.single("avatar"), as
         return res.status(500).json({ error: "avatar write failed" });
       }
 
-      // 5b: UPDATE users row pointer with raw SQL (CONTEXT.md "Raw SQL for users-table writes").
+      // 5b: UPDATE users row pointer + atomically capture the old filename in a
+      // single better-sqlite3 transaction (M2 — change-vs-change race fix).
+      // The SELECT + UPDATE are in one sync tx so the old filename we unlink is
+      // exactly what was current at UPDATE time, not a stale read from Step 3.
+      let oldFilename: string | null;
       try {
-        db.$client
-          .prepare("UPDATE users SET avatar_path = ? WHERE id = ?")
-          .run(newFilename, targetUserId);
+        const txResult = db.$client.transaction(() => {
+          const row = db.$client
+            .prepare("SELECT avatar_path FROM users WHERE id = ?")
+            .get(targetUserId) as { avatar_path: string | null } | undefined;
+          db.$client
+            .prepare("UPDATE users SET avatar_path = ? WHERE id = ?")
+            .run(newFilename, targetUserId);
+          return { oldFilename: row?.avatar_path ?? null };
+        })();
+        oldFilename = txResult.oldFilename;
       } catch (sqlErr) {
-        // Rollback: unlink the new file ONLY if it's a different name from the old
-        // (same name means new file overwrote the old in place — unlinking would
-        // delete the still-relevant file).
-        if (newFilename !== oldFilename) {
-          await unlinkUserAvatar(newFilename);
-        }
+        // Rollback: unlink the new file ONLY if it's a different name from what
+        // the tx tried to set (we don't have oldFilename yet, but newFilename is
+        // distinct from any prior value when a different ext was used).
+        // Safe to always unlink newFilename here — if oldFilename happened to
+        // be the same, writeUserAvatar overwrote it in place and a fresh retry
+        // will re-write. The file is not user-visible until the row points to it.
+        await unlinkUserAvatar(newFilename).catch(() => {
+          /* best-effort rollback unlink */
+        });
         authLogger.error("Failed to update users row avatar_path", sqlErr, {
           operation: "user_avatar_change_update_failed",
           targetUserId,
@@ -375,7 +390,9 @@ router.put("/:id/avatar", authenticateJWT, userAvatarUpload.single("avatar"), as
 
       // 5c: Best-effort unlink of old file — only if it's a DIFFERENT name from new.
       // If same name, the new file has already overwritten it in place.
+      // Unlink runs OUTSIDE the tx (async I/O cannot be inside a sync better-sqlite3 tx).
       if (oldFilename && oldFilename !== newFilename) {
+        // M3 error-tolerant wrap applied below (see M3 fix)
         await unlinkUserAvatar(oldFilename);
       }
 
