@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { authLogger } from "../../utils/logger.js";
-import { db } from "../db/index.js";
+import { db, DatabaseSaveTrigger } from "../db/index.js";
 import { unlinkUserAvatar } from "./user-avatar-storage.js";
 import { deactivateUser } from "../../matrix/matrix-admin-client.js";
 import {
@@ -128,6 +128,20 @@ export async function deleteUserAndRelatedData(userId: string): Promise<void> {
     }
 
     await db.delete(users).where(eq(users.id, userId));
+
+    // Crown-jewel in-memory-SQLite invariant: every db.delete requires a
+    // matching forceSave or the write is lost across container restart. This
+    // helper does ~25 deletes across the user's related tables; before this
+    // fix the whole cascade was RAM-only until the next unrelated write
+    // triggered a save. Discovered via Phase 88's unbiased code review sweep.
+    try {
+      await DatabaseSaveTrigger.forceSave("phase-88-fixup-delete-user-and-related");
+    } catch (saveError) {
+      authLogger.error("Failed to persist user cascade delete to disk", saveError, {
+        operation: "delete_user_and_related_data_save_failed",
+        userId,
+      });
+    }
 
     authLogger.success("User and all related data deleted successfully", {
       operation: "delete_user_and_related_data_complete",
