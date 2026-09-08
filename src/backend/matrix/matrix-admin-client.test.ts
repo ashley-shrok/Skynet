@@ -40,6 +40,7 @@ import {
   buildRelayJsonBody,
   countUsersMatching,
   getSharedDMRoom,
+  deactivateUser,
 } from "./matrix-admin-client.js";
 import { getMatrixAdminCreds } from "./matrix-admin-creds-store.js";
 
@@ -686,5 +687,83 @@ describe("getSharedDMRoom", () => {
     const roomUrl = fetchMock.mock.calls[2][0] as string;
     expect(roomUrl).toContain(encodeURIComponent("!weird/room:server"));
     expect(roomUrl).not.toContain("!weird/room:server");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deactivateUser (Phase 88-02)
+// ---------------------------------------------------------------------------
+
+describe("deactivateUser", () => {
+  it("happy path 200 returns {ok:true}", async () => {
+    stubFetchOk(200, {});
+    const result = await deactivateUser("@bob:thenasty.taild9b663.ts.net");
+    expect(result.ok).toBe(true);
+  });
+
+  it("non-2xx 403 propagates status, upstream body NOT leaked", async () => {
+    stubFetchOk(403, { errcode: "M_FORBIDDEN", error: "Cannot deactivate" });
+    const result = await deactivateUser("@bob:thenasty.taild9b663.ts.net");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(403);
+      expect(result.error).toBe("admin_api_non_2xx");
+    }
+    // Explicit non-leak assertion: upstream body must NOT surface in the result.
+    expect(JSON.stringify(result)).not.toContain("M_FORBIDDEN");
+    expect(JSON.stringify(result)).not.toContain("Cannot deactivate");
+  });
+
+  it("AbortError (timeout) → {ok:false, status:504, error:'admin_api_timeout'}", async () => {
+    stubFetchAbort();
+    const result = await deactivateUser("@bob:host");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(504);
+      expect(result.error).toBe("admin_api_timeout");
+    }
+  });
+
+  it("network error → {ok:false, status:502, error:'admin_api_proxy_error'}", async () => {
+    stubFetchNetworkError();
+    const result = await deactivateUser("@bob:host");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(502);
+      expect(result.error).toBe("admin_api_proxy_error");
+    }
+  });
+
+  it("no creds available → {ok:false, status:500, error:'matrix_admin_creds_missing'}, fetch never called", async () => {
+    vi.mocked(getMatrixAdminCreds).mockResolvedValueOnce(null);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await deactivateUser("@bob:host");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(500);
+      expect(result.error).toBe("matrix_admin_creds_missing");
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("mxid is encodeURIComponent'd in URL (T-88-05 path-traversal defense)", async () => {
+    const fetchMock = vi.fn(async () => mockFetchResponse(200, {}));
+    vi.stubGlobal("fetch", fetchMock);
+    await deactivateUser("@bob:host with space");
+    const calledUrl = fetchMock.mock.calls[0][0] as string;
+    // '@' → %40, ':' → %3A, ' ' → %20
+    expect(calledUrl).toContain("%40bob%3Ahost%20with%20space");
+    expect(calledUrl).toContain("/_synapse/admin/v1/deactivate/");
+  });
+
+  it("request body contains {erase:false} (Assumption A3 — defensive default)", async () => {
+    const fetchMock = vi.fn(async () => mockFetchResponse(200, {}));
+    vi.stubGlobal("fetch", fetchMock);
+    await deactivateUser("@bob:host");
+    const requestInit = fetchMock.mock.calls[0][1] as RequestInit;
+    const parsedBody = JSON.parse(requestInit.body as string);
+    expect(parsedBody.erase).toBe(false);
+    expect(requestInit.method).toBe("POST");
   });
 });
