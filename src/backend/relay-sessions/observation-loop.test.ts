@@ -503,7 +503,7 @@ describe("createObservationLoop", () => {
       }),
     });
 
-    const loop = createObservationLoop(deps);
+    const loop = createObservationLoop(deps, { jitter: false });
     loop.start([
       { userId: USER_A, userMxid: USER_A_MXID },
       { userId: USER_B, userMxid: USER_B_MXID },
@@ -518,6 +518,95 @@ describe("createObservationLoop", () => {
     // Advance another 10s+ — user B should have run again on its 10s cadence.
     await vi.advanceTimersByTimeAsync(11_000);
     expect(perUserCalls[USER_B]).toBeGreaterThanOrEqual(2);
+
+    loop.stop();
+    vi.useRealTimers();
+  });
+
+  it("Test M-2 [fixup]: boot-time jitter spreads users across [0, TICK_INTERVAL_MS) — with deterministic rng, expect distinct initial delays", async () => {
+    // Regression guard for M-2 thundering-herd. Without boot jitter, all
+    // users' first ticks fire on the very first scan pass. With jitter,
+    // users are spread across [0, TICK_INTERVAL_MS). We inject a
+    // deterministic rng that returns increasing fractions of 1 for each
+    // call, so first user gets ~0ms initial delay, second ~5s, etc.
+    vi.useFakeTimers();
+
+    const rngValues = [0.0, 0.5, 0.9]; // 3 users → 0ms, 5000ms, 9000ms
+    let rngIdx = 0;
+    const rng = () => rngValues[rngIdx++];
+    const perUserCalls: Record<string, number> = {};
+    const deps = makeDeps({
+      getUserJoinedRooms: vi.fn(async (mxid: string) => {
+        perUserCalls[mxid] = (perUserCalls[mxid] ?? 0) + 1;
+        return { ok: true as const, roomIds: [] };
+      }),
+    });
+
+    const loop = createObservationLoop(deps, { jitter: true, rng });
+    loop.start([
+      { userId: "u1", userMxid: "@u1:s" },
+      { userId: "u2", userMxid: "@u2:s" },
+      { userId: "u3", userMxid: "@u3:s" },
+    ]);
+
+    // At 1s (just past first scan tick), only user 1 (0ms delay) should
+    // have fired. u2 (5s delay) and u3 (9s delay) are still waiting on
+    // their boot-time initial delays.
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(perUserCalls["@u1:s"]).toBeGreaterThanOrEqual(1);
+    expect(perUserCalls["@u2:s"] ?? 0).toBe(0);
+    expect(perUserCalls["@u3:s"] ?? 0).toBe(0);
+
+    // At 6s, user 2 (5000ms delay) should have fired at least once.
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(perUserCalls["@u2:s"]).toBeGreaterThanOrEqual(1);
+    // user 3 still waiting on its 9000ms initial delay.
+    expect(perUserCalls["@u3:s"] ?? 0).toBe(0);
+
+    // At 10s, user 3 (9000ms delay) should have fired.
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(perUserCalls["@u3:s"]).toBeGreaterThanOrEqual(1);
+
+    loop.stop();
+    vi.useRealTimers();
+  });
+
+  it("Test M-2b [fixup]: per-tick success jitter is applied within ±20% of TICK_INTERVAL_MS", async () => {
+    // With rng returning 0.0, jitterMultiplier = 0.9 → 9000ms.
+    // With rng returning 1.0 (approaches), jitterMultiplier ~= 1.1 → ~11000ms.
+    // Test both endpoints of the [0.9, 1.1) range.
+    vi.useFakeTimers();
+
+    // rng: first call is for the boot spread (return 0 → initial delay 0),
+    // subsequent calls are for per-tick jitter multiplier.
+    const rngSequence = [0.0, 0.0, 0.99]; // boot=0ms, tick1=0.9x=9000ms, tick2=~1.098x
+    let idx = 0;
+    const rng = () => rngSequence[idx++] ?? 0;
+
+    let callCount = 0;
+    const callTimestamps: number[] = [];
+    const deps = makeDeps({
+      getUserJoinedRooms: vi.fn(async () => {
+        callCount++;
+        callTimestamps.push(Date.now());
+        return { ok: true as const, roomIds: [] };
+      }),
+    });
+
+    const loop = createObservationLoop(deps, { jitter: true, rng });
+    loop.start([{ userId: "u1", userMxid: "@u1:s" }]);
+
+    // Advance well past 3 ticks — with the jitter, ticks 2 and 3 fire at
+    // ~9s and then ~9s+~11s = ~20s after tick 1.
+    await vi.advanceTimersByTimeAsync(25_000);
+    expect(callCount).toBeGreaterThanOrEqual(2);
+    // Gap between tick 1 and tick 2 should be in [8000, 11000] (jitter
+    // window with some fake-timer scheduler slop).
+    if (callTimestamps.length >= 2) {
+      const gap = callTimestamps[1] - callTimestamps[0];
+      expect(gap).toBeGreaterThanOrEqual(8000);
+      expect(gap).toBeLessThanOrEqual(12000);
+    }
 
     loop.stop();
     vi.useRealTimers();
@@ -541,7 +630,7 @@ describe("createObservationLoop", () => {
       }),
     });
 
-    const loop = createObservationLoop(deps);
+    const loop = createObservationLoop(deps, { jitter: false });
     loop.start([{ userId: USER_A, userMxid: USER_A_MXID }]);
 
     // Advance 25s while the first tick is still in flight — the scheduler

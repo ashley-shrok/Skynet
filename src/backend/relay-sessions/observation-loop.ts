@@ -495,6 +495,25 @@ export interface ObservationLoopScheduler {
 }
 
 /**
+ * Fixup M-2 (2026-09-08). Options for createObservationLoop scheduler.
+ *
+ * Jitter defense: without jitter, N users boot in lock-step, then all fire
+ * their first tick simultaneously on the same 10s beat forever — every
+ * subsequent scheduleNext(ok=true) sets nextRunAt = now + 10_000 for all
+ * users at once. On a fleet with N users this thunders N admin API calls
+ * against Synapse every 10s. Random ±20% on success and initial [0,
+ * TICK_INTERVAL_MS) spread on boot break the synchronization.
+ *
+ * `rng` is exposed for deterministic tests. Default is Math.random.
+ * `jitter: false` disables both boot-spread and per-tick jitter (useful
+ * for tests that assert on exact timings).
+ */
+export interface ObservationLoopOptions {
+  jitter?: boolean;
+  rng?: () => number;
+}
+
+/**
  * Build a scheduler that runs runObservationTick per-user on a ~10s cadence
  * with D-06 backoff ladder + per-user in-flight guard. `start(users)` seeds
  * the state and kicks off a global scan interval that dispatches ticks;
@@ -506,9 +525,12 @@ export interface ObservationLoopScheduler {
  */
 export function createObservationLoop(
   deps: ObservationTickDeps,
+  options: ObservationLoopOptions = {},
 ): ObservationLoopScheduler {
   const perUserState = new Map<string, PerUserState>();
   let scanTimer: ReturnType<typeof setInterval> | null = null;
+  const jitterEnabled = options.jitter !== false;
+  const rng = options.rng ?? Math.random;
 
   function scheduleNext(userId: string, ok: boolean): void {
     const state = perUserState.get(userId);
@@ -526,7 +548,14 @@ export function createObservationLoop(
         );
       }
       state.backoffIndex = 0;
-      state.nextRunAt = Date.now() + OBSERVATION_TICK_INTERVAL_MS;
+      // Fixup M-2 (2026-09-08). Thundering-herd defense: ±20% jitter on
+      // per-tick success interval. Without this, N users lock-step-fire
+      // every 10s forever after boot, hammering Synapse on the same beat.
+      // Skipped when jitter is disabled (tests) or backoff-driven paths
+      // (backoff intervals are pre-shaped and desync naturally).
+      const jitterMultiplier = jitterEnabled ? 0.9 + rng() * 0.2 : 1.0;
+      state.nextRunAt =
+        Date.now() + Math.floor(OBSERVATION_TICK_INTERVAL_MS * jitterMultiplier);
     } else {
       // Failure: advance backoff (clamped at ladder max index).
       const previousIndex = state.backoffIndex;
@@ -602,10 +631,18 @@ export function createObservationLoop(
     perUserState.clear();
     const now = Date.now();
     for (const { userId, userMxid } of users) {
+      // Fixup M-2 (2026-09-08). Thundering-herd defense: spread each user's
+      // FIRST tick uniformly across [now, now + TICK_INTERVAL_MS). Without
+      // this, `nextRunAt: now` fires every user on the first scan pass,
+      // meaning N parallel admin-API calls to Synapse at boot for a fleet
+      // of N users. Skipped when jitter is disabled (tests want
+      // deterministic firing on the first scan tick).
+      const initialDelayMs = jitterEnabled
+        ? Math.floor(rng() * OBSERVATION_TICK_INTERVAL_MS)
+        : 0;
       perUserState.set(userId, {
         userMxid,
-        // Fire immediately on the first scan (no initial delay).
-        nextRunAt: now,
+        nextRunAt: now + initialDelayMs,
         backoffIndex: 0,
         inFlight: false,
       });
