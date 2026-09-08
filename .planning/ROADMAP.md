@@ -2096,3 +2096,13 @@ Plans:
 - [x] 88-01-PLAN.md — Wave 1: plumb `isAdmin?: boolean` prop (fail-closed default `false`) from PrettyConversationsPanel into NewSessionDialog; extend identity-birth.ts parsedPath narrow to substitute `~/<name>/` when body.path is empty/absent (foundation for Wave 2's UI admin-gates + non-admin submit path)
 - [x] 88-02-PLAN.md — Wave 2 (depends 88-01): revise CreateRoleDialog blurb to the new two-sentence form; land all NewSessionDialog UI edits (agent blurb, Path admin-gate, checkbox admin-gate + label flip, local state var rename `identityMode` → `shellOnly` + default flip, submit-onclick `isAdmin && shellOnly` invariant, handleBirth path-clear for non-admin)
 - [x] 88-03-PLAN.md — Wave 3 (depends 88-01, 88-02): restore green + lock new coverage across five test files (CreateRoleDialog.test.tsx blurb regex + 4 NewSessionDialog test files' renderDialog helpers, label regex sites, semantic-inversion, three new admin-gate/backend-substitution tests)
+
+### Phase 89: Identity modal — drop History+Handoff tabs, add Runbooks tab + editor modal
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 88
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 89 to break down)
