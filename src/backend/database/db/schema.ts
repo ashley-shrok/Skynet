@@ -846,3 +846,47 @@ export const identitySendLog = sqliteTable("identity_send_log", {
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
 });
+
+// Phase 89 Plan 01 (D-01, D-02) — relay_room_sessions: the stored side of
+// Skynet's new second session-kind. Rows anchored to (user_id, room_id);
+// the CREATE UNIQUE INDEX on (user_id, room_id) in db/index.ts is the
+// coordinator between the observation loop and slice C's create-room flow
+// (D-14 — schema is the coordinator, no cross-path logic). Reactivation on
+// re-invite flips state='inactive' → 'active' on the SAME row (D-03), so
+// the uniqueness constraint is UNSCOPED — do NOT add a partial-index
+// predicate. The store module owns the state values (SQLite has no enum):
+// `active` | `inactive`. See relay-room-sessions-store.ts. Writes must be
+// paired with DatabaseSaveTrigger.forceSave("phase-89-...") per the
+// crown-jewel in-memory-DB invariant.
+export const relayRoomSessions = sqliteTable("relay_room_sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  roomId: text("room_id").notNull(),
+  roomTitle: text("room_title"),
+  state: text("state").notNull(),
+  lastActivityAt: text("last_activity_at"),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});
+
+// Phase 89 Plan 01 (D-16) — admin_rooms: Skynet-instance-owned internal
+// ignore-list of room IDs the observation loop must skip when
+// materializing (registry rooms + any future admin-purposes-only rooms).
+// Populated at the moment Skynet creates each registry room (D-10).
+// Small dedicated table rather than a JSON-in-settings row — easier to
+// inspect for ops debugging, negligible overhead for the ~2 rows
+// expected. No FK — room IDs are freestanding Matrix identifiers. See
+// admin-rooms-ignore-list.ts for the store module. Writes must be paired
+// with DatabaseSaveTrigger.forceSave("phase-89-...").
+export const adminRooms = sqliteTable("admin_rooms", {
+  roomId: text("room_id").primaryKey(),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});

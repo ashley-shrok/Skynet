@@ -569,6 +569,71 @@ async function initializeCompleteDatabase(): Promise<void> {
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Phase 89 Plan 01 (D-01, D-02) — relay_room_sessions: the stored side
+    -- of Skynet's new second session-kind. Rows are anchored to a
+    -- (user_id, room_id) pair; UNIQUE on that composite (see the CREATE
+    -- UNIQUE INDEX below) makes the observation loop + slice C's
+    -- create-room flow both idempotent without cross-path coordination
+    -- (schema IS the coordinator per D-14).
+    --
+    -- state = 'active' | 'inactive'; the store module owns those values
+    -- (SQLite has no enum). External-kick handling flips state → 'inactive'
+    -- and preserves the row (D-03) so re-invite reactivates the same row
+    -- rather than needing a new one — hence the unscoped uniqueness index.
+    --
+    -- FK matches the sessions / trusted_devices pattern above (ON DELETE
+    -- CASCADE — a user deletion sweeps their relay-room rows). Reads
+    -- filter on state='active' in the store module. Persisted via a
+    -- labeled forceSave in the migration block below (belt-and-suspenders
+    -- same as sessions / trusted_devices — the incremental probe adds a
+    -- second CREATE TABLE IF NOT EXISTS in the migration block).
+    --
+    -- Drizzle mirror at schema.ts relayRoomSessions.
+    CREATE TABLE IF NOT EXISTS relay_room_sessions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        room_id TEXT NOT NULL,
+        room_title TEXT,
+        state TEXT NOT NULL,
+        last_activity_at TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    );
+
+    -- Phase 89 Plan 01 (D-02, D-14) — UNSCOPED uniqueness on the composite.
+    -- Do NOT add a partial-index WHERE state = 'active' predicate here:
+    -- re-invite reactivation (D-03) must flip the same row rather than
+    -- allow a new-row insert while the old row still exists. If this
+    -- ever regresses to a scoped WHERE clause, the reactivation path
+    -- (see relay-room-sessions-store.ts::reactivateRelayRoomSession)
+    -- silently starts creating duplicate rows on external-kick then re-invite.
+    CREATE UNIQUE INDEX IF NOT EXISTS relay_room_sessions_user_room_uidx
+        ON relay_room_sessions(user_id, room_id);
+
+    -- Phase 89 Plan 01 (D-16) — admin_rooms: Skynet-instance-owned internal
+    -- ignore-list. Populated when Skynet creates each registry room (D-10)
+    -- with the room ID Skynet knows at creation time. The observation loop
+    -- consults this list to skip materializing rooms that would otherwise
+    -- trip the D-08 multi-member materialize rule for every user (registry
+    -- rooms have many members and would produce noisy sidebar entries).
+    --
+    -- Shape choice (D-16 planner discretion) — dedicated small table rather
+    -- than a JSON array in settings: easier to inspect via SQL for ops
+    -- debugging, negligible storage overhead for the ~2 rows expected
+    -- (agents-registry + humans-registry), and the primitive extends
+    -- cleanly to any future admin-purposes-only room without a schema
+    -- migration.
+    --
+    -- No FK — room IDs are freestanding Matrix identifiers, not local rows.
+    -- Persisted via a labeled forceSave in the migration block below.
+    --
+    -- Drizzle mirror at schema.ts adminRooms.
+    CREATE TABLE IF NOT EXISTS admin_rooms (
+        room_id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
 `);
 
   try {
@@ -1356,6 +1421,86 @@ const migrateSchema = async () => {
         error: createError,
       });
     }
+  }
+
+  // Phase 89 Plan 01 (D-01, D-02, D-16) — belt-and-suspenders migration
+  // probes for relay_room_sessions + admin_rooms. The top-of-init CREATE
+  // TABLE IF NOT EXISTS blocks above cover fresh installs; these probes
+  // cover the upgrade-from-old-schema path (sessions / trusted_devices
+  // precedent). Both DDLs are idempotent (IF NOT EXISTS + IF NOT EXISTS
+  // on the unique index) so re-execing on an already-migrated DB is a
+  // no-op. The labeled forceSave below persists the migration to the
+  // encrypted disk file so a restart before the next unrelated write
+  // does not silently re-run the DDL forever.
+  try {
+    sqlite.prepare("SELECT id FROM relay_room_sessions LIMIT 1").get();
+  } catch {
+    try {
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS relay_room_sessions (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          room_id TEXT NOT NULL,
+          room_title TEXT,
+          state TEXT NOT NULL,
+          last_activity_at TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS relay_room_sessions_user_room_uidx
+          ON relay_room_sessions(user_id, room_id);
+      `);
+    } catch (createError) {
+      databaseLogger.warn("Failed to create relay_room_sessions table", {
+        operation: "schema_migration",
+        error: createError,
+      });
+    }
+  }
+
+  try {
+    sqlite.prepare("SELECT room_id FROM admin_rooms LIMIT 1").get();
+  } catch {
+    try {
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS admin_rooms (
+          room_id TEXT PRIMARY KEY,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+    } catch (createError) {
+      databaseLogger.warn("Failed to create admin_rooms table", {
+        operation: "schema_migration",
+        error: createError,
+      });
+    }
+  }
+
+  // Phase 89 Plan 01 — persist the new relay_room_sessions + admin_rooms
+  // schema to the encrypted SQLite file. Same reason as the phase-75
+  // matrix_admin_creds save at L920-933: both DDLs above execute against
+  // RAM SQLite; without an explicit forceSave the new schema lives only
+  // in memory until an unrelated write fires the debounced save trigger.
+  // A restart before that first unrelated write loses the schema and
+  // re-runs the DDL on next boot.
+  //
+  // Wrapped in try/catch with a non-fatal warn: DatabaseSaveTrigger may
+  // not yet be initialized on the first-ever boot (handlePostInitFileEncryption
+  // wires it AFTER migrateSchema returns). Both CREATE TABLE IF NOT EXISTS
+  // + CREATE UNIQUE INDEX IF NOT EXISTS blocks are idempotent, so a save
+  // failure retries on the next boot cycle.
+  try {
+    await DatabaseSaveTrigger.forceSave("phase-89-relay-sessions-schema-init");
+  } catch (saveError) {
+    databaseLogger.warn(
+      "[phase-89] forceSave failed post-schema (non-fatal — CREATE IF NOT EXISTS + UNIQUE INDEX IF NOT EXISTS are idempotent, next boot retries)",
+      {
+        operation: "schema_migration_force_save_post_create",
+        reason: "phase-89-relay-sessions-schema-init",
+        error: saveError,
+      },
+    );
   }
 
   try {
