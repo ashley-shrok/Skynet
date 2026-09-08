@@ -489,7 +489,7 @@ const serverName = extractServerName(adminCreds.homeserverBase);
 | A2 | `username-to-mxid.ts` naming is the right file location | Q5 / sanitizer location | Negligible — this is Claude's discretion per CONTEXT.md |
 | A3 | `deactivateUser` with empty body `{}` and `erase: false` (default) preserves historical room messages | deactivateUser primitive pattern | If wrong, room history is erased — use explicit `{ erase: false }` in body as defensive measure |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should `extractServerName` be re-exported from identity-birth-orchestrator.ts or duplicated?**
    - What we know: Currently private/unexported in a large file.
