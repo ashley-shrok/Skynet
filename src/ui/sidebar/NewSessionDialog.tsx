@@ -24,11 +24,37 @@
 // + required pick. Brief EPHEMERAL — never persisted anywhere.
 //
 // Phase 20 Plan 06: SSE birth stream consumer (IDUI-06, IDUI-07, IDUI-08).
-// When Create fires with identityMode=true, opens an SSE stream against
-// POST /identities/birth, renders the 5-step BirthProgress checklist,
-// shows per-step failure blurbs on failure, closes on success + fires
-// focus-follow via AppShell's existing openTab flow.
-// NO cancel/retry/rollback affordances per D-CONTEXT non-negotiables.
+// When Create fires in agent mode (i.e. !shellOnly — see Phase 88 rename
+// below), opens an SSE stream against POST /identities/birth, renders the
+// 5-step BirthProgress checklist, shows per-step failure blurbs on
+// failure, closes on success + fires focus-follow via AppShell's existing
+// openTab flow. NO cancel/retry/rollback affordances per D-CONTEXT
+// non-negotiables.
+//
+// ─── Phase 88 (create-agent-modal-ux-pass, Plan 88-02) ─────────────────
+// Six coordinated edits on this file (paired with sibling role blurb
+// revision in CreateRoleDialog.tsx same commit surface):
+//   A. Agent blurb: startDescription defaultValue byte-exact revision to
+//      the LOCKED text at 88-CONTEXT.md §Verbatim copy.
+//   B. Path field admin-gated — non-admin never renders the field. Wire
+//      complement is Edit F.
+//   C. Identity-mode checkbox admin-gated + label flipped from the
+//      pre-Phase-88 wording to the Phase-88 LOCKED wording at
+//      88-CONTEXT.md §Verbatim label (U+2014 em-dash).
+//   D. LOCAL state variable rename `identityMode` → `shellOnly` with
+//      default flip `true` → `false` and boolean-invert at every LOCAL
+//      read-site. The PUBLIC callback-payload discriminant `identityMode`
+//      in NewSessionOnCreateOpts + at the two onCreate call sites is
+//      UNCHANGED — it is a wire contract consumed by AppShell.tsx
+//      narrowing on `identityMode: true | false | "existing"`.
+//   E. Submit-onclick invariant: regular-session (raw shell) branch is
+//      gated on `isAdmin && shellOnly` (defense-in-depth so a bug in the
+//      render gate cannot leak shell access to non-admin).
+//   F. handleBirth openBirthStream sends `path: isAdmin ? normalizedPath
+//      : ""` — non-admin's empty-string triggers Plan 88-01's backend
+//      narrow at identity-birth.ts:206 which substitutes `~/<name>/`.
+// Depends on Plan 88-01's `isAdmin` prop (already destructured with
+// fail-closed `= false` default).
 //
 // Zero new npm deps. Reuses the fork's Dialog wrapper (@/components/dialog),
 // Button (@/components/button), Input (@/components/input), Plus/Search icons
@@ -347,9 +373,19 @@ export function NewSessionDialog({
   // "~foo" (which POSIX reads as "home of user foo" and is almost never what's meant).
   const [path, setPath] = useState("~/");
 
-  // Identity-mode checkbox (defaults ON per IDUI-01).
-  // When on, reveals the identity-birth field cluster.
-  const [identityMode, setIdentityMode] = useState(true);
+  // Phase 88 (88-CONTEXT.md §Identity-mode checkbox admin-gate + inversion):
+  // local state variable renamed from `identityMode` to `shellOnly` to
+  // resolve the semantic-drift trap (shape §What would make it wrong item
+  // #5). The checkbox is now labeled per 88-CONTEXT.md §Verbatim label
+  // (admin-only, gated in Edit C) and defaults UNCHECKED. Semantic invariant:
+  //   shellOnly === true  → checkbox CHECKED → user opting into raw shell
+  //   shellOnly === false → checkbox UNCHECKED → agent mode (new default)
+  // The PUBLIC callback-payload discriminant `identityMode` in
+  // NewSessionOnCreateOpts (see type above) and at the two onCreate call
+  // sites (handleBirth success + regular-session submit) is UNCHANGED — it
+  // is a wire contract consumed by AppShell.tsx narrowing on
+  // `identityMode: true | false | "existing"` (PATTERNS.md §2e).
+  const [shellOnly, setShellOnly] = useState(false);
 
   // Identity birth fields — Phase 86 Plan 86-04 (D-CTX-86-surface-4):
   // cosmetic authoring (title, brief, voice, colorHue, avatar) removed from
@@ -426,9 +462,10 @@ export function NewSessionDialog({
   // On open: seed from chain pre-fill props if provided, else auto-select the
   // sole host when the tree has exactly one (existing Test 9 behavior).
   // Phase 22 SRIC-05: `initialHost` takes precedence over auto-select. When
-  // both `initialHost` and `initialRole` are provided AND identity-mode is
-  // ON (default), `selectedRole` is also seeded. The roles-for-host effect
-  // (keyed on [selectedHost, identityMode]) will fire on the next render as
+  // both `initialHost` and `initialRole` are provided AND agent mode is ON
+  // (default in Phase 88: `shellOnly === false`), `selectedRole` is also
+  // seeded. The roles-for-host effect (keyed on [selectedHost, shellOnly])
+  // will fire on the next render as
   // a consequence of setSelectedHost — but that effect clears selectedRole
   // on host change. To make the pre-fill stick we set BOTH here and rely on
   // a separate validation effect (below) to clear selectedRole later if the
@@ -438,11 +475,12 @@ export function NewSessionDialog({
     if (open) {
       if (initialHost) {
         setSelectedHost(initialHost);
-        // Seed the role too, but only when identity-mode is on (the dropdown
-        // only exists in identity-mode). identityMode default is true; when
-        // the caller opens the dialog with identityMode still at its default,
-        // this branch fires with identityMode=true.
-        if (initialRole && identityMode) {
+        // Seed the role too, but only when agent mode is on (the role
+        // dropdown only exists in agent mode). Post-Phase-88 rename +
+        // default flip: `shellOnly` defaults to false (agent mode is the
+        // default), so this branch fires on a fresh open where the caller
+        // hasn't toggled the admin-only "Just a shell" checkbox.
+        if (initialRole && !shellOnly) {
           setSelectedRole(initialRole);
         }
       } else if (flatHosts.length === 1) {
@@ -459,7 +497,7 @@ export function NewSessionDialog({
       setSessionName("");
       setSearch("");
       setPath("~/");
-      setIdentityMode(true);
+      setShellOnly(false);
       setName("");
       // Phase 80 Plan 80-06: reset task-input + pool-pick tracking on close.
       setTask("");
@@ -499,18 +537,19 @@ export function NewSessionDialog({
   }, []);
 
   // Phase 22 SRIC-02: Role dropdown effect — fires whenever the selected host
-  // OR identity-mode changes. Populates rolesForHost via GET /roles?hostId=<n>.
+  // OR agent-mode gate changes. Populates rolesForHost via GET /roles?hostId=<n>.
   // Clears selectedRole on every host change (force re-pick — a role scoped to
   // host A is not necessarily valid on host B).
   //
-  // Effect DOES NOT fire when identity-mode is OFF (Role is CREATE-only per
-  // D-CONTEXT §UX rules). When identity-mode toggles OFF or the host clears,
-  // we reset rolesForHost + selectedRole to defaults so a subsequent toggle
-  // ON starts fresh.
+  // Effect DOES NOT fire when shell-only mode is on (Role is CREATE-only per
+  // D-CONTEXT §UX rules; the role dropdown is agent-mode-only). When
+  // shell-only toggles ON or the host clears, we reset rolesForHost +
+  // selectedRole to defaults so a subsequent toggle back to agent mode
+  // starts fresh.
   useEffect(() => {
-    if (!selectedHost || !identityMode) {
+    if (!selectedHost || shellOnly) {
       // Only clear selectedRole when we actually had a prior host (i.e.,
-      // host was cleared or identity-mode toggled OFF). On the very first
+      // host was cleared or shell-only toggled ON). On the very first
       // mount when selectedHost is still null-by-initial-state, DO NOT clear
       // selectedRole — the on-open useEffect above may have just seeded it
       // via initialRole and the state update simply hasn't landed yet
@@ -552,7 +591,7 @@ export function NewSessionDialog({
     return () => {
       cancelled = true;
     };
-  }, [selectedHost, identityMode]);
+  }, [selectedHost, shellOnly]);
 
   // Phase 22 SRIC-05 Test 6: stale-role guard. After the roles-for-host fetch
   // resolves, if selectedRole was seeded from initialRole (chain pre-fill) but
@@ -569,17 +608,18 @@ export function NewSessionDialog({
   }, [rolesForHost, rolesLoading, selectedRole]);
 
   // Phase 80 Plan 80-06 Task 2: auto-prefill Name via pickPoolName on role
-  // change. Fires whenever selectedRole, selectedHost, or identityMode changes
-  // and only when all three are present. Backend picks an unused pool name
-  // for the (role, host) pair; frontend prefills the Name input ONLY if the
-  // user hasn't typed anything yet (name === "") — pool is a suggestion
-  // source, not a restriction (D-01). Records the returned value in
-  // `poolPickedName` so the birth-submit path can decide whether to send
-  // `poolPicked: true` (A1 MXID lock). Silent on failure — user simply types
-  // a name manually. cancelled-flag pattern guards against stale responses
-  // when role/host changes mid-flight (T-80-06-04 threat mitigation).
+  // change. Fires whenever selectedRole, selectedHost, or shellOnly changes
+  // and only when all three of (selectedHost, selectedRole, agent-mode) hold.
+  // Backend picks an unused pool name for the (role, host) pair; frontend
+  // prefills the Name input ONLY if the user hasn't typed anything yet
+  // (name === "") — pool is a suggestion source, not a restriction (D-01).
+  // Records the returned value in `poolPickedName` so the birth-submit path
+  // can decide whether to send `poolPicked: true` (A1 MXID lock). Silent on
+  // failure — user simply types a name manually. cancelled-flag pattern
+  // guards against stale responses when role/host changes mid-flight
+  // (T-80-06-04 threat mitigation).
   useEffect(() => {
-    if (!identityMode || !selectedRole || !selectedHost) return;
+    if (shellOnly || !selectedRole || !selectedHost) return;
     const hostIdNum = parseInt(String(selectedHost.id), 10);
     if (!Number.isFinite(hostIdNum)) return;
     let cancelled = false;
@@ -604,7 +644,7 @@ export function NewSessionDialog({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRole, selectedHost, identityMode]);
+  }, [selectedRole, selectedHost, shellOnly]);
 
   // Collision precheck: fired on name blur (debounced 300ms).
   // Fires both listIdentities + getIdentityExistsOnHost in parallel.
@@ -668,7 +708,17 @@ export function NewSessionDialog({
         {
           hostId: hostIdNum,
           name: name.toLowerCase(),
-          path: normalizedPath,
+          // Phase 88 (path-clear for non-admin): non-admin submissions send
+          // empty-string `path` so Plan 88-01's backend narrow at
+          // identity-birth.ts:206 substitutes `~/<name>/` server-side —
+          // non-admin agents each get their own working directory named
+          // after themselves per shape §Philosophy. Admin submits send the
+          // normalized field value (default "~/" from useState above, or
+          // any override the admin typed into the admin-only Path input).
+          // Note: normalizePath("") → "~", which would DEFEAT the backend
+          // substitution — so we bypass normalizePath for the non-admin
+          // branch by sending the literal empty string on the wire.
+          path: isAdmin ? normalizedPath : "",
           // Phase 86 Plan 86-04 (D-CTX-86-inherit): title / colorHue / voice /
           // avatarCandidateId are OMITTED from the birth request. The backend
           // (identity-birth.ts + identity-birth-orchestrator.ts) accepts the
@@ -735,7 +785,9 @@ export function NewSessionDialog({
 
         // Success: call onCreate for focus-follow, then close modal
         // Phase 86 Plan 86-04: cosmetic fields removed from the callback
-        // shape (see NewSessionOnCreateOpts identityMode:true variant).
+        // shape (see NewSessionOnCreateOpts identityMode:true variant —
+        // PUBLIC payload key unchanged from Phase 88; local `shellOnly`
+        // state variable is the renamed store).
         // Consumers at AppShell.tsx L2040 + PrettyConversationsPanel.tsx
         // L1945 never destructured these fields, so no downstream update
         // required.
@@ -765,16 +817,18 @@ export function NewSessionDialog({
   }
 
   // canOpen (Create button) computation:
-  // - identity-mode ON: require host + valid name + role + no collisions.
-  //   Phase 86 Plan 86-04 (D-CTX-86-surface-4): title / brief / avatar-picked
-  //   gates removed — cosmetics live at role level; new identities inherit.
-  // - identity-mode OFF: require host + valid session name (mirrors existing logic)
-  // During birthing: Create is disabled regardless
-  const nameValid = identityMode
+  // - Agent mode (!shellOnly, the Phase-88 new default): require host +
+  //   valid name + role + no collisions. Phase 86 Plan 86-04
+  //   (D-CTX-86-surface-4): title / brief / avatar-picked gates removed —
+  //   cosmetics live at role level; new identities inherit.
+  // - Shell-only mode (shellOnly, admin opt-in via Phase-88 checkbox):
+  //   require host + valid session name (mirrors pre-Phase-88 logic).
+  // During birthing: Create is disabled regardless.
+  const nameValid = !shellOnly
     ? name.length > 0 && IDENTITY_NAME_PATTERN.test(name)
     : SESSION_NAME_PATTERN.test(sessionName);
 
-  const canOpen = !birthing && (identityMode
+  const canOpen = !birthing && (!shellOnly
     ? selectedHost !== null &&
       nameValid &&
       !skynetCollision &&
@@ -804,8 +858,14 @@ export function NewSessionDialog({
   const startTitle = t("nav.newSessionTitle", {
     defaultValue: "New agent",
   });
+  // Phase 88 (paired-blurb revision): in-place defaultValue edit only,
+  // no new i18n key. Sibling role blurb ships in CreateRoleDialog.tsx
+  // DialogDescription in the same commit surface; the shared verb is
+  // ADOPT (role side: "agents ADOPT expertise"; agent side: "each one
+  // ADOPTS a role"). See 88-CONTEXT.md §Verbatim copy for LOCKED text.
   const startDescription = t("nav.newSessionDescription", {
-    defaultValue: "Pick a host and (optionally) name the agent.",
+    defaultValue:
+      "Agents are the workers you chat with. Each one adopts a role that shapes what they know and how they help.",
   });
   const searchPlaceholder = t("nav.newSessionSearchHosts", {
     defaultValue: "Search hosts",
@@ -920,8 +980,13 @@ export function NewSessionDialog({
             </>
           )}
 
-          {/* Regular session-name input — only visible when identity-mode is OFF */}
-          {!identityMode && (
+          {/* Regular session-name input — only visible when shell-only mode is
+              ON (admin explicitly checked the Phase-88 shell-only box; see
+              88-CONTEXT.md §Verbatim label for the LOCKED text).
+              Post-Phase-88 rename + default flip: `shellOnly` is the state
+              variable; agent mode is the default so this input is hidden by
+              default. */}
+          {shellOnly && (
             <div className="flex flex-col gap-1.5">
               <label
                 htmlFor="new-session-name"
@@ -949,51 +1014,80 @@ export function NewSessionDialog({
             </div>
           )}
 
-          {/* Path field — visible in BOTH modes, below host list + above identity-mode checkbox */}
-          <div className="flex flex-col gap-1.5">
-            <label
-              htmlFor="new-session-path"
-              className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
-            >
-              Path
-            </label>
-            <Input
-              id="new-session-path"
-              aria-label="Path"
-              value={path}
-              onChange={(e) => setPath(e.target.value)}
-              placeholder="~/"
-              disabled={formDisabled}
-            />
-          </div>
+          {/* Phase 88 (Path field admin-gate — 88-CONTEXT.md §Path field
+              admin-gate + 88-PATTERNS.md §2b): visible ONLY when isAdmin is
+              truthy; non-admin agents get a per-agent `~/<name>/` working
+              directory computed server-side by Plan 88-01's backend narrow
+              at identity-birth.ts:206 when body.path is empty. Mirrors the
+              in-repo canonical admin-gate idiom at
+              PrettyConversationsPanel.tsx:1651 ({isAdmin && <WeeklyUsageMeter />}).
+              Fail-closed: Plan 88-01's `isAdmin = false` destructure default
+              means callers that forget the prop get non-admin behavior
+              (field not rendered). Wire flow to backend substitution ships
+              in Edit F below (path cleared to empty-string on non-admin
+              submit at handleBirth). */}
+          {isAdmin && (
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor="new-session-path"
+                className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
+              >
+                Path
+              </label>
+              <Input
+                id="new-session-path"
+                aria-label="Path"
+                value={path}
+                onChange={(e) => setPath(e.target.value)}
+                placeholder="~/"
+                disabled={formDisabled}
+              />
+            </div>
+          )}
 
-          {/* Identity-mode checkbox — below the path field */}
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="new-session-identity-mode"
-              checked={identityMode}
-              onChange={(e) => !formDisabled && setIdentityMode(e.target.checked)}
-              disabled={formDisabled}
-              className="w-3.5 h-3.5 rounded disabled:opacity-50"
-            />
-            <label
-              htmlFor="new-session-identity-mode"
-              className="text-xs text-[color:var(--color-pv-fg)] cursor-pointer select-none"
-            >
-              Create with new identity
-            </label>
-          </div>
+          {/* Phase 88 (Identity-mode checkbox admin-gate + label flip —
+              88-CONTEXT.md §Identity-mode checkbox admin-gate + 88-PATTERNS.md
+              §2c): visible ONLY when isAdmin is truthy. Same admin-gate idiom
+              as the Path field above (mirrors PrettyConversationsPanel.tsx:1651).
+              Fail-closed via Plan 88-01's `isAdmin = false` destructure default.
+              Label text LOCKED byte-exact per 88-CONTEXT.md §Verbatim label
+              with Unicode U+2014 em-dash.
+              See Edit D below for the local state var rename
+              `identityMode` → `shellOnly` + default flip `true` → `false`.
+              The DOM anchor id intentionally stays (stable HTML anchor);
+              only the state variable renames. */}
+          {isAdmin && (
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="new-session-identity-mode"
+                checked={shellOnly}
+                onChange={(e) => !formDisabled && setShellOnly(e.target.checked)}
+                disabled={formDisabled}
+                className="w-3.5 h-3.5 rounded disabled:opacity-50"
+              />
+              <label
+                htmlFor="new-session-identity-mode"
+                className="text-xs text-[color:var(--color-pv-fg)] cursor-pointer select-none"
+              >
+                Just a shell — no agent
+              </label>
+            </div>
+          )}
 
-          {/* Identity-birth field cluster — visible when identity-mode is ON */}
-          {identityMode && (
+          {/* Identity-birth field cluster — visible when agent mode is ON
+              (i.e. `!shellOnly`, the default when the admin-only checkbox is
+              unchecked or when a non-admin caller never sees the checkbox at
+              all per Edit C's isAdmin gate). */}
+          {!shellOnly && (
             <div className="flex flex-col gap-3 pt-1 border-t border-[color:var(--color-pv-border-quiet)]">
 
               {/* Phase 80 Plan 80-06 Task 3 (RESEARCH §Landmine 2 fix,
-                  Approach A per A4 lock): when identityMode is ON but no host
-                  is picked yet, the role dropdown wrap below stays hidden
-                  (host-gated at L1022) — surface a visible affordance instead
-                  of leaving the user staring at an empty gap. Uses the same
+                  Approach A per A4 lock): when agent mode is ON (i.e.
+                  `!shellOnly`, the Phase-88 new default) but no host is
+                  picked yet, the role dropdown wrap below stays hidden
+                  (host-gated) — surface a visible affordance instead of
+                  leaving the user staring at an empty gap. Uses the same
                   muted-label CSS as other inline hints in this cluster. */}
               {selectedHost === null && (
                 <div className="text-xs italic text-[color:var(--color-pv-fg-muted)]">
@@ -1059,10 +1153,11 @@ export function NewSessionDialog({
 
               {/* Phase 80 Plan 80-06: task-description textarea.
                   Positioned ABOVE the Name input inside the identity cluster
-                  (gated on identityMode along with the whole cluster). Soft-
-                  cap 200 chars (D-Claude's Discretion — executor may retune
-                  when badge widths render in plan 80-07). Backend hard-caps
-                  500 chars (defense-in-depth per plan 80-03). */}
+                  (gated on !shellOnly along with the whole cluster —
+                  agent-mode gate; see Phase 88 rename). Soft-cap 200 chars
+                  (D-Claude's Discretion — executor may retune when badge
+                  widths render in plan 80-07). Backend hard-caps 500 chars
+                  (defense-in-depth per plan 80-03). */}
               <div className="flex flex-col gap-1.5">
                 <label
                   htmlFor="new-identity-task"
@@ -1161,11 +1256,36 @@ export function NewSessionDialog({
             onClick={() => {
               if (!canOpen || !selectedHost) return;
               const normalizedPath = normalizePath(path);
-              if (identityMode) {
-                // Identity-mode ON: start birth stream
+
+              // Phase 88 invariant (88-CONTEXT.md §Non-admin invariant,
+              // defense-in-depth): non-admin users cannot spawn a raw
+              // shell. The `shellOnly` checkbox is admin-gated (never
+              // renders when !isAdmin — see Edit C) and the local state
+              // defaults to `false`. Enforce again at the submit path:
+              // even if some future caller passes a stale `shellOnly =
+              // true` local state (or the JSX gate is bypassed by a
+              // rendering bug), the shell branch is only taken when BOTH
+              // isAdmin AND shellOnly are true. Only admins who explicitly
+              // checked the Phase-88 shell-only checkbox (see Edit C label
+              // for LOCKED wording) reach the regular-session branch below.
+              const effectiveShellOnly = isAdmin && shellOnly;
+
+              if (!effectiveShellOnly) {
+                // Agent mode (default for non-admin, and default for admin
+                // unless the shell-only checkbox is explicitly checked):
+                // start birth stream. The birth stream's onCreate at
+                // handleBirth's success path uses the PUBLIC payload
+                // discriminant `identityMode: true` — UNCHANGED from
+                // Phase 88 (wire contract for AppShell narrowing).
                 void handleBirth();
               } else {
-                // Identity-mode OFF: existing regular-session contract + path
+                // Admin explicitly opted into raw shell. Preserve the
+                // pre-Phase-88 regular-session contract — the PUBLIC
+                // callback-payload discriminant `identityMode: false`
+                // below is UNCHANGED and remains the AppShell.tsx
+                // narrowing signal for regular-session vs identity-mode.
+                // Path passes through as normalizedPath (admin's Path
+                // input default "~/" from useState above + any override).
                 onCreate({
                   host: selectedHost,
                   sessionName: sessionName.length > 0 ? sessionName : undefined,
