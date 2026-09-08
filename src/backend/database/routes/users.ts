@@ -391,9 +391,20 @@ router.put("/:id/avatar", authenticateJWT, userAvatarUpload.single("avatar"), as
       // 5c: Best-effort unlink of old file — only if it's a DIFFERENT name from new.
       // If same name, the new file has already overwritten it in place.
       // Unlink runs OUTSIDE the tx (async I/O cannot be inside a sync better-sqlite3 tx).
+      // M3: wrap in its own try/catch so EPERM/EBUSY on the old file does NOT
+      // return 500 after a fully successful UPDATE. Log WARN and continue.
       if (oldFilename && oldFilename !== newFilename) {
-        // M3 error-tolerant wrap applied below (see M3 fix)
-        await unlinkUserAvatar(oldFilename);
+        try {
+          await unlinkUserAvatar(oldFilename);
+        } catch (unlinkErr) {
+          authLogger.warn("Failed to unlink prior avatar file after successful change", {
+            operation: "user_avatar_change_old_file_leak",
+            targetUserId,
+            oldFilename,
+            newFilename,
+            error: unlinkErr,
+          });
+        }
       }
 
       // Step 6: Labeled forceSave — D-17/D-18 crown-jewel invariant.

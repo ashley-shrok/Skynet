@@ -1435,6 +1435,38 @@ describe("PUT /users/:id/avatar (Phase 85 — change endpoint)", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // M3: EPERM on old-file unlink after successful UPDATE → 200, not 500
+  // ---------------------------------------------------------------------------
+  it("PUT /:id/avatar — M3: EPERM on old-file unlink returns 200 (not 500) after successful UPDATE", async () => {
+    authControl.userId = "alice-id";
+    // New upload is JPEG → alice-id.jpg (ext-swap, so old alice-id.png will be unlinked)
+    mockWriteUserAvatar.mockResolvedValueOnce("alice-id.jpg");
+    // unlinkUserAvatar throws EPERM on the old-file call (second overall call to unlinkUserAvatar)
+    const epermErr = Object.assign(new Error("EPERM: operation not permitted"), { code: "EPERM" });
+    mockUnlinkUserAvatar.mockRejectedValueOnce(epermErr);
+
+    const res = await putMultipartWithAuth(changeServer, {
+      path: "/users/alice-id/avatar",
+      file: { fieldName: "avatar", filename: "avatar.jpg", contentType: "image/jpeg", bytes: MINIMAL_PNG_BYTES },
+      jwt: "valid-jwt",
+    });
+
+    // Must be 200 — the row was updated successfully despite unlink EPERM
+    expect(res.status).toBe(200);
+    const body = res.body as { id: string; avatarPath: string };
+    expect(body.avatarPath).toBe("alice-id.jpg");
+
+    // Row must reflect the new filename
+    const row = sqliteDb.prepare("SELECT avatar_path FROM users WHERE id = ?").get("alice-id") as
+      | { avatar_path: string | null }
+      | undefined;
+    expect(row?.avatar_path).toBe("alice-id.jpg");
+
+    // unlinkUserAvatar was called (with the old filename — may have thrown)
+    expect(mockUnlinkUserAvatar).toHaveBeenCalledWith("alice-id.png");
+  });
+
+  // ---------------------------------------------------------------------------
   // M2: old-filename is the value AT UPDATE time (atomic SELECT+UPDATE tx)
   // ---------------------------------------------------------------------------
   it("PUT /:id/avatar — M2: old filename unlinked is the atomic tx-read value, not a stale pre-read", async () => {
