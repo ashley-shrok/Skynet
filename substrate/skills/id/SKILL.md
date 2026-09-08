@@ -17,8 +17,8 @@ multiple identities adopt the same role and run in parallel (identities —
 parallel workers on the same domain).
 
 - `~/.claude/roles/<role>/` — the **ROLE**: role file (directives,
-  preferences, runbooks), bounty pool, chronological history, and any
-  deeper reference file(s) the role wants (e.g. `box-map.md`). Shared
+  preferences), bounty pool, chronological history, runbooks (see § Runbooks),
+  and any deeper reference file(s) the role wants (e.g. `box-map.md`). Shared
   across every identity that adopts the role.
 - `~/.claude/identities/<name>/` — the **IDENTITY**: a slim
   `<name>.md` pointer file naming the role, per-identity handoff, per-identity
@@ -425,7 +425,9 @@ Then enumerate the runbook subfolders directly under `~/.claude/roles/<role>/run
 announce line; no read-in. This is what makes the identity AWARE that a set of runbooks
 exists for this role; each runbook's content is read on demand only when it's actually
 invoked (see § Runbooks). If the role has no `runbooks/` folder, or it's empty, skip
-silently.
+silently. Only subfolders are enumerated — stray files at `runbooks/` root are ignored.
+A subfolder missing its `<slug>.md` still enumerates by folder name; the missing-file
+error surfaces at read-time when it's actually invoked.
 
 Announce:
 
@@ -1312,6 +1314,9 @@ sees the same set.
 companions belong with that runbook (checklists, prompt archives, sample data,
 scripts) as siblings inside the same subfolder. Internal shape is **free-form** — no
 required title/triggers/procedure/gotchas spine. Whatever fits the runbook fits.
+
+**Naming**: slug is kebab-case (same rule as bounties). The main markdown MUST be
+named `<slug>.md` inside its subfolder — companion files can be named anything.
 
 ### Awareness on wake
 
