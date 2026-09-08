@@ -65,7 +65,10 @@ export async function materializeRelayRoomSession(
   roomId: string,
   roomTitle: string | null,
 ): Promise<void> {
-  databaseLogger.info("relay_room_session materialize", {
+  // Fixup N-2 (2026-09-08). Entry log downgraded to .debug — this fires
+  // per-tick per-room and spammed logs at info level. Failure paths
+  // (.warn on forceSave rejection) retain their original severity.
+  databaseLogger.debug("relay_room_session materialize", {
     operation: "relay_room_session_materialize",
     userId,
     roomId,
@@ -110,7 +113,8 @@ export async function markRelayRoomSessionInactive(
   userId: string,
   roomId: string,
 ): Promise<void> {
-  databaseLogger.info("relay_room_session mark inactive", {
+  // Fixup N-2: entry log downgraded to .debug (per-tick per-room spam).
+  databaseLogger.debug("relay_room_session mark inactive", {
     operation: "relay_room_session_mark_inactive",
     userId,
     roomId,
@@ -157,7 +161,8 @@ export async function reactivateRelayRoomSession(
   userId: string,
   roomId: string,
 ): Promise<void> {
-  databaseLogger.info("relay_room_session reactivate", {
+  // Fixup N-2: entry log downgraded to .debug (per-tick per-room spam).
+  databaseLogger.debug("relay_room_session reactivate", {
     operation: "relay_room_session_reactivate",
     userId,
     roomId,
@@ -215,7 +220,8 @@ export interface ActiveRelayRoomSession {
 export async function listActiveRelayRoomSessions(
   userId: string,
 ): Promise<ActiveRelayRoomSession[]> {
-  databaseLogger.info("relay_room_session list active", {
+  // Fixup N-2: entry log downgraded to .debug (per-tick per-room spam).
+  databaseLogger.debug("relay_room_session list active", {
     operation: "relay_room_session_list_active",
     userId,
   });
@@ -252,7 +258,8 @@ export async function refreshRelayRoomLastActivity(
   roomId: string,
   isoTs: string,
 ): Promise<void> {
-  databaseLogger.info("relay_room_session refresh last activity", {
+  // Fixup N-2: entry log downgraded to .debug (per-tick per-room spam).
+  databaseLogger.debug("relay_room_session refresh last activity", {
     operation: "relay_room_session_refresh_last_activity",
     userId,
     roomId,

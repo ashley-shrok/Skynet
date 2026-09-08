@@ -82,15 +82,18 @@ export type SessionListItem = HarnessSessionRow | RelayRoomSessionRow;
  * - No cross-kind intermixing; slice D can re-sort by `lastActivityAt` if
  *   desired per D-15 explicit deferral.
  *
- * The harness input array is sorted in place — callers that share the array
- * reference should clone first. In practice the sole caller is
- * `sessions.ts`'s handler which discards its intermediate arrays after the
- * response is written, so in-place sort is safe.
+ * Fixup L-4 (2026-09-08): defensive copy — clones `harnessRows` before
+ * sorting so callers that share the array reference aren't surprised by
+ * in-place mutation. The sole current caller (`sessions.ts`'s handler)
+ * discards its intermediate arrays after the response is written, so
+ * the previous in-place sort was safe in practice, but the defensive
+ * copy is cheap and prevents future callers from accidentally
+ * depending on the input array being mutated.
  */
 export function mergeRelayRoomsIntoFlat(
   harnessRows: HarnessSessionRow[],
   relayRows: RelayRoomSessionRow[],
 ): SessionListItem[] {
-  const harnessSorted = harnessRows.sort((a, b) => b.created - a.created);
+  const harnessSorted = [...harnessRows].sort((a, b) => b.created - a.created);
   return [...harnessSorted, ...relayRows];
 }

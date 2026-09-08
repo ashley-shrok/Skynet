@@ -561,10 +561,16 @@ export async function getRoomLatestEventTs(
       return { ok: true, ts: null };
     }
     const head = parsed.chunk[0] as { origin_server_ts?: unknown } | undefined;
-    const ts =
+    // Fixup L-3 (2026-09-08). Defensive: treat non-positive origin_server_ts
+    // as null. Matrix spec guarantees origin_server_ts > 0 in practice, but
+    // a 0 / negative value slipping through would render as 1970-01-01 in
+    // the sidebar. Returning null is safer — refreshRelayRoomLastActivity
+    // simply won't fire, so the previous last_activity_at is preserved.
+    const rawTs =
       head && typeof head.origin_server_ts === "number"
         ? head.origin_server_ts
         : null;
+    const ts = rawTs !== null && rawTs > 0 ? rawTs : null;
     return { ok: true, ts };
   } catch (err: unknown) {
     clearTimeout(timeoutId);

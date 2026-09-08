@@ -64,6 +64,16 @@ export const BACKOFF_LADDER_MS: readonly number[] = [
  * Cap on same-tick augmentation parallelism (D-05 cost bound). Rooms per
  * user are typically small, but this guards against a user with many
  * rooms fanning out unbounded fetch fan.
+ *
+ * Fixup N-5 (2026-09-08) rationale for `8`: educated guess anchored to
+ * the observed slice-B fleet — most users have <5 joined rooms at slice-B
+ * shipping time; power users may accumulate 10-20 over slice-C's lifetime.
+ * 8 keeps a normal user's tick to a single Promise.all batch while
+ * throttling a power user to at most 3 sequential batches (which still
+ * finishes well within the 10s TICK_INTERVAL_MS budget on a healthy
+ * homeserver). Tune upward if Synapse admin-API concurrency becomes the
+ * dominant cost; tune downward if a slow homeserver saturates on 8x
+ * parallel fetches.
  */
 export const MAX_PARALLEL_ROOMS_PER_TICK = 8;
 

@@ -628,6 +628,14 @@ async function initializeCompleteDatabase(): Promise<void> {
     -- No FK — room IDs are freestanding Matrix identifiers, not local rows.
     -- Persisted via a labeled forceSave in the migration block below.
     --
+    -- Scope per D-16 — SINGLE-INSTANCE-PER-DB. Each Skynet instance owns
+    -- its own DB and its own ignore-list (t1000's admin_rooms rows are
+    -- t1000's; T800's are T800's). If Skynet is ever operated multi-tenant
+    -- (one DB, multiple Skynet "instances"), this table needs a
+    -- `skynet_instance_id` column added — otherwise different instances'
+    -- registry-room IDs would collide in the same table. Phase 89 fixup
+    -- L-1 (2026-09-08) documents this constraint.
+    --
     -- Drizzle mirror at schema.ts adminRooms.
     CREATE TABLE IF NOT EXISTS admin_rooms (
         room_id TEXT PRIMARY KEY,

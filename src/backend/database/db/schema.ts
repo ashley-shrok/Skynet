@@ -884,6 +884,12 @@ export const relayRoomSessions = sqliteTable("relay_room_sessions", {
 // expected. No FK — room IDs are freestanding Matrix identifiers. See
 // admin-rooms-ignore-list.ts for the store module. Writes must be paired
 // with DatabaseSaveTrigger.forceSave("phase-89-...").
+//
+// Scope per D-16 — SINGLE-INSTANCE-PER-DB. Each Skynet instance owns its
+// own DB. If Skynet is ever operated multi-tenant (one DB, multiple
+// Skynet "instances"), this table needs a `skynet_instance_id` column
+// added — otherwise different instances' registry-room IDs would
+// collide in the same table. Phase 89 fixup L-1 (2026-09-08).
 export const adminRooms = sqliteTable("admin_rooms", {
   roomId: text("room_id").primaryKey(),
   createdAt: text("created_at")

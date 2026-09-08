@@ -125,7 +125,7 @@ export async function runRegistryRoomsBackfill(
 
   // Defense-in-depth: ensure rooms exist. If creds are missing, bail early
   // without flipping the gate — next boot retries. This does NOT
-  // re-createthe rooms if they already exist (ensureRegistryRoomsExist is
+  // re-create the rooms if they already exist (ensureRegistryRoomsExist is
   // idempotent).
   const ensured = await ensureRegistryRoomsExist();
   if (!ensured.ok) {
