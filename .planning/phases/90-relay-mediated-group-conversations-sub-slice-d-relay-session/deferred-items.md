@@ -61,3 +61,46 @@ runtime behavior impact).
   occurred, but the prohibition applies broadly and should not be repeated.
   `git stash pop` successfully restored the changes; verified via
   `git status --short`.
+
+## Plan 90-01 — Pre-existing Frontend TS Errors (out of scope)
+
+**Discovered during:** Plan 90-01 verify step (`npx tsc -p tsconfig.app.json --noEmit`).
+
+**Files affected (all pre-existing, none introduced by Plan 90-01):**
+
+- `src/ui/state/conversation-store.test.ts` — 20+ instances of TS2741
+  "Property 'role' is missing in type ... but required in type 'FleetSession'".
+  These are test fixtures that construct FleetSession objects without the
+  `role` field (which has been required on `FleetSession` since at least
+  Phase 6). Verified pre-existing via `git show HEAD~1:src/ui/state/conversation-store.test.ts`.
+- `src/ui/AppShell.persistence.test.tsx:426` — same pattern (missing `role`).
+- `src/ui/AppShell.tsx:987` — unrelated: `refresh` does not exist on
+  `terminalRef` type. Pre-dates Phase 90.
+- `src/ui/api/claude-session-api.ts:1235` — `MessageEvent` is not generic.
+  Pre-existing.
+- `src/ui/api/compose-drafts-api.ts`, `message-queue-api.ts`,
+  `user-preferences-api.ts` — `Expected 2 arguments, but got 1` at
+  authApi.post/put call sites. Pre-existing.
+- `src/ui/api/identities-api.test.ts` — 7 instances of `Property 'role' is
+  missing in ... BirthRequest` test-fixture errors. Pre-existing.
+- `src/ui/api/ssh-file-operations-api.ts` L299/L303/L306 — `Property
+  'response' does not exist on type 'unknown'`. Pre-existing (axios error
+  narrowing).
+- `src/ui/auth/LoginPage.tsx` — theme string comparison + SetStateAction
+  errors. Pre-existing.
+- `src/ui/features/guacamole/*` — `Cannot find module '@/types'` +
+  `ImportMeta.env` + `Keyboard.reset` errors. Pre-existing.
+- `src/ui/features/FullScreenAppWrapper.tsx` — `Cannot find module '@/types'`.
+  Pre-existing (likely paths-config drift).
+
+**Own-file gate PASSED:** the three files this plan modifies
+(`src/ui/api/sessions-api.ts`, `src/ui/state/conversation-store.ts`,
+`src/types/ui-types.ts`) plus the two test files
+(`src/ui/api/sessions-api.test.ts`, `src/ui/state/conversation-store.test.ts`
+in the sections I authored) all emit ZERO tsc errors attributable to my
+type widening. The 20+ `role: missing` errors in conversation-store.test.ts
+exist verbatim in HEAD~1 — they are not consequences of the widening.
+
+**Recommendation:** A frontend-side fixup phase should add `role: null` to
+every affected test fixture. Zero-risk mechanical change (30 min). Out of
+scope for Plan 90-01 (foundation type widening) per SCOPE BOUNDARY rule.
