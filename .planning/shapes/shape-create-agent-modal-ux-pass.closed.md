@@ -93,3 +93,42 @@ The bounty is small on the wire but load-bearing on stance:
 **Working tree:** `~/skynet-tabitha` on branch `feat/tab-title-from-tmux`.
 
 **Handoff for the executor when it runs:** Read this shape file, then read the sibling shape at `.planning/shapes/shape-create-role-modal-ux-pass.closed.md` for the Phase 84 patterns to pair against. Also read the yet-to-be-written `.planning/shapes/shape-cosmetics-migrate-to-role.md` when that bounty is /opened — it will establish the exact fields removed from create-agent that this bounty finalizes the UI for.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-08
+**Vehicle used:** GSD phase (Phase 88, three waves: 88-01 backend narrow + prop plumbing, 88-02 blurb pairing + admin gates + shellOnly rename, 88-03 test updates)
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · Three concrete surface changes all present: paired header blurbs on both dialogs, admin-only Path field with per-agent backend default, admin-only identity-mode checkbox with inverted 'Just a shell — no agent' label.
+- **Shape: Header blurb pairing** — present · Role blurb revised in CreateRoleDialog DialogDescription; agent blurb added in NewSessionDialog DialogDescription; verb 'adopt' shared byte-exact per shape's LOCKED text.
+- **Shape: Path field admin split** — present · Path input wrapped in `{isAdmin && (…)}` with '~/' default; non-admin submits send empty string on the wire; backend substitutes `~/<name>/` when path is empty/absent.
+- **Shape: Identity-mode checkbox admin split + label inversion** — present · Checkbox wrapped in `{isAdmin && (…)}`; label is 'Just a shell — no agent' with U+2014 em-dash; local state renamed identityMode→shellOnly with default flipped true→false; PUBLIC identityMode wire discriminant preserved for AppShell narrowing.
+- **Philosophy: non-admins manage agents only, no raw shell** — present · Non-admins never see the shell checkbox; submit-onclick invariant additionally gates the shell branch on `isAdmin && shellOnly` as defense-in-depth.
+- **Philosophy: paired blurbs reinforce role-and-agent relationship** — present · Shared verb 'adopt' across both blurbs; both landed in the same commit surface per shape §What would make it wrong item #1.
+- **Philosophy: path default is a scoping choice for non-admin agents** — present · Backend fallback computes `~/<name>/` from the trimmed lowercased identity name so each non-admin agent gets its own working directory.
+- **Prior context: pair with Phase-84 create-role modal patterns** — present · Same admin-gate idiom `{isAdmin && (…)}` mirroring PrettyConversationsPanel:1651 WeeklyUsageMeter gate; same single-host-hide primitive still in place on both dialogs.
+- **What would make it wrong: Ship agent-side blurb without updating role-side** — present · Both blurbs landed together (Task 1 + Task 2, Wave 2 same commit surface); role-side one-sentence-blurb removed and replaced with paired two-sentence form.
+- **What would make it wrong: Non-admin sees 'Just a shell' checkbox** — present · JSX gate at NewSessionDialog L1059-1076; isAdmin prop defaults to false at destructure L311 (fail-closed); test T1 asserts DOM absence when isAdmin=false.
+- **What would make it wrong: Non-admin sees Path field** — present · JSX gate at NewSessionDialog L1029-1046; same fail-closed default; test T1 asserts DOM absence.
+- **What would make it wrong: Ships before cosmetics-migrate-to-role** — present · Cosmetics-migration comments and code paths (Phase 86 Plan 86-04) are already in place; title/brief/color/voice/avatar authoring in NewSessionDialog is stripped with the role-level home already established.
+- **What would make it wrong: identityMode variable-vs-UI semantic drift** — present · LOCAL state fully renamed to shellOnly with boolean-invert at all 15 read-sites; PUBLIC callback-payload discriminant identityMode preserved as wire contract; anchor comments explicitly pin the LOCAL-vs-PUBLIC invariant.
+- **Scope edges: In-scope items** — present · All named files touched: CreateRoleDialog.tsx blurb, NewSessionDialog.tsx six edits, PrettyConversationsPanel.tsx isAdmin forwarding, identity-birth.ts backend substitution, five test files updated.
+- **Scope edges: Out-of-scope items honored** — present · No cosmetics-migration work redone here; no TTS speed multiplier; no working-dir auto-creation timing changes; task-input textarea from Phase 80 left in place untouched.
+- **Scope edges: Tempting-but-no items honored** — present · No per-agent description/notes field replacing Brief; no modal rename; label text is the LOCKED 'Just a shell — no agent'; no per-identity cosmetics-override affordance on create-agent.
+
+### Additions (in the result, not in the shape)
+
+- Backend fallback of `~/<name>/` also fires for admin submissions that arrive with an empty/whitespace Path — extends the shape's non-admin-only fallback language to cover the admin-visibly-cleared-Path edge case as belt-and-suspenders. — **endorsed-as-drift**
+
+### Follow-ups
+
+- Admin-side Path field should reject blank submits at the frontend — belt-and-suspenders backend fallback stays as safety net, but the field itself shouldn't accept empty on submit. — **bounty**
+
+### Notes
+
+Executor also added a submit-time defense-in-depth check computing `effectiveShellOnly = isAdmin && shellOnly` at the onclick handler, so a hypothetical bug in the render-gate cannot leak the shell branch even if shellOnly state were somehow true for a non-admin. This goes beyond the shape's letter (which only required fail-closed isAdmin default + render gates) but is directly in the spirit of the shape's fail-closed philosophy — not surfaced as a divergence because it strictly narrows the shell branch and is transparent to non-admins. Paired-blurb landing discipline was preserved: both blurbs shipped in the same commit surface (Wave 2) per the shape's §What would make it wrong item #1.
