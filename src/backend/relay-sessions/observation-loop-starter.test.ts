@@ -2,15 +2,21 @@
  * observation-loop-starter unit tests — Phase 89-03 Task 4.
  *
  * Covers:
- *   - Startup sequence order: ensureRegistryRoomsExist → runRegistryRoomsBackfill
- *     → enumerateUsers → createObservationLoop.start (Test 1).
+ *   - Startup sequence order: ensureRegistryRoomsExist → enumerateUsers
+ *     → createObservationLoop.start (Test 1). Auto-backfill is
+ *     DELIBERATELY OMITTED — D-12 backfill is MANUAL per instance-deployer
+ *     (Ashley 2026-09-08 post-verifier clarification, matching Phase 88
+ *     D-02 precedent). Test 1 asserts runRegistryRoomsBackfill is NOT
+ *     called at boot.
  *   - ensureRegistryRoomsExist creds-missing → warn + no loop start (Test 2).
- *   - Backfill failure → warn but STILL start the loop (Test 3).
- *   - Zero users with mxid → info log, empty-list scheduler.start (Test 4).
+ *   - Zero users with mxid → info log, empty-list scheduler.start (Test 3).
  *
- * Mocking strategy: vi.mock the four collaborators (registry-rooms,
- * registry-rooms-backfill, observation-loop, database/db/index) at the
- * module level so we control every downstream call. No real DB, no HTTP.
+ * Mocking strategy: vi.mock the three collaborators (registry-rooms,
+ * observation-loop, database/db/index) at the module level so we control
+ * every downstream call. No real DB, no HTTP. The
+ * registry-rooms-backfill mock is retained (rather than deleted) so any
+ * regression that re-introduces the auto-call is caught by Test 1's
+ * "not.toHaveBeenCalled" assertion.
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -144,11 +150,14 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("startObservationLoopOnBoot", () => {
-  it("Test 1: happy path — ensure → backfill → enumerate → loop.start called in order", async () => {
+  it("Test 1: happy path — ensure → enumerate → loop.start called in order; auto-backfill NOT called (D-12 is manual per instance-deployer)", async () => {
     const result = await startObservationLoopOnBoot();
 
     expect(mockEnsureRegistryRoomsExist).toHaveBeenCalledTimes(1);
-    expect(mockRunRegistryRoomsBackfill).toHaveBeenCalledTimes(1);
+    // D-12 backfill is MANUAL — see module docblock. Regression guard: if a
+    // future edit accidentally re-wires runRegistryRoomsBackfill into the
+    // boot sequence, this assertion fires.
+    expect(mockRunRegistryRoomsBackfill).not.toHaveBeenCalled();
     expect(mockCreateObservationLoop).toHaveBeenCalledTimes(1);
     expect(mockLoopStart).toHaveBeenCalledTimes(1);
     expect(mockLoopStart).toHaveBeenCalledWith([
@@ -156,12 +165,10 @@ describe("startObservationLoopOnBoot", () => {
       { userId: "user-b", userMxid: "@bob:s" },
     ]);
 
-    // Order: ensure before backfill before start.
+    // Order: ensure before loop.start.
     const ensureOrder = mockEnsureRegistryRoomsExist.mock.invocationCallOrder[0];
-    const backfillOrder = mockRunRegistryRoomsBackfill.mock.invocationCallOrder[0];
     const startOrder = mockLoopStart.mock.invocationCallOrder[0];
-    expect(ensureOrder).toBeLessThan(backfillOrder);
-    expect(backfillOrder).toBeLessThan(startOrder);
+    expect(ensureOrder).toBeLessThan(startOrder);
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -185,23 +192,7 @@ describe("startObservationLoopOnBoot", () => {
     }
   });
 
-  it("Test 3: runRegistryRoomsBackfill failure → warn but STILL start the loop (degraded classification is better than no observation)", async () => {
-    mockRunRegistryRoomsBackfill.mockResolvedValue({
-      ok: false,
-      reason: "some_downstream_failure",
-    });
-
-    const result = await startObservationLoopOnBoot();
-
-    expect(mockCreateObservationLoop).toHaveBeenCalledTimes(1);
-    expect(mockLoopStart).toHaveBeenCalledTimes(1);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.usersScheduled).toBe(2);
-    }
-  });
-
-  it("Test 4: zero users with mxid → info log + start with empty user list (no-op scheduler on fresh install)", async () => {
+  it("Test 3: zero users with mxid → info log + start with empty user list (no-op scheduler on fresh install)", async () => {
     mockPreparedAll.mockReturnValue([]);
 
     const result = await startObservationLoopOnBoot();

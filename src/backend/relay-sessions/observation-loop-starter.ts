@@ -7,24 +7,36 @@
  *      rooms (agents + humans) if not already present. If admin creds are
  *      missing (fresh install before ingest), bail early WITHOUT starting
  *      the loop; the caller (starter.ts) fires this best-effort and next
- *      boot retries.
+ *      boot retries. Idempotent room-creation is fine to auto-run because
+ *      it only writes DDL-shaped facts about Skynet's OWN administrative
+ *      state — it does NOT reach into pre-existing user/agent accounts.
  *
- *   2. runRegistryRoomsBackfill — D-12 one-shot join of pre-existing
- *      accounts into the newly-created registry rooms. Gated by a settings
- *      row so it's a fast no-op on subsequent boots. Failure here is
- *      logged as a warning but does NOT block the observation loop from
- *      starting — degraded classification is better than no observation at
- *      all (the classifier just materializes conservatively for two-party
- *      rooms with unrecognized other members).
- *
- *   3. Enumerate users with a populated `mxid` from the users table. Fresh
+ *   2. Enumerate users with a populated `mxid` from the users table. Fresh
  *      installs may have zero — logged at info, scheduler starts empty (a
  *      no-op until users are added; hot-reload is a future slice).
  *
- *   4. Wire ObservationTickDeps with the concrete implementations from
+ *   3. Wire ObservationTickDeps with the concrete implementations from
  *      Plan 01 (relay-room-sessions-store + admin-rooms-ignore-list),
  *      Plan 02 (registry-rooms), and Task 1 (matrix-admin-client
  *      primitives). Kick off the per-user scheduler via createObservationLoop.
+ *
+ * ## D-12 backfill is MANUAL per instance-deployer — NOT auto-invoked here
+ *
+ * Ashley 2026-09-08 (post-verifier clarification): "there's not supposed to
+ * be automatic backfill anyways. Like I said, that would be a manual step
+ * for whoever deploys this stuff over here on this instance and for Stacy
+ * on her instance." Matches the Phase 88 D-02 precedent (existing users
+ * hand-migrated by the maintainer of each Skynet instance).
+ *
+ * Consequence: this starter DOES NOT call `runRegistryRoomsBackfill`. The
+ * function is still exported from `registry-rooms-backfill.ts` as a
+ * manual-invocation utility — the instance-deployer runs it once after
+ * deploy (see the phase's SUMMARY.md § Manual backfill runbook for how).
+ * Between deploy and manual-backfill-run, pre-existing agents/humans are
+ * NOT in the registry rooms and the classifier's D-09 fallthrough
+ * conservatively materializes their two-party DMs — same trust model as
+ * Phase 88's "existing users get hand-migrated" pattern. The D-11 mint
+ * hooks (Phase 89-02) cover ALL new accounts from now on automatically.
  *
  * ## Best-effort per D-07
  *
@@ -39,24 +51,6 @@
  * The scheduler returned by createObservationLoop is stored in a module-level
  * variable so a future hot-reload / stop() surface can reach it. v1 does NOT
  * expose stop; the reference exists purely for future use.
- *
- * ## Agents backfill dep — deferred
- *
- * runRegistryRoomsBackfill accepts an optional `enumerateAgentMxids` dep
- * (Plan 02 opt-in) that would SSH into each fleet host and read on-disk
- * `~/.claude/identities/<name>/relay.json` to collect pre-existing agent
- * mxids. This starter DOES NOT wire that dep — it is deferred to a
- * follow-up bounty. Rationale:
- *   - The D-11 mint hook (Phase 89-02) covers ALL new agents from now on.
- *   - Pre-existing agents that predate the registry rooms will simply
- *     be missing from the agents registry; the observation loop will
- *     conservatively materialize their two-party DMs (D-09 fallthrough)
- *     rather than excluding them. Slightly noisier sidebars for existing
- *     users but no correctness violation.
- *   - Implementing the SSH-based enumerator here would require coupling
- *     to fleet-status roster + per-host SSH exec + on-disk parsing —
- *     nontrivial surface that deserves its own plan.
- * See SUMMARY.md for the deferral note.
  */
 
 import { db } from "../database/db/index.js";
@@ -65,7 +59,12 @@ import {
   ensureRegistryRoomsExist,
   getAgentsRegistryRoomId,
 } from "./registry-rooms.js";
-import { runRegistryRoomsBackfill } from "./registry-rooms-backfill.js";
+// D-12 backfill is MANUAL per instance-deployer (Ashley 2026-09-08 post-verifier
+// clarification, matching Phase 88 D-02 precedent). The runRegistryRoomsBackfill
+// function is kept as a manual-invocation utility exported from
+// ./registry-rooms-backfill.js — the deployer runs it once after deploy per the
+// phase's SUMMARY.md § Manual backfill runbook. It is intentionally NOT imported
+// here to prevent accidental auto-invocation.
 import {
   createObservationLoop,
   type ObservationLoopScheduler,
@@ -124,24 +123,10 @@ export async function startObservationLoopOnBoot(): Promise<StartObservationLoop
     return { ok: false, reason: ensured.reason };
   }
 
-  // Step 2: D-12 idempotent backfill of pre-existing accounts. Log + proceed
-  // on failure — degraded classification is better than no observation. The
-  // gate makes this a fast no-op on subsequent boots.
-  const backfill = await runRegistryRoomsBackfill({
-    // enumerateAgentMxids intentionally omitted — deferred to a follow-up
-    // bounty (see module docblock rationale).
-  });
-  if (!backfill.ok) {
-    databaseLogger.warn(
-      "[phase-89] observation-loop bootstrap — backfill failed but proceeding",
-      {
-        operation: "relay_observation_bootstrap_backfill_failed",
-        reason: backfill.reason,
-      },
-    );
-  }
+  // (Auto-backfill DELIBERATELY OMITTED — D-12 backfill is manual per
+  // instance-deployer; see module docblock.)
 
-  // Step 3: enumerate users with a populated mxid. Phase 88 D-06 guarantees
+  // Step 2: enumerate users with a populated mxid. Phase 88 D-06 guarantees
   // every user has mxid populated at create time, but defensively filter
   // NULL + empty-string (pre-Phase-88 rows may not have been migrated).
   let users: Array<{ userId: string; userMxid: string }> = [];
@@ -170,7 +155,7 @@ export async function startObservationLoopOnBoot(): Promise<StartObservationLoop
     );
   }
 
-  // Step 4: wire the ObservationTickDeps with concrete implementations from
+  // Step 3: wire the ObservationTickDeps with concrete implementations from
   // Plans 01 + 02 + Task 1. All imports at module top so the wiring is a
   // straightforward object literal.
   const loop = createObservationLoop({

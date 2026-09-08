@@ -212,7 +212,70 @@ Each task followed strict RED → GREEN cycles:
 
 All four RED commits are strictly before their GREEN counterparts in git log. Gate sequence compliant.
 
+## D-12 REVISION 2026-09-08 post-verifier — auto-backfill removed, backfill is now MANUAL per instance-deployer
+
+Ashley clarified after the verifier surfaced D-12 as a gap (verbatim: *"there's not supposed to be automatic backfill anyways. Like I said, that would be a manual step for whoever deploys this stuff over here on this instance and for Stacy on her instance."*). Matches Phase 88 D-02 precedent (existing users hand-migrated by the maintainer of each Skynet instance).
+
+**Code change:** `observation-loop-starter.ts` no longer imports or calls `runRegistryRoomsBackfill`. Boot sequence is now: `ensureRegistryRoomsExist` (idempotent room creation — safe to auto) → enumerate users → wire deps → `loop.start`. Test 1 asserts `runRegistryRoomsBackfill` is NOT called at boot (regression guard); the removed auto-backfill-failure-path test was deleted as the code path no longer exists.
+
+**The `runRegistryRoomsBackfill` utility is still exported** from `src/backend/relay-sessions/registry-rooms-backfill.ts` — it's a legitimate one-shot utility, just intentionally not auto-invoked. See the manual backfill runbook below for how the instance-deployer runs it.
+
+## Manual backfill runbook (D-12) — for instance-deployers
+
+**When to run:** Once, after deploying Phase 89 to a Skynet instance. Between deploy and this manual-run, pre-existing agents/humans are NOT in the registry rooms and their two-party DMs (with local agents specifically) will materialize as **duplicate sidebar entries** — normal harness session + peer relay-room entry for the same conversation. Running the backfill closes that gap by joining each pre-existing account to the appropriate registry room, after which the classifier's D-08/D-09 exclusion kicks in and the duplicates disappear on the next observation tick (~10s).
+
+**On t1000 (Taylor's instance):**
+
+```bash
+# One-shot: enumerate humans from users table + (optionally) agents from disk,
+# join each into the appropriate registry room. Idempotent — safe to re-run.
+# Runs inside the Skynet container so it uses the same DB + admin creds path.
+sudo docker exec -i skynet node --input-type=module <<'EOF'
+const { runRegistryRoomsBackfill } = await import(
+  "/app/dist/backend/relay-sessions/registry-rooms-backfill.js"
+);
+// Humans-only backfill (the users-table SELECT path). Agents backfill needs
+// an enumerateAgentMxids injection — see the "Agents backfill" note below.
+const result = await runRegistryRoomsBackfill({});
+console.log(JSON.stringify(result, null, 2));
+EOF
+```
+
+Expected output:
+
+```json
+{
+  "ok": true,
+  "agentsAttempted": 0,     // humans-only path — see note below
+  "humansAttempted": <N>,   // matches count of users with mxid populated
+  "agentsFailed": 0,
+  "humansFailed": 0
+}
+```
+
+Then confirm the settings gate flipped so subsequent runs are fast no-ops:
+
+```bash
+sudo docker exec skynet sqlite3 /data/skynet.db \
+  "SELECT value FROM settings WHERE key = 'has_backfilled_registry_rooms';"
+# Expected: true
+```
+
+Verify humans landed in the humans registry room (Ashley, Zoey, Laura on t1000):
+
+```bash
+# Fetch registry-room IDs from settings, then query joined members via admin API
+sudo docker exec skynet sqlite3 /data/skynet.db \
+  "SELECT key, value FROM settings WHERE key IN ('humans_registry_room_id', 'agents_registry_room_id');"
+```
+
+**On T800 (Stacy's instance):** Same command shape, executed inside T800's `skynet` container. Stacy runs this as part of her Phase 89 upgrade rollout.
+
+**Agents backfill** — the `runRegistryRoomsBackfill` function accepts an optional `enumerateAgentMxids` dep for enumerating pre-existing agent accounts. The empty-invocation above skips it (agents backfill is a no-op), which is correct behavior for a first-cut deploy where pre-existing agents' DMs simply materialize as duplicate entries until a follow-up. If you want agents backfilled too, pass an SSH-based enumerator that reads `~/.claude/identities/<name>/relay.json` on each fleet host (D-12 explicitly allows disk reads at backfill time — the "no disk-based check" rule targets the observation loop for host-outage tolerance, not one-shot ops). Concrete enumerator implementation is a follow-up bounty candidate; humans-only backfill is enough to close the D-12 gap for the human-side user experience.
+
+**Repeat runs are safe.** The `has_backfilled_registry_rooms` gate makes subsequent runs a fast no-op. If a run fails midway, the gate stays false; next re-run picks up where it left off.
+
 ---
 *Phase: 89-relay-mediated-group-conversations-sub-slice-b-session-model*
 *Plan: 02*
-*Completed: 2026-09-08*
+*Completed: 2026-09-08 (D-12 refinement applied same day post-verifier)*

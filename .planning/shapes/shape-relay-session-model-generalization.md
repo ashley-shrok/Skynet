@@ -26,7 +26,7 @@ Skynet grows a second kind of conversation-list entry, sitting alongside the exi
 
 **The registry rooms themselves must not appear as conversation-list entries** (they have many members and would otherwise trigger the multi-member materialize rule). Skynet holds a small internal "admin rooms" ignore-list, populated with the registry rooms' IDs at the moment Skynet creates each one. The observation loop's materialization step skips any room whose ID is in this list. The ignore-list is Skynet-instance-owned (each Skynet's registry rooms have their own IDs), internal (no user-visible surface, no admin console — Skynet manages it), and general-purpose (future admin-purposes-only rooms can be added to it too).
 
-**One-time backfill on rollout.** Existing agent and human accounts predate the registry rooms. Skynet enumerates its known agents (via the fleet-status roster it already maintains) and its known humans (from its own user record), and joins each into the appropriate registry room once. First-boot / deploy-time script, idempotent.
+**One-time backfill is MANUAL per instance-deployer — not automatic.** Refined 2026-09-08 post-verifier (Ashley verbatim: *"there's not supposed to be automatic backfill anyways. Like I said, that would be a manual step for whoever deploys this stuff over here on this instance and for Stacy on her instance."*). Matches the Phase 88 D-02 precedent (existing users hand-migrated by the maintainer of each Skynet instance). The `runRegistryRoomsBackfill()` function exists as a manual-invocation utility — the deployer runs it once after deploy, per the phase's SUMMARY.md § Manual backfill runbook. The observation-loop's boot sequence does NOT auto-fire it. New accounts created after Phase 89 lands are auto-joined via the D-11 mint hooks; only pre-existing accounts need the manual backfill.
 
 **Failure behavior when the relay is briefly unreachable.** A failing poll tick DOES NOT destroy or mark-inactive any existing session records — absence of observation is not evidence the user left the rooms. The tick backs off (10s → 30s → 60s, cap at ~5 min), retries. When a tick eventually succeeds, that tick reconciles — new memberships materialize, missing memberships transition to inactive. The sidebar shows what it last saw during the outage; no failure banners or grey-outs surface to users. Failures land in Skynet's logs, not in the UI.
 
@@ -70,7 +70,7 @@ Skynet already has an admin credential against the homeserver, used elsewhere; t
 - The conversation-list endpoint's merge step: derived harness sessions + active stored relay-room rows.
 - Two registry rooms (agents + humans), created by Skynet at first-boot / rollout.
 - Skynet-side account-creation hooks that join each new account into the appropriate registry room.
-- One-time backfill: enumerate existing agents + humans, join each into its registry room.
+- The `runRegistryRoomsBackfill()` utility function (existing agents + humans enumerator) — kept as a manual-invocation utility that the instance-deployer runs once after deploy. NOT auto-fired at boot.
 - The admin-rooms ignore-list (starts with the two registry rooms), consulted by the observation loop.
 - The state transition on external kick (active → inactive), and re-invite reactivation (inactive → active on the same row).
 - Failure semantics for the observation loop (no destruction on failure, backoff, per-user isolation).
