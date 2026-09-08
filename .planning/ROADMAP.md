@@ -2084,3 +2084,13 @@ Plans:
 
 **Wave 5** *(blocked on all prior waves)*
 - [x] 87-07-PLAN.md — end-to-end integration test (create → serve → change → serve → delete → verify-clean, real HTTP + real filesystem + save-trigger spies) + human-smoke checkpoint verifying nginx edge cap works against a running container (D-07, D-09, D-10, D-11, D-14, D-15, D-16, D-17, D-18, D-19, D-20, D-21, D-22)
+
+### Phase 88: create-agent-modal-ux-pass — paired header blurbs, path admin-gate, identity-mode checkbox admin-gate + label flip to 'Just a shell — no agent', isAdmin plumbed from PrettyConversationsPanel, birth backend substitutes ~/<agent-name>/ for absent path
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 87
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 88 to break down)
