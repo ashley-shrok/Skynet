@@ -79,6 +79,7 @@ vi.mock("../matrix/matrix-admin-creds-store.js", () => ({
 
 vi.mock("./admin-rooms-ignore-list.js", () => ({
   addAdminRoom: vi.fn().mockResolvedValue(undefined),
+  isAdminRoom: vi.fn().mockResolvedValue(true),
 }));
 
 // ---------------------------------------------------------------------------
@@ -98,13 +99,14 @@ import { DatabaseSaveTrigger } from "../utils/database-save-trigger.js";
 import { databaseLogger } from "../utils/logger.js";
 import { createRoom, joinRoom } from "../matrix/matrix-admin-client.js";
 import { getMatrixAdminCreds } from "../matrix/matrix-admin-creds-store.js";
-import { addAdminRoom } from "./admin-rooms-ignore-list.js";
+import { addAdminRoom, isAdminRoom } from "./admin-rooms-ignore-list.js";
 
 const forceSaveSpy = DatabaseSaveTrigger.forceSave as ReturnType<typeof vi.fn>;
 const createRoomSpy = createRoom as unknown as ReturnType<typeof vi.fn>;
 const joinRoomSpy = joinRoom as unknown as ReturnType<typeof vi.fn>;
 const getCredsSpy = getMatrixAdminCreds as unknown as ReturnType<typeof vi.fn>;
 const addAdminRoomSpy = addAdminRoom as unknown as ReturnType<typeof vi.fn>;
+const isAdminRoomSpy = isAdminRoom as unknown as ReturnType<typeof vi.fn>;
 const loggerInfoSpy = databaseLogger.info as ReturnType<typeof vi.fn>;
 const loggerWarnSpy = databaseLogger.warn as ReturnType<typeof vi.fn>;
 
@@ -131,6 +133,8 @@ beforeEach(() => {
   getCredsSpy.mockReset();
   addAdminRoomSpy.mockReset();
   addAdminRoomSpy.mockResolvedValue(undefined);
+  isAdminRoomSpy.mockReset();
+  isAdminRoomSpy.mockResolvedValue(true);
   loggerInfoSpy.mockClear();
   loggerWarnSpy.mockClear();
 
@@ -279,6 +283,58 @@ describe("ensureRegistryRoomsExist", () => {
       (op) => op === "registry_rooms_create_fire",
     );
     expect(createFires.length).toBe(2);
+  });
+
+  it("Test H-2 [fixup]: fast path self-heals missing admin_rooms row — both settings present, but one roomId absent from admin_rooms → addAdminRoom fires for that room", async () => {
+    // Regression guard for finding H-2. The original createRegistryRoom
+    // write order was: settings row FIRST + forceSave, then addAdminRoom
+    // in a try/catch that just warned on failure. If addAdminRoom failed
+    // on that first boot, subsequent boots fast-path (both settings rows
+    // present) and NEVER retry addAdminRoom. Result: the registry room ID
+    // stayed permanently absent from admin_rooms → classifier materialized
+    // it for every user → registry room in every sidebar.
+    //
+    // Fix: on the fast path, after detecting both settings present,
+    // verify each roomId is in admin_rooms via isAdminRoom(). If missing,
+    // call addAdminRoom(missingRoomId) (idempotent).
+    sqliteInstance
+      .prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
+      .run(SETTINGS_KEY_AGENTS_REGISTRY, "!agents-existing:server");
+    sqliteInstance
+      .prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
+      .run(SETTINGS_KEY_HUMANS_REGISTRY, "!humans-existing:server");
+    // Simulate: agents room IS in admin_rooms (previous boot succeeded on
+    // addAdminRoom for agents), humans room is NOT (previous boot's
+    // addAdminRoom for humans failed and was warn-swallowed).
+    isAdminRoomSpy.mockImplementation(async (roomId: string) => {
+      return roomId === "!agents-existing:server";
+    });
+
+    const result = await ensureRegistryRoomsExist();
+    expect(result).toEqual({
+      ok: true,
+      agentsRoomId: "!agents-existing:server",
+      humansRoomId: "!humans-existing:server",
+    });
+    // No createRoom (fast path).
+    expect(createRoomSpy).not.toHaveBeenCalled();
+    // Self-heal: addAdminRoom fired for the missing one ONLY.
+    expect(addAdminRoomSpy).toHaveBeenCalledTimes(1);
+    expect(addAdminRoomSpy).toHaveBeenCalledWith("!humans-existing:server");
+  });
+
+  it("Test H-2b [fixup]: fast path with both admin_rooms entries present is a true no-op (isAdminRoom returns true for both, no addAdminRoom fires)", async () => {
+    sqliteInstance
+      .prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
+      .run(SETTINGS_KEY_AGENTS_REGISTRY, "!agents-existing:server");
+    sqliteInstance
+      .prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
+      .run(SETTINGS_KEY_HUMANS_REGISTRY, "!humans-existing:server");
+    isAdminRoomSpy.mockResolvedValue(true);
+
+    await ensureRegistryRoomsExist();
+    expect(createRoomSpy).not.toHaveBeenCalled();
+    expect(addAdminRoomSpy).not.toHaveBeenCalled();
   });
 
   it("Test 8b (defensive): createRoom failure on one role does not persist that role's ID nor call addAdminRoom for it; returns failure reason", async () => {
