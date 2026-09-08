@@ -540,3 +540,63 @@ export async function getSharedDMRoom(
   }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// deactivateUser — POST /_synapse/admin/v1/deactivate/{mxid}
+// ---------------------------------------------------------------------------
+
+// `AdminOk<Record<string, never>>` collapses to an impossible type under
+// strict build settings (Docker build's tsc rejects `{ok:true}` as violating
+// Record<string, never>). This primitive has no payload beyond the ok flag —
+// just declare that directly.
+export type DeactivateUserOk = { ok: true };
+
+/**
+ * Deactivate a Synapse account by mxid. Called from POST /users/create rollback
+ * (Plan 03) and both delete paths (Plan 04). Best-effort at call sites — callers
+ * log-and-proceed on non-ok per D-10.
+ *
+ * POST /_synapse/admin/v1/deactivate/{mxid}
+ *
+ * Body: sends explicit `erase` field set to false (defensive per RESEARCH.md
+ * Assumption A3 — prevents accidental room-history erasure).
+ */
+export async function deactivateUser(
+  mxid: string,
+): Promise<DeactivateUserOk | AdminErr> {
+  const creds = await getMatrixAdminCreds();
+  if (!creds) {
+    return { ok: false, status: 500, error: ERR_CREDS_MISSING };
+  }
+
+  const url = `${creds.homeserverBase}/_synapse/admin/v1/deactivate/${encodeURIComponent(mxid)}`;
+  const body = { erase: false };
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: ERR_NON_2XX };
+    }
+    return { ok: true };
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return { ok: false, status: 504, error: ERR_TIMEOUT };
+    }
+    databaseLogger.error("matrix admin proxy error", err, {
+      operation: "matrix_admin_deactivate_user",
+    });
+    return { ok: false, status: 502, error: ERR_PROXY };
+  }
+}
