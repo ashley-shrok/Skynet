@@ -312,6 +312,70 @@ describe("runObservationTick", () => {
     expect(deps.refreshRelayRoomLastActivity).not.toHaveBeenCalled();
   });
 
+  it("Test H-1 [fixup]: per-room getRoomJoinedMembers failure does NOT mark that room inactive (D-06 no-destruction invariant)", async () => {
+    // User has 3 joined rooms. The per-room members fetch fails for room 2
+    // (transient Synapse 429 / network hiccup). Rooms 1 and 3 succeed.
+    // There is an existing active DB row for room 2. Per D-06, that row
+    // MUST NOT be marked inactive — absence of observation is not evidence
+    // the user left the room. Only rooms we SUCCESSFULLY fetched and that
+    // are NOT in the discovered set may be marked inactive.
+    const deps = makeDeps({
+      getUserJoinedRooms: vi.fn(async () => ({
+        ok: true,
+        roomIds: ["!r1:s", "!r2:s", "!r3:s"],
+      })),
+      getRoomJoinedMembers: vi.fn(async (roomId: string) => {
+        if (roomId === "!r2:s") {
+          // Transient failure on the per-room fetch. Whole-user fetch
+          // succeeded, so the tick continues — but this room's state is
+          // now unknown and MUST NOT be reconciled against.
+          return {
+            ok: false as const,
+            status: 429,
+            error: "admin_api_non_2xx",
+          };
+        }
+        return {
+          ok: true as const,
+          memberMxids: [USER_A_MXID, "@foreign:s", "@extra:s"],
+          total: 3,
+        };
+      }),
+      // DB has an active row for the room whose per-room fetch failed.
+      listActiveRelayRoomSessions: vi.fn(async () => [
+        {
+          id: "session-r2",
+          roomId: "!r2:s",
+          roomTitle: null,
+          lastActivityAt: null,
+          createdAt: "2026-09-01",
+          updatedAt: "2026-09-01",
+        },
+      ]),
+    });
+
+    await runObservationTick(USER_A, USER_A_MXID, deps);
+
+    // Rooms 1 and 3 materialize as normal.
+    expect(deps.materializeRelayRoomSession).toHaveBeenCalledWith(
+      USER_A,
+      "!r1:s",
+      null,
+    );
+    expect(deps.materializeRelayRoomSession).toHaveBeenCalledWith(
+      USER_A,
+      "!r3:s",
+      null,
+    );
+    // Critical: room 2's DB row MUST NOT be marked inactive despite being
+    // absent from materializedRoomIds — the per-room fetch failed so its
+    // state is unknown, not "user left".
+    expect(deps.markRelayRoomSessionInactive).not.toHaveBeenCalledWith(
+      USER_A,
+      "!r2:s",
+    );
+  });
+
   it("Test 10: D-07 no-user-visible — runObservationTick never throws when store primitives throw", async () => {
     const deps = makeDeps({
       getUserJoinedRooms: vi.fn(async () => ({
