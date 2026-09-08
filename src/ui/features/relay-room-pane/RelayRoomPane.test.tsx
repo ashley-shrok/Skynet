@@ -11,7 +11,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { render, waitFor } from "@testing-library/react";
+import { render, waitFor, fireEvent } from "@testing-library/react";
 import type { Identity } from "@/api/identities-api";
 
 // Mock authApi.get for the participants fetch.
@@ -335,6 +335,253 @@ describe("RelayRoomPane (Phase 90 Plan 05 Task 3)", () => {
     // Payload MUST be a plain object with explicit fields — no JSON.stringify
     // of a response body or Matrix event.
     expect(typeof payload).toBe("object");
+  });
+
+  it("Plan06-T1: instantiates useRelayRoomStream with expected opts + wires stream state into RelayMessageList props", async () => {
+    // Mock useRelayRoomStream to observe args + drive state.
+    const mockedStream = await import("./use-relay-room-stream");
+    const spy = vi.spyOn(mockedStream, "useRelayRoomStream").mockReturnValue({
+      history: [],
+      participants: null,
+      error: null,
+      pendingSends: [],
+      hasOlder: true,
+      loadOlderStatus: "idle",
+      loadOlderError: null,
+      sendMessage: vi.fn(),
+      fetchOlder: vi.fn(),
+    });
+    mockedGet.mockResolvedValueOnce({
+      status: 200,
+      data: { humans: [], agents: [] },
+    });
+    render(
+      <RelayRoomPane
+        roomId="!room:matrix.example.com"
+        roomTitle="Working session"
+        isVisible={true}
+      />,
+    );
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalled();
+    });
+    const opts = spy.mock.calls[0][0];
+    expect(opts.roomId).toBe("!room:matrix.example.com");
+    expect(opts.viewingUserMxid).toBe(VIEWING_MXID);
+    expect(opts.isVisible).toBe(true);
+    spy.mockRestore();
+  });
+
+  it("Plan06-T2: replaces data-slot='compose-box' placeholder with ComposeBoxShell (D-04 upperArea + D-05 attachButton both undefined)", async () => {
+    const mockedStream = await import("./use-relay-room-stream");
+    const spy = vi.spyOn(mockedStream, "useRelayRoomStream").mockReturnValue({
+      history: [],
+      participants: null,
+      error: null,
+      pendingSends: [],
+      hasOlder: false,
+      loadOlderStatus: "idle",
+      loadOlderError: null,
+      sendMessage: vi.fn(),
+      fetchOlder: vi.fn(),
+    });
+    mockedGet.mockResolvedValueOnce({
+      status: 200,
+      data: { humans: [], agents: [] },
+    });
+    const { container } = render(
+      <RelayRoomPane
+        roomId="!room:matrix.example.com"
+        roomTitle={null}
+        isVisible={true}
+      />,
+    );
+    await waitFor(() => {
+      // A textarea is present (from ComposeBoxShell).
+      expect(container.querySelector("textarea")).not.toBeNull();
+      // The Send button appears with aria-label="Send".
+      expect(
+        container.querySelector('button[aria-label="Send"]'),
+      ).not.toBeNull();
+    });
+    // D-04: no upperArea slot rendered (would carry data-testid="compose-shell-upper-area").
+    expect(
+      container.querySelector('[data-testid="compose-shell-upper-area"]'),
+    ).toBeNull();
+    // D-05: no attachButton slot rendered.
+    expect(
+      container.querySelector('[data-testid="compose-shell-attach-slot"]'),
+    ).toBeNull();
+    spy.mockRestore();
+  });
+
+  it("Plan06-T3 (D-15/D-16 + W#7 mqid prefix): handleSend calls stream.sendMessage with mqid matching /^relay-optim-/ + fires structured send log", async () => {
+    const sendMessageSpy = vi.fn();
+    const mockedStream = await import("./use-relay-room-stream");
+    const spy = vi.spyOn(mockedStream, "useRelayRoomStream").mockReturnValue({
+      history: [],
+      participants: null,
+      error: null,
+      pendingSends: [],
+      hasOlder: false,
+      loadOlderStatus: "idle",
+      loadOlderError: null,
+      sendMessage: sendMessageSpy,
+      fetchOlder: vi.fn(),
+    });
+    mockedGet.mockResolvedValueOnce({
+      status: 200,
+      data: { humans: [], agents: [] },
+    });
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const { container } = render(
+      <RelayRoomPane
+        roomId="!room:matrix.example.com"
+        roomTitle={null}
+        isVisible={true}
+      />,
+    );
+    let textarea: HTMLTextAreaElement | null = null;
+    await waitFor(() => {
+      textarea = container.querySelector("textarea");
+      expect(textarea).not.toBeNull();
+    });
+    // Type "hello" and press Enter.
+    fireEvent.change(textarea!, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea!, { key: "Enter" });
+    expect(sendMessageSpy).toHaveBeenCalledTimes(1);
+    const [body, mqid] = sendMessageSpy.mock.calls[0];
+    expect(body).toBe("hello");
+    // W#7 committed prefix.
+    expect(mqid).toMatch(/^relay-optim-/);
+    // Structured send log observed.
+    const sendCall = infoSpy.mock.calls.find((call) => {
+      const p = call[0];
+      return (
+        typeof p === "object" &&
+        p !== null &&
+        (p as { operation?: string }).operation === "relay_room_send"
+      );
+    });
+    expect(sendCall).toBeDefined();
+    infoSpy.mockRestore();
+    spy.mockRestore();
+  });
+
+  it("Plan06-T4 (W#7 mqid prefix distinct from pretty-view): generated mqid MUST NOT carry the pv-optim- prefix", async () => {
+    const sendMessageSpy = vi.fn();
+    const mockedStream = await import("./use-relay-room-stream");
+    const spy = vi.spyOn(mockedStream, "useRelayRoomStream").mockReturnValue({
+      history: [],
+      participants: null,
+      error: null,
+      pendingSends: [],
+      hasOlder: false,
+      loadOlderStatus: "idle",
+      loadOlderError: null,
+      sendMessage: sendMessageSpy,
+      fetchOlder: vi.fn(),
+    });
+    mockedGet.mockResolvedValueOnce({
+      status: 200,
+      data: { humans: [], agents: [] },
+    });
+    const { container } = render(
+      <RelayRoomPane
+        roomId="!room:matrix.example.com"
+        roomTitle={null}
+        isVisible={true}
+      />,
+    );
+    let textarea: HTMLTextAreaElement | null = null;
+    await waitFor(() => {
+      textarea = container.querySelector("textarea");
+      expect(textarea).not.toBeNull();
+    });
+    fireEvent.change(textarea!, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea!, { key: "Enter" });
+    const [, mqid] = sendMessageSpy.mock.calls[0];
+    expect(mqid).not.toMatch(/^pv-optim-/);
+    spy.mockRestore();
+  });
+
+  it("Plan06-T5: stream.participants (WS-derived) takes precedence over REST participants when present", async () => {
+    const mockedStream = await import("./use-relay-room-stream");
+    const spy = vi.spyOn(mockedStream, "useRelayRoomStream").mockReturnValue({
+      history: [],
+      participants: {
+        humans: [
+          { mxid: "@bob:matrix.example.com", displayName: "Bob", userId: "3" },
+        ],
+        agents: [],
+      },
+      error: null,
+      pendingSends: [],
+      hasOlder: false,
+      loadOlderStatus: "idle",
+      loadOlderError: null,
+      sendMessage: vi.fn(),
+      fetchOlder: vi.fn(),
+    });
+    mockedGet.mockResolvedValueOnce({
+      status: 200,
+      data: {
+        humans: [
+          { mxid: "@tina:matrix.example.com", displayName: "Tina", userId: "2" },
+        ],
+        agents: [],
+      },
+    });
+    const { container } = render(
+      <RelayRoomPane
+        roomId="!room:matrix.example.com"
+        roomTitle={null}
+        isVisible={true}
+      />,
+    );
+    await waitFor(() => {
+      const cells = container.querySelectorAll(
+        '[data-testid="relay-room-participant"]',
+      );
+      // WS participants (Bob) wins over REST (Tina) once the frame lands.
+      expect(cells.length).toBe(1);
+      expect(cells[0].getAttribute("data-mxid")).toBe(
+        "@bob:matrix.example.com",
+      );
+    });
+    spy.mockRestore();
+  });
+
+  it("Plan06-T6 (D-18 unified with hook error): stream.error='room-not-found' → RelayRoomErrorState renders", async () => {
+    const mockedStream = await import("./use-relay-room-stream");
+    const spy = vi.spyOn(mockedStream, "useRelayRoomStream").mockReturnValue({
+      history: [],
+      participants: null,
+      error: "room-not-found",
+      pendingSends: [],
+      hasOlder: false,
+      loadOlderStatus: "idle",
+      loadOlderError: null,
+      sendMessage: vi.fn(),
+      fetchOlder: vi.fn(),
+    });
+    mockedGet.mockResolvedValueOnce({
+      status: 200,
+      data: { humans: [], agents: [] },
+    });
+    const { container } = render(
+      <RelayRoomPane
+        roomId="!room:matrix.example.com"
+        roomTitle={null}
+        isVisible={true}
+      />,
+    );
+    await waitFor(() => {
+      expect(
+        container.querySelector('[data-testid="relay-room-error-state"]'),
+      ).not.toBeNull();
+    });
+    spy.mockRestore();
   });
 
   it("Test 10 (W#8 wiring): useViewingUserMxid returns null → pane renders a loading state (badge row + message list hidden until mxid known)", async () => {

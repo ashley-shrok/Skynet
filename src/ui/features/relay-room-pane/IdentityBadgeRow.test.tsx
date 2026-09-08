@@ -60,6 +60,28 @@ vi.mock("@/hooks/use-mobile", () => ({
   useIsMobile: vi.fn(() => false),
 }));
 
+// Plan 06: AgentBadgeWithAppendage now reads from these stores transitively —
+// mock them so the row tests do not require the real fleet-status subscription.
+vi.mock("@/state/session-working-store", () => ({
+  useSessionIsWorking: vi.fn(() => false),
+  useSessionIsRecycling: vi.fn(() => false),
+}));
+
+vi.mock("@/api/fleet-status-client", () => ({
+  useSessionContextPct: vi.fn(() => null),
+}));
+
+vi.mock("@/main-axios", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...orig,
+    authApi: {
+      get: vi.fn(),
+      post: vi.fn(),
+    },
+  };
+});
+
 import { IdentityBadgeRow } from "./IdentityBadgeRow";
 
 const ASHLEY_MXID = "@ashley:matrix.example.com";
@@ -131,7 +153,7 @@ describe("IdentityBadgeRow (Phase 90 Plan 05 Task 2)", () => {
     }
   });
 
-  it("Test 3: agent cell renders the plain badge PLUS a data-slot='agent-badge-appendage' placeholder container", () => {
+  it("Test 3 (Plan 06 swap): agent cell renders AgentBadgeWithAppendage (data-appendage='true'), not the AgentBadgeCellPlaceholder", () => {
     const { container } = render(
       <IdentityBadgeRow
         humans={[]}
@@ -143,12 +165,12 @@ describe("IdentityBadgeRow (Phase 90 Plan 05 Task 2)", () => {
       '[data-testid="relay-room-participant"][data-role="agent"]',
     );
     expect(agentCells.length).toBe(1);
-    // Placeholder slot present for Plan 06 to fill.
+    // Plan 06 replaces the placeholder with AgentBadgeWithAppendage which
+    // renders data-appendage="true" (the D-09 discriminator).
     expect(
-      agentCells[0].querySelector('[data-slot="agent-badge-appendage"]'),
+      agentCells[0].querySelector('[data-appendage="true"]'),
     ).not.toBeNull();
-    // Plain badge (from IdentityBadge primitive) also present — verify by
-    // presence of the identity-badge-root testid.
+    // Plain badge (from IdentityBadge primitive) still present.
     expect(
       agentCells[0].querySelector('[data-testid="identity-badge-root"]'),
     ).not.toBeNull();
