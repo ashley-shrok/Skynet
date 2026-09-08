@@ -202,7 +202,15 @@ export async function writeInstalledBytesWithMode(
  * Fire `systemctl --user restart <unit>` via the injected channel.
  *
  * Command shape:
- *   `systemctl --user restart '<unit>' && echo __RESTART_OK__ || echo __RESTART_FAIL__`
+ *   `XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user restart '<unit>' && echo __RESTART_OK__ || echo __RESTART_FAIL__`
+ *
+ * XDG_RUNTIME_DIR is required so `systemctl --user` can reach the user
+ * dbus socket; bare SSH-exec on Ubuntu does not create a logind session
+ * and leaves the var unset, which makes every `systemctl --user` call
+ * silently fail with "Failed to connect to bus: No medium found" and
+ * exit 1. `$(id -u)` is evaluated by the remote shell so the fix is
+ * UID-agnostic across managed hosts. Symmetric with the three
+ * `systemctl --user` call sites in run-bootstrap.ts.
  *
  * Only ever called for catalog entries whose restartHook is non-null AND
  * whose byte-compare actually pushed bytes (never on skip). See the
@@ -215,7 +223,7 @@ export async function restartUserUnit(
   try {
     const escapedUnit = shellSingleQuote(unitName);
     const cmd =
-      `systemctl --user restart ${escapedUnit} && echo __RESTART_OK__ || echo __RESTART_FAIL__`;
+      `XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user restart ${escapedUnit} && echo __RESTART_OK__ || echo __RESTART_FAIL__`;
 
     const raw = await channel.exec(cmd);
 

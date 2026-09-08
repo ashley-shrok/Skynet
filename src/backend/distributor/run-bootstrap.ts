@@ -162,8 +162,16 @@ export async function runBootstrapForHost(
     // Sentinel-based exit-code capture: echo "EXIT:$?" after the check so we
     // can distinguish "enabled" (exit 0) from "not enabled / unit not found"
     // (exit 1+) without relying on stdout text parsing across systemd versions.
+    // XDG_RUNTIME_DIR is required for `systemctl --user` to reach the user
+    // dbus socket. Bare SSH-exec on Ubuntu does NOT set it (no logind session
+    // is created), so without the explicit prefix every `systemctl --user`
+    // call silently fails with "Failed to connect to bus: No medium found"
+    // and exits 1 — which the distributor previously misread as "not
+    // enabled, run bootstrap" while the bootstrap sequence + restart hook
+    // both silently no-op'd on the same missing bus. `$(id -u)` is evaluated
+    // by the remote shell so this is UID-agnostic across managed hosts.
     const checkCmd =
-      `systemctl --user is-enabled agent-supervisor.service 2>/dev/null; echo "EXIT:$?"`;
+      `XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user is-enabled agent-supervisor.service 2>/dev/null; echo "EXIT:$?"`;
     const checkRaw = await channel.exec(checkCmd);
 
     if (checkRaw === null) {
@@ -193,10 +201,13 @@ export async function runBootstrapForHost(
         //   loginctl enable-linger  — persist systemd-user across logout
         //   systemctl --user daemon-reload  — pick up newly-installed unit file
         //   systemctl --user enable --now   — enable + start
+        // `loginctl` operates on system-level state and does NOT need
+        // XDG_RUNTIME_DIR. The two `systemctl --user` calls do — see the
+        // is-enabled-check note above for why.
         const bootstrapCmd = [
           `loginctl enable-linger "$(whoami)"`,
-          `systemctl --user daemon-reload`,
-          `systemctl --user enable --now agent-supervisor.service`,
+          `XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user daemon-reload`,
+          `XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user enable --now agent-supervisor.service`,
           `echo "__BOOTSTRAP_OK__"`,
         ].join(" && ");
 
@@ -229,7 +240,7 @@ export async function runBootstrapForHost(
       // Skip if daemon-reload already ran as part of the bootstrap sequence.
       if (!daemonReloadRan) {
         const reloadCmd =
-          `systemctl --user daemon-reload && echo "__RELOAD_OK__"`;
+          `XDG_RUNTIME_DIR=/run/user/$(id -u) systemctl --user daemon-reload && echo "__RELOAD_OK__"`;
         const reloadRaw = await channel.exec(reloadCmd);
 
         if (reloadRaw === null) {
