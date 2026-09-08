@@ -41,8 +41,10 @@ import {
   countUsersMatching,
   getSharedDMRoom,
   deactivateUser,
+  createRoom,
 } from "./matrix-admin-client.js";
 import { getMatrixAdminCreds } from "./matrix-admin-creds-store.js";
+import { databaseLogger } from "../utils/logger.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -765,5 +767,144 @@ describe("deactivateUser", () => {
     const parsedBody = JSON.parse(requestInit.body as string);
     expect(parsedBody.erase).toBe(false);
     expect(requestInit.method).toBe("POST");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createRoom (Phase 89-02 Task 1) — POST /_matrix/client/v3/createRoom
+// ---------------------------------------------------------------------------
+//
+// Client-server API (NOT the admin API — there is no admin createRoom); admin
+// credential is a normal Matrix access_token that works on both APIs.
+
+describe("createRoom", () => {
+  it("Test 1: happy path 200 returns {ok:true, roomId}; POST to /_matrix/client/v3/createRoom with Bearer auth and body includes name+preset+visibility", async () => {
+    const fetchMock = vi.fn(async () =>
+      mockFetchResponse(200, {
+        room_id: "!agentsRegistry:thenasty.taild9b663.ts.net",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await createRoom({
+      name: "agents-registry",
+      preset: "private_chat",
+      visibility: "private",
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.roomId).toBe(
+        "!agentsRegistry:thenasty.taild9b663.ts.net",
+      );
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const call = fetchMock.mock.calls[0];
+    const url = call[0] as string;
+    expect(url).toBe(
+      `${HAPPY_CREDS.homeserverBase}/_matrix/client/v3/createRoom`,
+    );
+    const opts = call[1] as RequestInit;
+    expect(opts.method).toBe("POST");
+    const headers = opts.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe(
+      `Bearer ${HAPPY_CREDS.accessToken}`,
+    );
+    expect(headers["Content-Type"]).toBe("application/json");
+    const body = JSON.parse(opts.body as string);
+    expect(body.name).toBe("agents-registry");
+    expect(body.preset).toBe("private_chat");
+    expect(body.visibility).toBe("private");
+  });
+
+  it("Test 2: non-2xx 400 (invalid room state) → {ok:false, status:400, error:'admin_api_non_2xx'}", async () => {
+    stubFetchOk(400, {
+      errcode: "M_INVALID_PARAM",
+      error: "some-server-secret-detail",
+    });
+    const result = await createRoom({ name: "bad-room" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(400);
+      expect(result.error).toBe("admin_api_non_2xx");
+      expect(JSON.stringify(result)).not.toContain("some-server-secret-detail");
+      expect(JSON.stringify(result)).not.toContain("M_INVALID_PARAM");
+    }
+  });
+
+  it("Test 3: no creds available → {ok:false, status:500, error:'matrix_admin_creds_missing'}, fetch never called", async () => {
+    vi.mocked(getMatrixAdminCreds).mockResolvedValueOnce(null);
+    const fetchMock = vi.fn(async () => {
+      throw new Error("fetch must not be called when creds are missing");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await createRoom({ name: "any-room" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(500);
+      expect(result.error).toBe("matrix_admin_creds_missing");
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("Test 4: AbortError (timeout) → {ok:false, status:504, error:'admin_api_timeout'}", async () => {
+    stubFetchAbort();
+    const result = await createRoom({ name: "any-room" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(504);
+      expect(result.error).toBe("admin_api_timeout");
+    }
+  });
+
+  it("Test 5: network throw → {ok:false, status:502, error:'admin_api_proxy_error'}; admin token NEVER logged", async () => {
+    stubFetchNetworkError();
+    const errorSpy = vi.mocked(databaseLogger.error);
+    errorSpy.mockClear();
+    const result = await createRoom({ name: "any-room" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(502);
+      expect(result.error).toBe("admin_api_proxy_error");
+    }
+    // Verify databaseLogger.error was called (proxy path), but the admin
+    // access_token substring appears in NONE of its arguments.
+    expect(errorSpy).toHaveBeenCalled();
+    for (const call of errorSpy.mock.calls) {
+      for (const arg of call) {
+        expect(JSON.stringify(arg)).not.toContain(HAPPY_CREDS.accessToken);
+      }
+    }
+  });
+
+  it("Test 5b: response missing room_id → {ok:false, status:500, error:'admin_api_no_token'} (matches loginAsUser expected-field-missing pattern)", async () => {
+    stubFetchOk(200, { alt_field: "no room id here" });
+    const result = await createRoom({ name: "any-room" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(500);
+      expect(result.error).toBe("admin_api_no_token");
+    }
+  });
+
+  it("Test 5c: room_alias_name is passed through in body when supplied", async () => {
+    const fetchMock = vi.fn(async () =>
+      mockFetchResponse(200, {
+        room_id: "!x:host",
+        room_alias: "#myalias:host",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await createRoom({
+      name: "aliased-room",
+      roomAliasName: "myalias",
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.roomId).toBe("!x:host");
+      expect(result.roomAlias).toBe("#myalias:host");
+    }
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+    );
+    expect(body.room_alias_name).toBe("myalias");
   });
 });
