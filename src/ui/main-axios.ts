@@ -114,6 +114,16 @@ export interface UserInfo {
   is_oidc: boolean;
   data_unlocked: boolean;
   password_hash?: string;
+  /**
+   * Phase 90 Plan 05 Task 1 (W#8 resolution — Option A, smallest-diff path):
+   * the viewing user's Matrix mxid. Populated by the `/users/me` endpoint from
+   * `users.mxid` (Phase 88 slice A durable column). Optional at the type
+   * level for backward-compat with pre-Phase-90 cached responses / pre-Phase-88
+   * users who may still have `mxid=null` in the DB. Consumers (e.g.,
+   * `viewing-user-store.ts`) treat `undefined` and `null` identically as
+   * "no mxid known" and render accordingly.
+   */
+  mxid?: string | null;
 }
 
 interface UserCount {

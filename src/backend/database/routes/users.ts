@@ -1949,6 +1949,14 @@ router.get("/me", authenticateJWT, async (req: Request, res: Response) => {
       is_dual_auth: isDualAuth,
       totp_enabled: !!user[0].totpEnabled,
       data_unlocked: authManager.isUserUnlocked(userId),
+      // Phase 90 Plan 05 Task 1 (W#8 resolution — Option A): expose the
+      // viewing user's Matrix mxid so the relay-room pane's
+      // `useViewingUserMxid()` hook can source it via `getUserInfo()`
+      // without a dedicated endpoint. `users.mxid` is nullable (Phase 88
+      // slice A durable column — pre-Phase-88 users may still have
+      // mxid=null); the frontend UserInfo type declares `mxid?: string |
+      // null` and consumers treat both undefined and null as "no mxid".
+      mxid: user[0].mxid ?? null,
     });
   } catch (err) {
     authLogger.error("Failed to get username", err);
