@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { authLogger } from "../../utils/logger.js";
 import { db } from "../db/index.js";
 import { unlinkUserAvatar } from "./user-avatar-storage.js";
+import { deactivateUser } from "../../matrix/matrix-admin-client.js";
 import {
   auditLogs,
   commandHistory,
@@ -98,12 +99,32 @@ export async function deleteUserAndRelatedData(userId: string): Promise<void> {
     // outer try/catch at the top of this helper surfaces it — the DELETE
     // will not run and the operator sees the error rather than a silent
     // orphan-file leak.
-    const avatarRow = await db.select({ avatarPath: users.avatarPath })
+    const avatarRow = await db.select({ avatarPath: users.avatarPath, mxid: users.mxid })
       .from(users)
       .where(eq(users.id, userId))
       .limit(1);
     if (avatarRow.length > 0) {
       await unlinkUserAvatar(avatarRow[0].avatarPath);
+    }
+
+    // Phase 88 D-09 — deactivate Matrix account BEFORE row DELETE (Pitfall 5 — mxid must be fetched from the row
+    // before it's gone; extended into the avatarRow select projection above). Best-effort per D-10: Synapse failure
+    // logs a warning with the orphan mxid and proceeds with the row DELETE anyway. This helper is called by
+    // admin-side + OIDC-merge paths; the helper's caller is responsible for the HTTP response.
+    if (avatarRow.length > 0 && avatarRow[0].mxid) {
+      const deactivateResult = await deactivateUser(avatarRow[0].mxid);
+      if (!deactivateResult.ok) {
+        authLogger.warn(
+          "Matrix account deactivation failed in deleteUserAndRelatedData (orphaned mxid logged for future sweep — D-10 best-effort)",
+          {
+            operation: "delete_user_and_related_data_matrix_deactivate_failed",
+            userId,
+            mxid: avatarRow[0].mxid,
+            status: deactivateResult.status,
+            error: deactivateResult.error,
+          },
+        );
+      }
     }
 
     await db.delete(users).where(eq(users.id, userId));
