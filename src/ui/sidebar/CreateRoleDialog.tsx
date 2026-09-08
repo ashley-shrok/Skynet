@@ -29,13 +29,38 @@
 // hidden when only one pickable host (single host still auto-picked).
 // Item 7 (sibling NewSessionDialog title conform) lives in Plan 84-02.
 //
+// ─── Phase 86 (D-CTX-86-surface-3, D-CTX-86-empty-not-scenario) ────────
+// Cosmetics migrate to role level: this dialog is now the primary AUTHORING
+// surface for the four cosmetic frontmatter fields (title, colorHue, voice,
+// avatar). Added below the Description textarea and above the Host picker:
+//   - Title input (labelled "Title", id `create-role-title`)
+//   - VoicePicker (imported from `@/features/pretty-view/pickers/VoicePicker`,
+//     id `create-role-voice`)
+//   - ColorPicker (imported from `@/features/pretty-view/pickers/ColorPicker`,
+//     id `create-role-color`, seeded randomly per open)
+//   - Avatar generator: Generate/Regenerate button + Upload button + 3-candidate
+//     carousel + manual preview. Batch generator inlined per D-CTX-86-surface-3
+//     "planner's discretion (b) — only one caller remains post-phase; extraction
+//     can happen later if a third caller emerges".
+//
+// Submission blocks until Name + Description + Host + Title + Voice +
+// ColorHue + a picked/uploaded avatar are ALL set (D-CTX-86-empty-not-scenario:
+// "roles can't have empty cosmetics with the flows that we have set up").
+//
+// Avatar transport (LOCKED — D-CTX-86-surface-3): raw File in multipart. For a
+// generated candidate, we `fetch(candidate.url).blob()` and re-package as a
+// File; for a manual upload, we hold onto the raw File in a ref. CreateRoleDialog
+// does NOT have a birth stream (unlike NewSessionDialog's identity flow), so we
+// must ship the File directly in the widened createRole() multipart call.
+//
 // Zero new npm deps. Reuses the fork's Dialog wrapper (@/components/dialog),
 // Button (@/components/button), Input (@/components/input), lucide-react icons
-// (Search only — no VoicePicker/ColorPicker/AvatarPicker here).
+// (Search + Loader2), and the ColorPicker/VoicePicker components from
+// pretty-view/pickers.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Search } from "lucide-react";
+import { Search, Loader2 } from "lucide-react";
 
 import {
   Dialog,
@@ -48,7 +73,17 @@ import {
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
 import type { Host, HostFolder } from "@/types/ui-types";
-import { createRole, RoleAlreadyExistsError } from "@/api/identities-api";
+import {
+  createRole,
+  postGenerateAvatarBatch,
+  postManualAvatarCandidate,
+  RoleAlreadyExistsError,
+  type AvatarCandidate,
+} from "@/api/identities-api";
+// Phase 86 (D-CTX-86-surface-3): reused cosmetic pickers from pretty-view.
+// Same call shape as NewSessionDialog L1232-1254 and IdentityModal L1763-1772.
+import { VoicePicker } from "@/features/pretty-view/pickers/VoicePicker";
+import { ColorPicker } from "@/features/pretty-view/pickers/ColorPicker";
 
 // ─── Type-guard + host DFS (duplicated from NewSessionDialog L82-99) ─────────
 // Kept inline pending RESEARCH F1 recommendation ("extract into reusable
@@ -77,6 +112,18 @@ function collectAllHosts(children: (Host | HostFolder)[]): Host[] {
 // (no dots, slashes, plus, equals, underscores). Defense-in-depth: backend
 // re-validates before any SSH/SFTP work.
 export const ROLE_NAME_PATTERN = /^[a-z0-9-]+$/;
+
+// ─── Phase 86: mimetype → file-extension map for generated-candidate File
+// reconstruction. The batch generator returns image URLs; we fetch bytes and
+// re-package as a File. Default to `webp` (what the batch generator emits)
+// when the response header omits Content-Type. Kept local to this dialog per
+// D-CTX-86-surface-3 "extract later if a third caller emerges" precedent.
+const MIME_TO_EXT: Record<string, string> = {
+  "image/webp": "webp",
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+};
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -120,6 +167,35 @@ export function CreateRoleDialog({
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // ─── Phase 86 (D-CTX-86-surface-3) cosmetic state ────────────────────────
+  // Mirrors NewSessionDialog L317-337 shape. All EPHEMERAL until submit.
+  // colorHue seeded randomly per open so never-touched roles aren't all cyan
+  // (matches NewSessionDialog L320's Math.floor(Math.random() * 360) seed).
+  const [title, setTitle] = useState<string>("");
+  const [voice, setVoice] = useState<string>("");
+  const [colorHue, setColorHue] = useState<number>(() =>
+    Math.floor(Math.random() * 360),
+  );
+
+  // Avatar batch state
+  const [candidates, setCandidates] = useState<AvatarCandidate[]>([]);
+  const [pickedCandidateId, setPickedCandidateId] = useState<string | null>(null);
+  const [genLoading, setGenLoading] = useState<boolean>(false);
+  const [genError, setGenError] = useState<string | null>(null);
+
+  // Manual avatar upload state
+  const [manualPreviewUrl, setManualPreviewUrl] = useState<string | null>(null);
+  const [uploadLoading, setUploadLoading] = useState<boolean>(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  // Ref to track latest manualPreviewUrl for cleanup (mirrors NewSessionDialog L337).
+  const manualUrlRef = useRef<string | null>(null);
+  // Phase 86 (D-CTX-86-surface-3): raw File captured at input.change time.
+  // CreateRoleDialog ships this File directly in the createRole multipart call
+  // (no birth-stream indirection — unlike NewSessionDialog). Held in a ref
+  // rather than state because the File itself never re-renders anything and
+  // we want to avoid stale-closure inside handleSubmit.
+  const manualFileRef = useRef<File | null>(null);
+
   // ─── Derived: flat host list + filtered ──────────────────────────────────
   // Matches NewSessionDialog L294-317 — flatten via DFS, filter out RDP-only
   // hosts (mirrors the sibling picker's Patch #111 F4 predicate for surface
@@ -143,13 +219,16 @@ export function CreateRoleDialog({
 
   // ─── Effect: reset state on close + auto-select single host on open ──────
   // Mirrors NewSessionDialog L328-366 pattern. On open: auto-select if the
-  // tree has exactly one host (matches sibling picker UX). On close: reset
-  // all state so re-open starts fresh.
+  // tree has exactly one host (matches sibling picker UX), and re-seed
+  // colorHue randomly so a re-opened dialog doesn't remember the prior hue.
+  // On close: reset all state so re-open starts fresh.
   useEffect(() => {
     if (open) {
       if (flatHosts.length === 1) {
         setSelectedHost(flatHosts[0]);
       }
+      // Phase 86: re-seed colorHue on each open (never-touched roles vary in hue).
+      setColorHue(Math.floor(Math.random() * 360));
     } else {
       setName("");
       setDescription("");
@@ -157,16 +236,165 @@ export function CreateRoleDialog({
       setSearch("");
       setSubmitting(false);
       setSubmitError(null);
+      // Phase 86: reset cosmetic + avatar state on close so re-open is fresh.
+      setTitle("");
+      setVoice("");
+      setCandidates([]);
+      setPickedCandidateId(null);
+      setGenLoading(false);
+      setGenError(null);
+      setUploadLoading(false);
+      setUploadError(null);
+      if (manualUrlRef.current) {
+        URL.revokeObjectURL(manualUrlRef.current);
+        manualUrlRef.current = null;
+      }
+      setManualPreviewUrl(null);
+      manualFileRef.current = null;
     }
   }, [open, flatHosts]);
+
+  // Cleanup: revoke any dangling object URL on unmount.
+  useEffect(() => {
+    return () => {
+      if (manualUrlRef.current) {
+        URL.revokeObjectURL(manualUrlRef.current);
+        manualUrlRef.current = null;
+      }
+    };
+  }, []);
 
   // ─── Validation ──────────────────────────────────────────────────────────
   const nameValid = name.length > 0 && ROLE_NAME_PATTERN.test(name);
   const nameShowError = name.length > 0 && !nameValid;
   const descriptionValid = description.trim().length > 0;
   const hostValid = selectedHost !== null;
-  // canOpen predicate — enables the Create button. Matches Test 12-14 gates.
-  const canOpen = nameValid && descriptionValid && hostValid && !submitting;
+  // Phase 86 (D-CTX-86-empty-not-scenario): cosmetic fields are REQUIRED.
+  // Roles can't have empty cosmetics with the flows we have set up.
+  // colorHue is always non-null (seeded randomly); voice + title + avatar
+  // are user-set gates.
+  const titleValid = title.trim().length > 0;
+  const voiceValid = voice.length > 0;
+  const avatarValid = pickedCandidateId !== null;
+  // canOpen predicate — enables the Create button. Extended in Phase 86 to
+  // also require the four cosmetic gates (title + voice + colorHue + avatar).
+  const canOpen =
+    nameValid &&
+    descriptionValid &&
+    hostValid &&
+    titleValid &&
+    voiceValid &&
+    avatarValid &&
+    !submitting;
+
+  // ─── Phase 86: form-disabled predicate for cosmetic inputs ─────────────
+  // Mirrors NewSessionDialog's formDisabled — inputs go read-only during
+  // submission or generate/upload loading so the user can't mutate state
+  // out from under an in-flight request.
+  const formDisabled = submitting;
+  const hasGeneratedOnce = candidates.length > 0;
+  const canGenerate =
+    !genLoading &&
+    !formDisabled &&
+    name.length > 0 &&
+    title.trim().length > 0 &&
+    description.trim().length > 0;
+
+  // ─── Phase 86: avatar generate handler (inlined per D-CTX-86-surface-3) ──
+  // Mirrors NewSessionDialog L654-676 with role-scoped seeds:
+  //   name = role name (kebab-case)
+  //   title = role title
+  //   brief = role description (existing textarea doubles as brief per
+  //     D-CTX-86-surface-3 — no duplicate freeform text input)
+  //   colorHue = role colorHue
+  async function handleGenerate() {
+    if (genLoading) return;
+    // Mutual exclusion: clear any manual upload state when generating.
+    if (manualUrlRef.current) {
+      URL.revokeObjectURL(manualUrlRef.current);
+      manualUrlRef.current = null;
+    }
+    setManualPreviewUrl(null);
+    manualFileRef.current = null;
+    setUploadError(null);
+    setGenLoading(true);
+    setGenError(null);
+    try {
+      const cands = await postGenerateAvatarBatch({
+        name,
+        title,
+        brief: description,
+        colorHue,
+      });
+      setCandidates(cands);
+      // Force re-pick — on explicit Regen, clear picked candidate so user
+      // must pick from the fresh set (mirrors NewSessionDialog L668-670).
+      setPickedCandidateId(null);
+    } catch (e) {
+      setGenError(e instanceof Error ? e.message : "generation failed");
+    } finally {
+      setGenLoading(false);
+    }
+  }
+
+  // ─── Phase 86: avatar manual upload handler (inlined) ───────────────────
+  // Mirrors NewSessionDialog L678-704. Preserves mutual exclusion:
+  // uploading clears generated candidates and vice versa.
+  async function handleManualUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Reset the input value so re-picking the same file re-fires the change event.
+    e.target.value = "";
+    setUploadLoading(true);
+    setUploadError(null);
+    try {
+      const data = await postManualAvatarCandidate({ file });
+      // Mutual exclusion: clear generated candidates.
+      setCandidates([]);
+      setGenError(null);
+      // Revoke prior object URL before creating a new one.
+      if (manualUrlRef.current) {
+        URL.revokeObjectURL(manualUrlRef.current);
+      }
+      const objectUrl = URL.createObjectURL(file);
+      manualUrlRef.current = objectUrl;
+      setManualPreviewUrl(objectUrl);
+      // Phase 86: hold onto the raw File so handleSubmit can pass it directly
+      // to the multipart createRole() call (no candidateId indirection —
+      // CreateRoleDialog does not have a birth-stream to hand off to).
+      manualFileRef.current = file;
+      setPickedCandidateId(data.id);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "upload failed");
+    } finally {
+      setUploadLoading(false);
+    }
+  }
+
+  // ─── Phase 86: derive avatar File for the createRole multipart call ─────
+  // For a manual upload: the File is already in manualFileRef (captured at
+  // input.change time). For a generated candidate: fetch the candidate URL,
+  // .blob() it, re-package as a File with a role-name-based filename.
+  // Returns null if no avatar picked (submit is gated on pickedCandidateId
+  // so this path only triggers with an unexpected state).
+  async function resolveAvatarFile(): Promise<File | null> {
+    if (!pickedCandidateId) return null;
+    // Manual upload path — the File is already held.
+    if (manualFileRef.current) return manualFileRef.current;
+    // Generated candidate path — fetch bytes and re-package.
+    const picked = candidates.find((c) => c.id === pickedCandidateId);
+    if (!picked) return null;
+    const res = await fetch(picked.url);
+    if (!res.ok) {
+      throw new Error(
+        `Failed to fetch avatar candidate (HTTP ${res.status})`,
+      );
+    }
+    const blob = await res.blob();
+    const mime = blob.type || "image/webp";
+    const ext = MIME_TO_EXT[mime] ?? "webp";
+    return new File([blob], `${name}.${ext}`, { type: mime });
+  }
 
   // ─── Submit handler ──────────────────────────────────────────────────────
   async function handleSubmit() {
@@ -175,11 +403,25 @@ export function CreateRoleDialog({
     setSubmitError(null);
     try {
       const hostIdNum = parseInt(String(selectedHost.id), 10);
-      await createRole({
-        name,
-        description,
-        hostId: hostIdNum,
-      });
+      // Phase 86: resolve the avatar File BEFORE the createRole call so any
+      // fetch-error surfaces inline without leaving the role folder half-
+      // created on the server. The widened createRole() from Plan 86-01 Task 3
+      // accepts an optional File; we always pass one because canOpen gates on
+      // pickedCandidateId being set.
+      const avatarFile = await resolveAvatarFile();
+      await createRole(
+        {
+          name,
+          description,
+          hostId: hostIdNum,
+          cosmetics: {
+            title,
+            colorHue,
+            voice,
+          },
+        },
+        avatarFile,
+      );
 
       // Phase 84 (D-CONTEXT items 4 + 5): the primary button always advances to
       // the create-agent modal on success. No branching, no gating. Role name
@@ -314,6 +556,176 @@ export function CreateRoleDialog({
               className="text-xs bg-[color:var(--color-pv-surface-quiet)] border border-[color:var(--color-pv-border-quiet-strong)] rounded-sm px-2 py-1 outline-none placeholder:text-[color:var(--color-pv-fg-dim)] text-[color:var(--color-pv-fg)] disabled:opacity-50 resize-y"
             />
           </label>
+
+          {/*
+           * Phase 86 (D-CTX-86-surface-3): cosmetic authoring controls inserted
+           * between Description and Host picker. Order mirrors NewSessionDialog
+           * L1186-1366 (Title → Voice → Color → Avatar) so the two dialogs feel
+           * consistent to a wearer who's used to authoring identity cosmetics.
+           */}
+
+          {/* Title field (Phase 86) */}
+          <div className="flex flex-col gap-1.5">
+            <label
+              htmlFor="create-role-title"
+              className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
+            >
+              Title
+            </label>
+            <Input
+              id="create-role-title"
+              aria-label="Title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Box Maintainer"
+              disabled={formDisabled}
+              className="text-xs"
+            />
+          </div>
+
+          {/* Voice picker (Phase 86) — reused from pretty-view/pickers */}
+          <div className="flex flex-col gap-1.5">
+            <label
+              htmlFor="create-role-voice"
+              className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
+            >
+              Voice
+            </label>
+            <VoicePicker
+              value={voice}
+              onChange={(v) => !formDisabled && setVoice(v)}
+              id="create-role-voice"
+              ariaLabel="Voice"
+              disabled={formDisabled}
+            />
+          </div>
+
+          {/* Color picker (Phase 86) — reused from pretty-view/pickers */}
+          <div className="flex flex-col gap-1.5">
+            <label
+              htmlFor="create-role-color"
+              className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
+            >
+              Color
+            </label>
+            <ColorPicker
+              value={colorHue}
+              onChange={(v) => !formDisabled && setColorHue(v)}
+              id="create-role-color"
+              disabled={formDisabled}
+            />
+          </div>
+
+          {/* Avatar section (Phase 86) — mirrors NewSessionDialog L1257-1366 */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]">
+                Avatar
+              </span>
+              <button
+                type="button"
+                disabled={!canGenerate}
+                onClick={() => { void handleGenerate(); }}
+                className="text-xs px-2 py-1 rounded border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] text-[color:var(--color-pv-fg)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[color:var(--color-pv-surface)] transition-colors"
+                aria-label={hasGeneratedOnce ? "Regenerate" : "Generate"}
+              >
+                {genLoading ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Loader2 className="size-3 animate-spin" />
+                    Generating…
+                  </span>
+                ) : (hasGeneratedOnce ? "Regenerate" : "Generate")}
+              </button>
+
+              {/* Upload… button — label+sr-only input pattern (IdentityModal:1083-1106) */}
+              <label className="flex">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="sr-only"
+                  disabled={formDisabled || uploadLoading}
+                  onChange={(e) => { void handleManualUpload(e); }}
+                />
+                <button
+                  type="button"
+                  disabled={formDisabled || uploadLoading}
+                  aria-label="Upload avatar"
+                  onClick={(e) => {
+                    const input = (e.currentTarget.parentElement as HTMLLabelElement)?.querySelector("input[type='file']") as HTMLInputElement | null;
+                    input?.click();
+                  }}
+                  className="text-xs px-2 py-1 rounded border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] text-[color:var(--color-pv-fg)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[color:var(--color-pv-surface)] transition-colors"
+                >
+                  {uploadLoading ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Loader2 className="size-3 animate-spin" />
+                      Uploading…
+                    </span>
+                  ) : "Upload…"}
+                </button>
+              </label>
+            </div>
+
+            {/* Inline generation error */}
+            {genError && (
+              <span className="text-xs text-[color:var(--color-pv-code-fg)]">
+                {genError}
+              </span>
+            )}
+
+            {/* Inline upload error */}
+            {uploadError && (
+              <span className="text-xs text-[color:var(--color-pv-code-fg)]">
+                {uploadError}
+              </span>
+            )}
+
+            {/* Candidate row — horizontal flex of 3 buttons */}
+            {candidates.length > 0 && (
+              <div className="flex gap-2 justify-center">
+                {candidates.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    data-candidate-id={c.id}
+                    aria-selected={pickedCandidateId === c.id}
+                    disabled={formDisabled}
+                    onClick={() => !formDisabled && setPickedCandidateId(c.id)}
+                    className={`flex-1 rounded overflow-hidden border-2 transition-all disabled:opacity-50 ${
+                      pickedCandidateId === c.id
+                        ? "border-[color:var(--color-pv-code-fg)] ring-1 ring-[color:var(--color-pv-code-fg)]"
+                        : "border-transparent hover:border-[color:var(--color-pv-border-quiet)]"
+                    }`}
+                  >
+                    <img
+                      src={c.url}
+                      alt={`Avatar candidate ${c.id}`}
+                      className="w-full aspect-square object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Manual upload preview — shown when no generated candidates */}
+            {candidates.length === 0 && manualPreviewUrl && (
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  aria-selected={true}
+                  data-manual-avatar="true"
+                  disabled={formDisabled}
+                  className="flex-1 rounded overflow-hidden border-2 border-[color:var(--color-pv-code-fg)] ring-1 ring-[color:var(--color-pv-code-fg)] transition-all disabled:opacity-50 max-w-[80px]"
+                >
+                  <img
+                    src={manualPreviewUrl}
+                    alt="Manual avatar preview"
+                    className="w-full aspect-square object-cover"
+                  />
+                </button>
+              </div>
+            )}
+          </div>
 
           {/*
            * Phase 84 (D-CONTEXT item 8): hide the host search input + host listbox
