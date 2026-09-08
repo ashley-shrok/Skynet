@@ -1,4 +1,4 @@
-# Phase 85: Cosmetics migrate from identity level to role level — Context
+# Phase 86: Cosmetics migrate from identity level to role level — Context
 
 **Gathered:** 2026-09-07
 **Status:** Ready for planning
@@ -229,7 +229,7 @@ No external ADRs, specs, or PRDs cited by ROADMAP.md for this phase.
 ## Deferred / Out of Scope
 
 **Deferred to a future bounty (role-level modal breakout):**
-- Post-creation role cosmetic EDIT via UI (Ashley 2026-09-07 verbatim: *"I would leave this alone because I actually plan on breaking out the role level stuff into its own modal later, and that would be a good opportunity to add it."*). For Phase 85, roles are cosmetically authored ONCE at creation via CreateRoleDialog; subsequent changes require hand-editing the role file on disk. Whoever picks up the role-level modal bounty later adds a role-cosmetic-edit surface then.
+- Post-creation role cosmetic EDIT via UI (Ashley 2026-09-07 verbatim: *"I would leave this alone because I actually plan on breaking out the role level stuff into its own modal later, and that would be a good opportunity to add it."*). For Phase 86, roles are cosmetically authored ONCE at creation via CreateRoleDialog; subsequent changes require hand-editing the role file on disk. Whoever picks up the role-level modal bounty later adds a role-cosmetic-edit surface then.
 
 **Deferred to whoever deploys (per Ashley 2026-09-07):**
 - Migration of existing identity cosmetics to role-level defaults. Manual work per instance: pick appropriate cosmetics, write to role file frontmatter, wipe redundant identity frontmatter fields. Applies to t1000 (tabitha handles at eventual campaign ship gate) and T800 (Stacy handles on her instance).
@@ -271,7 +271,7 @@ Consequences enforced in this phase:
 
 Reordered lineup (Ashley 2026-09-07, tabitha owns the order-keeping per Ashley's delegation):
 1a. `create-role-modal-ux-pass` — Phase 84 DONE (shipped locally, not deployed pending campaign ship gate).
-1b. **`cosmetics-migrate-to-role` — Phase 85 (this phase).** Upstream dependency carved out of `create-agent-modal-ux-pass` /open discussion.
+1b. **`cosmetics-migrate-to-role` — Phase 86 (this phase).** Upstream dependency carved out of `create-agent-modal-ux-pass` /open discussion.
 2. `create-agent-modal-ux-pass` — SHAPED (shape at `.planning/shapes/shape-create-agent-modal-ux-pass.md`), execution deferred until this phase lands.
 3. `clone-modal-ux-pass` — also benefits from this phase.
 4. `runbooks-formal-concept`.

@@ -1,5 +1,5 @@
 ---
-phase: 85-cosmetics-migrate-to-role
+phase: 86-cosmetics-migrate-to-role
 plan: 01
 subsystem: identity-artifact-reader + identities-route + identities-api
 tags:
@@ -21,9 +21,9 @@ dependency_graph:
     - RoleCosmeticInput type export
     - createRole(input, avatar?) multipart client
   affects:
-    - Plan 85-02 backend endpoint contract (POST /roles multipart)
-    - Plan 85-03 CreateRoleDialog integration (Wave 2)
-    - Plan 85-05 IdentityModal inherit-vs-override affordances (Wave 3)
+    - Plan 86-02 backend endpoint contract (POST /roles multipart)
+    - Plan 86-03 CreateRoleDialog integration (Wave 2)
+    - Plan 86-05 IdentityModal inherit-vs-override affordances (Wave 3)
 tech_stack:
   added: []
   patterns:
@@ -35,7 +35,7 @@ key_files:
   created:
     - src/backend/claude-session/identity-artifact-reader.role-cosmetics.test.ts (13 tests)
     - src/ui/api/identities-api.role-cosmetics.test.ts (5 tests)
-    - .planning/phases/85-cosmetics-migrate-to-role-move-title-hue-voice-avatar-from-i/85-01-SUMMARY.md
+    - .planning/phases/86-cosmetics-migrate-to-role-move-title-hue-voice-avatar-from-i/86-01-SUMMARY.md
   modified:
     - src/backend/claude-session/identity-artifact-reader.ts (+2 exports, +1 JSDoc note, +1 import)
     - src/backend/database/routes/identities.ts (publicIdentity extended; GET fanout memo; PUT echo; avatar fallback)
@@ -44,8 +44,8 @@ key_files:
 decisions:
   - "Per-host role-read memo uses Map<string, Promise<cosmetics>> not Map<string, cosmetics> — storing the in-flight Promise collapses concurrent readers within one Promise.all fanout. Deferred alternative (pre-fetch unique roles serially before per-identity read) would have added a second SSH round-trip when role-count << identity-count."
   - "Avatar URL shape stays identical under role-fallback (/identities/:key/avatar?hostId=N). Backend does the fallback internally; frontend consumers ride on the URL as-is. Alternative would have been a URL query flag ?fallback=role, but that leaks internal state to callers who don't need it."
-  - "extractCosmeticsFromFrontmatter reused unchanged on role markdown (not forked into extractCosmeticsFromRoleMarkdown). Both files carry the same YAML frontmatter shape, same field names, same narrowing rules — a fork would drift over time. JSDoc updated to state Phase 85 also calls it against role frontmatter."
-  - "Task 3 (createRole multipart client) pulled forward from what would have been Plan 85-02 Task 2 into Wave 1 to resolve the file-ownership conflict on src/ui/api/identities-api.ts. Both plans share the file this wave; 85-01 owns it. Colocated tests mock authApi so they do NOT require the real backend endpoint (which Plan 85-02 provides in parallel)."
+  - "extractCosmeticsFromFrontmatter reused unchanged on role markdown (not forked into extractCosmeticsFromRoleMarkdown). Both files carry the same YAML frontmatter shape, same field names, same narrowing rules — a fork would drift over time. JSDoc updated to state Phase 86 also calls it against role frontmatter."
+  - "Task 3 (createRole multipart client) pulled forward from what would have been Plan 86-02 Task 2 into Wave 1 to resolve the file-ownership conflict on src/ui/api/identities-api.ts. Both plans share the file this wave; 86-01 owns it. Colocated tests mock authApi so they do NOT require the real backend endpoint (which Plan 86-02 provides in parallel)."
 metrics:
   duration: 24 minutes (start 2026-09-07 04:42:57 UTC, end 2026-09-07 05:07:46 UTC)
   completed_date: 2026-09-07
@@ -56,14 +56,14 @@ metrics:
   files_modified: 4
 ---
 
-# Phase 85 Plan 85-01: Backend role-cosmetics merge + createRole multipart client Summary
+# Phase 86 Plan 86-01: Backend role-cosmetics merge + createRole multipart client Summary
 
 Wave-1 backend groundwork for the cosmetics-migrate-to-role inheritance model.
 Teaches the backend to read role-file cosmetic frontmatter, merge it under
-identity frontmatter per `identity ?? role ?? null` (D-CTX-85-inherit), surface
+identity frontmatter per `identity ?? role ?? null` (D-CTX-86-inherit), surface
 resolved values + raw role defaults to the frontend, and serve role-folder
 avatars as a fallback when the identity has none. Widens the createRole client
-to multipart in Task 3 (pulled forward from Plan 85-02 to resolve file-ownership
+to multipart in Task 3 (pulled forward from Plan 86-02 to resolve file-ownership
 conflict on identities-api.ts).
 
 ## Completed Tasks
@@ -87,11 +87,11 @@ Three additions to `src/backend/claude-session/identity-artifact-reader.ts`:
    (ENOENT → `{markdown: ""}`). REMOTE branch execs
    `cat "$HOME/.claude/roles/${roleName}/${roleName}.md" 2>/dev/null || true`
    via `execWithTimeout`. `ROLE_NAME_PATTERN` gate at function entry
-   (T-85-01-01 defense-in-depth against shell interpolation).
+   (T-86-01-01 defense-in-depth against shell interpolation).
 
 2. **`extractCosmeticsFromFrontmatter`** — REUSED unchanged on role markdown.
    Same YAML shape, same narrowing rules (title/voice/avatar: non-empty
-   string; colorHue: number in [0, 359]). JSDoc updated to state Phase 85 also
+   string; colorHue: number in [0, 359]). JSDoc updated to state Phase 86 also
    calls it against role frontmatter — no code change to the function body.
 
 3. **`readAvatarSiblingFileByRole(conn, roleName, avatarFilename): Promise<{bytes, mime, ext} | null>`**
@@ -100,7 +100,7 @@ Three additions to `src/backend/claude-session/identity-artifact-reader.ts`:
    Takes `avatarFilename` as an explicit arg (already known from role
    frontmatter's `avatar:` field, no re-parse needed). Validates roleName via
    `ROLE_NAME_PATTERN` and avatarFilename via
-   `^[a-z0-9-]+\.(webp|png|jpg|gif|svg)$` regex (T-85-01-02). Enforces
+   `^[a-z0-9-]+\.(webp|png|jpg|gif|svg)$` regex (T-86-01-02). Enforces
    `IDMEDIT_MAX_AVATAR_BYTES` cap on both branches.
 
 `ROLE_NAME_PATTERN` imported from `identity-birth-orchestrator.js` (same
@@ -128,7 +128,7 @@ Extensions in `src/backend/database/routes/identities.ts`:
    `Map<string, Promise<cosmetics>>` inside the per-host `try` block. Storing
    the in-flight Promise (not the resolved value) collapses parallel readers
    within the same `Promise.all` fanout. Two identities of the same role
-   trigger AT MOST ONE `readRoleFileByName` call per host (T-85-01-03 DoS
+   trigger AT MOST ONE `readRoleFileByName` call per host (T-86-01-03 DoS
    mitigation). Role read failure → `{}` silent-swallow.
 
 3. **PUT `/:identityKey` post-write echo** grows the same role-cosmetic read
@@ -144,13 +144,13 @@ Extensions in `src/backend/database/routes/identities.ts`:
 Frontend type surface in `src/ui/api/identities-api.ts`:
 
 5. **`Identity.roleDefaults?: {title?, colorHue?, voice?, avatar?} | null`** —
-   surfaces role's raw cosmetic values so IdentityModal (Plan 85-05) can
+   surfaces role's raw cosmetic values so IdentityModal (Plan 86-05) can
    render inherit-vs-override affordances without a second RPC. Optional
    field; downstream consumers can null-check.
 
 `identities.get-disk.test.ts` extended with 11 new tests (5 PUB-M + 3 GET-M
 + 3 AVATAR-M) alongside the existing 20 tests. Route integration exercises
-the Phase 85 merge path end-to-end.
+the Phase 86 merge path end-to-end.
 
 ### Task 3 — Multipart createRole client (pulled forward)
 
@@ -159,13 +159,13 @@ Widening in `src/ui/api/identities-api.ts`:
 1. **New exported type**
    `RoleCosmeticInput = {title?: string; colorHue?: number; voice?: string}`.
    Avatar filename is derived server-side from the uploaded File's mimetype
-   per Plan 85-02 — client does not send `avatar` in the JSON.
+   per Plan 86-02 — client does not send `avatar` in the JSON.
 
 2. **Widened `createRole(input, avatar?)` signature** —
    `input: {name, description, hostId, cosmetics?: RoleCosmeticInput}` +
    optional `avatar: File | null`. Returns
    `{name, description, cosmetics: RoleCosmeticInput}` (backend echoes what
-   it wrote per Plan 85-02 Task 1 step 8).
+   it wrote per Plan 86-02 Task 1 step 8).
 
 3. **Request body rebuilt** as FormData with `data` field carrying
    `{name, description, hostId, cosmetics}` JSON + optional `avatar` File
@@ -233,9 +233,9 @@ None. All wired data flows to a real consumer path in a downstream plan of
 Wave 2 / Wave 3:
 
 - `Identity.roleDefaults` field is set from the backend merge; consumed by
-  Plan 85-05 IdentityModal to render inherit-vs-override affordances.
-- `createRole` widening ships alongside Plan 85-02 (backend endpoint) in
-  parallel; end-to-end integration happens in Plan 85-03 (CreateRoleDialog
+  Plan 86-05 IdentityModal to render inherit-vs-override affordances.
+- `createRole` widening ships alongside Plan 86-02 (backend endpoint) in
+  parallel; end-to-end integration happens in Plan 86-03 (CreateRoleDialog
   actually calls the widened client against the widened endpoint).
 
 ## Self-Check: PASSED

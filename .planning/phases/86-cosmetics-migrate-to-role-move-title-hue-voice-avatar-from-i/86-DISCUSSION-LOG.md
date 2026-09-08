@@ -1,4 +1,4 @@
-# Phase 85: Cosmetics migrate from identity level to role level — Discussion Log
+# Phase 86: Cosmetics migrate from identity level to role level — Discussion Log
 
 **Date:** 2026-09-07
 **Format:** In-session `/build feature-mode` → `/open` (shape file lock) → `/gsd:phase` → `/gsd:discuss-phase` (this log).
@@ -37,7 +37,7 @@ Output folded into CONTEXT.md `<code_context>` section verbatim. Key discoveries
 
 ### Gray area surfaced (only one)
 
-**Ask:** Whether role cosmetic EDIT post-creation is in scope, or whether Phase 85 handles creation-time authoring only.
+**Ask:** Whether role cosmetic EDIT post-creation is in scope, or whether Phase 86 handles creation-time authoring only.
 
 **Options presented:**
 - (a) Creation-only. Role cosmetics authored via CreateRoleDialog, never edited from UI. Post-creation changes = hand-edit disk file or wait for a future bounty.
@@ -46,7 +46,7 @@ Output folded into CONTEXT.md `<code_context>` section verbatim. Key discoveries
 
 **Ashley's answer (verbatim):** *"Yeah, I would leave this alone because I actually plan on breaking out the role level stuff into its own modal later, and that would be a good opportunity to add it."*
 
-**Resolution:** (a) — creation-only for Phase 85. Role-cosmetic-edit-post-creation deferred to the future role-level modal breakout Ashley is planning. Captured in CONTEXT.md `<deferred>` section.
+**Resolution:** (a) — creation-only for Phase 86. Role-cosmetic-edit-post-creation deferred to the future role-level modal breakout Ashley is planning. Captured in CONTEXT.md `<deferred>` section.
 
 ---
 
@@ -71,7 +71,7 @@ Output folded into CONTEXT.md `<code_context>` section verbatim. Key discoveries
 
 ## No blocking anti-patterns found
 
-`.continue-here.md` not present in phase 85 dir. No blocking anti-patterns to demonstrate understanding of.
+`.continue-here.md` not present in phase 86 dir. No blocking anti-patterns to demonstrate understanding of.
 
 ---
 
