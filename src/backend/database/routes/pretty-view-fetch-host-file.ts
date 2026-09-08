@@ -413,7 +413,8 @@ async function getHandler(req: Request, res: Response): Promise<void> {
   res.set(PLAIN_TEXT_HEADERS);
 
   const startEpoch = Date.now();
-  const hostname = req.params.host;
+  const hostname =
+    typeof req.params.host === "string" ? req.params.host : "";
   // Express 5 / path-to-regexp v8+: `*path` captures the tail as an
   // ARRAY of already-URL-decoded path segments in `req.params.path`.
   // Join with `/` and re-add the leading slash per D-01
