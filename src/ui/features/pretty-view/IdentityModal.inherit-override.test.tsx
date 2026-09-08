@@ -315,15 +315,29 @@ describe("IdentityModal inherit-vs-override affordances (Phase 86 Plan 86-05)", 
     const titleRevert = screen.getByLabelText(/Revert Title to role default/i);
     fireEvent.click(titleRevert);
 
-    const saveBtn = screen.getByRole("button", { name: /^Save$/i });
+    // Wait for draft flip + Save-enabled before clicking Save (ensures the
+    // revert click's setState has flushed).
+    await waitFor(() => {
+      const titleInput = screen.getByLabelText(/^Title/i) as HTMLInputElement;
+      expect(titleInput.value).toBe("Box maintainer");
+    });
+
+    const saveBtn = screen.getByRole("button", { name: /^Save$/i }) as HTMLButtonElement;
+    expect(saveBtn.disabled).toBe(false);
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
       expect(mockedUpdateIdentity).toHaveBeenCalledTimes(1);
     });
 
-    // After save success, re-open the edit block (pencil toggles closed on save success).
-    fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
+    // After save success onSave sets editing=false — wait for the pencil
+    // label to flip back to "Edit agent" before re-clicking.
+    const pencilAfter = await screen.findByRole(
+      "button",
+      { name: /edit agent/i },
+      { timeout: 5000 },
+    );
+    fireEvent.click(pencilAfter);
 
     // The field re-renders showing the role default with the Inherited marker.
     await waitFor(() => {
@@ -414,11 +428,13 @@ describe("IdentityModal inherit-vs-override affordances (Phase 86 Plan 86-05)", 
       expect(titleInput.value).toBe("Box maintainer");
     });
 
-    // Cancel resets everything.
+    // Cancel resets everything (closes the edit block).
     fireEvent.click(screen.getByRole("button", { name: /^Cancel$/i }));
 
-    // Re-open the edit block via pencil (Cancel closes editing).
-    fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
+    // Wait for the pencil to flip back to "Edit agent" (editing=false has
+    // propagated); then re-open the edit block.
+    const pencilAfterCancel = await screen.findByRole("button", { name: /edit agent/i });
+    fireEvent.click(pencilAfterCancel);
 
     await waitFor(() => {
       const titleInput = screen.getByLabelText(/^Title/i) as HTMLInputElement;

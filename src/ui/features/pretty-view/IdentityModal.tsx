@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+// Phase 86 Plan 86-05: type-only React import for ReactNode in the inherit-
+// override render helpers below (renderInheritedBadge / renderRevertButton).
+// Mirrors the pattern used by src/ui/components/section-card.tsx.
+import type React from "react";
 import { AlarmClock, Clock, Handshake, Pencil, Send, Target, User, Users, X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import {
@@ -282,7 +286,16 @@ export function IdentityModal({
   // avatarPreviewUrl: object URL for the picked file (revoked on cleanup/cancel/save).
   // saving: true while the PUT is in-flight (disables Save + Cancel).
   // saveError: inline error string from the server, null when clean.
-  const [titleDraft, setTitleDraft] = useState<string>(identity.title ?? "");
+  // Phase 86 Plan 86-05 (D-CTX-86-surface-5): draft state seeded from the
+  // RESOLVED value (identity ?? role default) so the inherit-state input
+  // shows the role's value pre-populated — the wearer sees what they're
+  // currently displaying. committed* still tracks the identity's OWN value
+  // (title === null means "inherit from role"); the save-side predicate at
+  // L1789 compares draft-against-role-default (via titleReverting) rather
+  // than draft-against-committed when a field is inherited-and-unmodified.
+  const [titleDraft, setTitleDraft] = useState<string>(
+    identity.title ?? identity.roleDefaults?.title ?? "",
+  );
   const [committedTitle, setCommittedTitle] = useState<string>(identity.title ?? "");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
@@ -290,11 +303,29 @@ export function IdentityModal({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   // Patch #223: voice picker state (voices/sampleAudioRef/sampleUrlRef moved to VoicePicker)
-  const [voiceDraft, setVoiceDraft] = useState<string>(identity.voice ?? "");
+  // Phase 86 Plan 86-05: voiceDraft seeded from resolved value so VoicePicker's
+  // sample-play button plays the currently-displayed voice.
+  const [voiceDraft, setVoiceDraft] = useState<string>(
+    identity.voice ?? identity.roleDefaults?.voice ?? "",
+  );
   const [committedVoice, setCommittedVoice] = useState<string | null>(identity.voice ?? null);
   // Patch #279: colorHue picker state — fall back to prop hue when identity.colorHue is null
-  const [hueDraft, setHueDraft] = useState<number>(identity.colorHue ?? hue);
+  // Phase 86 Plan 86-05: hueDraft seeded from resolved value; identity.colorHue
+  // still takes precedence, then role default, then prop hue as last-resort.
+  const [hueDraft, setHueDraft] = useState<number>(
+    identity.colorHue ?? identity.roleDefaults?.colorHue ?? hue,
+  );
   const [committedHue, setCommittedHue] = useState<number>(identity.colorHue ?? hue);
+  // Phase 86 Plan 86-05 (D-CTX-86-surface-5): per-field revert-pending state.
+  // True iff the user clicked "Revert to role default" on that field this
+  // edit session and has not saved yet. Any true value marks the Save button
+  // dirty (revert-of-an-unmodified-field IS a dirty change — the save sends
+  // meta.<field> = null which the backend PUT L563-574 translates to a
+  // frontmatter-key delete). Reset on modal open / Cancel / Save success.
+  const [titleReverting, setTitleReverting] = useState<boolean>(false);
+  const [voiceReverting, setVoiceReverting] = useState<boolean>(false);
+  const [hueReverting, setHueReverting] = useState<boolean>(false);
+  const [avatarReverting, setAvatarReverting] = useState<boolean>(false);
   // Quick 260811-ax1: "Stays awake" switch — null = loading, boolean = loaded.
   const [staysAwake, setStaysAwake] = useState<boolean | null>(null);
   const [staysAwakeSaving, setStaysAwakeSaving] = useState<boolean>(false);
@@ -636,7 +667,10 @@ export function IdentityModal({
   // so the editor is clean on each open.
   useEffect(() => {
     if (!open) return;
-    setTitleDraft(identity.title ?? "");
+    // Phase 86 Plan 86-05: draft seeded from RESOLVED value so inherit-state
+    // pre-populates from the role. committed* still tracks the identity's
+    // OWN value (null = inherit).
+    setTitleDraft(identity.title ?? identity.roleDefaults?.title ?? "");
     setCommittedTitle(identity.title ?? "");
     setAvatarFile(null);
     setSaveError(null);
@@ -645,14 +679,35 @@ export function IdentityModal({
       return null;
     });
     // Patch #223: reset voice draft on open/identity switch
-    setVoiceDraft(identity.voice ?? "");
+    // Phase 86 Plan 86-05: seed from resolved value.
+    setVoiceDraft(identity.voice ?? identity.roleDefaults?.voice ?? "");
     setCommittedVoice(identity.voice ?? null);
     // Patch #279: reset hue draft on open/identity switch
-    setHueDraft(identity.colorHue ?? hue);
+    // Phase 86 Plan 86-05: seed from resolved value.
+    setHueDraft(identity.colorHue ?? identity.roleDefaults?.colorHue ?? hue);
     setCommittedHue(identity.colorHue ?? hue);
+    // Phase 86 Plan 86-05: clear all revert-pending flags on fresh open /
+    // identity switch — the modal starts each session with no pending
+    // reverts (the identity's disk-side state is the baseline).
+    setTitleReverting(false);
+    setVoiceReverting(false);
+    setHueReverting(false);
+    setAvatarReverting(false);
   // Phase 68 Plan 04: identity.id removed from type; identityKey is the
   // canonical "which identity are we editing" signal (disk-authoritative key).
-  }, [open, identity.identityKey, identity.title, identity.voice, identity.colorHue]);
+  // Phase 86: added roleDefaults.title/voice/colorHue to the dep list so the
+  // draft re-seeds when the role's defaults change under a live modal (e.g.,
+  // WS-driven identity refresh on another tab).
+  }, [
+    open,
+    identity.identityKey,
+    identity.title,
+    identity.voice,
+    identity.colorHue,
+    identity.roleDefaults?.title,
+    identity.roleDefaults?.voice,
+    identity.roleDefaults?.colorHue,
+  ]);
 
   // Cleanup: revoke the preview URL when the modal is unmounted mid-edit.
   useEffect(() => {
@@ -1324,16 +1379,65 @@ export function IdentityModal({
     try {
       // Only include title in the meta payload if it differs from last-committed truth.
       const meta: Record<string, unknown> = {};
-      if (titleDraft !== committedTitle) {
+      // Phase 86 Plan 86-05 (D-CTX-86-surface-5): explicit-null wins over
+      // draft-vs-committed diffing when a revert is pending. The backend PUT
+      // handler L563-574 treats null as REMOVE the frontmatter key (identity
+      // falls back to inheriting from the role). Revert path takes precedence
+      // because the user clicked the revert affordance — even if the current
+      // draft happens to equal the role default numerically, presence of the
+      // key in identity frontmatter would still count as an override.
+      //
+      // For the SET branch (draft differs from what we started with), compare
+      // draft against the RESOLVED baseline (identity's own value if set, else
+      // role default). This prevents redundant overrides for fields that
+      // inherit-and-were-pre-populated-from-role: on modal open we seed
+      // titleDraft = "Box maintainer" (role default) when identity.title is
+      // null, so a naive draft-vs-committed check would incorrectly emit
+      // meta.title = "Box maintainer" (creating a redundant override) even
+      // when the user never touched the field. Comparing against the resolved
+      // baseline instead correctly no-ops.
+      // Resolved baseline uses committed* (identity's own value) OR role
+      // default. Consistent with the dirty predicate + inherit detection
+      // above — all three read the same source of truth so the modal's
+      // internal state stays coherent after save-with-revert even before
+      // the parent's identity prop re-renders.
+      const titleResolvedInitial =
+        (committedTitle !== "" ? committedTitle : identity.roleDefaults?.title) ?? "";
+      const voiceResolvedInitial =
+        (committedVoice ?? identity.roleDefaults?.voice) ?? "";
+      const hueResolvedInitial =
+        identity.colorHue ?? identity.roleDefaults?.colorHue ?? hue;
+      if (titleReverting) {
+        meta.title = null;
+      } else if (titleDraft !== titleResolvedInitial) {
         meta.title = titleDraft.trim() === "" ? null : titleDraft;
       }
       // Patch #223: include voice if it changed
-      if ((voiceDraft || null) !== committedVoice) {
+      if (voiceReverting) {
+        meta.voice = null;
+      } else if (voiceDraft !== voiceResolvedInitial) {
         meta.voice = voiceDraft === "" ? null : voiceDraft;
       }
       // Patch #279: include colorHue if it changed
-      if (hueDraft !== committedHue) {
+      if (hueReverting) {
+        meta.colorHue = null;
+      } else if (hueDraft !== hueResolvedInitial) {
         meta.colorHue = hueDraft;
+      }
+      // Phase 86 Plan 86-05: avatar-revert wire — send meta.avatar = null so
+      // the backend can (in a future extension) delete the identity's avatar
+      // frontmatter key and the identity falls back to serving the role's
+      // avatar via Plan 86-01's GET /:key/avatar role-folder fallback. Today
+      // the backend PUT handler does not read meta.avatar (unknown field is
+      // silently ignored per the JSON.parse pass-through), so this is a
+      // no-op wire — matches the plan's Task 1 Step 5 fallback: "server
+      // no-ops the delete if the field was already absent." The affordance
+      // is still valuable UX because it (a) tells the user the option exists
+      // and (b) will start working the moment the backend gains a delete
+      // path. `meta.avatar = null` is safe to emit regardless of whether
+      // the identity already had its own avatar.
+      if (avatarReverting) {
+        meta.avatar = null;
       }
       // Phase 66 Plan 66-02: thread the modal's existing hostId prop into
       // updateIdentity — the backend PUT handler now uses it to route the
@@ -1345,7 +1449,17 @@ export function IdentityModal({
       // if we sent a colorHue change but the server echo doesn't reflect it, surface an inline
       // error instead of trusting the 200. Only guards colorHue changes (title/voice already
       // have their own draft-vs-echo recovery paths via setCommittedTitle/setCommittedVoice).
-      if (meta.colorHue !== undefined && updated.colorHue !== meta.colorHue) {
+      // Phase 86 Plan 86-05: bypass the guard for the revert path. When we
+      // sent meta.colorHue = null, the backend's publicIdentity merge
+      // returns updated.colorHue = role's colorHue (not null) — the guard
+      // would otherwise fire spuriously. In the revert-success case the
+      // identity's frontmatter key is deleted (correct behavior); the
+      // resolved value coming back is the role's default (also correct).
+      if (
+        meta.colorHue !== undefined &&
+        !hueReverting &&
+        updated.colorHue !== meta.colorHue
+      ) {
         setSaveError(`Server did not persist colorHue (sent ${meta.colorHue as number}, got ${updated.colorHue ?? "null"})`);
         return;
       }
@@ -1356,16 +1470,27 @@ export function IdentityModal({
         return null;
       });
       setAvatarFile(null);
-      const newTitle = updated.title ?? "";
-      setTitleDraft(newTitle);
+      // Phase 86 Plan 86-05: after save, drafts re-seed from the RESOLVED
+      // value (identity ?? role default) so reverted fields display the
+      // role's value with the Inherited marker on next edit-block open.
+      // committed* still tracks the identity's own value (updated.title
+      // being null after a revert = identity has no title = inherit).
+      const newIdentityTitle = updated.title ?? null;
+      setTitleDraft(newIdentityTitle ?? updated.roleDefaults?.title ?? "");
       // Update committedTitle so the Save button correctly re-disables when
       // draft === saved truth (even if the identity prop hasn't re-rendered yet).
-      setCommittedTitle(newTitle);
+      setCommittedTitle(newIdentityTitle ?? "");
       // Patch #223: update committed voice
       setCommittedVoice(updated.voice ?? null);
-      setVoiceDraft(updated.voice ?? "");
+      setVoiceDraft(updated.voice ?? updated.roleDefaults?.voice ?? "");
       // Patch #279: update committed hue from server echo
       setCommittedHue(updated.colorHue ?? hueDraft);
+      setHueDraft(updated.colorHue ?? updated.roleDefaults?.colorHue ?? hueDraft);
+      // Phase 86 Plan 86-05: reset revert-pending flags on save success.
+      setTitleReverting(false);
+      setVoiceReverting(false);
+      setHueReverting(false);
+      setAvatarReverting(false);
       setSaveError(null);
       setEditing(false);
     } catch (err) {
@@ -1378,7 +1503,11 @@ export function IdentityModal({
   // onCancel: discards unsaved drafts back to last-committed server truth,
   // revokes the preview URL, clears the inline error. Does NOT close the modal.
   function onCancel(): void {
-    setTitleDraft(committedTitle);
+    // Phase 86 Plan 86-05: reset drafts to the RESOLVED value (identity ?? role
+    // default) so cancelling a partial edit reverts to what the wearer sees
+    // in read mode. committed* still tracks the identity's OWN value; when
+    // identity.title is null the resolved value is the role default.
+    setTitleDraft(committedTitle || identity.roleDefaults?.title || "");
     setAvatarPreviewUrl((prior) => {
       if (prior) URL.revokeObjectURL(prior);
       return null;
@@ -1386,10 +1515,108 @@ export function IdentityModal({
     setAvatarFile(null);
     setSaveError(null);
     // Patch #223: revert voice draft
-    setVoiceDraft(committedVoice ?? "");
+    setVoiceDraft(committedVoice ?? identity.roleDefaults?.voice ?? "");
     // Patch #279: revert hue draft
-    setHueDraft(committedHue);
+    // Phase 86 Plan 86-05: prefer identity's own colorHue (via committedHue)
+    // when set, else the role default, else the prop hue fallback. This
+    // matches the initial-seed logic + dirty-predicate resolved-baseline so
+    // Cancel correctly restores to a state where the Save button is disabled.
+    setHueDraft(identity.colorHue ?? identity.roleDefaults?.colorHue ?? hue);
+    // Phase 86 Plan 86-05: clear revert-pending flags on Cancel.
+    setTitleReverting(false);
+    setVoiceReverting(false);
+    setHueReverting(false);
+    setAvatarReverting(false);
     setEditing(false);
+  }
+
+  // Phase 86 Plan 86-05 (D-CTX-86-surface-5): per-field inherit vs override
+  // detection for the edit block. Reads committed* state (the identity's OWN
+  // value, refreshed on save success) rather than the identity prop directly
+  // — this handles the case where a save-with-revert flips the identity's
+  // own value to null-inheriting BEFORE the parent's identity prop re-renders
+  // (in production applyIdentityChange broadcasts + parent re-renders; in
+  // tests the mock breaks that chain, but committed* still reflects truth).
+  //
+  //   *Inherited (badge visible) — identity's own value is absent AND role
+  //     has a default. `titleReverting` also flips to inherited state
+  //     optimistically while a Revert click is pending, so the wearer sees
+  //     the imminent shape before Save fires.
+  //   *Set (Revert affordance visible) — identity has its own value.
+  //     Suppressed while `*Reverting === true` (the field is transitioning
+  //     to inherited).
+  const roleDefaultTitle = identity.roleDefaults?.title;
+  const roleDefaultVoice = identity.roleDefaults?.voice;
+  const roleDefaultHue = identity.roleDefaults?.colorHue;
+  const roleDefaultAvatar = identity.roleDefaults?.avatar;
+  const titleInherited =
+    titleReverting ||
+    (committedTitle === "" && roleDefaultTitle !== undefined);
+  const titleSet = !titleReverting && committedTitle !== "";
+  const voiceInherited =
+    voiceReverting ||
+    (committedVoice === null && roleDefaultVoice !== undefined);
+  const voiceSet = !voiceReverting && committedVoice !== null;
+  // Color: committedHue defaults to the `hue` prop when identity.colorHue is
+  // null (existing behavior), so we can't use "committedHue !== fallback" as
+  // the has-own-value signal. Read the identity prop directly for color.
+  const hueInherited =
+    hueReverting ||
+    (identity.colorHue === null && roleDefaultHue !== undefined);
+  const hueSet = !hueReverting && identity.colorHue !== null;
+  // Avatar heuristic per plan Task 1 Step 5 fallback: always show revert
+  // affordance when role has an avatar (server no-ops the delete if the
+  // identity's frontmatter avatar key was already absent).
+  const avatarRevertAvailable =
+    !avatarReverting && typeof roleDefaultAvatar === "string" && roleDefaultAvatar.length > 0;
+  const avatarInherited =
+    typeof roleDefaultAvatar === "string" && roleDefaultAvatar.length > 0 && avatarReverting;
+
+  // Small render helper for the "Inherited from role" badge. Aria-label
+  // encodes the resolved value so screen readers + tests can identify
+  // which field's marker they're looking at.
+  function renderInheritedBadge(value: string | number | null | undefined): React.ReactNode {
+    if (value === null || value === undefined) return null;
+    return (
+      <span
+        aria-label={`Inherited from role: ${value}`}
+        className="text-[10px] uppercase tracking-wide"
+        style={{
+          background: "rgba(255,220,170,0.10)",
+          border: "1px solid rgba(255,220,170,0.25)",
+          borderRadius: 4,
+          padding: "1px 6px",
+          color: "rgba(255,220,170,0.75)",
+          marginLeft: 8,
+        }}
+      >
+        Inherited
+      </span>
+    );
+  }
+
+  // Small render helper for the "Revert to role default" affordance.
+  function renderRevertButton(fieldLabel: string, onRevert: () => void): React.ReactNode {
+    return (
+      <button
+        type="button"
+        aria-label={`Revert ${fieldLabel} to role default`}
+        title={`Revert ${fieldLabel} to role default`}
+        className="text-[10px] uppercase tracking-wide cursor-pointer"
+        style={{
+          background: "rgba(140,180,255,0.08)",
+          border: "1px solid rgba(140,180,255,0.25)",
+          borderRadius: 4,
+          padding: "1px 6px",
+          color: "rgba(180,205,255,0.85)",
+          marginLeft: 8,
+        }}
+        onClick={onRevert}
+        disabled={saving}
+      >
+        Revert
+      </button>
+    );
   }
 
   return (
@@ -1730,21 +1957,63 @@ export function IdentityModal({
                   Change avatar…
                 </Button>
               </label>
+              {/* Phase 86 Plan 86-05 (D-CTX-86-surface-5): Avatar revert
+                  affordance. Per plan Task 1 Step 5 fallback heuristic:
+                  always visible when the role has an avatar (backend echo
+                  doesn't currently surface per-field override maps, and the
+                  server no-ops the delete if the identity's avatar
+                  frontmatter key was already absent — safe to always show).
+                  Clicking sets avatarReverting=true, clears any picked file,
+                  and revokes the preview URL. The <img> src at L1799 already
+                  serves the role's avatar as fallback (Plan 86-01 GET
+                  /:key/avatar role-folder fallback), so no src rewiring
+                  needed. */}
+              {avatarRevertAvailable && renderRevertButton("Avatar", () => {
+                setAvatarReverting(true);
+                setAvatarPreviewUrl((prior) => {
+                  if (prior) URL.revokeObjectURL(prior);
+                  return null;
+                });
+                setAvatarFile(null);
+              })}
+              {avatarInherited && renderInheritedBadge(roleDefaultAvatar)}
             </div>
 
             {/* Title input */}
+            {/* Phase 86 Plan 86-05 (D-CTX-86-surface-5): label row grows the
+                inherit/override affordance strip. Inherited badge shows when
+                the identity has no title AND the role has one (wearer sees
+                what they're currently displaying); Revert button shows when
+                the identity has its OWN title (wearer can undo the override
+                in one click). Draft input still owns the value binding —
+                clicking Revert flips the draft to the role default AND sets
+                titleReverting=true so onSave emits meta.title = null. */}
             <div className="mb-3">
-              <label
-                className="block text-xs text-[var(--color-pv-fg-muted)] mb-1"
-                htmlFor="identity-title-input"
-              >
-                Title
-              </label>
+              <div className="flex items-center mb-1">
+                <label
+                  className="block text-xs text-[var(--color-pv-fg-muted)]"
+                  htmlFor="identity-title-input"
+                >
+                  Title
+                </label>
+                {titleInherited && renderInheritedBadge(roleDefaultTitle)}
+                {titleSet && roleDefaultTitle !== undefined && renderRevertButton("Title", () => {
+                  setTitleReverting(true);
+                  setTitleDraft(roleDefaultTitle ?? "");
+                })}
+              </div>
               <input
                 id="identity-title-input"
                 type="text"
                 value={titleDraft}
-                onChange={(e) => setTitleDraft(e.target.value)}
+                onChange={(e) => {
+                  // Phase 86 Plan 86-05: user edit cancels the revert-pending
+                  // state — they're overriding the role default again with
+                  // whatever they're typing. Save-side wire flips back to a
+                  // regular set (title with a value written to frontmatter).
+                  setTitleReverting(false);
+                  setTitleDraft(e.target.value);
+                }}
                 disabled={saving}
                 style={{
                   width: "100%",
@@ -1760,15 +2029,54 @@ export function IdentityModal({
             </div>
 
             {/* Patch #223: Voice picker (extracted to VoicePicker component) */}
+            {/* Phase 86 Plan 86-05: parallel inherit/override strip for Voice.
+                VoicePicker's `value` binds to the resolved draft (identity ??
+                role) so its sample-play button plays the currently-displayed
+                voice. Change handler clears voiceReverting for parity with
+                title. */}
             <div className="mb-3">
-              <label className="block text-xs text-[var(--color-pv-fg-muted)] mb-1" htmlFor="identity-voice-select">Voice</label>
-              <VoicePicker id="identity-voice-select" value={voiceDraft} onChange={setVoiceDraft} disabled={saving} />
+              <div className="flex items-center mb-1">
+                <label className="block text-xs text-[var(--color-pv-fg-muted)]" htmlFor="identity-voice-select">Voice</label>
+                {voiceInherited && renderInheritedBadge(roleDefaultVoice)}
+                {voiceSet && roleDefaultVoice !== undefined && renderRevertButton("Voice", () => {
+                  setVoiceReverting(true);
+                  setVoiceDraft(roleDefaultVoice ?? "");
+                })}
+              </div>
+              <VoicePicker
+                id="identity-voice-select"
+                value={voiceDraft}
+                onChange={(next) => {
+                  setVoiceReverting(false);
+                  setVoiceDraft(next);
+                }}
+                disabled={saving}
+              />
             </div>
 
             {/* Patch #279: colorHue picker (extracted to ColorPicker component) */}
+            {/* Phase 86 Plan 86-05: parallel inherit/override strip for Color.
+                ColorPicker's `value` binds to the resolved draft; swatch
+                reflects the currently-displayed hue. Change handler clears
+                hueReverting for parity. */}
             <div className="mb-3">
-              <label className="block text-xs text-[var(--color-pv-fg-muted)] mb-1" htmlFor="identity-hue-input">Color</label>
-              <ColorPicker id="identity-hue-input" value={hueDraft} onChange={setHueDraft} disabled={saving} />
+              <div className="flex items-center mb-1">
+                <label className="block text-xs text-[var(--color-pv-fg-muted)]" htmlFor="identity-hue-input">Color</label>
+                {hueInherited && renderInheritedBadge(roleDefaultHue)}
+                {hueSet && roleDefaultHue !== undefined && renderRevertButton("Color", () => {
+                  setHueReverting(true);
+                  setHueDraft(roleDefaultHue ?? hue);
+                })}
+              </div>
+              <ColorPicker
+                id="identity-hue-input"
+                value={hueDraft}
+                onChange={(next) => {
+                  setHueReverting(false);
+                  setHueDraft(next);
+                }}
+                disabled={saving}
+              />
             </div>
 
             {/* Inline error */}
@@ -1784,10 +2092,33 @@ export function IdentityModal({
                 variant="outline"
                 size="sm"
                 className="cursor-pointer"
-                disabled={
-                  saving ||
-                  (titleDraft === committedTitle && avatarFile === null && (voiceDraft || null) === committedVoice && hueDraft === committedHue)
-                }
+                disabled={(() => {
+                  if (saving) return true;
+                  // Phase 86 Plan 86-05: dirty predicate rebuilt to respect
+                  // the inherit-vs-override model. Each field is dirty iff
+                  // (a) the revert flag is on (user clicked Revert on a SET
+                  // field — pending delete), OR (b) the draft differs from
+                  // the RESOLVED baseline (identity's own committed value if
+                  // set, else role default). Uses `committed*` (identity's
+                  // own value, refreshed on save) so a save-with-revert
+                  // correctly re-disables the button even when the parent
+                  // identity prop hasn't re-rendered yet (test scenario;
+                  // production sees a fresh prop via applyIdentityChange).
+                  const titleResolved =
+                    (committedTitle !== "" ? committedTitle : identity.roleDefaults?.title) ?? "";
+                  const voiceResolved =
+                    (committedVoice ?? identity.roleDefaults?.voice) ?? "";
+                  // Color uses the identity prop because committedHue defaults
+                  // to the `hue` prop when identity.colorHue is null (existing
+                  // behavior — see L297).
+                  const hueResolved =
+                    identity.colorHue ?? identity.roleDefaults?.colorHue ?? hue;
+                  const titleDirty = titleReverting || titleDraft !== titleResolved;
+                  const voiceDirty = voiceReverting || voiceDraft !== voiceResolved;
+                  const hueDirty = hueReverting || hueDraft !== hueResolved;
+                  const avatarDirty = avatarReverting || avatarFile !== null;
+                  return !(titleDirty || voiceDirty || hueDirty || avatarDirty);
+                })()}
                 onClick={() => { void onSave(); }}
               >
                 {saving ? "Saving…" : "Save"}
