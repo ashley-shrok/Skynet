@@ -106,16 +106,32 @@ function ensureFleetSubscription(): void {
 async function fetchOnce(): Promise<void> {
   ensureFleetSubscription();
   if (state.loaded || inflight) return inflight ?? Promise.resolve();
+  // 2026-09-08 (Ashley): on cold reload, fleetSessions is empty until the WS
+  // fleet-status frame arrives, so buildIdentityHostsFromFleet returns {}.
+  // With Phase 69's disk-fanout backend, GET /identities?identityHosts={}
+  // returns []; that response flips state.loaded=true with byKey=empty,
+  // which sabotages TerminalOrIdentitySessionPane's hydration-race guard
+  // in tabUtils.tsx (byKey.has(k) || !loaded evaluates to false → Terminal
+  // component mounts for identity-shape panes during the ms window before
+  // the fleet-status subscription fires refreshIdentities). Terminal boots
+  // an xterm + real SSH WS + then unmounts when the discriminator flips,
+  // leaking listeners (bounty: terminal-first-flash-on-reload-plus-listener-
+  // leak). Skip the empty-map fetch entirely — stay loaded=false and let
+  // ensureFleetSubscription's fleet-arrival callback fire the first real
+  // fetch when it has non-empty identityHosts. Safe fallback if fleet-status
+  // never arrives: loaded stays false forever, discriminator keeps assuming
+  // identity, PVs render fine (they read tab props, not identity metadata —
+  // see d4d87217 rationale).
+  const identityHostsPrecheck = buildIdentityHostsFromFleet(
+    getFleetSessionsSnapshot(),
+  );
+  if (Object.keys(identityHostsPrecheck).length === 0) return;
   inflight = (async () => {
     try {
       // Phase 66 Plan 05 — construct the identityHosts wire parameter from
       // conversation-store's fleet-sessions snapshot BEFORE calling
-      // listIdentities. When fleet is empty (first-load race), the map is
-      // empty and the backend serves cosmetics-as-safe-defaults per Plan 03.
-      // A one-shot re-fetch (see ensureFleetSubscription above) fires the
-      // moment fleetSessions transitions from empty→populated so the render
-      // pipeline picks up the disk-derived cosmetics without waiting for a
-      // full refreshIdentities call.
+      // listIdentities. Skip guard above ensures this is non-empty; the
+      // subscription re-runs the fetch if fleetSessions changes later.
       const identityHosts = buildIdentityHostsFromFleet(
         getFleetSessionsSnapshot(),
       );
