@@ -55,6 +55,7 @@ function makeDeps(overrides: Partial<ObservationTickDeps> = {}): ObservationTick
       memberMxids: [],
       total: 0,
     })),
+    getRoomName: vi.fn(async () => ({ ok: true, name: null })),
     // Store primitives
     materializeRelayRoomSession: vi.fn(async () => {}),
     markRelayRoomSessionInactive: vi.fn(async () => {}),
@@ -310,6 +311,75 @@ describe("runObservationTick", () => {
     await runObservationTick(USER_A, USER_A_MXID, deps);
     expect(deps.materializeRelayRoomSession).toHaveBeenCalledTimes(1);
     expect(deps.refreshRelayRoomLastActivity).not.toHaveBeenCalled();
+  });
+
+  it("Test M-1 [fixup]: room title from getRoomName flows into materializeRelayRoomSession (D-02 room_title)", async () => {
+    // Fixup M-1. observation loop's Step 3 should batch getRoomName
+    // alongside getRoomJoinedMembers + getRoomLatestEventTs (D-05 same-tick
+    // augmentation) and pass the resolved name to materializeRelayRoomSession
+    // instead of the current hard-coded null.
+    const deps = makeDeps({
+      getUserJoinedRooms: vi.fn(async () => ({
+        ok: true,
+        roomIds: ["!r1:s", "!r2:s"],
+      })),
+      getRoomJoinedMembers: vi.fn(async () => ({
+        ok: true,
+        memberMxids: [USER_A_MXID, "@x:s", "@y:s"],
+        total: 3,
+      })),
+      getRoomName: vi.fn(async (roomId: string) => {
+        if (roomId === "!r1:s") {
+          return { ok: true as const, name: "Team Sync" };
+        }
+        // r2 has no name set → null
+        return { ok: true as const, name: null };
+      }),
+    });
+
+    await runObservationTick(USER_A, USER_A_MXID, deps);
+
+    // materialize called with the resolved names (not always null).
+    expect(deps.materializeRelayRoomSession).toHaveBeenCalledWith(
+      USER_A,
+      "!r1:s",
+      "Team Sync",
+    );
+    expect(deps.materializeRelayRoomSession).toHaveBeenCalledWith(
+      USER_A,
+      "!r2:s",
+      null,
+    );
+  });
+
+  it("Test M-1b [fixup]: getRoomName failure degrades to null title, does NOT block materialize", async () => {
+    // A transient getRoomName failure must not fail the room's
+    // materialization — best-effort per axis per D-05. Pass null as the
+    // title fallback.
+    const deps = makeDeps({
+      getUserJoinedRooms: vi.fn(async () => ({
+        ok: true,
+        roomIds: ["!r1:s"],
+      })),
+      getRoomJoinedMembers: vi.fn(async () => ({
+        ok: true,
+        memberMxids: [USER_A_MXID, "@x:s", "@y:s"],
+        total: 3,
+      })),
+      getRoomName: vi.fn(async () => ({
+        ok: false as const,
+        status: 502,
+        error: "admin_api_proxy_error",
+      })),
+    });
+
+    await runObservationTick(USER_A, USER_A_MXID, deps);
+
+    expect(deps.materializeRelayRoomSession).toHaveBeenCalledWith(
+      USER_A,
+      "!r1:s",
+      null,
+    );
   });
 
   it("Test H-1 [fixup]: per-room getRoomJoinedMembers failure does NOT mark that room inactive (D-06 no-destruction invariant)", async () => {
