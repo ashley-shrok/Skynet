@@ -25,6 +25,27 @@ export interface Identity {
    *  task). Present-and-truthy gates the task-primary UI treatment on chat +
    *  list surfaces (D-06 fallback semantics). */
   task: string | null;
+  /** Phase 85 Plan 85-01 Task 2: role-cosmetic defaults surfaced separately
+   *  from the resolved values. Populated per D-CTX-85-inherit merge on the
+   *  backend so IdentityModal (Plan 85-05) can render inherit-vs-override
+   *  affordances without a second RPC.
+   *
+   *  Shape:
+   *    - null → no role resolvable (identity file lacks `role:` frontmatter)
+   *    - {} → role exists but carries no cosmetic frontmatter fields
+   *    - {title/colorHue/voice/avatar: ...} → role's raw values verbatim;
+   *      each field is optional and appears only when present on the role
+   *
+   *  The resolved values live on the top-level `title/colorHue/voice` fields
+   *  already (per `identity ?? role ?? null`). This field's sole purpose is
+   *  to let the edit surface show which values came from the role vs the
+   *  identity's own frontmatter. */
+  roleDefaults?: {
+    title?: string;
+    colorHue?: number;
+    voice?: string;
+    avatar?: string;
+  } | null;
 }
 
 export interface IdentityInput {

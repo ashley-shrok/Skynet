@@ -160,6 +160,9 @@ const readIdentityFileMock = vi.fn();
 const readAvatarSiblingFileMock = vi.fn();
 const isLocalHostIdMock = vi.fn();
 const listIdentityKeysOnHostMock = vi.fn();
+// Phase 85 Plan 85-01 Task 2: role-cosmetic merge + role-avatar fallback.
+const readRoleFileByNameMock = vi.fn();
+const readAvatarSiblingFileByRoleMock = vi.fn();
 
 vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   readIdentityFile: (conn: unknown, key: string) => readIdentityFileMock(conn, key),
@@ -168,6 +171,14 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   writeAvatarSiblingFile: vi.fn(),
   readAvatarSiblingFile: (conn: unknown, key: string) =>
     readAvatarSiblingFileMock(conn, key),
+  // Phase 85 Plan 85-01: new readers added in Task 1.
+  readRoleFileByName: (conn: unknown, roleName: string) =>
+    readRoleFileByNameMock(conn, roleName),
+  readAvatarSiblingFileByRole: (
+    conn: unknown,
+    roleName: string,
+    avatarFilename: string,
+  ) => readAvatarSiblingFileByRoleMock(conn, roleName, avatarFilename),
   isLocalHostId: (n: number | undefined) => isLocalHostIdMock(n),
   getLocalIdentitiesRoot: () => "/tmp/test-identities",
   MIME_TO_AVATAR_EXT: {
@@ -297,6 +308,10 @@ beforeEach(() => {
   readAvatarSiblingFileMock.mockResolvedValue(null);
   isLocalHostIdMock.mockReturnValue(false);
   connectOneShotMock.mockResolvedValue(makeFakeConnWithEnd());
+  // Phase 85 Plan 85-01 Task 2 defaults — role has no defaults; role folder
+  // has no fallback avatar. Individual tests override as needed.
+  readRoleFileByNameMock.mockResolvedValue({ markdown: "" });
+  readAvatarSiblingFileByRoleMock.mockResolvedValue(null);
 
   const app = express();
   app.use("/identities", identitiesRouter);
@@ -692,5 +707,261 @@ describe("GET /identities/:identityKey/avatar — Phase 68 rekeyed", () => {
     expect(connectOneShotMock).not.toHaveBeenCalled();
     expect(readAvatarSiblingFileMock).toHaveBeenCalledTimes(1);
     expect(readAvatarSiblingFileMock.mock.calls[0][0]).toBeNull();
+  });
+});
+
+// ===========================================================================
+// Phase 85 Plan 85-01 Task 2: publicIdentity + roleCosmetics merge tests
+// ===========================================================================
+//
+// The Phase 85 signature extension adds a fifth positional argument
+// `roleCosmetics` — nullable per-field object surfacing the role's raw
+// cosmetic values. Per-field merge semantics locked in D-CTX-85-inherit:
+//
+//   resolved_value = identity_cosmetic ?? role_cosmetic ?? null
+//
+// The response gains a new field `roleDefaults` echoing roleCosmetics
+// verbatim when non-null (so the frontend Identity modal can render
+// inherit-vs-override affordances — Plan 85-05). null when no role.
+//
+// Test PUB-M-1..M-5: direct unit tests on publicIdentity's per-field merge.
+// Test GET-M-1..M-2: route integration tests for role-cosmetic merge + memo.
+// Test AVATAR-M-1..M-3: role-folder fallback on GET /:key/avatar.
+
+describe("Phase 85 publicIdentity — identity ?? role ?? null merge + roleDefaults", () => {
+  it("PUB-M-1: identity overrides role per field; role fills where identity absent; roleDefaults echoes role verbatim", () => {
+    const out = publicIdentity(
+      "tina",
+      1,
+      { title: "id-title", colorHue: 200 },
+      "box-maintainer",
+      { title: "role-title", voice: "Kate.wav", colorHue: 190, avatar: "role.webp" },
+    );
+    // identity wins per field
+    expect(out.title).toBe("id-title");
+    expect(out.colorHue).toBe(200);
+    // voice inherits from role
+    expect(out.voice).toBe("Kate.wav");
+    // role field passes through unchanged
+    expect(out.role).toBe("box-maintainer");
+    // roleDefaults echoes role's raw values verbatim
+    expect(out.roleDefaults).toEqual({
+      title: "role-title",
+      voice: "Kate.wav",
+      colorHue: 190,
+      avatar: "role.webp",
+    });
+  });
+
+  it("PUB-M-2: empty identity cosmetics + role has subset → resolved falls through to role; roleDefaults contains only present keys", () => {
+    const out = publicIdentity(
+      "tina",
+      1,
+      {},
+      "role-x",
+      { title: "role-title", colorHue: 190 },
+    );
+    expect(out.title).toBe("role-title");
+    expect(out.colorHue).toBe(190);
+    expect(out.voice).toBeNull(); // absent on both → null
+    // roleDefaults carries only the present keys (voice/avatar NOT in the object)
+    expect(out.roleDefaults).toEqual({ title: "role-title", colorHue: 190 });
+    expect("voice" in (out.roleDefaults as object)).toBe(false);
+    expect("avatar" in (out.roleDefaults as object)).toBe(false);
+  });
+
+  it("PUB-M-3: empty identity cosmetics + empty role cosmetics → resolved all null; roleDefaults is {} (not null)", () => {
+    const out = publicIdentity("tina", 1, {}, "role-x", {});
+    expect(out.title).toBeNull();
+    expect(out.colorHue).toBeNull();
+    expect(out.voice).toBeNull();
+    // Empty role: role name is non-null but role has no cosmetic frontmatter.
+    // roleDefaults must be {} (empty object) — distinguishes from "no role"
+    // (which is null). Frontend uses this + `role` field to differentiate.
+    expect(out.roleDefaults).toEqual({});
+    expect(out.role).toBe("role-x");
+  });
+
+  it("PUB-M-4: no role at all → roleDefaults is null; identity cosmetics still resolve normally", () => {
+    const out = publicIdentity("tina", 1, { title: "id-title" }, null, null);
+    expect(out.title).toBe("id-title");
+    expect(out.role).toBeNull();
+    expect(out.roleDefaults).toBeNull();
+  });
+
+  it("PUB-M-5: avatarUrl stays `/identities/${key}/avatar?hostId=${hostId}` regardless of role merge", () => {
+    // Even with a role that has its own avatar, the URL shape does NOT change.
+    // Backend does the fallback internally; the URL is what the frontend renders.
+    const out = publicIdentity(
+      "tina",
+      7,
+      {},
+      "box-maintainer",
+      { avatar: "role.webp" },
+    );
+    expect(out.avatarUrl).toBe("/identities/tina/avatar?hostId=7");
+  });
+});
+
+// ===========================================================================
+// GET /identities — role-cosmetic merge + per-host memo (Phase 85)
+// ===========================================================================
+
+describe("GET /identities — Phase 85 role-cosmetic merge + per-host role-read memo", () => {
+  it("GET-M-1: identity has title, role has title+voice → response resolves title from identity, voice from role, roleDefaults echoes role", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+    listIdentityKeysOnHostMock.mockResolvedValue(["tina"]);
+    readIdentityFileMock.mockResolvedValue({
+      markdown:
+        "---\nrole: box-maintainer\ndisplayName: Tina\ntitle: id-title\n---\n",
+    });
+    readRoleFileByNameMock.mockResolvedValue({
+      markdown:
+        "---\ntitle: role-title\nvoice: Kate.wav\n---\n\n# Box maintainer\n",
+    });
+
+    const hostsJson = encodeURIComponent(JSON.stringify({ tina: 1 }));
+    const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(1);
+    const tina = rows[0];
+    // identity's title wins
+    expect(tina.title).toBe("id-title");
+    // voice inherits from role
+    expect(tina.voice).toBe("Kate.wav");
+    // roleDefaults echoes role frontmatter verbatim
+    expect(tina.roleDefaults).toEqual({ title: "role-title", voice: "Kate.wav" });
+  });
+
+  it("GET-M-2: two identities on same host sharing the same role → readRoleFileByName called exactly ONCE (per-host memo)", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+    listIdentityKeysOnHostMock.mockResolvedValue(["tina", "poppy"]);
+    // Both identities point to the same role.
+    readIdentityFileMock.mockImplementation((_conn: unknown, key: string) => {
+      return Promise.resolve({
+        markdown: `---\nrole: box-maintainer\ndisplayName: ${key}\n---\n`,
+      });
+    });
+    readRoleFileByNameMock.mockResolvedValue({
+      markdown: "---\ntitle: role-title\n---\n",
+    });
+
+    const hostsJson = encodeURIComponent(
+      JSON.stringify({ tina: 1, poppy: 1 }),
+    );
+    const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(2);
+    // Both got the role's title inherited
+    for (const row of rows) {
+      expect(row.roleDefaults).toEqual({ title: "role-title" });
+    }
+    // Per-host memo: role file read AT MOST ONCE for this host despite two
+    // identities sharing the role (T-85-01-03 DoS mitigation).
+    expect(readRoleFileByNameMock).toHaveBeenCalledTimes(1);
+    expect(readRoleFileByNameMock.mock.calls[0][1]).toBe("box-maintainer");
+  });
+
+  it("GET-M-3: role-read throws → identity still returns with roleDefaults={} (silent-swallow)", async () => {
+    isLocalHostIdMock.mockImplementation((n: number) => n === 1);
+    listIdentityKeysOnHostMock.mockResolvedValue(["tina"]);
+    readIdentityFileMock.mockResolvedValue({
+      markdown:
+        "---\nrole: box-maintainer\ndisplayName: Tina\ntitle: id-title\n---\n",
+    });
+    // Role read fails — identity should still surface with its own cosmetics.
+    readRoleFileByNameMock.mockRejectedValue(new Error("SSH exec failed"));
+
+    const hostsJson = encodeURIComponent(JSON.stringify({ tina: 1 }));
+    const res = await httpGet(server, `/identities?identityHosts=${hostsJson}`);
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].title).toBe("id-title");
+    // roleDefaults is {} — role read failed, but role name is still known
+    expect(rows[0].roleDefaults).toEqual({});
+  });
+});
+
+// ===========================================================================
+// GET /identities/:key/avatar — role folder fallback (Phase 85)
+// ===========================================================================
+
+describe("GET /identities/:key/avatar — Phase 85 role-folder fallback", () => {
+  it("AVATAR-M-1: identity's sibling avatar exists → returns identity bytes (existing behavior preserved)", async () => {
+    isLocalHostIdMock.mockReturnValue(false);
+    const pngBytes = Buffer.from("IDENTITYPNG");
+    readAvatarSiblingFileMock.mockResolvedValue({
+      bytes: pngBytes,
+      mime: "image/png",
+      ext: "png",
+    });
+
+    const res = await httpGet(server, `/identities/tina/avatar?hostId=1`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toBe("image/png");
+    expect(res.rawBody.equals(pngBytes)).toBe(true);
+    // Role-side fallback never consulted
+    expect(readAvatarSiblingFileByRoleMock).not.toHaveBeenCalled();
+  });
+
+  it("AVATAR-M-2: identity has NO sibling but role has avatar frontmatter + role folder has that sibling → returns role bytes", async () => {
+    isLocalHostIdMock.mockReturnValue(false);
+    // Identity-side avatar returns null
+    readAvatarSiblingFileMock.mockResolvedValue(null);
+    // Identity markdown carries role name
+    readIdentityFileMock.mockResolvedValue({
+      markdown: "---\nrole: box-maintainer\ndisplayName: Tina\n---\n",
+    });
+    // Role file carries avatar frontmatter
+    readRoleFileByNameMock.mockResolvedValue({
+      markdown:
+        '---\ntitle: role-title\navatar: "box-maintainer.webp"\n---\n',
+    });
+    // Role folder has the sibling image
+    const webpBytes = Buffer.from("ROLEWEBP");
+    readAvatarSiblingFileByRoleMock.mockResolvedValue({
+      bytes: webpBytes,
+      mime: "image/webp",
+      ext: "webp",
+    });
+
+    const res = await httpGet(server, `/identities/tina/avatar?hostId=1`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toBe("image/webp");
+    expect(res.rawBody.equals(webpBytes)).toBe(true);
+    // Role-side fallback was called with the correct roleName + filename
+    expect(readAvatarSiblingFileByRoleMock).toHaveBeenCalledTimes(1);
+    const [, roleName, filename] =
+      readAvatarSiblingFileByRoleMock.mock.calls[0];
+    expect(roleName).toBe("box-maintainer");
+    expect(filename).toBe("box-maintainer.webp");
+  });
+
+  it("AVATAR-M-3: neither identity nor role has an avatar → 404 preserved with 'no avatar' error", async () => {
+    isLocalHostIdMock.mockReturnValue(false);
+    readAvatarSiblingFileMock.mockResolvedValue(null);
+    readIdentityFileMock.mockResolvedValue({
+      markdown: "---\nrole: box-maintainer\ndisplayName: Tina\n---\n",
+    });
+    // Role has no avatar frontmatter
+    readRoleFileByNameMock.mockResolvedValue({
+      markdown: "---\ntitle: role-title\n---\n",
+    });
+
+    const res = await httpGet(server, `/identities/tina/avatar?hostId=1`);
+
+    expect(res.status).toBe(404);
+    const body = res.body as { error?: string };
+    expect(body.error?.toLowerCase()).toContain("no avatar");
+    // Role-avatar reader NOT called (no avatar filename in role frontmatter)
+    expect(readAvatarSiblingFileByRoleMock).not.toHaveBeenCalled();
   });
 });

@@ -20,6 +20,10 @@ import {
   extractRoleFromMarkdown,
   MIME_TO_AVATAR_EXT,
   IDENTITY_KEY_RE,
+  // Phase 85 Plan 85-01 Task 2: role-cosmetic merge (per-host memo in GET /
+  // fanout) + role-folder avatar fallback in GET /:identityKey/avatar.
+  readRoleFileByName,
+  readAvatarSiblingFileByRole,
 } from "../../claude-session/identity-artifact-reader.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
@@ -86,25 +90,43 @@ function capitalizeFirst(s: string): string {
  * Phase 68 Plan 68-02: publicIdentity rewired to (identityKey, hostId, cosmetics, role).
  * Drops the DB row argument entirely. avatarUrl bakes hostId as a query param.
  *
- * New signature: publicIdentity(identityKey, hostId, cosmetics, role)
+ * Phase 85 Plan 85-01 Task 2: extended to (identityKey, hostId, cosmetics, role, roleCosmetics).
+ * The fifth arg carries the role's raw cosmetic frontmatter and is merged per
+ * `identity ?? role ?? null` (D-CTX-85-inherit). The response gains
+ * `roleDefaults` — the role's raw values so the frontend Identity modal can
+ * render inherit-vs-override affordances (Plan 85-05) without a second RPC.
  *
- * Returned object shape (10 fields — DROPPED: id, createdAt, updatedAt):
- *   identityKey, displayName, title, colorHue, voice, avatarMime, avatarUrl,
- *   avatarEtag, coordinator, role.
+ * Signature: publicIdentity(identityKey, hostId, cosmetics, role, roleCosmetics)
+ *
+ * Returned object shape (12 fields — DROPPED: id, createdAt, updatedAt):
+ *   identityKey, displayName, title, colorHue, voice, task, avatarMime, avatarUrl,
+ *   avatarEtag, coordinator, role, roleDefaults.
  *
  * avatarUrl = `/identities/${identityKey}/avatar?hostId=${hostId}` — hostId baked
  * into the URL string. The frontend helper avatarUrlWithHost is no longer needed
- * (Wave 3 removes it; interim: the baked URL is self-sufficient).
+ * (Wave 3 removes it; interim: the baked URL is self-sufficient). URL shape does
+ * NOT change under Phase 85's role-avatar fallback — the backend does the
+ * fallback internally in GET /:identityKey/avatar; the URL is what the frontend
+ * renders and stays identical.
  *
  * `cosmetics` overlay semantics (unchanged from Phase 66/67):
  *   - present string → use it (overrides safe-default)
  *   - present number for colorHue → use it (overrides null)
  *   - present boolean for coordinator → use it; absent → safe-default false (actor)
- *   - absent → safe-default (displayName=capitalizeFirst(identityKey);
- *     title/colorHue/voice → null; avatarMime/avatarEtag → "")
+ *   - absent → falls through to roleCosmetics under Phase 85 merge
  *
- * Exported so colocated tests (PUB-* in get-disk.test.ts) can unit-test the shape
- * directly without going through the route.
+ * `roleCosmetics` merge semantics (Phase 85 Plan 85-01):
+ *   - null (no role or role-read failed) → resolved cosmetics fall to null
+ *     safe-defaults; `roleDefaults` field emitted as null
+ *   - {} (role has no cosmetic frontmatter) → resolved falls to null; but
+ *     `roleDefaults` emitted as {} (frontend distinguishes "role has no
+ *     defaults" from "no role" via the `role` field being non-null)
+ *   - {title/colorHue/voice/avatar: ...} → each present field is merged per
+ *     `identity ?? role ?? null`; `roleDefaults` echoes the role's raw values
+ *     verbatim
+ *
+ * Exported so colocated tests (PUB-*, PUB-M-* in get-disk.test.ts) can unit-test
+ * the shape directly without going through the route.
  */
 export function publicIdentity(
   identityKey: string,
@@ -123,30 +145,69 @@ export function publicIdentity(
     task?: string;
   } = {},
   role: string | null = null,
+  /** Phase 85 Plan 85-01 Task 2: role's raw cosmetic frontmatter, merged
+   *  under identity per D-CTX-85-inherit. null when no role resolvable
+   *  OR when the role-read failed; {} when role exists but carries no
+   *  cosmetic frontmatter fields. */
+  roleCosmetics: {
+    title?: string;
+    colorHue?: number;
+    voice?: string;
+    avatar?: string;
+  } | null = null,
 ) {
+  // Phase 85: per-field merge — identity ?? role ?? null. The narrowing
+  // guards (typeof/range) live in extractCosmeticsFromFrontmatter; here we
+  // only need presence-check fall-through.
+  const mergedTitle =
+    typeof cosmetics.title === "string"
+      ? cosmetics.title
+      : typeof roleCosmetics?.title === "string"
+        ? roleCosmetics.title
+        : null;
+  const mergedColorHue =
+    typeof cosmetics.colorHue === "number"
+      ? cosmetics.colorHue
+      : typeof roleCosmetics?.colorHue === "number"
+        ? roleCosmetics.colorHue
+        : null;
+  const mergedVoice =
+    typeof cosmetics.voice === "string"
+      ? cosmetics.voice
+      : typeof roleCosmetics?.voice === "string"
+        ? roleCosmetics.voice
+        : null;
+
   return {
     identityKey,
     displayName:
       typeof cosmetics.displayName === "string" && cosmetics.displayName.length > 0
         ? cosmetics.displayName
         : capitalizeFirst(identityKey),
-    title: typeof cosmetics.title === "string" ? cosmetics.title : null,
-    colorHue: typeof cosmetics.colorHue === "number" ? cosmetics.colorHue : null,
-    voice: typeof cosmetics.voice === "string" ? cosmetics.voice : null,
+    title: mergedTitle,
+    colorHue: mergedColorHue,
+    voice: mergedVoice,
     // Phase 80 Plan 80-03: task surfaces on every identity object (D-05
     // write-once semantics — read straight from disk frontmatter via
-    // extractCosmeticsFromFrontmatter's task narrowing).
+    // extractCosmeticsFromFrontmatter's task narrowing). Not merged with
+    // role: task is per-identity (D-05 write-once at birth).
     task: typeof cosmetics.task === "string" ? cosmetics.task : null,
     avatarMime:
       typeof cosmetics.avatarMime === "string" ? cosmetics.avatarMime : "",
     // Phase 68: hostId baked into avatarUrl so the frontend no longer needs
     // to append it via avatarUrlWithHost (Wave 3 removes that helper).
+    // Phase 85: URL shape unchanged — backend does role-folder fallback
+    // internally in GET /:identityKey/avatar handler.
     avatarUrl: `/identities/${identityKey}/avatar?hostId=${hostId}`,
     avatarEtag:
       typeof cosmetics.avatarEtag === "string" ? cosmetics.avatarEtag : "",
     // Phase 67 Plan 67-01: coordinator overlay. Absence = actor = false (safe-default).
     coordinator: typeof cosmetics.coordinator === "boolean" ? cosmetics.coordinator : false,
     role,
+    // Phase 85 Plan 85-01: roleDefaults echoes the role's raw cosmetic
+    // values so IdentityModal (Plan 85-05) can render inherit-vs-override
+    // affordances. null when no role; {} when role has no cosmetics.
+    roleDefaults: roleCosmetics,
   };
 }
 
@@ -219,6 +280,43 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
             // Enumerate keys on this host.
             const identityKeys = await listIdentityKeysOnHost(conn);
 
+            // Phase 85 Plan 85-01 Task 2: per-host role-cosmetics memo.
+            // Multiple identities of the same role on the same host must
+            // read the role file AT MOST ONCE (T-85-01-03 DoS mitigation).
+            // Map<roleName, Promise<cosmetics-or-{}-on-error>>. Storing the
+            // in-flight Promise (not the resolved value) collapses parallel
+            // reads within the same Promise.all fanout — the second caller
+            // awaits the first caller's in-flight readRoleFileByName rather
+            // than kicking off a second SSH exec. Lives inside the per-host
+            // try block so it's fresh per request, not module-global.
+            const roleReadCache = new Map<
+              string,
+              Promise<ReturnType<typeof extractCosmeticsFromFrontmatter>>
+            >();
+            const readRoleCosmeticsMemoized = (
+              roleName: string,
+            ): Promise<ReturnType<typeof extractCosmeticsFromFrontmatter>> => {
+              const existing = roleReadCache.get(roleName);
+              if (existing !== undefined) return existing;
+              const p = (async () => {
+                try {
+                  const { markdown: roleMd } = await readRoleFileByName(
+                    conn,
+                    roleName,
+                  );
+                  return roleMd ? extractCosmeticsFromFrontmatter(roleMd) : {};
+                } catch {
+                  // Silent-swallow: role read failed. Identity still surfaces
+                  // with its own cosmetics + roleDefaults={} so frontend
+                  // distinguishes "role has no defaults" from "no role" via
+                  // the `role` field being non-null.
+                  return {} as ReturnType<typeof extractCosmeticsFromFrontmatter>;
+                }
+              })();
+              roleReadCache.set(roleName, p);
+              return p;
+            };
+
             // Per-key parallel read of cosmetics + role.
             const identityList = await Promise.all(
               identityKeys.map(async (identityKey) => {
@@ -226,7 +324,21 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
                   const { markdown } = await readIdentityFile(conn, identityKey);
                   const cosmetics = extractCosmeticsFromFrontmatter(markdown);
                   const role = extractRoleFromMarkdown(markdown) ?? null;
-                  return publicIdentity(identityKey, hostId, cosmetics, role);
+
+                  // Phase 85: resolve role cosmetics via per-host memo.
+                  // No role → pass null so publicIdentity emits roleDefaults=null.
+                  const roleCosmetics =
+                    role !== null
+                      ? await readRoleCosmeticsMemoized(role)
+                      : null;
+
+                  return publicIdentity(
+                    identityKey,
+                    hostId,
+                    cosmetics,
+                    role,
+                    roleCosmetics,
+                  );
                 } catch {
                   // Per-key failure swallowed — skip this key.
                   return null;
@@ -537,7 +649,34 @@ router.put(
         echoCosmetics = {};
       }
 
-      return res.json(publicIdentity(identityKey, hostId, echoCosmetics, extractRoleFromMarkdown(postWriteMd) ?? null));
+      // Phase 85 Plan 85-01 Task 2: PUT response echo must also carry
+      // roleDefaults so the frontend gets the same merged shape it receives
+      // on GET /identities. Reads the role file once after the write; role
+      // read failure → pass {} (identity's own values still surface).
+      const roleName = extractRoleFromMarkdown(postWriteMd);
+      let echoRoleCosmetics:
+        | ReturnType<typeof extractCosmeticsFromFrontmatter>
+        | null = null;
+      if (roleName !== null) {
+        try {
+          const { markdown: roleMd } = await readRoleFileByName(conn, roleName);
+          echoRoleCosmetics = roleMd
+            ? extractCosmeticsFromFrontmatter(roleMd)
+            : {};
+        } catch {
+          echoRoleCosmetics = {};
+        }
+      }
+
+      return res.json(
+        publicIdentity(
+          identityKey,
+          hostId,
+          echoCosmetics,
+          roleName ?? null,
+          echoRoleCosmetics,
+        ),
+      );
     } catch (e) {
       databaseLogger.error("Failed to update identity on disk", e, {
         operation: "update_identity_disk_write",
@@ -611,7 +750,37 @@ router.get(
     }
 
     try {
-      const readResult = await readAvatarSiblingFile(conn, identityKey);
+      let readResult = await readAvatarSiblingFile(conn, identityKey);
+
+      // Phase 85 Plan 85-01 Task 2: role-folder avatar fallback. When the
+      // identity has no sibling avatar of its own, resolve the identity's
+      // role via its markdown frontmatter; if the role's frontmatter names
+      // an avatar filename AND the role folder holds that sibling, serve
+      // the role's shared avatar. Only 404 if BOTH branches return null.
+      // Any error in the role-side chain is treated as "no fallback found"
+      // (falls through to 404) — never surfaces as 5xx here.
+      if (readResult === null) {
+        try {
+          const { markdown } = await readIdentityFile(conn, identityKey);
+          const role = extractRoleFromMarkdown(markdown);
+          if (role !== null) {
+            const { markdown: roleMd } = await readRoleFileByName(conn, role);
+            if (roleMd) {
+              const roleCos = extractCosmeticsFromFrontmatter(roleMd);
+              if (typeof roleCos.avatar === "string" && roleCos.avatar.length > 0) {
+                readResult = await readAvatarSiblingFileByRole(
+                  conn,
+                  role,
+                  roleCos.avatar,
+                );
+              }
+            }
+          }
+        } catch {
+          // Silent — role-side chain error → no fallback (existing 404 path).
+        }
+      }
+
       if (readResult === null) {
         return res
           .status(404)
