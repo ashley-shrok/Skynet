@@ -46,8 +46,10 @@ describe("OutboundBubble", () => {
     expect(spinner).not.toBeNull();
     // aria-hidden discipline (spinner is decorative)
     expect(spinner!.getAttribute("aria-hidden")).not.toBeNull();
-    // animate-spin class present
-    expect((spinner as HTMLElement).className).toContain("animate-spin");
+    // animate-spin class present — Loader2 is an SVG so its .className is
+    // an SVGAnimatedString; read via getAttribute for a plain string.
+    const classAttr = spinner!.getAttribute("class") ?? "";
+    expect(classAttr).toContain("animate-spin");
   });
 
   it("Test 4: pendingState='failed' sets data-pv-bubble-failed='true' + red inline background", () => {
@@ -55,9 +57,12 @@ describe("OutboundBubble", () => {
     const bubble = document.querySelector("[data-pv-bubble-failed='true']");
     expect(bubble).not.toBeNull();
     // Inline style carries the red background per Phase 76 D-06.
+    // jsdom normalises `hsla(0, 60%, 35%, 0.90)` → `rgba(143, 36, 36, 0.9)`;
+    // assert on the red-band rgba shape which is deterministic across
+    // jsdom versions (r ≈ 143, g ≈ 36, b ≈ 36).
     const style = (bubble as HTMLElement).getAttribute("style") ?? "";
-    // hsla(0, 60%, 35%, 0.90) — jsdom may normalise slightly; assert the hue token.
-    expect(style).toMatch(/hsla?\(0/);
+    expect(style).toMatch(/background:\s*rgba?\(143,\s*36,\s*36/);
+    expect(style).toMatch(/border-color:\s*rgba?\(217,\s*38,\s*38/);
     // No spinner in failed state (Test 6 semantic: failed supersedes sending).
     expect(document.querySelector("[data-pv-bubble-spinner]")).toBeNull();
   });
