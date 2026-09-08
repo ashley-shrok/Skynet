@@ -42,6 +42,9 @@ import {
   getSharedDMRoom,
   deactivateUser,
   createRoom,
+  getUserJoinedRooms,
+  getRoomLatestEventTs,
+  getRoomJoinedMembers,
 } from "./matrix-admin-client.js";
 import { getMatrixAdminCreds } from "./matrix-admin-creds-store.js";
 import { databaseLogger } from "../utils/logger.js";
@@ -906,5 +909,219 @@ describe("createRoom", () => {
       (fetchMock.mock.calls[0][1] as RequestInit).body as string,
     );
     expect(body.room_alias_name).toBe("myalias");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getUserJoinedRooms (Phase 89-03 Task 1) — top-level primitive extracted
+// from getSharedDMRoom's internal helper at L473. Discriminated-union return
+// so the observation loop can drive per-user backoff on failure reasons.
+// ---------------------------------------------------------------------------
+
+describe("getUserJoinedRooms", () => {
+  it("Test 1: happy path 200 with joined_rooms → {ok:true, roomIds}; GET /_synapse/admin/v1/users/{mxid}/joined_rooms with Bearer auth", async () => {
+    const fetchMock = vi.fn(async () =>
+      mockFetchResponse(200, {
+        joined_rooms: ["!r1:server", "!r2:server"],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await getUserJoinedRooms("@user:server");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.roomIds).toEqual(["!r1:server", "!r2:server"]);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const call = fetchMock.mock.calls[0];
+    const url = call[0] as string;
+    expect(url).toBe(
+      `${HAPPY_CREDS.homeserverBase}/_synapse/admin/v1/users/${encodeURIComponent("@user:server")}/joined_rooms`,
+    );
+    const opts = call[1] as RequestInit;
+    expect(opts.method).toBe("GET");
+    const headers = opts.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe(
+      `Bearer ${HAPPY_CREDS.accessToken}`,
+    );
+  });
+
+  it("Test 2: 404 user not found → {ok:false, status:404, error:'admin_api_non_2xx'}", async () => {
+    stubFetchOk(404, { errcode: "M_NOT_FOUND", error: "user not found" });
+    const result = await getUserJoinedRooms("@ghost:server");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(404);
+      expect(result.error).toBe("admin_api_non_2xx");
+    }
+  });
+
+  it("Test 3: creds missing → {ok:false, status:500, error:'matrix_admin_creds_missing'}, fetch never called", async () => {
+    vi.mocked(getMatrixAdminCreds).mockResolvedValueOnce(null);
+    const fetchMock = vi.fn(async () => {
+      throw new Error("fetch must not be called when creds are missing");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await getUserJoinedRooms("@user:server");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(500);
+      expect(result.error).toBe("matrix_admin_creds_missing");
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("Test 4: AbortError (timeout) → {ok:false, status:504, error:'admin_api_timeout'}", async () => {
+    stubFetchAbort();
+    const result = await getUserJoinedRooms("@user:server");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(504);
+      expect(result.error).toBe("admin_api_timeout");
+    }
+  });
+
+  it("Test 5: getSharedDMRoom's happy path still works after extraction refactor (regression)", async () => {
+    const AGENT = "@alexander:server";
+    const HUMAN = "@ashley:server";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockFetchResponse(200, {
+          joined_rooms: ["!roomA:server", "!roomB:server"],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockFetchResponse(200, {
+          joined_rooms: ["!roomB:server", "!roomC:server"],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockFetchResponse(200, {
+          members: ["@alexander:server", "@ashley:server"],
+          total: 2,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await getSharedDMRoom(AGENT, HUMAN);
+    expect(result).toBe("!roomB:server");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getRoomLatestEventTs (Phase 89-03 Task 1) — GET Synapse admin messages
+// endpoint with dir=b&limit=1; returns the newest event's origin_server_ts.
+// ---------------------------------------------------------------------------
+
+describe("getRoomLatestEventTs", () => {
+  it("Test 6: happy path 200 with chunk containing origin_server_ts → {ok:true, ts:number}", async () => {
+    const fetchMock = vi.fn(async () =>
+      mockFetchResponse(200, {
+        chunk: [{ origin_server_ts: 1725840000000 }],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await getRoomLatestEventTs("!r1:server");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.ts).toBe(1725840000000);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toBe(
+      `${HAPPY_CREDS.homeserverBase}/_synapse/admin/v1/rooms/${encodeURIComponent("!r1:server")}/messages?dir=b&limit=1`,
+    );
+    const opts = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(opts.method).toBe("GET");
+    const headers = opts.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe(
+      `Bearer ${HAPPY_CREDS.accessToken}`,
+    );
+  });
+
+  it("Test 7: empty chunk (no events yet) → {ok:true, ts:null} — D-05 tolerance for brand-new room", async () => {
+    stubFetchOk(200, { chunk: [] });
+    const result = await getRoomLatestEventTs("!newroom:server");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.ts).toBeNull();
+    }
+  });
+
+  it("Test 9a: getRoomLatestEventTs proxy-error path NEVER logs admin access_token", async () => {
+    stubFetchNetworkError();
+    const errorSpy = vi.mocked(databaseLogger.error);
+    errorSpy.mockClear();
+    const result = await getRoomLatestEventTs("!r1:server");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(502);
+      expect(result.error).toBe("admin_api_proxy_error");
+    }
+    expect(errorSpy).toHaveBeenCalled();
+    for (const call of errorSpy.mock.calls) {
+      for (const arg of call) {
+        expect(JSON.stringify(arg)).not.toContain(HAPPY_CREDS.accessToken);
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getRoomJoinedMembers (Phase 89-03 Task 1) — GET /_synapse/admin/v1/rooms/
+// {roomId}/members — top-level primitive using the same endpoint that lives
+// inside getSharedDMRoom's L511 members-count loop.
+// ---------------------------------------------------------------------------
+
+describe("getRoomJoinedMembers", () => {
+  it("Test 8: happy path 200 with members+total → {ok:true, memberMxids, total}", async () => {
+    const fetchMock = vi.fn(async () =>
+      mockFetchResponse(200, {
+        members: ["@a:s", "@b:s"],
+        total: 2,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await getRoomJoinedMembers("!r1:server");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.memberMxids).toEqual(["@a:s", "@b:s"]);
+      expect(result.total).toBe(2);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toBe(
+      `${HAPPY_CREDS.homeserverBase}/_synapse/admin/v1/rooms/${encodeURIComponent("!r1:server")}/members`,
+    );
+    const opts = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(opts.method).toBe("GET");
+  });
+
+  it("Test 8b: members missing / wrong-type → fallback to empty array; total = memberMxids.length", async () => {
+    stubFetchOk(200, {});
+    const result = await getRoomJoinedMembers("!r1:server");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.memberMxids).toEqual([]);
+      expect(result.total).toBe(0);
+    }
+  });
+
+  it("Test 9b: getRoomJoinedMembers proxy-error path NEVER logs admin access_token", async () => {
+    stubFetchNetworkError();
+    const errorSpy = vi.mocked(databaseLogger.error);
+    errorSpy.mockClear();
+    const result = await getRoomJoinedMembers("!r1:server");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(502);
+      expect(result.error).toBe("admin_api_proxy_error");
+    }
+    expect(errorSpy).toHaveBeenCalled();
+    for (const call of errorSpy.mock.calls) {
+      for (const arg of call) {
+        expect(JSON.stringify(arg)).not.toContain(HAPPY_CREDS.accessToken);
+      }
+    }
   });
 });
