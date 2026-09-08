@@ -303,15 +303,20 @@ export default function RunbookEditorModal({
       console.debug("[RunbookEditorModal] delete-runbook", { runbookName });
       await deleteRunbook(hostId, roleName, runbookName);
       // No runbook-picker per D-02; modal closes on successful delete.
+      // Ordering matters: clear in-flight BEFORE the onOpenChange(false) that unmounts
+      // this component (PrettyView gates <RunbookEditorModal> render on runbookEditorOpenState).
+      // A finally{} that sets state after unmount is silently swallowed by React 18 but is
+      // still a subtle correctness bug — an early return sidesteps the unmount race entirely.
       setDeleteRunbookConfirm(false);
+      setDeleteRunbookInFlight(false);
       onOpenChange(false);
+      return;
     } catch (err) {
       setDeleteRunbookError(
         err instanceof Error ? `Couldn't delete: ${err.message}` : "Couldn't delete",
       );
-    } finally {
-      setDeleteRunbookInFlight(false);
     }
+    setDeleteRunbookInFlight(false);
   }, [hostId, roleName, runbookName, onOpenChange]);
 
   return (
