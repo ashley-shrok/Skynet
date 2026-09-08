@@ -1,4 +1,4 @@
-# Phase 85: User avatars — baseline backend support — Context
+# Phase 87: User avatars — baseline backend support — Context
 
 **Gathered:** 2026-09-07
 **Status:** Ready for planning
@@ -54,7 +54,7 @@ Frontend consumption — where avatars actually appear in the UI, and any self-s
 
 ### DB write pairing (LOCKED — trap avoidance)
 
-- **D-17:** Every users-table row mutation MUST be paired with `DatabaseSaveTrigger.forceSave("phase-85-user-avatar")` (or `triggerSave()` — either is acceptable, `forceSave` gives an explicit reason label per role-file convention). This includes the create path's INSERT (already present in the endpoint at line 137-165, currently uses raw SQL prepare/run — must add the save trigger call after the insert transaction commits) AND the new change endpoint's UPDATE.
+- **D-17:** Every users-table row mutation MUST be paired with `DatabaseSaveTrigger.forceSave("phase-87-user-avatar")` (or `triggerSave()` — either is acceptable, `forceSave` gives an explicit reason label per role-file convention). This includes the create path's INSERT (already present in the endpoint at line 137-165, currently uses raw SQL prepare/run — must add the save trigger call after the insert transaction commits) AND the new change endpoint's UPDATE.
 - **D-18:** Failure to call the save trigger is the CROWN-JEWEL invariant this project has already been burned by (see load-bearing invariant in `~/.claude/roles/box-maintainer/box-maintainer.md`; historical bounties `identity-writes-not-flushed-to-disk`, `skynet-in-memory-db-wider-audit`). The save-trigger call is not optional and is not something the planner can defer.
 
 ### Nginx routing (LOCKED — trap avoidance)

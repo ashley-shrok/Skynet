@@ -1,4 +1,4 @@
-# Phase 85: User avatars — baseline backend support — Research
+# Phase 87: User avatars — baseline backend support — Research
 
 **Researched:** 2026-09-07
 **Domain:** Skynet backend — Express + Drizzle + AES-encrypted in-memory SQLite; on-disk avatar file lifecycle inside the `skynet-data` docker volume
@@ -6,7 +6,7 @@
 
 ## Summary
 
-Phase 85 adds three backend endpoints (extended `POST /users/create`, new avatar-change PUT, new avatar serve GET) and one new nullable column on the `users` table, backed by files on disk in `${DATA_DIR}/user-avatars/`. Every ingredient — multer + memoryStorage + 5MB cap + PNG/JPEG/WebP fileFilter, the multer-error → HTTP-status handler, the `addColumnIfNotExists` migration pattern, the `DatabaseSaveTrigger.forceSave` pairing, the "own-record OR admin" auth check, the multipart test helper — already exists in this codebase and needs to be copy-mirrored, not designed.
+Phase 87 adds three backend endpoints (extended `POST /users/create`, new avatar-change PUT, new avatar serve GET) and one new nullable column on the `users` table, backed by files on disk in `${DATA_DIR}/user-avatars/`. Every ingredient — multer + memoryStorage + 5MB cap + PNG/JPEG/WebP fileFilter, the multer-error → HTTP-status handler, the `addColumnIfNotExists` migration pattern, the `DatabaseSaveTrigger.forceSave` pairing, the "own-record OR admin" auth check, the multipart test helper — already exists in this codebase and needs to be copy-mirrored, not designed.
 
 The two Skynet-specific traps the shape file called out (in-memory-SQLite save-trigger + nginx-config duplication) both have well-established mirrored patterns to lean on. The nginx `/users` block currently has no `client_max_body_size` directive so it inherits nginx's 1 MB default — the phase MUST bump it to 6M in both `docker/nginx.conf` and `docker/nginx-https.conf`, else 5 MB avatar uploads 413 at the edge before reaching Express.
 
@@ -45,7 +45,7 @@ The two Skynet-specific traps the shape file called out (in-memory-SQLite save-t
 - **D-16:** Reject mime-mismatch OR oversize BEFORE bytes touch disk (multer's memoryStorage + limits.fileSize + fileFilter).
 
 **DB write pairing (trap avoidance):**
-- **D-17:** Every users-table row mutation MUST be paired with `DatabaseSaveTrigger.forceSave("phase-85-user-avatar")` or `triggerSave()`. Includes the create-path INSERT (currently lacks this — line 213-220 uses the wrapping `saveMemoryDatabaseToFile()` helper) AND the new change-endpoint UPDATE.
+- **D-17:** Every users-table row mutation MUST be paired with `DatabaseSaveTrigger.forceSave("phase-87-user-avatar")` or `triggerSave()`. Includes the create-path INSERT (currently lacks this — line 213-220 uses the wrapping `saveMemoryDatabaseToFile()` helper) AND the new change-endpoint UPDATE.
 - **D-18:** Failure to call save trigger is the crown-jewel invariant this project has been burned by. Not optional.
 
 **Nginx routing (trap avoidance):**
@@ -238,7 +238,7 @@ docker/
 
 ### Pattern 1: Multer + memoryStorage + fileFilter + limits (VERBATIM COPY)
 
-**What:** The exact upload configuration Phase 85 needs already exists at `identity-avatar-batch.ts:406-422`. Copy-mirror it, do not redesign.
+**What:** The exact upload configuration Phase 87 needs already exists at `identity-avatar-batch.ts:406-422`. Copy-mirror it, do not redesign.
 
 **Source (verbatim from `identity-avatar-batch.ts:406-422`):**
 ```typescript
@@ -320,16 +320,16 @@ Note: this pattern uses `saveMemoryDatabaseToFile()` (the debounced helper), not
 
 ```typescript
 try {
-  await DatabaseSaveTrigger.forceSave("phase-85-user-avatar-create");
+  await DatabaseSaveTrigger.forceSave("phase-87-user-avatar-create");
 } catch (saveError) {
   databaseLogger.warn(
-    "[phase-85] forceSave failed post-avatar-write (non-fatal — retry on next mutation)",
+    "[phase-87] forceSave failed post-avatar-write (non-fatal — retry on next mutation)",
     { operation: "user_avatar_save_failed", userId: id, error: saveError },
   );
 }
 ```
 
-Recommend the `forceSave("phase-85-user-avatar-<create|change>")` variant per the CONTEXT.md D-17 preference for explicit labels.
+Recommend the `forceSave("phase-87-user-avatar-<create|change>")` variant per the CONTEXT.md D-17 preference for explicit labels.
 
 ### Pattern 4: Own-or-admin auth guard (VERBATIM COPY from user-session-routes.ts)
 
@@ -353,7 +353,7 @@ try {
 } catch { ... }
 ```
 
-For Phase 85's `PUT /users/:id/avatar`, the exact shape becomes:
+For Phase 87's `PUT /users/:id/avatar`, the exact shape becomes:
 ```typescript
 if (!userRecord.isAdmin && targetUserId !== userId) {
   return res
@@ -377,7 +377,7 @@ if (!userRecord.isAdmin && targetUserId !== userId) {
 |---------|-------------|-------------|-----|
 | Multipart body parsing | Custom stream reader | `multer` (already installed) | multer handles boundary parsing, part streaming, mime detection, size limits — all in one config object |
 | Buffer-in-memory upload | `multer.diskStorage()` for a temp file then read-back | `multer.memoryStorage()` | 5 MB fits comfortably in RAM; disk-storage adds a temp-file lifecycle for zero win at this size |
-| Save-to-disk pairing after row mutation | Direct sqlite `.exec()` call at bottom of handler | `DatabaseSaveTrigger.forceSave("phase-85-...")` | The forceSave helper coordinates with the debounce-save background loop; direct .exec() writes only reach RAM per CLAUDE.md § "In-memory SQLite pattern" |
+| Save-to-disk pairing after row mutation | Direct sqlite `.exec()` call at bottom of handler | `DatabaseSaveTrigger.forceSave("phase-87-...")` | The forceSave helper coordinates with the debounce-save background loop; direct .exec() writes only reach RAM per CLAUDE.md § "In-memory SQLite pattern" |
 | Migration script for the new column | `drizzle-kit push` / migration files | Add `addColumnIfNotExists("users", "avatar_path", "TEXT")` to `db/index.ts` + `forceSave` after | Skynet doesn't run drizzle-kit; every prior column addition (`is_admin`, `is_oidc`, `mxid`, `queue_slots`, ...) went via `addColumnIfNotExists`. Idempotent across boots. |
 | Content-Type detection on the serve path | libmagic / file-type / sniff bytes | Read the extension off the pointer (or store mime alongside the pointer) | Format was already validated on the write path via multer's fileFilter — the store-time mime is trusted at read time. See § Content-Type sniffing. |
 | ENOENT-safe unlink | try/catch around `fs.unlink` | `await fs.unlink(...).catch((err) => { if (err.code !== "ENOENT") throw err; })` | ENOENT during avatar cleanup is a normal state (user never had one, or race with concurrent replace). Only ENOENT is swallowed. |
@@ -386,7 +386,7 @@ if (!userRecord.isAdmin && targetUserId !== userId) {
 
 ## Runtime State Inventory
 
-> Rename/refactor/migration checklist. Phase 85 is greenfield (adding a new column + new files), NOT a rename/migration, so most categories are N/A. Documented explicitly per the checklist rule.
+> Rename/refactor/migration checklist. Phase 87 is greenfield (adding a new column + new files), NOT a rename/migration, so most categories are N/A. Documented explicitly per the checklist rule.
 
 | Category | Items Found | Action Required |
 |----------|-------------|-----------------|
@@ -396,7 +396,7 @@ if (!userRecord.isAdmin && targetUserId !== userId) {
 | Secrets/env vars | `DATA_DIR` env var (already-set, `docker-compose.yml`, value `/app/data`) is read at boot. No new secrets. | None — reuse existing. |
 | Build artifacts / installed packages | None — no packages added, no build outputs regenerated. | None. |
 
-**Explicit statement:** The only runtime state Phase 85 creates is (a) the on-disk `user-avatars/` subdir + the files within it (initially empty; populated as new users register or existing users' avatars are set via D-10), and (b) new `avatar_path` column values on new user rows. Both are internal to the Skynet EC2's `skynet-data` volume.
+**Explicit statement:** The only runtime state Phase 87 creates is (a) the on-disk `user-avatars/` subdir + the files within it (initially empty; populated as new users register or existing users' avatars are set via D-10), and (b) new `avatar_path` column values on new user rows. Both are internal to the Skynet EC2's `skynet-data` volume.
 
 ## Common Pitfalls
 
@@ -416,7 +416,7 @@ if (!userRecord.isAdmin && targetUserId !== userId) {
 
 **Why it happens:** Skynet's SQLite is `:memory:` per `db/index.ts:22` (`const actualDbPath = ":memory:";`). Only explicit save calls (`saveMemoryDatabaseToFile` or `DatabaseSaveTrigger.forceSave`) push RAM → encrypted disk file.
 
-**How to avoid:** Every users-table mutation on the create/change paths ends with `await DatabaseSaveTrigger.forceSave("phase-85-user-avatar-<create|change>")` — same shape as the Phase 75 mxid handler at `user-admin-routes.ts:349-361`. Wrap in try/catch with a non-fatal warn; the row is durable in RAM and the next debounce flush lands it.
+**How to avoid:** Every users-table mutation on the create/change paths ends with `await DatabaseSaveTrigger.forceSave("phase-87-user-avatar-<create|change>")` — same shape as the Phase 75 mxid handler at `user-admin-routes.ts:349-361`. Wrap in try/catch with a non-fatal warn; the row is durable in RAM and the next debounce flush lands it.
 
 **Warning signs:** After a create, restart the container; log in and query users list — new user row absent OR avatar_path is null when file exists on disk.
 
@@ -452,7 +452,7 @@ if (!userRecord.isAdmin && targetUserId !== userId) {
 
 ### Pitfall 6: Trusting the multer error to reach the router-level error handler when NO error handler is scoped to the create route
 
-**What goes wrong:** POST /users/create currently has no multer error handler (because it's currently JSON). If Phase 85 adds multer but forgets the error handler, LIMIT_FILE_SIZE surfaces as a generic 500 with Express default HTML instead of the clean 413 JSON D-15 promises.
+**What goes wrong:** POST /users/create currently has no multer error handler (because it's currently JSON). If Phase 87 adds multer but forgets the error handler, LIMIT_FILE_SIZE surfaces as a generic 500 with Express default HTML instead of the clean 413 JSON D-15 promises.
 
 **Why it happens:** Multer errors bubble up asynchronously; without a `router.use((err, req, res, next) => …)` scoped ahead of the general error path, they hit Express's default handler.
 
@@ -470,7 +470,7 @@ Every call site that deletes a user row was located via `grep -n "db.delete(user
 |---|-----------|---------|----------------------|
 | 1 | `src/backend/database/routes/delete-user-data.ts:91` | The canonical bulk-delete helper called from admin delete-user (site 4) and OIDC-link path (site 5). ONE well-placed unlink here covers those two call sites. | Add `await unlinkAvatarIfExists(userId)` BEFORE the `await db.delete(users).where(eq(users.id, userId))` at line 91. This is the single most-impactful edit. |
 | 2 | `src/backend/database/routes/users.ts:198` | Rollback delete inside `POST /users/create` when `authManager.registerUser` throws (encryption setup failed after INSERT). Runs immediately after INSERT before any save. | Also unlink here — but only if the create path wrote the file BEFORE inserting (per § Ordering below). If planner picks file-then-row ordering, this rollback path already handles the file (it was written before INSERT, deleted here). |
-| 3 | `src/backend/database/routes/users.ts:1052` | Same rollback shape but in the OIDC callback — `registerOIDCUser` throws. **NOT touched by Phase 85** because OIDC users are created without avatars (D-13 defers backfill; OIDC create path doesn't take avatar bytes — it's the identity-provider that provides identity, no upload UI). Confirm with planner: OIDC path bypasses the D-07 mandatoriness because the whole create flow is different (browser redirect, no upload chance). RECOMMEND explicit no-op with a comment. |
+| 3 | `src/backend/database/routes/users.ts:1052` | Same rollback shape but in the OIDC callback — `registerOIDCUser` throws. **NOT touched by Phase 87** because OIDC users are created without avatars (D-13 defers backfill; OIDC create path doesn't take avatar bytes — it's the identity-provider that provides identity, no upload UI). Confirm with planner: OIDC path bypasses the D-07 mandatoriness because the whole create flow is different (browser redirect, no upload chance). RECOMMEND explicit no-op with a comment. |
 | 4 | `src/backend/database/routes/users.ts:2007` | `DELETE /users/delete-account` — user deletes own account. Does NOT call `deleteUserAndRelatedData`, does a bare `db.delete(users).where(eq(users.id, userId))`. **HAS to be wired directly.** | Add `await unlinkAvatarIfExists(userId)` BEFORE the `db.delete` at line 2007. |
 | 5 | `src/backend/database/routes/users.ts:2229` | `DELETE /users/delete-user` — admin deletes another user. Calls `deleteUserAndRelatedData(targetUserId)`. | Automatically covered by site 1's edit. NO separate unlink here — would double-unlink and lose the ENOENT-tolerance handle. |
 | — | `src/backend/database/routes/user-oidc-account-routes.ts:178` | Calls `deleteUserAndRelatedData(oidcUserId)` — deleting the merged-away OIDC-only user during link-to-password. | Automatically covered by site 1's edit. NO separate unlink here. |
@@ -485,14 +485,14 @@ Every call site that deletes a user row was located via `grep -n "db.delete(user
 
 **Skynet does NOT use `drizzle-kit push`.** Migrations are hand-coded via a bespoke `addColumnIfNotExists` helper at `db/index.ts:668-693`. The Phase 75 mxid precedent is the exact template to follow.
 
-**Exact motion the planner needs (Phase 75 mxid template, applied to Phase 85 avatar_path):**
+**Exact motion the planner needs (Phase 75 mxid template, applied to Phase 87 avatar_path):**
 
 Step 1 — Add the Drizzle mirror at `src/backend/database/db/schema.ts` immediately after the `mxid` line (line 32) — see § Existing users row conventions for the exact comment block style.
 
 Step 2 — Add the migration line at `src/backend/database/db/index.ts` immediately after line 894 (`addColumnIfNotExists("users", "mxid", "TEXT");`):
 
 ```typescript
-// Phase 85 — nullable text pointer to the user's on-disk avatar file
+// Phase 87 — nullable text pointer to the user's on-disk avatar file
 // under ${DATA_DIR}/user-avatars/. Nullable at the schema level so
 // pre-existing users (who never had an avatar) remain valid; new users
 // created via POST /users/create MUST have this populated —
@@ -506,13 +506,13 @@ Step 3 — Add a `forceSave` immediately after (or fold into an existing forceSa
 
 ```typescript
 try {
-  await DatabaseSaveTrigger.forceSave("phase-85-user-avatar-schema");
+  await DatabaseSaveTrigger.forceSave("phase-87-user-avatar-schema");
 } catch (saveError) {
   databaseLogger.warn(
-    "[phase-85] forceSave failed post-schema (non-fatal — addColumnIfNotExists is idempotent, next boot retries)",
+    "[phase-87] forceSave failed post-schema (non-fatal — addColumnIfNotExists is idempotent, next boot retries)",
     {
       operation: "schema_migration_force_save_post_add",
-      reason: "phase-85-user-avatar-schema",
+      reason: "phase-87-user-avatar-schema",
       error: saveError,
     },
   );
@@ -543,10 +543,10 @@ mxid: text("mxid"),
 - Comment block: 4-6 lines, describes (1) which phase added it and why, (2) nullability rationale, (3) how it's populated (endpoint reference), (4) where the "other side" of the data lives if applicable.
 - Placed at the END of the users table def, not interspersed among older columns.
 
-**Applied to Phase 85 (planner draft — column name is Claude's discretion per D-05):**
+**Applied to Phase 87 (planner draft — column name is Claude's discretion per D-05):**
 
 ```typescript
-// Phase 85 (locked decision D-04) — pointer to this user's avatar image
+// Phase 87 (locked decision D-04) — pointer to this user's avatar image
 // file on disk under ${DATA_DIR}/user-avatars/. NOT bytes, NOT an
 // absolute path, NOT an external URL — just enough to reconstruct the
 // file location from the users row (D-05: deterministic + resolvable
@@ -602,9 +602,9 @@ app.use(bodyParser.raw({ limit: "5gb", type: "application/octet-stream" }));
 2. Line 490-497: `writeAvatarSiblingFile` (write new avatar bytes).
 3. Line 498+: best-effort delete of the old avatar sibling (ext-swap cleanup).
 
-Note the identity side writes markdown THEN avatar (opposite direction from the phase-85 SQLite/file case), because for identities the .md file is the "row" (source of truth) and the avatar is the sidecar file. Same principle: source-of-truth first, sidecar after; rollback the sidecar if source-of-truth failed.
+Note the identity side writes markdown THEN avatar (opposite direction from the phase-87 SQLite/file case), because for identities the .md file is the "row" (source of truth) and the avatar is the sidecar file. Same principle: source-of-truth first, sidecar after; rollback the sidecar if source-of-truth failed.
 
-**Applied to Phase 85 CREATE:**
+**Applied to Phase 87 CREATE:**
 ```typescript
 // (inside POST /users/create, after multer + validation)
 const id = nanoid();
@@ -635,10 +635,10 @@ try {
 //    Extend that rollback to also unlink the file.
 
 // 5. forceSave.
-await DatabaseSaveTrigger.forceSave("phase-85-user-avatar-create");
+await DatabaseSaveTrigger.forceSave("phase-87-user-avatar-create");
 ```
 
-**Applied to Phase 85 CHANGE:**
+**Applied to Phase 87 CHANGE:**
 ```typescript
 // (inside PUT /users/:id/avatar, after multer + own-or-admin auth)
 const oldRow = await db.select({ avatarPath: users.avatarPath }).from(users).where(eq(users.id, targetUserId)).limit(1);
@@ -674,7 +674,7 @@ if (oldFilename && oldFilename !== newFilename) {
 }
 
 // 4. forceSave.
-await DatabaseSaveTrigger.forceSave("phase-85-user-avatar-change");
+await DatabaseSaveTrigger.forceSave("phase-87-user-avatar-change");
 ```
 
 **Edge case the planner should think through:** If the filename convention includes the mime extension (e.g., `${userId}.png` vs `${userId}.jpg`), a user changing from PNG to JPEG produces a different filename — the old file must be unlinked. If the convention is fixed-extension (e.g., always store as PNG regardless of upload mime), the new file overwrites the old at the same path and no separate unlink is needed. **RECOMMEND** the ext-in-filename convention — matches the identity side (`identities.ts:474`) and preserves the browser's mime hint without an extra column.
@@ -809,9 +809,9 @@ function multipartRequest(
 }
 ```
 
-**Recommendation for Phase 85 tests:** Copy both helpers into `src/backend/database/routes/user-avatars.test.ts` verbatim. If the planner prefers DRY, extract to `src/backend/utils/test-multipart.ts` — but the identity-side hasn't done that and the copy is 60 lines. Copy is fine.
+**Recommendation for Phase 87 tests:** Copy both helpers into `src/backend/database/routes/user-avatars.test.ts` verbatim. If the planner prefers DRY, extract to `src/backend/utils/test-multipart.ts` — but the identity-side hasn't done that and the copy is 60 lines. Copy is fine.
 
-**Additional Phase 85 test-only concern:** POST /users/create ALSO carries `username` + `password` fields alongside the `avatar` file. `buildMultipartBody` above only handles ONE file field with no accompanying text fields. Extend it (or write a `buildMultipartBodyMixed(fields: Record<string, string>, file: {…})` variant) so a request with `username=foo`, `password=bar`, `avatar=<bytes>` can be built. Shape:
+**Additional Phase 87 test-only concern:** POST /users/create ALSO carries `username` + `password` fields alongside the `avatar` file. `buildMultipartBody` above only handles ONE file field with no accompanying text fields. Extend it (or write a `buildMultipartBodyMixed(fields: Record<string, string>, file: {…})` variant) so a request with `username=foo`, `password=bar`, `avatar=<bytes>` can be built. Shape:
 
 ```typescript
 function buildMultipartBodyMixed(
@@ -847,7 +847,7 @@ function buildMultipartBodyMixed(
 res.setHeader("Content-Type", entry.mime);
 res.send(entry.bytes);
 ```
-The `entry.mime` field was captured at upload time (`identity-avatar-batch.ts:442`: `mime: req.file.mimetype`) alongside the buffer. Since Phase 85 is disk-backed not memory-cached, there's no natural "entry object" — the mime would have to be stored either as a second DB column OR as the filename extension.
+The `entry.mime` field was captured at upload time (`identity-avatar-batch.ts:442`: `mime: req.file.mimetype`) alongside the buffer. Since Phase 87 is disk-backed not memory-cached, there's no natural "entry object" — the mime would have to be stored either as a second DB column OR as the filename extension.
 
 **Pattern B: `identities.ts:631` — mime derived from disk-side readAvatarSiblingFile:**
 ```typescript
@@ -921,7 +921,7 @@ Verified patterns from the current tree:
 
 ```typescript
 router.use(
-  "/:id/avatar",  // adjust to Phase 85 scoping — scoped to the write routes
+  "/:id/avatar",  // adjust to Phase 87 scoping — scoped to the write routes
   (
     err: Error & { code?: string },
     _req: Request,
@@ -949,7 +949,7 @@ router.use(
 
 ```typescript
 try {
-  await DatabaseSaveTrigger.forceSave("phase-85-user-avatar-<create|change>");
+  await DatabaseSaveTrigger.forceSave("phase-87-user-avatar-<create|change>");
 } catch (saveError) {
   authLogger.error(
     "Failed to persist user avatar change to disk",
@@ -968,7 +968,7 @@ try {
 addColumnIfNotExists("users", "avatar_path", "TEXT");
 ```
 
-### ENOENT-tolerant unlink helper (new — Phase 85)
+### ENOENT-tolerant unlink helper (new — Phase 87)
 
 ```typescript
 async function unlinkAvatarIfExists(filenameOrNull: string | null): Promise<void> {
@@ -991,9 +991,9 @@ async function unlinkAvatarIfExists(filenameOrNull: string | null): Promise<void
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| A1 | The OIDC user-create rollback at `users.ts:1052` does NOT need avatar unlink because OIDC users are created without avatars (Phase 85 does not extend the OIDC create path with a mandatoriness gate). | § User-delete pipeline discovery, site 3 | If planner decides OIDC users should also carry mandatory avatars, this call site must also unlink on rollback. Recommend planner confirm scope: is the D-07 mandatoriness gate ONLY on `POST /users/create` (JSON→multipart migration) or also on the OIDC callback create branch? CONTEXT.md D-07 says "POST /users/create refuses…" — literally that one endpoint. So the assumption stands, but flag it. |
+| A1 | The OIDC user-create rollback at `users.ts:1052` does NOT need avatar unlink because OIDC users are created without avatars (Phase 87 does not extend the OIDC create path with a mandatoriness gate). | § User-delete pipeline discovery, site 3 | If planner decides OIDC users should also carry mandatory avatars, this call site must also unlink on rollback. Recommend planner confirm scope: is the D-07 mandatoriness gate ONLY on `POST /users/create` (JSON→multipart migration) or also on the OIDC callback create branch? CONTEXT.md D-07 says "POST /users/create refuses…" — literally that one endpoint. So the assumption stands, but flag it. |
 | A2 | The filename convention should encode the mime extension (`${userId}.png` / `.jpg` / `.webp`), matching the identity-side precedent. This informs both the Content-Type serve pattern AND whether change-endpoint needs to unlink an old file when the mime changes. | § Content-Type sniffing + § File-first vs row-first ordering | If planner picks a different convention (e.g., always `.bin` extension with mime stored in a second column), the serve endpoint and change endpoint sketches need rework. But this contradicts D-04 ("one small nullable text column"). Assumption is safe unless CONTEXT.md is re-read as allowing two columns. |
-| A3 | The 6M `client_max_body_size` value is right (5 MB byte cap + ~1 MB multipart framing headroom). Reference for the sizing: `/identities/avatar` uses `8M` for a 2 MB cap (`identities.ts:40` — `2 * 1024 * 1024`), so it has ~6 MB headroom — very generous. Phase 85's 5 MB + 1 MB headroom is tighter but industry-standard (multipart framing overhead is typically <5% of payload). | § Nginx routing, D-20 | If 6M turns out to be too tight in production (rare, but real files carry EXIF and generous boundary text), planner can bump to 7M or 8M. Zero blast-radius risk — extra headroom is free. Recommend 6M as-written; monitor first-week 413 rate. |
+| A3 | The 6M `client_max_body_size` value is right (5 MB byte cap + ~1 MB multipart framing headroom). Reference for the sizing: `/identities/avatar` uses `8M` for a 2 MB cap (`identities.ts:40` — `2 * 1024 * 1024`), so it has ~6 MB headroom — very generous. Phase 87's 5 MB + 1 MB headroom is tighter but industry-standard (multipart framing overhead is typically <5% of payload). | § Nginx routing, D-20 | If 6M turns out to be too tight in production (rare, but real files carry EXIF and generous boundary text), planner can bump to 7M or 8M. Zero blast-radius risk — extra headroom is free. Recommend 6M as-written; monitor first-week 413 rate. |
 | A4 | The bespoke Skynet `DatabaseMigration` class at `src/backend/utils/database-migration.ts` handles ONLY the legacy JSON→SQLite one-time migration (not column-add operations). Column additions go through `addColumnIfNotExists` in `db/index.ts` during boot, NOT through the migration class. | § Migration mechanism | Verified by grep pattern — `DatabaseMigration` is instantiated only for `migration.checkMigrationStatus()` and `migration.migrateDatabase()` at `db/index.ts:47-51`, both invoked on first boot. Column mgmt goes through the standalone `addColumnIfNotExists` helper. Assumption HIGH-confidence. |
 | A5 | `saveMemoryDatabaseToFile()` and `DatabaseSaveTrigger.forceSave("<reason>")` are interchangeable per CONTEXT.md D-17. Verified via reading — both call the same underlying save path (`db/index.ts:1814-1841`), the forceSave variant just adds a labeled reason. | § DatabaseSaveTrigger pattern | If they differ in some edge case (e.g., queuing vs bypass), the forceSave version is preferred anyway. Low risk. |
 
@@ -1002,7 +1002,7 @@ async function unlinkAvatarIfExists(filenameOrNull: string | null): Promise<void
 1. **Should the OIDC user-create branch (`users.ts:981-1008`) ALSO carry a mandatory-avatar gate?**
    - What we know: CONTEXT.md D-07/D-09 explicitly names `POST /users/create` — one endpoint. OIDC create is a separate branch inside `/users/oidc/callback` (line 663). The user redirect flow doesn't offer an upload chance.
    - What's unclear: Whether "mandatoriness" is intended to be a property of "a Skynet user row" (all creation paths) or "the JSON-registration create endpoint" (one path).
-   - Recommendation: Treat OIDC create as OUT of Phase 85's mandatoriness scope (matches literal reading of D-09). Add an explicit code comment at the OIDC create site noting "OIDC users created without avatar per Phase 85 scope; downstream mechanism populates via D-10". If Ashley wants OIDC users to also have mandatory avatars, that becomes a Phase 85.1 scope-add — the D-10 change endpoint can be invoked from a first-login flow later.
+   - Recommendation: Treat OIDC create as OUT of Phase 87's mandatoriness scope (matches literal reading of D-09). Add an explicit code comment at the OIDC create site noting "OIDC users created without avatar per Phase 87 scope; downstream mechanism populates via D-10". If Ashley wants OIDC users to also have mandatory avatars, that becomes a Phase 87.1 scope-add — the D-10 change endpoint can be invoked from a first-login flow later.
 
 2. **Should the serve endpoint be publicly accessible (any authenticated user can request any user's avatar) or scoped (only the user themselves + admins)?**
    - What we know: CONTEXT.md D-11 says "Frontend calls it by user id and receives raw image bytes" — implies visible-to-others. The identity-avatar serve at `identities.ts:565-648` uses only `authenticateJWT` (no per-user scoping) — any authenticated user can fetch any identity's avatar. That precedent strongly implies "any authenticated user".
@@ -1012,7 +1012,7 @@ async function unlinkAvatarIfExists(filenameOrNull: string | null): Promise<void
 3. **Are the 5 delete call sites the ACTUAL exhaustive set, or are there other delete paths this grep missed?**
    - What we know: `grep -rn "delete.*users.*id\|deleteUser"` returned all 5 sites listed. I re-ran with variants (`db.delete(users)`, `deleteUserAndRelatedData`).
    - What's unclear: Whether any code path deletes via raw SQL (`db.$client.prepare("DELETE FROM users…")`) that wouldn't match the grep. `grep -rn "DELETE FROM users" /home/ubuntu/skynet-tina/src/backend --include="*.ts"` was run and returned no matches — the codebase consistently uses Drizzle for user deletes.
-   - Recommendation: Trust the grep. If a raw-SQL delete is added in the future, it MUST also carry the unlink — but that's a general invariant, not a Phase 85 gap. Consider adding a comment above the `users` schema def naming Phase 85 and noting "any code that deletes a users row MUST call unlinkAvatarIfExists first" so future editors see it.
+   - Recommendation: Trust the grep. If a raw-SQL delete is added in the future, it MUST also carry the unlink — but that's a general invariant, not a Phase 87 gap. Consider adding a comment above the `users` schema def naming Phase 87 and noting "any code that deletes a users row MUST call unlinkAvatarIfExists first" so future editors see it.
 
 ## Environment Availability
 
@@ -1043,7 +1043,7 @@ async function unlinkAvatarIfExists(filenameOrNull: string | null): Promise<void
 ### Phase Requirements → Test Map
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| D-04 | New `avatar_path` column added exactly once, idempotent across boots, queryable | unit | `npx vitest run src/backend/database/db/index.migration.test.ts -t "Phase 85"` | ❌ Wave 0 — add Phase 85 test to existing migration.test.ts mirroring the Phase 75-2 mxid test at line 566 |
+| D-04 | New `avatar_path` column added exactly once, idempotent across boots, queryable | unit | `npx vitest run src/backend/database/db/index.migration.test.ts -t "Phase 87"` | ❌ Wave 0 — add Phase 87 test to existing migration.test.ts mirroring the Phase 75-2 mxid test at line 566 |
 | D-07/D-09 | `POST /users/create` refuses (400) when `avatar` file part is missing | unit (multipart) | `npx vitest run src/backend/database/routes/users.test.ts -t "create refuses missing avatar"` | ❌ Wave 0 — new test file |
 | D-07 | `POST /users/create` succeeds (200) with a valid multipart body including avatar; row + file both present | unit (multipart) | same file, different test | ❌ Wave 0 |
 | D-10 | `PUT /users/:id/avatar` — own user succeeds | unit (multipart, mocked JWT) | same file | ❌ Wave 0 |
@@ -1067,7 +1067,7 @@ async function unlinkAvatarIfExists(filenameOrNull: string | null): Promise<void
 
 ### Wave 0 Gaps
 - [ ] `src/backend/database/routes/user-avatars.test.ts` — new test file, covers create + change + serve + delete + validation. Mirror structure of `identity-avatar-batch.test.ts`.
-- [ ] Extend `src/backend/database/db/index.migration.test.ts` with a Phase 85 mxid-style test (mirror lines 523-593).
+- [ ] Extend `src/backend/database/db/index.migration.test.ts` with a Phase 87 mxid-style test (mirror lines 523-593).
 - [ ] Optional: `src/backend/database/routes/delete-user-data.test.ts` for the D-22 unlink assertion — if this test file doesn't exist yet, may extend the existing `user-admin-routes.test.ts` or add fresh.
 - [ ] Multipart helper: copy `buildMultipartBody` + `multipartRequest` from `identity-avatar-batch.test.ts:184-254` verbatim; add `buildMultipartBodyMixed` variant for the create endpoint (which carries text fields alongside the file).
 
@@ -1113,7 +1113,7 @@ async function unlinkAvatarIfExists(filenameOrNull: string | null): Promise<void
 - `src/backend/database/database.ts:1842, 1893` — identity mount points (parallel architecture)
 - `src/backend/database/routes/users.ts:82-237` — current POST /users/create handler (to be extended)
 - `src/backend/database/routes/users.ts:198` — rollback delete site 2
-- `src/backend/database/routes/users.ts:1052` — OIDC rollback delete site 3 (excluded from Phase 85)
+- `src/backend/database/routes/users.ts:1052` — OIDC rollback delete site 3 (excluded from Phase 87)
 - `src/backend/database/routes/users.ts:2007` — DELETE /users/delete-account site 4
 - `src/backend/database/routes/users.ts:2229` — DELETE /users/delete-user site 5 (covered by helper edit)
 - `src/backend/database/routes/delete-user-data.ts:32-104` — canonical delete pipeline; edit target line 91

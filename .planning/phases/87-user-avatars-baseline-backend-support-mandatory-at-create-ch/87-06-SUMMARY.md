@@ -2,7 +2,7 @@
 phase: 85-user-avatars-baseline-backend-support
 plan: "06"
 subsystem: nginx-edge-config
-tags: [phase-85, user-avatars, nginx, edge-config, D-20, D-21]
+tags: [phase-87, user-avatars, nginx, edge-config, D-20, D-21]
 completed: 2026-09-08
 
 dependency_graph:
@@ -36,7 +36,7 @@ metrics:
   files_changed: 2
 ---
 
-# Phase 85 Plan 06: Nginx /users body-size cap Summary
+# Phase 87 Plan 06: Nginx /users body-size cap Summary
 
 **One-liner:** Added `client_max_body_size 6M;` to the `/users` regex location block in both `docker/nginx.conf` and `docker/nginx-https.conf`, unblocking 5 MB avatar uploads from reaching Express without a 413 at the nginx edge.
 
@@ -49,7 +49,7 @@ Two nginx config edits — one directive plus a 5-line comment anchor added to t
 **docker/nginx.conf** (landed at lines 174-180, immediately before the closing `}`):
 
 ```nginx
-            # Phase 85 (D-20/D-21) — POST /users/create + PUT /users/:id/avatar
+            # Phase 87 (D-20/D-21) — POST /users/create + PUT /users/:id/avatar
             # carry up to 5 MB avatar payloads (D-15). 6M leaves ~1 MB headroom
             # for multipart framing. See docker/nginx-https.conf for the sister
             # edit (D-21). Without this directive, nginx inherits its 1 MB
@@ -60,7 +60,7 @@ Two nginx config edits — one directive plus a 5-line comment anchor added to t
 **docker/nginx-https.conf** (landed at lines 185-191, same position relative to the `/users` block):
 
 ```nginx
-            # Phase 85 (D-20/D-21) — POST /users/create + PUT /users/:id/avatar
+            # Phase 87 (D-20/D-21) — POST /users/create + PUT /users/:id/avatar
             # carry up to 5 MB avatar payloads (D-15). 6M leaves ~1 MB headroom
             # for multipart framing. See docker/nginx-https.conf for the sister
             # edit (D-21). Without this directive, nginx inherits its 1 MB
@@ -80,15 +80,15 @@ Two nginx config edits — one directive plus a 5-line comment anchor added to t
 - **Payload cap:** 5 MB (D-15, mirrors `identity-avatar-batch.ts:414`)
 - **Headroom:** ~1 MB for multipart framing overhead (boundary, MIME part headers)
 - **Total:** 6M
-- **Sizing precedent:** `/identities/avatar` block at `docker/nginx.conf:286-296` uses `client_max_body_size 8M` for a 2 MB payload cap (4x headroom). Phase 85's 6M for 5MB cap (~20% headroom) is proportionally tighter but standard for upload endpoints.
+- **Sizing precedent:** `/identities/avatar` block at `docker/nginx.conf:286-296` uses `client_max_body_size 8M` for a 2 MB payload cap (4x headroom). Phase 87's 6M for 5MB cap (~20% headroom) is proportionally tighter but standard for upload endpoints.
 
 ### Diff-empty check (T-85-SISTER-FILE-MISS mitigated)
 
 ```
 diff <(awk '/location ~ \^\/users/,/^        }/' docker/nginx.conf \
-     | grep -E "client_max_body_size|Phase 85") \
+     | grep -E "client_max_body_size|Phase 87") \
      <(awk '/location ~ \^\/users/,/^        }/' docker/nginx-https.conf \
-     | grep -E "client_max_body_size|Phase 85")
+     | grep -E "client_max_body_size|Phase 87")
 ```
 
 **Result: EMPTY output, exit 0** — both files carry byte-identical additions. T-85-SISTER-FILE-MISS threat is mitigated.
@@ -111,7 +111,7 @@ None — plan executed exactly as written. Both tasks completed, all verificatio
 
 - [x] `client_max_body_size 6M` at nginx.conf:180 — verified
 - [x] `client_max_body_size 6M` at nginx-https.conf:191 — verified
-- [x] Phase 85 (D-20/D-21) comment present once in each file — `grep -c` returns 1 per file
+- [x] Phase 87 (D-20/D-21) comment present once in each file — `grep -c` returns 1 per file
 - [x] Diff-empty assertion exits 0 — byte-identical additions confirmed
 - [x] Only 1 new `client_max_body_size` directive per file (`git diff | grep -c '^+.*client_max_body_size'` returns 1 per file)
 - [x] No other location blocks modified — one `@@` hunk per file

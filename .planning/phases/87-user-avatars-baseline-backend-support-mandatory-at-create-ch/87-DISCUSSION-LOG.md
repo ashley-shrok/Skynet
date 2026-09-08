@@ -1,4 +1,4 @@
-# Phase 85: User avatars — baseline backend support — Discussion Log
+# Phase 87: User avatars — baseline backend support — Discussion Log
 
 > **Audit trail only.** Do not use as input to planning, research, or execution agents.
 > Decisions are captured in CONTEXT.md — this log preserves the alternatives considered.

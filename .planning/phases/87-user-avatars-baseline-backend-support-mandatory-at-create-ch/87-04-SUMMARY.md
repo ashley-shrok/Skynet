@@ -2,7 +2,7 @@
 phase: 85-user-avatars-baseline-backend-support
 plan: "04"
 subsystem: api
-tags: [phase-85, user-avatars, endpoints, change, serve, vitest]
+tags: [phase-87, user-avatars, endpoints, change, serve, vitest]
 
 dependency_graph:
   requires:
@@ -16,9 +16,9 @@ dependency_graph:
     - PUT /users/:id/avatar change endpoint (D-10) with own-or-admin auth + new-file-then-row-then-old-unlink ordering
     - GET /users/:id/avatar serve endpoint (D-11) with Content-Type from extension + ETag
     - userAvatarMulterErrorHandler scoped to /:id/avatar route (covers PUT only)
-    - DatabaseSaveTrigger.forceSave("phase-85-user-avatar-change") paired with UPDATE (D-17)
+    - DatabaseSaveTrigger.forceSave("phase-87-user-avatar-change") paired with UPDATE (D-17)
     - 24-test vitest suite (7 create from Plan 03 + 10 change + 7 serve) all passing
-  affects: [85-05, 85-06, 85-07]
+  affects: [87-05, 87-06, 87-07]
 
 tech_stack:
   added: []
@@ -55,7 +55,7 @@ metrics:
   files_modified: 2
 ---
 
-# Phase 85 Plan 04: PUT/GET /users/:id/avatar — change and serve endpoints
+# Phase 87 Plan 04: PUT/GET /users/:id/avatar — change and serve endpoints
 
 **PUT /users/:id/avatar (D-10) with own-or-admin auth, new-file-then-row-then-old-unlink ordering, raw-SQL UPDATE, and labeled forceSave; GET /users/:id/avatar (D-11) with Content-Type from extension, ETag, and ENOENT→404 mapping; 17 new tests (10 change + 7 serve) + Drizzle Symbol table-name fix in mock infrastructure**
 
@@ -82,17 +82,17 @@ metrics:
 - `readUserAvatar` added to the existing `user-avatar-storage.js` import group
 
 **PUT /users/:id/avatar handler logic:**
-1. `authenticateJWT` runs first (T-85-03 mitigation — unauthenticated blocked before multer parses bytes)
+1. `authenticateJWT` runs first (T-87-03 mitigation — unauthenticated blocked before multer parses bytes)
 2. `userAvatarUpload.single("avatar")` — multer gate (D-14/D-15/D-16)
 3. Caller lookup via `db.select().from(users).where(eq(users.id, userId))` — 404 if not found
-4. Own-or-admin guard: `if (!callerRecord.isAdmin && targetUserId !== userId) → 403` — reads `isAdmin` from DB not JWT (T-85-03b mitigation)
+4. Own-or-admin guard: `if (!callerRecord.isAdmin && targetUserId !== userId) → 403` — reads `isAdmin` from DB not JWT (T-87-03b mitigation)
 5. Target lookup with `.limit(1)` — 404 if not found (admin gets clean 404, not 500, for bogus id)
 6. `if (!req.file) → 400 "missing avatar field"` guard
 7. `writeUserAvatar(targetUserId, req.file.mimetype, req.file.buffer)` → `newFilename`
 8. Raw-SQL UPDATE: `db.$client.prepare("UPDATE users SET avatar_path = ? WHERE id = ?").run(newFilename, targetUserId)` — CONTEXT.md invariant preserved
 9. On UPDATE failure: `unlinkUserAvatar(newFilename)` only if `newFilename !== oldFilename` (ext-swap rollback; same-name would delete in-use file)
 10. `if (oldFilename && oldFilename !== newFilename) await unlinkUserAvatar(oldFilename)` — best-effort old-file cleanup after successful UPDATE
-11. `DatabaseSaveTrigger.forceSave("phase-85-user-avatar-change")` — labeled D-17 invariant
+11. `DatabaseSaveTrigger.forceSave("phase-87-user-avatar-change")` — labeled D-17 invariant
 12. Response: `200 { id: targetUserId, avatarPath: newFilename }`
 
 **GET /users/:id/avatar handler logic:**
@@ -109,7 +109,7 @@ metrics:
 **Verification (all passing):**
 - `grep -c 'router.put("/:id/avatar"' users.ts` = 1 ✓
 - `grep -c 'router.get("/:id/avatar"' users.ts` = 1 ✓
-- `grep -c '"phase-85-user-avatar-change"' users.ts` = 1 ✓
+- `grep -c '"phase-87-user-avatar-change"' users.ts` = 1 ✓
 - `grep -c 'Not authorized to change this user' users.ts` = 1 ✓
 - `grep -c 'callerRecord.isAdmin' users.ts` = 1 ✓
 - `grep -c 'writeUserAvatar(targetUserId' users.ts` = 1 ✓
@@ -119,7 +119,7 @@ metrics:
 - `grep -c 'res.setHeader("Content-Type"' users.ts` = 1 ✓
 - `npx tsc --noEmit` = 0 errors ✓
 
-**forceSave label used:** `"phase-85-user-avatar-change"` (Test 10 asserts this)
+**forceSave label used:** `"phase-87-user-avatar-change"` (Test 10 asserts this)
 
 **ETag included:** YES — per-response MD5 hash, mirrors identities.ts:626 pattern
 
@@ -144,7 +144,7 @@ metrics:
 | 7 | Target user not found → 404 before any file write | PASS |
 | 8 | Missing avatar field → 400 "missing avatar field" | PASS |
 | 9 | 6 MB upload → 413 via scoped multer error handler | PASS |
-| 10 | forceSave labeled "phase-85-user-avatar-change" | PASS |
+| 10 | forceSave labeled "phase-87-user-avatar-change" | PASS |
 
 #### GET /users/:id/avatar (7 tests)
 
@@ -206,19 +206,19 @@ None — all D-10, D-11, D-12 behaviors are wired. Both endpoints are fully func
 ## Threat Flags
 
 No new security surface beyond the plan's `<threat_model>` documents. All STRIDE threats mitigated:
-- T-85-03 (unauthenticated change): authenticateJWT before multer ✓
-- T-85-03b (non-admin changes another): own-or-admin guard reads from DB ✓
+- T-87-03 (unauthenticated change): authenticateJWT before multer ✓
+- T-87-03b (non-admin changes another): own-or-admin guard reads from DB ✓
 - T-85-08 (old-file orphan): unlinkUserAvatar after successful UPDATE, ENOENT-tolerant ✓
-- T-85-17 (UPDATE lost across restart): forceSave("phase-85-user-avatar-change") ✓
-- T-85-02 (path traversal): GET reads avatar_path from DB, never from URL directly ✓
+- T-85-17 (UPDATE lost across restart): forceSave("phase-87-user-avatar-change") ✓
+- T-87-02 (path traversal): GET reads avatar_path from DB, never from URL directly ✓
 - T-85-XSS (SVG mime): Content-Type from extension; .svg extension never in store ✓
 
 ## Self-Check: PASSED
 
 - FOUND: `src/backend/database/routes/users.ts` (modified — 184 net insertions: PUT + GET handlers + scoped error handler + imports)
 - FOUND: `src/backend/database/routes/users.test.ts` (modified — 711 net insertions: 17 tests + helpers)
-- FOUND commit: `ec3c5df5` (feat(85-04): add PUT/GET /users/:id/avatar endpoints to users.ts)
-- FOUND commit: `62a0f60d` (test(85-04): 17 tests for PUT/GET /users/:id/avatar change + serve endpoints)
+- FOUND commit: `ec3c5df5` (feat(87-04): add PUT/GET /users/:id/avatar endpoints to users.ts)
+- FOUND commit: `62a0f60d` (test(87-04): 17 tests for PUT/GET /users/:id/avatar change + serve endpoints)
 - `npx vitest run src/backend/database/routes/users.test.ts` = 24/24 pass ✓
 - `npx tsc --noEmit` = 0 errors ✓
 

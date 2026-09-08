@@ -2,10 +2,10 @@
 phase: 85-user-avatars-baseline-backend-support
 plan: "01"
 subsystem: database/schema
-tags: [phase-85, user-avatars, schema, migration, drizzle]
+tags: [phase-87, user-avatars, schema, migration, drizzle]
 dependency_graph:
   requires: []
-  provides: [users.avatarPath column, avatar_path migration, forceSave-phase-85]
+  provides: [users.avatarPath column, avatar_path migration, forceSave-phase-87]
   affects: [src/backend/database/db/schema.ts, src/backend/database/db/index.ts, src/backend/database/db/index.migration.test.ts]
 tech_stack:
   added: []
@@ -19,7 +19,7 @@ key_files:
 decisions:
   - "avatarPath on disk as avatar_path TEXT NULL — no .notNull() chain, no default, genuinely NULL when absent (not empty-string sentinel)"
   - "Migration block placed immediately after Phase 75 mxid block (line 922) before Phase 79 block"
-  - "Separate forceSave label phase-85-user-avatar-schema for grep-ability per D-17"
+  - "Separate forceSave label phase-87-user-avatar-schema for grep-ability per D-17"
   - "Test fixture USERS_CREATE_SQL_PRE_AVATAR_PATH includes mxid TEXT since Phase 75 already shipped"
 metrics:
   duration: "~10 minutes"
@@ -28,9 +28,9 @@ metrics:
   files_modified: 3
 ---
 
-# Phase 85 Plan 01: Schema Baseline — users.avatar_path Column Summary
+# Phase 87 Plan 01: Schema Baseline — users.avatar_path Column Summary
 
-**One-liner:** Added `avatar_path TEXT NULL` column to users table via Drizzle mirror + idempotent `addColumnIfNotExists` migration + labeled `forceSave("phase-85-user-avatar-schema")`, with two Phase 85 migration tests proving idempotency and nullability.
+**One-liner:** Added `avatar_path TEXT NULL` column to users table via Drizzle mirror + idempotent `addColumnIfNotExists` migration + labeled `forceSave("phase-87-user-avatar-schema")`, with two Phase 87 migration tests proving idempotency and nullability.
 
 ## What Was Built
 
@@ -39,8 +39,8 @@ metrics:
 | File | Change |
 |------|--------|
 | `src/backend/database/db/schema.ts` | Added `avatarPath: text("avatar_path")` as the last field of the users table definition, preceded by an 8-line comment block citing D-04, D-05, D-06, D-07, D-10, D-13 |
-| `src/backend/database/db/index.ts` | Added Phase 85 migration block (lines ~924-950) immediately after Phase 75 mxid block: `addColumnIfNotExists("users", "avatar_path", "TEXT")` + labeled `forceSave("phase-85-user-avatar-schema")` in try/catch |
-| `src/backend/database/db/index.migration.test.ts` | Added `describe("Phase 85-01 migration — users.avatar_path column")` block with two tests at end of file |
+| `src/backend/database/db/index.ts` | Added Phase 87 migration block (lines ~924-950) immediately after Phase 75 mxid block: `addColumnIfNotExists("users", "avatar_path", "TEXT")` + labeled `forceSave("phase-87-user-avatar-schema")` in try/catch |
+| `src/backend/database/db/index.migration.test.ts` | Added `describe("Phase 87-01 migration — users.avatar_path column")` block with two tests at end of file |
 
 ### Exact Column Names
 
@@ -50,14 +50,14 @@ metrics:
 
 ### forceSave Label
 
-- **Label:** `"phase-85-user-avatar-schema"`
+- **Label:** `"phase-87-user-avatar-schema"`
 - **Appears:** twice in `db/index.ts` — once inside `DatabaseSaveTrigger.forceSave(...)` (line ~941), once inside the `databaseLogger.warn` context object `reason:` field (line ~947)
-- **Grep-able:** unique across the codebase (`grep -r "phase-85-user-avatar-schema"` returns exactly the 2 expected hits)
+- **Grep-able:** unique across the codebase (`grep -r "phase-87-user-avatar-schema"` returns exactly the 2 expected hits)
 
 ## Test Run Output
 
 ```
-npx vitest run src/backend/database/db/index.migration.test.ts -t "Phase 85"
+npx vitest run src/backend/database/db/index.migration.test.ts -t "Phase 87"
 
  Test Files  1 passed (1)
       Tests  2 passed | 14 skipped (16)
@@ -84,16 +84,16 @@ npx vitest run src/backend/database/db/index.migration.test.ts
 ## Invariant Preservation
 
 - **CREATE TABLE IF NOT EXISTS users (lines 150-168) was NOT edited** — new column lands only via `addColumnIfNotExists` per RESEARCH.md § 2 / idempotency contract
-- **DatabaseSaveTrigger.forceSave pairing** — `forceSave("phase-85-user-avatar-schema")` called immediately after `addColumnIfNotExists`, wrapped in try/catch with non-fatal warn (D-17/D-18 crown-jewel invariant)
+- **DatabaseSaveTrigger.forceSave pairing** — `forceSave("phase-87-user-avatar-schema")` called immediately after `addColumnIfNotExists`, wrapped in try/catch with non-fatal warn (D-17/D-18 crown-jewel invariant)
 - **TypeScript compiles clean** — zero new errors in schema.ts or db/index.ts after edit
 
 ## Commits
 
 | Task | Commit | Message |
 |------|--------|---------|
-| Task 1 — schema.ts | `4d80befb` | `feat(85-01): add avatarPath column to Drizzle users schema (D-04/D-05/D-06)` |
-| Task 2 — index.ts migration | `c3e08d93` | `feat(85-01): add addColumnIfNotExists migration + labeled forceSave for avatar_path (D-04, D-17, D-18)` |
-| Task 3 — migration test | `e21f5638` | `test(85-01): add Phase 85 migration test mirroring Phase 75-2 mxid test` |
+| Task 1 — schema.ts | `4d80befb` | `feat(87-01): add avatarPath column to Drizzle users schema (D-04/D-05/D-06)` |
+| Task 2 — index.ts migration | `c3e08d93` | `feat(87-01): add addColumnIfNotExists migration + labeled forceSave for avatar_path (D-04, D-17, D-18)` |
+| Task 3 — migration test | `e21f5638` | `test(87-01): add Phase 87 migration test mirroring Phase 75-2 mxid test` |
 
 ## Deviations from Plan
 

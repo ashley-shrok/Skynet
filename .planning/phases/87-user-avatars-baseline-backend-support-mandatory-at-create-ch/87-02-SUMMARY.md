@@ -2,7 +2,7 @@
 phase: 85-user-avatars-baseline-backend-support
 plan: 02
 subsystem: api
-tags: [phase-85, user-avatars, multer, helper-module, storage, vitest]
+tags: [phase-87, user-avatars, multer, helper-module, storage, vitest]
 
 # Dependency graph
 requires:
@@ -11,7 +11,7 @@ requires:
 provides:
   - user-avatar-storage.ts shared helper module (D-12): multer instance, error handler, writeUserAvatar, unlinkUserAvatar, readUserAvatar, USER_AVATARS_DIR
   - 10-test suite proving all 9 required behaviors (mime accept/reject, size cap, write round-trip, ext derivation, ENOENT-tolerant unlink, read, ENOENT propagation, bad-extension throw, error handler routing)
-affects: [85-03, 85-04, 85-05, 85-06, 85-07]
+affects: [87-03, 87-04, 87-05, 87-06, 87-07]
 
 # Tech tracking
 tech-stack:
@@ -35,7 +35,7 @@ key-decisions:
   - "vi.resetModules() + dynamic import pattern to work around module-level DATA_DIR capture in test isolation"
 
 patterns-established:
-  - "Pattern: shared user-avatar helper module — all Phase 85 write/read/unlink endpoints import from user-avatar-storage.ts, never redefine the filename convention or mime whitelist"
+  - "Pattern: shared user-avatar helper module — all Phase 87 write/read/unlink endpoints import from user-avatar-storage.ts, never redefine the filename convention or mime whitelist"
 
 requirements-completed: [D-01, D-02, D-03, D-05, D-12, D-14, D-15, D-16]
 
@@ -44,7 +44,7 @@ duration: 18min
 completed: 2026-09-08
 ---
 
-# Phase 85 Plan 02: User Avatar Storage Helper Summary
+# Phase 87 Plan 02: User Avatar Storage Helper Summary
 
 **Shared multer + file-I/O helper module (user-avatar-storage.ts) with 5MB/png-jpeg-webp cap, deterministic ${userId}.${ext} filename convention, and 10-test vitest suite proving all 9 D-12 behavior contracts**
 
@@ -162,11 +162,20 @@ None — the module is fully implemented. All 6 exported symbols are production-
 
 ## Threat Flags
 
-No new security surface introduced beyond what the plan's `<threat_model>` documents. This is a pure internal helper module with no network endpoints, no auth paths, and no direct schema changes. The T-85-02 path-traversal mitigation (never using `req.file.originalname`) is implemented: `writeUserAvatar` composes filename from `userId` + whitelisted `MIME_TO_EXT` lookup only.
+No new security surface introduced beyond what the plan's `<threat_model>` documents. This is a pure internal helper module with no network endpoints, no auth paths, and no direct schema changes. The T-87-02 path-traversal mitigation (never using `req.file.originalname`) is implemented: `writeUserAvatar` composes filename from `userId` + whitelisted `MIME_TO_EXT` lookup only.
 
 ## Next Phase Readiness
 
 Plans 03, 04, 05, 06, 07 can import the 6 named exports from `user-avatar-storage.ts` without redefining the mime whitelist, size cap, filename convention, or file-I/O primitives. The single source of truth (D-12) is in place.
+
+## Self-Check: PASSED
+
+- FOUND: `src/backend/database/routes/user-avatar-storage.ts`
+- FOUND: `src/backend/database/routes/user-avatar-storage.test.ts`
+- FOUND: `.planning/phases/85-user-avatars-baseline-backend-support-mandatory-at-create-ch/87-02-SUMMARY.md`
+- FOUND commit: `ae7d2285` (feat(87-02): create user-avatar-storage.ts)
+- FOUND commit: `1fcfadde` (test(87-02): 10-test suite)
+- FOUND commit: `154c0288` (docs(87-02): metadata)
 
 ---
 *Phase: 85-user-avatars-baseline-backend-support*

@@ -2,7 +2,7 @@
 phase: 85-user-avatars-baseline-backend-support
 plan: 05
 subsystem: api
-tags: [phase-85, user-avatars, delete-cleanup, d-22]
+tags: [phase-87, user-avatars, delete-cleanup, d-22]
 
 # Dependency graph
 requires:
@@ -20,7 +20,7 @@ provides:
   - users.ts DELETE /users/delete-account wired — self-serve delete path
   - delete-user-data.test.ts with 4-test suite including SOURCE ASSERTION
   - schema.ts D-22 invariant comment above users table def
-affects: [85-06, 85-07]
+affects: [87-06, 87-07]
 
 # Tech tracking
 tech-stack:
@@ -52,7 +52,7 @@ duration: 20min
 completed: 2026-09-08
 ---
 
-# Phase 85 Plan 05: D-22 Avatar Delete Cleanup Summary
+# Phase 87 Plan 05: D-22 Avatar Delete Cleanup Summary
 
 **Wire ENOENT-tolerant avatar unlink into all 3 real user-delete call sites; add SOURCE ASSERTION test and schema invariant comment**
 
@@ -114,7 +114,7 @@ npx tsc --noEmit           → zero new errors
 npx vitest run delete-user-data.test.ts → 4 passed (0 failed)
 awk ordering check         → SELECT+unlink line: 101, DELETE line: 109 — OK ordering
 unlinkUserAvatar in users.ts → 6 occurrences (import + 5 usage sites)
-Phase 85 (D-22) comments  → 1 in delete-user-data.ts, 1 in users.ts, 1 in schema.ts
+Phase 87 (D-22) comments  → 1 in delete-user-data.ts, 1 in users.ts, 1 in schema.ts
 ```
 
 ## unlinkUserAvatar Usage Count in users.ts
@@ -151,9 +151,9 @@ No new security surface introduced. This plan only adds defensive cleanup code (
 
 ## Self-Check: PASSED
 
-- FOUND: `src/backend/database/routes/delete-user-data.ts` — contains `unlinkUserAvatar`, `avatarPath: users.avatarPath`, `Phase 85 (D-22)` comment
-- FOUND: `src/backend/database/routes/users.ts` — contains `delete_account_avatar_unlink_failed`, `Phase 85 (D-22)` comment in delete-account handler
-- FOUND: `src/backend/database/db/schema.ts` — contains `Phase 85 (D-22)` invariant comment above users table
+- FOUND: `src/backend/database/routes/delete-user-data.ts` — contains `unlinkUserAvatar`, `avatarPath: users.avatarPath`, `Phase 87 (D-22)` comment
+- FOUND: `src/backend/database/routes/users.ts` — contains `delete_account_avatar_unlink_failed`, `Phase 87 (D-22)` comment in delete-account handler
+- FOUND: `src/backend/database/db/schema.ts` — contains `Phase 87 (D-22)` invariant comment above users table
 - FOUND: `src/backend/database/routes/delete-user-data.test.ts` — 4 tests, all pass
 - FOUND commits: `d0dc5cd0`, `4c20221d`, `fada20ac`
 - SELECT-before-DELETE ordering: VERIFIED (awk + SOURCE ASSERTION test)

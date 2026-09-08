@@ -1,4 +1,4 @@
-# Phase 85: User avatars — baseline backend support — Pattern Map
+# Phase 87: User avatars — baseline backend support — Pattern Map
 
 **Mapped:** 2026-09-07
 **Files analyzed:** 11 (7 modify, 4 create incl. sibling test files)
@@ -48,7 +48,7 @@
 
 **Draft (planner may swap `avatarPath` → `avatar`, `avatarFilename`, etc. per D-05):**
 ```typescript
-  // Phase 85 (locked decision D-04) — pointer to this user's avatar image
+  // Phase 87 (locked decision D-04) — pointer to this user's avatar image
   // file on disk under ${DATA_DIR}/user-avatars/. NOT bytes, NOT an absolute
   // path, NOT an external URL — just the filename (userId + ext) so the row
   // is enough to reconstruct the file location given DATA_DIR (D-05).
@@ -108,13 +108,13 @@ const addColumnIfNotExists = (
 };
 ```
 
-**Placement:** Add the new `addColumnIfNotExists("users", "avatar_path", "TEXT");` line RIGHT AFTER line 894 (the mxid line), and fold into the same forceSave block by extending the labeled reason (e.g., `"phase-85-user-avatar-schema"`) or adding a separate forceSave block.
+**Placement:** Add the new `addColumnIfNotExists("users", "avatar_path", "TEXT");` line RIGHT AFTER line 894 (the mxid line), and fold into the same forceSave block by extending the labeled reason (e.g., `"phase-87-user-avatar-schema"`) or adding a separate forceSave block.
 
 **Do NOT edit the `CREATE TABLE IF NOT EXISTS users` at `db/index.ts:150-168`.** New columns land via `addColumnIfNotExists` only — RESEARCH.md § 2 explains why.
 
 ---
 
-### `src/backend/database/db/index.migration.test.ts` — Phase 85 migration test
+### `src/backend/database/db/index.migration.test.ts` — Phase 87 migration test
 
 **Analog:** `src/backend/database/db/index.migration.test.ts:466-591` (Phase 75-2 mxid test)
 
@@ -134,7 +134,7 @@ function addColumnIfNotExistsMxid(
 }
 ```
 
-**Users CREATE TABLE fixture (pre-mxid)** — at line 486-506 (add a new `USERS_CREATE_SQL_PRE_AVATAR` variant that INCLUDES `mxid TEXT` in the def since Phase 75 has already shipped by Phase 85).
+**Users CREATE TABLE fixture (pre-mxid)** — at line 486-506 (add a new `USERS_CREATE_SQL_PRE_AVATAR` variant that INCLUDES `mxid TEXT` in the def since Phase 75 has already shipped by Phase 87).
 
 **Test shape** (lines 566-591, VERBATIM):
 ```typescript
@@ -166,7 +166,7 @@ it("Test P75-2: users.mxid TEXT column added exactly once across two boots and i
 });
 ```
 
-**Copy-mirror to Phase 85:** Add a new `describe("Phase 85-01 migration — users.avatar_path column", () => { ... })` block using the same local helper and swapping `mxid` → `avatar_path`.
+**Copy-mirror to Phase 87:** Add a new `describe("Phase 87-01 migration — users.avatar_path column", () => { ... })` block using the same local helper and swapping `mxid` → `avatar_path`.
 
 ---
 
@@ -198,7 +198,7 @@ const manualUpload = multer({
 **Multer error handler VERBATIM** (`identity-avatar-batch.ts:453-478`):
 ```typescript
 router.use(
-  "/candidate/manual",  // scope to the write routes in Phase 85
+  "/candidate/manual",  // scope to the write routes in Phase 87
   (
     err: Error & { code?: string },
     _req: Request,
@@ -244,7 +244,7 @@ export const AVATAR_MIME_FROM_EXT: Record<AvatarExt, string> = {
 };
 ```
 
-**Planner note:** The Phase 85 mime whitelist is a STRICT SUBSET (png/jpeg/webp — no gif, no svg). Either:
+**Planner note:** The Phase 87 mime whitelist is a STRICT SUBSET (png/jpeg/webp — no gif, no svg). Either:
 - (a) Reuse `MIME_TO_AVATAR_EXT` directly and filter through `ALLOWED_USER_AVATAR_MIMES` before lookup (safer — never emit gif/svg accidentally), OR
 - (b) Define local `USER_AVATAR_MIME_TO_EXT` covering only the 3 mimes.
 
@@ -257,7 +257,7 @@ await fs.unlink(oldPath).catch(() => {
 });
 ```
 
-For Phase 85's stricter shape (RESEARCH.md § 1):
+For Phase 87's stricter shape (RESEARCH.md § 1):
 ```typescript
 async function unlinkAvatarIfExists(filenameOrNull: string | null): Promise<void> {
   if (!filenameOrNull) return;
@@ -342,7 +342,7 @@ try {
 Either keep as-is (D-17 accepts both), OR upgrade to the labeled variant per RESEARCH.md § 3:
 ```typescript
 try {
-  await DatabaseSaveTrigger.forceSave("phase-85-user-avatar-create");
+  await DatabaseSaveTrigger.forceSave("phase-87-user-avatar-create");
 } catch (saveError) {
   authLogger.error("Failed to persist user creation to disk", saveError, {
     operation: "user_create_save_failed",
@@ -357,7 +357,7 @@ try {
   await authManager.registerUser(id, password);
 } catch (encryptionError) {
   await db.delete(users).where(eq(users.id, id));
-  // ← Phase 85: also unlink the avatar file we wrote before the INSERT
+  // ← Phase 87: also unlink the avatar file we wrote before the INSERT
   authLogger.error(
     "Failed to setup user encryption, user creation rolled back",
     encryptionError,
@@ -417,7 +417,7 @@ try {
   }
 ```
 
-**Adapted for Phase 85:**
+**Adapted for Phase 87:**
 ```typescript
 router.put(
   "/:id/avatar",
@@ -492,7 +492,7 @@ if (req.file && newExt) {
 }
 ```
 
-**Adapted for Phase 85 (SQL-based, not markdown):**
+**Adapted for Phase 87 (SQL-based, not markdown):**
 ```typescript
 // 1. Load old filename (for unlink after row-update succeeds).
 const oldFilename = targetUser[0].avatarPath;  // may be null
@@ -522,7 +522,7 @@ if (oldFilename && oldFilename !== newFilename) {
 
 // 5. forceSave.
 try {
-  await DatabaseSaveTrigger.forceSave("phase-85-user-avatar-change");
+  await DatabaseSaveTrigger.forceSave("phase-87-user-avatar-change");
 } catch (saveError) { ... }
 ```
 
@@ -560,7 +560,7 @@ try {
 }
 ```
 
-**Adapted for Phase 85:**
+**Adapted for Phase 87:**
 ```typescript
 router.get(
   "/:id/avatar",
@@ -631,7 +631,7 @@ router.get(
 
 **Also wire in `users.ts:198`** (rollback delete inside `POST /users/create`). If file-then-row ordering is picked, the rollback path needs to unlink the file we wrote before the failed INSERT.
 
-**Explicit no-op at `users.ts:1052`** (OIDC callback rollback) with a comment noting OIDC create bypasses avatar upload per Phase 85 scope (RESEARCH.md § 1 Assumption A1).
+**Explicit no-op at `users.ts:1052`** (OIDC callback rollback) with a comment noting OIDC create bypasses avatar upload per Phase 87 scope (RESEARCH.md § 1 Assumption A1).
 
 ---
 
@@ -680,7 +680,7 @@ router.get(
             proxy_set_header X-Forwarded-Proto $proxy_x_forwarded_proto;
             proxy_set_header X-Forwarded-Port $proxy_x_forwarded_port;
             proxy_set_header X-Forwarded-Host $proxy_x_forwarded_host;
-            # Phase 85 — POST /users/create + PUT /users/:id/avatar carry up
+            # Phase 87 — POST /users/create + PUT /users/:id/avatar carry up
             # to 5 MB avatar payloads (D-15). 6M leaves ~1 MB headroom for
             # multipart framing overhead. See docker/nginx-https.conf for
             # the sister edit (D-21).
@@ -706,7 +706,7 @@ router.get(
 **Apply to:** New `PUT /users/:id/avatar`, new `GET /users/:id/avatar`. NOT applied to `POST /users/create` (that gates on `allow_registration` at lines 84-91).
 ```typescript
 const authenticateJWT = authManager.createAuthMiddleware();
-const requireAdmin = authManager.createAdminMiddleware();  // not used for Phase 85; own-or-admin is a per-handler check
+const requireAdmin = authManager.createAdminMiddleware();  // not used for Phase 87; own-or-admin is a per-handler check
 ```
 
 ### Own-or-admin authorization
@@ -731,7 +731,7 @@ if (!userRecord.isAdmin && targetId !== userId) {
 **Apply to:** Every mutation on the `users` table (create INSERT, change UPDATE, delete-account DELETE, deleteUserAndRelatedData DELETE).
 ```typescript
 try {
-  await DatabaseSaveTrigger.forceSave("phase-85-user-avatar-<create|change>");
+  await DatabaseSaveTrigger.forceSave("phase-87-user-avatar-<create|change>");
 } catch (saveError) {
   <logger>.error("Failed to persist user avatar mutation to disk", saveError, {
     operation: "user_avatar_save_failed",

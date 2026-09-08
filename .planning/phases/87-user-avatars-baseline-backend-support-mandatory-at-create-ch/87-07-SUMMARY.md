@@ -2,7 +2,7 @@
 phase: 85-user-avatars-baseline-backend-support
 plan: "07"
 subsystem: testing
-tags: [phase-85, user-avatars, integration-test, end-to-end, lifecycle, nginx-smoke-checkpoint]
+tags: [phase-87, user-avatars, integration-test, end-to-end, lifecycle, nginx-smoke-checkpoint]
 
 # Dependency graph
 requires:
@@ -21,11 +21,11 @@ requires:
 provides:
   - End-to-end lifecycle integration test (create → serve → change → serve → delete → verify-clean)
   - REAL file I/O exercised: writeUserAvatar + readUserAvatar + unlinkUserAvatar with tmpdir
-  - DatabaseSaveTrigger.forceSave spy confirms both "phase-85-user-avatar-create" + "phase-85-user-avatar-change" labels
+  - DatabaseSaveTrigger.forceSave spy confirms both "phase-87-user-avatar-create" + "phase-87-user-avatar-change" labels
   - Disk state assertions at 8 points across lifecycle (file-after-create, bytes-round-trip GET1, ext-swap-new-file, old-file-unlinked, bytes-round-trip-GET2, file-after-delete, dir-empty)
   - Nginx-edge smoke checkpoint documented for post-deploy verification
 affects:
-  - Phase 85 ship-gate: all prior unit tests + this integration test must pass before ship
+  - Phase 87 ship-gate: all prior unit tests + this integration test must pass before ship
   - Any downstream plan consuming GET /users/:id/avatar or PUT /users/:id/avatar
 
 # Tech tracking
@@ -58,9 +58,9 @@ duration: 45min
 completed: 2026-09-08
 ---
 
-# Phase 85 Plan 07: End-to-end Integration Test Summary
+# Phase 87 Plan 07: End-to-end Integration Test Summary
 
-**902-line single-flow integration test proves the full Phase 85 lifecycle — create-with-avatar to delete-cleans-disk — with real file I/O, real in-memory SQLite, and forceSave spy assertions; nginx-edge smoke checkpoint documented for post-deploy execution**
+**902-line single-flow integration test proves the full Phase 87 lifecycle — create-with-avatar to delete-cleans-disk — with real file I/O, real in-memory SQLite, and forceSave spy assertions; nginx-edge smoke checkpoint documented for post-deploy execution**
 
 ## Performance
 
@@ -79,10 +79,10 @@ The single-flow test covers 8 assertion points across 6 HTTP steps:
 
 | Step | HTTP | Status | Assertion |
 |------|------|--------|-----------|
-| 1 | POST /users/create (PNG multipart) | 200 | row.avatar_path set + file on disk + spy("phase-85-user-avatar-create") |
+| 1 | POST /users/create (PNG multipart) | 200 | row.avatar_path set + file on disk + spy("phase-87-user-avatar-create") |
 | 2 | Set authControl.userId from real aliceId | — | simulated login |
 | 3 | GET /users/:id/avatar | 200 | Content-Type: image/png + bytes byte-for-byte match validPngBytes |
-| 4 | PUT /users/:id/avatar (WebP ext-swap) | 200 | row.avatar_path updated + new .webp on disk + old .png unlinked + spy("phase-85-user-avatar-change") |
+| 4 | PUT /users/:id/avatar (WebP ext-swap) | 200 | row.avatar_path updated + new .webp on disk + old .png unlinked + spy("phase-87-user-avatar-change") |
 | 5 | GET /users/:id/avatar | 200 | Content-Type: image/webp + bytes byte-for-byte match validWebpBytes |
 | 6 | DELETE /users/delete-account | 200 | row gone + .webp file gone from disk + USER_AVATARS_DIR empty of image files |
 
@@ -108,7 +108,7 @@ The single-flow test covers 8 assertion points across 6 HTTP steps:
 npx vitest run src/backend/database/routes/user-avatars.integration.test.ts
   → 1 passed (0 failed)
 
-npx vitest run [all 5 Phase 85 test files combined]:
+npx vitest run [all 5 Phase 87 test files combined]:
   → 5 passed (55 tests) — no regressions
   Files: user-avatar-storage.test.ts, users.test.ts, delete-user-data.test.ts,
          index.migration.test.ts, user-avatars.integration.test.ts
@@ -177,7 +177,7 @@ Confirm the response behavior is identical — proves BOTH `docker/nginx.conf` A
 ### Signal Protocol
 
 After running Steps A-D, report:
-- `approved` — all four steps produced expected results → Plan 07 and Phase 85 are SHIP-READY
+- `approved` — all four steps produced expected results → Plan 07 and Phase 87 are SHIP-READY
 - `issues: <description>` — anything didn't match → triggers a revision loop against Plan 06 (nginx config); phase-completion is BLOCKED until Plan 06 is re-executed and this checkpoint re-run
 
 ## Task Commits
@@ -225,7 +225,7 @@ No new security surface introduced. This plan adds tests only.
 - FOUND: `src/backend/database/routes/user-avatars.integration.test.ts` — 902 lines
 - FOUND: `62888c53` — commit exists (`git log --oneline | grep 62888c53`)
 - VERIFIED: `npx vitest run src/backend/database/routes/user-avatars.integration.test.ts` → 1 passed
-- VERIFIED: All 5 Phase 85 test files combined → 55 tests passed, 0 failed
+- VERIFIED: All 5 Phase 87 test files combined → 55 tests passed, 0 failed
 - VERIFIED: File count ≥ 150 lines (`wc -l` → 902)
 - VERIFIED: Test uses REAL HTTP (node:http + ephemeral server on port 0, not mocked express req/res)
 - VERIFIED: Test asserts disk state at 8 lifecycle points (create-file, create-bytes, PUT-new-file, PUT-old-gone, GET2-bytes, delete-file, dir-empty, spy-labels)

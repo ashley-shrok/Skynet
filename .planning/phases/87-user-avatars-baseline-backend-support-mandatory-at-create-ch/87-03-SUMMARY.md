@@ -2,7 +2,7 @@
 phase: 85-user-avatars-baseline-backend-support
 plan: "03"
 subsystem: api
-tags: [phase-85, user-avatars, endpoints, create, mandatoriness, vitest]
+tags: [phase-87, user-avatars, endpoints, create, mandatoriness, vitest]
 
 dependency_graph:
   requires:
@@ -13,11 +13,11 @@ dependency_graph:
   provides:
     - POST /users/create extended to multipart/form-data with mandatory avatar (D-07/D-09)
     - Multer error handler scoped to /create route (D-14/D-15/D-16)
-    - File-then-row ordering with best-effort unlinkUserAvatar rollback on SQL failure (T-85-07)
-    - unlinkUserAvatar in encryption-failure rollback (T-85-06b)
-    - DatabaseSaveTrigger.forceSave("phase-85-user-avatar-create") after INSERT (D-17/D-18)
+    - File-then-row ordering with best-effort unlinkUserAvatar rollback on SQL failure (T-87-07)
+    - unlinkUserAvatar in encryption-failure rollback (T-87-06b)
+    - DatabaseSaveTrigger.forceSave("phase-87-user-avatar-create") after INSERT (D-17/D-18)
     - 7-test vitest suite for all create-endpoint behaviors
-  affects: [85-04, 85-05, 85-06, 85-07]
+  affects: [87-04, 87-05, 87-06, 87-07]
 
 tech_stack:
   added: []
@@ -39,7 +39,7 @@ key_files:
 key_decisions:
   - "File-then-row ordering on create: writeUserAvatar before INSERT transaction so SQL failure triggers ENOENT-tolerant unlinkUserAvatar (no dangling pointer risk)"
   - "unlinkUserAvatar added to encryption-failure rollback BEFORE db.delete so cleanup is complete even if db.delete throws"
-  - "DatabaseSaveTrigger.forceSave replaces saveMemoryDatabaseToFile — labeled reason 'phase-85-user-avatar-create' for grep-ability per D-17"
+  - "DatabaseSaveTrigger.forceSave replaces saveMemoryDatabaseToFile — labeled reason 'phase-87-user-avatar-create' for grep-ability per D-17"
   - "beforeAll(60s) hook timeout: users.ts imports 10+ sub-router modules, cold import takes >10s on fleet-load conditions"
   - "Server shared across all 7 tests (not restarted per test) — only DB state reset in beforeEach to avoid startup cost"
   - "mockWriteUserAvatar + mockUnlinkUserAvatar mocked so no real disk I/O in Tests 2-7; Test 1 mock actually writes to tmpDir so fs.access check works"
@@ -53,9 +53,9 @@ metrics:
   files_modified: 2
 ---
 
-# Phase 85 Plan 03: POST /users/create multipart extension with mandatory avatar
+# Phase 87 Plan 03: POST /users/create multipart extension with mandatory avatar
 
-**POST /users/create extended to multipart/form-data with req.file guard (D-07/T-85-06), file-then-row ordering with SQL-failure rollback (T-85-07), encryption-failure unlinkUserAvatar extension (T-85-06b), and labeled forceSave (D-17); 7-test vitest suite covering all create-endpoint behaviors**
+**POST /users/create extended to multipart/form-data with req.file guard (D-07/T-87-06), file-then-row ordering with SQL-failure rollback (T-87-07), encryption-failure unlinkUserAvatar extension (T-87-06b), and labeled forceSave (D-17); 7-test vitest suite covering all create-endpoint behaviors**
 
 ## Performance
 
@@ -77,24 +77,24 @@ metrics:
 
 3. **Line 82 — route signature change:** `router.post("/create", async (req, res) => {` → `router.post("/create", userAvatarUpload.single("avatar"), async (req, res) => {` (D-09/D-14/D-15/D-16 multer gate).
 
-4. **Lines 104-109 — req.file guard:** Added `if (!req.file) { return res.status(400).json({ error: "avatar is required" }); }` immediately after allow_registration gate and BEFORE any DB write or file write (D-07/T-85-06 mandatoriness enforcement).
+4. **Lines 104-109 — req.file guard:** Added `if (!req.file) { return res.status(400).json({ error: "avatar is required" }); }` immediately after allow_registration gate and BEFORE any DB write or file write (D-07/T-87-06 mandatoriness enforcement).
 
 5. **Lines 145-175 — file-then-row ordering + extended INSERT:** 
-   - `writeUserAvatar(id, req.file.mimetype, req.file.buffer)` added BEFORE the transaction (T-85-07 file-first ordering)
+   - `writeUserAvatar(id, req.file.mimetype, req.file.buffer)` added BEFORE the transaction (T-87-07 file-first ordering)
    - Wrapped existing `db.$client.transaction(...)` in try/catch: on SQL failure, `unlinkUserAvatar(avatarFilename)` runs then 500 returned
    - Raw-SQL INSERT extended: appended `, avatar_path` to column list, `, ?` to VALUES tuple, `avatarFilename` to `.run(...)` args (D-04 column population, CONTEXT.md raw-SQL pattern preserved)
 
-6. **Lines 232-247 — encryption-failure rollback extension (T-85-06b):** Added `await unlinkUserAvatar(avatarFilename);` immediately BEFORE the existing `await db.delete(users).where(eq(users.id, id));` in the `authManager.registerUser` catch block. Cleanup order: file unlink then row delete, so even if db.delete throws the file is already gone.
+6. **Lines 232-247 — encryption-failure rollback extension (T-87-06b):** Added `await unlinkUserAvatar(avatarFilename);` immediately BEFORE the existing `await db.delete(users).where(eq(users.id, id));` in the `authManager.registerUser` catch block. Cleanup order: file unlink then row delete, so even if db.delete throws the file is already gone.
 
-7. **Lines 249-257 — forceSave swap (D-17/T-85-17):** Replaced `const { saveMemoryDatabaseToFile } = await import("../db/index.js"); await saveMemoryDatabaseToFile();` with `await DatabaseSaveTrigger.forceSave("phase-85-user-avatar-create");`. Error logging updated to use `operation: "user_create_save_failed"`.
+7. **Lines 249-257 — forceSave swap (D-17/T-85-17):** Replaced `const { saveMemoryDatabaseToFile } = await import("../db/index.js"); await saveMemoryDatabaseToFile();` with `await DatabaseSaveTrigger.forceSave("phase-87-user-avatar-create");`. Error logging updated to use `operation: "user_create_save_failed"`.
 
 8. **Lines 279-284 — scoped multer error handler:** Added `router.use("/create", userAvatarMulterErrorHandler);` AFTER the router.post("/create", ...) registration (LIMIT_FILE_SIZE → 413, mime-error → 400, LIMIT_UNEXPECTED_FILE → 400, other → 500).
 
-9. **OIDC rollback comment (step 10 in plan):** Added Phase 85 D-07 no-op comment at the OIDC rollback site (`authManager.registerOIDCUser` catch block, `await db.delete(users)` line) explaining the deliberate carve-out per RESEARCH.md § 1 Assumption A1.
+9. **OIDC rollback comment (step 10 in plan):** Added Phase 87 D-07 no-op comment at the OIDC rollback site (`authManager.registerOIDCUser` catch block, `await db.delete(users)` line) explaining the deliberate carve-out per RESEARCH.md § 1 Assumption A1.
 
 **Verification (all pass):**
 - `grep -c 'userAvatarUpload.single("avatar")' users.ts` = 1 ✓
-- `grep -c '"phase-85-user-avatar-create"' users.ts` = 1 ✓
+- `grep -c '"phase-87-user-avatar-create"' users.ts` = 1 ✓
 - `grep -c 'unlinkUserAvatar(avatarFilename)' users.ts` = 2 (SQL-failure catch + encryption-failure rollback) ✓
 - `grep -c 'avatar_path' users.ts` = 1 (INSERT column list) ✓
 - `grep -c 'if (!req.file)' users.ts` = 1 ✓
@@ -111,15 +111,15 @@ metrics:
 | 2 | Missing avatar field → 400 "avatar is required", no row, writeUserAvatar not called | PASS |
 | 3 | 6 MB avatar → 413 "file too large (max 5 MB)" via multer LIMIT_FILE_SIZE handler | PASS |
 | 4 | image/gif → 400 "Avatar must be PNG, JPEG, or WebP" via multer fileFilter | PASS |
-| 5 | authManager.registerUser throws → 500, row deleted via db.delete, unlinkUserAvatar called (T-85-06b) | PASS |
-| 6 | Happy path → DatabaseSaveTrigger.forceSave called with "phase-85-user-avatar-create" | PASS |
+| 5 | authManager.registerUser throws → 500, row deleted via db.delete, unlinkUserAvatar called (T-87-06b) | PASS |
+| 6 | Happy path → DatabaseSaveTrigger.forceSave called with "phase-87-user-avatar-create" | PASS |
 | 7 | allow_registration=false → 403 BEFORE file-write, no orphan file | PASS |
 
-**forceSave label used:** `"phase-85-user-avatar-create"` (confirmed via Test 6 spy assertion)
+**forceSave label used:** `"phase-87-user-avatar-create"` (confirmed via Test 6 spy assertion)
 
 **Code comment at OIDC rollback site (verbatim):**
 ```
-// Phase 85 (D-07): OIDC user creation bypasses the mandatoriness gate because
+// Phase 87 (D-07): OIDC user creation bypasses the mandatoriness gate because
 // the OIDC redirect flow provides no avatar-upload opportunity. Backfill deferred
 // per D-13; downstream self-serve flow will populate via PUT /users/:id/avatar
 // (Plan 04). No avatar file to unlink on this rollback path.
@@ -177,14 +177,14 @@ None — all 9 D-12 behaviors from Plan 02 are wired. The POST /users/create han
 
 ## Threat Flags
 
-No new security surface introduced beyond what the plan's `<threat_model>` documents. T-85-06, T-85-07, T-85-06b, T-85-17 are all mitigated. The OIDC bypass (T-85-OIDC) is explicitly `accept`-ed with a code comment at the rollback site.
+No new security surface introduced beyond what the plan's `<threat_model>` documents. T-87-06, T-87-07, T-87-06b, T-85-17 are all mitigated. The OIDC bypass (T-85-OIDC) is explicitly `accept`-ed with a code comment at the rollback site.
 
 ## Self-Check: PASSED
 
 - FOUND: `src/backend/database/routes/users.ts` (modified — 86 net insertions)
 - FOUND: `src/backend/database/routes/users.test.ts` (created — 906 lines, 7 tests)
-- FOUND commit: `49802930` (feat(85-03): extend POST /users/create to multipart with mandatory avatar)
-- FOUND commit: `ed50eb9f` (test(85-03): 7-test suite for POST /users/create multipart with mandatory avatar)
+- FOUND commit: `49802930` (feat(87-03): extend POST /users/create to multipart with mandatory avatar)
+- FOUND commit: `ed50eb9f` (test(87-03): 7-test suite for POST /users/create multipart with mandatory avatar)
 
 ---
 *Phase: 85-user-avatars-baseline-backend-support*
