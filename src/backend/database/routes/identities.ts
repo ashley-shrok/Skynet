@@ -50,6 +50,11 @@ const upload = multer({
 
 const IDENTITY_VOICE_RE = /^[A-Z][A-Za-z]+\.wav$/;
 
+// Phase 86 code-review fix: match roles-create.ts MAX_TITLE_LENGTH so the two
+// authoring surfaces (POST /roles at create, PUT /identities/:key at override)
+// have consistent length semantics. Both sides trim + cap identically.
+const IDENTITY_TITLE_MAX_LENGTH = 128;
+
 type IdentityMetadata = {
   identityKey?: string;
   displayName?: string;
@@ -439,6 +444,22 @@ router.put(
         return res
           .status(400)
           .json({ error: "displayName cannot be empty" });
+      }
+    }
+    // Phase 86 code-review fix (H1 + H2): title empty-string → coerce to null
+    // (matches frontend IdentityModal semantics that empty-after-trim = revert
+    // to role default), and cap length to IDENTITY_TITLE_MAX_LENGTH matching
+    // roles-create.ts. Coercion happens BEFORE the overlay branch so the
+    // downstream `meta.title === null ? delete : set` logic sees a normalized
+    // value.
+    if (meta.title !== undefined && meta.title !== null) {
+      const t = String(meta.title);
+      if (t.trim() === "") {
+        meta.title = null;
+      } else if (t.length > IDENTITY_TITLE_MAX_LENGTH) {
+        return res
+          .status(400)
+          .json({ error: `title must be ≤${IDENTITY_TITLE_MAX_LENGTH} chars` });
       }
     }
     if (

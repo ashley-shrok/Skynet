@@ -217,17 +217,19 @@ export function CreateRoleDialog({
     });
   }, [flatHosts, search]);
 
-  // ─── Effect: reset state on close + auto-select single host on open ──────
-  // Mirrors NewSessionDialog L328-366 pattern. On open: auto-select if the
-  // tree has exactly one host (matches sibling picker UX), and re-seed
-  // colorHue randomly so a re-opened dialog doesn't remember the prior hue.
-  // On close: reset all state so re-open starts fresh.
+  // ─── Effect: seed on open / reset on close ─────────────────────────────
+  // Phase 86 code-review fix (M3): SPLIT what used to be one effect keyed on
+  // [open, flatHosts]. That combined effect re-fired mid-authoring whenever
+  // flatHosts reference changed (e.g., a host coming online), clobbering the
+  // user's already-picked colorHue with a fresh random value. Split into:
+  //   (a) an open-transition seed effect (keyed on `open` alone) that seeds
+  //       colorHue once when the dialog opens, and resets all state on close;
+  //   (b) an auto-select effect (keyed on `flatHosts`) that picks the single
+  //       host when there's exactly one, but never touches colorHue.
   useEffect(() => {
     if (open) {
-      if (flatHosts.length === 1) {
-        setSelectedHost(flatHosts[0]);
-      }
-      // Phase 86: re-seed colorHue on each open (never-touched roles vary in hue).
+      // Phase 86: re-seed colorHue on each OPEN transition (never-touched
+      // roles vary in hue). Not re-run on flatHosts updates — see M3.
       setColorHue(Math.floor(Math.random() * 360));
     } else {
       setName("");
@@ -251,6 +253,17 @@ export function CreateRoleDialog({
       }
       setManualPreviewUrl(null);
       manualFileRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // Phase 86 code-review fix (M3, part b): auto-select the single available
+  // host when only one exists. Runs both on open (via flatHosts reference)
+  // and when the host list changes mid-authoring — but no longer clobbers
+  // colorHue or any other cosmetic the user may have touched.
+  useEffect(() => {
+    if (open && flatHosts.length === 1) {
+      setSelectedHost(flatHosts[0]);
     }
   }, [open, flatHosts]);
 
