@@ -36,6 +36,14 @@ const ERR_TIMEOUT = "admin_api_timeout";
 const ERR_PROXY = "admin_api_proxy_error";
 /** Stable error code emitted when loginAsUser gets a 2xx without access_token. */
 const ERR_NO_TOKEN = "admin_api_no_token";
+/**
+ * Fixup N-3 (2026-09-08). Stable error code for the "expected response
+ * field missing" case. Introduced as a semantic clarifier for createRoom
+ * (which previously reused ERR_NO_TOKEN for its missing-room_id case —
+ * confusing because there's no token concept in a createRoom response).
+ * loginAsUser's actual missing-access-token case stays on ERR_NO_TOKEN.
+ */
+const ERR_MISSING_FIELD = "admin_api_missing_field";
 
 /** Discriminated-union return shape shared by every primitive. */
 type AdminOk<T> = { ok: true } & T;
@@ -849,8 +857,10 @@ export type CreateRoomOk = AdminOk<{ roomId: string; roomAlias?: string }>;
  *
  * Response parse: expects `{ room_id: string, room_alias?: string }`. If
  * `room_id` is missing or the wrong type, returns
- * `{ ok:false, status:500, error:ERR_NO_TOKEN }` (reuses the existing
- * "expected-field-missing" code — matches loginAsUser L155-159 pattern).
+ * `{ ok:false, status:500, error:ERR_MISSING_FIELD }` (semantic clarifier
+ * introduced by fixup N-3 2026-09-08 — previously reused ERR_NO_TOKEN,
+ * which is confusing because there's no token concept in a createRoom
+ * response).
  *
  * NEVER logs the admin access_token (proxy-error path scrubs).
  */
@@ -897,7 +907,10 @@ export async function createRoom(opts: {
     };
     const roomId = parsed.room_id;
     if (typeof roomId !== "string" || roomId.length === 0) {
-      return { ok: false, status: 500, error: ERR_NO_TOKEN };
+      // Fixup N-3 (2026-09-08). Renamed from ERR_NO_TOKEN → ERR_MISSING_FIELD
+      // for semantic clarity — there's no token concept in a createRoom
+      // response; the missing field is `room_id`.
+      return { ok: false, status: 500, error: ERR_MISSING_FIELD };
     }
     const result: CreateRoomOk = { ok: true, roomId };
     if (typeof parsed.room_alias === "string" && parsed.room_alias.length > 0) {

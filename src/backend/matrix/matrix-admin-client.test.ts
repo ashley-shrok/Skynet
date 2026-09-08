@@ -879,13 +879,13 @@ describe("createRoom", () => {
     }
   });
 
-  it("Test 5b: response missing room_id → {ok:false, status:500, error:'admin_api_no_token'} (matches loginAsUser expected-field-missing pattern)", async () => {
+  it("Test 5b: response missing room_id → {ok:false, status:500, error:'admin_api_missing_field'} (fixup N-3: semantic clarifier renamed from admin_api_no_token)", async () => {
     stubFetchOk(200, { alt_field: "no room id here" });
     const result = await createRoom({ name: "any-room" });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(500);
-      expect(result.error).toBe("admin_api_no_token");
+      expect(result.error).toBe("admin_api_missing_field");
     }
   });
 
