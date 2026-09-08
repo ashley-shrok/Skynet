@@ -124,11 +124,27 @@ const twoHostTree: HostFolder = {
   ],
 };
 
+// Phase 88 (Plan 88-03 Task 5): single source of truth for the identity-
+// mode checkbox label regex. Phase 88 flipped the label from "Create with
+// new identity" to "Just a shell — no agent" (Plan 88-02 Edit C). Both
+// checkbox-click sites in this file (Task 1b + Task 3e) reference this
+// constant instead of an inline literal. The regex pattern is
+// /just a shell.*no agent/i — case-insensitive substring match covering
+// the em-dash-separated label text.
+const IDENTITY_MODE_CHECKBOX_RE = /just a shell.*no agent/i;
+
+// Phase 88 (Plan 88-03 Task 5): renderDialog helper accepts isAdmin
+// with a default of `true` to preserve existing coverage's admin-surface
+// assumptions (Path + shell-only checkbox were universal before Phase 88;
+// they are now admin-gated). Task 1b + Task 3e click the checkbox and
+// therefore rely on the checkbox being rendered — the helper's default
+// of isAdmin=true covers them without churn.
 function renderDialog(overrides: {
   open?: boolean;
   onClose?: () => void;
   onCreate?: ReturnType<typeof vi.fn>;
   hostTree?: HostFolder;
+  isAdmin?: boolean;
 } = {}) {
   const onCreate = overrides.onCreate ?? vi.fn();
   const onClose = overrides.onClose ?? vi.fn();
@@ -138,6 +154,7 @@ function renderDialog(overrides: {
       onClose={onClose}
       hostTree={overrides.hostTree ?? oneHostTree}
       onCreate={onCreate}
+      isAdmin={overrides.isAdmin ?? true}
     />,
   );
   return { ...result, onCreate, onClose };
@@ -173,18 +190,15 @@ async function fillFormForSubmit(opts: {
     const nameInput = screen.getByLabelText(/^name$/i) as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: name } });
   }
-  // Title + brief (required for Create enable)
-  fireEvent.change(screen.getByLabelText(/^title$/i), { target: { value: "Alicia" } });
-  fireEvent.change(screen.getByLabelText(/^brief$/i), { target: { value: "brief" } });
+  // Phase 86 Plan 86-04: title / brief / generate / avatar-pick UI is
+  // deleted from source. canOpen (post-Phase-86) requires only
+  // host + valid name + role in identity-mode. The old scaffolding is
+  // stripped from this helper accordingly.
   // Task input — Phase 80 addition
   if (taskText !== undefined) {
     const taskArea = screen.getByLabelText(/^task$/i) as HTMLTextAreaElement;
     fireEvent.change(taskArea, { target: { value: taskText } });
   }
-  // Generate + pick avatar
-  fireEvent.click(screen.getByRole("button", { name: /generate/i }));
-  await waitFor(() => expect(document.querySelectorAll("img").length).toBe(3));
-  fireEvent.click(document.querySelectorAll("img")[0].closest("button") as HTMLElement);
   // Wait until Create is enabled
   await waitFor(() => {
     const createBtn = screen.getByRole("button", {
@@ -233,9 +247,13 @@ afterEach(() => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("NewSessionDialog task input: presence and attributes", () => {
-  it("Task 1a: task textarea is rendered when identityMode=true", async () => {
+  it("Task 1a: task textarea is rendered when agent mode is on (the new default — no checkbox click needed post-Phase-88)", async () => {
+    // Phase 88 (Plan 88-02 Edit D): local state var renamed identityMode
+    // → shellOnly, useState default flipped true → false. Agent mode is
+    // now the default (shellOnly=false) — no checkbox click needed to
+    // reach it. The task textarea's render gate is {!shellOnly && (…)},
+    // so it IS rendered on fresh mount.
     renderDialog();
-    // Wait for identity cluster to be present (identity-mode is default on)
     await waitFor(() => {
       expect(screen.queryByLabelText(/^task$/i)).toBeTruthy();
     });
@@ -243,13 +261,19 @@ describe("NewSessionDialog task input: presence and attributes", () => {
     expect(taskArea.tagName).toBe("TEXTAREA");
   });
 
-  it("Task 1b: task textarea is absent when identityMode is toggled off", async () => {
+  it("Task 1b: task textarea is absent when user opts into shell mode (checks the 'Just a shell — no agent' checkbox)", async () => {
+    // Phase 88: click OPTS INTO shell mode (was: opted out of identity
+    // mode). The checkbox label flipped from "Create with new identity"
+    // to "Just a shell — no agent"; the local state var was renamed
+    // from `identityMode` to `shellOnly` and the useState default flipped
+    // from `true` to `false`. Semantics: unchecked = agent mode = task
+    // textarea rendered; checked = shell mode = task textarea absent.
     const { getByRole } = renderDialog();
-    // Toggle off identity-mode
     const checkbox = getByRole("checkbox", {
-      name: /create with new identity/i,
+      name: IDENTITY_MODE_CHECKBOX_RE,
     });
     fireEvent.click(checkbox);
+    // Assertions unchanged — textarea still absent in shell mode.
     await waitFor(() => {
       expect(screen.queryByLabelText(/^task$/i)).toBeFalsy();
     });
@@ -425,12 +449,13 @@ describe("NewSessionDialog task input: poolPicked wire signal end-to-end", () =>
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("NewSessionDialog role-select bug fix: host-null affordance", () => {
-  it("Task 3c: identityMode on + no host picked → 'Pick a host to see available roles' hint is visible", async () => {
-    // Use two-host tree so no auto-select fires → selectedHost stays null on
+  it("Task 3c: agent mode (default) + no host picked → 'Pick a host to see available roles' hint is visible", async () => {
+    // Phase 88: agent mode is the new default (shellOnly=false). Use
+    // two-host tree so no auto-select fires → selectedHost stays null on
     // open. The literal we check for is DISTINCT from the modal-description
     // text ("Pick a host and (optionally) name the agent.") so this cannot
     // be satisfied by the pre-existing L787 description alone — it must be
-    // the new Task-3 hint block rendered inside the identity cluster.
+    // the new Task-3 hint block rendered inside the agent-cluster.
     renderDialog({ hostTree: twoHostTree });
     await waitFor(() => {
       expect(
@@ -442,7 +467,7 @@ describe("NewSessionDialog role-select bug fix: host-null affordance", () => {
     expect(screen.queryByLabelText(/^role$/i)).toBeFalsy();
   });
 
-  it("Task 3d: identityMode on + one host auto-picked → hint is NOT visible + role dropdown appears", async () => {
+  it("Task 3d: agent mode (default) + one host auto-picked → hint is NOT visible + role dropdown appears", async () => {
     renderDialog({ hostTree: oneHostTree });
     // Wait for auto-pick to resolve
     await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
@@ -452,15 +477,16 @@ describe("NewSessionDialog role-select bug fix: host-null affordance", () => {
     ).toBeFalsy();
   });
 
-  it("Task 3e: identityMode OFF + no host picked → hint is NOT visible (hint is identity-mode-only)", async () => {
+  it("Task 3e: user opts into shell mode + no host picked → hint is NOT visible (hint is agent-mode-only)", async () => {
+    // Phase 88: click OPTS INTO shell mode (was: opted out of identity
+    // mode). The hint lives inside the agent-cluster (post-Phase-88
+    // {!shellOnly && (…)} gate), so opting into shell mode removes the hint.
     const { getByRole } = renderDialog({ hostTree: twoHostTree });
-    // Toggle off identity-mode
     const checkbox = getByRole("checkbox", {
-      name: /create with new identity/i,
+      name: IDENTITY_MODE_CHECKBOX_RE,
     });
     fireEvent.click(checkbox);
-    // Hint must NOT be visible outside identity-mode — it lives inside the
-    // identity cluster, so toggling the cluster off toggles the hint off.
+    // Hint must NOT be visible in shell mode.
     await waitFor(() => {
       expect(
         screen.queryByText(/pick a host to see available roles/i),
