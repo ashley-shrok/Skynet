@@ -96,6 +96,7 @@ vi.mock("../matrix/matrix-admin-client.js", () => ({
   getUserJoinedRooms: vi.fn(),
   getRoomLatestEventTs: vi.fn(),
   getRoomJoinedMembers: vi.fn(),
+  getRoomName: vi.fn(),
 }));
 
 vi.mock("../database/db/index.js", () => ({

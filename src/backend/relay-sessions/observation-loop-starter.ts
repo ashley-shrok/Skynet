@@ -81,6 +81,7 @@ import {
   getUserJoinedRooms,
   getRoomLatestEventTs,
   getRoomJoinedMembers,
+  getRoomName,
 } from "../matrix/matrix-admin-client.js";
 
 /** Discriminated-union result of startObservationLoopOnBoot. */
@@ -162,6 +163,7 @@ export async function startObservationLoopOnBoot(): Promise<StartObservationLoop
     getUserJoinedRooms,
     getRoomLatestEventTs,
     getRoomJoinedMembers,
+    getRoomName,
     materializeRelayRoomSession,
     markRelayRoomSessionInactive,
     reactivateRelayRoomSession,

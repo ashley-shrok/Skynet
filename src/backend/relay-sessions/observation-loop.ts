@@ -97,6 +97,13 @@ export interface ObservationTickDeps {
     | { ok: true; memberMxids: string[]; total: number }
     | { ok: false; status: number; error: string }
   >;
+  // Fixup M-1 (2026-09-08). Same-tick batch alongside members + latest-ts
+  // per D-05, so materialize can populate relay_room_sessions.room_title
+  // (D-02) instead of the previous hard-coded null.
+  getRoomName(roomId: string): Promise<
+    | { ok: true; name: string | null }
+    | { ok: false; status: number; error: string }
+  >;
   // relay-room-sessions-store primitives (Plan 01)
   materializeRelayRoomSession(
     userId: string,
@@ -225,15 +232,20 @@ export async function runObservationTick(
       );
       const results = await Promise.all(
         chunk.map(async (roomId) => {
-          const [membersResult, tsResult] = await Promise.all([
+          // D-05 same-tick augmentation: members + latest-event-ts + name
+          // fetched in parallel. Fixup M-1 (2026-09-08) added the name
+          // batch so materialize can populate D-02 room_title instead of
+          // always passing null.
+          const [membersResult, tsResult, nameResult] = await Promise.all([
             deps.getRoomJoinedMembers(roomId),
             deps.getRoomLatestEventTs(roomId),
+            deps.getRoomName(roomId),
           ]);
-          return { roomId, membersResult, tsResult };
+          return { roomId, membersResult, tsResult, nameResult };
         }),
       );
 
-      for (const { roomId, membersResult, tsResult } of results) {
+      for (const { roomId, membersResult, tsResult, nameResult } of results) {
         if (!membersResult.ok) {
           // Per-room fetch failed. Do NOT add to fetchedRoomIds — Step 4's
           // reconcile will therefore skip any DB row for this room, honoring
@@ -275,9 +287,24 @@ export async function runObservationTick(
           continue;
         }
         // Materialize path. Best-effort per axis — store primitives may
-        // throw (DB failure); catch each independently.
+        // throw (DB failure); catch each independently. Fixup M-1
+        // (2026-09-08): resolved room name (or null on getRoomName
+        // failure / no state event) flows into materialize per D-02.
+        const roomTitle = nameResult.ok ? nameResult.name : null;
+        if (!nameResult.ok) {
+          databaseLogger.debug(
+            "[phase-89] observation tick — getRoomName failed, materializing with null title",
+            {
+              operation: "relay_observation_tick_get_room_name_failed",
+              userId,
+              roomId,
+              status: nameResult.status,
+              error: nameResult.error,
+            },
+          );
+        }
         try {
-          await deps.materializeRelayRoomSession(userId, roomId, null);
+          await deps.materializeRelayRoomSession(userId, roomId, roomTitle);
           materialized++;
           materializedRoomIds.add(roomId);
         } catch (err) {
