@@ -495,30 +495,23 @@ export function reconstructRawSlashCommand(content: string): string | null {
  * The seam owns:
  *   1. The guard (frame is message/user + non-empty string content + non-empty
  *      sessionIdFromFile).
- *   2. The wrapper-hash notify (pre-fix behavior, unchanged).
- *   3. The dual-hash notify for slash-command wrappers (quick-260821-shn fix).
+ *   2. The single order-based notifyMatched(sessionId) call — clears the OLDEST
+ *      pending pv-send arm on that session (FIFO head-pop, matching frontend
+ *      order-based semantic at PrettyView.tsx:1961-1979, quick-260908-bqx).
  *
- * Injectable deps (all required except `logger`):
+ * Injectable deps (all required):
  *   • `frame` — the reshaped wire frame from `reshapeParsedLineToWireFrame`.
  *   • `sessionIdFromFile` — session id extracted from the JSONL filepath, or
  *      null when the tail hasn't attached to a real session yet.
  *   • `notifyMatched` — bound to `notifyPvSendMatched` in production; tests
- *      inject a spy to assert the exact call count + hash arguments.
- *   • `logger` — optional; defaults to `sshLogger`. Tests may inject a mock
- *      logger to observe the INFO log on the wrapper-detected dual-hash path
- *      without coupling to the sshLogger module surface.
+ *      inject a spy to assert the exact call count and sessionId argument.
  */
 export function __applyOnLineNotifyForTests(deps: {
   frame: { type?: string; role?: string; content?: unknown };
   sessionIdFromFile: string | null;
-  notifyMatched: (sessionId: string, contentHash: string) => void;
-  logger?: {
-    info: (msg: string, meta?: Record<string, unknown>) => void;
-    debug: (msg: string, meta?: Record<string, unknown>) => void;
-  };
+  notifyMatched: (sessionId: string) => void;
 }): void {
   const { frame, sessionIdFromFile, notifyMatched } = deps;
-  const logger = deps.logger ?? sshLogger;
 
   // Guard: exactly matches the pre-fix inline block's condition.
   if (
@@ -531,36 +524,7 @@ export function __applyOnLineNotifyForTests(deps: {
     return;
   }
 
-  const content = frame.content;
-  // 1. Wrapper-hash notify — pre-fix behavior, unchanged.
-  const wrapperHash = createHash("sha256")
-    .update(content)
-    .digest("hex")
-    .slice(0, 32);
-  notifyMatched(sessionIdFromFile, wrapperHash);
-
-  // 2. Dual-hash notify for slash-command wrappers — the quick-260821-shn fix.
-  const rawBody = reconstructRawSlashCommand(content);
-  if (rawBody === null) return;
-
-  const rawHash = createHash("sha256")
-    .update(rawBody)
-    .digest("hex")
-    .slice(0, 32);
-  // Extract NAME (without leading slash) + args length for the INFO log meta.
-  const spaceIdx = rawBody.indexOf(" ");
-  const name = spaceIdx === -1 ? rawBody.slice(1) : rawBody.slice(1, spaceIdx);
-  const argsLen = spaceIdx === -1 ? 0 : rawBody.length - spaceIdx - 1;
-  logger.info(
-    `[pv-send-watchdog] dual-hash notify: slash-command wrapper detected sessionId=${sessionIdFromFile} name=${name} argsLen=${argsLen}`,
-    {
-      operation: "pv_send_watchdog_dual_hash_notify",
-      sessionId: sessionIdFromFile,
-      name,
-      argsLen,
-    },
-  );
-  notifyMatched(sessionIdFromFile, rawHash);
+  notifyMatched(sessionIdFromFile);
 }
 
 // ─── Phase 51 Plan 01: backgrounded-agents correlator (extracted test seam) ──
@@ -2817,15 +2781,10 @@ export async function __applyInputMessageForTests(deps: {
       deps.wsSend &&
       deps.armWatchdog
     ) {
-      const contentHash = createHash("sha256")
-        .update(body)
-        .digest("hex")
-        .slice(0, 32);
       deps.armWatchdog({
         sessionId: deps.sessionId,
         mqid,
         body,
-        contentHash,
         // Bind sshConn into the exec signature the watchdog expects.
         execCommand: (cmd: string) => exec(sshConn, cmd),
         tmuxTarget: currentTmuxSession,
@@ -2849,7 +2808,7 @@ export async function __applyInputMessageForTests(deps: {
         bodyBytes: body.length,
         dormantSend: wasDormant,
       });
-      sshLogger.info(`[diag-dormant-send] backend watchdog-arm mqid=${mqid} sessionId=${deps.sessionId} bodyBytes=${body.length} dormantSend=${wasDormant} contentHash=${contentHash.slice(0, 8)}`);
+      sshLogger.info(`[diag-dormant-send] backend watchdog-arm mqid=${mqid} sessionId=${deps.sessionId} bodyBytes=${body.length} dormantSend=${wasDormant} matched_by=fifo`);
     }
 
     // Non-split safety net (2026-08-21, tina). When the frontend loses mqid
@@ -2871,16 +2830,11 @@ export async function __applyInputMessageForTests(deps: {
       deps.armWatchdog
     ) {
       const nonSplitBody = data.slice(0, -1);
-      const contentHash = createHash("sha256")
-        .update(nonSplitBody)
-        .digest("hex")
-        .slice(0, 32);
       const synthMqid = `backend-synth-${Date.now()}-${Math.random().toString(36).slice(2, 10).padEnd(8, "0")}`;
       deps.armWatchdog({
         sessionId: deps.sessionId,
         mqid: synthMqid,
         body: nonSplitBody,
-        contentHash,
         execCommand: (cmd: string) => exec(sshConn, cmd),
         tmuxTarget: currentTmuxSession,
         wsSend: deps.wsSend,
@@ -4588,21 +4542,11 @@ wss.on("connection", async (ws: WebSocket, req) => {
         // Phase 50 Plan 02 Task 2 — notify any pending pv-send-watchdog that
         // the matching parser signal has arrived. Fires for BOTH the direct-
         // user-turn path AND the queue-operation-enqueue path (Plan 50-01 T1).
-        // contentHash derivation MUST match the arm-time key at
-        // __applyInputMessageForTests L~1585 AND Plan 50-01 Task 2's dedup
-        // Map key — if any of the three drift, watchdogs never notify and
-        // every send escalates unnecessarily. See 50-01-PLAN.md § objective
-        // "Hash-derivation contract".
-        //
-        // quick-260821-shn — dual-hash notify for slash-command wrappers.
-        // Claude Code writes slash-command user turns to JSONL as
-        // `<command-message>NAME</command-message><command-name>/NAME</command-name><command-args>ARGS</command-args>`,
-        // but the frontend arms the pv-send-watchdog with sha256(raw `/NAME ARGS`).
-        // Without a second notify against the raw-body hash the pending
-        // watchdog escalates on every slash-command send. The extracted seam
-        // `__applyOnLineNotifyForTests` owns the guard + wrapper-hash notify
-        // + raw-body reconstruction + second notify. See quick-260821-shn for
-        // slash-command wrapper → raw-body reconstruction.
+        // quick-260908-bqx — order-based (FIFO) match, same semantic as
+        // PrettyView.tsx:1961-1979: CC processes input serially, JSONL is
+        // written in order, WS preserves order — SEND ORDER is the signal.
+        // The extracted seam `__applyOnLineNotifyForTests` owns the guard +
+        // single notifyMatched(sessionId) call (FIFO head-pop).
         __applyOnLineNotifyForTests({
           frame,
           sessionIdFromFile,
