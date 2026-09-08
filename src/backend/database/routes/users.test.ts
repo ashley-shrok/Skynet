@@ -330,6 +330,44 @@ vi.mock("../../utils/request-origin.js", () => ({
 vi.mock("./delete-user-data.js", () => ({
   deleteUserAndRelatedData: vi.fn(async () => {}),
 }));
+
+// ---------------------------------------------------------------------------
+// Mock: matrix-admin-client — createOrUpdateUser + deactivateUser
+// Declared at module scope (hoisting-safe pattern from existing mocks at lines 56-59).
+// The vi.fn() references are lazy-evaluated via getter wrappers inside the factory.
+// ---------------------------------------------------------------------------
+const mockCreateOrUpdateUser = vi.fn<
+  [string, string, string?],
+  Promise<{ ok: true; mxid: string; password: string; status: number } | { ok: false; status: number; error: string }>
+>();
+const mockDeactivateUser = vi.fn<
+  [string],
+  Promise<{ ok: true } | { ok: false; status: number; error: string }>
+>();
+
+vi.mock("../../matrix/matrix-admin-client.js", () => ({
+  createOrUpdateUser: (...args: [string, string, string?]) => mockCreateOrUpdateUser(...args),
+  deactivateUser: (...args: [string]) => mockDeactivateUser(...args),
+}));
+
+// Mock: username-to-mxid — fixed happy-path stubs so tests don't reason about sanitizer output
+vi.mock("../../matrix/username-to-mxid.js", () => ({
+  buildHumanMxid: vi.fn((_username: string, _serverName: string) => "@alice_human:thenasty.taild9b663.ts.net"),
+  generateHumanRelayPassword: vi.fn(() => "deadbeef00112233445566778899aabbccddeeff00112233"),
+  extractServerName: vi.fn(() => "thenasty.taild9b663.ts.net"),
+  sanitizeUsernameToLocalpart: vi.fn((s: string) => s.toLowerCase()),
+}));
+
+// Mock: matrix-admin-creds-store — happy-path: admin creds resolve non-null
+vi.mock("../../matrix/matrix-admin-creds-store.js", () => ({
+  getMatrixAdminCreds: vi.fn(async () => ({
+    homeserverBase: "http://100.113.23.63:8008",
+    userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+    accessToken: "syt_admin_token",
+    password: "admin-pw",
+  })),
+}));
+
 vi.mock("./user-oidc-utils.js", () => ({
   getOIDCConfigFromEnv: vi.fn(() => null),
   isOIDCUserAllowed: vi.fn(() => true),
@@ -676,6 +714,17 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     mockReadUserAvatar.mockClear();
     mockForceSave.mockClear();
     mockRegisterUser.mockClear();
+    mockCreateOrUpdateUser.mockClear();
+    mockDeactivateUser.mockClear();
+
+    // Default happy-path implementations for matrix-admin-client mocks
+    mockCreateOrUpdateUser.mockResolvedValue({
+      ok: true,
+      mxid: "@alice_human:thenasty.taild9b663.ts.net",
+      password: "test-pw",
+      status: 201,
+    });
+    mockDeactivateUser.mockResolvedValue({ ok: true });
 
     // Default implementations
     mockWriteUserAvatar.mockImplementation(async (userId, mime) => {
@@ -965,6 +1014,111 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
 
     // No user row
     const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users").get() as { c: number };
+    expect(count.c).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test B (88-03): mint-success populates users.mxid
+  // -------------------------------------------------------------------------
+
+  it("POST /users/create — (88-03-B) mint-success: createOrUpdateUser called once and mxid stored in users row", async () => {
+    const res = await multipartRequestMixed(server, {
+      path: "/users/create",
+      textFields: { username: "alice", password: "s3cret123" },
+      file: {
+        fieldName: "avatar",
+        filename: "avatar.png",
+        contentType: "image/png",
+        bytes: MINIMAL_PNG_BYTES,
+      },
+    });
+
+    expect(res.status).toBe(200);
+
+    // createOrUpdateUser must have been called exactly once
+    expect(mockCreateOrUpdateUser).toHaveBeenCalledTimes(1);
+    // First argument is the mxid (what buildHumanMxid returns per the vi.mock stub)
+    expect(mockCreateOrUpdateUser.mock.calls[0][0]).toBe("@alice_human:thenasty.taild9b663.ts.net");
+
+    // users row must have mxid populated with the minted mxid
+    const row = sqliteDb
+      .prepare("SELECT mxid FROM users WHERE username = ?")
+      .get("alice") as { mxid: string | null } | undefined;
+    expect(row).toBeDefined();
+    expect(row!.mxid).toBe("@alice_human:thenasty.taild9b663.ts.net");
+
+    // deactivateUser must NOT have been called (happy path — no rollback)
+    expect(mockDeactivateUser).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Test C (88-03): mint-failure refuses create with zero side effects (D-04)
+  // -------------------------------------------------------------------------
+
+  it("POST /users/create — (88-03-C) mint-failure: 500 with zero side effects (D-04)", async () => {
+    // Override happy-path default: Synapse returns a proxy error
+    mockCreateOrUpdateUser.mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      error: "admin_api_proxy_error",
+    });
+
+    const res = await multipartRequestMixed(server, {
+      path: "/users/create",
+      textFields: { username: "alice", password: "s3cret123" },
+      file: {
+        fieldName: "avatar",
+        filename: "avatar.png",
+        contentType: "image/png",
+        bytes: MINIMAL_PNG_BYTES,
+      },
+    });
+
+    expect(res.status).toBe(500);
+    expect((res.body as { error: string }).error).toBe("relay identity provisioning failed");
+
+    // createOrUpdateUser was called exactly once (the failing attempt)
+    expect(mockCreateOrUpdateUser).toHaveBeenCalledTimes(1);
+
+    // deactivateUser must NOT have been called — mint didn't succeed, no account to deactivate
+    expect(mockDeactivateUser).not.toHaveBeenCalled();
+
+    // No users row inserted — zero side effects
+    const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE username = ?").get("alice") as { c: number };
+    expect(count.c).toBe(0);
+
+    // writeUserAvatar must NOT have been called — mint fail aborts before avatar write
+    expect(mockWriteUserAvatar).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Test D (88-03): post-mint avatar-write failure calls deactivateUser (D-05 rollback)
+  // -------------------------------------------------------------------------
+
+  it("POST /users/create — (88-03-D) post-mint avatar-write failure calls deactivateUser once (D-05)", async () => {
+    // Leave createOrUpdateUser at happy-path default (ok, mxid populated)
+    // Stub writeUserAvatar to throw — simulates disk-full or I/O error
+    mockWriteUserAvatar.mockRejectedValueOnce(new Error("disk full"));
+
+    const res = await multipartRequestMixed(server, {
+      path: "/users/create",
+      textFields: { username: "alice", password: "s3cret123" },
+      file: {
+        fieldName: "avatar",
+        filename: "avatar.png",
+        contentType: "image/png",
+        bytes: MINIMAL_PNG_BYTES,
+      },
+    });
+
+    expect(res.status).toBe(500);
+
+    // deactivateUser must have been called exactly once with the minted mxid (D-05 rollback)
+    expect(mockDeactivateUser).toHaveBeenCalledTimes(1);
+    expect(mockDeactivateUser.mock.calls[0][0]).toBe("@alice_human:thenasty.taild9b663.ts.net");
+
+    // No users row inserted — avatar write failed before INSERT
+    const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE username = ?").get("alice") as { c: number };
     expect(count.c).toBe(0);
   });
 });
