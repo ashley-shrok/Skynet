@@ -265,6 +265,21 @@ export function publishFleetStatusSessionState(
 ): void {
   const key = `${hostId}:${state_arg.tmuxSession ?? ""}`;
 
+  // Bounty `pv-recycling-flag-latched-true-until-tab-refresh` diagnostic hook (2026-09-08):
+  // log every incoming SessionState frame with per-axis presence + value so console-forward
+  // captures the wire shape server-side. Lets us reconstruct frame history for a stuck
+  // session without needing to catch the bug live in a stuck tab (2026-09-08 diagnostic tab
+  // OOM'd before we could inspect). Small structured line per frame; console-forward is
+  // cheap and batched. Delete when the recycling-latch bounty closes.
+  try {
+    const rec = "recycling" in state_arg ? state_arg.recycling : "<absent>";
+    const wrk = "isWorking" in state_arg ? state_arg.isWorking : "<absent>";
+    const drm = "dormant" in state_arg ? state_arg.dormant : "<absent>";
+    console.info(
+      `[pv-session-state] key=${key} recycling=${JSON.stringify(rec)} isWorking=${JSON.stringify(wrk)} dormant=${JSON.stringify(drm)} axes=[${Object.keys(state_arg).join(",")}]`,
+    );
+  } catch {}
+
   // Phase 62 Plan 04 (WIP hook-based rewrite 2026-08-30) — the affordance
   // stops lying. Two-branch predicate structure:
   //
