@@ -1452,3 +1452,365 @@ describe("getRoomMessages (Phase 90 Plan 03 Task 1)", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// sendMessageAsUser (Phase 90 Plan 03 Task 2) — PUT /_matrix/client/v3/rooms/
+// {roomId}/send/m.room.message/{txnId} using a per-user access token minted
+// via loginAsUser(senderMxid) — NOT the admin token. This is the T-90-BE-03
+// / Pitfall 3 mitigation: sending as admin would attribute every message to
+// @skynet-admin instead of the human user. Test 2 is the regression gate.
+//
+// The primitive composes with loginAsUser (existing export). Since both live
+// in the same module, we mock loginAsUser by controlling the fetch mock for
+// its POST /login call THEN the PUT /send/... call in sequence — this
+// exercises the real composition path end-to-end rather than mocking the
+// module against itself.
+// ---------------------------------------------------------------------------
+
+describe("sendMessageAsUser (Phase 90 Plan 03 Task 2)", () => {
+  /**
+   * Helper: stub fetch to return the loginAsUser response FIRST, then the
+   * send response SECOND. Mirrors the two-call sequence in the primitive:
+   *   1. POST /_synapse/admin/v1/users/{mxid}/login → {access_token}
+   *   2. PUT /_matrix/client/v3/rooms/{roomId}/send/... → {event_id}
+   */
+  function stubLoginThenSend(
+    loginStatus: number,
+    loginBody: unknown,
+    sendStatus: number,
+    sendBody: unknown,
+  ): ReturnType<typeof vi.fn> {
+    const mock = vi.fn();
+    mock
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(loginStatus, loginBody),
+      )
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(sendStatus, sendBody),
+      );
+    vi.stubGlobal("fetch", mock);
+    return mock;
+  }
+
+  it("Test 1: happy path — login mints 'user-tok-xyz'; send returns event_id; primitive returns {ok:true, eventId}", async () => {
+    stubLoginThenSend(
+      200,
+      { access_token: "user-tok-xyz" },
+      200,
+      { event_id: "$evt-1:server" },
+    );
+    const result = await sendMessageAsUser(
+      "@ashley_human:server",
+      "!room1:server",
+      "hello",
+      "mqid-1",
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.eventId).toBe("$evt-1:server");
+    }
+  });
+
+  it("Test 2 (T-90-BE-03 REGRESSION GATE): send fetch Authorization header uses loginAsUser-minted token, NOT admin token", async () => {
+    const fetchMock = stubLoginThenSend(
+      200,
+      { access_token: "user-tok-xyz" },
+      200,
+      { event_id: "$evt-1:server" },
+    );
+    await sendMessageAsUser(
+      "@ashley_human:server",
+      "!room1:server",
+      "hello",
+      "mqid-1",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // Call 0 = loginAsUser POST (uses admin token — expected)
+    const loginOpts = fetchMock.mock.calls[0][1] as RequestInit;
+    const loginHeaders = loginOpts.headers as Record<string, string>;
+    expect(loginHeaders["Authorization"]).toBe(
+      `Bearer ${HAPPY_CREDS.accessToken}`,
+    );
+    // Call 1 = send PUT (MUST use the loginAsUser-minted per-user token)
+    const sendOpts = fetchMock.mock.calls[1][1] as RequestInit;
+    const sendHeaders = sendOpts.headers as Record<string, string>;
+    expect(sendHeaders["Authorization"]).toBe("Bearer user-tok-xyz");
+    // The absolute-critical negative assertion: send MUST NOT reuse the admin token.
+    expect(sendHeaders["Authorization"]).not.toBe(
+      `Bearer ${HAPPY_CREDS.accessToken}`,
+    );
+    expect(sendOpts.method).toBe("PUT");
+  });
+
+  it("Test 3: URL construction — encodeURIComponent on BOTH roomId AND txnId", async () => {
+    const fetchMock = stubLoginThenSend(
+      200,
+      { access_token: "user-tok" },
+      200,
+      { event_id: "$e:s" },
+    );
+    // Pass a txnId with a URL-hostile character (`/`) to force encoding.
+    await sendMessageAsUser(
+      "@ash:server",
+      "!room1:server",
+      "hi",
+      "mqid/with/slashes",
+    );
+    const sendUrl = fetchMock.mock.calls[1][0] as string;
+    // roomId `:` encoded
+    expect(sendUrl).toContain("!room1%3Aserver");
+    expect(sendUrl).not.toContain("!room1:server");
+    // txnId `/` encoded — path-traversal defense
+    expect(sendUrl).toContain("mqid%2Fwith%2Fslashes");
+    expect(sendUrl).not.toContain("mqid/with/slashes");
+    // Endpoint shape
+    expect(sendUrl).toContain(
+      "/_matrix/client/v3/rooms/",
+    );
+    expect(sendUrl).toContain("/send/m.room.message/");
+  });
+
+  it("Test 4: request body — {msgtype:'m.text', body:<verbatim>}", async () => {
+    const fetchMock = stubLoginThenSend(
+      200,
+      { access_token: "user-tok" },
+      200,
+      { event_id: "$e:s" },
+    );
+    await sendMessageAsUser(
+      "@ash:server",
+      "!room1:server",
+      "hello world <script>",
+      "mqid-1",
+    );
+    const sendOpts = fetchMock.mock.calls[1][1] as RequestInit;
+    const parsed = JSON.parse(sendOpts.body as string);
+    expect(parsed).toEqual({
+      msgtype: "m.text",
+      body: "hello world <script>",
+    });
+  });
+
+  it("Test 5: loginAsUser failure → primitive returns the loginAsUser error verbatim (no wrapping)", async () => {
+    // Only the login fetch is called — send never fires when login fails.
+    const fetchMock = vi.fn(async () =>
+      mockFetchResponse(401, { errcode: "M_UNAUTHORIZED" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await sendMessageAsUser(
+      "@ash:server",
+      "!room1:server",
+      "hi",
+      "mqid-1",
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      // Exactly the shape loginAsUser returns for a 401 (see loginAsUser tests):
+      expect(result.status).toBe(401);
+      expect(result.error).toBe("admin_api_non_2xx");
+    }
+    // Send fetch was NOT called — verified by call count.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("Test 6: creds missing after successful login (edge case where creds vanish mid-call) → ERR_CREDS_MISSING (500)", async () => {
+    // Mock getMatrixAdminCreds to return creds for the login call (call 1)
+    // then return null on the second call (used inside sendMessageAsUser to
+    // build the homeserverBase URL for the send PUT).
+    vi.mocked(getMatrixAdminCreds)
+      .mockResolvedValueOnce(HAPPY_CREDS)
+      .mockResolvedValueOnce(null);
+    // The login call happens with the first creds; then the send-URL creds
+    // fetch returns null and we should short-circuit before the PUT.
+    const fetchMock = vi.fn(async () =>
+      mockFetchResponse(200, { access_token: "user-tok" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await sendMessageAsUser(
+      "@ash:server",
+      "!room1:server",
+      "hi",
+      "mqid-1",
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(500);
+      expect(result.error).toBe("matrix_admin_creds_missing");
+    }
+    // Only login fetch happened; send never fired.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("Test 7a: Matrix 403 on send → {ok:false, status:403, error:'admin_api_non_2xx'}", async () => {
+    stubLoginThenSend(
+      200,
+      { access_token: "user-tok" },
+      403,
+      { errcode: "M_FORBIDDEN" },
+    );
+    const result = await sendMessageAsUser(
+      "@ash:server",
+      "!room1:server",
+      "hi",
+      "mqid-1",
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(403);
+      expect(result.error).toBe("admin_api_non_2xx");
+    }
+  });
+
+  it("Test 7b: Matrix 404 on send → {ok:false, status:404, error:'admin_api_non_2xx'}", async () => {
+    stubLoginThenSend(
+      200,
+      { access_token: "user-tok" },
+      404,
+      { errcode: "M_NOT_FOUND" },
+    );
+    const result = await sendMessageAsUser(
+      "@ash:server",
+      "!room1:server",
+      "hi",
+      "mqid-1",
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(404);
+      expect(result.error).toBe("admin_api_non_2xx");
+    }
+  });
+
+  it("Test 8a: AbortError on send → ERR_TIMEOUT (504)", async () => {
+    // First call (login) succeeds; second call (send) aborts.
+    const fetchMock = vi.fn();
+    fetchMock
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(200, { access_token: "user-tok" }),
+      )
+      .mockImplementationOnce(async () => {
+        throw new DOMException("aborted", "AbortError");
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await sendMessageAsUser(
+      "@ash:server",
+      "!room1:server",
+      "hi",
+      "mqid-1",
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(504);
+      expect(result.error).toBe("admin_api_timeout");
+    }
+  });
+
+  it("Test 8b: other fetch error on send → ERR_PROXY (502) with operation:'matrix_admin_send_message_as_user'; NEVER logs login token or body", async () => {
+    const fetchMock = vi.fn();
+    fetchMock
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(200, { access_token: "user-tok-secret" }),
+      )
+      .mockImplementationOnce(async () => {
+        throw new TypeError("network dropped");
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    const errorSpy = vi.mocked(databaseLogger.error);
+    errorSpy.mockClear();
+    const result = await sendMessageAsUser(
+      "@ash:server",
+      "!room1:server",
+      "SECRET_BODY_TEXT",
+      "mqid-1",
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(502);
+      expect(result.error).toBe("admin_api_proxy_error");
+    }
+    expect(errorSpy).toHaveBeenCalled();
+    const anyCallHasOp = errorSpy.mock.calls.some((call) =>
+      call.some(
+        (arg) =>
+          typeof arg === "object" &&
+          arg !== null &&
+          (arg as { operation?: string }).operation ===
+            "matrix_admin_send_message_as_user",
+      ),
+    );
+    expect(anyCallHasOp).toBe(true);
+    // Security V7: never log the minted user token, admin token, or body content.
+    for (const call of errorSpy.mock.calls) {
+      for (const arg of call) {
+        const serialized = JSON.stringify(arg);
+        expect(serialized).not.toContain(HAPPY_CREDS.accessToken);
+        expect(serialized).not.toContain("user-tok-secret");
+        expect(serialized).not.toContain("SECRET_BODY_TEXT");
+      }
+    }
+  });
+
+  it("Test 9: response missing event_id → {ok:false, status:500, error:'admin_api_missing_field'}", async () => {
+    stubLoginThenSend(
+      200,
+      { access_token: "user-tok" },
+      200,
+      { /* no event_id */ notes: "malformed" },
+    );
+    const result = await sendMessageAsUser(
+      "@ash:server",
+      "!room1:server",
+      "hi",
+      "mqid-1",
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(500);
+      expect(result.error).toBe("admin_api_missing_field");
+    }
+  });
+
+  it("Test 10: clearTimeout called in BOTH success and error paths of the send fetch", async () => {
+    const clearSpy = vi.spyOn(global, "clearTimeout");
+    // Success path
+    stubLoginThenSend(
+      200,
+      { access_token: "user-tok" },
+      200,
+      { event_id: "$e:s" },
+    );
+    clearSpy.mockClear();
+    await sendMessageAsUser("@a:s", "!r:s", "hi", "mqid-1");
+    // At least 2 clearTimeouts on success (one for loginAsUser, one for send).
+    expect(clearSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+    // Error path — send AbortError
+    const fetchMock = vi.fn();
+    fetchMock
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(200, { access_token: "user-tok" }),
+      )
+      .mockImplementationOnce(async () => {
+        throw new DOMException("aborted", "AbortError");
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    clearSpy.mockClear();
+    await sendMessageAsUser("@a:s", "!r:s", "hi", "mqid-2");
+    expect(clearSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+    clearSpy.mockRestore();
+  });
+
+  it("Test 11 (Pitfall 4 infrastructure): txnId passed to fetch URL is exactly encodeURIComponent(txnId) — not otherwise modified", async () => {
+    const fetchMock = stubLoginThenSend(
+      200,
+      { access_token: "user-tok" },
+      200,
+      { event_id: "$e:s" },
+    );
+    const rawTxnId = "pv-optim-1234567890-abcdef";
+    await sendMessageAsUser("@a:s", "!r:s", "hi", rawTxnId);
+    const sendUrl = fetchMock.mock.calls[1][0] as string;
+    // rawTxnId happens to contain only unreserved characters, so
+    // encodeURIComponent leaves it verbatim — assert it appears exactly.
+    expect(sendUrl.endsWith(`/send/m.room.message/${rawTxnId}`)).toBe(true);
+  });
+});
