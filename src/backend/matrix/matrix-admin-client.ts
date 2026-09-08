@@ -1134,3 +1134,121 @@ export async function getRoomMessages(
     return { ok: false, status: 502, error: ERR_PROXY };
   }
 }
+
+// ---------------------------------------------------------------------------
+// sendMessageAsUser (Phase 90 Plan 03 Task 2) — PUT /_matrix/client/v3/rooms/
+// {roomId}/send/m.room.message/{txnId} using a per-user access token minted
+// via loginAsUser(senderMxid) — NOT the admin token.
+//
+// This is the T-90-BE-03 / Pitfall 3 mitigation. Reads (getRoomMessages,
+// getRoomJoinedMembers, etc.) run on the admin token; WRITES on behalf of
+// a user MUST use that user's own token so Matrix attributes the resulting
+// event's `sender` field to the human user, not to @skynet-admin.
+//
+// The primitive composes with the existing loginAsUser primitive at L135.
+// ---------------------------------------------------------------------------
+
+export type SendMessageAsUserOk = AdminOk<{ eventId: string }>;
+
+/**
+ * Send an m.room.message into a room ON BEHALF OF the specified user.
+ *
+ * Uses loginAsUser-minted per-user token — NOT the admin token — so the
+ * resulting Matrix event's sender is the human user, not @skynet-admin.
+ * See Pitfall 3 in .planning/phases/90-relay-mediated-group-conversations-sub-slice-d-relay-session/90-RESEARCH.md.
+ *
+ * PUT /_matrix/client/v3/rooms/{roomId}/send/m.room.message/{txnId}
+ *
+ * - `senderMxid` — the human user whose relay identity the message is sent as.
+ * - `roomId` — the target Matrix room.
+ * - `body` — the message text (rendered verbatim; no shell escaping needed
+ *   because this is HTTP JSON, not shell).
+ * - `txnId` — the Matrix transaction ID. Plan 06 uses the frontend-generated
+ *   mqid directly as the txnId so the Matrix `unsigned.transaction_id`
+ *   echo-back matches on the way in (Pitfall 4 correlation infrastructure).
+ *
+ * Composition:
+ *   1. loginAsUser(senderMxid) → per-user access token
+ *   2. PUT rooms/.../send/m.room.message/{txnId} with Bearer <that token>
+ *
+ * If loginAsUser fails, its error is returned verbatim (no wrapping) so the
+ * caller can distinguish auth-mint failures from send failures.
+ *
+ * Path-traversal defense: encodeURIComponent on BOTH roomId AND txnId
+ * (PATTERNS.md § 6 / T-90-03-T1).
+ *
+ * NEVER logs the minted user token, the admin token, or the request body
+ * content (Security V7 — T-90-BE-01 token leak defense + user-content privacy).
+ */
+export async function sendMessageAsUser(
+  senderMxid: string,
+  roomId: string,
+  body: string,
+  txnId: string,
+): Promise<SendMessageAsUserOk | AdminErr> {
+  // Step 1: mint per-user access token. If this fails, pass the error
+  // through verbatim — callers can distinguish auth-mint failures from
+  // send failures by the returned error code.
+  //
+  // `=== false` narrowing (not `!login.ok`) — strict tsc doesn't narrow
+  // discriminated unions on `!x.ok` for AdminErr | LoginAsUserOk; established
+  // pattern used by src/backend/telegram/human-token-writer.ts L41 (see
+  // commit 967ab598 for the original discovery).
+  const login = await loginAsUser(senderMxid);
+  if (login.ok === false) {
+    return login;
+  }
+
+  // Step 2: resolve admin creds again to obtain the homeserverBase. (loginAsUser
+  // already resolved creds internally, but the base URL is not exposed on its
+  // return — cheap to re-resolve since matrix-admin-creds-store memoizes.)
+  const creds = await getMatrixAdminCreds();
+  if (!creds) {
+    return { ok: false, status: 500, error: ERR_CREDS_MISSING };
+  }
+
+  const url = `${creds.homeserverBase}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${encodeURIComponent(txnId)}`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "PUT",
+      headers: {
+        // CRITICAL (T-90-BE-03 / Pitfall 3): Bearer <login.accessToken>, NOT
+        // <creds.accessToken>. If the admin token is used here, every message
+        // in the room is attributed to @skynet-admin instead of the actual
+        // sender. Task 2 Test 2 is a dedicated regression gate on this line.
+        Authorization: `Bearer ${login.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ msgtype: "m.text", body }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: ERR_NON_2XX };
+    }
+    const parsed = (await response.json()) as { event_id?: unknown };
+    if (typeof parsed.event_id !== "string" || parsed.event_id.length === 0) {
+      return { ok: false, status: 500, error: ERR_MISSING_FIELD };
+    }
+    return { ok: true, eventId: parsed.event_id };
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return { ok: false, status: 504, error: ERR_TIMEOUT };
+    }
+    // Security V7: log operation only. NEVER include the minted access token
+    // (`login.accessToken`), the admin token, or the request body (`body`
+    // parameter) — the raw `err` object may serialize the fetch options in
+    // some Node builds; databaseLogger's own scrubbing is the second line of
+    // defense but we do not rely on it here. The `err` argument is passed as
+    // the second positional so the logger's structured serializer captures
+    // just its message + stack, not our composed request body.
+    databaseLogger.error("matrix admin proxy error", err, {
+      operation: "matrix_admin_send_message_as_user",
+    });
+    return { ok: false, status: 502, error: ERR_PROXY };
+  }
+}
