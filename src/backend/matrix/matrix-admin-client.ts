@@ -441,6 +441,216 @@ export function buildRelayJsonBody(opts: BuildRelayJsonBodyOpts): string {
   return JSON.stringify(body, null, 2);
 }
 // ---------------------------------------------------------------------------
+// getUserJoinedRooms — GET /_synapse/admin/v1/users/{mxid}/joined_rooms
+// ---------------------------------------------------------------------------
+//
+// Top-level primitive extracted from getSharedDMRoom's internal helper in
+// Phase 89-03 Task 1. The observation loop (Plan 89-03) polls each user's
+// joined-rooms list on ~10s cadence and needs the failure REASON to drive
+// per-user backoff decisions (D-06), so this primitive returns the standard
+// discriminated-union shape rather than the previous internal-nullable that
+// was cleaner for getSharedDMRoom's Promise.all-across-pairs use case.
+// getSharedDMRoom now delegates to this primitive and collapses failures to
+// null internally to preserve its existing null-tolerant callers.
+
+export type GetUserJoinedRoomsOk = AdminOk<{ roomIds: string[] }>;
+
+/**
+ * List the Matrix rooms a user has joined.
+ *
+ * GET /_synapse/admin/v1/users/{mxid}/joined_rooms — Bearer admin auth.
+ * Response `{ joined_rooms: string[] }` filtered to string-typed entries
+ * only (defensive against wire-shape drift).
+ *
+ * Path-traversal defense: encodeURIComponent on the mxid (T-75-05 —
+ * matches createOrUpdateUser L76 pattern).
+ */
+export async function getUserJoinedRooms(
+  mxid: string,
+): Promise<GetUserJoinedRoomsOk | AdminErr> {
+  const creds = await getMatrixAdminCreds();
+  if (!creds) {
+    return { ok: false, status: 500, error: ERR_CREDS_MISSING };
+  }
+
+  const url = `${creds.homeserverBase}/_synapse/admin/v1/users/${encodeURIComponent(mxid)}/joined_rooms`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: ERR_NON_2XX };
+    }
+    const parsed = (await response.json()) as { joined_rooms?: unknown };
+    const roomIds = Array.isArray(parsed.joined_rooms)
+      ? (parsed.joined_rooms.filter((r) => typeof r === "string") as string[])
+      : [];
+    return { ok: true, roomIds };
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return { ok: false, status: 504, error: ERR_TIMEOUT };
+    }
+    databaseLogger.error("matrix admin proxy error", err, {
+      operation: "matrix_admin_get_user_joined_rooms",
+    });
+    return { ok: false, status: 502, error: ERR_PROXY };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// getRoomLatestEventTs — GET /_synapse/admin/v1/rooms/{roomId}/messages?dir=b&limit=1
+// ---------------------------------------------------------------------------
+//
+// Phase 89-03 Task 1 (D-05 same-tick augmentation). Each observation-loop
+// tick fetches the newest event timestamp per joined room so the stored
+// last_activity_at field stays accurate for sidebar-sort UX. A brand-new
+// room with no events yet returns { ok: true, ts: null } — the caller
+// (observation loop) skips the refreshRelayRoomLastActivity call in that
+// case.
+
+export type GetRoomLatestEventTsOk = AdminOk<{ ts: number | null }>;
+
+/**
+ * Return the origin_server_ts (ms since epoch) of the newest event in a
+ * room, or null if the room has no events yet.
+ *
+ * GET /_synapse/admin/v1/rooms/{roomId}/messages?dir=b&limit=1 —
+ * `dir=b` = backward paging (newest first), `limit=1` = just the head.
+ *
+ * Path-traversal defense: encodeURIComponent on the roomId.
+ */
+export async function getRoomLatestEventTs(
+  roomId: string,
+): Promise<GetRoomLatestEventTsOk | AdminErr> {
+  const creds = await getMatrixAdminCreds();
+  if (!creds) {
+    return { ok: false, status: 500, error: ERR_CREDS_MISSING };
+  }
+
+  const url = `${creds.homeserverBase}/_synapse/admin/v1/rooms/${encodeURIComponent(roomId)}/messages?dir=b&limit=1`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: ERR_NON_2XX };
+    }
+    const parsed = (await response.json()) as {
+      chunk?: unknown;
+    };
+    if (!Array.isArray(parsed.chunk) || parsed.chunk.length === 0) {
+      return { ok: true, ts: null };
+    }
+    const head = parsed.chunk[0] as { origin_server_ts?: unknown } | undefined;
+    const ts =
+      head && typeof head.origin_server_ts === "number"
+        ? head.origin_server_ts
+        : null;
+    return { ok: true, ts };
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return { ok: false, status: 504, error: ERR_TIMEOUT };
+    }
+    databaseLogger.error("matrix admin proxy error", err, {
+      operation: "matrix_admin_get_room_latest_event_ts",
+    });
+    return { ok: false, status: 502, error: ERR_PROXY };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// getRoomJoinedMembers — GET /_synapse/admin/v1/rooms/{roomId}/members
+// ---------------------------------------------------------------------------
+//
+// Phase 89-03 Task 1 — hoists the existing endpoint used inside
+// getSharedDMRoom's L511 members-count loop to a top-level primitive with
+// the standard discriminated-union return. The observation loop uses this
+// (a) to enumerate members for the D-08/D-09 classifier decision, and (b)
+// to fetch the agents-registry-room members for the D-09 authority set.
+
+export type GetRoomJoinedMembersOk = AdminOk<{
+  memberMxids: string[];
+  total: number;
+}>;
+
+/**
+ * List the mxids currently joined to a room, plus the reported total.
+ *
+ * GET /_synapse/admin/v1/rooms/{roomId}/members — Bearer admin auth.
+ * Response `{ members?: string[], total?: number }`. On missing / wrong
+ * type fields, falls back to memberMxids = [] and total = memberMxids.length
+ * so the caller (classifier) sees a defensible zero rather than a throw.
+ *
+ * Path-traversal defense: encodeURIComponent on the roomId.
+ */
+export async function getRoomJoinedMembers(
+  roomId: string,
+): Promise<GetRoomJoinedMembersOk | AdminErr> {
+  const creds = await getMatrixAdminCreds();
+  if (!creds) {
+    return { ok: false, status: 500, error: ERR_CREDS_MISSING };
+  }
+
+  const url = `${creds.homeserverBase}/_synapse/admin/v1/rooms/${encodeURIComponent(roomId)}/members`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: ERR_NON_2XX };
+    }
+    const parsed = (await response.json()) as {
+      members?: unknown;
+      total?: unknown;
+    };
+    const memberMxids = Array.isArray(parsed.members)
+      ? (parsed.members.filter((m) => typeof m === "string") as string[])
+      : [];
+    const total =
+      typeof parsed.total === "number" ? parsed.total : memberMxids.length;
+    return { ok: true, memberMxids, total };
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return { ok: false, status: 504, error: ERR_TIMEOUT };
+    }
+    databaseLogger.error("matrix admin proxy error", err, {
+      operation: "matrix_admin_get_room_joined_members",
+    });
+    return { ok: false, status: 502, error: ERR_PROXY };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // getSharedDMRoom — free helper composing joined_rooms + rooms/members
 // ---------------------------------------------------------------------------
 
@@ -469,36 +679,17 @@ export async function getSharedDMRoom(
   const creds = await getMatrixAdminCreds();
   if (!creds) return null;
 
-  // Helper: fetch a user's joined_rooms; returns null on any non-2xx or throw.
-  async function joinedRooms(mxid: string): Promise<string[] | null> {
-    const url = `${creds!.homeserverBase}/_synapse/admin/v1/users/${encodeURIComponent(mxid)}/joined_rooms`;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-    try {
-      const response = await fetch(url, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${creds!.accessToken}`,
-          "Content-Type": "application/json",
-        },
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      if (!response.ok) return null;
-      const parsed = (await response.json()) as { joined_rooms?: unknown };
-      return Array.isArray(parsed.joined_rooms)
-        ? (parsed.joined_rooms.filter((r) => typeof r === "string") as string[])
-        : null;
-    } catch {
-      clearTimeout(timeoutId);
-      return null;
-    }
-  }
-
-  const [agentRooms, humanRooms] = await Promise.all([
-    joinedRooms(agentMxid),
-    joinedRooms(humanMxid),
+  // Delegate to the top-level getUserJoinedRooms primitive (extracted from
+  // the previous internal `joinedRooms` helper at Phase 89-03 Task 1).
+  // Collapse discriminated-union errors to null to preserve this function's
+  // existing null-tolerant signature — bridge-config-writer.ts + other
+  // existing callers expect null-on-error.
+  const [agentResult, humanResult] = await Promise.all([
+    getUserJoinedRooms(agentMxid),
+    getUserJoinedRooms(humanMxid),
   ]);
+  const agentRooms = agentResult.ok ? agentResult.roomIds : null;
+  const humanRooms = humanResult.ok ? humanResult.roomIds : null;
   if (agentRooms === null || humanRooms === null) return null;
 
   const humanSet = new Set(humanRooms);
