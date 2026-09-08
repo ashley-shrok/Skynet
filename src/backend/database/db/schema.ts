@@ -1,6 +1,14 @@
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
+// Phase 85 (D-22) — INVARIANT: any code that deletes a users row MUST call
+// unlinkUserAvatar(avatarPath) first (via the shared helper from
+// routes/user-avatar-storage.ts). Wired sites: delete-user-data.ts (covers
+// admin-delete + OIDC-merge), users.ts DELETE /users/delete-account,
+// users.ts POST /users/create rollback (Plan 03).
+// OIDC-callback rollback (users.ts registerOIDCUser catch) is deliberately
+// exempt per Plan 03 Task 1 Step 10 — OIDC create bypasses the D-07
+// mandatoriness gate, so no avatar file is ever written on that path.
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
   username: text("username").notNull(),

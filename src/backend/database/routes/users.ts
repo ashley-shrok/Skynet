@@ -2240,6 +2240,28 @@ router.delete("/delete-account", authenticateJWT, async (req, res) => {
       }
     }
 
+    // Phase 85 (D-22) — remove this user's avatar file before deleting the row.
+    // This path (DELETE /users/delete-account) does NOT go through
+    // deleteUserAndRelatedData, so the cleanup wiring in delete-user-data.ts
+    // does not cover it (RESEARCH.md § 1 site #4). ENOENT-tolerant per Plan 02.
+    // Wrapped in try/catch so a broken filesystem does not block the user from
+    // deleting their own account (T-85-DEL-BLOCK — log-and-continue policy;
+    // admin-side let-throw is the separate policy in delete-user-data.ts).
+    try {
+      const avatarRow = await db.select({ avatarPath: users.avatarPath })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      if (avatarRow.length > 0) {
+        await unlinkUserAvatar(avatarRow[0].avatarPath);
+      }
+    } catch (unlinkErr) {
+      authLogger.warn(
+        "[phase-85] avatar unlink failed on delete-account (non-fatal — proceeding with row DELETE)",
+        { operation: "delete_account_avatar_unlink_failed", userId, error: unlinkErr },
+      );
+    }
+
     await db.delete(users).where(eq(users.id, userId));
 
     authLogger.success(`User account deleted: ${userRecord.username}`);
