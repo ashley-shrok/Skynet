@@ -203,7 +203,15 @@ export async function runObservationTick(
     // Step 3: for each joined room (bounded parallelism), fetch members +
     // latest-event-ts, classify, and materialize when applicable. Track
     // which roomIds we successfully materialized so Step 4 can reconcile.
+    //
+    // fetchedRoomIds is the set of roomIds whose per-room members fetch
+    // SUCCEEDED (regardless of whether the classifier chose to materialize).
+    // Step 4's reconcile MUST only consider fetchedRoomIds — a per-room
+    // fetch failure leaves that room in an unknown state, and marking its
+    // DB row inactive would violate D-06 (absence of observation is not
+    // evidence the user left). See fixup H-1 (2026-09-08).
     const materializedRoomIds = new Set<string>();
+    const fetchedRoomIds = new Set<string>();
     let materialized = 0;
     let reactivated = 0;
     for (
@@ -227,8 +235,11 @@ export async function runObservationTick(
 
       for (const { roomId, membersResult, tsResult } of results) {
         if (!membersResult.ok) {
+          // Per-room fetch failed. Do NOT add to fetchedRoomIds — Step 4's
+          // reconcile will therefore skip any DB row for this room, honoring
+          // D-06 (no destruction on failure — including per-room failures).
           databaseLogger.debug(
-            "[phase-89] observation tick — room members fetch failed, skipping this room",
+            "[phase-89] observation tick — room members fetch failed, skipping this room (state unknown, reconcile skipped for this room)",
             {
               operation: "relay_observation_tick_room_members_failed",
               userId,
@@ -239,6 +250,10 @@ export async function runObservationTick(
           );
           continue;
         }
+        // Per-room fetch succeeded → this room's state is known. Even if
+        // the classifier excludes it below (harness DM, admin room, etc.),
+        // Step 4 can safely reconcile against fetchedRoomIds.
+        fetchedRoomIds.add(roomId);
         const decision = classifyRoom({
           userMxid,
           roomId,
@@ -315,12 +330,31 @@ export async function runObservationTick(
       }
     }
 
-    // Step 4: reconcile — DB-active-set minus discovered = external kicks.
+    // Step 4: reconcile. Two disjoint categories of "should be inactive":
+    //
+    //   (a) Rooms the whole-user joined_rooms fetch didn't return AT ALL —
+    //       user was externally kicked. joinedRoomIdsSet.has(row.roomId) is
+    //       false. Safe to mark inactive: whole-user fetch succeeded (see
+    //       Step 1's ok gate), so absence from that list is authoritative.
+    //   (b) Rooms in joined_rooms whose per-room fetch SUCCEEDED but the
+    //       classifier excluded (e.g. newly excluded because the other
+    //       member joined the agents registry). fetchedRoomIds.has(...) is
+    //       true but materializedRoomIds.has(...) is false.
+    //
+    // Rooms in joined_rooms whose per-room fetch FAILED are UNKNOWN state
+    // (per fixup H-1, 2026-09-08 — D-06 no-destruction extended to per-room
+    // failures). They match neither (a) nor (b): joinedRoomIdsSet has them
+    // (skips (a)) and fetchedRoomIds does not (skips (b)). Left untouched.
+    const joinedRoomIdsSet = new Set(joinedRoomIds);
     let markedInactive = 0;
     try {
       const activeRows = await deps.listActiveRelayRoomSessions(userId);
       for (const row of activeRows) {
-        if (!materializedRoomIds.has(row.roomId)) {
+        const category_a_external_kick = !joinedRoomIdsSet.has(row.roomId);
+        const category_b_now_excluded =
+          fetchedRoomIds.has(row.roomId) &&
+          !materializedRoomIds.has(row.roomId);
+        if (category_a_external_kick || category_b_now_excluded) {
           try {
             await deps.markRelayRoomSessionInactive(userId, row.roomId);
             markedInactive++;
