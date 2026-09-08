@@ -47,14 +47,25 @@ const IDENTITIES_BY_KEY = new Map<string, Identity>([
   ["nelly", makeIdentity("nelly", "Nelly", 150)],
 ]);
 
-vi.mock("@/state/identities-store", () => ({
-  useIdentities: vi.fn(() => ({
-    identities: Array.from(IDENTITIES_BY_KEY.values()),
-    byKey: IDENTITIES_BY_KEY,
-    loaded: true,
-    refresh: vi.fn(),
-  })),
-}));
+vi.mock("@/state/identities-store", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...orig,
+    useIdentities: vi.fn(() => ({
+      identities: Array.from(IDENTITIES_BY_KEY.values()),
+      byKey: IDENTITIES_BY_KEY,
+      loaded: true,
+      refresh: vi.fn(),
+    })),
+    // Plan 06: return a stable identity → host mapping so the
+    // AgentBadgeWithAppendage cell has a hostId to resolve at test time.
+    // Values chosen to match the agents used in tests.
+    buildIdentityHostsFromFleet: vi.fn(() => ({
+      nelly: 5,
+      ada: 5,
+    })),
+  };
+});
 
 vi.mock("@/hooks/use-mobile", () => ({
   useIsMobile: vi.fn(() => false),
@@ -62,14 +73,25 @@ vi.mock("@/hooks/use-mobile", () => ({
 
 // Plan 06: AgentBadgeWithAppendage now reads from these stores transitively —
 // mock them so the row tests do not require the real fleet-status subscription.
-vi.mock("@/state/session-working-store", () => ({
-  useSessionIsWorking: vi.fn(() => false),
-  useSessionIsRecycling: vi.fn(() => false),
-}));
+// Use importOriginal so unrelated exports (subscribeSessionWorkingStore,
+// publishFleetStatusSessionState, etc.) stay intact for any transitive
+// consumers that might load them at import time.
+vi.mock("@/state/session-working-store", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...orig,
+    useSessionIsWorking: vi.fn(() => false),
+    useSessionIsRecycling: vi.fn(() => false),
+  };
+});
 
-vi.mock("@/api/fleet-status-client", () => ({
-  useSessionContextPct: vi.fn(() => null),
-}));
+vi.mock("@/api/fleet-status-client", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...orig,
+    useSessionContextPct: vi.fn(() => null),
+  };
+});
 
 vi.mock("@/main-axios", async (importOriginal) => {
   const orig = (await importOriginal()) as Record<string, unknown>;

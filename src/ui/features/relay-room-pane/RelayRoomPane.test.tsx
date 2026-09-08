@@ -32,19 +32,44 @@ vi.mock("@/state/viewing-user-store", () => ({
 }));
 
 // Mock identities-store so IdentityBadge / IdentityBadgeRow renders don't
-// hit the real fetch pipeline.
-vi.mock("@/state/identities-store", () => ({
-  useIdentities: vi.fn(() => ({
-    identities: [] as Identity[],
-    byKey: new Map<string, Identity>(),
-    loaded: true,
-    refresh: vi.fn(),
-  })),
-}));
+// hit the real fetch pipeline. importOriginal so unrelated exports (e.g.
+// subscribeConversationStore-adjacent flows) stay intact.
+vi.mock("@/state/identities-store", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...orig,
+    useIdentities: vi.fn(() => ({
+      identities: [] as Identity[],
+      byKey: new Map<string, Identity>(),
+      loaded: true,
+      refresh: vi.fn(),
+    })),
+    buildIdentityHostsFromFleet: vi.fn(() => ({})),
+  };
+});
 
 vi.mock("@/hooks/use-mobile", () => ({
   useIsMobile: vi.fn(() => false),
 }));
+
+// Plan 06: AgentBadgeWithAppendage → session-working-store + fleet-status-client
+// (importOriginal so subscribeSessionWorkingStore etc. stay accessible).
+vi.mock("@/state/session-working-store", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...orig,
+    useSessionIsWorking: vi.fn(() => false),
+    useSessionIsRecycling: vi.fn(() => false),
+  };
+});
+
+vi.mock("@/api/fleet-status-client", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...orig,
+    useSessionContextPct: vi.fn(() => null),
+  };
+});
 
 import { authApi } from "@/main-axios";
 import { useViewingUserMxid } from "@/state/viewing-user-store";
@@ -145,7 +170,7 @@ describe("RelayRoomPane (Phase 90 Plan 05 Task 3)", () => {
     expect(container.querySelector('[aria-label*="older messages" i]')).toBeNull();
   });
 
-  it("Test 4: renders a data-slot='compose-box' placeholder cell for Plan 06", async () => {
+  it("Test 4 (Plan 06 update): renders ComposeBoxShell — textarea + Send button (replaces Plan 05 data-slot placeholder)", async () => {
     mockedGet.mockResolvedValueOnce({
       status: 200,
       data: { humans: [], agents: [] },
@@ -158,10 +183,16 @@ describe("RelayRoomPane (Phase 90 Plan 05 Task 3)", () => {
       />,
     );
     await waitFor(() => {
+      // Plan 06 fills the compose region with ComposeBoxShell — the D-04
+      // upperArea + D-05 attachButton are both undefined so ONLY textarea +
+      // Send are rendered.
+      expect(container.querySelector("textarea")).not.toBeNull();
       expect(
-        container.querySelector('[data-slot="compose-box"]'),
+        container.querySelector('button[aria-label="Send"]'),
       ).not.toBeNull();
     });
+    // Plan 05's data-slot="compose-box" placeholder is REMOVED in Plan 06.
+    expect(container.querySelector('[data-slot="compose-box"]')).toBeNull();
   });
 
   it("Test 5 (D-18): 404 participants fetch → renders RelayRoomErrorState in place of the pane content", async () => {
@@ -261,8 +292,9 @@ describe("RelayRoomPane (Phase 90 Plan 05 Task 3)", () => {
       container.querySelector('[data-testid="relay-room-message-list"]'),
     ).not.toBeNull();
     expect(container.querySelectorAll(".pv-bubble").length).toBe(0);
-    // Compose slot placeholder present.
-    expect(container.querySelector('[data-slot="compose-box"]')).not.toBeNull();
+    // Plan 06 update: compose is a real ComposeBoxShell (textarea + Send),
+    // no more data-slot="compose-box" placeholder.
+    expect(container.querySelector("textarea")).not.toBeNull();
     // No empty-state chrome.
     expect(container.textContent?.toLowerCase() ?? "").not.toContain(
       "start the conversation",

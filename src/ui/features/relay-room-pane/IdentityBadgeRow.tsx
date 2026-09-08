@@ -1,4 +1,4 @@
-// Phase 90 Plan 05 Task 2 — IdentityBadgeRow.
+// Phase 90 Plan 05 Task 2 / Plan 06 Task 3 — IdentityBadgeRow.
 //
 // The horizontal participant row at the top of the relay-room pane. Renders
 // one badge per participant EXCEPT the viewing user (D-07 right-side-is-you
@@ -14,11 +14,19 @@
 //     Absence of the appendage is how the viewer distinguishes humans from
 //     agents at a glance. Humans don't have bounded context (nothing to
 //     meter) and nothing to reset.
-//   - AGENT (D-08): PLACEHOLDER cell in this plan. Renders the plain badge
-//     PLUS a `data-slot="agent-badge-appendage"` container that Plan 06
-//     replaces with the full `AgentBadgeWithAppendage` component (meter +
-//     reset). Keeping the plain badge here means the row layout is stable
-//     across plans.
+//   - AGENT (D-08): AgentBadgeWithAppendage (Plan 06 Task 2) — plain badge
+//     PLUS a shrunk meter + reset appendage. Meter reads via Wave 0
+//     useSessionContextPct; reset dispatches via Wave 0 /agent-reset endpoint.
+//     Reset is INTERNAL to AgentBadgeWithAppendage — no parent-supplied
+//     callback threading needed at this seam (D-10 correctness by
+//     construction; no drift risk).
+//
+// Plan 06 replaced the Plan 05 placeholder cell with the live
+// AgentBadgeWithAppendage. Host + tmuxSessionName are resolved by
+// `buildIdentityHostsFromFleet` from identities-store (fleet-derived
+// identityKey → hostId mapping); tmux session name is derived from the
+// agent's own identityKey (same one-identity-one-tmux-session convention
+// sessionMatchKey follows).
 //
 // IdentityBadge positioning quirk (from IdentityBadge.tsx L102): the badge
 // primitive's rootClassName carries `absolute top-4 right-5 z-[101]` for
@@ -43,10 +51,19 @@
 // badges scroll horizontally on narrow viewports rather than wrapping /
 // clipping. v1.5 will revisit once real rooms show real pain points.
 
+import { useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
-import { useIdentities } from "@/state/identities-store";
+import {
+  useIdentities,
+  buildIdentityHostsFromFleet,
+} from "@/state/identities-store";
 import { IdentityBadge } from "@/features/terminal/IdentityBadge";
 import { resolveMxidToIdentity } from "@/features/pretty-view/relay-mxid-resolve";
+import {
+  getFleetSessionsSnapshot,
+  subscribeConversationStore,
+} from "@/state/conversation-store";
+import { AgentBadgeWithAppendage } from "./AgentBadgeWithAppendage";
 import type { HumanParticipant, AgentParticipant } from "./relay-room-api";
 
 export interface IdentityBadgeRowProps {
@@ -102,30 +119,109 @@ function HumanBadgeCell({ human }: { human: HumanParticipant }) {
 }
 
 /**
- * A single agent's badge PLACEHOLDER cell for this plan. Renders the plain
- * badge PLUS a `data-slot="agent-badge-appendage"` container that Plan 06
- * will fill with the full AgentBadgeWithAppendage (meter + reset). Wrapped
- * in a `relative` positioning cell — same IdentityBadge positioning quirk
- * fix as HumanBadgeCell.
+ * useFleetIdentityHosts — a small `useSyncExternalStore` subscription over
+ * the conversation-store's fleet-sessions snapshot, mapping identityKey →
+ * hostId via `buildIdentityHostsFromFleet`. Reactively re-renders whenever
+ * the fleet-sessions ARRAY IDENTITY changes.
+ *
+ * IMPORTANT: `useSyncExternalStore` compares snapshots with Object.is; if
+ * the snapshot function returns a fresh object every call, React sees a
+ * change every render and enters an infinite update loop. We cache the
+ * built map keyed on the fleet-sessions array identity so successive
+ * getSnapshot calls return the SAME object reference when the fleet has
+ * not changed (updateFleetSessions bumps the array identity on real
+ * mutation but keeps it stable across no-ops per conversation-store's
+ * snapshotVersion discipline).
  */
-function AgentBadgeCellPlaceholder({ agent }: { agent: AgentParticipant }) {
+let fleetIdentityHostsCache: {
+  fleetRef: unknown;
+  map: Record<string, number>;
+} | null = null;
+
+function getFleetIdentityHostsSnapshot(): Record<string, number> {
+  const fleet = getFleetSessionsSnapshot();
+  if (
+    fleetIdentityHostsCache !== null &&
+    fleetIdentityHostsCache.fleetRef === fleet
+  ) {
+    return fleetIdentityHostsCache.map;
+  }
+  const map = buildIdentityHostsFromFleet(fleet);
+  fleetIdentityHostsCache = { fleetRef: fleet, map };
+  return map;
+}
+
+function useFleetIdentityHosts(): Record<string, number> {
+  return useSyncExternalStore(
+    subscribeConversationStore,
+    getFleetIdentityHostsSnapshot,
+    getFleetIdentityHostsSnapshot,
+  );
+}
+
+/**
+ * A single agent's live badge cell. Plan 06 replaces the Plan 05
+ * placeholder cell with `AgentBadgeWithAppendage` — the full meter +
+ * reset appendage.
+ *
+ * Host + tmuxSessionName resolution:
+ *   - hostId comes from `buildIdentityHostsFromFleet` — the same
+ *     fleet-derived identityKey → hostId mapping identities-store uses
+ *     internally. Guarantees the meter reads from the SAME host+session
+ *     PrettyView reads (D-10 correctness — Pitfall 2 mitigated at this
+ *     resolution site).
+ *   - tmuxSessionName equals identityKey — Skynet's one-identity-one-tmux-
+ *     session invariant per `sessionMatchKey` (session-hue.ts): the
+ *     identity's key IS the lowercased tmux session name.
+ *
+ * Defensive edge case (identity has no fleet-mapped host): log warn +
+ * render the plain badge without an appendage. The sidebar/backend
+ * classifier shouldn't return dead agents anyway, so this is a fallback.
+ */
+function AgentBadgeCell({
+  agent,
+  fleetIdentityHosts,
+}: {
+  agent: AgentParticipant;
+  fleetIdentityHosts: Record<string, number>;
+}) {
+  const identityKey = agent.identityKey;
+  const hostId = fleetIdentityHosts[identityKey];
+  if (hostId === undefined) {
+    // Defensive edge case — agent identity known but no live fleet mapping.
+    // Log structurally so we can grep post-ship if this happens in the wild.
+    // eslint-disable-next-line no-console
+    console.warn({
+      operation: "agent_badge_no_host_mapping",
+      identityKey,
+    });
+    return (
+      <div
+        data-testid="relay-room-participant"
+        data-role="agent"
+        data-mxid={agent.mxid}
+        className="relative shrink-0 h-[72px] w-[220px] flex flex-col items-stretch"
+      >
+        <IdentityBadge identityKey={identityKey} />
+      </div>
+    );
+  }
   return (
     <div
       data-testid="relay-room-participant"
       data-role="agent"
       data-mxid={agent.mxid}
-      className="relative shrink-0 h-[72px] w-[220px] flex flex-col items-stretch"
+      className="relative shrink-0 h-[92px] w-[220px] flex flex-col items-stretch"
     >
-      <IdentityBadge identityKey={agent.identityKey} />
-      {/* Placeholder appendage slot — Plan 06 replaces AgentBadgeCell-
-          Placeholder with AgentBadgeWithAppendage and fills this container
-          with the shrunk meter + reset button. Kept as an empty container
-          so the row layout is stable across plans (no visual reflow when
-          Plan 06 lands). */}
-      <div
-        data-slot="agent-badge-appendage"
-        className="h-0 w-full"
-        aria-hidden="true"
+      <AgentBadgeWithAppendage
+        identityKey={identityKey}
+        mxid={agent.mxid}
+        hostId={hostId}
+        // One-identity-one-tmux-session convention (see file header): the
+        // identityKey IS the tmux session name (lowercased) that the fleet
+        // publishes. If Skynet ever supports multiple sessions per identity,
+        // this resolution needs a distinct field on AgentParticipant.
+        tmuxSessionName={identityKey}
       />
     </div>
   );
@@ -161,6 +257,11 @@ export function IdentityBadgeRow({
   const agentsSorted = agents
     .slice()
     .sort((a, b) => a.identityKey.localeCompare(b.identityKey));
+  // Fleet-derived identityKey → hostId mapping for the agent badge appendages.
+  // Same source identities-store uses internally, so the (hostId,
+  // tmuxSessionName) resolution here matches PrettyView's per-session read
+  // shape exactly (D-10 correctness at the resolution site).
+  const fleetIdentityHosts = useFleetIdentityHosts();
   return (
     <div
       data-testid="relay-room-identity-badge-row"
@@ -178,7 +279,11 @@ export function IdentityBadgeRow({
         <HumanBadgeCell key={h.mxid} human={h} />
       ))}
       {agentsSorted.map((a) => (
-        <AgentBadgeCellPlaceholder key={a.mxid} agent={a} />
+        <AgentBadgeCell
+          key={a.mxid}
+          agent={a}
+          fleetIdentityHosts={fleetIdentityHosts}
+        />
       ))}
     </div>
   );
