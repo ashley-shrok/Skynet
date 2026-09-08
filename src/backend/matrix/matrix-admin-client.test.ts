@@ -46,6 +46,8 @@ import {
   getRoomLatestEventTs,
   getRoomJoinedMembers,
   getRoomName,
+  getRoomMessages,
+  sendMessageAsUser,
 } from "./matrix-admin-client.js";
 import { getMatrixAdminCreds } from "./matrix-admin-creds-store.js";
 import { databaseLogger } from "../utils/logger.js";
@@ -1229,6 +1231,219 @@ describe("getRoomName", () => {
       for (const arg of call) {
         expect(JSON.stringify(arg)).not.toContain(HAPPY_CREDS.accessToken);
       }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getRoomMessages (Phase 90 Plan 03 Task 1) — GET /_matrix/client/v3/rooms/
+// {roomId}/messages?dir=b&from=<eventId>&limit=20 — event-id cursor pagination
+// (Pitfall 5) for the relay-room pane's message-history + scroll-back load.
+// Admin-mediated read; response contains parsed event array + cursors.
+// ---------------------------------------------------------------------------
+
+describe("getRoomMessages (Phase 90 Plan 03 Task 1)", () => {
+  it("Test 1: happy path 200 with chunk+end+start → {ok:true, events, end, start}", async () => {
+    const ev1 = {
+      event_id: "$ev1:server",
+      type: "m.room.message",
+      sender: "@ashley:server",
+      origin_server_ts: 1725840000000,
+      content: { msgtype: "m.text", body: "hello" },
+    };
+    const ev2 = {
+      event_id: "$ev2:server",
+      type: "m.room.message",
+      sender: "@bob:server",
+      origin_server_ts: 1725840001000,
+      content: { msgtype: "m.text", body: "world" },
+      unsigned: { transaction_id: "mqid-abc" },
+    };
+    stubFetchOk(200, {
+      chunk: [ev1, ev2],
+      end: "t1_cursor",
+      start: "t2_cursor",
+    });
+    const result = await getRoomMessages("!abc:server", { dir: "b" });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.events).toHaveLength(2);
+      expect(result.events[0].event_id).toBe("$ev1:server");
+      expect(result.events[1].event_id).toBe("$ev2:server");
+      expect(result.events[1].unsigned?.transaction_id).toBe("mqid-abc");
+      expect(result.end).toBe("t1_cursor");
+      expect(result.start).toBe("t2_cursor");
+    }
+  });
+
+  it("Test 2: URL construction — encodeURIComponent on roomId + dir/from/limit query params", async () => {
+    const fetchMock = vi.fn(async () =>
+      mockFetchResponse(200, { chunk: [], end: "e", start: "s" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await getRoomMessages("!abc:server", {
+      dir: "b",
+      from: "t99_cursor",
+      limit: 20,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const url = fetchMock.mock.calls[0][0] as string;
+    // encodeURIComponent("!abc:server") = "%21abc%3Aserver"
+    expect(url).toContain("%21abc%3Aserver");
+    expect(url).toContain("dir=b");
+    expect(url).toContain("from=t99_cursor");
+    expect(url).toContain("limit=20");
+    // Client-server API endpoint shape
+    expect(url).toContain("/_matrix/client/v3/rooms/");
+    expect(url).toContain("/messages?");
+  });
+
+  it("Test 3: dir='f' + no from + no limit → no from/limit query params", async () => {
+    const fetchMock = vi.fn(async () =>
+      mockFetchResponse(200, { chunk: [] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await getRoomMessages("!r1:server", { dir: "f" });
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain("dir=f");
+    expect(url).not.toContain("from=");
+    expect(url).not.toContain("limit=");
+  });
+
+  it("Test 4: creds missing → {ok:false, status:500, error:'matrix_admin_creds_missing'}", async () => {
+    vi.mocked(getMatrixAdminCreds).mockResolvedValueOnce(null);
+    const result = await getRoomMessages("!r1:server", { dir: "b" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(500);
+      expect(result.error).toBe("matrix_admin_creds_missing");
+    }
+  });
+
+  it("Test 5a: 404 → {ok:false, status:404, error:'admin_api_non_2xx'}", async () => {
+    stubFetchOk(404, { errcode: "M_NOT_FOUND" });
+    const result = await getRoomMessages("!r1:server", { dir: "b" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(404);
+      expect(result.error).toBe("admin_api_non_2xx");
+    }
+  });
+
+  it("Test 5b: 403 → {ok:false, status:403, error:'admin_api_non_2xx'}", async () => {
+    stubFetchOk(403, { errcode: "M_FORBIDDEN" });
+    const result = await getRoomMessages("!r1:server", { dir: "b" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(403);
+      expect(result.error).toBe("admin_api_non_2xx");
+    }
+  });
+
+  it("Test 6: AbortError → {ok:false, status:504, error:'admin_api_timeout'}", async () => {
+    stubFetchAbort();
+    const result = await getRoomMessages("!r1:server", { dir: "b" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(504);
+      expect(result.error).toBe("admin_api_timeout");
+    }
+  });
+
+  it("Test 7: other fetch error → {ok:false, status:502, error:'admin_api_proxy_error'}; databaseLogger.error called with operation:'matrix_admin_get_room_messages'", async () => {
+    stubFetchNetworkError();
+    const errorSpy = vi.mocked(databaseLogger.error);
+    errorSpy.mockClear();
+    const result = await getRoomMessages("!r1:server", { dir: "b" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(502);
+      expect(result.error).toBe("admin_api_proxy_error");
+    }
+    expect(errorSpy).toHaveBeenCalled();
+    // Assert one of the calls contained the expected operation label.
+    const anyCallHasOp = errorSpy.mock.calls.some((call) =>
+      call.some(
+        (arg) =>
+          typeof arg === "object" &&
+          arg !== null &&
+          (arg as { operation?: string }).operation ===
+            "matrix_admin_get_room_messages",
+      ),
+    );
+    expect(anyCallHasOp).toBe(true);
+    // T-90-BE-01 defense: proxy-error path NEVER logs admin access_token.
+    for (const call of errorSpy.mock.calls) {
+      for (const arg of call) {
+        expect(JSON.stringify(arg)).not.toContain(HAPPY_CREDS.accessToken);
+      }
+    }
+  });
+
+  it("Test 8: response missing chunk field → {ok:false, status:500, error:'admin_api_missing_field'}", async () => {
+    stubFetchOk(200, { end: "e", start: "s" });
+    const result = await getRoomMessages("!r1:server", { dir: "b" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(500);
+      expect(result.error).toBe("admin_api_missing_field");
+    }
+  });
+
+  it("Test 9: Authorization header uses admin creds.accessToken (reads are admin-mediated)", async () => {
+    const fetchMock = vi.fn(async () =>
+      mockFetchResponse(200, { chunk: [] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await getRoomMessages("!r1:server", { dir: "b" });
+    const opts = fetchMock.mock.calls[0][1] as RequestInit;
+    const headers = opts.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe(`Bearer ${HAPPY_CREDS.accessToken}`);
+  });
+
+  it("Test 10: clearTimeout called in BOTH success and error paths (no leaked timers)", async () => {
+    const clearSpy = vi.spyOn(global, "clearTimeout");
+    // Success path
+    stubFetchOk(200, { chunk: [] });
+    clearSpy.mockClear();
+    await getRoomMessages("!r1:server", { dir: "b" });
+    const clearedOnSuccess = clearSpy.mock.calls.length;
+    expect(clearedOnSuccess).toBeGreaterThanOrEqual(1);
+    // Error path — AbortError
+    stubFetchAbort();
+    clearSpy.mockClear();
+    await getRoomMessages("!r1:server", { dir: "b" });
+    const clearedOnError = clearSpy.mock.calls.length;
+    expect(clearedOnError).toBeGreaterThanOrEqual(1);
+    clearSpy.mockRestore();
+  });
+
+  it("Test 11: defensive parse — non-array chunk (e.g. object) → {ok:false, status:500, error:'admin_api_missing_field'}", async () => {
+    stubFetchOk(200, { chunk: { not: "an array" } });
+    const result = await getRoomMessages("!r1:server", { dir: "b" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(500);
+      expect(result.error).toBe("admin_api_missing_field");
+    }
+  });
+
+  it("Test 12: defensive parse — chunk entry missing event_id is skipped, valid entries returned", async () => {
+    const goodEv = {
+      event_id: "$ok:server",
+      type: "m.room.message",
+      sender: "@a:s",
+      origin_server_ts: 1,
+      content: { body: "hi" },
+    };
+    stubFetchOk(200, {
+      chunk: [{ type: "m.room.message" /* no event_id */ }, goodEv],
+    });
+    const result = await getRoomMessages("!r1:server", { dir: "b" });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.events).toHaveLength(1);
+      expect(result.events[0].event_id).toBe("$ok:server");
     }
   });
 });
