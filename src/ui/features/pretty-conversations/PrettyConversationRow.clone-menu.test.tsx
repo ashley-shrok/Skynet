@@ -2,7 +2,7 @@
 // Companion test file to PrettyConversationRow.test.tsx covering the
 // create-new-agent-under-this-role entry in the context-menu items[] builder.
 //
-// Phase 80-09: label renamed "Clone" → "Spawn under this role" (context-menu
+// Phase 80-09: label renamed 'Clone' → 'Spawn under this role' (context-menu
 // action now spawns a fresh agent under the same role via the unified
 // NewSessionDialog chain-hook, rather than opening the retired
 // CloneAgentDialog). The prop is still `onClone` for backwards compat; only

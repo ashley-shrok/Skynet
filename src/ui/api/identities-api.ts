@@ -313,7 +313,7 @@ export async function pickPoolName(
 //   title, voice, avatarCandidateId} → 201 publicIdentity(newRow)
 //
 // Phase 80: the standalone clone dialog that used to consume this client was
-// deleted; the "Spawn under this role" context-menu path now routes through
+// deleted; the "create new agent under this role" context-menu path now routes through (bounty 260908-h78 renamed the label; the underlying chainPrefill wiring is unchanged)
 // the unified NewSessionDialog, which does its own POST /identities/birth
 // (identity-birth flow). This cloneIdentity() client is currently unused by
 // the UI but preserved for backend parity — the route still exists and other

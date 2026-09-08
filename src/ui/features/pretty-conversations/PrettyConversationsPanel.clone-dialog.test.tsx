@@ -2,7 +2,7 @@
 //
 // Phase 80: replaces the Phase 22 SRIC-03 clone-dialog wiring suite. The
 // standalone clone dialog was deleted; the row context-menu action (label
-// rebranded from "Clone" to "Spawn under this role", then rewritten again
+// rebranded from 'Clone' to 'Spawn under this role', then rewritten again
 // to "create new agent under this role" in bounty 260908-h78) now routes
 // through the unified NewSessionDialog via the existing chain-hook mechanism
 // (initialHost + initialRole props — same path CreateRoleDialog uses).
@@ -283,7 +283,7 @@ describe("PrettyConversationsPanel: 'create new agent under this role' wiring (P
     const rowBody = rowWrapper.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(rowBody, { clientX: 100, clientY: 100 });
 
-    // "create new agent under this role" menu item should be present (formerly "Clone", then "Spawn under this role")
+    // "create new agent under this role" menu item should be present (formerly 'Clone', then 'Spawn under this role')
     const spawnItem = screen.getByRole("menuitem", {
       name: "create new agent under this role",
     });

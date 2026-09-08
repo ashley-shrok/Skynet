@@ -2441,8 +2441,8 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
 
   // (g) Context menu on a non-hidden row shows Hide between Pin/Unpin and
   // Open-in-new-window, with Deactivate at the tail. quick-260804-uo4
-  // inserted the new-window item between Clone and Deactivate; for a row
-  // without an identity Clone is auto-hidden, so the order collapses to
+  // inserted the new-window item between create-new-agent-under-this-role and Deactivate; for a row
+  // without an identity create-new-agent-under-this-role is auto-hidden, so the order collapses to
   // Pin, Hide, Open in new window, Deactivate. (Label was "Move to new
   // window" when inActiveSet before 2026-08-18; now always "Open in new
   // window" regardless of active-set membership.)
@@ -2450,7 +2450,7 @@ describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", () => 
     // Phase 42 UAT amendment 2026-08-17: active-set render tier retired; seed
     // row into `middle` and mark active-in-set via `mockActiveSet`.
     // Ashley 2026-08-17 follow-up: Deactivate menu item removed entirely;
-    // menu order is now Pin, Hide, Open-in-new-window (Clone hidden — row
+    // menu order is now Pin, Hide, Open-in-new-window (create-new-agent-under-this-role hidden — row
     // has no identity).
     setSnapshot({
       activeSet: [],

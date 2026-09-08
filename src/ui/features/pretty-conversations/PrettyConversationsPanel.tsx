@@ -124,7 +124,7 @@ import { CreateRoleDialog } from "@/sidebar/CreateRoleDialog";
 // with initialHost + initialRole via the existing chain-hook mechanism
 // (identical to CreateRoleDialog's onChainToCreateIdentity path). See
 // handleRowClone below — the standalone clone dialog was deleted; the row's context-menu
-// "Spawn under this role" item now routes through NewSessionDialog with the
+// "create new agent under this role" item now routes through NewSessionDialog with the (bounty 260908-h78 label rewrite)
 // row's host + identity.role seeded and NO task/brief prefill (A3 lock: each
 // spawn describes its own why).
 import { getPinnedIds, getHiddenIds } from "@/api/user-preferences-api";
@@ -1230,7 +1230,7 @@ export function PrettyConversationsPanel({
   };
 
   // Phase 80 (Landmine 11 — reuse, don't build new): panel-level clone
-  // handler. "Clone" was rebranded to "Spawn under this role" (see
+  // handler. "Clone" was rebranded to "create new agent under this role" (originally 'Clone', then 'Spawn under this role' until bounty 260908-h78) (see
   // PrettyConversationRow.tsx context-menu label). It is no longer a
   // separate flow with its own dialog — it now opens the unified
   // NewSessionDialog with initialHost + initialRole seeded via the SAME
@@ -1980,7 +1980,7 @@ export function PrettyConversationsPanel({
         />
       )}
       {/* Phase 80: the dedicated clone-dialog mount was DELETED. The row
-          context-menu "Spawn under this role" item (formerly labeled
+          context-menu "create new agent under this role" item (formerly labeled
           "Clone") now routes through the NewSessionDialog mount above via
           chainPrefill (see handleRowClone). No standalone clone dialog
           exists anymore — one creation flow, one modal (Landmine 11:
