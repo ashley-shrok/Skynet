@@ -2040,13 +2040,13 @@ Plans:
 **Goal:** Add baseline backend support for Skynet's human users having avatars — one nullable pointer column on the users row, three backend endpoints (mandatory-at-create + change + serve), one shared byte-work helper, on-disk storage inside the encrypted data volume, delete-cleanup wired into all deletion paths, and the nginx edge sizing edit — with zero frontend surface. Downstream frontend build consumes this.
 **Requirements**: D-01 through D-23 (23 LOCKED decisions from 85-CONTEXT.md — REQUIREMENTS.md has no separate REQ-IDs for this phase)
 **Depends on:** Phase 84
-**Plans:** 1/7 plans executed
+**Plans:** 2/7 plans executed
 
 Plans:
 
 **Wave 1** *(parallel — no file overlap)*
 - [x] 85-01-PLAN.md — schema + migration + migration test: add users.avatarPath column via addColumnIfNotExists + labeled forceSave, mirror Phase 75-2 mxid test shape (D-04, D-05, D-06, D-13, D-17, D-18)
-- [ ] 85-02-PLAN.md — user-avatar-storage.ts helper module + tests: multer config (5MB + png/jpeg/webp), userAvatarMulterErrorHandler, writeUserAvatar/unlinkUserAvatar/readUserAvatar, ext-in-filename convention (D-01, D-02, D-03, D-05, D-12, D-14, D-15, D-16)
+- [x] 85-02-PLAN.md — user-avatar-storage.ts helper module + tests: multer config (5MB + png/jpeg/webp), userAvatarMulterErrorHandler, writeUserAvatar/unlinkUserAvatar/readUserAvatar, ext-in-filename convention (D-01, D-02, D-03, D-05, D-12, D-14, D-15, D-16)
 
 **Wave 2** *(blocked on Wave 1)*
 - [ ] 85-03-PLAN.md — extend POST /users/create to multipart with mandatory avatar: multer middleware, req.file guard, file-then-row ordering, extended INSERT for avatar_path, extended rollback at users.ts:198, labeled forceSave; new users.test.ts covers 7 create-endpoint variants (D-07, D-08, D-09, D-14, D-15, D-16, D-17, D-18)

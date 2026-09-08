@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-08T03:28:27.230Z"
+last_updated: "2026-09-08T03:36:54.341Z"
 last_activity: 2026-09-08
 progress:
   total_phases: 85
   completed_phases: 71
   total_plans: 335
-  completed_plans: 319
+  completed_plans: 320
   percent: 84
 ---
 
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 85 (User avatars — baseline backend support) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 Status: Ready to execute
 
 Last activity: 2026-09-08
@@ -212,7 +212,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 96%
+Progress: [██████████] 97%
 Progress: [██████████] 100%
 
 ## Performance Metrics
@@ -359,6 +359,7 @@ Progress: [██████████] 100%
 | Phase 82-branding-config-wip-indicator-image-overridable P03 | 3min | 2 tasks | 2 files |
 | Phase 82 P04 | 4min | - tasks | - files |
 | Phase 85 P01 | 15m | 3 tasks | 3 files |
+| Phase 85-user-avatars-baseline-backend-support P02 | 18 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -581,6 +582,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 82 Plan 04: WipBubble.tsx wired via single-field destructure const { wipIndicatorPath } = useBrandingConfig() (apply-favicon.ts precedent) instead of grabbing the whole config object — keeps render minimal, signals only-wip-path is consumed
 - [Phase ?]: Phase 82 Plan 04: L20 regeneration hint updated public/wip-cube.webp → docker/branding-defaults/wip-cube.webp (Plan 82-02 asset home); L8 historical mention preserved verbatim per plan mandate — describes swap-time location, not actionable path
 - [Phase ?]: avatar_path column: nullable text on users table, genuinely NULL (not empty-string sentinel), stored as filename pointer under DATA_DIR/user-avatars/ (D-04/D-05/D-06)
+- [Phase ?]: Local MIME_TO_EXT/EXT_TO_MIME maps in user-avatar-storage.ts cover only png/jpeg/webp — no cross-file coupling to identity system
 
 ### Pending Todos
 
@@ -893,7 +895,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-08T03:28:27.093Z
+Last session: 2026-09-08T03:36:22.629Z
 Stopped at: Completed 85-01-PLAN.md
 Last session: 2026-09-06T12:17:07.176Z
 Stopped at: Phase 80 context gathered
