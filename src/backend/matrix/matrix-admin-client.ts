@@ -733,6 +733,89 @@ export async function getSharedDMRoom(
 }
 
 // ---------------------------------------------------------------------------
+// getRoomName — GET /_matrix/client/v3/rooms/{roomId}/state/m.room.name
+// ---------------------------------------------------------------------------
+//
+// Phase 89 fixup M-1 (2026-09-08). Read the m.room.name state event for a
+// room. Called from the observation loop's Step 3 alongside
+// getRoomJoinedMembers + getRoomLatestEventTs so the D-05 same-tick batch
+// picks up the display name for materialized rows (relay_room_sessions.
+// room_title, D-02).
+//
+// Uses the client-server API (NOT admin API — m.room.name is a client-
+// server state-event concept and the admin API has no equivalent
+// endpoint). The admin credential is a normal Matrix access_token that
+// works on both APIs via Bearer auth — same pattern as createRoom.
+//
+// Return-shape choice: ok:true carries name:string|null (null for rooms
+// with no m.room.name event set — Matrix returns 404 in that case; we
+// map to name:null, ok:true because "no name" is legitimate data, not
+// an error). Empty-string names are also treated as null.
+
+export type GetRoomNameOk = AdminOk<{ name: string | null }>;
+
+/**
+ * Return the m.room.name of a room, or null if the state event is not set.
+ *
+ * GET /_matrix/client/v3/rooms/{roomId}/state/m.room.name
+ *
+ * Response parse:
+ *   - 200 with `{ name: string }` → { ok:true, name }
+ *   - 200 with missing / wrong-type / empty-string name → { ok:true, name:null }
+ *   - 404 (state event unset — common for DMs / brand-new rooms) → { ok:true, name:null }
+ *   - Other non-2xx → { ok:false, status, error }
+ *
+ * Path-traversal defense: encodeURIComponent on the roomId.
+ */
+export async function getRoomName(
+  roomId: string,
+): Promise<GetRoomNameOk | AdminErr> {
+  const creds = await getMatrixAdminCreds();
+  if (!creds) {
+    return { ok: false, status: 500, error: ERR_CREDS_MISSING };
+  }
+
+  const url = `${creds.homeserverBase}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.name`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    // 404 = state event unset. Common for DMs and rooms that never had a
+    // name set. Return name:null as legitimate data, not an error.
+    if (response.status === 404) {
+      return { ok: true, name: null };
+    }
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: ERR_NON_2XX };
+    }
+    const parsed = (await response.json()) as { name?: unknown };
+    const name =
+      typeof parsed.name === "string" && parsed.name.length > 0
+        ? parsed.name
+        : null;
+    return { ok: true, name };
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return { ok: false, status: 504, error: ERR_TIMEOUT };
+    }
+    databaseLogger.error("matrix admin proxy error", err, {
+      operation: "matrix_admin_get_room_name",
+    });
+    return { ok: false, status: 502, error: ERR_PROXY };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // createRoom — POST /_matrix/client/v3/createRoom
 // ---------------------------------------------------------------------------
 //
