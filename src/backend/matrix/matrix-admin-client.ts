@@ -542,6 +542,101 @@ export async function getSharedDMRoom(
 }
 
 // ---------------------------------------------------------------------------
+// createRoom — POST /_matrix/client/v3/createRoom
+// ---------------------------------------------------------------------------
+//
+// Client-server API (NOT the admin API — the admin API has no createRoom
+// endpoint). The admin credential is a normal Matrix access_token that
+// works on both APIs, so we use the same Authorization: Bearer <token>
+// pattern. Introduced Phase 89-02 for the two registry rooms (agents +
+// humans) Skynet creates idempotently at boot (D-10).
+
+export type CreateRoomOk = AdminOk<{ roomId: string; roomAlias?: string }>;
+
+/**
+ * Create a Matrix room via the client-server API.
+ *
+ * POST /_matrix/client/v3/createRoom
+ *
+ * Body fields:
+ *   - `name` — display name (required arg).
+ *   - `preset` — closed/invite-only room type; defaults to "private_chat"
+ *     (see Matrix spec createRoom presets).
+ *   - `visibility` — whether the room is published in the public room
+ *     directory; defaults to "private".
+ *   - `room_alias_name` — optional canonical alias localpart. When supplied,
+ *     the returned room will have alias `#{alias}:{server_name}`.
+ *
+ * Response parse: expects `{ room_id: string, room_alias?: string }`. If
+ * `room_id` is missing or the wrong type, returns
+ * `{ ok:false, status:500, error:ERR_NO_TOKEN }` (reuses the existing
+ * "expected-field-missing" code — matches loginAsUser L155-159 pattern).
+ *
+ * NEVER logs the admin access_token (proxy-error path scrubs).
+ */
+export async function createRoom(opts: {
+  name: string;
+  preset?: "private_chat" | "trusted_private_chat";
+  visibility?: "public" | "private";
+  roomAliasName?: string;
+}): Promise<CreateRoomOk | AdminErr> {
+  const creds = await getMatrixAdminCreds();
+  if (!creds) {
+    return { ok: false, status: 500, error: ERR_CREDS_MISSING };
+  }
+
+  const url = `${creds.homeserverBase}/_matrix/client/v3/createRoom`;
+  const body: Record<string, unknown> = {
+    name: opts.name,
+    preset: opts.preset ?? "private_chat",
+    visibility: opts.visibility ?? "private",
+  };
+  if (opts.roomAliasName !== undefined) {
+    body.room_alias_name = opts.roomAliasName;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: ERR_NON_2XX };
+    }
+    const parsed = (await response.json()) as {
+      room_id?: unknown;
+      room_alias?: unknown;
+    };
+    const roomId = parsed.room_id;
+    if (typeof roomId !== "string" || roomId.length === 0) {
+      return { ok: false, status: 500, error: ERR_NO_TOKEN };
+    }
+    const result: CreateRoomOk = { ok: true, roomId };
+    if (typeof parsed.room_alias === "string" && parsed.room_alias.length > 0) {
+      result.roomAlias = parsed.room_alias;
+    }
+    return result;
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return { ok: false, status: 504, error: ERR_TIMEOUT };
+    }
+    databaseLogger.error("matrix admin proxy error", err, {
+      operation: "matrix_admin_create_room",
+    });
+    return { ok: false, status: 502, error: ERR_PROXY };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // deactivateUser — POST /_synapse/admin/v1/deactivate/{mxid}
 // ---------------------------------------------------------------------------
 
