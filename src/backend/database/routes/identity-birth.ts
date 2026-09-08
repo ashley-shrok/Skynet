@@ -203,7 +203,33 @@ router.post(
 
     const parsedColorHue = (typeof colorHue === "number" ? colorHue : null) as number | null;
     const parsedVoice = (typeof voice === "string" ? voice : null) as string | null;
-    const parsedPath = (typeof path === "string" ? path : "~") as string;
+    // Phase 88 (Plan 88-01): substitute `~/<name>/` when the request body path
+    // is absent or empty. Non-admin submits from NewSessionDialog (Plan 88-02's
+    // admin-gate wraps the Path input at L926-942 in an isAdmin-conditional
+    // JSX guard) arrive here with body.path === "" or body.path === undefined.
+    // Admin submits arrive with body.path === "~/" (frontend default at
+    // NewSessionDialog.tsx L322 via `useState("~/")` + `normalizePath` at
+    // L631) or an admin-typed override. Admin-typed-empty edge case: an admin
+    // who actively clears the "~/" default hits the fallback branch and lands
+    // in `~/<name>/` — a reasonable interpretation of "give me the per-agent
+    // default" that matches shape §Philosophy ("each agent gets its own
+    // working directory named after itself keeps agents from stepping on each
+    // other in a shared home"). Extends the L213-214 (parsedTitle) /
+    // L218-221 (parsedAvatarCandidateId) Phase 86 Plan 86-04 empty-⇒-default
+    // idiom to the parsedPath narrow. Downstream: parsedPath is threaded into
+    // orchestrator opts.path at L336 which is consumed by the tmux `-c`
+    // working-directory argument (step 2 of birth) and the SFTP write target
+    // (step 2.5 role frontmatter); both accept `~/<name>/` and expand it via
+    // shell/SFTP tilde-resolution. The substituted name is the already-
+    // trimmed identity name from the same payload (see the `!name.trim()`
+    // guard at L111-114 above), lower-cased to match what the client sends
+    // at NewSessionDialog.tsx:644 (`name: name.toLowerCase()`) and the
+    // orchestrator invocation at L330 (`name: name.trim()`).
+    const parsedPath = (
+      typeof path === "string" && path.trim()
+        ? path
+        : `~/${(typeof name === "string" ? name.trim().toLowerCase() : "")}/`
+    ) as string;
     // Phase 86 Plan 86-04: absent-⇒-empty-string fallbacks for cosmetics that
     // moved to role level. The orchestrator's buildIdentityFileBody
     // (identity-birth-orchestrator.ts L392-395) already treats empty-string
