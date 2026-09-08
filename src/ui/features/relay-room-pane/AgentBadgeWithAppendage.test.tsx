@@ -150,12 +150,12 @@ describe("AgentBadgeWithAppendage (Phase 90 Plan 06 Task 2)", () => {
     render(<AgentBadgeWithAppendage {...DEFAULT_PROPS} />);
     const meter = screen.getByRole("meter");
     expect(meter).toHaveAttribute("aria-valuenow", "50");
-    // Verify a lit segment carries the amber gradient (hue 38).
+    // Use data-band (jsdom-stable) not style.background (jsdom normalizes
+    // hsla → rgba per Plan 02 Deviation 2).
     const segments = meter.querySelectorAll("[data-seg]");
     let amberCount = 0;
     segments.forEach((seg) => {
-      const bg = (seg as HTMLElement).style.background;
-      if (bg.includes("hsla(38")) amberCount++;
+      if (seg.getAttribute("data-band") === "amber") amberCount++;
     });
     expect(amberCount).toBeGreaterThan(0);
   });
@@ -168,8 +168,7 @@ describe("AgentBadgeWithAppendage (Phase 90 Plan 06 Task 2)", () => {
     const segments = meter.querySelectorAll("[data-seg]");
     let redCount = 0;
     segments.forEach((seg) => {
-      const bg = (seg as HTMLElement).style.background;
-      if (bg.includes("hsla(0,")) redCount++;
+      if (seg.getAttribute("data-band") === "red") redCount++;
     });
     expect(redCount).toBeGreaterThan(0);
   });
@@ -275,11 +274,11 @@ describe("AgentBadgeWithAppendage (Phase 90 Plan 06 Task 2)", () => {
     render(<AgentBadgeWithAppendage {...DEFAULT_PROPS} />);
     const meter = screen.getByRole("meter");
     const segments = meter.querySelectorAll("[data-seg]");
-    // Every segment should carry the neutral-dim background when recycling.
+    // Every segment should carry data-lit="false" when recycling (the
+    // isDrainingLike gate flips every segment unlit regardless of contextPct).
     let neutralCount = 0;
     segments.forEach((seg) => {
-      const bg = (seg as HTMLElement).style.background;
-      if (bg.includes("hsla(0,0%,100%,0.06)")) neutralCount++;
+      if (seg.getAttribute("data-lit") === "false") neutralCount++;
     });
     expect(neutralCount).toBe(segments.length);
   });
