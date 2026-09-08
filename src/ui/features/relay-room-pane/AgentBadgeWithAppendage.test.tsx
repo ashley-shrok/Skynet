@@ -1,0 +1,300 @@
+/**
+ * Phase 90 Plan 06 Task 2 — AgentBadgeWithAppendage tests.
+ *
+ * AgentBadgeWithAppendage renders the plain IdentityBadge + a shrunk meter
+ * appendage (sourced via Wave 0 useSessionContextPct hook) + a reset button
+ * (dispatches to Wave 0 POST /agent-reset endpoint).
+ *
+ * ## D-10 correctness regression gates (Pitfall 2 mitigation)
+ *   - Test 2 (READ SIDE — working-state key format): asserts useSessionIsWorking
+ *     is called with EXACTLY `${hostId}:${tmuxSessionName}` — the same key
+ *     format PrettyView reads.
+ *   - Test 3 (READ SIDE — contextPct source): asserts useSessionContextPct
+ *     is called with (hostId, tmuxSessionName) — the SAME hook PrettyView
+ *     reads post Wave 0 mechanical swap.
+ *   - Test 8 (WRITE SIDE — /agent-reset endpoint URL): asserts the reset
+ *     click hits `/agent-reset/${hostId}/${encodeURIComponent(tmuxSessionName)}` —
+ *     the SAME endpoint PrettyView's reset button hits post Wave 0 rewire.
+ *
+ * If any of these three tests fail, D-10 correctness is silently violated
+ * (the badge would source from a different channel than PrettyView, or
+ * dispatch through a different seam).
+ */
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import "@testing-library/jest-dom/vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import type { Identity } from "@/api/identities-api";
+
+// Mock the Wave 0 hooks BEFORE importing the component under test.
+vi.mock("@/state/session-working-store", () => ({
+  useSessionIsWorking: vi.fn(),
+  useSessionIsRecycling: vi.fn(),
+}));
+
+vi.mock("@/api/fleet-status-client", () => ({
+  useSessionContextPct: vi.fn(),
+}));
+
+vi.mock("@/main-axios", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...orig,
+    authApi: {
+      get: vi.fn(),
+      post: vi.fn(),
+    },
+  };
+});
+
+vi.mock("@/state/identities-store", () => ({
+  useIdentities: vi.fn(() => ({
+    identities: [] as Identity[],
+    byKey: new Map<string, Identity>([
+      [
+        "nelly",
+        {
+          identityKey: "nelly",
+          displayName: "Nelly",
+          title: null,
+          colorHue: 150,
+          voice: null,
+          role: null,
+          avatarMime: "image/png",
+          avatarUrl: "/avatar.png",
+          avatarEtag: "abc",
+          coordinator: false,
+          task: null,
+        } as Identity,
+      ],
+    ]),
+    loaded: true,
+    refresh: vi.fn(),
+  })),
+}));
+
+vi.mock("@/hooks/use-mobile", () => ({
+  useIsMobile: vi.fn(() => false),
+}));
+
+import { authApi } from "@/main-axios";
+import {
+  useSessionIsWorking,
+  useSessionIsRecycling,
+} from "@/state/session-working-store";
+import { useSessionContextPct } from "@/api/fleet-status-client";
+import { AgentBadgeWithAppendage } from "./AgentBadgeWithAppendage";
+
+const mockedUseSessionIsWorking =
+  useSessionIsWorking as unknown as ReturnType<typeof vi.fn>;
+const mockedUseSessionIsRecycling =
+  useSessionIsRecycling as unknown as ReturnType<typeof vi.fn>;
+const mockedUseSessionContextPct =
+  useSessionContextPct as unknown as ReturnType<typeof vi.fn>;
+const mockedPost = authApi.post as unknown as ReturnType<typeof vi.fn>;
+
+const DEFAULT_PROPS = {
+  identityKey: "nelly",
+  mxid: "@nelly:matrix.example.com",
+  hostId: 5,
+  tmuxSessionName: "nelly",
+};
+
+beforeEach(() => {
+  mockedUseSessionIsWorking.mockReset();
+  mockedUseSessionIsRecycling.mockReset();
+  mockedUseSessionContextPct.mockReset();
+  mockedPost.mockReset();
+  mockedUseSessionIsWorking.mockReturnValue(false);
+  mockedUseSessionIsRecycling.mockReturnValue(false);
+  mockedUseSessionContextPct.mockReturnValue(null);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("AgentBadgeWithAppendage (Phase 90 Plan 06 Task 2)", () => {
+  it("Test 1: renders the plain IdentityBadge for the given identityKey", () => {
+    render(<AgentBadgeWithAppendage {...DEFAULT_PROPS} />);
+    // IdentityBadge renders the coordinator watermark (if coordinator) OR
+    // the avatar image. The mock identity is non-coordinator, so no
+    // watermark; assert via the pv-identity-breathe class (root of the
+    // IdentityBadge).
+    const badge = document.querySelector(".pv-identity-breathe");
+    expect(badge).not.toBeNull();
+  });
+
+  it("Test 2 (D-10 / Pitfall 2 READ-SIDE regression gate): useSessionIsWorking called with `${hostId}:${tmuxSessionName}` exact key format", () => {
+    render(<AgentBadgeWithAppendage {...DEFAULT_PROPS} />);
+    // The key format must be EXACTLY `${hostId}:${tmuxSessionName}` — same
+    // shape PrettyView reads at sessionWorkingKey (PrettyView.tsx L1363).
+    expect(mockedUseSessionIsWorking).toHaveBeenCalledWith("5:nelly");
+  });
+
+  it("Test 3 (D-10 / Pitfall 2 READ-SIDE regression gate — contextPct source): useSessionContextPct called with (hostId, tmuxSessionName)", () => {
+    render(<AgentBadgeWithAppendage {...DEFAULT_PROPS} />);
+    // Must call the Wave 0 hook with (hostId, tmuxSessionName) — the SAME
+    // source PrettyView reads post Wave 0 mechanical swap.
+    expect(mockedUseSessionContextPct).toHaveBeenCalledWith(5, "nelly");
+  });
+
+  it("Test 4: contextPct=30 → green band lit segments render", () => {
+    mockedUseSessionContextPct.mockReturnValue(30);
+    render(<AgentBadgeWithAppendage {...DEFAULT_PROPS} />);
+    const meter = screen.getByRole("meter");
+    expect(meter).toHaveAttribute("aria-valuenow", "30");
+  });
+
+  it("Test 5: contextPct=50 → amber band (threshold 45)", () => {
+    mockedUseSessionContextPct.mockReturnValue(50);
+    render(<AgentBadgeWithAppendage {...DEFAULT_PROPS} />);
+    const meter = screen.getByRole("meter");
+    expect(meter).toHaveAttribute("aria-valuenow", "50");
+    // Verify a lit segment carries the amber gradient (hue 38).
+    const segments = meter.querySelectorAll("[data-seg]");
+    let amberCount = 0;
+    segments.forEach((seg) => {
+      const bg = (seg as HTMLElement).style.background;
+      if (bg.includes("hsla(38")) amberCount++;
+    });
+    expect(amberCount).toBeGreaterThan(0);
+  });
+
+  it("Test 6: contextPct=80 → red band (threshold 78)", () => {
+    mockedUseSessionContextPct.mockReturnValue(80);
+    render(<AgentBadgeWithAppendage {...DEFAULT_PROPS} />);
+    const meter = screen.getByRole("meter");
+    expect(meter).toHaveAttribute("aria-valuenow", "80");
+    const segments = meter.querySelectorAll("[data-seg]");
+    let redCount = 0;
+    segments.forEach((seg) => {
+      const bg = (seg as HTMLElement).style.background;
+      if (bg.includes("hsla(0,")) redCount++;
+    });
+    expect(redCount).toBeGreaterThan(0);
+  });
+
+  it("Test 7: contextPct=null → meter aria-valuenow absent + tooltip 'Context (unknown)'", () => {
+    mockedUseSessionContextPct.mockReturnValue(null);
+    render(<AgentBadgeWithAppendage {...DEFAULT_PROPS} />);
+    const meter = screen.getByRole("meter");
+    // valuenow may be absent OR undefined
+    expect(meter.getAttribute("aria-valuenow")).toBeNull();
+    expect(meter).toHaveAttribute("title", "Context (unknown)");
+  });
+
+  it("Test 8 (D-10 WRITE-SIDE regression gate): reset click fires authApi.post with /agent-reset/${hostId}/${encodeURIComponent(tmuxSessionName)}", async () => {
+    mockedPost.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+    render(<AgentBadgeWithAppendage {...DEFAULT_PROPS} />);
+    const resetBtn = screen.getByRole("button", {
+      name: /reset context window/i,
+    });
+    fireEvent.click(resetBtn);
+    await waitFor(() => {
+      expect(mockedPost).toHaveBeenCalledTimes(1);
+    });
+    const [url, body] = mockedPost.mock.calls[0];
+    expect(url).toBe(`/agent-reset/5/${encodeURIComponent("nelly")}`);
+    expect(body).toEqual({ body: "" });
+  });
+
+  it("Test 8b: tmux session with special chars → URL is properly encoded", async () => {
+    mockedPost.mockResolvedValueOnce({ status: 200, data: { ok: true } });
+    render(
+      <AgentBadgeWithAppendage
+        {...DEFAULT_PROPS}
+        tmuxSessionName="agent name with spaces"
+      />,
+    );
+    const resetBtn = screen.getByRole("button", {
+      name: /reset context window/i,
+    });
+    fireEvent.click(resetBtn);
+    await waitFor(() => {
+      expect(mockedPost).toHaveBeenCalledTimes(1);
+    });
+    const [url] = mockedPost.mock.calls[0];
+    // spaces → %20 via encodeURIComponent
+    expect(url).toBe(
+      `/agent-reset/5/${encodeURIComponent("agent name with spaces")}`,
+    );
+  });
+
+  it("Test 9: reset button disabled while in-flight (prevents double-fire)", async () => {
+    // Never-resolving promise so the button stays in-flight.
+    let resolvePost: (v: unknown) => void = () => {};
+    mockedPost.mockReturnValueOnce(
+      new Promise((r) => {
+        resolvePost = r;
+      }),
+    );
+    render(<AgentBadgeWithAppendage {...DEFAULT_PROPS} />);
+    const resetBtn = screen.getByRole("button", {
+      name: /reset context window/i,
+    });
+    fireEvent.click(resetBtn);
+    // Immediately after click, the button should be disabled.
+    await waitFor(() => {
+      expect(resetBtn).toBeDisabled();
+    });
+    // Rapid second click — must NOT fire the request again.
+    fireEvent.click(resetBtn);
+    expect(mockedPost).toHaveBeenCalledTimes(1);
+    // Resolve the request — button re-enables.
+    resolvePost({ status: 200, data: { ok: true } });
+    await waitFor(() => {
+      expect(resetBtn).not.toBeDisabled();
+    });
+  });
+
+  it("Test 10: reset error → structured warn logged; component does NOT crash + does NOT retry", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockedPost.mockRejectedValueOnce(new Error("network failed"));
+    render(<AgentBadgeWithAppendage {...DEFAULT_PROPS} />);
+    const resetBtn = screen.getByRole("button", {
+      name: /reset context window/i,
+    });
+    fireEvent.click(resetBtn);
+    await waitFor(() => {
+      expect(warnSpy).toHaveBeenCalled();
+    });
+    const warnCall = warnSpy.mock.calls[0][0];
+    expect(warnCall).toMatchObject({
+      operation: "agent_reset_failed",
+      hostId: 5,
+      tmuxSessionName: "nelly",
+    });
+    // No auto-retry
+    expect(mockedPost).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  it("Test 11: isRecycling=true → meter renders in a draining/holding style (all segments unlit)", () => {
+    mockedUseSessionIsRecycling.mockReturnValue(true);
+    mockedUseSessionContextPct.mockReturnValue(50);
+    render(<AgentBadgeWithAppendage {...DEFAULT_PROPS} />);
+    const meter = screen.getByRole("meter");
+    const segments = meter.querySelectorAll("[data-seg]");
+    // Every segment should carry the neutral-dim background when recycling.
+    let neutralCount = 0;
+    segments.forEach((seg) => {
+      const bg = (seg as HTMLElement).style.background;
+      if (bg.includes("hsla(0,0%,100%,0.06)")) neutralCount++;
+    });
+    expect(neutralCount).toBe(segments.length);
+  });
+
+  it("Test 12: appendage container carries data-appendage='true' (D-09 humans-no-appendage discriminator preserved)", () => {
+    render(<AgentBadgeWithAppendage {...DEFAULT_PROPS} />);
+    const appendage = document.querySelector("[data-appendage='true']");
+    expect(appendage).not.toBeNull();
+  });
+
+  it("Test 13: --meter-width CSS custom property set to a shrunk value", () => {
+    render(<AgentBadgeWithAppendage {...DEFAULT_PROPS} />);
+    const meter = screen.getByRole("meter");
+    const style = meter.getAttribute("style") ?? "";
+    // shrunk value expected — PATTERNS.md recommends 6rem (vs pane-wide 12rem)
+    expect(style).toMatch(/--meter-width:\s*6rem/);
+  });
+});
