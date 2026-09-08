@@ -271,7 +271,39 @@ sudo docker exec skynet sqlite3 /data/skynet.db \
 
 **On T800 (Stacy's instance):** Same command shape, executed inside T800's `skynet` container. Stacy runs this as part of her Phase 89 upgrade rollout.
 
-**Agents backfill** — the `runRegistryRoomsBackfill` function accepts an optional `enumerateAgentMxids` dep for enumerating pre-existing agent accounts. The empty-invocation above skips it (agents backfill is a no-op), which is correct behavior for a first-cut deploy where pre-existing agents' DMs simply materialize as duplicate entries until a follow-up. If you want agents backfilled too, pass an SSH-based enumerator that reads `~/.claude/identities/<name>/relay.json` on each fleet host (D-12 explicitly allows disk reads at backfill time — the "no disk-based check" rule targets the observation loop for host-outage tolerance, not one-shot ops). Concrete enumerator implementation is a follow-up bounty candidate; humans-only backfill is enough to close the D-12 gap for the human-side user experience.
+**Agents backfill** — the `runRegistryRoomsBackfill` function accepts an optional `enumerateAgentMxids` dep for enumerating pre-existing agent accounts. The empty-invocation above skips it (agents backfill is a no-op), which is correct behavior for a first-cut deploy where pre-existing agents' DMs simply materialize as duplicate entries until a follow-up. If you want agents backfilled too, pass an SSH-based enumerator that reads `~/.claude/identities/<name>/relay.json` on each fleet host (D-12 explicitly allows disk reads at backfill time — the "no disk-based check" rule targets the observation loop for host-outage tolerance, not one-shot ops).
+
+**Agents backfill (concrete implementation — Phase 89 fixup M-5, 2026-09-08):** A ready-to-wire enumerator lives at `src/backend/relay-sessions/enumerate-agent-mxids.ts`. The module exports `enumerateAgentMxidsViaSSH(deps)` which walks `~/.claude/identities/*/relay.json` on each identity-hosting host via `jq -r .user_id` and returns a deduped mxid list. Per-host failure is isolated (log-and-continue) so one dead host doesn't derail the whole enumeration. Wiring shape:
+
+```bash
+# Agents-backfill invocation (requires an SSH pool + host list wiring).
+# The instance-deployer chooses the concrete `listHosts` and `runSshCommand`
+# implementations — typically the same ssh2 pool ssh-poll-orchestrator uses.
+sudo docker exec -i skynet node --input-type=module <<'EOF'
+const { runRegistryRoomsBackfill } = await import(
+  "/app/dist/backend/relay-sessions/registry-rooms-backfill.js"
+);
+const { enumerateAgentMxidsViaSSH } = await import(
+  "/app/dist/backend/relay-sessions/enumerate-agent-mxids.js"
+);
+// Instance-deployer wires listHosts + runSshCommand to whatever SSH pool
+// they trust (typically the same ssh2 Client path used by
+// ssh-poll-orchestrator via listIdentityHostingHosts + acquireSshChannel).
+const enumeratorDeps = {
+  listHosts: async () => { /* deployer-supplied */ return []; },
+  runSshCommand: async (host, cmd) => { /* deployer-supplied */ return null; },
+};
+const result = await runRegistryRoomsBackfill({
+  enumerateAgentMxids: async () => {
+    const r = await enumerateAgentMxidsViaSSH(enumeratorDeps);
+    return r.ok ? r.mxids : [];
+  },
+});
+console.log(JSON.stringify(result, null, 2));
+EOF
+```
+
+Humans-only backfill remains sufficient to close the D-12 gap for the human-side user experience; agents-backfill is opt-in when the deployer is ready to wire the SSH pool.
 
 **Repeat runs are safe.** The `has_backfilled_registry_rooms` gate makes subsequent runs a fast no-op. If a run fails midway, the gate stays false; next re-run picks up where it left off.
 
