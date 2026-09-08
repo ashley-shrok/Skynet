@@ -1954,6 +1954,8 @@ export function PrettyConversationsPanel({
           initialHost={chainPrefill?.host ?? null}
           initialRole={chainPrefill?.role ?? null}
           initialBrief={chainPrefill?.description ?? null}
+          // Phase 88: forward admin-gate to NewSessionDialog for Path field + shell checkbox visibility (see 88-CONTEXT.md §isAdmin prop plumbing).
+          isAdmin={isAdmin}
         />
       )}
       {/* Phase 22 (SRIC-04 + SRIC-05): CreateRoleDialog — portal-mounted

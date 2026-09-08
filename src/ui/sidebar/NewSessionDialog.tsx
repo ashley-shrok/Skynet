@@ -282,6 +282,7 @@ export function NewSessionDialog({
   initialHost,
   initialRole,
   initialBrief: _initialBrief,
+  isAdmin = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -309,6 +310,31 @@ export function NewSessionDialog({
   initialHost?: Host | null;
   initialRole?: string | null;
   initialBrief?: string | null;
+  /**
+   * Phase 88 (Plan 88-01): admin-gate wired from PrettyConversationsPanel.tsx L285
+   * (source of truth: destructured isAdmin prop with fail-closed default;
+   * forwarded from AppShell state `users.is_admin` from `/users/me`). The
+   * default at destructuring above is fail-closed — when a caller forgets to
+   * pass the prop, non-admin behavior applies (Path field + shell checkbox
+   * hidden). This matches the sibling gate at PrettyConversationsPanel.tsx
+   * L1651 for `<WeeklyUsageMeter />` and shape-create-agent-modal-ux-pass
+   * §What would make it wrong item #2/#3 ("Non-admin sees the 'Just a shell'
+   * checkbox / Path field" = leaked shell access + defeated
+   * per-agent-working-directory scoping).
+   *
+   * Downstream consumers land in Plan 88-02:
+   *   - Path field admin-gate at the current L926-942 block, wrapped in an
+   *     isAdmin-conditional JSX guard.
+   *   - Identity-mode checkbox admin-gate at the current L944-960 block,
+   *     wrapped in an isAdmin-conditional JSX guard.
+   *   - Submit-onclick invariant: non-admin submits force the agent-birth
+   *     branch regardless of local `identityMode` state, so a bug in the
+   *     render gate cannot leak shell access at submit time.
+   *
+   * Plan 88-01 lands only the destructure + type declaration; no admin-gated
+   * JSX ships in Wave 1.
+   */
+  isAdmin?: boolean;
 }) {
   const { t } = useTranslation();
   const [selectedHost, setSelectedHost] = useState<Host | null>(null);
