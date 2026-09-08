@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { authLogger } from "../../utils/logger.js";
 import { db } from "../db/index.js";
+import { unlinkUserAvatar } from "./user-avatar-storage.js";
 import {
   auditLogs,
   commandHistory,
@@ -87,6 +88,23 @@ export async function deleteUserAndRelatedData(userId: string): Promise<void> {
     db.$client
       .prepare("DELETE FROM settings WHERE key LIKE ?")
       .run(`user_%_${userId}`);
+
+    // Phase 85 (D-22) — remove this user's avatar file from disk BEFORE deleting
+    // the row. We fetch the pointer first because the row is our source of truth
+    // for the filename; deleting the row first would lose the pointer forever.
+    // unlinkUserAvatar is ENOENT-tolerant per Plan 02 — a null pointer or a
+    // missing file on disk both no-op cleanly. If the unlink fails for a
+    // non-ENOENT reason (permission, EBUSY), the throw propagates and the
+    // outer try/catch at the top of this helper surfaces it — the DELETE
+    // will not run and the operator sees the error rather than a silent
+    // orphan-file leak.
+    const avatarRow = await db.select({ avatarPath: users.avatarPath })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    if (avatarRow.length > 0) {
+      await unlinkUserAvatar(avatarRow[0].avatarPath);
+    }
 
     await db.delete(users).where(eq(users.id, userId));
 
