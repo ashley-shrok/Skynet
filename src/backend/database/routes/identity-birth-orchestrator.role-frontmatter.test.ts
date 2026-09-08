@@ -914,3 +914,162 @@ it("Test 24b: mkdir+touch fired ONCE + writeMarkdownFileAtomic fired ONCE before
     "writeAvatarSiblingFile",
   ]);
 }, 30_000);
+
+// ---------------------------------------------------------------------------
+// Phase 86 Plan 86-04 (D-CTX-86-inherit) — absent-avatar branch coverage
+// ---------------------------------------------------------------------------
+//
+// When opts.avatarCandidateId === "" (route handler's parsedAvatarCandidateId
+// empty-string sentinel — see identity-birth.ts), the orchestrator MUST:
+//   1. Skip the candidate cache lookup at Step 1 (no throw on empty).
+//   2. Write the identity file at Step 2.5 WITHOUT an `avatar:` frontmatter key
+//      (buildIdentityFileBody absent-⇒-omit branch).
+//   3. NOT invoke writeAvatarSiblingFile (no bytes to write).
+// The role's avatar file is served via Plan 86-01's GET /:key/avatar
+// role-folder fallback branch; that resolution lives in identities.ts and
+// is exercised by identities.get-disk.test.ts, so these tests focus purely
+// on the orchestrator-side avatar-write skip + frontmatter emission.
+
+it(
+  "Test T-86-04-orch-a: opts.avatarCandidateId='' → NO getCandidateForBirth call, NO writeAvatarSiblingFile call, NO 'avatar:' key in frontmatter",
+  async () => {
+    const getCandidate = vi.fn().mockImplementation(() => {
+      throw new Error("getCandidateForBirth SHOULD NOT be called on absent-avatar path");
+    });
+    const writeAvatar = vi.fn().mockResolvedValue(undefined);
+    const writeAtomic = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps({
+      getCandidateForBirth: getCandidate,
+      writeAvatarSiblingFile: writeAvatar,
+      writeMarkdownFileAtomic: writeAtomic,
+    });
+    const opts = makeOpts({
+      name: "willow",
+      role: "box-maintainer",
+      avatarCandidateId: "",
+    });
+
+    const { events, emit } = collectEvents();
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    // Step 1 completed without invoking the candidate cache
+    expect(getCandidate).not.toHaveBeenCalled();
+    const step1Done = events.find(
+      (e) => e.type === "step" && e.n === 1 && e.phase === "completed",
+    );
+    expect(step1Done).toBeDefined();
+
+    // Step 2.5 wrote the identity file … (writeAtomic is invoked BOTH at
+    // Step 2.5 for the .md AND at Step 8 for relay.json — the first call
+    // is always the identity file per Test 16 call-ordering).
+    expect(writeAtomic).toHaveBeenCalled();
+    const [, , contents] = writeAtomic.mock.calls[0] as [unknown, string, string];
+    const match = contents.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    expect(match).not.toBeNull();
+    const parsed = yaml.load(match![1]) as Record<string, unknown>;
+    // … but with NO avatar: key (absent-⇒-omit invariant).
+    expect("avatar" in parsed).toBe(false);
+    // Role + displayName still present (unaffected by cosmetic strip).
+    expect(parsed.role).toBe("box-maintainer");
+    expect(parsed.displayName).toBe("Willow");
+
+    // …and Step 2.5 did NOT invoke writeAvatarSiblingFile (nothing to write).
+    expect(writeAvatar).not.toHaveBeenCalled();
+  },
+  30_000,
+);
+
+it(
+  "Test T-86-04-orch-b: opts.avatarCandidateId!='' (explicit candidate) still writes avatar sibling + emits 'avatar:' key (regression guard for the explicit-avatar path)",
+  async () => {
+    // Guards against accidental behaviour change on the pre-Plan-86-04 path
+    // when the client DOES send a candidate. The candidate lookup, sibling
+    // write, and `avatar: <name>.<ext>` frontmatter emission must all
+    // continue to fire.
+    const writeAvatar = vi.fn().mockResolvedValue(undefined);
+    const writeAtomic = vi.fn().mockResolvedValue(undefined);
+    const bytes = Buffer.from("fakepng");
+    const deps = makeDeps({
+      writeAvatarSiblingFile: writeAvatar,
+      writeMarkdownFileAtomic: writeAtomic,
+      getCandidateForBirth: vi.fn().mockReturnValue({
+        bytes,
+        mime: "image/png",
+      }),
+    });
+    const opts = makeOpts({
+      name: "willow",
+      role: "box-maintainer",
+      avatarCandidateId: "cand-legacy",
+    });
+
+    const { emit } = collectEvents();
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    expect(writeAvatar).toHaveBeenCalledTimes(1);
+    expect(writeAvatar.mock.calls[0][1]).toBe("willow");
+    expect(writeAvatar.mock.calls[0][2]).toBe("png");
+
+    // writeAtomic fires at Step 2.5 (identity .md) AND Step 8 (relay.json)
+    // — read the FIRST call for the identity frontmatter body.
+    expect(writeAtomic).toHaveBeenCalled();
+    const [, , contents] = writeAtomic.mock.calls[0] as [unknown, string, string];
+    const match = contents.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    expect(match).not.toBeNull();
+    const parsed = yaml.load(match![1]) as Record<string, unknown>;
+    expect(parsed.avatar).toBe("willow.png");
+  },
+  30_000,
+);
+
+it(
+  "Test T-86-04-orch-c: opts.avatarCandidateId='' + opts.title='' (full cosmetic-inherit shape) → frontmatter has role + displayName only (no title/colorHue/voice/avatar)",
+  async () => {
+    // The end-to-end shape of a Phase-86 cosmetic-inherit birth: absent
+    // title, absent avatar. colorHue null and voice null are already covered
+    // by Test 21; this test pins the combined-absence shape landing.
+    const writeAtomic = vi.fn().mockResolvedValue(undefined);
+    const writeAvatar = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps({
+      writeMarkdownFileAtomic: writeAtomic,
+      writeAvatarSiblingFile: writeAvatar,
+    });
+    const opts = makeOpts({
+      name: "willow",
+      role: "box-maintainer",
+      title: "",
+      colorHue: null,
+      voice: null,
+      avatarCandidateId: "",
+    });
+
+    const { emit } = collectEvents();
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    // writeAtomic invoked at Step 2.5 for the identity file AND Step 8 for
+    // relay.json; first call is always the identity file per Test 16.
+    expect(writeAtomic).toHaveBeenCalled();
+    const [, , contents] = writeAtomic.mock.calls[0] as [unknown, string, string];
+    const match = contents.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    expect(match).not.toBeNull();
+    const parsed = yaml.load(match![1]) as Record<string, unknown>;
+
+    // Only role + displayName present — all four cosmetics inherit from role.
+    expect(parsed.role).toBe("box-maintainer");
+    expect(parsed.displayName).toBe("Willow");
+    expect("title" in parsed).toBe(false);
+    expect("colorHue" in parsed).toBe(false);
+    expect("voice" in parsed).toBe(false);
+    expect("avatar" in parsed).toBe(false);
+
+    // And no sibling file written.
+    expect(writeAvatar).not.toHaveBeenCalled();
+  },
+  30_000,
+);

@@ -648,3 +648,165 @@ it("Test T-80-03b-birth-f (review H3): poolPicked=false + role='2foo' → 200 (l
   expect(o.role).toBe("2foo");
   expect(o.poolPicked).toBe(false);
 });
+
+// ---------------------------------------------------------------------------
+// Phase 86 Plan 86-04 (D-CTX-86-inherit): title + avatarCandidateId are
+// optional. Identities born without them inherit their role's title +
+// avatar on landing per the Plan 86-01 publicIdentity merge + the
+// GET /:key/avatar role-folder fallback. These tests exercise the
+// route-layer contract: absence-friendly body validation, orchestrator
+// receives empty-string sentinels, and the finally-block consume path
+// skips when no candidate id was submitted.
+// ---------------------------------------------------------------------------
+
+it(
+  "Test T-86-04-birth-a: body omits title / avatarCandidateId / colorHue / voice → 200 SSE, orchestrator gets empty-string sentinels",
+  async () => {
+    let capturedOpts: unknown;
+    const canned: Array<{ type: string; n?: number; phase?: string; ok?: boolean }> = [
+      { type: "step", n: 1, phase: "started" },
+      { type: "step", n: 1, phase: "completed" },
+      { type: "ended", ok: true },
+    ];
+    mockBirthIdentity.mockImplementation(
+      async (opts: unknown, emit: (e: unknown) => void, _deps: unknown) => {
+        capturedOpts = opts;
+        for (const event of canned) emit(event);
+      },
+    );
+
+    // Cosmetics-inherit shape: only birth-required fields (hostId, name,
+    // path, role, task) — no title, no avatarCandidateId, no colorHue,
+    // no voice. Matches what NewSessionDialog sends after Plan 86-04.
+    const bodyWithoutCosmetics = {
+      hostId: VALID_BODY.hostId,
+      name: VALID_BODY.name,
+      path: VALID_BODY.path,
+      role: VALID_BODY.role,
+    };
+
+    const result = await httpPost(port, "/identities/birth", bodyWithoutCosmetics, {
+      Accept: "text/event-stream",
+    });
+
+    // SSE opens with 200 and step:1:started + step:1:completed + ended{ok:true}
+    expect(result.status).toBe(200);
+    expect(result.headers["content-type"]).toContain("text/event-stream");
+    expect(result.body).toContain("step");
+    expect(result.body).toContain("ended");
+
+    // Orchestrator received the empty-string sentinels so its own
+    // absent-⇒-omit branches (Plan 86-04 buildIdentityFileBody +
+    // Step 1 candidate lookup + Step 2.5 sibling write) fire correctly.
+    const o = capturedOpts as Record<string, unknown>;
+    expect(o.title).toBe("");
+    expect(o.avatarCandidateId).toBe("");
+    // colorHue absent from body → parsedColorHue is null
+    expect(o.colorHue).toBeNull();
+    // voice absent from body → parsedVoice is null
+    expect(o.voice).toBeNull();
+    // required fields still threaded through
+    expect(o.hostId).toBe(VALID_BODY.hostId);
+    expect(o.name).toBe(VALID_BODY.name);
+    expect(o.role).toBe(VALID_BODY.role);
+  },
+);
+
+it(
+  "Test T-86-04-birth-b: body omits avatarCandidateId → consumeCandidateForBirth NOT called (skip on empty)",
+  async () => {
+    // The route's finally-block calls consumeCandidateForBirth to prevent
+    // re-use. Plan 86-04 gates this call on parsedAvatarCandidateId being
+    // non-empty — role-inherited-avatar births never touch the candidate
+    // cache, so there is nothing to consume. Assert via the mocked module.
+    const consumeMock = (
+      (await import("./identity-avatar-batch.js")) as unknown as {
+        consumeCandidateForBirth: Mock;
+      }
+    ).consumeCandidateForBirth;
+    consumeMock.mockReset();
+
+    mockBirthIdentity.mockImplementation(
+      async (_opts: unknown, emit: (e: unknown) => void, _deps: unknown) => {
+        emit({ type: "step", n: 1, phase: "started" });
+        emit({ type: "step", n: 1, phase: "completed" });
+        emit({ type: "ended", ok: true });
+      },
+    );
+
+    const bodyWithoutCosmetics = {
+      hostId: VALID_BODY.hostId,
+      name: VALID_BODY.name,
+      path: VALID_BODY.path,
+      role: VALID_BODY.role,
+    };
+
+    const result = await httpPost(port, "/identities/birth", bodyWithoutCosmetics, {
+      Accept: "text/event-stream",
+    });
+
+    expect(result.status).toBe(200);
+    // Regression guard: the finally-block MUST NOT call the consume path
+    // when avatarCandidateId was absent from the body.
+    expect(consumeMock).not.toHaveBeenCalled();
+  },
+);
+
+it(
+  "Test T-86-04-birth-c: body includes avatarCandidateId → consumeCandidateForBirth IS called (backward compat with explicit-avatar path)",
+  async () => {
+    const consumeMock = (
+      (await import("./identity-avatar-batch.js")) as unknown as {
+        consumeCandidateForBirth: Mock;
+      }
+    ).consumeCandidateForBirth;
+    consumeMock.mockReset();
+
+    mockBirthIdentity.mockImplementation(
+      async (_opts: unknown, emit: (e: unknown) => void, _deps: unknown) => {
+        emit({ type: "step", n: 1, phase: "started" });
+        emit({ type: "step", n: 1, phase: "completed" });
+        emit({ type: "ended", ok: true });
+      },
+    );
+
+    // Explicit avatarCandidateId (pre-Plan-86-04 client shape) — still
+    // supported; consume path still fires. This guards against regressing
+    // the always-supported explicit path when adding the absent branch.
+    const result = await httpPost(port, "/identities/birth", VALID_BODY, {
+      Accept: "text/event-stream",
+    });
+
+    expect(result.status).toBe(200);
+    expect(consumeMock).toHaveBeenCalledTimes(1);
+    expect(consumeMock).toHaveBeenCalledWith(expect.any(String), VALID_BODY.avatarCandidateId);
+  },
+);
+
+it(
+  "Test T-86-04-birth-d: title=42 (non-string, non-null) → 400 with 'title must be a string or null'",
+  async () => {
+    const result = await httpPost(port, "/identities/birth", {
+      ...VALID_BODY,
+      title: 42,
+    });
+    expect(result.status).toBe(400);
+    const parsed = JSON.parse(result.body);
+    expect(parsed.error).toMatch(/title/i);
+    expect(mockBirthIdentity).not.toHaveBeenCalled();
+  },
+);
+
+it(
+  "Test T-86-04-birth-e: avatarCandidateId=42 (non-string, non-null) → 400 with 'avatarCandidateId must be a string or null'",
+  async () => {
+    const result = await httpPost(port, "/identities/birth", {
+      ...VALID_BODY,
+      avatarCandidateId: 42,
+    });
+    expect(result.status).toBe(400);
+    const parsed = JSON.parse(result.body);
+    expect(parsed.error).toMatch(/avatarCandidateId/i);
+    expect(mockBirthIdentity).not.toHaveBeenCalled();
+  },
+);

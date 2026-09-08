@@ -495,11 +495,22 @@ export async function createRole(
 export interface BirthRequest {
   hostId: number;
   name: string;
-  title: string;
+  /** Phase 86 Plan 86-04: cosmetics moved to role level per D-CTX-86-inherit.
+   *  Identity-born requests OMIT title so the identity inherits its role's
+   *  title on landing; per-identity override is later possible via
+   *  IdentityModal (Plan 86-05). Backend accepts absence — see
+   *  identity-birth.ts (title-required gate deleted). */
+  title?: string;
   path: string;
   colorHue: number | null;
   voice: string | null;
-  avatarCandidateId: string;
+  /** Phase 86 Plan 86-04: cosmetics moved to role level per D-CTX-86-inherit.
+   *  Identity-born requests OMIT avatarCandidateId so the identity inherits
+   *  the role's avatar (served via /identities/:key/avatar role-folder
+   *  fallback landed in Plan 86-01). Backend accepts absence — see
+   *  identity-birth.ts (avatarCandidateId-required gate deleted, Step 2.5
+   *  avatar-sibling write skipped when candidate is absent). */
+  avatarCandidateId?: string;
   /** Phase 22 SRIC-02: kebab-case-lowercase role name from the target host. */
   role: string;
   /** Phase 80: optional task string ("what will this agent work on?").

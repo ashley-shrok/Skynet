@@ -113,13 +113,31 @@ router.post(
       return;
     }
 
-    if (typeof title !== "string" || !title.trim()) {
-      res.status(400).json({ error: "title is required" });
+    // Phase 86 Plan 86-04: title-required gate deleted. Identities born without
+    // a title inherit their role's title on landing (D-CTX-86-inherit) — the
+    // orchestrator's absent-⇒-omit invariant at buildIdentityFileBody L392-395
+    // already skips emitting a title: key when opts.title is empty/absent, and
+    // the backend merge in publicIdentity (Plan 86-01) resolves the display
+    // title from the role's frontmatter under `identity ?? role ?? null`.
+    if (title !== undefined && title !== null && typeof title !== "string") {
+      res.status(400).json({ error: "title must be a string or null" });
       return;
     }
 
-    if (typeof avatarCandidateId !== "string" || !avatarCandidateId.trim()) {
-      res.status(400).json({ error: "avatarCandidateId is required" });
+    // Phase 86 Plan 86-04: avatarCandidateId-required gate deleted. Identities
+    // born without an avatar inherit their role's avatar (served via
+    // /identities/:key/avatar role-folder fallback landed in Plan 86-01).
+    // Downstream: when opts.avatarCandidateId is empty, the orchestrator's
+    // Step 1 candidate lookup + Step 2.5 sibling-file write are skipped
+    // entirely (see identity-birth-orchestrator.ts's absent-avatar branch).
+    if (
+      avatarCandidateId !== undefined &&
+      avatarCandidateId !== null &&
+      typeof avatarCandidateId !== "string"
+    ) {
+      res
+        .status(400)
+        .json({ error: "avatarCandidateId must be a string or null" });
       return;
     }
 
@@ -186,6 +204,21 @@ router.post(
     const parsedColorHue = (typeof colorHue === "number" ? colorHue : null) as number | null;
     const parsedVoice = (typeof voice === "string" ? voice : null) as string | null;
     const parsedPath = (typeof path === "string" ? path : "~") as string;
+    // Phase 86 Plan 86-04: absent-⇒-empty-string fallbacks for cosmetics that
+    // moved to role level. The orchestrator's buildIdentityFileBody
+    // (identity-birth-orchestrator.ts L392-395) already treats empty-string
+    // title as absent (omits the `title:` key from frontmatter), so passing ""
+    // is byte-equivalent to omitting the field from identity frontmatter — the
+    // role's title wins via the Plan 86-01 merge at publicIdentity.
+    const parsedTitle =
+      typeof title === "string" && title.trim() ? title.trim() : "";
+    // Empty avatarCandidateId signals the orchestrator to skip Step 1's
+    // candidate lookup + Step 2.5's avatar-sibling write; the role's
+    // avatar file is served via Plan 86-01's GET /:key/avatar fallback.
+    const parsedAvatarCandidateId =
+      typeof avatarCandidateId === "string" && avatarCandidateId.trim()
+        ? avatarCandidateId.trim()
+        : "";
     // Phase 80 Plan 80-03: trim task string here so orchestrator's absent-⇒-omit
     // guard (opts.task.trim().length > 0) sees the canonical value. Null → null.
     const parsedTask = (typeof task === "string" ? task.trim() : null) as string | null;
@@ -295,11 +328,19 @@ router.post(
           userId,
           hostId,
           name: name.trim(),
-          title: title.trim(),
+          // Phase 86 Plan 86-04: empty-string title threads the absent-⇒-omit
+          // invariant through the orchestrator so the identity's frontmatter
+          // gets no `title:` key and inherits from the role at read time
+          // (D-CTX-86-inherit + Plan 86-01 publicIdentity merge).
+          title: parsedTitle,
           path: parsedPath,
           colorHue: parsedColorHue,
           voice: parsedVoice,
-          avatarCandidateId: avatarCandidateId.trim(),
+          // Phase 86 Plan 86-04: empty-string avatarCandidateId signals the
+          // orchestrator's Step 1 candidate lookup + Step 2.5 sibling-file
+          // write to skip; the role's avatar file is served via Plan 86-01's
+          // GET /:key/avatar role-folder fallback (D-CTX-86-inherit).
+          avatarCandidateId: parsedAvatarCandidateId,
           role: role.trim(),
           // Phase 80 Plan 80-03: thread task through opts. ?? undefined so
           // parsedTask=null → orchestrator sees undefined (omit-empty matches
@@ -324,11 +365,19 @@ router.post(
       });
       emit({ type: "ended", ok: false });
     } finally {
-      // Consume the candidate to prevent re-use
-      try {
-        consumeCandidateForBirth(userId, avatarCandidateId as string);
-      } catch {
-        // Ignore cleanup errors
+      // Consume the candidate to prevent re-use.
+      // Phase 86 Plan 86-04: skip when no candidate was submitted — role-
+      // inherited-avatar births (D-CTX-86-inherit) never touch the candidate
+      // cache, so there is nothing to consume. consumeCandidateForBirth is
+      // already a no-op on missing entries, but skipping saves a spurious
+      // lookup and prevents any future variant of the helper from surfacing
+      // a `key not found` warning on the happy path.
+      if (parsedAvatarCandidateId) {
+        try {
+          consumeCandidateForBirth(userId, parsedAvatarCandidateId);
+        } catch {
+          // Ignore cleanup errors
+        }
       }
       res.end();
     }

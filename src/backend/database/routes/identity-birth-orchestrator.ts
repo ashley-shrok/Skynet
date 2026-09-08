@@ -401,8 +401,17 @@ function buildIdentityFileBody(
   if (typeof opts.voice === "string" && opts.voice.trim().length > 0) {
     pairs.push(["voice", opts.voice]);
   }
-  // avatar: always emitted (Step 2.5 only runs when candidate bytes exist)
-  pairs.push(["avatar", avatarFilename]);
+  // Phase 86 Plan 86-04 (D-CTX-86-inherit): avatar is now absent-⇒-omit.
+  // When the birth request omits avatarCandidateId (role-inherited-avatar
+  // path), Step 2.5's writeAvatarSiblingFile is skipped and this builder
+  // is invoked with an empty avatarFilename — the identity's frontmatter
+  // gets no `avatar:` key and the resolved avatar URL comes from the
+  // role folder via Plan 86-01's GET /:key/avatar role-folder fallback
+  // branch. Matches the existing absent-⇒-omit pattern for title / voice /
+  // task above.
+  if (avatarFilename.length > 0) {
+    pairs.push(["avatar", avatarFilename]);
+  }
   // Phase 80 Plan 80-03: task: absent-⇒-omit — position AFTER avatar per plan
   // spec. yaml.dump correctly quotes strings containing YAML metacharacters
   // (colons, quotes, newlines) via forceQuotes:false (T-66-01-04 precedent) —
@@ -985,12 +994,24 @@ export async function birthIdentity(
     // any state mutation (mirrors the pre-Phase-68 early-abort discipline).
     // -----------------------------------------------------------------------
     await runStep(1, async () => {
-      // Look up avatar bytes from plan 01's candidate cache
-      const cand = deps.getCandidateForBirth(opts.userId, opts.avatarCandidateId);
-      if (!cand) {
-        throw new Error("avatar candidate expired or not found");
+      // Phase 86 Plan 86-04 (D-CTX-86-inherit): the avatar candidate lookup
+      // is now gated on opts.avatarCandidateId being non-empty. Identities
+      // born without an explicit candidate inherit the role's avatar via
+      // Plan 86-01's GET /:key/avatar role-folder fallback — the identity's
+      // frontmatter omits `avatar:` (see buildIdentityFileBody's
+      // absent-⇒-omit branch) and Step 2.5 skips writeAvatarSiblingFile.
+      // Empty-string sentinel matches identity-birth.ts's parsedAvatarCandidateId
+      // fallback (Phase 86 Plan 86-04 route handler).
+      if (opts.avatarCandidateId.length > 0) {
+        // Look up avatar bytes from plan 01's candidate cache
+        const cand = deps.getCandidateForBirth(opts.userId, opts.avatarCandidateId);
+        if (!cand) {
+          throw new Error("avatar candidate expired or not found");
+        }
+        birthCandidate = cand;
       }
-      birthCandidate = cand;
+      // else: birthCandidate stays null; Step 2.5 will skip the sibling
+      // file write; buildIdentityFileBody will skip the `avatar:` key.
 
       // On-disk collision probe for remote branch (SHAPE B).
       // opts.name is already gated by IDENTITY_KEY_RE + TMUX_SAFE_NAME_RE so
@@ -1073,17 +1094,26 @@ export async function birthIdentity(
         //    birth upload path is capped to png/jpeg/webp so an unmapped mime
         //    should never surface here, but throw loud instead of silent-no-op
         //    if the map ever narrows and a caller widens (T-66-01-01).
-        //    birthCandidate is populated inside runStep(1) after its non-null
-        //    guard, so `!` is safe here — any prior null would have thrown at
-        //    Step 1 and never reached Step 2.5.
-        const cand = birthCandidate!;
-        const avatarExt = MIME_TO_AVATAR_EXT[cand.mime];
-        if (!avatarExt) {
-          throw new Error(
-            "unsupported avatar mime for on-disk write: " + cand.mime,
-          );
+        //
+        //    Phase 86 Plan 86-04 (D-CTX-86-inherit): when opts.avatarCandidateId
+        //    was absent from the birth request, Step 1's candidate lookup was
+        //    skipped and birthCandidate is still null — the identity inherits
+        //    the role's avatar via Plan 86-01's GET /:key/avatar role-folder
+        //    fallback. buildIdentityFileBody receives "" for avatarFilename
+        //    (absent-⇒-omit invariant), the .md is written, and
+        //    writeAvatarSiblingFile is skipped entirely.
+        let avatarExt: AvatarExt | null = null;
+        let avatarFilename = "";
+        if (birthCandidate !== null) {
+          const derivedExt = MIME_TO_AVATAR_EXT[birthCandidate.mime];
+          if (!derivedExt) {
+            throw new Error(
+              "unsupported avatar mime for on-disk write: " + birthCandidate.mime,
+            );
+          }
+          avatarExt = derivedExt;
+          avatarFilename = `${opts.name}.${avatarExt}`;
         }
-        const avatarFilename = `${opts.name}.${avatarExt}`;
 
         // 3. Compose the identity file body via the Phase 66 builder —
         //    full cosmetics frontmatter with role-first ordering and the
@@ -1111,7 +1141,16 @@ export async function birthIdentity(
         //    .md + wakeups/ + handoff.md are still on disk (re-birth is
         //    the recovery path, not a rollback we build). Test 24b pins
         //    this ordering.
-        await deps.writeAvatarSiblingFile(conn, opts.name, avatarExt, cand.bytes);
+        //
+        //    Phase 86 Plan 86-04 (D-CTX-86-inherit): skip the sibling write
+        //    when no candidate bytes exist (role-inherited-avatar path).
+        //    The role's avatar file at ~/.claude/roles/<role>/<file> is
+        //    served via Plan 86-01's GET /:key/avatar role-folder fallback.
+        //    avatarExt was assigned above inside the same `birthCandidate
+        //    !== null` guard, so the non-null assertion is safe here.
+        if (birthCandidate !== null) {
+          await deps.writeAvatarSiblingFile(conn, opts.name, avatarExt!, birthCandidate.bytes);
+        }
       }
     });
 

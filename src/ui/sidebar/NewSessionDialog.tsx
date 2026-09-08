@@ -19,7 +19,7 @@
 //
 // Phase 20 Plan 05: Extended with identity-birth field cluster (IDUI-01,
 // IDUI-02, IDUI-03, IDUI-10). Identity-mode checkbox (default ON) reveals
-// title, brief, avatar picker, VoicePicker, ColorPicker. Path field visible
+// title, brief, avatar picker, voice picker, color picker. Path field visible
 // in both modes. Both collision checks fire on name blur. Avatar batch fetch
 // + required pick. Brief EPHEMERAL — never persisted anywhere.
 //
@@ -43,6 +43,20 @@
 // selected by the existing open-effect. Same inline gate shape as
 // Plan 84-01 (not extracted into a shared symbol; refactor deferred
 // per shape file §Scope edges).
+//
+// ─── Phase 86 Plan 86-04 (D-CTX-86-surface-4) ─────────────────────────
+// Cosmetics moved to role level. The identity-mode branch of this dialog
+// no longer authors Title / Brief / Voice / Color / Avatar — new identities
+// wear their role's face on landing until per-identity override via
+// IdentityModal (Plan 86-05). Stripped: title text input, brief textarea,
+// voice/color pickers, entire avatar generator+upload section, and all
+// associated state + handlers (title, brief, voice, colorHue, candidates,
+// pickedCandidateId, gen/upload loading+error, manualPreviewUrl,
+// manualUrlRef, associated generate/upload handlers). Birth stream call
+// passes absent cosmetic fields — the backend (identity-birth.ts +
+// identity-birth-orchestrator.ts) accepts the absence and skips the
+// identity-side avatar sibling write (role folder's avatar file is
+// served via Plan 86-01's GET /:key/avatar fallback).
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -59,17 +73,12 @@ import {
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
 import type { Host, HostFolder } from "@/types/ui-types";
-import { VoicePicker } from "@/features/pretty-view/pickers/VoicePicker";
-import { ColorPicker } from "@/features/pretty-view/pickers/ColorPicker";
 import {
   listIdentities,
-  postGenerateAvatarBatch,
-  postManualAvatarCandidate,
   getIdentityExistsOnHost,
   openBirthStream,
   listRolesForHost,
   pickPoolName,
-  type AvatarCandidate,
   type BirthEvent,
   type RoleSummary,
 } from "@/api/identities-api";
@@ -114,13 +123,18 @@ function collectAllHosts(children: (Host | HostFolder)[]): Host[] {
 // Three-way discriminated union on `identityMode`:
 //   - `false`   → regular-session open (Ashley picks a host + optional session name).
 //   - `true`    → identity-birth success (the birth stream finished; the new identity
-//                 has a fresh tmux session on `host` keyed by `name`).
+//                 has a fresh tmux session on `host` keyed by `name`). Phase 86 Plan
+//                 86-04 (D-CTX-86-surface-4): cosmetic fields (title, brief, voice,
+//                 colorHue, avatarCandidateId) removed from this variant — cosmetics
+//                 live at the role level now and the born identity inherits its
+//                 role's face. Downstream consumers (AppShell.tsx L2040,
+//                 PrettyConversationsPanel.tsx L1945) never destructured these
+//                 fields, so the narrowing is safe.
 //   - `"existing"` → open a session on an identity that is ALREADY BORN server-side
 //                 (quick-260806-bz7 clone-modal auto-route). The clone flow creates
 //                 the tmux session as part of the backend clone step, so the
 //                 frontend just needs to attach (allowCreateTmux false). No birth
-//                 stream runs, so no brief / avatarCandidateId / colorHue / voice
-//                 / title fields — those are birth-only concerns.
+//                 stream runs, so no birth-only concerns here either.
 export type NewSessionOnCreateOpts =
   | { host: Host; sessionName?: string; path: string; identityMode: false }
   | {
@@ -129,11 +143,6 @@ export type NewSessionOnCreateOpts =
       path: string;
       identityMode: true;
       name: string;
-      title: string;
-      brief: string;
-      avatarCandidateId: string;
-      voice: string | null;
-      colorHue: number | null;
     }
   | {
       host: Host;
@@ -272,7 +281,7 @@ export function NewSessionDialog({
   onCreate,
   initialHost,
   initialRole,
-  initialBrief,
+  initialBrief: _initialBrief,
 }: {
   open: boolean;
   onClose: () => void;
@@ -288,10 +297,14 @@ export function NewSessionDialog({
    * dropdown only renders once a host is picked, and a role without a
    * matching host has no semantic anchor.
    *
-   * `initialBrief` (2026-08-05): seeds the agent brief field when the dialog
-   * opens via the CreateRoleDialog chain. Editable. Independent of host/role
-   * — a caller could seed brief alone, but in practice it's paired with the
-   * chain that provides host + role too.
+   * `initialBrief` (2026-08-05, deprecated 2026-09-08 in Phase 86 Plan 86-04):
+   * seeded the agent brief field when the dialog opened via the
+   * CreateRoleDialog chain. Prop signature retained for backward-compat with
+   * PrettyConversationsPanel.tsx's chain-prefill wire-up (which still passes
+   * chainPrefill.description ?? null), but the brief input itself was
+   * stripped when cosmetics moved to role level per D-CTX-86-surface-4 — the
+   * prop is now unused and can be removed in a future cleanup once
+   * PrettyConversationsPanel drops the chain-prefill.description branch.
    */
   initialHost?: Host | null;
   initialRole?: string | null;
@@ -312,29 +325,15 @@ export function NewSessionDialog({
   // When on, reveals the identity-birth field cluster.
   const [identityMode, setIdentityMode] = useState(true);
 
-  // Identity birth fields — all EPHEMERAL: never persisted to any storage or disk.
+  // Identity birth fields — Phase 86 Plan 86-04 (D-CTX-86-surface-4):
+  // cosmetic authoring (title, brief, voice, colorHue, avatar) removed from
+  // this dialog; those live at the role level now and the born identity
+  // inherits them on landing. Only the identity's own name + task remain.
   const [name, setName] = useState(""); // identity name (distinct from regular sessionName)
-  const [title, setTitle] = useState("");
-  const [brief, setBrief] = useState(""); // EPHEMERAL: never persisted anywhere. Only sent to avatar batch.
-  const [voice, setVoice] = useState<string>("");
-  const [colorHue, setColorHue] = useState<number>(() => Math.floor(Math.random() * 360)); // random hue per open, so never-touched identities aren't all cyan-blue
 
   // Phase 80 Plan 80-06: task-description field state (see textarea below).
   const [task, setTask] = useState<string>("");
   const [poolPickedName, setPoolPickedName] = useState<string | null>(null);
-
-  // Avatar batch state
-  const [candidates, setCandidates] = useState<AvatarCandidate[]>([]);
-  const [pickedCandidateId, setPickedCandidateId] = useState<string | null>(null);
-  const [genLoading, setGenLoading] = useState(false);
-  const [genError, setGenError] = useState<string | null>(null);
-
-  // Manual avatar upload state
-  const [manualPreviewUrl, setManualPreviewUrl] = useState<string | null>(null);
-  const [uploadLoading, setUploadLoading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  // Ref to track latest manualPreviewUrl for cleanup on unmount (avoids stale-closure)
-  const manualUrlRef = useRef<string | null>(null);
 
   // Collision precheck state
   const [skynetCollision, setSkynetCollision] = useState(false);
@@ -423,12 +422,9 @@ export function NewSessionDialog({
       } else if (flatHosts.length === 1) {
         setSelectedHost(flatHosts[0]);
       }
-      // 2026-08-05: seed brief from CreateRoleDialog description when the
-      // chain provides one. Only in identity-mode (brief field only renders
-      // there). Editable.
-      if (initialBrief && identityMode) {
-        setBrief(initialBrief);
-      }
+      // Phase 86 Plan 86-04: initialBrief seeding removed with the brief
+      // textarea (cosmetic-strip per D-CTX-86-surface-4). Prop still
+      // accepted for backward-compat but ignored.
     } else {
       // Abort any in-flight birth stream
       abortControllerRef.current?.abort();
@@ -439,25 +435,9 @@ export function NewSessionDialog({
       setPath("~/");
       setIdentityMode(true);
       setName("");
-      setTitle("");
-      setBrief("");
-      setVoice("");
-      setColorHue(Math.floor(Math.random() * 360));
       // Phase 80 Plan 80-06: reset task-input + pool-pick tracking on close.
       setTask("");
       setPoolPickedName(null);
-      setCandidates([]);
-      setPickedCandidateId(null);
-      setGenLoading(false);
-      setGenError(null);
-      // Revoke any live manual object URL on close
-      if (manualUrlRef.current) {
-        URL.revokeObjectURL(manualUrlRef.current);
-        manualUrlRef.current = null;
-      }
-      setManualPreviewUrl(null);
-      setUploadLoading(false);
-      setUploadError(null);
       setSkynetCollision(false);
       setHostCollision(false);
       setCollisionChecking(false);
@@ -482,32 +462,15 @@ export function NewSessionDialog({
   // NOTE: the backend birth sequence continues regardless; this just stops
   // the frontend from consuming SSE events (intentional per D-CONTEXT
   // §"No cancel mid-birth").
+  //
+  // Phase 86 Plan 86-04: manual avatar object-URL revocation removed with the
+  // avatar upload UI (cosmetic-strip per D-CTX-86-surface-4). No object URLs
+  // are ever created here now.
   useEffect(() => {
     return () => {
       abortControllerRef.current?.abort();
-      // Revoke any live manual object URL on unmount (no stale-closure risk
-      // because we read from the ref, not from state).
-      if (manualUrlRef.current) {
-        URL.revokeObjectURL(manualUrlRef.current);
-        manualUrlRef.current = null;
-      }
     };
   }, []);
-
-  // Keep manualUrlRef in sync so the unmount effect always revokes the latest URL.
-  useEffect(() => {
-    manualUrlRef.current = manualPreviewUrl;
-  }, [manualPreviewUrl]);
-
-  // When identity-mode toggles OFF, clear avatar candidates + picked candidate.
-  // D-CONTEXT § "Stale-avatar handling": do NOT auto-reset on name/title/brief field edits
-  // (user's picked avatar stays even if they edit fields). Only clear on mode toggle.
-  useEffect(() => {
-    if (!identityMode) {
-      setCandidates([]);
-      setPickedCandidateId(null);
-    }
-  }, [identityMode]);
 
   // Phase 22 SRIC-02: Role dropdown effect — fires whenever the selected host
   // OR identity-mode changes. Populates rolesForHost via GET /roles?hostId=<n>.
@@ -650,62 +613,16 @@ export function NewSessionDialog({
     }, 300);
   }
 
-  // Generate/Regenerate handler
-  async function handleGenerate() {
-    if (genLoading) return;
-    // Mutual exclusion: clear any manual upload state when generating
-    if (manualUrlRef.current) {
-      URL.revokeObjectURL(manualUrlRef.current);
-      manualUrlRef.current = null;
-    }
-    setManualPreviewUrl(null);
-    setUploadError(null);
-    setGenLoading(true);
-    setGenError(null);
-    try {
-      const cands = await postGenerateAvatarBatch({ name, title, brief, colorHue });
-      setCandidates(cands);
-      // Force re-pick per D-CONTEXT §Avatar — on explicit Regen, clear picked candidate
-      // so user must pick from the fresh set. This is intentional.
-      setPickedCandidateId(null);
-    } catch (e) {
-      setGenError(e instanceof Error ? e.message : "generation failed");
-    } finally {
-      setGenLoading(false);
-    }
-  }
-
-  // Manual avatar upload handler
-  async function handleManualUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    // Reset the input value so re-picking the same file re-fires the change event
-    e.target.value = "";
-    setUploadLoading(true);
-    setUploadError(null);
-    try {
-      const data = await postManualAvatarCandidate({ file });
-      // Mutual exclusion: clear generated candidates
-      setCandidates([]);
-      setGenError(null);
-      // Revoke prior object URL before creating a new one
-      if (manualUrlRef.current) {
-        URL.revokeObjectURL(manualUrlRef.current);
-      }
-      const objectUrl = URL.createObjectURL(file);
-      manualUrlRef.current = objectUrl;
-      setManualPreviewUrl(objectUrl);
-      setPickedCandidateId(data.id);
-    } catch (err) {
-      setUploadError(err instanceof Error ? err.message : "upload failed");
-    } finally {
-      setUploadLoading(false);
-    }
-  }
+  // Phase 86 Plan 86-04 (D-CTX-86-surface-4): the identity-side avatar
+  // generation + manual-upload handlers were deleted with the cosmetic
+  // authoring UI. Avatar generation now lives at the role level
+  // (CreateRoleDialog per Plan 86-03); new identities inherit the role's
+  // avatar via Plan 86-01's GET /:key/avatar role-folder fallback and
+  // never need a per-identity avatar chosen at birth time.
 
   // Birth stream handler — runs when Create is clicked with identity-mode ON
   async function handleBirth() {
-    if (!selectedHost || !pickedCandidateId) return;
+    if (!selectedHost) return;
     setBirthing(true);
     setBirthProgress(INITIAL_BIRTH_PROGRESS.map((s) => ({ ...s })));
     setBirthFailedStep(null);
@@ -725,11 +642,15 @@ export function NewSessionDialog({
         {
           hostId: hostIdNum,
           name: name.toLowerCase(),
-          title,
           path: normalizedPath,
-          colorHue,
-          voice: voice || null,
-          avatarCandidateId: pickedCandidateId,
+          // Phase 86 Plan 86-04 (D-CTX-86-inherit): title / colorHue / voice /
+          // avatarCandidateId are OMITTED from the birth request. The backend
+          // (identity-birth.ts + identity-birth-orchestrator.ts) accepts the
+          // absence and the identity's frontmatter is written without these
+          // fields — the role's cosmetics resolve at read time via Plan 86-01's
+          // publicIdentity merge (identity ?? role ?? null).
+          colorHue: null,
+          voice: null,
           // Phase 22 SRIC-02: required role from the dropdown.
           role: selectedRole,
           // Phase 80 Plan 80-06: optional task string (soft-cap 200 client-side,
@@ -787,17 +708,17 @@ export function NewSessionDialog({
         } catch { /* best-effort — row will resolve on next store refresh */ }
 
         // Success: call onCreate for focus-follow, then close modal
+        // Phase 86 Plan 86-04: cosmetic fields removed from the callback
+        // shape (see NewSessionOnCreateOpts identityMode:true variant).
+        // Consumers at AppShell.tsx L2040 + PrettyConversationsPanel.tsx
+        // L1945 never destructured these fields, so no downstream update
+        // required.
         onCreate({
           host: selectedHost,
           sessionName: name.toLowerCase(),
           path: normalizedPath,
           identityMode: true,
           name: name.toLowerCase(),
-          title,
-          brief,
-          avatarCandidateId: pickedCandidateId,
-          voice: voice || null,
-          colorHue,
         });
         setBirthing(false);
         onClose();
@@ -818,23 +739,18 @@ export function NewSessionDialog({
   }
 
   // canOpen (Create button) computation:
-  // - identity-mode ON: require host + valid name + title + brief + candidates + picked + no collisions
+  // - identity-mode ON: require host + valid name + role + no collisions.
+  //   Phase 86 Plan 86-04 (D-CTX-86-surface-4): title / brief / avatar-picked
+  //   gates removed — cosmetics live at role level; new identities inherit.
   // - identity-mode OFF: require host + valid session name (mirrors existing logic)
   // During birthing: Create is disabled regardless
   const nameValid = identityMode
     ? name.length > 0 && IDENTITY_NAME_PATTERN.test(name)
     : SESSION_NAME_PATTERN.test(sessionName);
 
-  // avatarReady: either generated candidates exist with a pick, OR a manual upload set pickedCandidateId
-  const avatarReady = (candidates.length > 0 && pickedCandidateId !== null) ||
-    (manualPreviewUrl !== null && pickedCandidateId !== null);
-
   const canOpen = !birthing && (identityMode
     ? selectedHost !== null &&
       nameValid &&
-      title.trim().length > 0 &&
-      brief.trim().length > 0 &&
-      avatarReady &&
       !skynetCollision &&
       !hostCollision &&
       !collisionChecking &&
@@ -884,7 +800,6 @@ export function NewSessionDialog({
     defaultValue: "No hosts available",
   });
 
-  const hasGeneratedOnce = candidates.length > 0;
   void uiTitle; // suppress unused warning
 
   return (
@@ -1183,187 +1098,14 @@ export function NewSessionDialog({
                 )}
               </div>
 
-              {/* Title field */}
-              <div className="flex flex-col gap-1.5">
-                <label
-                  htmlFor="new-identity-title"
-                  className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
-                >
-                  Title
-                </label>
-                <Input
-                  id="new-identity-title"
-                  aria-label="Title"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. Research Assistant"
-                  disabled={formDisabled}
-                />
-              </div>
-
-              {/* Brief textarea — EPHEMERAL: only sent to avatar batch, never persisted */}
-              <div className="flex flex-col gap-1.5">
-                <label
-                  htmlFor="new-identity-brief"
-                  className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
-                >
-                  Brief
-                </label>
-                <textarea
-                  id="new-identity-brief"
-                  aria-label="Brief"
-                  value={brief}
-                  onChange={(e) => setBrief(e.target.value)}
-                  placeholder="A short description to seed the avatar generation..."
-                  rows={3}
-                  disabled={formDisabled}
-                  className="w-full rounded-sm border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] px-3 py-2 text-xs text-[color:var(--color-pv-fg)] placeholder:text-[color:var(--color-pv-fg-dim)] outline-none resize-none disabled:opacity-50"
-                />
-              </div>
-
-              {/* Voice picker — reused from pretty-view/pickers (plan 03) */}
-              <div className="flex flex-col gap-1.5">
-                <label
-                  htmlFor="new-identity-voice"
-                  className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
-                >
-                  Voice
-                </label>
-                <VoicePicker
-                  value={voice}
-                  onChange={(v) => !formDisabled && setVoice(v)}
-                  id="new-identity-voice"
-                  ariaLabel="Voice"
-                  disabled={formDisabled}
-                />
-              </div>
-
-              {/* Color picker — reused from pretty-view/pickers (plan 03) */}
-              <div className="flex flex-col gap-1.5">
-                <label
-                  htmlFor="new-identity-color"
-                  className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]"
-                >
-                  Color
-                </label>
-                <ColorPicker
-                  value={colorHue}
-                  onChange={(v) => !formDisabled && setColorHue(v)}
-                  id="new-identity-color"
-                  disabled={formDisabled}
-                />
-              </div>
-
-              {/* Avatar section */}
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]">
-                    Avatar
-                  </span>
-                  <button
-                    type="button"
-                    disabled={formDisabled || genLoading || !name || !title.trim() || !brief.trim()}
-                    onClick={() => { void handleGenerate(); }}
-                    className="text-xs px-2 py-1 rounded border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] text-[color:var(--color-pv-fg)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[color:var(--color-pv-surface)] transition-colors"
-                    aria-label={hasGeneratedOnce ? "Regenerate" : "Generate"}
-                  >
-                    {genLoading ? (
-                      <span className="inline-flex items-center gap-1.5">
-                        <Loader2 className="size-3 animate-spin" />
-                        Generating…
-                      </span>
-                    ) : (hasGeneratedOnce ? "Regenerate" : "Generate")}
-                  </button>
-
-                  {/* Upload… button — label+sr-only input pattern (IdentityModal:1083-1106) */}
-                  <label className="flex">
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      className="sr-only"
-                      disabled={formDisabled || uploadLoading}
-                      onChange={(e) => { void handleManualUpload(e); }}
-                    />
-                    <button
-                      type="button"
-                      disabled={formDisabled || uploadLoading}
-                      aria-label="Upload avatar"
-                      onClick={(e) => {
-                        const input = (e.currentTarget.parentElement as HTMLLabelElement)?.querySelector("input[type='file']") as HTMLInputElement | null;
-                        input?.click();
-                      }}
-                      className="text-xs px-2 py-1 rounded border border-[color:var(--color-pv-border-quiet)] bg-[color:var(--color-pv-surface-quiet)] text-[color:var(--color-pv-fg)] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[color:var(--color-pv-surface)] transition-colors"
-                    >
-                      {uploadLoading ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          <Loader2 className="size-3 animate-spin" />
-                          Uploading…
-                        </span>
-                      ) : "Upload…"}
-                    </button>
-                  </label>
-                </div>
-
-                {/* Inline generation error */}
-                {genError && (
-                  <span className="text-xs text-[color:var(--color-pv-code-fg)]">
-                    {genError}
-                  </span>
-                )}
-
-                {/* Inline upload error */}
-                {uploadError && (
-                  <span className="text-xs text-[color:var(--color-pv-code-fg)]">
-                    {uploadError}
-                  </span>
-                )}
-
-                {/* Candidate row — horizontal flex of 3 buttons */}
-                {candidates.length > 0 && (
-                  <div className="flex gap-2 justify-center">
-                    {candidates.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        data-candidate-id={c.id}
-                        aria-selected={pickedCandidateId === c.id}
-                        disabled={formDisabled}
-                        onClick={() => !formDisabled && setPickedCandidateId(c.id)}
-                        className={`flex-1 rounded overflow-hidden border-2 transition-all disabled:opacity-50 ${
-                          pickedCandidateId === c.id
-                            ? "border-[color:var(--color-pv-code-fg)] ring-1 ring-[color:var(--color-pv-code-fg)]"
-                            : "border-transparent hover:border-[color:var(--color-pv-border-quiet)]"
-                        }`}
-                      >
-                        <img
-                          src={c.url}
-                          alt={`Avatar candidate ${c.id}`}
-                          className="w-full aspect-square object-cover"
-                        />
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* Manual upload preview — shown when no generated candidates */}
-                {candidates.length === 0 && manualPreviewUrl && (
-                  <div className="flex justify-center">
-                    <button
-                      type="button"
-                      aria-selected={true}
-                      data-manual-avatar="true"
-                      disabled={formDisabled}
-                      className="flex-1 rounded overflow-hidden border-2 border-[color:var(--color-pv-code-fg)] ring-1 ring-[color:var(--color-pv-code-fg)] transition-all disabled:opacity-50 max-w-[80px]"
-                    >
-                      <img
-                        src={manualPreviewUrl}
-                        alt="Manual avatar preview"
-                        className="w-full aspect-square object-cover"
-                      />
-                    </button>
-                  </div>
-                )}
-              </div>
+              {/*
+                Phase 86 Plan 86-04 (D-CTX-86-surface-4): title text input,
+                brief textarea, voice/color pickers, and avatar generator +
+                upload UI stripped. The new identity inherits its role's
+                cosmetics (title, colorHue, voice, avatar) on landing per
+                D-CTX-86-inherit; per-identity overrides remain possible via
+                IdentityModal (Plan 86-05).
+              */}
             </div>
           )}
 
