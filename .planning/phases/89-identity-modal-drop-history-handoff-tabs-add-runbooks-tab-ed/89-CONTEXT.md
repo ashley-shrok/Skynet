@@ -60,7 +60,7 @@ Restructure the identity modal's tab set (remove History + Handoff, add Runbooks
 
 ### Ship discipline (D-21, D-22)
 - **D-21:** Campaign constraint holds — commits + push + scoped tests only. No `docker build`, no `docker cp` fast-path, no `docker compose up --force-recreate`, no full-suite test run until entire UX-pass campaign lands AND Ashley greenlights ship gate.
-- **D-22:** Push discipline: `git pull --rebase origin feat/tab-title-from-tmux` before every push. No coord-room post (push-only per 2026-09-05 rule). Peer identities of box-maintainer role (currently tina, tiffany, tanya, taylor) may push concurrently; rebase handles it.
+- **D-22 [informational]:** Push discipline is orchestrator-scope, NOT executor-scope. `git pull --rebase origin feat/tab-title-from-tmux` before every push; no coord-room post (push-only per 2026-09-05 rule); peer identities of box-maintainer role (currently tina, tiffany, tanya, taylor) may push concurrently; rebase handles it. Plans deliberately do NOT touch this — decision-coverage gate skips [informational] tagged items.
 
 ### Rename ordering (D-23)
 - **D-23:** Wave ordering — id-skill body update (D-19) ships as its own wave BEFORE the backend/frontend work, so intermediate commits never have the substrate saying `runbook.md` while backend code hasn't shipped yet, OR vice versa. Rationale: cheap contract-consistency safety. Blast radius is low either way (no runbook consumer reads modal + id-skill body concurrently), but this ordering is free.

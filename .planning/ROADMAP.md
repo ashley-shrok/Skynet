@@ -2028,6 +2028,7 @@ Plans:
 **Plans:** 6/6 plans executed
 
 Plans:
+
 - [x] 85-01-PLAN.md — NEW `identity_send_log` SQLite table + in-process CREATE TABLE + forceSave contract + migration test coverage (wave 1, no deps)
 - [x] 85-02-PLAN.md — NEW `identity-send-log-store.ts` module: `stampIdentityLastSend` (monotonic upsert + forceSave) + `getIdentityLastSend` + 10-test spy-verified coverage (wave 2, depends on 85-01)
 - [x] 85-03-PLAN.md — NEW `/identity-send-log/stamp` auth-gated POST route + supertest coverage for auth/validation/success/error paths + mount in database.ts (wave 3, depends on 85-02)
@@ -2069,20 +2070,25 @@ Plans:
 Plans:
 
 **Wave 1** *(parallel — no file overlap)*
+
 - [x] 87-01-PLAN.md — schema + migration + migration test: add users.avatarPath column via addColumnIfNotExists + labeled forceSave, mirror Phase 75-2 mxid test shape (D-04, D-05, D-06, D-13, D-17, D-18)
 - [x] 87-02-PLAN.md — user-avatar-storage.ts helper module + tests: multer config (5MB + png/jpeg/webp), userAvatarMulterErrorHandler, writeUserAvatar/unlinkUserAvatar/readUserAvatar, ext-in-filename convention (D-01, D-02, D-03, D-05, D-12, D-14, D-15, D-16)
 
 **Wave 2** *(blocked on Wave 1)*
+
 - [x] 87-03-PLAN.md — extend POST /users/create to multipart with mandatory avatar: multer middleware, req.file guard, file-then-row ordering, extended INSERT for avatar_path, extended rollback at users.ts:198, labeled forceSave; new users.test.ts covers 7 create-endpoint variants (D-07, D-08, D-09, D-14, D-15, D-16, D-17, D-18)
 
 **Wave 3** *(blocked on Wave 2 — same file: users.ts)*
+
 - [x] 87-04-PLAN.md — new PUT /users/:id/avatar (own-or-admin + new-file-then-row-then-old-unlink) + new GET /users/:id/avatar (authenticateJWT + mime-from-ext + ENOENT-to-404) + expanded users.test.ts covers 10 change + 7 serve variants (D-10, D-11, D-12, D-14, D-15, D-16, D-17, D-18, D-23)
 
 **Wave 4** *(parallel — no file overlap between plans 05 and 06)*
+
 - [x] 87-05-PLAN.md — delete-cleanup wiring: unlinkUserAvatar into delete-user-data.ts:91 (covers admin-delete + OIDC-merge via helper) + users.ts DELETE /users/delete-account (self-serve, distinct path) + verify Plan 03 rollback wiring; new delete-user-data.test.ts with SOURCE ASSERTION for SELECT-before-DELETE ordering (D-22)
 - [x] 87-06-PLAN.md — nginx edge sizing: add `client_max_body_size 6M;` to /users location block in BOTH docker/nginx.conf AND docker/nginx-https.conf (D-19, D-20, D-21)
 
 **Wave 5** *(blocked on all prior waves)*
+
 - [x] 87-07-PLAN.md — end-to-end integration test (create → serve → change → serve → delete → verify-clean, real HTTP + real filesystem + save-trigger spies) + human-smoke checkpoint verifying nginx edge cap works against a running container (D-07, D-09, D-10, D-11, D-14, D-15, D-16, D-17, D-18, D-19, D-20, D-21, D-22)
 
 ### Phase 88: create-agent-modal-ux-pass — paired header blurbs, path admin-gate, identity-mode checkbox admin-gate + label flip to 'Just a shell — no agent', isAdmin plumbed from PrettyConversationsPanel, birth backend substitutes ~/<agent-name>/ for absent path
@@ -2093,16 +2099,44 @@ Plans:
 **Plans:** 3/3 plans complete
 
 Plans:
+
 - [x] 88-01-PLAN.md — Wave 1: plumb `isAdmin?: boolean` prop (fail-closed default `false`) from PrettyConversationsPanel into NewSessionDialog; extend identity-birth.ts parsedPath narrow to substitute `~/<name>/` when body.path is empty/absent (foundation for Wave 2's UI admin-gates + non-admin submit path)
 - [x] 88-02-PLAN.md — Wave 2 (depends 88-01): revise CreateRoleDialog blurb to the new two-sentence form; land all NewSessionDialog UI edits (agent blurb, Path admin-gate, checkbox admin-gate + label flip, local state var rename `identityMode` → `shellOnly` + default flip, submit-onclick `isAdmin && shellOnly` invariant, handleBirth path-clear for non-admin)
 - [x] 88-03-PLAN.md — Wave 3 (depends 88-01, 88-02): restore green + lock new coverage across five test files (CreateRoleDialog.test.tsx blurb regex + 4 NewSessionDialog test files' renderDialog helpers, label regex sites, semantic-inversion, three new admin-gate/backend-substitution tests)
 
 ### Phase 89: Identity modal — drop History+Handoff tabs, add Runbooks tab + editor modal
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Restructure the identity modal tab set (remove History + Handoff, add Runbooks between Role file and Bounties per D-13), add a bare-list Runbooks tab body (D-08 through D-11), and add a new runbook-editor modal built as a byte-shape clone of `SkillsEditorModal.tsx` for role-scoped runbooks. Also update `substrate/skills/id/SKILL.md` so § Runbooks Storage codifies `runbook.md` as the sentinel main file (per D-19; going-forward only per D-20). Swap-not-stack for v1 (D-06) — closing the runbook editor does NOT restore the identity modal. On-disk rename of existing box-maintainer runbooks is out of scope (Ashley's manual post-close pass per 89-CONTEXT.md § Out of scope).
+**Requirements**: none (bounty-driven — no REQ-IDs to cover)
 **Depends on:** Phase 88
-**Plans:** 0 plans
-
+**Plans:** 6 plans
 Plans:
-- [ ] TBD (run /gsd-plan-phase 89 to break down)
+**Wave 1**
+
+- [ ] 89-01-PLAN.md — Wave 1 (no deps): update `substrate/skills/id/SKILL.md` § Runbooks Storage + § 3 on-wake missing-file wording from `<slug>.md` to `runbook.md` (D-19); ships FIRST per D-23 to avoid contract drift
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 89-02-PLAN.md — Wave 2 (depends 89-01): new backend `runbooks-editor.ts` (7 endpoints, byte-shape mirror of `skills-editor.ts` with role dimension + D-15 role-existence-check + path-safety gates) + `runbooks-editor.test.ts` (>=30 tests + >=10 SEC path-traversal) + mount in `database.ts` + matching `location ~ ^/runbooks-editor(/.*)?### Phase 89: Identity modal — drop History+Handoff tabs, add Runbooks tab + editor modal
+
+**Goal:** Restructure the identity modal tab set (remove History + Handoff, add Runbooks between Role file and Bounties per D-13), add a bare-list Runbooks tab body (D-08 through D-11), and add a new runbook-editor modal built as a byte-shape clone of `SkillsEditorModal.tsx` for role-scoped runbooks. Also update `substrate/skills/id/SKILL.md` so § Runbooks Storage codifies `runbook.md` as the sentinel main file (per D-19; going-forward only per D-20). Swap-not-stack for v1 (D-06) — closing the runbook editor does NOT restore the identity modal. On-disk rename of existing box-maintainer runbooks is out of scope (Ashley's manual post-close pass per 89-CONTEXT.md § Out of scope).
+**Requirements**: none (bounty-driven — no REQ-IDs to cover)
+**Depends on:** Phase 88
+**Plans:** 6 plans
+ blocks in both `docker/nginx.conf` and `docker/nginx-https.conf`
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 89-03-PLAN.md — Wave 3 (depends 89-02): frontend API client `runbooks-api.ts` — 7 typed helpers + 2 typed 409 error classes (RunbookFileMtimeConflictError + RunbookFileAlreadyExistsError) + 5 type exports, mirroring `skills-api.ts` byte-shape, runtime-decoupled (no cross-import)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 89-04-PLAN.md — Wave 4 (depends 89-03): new `RunbookEditorModal.tsx` (byte-shape clone of `SkillsEditorModal.tsx` adapted for role-scope: role/runbook props, no host/runbook pickers per D-02, DeleteConfirmDialog reuse for delete-file + delete-runbook per D-04/D-05, SkillFileTab reuse per D-01)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 89-05-PLAN.md — Wave 5 (depends 89-04): IdentityModal integration — new `RunbooksTab.tsx` bare-list body (D-08 through D-11), delete `HistoryTab.tsx` + `HandoffTab.tsx` + all their state slots/effects/save handlers/wire type imports per D-12, prune frontend wire types in `claude-session-api.ts`, delete C2 coord-empty test + `deliverHandoff` helper, add new `onOpenRunbook` prop threaded through IdentityModal → RunbooksTab
+
+**Wave 6** *(blocked on Wave 5 completion)*
+
+- [ ] 89-06-PLAN.md — Wave 6 (depends 89-05): PrettyView owns swap-not-stack coordination (D-06) — new `runbookEditorOpenState` state slot + `handleOpenRunbook` handler that closes identity modal + opens RunbookEditorModal at same tick + no reopen-on-close; new in-process test suite `IdentityModal.runbooks-swap.test.tsx` with 5 test cases (S1 happy path, S2 swap-close-does-not-reopen, S3 null-role fast path, S4 empty list, S5 alphabetical)
