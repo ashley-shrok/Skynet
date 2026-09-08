@@ -391,14 +391,78 @@ export class RoleAlreadyExistsError extends Error {
   }
 }
 
-export async function createRole(input: {
-  name: string;
-  description: string;
-  hostId: number;
-}): Promise<{ name: string; description: string }> {
+/**
+ * Phase 85 Plan 85-01 Task 3: role-cosmetic input surfaced separately from
+ * `avatar` (which is a File uploaded via multipart, not a JSON field). The
+ * backend derives the on-disk avatar filename from the uploaded File's
+ * mimetype per Plan 85-02 (`<role>.<mimeext>`), so the client never sends
+ * an `avatar` string in the JSON — only the File itself.
+ */
+export type RoleCosmeticInput = {
+  title?: string;
+  colorHue?: number;
+  voice?: string;
+};
+
+/**
+ * Phase 85 Plan 85-01 Task 3 (pulled forward from Plan 85-02's client task):
+ * widened createRole client sends multipart/form-data mirroring
+ * updateIdentity's shape (see buildUpdateFormData L55-64). The `data` field
+ * carries `{name, description, hostId, cosmetics?}` JSON; the optional
+ * `avatar` File part carries the role's shared avatar image.
+ *
+ * Backward compatibility: `cosmetics` and `avatar` are both optional so
+ * pre-Phase-85 call sites like CreateRoleDialog.tsx L178-182 that pass a
+ * single 3-key input keep typechecking + keep working (multipart body with
+ * no cosmetics + no avatar file).
+ *
+ * Content-Type override: authApi defaults to application/json; without the
+ * explicit "multipart/form-data" header axios v1's formDataToJSON transform
+ * fires and drops the File field entirely, and multer returns 400 "missing
+ * avatar field" (regression pattern documented at postManualAvatarCandidate
+ * L173-196).
+ *
+ * 409 branch preserved — RoleAlreadyExistsError is thrown so the dialog can
+ * render an inline "role already exists" message.
+ *
+ * Note on cross-plan sequencing: Plan 85-02 owns the backend endpoint this
+ * client speaks to (POST /roles widened to multipart). Both plans land in
+ * Wave 1 in parallel; this client's colocated tests mock authApi so they do
+ * NOT require the real backend endpoint to run. End-to-end integration
+ * happens in Wave 2 (Plan 85-03) when CreateRoleDialog actually calls this
+ * widened client against the widened backend endpoint.
+ */
+export async function createRole(
+  input: {
+    name: string;
+    description: string;
+    hostId: number;
+    cosmetics?: RoleCosmeticInput;
+  },
+  avatar?: File | null,
+): Promise<{ name: string; description: string; cosmetics: RoleCosmeticInput }> {
   try {
-    const response = await authApi.post("/roles", input);
-    return response.data as { name: string; description: string };
+    const fd = new FormData();
+    fd.append(
+      "data",
+      JSON.stringify({
+        name: input.name,
+        description: input.description,
+        hostId: input.hostId,
+        cosmetics: input.cosmetics ?? {},
+      }),
+    );
+    if (avatar) {
+      fd.append("avatar", avatar);
+    }
+    const response = await authApi.post("/roles", fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return response.data as {
+      name: string;
+      description: string;
+      cosmetics: RoleCosmeticInput;
+    };
   } catch (error) {
     // Detect 409 conflict — surface as a typed error so the dialog can
     // render an inline "role already exists" message rather than throwing
