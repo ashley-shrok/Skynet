@@ -12,12 +12,26 @@ vi.mock("../utils/logger.js", () => ({
     error: vi.fn(),
     debug: vi.fn(),
   },
+  // Phase 90 Plan 00 Wave 0 — contextpct-store.setContextPct calls
+  // databaseLogger.debug on every write; the store is now imported
+  // transitively by subscription-registry, so the mock must cover it.
+  databaseLogger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  },
 }));
 
 import { createSubscriptionRegistry } from "./subscription-registry.js";
 import type { FrontendOutboundFrameType, SessionState } from "./wire-protocol.js";
 import { FRAME_SCHEMA_VERSION } from "./wire-protocol.js";
 import { systemLogger } from "../utils/logger.js";
+// Phase 90 Plan 00 Wave 0 — contextPct promotion.
+import {
+  setContextPct,
+  __clearAllContextPctForTests,
+} from "./contextpct-store.js";
 
 function makeState(
   hostId: string,
@@ -278,5 +292,102 @@ describe("subscription-registry", () => {
         ctx?.operation === "fleet_status_lifecycle_cb_failed",
     );
     expect(lifecycleWarns.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 90 Plan 00 Wave 0 — contextPct promotion (behaviors 9-10 per plan)
+  // ---------------------------------------------------------------------------
+
+  describe("contextPct stamping (Phase 90 Wave 0)", () => {
+    beforeEach(() => {
+      __clearAllContextPctForTests();
+    });
+
+    it(
+      "Test 9 (behavior 9): on every publish, the fanned-out SessionState includes contextPct sourced from the shared store; sessions with no stored value get null",
+      () => {
+        const registry = createSubscriptionRegistry();
+        const received: FrontendOutboundFrameType[] = [];
+        registry.subscribe((f) => received.push(f));
+        received.length = 0;
+
+        // Session A: shared store has a value (65) — the fanned-out frame
+        // must carry contextPct: 65.
+        setContextPct("host-42", "tina", 65);
+        const stateA = makeState("host-42", "tina", "session-a");
+        registry.publishSessionState("host-42", stateA);
+
+        // Session B: no store entry — the fanned-out frame must carry
+        // contextPct: null.
+        const stateB = makeState("host-42", "nelly", "session-b");
+        registry.publishSessionState("host-42", stateB);
+
+        const updateFrames = received.filter((f) => f.type === "update");
+        expect(updateFrames).toHaveLength(2);
+
+        const frameA = updateFrames[0];
+        const frameB = updateFrames[1];
+        if (frameA.type === "update" && frameB.type === "update") {
+          expect(frameA.state.contextPct).toBe(65);
+          expect(frameB.state.contextPct).toBeNull();
+        }
+
+        // Snapshot delivery must ALSO re-stamp contextPct at read time so
+        // late subscribers see the CURRENT value in the shared store, not
+        // whatever value existed at the last publish tick. Update the store
+        // AFTER publish and confirm a fresh subscriber sees the new value.
+        setContextPct("host-42", "tina", 77);
+        const lateSubscriberFrames: FrontendOutboundFrameType[] = [];
+        registry.subscribe((f) => lateSubscriberFrames.push(f));
+
+        const snapshot = lateSubscriberFrames[0];
+        expect(snapshot.type).toBe("snapshot");
+        if (snapshot.type === "snapshot") {
+          const tinaState = snapshot.states.find((s) => s.tmuxSession === "tina");
+          expect(tinaState?.contextPct).toBe(77); // fresh store value
+          const nellyState = snapshot.states.find((s) => s.tmuxSession === "nelly");
+          expect(nellyState?.contextPct).toBeNull(); // still no entry
+        }
+      },
+    );
+
+    it(
+      "Test 10 (behavior 10): additive-optional invariant preserved — SessionStateSchema still parses records from an older shape (no contextPct field) without validation failure",
+      async () => {
+        const { SessionStateSchema } = await import("./wire-protocol.js");
+
+        // Older frame shape — no contextPct field at all.
+        const olderShape: unknown = {
+          hostId: "host-42",
+          tmuxSession: "tina",
+          sessionId: "session-1",
+          pid: 1000,
+          status: "busy",
+          backgroundTasks: [],
+          updatedAt: Date.now(),
+        };
+        const result = SessionStateSchema.safeParse(olderShape);
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.contextPct).toBeUndefined();
+        }
+
+        // Frame with contextPct: null — also accepted (nullable optional).
+        const withNullPct = { ...(olderShape as Record<string, unknown>), contextPct: null };
+        const r2 = SessionStateSchema.safeParse(withNullPct);
+        expect(r2.success).toBe(true);
+        if (r2.success) {
+          expect(r2.data.contextPct).toBeNull();
+        }
+
+        // Frame with contextPct: 42 — accepted.
+        const withNumPct = { ...(olderShape as Record<string, unknown>), contextPct: 42 };
+        const r3 = SessionStateSchema.safeParse(withNumPct);
+        expect(r3.success).toBe(true);
+        if (r3.success) {
+          expect(r3.data.contextPct).toBe(42);
+        }
+      },
+    );
   });
 });

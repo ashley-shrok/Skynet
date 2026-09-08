@@ -37,6 +37,15 @@ import {
 } from "./pane-state-emitter.js";
 import { parseContextPct } from "./context-pct-parser.js";
 import { readContextPctFromJsonl } from "./context-pct-from-jsonl.js";
+// Phase 90 Plan 00 (Wave 0, 2026-09-08 — D-10 delivery mechanism, Ashley 2026-09-08
+// D-03 waiver): dual-write every `context_pct` emission into the fleet-status
+// shared map so PrettyView (post D-03 mechanical waiver swap) and the future
+// Plan 06 relay-pane badge appendage both read contextPct from the SAME
+// source of truth (fleet-status), via the same session key format. WS
+// emissions BELOW are PRESERVED unchanged for backwards compat during
+// transition — nothing else consumes them after Task 2, but the safety
+// net stays until the transition is fully validated.
+import { setContextPct } from "../fleet-status/contextpct-store.js";
 import { isPlanPending, parsePlanFilePath } from "./plan-pending-parser.js";
 import { fetchPlanFile } from "../ssh/plan-file-fetch.js";
 import { execCommand } from "../ssh/tmux-helper.js";
@@ -3178,6 +3187,12 @@ export async function __applyDormantPollWithRediscoveryForTests(
     // frame auto-dismiss from wiping the DormancyOverlay (PrettyView.tsx L1149).
     readJsonlPct?: (conn: unknown, sessionFile: string) => Promise<number | null>;
     dormantSessionFile?: () => string | null;
+    // Phase 90 Plan 00 (Wave 0, D-10 delivery mechanism): OPTIONAL dual-write
+    // hook — when set, the dormant-branch context_pct emit ALSO writes the
+    // pct into the fleet-status shared map via setContextPct(hostId,
+    // escapedName, pct). Absence keeps existing tests running unchanged
+    // (test seam contract preserved).
+    hostId?: number;
   },
   state: {
     dormantLastEmitted: () => boolean | null;
@@ -3185,7 +3200,7 @@ export async function __applyDormantPollWithRediscoveryForTests(
     wakeTriggerTs: () => number | null;
   },
 ): Promise<void> {
-  const { connSnapshot, escapedName, execCommand: exec, discoverSession, wsSend, startActiveFlow, markerCommand, now, readJsonlPct, dormantSessionFile } = deps;
+  const { connSnapshot, escapedName, execCommand: exec, discoverSession, wsSend, startActiveFlow, markerCommand, now, readJsonlPct, dormantSessionFile, hostId } = deps;
   try {
     // Poll the .dormant sentinel (reuse exact command from seam line 956-961)
     const statOut = await exec(
@@ -3216,6 +3231,14 @@ export async function __applyDormantPollWithRediscoveryForTests(
           try {
             const pct = await readJsonlPct(connSnapshot, sessionFile);
             if (pct !== null) {
+              // Phase 90 Plan 00 (Wave 0, D-10 delivery mechanism): dual-write
+              // into the fleet-status shared map so PrettyView (post D-03
+              // mechanical waiver) and the future Plan 06 relay-pane badge
+              // appendage both read contextPct from the same source of
+              // truth. WS emission BELOW preserved for backwards compat.
+              if (hostId !== undefined) {
+                setContextPct(hostId, escapedName, pct);
+              }
               wsSend(JSON.stringify({ type: "context_pct", pct, dormant: true }));
             } else {
               // quick-260830-f1e: caller-site warn when the helper returns
@@ -7087,6 +7110,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
           }
           if (stopped || ws.readyState !== WebSocket.OPEN) return;
           if (pct !== null) {
+            // Phase 90 Plan 00 (Wave 0, D-10 delivery mechanism): dual-write
+            // into the fleet-status shared map so PrettyView (post D-03
+            // mechanical waiver) and the future Plan 06 relay-pane badge
+            // appendage both read contextPct from the same source of truth.
+            // activeHostId + activeTmuxSession are pinned in the enclosing
+            // closure via startActiveSessionFlow (see L6976-6977). WS
+            // emission BELOW preserved for backwards compat.
+            setContextPct(activeHostId, activeTmuxSession, pct);
             try {
               ws.send(JSON.stringify({ type: "context_pct", pct }));
             } catch {
@@ -7882,6 +7913,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
                       {
                         connSnapshot: sshConn!,
                         escapedName: currentTmuxSession!,
+                        // Phase 90 Plan 00 (Wave 0, D-10 delivery mechanism):
+                        // pass currentHostId so the dormant-branch context_pct
+                        // emit ALSO dual-writes into the fleet-status shared
+                        // map alongside the existing WS emission. When
+                        // currentHostId is null (defensive — should never be
+                        // in this context; connectToPane has resolved it),
+                        // pass undefined and the seam skips the dual-write
+                        // silently.
+                        hostId: currentHostId ?? undefined,
                         execCommand,
                         discoverSession: (c, s) => discoverClaudeSession(c as import("ssh2").Client, s),
                         wsSend: (data: string) => {

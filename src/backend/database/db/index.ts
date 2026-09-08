@@ -632,7 +632,7 @@ async function initializeCompleteDatabase(): Promise<void> {
     -- its own DB and its own ignore-list (t1000's admin_rooms rows are
     -- t1000's; T800's are T800's). If Skynet is ever operated multi-tenant
     -- (one DB, multiple Skynet "instances"), this table needs a
-    -- `skynet_instance_id` column added — otherwise different instances'
+    -- 'skynet_instance_id' column added — otherwise different instances'
     -- registry-room IDs would collide in the same table. Phase 89 fixup
     -- L-1 (2026-09-08) documents this constraint.
     --

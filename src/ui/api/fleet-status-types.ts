@@ -213,6 +213,21 @@ export interface SessionState {
   // schema — any change to wire-protocol.ts MUST be mirrored here.
   activityMtime?: number | null;
   stoppedMtime?: number | null;
+  // Phase 90 Plan 00 (Wave 0, 2026-09-08 — D-10 delivery mechanism): per-session
+  // context% (0-100). Populated by subscription-registry at frame-publish time
+  // from the backend contextpct-store shared map, which is dual-written by the
+  // two `context_pct` WS emission sites in claude-session-server.ts.
+  //
+  // Consumed by both PrettyView (D-03 mechanical waiver — swaps
+  // `useState<number|null>` for `useSessionContextPct(hostId, tmuxSession)`)
+  // and the future Plan 06 relay-pane badge appendage. Zero drift risk — the
+  // same agent viewed on either surface reads identical values.
+  //
+  // Semantics: `number` → context% present; `null` → no reading yet (fresh
+  // session, dormant, or SSH hiccup — hold-last discipline applies at the
+  // consumer); `undefined` → emitting backend pre-dates Phase 90 Plan 00,
+  // frontend treats as null. Mirrors backend `SessionStateSchema.contextPct`.
+  contextPct?: number | null;
 }
 
 // ---------------------------------------------------------------------------

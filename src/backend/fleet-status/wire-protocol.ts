@@ -273,6 +273,49 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
+// Phase 90 Plan 00 (Wave 0, 2026-09-08): added `contextPct` as an OPTIONAL,
+// NULLABLE numeric field carrying the per-session context-window fill %
+// (0-100) — the same value PrettyView's compose-box meter reads today.
+//
+// D-10 delivery mechanism (Ashley 2026-09-08 plan-checker resolution): rather
+// than let contextPct live ONLY in PrettyView's local `useState`, it is
+// PROMOTED to a per-session field on fleet-status. Both surfaces subscribe
+// via the frontend hook `useSessionContextPct(hostId, tmuxSession)`:
+//   - PrettyView (D-03 mechanical waiver): swaps `useState<number|null>` for
+//     the hook; the WS `context_pct` frame handler becomes a no-op.
+//   - Plan 06 relay-pane badge appendage (future): the badge meter reads from
+//     the same hook. Same session key format, same source of truth.
+//
+// Source: dual-write from the two existing `context_pct` WS emission sites in
+// `claude-session-server.ts` into a per-session in-memory shared map
+// (`contextpct-store.ts`), read at fleet-status frame publish time
+// (subscription-registry.ts) so every snapshot + update frame carries this
+// field.
+//
+// Semantics:
+//   - number    → context% present (0-100, integer).
+//   - null      → no value known yet for this session (fresh session pre-scrape,
+//                 or dormant → null sentinel, or SSH-hiccup normalised-null).
+//                 Frontend treats null as "no meter reading — hold last known
+//                 value or render nothing" per the existing PrettyView
+//                 hold-last discipline (see PrettyView.tsx L566-569 comment).
+//   - undefined → emitting backend pre-dates Phase 90 Plan 00. Frontend
+//                 consumer treats undefined and null identically at the hook
+//                 boundary. (Same additive-optional discipline as every prior
+//                 extension.)
+//
+// Additive-optional invariant: FRAME_SCHEMA_VERSION deliberately HELD AT 1
+// — seventh iteration of the T-41-03-05 mitigation. Lineage:
+//   Phase 41 lastMessageAt                       → held at 1
+//   Phase 47 aiTitle                             → held at 1
+//   Phase 52 dormant                             → held at 1
+//   Phase 53 recycling                           → held at 1
+//   Phase 59 lastStopAt + lastStatusChangeAt     → held at 1
+//   Phase 62 activityMtime + stoppedMtime        → held at 1
+//   Phase 90 contextPct  (2026-09-08)            → held at 1 (this)
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // Phase 59 Plan 01 (2026-08-29): added `lastStopAt` and `lastStatusChangeAt`
 // as OPTIONAL, NULLABLE numeric fields carrying the two axes that back the
 // WIP-shell-idle-gate predicate on the frontend.
@@ -337,6 +380,12 @@ export const SessionStateSchema = z.object({
   activityMtime: z.number().nullable().optional(),
   // Phase 62 Plan 03 — mtime of the per-session stopped marker (see block comment above).
   stoppedMtime: z.number().nullable().optional(),
+  // Phase 90 Plan 00 (Wave 0, D-10 delivery mechanism) — per-session context %
+  // fill (0-100, integer). Populated by subscription-registry.publishSessionState
+  // + getSnapshot at frame-publish time from the contextpct-store shared map,
+  // which is dual-written by the two `context_pct` WS emission sites in
+  // claude-session-server.ts. See block comment above.
+  contextPct: z.number().nullable().optional(),
 });
 
 export type SessionState = z.infer<typeof SessionStateSchema>;

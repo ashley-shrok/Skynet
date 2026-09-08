@@ -14,6 +14,14 @@ import {
   makeUpdateFrame,
   makeGoneFrame,
 } from "./wire-protocol.js";
+// Phase 90 Plan 00 (Wave 0, 2026-09-08 — D-10 delivery mechanism):
+// contextPct is PROMOTED from PrettyView-local useState to a per-session
+// field on fleet-status. Every SessionState published + every snapshot frame
+// carries the contextPct value read from the shared in-memory map, which is
+// dual-written by the two `context_pct` WS emission sites in
+// claude-session-server.ts (L3219 dormant + L7074 primary timer branch).
+// See contextpct-store.ts docblock for the D-10 correctness invariant.
+import { getContextPct } from "./contextpct-store.js";
 
 type SendFrame = (frame: FrontendOutboundFrameType) => void;
 
@@ -128,8 +136,19 @@ export function createSubscriptionRegistry(): SubscriptionRegistry {
       // Idempotent — Set ignores duplicates by reference
       subscribers.add(sendFrame);
 
-      // Immediately send a snapshot of current state
-      const snapshot = makeSnapshotFrame(Array.from(state.values()));
+      // Immediately send a snapshot of current state.
+      //
+      // Phase 90 Plan 00 (Wave 0, D-10 delivery mechanism): re-stamp
+      // contextPct at snapshot-delivery time so a late-arriving subscriber
+      // sees the CURRENT value, not the value stored at the last
+      // publishSessionState tick. Uses the same store-read the publish path
+      // uses; null when the store has no entry.
+      const snapshot = makeSnapshotFrame(
+        Array.from(state.values()).map((s) => ({
+          ...s,
+          contextPct: getContextPct(s.hostId, s.tmuxSession ?? "") ?? null,
+        })),
+      );
       try {
         sendFrame(snapshot);
       } catch (err) {
@@ -183,8 +202,20 @@ export function createSubscriptionRegistry(): SubscriptionRegistry {
 
     publishSessionState(hostId: string, sessionState: SessionState): void {
       const key = makeKey(hostId, sessionState.tmuxSession);
-      state.set(key, sessionState);
-      fanOut(subscribers, makeUpdateFrame(sessionState));
+      // Phase 90 Plan 00 (Wave 0, D-10 delivery mechanism): stamp contextPct
+      // from the shared in-memory store at publish time. `null` when the
+      // store has no entry OR when the latest stored value is null (dormant
+      // sentinel / cold session). tmuxSession is nullable on the wire; when
+      // null the store lookup uses the empty-string key convention shared
+      // with session-working-store.ts. The stamp is UNCONDITIONAL — every
+      // frame carries the current value, so subscribers see the freshest
+      // contextPct on the very next fleet-status frame after a store write.
+      const stampedState: SessionState = {
+        ...sessionState,
+        contextPct: getContextPct(hostId, sessionState.tmuxSession ?? "") ?? null,
+      };
+      state.set(key, stampedState);
+      fanOut(subscribers, makeUpdateFrame(stampedState));
     },
 
     publishSessionGone(
@@ -207,7 +238,13 @@ export function createSubscriptionRegistry(): SubscriptionRegistry {
     },
 
     getSnapshot(): SessionState[] {
-      return Array.from(state.values());
+      // Phase 90 Plan 00 (Wave 0) — re-stamp contextPct from the shared
+      // store at read time so callers always see the CURRENT value, matching
+      // the fanout semantics of publishSessionState + subscribe's snapshot.
+      return Array.from(state.values()).map((s) => ({
+        ...s,
+        contextPct: getContextPct(s.hostId, s.tmuxSession ?? "") ?? null,
+      }));
     },
 
     onFirstSubscriber(cb: (ctx: { userId: string }) => void): () => void {
