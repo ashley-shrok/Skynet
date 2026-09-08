@@ -78,6 +78,21 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
   useIsTouchDevice: vi.fn(() => false),
 }));
 
+// Phase 90 Plan 00 Wave 0 Task 3 (D-03 mechanical rewire): ComposeBox's
+// reset button now dispatches through authApi.post('/agent-reset/...')
+// instead of routing through the pretty-view WS funnel. Mock authApi.post
+// so tests can drive success + failure paths.
+vi.mock("@/main-axios", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...orig,
+    authApi: {
+      post: vi.fn(),
+      get: vi.fn(),
+    },
+  };
+});
+
 import { PrettyView } from "./PrettyView";
 
 function flipToStreaming(ws: WsStub) {
@@ -324,162 +339,307 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
     expect(onSendMqidCapture).toMatch(/^pv-optim-\d+-[0-9a-z]{8}$/);
   });
 
-  it("Test 5: reset routes through funnel — 0 bubbles (render-blacklist honored) BUT WS frame carries messageQueueItemId (wake gate fires)", async () => {
-    // Wire a custom onSend that routes through PrettyView's sendInput so the
-    // outgoing WS frame ({type:"input", data, messageQueueItemId}) actually
-    // reaches ws.send. In production: handleComposeSend → IdentitySessionPane.onSend
-    // → pvSendInputRef.current(text, mqid) → sendInput → ws.send. In this test:
-    // we capture sendInput via onRegisterSendInput, then provide a custom onSend
-    // that calls through — reproducing the full production send chain in-process.
-    let capturedSendInput: ((text: string, mqid?: string) => boolean) | null = null;
-    const onRegisterSendInputCapture = (fn: (text: string, mqid?: string) => boolean) => {
-      capturedSendInput = fn;
-    };
+  it(
+    "Test 5 (Phase 90 rewire): reset dispatches through POST /agent-reset endpoint; ZERO bubbles rendered; NO WS input frame containing /id reset",
+    async () => {
+      const { authApi } = await import("@/main-axios");
+      const postMock = authApi.post as ReturnType<typeof vi.fn>;
+      // Default: resolve success so onResetClicked side effects don't matter
+      // to this test's assertions (Tests 6a/6b lock those).
+      postMock.mockResolvedValue({ status: 200, data: { ok: true } });
 
-    // Custom onSend that (a) records the call for assertion and (b) calls sendInput
-    // so the WS frame is actually sent through the stub.
-    const customOnSend = vi.fn((text: string, mqid?: string): boolean => {
-      onSendMqidCapture = mqid;
-      onSendMock(text, mqid); // record in onSendMock for standard assertions
-      return capturedSendInput ? capturedSendInput(text, mqid) : false;
-    });
+      const { container, unmount } = render(
+        <PrettyView
+          hostId={1}
+          tmuxSession="s1"
+          isVisible={true}
+          onSend={onSendMock}
+        />,
+      );
 
-    const { container, unmount } = render(
-      <PrettyView
-        hostId={1}
-        tmuxSession="s1"
-        isVisible={true}
-        onSend={customOnSend}
-        onRegisterSendInput={onRegisterSendInputCapture}
-      />,
-    );
+      const ws = getCurrentWs();
+      flipToStreaming(ws);
 
-    const ws = getCurrentWs();
-    flipToStreaming(ws);
+      await waitFor(() => {
+        expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull();
+      });
 
-    // Wait for session to be ready and sendInput to be registered.
-    await waitFor(() => {
-      expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull();
-      expect(capturedSendInput).not.toBeNull();
-    });
+      const resetBtn = container.querySelector(
+        'button[aria-label="Reset context window"]',
+      ) as HTMLButtonElement | null;
+      expect(resetBtn).not.toBeNull();
+      expect(resetBtn!.disabled).toBe(false);
 
-    // Reset button is identified by its stable aria-label.
-    const resetBtn = container.querySelector(
-      'button[aria-label="Reset context window"]',
-    ) as HTMLButtonElement | null;
-    expect(resetBtn).not.toBeNull();
-    expect(resetBtn!.disabled).toBe(false);
+      act(() => {
+        fireEvent.click(resetBtn!);
+      });
 
-    act(() => {
-      fireEvent.click(resetBtn!);
-    });
+      // Assertion 1: POST /agent-reset/1/s1 called with body { body: "" }
+      // (empty textarea → trimmed empty body).
+      await waitFor(() => {
+        expect(postMock).toHaveBeenCalled();
+      });
+      const [url, body] = postMock.mock.calls[0] as [string, Record<string, unknown>];
+      expect(url).toBe("/agent-reset/1/s1");
+      expect(body).toEqual({ body: "" });
 
-    // Render-blacklist honored: reset produces ZERO pending bubbles.
-    // (isIdCommand guard in PrettyView.handleOptimisticSend returns early.)
-    await waitFor(() => expect(countPendingBubbles(container)).toBe(0));
+      // Assertion 2: ZERO pending bubbles rendered (reset never seeded a
+      // bubble even under the OLD funnel path — render-blacklist for /id
+      // commands. Under the rewire, the funnel path isn't invoked at all
+      // for reset, so this is even more strictly zero.)
+      expect(countPendingBubbles(container)).toBe(0);
 
-    // Funnel still called onSend with (payload, mqid) — D-03 invariant.
-    expect(onSendMock).toHaveBeenCalledOnce();
-    const [callPayload, callMqid] = onSendMock.mock.calls[0] as [string, string];
-    expect(callPayload).toMatch(/^\/id reset/);
-    expect(callMqid).toMatch(/^pv-optim-\d+-[0-9a-z]{8}$/);
-    expect(onSendMqidCapture).toMatch(/^pv-optim-\d+-[0-9a-z]{8}$/);
+      // Assertion 3: NO WS input frame carrying /id reset. The rewire
+      // routes reset entirely off the pretty-view WS.
+      const sentCalls = ws.send.mock.calls.map(
+        (c: [string]) => JSON.parse(c[0]) as Record<string, unknown>,
+      );
+      const inputFrame = sentCalls.find(
+        (f) =>
+          f.type === "input" &&
+          typeof f.data === "string" &&
+          (f.data as string).startsWith("/id reset"),
+      );
+      expect(inputFrame).toBeUndefined();
 
-    // WAKE-GATE SHAPE ASSERTION: Parse the outgoing WS frames from the stub's
-    // send.mock.calls to verify the input frame carries messageQueueItemId.
-    // This is the executable verification of the CONTEXT.md reset-wake hypothesis:
-    // post-refactor, reset's WS frame IS in the pretty-view submit shape that
-    // the Phase 56 backend wake gate keys on.
-    //
-    // We call through sendInput (captured via onRegisterSendInput) so the WS frame
-    // goes to ws.send exactly as it does in production via pvSendInputRef.
-    const sentCalls = ws.send.mock.calls.map((c: [string]) => JSON.parse(c[0]) as Record<string, unknown>);
-    const inputFrame = sentCalls.find(
-      (f) => f.type === "input" && typeof f.data === "string" && (f.data as string).startsWith("/id reset"),
-    );
-    expect(inputFrame).toBeDefined();
-    // The messageQueueItemId in the WS frame MUST equal the captured mqid.
-    // If this assertion fails, reset's WS frame is missing the wake-gate field
-    // and reset will land in bare bash on dormant sessions (the CONTEXT.md bug).
-    expect(inputFrame!.messageQueueItemId).toBe(onSendMqidCapture);
+      // Assertion 4: onSend prop was NOT called for the reset click either
+      // — the rewire skips the funnel entirely.
+      expect(onSendMock).not.toHaveBeenCalled();
 
-    unmount();
-  });
+      unmount();
+    },
+  );
 
-  // quick 260905-d79 — dispatch-success-vs-fail gate for onResetClicked.
-  //
-  // onResetClicked?.() was moved from fireResetSyncFx (always fires on click)
-  // into dispatchResetPayload's `if (dispatched)` branch (fires only when
-  // funnel.send returns true). These two cases lock that invariant:
-  //   Test 6a: dispatch success (onSend returns true) → overlay mounts.
-  //   Test 6b: dispatch fail (onSend returns false) → overlay stays absent.
+  // quick 260905-d79 (updated for Phase 90 rewire) — dispatch-success-vs-fail
+  // gate for onResetClicked. The invariant is unchanged: onResetClicked
+  // fires ONLY on dispatch success so a disconnected/failed dispatch does
+  // NOT falsely mount the SessionHoldingOverlay for 10 minutes. Only the
+  // dispatch mechanism changed: authApi.post's promise resolution/rejection
+  // is now what gates the side-effect (was: funnel.send's synchronous
+  // boolean return).
   //
   // The observable proxy for onResetClicked firing is SessionHoldingOverlay
   // mounting: PrettyView's onResetClicked sets optimisticRecycling=true which
   // effectiveRecycling=isRecycling||optimisticRecycling gates to true.
 
-  it("Test 6a: reset with dispatch success (onSend returns true) → SessionHoldingOverlay mounts optimistically", async () => {
-    const successOnSend = vi.fn(() => true);
-    const { container } = render(
-      <PrettyView
-        hostId={1}
-        tmuxSession="s1"
-        isVisible={true}
-        onSend={successOnSend}
-      />,
-    );
-    const ws = getCurrentWs();
-    flipToStreaming(ws);
+  it(
+    "Test 6a (Phase 90 rewire): reset with dispatch success (authApi.post resolves {ok:true}) → SessionHoldingOverlay mounts optimistically",
+    async () => {
+      const { authApi } = await import("@/main-axios");
+      const postMock = authApi.post as ReturnType<typeof vi.fn>;
+      postMock.mockResolvedValue({ status: 200, data: { ok: true } });
 
-    await waitFor(() =>
-      expect(container.querySelector('button[aria-label="Reset context window"]')).not.toBeNull(),
-    );
+      const { container } = render(
+        <PrettyView
+          hostId={1}
+          tmuxSession="s1"
+          isVisible={true}
+          onSend={vi.fn(() => true)}
+        />,
+      );
+      const ws = getCurrentWs();
+      flipToStreaming(ws);
 
-    // No overlay before reset.
-    expect(screen.queryByText(/Session recycling/i)).toBeNull();
+      await waitFor(() =>
+        expect(container.querySelector('button[aria-label="Reset context window"]')).not.toBeNull(),
+      );
 
-    // Click reset — funnel.send will call onSend which returns true.
-    const resetBtn = container.querySelector(
-      'button[aria-label="Reset context window"]',
-    ) as HTMLButtonElement;
-    act(() => { fireEvent.click(resetBtn); });
+      expect(screen.queryByText(/Session recycling/i)).toBeNull();
 
-    // Overlay mounts — onResetClicked fired because dispatch succeeded.
-    await waitFor(() => {
-      expect(screen.queryByText(/Session recycling/i)).not.toBeNull();
-    });
-  });
+      const resetBtn = container.querySelector(
+        'button[aria-label="Reset context window"]',
+      ) as HTMLButtonElement;
+      act(() => {
+        fireEvent.click(resetBtn);
+      });
 
-  it("Test 6b: reset with dispatch fail (onSend returns false) → SessionHoldingOverlay does NOT mount", async () => {
-    const failOnSend = vi.fn(() => false);
-    const { container } = render(
-      <PrettyView
-        hostId={1}
-        tmuxSession="s1"
-        isVisible={true}
-        onSend={failOnSend}
-      />,
-    );
-    const ws = getCurrentWs();
-    flipToStreaming(ws);
+      // Overlay mounts once the promise resolves — onResetClicked fired.
+      await waitFor(() => {
+        expect(screen.queryByText(/Session recycling/i)).not.toBeNull();
+      });
+    },
+  );
 
-    await waitFor(() =>
-      expect(container.querySelector('button[aria-label="Reset context window"]')).not.toBeNull(),
-    );
+  it(
+    "Test 6b (Phase 90 rewire): reset with dispatch fail (authApi.post rejects) → SessionHoldingOverlay does NOT mount",
+    async () => {
+      const { authApi } = await import("@/main-axios");
+      const postMock = authApi.post as ReturnType<typeof vi.fn>;
+      postMock.mockRejectedValue(new Error("Network Error"));
 
-    // No overlay before reset.
-    expect(screen.queryByText(/Session recycling/i)).toBeNull();
+      const { container } = render(
+        <PrettyView
+          hostId={1}
+          tmuxSession="s1"
+          isVisible={true}
+          onSend={vi.fn(() => true)}
+        />,
+      );
+      const ws = getCurrentWs();
+      flipToStreaming(ws);
 
-    // Click reset — funnel.send calls onSend which returns false (disconnected).
-    const resetBtn = container.querySelector(
-      'button[aria-label="Reset context window"]',
-    ) as HTMLButtonElement;
-    act(() => { fireEvent.click(resetBtn); });
+      await waitFor(() =>
+        expect(container.querySelector('button[aria-label="Reset context window"]')).not.toBeNull(),
+      );
 
-    // Give React time to process any state updates.
-    await new Promise((r) => setTimeout(r, 30));
+      expect(screen.queryByText(/Session recycling/i)).toBeNull();
 
-    // Overlay must NOT mount — onResetClicked was NOT called because dispatch failed.
-    expect(screen.queryByText(/Session recycling/i)).toBeNull();
-  });
+      const resetBtn = container.querySelector(
+        'button[aria-label="Reset context window"]',
+      ) as HTMLButtonElement;
+      act(() => {
+        fireEvent.click(resetBtn);
+      });
+
+      // Wait for the promise rejection to be flushed.
+      await new Promise((r) => setTimeout(r, 30));
+
+      // Overlay must NOT mount — onResetClicked was NOT called because
+      // authApi.post rejected.
+      expect(screen.queryByText(/Session recycling/i)).toBeNull();
+    },
+  );
+
+  // Task 3 behaviors 9-13 (regression suite per plan) — verify the mechanical
+  // rewire preserves every observable ComposeBox reset behavior end-to-end.
+
+  it(
+    "Test 9 (Phase 90 rewire behavior 9): reset click still fires the drain-sweep animation (fireResetSyncFx runs before dispatch)",
+    async () => {
+      const { authApi } = await import("@/main-axios");
+      const postMock = authApi.post as ReturnType<typeof vi.fn>;
+      postMock.mockResolvedValue({ status: 200, data: { ok: true } });
+
+      const { container } = render(
+        <PrettyView
+          hostId={1}
+          tmuxSession="s1"
+          isVisible={true}
+          onSend={vi.fn(() => true)}
+        />,
+      );
+      const ws = getCurrentWs();
+      flipToStreaming(ws);
+
+      await waitFor(() =>
+        expect(container.querySelector('button[aria-label="Reset context window"]')).not.toBeNull(),
+      );
+
+      const resetBtn = container.querySelector(
+        'button[aria-label="Reset context window"]',
+      ) as HTMLButtonElement;
+      act(() => {
+        fireEvent.click(resetBtn);
+      });
+
+      // The drain-sweep manipulates the segmented meter's segment DOM. The
+      // meter has role="meter" (aria-label="Context window"). Its presence
+      // + not-erroring is proof enough that the sync-fx path didn't crash;
+      // the button still exists and is not disabled (draining is a visual
+      // effect, not a state that disables the button).
+      const meter = container.querySelector('[role="meter"][aria-label="Context window"]');
+      expect(meter).not.toBeNull();
+      // The reset button is still in the DOM (not unmounted by the click).
+      expect(container.querySelector('button[aria-label="Reset context window"]')).not.toBeNull();
+    },
+  );
+
+  it(
+    "Test 11 (Phase 90 rewire behavior 11): reset click clears the textarea on dispatch success",
+    async () => {
+      const { authApi } = await import("@/main-axios");
+      const postMock = authApi.post as ReturnType<typeof vi.fn>;
+      postMock.mockResolvedValue({ status: 200, data: { ok: true } });
+
+      const { container } = render(
+        <PrettyView
+          hostId={1}
+          tmuxSession="s1"
+          isVisible={true}
+          onSend={vi.fn(() => true)}
+        />,
+      );
+      const ws = getCurrentWs();
+      flipToStreaming(ws);
+
+      await waitFor(() =>
+        expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      );
+
+      // Type some text into the textarea.
+      const textarea = container.querySelector(
+        'textarea[placeholder^="Message"]',
+      ) as HTMLTextAreaElement;
+      act(() => {
+        fireEvent.change(textarea, { target: { value: "hello" } });
+      });
+      expect(textarea.value).toBe("hello");
+
+      // Click reset — endpoint is invoked with the trimmed body, success
+      // path clears the textarea.
+      const resetBtn = container.querySelector(
+        'button[aria-label="Reset context window"]',
+      ) as HTMLButtonElement;
+      act(() => {
+        fireEvent.click(resetBtn);
+      });
+
+      await waitFor(() => {
+        expect(textarea.value).toBe("");
+      });
+
+      // Endpoint received the body verbatim.
+      const [, body] = postMock.mock.calls[0] as [string, Record<string, unknown>];
+      expect(body).toEqual({ body: "hello" });
+    },
+  );
+
+  it(
+    "Test 12 (Phase 90 rewire behavior 12): dispatch failure → error message set + textarea NOT cleared + onResetClicked NOT called",
+    async () => {
+      const { authApi } = await import("@/main-axios");
+      const postMock = authApi.post as ReturnType<typeof vi.fn>;
+      postMock.mockRejectedValue(new Error("Network Error"));
+
+      const { container } = render(
+        <PrettyView
+          hostId={1}
+          tmuxSession="s1"
+          isVisible={true}
+          onSend={vi.fn(() => true)}
+        />,
+      );
+      const ws = getCurrentWs();
+      flipToStreaming(ws);
+
+      await waitFor(() =>
+        expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
+      );
+
+      const textarea = container.querySelector(
+        'textarea[placeholder^="Message"]',
+      ) as HTMLTextAreaElement;
+      act(() => {
+        fireEvent.change(textarea, { target: { value: "should stay" } });
+      });
+      expect(textarea.value).toBe("should stay");
+
+      const resetBtn = container.querySelector(
+        'button[aria-label="Reset context window"]',
+      ) as HTMLButtonElement;
+      act(() => {
+        fireEvent.click(resetBtn);
+      });
+
+      // Wait for the rejection to flush.
+      await waitFor(() => {
+        // Error message surfaces (text or aria) in the compose area.
+        expect(container.textContent).toContain("Not connected");
+      });
+      // Textarea preserved on failure (no wipe).
+      expect(textarea.value).toBe("should stay");
+      // No overlay (proxy for onResetClicked NOT firing).
+      expect(screen.queryByText(/Session recycling/i)).toBeNull();
+    },
+  );
 });

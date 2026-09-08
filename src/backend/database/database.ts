@@ -61,6 +61,12 @@ import composeDraftsRoutes from "./routes/compose-drafts.js";
 // frame → multi-device consistency without client sync.
 import identitySendLogRoutes from "../fleet-status/identity-send-log-routes.js";
 import sessionsRoutes from "./routes/sessions.js";
+// Phase 90 Plan 00 Wave 0 Task 3 — /agent-reset/:hostId/:tmuxSessionName
+// endpoint. Dispatches /id reset via a one-shot SSH + tmux send-keys, the
+// SAME input path PrettyView's compose-box reset button uses today (post-
+// swap in Task 3). Matching nginx location blocks land in BOTH
+// docker/nginx.conf AND docker/nginx-https.conf per CLAUDE.md nginx caveat.
+import agentResetRoutes from "./routes/agent-reset.js";
 import userPreferencesRoutes from "./routes/user-preferences.js";
 import debugRoutes from "./routes/debug.js";
 import voiceRoutes from "./routes/voice.js";
@@ -1919,6 +1925,10 @@ app.use("/message-queue", messageQueueRoutes);
 app.use("/compose-drafts", composeDraftsRoutes);
 app.use("/identity-send-log", identitySendLogRoutes);
 app.use("/sessions", sessionsRoutes);
+// Phase 90 Plan 00 Wave 0 Task 3 — POST /agent-reset/:hostId/:tmuxSessionName.
+// Nginx dual-update required (see CLAUDE.md nginx caveat) — location blocks
+// added in BOTH docker/nginx.conf AND docker/nginx-https.conf.
+app.use("/agent-reset", agentResetRoutes);
 app.use("/user-preferences", userPreferencesRoutes);
 // RELAYBUB-04 (Phase 17): /relay-pointer needs matching location blocks in BOTH docker/nginx.conf
 // AND docker/nginx-https.conf — see CLAUDE.md nginx caveat. Handler uses head -c bounded remote

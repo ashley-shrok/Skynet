@@ -34,7 +34,22 @@ vi.mock("@/api/compose-drafts-api", () => ({
   flushComposeDraftKeepalive: vi.fn(),
 }));
 
+// Phase 90 Plan 00 Wave 0 Task 3 (D-03 mechanical rewire): ComposeBox's
+// dispatchResetPayload now uses authApi.post — mock it so voice tests can
+// drive success/failure of the reset-while-recording flow.
+vi.mock("@/main-axios", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...orig,
+    authApi: {
+      post: vi.fn().mockResolvedValue({ status: 200, data: { ok: true } }),
+      get: vi.fn(),
+    },
+  };
+});
+
 import { ComposeBox } from "./ComposeBox";
+import { authApi } from "@/main-axios";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -492,17 +507,25 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     const resetBtn = screen.getByRole("button", { name: "Reset context window" });
     fireEvent.click(resetBtn);
 
-    // quick 260905-d79: onResetClicked now fires on dispatch SUCCESS (inside
-    // dispatchResetPayload's `if (dispatched)` branch) — not sync-on-click —
-    // so a disconnected socket doesn't falsely mount the overlay. Still fires
-    // after the endSend round-trip resolves and the funnel dispatch succeeds.
-    // onSend fires with the glued payload after endSend resolves.
+    // quick 260905-d79 (updated Phase 90 rewire): onResetClicked now fires
+    // on dispatch SUCCESS from the authApi.post promise resolution (inside
+    // dispatchResetPayload's .then(ok) branch) — not sync-on-click, so a
+    // rejected HTTP dispatch doesn't falsely mount the overlay. Fires after
+    // endSend resolves + authApi.post resolves with {ok:true}.
+    //
+    // Phase 90 Plan 00 Wave 0 Task 3: dispatchResetPayload now hits the
+    // /agent-reset endpoint. The endpoint receives the trimmed body; the
+    // server-side constructs the "/id reset (<body>)" payload. Assertion
+    // rewritten to check the endpoint call params instead of onSend.
+    const postMock = authApi.post as ReturnType<typeof vi.fn>;
     await waitFor(() => {
-      // Phase 68 Plan 02: dispatchResetPayload now routes through the funnel
-      // so reset carries an mqid (D-03 invariant — backend Phase 56 wake gate
-      // fires on dormant reset like main-textarea sends).
-      expect(onSend).toHaveBeenCalledWith("/id reset (hi there and one more thing)", expect.stringMatching(/^pv-optim-/));
+      expect(postMock).toHaveBeenCalledWith(
+        "/agent-reset/1/s1",
+        { body: "hi there and one more thing" },
+      );
     });
+    // onSend must NOT have been called for the reset (routes off the funnel).
+    expect(onSend).not.toHaveBeenCalled();
     expect(onResetClicked).toHaveBeenCalled();
 
     // Textarea cleared after successful dispatch.
@@ -544,16 +567,20 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     const resetBtn = screen.getByRole("button", { name: "Reset context window" });
     fireEvent.click(resetBtn);
 
-    // KEY assertion: onSend fires with the EXISTING textarea body — NOT
-    // plain "/id reset", NOT a silent no-op.
+    // KEY assertion: reset dispatches with the EXISTING textarea body —
+    // NOT plain "/id reset", NOT a silent no-op. Under Phase 90 rewire the
+    // endpoint receives the body verbatim; the server builds the "/id reset
+    // (<body>)" payload from it.
+    const postMock = authApi.post as ReturnType<typeof vi.fn>;
     await waitFor(() => {
-      // Phase 68 Plan 02: dispatchResetPayload now routes through the funnel
-      // so reset carries an mqid (D-03 invariant — backend Phase 56 wake gate
-      // fires on dormant reset like main-textarea sends).
-      expect(onSend).toHaveBeenCalledWith("/id reset (existing body)", expect.stringMatching(/^pv-optim-/));
+      expect(postMock).toHaveBeenCalledWith(
+        "/agent-reset/1/s1",
+        { body: "existing body" },
+      );
     });
-    // quick 260905-d79: onResetClicked now fires on dispatch SUCCESS (inside
-    // dispatchResetPayload's `if (dispatched)` branch) — not sync-on-click.
+    expect(onSend).not.toHaveBeenCalled();
+    // quick 260905-d79: onResetClicked fires on dispatch SUCCESS from
+    // authApi.post's promise resolution.
     expect(onResetClicked).toHaveBeenCalled();
   });
 

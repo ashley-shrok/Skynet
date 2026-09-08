@@ -10,6 +10,14 @@ import {
   putComposeDraft,
 } from "@/api/compose-drafts-api";
 import { stampIdentitySendLog } from "@/api/identity-send-log-api";
+// Phase 90 Plan 00 Wave 0 Task 3 (D-03 mechanical rewire, Ashley 2026-09-08):
+// the reset button dispatches through the new backend `/agent-reset/:hostId/
+// :tmuxSessionName` endpoint instead of routing through the pretty-view WS
+// funnel. Same behavior end-to-end (drain-sweep + text-clear + onResetClicked
+// + error-message discipline PRESERVED verbatim) — only the dispatch call
+// target changes. Plan 06's relay-pane badge appendage will hit the SAME
+// endpoint as a first-class caller (single seam for both surfaces).
+import { authApi } from "@/main-axios";
 import { publishSessionQueuePending } from "@/state/session-queue-pending-store";
 import { seedSessionLastMessageAt } from "@/state/session-working-store";
 import { AttachmentChipStrip, type StagedAttachmentLike } from "./AttachmentChipStrip";
@@ -1864,27 +1872,67 @@ export function ComposeBox({
 
   // Payload construction + dispatch tail. Body is the raw textarea/glued
   // string; trim + collapse mirror the pre-refactor behavior exactly.
+  //
+  // Phase 90 Plan 00 Wave 0 Task 3 (D-03 mechanical rewire, Ashley
+  // 2026-09-08): the dispatch call target changed from `funnel.send` (which
+  // routed through the pretty-view WS) to `authApi.post('/agent-reset/…')`
+  // (which routes through the new backend endpoint that opens a one-shot
+  // SSH + dispatches the same `tmux send-keys` split-send the WS path
+  // does). Every OTHER observable is PRESERVED verbatim:
+  //   - fireResetSyncFx already fired at the caller (drain-sweep +
+  //     text-clear are unconditional-on-click affordances, unchanged).
+  //   - onResetClicked STILL fires on dispatch SUCCESS ONLY (quick
+  //     260905-d79 invariant — a disconnected/failed dispatch does NOT
+  //     falsely mount the overlay for 10 minutes).
+  //   - setText("") + clearAfterSend STILL fire on dispatch success.
+  //   - "Not connected — try again in a moment" error message STILL surfaces
+  //     on dispatch failure.
+  // The endpoint constructs the `/id reset (<body>)` payload server-side
+  // from the optional body — we pass the trimmed body verbatim.
+  //
+  // NB: this function's contract shifts from synchronous (funnel.send
+  // returns bool) to fire-and-forget-async (authApi.post returns Promise).
+  // Callers (handleResetSend, handleVoiceResetSend) don't await this — the
+  // observable UX affordances all resolve inside the .then/.catch. Same
+  // shape the AttachmentChipStrip's onSendWithAttachments path already uses.
   function dispatchResetPayload(body: string) {
     const trimmed = body.trim();
-    const payload = trimmed
-      ? `/id reset (${collapseNewlinesForSend(trimmed)})`
-      : "/id reset";
-    // Phase 68 Plan 02: route through the funnel so reset carries an mqid
-    // (D-03 invariant — backend Phase 56 wake gate fires on dormant reset
-    // just like main-textarea sends). Render-blacklist is honored downstream
-    // in PrettyView.handleOptimisticSend (Task 3) — funnel always generates
-    // the mqid regardless of whether the bubble will render.
-    const dispatched = funnel.send(payload, { trigger: "reset" });
-    if (dispatched) {
-      // quick 260905-d79: onResetClicked fires on dispatch SUCCESS only — not
-      // on click — so a disconnected socket (funnel.send returns false) does
-      // not falsely mount the optimistic overlay for 10 minutes.
-      onResetClicked?.();
-      setText("");
-      clearAfterSend();
-    } else {
-      setErrorMessage("Not connected — try again in a moment");
+    // Phase 85 send-log parity (preserved across the Phase 90 rewire): the
+    // OLD funnel-based dispatch fired stampIdentitySendLog + seedSession
+    // LastMessageAt inside useComposeSend BEFORE onSend was called. The
+    // rewire routes reset off the funnel so we call the same two primitives
+    // directly here to preserve behavior for the row-recency signal on
+    // Ashley's device (D-06 optimistic-advance). Same guards as
+    // useComposeSend (identityName + tmuxSession must both be present).
+    if (identityName != null && identityName !== "" && tmuxSession != null) {
+      const stampTs = Date.now();
+      stampIdentitySendLog(identityName, stampTs);
+      seedSessionLastMessageAt(hostId, tmuxSession, stampTs);
     }
+    authApi
+      .post(
+        `/agent-reset/${hostId}/${encodeURIComponent(tmuxSession ?? "")}`,
+        { body: trimmed },
+      )
+      .then((response) => {
+        // 200 + {ok:true} → dispatch succeeded; run success-path effects.
+        // Any other shape → surface the not-connected error message (matches
+        // pre-rewire dispatched=false semantics).
+        const okShape =
+          response?.data &&
+          typeof response.data === "object" &&
+          (response.data as { ok?: unknown }).ok === true;
+        if (okShape) {
+          onResetClicked?.();
+          setText("");
+          clearAfterSend();
+        } else {
+          setErrorMessage("Not connected — try again in a moment");
+        }
+      })
+      .catch(() => {
+        setErrorMessage("Not connected — try again in a moment");
+      });
   }
 
   function handleResetSend() {

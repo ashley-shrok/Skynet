@@ -78,6 +78,21 @@ vi.mock("@/api/compose-drafts-api", () => ({
   flushComposeDraftKeepalive: vi.fn(),
 }));
 
+// Phase 90 Plan 00 Wave 0 Task 3 (D-03 mechanical rewire): reset now
+// dispatches through authApi.post — mock it success-by-default so tests
+// D1/D2/D3 continue driving the optimistic overlay via the same async
+// success path.
+vi.mock("@/main-axios", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...orig,
+    authApi: {
+      post: vi.fn().mockResolvedValue({ status: 200, data: { ok: true } }),
+      get: vi.fn(),
+    },
+  };
+});
+
 const useSessionIdentityMock = vi.fn(() => ({
   identity: null as unknown,
   identityHue: null as number | null,
@@ -558,10 +573,23 @@ describe("PrettyView — quick 260905-d79 optimistic session-recycling overlay",
     ) as HTMLButtonElement | null;
     expect(resetBtn).not.toBeNull();
 
-    // Click reset — optimistic slot set + 10-min self-clear timer armed.
+    // Click reset — under Phase 90 rewire this fires an authApi.post; the
+    // optimistic slot is set inside the .then() handler when the promise
+    // resolves with {ok:true}. Under fake timers, the promise still
+    // resolves via microtask flush — need an explicit await + advance to
+    // let the .then chain complete.
     act(() => { fireEvent.click(resetBtn!); });
 
-    // Overlay must be mounted immediately (synchronous state update).
+    // Flush pending microtasks (the authApi.post promise resolution) —
+    // vi.useFakeTimers doesn't block microtasks by default, but an
+    // explicit yield + timer-tick ensures the .then runs before assertion.
+    await act(async () => {
+      // Yield the microtask queue.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Overlay must be mounted after the promise resolves.
     expect(screen.queryByText(/Session recycling/i)).not.toBeNull();
 
     // Advance fake timers by 10 minutes + 1 ms — setTimeout callback fires,
