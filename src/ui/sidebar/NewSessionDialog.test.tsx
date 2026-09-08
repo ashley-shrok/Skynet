@@ -13,6 +13,38 @@
 // receives hostTree as a prop). react-i18next is mocked to a passthrough
 // t(key, {defaultValue}) — matches the fork's existing test idiom
 // (PrettyView.test.tsx pattern: mock the dep, keep tests fast and hermetic).
+//
+// ─── Phase 86 (Plan 86-06 test-side alignment) ─────────────────────────────
+// Plan 86-04 stripped cosmetic UI (title text input, brief textarea, voice
+// picker, color picker, entire avatar generator + upload section) from the
+// identity-mode branch of NewSessionDialog. This test file's cosmetic-
+// specific coverage has been removed accordingly:
+//
+//   Test F: rewritten — asserts the current identity-mode field cluster
+//     (Task textarea, Name input, Role dropdown) rather than the deleted
+//     title/brief/voice/color/avatar UI.
+//   Test G: rewritten — Create enables on name + role + host (no more
+//     cosmetic gates).
+//   Test L, M, N, O, P, Q: DELETED — the batch-generate call and the
+//     candidate carousel are gone.
+//   Test R: rewritten — the onCreate payload no longer carries title /
+//     brief / voice / colorHue / avatarCandidateId (per Plan 86-04's
+//     NewSessionOnCreateOpts identityMode:true variant).
+//   Test T: DELETED — the brief field it targeted no longer exists.
+//   Test U: rewritten — resets no longer include title/brief.
+//   RTL-01, RTL-02, RTL-03: DELETED — manual avatar upload UI is gone.
+//   fillIdentityFormAndPick helper: renamed to fillIdentityForm, no longer
+//     touches title/brief/generate/pick — just fills name + role.
+//
+// PRESERVED (non-cosmetic identity-mode surface):
+//   Tests A-D — path field + identity-mode checkbox.
+//   Test E — asserts cosmetic controls are absent when identity-mode OFF
+//     (they are absent in all modes now — the queryByLabelText checks still
+//     hold trivially).
+//   Test H, I, J, K — name field, collision precheck.
+//   Test S — identity-mode OFF onCreate payload.
+//   Tests V-GG — birth stream lifecycle (still runs; request body just
+//     carries fewer fields).
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, waitFor, screen } from "@testing-library/react";
@@ -27,10 +59,8 @@ vi.mock("react-i18next", () => ({
 
 // Mock identities-api for new identity-mode tests
 const mockListIdentities = vi.fn().mockResolvedValue([]);
-const mockPostGenerateAvatarBatch = vi.fn();
 const mockGetIdentityExistsOnHost = vi.fn().mockResolvedValue(false);
 const mockOpenBirthStream = vi.fn();
-const mockPostManualAvatarCandidate = vi.fn();
 // Phase 22 SRIC-02: listRolesForHost is now called on every host select in
 // identity-mode. Default to a single role so identity-mode tests can pick it
 // via the dropdown; tests that turn identity-mode OFF are unaffected because
@@ -47,16 +77,18 @@ const mockPickPoolName = vi.fn().mockRejectedValue(
   new Error("pickPoolName not exercised in this test file"),
 );
 
+// Phase 86 Plan 86-04: the avatar batch/manual-upload API consumers +
+// AvatarCandidate type were deleted from NewSessionDialog.tsx along with
+// the cosmetic UI. Do NOT re-mock them here — Plan 86-06 owns the deletion
+// of the tests that exercised them.
 vi.mock("@/api/identities-api", async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
   return {
     ...orig,
     listIdentities: (...args: unknown[]) => mockListIdentities(...args),
-    postGenerateAvatarBatch: (...args: unknown[]) => mockPostGenerateAvatarBatch(...args),
     getIdentityExistsOnHost: (...args: unknown[]) => mockGetIdentityExistsOnHost(...args),
     openBirthStream: (...args: unknown[]) => mockOpenBirthStream(...args),
     listRolesForHost: (...args: unknown[]) => mockListRolesForHost(...args),
-    postManualAvatarCandidate: (...args: unknown[]) => mockPostManualAvatarCandidate(...args),
     pickPoolName: (...args: unknown[]) => mockPickPoolName(...args),
   };
 });
@@ -71,7 +103,11 @@ async function* createMockStream(events: Array<{type: string; n?: number; phase?
   }
 }
 
-// Mock voice-api so VoicePicker doesn't make real network calls
+// Phase 86 Plan 86-06: voice-api mock retained — the identity-birth cluster
+// no longer renders a VoicePicker, but PrettyConversationsPanel (rendered by
+// Test 10) transitively pulls in VoicePicker via IdentityBadge → IdentityChip
+// → IdentityRow via the identities-store. Keeping the mock inert prevents an
+// accidental real-fetch on Test 10's render tree.
 vi.mock("@/api/voice-api", () => ({
   SAMPLE_PHRASE: "Hi, this is your voice.",
   getVoices: vi.fn().mockResolvedValue([
@@ -497,7 +533,9 @@ describe("PrettyConversationsPanel: header pencil renders before rows", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 20 Plan 05: Extended NewSessionDialog tests (Tests A-U)
-// Identity-mode field cluster, path field, collision checks, avatar batch
+// Identity-mode field cluster, path field, collision checks.
+// Phase 86 Plan 86-04: cosmetic UI (title/brief/voice/color/avatar) stripped;
+// only Task + Name + Role remain in the identity-mode cluster.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Helper: render dialog with identity-mode capable component
@@ -589,86 +627,74 @@ describe("NewSessionDialog: Test D — identity-mode defaults ON", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test E: identity-mode OFF hides birth-field cluster
+// Phase 86 Plan 86-04: cosmetic UI (title, brief, voice, color) is now
+// removed entirely in identity-mode too; the test's absent-when-OFF
+// assertion remains valid but trivially so. Preserved as a regression
+// guard against a future accidental re-introduction.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test E — identity-mode OFF hides birth fields", () => {
-  it("Test E: unchecking identity-mode → title/brief/avatar/voice/color absent from DOM", () => {
-    const { getByRole, queryByLabelText, queryByRole } = renderDialog();
+  it("Test E: unchecking identity-mode → identity-cluster fields (task, name, role, cosmetic residue) all absent from DOM", () => {
+    const { getByRole, queryByLabelText } = renderDialog();
     const checkbox = getByRole("checkbox", { name: /create with new identity/i });
     fireEvent.click(checkbox);
-    // Birth fields should be gone
+    // Identity-cluster fields gone
+    expect(queryByLabelText(/^task$/i)).toBeNull();
+    expect(queryByLabelText(/^role$/i)).toBeNull();
+    // Phase 86 Plan 86-04: title / brief / voice / color / avatar generate are
+    // never rendered anymore — assert their absence as a regression guard.
     expect(queryByLabelText(/^title$/i)).toBeNull();
     expect(queryByLabelText(/^brief$/i)).toBeNull();
-    expect(queryByRole("combobox", { name: /voice/i })).toBeNull();
-    // Avatar generate button gone
-    expect(queryByRole("button", { name: /generate/i })).toBeNull();
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test F: identity-mode ON reveals birth fields
+// Test F: identity-mode ON reveals current birth-field cluster
+// Phase 86 Plan 86-04: cluster reduced to Task + Name + Role (post host-pick).
+// The old cosmetic fields (title, brief, voice, color, avatar) are DELETED
+// from source — those assertions have been removed.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test F — identity-mode ON reveals birth fields", () => {
-  it("Test F: default (identity-mode ON) → title, brief, avatar generate, voice, color present", () => {
-    const { getByLabelText, getByRole } = renderDialog();
-    expect(getByLabelText(/^title$/i)).toBeTruthy();
-    expect(getByLabelText(/^brief$/i)).toBeTruthy();
-    expect(getByRole("button", { name: /generate/i })).toBeTruthy();
-    // Voice picker (combobox/select)
-    expect(getByRole("combobox")).toBeTruthy();
-    // Color picker (range input)
-    expect(getByRole("slider")).toBeTruthy();
+  it("Test F: default (identity-mode ON) + host picked → task, name, role dropdown present; cosmetic controls (title/brief/voice/color/generate) absent", async () => {
+    const { getByLabelText, queryByLabelText, queryByRole } = renderDialog();
+    // Pick a host so the role dropdown wrap renders (host-gated per L983).
+    fireEvent.click(screen.getByText("alpha"));
+    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
+
+    // Current identity-mode fields
+    expect(getByLabelText(/^task$/i)).toBeTruthy();
+    expect(getByLabelText(/^name$/i)).toBeTruthy();
+    expect(getByLabelText(/^role$/i)).toBeTruthy();
+
+    // Phase 86 Plan 86-04: cosmetic controls are deleted from source. Assert
+    // their absence as a regression guard against accidental re-introduction.
+    expect(queryByLabelText(/^title$/i)).toBeNull();
+    expect(queryByLabelText(/^brief$/i)).toBeNull();
+    expect(queryByRole("button", { name: /^generate$/i })).toBeNull();
+    expect(queryByRole("button", { name: /upload avatar/i })).toBeNull();
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test G: name field valid chars + all requirements met enables Create
+// Test G: name + role + host → Create enabled
+// Phase 86 Plan 86-04: cosmetic gates (title / brief / avatar-picked) removed
+// from canOpen; identity-mode Create enables on host + valid name + role.
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test G — valid name + all requirements enables Create", () => {
-  it("Test G: fill name/title/brief/pick avatar → Create enabled", async () => {
-    mockPostGenerateAvatarBatch.mockResolvedValueOnce([
-      { id: "c1", url: "/identities/avatar/candidate/c1" },
-      { id: "c2", url: "/identities/avatar/candidate/c2" },
-      { id: "c3", url: "/identities/avatar/candidate/c3" },
-    ]);
-    const { getByLabelText, getByRole, getByText } = renderDialog();
-    // Select host
-    fireEvent.click(getByText("alpha"));
-    // Phase 22 SRIC-02: wait for role dropdown, pick a role
+describe("NewSessionDialog: Test G — name + role + host enables Create", () => {
+  it("Test G: pick host, pick role, fill valid name → Create enabled", async () => {
+    const { getByLabelText, getByRole } = renderDialog();
+    fireEvent.click(screen.getByText("alpha"));
+    // Wait for role dropdown, pick the mocked role.
     await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
     fireEvent.change(getByLabelText(/^role$/i), {
       target: { value: "box-maintainer" },
     });
-    // Fill name
+    // Fill name.
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
-    // Fill title
-    fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Test" } });
-    // Fill brief
-    fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "a brief" } });
-    // Generate avatars
-    fireEvent.click(getByRole("button", { name: /generate/i }));
-    // Wait for candidates
+
     await waitFor(() => {
-      expect(document.querySelectorAll("img").length).toBeGreaterThanOrEqual(1);
+      const createBtn = getByRole("button", { name: /^(open|create)$/i }) as HTMLButtonElement;
+      expect(createBtn.disabled).toBe(false);
     });
-    // Pick first candidate
-    const candidateButtons = document.querySelectorAll("[data-candidate-id]");
-    if (candidateButtons.length > 0) {
-      fireEvent.click(candidateButtons[0]);
-    } else {
-      const imgs = document.querySelectorAll("img");
-      if (imgs.length > 0) fireEvent.click(imgs[0].closest("button") ?? imgs[0]);
-    }
-    await waitFor(
-      () => {
-        const createBtn = getByRole("button", { name: /^(open|create)$/i }) as HTMLButtonElement;
-        expect(createBtn.disabled).toBe(false);
-      },
-      // Flake fix (2026-08-28): under full-suite parallel load the mocked-
-      // avatar → state-update → re-render chain occasionally exceeded the
-      // 1000ms vitest default. Standalone the test passes in <1s. Matches
-      // the { timeout: 2000 } convention already used in Test I below.
-      { timeout: 5000 },
-    );
   });
 });
 
@@ -758,182 +784,20 @@ describe("NewSessionDialog: Test K — collision clears when name changes", () =
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Test L: Generate calls postGenerateAvatarBatch with {name,title,brief}
-// ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test L — Generate calls postGenerateAvatarBatch", () => {
-  it("Test L: fill name+title+brief, click Generate → postGenerateAvatarBatch called with exact values", async () => {
-    mockPostGenerateAvatarBatch.mockResolvedValueOnce([
-      { id: "c1", url: "/c/c1" }, { id: "c2", url: "/c/c2" }, { id: "c3", url: "/c/c3" },
-    ]);
-    const { getByLabelText, getByRole } = renderDialog();
-    fireEvent.change(getByLabelText(/^name$/i), { target: { value: "myagent" } });
-    fireEvent.change(getByLabelText(/^title$/i), { target: { value: "My Agent" } });
-    fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "An AI agent" } });
-    fireEvent.click(getByRole("button", { name: /generate/i }));
-    expect(mockPostGenerateAvatarBatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: "myagent",
-        title: "My Agent",
-        brief: "An AI agent",
-      }),
-    );
-  });
-});
+// ─── Test L / Test M / Test N / Test O / Test P / Test Q ──────────────────
+// Phase 86 Plan 86-06: DELETED. These tests exercised the identity-mode
+// avatar generator UI (batch-generate call, candidate carousel,
+// candidate-pick gate). Plan 86-04 stripped that UI from source per
+// D-CTX-86-surface-4 — the tests targeted behavior that no longer exists.
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test M: Generate button disabled during in-flight, re-enabled after resolve/reject
-// ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test M — Generate disabled during in-flight", () => {
-  it("Test M: button becomes disabled during batch request, re-enables on resolve", async () => {
-    let resolvePromise!: (v: { id: string; url: string }[]) => void;
-    mockPostGenerateAvatarBatch.mockReturnValueOnce(
-      new Promise<{ id: string; url: string }[]>((res) => { resolvePromise = res; })
-    );
-    const { getByLabelText, getByRole } = renderDialog();
-    fireEvent.change(getByLabelText(/^name$/i), { target: { value: "agent1" } });
-    fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Title" } });
-    fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "brief" } });
-    const genBtn = getByRole("button", { name: /generate/i }) as HTMLButtonElement;
-    fireEvent.click(genBtn);
-    // Button should be disabled while in-flight
-    await waitFor(() => expect(genBtn.disabled).toBe(true));
-    // Resolve the batch
-    resolvePromise([{ id: "c1", url: "/c/c1" }, { id: "c2", url: "/c/c2" }, { id: "c3", url: "/c/c3" }]);
-    await waitFor(() => expect(genBtn.disabled).toBe(false));
-  });
-
-  it("Test M (reject): button re-enabled AND inline error rendered on batch failure", async () => {
-    mockPostGenerateAvatarBatch.mockRejectedValueOnce(new Error("generation failed"));
-    const { getByLabelText, getByRole } = renderDialog();
-    fireEvent.change(getByLabelText(/^name$/i), { target: { value: "agent1" } });
-    fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Title" } });
-    fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "brief" } });
-    const genBtn = getByRole("button", { name: /generate/i }) as HTMLButtonElement;
-    fireEvent.click(genBtn);
-    await waitFor(() => expect(genBtn.disabled).toBe(false));
-    expect(screen.queryByText(/generation failed/i) ?? screen.queryByText(/error/i)).toBeTruthy();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test N: Regen re-fires with current inputs
-// ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test N — Regen re-fires with current inputs", () => {
-  it("Test N: after first batch, edit brief, click Regenerate → postGenerateAvatarBatch called with new brief", async () => {
-    mockPostGenerateAvatarBatch
-      .mockResolvedValueOnce([{ id: "c1", url: "/c/c1" }, { id: "c2", url: "/c/c2" }, { id: "c3", url: "/c/c3" }])
-      .mockResolvedValueOnce([{ id: "d1", url: "/c/d1" }, { id: "d2", url: "/c/d2" }, { id: "d3", url: "/c/d3" }]);
-    const { getByLabelText, getByRole } = renderDialog();
-    fireEvent.change(getByLabelText(/^name$/i), { target: { value: "myagent" } });
-    fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Agent" } });
-    fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "original brief" } });
-    // First generate
-    fireEvent.click(getByRole("button", { name: /generate/i }));
-    await waitFor(() => expect(mockPostGenerateAvatarBatch).toHaveBeenCalledTimes(1));
-    // Edit brief
-    fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "updated brief" } });
-    // Regenerate
-    fireEvent.click(getByRole("button", { name: /regenerate/i }));
-    await waitFor(() => expect(mockPostGenerateAvatarBatch).toHaveBeenCalledTimes(2));
-    expect(mockPostGenerateAvatarBatch.mock.calls[1][0].brief).toBe("updated brief");
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test O: 3 candidates render as pickable buttons after batch resolves
-// ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test O — 3 candidates render horizontally", () => {
-  it("Test O: batch resolves with 3 candidates → 3 img elements each inside a button", async () => {
-    mockPostGenerateAvatarBatch.mockResolvedValueOnce([
-      { id: "c1", url: "/c/c1" },
-      { id: "c2", url: "/c/c2" },
-      { id: "c3", url: "/c/c3" },
-    ]);
-    const { getByLabelText, getByRole } = renderDialog();
-    fireEvent.change(getByLabelText(/^name$/i), { target: { value: "myagent" } });
-    fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Title" } });
-    fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "brief" } });
-    fireEvent.click(getByRole("button", { name: /generate/i }));
-    await waitFor(() => {
-      const imgs = document.querySelectorAll("img");
-      expect(imgs.length).toBe(3);
-    });
-    // Each img is inside a button
-    document.querySelectorAll("img").forEach((img) => {
-      expect(img.closest("button")).toBeTruthy();
-    });
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test P: clicking a candidate picks it (marks selected)
-// ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test P — clicking candidate picks it", () => {
-  it("Test P: click candidate 0 → aria-selected='true'; click candidate 2 → 0 deselected, 2 selected", async () => {
-    mockPostGenerateAvatarBatch.mockResolvedValueOnce([
-      { id: "c1", url: "/c/c1" },
-      { id: "c2", url: "/c/c2" },
-      { id: "c3", url: "/c/c3" },
-    ]);
-    const { getByLabelText, getByRole } = renderDialog();
-    fireEvent.change(getByLabelText(/^name$/i), { target: { value: "myagent" } });
-    fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Title" } });
-    fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "brief" } });
-    fireEvent.click(getByRole("button", { name: /generate/i }));
-    await waitFor(() => expect(document.querySelectorAll("img").length).toBe(3));
-    const imgs = Array.from(document.querySelectorAll("img"));
-    const btn0 = imgs[0].closest("button") as HTMLElement;
-    const btn2 = imgs[2].closest("button") as HTMLElement;
-    fireEvent.click(btn0);
-    expect(btn0.getAttribute("aria-selected")).toBe("true");
-    fireEvent.click(btn2);
-    expect(btn2.getAttribute("aria-selected")).toBe("true");
-    expect(btn0.getAttribute("aria-selected")).not.toBe("true");
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test Q: Create disabled without picked avatar (identity-mode ON)
-// ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test Q — Create disabled without avatar pick", () => {
-  it("Test Q: everything valid but no candidate picked → Create disabled; pick one → enabled", async () => {
-    mockPostGenerateAvatarBatch.mockResolvedValueOnce([
-      { id: "c1", url: "/c/c1" }, { id: "c2", url: "/c/c2" }, { id: "c3", url: "/c/c3" },
-    ]);
-    const { getByLabelText, getByRole } = renderDialog();
-    fireEvent.click(screen.getByText("alpha"));
-    // Phase 22 SRIC-02: pick a role
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
-    fireEvent.change(getByLabelText(/^role$/i), {
-      target: { value: "box-maintainer" },
-    });
-    fireEvent.change(getByLabelText(/^name$/i), { target: { value: "agent1" } });
-    fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Title" } });
-    fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "brief" } });
-    // Generate batch
-    fireEvent.click(getByRole("button", { name: /generate/i }));
-    await waitFor(() => expect(document.querySelectorAll("img").length).toBe(3));
-    // Create should still be disabled (no pick yet)
-    const createBtn = getByRole("button", { name: /^(open|create)$/i }) as HTMLButtonElement;
-    expect(createBtn.disabled).toBe(true);
-    // Pick a candidate
-    const imgs = Array.from(document.querySelectorAll("img"));
-    fireEvent.click(imgs[0].closest("button") as HTMLElement);
-    await waitFor(() => expect(createBtn.disabled).toBe(false));
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test R: onCreate payload when identity-mode ON contains all birth fields
-// Plan 06 note: Create now starts a birth stream (identity-mode ON).
-// onCreate is called on successful stream completion (ended: ok:true).
+// Test R: onCreate payload when identity-mode ON — Phase 86 Plan 86-04 shape
+// Plan 06 note: Create starts a birth stream (identity-mode ON). onCreate
+// fires on successful stream completion (ended: ok:true) with a narrowed
+// payload — no title / brief / voice / colorHue / avatarCandidateId.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test R — onCreate payload with identity-mode ON", () => {
-  it("Test R: Create with fully valid identity-mode ON form → onCreate called with all birth fields after successful birth", async () => {
-    mockPostGenerateAvatarBatch.mockResolvedValueOnce([
-      { id: "c1", url: "/c/c1" }, { id: "c2", url: "/c/c2" }, { id: "c3", url: "/c/c3" },
-    ]);
+  it("Test R: Create with fully valid identity-mode ON form → onCreate called with narrowed payload (no cosmetic fields) after successful birth", async () => {
     mockListIdentities.mockResolvedValue([]);
     mockGetIdentityExistsOnHost.mockResolvedValue(false);
     // Mock birth stream: immediate success
@@ -949,12 +813,6 @@ describe("NewSessionDialog: Test R — onCreate payload with identity-mode ON", 
       target: { value: "box-maintainer" },
     });
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
-    fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Alicia Agent" } });
-    fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "A brief description" } });
-    fireEvent.click(getByRole("button", { name: /generate/i }));
-    await waitFor(() => expect(document.querySelectorAll("img").length).toBe(3));
-    const imgs = Array.from(document.querySelectorAll("img"));
-    fireEvent.click(imgs[0].closest("button") as HTMLElement);
     await waitFor(() => {
       const createBtn = getByRole("button", { name: /^(open|create|creating)/i }) as HTMLButtonElement;
       expect(createBtn.disabled).toBe(false);
@@ -968,11 +826,14 @@ describe("NewSessionDialog: Test R — onCreate payload with identity-mode ON", 
     const arg = onCreate.mock.calls[0][0];
     expect(arg.identityMode).toBe(true);
     expect(arg.name).toBe("alicia");
-    expect(arg.title).toBe("Alicia Agent");
-    expect(arg.brief).toBe("A brief description");
-    expect(arg.avatarCandidateId).toBe("c1");
     expect(arg.path).toBeDefined();
     expect(arg.host).toBeDefined();
+    // Phase 86 Plan 86-04: cosmetic fields no longer live in the payload.
+    expect(arg.title).toBeUndefined();
+    expect(arg.brief).toBeUndefined();
+    expect(arg.voice).toBeUndefined();
+    expect(arg.colorHue).toBeUndefined();
+    expect(arg.avatarCandidateId).toBeUndefined();
   });
 });
 
@@ -1001,70 +862,27 @@ describe("NewSessionDialog: Test S — onCreate payload with identity-mode OFF",
     expect(arg.title).toBeUndefined();
     expect(arg.brief).toBeUndefined();
     expect(arg.avatarCandidateId).toBeUndefined();
+    // For unused variable lint hygiene (getByLabelText).
+    void getByLabelText;
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Test T: brief field is EPHEMERAL (never written to localStorage/sessionStorage)
-// ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test T — brief field is EPHEMERAL", () => {
-  it("Test T: no UI text hints at persistence; filling brief and clicking Create never calls setItem with brief content", async () => {
-    mockPostGenerateAvatarBatch.mockResolvedValueOnce([
-      { id: "c1", url: "/c/c1" }, { id: "c2", url: "/c/c2" }, { id: "c3", url: "/c/c3" },
-    ]);
-    mockListIdentities.mockResolvedValue([]);
-    mockGetIdentityExistsOnHost.mockResolvedValue(false);
-    // Mock storage setItem
-    const localStorageSetItem = vi.spyOn(Storage.prototype, "setItem");
-    const sessionStorageSetItem = vi.spyOn(window.sessionStorage, "setItem");
-    const { getByLabelText, getByRole } = renderDialog();
-    // No UI text about saving/draft/localStorage
-    expect(screen.queryByText(/save.*draft|draft.*saved|localStorage/i)).toBeNull();
-    fireEvent.click(screen.getByText("alpha"));
-    // Phase 22 SRIC-02: pick a role
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
-    fireEvent.change(getByLabelText(/^role$/i), {
-      target: { value: "box-maintainer" },
-    });
-    fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
-    fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Agent" } });
-    fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "SECRET_MARKER" } });
-    fireEvent.click(getByRole("button", { name: /generate/i }));
-    await waitFor(() => expect(document.querySelectorAll("img").length).toBe(3));
-    fireEvent.click(document.querySelectorAll("img")[0].closest("button") as HTMLElement);
-    await waitFor(() => {
-      const createBtn = getByRole("button", { name: /^(open|create)$/i }) as HTMLButtonElement;
-      expect(createBtn.disabled).toBe(false);
-    });
-    fireEvent.click(getByRole("button", { name: /^(open|create)$/i }));
-    // Assert setItem never called with SECRET_MARKER
-    const allLocalCalls = localStorageSetItem.mock.calls.map((c) => String(c[1]));
-    const allSessionCalls = sessionStorageSetItem.mock.calls.map((c) => String(c[1]));
-    expect(allLocalCalls.some((v) => v.includes("SECRET_MARKER"))).toBe(false);
-    expect(allSessionCalls.some((v) => v.includes("SECRET_MARKER"))).toBe(false);
-    localStorageSetItem.mockRestore();
-    sessionStorageSetItem.mockRestore();
-  });
-});
+// ─── Test T (brief ephemeral) ─────────────────────────────────────────────
+// Phase 86 Plan 86-06: DELETED. The brief textarea it targeted was removed
+// in Plan 86-04 per D-CTX-86-surface-4.
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test U: modal state resets on close
+// Test U: modal state resets on close (Phase 86 Plan 86-06 realigned shape)
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test U — modal state resets on close", () => {
-  it("Test U: fill fields, close, re-open → all fields back to defaults", async () => {
-    mockPostGenerateAvatarBatch.mockResolvedValueOnce([
-      { id: "c1", url: "/c/c1" }, { id: "c2", url: "/c/c2" }, { id: "c3", url: "/c/c3" },
-    ]);
+  it("Test U: fill fields, close, re-open → all fields back to defaults", () => {
     const onClose = vi.fn();
     const { getByLabelText, getByRole, rerender } = renderDialog({ onClose });
-    // Fill fields
+    // Fill Phase-86-current fields (name, path, task).
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
-    fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Agent" } });
-    fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "a brief" } });
     fireEvent.change(getByLabelText(/^path$/i), { target: { value: "/custom/path" } });
-    // Generate candidates
-    fireEvent.click(getByRole("button", { name: /generate/i }));
-    await waitFor(() => expect(document.querySelectorAll("img").length).toBe(3));
+    fireEvent.change(getByLabelText(/^task$/i), { target: { value: "do things" } });
+
     // Close the dialog
     rerender(
       <NewSessionDialog
@@ -1085,11 +903,8 @@ describe("NewSessionDialog: Test U — modal state resets on close", () => {
     );
     // Fields should reset
     expect((getByLabelText(/^name$/i) as HTMLInputElement).value).toBe("");
-    expect((getByLabelText(/^title$/i) as HTMLInputElement).value).toBe("");
-    expect((getByLabelText(/^brief$/i) as HTMLTextAreaElement).value).toBe("");
     expect((getByLabelText(/^path$/i) as HTMLInputElement).value).toBe("~/");
-    // No candidates rendered
-    expect(document.querySelectorAll("img").length).toBe(0);
+    expect((getByLabelText(/^task$/i) as HTMLTextAreaElement).value).toBe("");
     // Identity-mode checkbox should be ON (default)
     const checkbox = getByRole("checkbox", { name: /create with new identity/i }) as HTMLInputElement;
     expect(checkbox.checked).toBe(true);
@@ -1098,45 +913,40 @@ describe("NewSessionDialog: Test U — modal state resets on close", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 20 Plan 06: Birth stream tests (Tests V through GG)
+// Phase 86 Plan 86-06: helper renamed fillIdentityFormAndPick → fillIdentityForm
+// (no longer generates or picks an avatar — cosmetic UI is gone).
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Helper: fill all required identity-mode fields and generate/pick an avatar
-async function fillIdentityFormAndPick(utils: ReturnType<typeof renderDialog>) {
-  const { getByLabelText, getByRole } = utils;
+// Helper: fill the required identity-mode fields (host, role, name) so Create
+// becomes enabled. Post-Plan-86-04 there are no cosmetic gates — no title,
+// brief, voice, colorHue, or avatar to fill.
+async function fillIdentityForm(utils: ReturnType<typeof renderDialog>) {
+  const { getByLabelText } = utils;
   fireEvent.click(screen.getByText("alpha"));
-  // Phase 22 SRIC-02: wait for the role dropdown to appear and pick the
-  // default mocked role. Then continue filling the rest of the form.
   await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
   fireEvent.change(getByLabelText(/^role$/i), {
     target: { value: "box-maintainer" },
   });
   fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
-  fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Alicia Agent" } });
-  fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "A test identity" } });
-  // Mock batch for avatar
-  mockPostGenerateAvatarBatch.mockResolvedValueOnce([
-    { id: "c1", url: "/c/c1" }, { id: "c2", url: "/c/c2" }, { id: "c3", url: "/c/c3" },
-  ]);
-  fireEvent.click(getByRole("button", { name: /generate/i }));
-  await waitFor(() => expect(document.querySelectorAll("img").length).toBe(3));
-  fireEvent.click(document.querySelectorAll("img")[0].closest("button") as HTMLElement);
   await waitFor(() => {
-    const createBtn = getByRole("button", { name: /^(open|create|creating)/i }) as HTMLButtonElement;
+    const createBtn = utils.getByRole("button", { name: /^(open|create|creating)/i }) as HTMLButtonElement;
     // Wait for Create to be enabled (or in "creating..." state)
     expect(createBtn).toBeTruthy();
+    expect(createBtn.disabled).toBe(false);
   });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test V: clicking Create with identity-mode ON starts birth stream
+// Phase 86 Plan 86-04: birth payload no longer carries title / avatarCandidateId.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test V — Create with identity-mode ON calls openBirthStream", () => {
-  it("Test V: clicking Create calls openBirthStream with correct payload (not regular session)", async () => {
+  it("Test V: clicking Create calls openBirthStream with correct payload (not regular session; no cosmetic fields)", async () => {
     // Return empty stream that completes immediately
     mockOpenBirthStream.mockReturnValueOnce(createMockStream([]));
-    const { getByLabelText, getByRole } = renderDialog();
-    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
-    const createBtn = getByRole("button", { name: /^(open|create|creating)/i }) as HTMLButtonElement;
+    const utils = renderDialog();
+    await fillIdentityForm(utils);
+    const createBtn = utils.getByRole("button", { name: /^(open|create|creating)/i }) as HTMLButtonElement;
     fireEvent.click(createBtn);
     await waitFor(() => {
       expect(mockOpenBirthStream).toHaveBeenCalledTimes(1);
@@ -1145,9 +955,16 @@ describe("NewSessionDialog: Test V — Create with identity-mode ON calls openBi
     expect(payload).toMatchObject({
       hostId: expect.anything(),
       name: "alicia",
-      title: "Alicia Agent",
-      avatarCandidateId: "c1",
+      role: "box-maintainer",
     });
+    // Phase 86 Plan 86-04: cosmetic fields either omitted or sent as null.
+    // The birth request omits `title` and `avatarCandidateId` entirely; it
+    // sends `colorHue: null` and `voice: null` (backend absent-⇒-omit rule
+    // treats both as inherit-from-role).
+    expect(payload.title).toBeUndefined();
+    expect(payload.avatarCandidateId).toBeUndefined();
+    expect(payload.colorHue).toBeNull();
+    expect(payload.voice).toBeNull();
     // Must NOT contain identityMode or sessionName keys (backend-only payload)
     expect(payload).not.toHaveProperty("identityMode");
     expect(payload).not.toHaveProperty("sessionName");
@@ -1167,9 +984,9 @@ describe("NewSessionDialog: Test W — 5 progress rows appear after Create", () 
     }
     mockOpenBirthStream.mockReturnValueOnce(hangingStream());
 
-    const { getByLabelText, getByRole } = renderDialog();
-    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
-    const createBtn = getByRole("button", { name: /^(open|create|creating)/i }) as HTMLButtonElement;
+    const utils = renderDialog();
+    await fillIdentityForm(utils);
+    const createBtn = utils.getByRole("button", { name: /^(open|create|creating)/i }) as HTMLButtonElement;
     fireEvent.click(createBtn);
 
     await waitFor(() => {
@@ -1200,9 +1017,9 @@ describe("NewSessionDialog: Test X — step started marks row in-progress", () =
       { type: "ended", ok: false, failedStep: 2 },
     ]));
 
-    const { getByLabelText, getByRole } = renderDialog();
-    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
-    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+    const utils = renderDialog();
+    await fillIdentityForm(utils);
+    fireEvent.click(utils.getByRole("button", { name: /^(open|create|creating)/i }));
 
     // Wait for the stream to complete and show a failed step
     await waitFor(() => {
@@ -1236,9 +1053,9 @@ describe("NewSessionDialog: Test Y — step completed marks row done", () => {
     ]));
 
     const onCreate = vi.fn();
-    const { getByLabelText, getByRole } = renderDialog({ onCreate });
-    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
-    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+    const utils = renderDialog({ onCreate });
+    await fillIdentityForm(utils);
+    fireEvent.click(utils.getByRole("button", { name: /^(open|create|creating)/i }));
 
     // Wait for successful birth (onCreate called = stream completed with ok:true)
     await waitFor(() => {
@@ -1259,9 +1076,9 @@ describe("NewSessionDialog: Test Z — step failed shows failed row + blurb", ()
       { type: "ended", ok: false, failedStep: 2 },
     ]));
 
-    const { getByLabelText, getByRole } = renderDialog();
-    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
-    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+    const utils = renderDialog();
+    await fillIdentityForm(utils);
+    fireEvent.click(utils.getByRole("button", { name: /^(open|create|creating)/i }));
 
     await waitFor(() => {
       const failedRows = document.querySelectorAll('[data-status="failed"]');
@@ -1295,9 +1112,9 @@ describe("NewSessionDialog: Test AA — successful birth closes modal + calls on
 
     const onCreate = vi.fn();
     const onClose = vi.fn();
-    const { getByLabelText, getByRole } = renderDialog({ onCreate, onClose });
-    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
-    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+    const utils = renderDialog({ onCreate, onClose });
+    await fillIdentityForm(utils);
+    fireEvent.click(utils.getByRole("button", { name: /^(open|create|creating)/i }));
 
     await waitFor(() => {
       expect(onCreate).toHaveBeenCalledTimes(1);
@@ -1325,9 +1142,9 @@ describe("NewSessionDialog: Test BB — failed birth keeps modal open", () => {
 
     const onCreate = vi.fn();
     const onClose = vi.fn();
-    const { getByLabelText, getByRole } = renderDialog({ onCreate, onClose });
-    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
-    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+    const utils = renderDialog({ onCreate, onClose });
+    await fillIdentityForm(utils);
+    fireEvent.click(utils.getByRole("button", { name: /^(open|create|creating)/i }));
 
     // Wait for stream to finish
     await waitFor(() => {
@@ -1343,22 +1160,22 @@ describe("NewSessionDialog: Test BB — failed birth keeps modal open", () => {
 // Test CC: close after failure resets ALL state
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test CC — close after failure resets state", () => {
-  it("Test CC: after failure, user closes modal → re-open shows fresh defaults (no name, no candidates)", async () => {
+  it("Test CC: after failure, user closes modal → re-open shows fresh defaults (no name)", async () => {
     mockOpenBirthStream.mockReturnValueOnce(createMockStream([
       { type: "step", n: 3, phase: "failed", reason: "x" },
       { type: "ended", ok: false, failedStep: 3 },
     ]));
 
     const onClose = vi.fn();
-    const { getByLabelText, getByRole, rerender } = renderDialog({ onClose });
-    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
-    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+    const utils = renderDialog({ onClose });
+    await fillIdentityForm(utils);
+    fireEvent.click(utils.getByRole("button", { name: /^(open|create|creating)/i }));
 
     // Wait for failure
     await waitFor(() => expect(document.querySelectorAll('[data-status="failed"]').length).toBeGreaterThanOrEqual(1));
 
     // Close the dialog
-    rerender(
+    utils.rerender(
       <NewSessionDialog
         open={false}
         onClose={onClose}
@@ -1367,7 +1184,7 @@ describe("NewSessionDialog: Test CC — close after failure resets state", () =>
       />
     );
     // Re-open
-    rerender(
+    utils.rerender(
       <NewSessionDialog
         open={true}
         onClose={onClose}
@@ -1377,9 +1194,7 @@ describe("NewSessionDialog: Test CC — close after failure resets state", () =>
     );
 
     // Name should be reset
-    expect((getByLabelText(/^name$/i) as HTMLInputElement).value).toBe("");
-    // No candidates
-    expect(document.querySelectorAll("img").length).toBe(0);
+    expect((utils.getByLabelText(/^name$/i) as HTMLInputElement).value).toBe("");
     // No failed rows
     expect(document.querySelectorAll('[data-status="failed"]').length).toBe(0);
   });
@@ -1389,7 +1204,7 @@ describe("NewSessionDialog: Test CC — close after failure resets state", () =>
 // Test DD: birth in progress disables ALL form fields + no cancel affordance
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog: Test DD — birth in progress disables form fields, no cancel button", () => {
-  it("Test DD: while birthing → name/title/path disabled, identity-mode checkbox disabled, no cancel-birth button", async () => {
+  it("Test DD: while birthing → name/path disabled, identity-mode checkbox disabled, no cancel-birth button", async () => {
     let resolveStream!: () => void;
     const neverEnds = new Promise<void>((res) => { resolveStream = res; });
     async function* hangingStream() {
@@ -1397,13 +1212,13 @@ describe("NewSessionDialog: Test DD — birth in progress disables form fields, 
     }
     mockOpenBirthStream.mockReturnValueOnce(hangingStream());
 
-    const { getByLabelText, getByRole } = renderDialog();
-    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
-    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+    const utils = renderDialog();
+    await fillIdentityForm(utils);
+    fireEvent.click(utils.getByRole("button", { name: /^(open|create|creating)/i }));
 
     await waitFor(() => {
       // name input should be disabled
-      expect((getByLabelText(/^name$/i) as HTMLInputElement).disabled).toBe(true);
+      expect((utils.getByLabelText(/^name$/i) as HTMLInputElement).disabled).toBe(true);
     });
     // No cancel-birth button
     expect(screen.queryByRole("button", { name: /cancel.*birth|cancel birth/i })).toBeNull();
@@ -1425,9 +1240,9 @@ describe("NewSessionDialog: Test EE — step-1 failure shows correct blurb", () 
       { type: "ended", ok: false, failedStep: 1 },
     ]));
 
-    const { getByLabelText, getByRole } = renderDialog();
-    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
-    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+    const utils = renderDialog();
+    await fillIdentityForm(utils);
+    fireEvent.click(utils.getByRole("button", { name: /^(open|create|creating)/i }));
 
     await waitFor(() => {
       // Step 1 blurb: Phase 68 SHAPE B — "The identity name is already in use on this host"
@@ -1454,9 +1269,9 @@ describe("NewSessionDialog: Test FF — fetch error surfaces as step-1 failure",
 
     const onCreate = vi.fn();
     const onClose = vi.fn();
-    const { getByLabelText, getByRole } = renderDialog({ onCreate, onClose });
-    await fillIdentityFormAndPick({ getByLabelText, getByRole } as ReturnType<typeof renderDialog>);
-    fireEvent.click(getByRole("button", { name: /^(open|create|creating)/i }));
+    const utils = renderDialog({ onCreate, onClose });
+    await fillIdentityForm(utils);
+    fireEvent.click(utils.getByRole("button", { name: /^(open|create|creating)/i }));
 
     await waitFor(() => {
       const failedRows = document.querySelectorAll('[data-status="failed"]');
@@ -1487,117 +1302,7 @@ describe("NewSessionDialog: Test GG — regular session mode does NOT call openB
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Manual avatar upload tests (quick-260808-rtl)
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("NewSessionDialog: manual avatar upload", () => {
-  beforeEach(() => {
-    // Stub URL.createObjectURL / revokeObjectURL in jsdom (not implemented natively)
-    (globalThis as unknown as Record<string, unknown>).URL = {
-      ...(globalThis as unknown as Record<string, { createObjectURL?: unknown; revokeObjectURL?: unknown }>).URL,
-      createObjectURL: vi.fn(() => "blob:mock-url"),
-      revokeObjectURL: vi.fn(),
-    };
-    mockPostManualAvatarCandidate.mockResolvedValue({ id: "manual-1" });
-    mockPostGenerateAvatarBatch.mockResolvedValue([
-      { id: "c1", url: "/c/c1" },
-      { id: "c2", url: "/c/c2" },
-      { id: "c3", url: "/c/c3" },
-    ]);
-  });
-
-  it("RTL-01: Upload button visible in identity-mode; picking a file calls postManualAvatarCandidate, shows preview, clears generated candidates", async () => {
-    renderDialog();
-    // Upload button should be visible in identity-mode (default ON)
-    const uploadBtn = screen.getByRole("button", { name: /upload avatar/i });
-    expect(uploadBtn).toBeTruthy();
-
-    // Grab the file input (sr-only)
-    const fileInput = document.querySelector("input[type='file']") as HTMLInputElement;
-    expect(fileInput).toBeTruthy();
-
-    const testFile = new File([new Uint8Array(4)], "a.png", { type: "image/png" });
-    fireEvent.change(fileInput, { target: { files: [testFile] } });
-
-    await waitFor(() => {
-      expect(mockPostManualAvatarCandidate).toHaveBeenCalledTimes(1);
-    });
-    expect(mockPostManualAvatarCandidate).toHaveBeenCalledWith({ file: testFile });
-
-    // Manual preview img should now be visible
-    await waitFor(() => {
-      expect(screen.getByAltText(/manual avatar preview/i)).toBeTruthy();
-    });
-
-    // Generated candidate row should be empty (no candidate imgs present)
-    expect(screen.queryByAltText(/avatar candidate/i)).toBeNull();
-  });
-
-  it("RTL-02: Upload then Generate clears manual preview and shows 3 candidate images", async () => {
-    const { getByLabelText } = renderDialog();
-
-    // Fill required fields so Generate button is enabled
-    fireEvent.change(getByLabelText(/^name$/i), { target: { value: "agent-rtl" } });
-    fireEvent.change(getByLabelText(/^title$/i), { target: { value: "RTL Agent" } });
-    fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "rtl brief" } });
-
-    // Upload a file first
-    const fileInput = document.querySelector("input[type='file']") as HTMLInputElement;
-    const testFile = new File([new Uint8Array(4)], "a.png", { type: "image/png" });
-    fireEvent.change(fileInput, { target: { files: [testFile] } });
-
-    await waitFor(() => expect(mockPostManualAvatarCandidate).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.getByAltText(/manual avatar preview/i)).toBeTruthy());
-
-    // Now click Generate — should clear manual preview and show 3 candidates
-    const generateBtn = screen.getByRole("button", { name: /generate/i });
-    fireEvent.click(generateBtn);
-
-    await waitFor(() => {
-      expect(screen.queryByAltText(/manual avatar preview/i)).toBeNull();
-    });
-    await waitFor(() => {
-      expect(screen.getAllByAltText(/avatar candidate/i).length).toBe(3);
-    });
-  });
-
-  it("RTL-03: manual upload → Create calls openBirthStream with the manual id as avatarCandidateId", async () => {
-    mockOpenBirthStream.mockReturnValueOnce(createMockStream([
-      { type: "ended", ok: true, identityId: "new-id", sessionName: "agent-x" },
-    ]));
-    const onCreate = vi.fn();
-    const { getByLabelText, getByRole } = renderDialog({ onCreate });
-
-    // Select host
-    fireEvent.click(screen.getByText("alpha"));
-    // Pick role
-    await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
-    fireEvent.change(getByLabelText(/^role$/i), { target: { value: "box-maintainer" } });
-
-    // Fill required identity fields
-    fireEvent.change(getByLabelText(/^name$/i), { target: { value: "agent-x" } });
-    fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Agent X" } });
-    fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "A great agent" } });
-
-    // Upload a file (returns id "manual-42")
-    mockPostManualAvatarCandidate.mockResolvedValueOnce({ id: "manual-42" });
-    const fileInput = document.querySelector("input[type='file']") as HTMLInputElement;
-    const testFile = new File([new Uint8Array(4)], "a.png", { type: "image/png" });
-    fireEvent.change(fileInput, { target: { files: [testFile] } });
-    await waitFor(() => expect(mockPostManualAvatarCandidate).toHaveBeenCalledTimes(1));
-
-    // Wait for Create button to become enabled (manual avatar sets pickedCandidateId)
-    await waitFor(() => {
-      const createBtn = getByRole("button", { name: /^(create|open|creating)/i }) as HTMLButtonElement;
-      expect(createBtn.disabled).toBe(false);
-    });
-
-    // Click Create
-    fireEvent.click(getByRole("button", { name: /^(create|open|creating)/i }));
-
-    await waitFor(() => expect(mockOpenBirthStream).toHaveBeenCalledTimes(1));
-    const [payload] = mockOpenBirthStream.mock.calls[0] as [Record<string, unknown>];
-    expect(payload.avatarCandidateId).toBe("manual-42");
-  });
-});
+// ─── Manual avatar upload tests (RTL-01 / RTL-02 / RTL-03) ────────────────
+// Phase 86 Plan 86-06: DELETED. The Upload button + preview + carousel-clear
+// mutual-exclusion behavior these tests targeted was removed in Plan 86-04
+// per D-CTX-86-surface-4.
