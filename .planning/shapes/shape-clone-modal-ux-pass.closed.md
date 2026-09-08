@@ -229,3 +229,52 @@ bounty's context menu now routes into. Also worth a look: the
 Phase 86 shape at `.planning/shapes/shape-cosmetics-migrate-to-
 role.closed.md` for why "clone" and "new-under-this-role" have
 converged into one operation.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-08
+**Vehicle used:** GSD quick
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is (clone modal retired; menu shortcut into new-agent modal with role pre-fill)** — present · no CloneAgentDialog source file exists; row context-menu item labeled 'create new agent under this role' opens the existing NewSessionDialog with the source row's role seeded
+- **Shape: the clone modal goes away (with its scoped tests)** — present · no CloneAgentDialog.tsx anywhere in src/; the two test files retaining 'clone' in the filename have been repurposed to cover the new wiring (label + panel-seeds + editability contract), not the retired dialog
+- **Shape: row context-menu item relabeled and rewired** — present · label is exactly 'create new agent under this role' (lowercase); handleRowClone seeds chainPrefill { role: identity.role, host: row.host } and opens NewSessionDialog; role picker arrives pre-filled from initialRole
+- **Shape: modal behaves identically regardless of entry point (only signal is the pre-filled role)** — present · it is literally the same NewSessionDialog mount; no branch or extra prop distinguishes the two entry points
+- **Philosophy: post-cosmetics-migration convergence — one operation, one dialog** — present · only NewSessionDialog + CreateRoleDialog are mounted from the panel; the standalone clone dialog is gone
+- **Philosophy: user-visible entry point stays** — present · row context-menu still exposes the item on the exact same rows (onClone && identity gate)
+- **Philosophy: no override carry-over from source to target** — present · handleRowClone forwards only role + host in chainPrefill; no cosmetic override state is copied
+- **Philosophy: same rows, same placement, same behavior model** — present · item still inserted between Hide/Show and Open-in-new-window, gated on the same predicate, unchanged from the pre-bounty shape
+- **Prior context: three modal-side polish todos evaporate with modal deletion** — present · no host-blurb, name-placeholder, or admin-path-split code exists in the retired modal's slot (there is no slot)
+- **Scope edges IN: delete clone modal source + scoped tests** — present · source file gone; test files' subject-matter migrated to the new wiring
+- **Scope edges IN: update row context menu (relabel + rewire)** — present · label swap landed in commit 065b4105; wiring was pre-existing from Phase 80-09 (chainPrefill → NewSessionDialog)
+- **Scope edges IN: grep codebase for lingering references and remove/update** — present · commit 64e5dffa swept residual comments; zero double-quoted 'Spawn under this role' or 'Clone' labels remain in src/ outside historical single-quoted breadcrumbs
+- **Scope edges IN: scoped tests for context-menu action (label / opens modal / role pre-filled / picker editable / submitted role tracks picker)** — present · PrettyConversationRow.clone-menu.test.tsx Tests 13/14/15 (label present + gates) + PrettyConversationsPanel.clone-dialog.test.tsx Tests 1/2/3/4 (opens + seeds initialHost/initialRole + brief null + no lock/readonly/disabled prop)
+- **Scope edges OUT: sibling create-agent-modal-ux-pass untouched** — present · git diff HEAD~3..HEAD -- src/ui/sidebar/ returns empty; NewSessionDialog unmodified
+- **Scope edges OUT: no changes to new-agent modal beyond accepting a pre-filled role** — present · the pre-fill mechanism (initialHost/initialRole/initialBrief props) predates this bounty; no modal-side change was needed
+- **Scope edges OUT: no backend changes to create endpoint** — present · git diff HEAD~3..HEAD -- src/backend/ returns empty
+- **Scope edges OUT: no override carry-over from source to target** — present · handleRowClone omits cosmetic overrides; A3 lock (Test 3) also asserts initialBrief stays null
+- **What would make it wrong: deleting the clone modal but leaving a stale entry point anywhere** — present · codebase grep for CloneAgentDialog / clone-agent-dialog / clone-agent-modal returns zero in src/; panel mounts only NewSessionDialog + CreateRoleDialog; no dead affordance
+- **What would make it wrong: pre-filled role differs from source row's role** — present · handleRowClone reads identity via sessionMatchKey(row.targetTmuxSession) and forwards identity.role verbatim — the exact source row's role, no substitution
+- **What would make it wrong: pre-filled role is locked / disappears / behaves differently** — present · role <select> disables only on formDisabled || rolesLoading; Test 4 explicitly asserts panel passes no lock/readonly/disabled prop; onChange freely sets selectedRole
+- **What would make it wrong: silent carry-over of source's per-identity cosmetic overrides** — present · chainPrefill only carries role + host; nothing about voice, colorHue, title, or avatar is forwarded
+- **What would make it wrong: modal's title/header/copy changes based on entry point** — present · no entry-point discriminator prop; NewSessionDialog renders identical copy whether opened via pencil, chain-from-CreateRole, or context menu
+- **Tempting-but-no: visual hint that the role was pre-filled** — present · no highlight/tag/badge added on the role picker or elsewhere
+- **Tempting-but-no: auto-suggest source name + suffix** — present · name field pre-fill NOT added; handleRowClone does not touch name state
+- **Tempting-but-no: extend menu item to new row types** — present · same onClone && identity gate; same insertion point; no new row-type opt-in
+- **Tempting-but-no: rename the menu item to something more descriptive** — present · exact greenlit text 'create new agent under this role' used verbatim
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+- The `cloneIdentity()` API client at `src/ui/api/identities-api.ts` is now unused by the UI (documented in the file as intentionally preserved for backend parity). The shape does not require removal, and the file's own note flags it as a candidate for a future dead-code pass — noted for potential future cleanup, not a bounty finding. — deferred
+
+### Notes
+
+The shape framed the work as "delete the modal, rewire the menu, add scoped tests." In reality the deletion + rewiring were already landed in Phase 80-09; this bounty's actual diff was a label-string swap (Spawn under this role → create new agent under this role), a comment sweep, and one new contract test (Test 4 asserting the panel forwards initialRole as a seed with no lock/readonly/disabled prop). The end-state fully conforms to the shape in both directions, so this is a clean pass — but a reviewer looking only at the recent commit surface would see a narrower change than the shape reads as if freshly written. The bounty planning documents make this explicit ("SHAPE-clone-modal-ux-pass-IN-2 already in place via chainPrefill"). Historical label breadcrumbs live on in single-quoted comments (`'Spawn under this role'`, `'Clone'`) — this is a deliberate sweep-gate workaround, not a residual reference to a live label.
