@@ -2040,24 +2040,24 @@ Plans:
 **Goal:** Move the four cosmetic frontmatter fields (title, colorHue, voice, avatar) from identity level to role level as defaults, with per-identity overrides — mirrors how directives already inherit through the substrate. Six surface changes: role file gains cosmetic frontmatter, backend loader merges role+identity per `identity ?? role ?? null`, create-role dialog grows cosmetic authoring controls, new-session dialog strips them, identity-edit modal gains inherited/override affordances, tests updated across all four; plus two role-owned doc updates (id-skill-handoff cosmetic section + avatar-flow runbook Matrix-upload strip). Item 1b of the reordered 7-bounty UX-pass campaign — upstream dependency for create-agent-modal-ux-pass.
 **Requirements**: N/A (phase scope IS the six D-CTX-86 §Implementation Decisions items — no top-level project requirement IDs)
 **Depends on:** Phase 84
-**Plans:** 7 plans
+**Plans:** 7/7 plans complete
 
 Plans:
 **Wave 1** *(independent backend groundwork)*
 
-- [ ] 86-01-PLAN.md — Backend loader: add role-cosmetic extractor + role-name-keyed readers to identity-artifact-reader.ts; extend publicIdentity() + GET /identities to merge identity+role cosmetics per-field; add role-folder avatar fallback in GET /:key/avatar; surface roleDefaults on Identity type (wave 1, autonomous)
-- [ ] 86-02-PLAN.md — Role creation endpoint: widen POST /roles to multipart with cosmetic frontmatter + role-folder avatar write; widen createRole() client to multipart (wave 1, autonomous, parallel with 86-01 — different files)
+- [x] 86-01-PLAN.md — Backend loader: add role-cosmetic extractor + role-name-keyed readers to identity-artifact-reader.ts; extend publicIdentity() + GET /identities to merge identity+role cosmetics per-field; add role-folder avatar fallback in GET /:key/avatar; surface roleDefaults on Identity type (wave 1, autonomous)
+- [x] 86-02-PLAN.md — Role creation endpoint: widen POST /roles to multipart with cosmetic frontmatter + role-folder avatar write; widen createRole() client to multipart (wave 1, autonomous, parallel with 86-01 — different files)
 
 **Wave 2** *(frontend surfaces, depend on backend)*
 
-- [ ] 86-03-PLAN.md — CreateRoleDialog.tsx: add Title / VoicePicker / ColorPicker / avatar generator+carousel; wire submit to widened createRole() with cosmetics + avatar File (wave 2, autonomous, depends on 86-02)
-- [ ] 86-04-PLAN.md — NewSessionDialog.tsx: strip Title / Brief / VoicePicker / ColorPicker / avatar generator UI + associated state + handlers from identity-mode branch; adapt birth stream call (wave 2, autonomous, parallel with 86-03 + 86-05 — different files)
-- [ ] 86-05-PLAN.md — IdentityModal.tsx: add per-field inherit/override affordances (Inherited marker when unset, Revert to role default when set); wire revert to explicit-null PUT semantic; extend dirty tracking (wave 2, autonomous, depends on 86-01 for Identity.roleDefaults type)
+- [x] 86-03-PLAN.md — CreateRoleDialog.tsx: add Title / VoicePicker / ColorPicker / avatar generator+carousel; wire submit to widened createRole() with cosmetics + avatar File (wave 2, autonomous, depends on 86-02)
+- [x] 86-04-PLAN.md — NewSessionDialog.tsx: strip Title / Brief / VoicePicker / ColorPicker / avatar generator UI + associated state + handlers from identity-mode branch; adapt birth stream call (wave 2, autonomous, parallel with 86-03 + 86-05 — different files)
+- [x] 86-05-PLAN.md — IdentityModal.tsx: add per-field inherit/override affordances (Inherited marker when unset, Revert to role default when set); wire revert to explicit-null PUT semantic; extend dirty tracking (wave 2, autonomous, depends on 86-01 for Identity.roleDefaults type)
 
 **Wave 3** *(test realignment + docs + push, depend on Wave 2)*
 
-- [ ] 86-06-PLAN.md — Test realignment: grow CreateRoleDialog.test.tsx to cover cosmetic controls; strip cosmetic-in-identity-mode tests from NewSessionDialog.test.tsx; run full 11-file scoped vitest sweep + whole-tree tsc noEmit (wave 3, autonomous, depends on 86-03 + 86-04 + 86-05)
-- [ ] 86-07-PLAN.md — Role-owned doc updates: id-skill-handoff.md cosmetic-frontmatter section rewrite; avatar-flow.md Matrix-upload step strip; terminal `git pull --rebase` + `git push` (wave 3, autonomous, depends on 86-06; docs OUTSIDE repo tree)
+- [x] 86-06-PLAN.md — Test realignment: grow CreateRoleDialog.test.tsx to cover cosmetic controls; strip cosmetic-in-identity-mode tests from NewSessionDialog.test.tsx; run full 11-file scoped vitest sweep + whole-tree tsc noEmit (wave 3, autonomous, depends on 86-03 + 86-04 + 86-05)
+- [x] 86-07-PLAN.md — Role-owned doc updates: id-skill-handoff.md cosmetic-frontmatter section rewrite; avatar-flow.md Matrix-upload step strip; terminal `git pull --rebase` + `git push` (wave 3, autonomous, depends on 86-06; docs OUTSIDE repo tree)
 
 ### Phase 87: User avatars — baseline backend support (mandatory-at-create + change endpoint + serve endpoint + on-disk storage in encrypted data volume; see .planning/shapes/shape-user-avatars.md)
 
