@@ -512,20 +512,29 @@ export function CreateRoleDialog({
         <DialogHeader>
           <DialogTitle>{startTitle}</DialogTitle>
           {/*
-           * Phase 84 (D-CONTEXT item 1): one-sentence header blurb explaining
-           * what a role IS. Paired vocabulary with the future create-agent
-           * blurb (create-agent-modal-ux-pass bounty carries the sibling copy:
-           * "An agent is one specific worker doing a role, with its own name
-           * and history."). Product language, not engineering terms — see
-           * shape file §Philosophy.
+           * Phase 88 (paired-blurb revision — see
+           * .planning/phases/88-create-agent-modal-ux-pass-…/88-CONTEXT.md
+           * §Verbatim copy): revises the Phase 84 one-sentence blurb into a
+           * two-sentence form paired against the sibling create-agent blurb
+           * shipped in the same commit surface at
+           * NewSessionDialog.tsx `startDescription` defaultValue (rendered by
+           * that dialog's <DialogDescription>{startDescription}</DialogDescription>).
+           * The paired vocabulary anchor is the shared verb ADOPT; the role
+           * side says agents ADOPT expertise, the agent side says each agent
+           * ADOPTS a role. Ashley greenlit the byte-exact text; see
+           * 88-CONTEXT.md for the LOCKED strings.
            *
-           * Phase 84 (D-CONTEXT item 2): the prior <DialogDescription> that
-           * said "Provision a new role folder on the picked host. Name and
-           * description are required." is DELETED — the fields themselves
-           * already signal required state, no separate caption needed.
+           * The <DialogDescription> wrapper element is preserved per the
+           * Phase-84 origin invariant (Plan 84-01 §CHANGE F.1 landed 2026-09-07)
+           * so shadcn's Dialog primitive still emits `aria-describedby`
+           * a11y wiring. Do NOT swap for a bare <p> or <span>.
+           *
+           * Phase 84 (origin) rationale for stripping the earlier required-fields
+           * caption is retained: the fields themselves already signal required
+           * state, no separate caption needed.
            */}
           <DialogDescription>
-            A role is what an agent does and how it thinks — many agents can share one.
+            Roles are the expertise your agents adopt. Every agent using this role inherits its goals, rules, and knowledge.
           </DialogDescription>
         </DialogHeader>
 
