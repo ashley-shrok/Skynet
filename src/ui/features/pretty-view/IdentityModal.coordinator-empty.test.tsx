@@ -10,8 +10,6 @@
  *   C1: coordinator + Identity scope + empty wakeups list →
  *       wakeups-coordinator-empty-identity caption present, "No scheduled
  *       wake-ups." NOT present, Add-wakeup pill NOT rendered.
- *   C2: coordinator + Handoff tab (Identity scope) → handoff-coordinator-empty
- *       caption present, no markdown editor (short-circuit).
  *   C3: coordinator + Identity file tab → renders normally (no coord short-
  *       circuit; IdentityFileTab's own render path is unaffected).
  *   C4: actor + Identity scope + empty wakeups → normal "No scheduled wake-
@@ -19,6 +17,9 @@
  *   C5: pill-in-both-branches invariant — WakeupsTab standalone with
  *       scope='role', isCoordinator=false, (a) empty list → pill in empty
  *       state, (b) non-empty list → pill above the row list.
+ *
+ *   (C2 — coordinator + Handoff tab — deleted 2026-09-08 Phase 89 Plan 05
+ *   per D-12: Handoff tab removed from the identity modal entirely.)
  */
 
 import {
@@ -115,6 +116,12 @@ vi.mock("@/state/bounty-counts-store", async (importOriginal) => {
   };
 });
 
+// Phase 89 Plan 05: RunbooksTab (mounted inside IdentityModal) calls listRunbooks
+// via HTTP. Mock it to return an empty list so the tab renders without a network call.
+vi.mock("@/api/runbooks-api", () => ({
+  listRunbooks: vi.fn().mockResolvedValue([]),
+}));
+
 // ── Late imports ─────────────────────────────────────────────────────────────
 import { IdentityModal } from "./IdentityModal";
 import { WakeupsTab } from "./WakeupsTab";
@@ -144,6 +151,8 @@ function renderModal(identityOverrides?: Partial<Identity>): void {
       identity={identity}
       hue={200}
       hostId={1}
+      // Phase 89 Plan 05: required prop — Runbooks tab is always rendered per D-11.
+      onOpenRunbook={vi.fn()}
       container={document.body}
     />,
   );
@@ -168,18 +177,6 @@ function deliverEmptyIdentityWakeups(): void {
   act(() => {
     sock!.onmessage!({
       data: JSON.stringify({ type: "identity:wakeups", wakeups: [] }),
-    } as MessageEvent<string>);
-  });
-}
-
-// Seed the handoff read so state.data is populated (proves short-circuit
-// fires even when there's markdown to render).
-function deliverHandoff(markdown: string): void {
-  const sock = findSocketForRequestType("identity:get-handoff");
-  expect(sock).toBeDefined();
-  act(() => {
-    sock!.onmessage!({
-      data: JSON.stringify({ type: "identity:handoff", markdown }),
     } as MessageEvent<string>);
   });
 }
@@ -249,36 +246,6 @@ describe("IdentityModal coordinator empty states — Wakeups", () => {
     // No "No scheduled wake-ups." fallback either — the coord branch replaces
     // it, doesn't augment it.
     expect(screen.queryByText("No scheduled wake-ups.")).toBeNull();
-  });
-
-  // ───────────────────────────────────────────────────────────────────────────
-  // Test C2 — coordinator + Handoff tab (Identity scope) → coord caption
-  // ───────────────────────────────────────────────────────────────────────────
-  it("test C2: coordinator + Handoff tab shows coordinator caption even with non-empty markdown", async () => {
-    renderModal({ coordinator: true });
-    await new Promise((r) => setTimeout(r, 0));
-    switchScope("identity");
-    clickNav("Handoff");
-    // Deliberately deliver non-empty markdown to prove the short-circuit
-    // fires BEFORE the empty-check — a coord with a stray handoff.md still
-    // gets the caption.
-    deliverHandoff("# Some stray handoff content");
-
-    await waitFor(() => {
-      expect(screen.queryByTestId("handoff-coordinator-empty")).toBeTruthy();
-    });
-
-    const captionEl = screen.getByTestId("handoff-coordinator-empty");
-    expect(captionEl.textContent).toBe(
-      "Coordinators are stateless routers — no handoff to display.",
-    );
-
-    // No markdown editor (toolbar Edit button) — the coord branch precedes
-    // both the empty-state fallback AND the render-body.
-    expect(screen.queryByRole("button", { name: /^Edit$/ })).toBeNull();
-    // No stray handoff prose either.
-    expect(screen.queryByText("# Some stray handoff content")).toBeNull();
-    expect(screen.queryByText("Some stray handoff content")).toBeNull();
   });
 
   // ───────────────────────────────────────────────────────────────────────────

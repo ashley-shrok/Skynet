@@ -101,6 +101,12 @@ vi.mock("@/state/bounty-counts-store", async (importOriginal) => {
   };
 });
 
+// Phase 89 Plan 05: RunbooksTab (mounted inside IdentityModal) calls listRunbooks
+// via HTTP. Mock it to return an empty list so the tab renders without a network call.
+vi.mock("@/api/runbooks-api", () => ({
+  listRunbooks: vi.fn().mockResolvedValue([]),
+}));
+
 // ── Late imports ─────────────────────────────────────────────────────────────
 import { IdentityModal } from "./IdentityModal";
 // Phase 72 Plan 03: per-test reset of the modal-scope-store so scope memory
@@ -132,6 +138,8 @@ function renderModal(identityOverrides?: Partial<Identity>): void {
       identity={identity}
       hue={200}
       hostId={1}
+      // Phase 89 Plan 05: required prop — Runbooks tab is always rendered per D-11.
+      onOpenRunbook={vi.fn()}
       container={document.body}
     />,
   );
@@ -244,6 +252,8 @@ describe("IdentityModal — default scope on open (Phase 72 Plan 03)", () => {
 // ──────────────────────────────────────────────────────────────────────
 describe("IdentityModal — per-scope NAV_SECTIONS (Phase 72 Plan 03)", () => {
   it("test 22a: under Role scope, bottom nav has 4 buttons; first button label is 'Role file'", () => {
+    // Phase 89 Plan 05: NAV_SECTIONS_ROLE now [role, runbooks, bounties, role-wakeups]
+    // (History removed per D-12, Runbooks added per D-08/D-13). Count stays 4.
     renderModal({ coordinator: false });
     // Actor mount starts in Identity scope — flip to Role.
     switchScope("role");
@@ -252,28 +262,30 @@ describe("IdentityModal — per-scope NAV_SECTIONS (Phase 72 Plan 03)", () => {
       .querySelector(".shrink-0.flex.items-stretch")
       ?.querySelectorAll("button");
     expect(navButtons).toBeDefined();
-    expect(navButtons!.length).toBe(4); // role / bounties / history / role-wakeups
+    expect(navButtons!.length).toBe(4); // role / runbooks / bounties / role-wakeups
     expect(navButtons![0].textContent).toContain("Role file");
-    // Sanity: second button is Bounties.
-    expect(navButtons![1].textContent).toContain("Bounties");
+    // Phase 89 Plan 05: second button is now Runbooks (History removed, Runbooks inserted).
+    expect(navButtons![1].textContent).toContain("Runbooks");
+    // Third button is Bounties.
+    expect(navButtons![2].textContent).toContain("Bounties");
   });
 
-  it("test 22b: under Identity scope, bottom nav has 4 buttons; first button label is 'Identity file'", () => {
+  it("test 22b: under Identity scope, bottom nav has 3 buttons; first button label is 'Identity file'", () => {
+    // Phase 89 Plan 05: NAV_SECTIONS_IDENTITY now [identity, identity-wakeups, telegram]
+    // (Handoff removed per D-12). Count drops from 4 to 3.
     renderModal({ coordinator: false });
-    // Actor mount starts in Identity scope — no switch needed. Sanity-flip
-    // to prove the button count assertion below is scope-conditional.
+    // Actor mount starts in Identity scope — no switch needed.
     const navButtons = document
       .querySelector(".shrink-0.flex.items-stretch")
       ?.querySelectorAll("button");
     expect(navButtons).toBeDefined();
-    // Phase 79 Plan 07 — Telegram tab added as the 4th Identity-scope entry
-    // (CONTEXT § Locked decisions #2 fixed real-estate). Was 3 before.
-    expect(navButtons!.length).toBe(4); // identity / identity-wakeups / handoff / telegram
+    // Phase 89 Plan 05: Handoff removed, so Identity scope now has 3 tabs.
+    expect(navButtons!.length).toBe(3); // identity / identity-wakeups / telegram
     expect(navButtons![0].textContent).toContain("Identity file");
     // Sanity: second button is Wakeups (identity-wakeups pane).
     expect(navButtons![1].textContent).toContain("Wakeups");
-    // Sanity: fourth button (Phase 79) is Telegram.
-    expect(navButtons![3].textContent).toContain("Telegram");
+    // Sanity: third button (Phase 79) is Telegram.
+    expect(navButtons![2].textContent).toContain("Telegram");
   });
 });
 

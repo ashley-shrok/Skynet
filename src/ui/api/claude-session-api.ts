@@ -398,9 +398,9 @@ export type ClaudeSessionServerEvent =
   // shape of IdentityIdentityFileEvent + IdentityIdentityFileUpdatedEvent)
   | IdentityRoleFileEvent
   | IdentityRoleFileUpdatedEvent
-  | IdentityHistoryEvent
+  // Phase 89 Plan 05: IdentityHistoryEvent + IdentityHandoffEvent removed per D-12
+  // (frontend consumers deleted; backend WS handlers still handle these types).
   | IdentityWakeupsEvent
-  | IdentityHandoffEvent
   | IdentityWakeupUpdatedEvent
   // Phase 72 Plan 01: role-scope wakeup CRUD + identity-scope create/delete parity
   | IdentityRoleWakeupsEvent
@@ -582,26 +582,20 @@ export type IdentityBountiesEvent = {
 };
 
 // Patch #17g/#92: identity artifact WS wire types.
+// Phase 89 Plan 05: history + handoff frontend wire types removed per D-12 —
+// frontend consumers deleted; backend WS handlers still handle these types for now.
 //
-//   client -> server:
+//   client -> server (post-Phase-89-Plan-05):
 //     { type: "identity:get-identity-file", identityKey: string, hostId: number }
-//     { type: "identity:get-history", identityKey: string, hostId: number }
 //     { type: "identity:list-wakeups", identityKey: string, hostId: number }
-//     { type: "identity:get-handoff", identityKey: string, hostId: number }
 //     // Phase 18 / IDMEDIT-06: markdown write surfaces (full-overwrite, tmp+rename atomic):
 //     { type: "identity:update-identity-file", identityKey: string, hostId: number, contents: string }
-//     { type: "identity:update-history", identityKey: string, hostId: number, contents: string }
-//     { type: "identity:update-handoff", identityKey: string, hostId: number, contents: string }
 //
-//   server -> client (UNCHANGED — only request payloads gain hostId):
+//   server -> client (post-Phase-89-Plan-05):
 //     { type: "identity:identity-file", markdown: string, error?: string }
-//     { type: "identity:history", entries: string[], error?: string }
 //     { type: "identity:wakeups", wakeups: Wakeup[], error?: string }
-//     { type: "identity:handoff", markdown: string, error?: string }
-//     // Phase 18 / IDMEDIT-06: post-write echoes (server re-reads for client rehydration):
+//     // Phase 18 / IDMEDIT-06: post-write echo:
 //     { type: "identity:identity-file-updated", markdown: string, error?: string }
-//     { type: "identity:history-updated", entries: string[], error?: string }
-//     { type: "identity:handoff-updated", markdown: string, error?: string }
 //
 // hostId is the pane's SSH host id — backend uses it to route reads to the pane's box
 // (or falls back to the local bind-mount when the hostId is in IDENTITIES_LOCAL_HOST_IDS).
@@ -633,17 +627,9 @@ export type IdentityGetRoleFilePayload = {
 };
 export type IdentityRoleFileEvent = { type: "identity:role-file"; markdown: string; error?: string };
 
-export type IdentityGetHistoryPayload = {
-  type: "identity:get-history";
-  identityKey: string;
-  /** patch #92: pane's SSH host id — backend routes reads to the pane's box. */
-  hostId: number;
-};
-// Phase 18 / IDMEDIT-02: widened to carry `markdown` (raw file body) alongside
-// `entries` (parsed reverse-chronological lines). markdown is optional for
-// backward compat with any payload pre-dating the widening; the server WILL
-// always emit it now. Consumers that only read `entries` are unaffected.
-export type IdentityHistoryEvent = { type: "identity:history"; entries: string[]; markdown?: string; error?: string };
+// History + Handoff wire types removed 2026-09-08 per Phase 89 Plan 05 D-12 —
+// frontend consumers deleted; backend WS handlers still handle these types for
+// now (deliberate: no backend removal per D-12 scope).
 
 // Patch #154: Wakeup gains `slug` (filename stem — the address the update
 // path uses) and raw `schedule` (unknown — so the modal renders + edits it
@@ -664,14 +650,6 @@ export type IdentityListWakeupsPayload = {
   hostId: number;
 };
 export type IdentityWakeupsEvent = { type: "identity:wakeups"; wakeups: Wakeup[]; error?: string };
-
-export type IdentityGetHandoffPayload = {
-  type: "identity:get-handoff";
-  identityKey: string;
-  /** patch #92: pane's SSH host id — backend routes reads to the pane's box. */
-  hostId: number;
-};
-export type IdentityHandoffEvent = { type: "identity:handoff"; markdown: string; error?: string };
 
 // Patch #154: identity mutation wire types. Both are one-shot request/response
 // like the read handlers — client opens a WS, sends the update, receives the
@@ -889,40 +867,6 @@ export type IdentityUpdateRoleFilePayload = {
 export type IdentityRoleFileUpdatedEvent = {
   type: "identity:role-file-updated";
   /** Server-echoed confirmed markdown post-write; source of truth for client rehydrate. */
-  markdown: string;
-  error?: string;
-};
-
-export type IdentityUpdateHistoryPayload = {
-  type: "identity:update-history";
-  identityKey: string;
-  /** Pane SSH host id — backend uses it to route writes to the pane's box. */
-  hostId: number;
-  /** UTF-8 markdown payload (full-overwrite of history.md). Server caps at IDMEDIT_MAX_MARKDOWN_BYTES (2MB). */
-  contents: string;
-};
-// Phase 18 / IDMEDIT-02: widened same as IdentityHistoryEvent to carry `markdown`
-// alongside `entries`. Both fields carried in the echo so HistoryTab rehydrates
-// from server truth (entries for read-mode list, markdown for edit-mode textarea).
-export type IdentityHistoryUpdatedEvent = {
-  type: "identity:history-updated";
-  /** Server re-reads history.md and returns parsed entries — mirrors identity:history event shape. */
-  entries: string[];
-  /** Raw file body for HistoryTab editor textarea rehydration. */
-  markdown?: string;
-  error?: string;
-};
-
-export type IdentityUpdateHandoffPayload = {
-  type: "identity:update-handoff";
-  identityKey: string;
-  /** Pane SSH host id — backend uses it to route writes to the pane's box. */
-  hostId: number;
-  /** UTF-8 markdown payload (full-overwrite of handoff.md). Server caps at IDMEDIT_MAX_MARKDOWN_BYTES (2MB). */
-  contents: string;
-};
-export type IdentityHandoffUpdatedEvent = {
-  type: "identity:handoff-updated";
   markdown: string;
   error?: string;
 };

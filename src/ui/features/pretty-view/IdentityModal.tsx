@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // override render helpers below (renderInheritedBadge / renderRevertButton).
 // Mirrors the pattern used by src/ui/components/section-card.tsx.
 import type React from "react";
-import { AlarmClock, Clock, Handshake, Pencil, Send, Target, User, Users, X } from "lucide-react";
+import { AlarmClock, BookOpen, Pencil, Send, Target, User, Users, X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import {
   DialogHeader,
@@ -54,12 +54,8 @@ import {
   type IdentityListBountiesPayload,
   type IdentityGetIdentityFilePayload,
   type IdentityIdentityFileEvent,
-  type IdentityGetHistoryPayload,
-  type IdentityHistoryEvent,
   type IdentityListWakeupsPayload,
   type IdentityWakeupsEvent,
-  type IdentityGetHandoffPayload,
-  type IdentityHandoffEvent,
   type IdentityUpdateWakeupPayload,
   type IdentityWakeupUpdatedEvent,
   type IdentityUpdateBountyPriorityPayload,
@@ -78,13 +74,9 @@ import {
   type IdentityUpdateBountyFieldsPayload,
   type IdentityBountyFieldsUpdatedEvent,
   type Wakeup,
-  // Phase 18 / IDMEDIT-01,02,03: markdown-tab write wire types from Plan 01
+  // Phase 18 / IDMEDIT-01: markdown-tab write wire types from Plan 01
   type IdentityUpdateIdentityFilePayload,
   type IdentityIdentityFileUpdatedEvent,
-  type IdentityUpdateHistoryPayload,
-  type IdentityHistoryUpdatedEvent,
-  type IdentityUpdateHandoffPayload,
-  type IdentityHandoffUpdatedEvent,
   // Phase 22 SRIC-06 / Plan 22-06: role-file read + update wire types.
   // Backend does the two-step; frontend contract stays (identityKey, hostId).
   type IdentityGetRoleFilePayload,
@@ -122,9 +114,8 @@ import { BountyCard } from "./BountyCard";
 import { cn } from "@/lib/utils";
 import { IdentityFileTab, type TabState } from "./IdentityFileTab";
 import { RoleFileTab } from "./RoleFileTab";
-import { HistoryTab } from "./HistoryTab";
+import { RunbooksTab } from "./RunbooksTab";
 import { WakeupsTab } from "./WakeupsTab";
-import { HandoffTab } from "./HandoffTab";
 // Phase 79 Plan 07 — Telegram bridge tab (identity-scope, fixed real-estate
 // per CONTEXT § Locked decisions #2). TelegramState is threaded from a
 // useState slot in this component and reset on modal open/identity switch.
@@ -137,10 +128,11 @@ import { getUserInfo } from "@/main-axios";
 
 // Patch #87: tabbed near-fullscreen modal for the identity's bounties.
 // Patch #17g: renamed Standing Directives → Identity; promoted Identity to
-//   position 1 + default active tab; parallel fetch of 4 new artifacts
-//   (identity file, history, wakeups, handoff) on modal open; tab renderers
-//   extracted to sibling files (IdentityFileTab / HistoryTab / WakeupsTab /
-//   HandoffTab). Bounties tab structure and patch #87 attribution preserved.
+//   position 1 + default active tab; parallel fetch of artifacts (identity
+//   file, wakeups) on modal open; tab renderers extracted to sibling files
+//   (IdentityFileTab / WakeupsTab / RunbooksTab). Bounties tab structure
+//   and patch #87 attribution preserved. Phase 89 Plan 05: History + Handoff
+//   tab surface removed per D-12; Runbooks tab added per D-08 through D-13.
 // Patch #92: hostId prop threads pane host to backend for cross-machine identity reads.
 //   All 5 WS request payloads now carry hostId; useEffect deps include hostId so
 //   switching panes re-fetches against the correct host.
@@ -154,7 +146,9 @@ import { getUserInfo } from "@/main-axios";
 // "expand" to fill the surface. shadcn DialogContent base overrides use `!`
 // important suffix per patch #81 rule (D-06).
 //
-// Five tabs: Identity (default) / Bounties / History / Wakeups / Handoff.
+// Role scope tabs: Role file / Runbooks / Bounties / Wakeups.
+// Identity scope tabs: Identity file / Wakeups / Telegram.
+// Phase 89 Plan 05: History + Handoff tabs removed per D-12; Runbooks added.
 // Sort/group logic is client-side only (D-08, D-09). Archive section is a
 // collapsed Accordion below the open groups (D-03).
 
@@ -201,6 +195,7 @@ export function IdentityModal({
   identity,
   hue,
   hostId,
+  onOpenRunbook,
   container,
 }: {
   open: boolean;
@@ -209,6 +204,12 @@ export function IdentityModal({
   hue: number;
   /** patch #92: pane's SSH host id — threads into all 5 WS requests for cross-machine reads. */
   hostId: number;
+  /** Phase 89 Plan 05: fired when a Runbooks tab row is clicked. PrettyView owns the
+   *  swap-not-stack coordination — closes this identity modal and opens RunbookEditorModal
+   *  for {roleName: identity.role, runbookName}. Wave 6 (PrettyView) supplies the impl;
+   *  there is no fail-closed default because the Runbooks tab is always rendered (D-11)
+   *  and any missing impl would fail loudly. */
+  onOpenRunbook: (runbookName: string) => void;
   /** patch #108: DOM element to portal into (chat-content region of PrettyView) so the modal
    *  covers only bubbles/tasks/shells and leaves the composer + identity badge uncovered.
    *  When null (transient first render), Portal defaults to document.body — harmless because
@@ -337,24 +338,31 @@ export function IdentityModal({
   // slots + icon-first labels.
   //
   // Phase 72 Plan 03: single 6-item NAV_SECTIONS split into two per-scope
-  // variants. Role scope shows 4 tabs (Role file / Bounties / History /
-  // Wakeups); Identity scope shows 3 tabs (Identity file / Wakeups / Handoff).
-  // The Wakeups tab under Role scope carries value="role-wakeups" and routes
-  // through the role-scope WS handlers; under Identity scope it carries
-  // value="identity-wakeups" and routes through the identity-scope handlers.
-  // The bottom-bar labels intentionally use "Role file" / "Identity file"
-  // instead of just "Role" / "Identity" — the top segmented scope switch
-  // already disambiguates scope, so the tab label describes the artifact.
+  // variants. Phase 89 Plan 05: Role scope now shows 4 tabs (Role file /
+  // Runbooks / Bounties / Wakeups — History removed per D-12, Runbooks added
+  // per D-08/D-13); Identity scope now shows 3 tabs (Identity file / Wakeups /
+  // Telegram — Handoff removed per D-12). The Wakeups tab under Role scope
+  // carries value="role-wakeups" and routes through the role-scope WS handlers;
+  // under Identity scope it carries value="identity-wakeups" and routes through
+  // the identity-scope handlers. The bottom-bar labels intentionally use
+  // "Role file" / "Identity file" instead of just "Role" / "Identity" — the
+  // top segmented scope switch already disambiguates scope, so the tab label
+  // describes the artifact.
   const NAV_SECTIONS_ROLE = [
     { value: "role", label: "Role file", Icon: Users },
+    // Phase 89 Plan 05: Runbooks tab (role scope) inserted as second entry per D-13 spirit.
+    // D-13's flat order "role file, runbooks, identity file, bounties, wake-ups" interleaves
+    // scopes and is not achievable without a Phase-72-Plan-03 scope-regrouping (own bounty).
+    // Runbooks stays role-scope (data lives at ~/.claude/roles/<role>/runbooks/).
+    // Tab body renders as <TabsContent value="runbooks" ...> (see below).
+    { value: "runbooks", label: "Runbooks", Icon: BookOpen },
     { value: "bounties", label: "Bounties", Icon: Target },
-    { value: "history", label: "History", Icon: Clock },
     { value: "role-wakeups", label: "Wakeups", Icon: AlarmClock },
   ] as const;
   const NAV_SECTIONS_IDENTITY = [
     { value: "identity", label: "Identity file", Icon: User },
     { value: "identity-wakeups", label: "Wakeups", Icon: AlarmClock },
-    { value: "handoff", label: "Handoff", Icon: Handshake },
+    // Phase 89 Plan 05: Handoff tab removed per D-12. Handoff entry deleted.
     // Phase 79 Plan 07 — Telegram bridge tab (CONTEXT § 2 fixed real-estate).
     { value: "telegram", label: "Telegram", Icon: Send },
   ] as const;
@@ -366,9 +374,6 @@ export function IdentityModal({
   // does the two-step (identity file → role: frontmatter → role artifact) so
   // the frontend just observes the wire {markdown, error?} shape.
   const [roleFileState, setRoleFileState] = useState<TabState<string>>({ status: "loading" });
-  // Phase 18 / IDMEDIT-02: widened from TabState<string[]> to carry both
-  // entries (read-mode list rendering) and markdown (edit-mode textarea seed).
-  const [historyState, setHistoryState] = useState<TabState<{ entries: string[]; markdown: string }>>({ status: "loading" });
   // Phase 72 Plan 03: renamed the identity-scope slot for scope clarity —
   // it always held identity-scope wakeups but the old name (pre-72) no longer
   // disambiguates now that a parallel role-scope slot lives beside it.
@@ -377,7 +382,6 @@ export function IdentityModal({
   // switch.
   const [identityWakeupsState, setIdentityWakeupsState] = useState<TabState<Wakeup[]>>({ status: "loading" });
   const [roleWakeupsState, setRoleWakeupsState] = useState<TabState<Wakeup[]>>({ status: "loading" });
-  const [handoffState, setHandoffState] = useState<TabState<string>>({ status: "loading" });
   // Phase 79 Plan 07 — Telegram bridge tab state. Fetched on modal open via
   // getTelegramStatus (see effect below).
   const [telegramState, setTelegramState] = useState<TelegramState>({ status: "loading" });
@@ -408,15 +412,13 @@ export function IdentityModal({
     setArchivedError(null);
     setArchiveAccordionValue("");
 
-    // Reset all 6 artifact state slots to loading (Phase 72 Plan 03: added
-    // roleWakeupsState as the sixth slot alongside the renamed
-    // identityWakeupsState).
+    // Reset artifact state slots to loading (Phase 72 Plan 03: roleWakeupsState
+    // was added alongside identityWakeupsState; Phase 89 Plan 05: two fetch slots
+    // removed per D-12 dead-code posture).
     setIdentityFileState({ status: "loading" });
     setRoleFileState({ status: "loading" });
-    setHistoryState({ status: "loading" });
     setIdentityWakeupsState({ status: "loading" });
     setRoleWakeupsState({ status: "loading" });
-    setHandoffState({ status: "loading" });
     // Phase 79 Plan 07 — reset Telegram tab state + authUserId on modal
     // open / identity switch. Effects below re-fetch both.
     setTelegramState({ status: "loading" });
@@ -542,16 +544,6 @@ export function IdentityModal({
       (e) => setRoleFileState({ status: "error", error: e }),
     );
 
-    openOneShot<IdentityGetHistoryPayload, IdentityHistoryEvent>(
-      { type: "identity:get-history", identityKey: identity.identityKey, hostId, },
-      "identity:history",
-      // Phase 18 / IDMEDIT-02: store both entries (read-mode) and markdown (edit-mode textarea seed)
-      (ev) => setHistoryState(ev.error
-        ? { status: "error", error: ev.error }
-        : { status: "ready", data: { entries: ev.entries, markdown: ev.markdown ?? "" } }),
-      (e) => setHistoryState({ status: "error", error: e }),
-    );
-
     openOneShot<IdentityListWakeupsPayload, IdentityWakeupsEvent>(
       { type: "identity:list-wakeups", identityKey: identity.identityKey, hostId, },
       "identity:wakeups",
@@ -571,15 +563,6 @@ export function IdentityModal({
         ? { status: "error", error: ev.error }
         : { status: "ready", data: ev.wakeups }),
       (e) => setRoleWakeupsState({ status: "error", error: e }),
-    );
-
-    openOneShot<IdentityGetHandoffPayload, IdentityHandoffEvent>(
-      { type: "identity:get-handoff", identityKey: identity.identityKey, hostId, },
-      "identity:handoff",
-      (ev) => setHandoffState(ev.error
-        ? { status: "error", error: ev.error }
-        : { status: "ready", data: ev.markdown }),
-      (e) => setHandoffState({ status: "error", error: e }),
     );
 
     return () => {
@@ -1028,43 +1011,6 @@ export function IdentityModal({
     );
     if (res.error) throw new Error(res.error);
     setRoleFileState({ status: "ready", data: res.markdown });
-  }
-
-  // Phase 18 / IDMEDIT-02: save handler for history.md. Sets historyState
-  // with both entries (read-mode list) and markdown (edit-mode textarea) from
-  // the server echo; falls back to client draft for markdown if server omits it
-  // (which should not happen post-widening — the fallback is defensive only).
-  async function updateHistory(contents: string): Promise<void> {
-    if (!identity.identityKey) throw new Error("no identity key");
-    const payload: IdentityUpdateHistoryPayload = {
-      type: "identity:update-history",
-      identityKey: identity.identityKey,
-      hostId,
-      contents,
-    };
-    const res = await sendIdentityMutation<IdentityUpdateHistoryPayload, IdentityHistoryUpdatedEvent>(
-      payload,
-      "identity:history-updated",
-    );
-    if (res.error) throw new Error(res.error);
-    setHistoryState({ status: "ready", data: { entries: res.entries, markdown: res.markdown ?? contents } });
-  }
-
-  // Phase 18 / IDMEDIT-03: save handler for handoff.md.
-  async function updateHandoff(contents: string): Promise<void> {
-    if (!identity.identityKey) throw new Error("no identity key");
-    const payload: IdentityUpdateHandoffPayload = {
-      type: "identity:update-handoff",
-      identityKey: identity.identityKey,
-      hostId,
-      contents,
-    };
-    const res = await sendIdentityMutation<IdentityUpdateHandoffPayload, IdentityHandoffUpdatedEvent>(
-      payload,
-      "identity:handoff-updated",
-    );
-    if (res.error) throw new Error(res.error);
-    setHandoffState({ status: "ready", data: res.markdown });
   }
 
   // Quick 260811-ax1: toggle handler for the "Stays awake" switch.
@@ -2202,14 +2148,15 @@ export function IdentityModal({
           </div>
         </div>
 
-        {/* Tabs — patch #17g: Identity / Bounties / History / Wakeups / Handoff
+        {/* Tabs — patch #17g + Phase 89 Plan 05 restructure.
             Phase 22 SRIC-06 / Plan 22-06: Role tab inserted at position 0 (FIRST)
             per D-CONTEXT §UX rules ("Role tab is FIRST and DEFAULT").
             Patch #191: shadcn TabsList replaced with a bottom icon-bar
             (rendered after the TabsContent blocks below).
-            Phase 72 Plan 03: NAV_SECTIONS now scope-conditional (4 tabs Role /
-            3 tabs Identity); the two Wakeups panes below carry
-            value="role-wakeups" and value="identity-wakeups" respectively. */}
+            Phase 72 Plan 03: NAV_SECTIONS now scope-conditional.
+            Phase 89 Plan 05: Role scope = [role, runbooks, bounties, role-wakeups];
+            Identity scope = [identity, identity-wakeups, telegram].
+            History + Handoff removed per D-12; Runbooks added per D-08 through D-13. */}
         <Tabs
           value={activeTab}
           onValueChange={setActiveTab}
@@ -2224,6 +2171,29 @@ export function IdentityModal({
             className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
           >
             <RoleFileTab state={roleFileState} onSave={updateRoleFile} />
+          </TabsContent>
+
+          {/* Phase 89 Plan 05: Runbooks tab (role scope, always rendered per D-11).
+              Sits inside NAV_SECTIONS_ROLE between Role file and Bounties.
+              D-13's flat spelling "role file, runbooks, identity file, bounties,
+              wake-ups" implies an across-scope visible order that is not
+              achievable without a scope-regrouping outside this phase's scope
+              (see C.6 note + Plan 89-05 must_haves.truths for the flagged
+              discrepancy). Runbooks stays role-scope (data lives at
+              ~/.claude/roles/<role>/runbooks/); scope-regrouping to interleave
+              identity-file would be its own bounty. Body is the bare-list
+              launcher per D-08 through D-11; row-click routes through
+              onOpenRunbook to Wave-6 PrettyView which owns the swap-not-stack
+              coordination (D-06). */}
+          <TabsContent
+            value="runbooks"
+            className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
+          >
+            <RunbooksTab
+              hostId={hostId}
+              roleName={identity.role}
+              onOpenRunbook={onOpenRunbook}
+            />
           </TabsContent>
 
           {/* Identity tab — patch #17g: renders <key>.md as markdown.
@@ -2538,14 +2508,6 @@ export function IdentityModal({
             </div>
           </TabsContent>
 
-          {/* History tab — patch #17g: reverse-chronological history.md rows */}
-          <TabsContent
-            value="history"
-            className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
-          >
-            <HistoryTab state={historyState} onSave={updateHistory} />
-          </TabsContent>
-
           {/* Wakeups tabs — Phase 72 Plan 03: split into two panes, one per
               scope, each wired to the matching scope's WS handlers. Only one
               pane is reachable at a time because NAV_SECTIONS is scope-
@@ -2579,21 +2541,6 @@ export function IdentityModal({
               onUpdate={updateRoleWakeup}
               onCreate={createRoleWakeup}
               onDelete={deleteRoleWakeup}
-            />
-          </TabsContent>
-
-          {/* Handoff tab — patch #17g: handoff.md as markdown.
-              Phase 72 Plan 04: isCoordinator threaded so coord identities
-              short-circuit to the "stateless routers" caption instead of
-              rendering the markdown editor / empty-carry fallback. */}
-          <TabsContent
-            value="handoff"
-            className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
-          >
-            <HandoffTab
-              state={handoffState}
-              isCoordinator={identity.coordinator}
-              onSave={updateHandoff}
             />
           </TabsContent>
 

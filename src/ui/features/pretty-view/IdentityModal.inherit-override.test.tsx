@@ -104,6 +104,12 @@ vi.mock("@/api/voice-api", () => ({
   SAMPLE_PHRASE: "Hi, this is your voice.",
 }));
 
+// Phase 89 Plan 05: RunbooksTab (mounted inside IdentityModal) calls listRunbooks
+// via HTTP. Mock it to return an empty list so the tab renders without a network call.
+vi.mock("@/api/runbooks-api", () => ({
+  listRunbooks: vi.fn().mockResolvedValue([]),
+}));
+
 // ── Late imports ─────────────────────────────────────────────────────────────
 import { updateIdentity } from "@/api/identities-api";
 import { IdentityModal } from "./IdentityModal";
@@ -156,6 +162,8 @@ function renderModal(identityOverrides?: Partial<Identity>) {
       identity={identity}
       hue={200}
       hostId={1}
+      // Phase 89 Plan 05: required prop — Runbooks tab is always rendered per D-11.
+      onOpenRunbook={vi.fn()}
       container={document.body}
     />,
   );

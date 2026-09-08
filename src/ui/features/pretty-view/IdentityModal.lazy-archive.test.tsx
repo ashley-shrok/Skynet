@@ -128,6 +128,12 @@ vi.mock("@/state/bounty-counts-store", async (importOriginal) => {
   };
 });
 
+// Phase 89 Plan 05: RunbooksTab (mounted inside IdentityModal) calls listRunbooks
+// via HTTP. Mock it to return an empty list so the tab renders without a network call.
+vi.mock("@/api/runbooks-api", () => ({
+  listRunbooks: vi.fn().mockResolvedValue([]),
+}));
+
 // ── Late imports ────────────────────────────────────────────────────────────
 import { IdentityModal } from "./IdentityModal";
 // Phase 72 Plan 03: per-test reset of the modal-scope-store so scope memory
@@ -172,6 +178,8 @@ function renderModal() {
       identity={BASE_IDENTITY}
       hue={200}
       hostId={7}
+      // Phase 89 Plan 05: required prop — Runbooks tab is always rendered per D-11.
+      onOpenRunbook={vi.fn()}
       container={document.body}
     />,
   );
