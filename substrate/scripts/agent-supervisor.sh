@@ -7,9 +7,12 @@
 # a live one is left alone. On bring-up, launches are STAGGERED (one at a time) so a box with many
 # identities never forks N sessions at once.
 #
-# Canonical copy lives in the home app (~/vms-apps/apps/home/agent-supervisor.sh), served +
-# self-updating like the skills. Installed per-box (e.g. ~/.local/bin/agent-supervisor) and run as
-# a systemd --user service. Config: ~/.claude/agent-supervisor.conf (a sourced bash file).
+# Canonical copy lives in the Skynet repo at substrate/scripts/agent-supervisor.sh and is
+# distributed to every managed host (including the Skynet host itself) by the Skynet fleet
+# substrate distributor (see src/backend/distributor/catalog.ts). Installed per-box at
+# ~/.local/bin/agent-supervisor and run as a systemd --user service. Config:
+# ~/.claude/agent-supervisor.conf (a sourced bash file). Do NOT hand-edit the installed copy
+# — edits are made in the repo and land on all boxes via the next distributor sweep.
 #
 # Usage:
 #   agent-supervisor.sh            # loop forever, reconcile every CHECK_INTERVAL sec (systemd ExecStart)
@@ -329,17 +332,22 @@ submit_id() {
     timeout -k 5 10 tmux send-keys -t "$sess" C-c 2>/dev/null
     sleep 0.5
     # 2026-09-02 Ink-mount race guard: if our C-c hit Ink mid-mount, claude exited. Self-correcting
-    # fix — relaunch with an 8s extended settle, then retry this attempt. Bounded by the outer $max
-    # attempts budget so we can't loop forever.
+    # fix — relaunch with an 8s extended settle, then FALL THROUGH to the paste (do NOT `continue`).
+    # 2026-09-08 fix: the previous `continue` looped back to the top and fired another C-c on the
+    # just-relaunched (still mid-mount) claude, killing it again. On the second death, max attempts
+    # was hit and we bailed — but redrive_claude had already re-typed a THIRD launch, leaving a
+    # naked harness with no /id pasted. Falling through instead: the just-relaunched claude has
+    # a fresh empty compose (no C-c needed), so we paste /id directly. If the paste doesn't land
+    # in this iteration's 15s poll window, attempt 2 does a normal C-c on a now-fully-mounted claude.
     if ! claude_running "$sess"; then
-      log "'$name' submit_id attempt $attempt: claude DIED after our C-c (Ink was mid-mount) — relaunching with 8s extended settle"
+      log "'$name' submit_id attempt $attempt: claude DIED after our C-c (Ink was mid-mount) — relaunching with 8s extended settle, then pasting on the fresh compose"
       redrive_claude "$name" "$sess" ""
       if ! wait_for_claude "$sess" 8; then
         log "ERROR: '$name' submit_id: post-C-c-death relaunch failed — bailing"
         return 1
       fi
       sleep 8
-      continue
+      # fall through to paste — the fresh Ink mount has an empty compose, no C-c needed
     fi
     local _tmp
     _tmp=$(mktemp)
@@ -427,16 +435,22 @@ submit_resume_nudge() {
     timeout -k 5 10 tmux send-keys -t "$sess" C-c 2>/dev/null
     sleep 0.5
     # 2026-09-02 Ink-mount race guard: same as submit_id — if C-c killed a still-mounting Ink,
-    # relaunch with the resume_id and an 8s extended settle, then retry. Bounded by outer $max.
+    # relaunch with the resume_id and an 8s extended settle, then FALL THROUGH to the paste
+    # (do NOT `continue`). 2026-09-08 fix: the previous `continue` looped back to the top and
+    # fired another C-c on the just-relaunched (still mid-mount) claude, killing it again; on
+    # max attempts we bailed leaving a naked resumed harness with no nudge (relay-deaf). Falling
+    # through instead: the just-relaunched claude has a fresh empty compose (no C-c needed), so
+    # we paste directly. If the paste doesn't land in the 10s poll, the next attempt does a
+    # normal C-c on a now-fully-mounted claude.
     if ! claude_running "$sess"; then
-      log "'$name' submit_resume_nudge attempt $attempt: claude DIED after our C-c (Ink was mid-mount) — relaunching with 8s extended settle"
+      log "'$name' submit_resume_nudge attempt $attempt: claude DIED after our C-c (Ink was mid-mount) — relaunching with 8s extended settle, then pasting on the fresh compose"
       redrive_claude "$name" "$sess" "$resume_id"
       if ! wait_for_claude "$sess" 8; then
         log "ERROR: '$name' submit_resume_nudge: post-C-c-death relaunch failed — bailing"
         return 1
       fi
       sleep 8
-      continue
+      # fall through to paste — the fresh Ink mount has an empty compose, no C-c needed
     fi
     local _tmp
     _tmp=$(mktemp)
