@@ -188,10 +188,15 @@ describe("RelayMessageList (Phase 90 Plan 05 Task 2)", () => {
   });
 
   it("Test 7 (D-12 fork consumption): imports RelayRoomInboundBubble (the fork), NOT RelayInboundBubble (the pretty-view original)", async () => {
-    // Read the source file and grep for the import statement.
+    // Read the source file and grep for the import statement. Use a path
+    // relative to process.cwd() which is the repo root under vitest.
     const fs = await import("node:fs/promises");
+    const path = await import("node:path");
     const source = await fs.readFile(
-      new URL("./RelayMessageList.tsx", import.meta.url),
+      path.resolve(
+        process.cwd(),
+        "src/ui/features/relay-room-pane/RelayMessageList.tsx",
+      ),
       "utf8",
     );
     // Must import the fork.
