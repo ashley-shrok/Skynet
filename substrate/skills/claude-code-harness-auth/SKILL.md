@@ -125,39 +125,70 @@ Runs from a scheduled wake-up spec. One clean check per day.
 
     HOSTNAME=$(hostname -s)
     SESSION="fleet-auth-setup-$$"
-    tmux new-session -d -s "$SESSION" -x 400 -y 60
-    # Widen the pane's stty view so the URL emits on a single line without box-wrap.
-    tmux send-keys -t "$SESSION" "stty cols 400 rows 60 && cd /tmp && claude setup-token" Enter
+    LOGDIR=~/.claude/harness-auth-logs/$SESSION
+    mkdir -p "$LOGDIR"
+    tmux new-session -d -s "$SESSION" -x 500 -y 60
+    # ⚠️ Enable pipe-pane BEFORE launching claude — captures 100% of pane output to a
+    # durable file. Poll-based `tmux capture-pane` snapshots race the render and can miss
+    # transitional state (2026-09-08 incident: post-code-paste response was written and
+    # the pane closed before the next 1s poll caught it — no way to diagnose without the
+    # continuous stream). Load-bearing safety.
+    tmux pipe-pane -t "$SESSION" -o "cat >> $LOGDIR/live.log"
+    # ⚠️ Do NOT `exec claude setup-token` — when claude exits the shell dies with it and
+    # the tmux session collapses, taking any post-claude pane state (including the token
+    # line and any error) with it. Plain `claude setup-token` leaves the shell alive after
+    # claude exits so pipe-pane keeps recording and post-mortem is possible.
+    # stty cols widened to 500 (was 400) for headroom on progressive-render truncation.
+    tmux send-keys -t "$SESSION" "stty cols 500 rows 60 && cd /tmp && claude setup-token" Enter
 
-### A.3 — capture URL from pane
+### A.3 — capture URL from the pipe-pane log
 
 ⚠️ **Even with a wide tmux pane, the URL may be drawn inside a bordered box** at whatever
-column width Claude Code decides; the stitcher below is defense-in-depth. Poll for a
-full-length `https://claude.…` URL; timeout coarse.
+column width Claude Code decides; the stitcher below is defense-in-depth. Read from the
+DURABLE pipe-pane log (not per-poll `capture-pane` snapshots which race the render),
+strip ANSI escape codes (color/format sequences + OSC 8 hyperlinks that pipe-pane records
+verbatim from the raw pane), and require STABILITY across two consecutive 1s samples
+before accepting the URL — the URL is only "ready" when the log stops accumulating
+pieces of it.
 
-    URL=""
-    for _ in $(seq 1 60); do
-      PANE=$(tmux capture-pane -t "$SESSION" -p 2>/dev/null || true)
-      URL=$(printf '%s\n' "$PANE" | awk '
-        /^https:\/\/claude\.(com|ai)/ { collecting=1; url=""; }
+    # ANSI stripper: removes CSI (`\e[...m` etc) and OSC 8 hyperlink sequences.
+    strip_ansi() { sed -E $'s/\x1b\\[[0-9;]*[a-zA-Z]//g; s/\x1b\\][0-9]+;[^\a\x1b]*(\a|\x1b\\\\)//g'; }
+    extract_url() {
+      strip_ansi < "$LOGDIR/live.log" | awk '
+        /https:\/\/claude\.(com|ai)/ { collecting=1; url=""; }
         collecting && NF > 0 && !/^╭|^╰|^│|^─|^ *Paste|^ *Esc|^ *Browser/ {
           line=$0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", line);
+          if (index(line, "https://claude") > 0) { sub(/.*https:/, "https:", line); }
           url = url line;
         }
-        collecting && (NF == 0 || /^ *Paste code/) { print url; exit }
-      ')
-      [ -n "$URL" ] && [ ${#URL} -gt 100 ] && break     # >100 chars guards against partial capture
+        collecting && (NF == 0 || /Paste code/) { print url; exit }
+      '
+    }
+    URL=""
+    for _ in $(seq 1 60); do
+      URL=$(extract_url)
+      if [ -n "$URL" ] && [ ${#URL} -gt 100 ]; then
+        sleep 1
+        URL2=$(extract_url)
+        [ "$URL" = "$URL2" ] && break
+        URL=""
+      fi
       sleep 1
     done
     if [ -z "$URL" ] || [ ${#URL} -lt 100 ]; then
       tmux kill-session -t "$SESSION" 2>/dev/null
-      # DM: "✗ [box: <HOSTNAME>] setup-token didn't produce a URL — will retry next daily wake"
+      # DM: "✗ [box: <HOSTNAME>] setup-token didn't produce a URL — logs at $LOGDIR/live.log — will retry next daily wake"
       exit 0
     fi
 
 The URL matcher is loose on purpose — Claude Code has changed URL formats between versions.
 If a future version breaks the matcher, the URL-capture timeout fires and Ashley gets a
 plain-error DM instead of a partial success. Coarse-grained failure by design.
+
+⚠️ **Do NOT skip the ANSI strip on any DM sent to Ashley.** pipe-pane captures include
+trailing OSC 8 hyperlink markers (`\e]8;;`) that render as `[39m]8;;` junk in a chat
+message and break the URL click. The strip_ansi step must run before the URL text is
+shown to a human.
 
 ### A.4 — DM Ashley the URL and persist state
 
@@ -223,29 +254,56 @@ unsubmitted, and B.4 loops to timeout even though the code was fine. Same failur
 as delivering messages to a Claude Code REPL. **Fix: atomic bracketed paste, THEN a
 separate discrete Enter after the paste settles.**
 
-    tmp=$(mktemp)
-    printf '%s' "$CODE" > "$tmp"
-    tmux load-buffer -t "$SESSION" "$tmp"
-    tmux paste-buffer -p -t "$SESSION"
-    rm -f "$tmp"
-    sleep 0.5
+⚠️ **Use `tmux set-buffer` with inline data — do NOT `tmux load-buffer` from a tmp file.**
+`mktemp` as one user + `tmux load-buffer` running as another user (via `runuser` / `sudo`
+/ `su`) returns Permission denied on the tmp file, silently pasting an empty buffer and
+producing "Invalid code" downstream. Named-buffer + inline data has no cross-uid perm
+surface. Marker log entry `=== PASTE-BEGIN ===` gives downstream token extraction a way
+to skip pre-paste noise (URL characters etc) if needed. (2026-09-08 incident.)
+
+    # Marker into pipe-pane log so B.4 can split pre-paste noise from post-paste output.
+    echo '=== PASTE-BEGIN ===' >> "$LOGDIR/live.log"
+
+    # Named-buffer paste — inline data, no tmp file, no cross-uid perm trap.
+    tmux set-buffer -b harness-auth-code -- "$CODE"
+    tmux paste-buffer -p -b harness-auth-code -t "$SESSION"
+    tmux delete-buffer -b harness-auth-code
+    sleep 1.5    # let bracketed paste settle before the discrete Enter (0.5s was too tight for longer codes)
     tmux send-keys -t "$SESSION" Enter
     # Update state: awaiting-code → awaiting-token-capture
     jq '.step="awaiting-token-capture"' "$ST" > "$ST.tmp" && mv "$ST.tmp" "$ST"
 
-### B.4 — scrape the `sk-ant-oat01-...` token from the pane
+### B.4 — scrape the `sk-ant-oat01-...` token from the pipe-pane log
 
 After the code lands, setup-token validates it against Anthropic and prints the token.
-Poll the pane for a `sk-ant-oat01-` line; timeout coarse (~60s).
+Read from the durable pipe-pane log (not `capture-pane` snapshots — those race the
+render and can miss transitional state or the token entirely if claude exits before
+the next poll fires). Strip ANSI escapes, and require the match to be STABLE across
+two consecutive 1s samples: on 2026-09-07, `capture-pane` snapshotted mid-render and
+delivered a 99-char partial token that regex-matched the `{80,}` floor but was
+missing the final ~30 chars — Anthropic returned "OAuth access token is invalid" the
+next time the token was used. A stability check would have caught this, since the
+next sample would have shown the full-length token and the two samples would have
+mismatched. **Do not remove the stability check.**
 
+    extract_token() {
+      # Read only the post-paste section (after the PASTE-BEGIN marker from B.3) so
+      # the URL from A.3 can't be confused for a token.
+      awk '/=== PASTE-BEGIN ===/{flag=1; next} flag' "$LOGDIR/live.log" \
+        | strip_ansi \
+        | grep -oE 'sk-ant-oat01-[A-Za-z0-9_-]+' | tail -1
+    }
     TOKEN=""
     for _ in $(seq 1 60); do
-      PANE=$(tmux capture-pane -t "$SESSION" -p 2>/dev/null || true)
-      # Match a full token: sk-ant-oat01-<base64ish, ~100+ chars>
-      TOKEN=$(printf '%s\n' "$PANE" | grep -oE 'sk-ant-oat01-[A-Za-z0-9_-]{80,}' | head -1)
-      [ -n "$TOKEN" ] && break
-      # Detect explicit failure signals; break early rather than wait the full timeout.
-      if printf '%s\n' "$PANE" | grep -qiE 'invalid|failed|error|expired'; then
+      CAND=$(extract_token)
+      if [ -n "$CAND" ] && [ ${#CAND} -ge 80 ]; then
+        sleep 1
+        CAND2=$(extract_token)
+        if [ "$CAND" = "$CAND2" ]; then TOKEN="$CAND"; break; fi
+      fi
+      # Explicit setup-token error visible AND no token candidate → break early rather
+      # than wait full 60s.
+      if grep -qiE 'OAuth error|invalid code|failed|expired' "$LOGDIR/live.log" && [ -z "$CAND" ]; then
         break
       fi
       sleep 1
@@ -253,9 +311,13 @@ Poll the pane for a `sk-ant-oat01-` line; timeout coarse (~60s).
     if [ -z "$TOKEN" ]; then
       tmux kill-session -t "$SESSION" 2>/dev/null
       rm -f "$ST"
-      # DM: "✗ [box: <HOSTNAME>] token capture failed (code likely rejected or expired) — will retry next daily wake"
+      # DM: "✗ [box: <HOSTNAME>] token capture failed (code likely rejected or expired) — logs at $LOGDIR/live.log — will retry next daily wake"
       exit 0
     fi
+
+⚠️ **Length is a weak signal — legit tokens can be as short as 108 chars, so a min-length
+floor higher than 80 would produce false rejections.** The load-bearing safeties are the
+stability check here AND the live Anthropic verify in B.6. Do not lean on length alone.
 
 ### B.5 — jq-merge the token into settings.json env block
 
@@ -279,25 +341,62 @@ Poll the pane for a `sk-ant-oat01-` line; timeout coarse (~60s).
     mv "$SETTINGS.tmp" "$SETTINGS"
     chmod 600 "$SETTINGS"
 
-### B.6 — record install date, verify, clean up, DM success
+### B.6 — API-verify against Anthropic, record install date, clean up, DM success
 
-    # Install marker for the daily-check age calculation
-    date -u +%Y-%m-%dT%H:%M:%SZ > ~/.claude/identities/<name>/.oauth-token-install-marker
+⚠️ **Load-bearing check: hit Anthropic `/v1/messages` with the captured token BEFORE
+writing the install marker.** A merge that lands invalid bytes (silent truncation,
+stale-buffer bleed, prefix mismatch, mid-render capture) produces a settings.json that
+LOOKS installed but returns 401 as soon as it's actually used. Merge-equality
+(`INSTALLED == TOKEN`) only proves the write landed — NOT that Anthropic will honor
+the bytes. 2026-09-07: a 99-char partial token was captured and installed silently,
+`.credentials.json` from an earlier `/login` masked the 401 for ~11 hours until it
+expired, and the failure only surfaced the next day. **Live verify is the only check
+that catches silent-invalid-token cases.**
 
-    # Light verification — grep the token back out to confirm the merge landed
+    HTTP=$(curl -sS -o /tmp/harness-auth-verify-$$.json -w "%{http_code}" \
+      https://api.anthropic.com/v1/messages \
+      -H "Content-Type: application/json" \
+      -H "anthropic-version: 2023-06-01" \
+      -H "Authorization: Bearer $TOKEN" \
+      -d '{"model":"claude-haiku-4-5-20251001","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}')
+    if [ "$HTTP" != "200" ]; then
+      # Roll back from the pre-install backup — the token in settings.json is bad.
+      cp "$SETTINGS.pre-token-backup" "$SETTINGS"
+      chmod 600 "$SETTINGS"
+      rm -f /tmp/harness-auth-verify-$$.json
+      tmux kill-session -t "$SESSION" 2>/dev/null
+      rm -f "$ST"
+      # DM: "✗ [box: <HOSTNAME>] token captured but Anthropic returned $HTTP on verify —
+      #      rolled back to prior settings.json — logs at $LOGDIR/live.log — will retry next daily wake"
+      exit 1
+    fi
+    rm -f /tmp/harness-auth-verify-$$.json
+
+    # Belt-and-suspenders: confirm the merge itself landed the exact captured bytes.
     INSTALLED=$(jq -r '.env.CLAUDE_CODE_OAUTH_TOKEN // ""' "$SETTINGS")
     [ "$INSTALLED" = "$TOKEN" ] || {
-      # DM: "✗ post-install verify failed — token in settings.json != captured token"
+      # DM: "✗ post-install merge-verify failed — token in settings.json != captured token"
       exit 1
     }
+
+    # Install marker for the daily-check age calculation — written ONLY after Anthropic
+    # verify passes. A bad token that got rolled back must not get its age reset, or the
+    # daily check would wait another ~11 months before re-prompting.
+    date -u +%Y-%m-%dT%H:%M:%SZ > ~/.claude/identities/<name>/.oauth-token-install-marker
+
+    # Also stash the expired `.credentials.json` (if any) aside so it can't confuse Claude
+    # Code's precedence logic on next launch — an expired short-lived credentials file
+    # can mask a fresh env-block token for hours before finally erroring (see 2026-09-07).
+    [ -f ~/.claude/.credentials.json ] && \
+      mv ~/.claude/.credentials.json ~/.claude/.credentials.json.stale-$(date +%Y%m%d)
 
     # Clean up sidecar + pending state
     tmux kill-session -t "$SESSION" 2>/dev/null
     rm -f ~/.claude/identities/<name>/harness-auth-pending.json
 
-    # DM: "✓ [box: <HOSTNAME>] token installed. Applies to all claude launches on this box AND
-    # takes effect on already-running sessions immediately (verified live-propagation 2026-09-03).
-    # Next renewal reminder in ~11 months."
+    # DM: "✓ [box: <HOSTNAME>] token installed and Anthropic-verified (HTTP 200).
+    # Applies to all claude launches on this box AND takes effect on already-running sessions
+    # immediately (verified live-propagation 2026-09-03). Next renewal reminder in ~11 months."
 
 ## Phase C — timeouts and stale-state cleanup
 
@@ -327,12 +426,28 @@ This means the skill CAN be triggered ad-hoc (not just from the daily wake) as a
 mid-session rescue. Same Phase A → B flow; the pending state file just gets seeded
 manually or from a different trigger. No changes needed.
 
+⚠️ **`.credentials.json` from an earlier `/login` masks env-block tokens.** If a box has
+an unexpired `~/.claude/.credentials.json` (produced by an interactive `/login` at any
+prior point), Claude Code prefers it over the env-block token until it expires. B.6
+now stashes any present `.credentials.json` aside as `.credentials.json.stale-<date>`
+at install time so the fresh env-block token takes effect immediately rather than
+sitting behind an expiring shadow. Do NOT skip this step — the 2026-09-07 incident had
+a fresh (but invalid) env-block token installed at noon and the pre-existing
+`.credentials.json` masked the 401 for ~11 hours until it expired at midnight, at
+which point the underlying broken token surfaced.
+
 ## Storage / security notes
 
 - **File permissions**: `~/.claude/settings.json` written 0600 by B.5. The token is a
   year-long subscription credential; treat as a long-lived secret.
 - **Backup file**: `.pre-token-backup` sibling preserves the pre-install state for
-  rollback. Consider cleanup after N days if it accumulates (rare — only one per install).
+  rollback and is USED by B.6 when Anthropic-verify returns non-200. Keep at least the
+  most recent; consider cleanup of older ones after N days (rare — only one per install).
+- **Forensic logs**: `~/.claude/harness-auth-logs/<session>/live.log` (pipe-pane raw
+  stream) persists after the sidecar tmux is killed. Kept for post-mortem — every
+  failure the skill has hit was undebugable without them. Tiny disk cost, huge
+  post-mortem value. Consider periodic cleanup of `harness-auth-logs/` older than N
+  days if it grows unbounded; a successful install produces one directory of ~5-50KB.
 - **Same token across multiple boxes**: technically works (one subscription can back N
   boxes) but blast-radius on token compromise scales with box count. **Prefer per-box
   tokens** — each box's flow runs setup-token independently and produces a distinct
@@ -361,6 +476,28 @@ manually or from a different trigger. No changes needed.
   prefix or change the character set. B.4's regex `sk-ant-oat01-[A-Za-z0-9_-]{80,}` is
   loose but not future-proof. A miss triggers the coarse-fail path (DM Ashley, retry next
   daily) — she'll notice within a day and fix the regex.
+- **Silent-invalid-token: partial capture passes the regex but fails Anthropic.** A
+  progressive-render truncation, a stale buffer bleed, or any other capture-side bug can
+  produce a byte-shaped-like-a-token string that the regex accepts as valid. Without the
+  live Anthropic verify in B.6, this installs a broken token that returns 401 as soon as
+  it's actually used. The load-bearing defense is the API verify — NOT the regex or a
+  min-length heuristic (legit tokens can be as short as 108 chars, so tightening the
+  floor introduces false rejections without buying safety). If the verify is ever
+  loosened or removed, this failure mode resurfaces. Empirical origin: 2026-09-07 on
+  thenasty — 99-char partial token installed silently, hid behind an expiring
+  `.credentials.json` from an earlier `/login` for ~11 hours, then 401 surfaced when
+  `.credentials.json` expired and no longer masked the bad env-block token.
+- **Cross-uid tmp-file paste fails silently.** If `mktemp` runs as one user (e.g. root
+  invoking via SSH) but `tmux load-buffer` runs as another (via `runuser`), the tmp file
+  is unreadable by tmux, `load-buffer` silently fails, and `paste-buffer` inserts an
+  empty or stale buffer — setup-token then says "Invalid code" and B.4 loops to timeout
+  on a code that was never actually delivered. B.3's `tmux set-buffer -b <name> -- "$CODE"`
+  form has no file surface at all and dodges this.
+- **`exec claude setup-token` collapses the sidecar on claude exit.** With `exec`, when
+  claude exits (success OR failure) the shell dies, the tmux window closes, and the
+  session dies with it — taking any post-claude pane state (token line, error line,
+  everything) with it. Plain `claude setup-token` keeps the shell alive after claude
+  exits, and pipe-pane keeps recording. A.2 must not use `exec`.
 - **Subscription lapses.** If Claude Max expires or org membership changes, setup-token
   stops working. Skill has no visibility — Ashley sees 401, fixes subscription first.
 - **The flow becomes a place things get stuck.** A sidecar tmux that survives failure and
