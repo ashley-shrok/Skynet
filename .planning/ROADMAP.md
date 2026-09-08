@@ -2109,15 +2109,15 @@ Plans:
 **Goal:** Restructure the identity modal tab set (remove History + Handoff, add Runbooks between Role file and Bounties per D-13), add a bare-list Runbooks tab body (D-08 through D-11), and add a new runbook-editor modal built as a byte-shape clone of `SkillsEditorModal.tsx` for role-scoped runbooks. Also update `substrate/skills/id/SKILL.md` so § Runbooks Storage codifies `runbook.md` as the sentinel main file (per D-19; going-forward only per D-20). Swap-not-stack for v1 (D-06) — closing the runbook editor does NOT restore the identity modal. On-disk rename of existing box-maintainer runbooks is out of scope (Ashley's manual post-close pass per 89-CONTEXT.md § Out of scope).
 **Requirements**: none (bounty-driven — no REQ-IDs to cover)
 **Depends on:** Phase 88
-**Plans:** 6 plans
+**Plans:** 6/6 plans complete
 Plans:
 **Wave 1**
 
-- [ ] 89-01-PLAN.md — Wave 1 (no deps): update `substrate/skills/id/SKILL.md` § Runbooks Storage + § 3 on-wake missing-file wording from `<slug>.md` to `runbook.md` (D-19); ships FIRST per D-23 to avoid contract drift
+- [x] 89-01-PLAN.md — Wave 1 (no deps): update `substrate/skills/id/SKILL.md` § Runbooks Storage + § 3 on-wake missing-file wording from `<slug>.md` to `runbook.md` (D-19); ships FIRST per D-23 to avoid contract drift
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 89-02-PLAN.md — Wave 2 (depends 89-01): new backend `runbooks-editor.ts` (7 endpoints, byte-shape mirror of `skills-editor.ts` with role dimension + D-15 role-existence-check + path-safety gates) + `runbooks-editor.test.ts` (>=30 tests + >=10 SEC path-traversal) + mount in `database.ts` + matching `location ~ ^/runbooks-editor(/.*)?### Phase 89: Identity modal — drop History+Handoff tabs, add Runbooks tab + editor modal
+- [x] 89-02-PLAN.md — Wave 2 (depends 89-01): new backend `runbooks-editor.ts` (7 endpoints, byte-shape mirror of `skills-editor.ts` with role dimension + D-15 role-existence-check + path-safety gates) + `runbooks-editor.test.ts` (>=30 tests + >=10 SEC path-traversal) + mount in `database.ts` + matching `location ~ ^/runbooks-editor(/.*)?### Phase 89: Identity modal — drop History+Handoff tabs, add Runbooks tab + editor modal (completed 2026-09-08)
 
 **Goal:** Restructure the identity modal tab set (remove History + Handoff, add Runbooks between Role file and Bounties per D-13), add a bare-list Runbooks tab body (D-08 through D-11), and add a new runbook-editor modal built as a byte-shape clone of `SkillsEditorModal.tsx` for role-scoped runbooks. Also update `substrate/skills/id/SKILL.md` so § Runbooks Storage codifies `runbook.md` as the sentinel main file (per D-19; going-forward only per D-20). Swap-not-stack for v1 (D-06) — closing the runbook editor does NOT restore the identity modal. On-disk rename of existing box-maintainer runbooks is out of scope (Ashley's manual post-close pass per 89-CONTEXT.md § Out of scope).
 **Requirements**: none (bounty-driven — no REQ-IDs to cover)
@@ -2127,16 +2127,16 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 89-03-PLAN.md — Wave 3 (depends 89-02): frontend API client `runbooks-api.ts` — 7 typed helpers + 2 typed 409 error classes (RunbookFileMtimeConflictError + RunbookFileAlreadyExistsError) + 5 type exports, mirroring `skills-api.ts` byte-shape, runtime-decoupled (no cross-import)
+- [x] 89-03-PLAN.md — Wave 3 (depends 89-02): frontend API client `runbooks-api.ts` — 7 typed helpers + 2 typed 409 error classes (RunbookFileMtimeConflictError + RunbookFileAlreadyExistsError) + 5 type exports, mirroring `skills-api.ts` byte-shape, runtime-decoupled (no cross-import)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 89-04-PLAN.md — Wave 4 (depends 89-03): new `RunbookEditorModal.tsx` (byte-shape clone of `SkillsEditorModal.tsx` adapted for role-scope: role/runbook props, no host/runbook pickers per D-02, DeleteConfirmDialog reuse for delete-file + delete-runbook per D-04/D-05, SkillFileTab reuse per D-01)
+- [x] 89-04-PLAN.md — Wave 4 (depends 89-03): new `RunbookEditorModal.tsx` (byte-shape clone of `SkillsEditorModal.tsx` adapted for role-scope: role/runbook props, no host/runbook pickers per D-02, DeleteConfirmDialog reuse for delete-file + delete-runbook per D-04/D-05, SkillFileTab reuse per D-01)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
-- [ ] 89-05-PLAN.md — Wave 5 (depends 89-04): IdentityModal integration — new `RunbooksTab.tsx` bare-list body (D-08 through D-11), delete `HistoryTab.tsx` + `HandoffTab.tsx` + all their state slots/effects/save handlers/wire type imports per D-12, prune frontend wire types in `claude-session-api.ts`, delete C2 coord-empty test + `deliverHandoff` helper, add new `onOpenRunbook` prop threaded through IdentityModal → RunbooksTab
+- [x] 89-05-PLAN.md — Wave 5 (depends 89-04): IdentityModal integration — new `RunbooksTab.tsx` bare-list body (D-08 through D-11), delete `HistoryTab.tsx` + `HandoffTab.tsx` + all their state slots/effects/save handlers/wire type imports per D-12, prune frontend wire types in `claude-session-api.ts`, delete C2 coord-empty test + `deliverHandoff` helper, add new `onOpenRunbook` prop threaded through IdentityModal → RunbooksTab
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 89-06-PLAN.md — Wave 6 (depends 89-05): PrettyView owns swap-not-stack coordination (D-06) — new `runbookEditorOpenState` state slot + `handleOpenRunbook` handler that closes identity modal + opens RunbookEditorModal at same tick + no reopen-on-close; new in-process test suite `IdentityModal.runbooks-swap.test.tsx` with 5 test cases (S1 happy path, S2 swap-close-does-not-reopen, S3 null-role fast path, S4 empty list, S5 alphabetical)
+- [x] 89-06-PLAN.md — Wave 6 (depends 89-05): PrettyView owns swap-not-stack coordination (D-06) — new `runbookEditorOpenState` state slot + `handleOpenRunbook` handler that closes identity modal + opens RunbookEditorModal at same tick + no reopen-on-close; new in-process test suite `IdentityModal.runbooks-swap.test.tsx` with 5 test cases (S1 happy path, S2 swap-close-does-not-reopen, S3 null-role fast path, S4 empty list, S5 alphabetical)
