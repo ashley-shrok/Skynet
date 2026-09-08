@@ -40,6 +40,10 @@ import {
 import { createOrUpdateUser, deactivateUser } from "../../matrix/matrix-admin-client.js";
 import { buildHumanMxid, generateHumanRelayPassword, extractServerName } from "../../matrix/username-to-mxid.js";
 import { getMatrixAdminCreds } from "../../matrix/matrix-admin-creds-store.js";
+// Phase 89-02 Task 3: post-mint humans-registry-room join hook (D-11).
+// Best-effort per D-12 — a failed join does NOT fail the create; backfill
+// is the safety net.
+import { joinHumanToHumansRegistry } from "../../relay-sessions/registry-rooms.js";
 
 const authManager = AuthManager.getInstance();
 
@@ -325,6 +329,39 @@ router.post("/create", userAvatarUpload.single("avatar"), async (req, res) => {
       return res.status(500).json({
         error: "Failed to setup user security - user creation cancelled",
       });
+    }
+
+    // Phase 89 D-11 hook. Best-effort per D-12: backfill covers gaps. A
+    // failed join does NOT fail the create — the observation loop's
+    // classification for this human will fall back to 'unknown foreign
+    // account' until the next backfill run or manual admin trigger corrects
+    // it. Hook fires AFTER the INSERT transaction commits (so the row exists
+    // even if the join fails) and BEFORE the forceSave (so the RAM state is
+    // fully in place before flushing).
+    try {
+      const joinResult = await joinHumanToHumansRegistry(mintedMxid);
+      if (joinResult.ok === false) {
+        authLogger.warn(
+          "user create: humans-registry join failed (best-effort per D-12)",
+          {
+            operation: "user_create_registry_join_failed",
+            userId: id,
+            mxid: mintedMxid,
+            status: joinResult.status,
+            error: joinResult.error,
+          },
+        );
+      }
+    } catch (joinErr) {
+      authLogger.warn(
+        "user create: humans-registry join threw unexpectedly (best-effort per D-12)",
+        {
+          operation: "user_create_registry_join_threw",
+          userId: id,
+          mxid: mintedMxid,
+          error: joinErr instanceof Error ? joinErr.message : String(joinErr),
+        },
+      );
     }
 
     // D-17 (T-85-17): labeled forceSave after successful INSERT — crown-jewel invariant.

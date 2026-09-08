@@ -29,6 +29,11 @@ import {
   MIME_TO_AVATAR_EXT,
   type AvatarExt,
 } from "../../claude-session/identity-artifact-reader.js";
+// Phase 89-02 Task 3: post-mint agents-registry-room join hook (D-11).
+// Best-effort per D-12 — a failed join does NOT fail the birth; backfill is
+// the safety net.
+import { joinAgentToAgentsRegistry } from "../../relay-sessions/registry-rooms.js";
+import { databaseLogger } from "../../utils/logger.js";
 
 // ---------------------------------------------------------------------------
 // Nelly-verbatim constants (audited against agent-supervisor.sh + DM §1)
@@ -780,6 +785,36 @@ export async function runRelayMintAndWrite(
       );
     }
     mintedAccessToken = loginResult.accessToken;
+
+    // -----------------------------------------------------------------------
+    // Phase 89 D-11 hook. Best-effort per D-12: backfill covers gaps. A
+    // failed join does NOT fail the birth — the observation loop's
+    // classification will fall back to 'unknown foreign account' until the
+    // next backfill run or manual admin trigger corrects it.
+    // -----------------------------------------------------------------------
+    try {
+      const joinResult = await joinAgentToAgentsRegistry(mxid);
+      if (joinResult.ok === false) {
+        databaseLogger.warn(
+          "identity birth: agents-registry join failed (best-effort per D-12)",
+          {
+            operation: "identity_birth_registry_join_failed",
+            mxid,
+            status: joinResult.status,
+            error: joinResult.error,
+          },
+        );
+      }
+    } catch (joinErr) {
+      databaseLogger.warn(
+        "identity birth: agents-registry join threw unexpectedly (best-effort per D-12)",
+        {
+          operation: "identity_birth_registry_join_threw",
+          mxid,
+          error: joinErr instanceof Error ? joinErr.message : String(joinErr),
+        },
+      );
+    }
   });
 
   // -------------------------------------------------------------------------
