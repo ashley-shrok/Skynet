@@ -20,6 +20,9 @@ const IdentitySessionPane = lazy(() =>
   import("@/shell/IdentitySessionPane").then((m) => ({ default: m.IdentitySessionPane })),
 );
 const GuacamoleApp = lazy(() => import("@/features/guacamole/GuacamoleApp"));
+const RelayRoomSessionPane = lazy(() =>
+  import("@/shell/RelayRoomSessionPane").then((m) => ({ default: m.RelayRoomSessionPane })),
+);
 import type {
   TerminalHandle,
   TerminalHostConfig,
@@ -181,7 +184,41 @@ function TerminalOrIdentitySessionPane({
   onTmuxSessionChange?: (sessionName: string | null) => void;
   onTmuxSessionMissing?: (instanceId: string, sessionName: string) => void;
 }) {
+  // Hooks MUST run unconditionally per rules-of-hooks. The relay-room branch
+  // below is a conditional early return, so useIdentities() is hoisted here.
   const { byKey: identitiesByKey, loaded: identitiesLoaded } = useIdentities();
+
+  // Phase 90 Plan 07 Task 2: NEW branch placed FIRST because it's the most-
+  // specific discriminator. Reads the `sessionKind` + `relayRoomId` fields
+  // Plan 01 added to Tab. Backward-compat: any tab WITHOUT sessionKind (or
+  // with sessionKind === "harness") falls through to the existing identity-
+  // pane / terminal branches below, byte-unchanged (Test 1/1b/2 regression
+  // gates enforce this).
+  //
+  // Defensive fall-through: if sessionKind is "relay-room" but relayRoomId is
+  // missing, log-and-fall-through rather than crash. The tab-open path
+  // (Plan 07 Task 3 AppShell wiring) should always set both fields together;
+  // this belt-and-suspenders keeps a misconfigured tab-open from white-
+  // screening the app (worst case: renders as best-effort through the
+  // existing dispatcher, likely as a terminal that shows nothing useful).
+  if (tab.sessionKind === "relay-room") {
+    if (!tab.relayRoomId) {
+      // eslint-disable-next-line no-console
+      console.warn("relay-room tab missing relayRoomId", { tabId: tab.id });
+      // Fall through to the existing dispatcher below.
+    } else {
+      return (
+        <RelayRoomSessionPane
+          tab={tab}
+          roomId={tab.relayRoomId}
+          roomTitle={tab.relayRoomTitle ?? null}
+          isVisible={isVisible}
+          onCloseTab={onCloseTab}
+        />
+      );
+    }
+  }
+
   const identityKey = tab.targetTmuxSession
     ? sessionMatchKey(tab.targetTmuxSession)
     : null;
