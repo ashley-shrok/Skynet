@@ -53,7 +53,7 @@ import { DatabaseSaveTrigger } from "../utils/database-save-trigger.js";
 import { databaseLogger } from "../utils/logger.js";
 import { createRoom, joinRoom } from "../matrix/matrix-admin-client.js";
 import { getMatrixAdminCreds } from "../matrix/matrix-admin-creds-store.js";
-import { addAdminRoom } from "./admin-rooms-ignore-list.js";
+import { addAdminRoom, isAdminRoom } from "./admin-rooms-ignore-list.js";
 
 /**
  * Settings-table key holding the agents-registry room ID after
@@ -158,6 +158,16 @@ export async function ensureRegistryRoomsExist(): Promise<EnsureRegistryRoomsRes
       agentsRoomId: existingAgents,
       humansRoomId: existingHumans,
     });
+    // Fixup H-2 (2026-09-08): self-heal any missing admin_rooms row. The
+    // original createRegistryRoom writes settings FIRST then calls
+    // addAdminRoom in a try/catch that only warns on failure. If addAdminRoom
+    // failed on the first boot, subsequent boots hit this fast path and
+    // NEVER retry the ignore-list add — permanently leaking the registry
+    // room into every user's sidebar. Verify each roomId is in the
+    // ignore-list; addAdminRoom (idempotent per Plan-01 store contract) if
+    // missing.
+    await selfHealAdminRoomsMembership("agents", existingAgents);
+    await selfHealAdminRoomsMembership("humans", existingHumans);
     return {
       ok: true,
       agentsRoomId: existingAgents,
@@ -196,6 +206,41 @@ export async function ensureRegistryRoomsExist(): Promise<EnsureRegistryRoomsRes
   }
 
   return { ok: true, agentsRoomId, humansRoomId };
+}
+
+/**
+ * Fixup H-2 (2026-09-08). Verify a registry-room ID is present in the
+ * admin_rooms ignore-list; if missing, call addAdminRoom to insert it.
+ * addAdminRoom is idempotent (Plan-01 store contract — INSERT OR IGNORE
+ * on room_id PRIMARY KEY), so a false-negative from isAdminRoom is
+ * harmless — we just re-run an INSERT that turns into a no-op. Best-effort:
+ * a downstream failure logs a warning and continues (matches
+ * createRegistryRoom's addAdminRoom try/catch discipline).
+ */
+async function selfHealAdminRoomsMembership(
+  role: "agents" | "humans",
+  roomId: string,
+): Promise<void> {
+  try {
+    const alreadyPresent = await isAdminRoom(roomId);
+    if (alreadyPresent) return;
+    databaseLogger.info(
+      "registry rooms self-heal — admin_rooms row missing on fast path, adding",
+      {
+        operation: "registry_rooms_admin_room_self_heal",
+        role,
+        roomId,
+      },
+    );
+    await addAdminRoom(roomId);
+  } catch (err) {
+    databaseLogger.warn("registry rooms self-heal check failed", {
+      operation: "registry_rooms_admin_room_self_heal_failed",
+      role,
+      roomId,
+      error: err instanceof Error ? err.message : "unknown",
+    });
+  }
 }
 
 /**
