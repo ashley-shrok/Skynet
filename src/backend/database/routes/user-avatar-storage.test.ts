@@ -169,6 +169,21 @@ describe("validation + error handling", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Canonical magic-byte fixtures for M4 (use these in all writeUserAvatar calls)
+// ---------------------------------------------------------------------------
+
+// PNG: 8-byte magic \x89PNG\r\n\x1a\n
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+// JPEG: 3-byte SOI marker \xff\xd8\xff followed by padding
+const JPEG_MAGIC = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01]);
+// WebP: "RIFF" + 4-byte size + "WEBP"
+const WEBP_MAGIC = Buffer.from([
+  0x52, 0x49, 0x46, 0x46, // RIFF
+  0x24, 0x00, 0x00, 0x00, // size (placeholder)
+  0x57, 0x45, 0x42, 0x50, // WEBP
+]);
+
+// ---------------------------------------------------------------------------
 // describe block 2: file I/O (tests 3-8)
 // Uses a fresh tmpdir + vi.resetModules() per test so DATA_DIR is controlled.
 // ---------------------------------------------------------------------------
@@ -187,6 +202,9 @@ describe("file I/O", () => {
   let readUserAvatar: (
     filename: string,
   ) => Promise<{ bytes: Buffer; mime: string }>;
+  let sniffAvatarMime: (
+    bytes: Buffer,
+  ) => "image/png" | "image/jpeg" | "image/webp" | null;
   let USER_AVATARS_DIR: string;
 
   beforeEach(async () => {
@@ -201,6 +219,7 @@ describe("file I/O", () => {
     writeUserAvatar = mod.writeUserAvatar;
     unlinkUserAvatar = mod.unlinkUserAvatar;
     readUserAvatar = mod.readUserAvatar;
+    sniffAvatarMime = mod.sniffAvatarMime;
     USER_AVATARS_DIR = mod.USER_AVATARS_DIR;
   });
 
@@ -216,20 +235,19 @@ describe("file I/O", () => {
 
   // Test 3: write round-trip — file created at expected path, returns filename
   it("writeUserAvatar creates file at USER_AVATARS_DIR/${userId}.${ext} and returns filename", async () => {
-    const fakeBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
-    const filename = await writeUserAvatar("user123", "image/png", fakeBytes);
+    const filename = await writeUserAvatar("user123", "image/png", PNG_MAGIC);
     expect(filename).toBe("user123.png");
     const onDisk = await fs.readFile(
       path.join(USER_AVATARS_DIR, "user123.png"),
     );
-    expect(onDisk.equals(fakeBytes)).toBe(true);
+    expect(onDisk.equals(PNG_MAGIC)).toBe(true);
   });
 
   // Test 4: ext derivation — .jpg for image/jpeg, .webp for image/webp
   it("writeUserAvatar produces .jpg for image/jpeg, .webp for image/webp", async () => {
-    const j = await writeUserAvatar("u1", "image/jpeg", Buffer.from("x"));
+    const j = await writeUserAvatar("u1", "image/jpeg", JPEG_MAGIC);
     expect(j).toBe("u1.jpg");
-    const w = await writeUserAvatar("u2", "image/webp", Buffer.from("x"));
+    const w = await writeUserAvatar("u2", "image/webp", WEBP_MAGIC);
     expect(w).toBe("u2.webp");
   });
 
@@ -242,7 +260,7 @@ describe("file I/O", () => {
     await expect(unlinkUserAvatar("nonexistent.png")).resolves.toBeUndefined();
 
     // Sub-case 3: existing file is removed.
-    await writeUserAvatar("u3", "image/png", Buffer.from("x"));
+    await writeUserAvatar("u3", "image/png", PNG_MAGIC);
     await unlinkUserAvatar("u3.png");
     await expect(
       fs.access(path.join(USER_AVATARS_DIR, "u3.png")),
@@ -251,10 +269,10 @@ describe("file I/O", () => {
 
   // Test 6: read — returns bytes + derived mime from extension
   it("readUserAvatar returns bytes + derived mime from extension", async () => {
-    await writeUserAvatar("u4", "image/png", Buffer.from([1, 2, 3]));
+    await writeUserAvatar("u4", "image/png", PNG_MAGIC);
     const result = await readUserAvatar("u4.png");
     expect(result.mime).toBe("image/png");
-    expect(result.bytes.equals(Buffer.from([1, 2, 3]))).toBe(true);
+    expect(result.bytes.equals(PNG_MAGIC)).toBe(true);
   });
 
   // Test 7: ENOENT propagates — serve endpoint must see err.code === "ENOENT"
@@ -299,10 +317,32 @@ describe("file I/O", () => {
     const filename = await writeUserAvatar(
       "newuser",
       "image/webp",
-      Buffer.from("webp-bytes"),
+      WEBP_MAGIC,
     );
     expect(filename).toBe("newuser.webp");
     const onDisk = await fs.readFile(path.join(USER_AVATARS_DIR, filename));
-    expect(onDisk.equals(Buffer.from("webp-bytes"))).toBe(true);
+    expect(onDisk.equals(WEBP_MAGIC)).toBe(true);
+  });
+
+  // M4 — sniffAvatarMime happy paths for each of the 3 formats
+  it("sniffAvatarMime returns correct mime for valid PNG, JPEG, WebP magic bytes", () => {
+    expect(sniffAvatarMime(PNG_MAGIC)).toBe("image/png");
+    expect(sniffAvatarMime(JPEG_MAGIC)).toBe("image/jpeg");
+    expect(sniffAvatarMime(WEBP_MAGIC)).toBe("image/webp");
+  });
+
+  // M4 — declared PNG but bytes are HTML → writeUserAvatar throws mime mismatch
+  it("writeUserAvatar throws on declared-png-but-bytes-are-html (mime mismatch)", async () => {
+    const htmlBytes = Buffer.from("<!DOCTYPE html><html></html>");
+    await expect(writeUserAvatar("baduser", "image/png", htmlBytes)).rejects.toThrow(
+      /avatar mime mismatch: declared image\/png/,
+    );
+  });
+
+  // M4 — declared WebP but bytes are JPEG → writeUserAvatar throws mime mismatch
+  it("writeUserAvatar throws on declared-webp-but-bytes-are-jpeg (mime mismatch)", async () => {
+    await expect(writeUserAvatar("baduser", "image/webp", JPEG_MAGIC)).rejects.toThrow(
+      /avatar mime mismatch: declared image\/webp, sniffed image\/jpeg/,
+    );
   });
 });

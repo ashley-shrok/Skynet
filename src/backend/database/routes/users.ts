@@ -155,6 +155,14 @@ router.post("/create", userAvatarUpload.single("avatar"), async (req, res) => {
     try {
       avatarFilename = await writeUserAvatar(id, req.file.mimetype, req.file.buffer);
     } catch (writeErr) {
+      // M4: mime-mismatch (declared vs sniffed bytes) → 400, not 500.
+      if (writeErr instanceof Error && writeErr.message.startsWith("avatar mime mismatch")) {
+        authLogger.warn("Avatar mime mismatch on create", {
+          operation: "user_create_avatar_mime_mismatch",
+          error: writeErr.message,
+        });
+        return res.status(400).json({ error: writeErr.message });
+      }
       authLogger.error("Failed to write user avatar to disk", writeErr, {
         operation: "user_create_avatar_write_failed",
       });
@@ -348,6 +356,15 @@ router.put("/:id/avatar", authenticateJWT, userAvatarUpload.single("avatar"), as
       try {
         newFilename = await writeUserAvatar(targetUserId, req.file.mimetype, req.file.buffer);
       } catch (writeErr) {
+        // M4: mime-mismatch (declared vs sniffed bytes) → 400, not 500.
+        if (writeErr instanceof Error && writeErr.message.startsWith("avatar mime mismatch")) {
+          authLogger.warn("Avatar mime mismatch on change", {
+            operation: "user_avatar_change_mime_mismatch",
+            targetUserId,
+            error: writeErr.message,
+          });
+          return res.status(400).json({ error: writeErr.message });
+        }
         authLogger.error("Failed to write user avatar to disk", writeErr, {
           operation: "user_avatar_change_write_failed",
           targetUserId,

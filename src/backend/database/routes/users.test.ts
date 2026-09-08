@@ -905,6 +905,38 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
   });
 
   // -------------------------------------------------------------------------
+  // M4: create-with-mime-mismatch → 400 (declared PNG, bytes are HTML)
+  // -------------------------------------------------------------------------
+
+  it("POST /users/create — M4: mime mismatch (declared PNG, bytes are HTML) returns 400", async () => {
+    // Stub writeUserAvatar to throw the mime-mismatch error that the real
+    // writeUserAvatar (with M4 sniffing) would throw.
+    mockWriteUserAvatar.mockRejectedValueOnce(
+      new Error("avatar mime mismatch: declared image/png, sniffed unknown"),
+    );
+
+    const res = await multipartRequestMixed(server, {
+      path: "/users/create",
+      textFields: { username: "alice", password: "s3cret123" },
+      file: {
+        fieldName: "avatar",
+        filename: "avatar.png",
+        // Client declares PNG but the stub simulates bytes being HTML
+        contentType: "image/png",
+        bytes: MINIMAL_PNG_BYTES, // multer accepts it; real sniff would fail
+      },
+    });
+
+    expect(res.status).toBe(400);
+    const body = res.body as { error: string };
+    expect(body.error).toMatch(/avatar mime mismatch/);
+
+    // No user row created
+    const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users").get() as { c: number };
+    expect(count.c).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
   // Test 7: allow_registration=false → 403 BEFORE file-write
   // -------------------------------------------------------------------------
 

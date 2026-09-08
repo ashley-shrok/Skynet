@@ -139,6 +139,63 @@ export function userAvatarMulterErrorHandler(
 }
 
 // ---------------------------------------------------------------------------
+// Magic-byte MIME sniffing — sniffAvatarMime (M4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Inspect the leading bytes of an avatar buffer to determine its true MIME type.
+ * Returns the sniffed MIME string, or null if the bytes do not match any of the
+ * three whitelisted formats.
+ *
+ * Byte signatures:
+ *   PNG:  bytes[0..7] === \x89PNG\r\n\x1a\n
+ *   JPEG: bytes[0..2] === \xff\xd8\xff
+ *   WebP: bytes[0..3] === "RIFF"  AND  bytes[8..11] === "WEBP"
+ *
+ * Called by writeUserAvatar to detect client-declared-mime spoofing (T-87-M4).
+ */
+export function sniffAvatarMime(
+  bytes: Buffer,
+): "image/png" | "image/jpeg" | "image/webp" | null {
+  // PNG — 8-byte magic: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+
+  // JPEG — 3-byte SOI marker: FF D8 FF
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+
+  // WebP — "RIFF" at bytes 0-3 and "WEBP" at bytes 8-11
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 && // R
+    bytes[1] === 0x49 && // I
+    bytes[2] === 0x46 && // F
+    bytes[3] === 0x46 && // F
+    bytes[8] === 0x57 && // W
+    bytes[9] === 0x45 && // E
+    bytes[10] === 0x42 && // B
+    bytes[11] === 0x50    // P
+  ) {
+    return "image/webp";
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // writeUserAvatar — mkdir + writeFile; returns bare filename (D-05)
 // ---------------------------------------------------------------------------
 
@@ -168,6 +225,16 @@ export async function writeUserAvatar(
   const ext = MIME_TO_EXT[mime];
   if (!ext) {
     throw new Error(`writeUserAvatar called with un-whitelisted mime: ${mime}`);
+  }
+
+  // M4: magic-byte MIME sniffing — defend against client-declared-mime spoofing.
+  // If the bytes do not match the declared MIME, reject with a distinct error
+  // so the endpoint can map it to HTTP 400.
+  const sniffedMime = sniffAvatarMime(bytes);
+  if (sniffedMime !== mime) {
+    throw new Error(
+      `avatar mime mismatch: declared ${mime}, sniffed ${sniffedMime ?? "unknown"}`,
+    );
   }
 
   // D-05: deterministic filename — userId + whitelisted-mime-derived ext.
