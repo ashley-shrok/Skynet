@@ -37,6 +37,8 @@ import {
   createObservationLoop,
   OBSERVATION_TICK_INTERVAL_MS,
   BACKOFF_LADDER_MS,
+  AGENTS_REGISTRY_MEMBERS_CACHE_TTL_MS,
+  __resetAgentsRegistryMembersCacheForTests,
   type ObservationTickDeps,
 } from "./observation-loop.js";
 
@@ -76,6 +78,9 @@ const USER_B_MXID = "@bob:server";
 
 beforeEach(() => {
   vi.useRealTimers();
+  // Fixup M-3: reset the module-level agents-registry members cache so
+  // tests get a clean slate.
+  __resetAgentsRegistryMembersCacheForTests();
 });
 
 // ---------------------------------------------------------------------------
@@ -311,6 +316,144 @@ describe("runObservationTick", () => {
     await runObservationTick(USER_A, USER_A_MXID, deps);
     expect(deps.materializeRelayRoomSession).toHaveBeenCalledTimes(1);
     expect(deps.refreshRelayRoomLastActivity).not.toHaveBeenCalled();
+  });
+
+  it("Test M-3 [fixup]: agents-registry members cache — 3 sequential ticks within TTL fire getRoomJoinedMembers(registryRoomId) exactly ONCE", async () => {
+    // Regression guard for M-3 thundering-herd on the registry-room fetch.
+    // Without a cache, every user's tick fetches the agents-registry
+    // members independently. N users → N redundant admin API calls per
+    // 10s window. Cache TTL is 5s; 3 consecutive ticks within that
+    // window MUST hit the cache after the first.
+    const AGENTS_REGISTRY = "!agents-registry:s";
+    const membersFetchSpy = vi.fn(async (roomId: string) => {
+      if (roomId === AGENTS_REGISTRY) {
+        return {
+          ok: true as const,
+          memberMxids: ["@agent-1:s", "@agent-2:s"],
+          total: 2,
+        };
+      }
+      // Per-room member fetch for user's rooms.
+      return {
+        ok: true as const,
+        memberMxids: [USER_A_MXID, "@x:s", "@y:s"],
+        total: 3,
+      };
+    });
+    const deps = makeDeps({
+      getUserJoinedRooms: vi.fn(async () => ({
+        ok: true,
+        roomIds: ["!r1:s"],
+      })),
+      getRoomJoinedMembers: membersFetchSpy,
+      getAgentsRegistryRoomId: vi.fn(async () => AGENTS_REGISTRY),
+    });
+
+    // Fire 3 ticks in rapid succession (well within the 5s cache TTL).
+    await runObservationTick(USER_A, USER_A_MXID, deps);
+    await runObservationTick(USER_B, USER_B_MXID, deps);
+    await runObservationTick("user-c-id", "@c:s", deps);
+
+    // Count calls to getRoomJoinedMembers(AGENTS_REGISTRY) specifically —
+    // the per-room fetch for the user's own rooms (r1) is a separate call
+    // and doesn't count.
+    const registryCalls = membersFetchSpy.mock.calls.filter(
+      (call) => call[0] === AGENTS_REGISTRY,
+    );
+    expect(registryCalls.length).toBe(1);
+  });
+
+  it("Test M-3b [fixup]: cache miss after TTL expiry — a 4th tick after the TTL elapses re-fetches the registry members", async () => {
+    vi.useFakeTimers();
+    const AGENTS_REGISTRY = "!agents-registry:s";
+    const membersFetchSpy = vi.fn(async (roomId: string) => {
+      if (roomId === AGENTS_REGISTRY) {
+        return {
+          ok: true as const,
+          memberMxids: ["@agent-1:s"],
+          total: 1,
+        };
+      }
+      return {
+        ok: true as const,
+        memberMxids: [USER_A_MXID, "@x:s"],
+        total: 2,
+      };
+    });
+    const deps = makeDeps({
+      getUserJoinedRooms: vi.fn(async () => ({
+        ok: true,
+        roomIds: ["!r1:s"],
+      })),
+      getRoomJoinedMembers: membersFetchSpy,
+      getAgentsRegistryRoomId: vi.fn(async () => AGENTS_REGISTRY),
+    });
+
+    // First tick — populates cache.
+    await runObservationTick(USER_A, USER_A_MXID, deps);
+    // Second tick immediately — cache hit.
+    await runObservationTick(USER_B, USER_B_MXID, deps);
+    let registryCalls = membersFetchSpy.mock.calls.filter(
+      (call) => call[0] === AGENTS_REGISTRY,
+    );
+    expect(registryCalls.length).toBe(1);
+
+    // Advance past the cache TTL.
+    await vi.advanceTimersByTimeAsync(AGENTS_REGISTRY_MEMBERS_CACHE_TTL_MS + 100);
+
+    // Third tick — cache expired, re-fetch expected.
+    await runObservationTick("user-c-id", "@c:s", deps);
+    registryCalls = membersFetchSpy.mock.calls.filter(
+      (call) => call[0] === AGENTS_REGISTRY,
+    );
+    expect(registryCalls.length).toBe(2);
+
+    vi.useRealTimers();
+  });
+
+  it("Test M-3c [fixup]: cache miss on fetch failure — failed fetch does NOT populate cache, next tick retries", async () => {
+    const AGENTS_REGISTRY = "!agents-registry:s";
+    let fetchCallCount = 0;
+    const membersFetchSpy = vi.fn(async (roomId: string) => {
+      if (roomId === AGENTS_REGISTRY) {
+        fetchCallCount++;
+        // First call: fail. Second call: succeed.
+        if (fetchCallCount === 1) {
+          return {
+            ok: false as const,
+            status: 502,
+            error: "admin_api_proxy_error",
+          };
+        }
+        return {
+          ok: true as const,
+          memberMxids: ["@agent-1:s"],
+          total: 1,
+        };
+      }
+      return {
+        ok: true as const,
+        memberMxids: [USER_A_MXID, "@x:s"],
+        total: 2,
+      };
+    });
+    const deps = makeDeps({
+      getUserJoinedRooms: vi.fn(async () => ({
+        ok: true,
+        roomIds: ["!r1:s"],
+      })),
+      getRoomJoinedMembers: membersFetchSpy,
+      getAgentsRegistryRoomId: vi.fn(async () => AGENTS_REGISTRY),
+    });
+
+    // First tick — fetch failed, cache NOT populated.
+    await runObservationTick(USER_A, USER_A_MXID, deps);
+    // Second tick — retry immediately (no cache hit on failed fetch).
+    await runObservationTick(USER_B, USER_B_MXID, deps);
+    const registryCalls = membersFetchSpy.mock.calls.filter(
+      (call) => call[0] === AGENTS_REGISTRY,
+    );
+    expect(registryCalls.length).toBe(2);
   });
 
   it("Test M-1 [fixup]: room title from getRoomName flows into materializeRelayRoomSession (D-02 room_title)", async () => {

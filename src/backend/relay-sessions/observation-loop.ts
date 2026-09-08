@@ -75,6 +75,29 @@ export const MAX_PARALLEL_ROOMS_PER_TICK = 8;
  */
 const SCHEDULER_SCAN_INTERVAL_MS = 1_000;
 
+/**
+ * Fixup M-3 (2026-09-08). Cache TTL for getRoomJoinedMembers of the
+ * agents-registry room. Without a cache, every user's tick fetches the
+ * agents-registry members independently — N users → N redundant admin
+ * API calls per 10s window against the same room. 5s TTL is strictly
+ * less than TICK_INTERVAL_MS (10s), so worst-case staleness is one
+ * TICK_INTERVAL_MS. Registry-room membership changes propagate on the
+ * following tick.
+ */
+export const AGENTS_REGISTRY_MEMBERS_CACHE_TTL_MS = 5_000;
+
+/**
+ * Fixup M-3 (2026-09-08). Cache for agents-registry member sets. Keyed
+ * by room ID so a registry-room ID rotation invalidates the entry
+ * naturally. Module-level so all createObservationLoop instances share
+ * — in practice there's one, but the cache is a stateless bag.
+ */
+interface AgentsRegistryCacheEntry {
+  memberMxids: Set<string>;
+  expiresAt: number;
+}
+const agentsRegistryMembersCache = new Map<string, AgentsRegistryCacheEntry>();
+
 // ---------------------------------------------------------------------------
 // Dep-injection interface (every I/O primitive the tick uses)
 // ---------------------------------------------------------------------------
@@ -187,24 +210,14 @@ export async function runObservationTick(
     const agentsRegistryRoomId = await safeGetAgentsRegistryRoomId(deps);
     let agentsInRegistry: Set<string> = new Set();
     if (agentsRegistryRoomId !== null) {
-      const membersResult = await deps.getRoomJoinedMembers(agentsRegistryRoomId);
-      if (membersResult.ok) {
-        agentsInRegistry = new Set(membersResult.memberMxids);
-      } else {
-        // Fresh install w/ registry room configured but currently unreachable —
-        // acceptable degraded state; classifier will materialize everything
-        // two-party non-admin. Next tick retries.
-        databaseLogger.debug(
-          "[phase-89] observation tick — agents registry members fetch failed, degraded classification",
-          {
-            operation: "relay_observation_tick_agents_registry_members_failed",
-            userId,
-            agentsRegistryRoomId,
-            status: membersResult.status,
-            error: membersResult.error,
-          },
-        );
-      }
+      // Fixup M-3 (2026-09-08). Cache the agents-registry members with
+      // AGENTS_REGISTRY_MEMBERS_CACHE_TTL_MS TTL so N users don't each
+      // fetch the same room independently within a single tick window.
+      agentsInRegistry = await getAgentsRegistryMembersCached(
+        agentsRegistryRoomId,
+        deps,
+        userId,
+      );
     }
 
     // Step 3: for each joined room (bounded parallelism), fetch members +
@@ -439,6 +452,55 @@ export async function runObservationTick(
     );
     return { ok: false, reason: "uncaught_error" };
   }
+}
+
+/**
+ * Fixup M-3 (2026-09-08). Return the agents-registry members set,
+ * consulting the module-level cache first. Cache miss → fetch via
+ * getRoomJoinedMembers and populate the cache with a TTL of
+ * AGENTS_REGISTRY_MEMBERS_CACHE_TTL_MS. Fetch failure returns an empty
+ * set (same degraded state as the previous inline implementation) and
+ * does NOT populate the cache (so the next tick retries immediately).
+ */
+async function getAgentsRegistryMembersCached(
+  agentsRegistryRoomId: string,
+  deps: ObservationTickDeps,
+  userId: string,
+): Promise<Set<string>> {
+  const now = Date.now();
+  const cached = agentsRegistryMembersCache.get(agentsRegistryRoomId);
+  if (cached && cached.expiresAt > now) {
+    return cached.memberMxids;
+  }
+  const membersResult = await deps.getRoomJoinedMembers(agentsRegistryRoomId);
+  if (!membersResult.ok) {
+    databaseLogger.debug(
+      "[phase-89] observation tick — agents registry members fetch failed, degraded classification",
+      {
+        operation: "relay_observation_tick_agents_registry_members_failed",
+        userId,
+        agentsRegistryRoomId,
+        status: membersResult.status,
+        error: membersResult.error,
+      },
+    );
+    return new Set();
+  }
+  const memberMxids = new Set(membersResult.memberMxids);
+  agentsRegistryMembersCache.set(agentsRegistryRoomId, {
+    memberMxids,
+    expiresAt: now + AGENTS_REGISTRY_MEMBERS_CACHE_TTL_MS,
+  });
+  return memberMxids;
+}
+
+/**
+ * Test seam (Fixup M-3): reset the module-level agents-registry members
+ * cache. Called from beforeEach in tests that need to assert cache
+ * behavior deterministically. Not exported for production callers.
+ */
+export function __resetAgentsRegistryMembersCacheForTests(): void {
+  agentsRegistryMembersCache.clear();
 }
 
 /** Wrap listAdminRooms in try/catch so a DB failure degrades gracefully. */
