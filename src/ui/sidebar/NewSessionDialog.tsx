@@ -828,15 +828,23 @@ export function NewSessionDialog({
     ? name.length > 0 && IDENTITY_NAME_PATTERN.test(name)
     : SESSION_NAME_PATTERN.test(sessionName);
 
+  // Phase 88 follow-up (post-/close, endorsed inline by Ashley 2026-09-08):
+  // admin-side Path field must reject blank submits at the frontend so the
+  // belt-and-suspenders backend fallback at identity-birth.ts:228-232 stays
+  // as a safety net rather than the primary defense. Non-admins never see
+  // the field (isAdmin-gated at L1029) so they're vacuously valid.
+  const pathValid = !isAdmin || path.trim() !== "";
+
   const canOpen = !birthing && (!shellOnly
     ? selectedHost !== null &&
       nameValid &&
+      pathValid &&
       !skynetCollision &&
       !hostCollision &&
       !collisionChecking &&
       // Phase 22 SRIC-02: role is REQUIRED and CREATE-only.
       selectedRole !== ""
-    : selectedHost !== null && nameValid);
+    : selectedHost !== null && nameValid && pathValid);
 
   // Whether birth failed (show progress even after birthing completes if failed)
   // Also show progress if any step has been started (non-pending) — keeps progress
@@ -1041,7 +1049,22 @@ export function NewSessionDialog({
                 onChange={(e) => setPath(e.target.value)}
                 placeholder="~/"
                 disabled={formDisabled}
+                aria-invalid={!pathValid || undefined}
+                aria-describedby={!pathValid ? "new-session-path-error" : undefined}
               />
+              {/* Phase 88 follow-up: inline error when admin has blanked the
+                  Path field. Backend fallback still catches it as belt-and-
+                  suspenders but Create is disabled here so blank never reaches
+                  the wire. Mirrors the name field's inline-error affordance. */}
+              {!pathValid && (
+                <span
+                  id="new-session-path-error"
+                  role="alert"
+                  className="text-[10px] text-red-500"
+                >
+                  Path is required.
+                </span>
+              )}
             </div>
           )}
 

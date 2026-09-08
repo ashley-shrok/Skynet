@@ -1429,6 +1429,40 @@ describe("NewSessionDialog: Phase 88 admin-gate + backend substitution", () => {
     // compute `~/<name>/` from it.
     expect(payload.name).toBe("alicia");
   });
+
+  it("Phase 88 T4 (follow-up): admin with blank Path → Create disabled + inline error rendered", async () => {
+    // Phase 88 follow-up bounty (endorsed inline by Ashley 2026-09-08 during
+    // /close): admin-side Path field must reject blank submits at the
+    // frontend so the belt-and-suspenders backend fallback stays as safety
+    // net rather than the primary defense.
+    //
+    // Non-admins vacuously pass validation (they don't see the field, path
+    // state stays at useState("~/") default). Admins visibly clearing the
+    // field to empty/whitespace-only → Create disabled + inline error.
+    const utils = renderDialog({ isAdmin: true });
+    await fillIdentityForm(utils);
+    const pathInput = utils.getByLabelText(/^path$/i) as HTMLInputElement;
+    // Default state: Path = "~/", Create enabled (pathValid true).
+    const createBtnBefore = utils.getByRole("button", {
+      name: /^(open|create|creating)/i,
+    }) as HTMLButtonElement;
+    expect(createBtnBefore.disabled).toBe(false);
+    // Clear the Path field to empty — pathValid flips false.
+    fireEvent.change(pathInput, { target: { value: "" } });
+    const createBtnAfter = utils.getByRole("button", {
+      name: /^(open|create|creating)/i,
+    }) as HTMLButtonElement;
+    expect(createBtnAfter.disabled).toBe(true);
+    // Inline error surface (mirrors name-field affordance at L1006).
+    expect(pathInput.getAttribute("aria-invalid")).toBe("true");
+    expect(utils.getByText("Path is required.")).toBeTruthy();
+    // Whitespace-only ALSO rejected (path.trim() !== "" is the predicate).
+    fireEvent.change(pathInput, { target: { value: "   " } });
+    const createBtnWs = utils.getByRole("button", {
+      name: /^(open|create|creating)/i,
+    }) as HTMLButtonElement;
+    expect(createBtnWs.disabled).toBe(true);
+  });
 });
 
 // ─── Manual avatar upload tests (RTL-01 / RTL-02 / RTL-03) ────────────────
