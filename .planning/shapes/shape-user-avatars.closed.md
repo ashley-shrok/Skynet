@@ -217,3 +217,58 @@ Downstream: a separate future frontend build consumes this — it is the
 piece that actually puts user avatars on screen and, later, adds the
 self-serve change flow. That build depends on this one having landed
 first; a heads-up to whoever picks it up is worthwhile once this ships.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-08
+**Vehicle used:** gsd phase
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · Users concept teaches Skynet how to store an avatar and gives account creation a way to accept one; frontend consumption intentionally not touched.
+- **Shape: new pointer state on users** — present · avatarPath TEXT column on users; bare filename only, no absolute paths, no external links.
+- **Shape: bytes live on disk in Skynet's encrypted data area** — present · USER_AVATARS_DIR is DATA_DIR/user-avatars — Skynet's own encrypted data area, rides existing daily-disk-snapshot backup.
+- **Shape: account creation entry point accepts image bytes and refuses without them** — present · Password-registration create path receives multipart bytes in the same request and 400s without them; file written before row INSERT with rollback on failure.
+- **Shape: dedicated change-avatar entry point** — present · PUT change endpoint present with own-or-admin guard; writes new file, updates row pointer, unlinks old file only when filename differs.
+- **Shape: shared internal helper doing byte-work called by both entry points** — present · user-avatar-storage helper module owns validate/size-cap/write/pointer-derivation; both write endpoints and the serve endpoint call into it.
+- **Shape: entry point that serves bytes back per user** — present · GET serve endpoint returns bytes with derived Content-Type; 404s for missing row, null pointer, or file-missing-on-disk.
+- **Philosophy: boring standard** — present · File-on-disk plus DB pointer plus dedicated change endpoint sharing an internal helper — the ordinary web-app convention.
+- **Philosophy: backend-enforced, not UI-enforced** — present · Presence check on the incoming file fires before any DB or file write; a direct API caller cannot produce a user without an avatar via the password-registration path.
+- **Philosophy: no pending states** — present · File-then-row ordering with rollback on either failure — no interim 'avatar-not-yet-uploaded' user row can exist.
+- **Philosophy: not a face here yet** — present · No frontend surface renders a user avatar; frontend register call is unchanged and does not send bytes.
+- **Philosophy: no self-serve editing here** — present · No UI affordance (form, modal, menu) to pick or change an avatar; change endpoint exists on backend only.
+- **Prior context: avatar-related row writes paired with save trigger** — present · Both create and change paths call the labeled save trigger after the row write.
+- **Prior context: new served paths reflected in edge web-server config** — present · Existing catch-all /users location in both nginx configs already covers the new sub-paths; body-size cap raised to 6M in both files.
+- **Prior context: bytes storage argument (disk file vs. row) settled correctly** — present · Bytes on disk, pointer on row — row stays cheap, list queries unaffected.
+- **What would make it wrong: a user exists with no avatar** — drifted · Password-registration path enforces mandatoriness; OIDC-callback path creates a user with null pointer as an explicit carve-out. User endorsed this drift — OIDC is not used in this deployment.
+- **What would make it wrong: the database gets fat with image bytes** — present · Bytes never touch the users row; only a bare filename is stored there.
+- **What would make it wrong: a write to the row is not paired with a save** — present · Both avatar-related row writes call the labeled save trigger; failure to save is logged non-fatally so the request still succeeds while debounce catches the row on next flush.
+- **What would make it wrong: the new served path 200s an HTML shell** — present · Both nginx configs already have a /users catch-all pointing at the backend; new sub-paths inherit that routing. Both files updated for the body-size cap.
+- **What would make it wrong: bytes go somewhere other than Skynet server's own disk** — present · Write helper is hard-wired to Skynet's DATA_DIR/user-avatars — no managed-host, network-mount, or operator-config path involvement.
+- **What would make it wrong: a frontend surface gains a user avatar** — present · No user-avatar UI code exists; identity-avatar surfaces are unrelated and unchanged.
+- **What would make it wrong: a change-avatar UI affordance shows up** — present · No form, modal, or menu invokes the change endpoint from the UI.
+- **Scope edge: cleanup of avatar file on user deletion** — present · Both admin-delete helper and self-serve delete-account path unlink the avatar file before deleting the row, ENOENT-tolerant.
+- **Scope edge: standard common web image formats accepted** — present · PNG, JPEG, WebP accepted; GIF and SVG explicitly excluded — a defensible narrow reading of 'standard common web image formats'.
+- **Scope edge: reasonable ceiling on incoming byte size** — present · 5 MB cap in the upload middleware; nginx body-size cap set to 6M to allow multipart framing headroom.
+- **Scope edge: no migration/backfill for existing users** — present · avatar_path column is nullable; pre-existing rows keep null pointer, no backfill machinery.
+- **Scope edge: no image resizing/cropping/thumbnails** — present · No transform code beyond format and size validation on receive.
+- **Scope edge: no content moderation** — present · No moderation code.
+- **Scope edge: no cache headers / CDN / serve-path optimization** — drifted · Serve endpoint adds ETag, If-None-Match / 304 short-circuit, and Cache-Control: no-store — user endorsed the drift in hindsight after being unable to reason about it herself; logged as a bounty for the downstream frontend build to revisit.
+- **Scope edge: no multi-avatar or historical retention** — present · Single filename per user; change endpoint replaces in place.
+- **Scope edge: identity-avatar system untouched** — present · Identity-avatar module is not imported by the new helper; user-avatar code is fully locally scoped.
+
+### Additions (in the result, not in the shape)
+
+- OIDC-callback path creates a users row with null avatar pointer — an implicit mandatoriness carve-out the shape did not sanction. — endorsed-as-drift
+- Serve endpoint sets ETag, honors If-None-Match with a 304 short-circuit, and sets Cache-Control: no-store — cache-header behaviour the shape's Out-of-scope section calls out. — endorsed-as-drift
+
+### Follow-ups
+
+- Downstream frontend build should revisit whether it wants the cache-machinery-plus-no-store combination on the serve endpoint, or strip it back to plain bytes with Content-Type. — bounty
+
+### Notes
+
+Both divergences were additions rather than omissions — every commitment in the shape landed. The OIDC carve-out is inert in this deployment (user does not use OIDC) so it's a real drift with no practical consequence. The cache-header addition is a small defensive-plus-optimization slip that the implementer authorized via a CONTEXT.md 'trivial ok' softening without user greenlight; user accepted in hindsight but did not reason about it, hence the bounty for the downstream build to make a real call. Worth carrying forward: 'trivial ok' softenings in phase context docs can quietly widen shape scope; a light rule that any shape-Out-of-scope override needs an explicit user checkpoint would have caught this. Also: the shape's mandatoriness commitment was written without accounting for user-creation paths that don't go through a normal request/response with an upload opportunity (OIDC redirect); future shape docs touching account creation should either enumerate the paths or explicitly say 'every path a user row comes from.'
