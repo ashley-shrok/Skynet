@@ -36,22 +36,17 @@ import { sshLogger } from "../utils/logger.js";
 //     surrounding shell command still needs quoting to prevent metachar
 //     escapes at the SSH exec layer (T-50-02-01 mitigation).
 //
-// Hash-derivation contract (load-bearing):
-//   • `contentHash` MUST equal `sha256(content).slice(0, 32)` — content-
-//     only, matching Plan 50-01 Task 2's dedup Map key derivation byte-
-//     for-byte. If the two drift, watchdogs never notify and every real
-//     send escalates through the full timing chain even on the happy
-//     path. See 50-01-PLAN.md § objective "Hash-derivation contract".
-//   • This module DOES NOT recompute the hash — the caller passes it
-//     pre-computed to force the caller to derive it via the same
-//     `createHash("sha256").update(body).digest("hex").slice(0, 32)`
-//     recipe that lives in claude-session-server.ts's onLine notifyMatched
-//     call site AND in Plan 50-01 Task 2's `__applyQueueDedupForTests`.
+// Match primitive (quick-260908-bqx):
+//   • notifyMatched(sessionId) pops the OLDEST pending watchdog on the
+//     given session — FIFO head-pop, matching the frontend order-based
+//     semantic at PrettyView.tsx:1961-1979 (quick-260823-fzy). CC processes
+//     input serially, JSONL is written in order, WS preserves order —
+//     SEND ORDER is the match signal.
 //
 // The seam is a pure module — no per-connection or per-session state
-// beyond the module-level `pending` Map. `__resetPvSendWatchdogForTests`
-// clears the Map for hermetic unit + integration tests (upstreamed from
-// Plan 50-04 per checker Warning #7).
+// beyond the module-level `pendingByMqid` + `fifoBySession` maps.
+// `__resetPvSendWatchdogForTests` clears both maps for hermetic unit +
+// integration tests (upstreamed from Plan 50-04 per checker Warning #7).
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** T+2500ms — retry Enter (per D-13; canonical value chosen from the "T+2-3s" range). */
@@ -118,7 +113,6 @@ export interface ArmPvSendWatchdogArgs {
   sessionId: string;
   mqid: string;
   body: string;
-  contentHash: string;
   execCommand: ExecCommand;
   tmuxTarget: string;
   wsSend: WsSendCallback;
@@ -171,7 +165,6 @@ export interface ArmPvSendWatchdogArgs {
 
 interface PendingWatchdog {
   sessionId: string;
-  contentHash: string;
   body: string;
   tmuxTarget: string;
   execCommand: ExecCommand;
@@ -184,11 +177,21 @@ interface PendingWatchdog {
   armedAt: number;
 }
 
-// Module-level Map: mqid → per-watchdog state. Lifetime spans the process; per-
-// connection isolation comes from the caller supplying unique mqids per send
-// and calling `clearPvSendWatchdog(mqid)` on connection teardown (see Plan 50-
-// 02 Task 2's per-connection pendingMqidsForThisConnection Set).
-const pending = new Map<string, PendingWatchdog>();
+// Two-map structure for O(1) cancel-by-mqid and FIFO head-pop by sessionId.
+//
+// pendingByMqid — mqid → per-watchdog state. Lets clearPvSendWatchdog and
+//   the internal timer-guard reads stay O(1). Lifetime spans the process;
+//   per-connection isolation comes from the caller supplying unique mqids per
+//   send and calling `clearPvSendWatchdog(mqid)` on connection teardown (see
+//   Plan 50-02 Task 2's per-connection pendingMqidsForThisConnection Set).
+//
+// fifoBySession — sessionId → ordered list of live mqids. notifyMatched
+//   shifts the head off to cancel the OLDEST pending arm on that session.
+//   Push at arm time, shift at notify, splice at explicit cancel. Queue depth
+//   is bounded by concurrent in-flight sends per pane (single-digit in
+//   practice) so O(n) splice on explicit cancel is fine.
+const pendingByMqid = new Map<string, PendingWatchdog>();
+const fifoBySession = new Map<string, string[]>();
 
 function cancelTimers(entry: PendingWatchdog): void {
   if (entry.retryTimer !== null) {
@@ -211,18 +214,12 @@ function cancelTimers(entry: PendingWatchdog): void {
  * Idempotent per mqid: a second `armPvSendWatchdog` with the same mqid
  * while one is pending is a no-op (logged at debug + returned early). This
  * guards against cascading retry loops per Fleet directive.
- *
- * The caller MUST pre-compute `contentHash = sha256(body).slice(0, 32)`
- * using the exact same derivation as Plan 50-01 Task 2's dedup Map key.
- * The watchdog does NOT recompute — this forces the caller to own the
- * hash-derivation contract (see file header § Hash-derivation contract).
  */
 export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
   const {
     sessionId,
     mqid,
     body,
-    contentHash,
     execCommand,
     tmuxTarget,
     wsSend,
@@ -238,7 +235,7 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
   const fullResendDelay = args.dormantSend ? FULL_RESEND_MS_DORMANT : FULL_RESEND_MS;
   const giveUpDelay = args.dormantSend ? GIVE_UP_MS_DORMANT : GIVE_UP_MS;
 
-  if (pending.has(mqid)) {
+  if (pendingByMqid.has(mqid)) {
     logger.debug(
       "pv-send-watchdog: arm ignored — mqid already pending",
       {
@@ -252,7 +249,6 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
 
   const entry: PendingWatchdog = {
     sessionId,
-    contentHash,
     body,
     tmuxTarget,
     execCommand,
@@ -269,7 +265,7 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
   entry.retryTimer = setTimeout(() => {
     entry.retryTimer = null;
     // Guard: if we've been cleared / notified between schedule and fire, bail.
-    if (!pending.has(mqid)) return;
+    if (!pendingByMqid.has(mqid)) return;
     if (entry.retryFired) return;
     entry.retryFired = true;
 
@@ -303,23 +299,26 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
   // Retry-Enter-only mode: skip Stages 2 + 3 for the non-split-path safety
   // net (see ArmPvSendWatchdogArgs.retryEnterOnly for rationale).
   if (args.retryEnterOnly) {
-    pending.set(mqid, entry);
+    pendingByMqid.set(mqid, entry);
+    const list = fifoBySession.get(sessionId) ?? [];
+    list.push(mqid);
+    fifoBySession.set(sessionId, list);
     logger.debug("pv-send-watchdog: armed (retry-Enter-only)", {
       operation: "pv_send_watchdog_arm_retry_only",
       mqid,
       sessionId,
-      contentHash,
+      matched_by: "fifo",
       bodyBytes: body.length,
       dormantSend: args.dormantSend === true,
     });
-    logger.info("[diag-dormant-send] watchdog-arm-complete", { operation: "diag_dormant_watchdog_arm", mqid, sessionId, contentHash: contentHash.slice(0, 8), bodyBytes: body.length, dormantSend: args.dormantSend === true, retryEnterOnly: true, retryDelayMs: retryDelay, fullResendDelayMs: null, giveUpDelayMs: null });
+    logger.info("[diag-dormant-send] watchdog-arm-complete", { operation: "diag_dormant_watchdog_arm", mqid, sessionId, matched_by: "fifo", bodyBytes: body.length, dormantSend: args.dormantSend === true, retryEnterOnly: true, retryDelayMs: retryDelay, fullResendDelayMs: null, giveUpDelayMs: null });
     return;
   }
 
   // Stage 2 — T+5500ms full-resend (C-u + literal body + Enter).
   entry.fullResendTimer = setTimeout(() => {
     entry.fullResendTimer = null;
-    if (!pending.has(mqid)) return;
+    if (!pendingByMqid.has(mqid)) return;
 
     logger.warn(
       "pv-send-watchdog: no signal within 5500ms, firing full re-send",
@@ -386,7 +385,7 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
   // the OLD terminal-layer watchdog (deleted in Task 3) for frontend backward compat.
   entry.giveUpTimer = setTimeout(() => {
     entry.giveUpTimer = null;
-    if (!pending.has(mqid)) return;
+    if (!pendingByMqid.has(mqid)) return;
 
     logger.error(
       "pv-send-watchdog: no signal within 20000ms — emitting paste_send_failed",
@@ -418,12 +417,21 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
       );
     }
 
-    // Watchdog complete — drop from Map.
+    // Watchdog complete — drop from both maps.
     cancelTimers(entry);
-    pending.delete(mqid);
+    pendingByMqid.delete(mqid);
+    const giveUpList = fifoBySession.get(sessionId);
+    if (giveUpList) {
+      const giveUpIdx = giveUpList.indexOf(mqid);
+      if (giveUpIdx !== -1) giveUpList.splice(giveUpIdx, 1);
+      if (giveUpList.length === 0) fifoBySession.delete(sessionId);
+    }
   }, giveUpDelay);
 
-  pending.set(mqid, entry);
+  pendingByMqid.set(mqid, entry);
+  const list = fifoBySession.get(sessionId) ?? [];
+  list.push(mqid);
+  fifoBySession.set(sessionId, list);
 
   logger.debug(
     "pv-send-watchdog: armed",
@@ -431,42 +439,49 @@ export function armPvSendWatchdog(args: ArmPvSendWatchdogArgs): void {
       operation: "pv_send_watchdog_arm",
       mqid,
       sessionId,
-      contentHash,
+      matched_by: "fifo",
       bodyBytes: body.length,
       dormantSend: args.dormantSend === true,
     },
   );
-  logger.info("[diag-dormant-send] watchdog-arm-complete", { operation: "diag_dormant_watchdog_arm", mqid, sessionId, contentHash: contentHash.slice(0, 8), bodyBytes: body.length, dormantSend: args.dormantSend === true, retryEnterOnly: args.retryEnterOnly === true, retryDelayMs: retryDelay, fullResendDelayMs: args.retryEnterOnly ? null : fullResendDelay, giveUpDelayMs: args.retryEnterOnly ? null : giveUpDelay });
+  logger.info("[diag-dormant-send] watchdog-arm-complete", { operation: "diag_dormant_watchdog_arm", mqid, sessionId, matched_by: "fifo", bodyBytes: body.length, dormantSend: args.dormantSend === true, retryEnterOnly: args.retryEnterOnly === true, retryDelayMs: retryDelay, fullResendDelayMs: args.retryEnterOnly ? null : fullResendDelay, giveUpDelayMs: args.retryEnterOnly ? null : giveUpDelay });
 }
 
 /**
- * Notify the watchdog module that a matching parser signal has arrived.
+ * Clears the OLDEST pending watchdog on the given sessionId — FIFO head-pop.
+ * Matches the frontend order-based semantic at PrettyView.tsx:1961-1979
+ * (quick-260823-fzy). Same reasoning: CC processes input serially, JSONL is
+ * written in order, WS preserves order — SEND ORDER is the match signal.
+ *
  * Called from claude-session-server.ts's onLine callback for every
  * kind:"message" role:"user" emission (both the direct-user-turn path
  * and the queue-operation-enqueue path from Plan 50-01).
  *
- * Clears the OLDEST pending watchdog whose (sessionId, contentHash)
- * matches — FIFO semantics for the edge case of the same body sent twice
- * within the 20s window (matches D-07 FIFO backend parity).
+ * notifyMatched on a sessionId with no pending arms is a silent no-op.
+ * notifyMatched on sess-A does NOT touch pending arms on sess-B.
  */
-export function notifyMatched(sessionId: string, contentHash: string): void {
-  for (const [mqid, entry] of pending) {
-    if (entry.sessionId === sessionId && entry.contentHash === contentHash) {
-      entry.logger.debug(
-        "pv-send-watchdog: matched signal — clearing pending",
-        {
-          operation: "pv_send_watchdog_matched",
-          mqid,
-          sessionId,
-          gapMs: Date.now() - entry.armedAt,
-        },
-      );
-      entry.logger.info("[diag-dormant-send] watchdog-matched", { operation: "diag_dormant_watchdog_matched", mqid, sessionId, elapsedMs: Date.now() - entry.armedAt, matched_by: "contentHash" });
-      cancelTimers(entry);
-      pending.delete(mqid);
-      return; // FIFO: clear only the oldest matching entry.
-    }
-  }
+export function notifyMatched(sessionId: string): void {
+  const list = fifoBySession.get(sessionId);
+  if (!list || list.length === 0) return;
+
+  const headMqid = list.shift()!;
+  if (list.length === 0) fifoBySession.delete(sessionId);
+
+  const entry = pendingByMqid.get(headMqid);
+  if (!entry) return; // defensive — should not happen
+
+  entry.logger.debug(
+    "pv-send-watchdog: matched signal — clearing pending",
+    {
+      operation: "pv_send_watchdog_matched",
+      mqid: headMqid,
+      sessionId,
+      gapMs: Date.now() - entry.armedAt,
+    },
+  );
+  entry.logger.info("[diag-dormant-send] watchdog-matched", { operation: "diag_dormant_watchdog_matched", mqid: headMqid, sessionId, elapsedMs: Date.now() - entry.armedAt, matched_by: "fifo_head" });
+  cancelTimers(entry);
+  pendingByMqid.delete(headMqid);
 }
 
 /**
@@ -476,7 +491,7 @@ export function notifyMatched(sessionId: string, contentHash: string): void {
  * firing against a torn-down WebSocket (T-50-02-06 mitigation).
  */
 export function clearPvSendWatchdog(mqid: string): void {
-  const entry = pending.get(mqid);
+  const entry = pendingByMqid.get(mqid);
   if (!entry) return;
   entry.logger.debug(
     "pv-send-watchdog: cleared",
@@ -488,7 +503,13 @@ export function clearPvSendWatchdog(mqid: string): void {
   );
   entry.logger.info("[diag-dormant-send] watchdog-cleared", { operation: "diag_dormant_watchdog_cleared", mqid, sessionId: entry.sessionId, elapsedMs: Date.now() - entry.armedAt, reason: "explicit_clear_or_ws_close" });
   cancelTimers(entry);
-  pending.delete(mqid);
+  pendingByMqid.delete(mqid);
+  const list = fifoBySession.get(entry.sessionId);
+  if (list) {
+    const idx = list.indexOf(mqid);
+    if (idx !== -1) list.splice(idx, 1);
+    if (list.length === 0) fifoBySession.delete(entry.sessionId);
+  }
 }
 
 /**
@@ -497,7 +518,7 @@ export function clearPvSendWatchdog(mqid: string): void {
  * transitionToActiveNew when a session recycles.
  *
  * DISTINCT from `__resetPvSendWatchdogForTests` (which clears the ENTIRE
- * module-level pending Map — hermetic-test-only) and from
+ * module-level pending maps — hermetic-test-only) and from
  * `clearPvSendWatchdog(mqid)` (which clears exactly one by mqid).
  *
  * Rationale: without this, a watchdog armed against the OLD session can
@@ -513,7 +534,7 @@ export function clearPvSendWatchdog(mqid: string): void {
  */
 export function clearPvSendWatchdogsForSession(sessionId: string): string[] {
   const clearedMqids: string[] = [];
-  for (const [mqid, entry] of pending) {
+  for (const [mqid, entry] of pendingByMqid) {
     if (entry.sessionId === sessionId) {
       entry.logger.debug(
         "pv-send-watchdog: cleared (session recycle)",
@@ -529,21 +550,23 @@ export function clearPvSendWatchdogsForSession(sessionId: string): string[] {
     }
   }
   for (const mqid of clearedMqids) {
-    pending.delete(mqid);
+    pendingByMqid.delete(mqid);
   }
+  fifoBySession.delete(sessionId);
   return clearedMqids;
 }
 
 /**
- * Test-only reset — clears the entire module-level `pending` Map and cancels
+ * Test-only reset — clears the entire module-level pending maps and cancels
  * every timer. Required by Plan 50-04's integration test beforeEach hook
  * so tests don't leak state across cases (checker Warning #7 upstream).
  *
  * DO NOT call from production code paths.
  */
 export function __resetPvSendWatchdogForTests(): void {
-  for (const [, entry] of pending) {
+  for (const [, entry] of pendingByMqid) {
     cancelTimers(entry);
   }
-  pending.clear();
+  pendingByMqid.clear();
+  fifoBySession.clear();
 }

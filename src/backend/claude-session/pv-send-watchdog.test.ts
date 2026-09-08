@@ -4,7 +4,8 @@
  * Replaces the PTY-activity-proxy watchdog in src/backend/ssh/terminal-pv-
  * watchdog.ts with a three-stage timer chain that fires only on the
  * ABSENCE of the specific parser signal Plan 50-01 introduced
- * (contentHash = sha256(content).slice(0, 32) content-only).
+ * (kind:"message" role:"user" for either the direct-user-turn path or
+ * the queue-operation-enqueue path).
  *
  * Timing chain (from arm time T=0):
  *   • T+2500ms → retry Enter (`tmux send-keys -t <target> Enter`)
@@ -25,13 +26,14 @@
  *   T-6  retry-fired-once invariant + arm-again-same-mqid no-op
  *   T-7  execCommand throws on retry → escalation still runs
  *   T-8  clearPvSendWatchdog cancels pending
- *   T-9  notifyMatched with wrong hash does NOT clear
- *   T-10 per-mqid isolation
+ *   T-9  notifyMatched on a different session is a no-op → retry still fires
+ *   T-10 per-session isolation: notifyMatched on sess-A does NOT clear sess-B
  *   T-11 __resetPvSendWatchdogForTests clears ALL module state
+ *   T-17 FIFO head-pop: arm two on same session, notify once → oldest cleared only
+ *   T-18 notifyMatched on empty session queue is a silent no-op
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
-import { createHash } from "node:crypto";
 import {
   armPvSendWatchdog,
   clearPvSendWatchdog,
@@ -73,10 +75,6 @@ vi.mock("../utils/logger.js", () => ({
 const SESSION_ID = "sess-A";
 const TMUX_TARGET = "ashley-tmux";
 
-function contentHashOf(content: string): string {
-  return createHash("sha256").update(content).digest("hex").slice(0, 32);
-}
-
 function makeExec(): Mock {
   return vi.fn().mockResolvedValue("");
 }
@@ -104,7 +102,6 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       sessionId: SESSION_ID,
       mqid: "m1",
       body: "hello",
-      contentHash: contentHashOf("hello"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -112,7 +109,7 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
 
     // Simulate the parser signal arriving quickly.
     await vi.advanceTimersByTimeAsync(100);
-    notifyMatched(SESSION_ID, contentHashOf("hello"));
+    notifyMatched(SESSION_ID);
 
     // Cross well past all three timers.
     await vi.advanceTimersByTimeAsync(30_000);
@@ -128,7 +125,6 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       sessionId: SESSION_ID,
       mqid: "m1",
       body: "hello",
-      contentHash: contentHashOf("hello"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -151,7 +147,6 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       sessionId: SESSION_ID,
       mqid: "m1",
       body: "hello",
-      contentHash: contentHashOf("hello"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -163,7 +158,7 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
 
     // T+3000ms → signal arrives
     await vi.advanceTimersByTimeAsync(500);
-    notifyMatched(SESSION_ID, contentHashOf("hello"));
+    notifyMatched(SESSION_ID);
 
     // Cross past 20000ms.
     await vi.advanceTimersByTimeAsync(20_000);
@@ -179,7 +174,6 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       sessionId: SESSION_ID,
       mqid: "m1",
       body: "hello world",
-      contentHash: contentHashOf("hello world"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -222,7 +216,6 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       sessionId: SESSION_ID,
       mqid: "m1",
       body: "hello",
-      contentHash: contentHashOf("hello"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -252,18 +245,16 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       sessionId: SESSION_ID,
       mqid: "m1",
       body: "hello",
-      contentHash: contentHashOf("hello"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
     });
 
-    // Second arm with SAME mqid immediately — must be a no-op.
+    // Second arm with SAME mqid immediately — must be a no-op (dedup by mqid).
     armPvSendWatchdog({
       sessionId: SESSION_ID,
       mqid: "m1",
       body: "hello",
-      contentHash: contentHashOf("hello"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -294,7 +285,6 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       sessionId: SESSION_ID,
       mqid: "m1",
       body: "hello",
-      contentHash: contentHashOf("hello"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -318,7 +308,6 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       sessionId: SESSION_ID,
       mqid: "m1",
       body: "hello",
-      contentHash: contentHashOf("hello"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -333,22 +322,21 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
     expect(wsSend).not.toHaveBeenCalled();
   });
 
-  it("T-9 notifyMatched with wrong hash does NOT clear → retry still fires", async () => {
+  it("T-9 notifyMatched on a different session is a no-op — the pending arm on sess-A still fires its retry Enter at T+2500ms", async () => {
     const exec = makeExec();
     const wsSend = makeWsSend();
     armPvSendWatchdog({
       sessionId: SESSION_ID,
       mqid: "m1",
       body: "hello",
-      contentHash: contentHashOf("hello"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
     });
 
     await vi.advanceTimersByTimeAsync(100);
-    // Wrong content hash — should NOT clear the watchdog.
-    notifyMatched(SESSION_ID, contentHashOf("goodbye"));
+    // Notify a DIFFERENT session — must NOT clear the watchdog on sess-A.
+    notifyMatched("sess-B");
 
     await vi.advanceTimersByTimeAsync(2500);
     expect(exec).toHaveBeenCalledTimes(1);
@@ -356,53 +344,41 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
     expect(cmd).toBe(`tmux send-keys -t '${TMUX_TARGET}' Enter`);
   });
 
-  it("T-10 per-mqid isolation: match on m1's hash does NOT clear m2's watchdog", async () => {
+  it("T-10 per-session isolation: notifyMatched on sess-A does NOT clear m2's watchdog on sess-B", async () => {
     const exec = makeExec();
     const wsSend = makeWsSend();
 
     armPvSendWatchdog({
-      sessionId: SESSION_ID,
+      sessionId: "sess-A",
       mqid: "m1",
       body: "A",
-      contentHash: contentHashOf("A"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
     });
-
-    await vi.advanceTimersByTimeAsync(100);
 
     armPvSendWatchdog({
-      sessionId: SESSION_ID,
+      sessionId: "sess-B",
       mqid: "m2",
       body: "B",
-      contentHash: contentHashOf("B"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
     });
 
-    // T+2600ms from t=0: m1's 2500ms window has passed → but if we match A here,
-    // m1 was already going to fire retry — the match at 2600 is AFTER retry.
-    // The important isolation: matching A after m1's retry does NOT stop m2.
+    // At t=100ms: notify sess-A → m1 cleared, m2 still armed.
+    await vi.advanceTimersByTimeAsync(100);
+    notifyMatched("sess-A");
+
+    // Advance to t=2600ms — only m2's retry Enter has fired (m1 was cleared).
     await vi.advanceTimersByTimeAsync(2500);
-    // At this point (t=2600): m1's retry fired (it was armed at t=0). m2 was armed at
-    // t=100 so m2's retry fires at t=2600 too (100+2500). Both fired one retry each.
-    expect(exec.mock.calls.length).toBeGreaterThanOrEqual(1);
+    expect(exec).toHaveBeenCalledTimes(1);
+    const cmd = exec.mock.calls[0][0] as string;
+    expect(cmd).toBe(`tmux send-keys -t '${TMUX_TARGET}' Enter`);
 
-    // Match A → this should clear m1 only (m1 already fired retry; matching now would
-    // stop escalation for m1). m2 should be unaffected.
-    notifyMatched(SESSION_ID, contentHashOf("A"));
-
-    // Continue to t = 5600 (m2's full-resend fires at 100+5500=5600).
-    // m1's would-be full-resend at t=5500 was cancelled by the match at t=2600.
-    // Advance from t=2600 to t=5700 (3100ms).
-    await vi.advanceTimersByTimeAsync(3100);
-
-    // m2 full-resend should have fired (3 execs), m1 should NOT have.
-    // Simple invariant: after match A, m2 is still armed → its escalation continues.
-    // Total execs: m1 retry (1) + m2 retry (1) + m2 full-resend (3) = 5
-    expect(exec.mock.calls.length).toBe(5);
+    // Advance to t=5600ms — m2's full-resend fires (3 more execs, total 4).
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(exec).toHaveBeenCalledTimes(4);
   });
 
   it("T-11 __resetPvSendWatchdogForTests clears ALL module-level state", async () => {
@@ -413,7 +389,6 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       sessionId: SESSION_ID,
       mqid: "m1",
       body: "one",
-      contentHash: contentHashOf("one"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -422,7 +397,6 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       sessionId: SESSION_ID,
       mqid: "m2",
       body: "two",
-      contentHash: contentHashOf("two"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -431,7 +405,6 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       sessionId: SESSION_ID,
       mqid: "m3",
       body: "three",
-      contentHash: contentHashOf("three"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -457,7 +430,6 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       sessionId: "sess-OLD",
       mqid: "m1",
       body: "old-one",
-      contentHash: contentHashOf("old-one"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -466,7 +438,6 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       sessionId: "sess-OLD",
       mqid: "m2",
       body: "old-two",
-      contentHash: contentHashOf("old-two"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -475,7 +446,6 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       sessionId: "sess-OLD",
       mqid: "m3",
       body: "old-three",
-      contentHash: contentHashOf("old-three"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -484,7 +454,6 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       sessionId: "sess-OTHER",
       mqid: "m4",
       body: "keep",
-      contentHash: contentHashOf("keep"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -536,7 +505,6 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       sessionId: SESSION_ID,
       mqid: "m-retry-only",
       body: "hello",
-      contentHash: contentHashOf("hello"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -563,7 +531,6 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       sessionId: SESSION_ID,
       mqid: "m-no-full-resend",
       body: "hello",
-      contentHash: contentHashOf("hello"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -589,7 +556,6 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       sessionId: SESSION_ID,
       mqid: "m-no-give-up",
       body: "hello",
-      contentHash: contentHashOf("hello"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -611,7 +577,6 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       sessionId: "sess-A",
       mqid: "m1",
       body: "hello",
-      contentHash: contentHashOf("hello"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -627,6 +592,83 @@ describe("pv-send-watchdog (Phase 50 Plan 02 Task 1)", () => {
       return f?.type === "paste_send_failed";
     });
     expect(escalations.length).toBe(1);
+  });
+
+  it("T-17 FIFO head-pop: arm m1 then m2 on same session; notify once → m1 cleared, m2 still pending; notify again → m2 cleared", async () => {
+    const exec = makeExec();
+    const wsSend = makeWsSend();
+
+    // t=0: arm m1 on sess-A
+    armPvSendWatchdog({
+      sessionId: SESSION_ID,
+      mqid: "m1",
+      body: "first",
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+    });
+
+    // t=50ms: arm m2 on sess-A (m2's retry fires at t=50+2500=2550ms)
+    await vi.advanceTimersByTimeAsync(50);
+    armPvSendWatchdog({
+      sessionId: SESSION_ID,
+      mqid: "m2",
+      body: "second",
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+    });
+
+    // t=100ms: notify once — should pop m1 (the OLDEST), leaving m2 pending.
+    await vi.advanceTimersByTimeAsync(50);
+    notifyMatched(SESSION_ID);
+
+    // Advance to t=2600ms — m1's retry should NOT fire (m1 was cleared).
+    // m2's retry fires at t=2550ms (armed at t=50, +2500ms).
+    await vi.advanceTimersByTimeAsync(2500);
+    // Only m2's retry Enter should have fired — exactly 1 exec call.
+    expect(exec).toHaveBeenCalledTimes(1);
+    const retryCmd = exec.mock.calls[0][0] as string;
+    expect(retryCmd).toBe(`tmux send-keys -t '${TMUX_TARGET}' Enter`);
+
+    // t=2600ms: notify again — should pop m2, cancelling its full-resend.
+    await vi.advanceTimersByTimeAsync(50);
+    notifyMatched(SESSION_ID);
+
+    // Advance to t=6000ms — m2's full-resend would have fired at t=5550ms
+    // if still pending, but it was cleared. No additional execs.
+    await vi.advanceTimersByTimeAsync(3350);
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(wsSend).not.toHaveBeenCalled();
+  });
+
+  it("T-18 notifyMatched on empty session queue is a silent no-op — no throw, no exec, subsequent arm works normally", async () => {
+    const exec = makeExec();
+    const wsSend = makeWsSend();
+
+    // Call notifyMatched on a session that has never been armed.
+    expect(() => notifyMatched("sess-DOESNT-EXIST")).not.toThrow();
+    expect(exec).not.toHaveBeenCalled();
+    expect(wsSend).not.toHaveBeenCalled();
+
+    // Subsequent arm on that session works normally.
+    armPvSendWatchdog({
+      sessionId: "sess-DOESNT-EXIST",
+      mqid: "m1",
+      body: "hello",
+      execCommand: exec,
+      tmuxTarget: TMUX_TARGET,
+      wsSend,
+    });
+
+    // Signal arrives — should clear the arm cleanly.
+    await vi.advanceTimersByTimeAsync(50);
+    notifyMatched("sess-DOESNT-EXIST");
+
+    // No retry or escalation after clearing.
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(exec).not.toHaveBeenCalled();
+    expect(wsSend).not.toHaveBeenCalled();
   });
 });
 
@@ -661,7 +703,6 @@ describe("Phase 56: widened window for dormant-triggered sends", () => {
       sessionId: SESSION_ID,
       mqid: "mqid-ww1",
       body: "hello dormant",
-      contentHash: contentHashOf("hello dormant"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -707,7 +748,6 @@ describe("Phase 56: widened window for dormant-triggered sends", () => {
       sessionId: SESSION_ID,
       mqid: "mqid-ww2",
       body: "hello awake",
-      contentHash: contentHashOf("hello awake"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -737,7 +777,6 @@ describe("Phase 56: widened window for dormant-triggered sends", () => {
       sessionId: SESSION_ID,
       mqid: "mqid-ww3",
       body: "widened body",
-      contentHash: contentHashOf("widened body"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
@@ -794,7 +833,6 @@ describe("Phase 56: widened window for dormant-triggered sends", () => {
       sessionId: SESSION_ID,
       mqid: "mqid-ww4",
       body: "compose-mode body",
-      contentHash: contentHashOf("compose-mode body"),
       execCommand: exec,
       tmuxTarget: TMUX_TARGET,
       wsSend,
