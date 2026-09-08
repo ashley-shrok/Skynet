@@ -420,6 +420,13 @@ Then enumerate the bounty folders directly under `~/.claude/roles/<role>/bountie
 `dropped`. This is the SHARED role bounty pool; the count reflects everything the
 role has open, not just what this identity touched.
 
+Then enumerate the runbook subfolders directly under `~/.claude/roles/<role>/runbooks/`
+— one folder per runbook, named for its slug. Hold the names in context silently. No
+announce line; no read-in. This is what makes the identity AWARE that a set of runbooks
+exists for this role; each runbook's content is read on demand only when it's actually
+invoked (see § Runbooks). If the role has no `runbooks/` folder, or it's empty, skip
+silently.
+
 Announce:
 
 > "I'm **<Name>**. [one sentence summary of role from file]
@@ -1038,6 +1045,7 @@ Two peer folders at the top of `~/.claude/`, each with lowercased names (see §1
 - `<role>.md` — the role file (permanent — see § The four artifacts)
 - `bounties/` — the task/thread records + working dirs (shared pool)
 - `history.md` — append-only capped log (shared narrative)
+- `runbooks/` — role's named playbooks for repeated operational work (see § Runbooks). Optional per role; absent = no runbooks.
 - Optional deeper reference files (`box-map.md`, `architecture.md`, etc.) named in the
   role file's 10k-view section
 
@@ -1287,6 +1295,51 @@ read but that never counts as "open." Nothing deletes it; it just keeps
   `bounties/archive/`.
 - **Resurrecting** an archived bounty (rare) = move the folder back out of
   `archive/` and flip its status off the terminal value.
+
+---
+
+## Runbooks — role-scope named playbooks for repeated operational work
+
+Alongside bounties (things to do) and history (things done), a role can hold
+**runbooks** — named playbooks for repeated operational work. Each runbook captures
+the canonical way to do something the role does more than once (a deploy cycle, an
+onboarding, an image-generation pipeline). Role-scope; every identity of the role
+sees the same set.
+
+### Storage
+
+`~/.claude/roles/<role>/runbooks/<runbook-slug>/<runbook-slug>.md` + whatever
+companions belong with that runbook (checklists, prompt archives, sample data,
+scripts) as siblings inside the same subfolder. Internal shape is **free-form** — no
+required title/triggers/procedure/gotchas spine. Whatever fits the runbook fits.
+
+### Awareness on wake
+
+Load-time enumeration (§ 3 Loading an existing identity) lists the subfolder names
+under the role's `runbooks/` and holds them in context silently. The identity is
+AWARE that a set of runbooks exists and knows their names, but does NOT read them
+in — content is read on demand only when a runbook is actually invoked.
+
+### When to invoke one
+
+The user explicitly names it, or a scheduled wake-up's free-text instruction
+references it, or the situation obviously matches one the identity is aware of. How
+the runbook then gets followed after reading is up to the agent's intuition — this
+section deliberately does not steer that.
+
+### Editing rules
+
+Same governance as role-file edits (see § Editing the role and identity files):
+user-initiated changes are implicit approval; agent-proposed changes need explicit
+greenlight. Runbooks are role-scope, so an edit affects every identity the way a
+role-file edit does.
+
+### Distinction from reference files
+
+Reference files are PASSIVE depth (subsystem background, read on demand when working
+that subsystem). Runbooks are ACTIVE procedure (canonical playbooks for repeated
+work). Both live in the role folder and are "read on demand" but they're different
+beasts and don't fold together.
 
 ---
 
