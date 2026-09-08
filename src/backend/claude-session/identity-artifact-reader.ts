@@ -39,6 +39,12 @@ type SFTPWrapper = import("ssh2").SFTPWrapper;
 import yaml from "js-yaml";
 import { sshLogger } from "../utils/logger.js";
 import { execCommand } from "../ssh/tmux-helper.js";
+// Phase 85 Plan 85-01 Task 1: role-name gate for readRoleFileByName +
+// readAvatarSiblingFileByRole. Same pattern roles-create.ts imports at L87
+// (`/^[a-z0-9-]+$/` — kebab-case-lowercase, defense-in-depth against SSH
+// shell interpolation of a role name that arrived through the frontmatter
+// merge path rather than the identity two-step's IDENTITY_KEY_RE gate).
+import { ROLE_NAME_PATTERN } from "../database/routes/identity-birth-orchestrator.js";
 
 // ---------------------------------------------------------------------------
 // Wakeup schedule humanizer (exported so server.ts can import it instead of
@@ -570,6 +576,75 @@ export async function readRoleFile(
   // readIdentityFile at patch #95 comment above). `|| true` swallows
   // ENOENT so the response is `{markdown: ""}` on missing role file.
   const cmd = `cat "$HOME/.claude/roles/${role}/${role}.md" 2>/dev/null || true`;
+  const stdout = await execWithTimeout(conn, cmd);
+  return { markdown: stdout };
+}
+
+// ---------------------------------------------------------------------------
+// 1c. readRoleFileByName — Phase 85 Plan 85-01 Task 1
+// ---------------------------------------------------------------------------
+
+/**
+ * Read a role file (~/.claude/roles/<roleName>/<roleName>.md) directly by
+ * role name — WITHOUT the identity-file two-step used by readRoleFile above.
+ *
+ * Wave-1 need: GET /identities per-host fanout resolves each identity's role
+ * via extractRoleFromMarkdown, then wants to read that role's cosmetics from
+ * the role file. A per-host memo caches the read so multiple identities of
+ * the same role don't re-hit disk (T-85-01-03). Since the caller already
+ * knows the role name (extracted from the identity markdown), the two-step
+ * would be redundant SSH work — this reader takes roleName as an explicit
+ * argument.
+ *
+ * Byte-shape mirror of readRoleFile's LOCAL/REMOTE branch structure:
+ *   LOCAL: getLocalRolesRoot() + <roleName>/<roleName>.md via fs.readFile,
+ *          ENOENT → {markdown: ""}.
+ *   REMOTE: `cat "$HOME/.claude/roles/${roleName}/${roleName}.md" 2>/dev/null
+ *           || true` via execWithTimeout, empty stdout → {markdown: ""}.
+ *
+ * ROLE_NAME_PATTERN gate (T-85-01-01): defense-in-depth for the SSH
+ * interpolation. roleName arrives here via the identity's role: frontmatter,
+ * which is separately validated by IDENTITY_KEY_RE inside
+ * resolveRoleForIdentity — but this reader is also called from paths where
+ * roleName arrived via the API layer or the frontend, so re-validate at the
+ * function boundary to keep the shell-safety invariant local to this
+ * function's body. IDENTITY_KEY_RE (identity keys) permits `_` and 64-char
+ * length; ROLE_NAME_PATTERN (role names) is stricter kebab-case-lowercase
+ * per the fleet role-naming convention.
+ */
+export async function readRoleFileByName(
+  conn: SSHClientType | null,
+  roleName: string,
+): Promise<{ markdown: string }> {
+  // Gate the roleName BEFORE any I/O — same defense-in-depth pattern as
+  // resolveRoleForIdentity's IDENTITY_KEY_RE gate above.
+  if (typeof roleName !== "string" || !ROLE_NAME_PATTERN.test(roleName)) {
+    throw new Error(`invalid roleName: ${roleName}`);
+  }
+
+  if (conn === null) {
+    // LOCAL branch — reads from ROLES_HOST_DIR (mirrors readRoleFile LOCAL
+    // pattern; same ~/.claude/roles/<name>/<name>.md path shape).
+    const root = getLocalRolesRoot();
+    const filePath = path.join(root, roleName, roleName + ".md");
+    try {
+      const markdown = await fs.readFile(filePath, "utf-8");
+      return { markdown };
+    } catch (err: unknown) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        (err as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
+        return { markdown: "" };
+      }
+      throw err;
+    }
+  }
+
+  // REMOTE branch — roleName passed ROLE_NAME_PATTERN above, so direct
+  // interpolation is shell-safe (same defense as readRoleFile L578).
+  const cmd = `cat "$HOME/.claude/roles/${roleName}/${roleName}.md" 2>/dev/null || true`;
   const stdout = await execWithTimeout(conn, cmd);
   return { markdown: stdout };
 }
@@ -2091,6 +2166,13 @@ export const AVATAR_MIME_FROM_EXT: Record<AvatarExt, string> = {
  * Anything failing its gate is DROPPED (not defaulted) — the caller
  * distinguishes "not present" from "present with bad value" by checking
  * `field in cosmetics`.
+ *
+ * Phase 85 Plan 85-01 Task 1: reused unchanged against ROLE-file markdown
+ * as the source of cosmetic defaults. Role markdown carries the same YAML
+ * frontmatter shape (`title`, `colorHue`, `voice`, `avatar`) — the four
+ * cosmetic fields — and the narrowing contract above is load-bearing for
+ * the identity/role merge in publicIdentity(). No shape change here; the
+ * caller in publicIdentity applies `identity ?? role ?? null` per field.
  */
 export function extractCosmeticsFromFrontmatter(markdown: string): {
   displayName?: string;
@@ -2287,6 +2369,96 @@ export async function readAvatarSiblingFile(
     throw new Error("avatar exceeds cap on disk");
   }
   return { bytes, mime: AVATAR_MIME_FROM_EXT[extToRead], ext: extToRead };
+}
+
+// ---------------------------------------------------------------------------
+// Role-side avatar sibling reader — Phase 85 Plan 85-01 Task 1
+// ---------------------------------------------------------------------------
+
+/**
+ * Read a role's sibling avatar file (~/.claude/roles/<roleName>/<avatarFilename>).
+ *
+ * Wave-1 role-fallback for GET /identities/:key/avatar: when an identity has
+ * no sibling avatar of its own, the endpoint reads the identity's role
+ * frontmatter, extracts the role's `avatar:` filename, and calls this
+ * function to serve the role's shared avatar instead. Returns null when the
+ * role folder has no such sibling — the caller then 404s.
+ *
+ * Mirrors readAvatarSiblingFile above but simplified for the role case:
+ *   - Takes `avatarFilename` as an explicit argument (already known from the
+ *     role's frontmatter `avatar:` field). No frontmatter re-read needed —
+ *     the caller has already parsed it.
+ *   - Rooted at getLocalRolesRoot()/<roleName>/<avatarFilename> (LOCAL)
+ *     or "$HOME/.claude/roles/<roleName>/<avatarFilename>" (REMOTE).
+ *   - Enforces the IDMEDIT_MAX_AVATAR_BYTES cap on both branches, mirroring
+ *     the identity-side defense at L2219-2221 / L2286-2288.
+ *
+ * Validation (T-85-01-02):
+ *   - roleName must pass ROLE_NAME_PATTERN (SSH interpolation).
+ *   - avatarFilename must match `^[a-z0-9-]+\.(webp|png|jpg|gif|svg)$` — the
+ *     ext is one of the five canonical AVATAR_EXT_VALUES, and the basename
+ *     is kebab-case-lowercase (matches role-file naming; forbids traversal
+ *     via `../` or subshell chars).
+ *
+ * Returns null when the file doesn't exist on disk (LOCAL ENOENT / REMOTE
+ * empty stdout). Throws on invalid inputs, SSH-layer errors, or files
+ * exceeding IDMEDIT_MAX_AVATAR_BYTES.
+ */
+export async function readAvatarSiblingFileByRole(
+  conn: SSHClientType | null,
+  roleName: string,
+  avatarFilename: string,
+): Promise<{ bytes: Buffer; mime: string; ext: AvatarExt } | null> {
+  if (typeof roleName !== "string" || !ROLE_NAME_PATTERN.test(roleName)) {
+    throw new Error(`invalid roleName: ${roleName}`);
+  }
+  // Explicit filename ext regex: mirrors AVATAR_EXT_VALUES tuple exactly.
+  // Kebab-case basename + canonical ext; nothing else reaches disk.
+  const filenameMatch = avatarFilename.match(
+    /^([a-z0-9-]+)\.(webp|png|jpg|gif|svg)$/,
+  );
+  if (!filenameMatch) {
+    throw new Error(`invalid avatarFilename: ${avatarFilename}`);
+  }
+  const ext = filenameMatch[2] as AvatarExt;
+
+  if (conn === null) {
+    // LOCAL branch — mirrors readAvatarSiblingFile LOCAL tryRead helper.
+    const root = getLocalRolesRoot();
+    const filePath = path.join(root, roleName, avatarFilename);
+    try {
+      const bytes = await fs.readFile(filePath);
+      if (bytes.byteLength > IDMEDIT_MAX_AVATAR_BYTES) {
+        throw new Error("avatar exceeds cap on disk");
+      }
+      return { bytes, mime: AVATAR_MIME_FROM_EXT[ext], ext };
+    } catch (err: unknown) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        (err as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  // REMOTE branch — probe existence first (avoid throwing "no such file"
+  // from sftpReadFile), then read via SFTP. Mirror the readAvatarSiblingFile
+  // REMOTE-branch shape: single existence probe via bash, then sftpReadFile.
+  const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
+  const probeCmd = `ls "$HOME/.claude/roles/${roleName}/${avatarFilename}" 2>/dev/null || true`;
+  const probeOut = (await execWithTimeout(conn, probeCmd)).trim();
+  if (!probeOut) {
+    return null;
+  }
+  const targetPath = `${remoteHome}/.claude/roles/${roleName}/${avatarFilename}`;
+  const bytes = await sftpReadFile(conn, targetPath);
+  if (bytes.byteLength > IDMEDIT_MAX_AVATAR_BYTES) {
+    throw new Error("avatar exceeds cap on disk");
+  }
+  return { bytes, mime: AVATAR_MIME_FROM_EXT[ext], ext };
 }
 
 /**
