@@ -67,6 +67,14 @@ import sessionsRoutes from "./routes/sessions.js";
 // swap in Task 3). Matching nginx location blocks land in BOTH
 // docker/nginx.conf AND docker/nginx-https.conf per CLAUDE.md nginx caveat.
 import agentResetRoutes from "./routes/agent-reset.js";
+// Phase 90 Plan 04 Task 3 — GET /relay-room/:roomId/participants endpoint.
+// Returns the humans + agents partition for a relay room, classified
+// server-side via the shared participants-classifier module (also used
+// by the /relay-room/websocket/ WS server — W#9 consistency invariant).
+// Matching nginx location blocks land in BOTH docker/nginx.conf AND
+// docker/nginx-https.conf for BOTH the WS path AND this REST path per
+// CLAUDE.md nginx caveat (Pitfall 6).
+import relayRoomParticipantsRoutes from "./routes/relay-room-participants.js";
 import userPreferencesRoutes from "./routes/user-preferences.js";
 import debugRoutes from "./routes/debug.js";
 import voiceRoutes from "./routes/voice.js";
@@ -1929,6 +1937,11 @@ app.use("/sessions", sessionsRoutes);
 // Nginx dual-update required (see CLAUDE.md nginx caveat) — location blocks
 // added in BOTH docker/nginx.conf AND docker/nginx-https.conf.
 app.use("/agent-reset", agentResetRoutes);
+// Phase 90 Plan 04 Task 3 — GET /relay-room/:roomId/participants (BLOCKER
+// #4 fix per plan). Nginx dual-update required for BOTH /relay-room/websocket/
+// (WS route bound by relay-room-stream-server on port 30015) AND this REST
+// prefix — both blocks land in BOTH docker/nginx.conf AND docker/nginx-https.conf.
+app.use("/relay-room", relayRoomParticipantsRoutes);
 app.use("/user-preferences", userPreferencesRoutes);
 // RELAYBUB-04 (Phase 17): /relay-pointer needs matching location blocks in BOTH docker/nginx.conf
 // AND docker/nginx-https.conf — see CLAUDE.md nginx caveat. Handler uses head -c bounded remote
