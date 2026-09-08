@@ -276,6 +276,7 @@ export function PrettyConversationsPanel({
   onCreateSession,
   onDetachedRowClick,
   onRdpRowClick,
+  onRelayRoomRowClick,
   onDeactivateRow,
   onKillRow,
   sidebarToggleOverlaps = false,
@@ -311,6 +312,18 @@ export function PrettyConversationsPanel({
   // ConversationsPanel. When omitted, RDP rows fall through to
   // selectConversation (silent-no-op at the store level).
   onRdpRowClick?: (row: ConversationRowShape) => void;
+  // Phase 90 Plan 07 Task 3 — relay-room-row click. Fired when the user
+  // clicks a row whose FleetSession carries `kind === "relay-room"` (Phase
+  // 89 sidebar merge; Plan 01 widened FleetSession + Plan 07 propagated the
+  // fields onto the ConversationRow shape). AppShell owns the tab-spawn
+  // side effect: constructs a Tab with sessionKind + relayRoomId +
+  // relayRoomTitle set so tabUtils's dispatcher (Plan 07 Task 2) routes
+  // the tab to RelayRoomSessionPane. Priority in handleRowSelect: AFTER
+  // rdpHostRow + fleetOnly branches (which gate on their own row-shape
+  // markers), BEFORE the default selectConversation path. When omitted,
+  // relay-room rows fall through to selectConversation (matches
+  // rdpHostRow/fleetOnly semantics — silent-no-op at the store level).
+  onRelayRoomRowClick?: (row: ConversationRowShape) => void;
   // quick-260727-gm3: fired when Ashley clicks the red-tinted X on an
   // active-set row. AppShell wires this to closeTab(row.id) so
   // the deactivate action reuses the existing tab-close plumbing verbatim
@@ -997,6 +1010,25 @@ export function PrettyConversationsPanel({
       onDetachedRowClick(row);
       onConversationSelected?.(row.id);
       return;
+    }
+    // Phase 90 Plan 07 Task 3 (BLOCKER #3 fix) — relay-room branch. Placed
+    // AFTER rdpHostRow + fleetOnly to preserve their existing priority (a
+    // row is at most one of these types — a relay-room row is neither
+    // rdpHostRow nor fleetOnly). Discipline mirrors the two branches above:
+    // early return + fire onConversationSelected alongside. Defensive path
+    // on missing roomId: log-and-fall-through to the default
+    // selectConversation path (backend shouldn't emit this state per Plan
+    // 04 wire discipline; belt-and-suspenders).
+    if (row.kind === "relay-room" && onRelayRoomRowClick) {
+      if (!row.roomId) {
+        // eslint-disable-next-line no-console
+        console.warn("relay-room row missing roomId", { rowId: row.id });
+        // Fall through to default path.
+      } else {
+        onRelayRoomRowClick(row);
+        onConversationSelected?.(row.id);
+        return;
+      }
     }
     selectConversation(row.id);
     onConversationSelected?.(row.id);

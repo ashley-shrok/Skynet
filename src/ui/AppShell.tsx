@@ -1429,20 +1429,38 @@ export function AppShell({
   // ─── Tab management ──────────────────────────────────────────────────────
 
   const openTab = useCallback(function openTab(
-    host: Host,
+    // Phase 90 Plan 07 Task 3: first arg widened to accept `null` — relay-
+    // room tabs have NO Host (the room lives on the Matrix relay, not any
+    // fleet host). Legacy callers still pass a Host as before; the null
+    // path is only exercised by the relay-room branch of the sidebar
+    // onRelayRoomRowClick callback (mounted below at the
+    // PrettyConversationsPanel invocation site).
+    host: Host | null,
     type: TabType,
     restore?: { instanceId: string; restoredSessionId: string | null },
     options?: {
       targetTmuxSession?: string | null;
       label?: string;
       allowCreateTmux?: boolean;
+      // Phase 90 Plan 07 Task 3 — relay-room fields threaded onto the Tab
+      // so tabUtils's dispatcher (Task 2) branches to RelayRoomSessionPane.
+      // Plan 01 widened Tab with these three fields; here we accept them
+      // as options and pass them onto the Tab object below.
+      sessionKind?: "harness" | "relay-room";
+      relayRoomId?: string;
+      relayRoomTitle?: string | null;
     },
   ): string {
     // Patch #35: append a monotonic counter suffix so multiple openTab
     // calls in the same synchronous tick (e.g. URL-driven multi-tab
     // restore) don't collide when Date.now() returns identical values.
     // Same-ms is possible in a tight for-loop over an array of specs.
-    const tabId = `${host.name}-${type}-${Date.now()}-${openTabCounter.current++}`;
+    //
+    // Phase 90 Plan 07 Task 3: `host?.name ?? "relay-room"` for the id
+    // prefix — the id shape stays greppable in logs even for host-less
+    // relay-room tabs. `host` is null for relay-room tabs.
+    const hostNameForId = host?.name ?? "relay-room";
+    const tabId = `${hostNameForId}-${type}-${Date.now()}-${openTabCounter.current++}`;
     const instanceId =
       restore?.instanceId ??
       (typeof crypto.randomUUID === "function"
@@ -1461,8 +1479,19 @@ export function AppShell({
     // "(2)", "(3)" duplicate-host-name dedupe pass since the session name
     // is what disambiguates).
     const customLabel = options?.label ?? null;
+    // Phase 90 Plan 07 Task 3 — the relay-room fields; only present when
+    // the caller is spawning a relay-room tab.
+    const sessionKind = options?.sessionKind;
+    const relayRoomId = options?.relayRoomId;
+    const relayRoomTitle = options?.relayRoomTitle ?? null;
 
-    let finalLabel = customLabel ?? host.name;
+    // Fallback label when host is null and no custom label supplied — use
+    // the room title (if any) so the tab title reads meaningfully; else the
+    // room id; else a bare "Relay room". Relay-room callers always supply
+    // a label, so this fallback only fires defensively.
+    const hostName = host?.name ?? relayRoomTitle ?? relayRoomId ?? "Relay room";
+
+    let finalLabel = customLabel ?? hostName;
     setTabs((prev) => {
       if (customLabel) {
         return [
@@ -1472,27 +1501,32 @@ export function AppShell({
             instanceId,
             type,
             label: customLabel,
-            host,
+            host: host ?? undefined,
             openedAt,
             terminalRef: ref,
             restoredSessionId: restore?.restoredSessionId ?? null,
             targetTmuxSession,
             allowCreateTmux,
+            ...(sessionKind !== undefined ? { sessionKind } : {}),
+            ...(relayRoomId !== undefined ? { relayRoomId } : {}),
+            ...(sessionKind === "relay-room"
+              ? { relayRoomTitle }
+              : {}),
           },
         ];
       }
       const same = prev.filter(
         (t) =>
-          t.type === type && t.label.replace(/ \(\d+\)$/, "") === host.name,
+          t.type === type && t.label.replace(/ \(\d+\)$/, "") === hostName,
       );
       finalLabel =
-        same.length === 0 ? host.name : `${host.name} (${same.length + 1})`;
+        same.length === 0 ? hostName : `${hostName} (${same.length + 1})`;
 
       // Retrofit the first duplicate's label to "(1)" if needed
       const next =
         same.length === 1 && !/\(\d+\)$/.test(same[0].label)
           ? prev.map((t) =>
-              t.id === same[0].id ? { ...t, label: `${host.name} (1)` } : t,
+              t.id === same[0].id ? { ...t, label: `${hostName} (1)` } : t,
             )
           : prev;
 
@@ -1503,12 +1537,15 @@ export function AppShell({
           instanceId,
           type,
           label: finalLabel,
-          host,
+          host: host ?? undefined,
           openedAt,
           terminalRef: ref,
           restoredSessionId: restore?.restoredSessionId ?? null,
           targetTmuxSession,
           allowCreateTmux,
+          ...(sessionKind !== undefined ? { sessionKind } : {}),
+          ...(relayRoomId !== undefined ? { relayRoomId } : {}),
+          ...(sessionKind === "relay-room" ? { relayRoomTitle } : {}),
         },
       ];
     });
@@ -1518,6 +1555,12 @@ export function AppShell({
       addOpenTab({
         id: instanceId,
         tabType: type,
+        // Phase 90 Plan 07 Task 3: relay-room tabs have no host so hostId
+        // is null. Backend persistence layer already accepts null hostId
+        // for other tab types with no host binding (settings singletons,
+        // dashboard). Docs for relay-room persistence semantics deferred
+        // to a follow-up quick if/when open-tab restore for relay-room
+        // becomes desirable.
         hostId: host ? parseInt(host.id) : null,
         label: finalLabel,
         tabOrder: 0,
@@ -2089,6 +2132,34 @@ export function AppShell({
             const host = row.host;
             if (!host) return;
             const newTabId = openTab(host, "rdp");
+            selectConversationDeferred(newTabId);
+            if (isTouchDevice) navigateToView();
+            if (isMobile) setSidebarOpen(false);
+          }}
+          onRelayRoomRowClick={(row) => {
+            // Phase 90 Plan 07 Task 3 (BLOCKER #3 fix). Mirrors the shape
+            // of onDetachedRowClick — both open a session pane on click —
+            // but with the relay-room fields threaded through the openTab
+            // options bag so tabUtils's dispatcher (Task 2) branches to
+            // RelayRoomSessionPane. First arg to openTab is null: relay-
+            // room tabs have NO Host (the room lives on the Matrix relay,
+            // not any fleet host). openTab was widened to accept
+            // `Host | null` for exactly this call site.
+            if (!row.roomId) {
+              // eslint-disable-next-line no-console
+              console.warn("relay-room row missing roomId at AppShell", {
+                rowId: row.id,
+              });
+              return;
+            }
+            const newTabId = openTab(null, "terminal", undefined, {
+              sessionKind: "relay-room",
+              relayRoomId: row.roomId,
+              relayRoomTitle: row.roomTitle ?? null,
+              label: row.roomTitle ?? row.roomId,
+              // Relay-room tabs have no tmux to create; safe-noop.
+              allowCreateTmux: false,
+            });
             selectConversationDeferred(newTabId);
             if (isTouchDevice) navigateToView();
             if (isMobile) setSidebarOpen(false);

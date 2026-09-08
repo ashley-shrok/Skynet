@@ -105,6 +105,22 @@ export type ConversationRow = {
   // Deliberately OPTIONAL so existing row constructors (which don't yet set
   // it) still typecheck; the comparator normalizes `undefined` → `null`.
   lastMessageAt?: number | null;
+  // Phase 90 Plan 07 Task 3 — Phase-89 kind discriminator + relay-room
+  // identity fields carried FROM the FleetSession THROUGH the row shape
+  // TO the panel's handleRowSelect. The row-click branch reads these to
+  // decide whether to dispatch to onRelayRoomRowClick (relay-room) vs the
+  // existing rdp/fleetOnly/selectConversation branches (harness).
+  //
+  // All three are optional so pre-Phase-90 row constructors (openTab-derived
+  // rows, RDP synthetic rows) that never set them still typecheck; the
+  // panel's branch reads them as `row.kind === "relay-room"` and treats
+  // undefined as harness (backward-compat rule per PATTERNS.md).
+  //
+  // Populated at synthetic-row build time (see fleetSyntheticRows loop
+  // below at ~L660) from the corresponding FleetSession fields.
+  kind?: "harness" | "relay-room";
+  roomId?: string;
+  roomTitle?: string | null;
 };
 
 export type HostGroup = {
@@ -666,6 +682,18 @@ function computeSnapshot(): ConversationList {
       fleetOnly: true,
       ...(role !== null ? { role } : {}),
       ...(lastMessageAt !== null ? { lastMessageAt } : {}),
+      // Phase 90 Plan 07 Task 3 — propagate Phase-89 kind + relay-room
+      // identity axis so the row reaches the panel's handleRowSelect with
+      // enough info to route to onRelayRoomRowClick for relay-room rows.
+      // Undefined-vs-explicit distinction preserved on `kind` and `roomId`
+      // per Plan 01 reader-boundary discipline (consumers treat undefined
+      // as harness backward-compat). roomTitle uses `?? null` coerce to
+      // match the same discipline lastMessageAt + aiTitle already follow.
+      ...(session.kind !== undefined ? { kind: session.kind } : {}),
+      ...(session.roomId !== undefined ? { roomId: session.roomId } : {}),
+      ...(session.kind === "relay-room"
+        ? { roomTitle: session.roomTitle ?? null }
+        : {}),
     };
     fleetSyntheticRows.push({ hostIdStr, row: syntheticRow });
     if (!fleetHostNameFallback.has(hostIdStr)) {
