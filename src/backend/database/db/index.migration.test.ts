@@ -753,3 +753,117 @@ describe("Phase 75-01 migration — matrix_admin_creds table + users.mxid column
     ).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 85-01 migration — users.avatar_path column
+//
+// Verifies that addColumnIfNotExists("users", "avatar_path", "TEXT") is
+// idempotent (no-throw on second boot), that the column is present and
+// queryable after migration, and that it is genuinely nullable (INSERT
+// without providing a value succeeds and the column reads back as null).
+//
+// The live migration call (db/index.ts addColumnIfNotExists line 931 +
+// forceSave) is exercised by boot, not by these unit tests — the forceSave
+// call in db/index.ts is covered by a presence-check grep of
+// 'phase-85-user-avatar-schema'. Mirrors the Phase 75-2 mxid test shape.
+// ---------------------------------------------------------------------------
+
+// Local reproduction of the addColumnIfNotExists shape from db/index.ts
+// L634-659 — renamed for self-description without touching the module singleton.
+function addColumnIfNotExistsAvatarPath(
+  db: Database.Database,
+  table: string,
+  column: string,
+  definition: string,
+): void {
+  try {
+    db.prepare(`SELECT "${column}" FROM ${table} LIMIT 1`).get();
+  } catch {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN "${column}" ${definition};`);
+  }
+}
+
+// The users CREATE TABLE — post-Phase-75 shape (includes mxid TEXT, which
+// Phase 75 has already shipped by the time Phase 85 runs). This is the
+// "pre-Phase-85" starting state: users table exists with mxid but without
+// avatar_path.
+const USERS_CREATE_SQL_PRE_AVATAR_PATH = `
+  CREATE TABLE users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    is_oidc INTEGER NOT NULL DEFAULT 0,
+    oidc_identifier TEXT,
+    client_id TEXT,
+    client_secret TEXT,
+    issuer_url TEXT,
+    authorization_url TEXT,
+    token_url TEXT,
+    identifier_path TEXT,
+    name_path TEXT,
+    scopes TEXT DEFAULT 'openid email profile',
+    totp_secret TEXT,
+    totp_enabled INTEGER NOT NULL DEFAULT 0,
+    totp_backup_codes TEXT,
+    mxid TEXT
+  );
+`;
+
+describe("Phase 85-01 migration — users.avatar_path column", () => {
+  it("Test P85-1: users.avatar_path TEXT column added exactly once across two boots and is queryable without throwing", () => {
+    const db = new Database(":memory:");
+    db.exec(USERS_CREATE_SQL_PRE_AVATAR_PATH);
+
+    // Sanity: avatar_path absent pre-migration.
+    const preCols = columnNames(db, "users");
+    expect(preCols).not.toContain("avatar_path");
+
+    // Boot 1 — add the column.
+    addColumnIfNotExistsAvatarPath(db, "users", "avatar_path", "TEXT");
+    const postBoot1Cols = columnNames(db, "users");
+    expect(postBoot1Cols).toContain("avatar_path");
+
+    // Boot 2 — re-run; addColumnIfNotExists is idempotent, no throw.
+    expect(() =>
+      addColumnIfNotExistsAvatarPath(db, "users", "avatar_path", "TEXT"),
+    ).not.toThrow();
+
+    // Exactly one avatar_path column post-boot-2 (no duplicate).
+    const postBoot2Cols = columnNames(db, "users");
+    const avatarPathMatches = postBoot2Cols.filter((c) => c === "avatar_path");
+    expect(avatarPathMatches.length).toBe(1);
+
+    // Column is queryable — `SELECT avatar_path FROM users LIMIT 1` does not throw.
+    expect(() =>
+      db.prepare("SELECT avatar_path FROM users LIMIT 1").get(),
+    ).not.toThrow();
+  });
+
+  it("Test P85-2: users.avatar_path is nullable (INSERT without providing value succeeds and reads back as null)", () => {
+    const db = new Database(":memory:");
+    db.exec(USERS_CREATE_SQL_PRE_AVATAR_PATH);
+
+    // Run migration to add the column.
+    addColumnIfNotExistsAvatarPath(db, "users", "avatar_path", "TEXT");
+
+    // INSERT a row omitting avatar_path — mirrors what pre-Phase-85 code does
+    // for legacy users (D-13: no backfill, existing rows keep null pointer).
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)",
+        )
+        .run("test-user-id", "testuser", "hashed-password"),
+    ).not.toThrow();
+
+    // SELECT the row back — avatar_path must be null (not '', not any sentinel).
+    // This proves D-06's nullability guarantee: the column is genuinely NULL
+    // when not provided, not an empty-string sentinel.
+    const row = db
+      .prepare("SELECT avatar_path FROM users WHERE id = ?")
+      .get("test-user-id") as { avatar_path: string | null } | undefined;
+    expect(row).toBeDefined();
+    expect(row!.avatar_path).toBeNull();
+  });
+});
