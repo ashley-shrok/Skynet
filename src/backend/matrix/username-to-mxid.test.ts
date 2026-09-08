@@ -59,6 +59,58 @@ describe("bijectivity guards (D-07)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// hex fallback for Matrix-illegal characters (closes shape's "analogous escapes
+// for any other character Synapse's localpart grammar rejects" clause)
+// ---------------------------------------------------------------------------
+
+describe("hex fallback for Matrix-illegal characters", () => {
+  it("encodes ASCII space (0x20) as _20_", () => {
+    expect(sanitizeUsernameToLocalpart("foo bar")).toBe("foo_20_bar");
+  });
+
+  it("encodes ! (0x21) as _21_", () => {
+    expect(sanitizeUsernameToLocalpart("foo!bar")).toBe("foo_21_bar");
+  });
+
+  it("encodes multiple different illegal chars in sequence", () => {
+    expect(sanitizeUsernameToLocalpart("a!b#c")).toBe("a_21_b_23_c");
+  });
+
+  it("encodes a BMP code point > 0xFF as _u<hhhh>_ (Latin-1 é 0xE9 as _e9_ is byte-form)", () => {
+    // é (U+00E9) is <= 0xFF, so it uses 2-digit hex, not 4-digit
+    expect(sanitizeUsernameToLocalpart("josé")).toBe("jos_e9_");
+  });
+
+  it("encodes a true BMP code point > 0xFF (Hiragana あ U+3042) as _u3042_", () => {
+    expect(sanitizeUsernameToLocalpart("hiあ")).toBe("hi_u3042_");
+  });
+
+  it("throws for a non-BMP code point (emoji 😀 U+1F600)", () => {
+    expect(() => sanitizeUsernameToLocalpart("hi😀")).toThrow(/non-BMP/);
+  });
+
+  it("bijectivity: literal _21_ in input escapes to __21__, distinct from ! → _21_", () => {
+    expect(sanitizeUsernameToLocalpart("foo_21_bar")).toBe("foo__21__bar");
+    expect(sanitizeUsernameToLocalpart("foo!bar")).toBe("foo_21_bar");
+    expect(sanitizeUsernameToLocalpart("foo_21_bar")).not.toBe(
+      sanitizeUsernameToLocalpart("foo!bar"),
+    );
+  });
+
+  it("hex-fallback output satisfies MXID_RE", () => {
+    expect(
+      MXID_RE.test(buildHumanMxid("foo bar!", "matrix.example.com")),
+    ).toBe(true);
+    expect(
+      MXID_RE.test(buildHumanMxid("josé", "matrix.example.com")),
+    ).toBe(true);
+    expect(
+      MXID_RE.test(buildHumanMxid("hiあ", "matrix.example.com")),
+    ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // buildHumanMxid (D-06)
 // ---------------------------------------------------------------------------
 
