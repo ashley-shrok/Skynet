@@ -1288,8 +1288,13 @@ describe("getRoomMessages (Phase 90 Plan 03 Task 1)", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const url = fetchMock.mock.calls[0][0] as string;
-    // encodeURIComponent("!abc:server") = "%21abc%3Aserver"
-    expect(url).toContain("%21abc%3Aserver");
+    // encodeURIComponent("!abc:server") = "!abc%3Aserver" — `!` is in RFC
+    // 3986 unreserved set so encodeURIComponent leaves it, but `:` becomes
+    // %3A. The load-bearing defense is that `:` (path separator in Matrix
+    // mxid/roomId grammar) is encoded — prevents path traversal per T-90-03-T1.
+    // Also assert the string is not the raw ":" form (encoding actually happened).
+    expect(url).toContain("!abc%3Aserver");
+    expect(url).not.toContain("!abc:server");
     expect(url).toContain("dir=b");
     expect(url).toContain("from=t99_cursor");
     expect(url).toContain("limit=20");

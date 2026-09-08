@@ -988,3 +988,149 @@ export async function deactivateUser(
     return { ok: false, status: 502, error: ERR_PROXY };
   }
 }
+
+// ---------------------------------------------------------------------------
+// getRoomMessages (Phase 90 Plan 03 Task 1) — GET /_matrix/client/v3/rooms/
+// {roomId}/messages?dir={b|f}&from={cursor}&limit={n} — client-server API
+// pagination by event-id cursor (Pitfall 5). Consumed by the Plan 04 WS
+// server for the relay-room pane's initial history load AND scroll-back
+// batches. Admin-mediated read — reads use admin creds (only sends need the
+// per-user token, per T-90-BE-03 mitigation in sendMessageAsUser).
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal Matrix event shape returned in a /messages chunk.
+ *
+ * Mirrors the Matrix client-server API event shape. `unsigned.transaction_id`
+ * is the load-bearing field for Pitfall 4 (mqid ↔ txnId echo-back match):
+ * Plan 06's optimistic-send matcher reads this to correlate a pending bubble
+ * with its corresponding relay event when it lands back through /sync.
+ */
+export interface MatrixEvent {
+  event_id: string;
+  type: string;
+  sender: string;
+  origin_server_ts: number;
+  content: Record<string, unknown>;
+  unsigned?: { transaction_id?: string; [k: string]: unknown };
+}
+
+export type GetRoomMessagesOk = AdminOk<{
+  events: MatrixEvent[];
+  end?: string;
+  start?: string;
+}>;
+
+/**
+ * Fetch a batch of room messages with an event-id cursor.
+ *
+ * GET /_matrix/client/v3/rooms/{roomId}/messages?dir={dir}[&from={cursor}][&limit={n}]
+ *
+ * - `dir: "b"` = backward paging (older messages, newest-first order);
+ *   `dir: "f"` = forward paging (newer messages).
+ * - `from` = opaque event-id cursor from a prior response's `end` (for `dir=b`)
+ *   or `start` (for `dir=f`). Omit on the first call to get the room tail.
+ * - `limit` = batch size. Omit to let Synapse pick its default.
+ *
+ * Uses the admin token in Authorization — reads are admin-mediated (the
+ * per-user-token path is used ONLY for sends per T-90-BE-03).
+ *
+ * Path-traversal defense: encodeURIComponent on roomId.
+ *
+ * Response parse: expects `{ chunk: MatrixEvent[], end?: string, start?: string }`.
+ * If `chunk` is missing or not an array, returns ERR_MISSING_FIELD (500).
+ * Entries that fail the MatrixEvent shape check are silently skipped rather
+ * than failing the whole batch — a single malformed event should not crash a
+ * history load.
+ *
+ * NEVER logs the admin access_token (proxy-error path scrubs — T-90-BE-01).
+ */
+export async function getRoomMessages(
+  roomId: string,
+  opts: { dir: "b" | "f"; from?: string; limit?: number },
+): Promise<GetRoomMessagesOk | AdminErr> {
+  const creds = await getMatrixAdminCreds();
+  if (!creds) {
+    return { ok: false, status: 500, error: ERR_CREDS_MISSING };
+  }
+
+  const params = new URLSearchParams();
+  params.set("dir", opts.dir);
+  if (opts.from !== undefined) {
+    params.set("from", opts.from);
+  }
+  if (opts.limit !== undefined) {
+    params.set("limit", String(opts.limit));
+  }
+  const url = `${creds.homeserverBase}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/messages?${params.toString()}`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: ERR_NON_2XX };
+    }
+    const parsed = (await response.json()) as {
+      chunk?: unknown;
+      end?: unknown;
+      start?: unknown;
+    };
+    if (!Array.isArray(parsed.chunk)) {
+      return { ok: false, status: 500, error: ERR_MISSING_FIELD };
+    }
+    const events: MatrixEvent[] = [];
+    for (const raw of parsed.chunk) {
+      if (raw === null || typeof raw !== "object") continue;
+      const ev = raw as {
+        event_id?: unknown;
+        type?: unknown;
+        sender?: unknown;
+        origin_server_ts?: unknown;
+        content?: unknown;
+        unsigned?: unknown;
+      };
+      if (typeof ev.event_id !== "string" || ev.event_id.length === 0) continue;
+      if (typeof ev.type !== "string") continue;
+      if (typeof ev.sender !== "string") continue;
+      if (typeof ev.origin_server_ts !== "number") continue;
+      if (ev.content === null || typeof ev.content !== "object") continue;
+      const narrowed: MatrixEvent = {
+        event_id: ev.event_id,
+        type: ev.type,
+        sender: ev.sender,
+        origin_server_ts: ev.origin_server_ts,
+        content: ev.content as Record<string, unknown>,
+      };
+      if (ev.unsigned !== undefined && ev.unsigned !== null && typeof ev.unsigned === "object") {
+        narrowed.unsigned = ev.unsigned as MatrixEvent["unsigned"];
+      }
+      events.push(narrowed);
+    }
+    const result: GetRoomMessagesOk = { ok: true, events };
+    if (typeof parsed.end === "string" && parsed.end.length > 0) {
+      result.end = parsed.end;
+    }
+    if (typeof parsed.start === "string" && parsed.start.length > 0) {
+      result.start = parsed.start;
+    }
+    return result;
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return { ok: false, status: 504, error: ERR_TIMEOUT };
+    }
+    databaseLogger.error("matrix admin proxy error", err, {
+      operation: "matrix_admin_get_room_messages",
+    });
+    return { ok: false, status: 502, error: ERR_PROXY };
+  }
+}
