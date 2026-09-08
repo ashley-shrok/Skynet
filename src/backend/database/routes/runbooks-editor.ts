@@ -229,7 +229,7 @@ function detectIsText(buf: Buffer): boolean {
   }
   try {
     const decoded = new TextDecoder("utf-8", { fatal: true }).decode(window);
-    if (decoded.includes("")) return false;
+    if (decoded.includes("�")) return false;
     return true;
   } catch {
     return false;
