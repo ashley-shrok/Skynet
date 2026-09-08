@@ -45,6 +45,7 @@ import {
   getUserJoinedRooms,
   getRoomLatestEventTs,
   getRoomJoinedMembers,
+  getRoomName,
 } from "./matrix-admin-client.js";
 import { getMatrixAdminCreds } from "./matrix-admin-creds-store.js";
 import { databaseLogger } from "../utils/logger.js";
@@ -1112,6 +1113,112 @@ describe("getRoomJoinedMembers", () => {
     const errorSpy = vi.mocked(databaseLogger.error);
     errorSpy.mockClear();
     const result = await getRoomJoinedMembers("!r1:server");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(502);
+      expect(result.error).toBe("admin_api_proxy_error");
+    }
+    expect(errorSpy).toHaveBeenCalled();
+    for (const call of errorSpy.mock.calls) {
+      for (const arg of call) {
+        expect(JSON.stringify(arg)).not.toContain(HAPPY_CREDS.accessToken);
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getRoomName (Phase 89 fixup M-1) — GET /_matrix/client/v3/rooms/{roomId}/
+// state/m.room.name — reads the room's canonical display name via the
+// client-server API (admin credential works on both APIs). Used by the
+// observation loop to populate relay_room_sessions.room_title (D-02) so
+// slice D can render a sensible sidebar label.
+// ---------------------------------------------------------------------------
+
+describe("getRoomName", () => {
+  it("M-1 happy path: 200 with {name: 'Team Sync'} → {ok:true, name:'Team Sync'}", async () => {
+    const fetchMock = vi.fn(async () =>
+      mockFetchResponse(200, { name: "Team Sync" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await getRoomName("!r1:server");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.name).toBe("Team Sync");
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const url = fetchMock.mock.calls[0][0] as string;
+    // Client-server API (not admin API — m.room.name state event is a
+    // client-server concept, and the admin credential works on both).
+    expect(url).toBe(
+      `${HAPPY_CREDS.homeserverBase}/_matrix/client/v3/rooms/${encodeURIComponent("!r1:server")}/state/m.room.name`,
+    );
+    const opts = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(opts.method).toBe("GET");
+    const headers = opts.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe(
+      `Bearer ${HAPPY_CREDS.accessToken}`,
+    );
+  });
+
+  it("M-1: 404 (no m.room.name state event set) → {ok:true, name:null} — graceful null for rooms without a name", async () => {
+    // Matrix returns 404 when the state event doesn't exist. This is the
+    // common case for DMs and freshly-created rooms — a null name is
+    // valid data, not an error.
+    stubFetchOk(404, { errcode: "M_NOT_FOUND" });
+    const result = await getRoomName("!nameless:server");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.name).toBeNull();
+    }
+  });
+
+  it("M-1: 200 with missing/wrong-type name field → {ok:true, name:null}", async () => {
+    stubFetchOk(200, {});
+    const result = await getRoomName("!r1:server");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.name).toBeNull();
+    }
+  });
+
+  it("M-1: 200 with empty-string name → {ok:true, name:null} (treat empty as absent)", async () => {
+    stubFetchOk(200, { name: "" });
+    const result = await getRoomName("!r1:server");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.name).toBeNull();
+    }
+  });
+
+  it("M-1: non-2xx (non-404) → {ok:false, status, error:'admin_api_non_2xx'}", async () => {
+    stubFetchOk(500, { errcode: "M_UNKNOWN" });
+    const result = await getRoomName("!r1:server");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(500);
+      expect(result.error).toBe("admin_api_non_2xx");
+    }
+  });
+
+  it("M-1: creds missing → {ok:false, status:500, error:'matrix_admin_creds_missing'} without fetch", async () => {
+    vi.mocked(getMatrixAdminCreds).mockResolvedValueOnce(null);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await getRoomName("!r1:server");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(500);
+      expect(result.error).toBe("matrix_admin_creds_missing");
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("M-1: proxy-error path NEVER logs admin access_token", async () => {
+    stubFetchNetworkError();
+    const errorSpy = vi.mocked(databaseLogger.error);
+    errorSpy.mockClear();
+    const result = await getRoomName("!r1:server");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(502);
