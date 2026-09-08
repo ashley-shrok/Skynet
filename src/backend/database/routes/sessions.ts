@@ -22,6 +22,18 @@ import { discoverIdentitySessionFile } from "../../claude-session/discover-ident
 // of the SSH pathway, and cheap (indexed single-row SELECT per identity).
 // Phase 85-02 owns the module + monotonic-write + fail-open contracts.
 import { getIdentityLastSend } from "../../fleet-status/identity-send-log-store.js";
+// Phase 89 Plan 04 (D-15): relay-room sessions store — new peer path
+// alongside the SSH-derived harness sessions. Consumed by the merge block
+// below (post-Promise.all, pre-res.json) to append each user's active
+// relay-room rows to the flat response. Read-only DB lookup — cheap,
+// in-process, no new timeout budget needed. Wrapped in try/catch that
+// logs a warning and swallows on failure (best-effort merge — better to
+// return harness-only than 500 the entire endpoint).
+import { listActiveRelayRoomSessions } from "../../relay-sessions/relay-room-sessions-store.js";
+import {
+  mergeRelayRoomsIntoFlat,
+  type RelayRoomSessionRow,
+} from "./sessions-merge-helper.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -246,6 +258,14 @@ function scanTailForLatestAiTitle(tailContents: string): string | null {
 }
 
 interface TmuxSessionRow {
+  // Phase 89 Plan 04 (D-15) — kind discriminator. Every construction site
+  // inside the Promise.all block MUST set `kind: "harness" as const` (the
+  // literal type makes this a compile-time invariant — a construction that
+  // omits or mistypes `kind` is a TypeScript build error). This marker
+  // lets slice D's frontend branch on how to render each item in the
+  // merged /sessions/list response. Peer type in sessions-merge-helper.ts
+  // uses `kind: "relay-room"` for the appended stored-table items.
+  kind: "harness";
   hostId: number;
   hostName: string;
   sessionName: string;
@@ -328,6 +348,12 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
               .map((line) => {
                 const [name, created] = line.split("|");
                 return {
+                  // Phase 89 Plan 04 (D-15) — kind marker; compile-time
+                  // invariant via the `"harness"` literal on TmuxSessionRow.
+                  // Every row emitted by this handler through the harness
+                  // partition carries this marker; the merge block below
+                  // appends relay-room rows with `kind: "relay-room"`.
+                  kind: "harness" as const,
                   hostId,
                   hostName,
                   sessionName: name,
@@ -540,7 +566,52 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
       }),
     );
 
-    const flat = results.flat().sort((a, b) => b.created - a.created);
+    // -----------------------------------------------------------------
+    // Phase 89 Plan 04 (D-15) merge — appends active relay-room rows to
+    // the harness-derived list. Every item in the merged response
+    // carries a `kind` marker so slice D can branch. Harness rows are
+    // sorted by `created` DESC (unchanged from Phase 47); relay rows
+    // are appended after — slice D re-sorts by `lastActivityAt` if
+    // desired per D-15 explicit deferral.
+    //
+    // Best-effort: listActiveRelayRoomSessions failure logs a warning
+    // and returns harness-only (better UX than 500-ing the entire
+    // endpoint). D-01 scope anchor: the harness-derivation path above
+    // is byte-identical; this block is APPEND-ONLY.
+    //
+    // Timeout budget: the DB query is local + cheap (indexed SELECT on
+    // relay_room_sessions filtered by (user_id, state='active')). It
+    // does NOT need the 30s PER_HOST_TIMEOUT_MS cap — running it
+    // outside any setTimeout wrapper is the intentional choice per
+    // D-15 CONTEXT.md note. Total endpoint response time remains
+    // trivially within the existing per-host budget.
+    // -----------------------------------------------------------------
+    const harnessFlat = results.flat();
+    let relayRows: RelayRoomSessionRow[] = [];
+    try {
+      const active = await listActiveRelayRoomSessions(userId);
+      relayRows = active.map((r) => ({
+        kind: "relay-room" as const,
+        id: r.id,
+        roomId: r.roomId,
+        roomTitle: r.roomTitle,
+        lastActivityAt: r.lastActivityAt,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      }));
+    } catch (e) {
+      databaseLogger.warn(
+        "[phase-89] listActiveRelayRoomSessions failed — returning harness rows only (best-effort merge)",
+        {
+          operation: "sessions_list_relay_merge_failed",
+          userId,
+          error: e instanceof Error ? e.message : "unknown",
+        },
+      );
+      relayRows = [];
+    }
+
+    const flat = mergeRelayRoomsIntoFlat(harnessFlat, relayRows);
     return res.json(flat);
   } catch (e) {
     databaseLogger.error("Failed to list tmux sessions", e, {
