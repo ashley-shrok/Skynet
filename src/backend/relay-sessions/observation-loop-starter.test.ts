@@ -36,25 +36,41 @@ vi.mock("../utils/logger.js", () => ({
   },
 }));
 
-const mockEnsureRegistryRoomsExist = vi.fn();
+// Hoisted mocks — vi.mock factories run BEFORE any top-level const, so we
+// need vi.hoisted for shared mock handles that the factories reference.
+const hoisted = vi.hoisted(() => ({
+  mockEnsureRegistryRoomsExist: vi.fn(),
+  mockRunRegistryRoomsBackfill: vi.fn(),
+  mockLoopStart: vi.fn(),
+  mockLoopStop: vi.fn(),
+  mockCreateObservationLoop: vi.fn(),
+  mockPreparedAll: vi.fn(),
+}));
+hoisted.mockCreateObservationLoop.mockImplementation(() => ({
+  start: hoisted.mockLoopStart,
+  stop: hoisted.mockLoopStop,
+}));
+
+const {
+  mockEnsureRegistryRoomsExist,
+  mockRunRegistryRoomsBackfill,
+  mockLoopStart,
+  mockLoopStop,
+  mockCreateObservationLoop,
+  mockPreparedAll,
+} = hoisted;
+
 vi.mock("./registry-rooms.js", () => ({
-  ensureRegistryRoomsExist: mockEnsureRegistryRoomsExist,
+  ensureRegistryRoomsExist: hoisted.mockEnsureRegistryRoomsExist,
   getAgentsRegistryRoomId: vi.fn(async () => null),
 }));
 
-const mockRunRegistryRoomsBackfill = vi.fn();
 vi.mock("./registry-rooms-backfill.js", () => ({
-  runRegistryRoomsBackfill: mockRunRegistryRoomsBackfill,
+  runRegistryRoomsBackfill: hoisted.mockRunRegistryRoomsBackfill,
 }));
 
-const mockLoopStart = vi.fn();
-const mockLoopStop = vi.fn();
-const mockCreateObservationLoop = vi.fn(() => ({
-  start: mockLoopStart,
-  stop: mockLoopStop,
-}));
 vi.mock("./observation-loop.js", () => ({
-  createObservationLoop: mockCreateObservationLoop,
+  createObservationLoop: hoisted.mockCreateObservationLoop,
 }));
 
 vi.mock("./relay-room-sessions-store.js", () => ({
@@ -76,12 +92,11 @@ vi.mock("../matrix/matrix-admin-client.js", () => ({
   getRoomJoinedMembers: vi.fn(),
 }));
 
-const mockPreparedAll = vi.fn();
 vi.mock("../database/db/index.js", () => ({
   db: {
     $client: {
       prepare: vi.fn(() => ({
-        all: mockPreparedAll,
+        all: hoisted.mockPreparedAll,
       })),
     },
   },

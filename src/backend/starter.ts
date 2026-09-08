@@ -331,6 +331,35 @@ if (process.env.VITEST !== "true") {
         });
       });
 
+    // Phase 89 — start the observation loop that materializes relay-room
+    // sessions. Fire-and-forget: startObservationLoopOnBoot returns a
+    // promise we don't await. Errors inside the boot sequence log a warn
+    // and swallow; the loop never crashes the container (D-07 no
+    // user-visible surface applies to boot too). Ordering: MUST come after
+    // `dbModule.initializeDatabase()` — the boot sequence enumerates users
+    // from the DB. Matrix admin creds may or may not be ingested yet at
+    // this point; `ensureRegistryRoomsExist` gates cleanly on
+    // `creds_missing` and returns without starting the loop, so a fresh
+    // install with no admin creds is a legitimate no-op.
+    void import("./relay-sessions/observation-loop-starter.js")
+      .then((m) => {
+        m.startObservationLoopOnBoot().catch((err) => {
+          systemLogger.warn(
+            "[phase-89] observation-loop bootstrap failed at startup",
+            {
+              operation: "relay_observation_bootstrap_error",
+              error: err instanceof Error ? err.message : "unknown",
+            },
+          );
+        });
+      })
+      .catch((err) => {
+        systemLogger.warn("startObservationLoopOnBoot module load failed", {
+          operation: "relay_observation_bootstrap_module_load_failed",
+          error: err instanceof Error ? err.message : "unknown",
+        });
+      });
+
     // Phase 74: fail-fast if the branding config lacks a non-empty
     // avatarDirectorSpec. Placed AFTER initializeDatabase() so the DB
     // logger stream is live, and BEFORE AuthManager + the dbServer
