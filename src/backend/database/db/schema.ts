@@ -32,11 +32,22 @@ export const users = sqliteTable("users", {
     .default(false),
   totpBackupCodes: text("totp_backup_codes"),
 
-  // Phase 75 Plan 01 (Q3 locked decision) — mxid mapping for the Matrix
-  // relay. Nullable: only humans with a registered relay account have one,
-  // and it's populated via POST /users/:id/mxid (Plan 03) or the one-shot
-  // import for Ashley/Zoe/Laura. Not a credential; agents' relay identifiers
-  // live on-disk in ~/.claude/identities/<name>/relay.json per fleet convention.
+  // Phase 88 slice A (D-14 housekeeping) — mxid mapping for the Matrix relay.
+  // Skynet mints the whole Matrix account (via createOrUpdateUser in
+  // matrix-admin-client.ts) as part of POST /users/create; the mxid is
+  // populated in the same INSERT that writes the user row. New-user mxids
+  // follow `@<sanitized-username>_human:<server_name>` (bijective sanitizer,
+  // `_human` suffix per D-06). Legacy users (Ashley/Zoey/Laura on t1000,
+  // imported before slice A) have suffix-less mxids that continue to work
+  // indefinitely. Nullable: OIDC users (D-12 out of scope) and legacy
+  // pre-Phase-88 users may still have mxid=null. POST /users/:id/mxid
+  // (user-admin-routes.ts) is untouched — kept for admin-manual mxid
+  // association. DELETE /users/delete-account and deleteUserAndRelatedData
+  // now deactivate the Matrix account (best-effort, D-10) when mxid is set.
+  // Skynet holds no password for this account: mint password is discarded;
+  // runtime access tokens come from admin loginAsUser (deferred to later
+  // sub-slice per D-13). Agents' relay identifiers live on-disk in
+  // ~/.claude/identities/<name>/relay.json per fleet convention (unchanged).
   mxid: text("mxid"),
 
   // Phase 85 (locked decision D-04) — pointer to this user's avatar image
@@ -691,10 +702,18 @@ export const apiKeys = sqliteTable("api_keys", {
 // encrypts before Drizzle INSERT/UPDATE, and reads round-trip through
 // FieldCrypto.decryptField.
 //
-// This is the ONLY relay credential that lives in Skynet's own storage.
-// Agent relay creds live on-disk at ~/.claude/identities/<name>/relay.json
-// (fleet convention, Phase 69); human relay creds are owned by the human
-// and never stored anywhere in Skynet.
+// This is the sole set of Matrix credentials stored in Skynet DB — the
+// @skynet-admin singleton used by matrix-admin-client for every admin API
+// call (createOrUpdateUser, deactivateUser, loginAsUser). Agent relay creds
+// live on-disk at ~/.claude/identities/<name>/relay.json per fleet convention
+// (Phase 69) — unchanged. Phase 88 slice A (D-14): human relay accounts are
+// Skynet-owned — Skynet mints via admin API (createOrUpdateUser) with a
+// Skynet-generated password that is discarded on the spot. Humans hold no
+// credential of their own for their Matrix account. Runtime access tokens
+// come from admin loginAsUser (deferred to later sub-slice per D-13). Direct
+// human login to Matrix clients (Element etc.) is explicitly not supported
+// (D-08 rationale). The prior claim that humans own their relay credentials
+// is retired; Skynet-owned accounts are mediated entirely by this admin cred.
 export const matrixAdminCreds = sqliteTable("matrix_admin_creds", {
   id: integer("id").primaryKey(),
   homeserverBase: text("homeserver_base").notNull(),
