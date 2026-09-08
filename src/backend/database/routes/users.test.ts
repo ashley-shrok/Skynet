@@ -351,6 +351,16 @@ vi.mock("../../matrix/matrix-admin-client.js", () => ({
   deactivateUser: (...args: [string]) => mockDeactivateUser(...args),
 }));
 
+// Phase 89-02 Task 3: mock registry-rooms — POST /users/create post-mint hook.
+const mockJoinHumanToHumansRegistry = vi.fn<
+  [string],
+  Promise<{ ok: true; roomId: string } | { ok: false; status: number; error: string }>
+>();
+
+vi.mock("../../relay-sessions/registry-rooms.js", () => ({
+  joinHumanToHumansRegistry: (...args: [string]) => mockJoinHumanToHumansRegistry(...args),
+}));
+
 // Mock: username-to-mxid — fixed happy-path stubs so tests don't reason about sanitizer output
 vi.mock("../../matrix/username-to-mxid.js", () => ({
   buildHumanMxid: vi.fn((_username: string, _serverName: string) => "@alice_human:thenasty.taild9b663.ts.net"),
@@ -717,6 +727,7 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     mockRegisterUser.mockClear();
     mockCreateOrUpdateUser.mockClear();
     mockDeactivateUser.mockClear();
+    mockJoinHumanToHumansRegistry.mockClear();
 
     // Default happy-path implementations for matrix-admin-client mocks
     mockCreateOrUpdateUser.mockResolvedValue({
@@ -726,6 +737,11 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
       status: 201,
     });
     mockDeactivateUser.mockResolvedValue({ ok: true });
+    // Phase 89-02 Task 3: default happy-path — registry join succeeds.
+    mockJoinHumanToHumansRegistry.mockResolvedValue({
+      ok: true,
+      roomId: "!humans-registry:thenasty.taild9b663.ts.net",
+    });
 
     // Default implementations
     mockWriteUserAvatar.mockImplementation(async (userId, mime) => {
@@ -1121,6 +1137,115 @@ describe("POST /users/create (Phase 85 — multipart with mandatory avatar)", ()
     // No users row inserted — avatar write failed before INSERT
     const count = sqliteDb.prepare("SELECT COUNT(*) as c FROM users WHERE username = ?").get("alice") as { c: number };
     expect(count.c).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 89-02 Task 3 — registry-room join hook (D-11)
+  // -------------------------------------------------------------------------
+
+  it("POST /users/create — (89-02-T4) happy path fires joinHumanToHumansRegistry once with the minted mxid; failed join logs warning and does NOT return 500 (best-effort per D-12)", async () => {
+    // Override the happy-path registry-join default to simulate a failure —
+    // proves best-effort semantics: create still returns 200 despite the join
+    // failing. Backfill is the safety net (D-12).
+    mockJoinHumanToHumansRegistry.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      error: "registry_room_not_configured",
+    });
+
+    const res = await multipartRequestMixed(server, {
+      path: "/users/create",
+      textFields: { username: "alice", password: "s3cret123" },
+      file: {
+        fieldName: "avatar",
+        filename: "avatar.png",
+        contentType: "image/png",
+        bytes: MINIMAL_PNG_BYTES,
+      },
+    });
+
+    // The 500 must NOT propagate — create still succeeds.
+    expect(res.status).toBe(200);
+    // Users row must still be inserted despite the join failure.
+    const row = sqliteDb
+      .prepare("SELECT mxid FROM users WHERE username = ?")
+      .get("alice") as { mxid: string | null } | undefined;
+    expect(row?.mxid).toBe("@alice_human:thenasty.taild9b663.ts.net");
+    // Join hook fired exactly once with the minted mxid.
+    expect(mockJoinHumanToHumansRegistry).toHaveBeenCalledTimes(1);
+    expect(mockJoinHumanToHumansRegistry.mock.calls[0][0]).toBe(
+      "@alice_human:thenasty.taild9b663.ts.net",
+    );
+  });
+
+  it("POST /users/create — (89-02-T4b) happy path with successful join: joinHumanToHumansRegistry called once", async () => {
+    // Leave default happy-path mocks in place.
+    const res = await multipartRequestMixed(server, {
+      path: "/users/create",
+      textFields: { username: "alice", password: "s3cret123" },
+      file: {
+        fieldName: "avatar",
+        filename: "avatar.png",
+        contentType: "image/png",
+        bytes: MINIMAL_PNG_BYTES,
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockJoinHumanToHumansRegistry).toHaveBeenCalledTimes(1);
+    expect(mockJoinHumanToHumansRegistry.mock.calls[0][0]).toBe(
+      "@alice_human:thenasty.taild9b663.ts.net",
+    );
+  });
+
+  it("POST /users/create — (89-02-T4c) unexpected throw from joinHumanToHumansRegistry is caught; create still returns 200", async () => {
+    // Simulate a genuine unhandled throw from the registry-rooms module —
+    // defense-in-depth per D-12 rationale.
+    mockJoinHumanToHumansRegistry.mockRejectedValueOnce(
+      new Error("unexpected registry-rooms failure"),
+    );
+
+    const res = await multipartRequestMixed(server, {
+      path: "/users/create",
+      textFields: { username: "alice", password: "s3cret123" },
+      file: {
+        fieldName: "avatar",
+        filename: "avatar.png",
+        contentType: "image/png",
+        bytes: MINIMAL_PNG_BYTES,
+      },
+    });
+
+    expect(res.status).toBe(200);
+    // Users row still inserted.
+    const row = sqliteDb
+      .prepare("SELECT mxid FROM users WHERE username = ?")
+      .get("alice") as { mxid: string | null } | undefined;
+    expect(row?.mxid).toBe("@alice_human:thenasty.taild9b663.ts.net");
+  });
+
+  it("POST /users/create — (89-02-T5) mint failure: joinHumanToHumansRegistry NEVER called (hook lives after mint-success path)", async () => {
+    mockCreateOrUpdateUser.mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      error: "admin_api_proxy_error",
+    });
+
+    const res = await multipartRequestMixed(server, {
+      path: "/users/create",
+      textFields: { username: "alice", password: "s3cret123" },
+      file: {
+        fieldName: "avatar",
+        filename: "avatar.png",
+        contentType: "image/png",
+        bytes: MINIMAL_PNG_BYTES,
+      },
+    });
+
+    expect(res.status).toBe(500);
+    // Hook is NOT fired on the mint-failure path — mintResult.ok === false
+    // returns 500 BEFORE the hook site.
+    expect(mockJoinHumanToHumansRegistry).not.toHaveBeenCalled();
   });
 });
 

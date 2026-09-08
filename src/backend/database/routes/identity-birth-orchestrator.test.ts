@@ -62,6 +62,15 @@ vi.mock("node:child_process", () => ({
   exec: vi.fn(),
 }));
 
+// Phase 89-02 Task 3: mock registry-rooms module for the runRelayMintAndWrite
+// Step 6 post-mint hook. Default happy-path; individual tests override.
+vi.mock("../../relay-sessions/registry-rooms.js", () => ({
+  joinAgentToAgentsRegistry: vi.fn().mockResolvedValue({
+    ok: true,
+    roomId: "!agents-registry:example.com",
+  }),
+}));
+
 vi.mock("node:fs/promises", () => ({
   readFile: vi.fn(),
   writeFile: vi.fn(),
@@ -86,6 +95,7 @@ import {
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import { isLocalHostId } from "../../claude-session/identity-artifact-reader.js";
+import { joinAgentToAgentsRegistry } from "../../relay-sessions/registry-rooms.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -94,6 +104,7 @@ import { isLocalHostId } from "../../claude-session/identity-artifact-reader.js"
 const mockConnectOneShot = connectOneShot as unknown as Mock;
 const mockExecCommand = execCommand as unknown as Mock;
 const mockIsLocalHostId = isLocalHostId as unknown as Mock;
+const mockJoinAgentToAgentsRegistry = joinAgentToAgentsRegistry as unknown as Mock;
 
 function collectEvents(): { events: BirthEvent[]; emit: (e: BirthEvent) => void } {
   const events: BirthEvent[] = [];
@@ -1594,5 +1605,206 @@ describe("Phase 75 Plan 04: relay-mint extensions (Steps 6, 7, 8)", () => {
         typeof c[1] === "string" && /chmod\s+600/.test(c[1] as string),
     );
     expect(chmodCalls.length).toBeGreaterThanOrEqual(2);
+  }, 30_000);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 89 Plan 02 Task 3: registry-room join hook wired into
+// runRelayMintAndWrite Step 6 (post-mint, best-effort per D-12)
+// ---------------------------------------------------------------------------
+
+describe("Phase 89-02 Task 3: agents-registry join hook in Step 6", () => {
+  beforeEach(() => {
+    mockJoinAgentToAgentsRegistry.mockReset();
+    // Default happy path — override per test.
+    mockJoinAgentToAgentsRegistry.mockResolvedValue({
+      ok: true,
+      roomId: "!agents-registry:example.com",
+    });
+  });
+
+  // ---- Test 1 (orchestrator): fires joinAgentToAgentsRegistry after mint+login ----
+  it("Test 1: runRelayMintAndWrite Step 6 fires joinAgentToAgentsRegistry(mxid) AFTER mint+login, BEFORE Step 7", async () => {
+    mockIsLocalHostId.mockReturnValue(false);
+    const mockConn = { end: vi.fn() };
+    mockConnectOneShot.mockResolvedValue(mockConn);
+    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+        return Promise.resolve("/home/ubuntu\n");
+      }
+      return Promise.resolve("");
+    });
+
+    const mockCreateOrUpdate = vi
+      .fn()
+      .mockResolvedValue({ ok: true, mxid: "@agent89a:matrix.local", password: "pw", status: 201 });
+    const mockLoginAsUser = vi
+      .fn()
+      .mockResolvedValue({ ok: true, accessToken: "syt_real_token_abc123" });
+    const mockBuildRelay = vi.fn().mockImplementation((o) =>
+      JSON.stringify({
+        base: `${o.homeserverBase}/_matrix/client/v3`,
+        user_id: o.mxid,
+        password: o.password,
+        token: o.accessToken,
+        access_token: o.accessToken,
+      }),
+    );
+    const mockWriteMd = vi.fn().mockResolvedValue(undefined);
+
+    const deps = makeDeps({
+      matrixCreateOrUpdateUser: mockCreateOrUpdate,
+      matrixLoginAsUser: mockLoginAsUser,
+      buildRelayJsonBody: mockBuildRelay,
+      matrixHomeserver: "http://matrix.local:8008",
+      writeMarkdownFileAtomic: mockWriteMd,
+    });
+    const opts = makeOpts({ name: "agent89a" });
+    const { events, emit } = collectEvents();
+
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    // Assert ended{ok:true}.
+    const endedEvent = events.find((e) => e.type === "ended");
+    expect((endedEvent as { ok: boolean }).ok).toBe(true);
+
+    // joinAgentToAgentsRegistry called exactly once with the minted mxid.
+    expect(mockJoinAgentToAgentsRegistry).toHaveBeenCalledTimes(1);
+    expect(mockJoinAgentToAgentsRegistry.mock.calls[0][0]).toBe(
+      "@agent89a:matrix.local",
+    );
+
+    // Assert AFTER mint+login (both mocks were called BEFORE the join hook).
+    expect(mockCreateOrUpdate).toHaveBeenCalledTimes(1);
+    expect(mockLoginAsUser).toHaveBeenCalledTimes(1);
+
+    // Step 7 (buildRelayJsonBody) still ran.
+    expect(mockBuildRelay).toHaveBeenCalledTimes(1);
+  }, 30_000);
+
+  // ---- Test 2: join returns non-ok → does NOT throw, proceeds to Step 7 ----
+  it("Test 2: joinAgentToAgentsRegistry returns { ok:false } → Step 6 does NOT throw, proceeds to Step 7 (best-effort per D-12)", async () => {
+    mockJoinAgentToAgentsRegistry.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      error: "registry_room_not_configured",
+    });
+
+    mockIsLocalHostId.mockReturnValue(false);
+    const mockConn = { end: vi.fn() };
+    mockConnectOneShot.mockResolvedValue(mockConn);
+    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+        return Promise.resolve("/home/ubuntu\n");
+      }
+      return Promise.resolve("");
+    });
+
+    const mockCreateOrUpdate = vi
+      .fn()
+      .mockResolvedValue({ ok: true, mxid: "@agent89b:matrix.local", password: "pw", status: 201 });
+    const mockLoginAsUser = vi
+      .fn()
+      .mockResolvedValue({ ok: true, accessToken: "syt_real_token_abc123" });
+    const mockBuildRelay = vi.fn().mockImplementation((o) =>
+      JSON.stringify({
+        base: `${o.homeserverBase}/_matrix/client/v3`,
+        user_id: o.mxid,
+        password: o.password,
+        token: o.accessToken,
+        access_token: o.accessToken,
+      }),
+    );
+
+    const deps = makeDeps({
+      matrixCreateOrUpdateUser: mockCreateOrUpdate,
+      matrixLoginAsUser: mockLoginAsUser,
+      buildRelayJsonBody: mockBuildRelay,
+      matrixHomeserver: "http://matrix.local:8008",
+    });
+    const opts = makeOpts({ name: "agent89b" });
+    const { events, emit } = collectEvents();
+
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    // Step 6 completed successfully — the failed join did NOT convert it to failure.
+    const step6Completed = events.find(
+      (e) => e.type === "step" && e.n === 6 && e.phase === "completed",
+    );
+    expect(step6Completed).toBeDefined();
+    const step6Failed = events.find(
+      (e) => e.type === "step" && e.n === 6 && e.phase === "failed",
+    );
+    expect(step6Failed).toBeUndefined();
+
+    // Step 7 proceeded (buildRelayJsonBody was called).
+    expect(mockBuildRelay).toHaveBeenCalledTimes(1);
+
+    // Ended ok:true — best-effort semantics preserved.
+    const endedEvent = events.find((e) => e.type === "ended");
+    expect((endedEvent as { ok: boolean }).ok).toBe(true);
+  }, 30_000);
+
+  // ---- Test 3: join throws unexpectedly → caught, proceeds to Step 7 ----
+  it("Test 3: joinAgentToAgentsRegistry THROWS → Step 6 catches, proceeds to Step 7 (defense-in-depth per D-12)", async () => {
+    mockJoinAgentToAgentsRegistry.mockRejectedValueOnce(
+      new Error("unexpected registry-rooms throw"),
+    );
+
+    mockIsLocalHostId.mockReturnValue(false);
+    const mockConn = { end: vi.fn() };
+    mockConnectOneShot.mockResolvedValue(mockConn);
+    mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+      if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+        return Promise.resolve("/home/ubuntu\n");
+      }
+      return Promise.resolve("");
+    });
+
+    const mockCreateOrUpdate = vi
+      .fn()
+      .mockResolvedValue({ ok: true, mxid: "@agent89c:matrix.local", password: "pw", status: 201 });
+    const mockLoginAsUser = vi
+      .fn()
+      .mockResolvedValue({ ok: true, accessToken: "syt_real_token_abc123" });
+    const mockBuildRelay = vi.fn().mockImplementation((o) =>
+      JSON.stringify({
+        base: `${o.homeserverBase}/_matrix/client/v3`,
+        user_id: o.mxid,
+        password: o.password,
+        token: o.accessToken,
+        access_token: o.accessToken,
+      }),
+    );
+
+    const deps = makeDeps({
+      matrixCreateOrUpdateUser: mockCreateOrUpdate,
+      matrixLoginAsUser: mockLoginAsUser,
+      buildRelayJsonBody: mockBuildRelay,
+      matrixHomeserver: "http://matrix.local:8008",
+    });
+    const opts = makeOpts({ name: "agent89c" });
+    const { events, emit } = collectEvents();
+
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    // Step 6 still completed — the throw was caught.
+    const step6Completed = events.find(
+      (e) => e.type === "step" && e.n === 6 && e.phase === "completed",
+    );
+    expect(step6Completed).toBeDefined();
+
+    // Step 7 proceeded.
+    expect(mockBuildRelay).toHaveBeenCalledTimes(1);
+
+    // Ended ok:true.
+    const endedEvent = events.find((e) => e.type === "ended");
+    expect((endedEvent as { ok: boolean }).ok).toBe(true);
   }, 30_000);
 });
