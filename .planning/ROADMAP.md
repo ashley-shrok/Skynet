@@ -2040,7 +2040,7 @@ Plans:
 **Goal:** Add baseline backend support for Skynet's human users having avatars — one nullable pointer column on the users row, three backend endpoints (mandatory-at-create + change + serve), one shared byte-work helper, on-disk storage inside the encrypted data volume, delete-cleanup wired into all deletion paths, and the nginx edge sizing edit — with zero frontend surface. Downstream frontend build consumes this.
 **Requirements**: D-01 through D-23 (23 LOCKED decisions from 85-CONTEXT.md — REQUIREMENTS.md has no separate REQ-IDs for this phase)
 **Depends on:** Phase 84
-**Plans:** 4/7 plans executed
+**Plans:** 5/7 plans executed
 
 Plans:
 
@@ -2055,7 +2055,7 @@ Plans:
 - [x] 85-04-PLAN.md — new PUT /users/:id/avatar (own-or-admin + new-file-then-row-then-old-unlink) + new GET /users/:id/avatar (authenticateJWT + mime-from-ext + ENOENT-to-404) + expanded users.test.ts covers 10 change + 7 serve variants (D-10, D-11, D-12, D-14, D-15, D-16, D-17, D-18, D-23)
 
 **Wave 4** *(parallel — no file overlap between plans 05 and 06)*
-- [ ] 85-05-PLAN.md — delete-cleanup wiring: unlinkUserAvatar into delete-user-data.ts:91 (covers admin-delete + OIDC-merge via helper) + users.ts DELETE /users/delete-account (self-serve, distinct path) + verify Plan 03 rollback wiring; new delete-user-data.test.ts with SOURCE ASSERTION for SELECT-before-DELETE ordering (D-22)
+- [x] 85-05-PLAN.md — delete-cleanup wiring: unlinkUserAvatar into delete-user-data.ts:91 (covers admin-delete + OIDC-merge via helper) + users.ts DELETE /users/delete-account (self-serve, distinct path) + verify Plan 03 rollback wiring; new delete-user-data.test.ts with SOURCE ASSERTION for SELECT-before-DELETE ordering (D-22)
 - [ ] 85-06-PLAN.md — nginx edge sizing: add `client_max_body_size 6M;` to /users location block in BOTH docker/nginx.conf AND docker/nginx-https.conf (D-19, D-20, D-21)
 
 **Wave 5** *(blocked on all prior waves)*
