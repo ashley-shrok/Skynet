@@ -7699,17 +7699,55 @@ wss.on("connection", async (ws: WebSocket, req) => {
     const discoveryT0 = Date.now();
     const cached = readSessionFileCache(hostId, tmuxSession);
     if (cached !== null) {
+      // Liveness-check the cached PID via /proc/<pid> existence on the target
+      // host before trusting the cache entry. Regression window: Phase 55
+      // (2026-08-23, cache-hit shim) + bdb2d664 (2026-09-07, ws.close 1011 on
+      // server-driven tmux teardown → client reconnect fires) combined to
+      // route dormant-identity reconnects through this branch with a stale
+      // {sessionFile, pid} that pins the tail to the LAST-alive JSONL. If the
+      // PID is dead, fall through to discoverClaudeSessionBatched so the
+      // not_claude branch enters dormant mode and picks the latest identity
+      // JSONL via discoverIdentitySessionFile.
+      //
+      // /proc/<pid> beats `kill -0` here: no signal-permission dependency and
+      // works uniformly whether the cached process was owned by ssh-user or
+      // another user. Fail-open on SSH throw preserves pre-fix behavior on
+      // flaky transport (mirrors 6c137306's transport-vs-dead pattern).
+      let cachedPidAlive = true;
+      try {
+        const livenessOut = await execCommand(
+          conn,
+          `test -d /proc/${cached.pid} && echo alive || echo dead`,
+        );
+        cachedPidAlive = livenessOut.trim() === "alive";
+      } catch {
+        // transport error → fail open (keep pre-fix behavior)
+      }
+      if (cachedPidAlive) {
+        sshLogger.info("Claude session discovery path", {
+          operation: "claude_session_discovery_path",
+          userId,
+          sessionId,
+          hostId,
+          tmuxSession,
+          path: "shared-hit",
+          durationMs: Date.now() - discoveryT0,
+        });
+        startActiveSessionFlow({ pid: cached.pid, sessionFile: cached.sessionFile, tmuxSession, hostId });
+        return;
+      }
       sshLogger.info("Claude session discovery path", {
         operation: "claude_session_discovery_path",
         userId,
         sessionId,
         hostId,
         tmuxSession,
-        path: "shared-hit",
+        path: "shared-stale-pid-dead-fallthrough",
+        cachedPid: cached.pid,
+        cachedSessionFile: cached.sessionFile,
         durationMs: Date.now() - discoveryT0,
       });
-      startActiveSessionFlow({ pid: cached.pid, sessionFile: cached.sessionFile, tmuxSession, hostId });
-      return;
+      // fall through to discoverClaudeSessionBatched
     }
 
     // Cache miss — batched fresh discovery (2 round-trips instead of 4 serial)
