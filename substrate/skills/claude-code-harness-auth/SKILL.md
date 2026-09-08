@@ -153,16 +153,19 @@ pieces of it.
 
     # ANSI stripper: removes CSI (`\e[...m` etc) and OSC 8 hyperlink sequences.
     strip_ansi() { sed -E $'s/\x1b\\[[0-9;]*[a-zA-Z]//g; s/\x1b\\][0-9]+;[^\a\x1b]*(\a|\x1b\\\\)//g'; }
+    # Grep-based extraction. The URL contains only URL-safe chars, so a character-class
+    # match is more reliable than awk-based line-stitching that has to reason about pane
+    # boundaries, box borders, and "Paste code here" exit sentinels. If the log contains
+    # multiple URL fragments (progressive render, terminal wrap noise), pick the longest —
+    # which is either the full URL or, if wrap really did happen, still the closest to it.
+    # Empirical origin: 2026-09-08 on zoeybattlestation, strip_ansi normalized whitespace
+    # runs so `Paste code here if prompted` came through as `Pastecodehereifprompted` and
+    # the old awk exit condition `/Paste code/` never fired, causing the stitcher to
+    # append post-URL content into the URL. Grep sidesteps that.
     extract_url() {
-      strip_ansi < "$LOGDIR/live.log" | awk '
-        /https:\/\/claude\.(com|ai)/ { collecting=1; url=""; }
-        collecting && NF > 0 && !/^╭|^╰|^│|^─|^ *Paste|^ *Esc|^ *Browser/ {
-          line=$0; gsub(/^[[:space:]]+|[[:space:]]+$/, "", line);
-          if (index(line, "https://claude") > 0) { sub(/.*https:/, "https:", line); }
-          url = url line;
-        }
-        collecting && (NF == 0 || /Paste code/) { print url; exit }
-      '
+      strip_ansi < "$LOGDIR/live.log" \
+        | grep -oE 'https://claude\.[a-z]+/cai/oauth/authorize\?[A-Za-z0-9%&=_/.:-]+' \
+        | awk '{ if (length > max) { max=length; s=$0 } } END { print s }'
     }
     URL=""
     for _ in $(seq 1 60); do
