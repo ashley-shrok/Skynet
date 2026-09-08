@@ -1,6 +1,6 @@
 import type { AuthenticatedRequest } from "../../../types/index.js";
 import express from "express";
-import { db } from "../db/index.js";
+import { db, DatabaseSaveTrigger } from "../db/index.js";
 import { users, settings, roles, userRoles } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
@@ -29,6 +29,12 @@ import { registerUserOidcAccountRoutes } from "./user-oidc-account-routes.js";
 import { registerUserPasswordResetRoutes } from "./user-password-reset-routes.js";
 import { registerUserAdminRoutes } from "./user-admin-routes.js";
 import { registerUserDataAccessRoutes } from "./user-data-access-routes.js";
+import {
+  userAvatarUpload,
+  userAvatarMulterErrorHandler,
+  writeUserAvatar,
+  unlinkUserAvatar,
+} from "./user-avatar-storage.js";
 
 const authManager = AuthManager.getInstance();
 
@@ -79,7 +85,7 @@ const requireAdmin = authManager.createAdminMiddleware();
  *       500:
  *         description: Failed to create user.
  */
-router.post("/create", async (req, res) => {
+router.post("/create", userAvatarUpload.single("avatar"), async (req, res) => {
   try {
     const row = db.$client
       .prepare("SELECT value FROM settings WHERE key = 'allow_registration'")
@@ -94,6 +100,12 @@ router.post("/create", async (req, res) => {
       operation: "registration_check",
       error: e,
     });
+  }
+
+  // D-07 (T-85-06): Mandatoriness enforcement — avatar part MUST be present.
+  // This fires BEFORE any DB write or file write so no side effects occur on failure.
+  if (!req.file) {
+    return res.status(400).json({ error: "avatar is required" });
   }
 
   const { username, password } = req.body;
@@ -134,35 +146,60 @@ router.post("/create", async (req, res) => {
     const password_hash = await bcrypt.hash(password, saltRounds);
     const id = nanoid();
 
-    const isFirstUser = db.$client.transaction(() => {
-      const countResult = db.$client
-        .prepare("SELECT COUNT(*) as count FROM users")
-        .get() as { count?: number };
-      const first = (countResult?.count || 0) === 0;
-      db.$client
-        .prepare(
-          "INSERT INTO users (id, username, password_hash, is_admin, is_oidc, client_id, client_secret, issuer_url, authorization_url, token_url, identifier_path, name_path, scopes, totp_secret, totp_enabled, totp_backup_codes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )
-        .run(
-          id,
-          username,
-          password_hash,
-          first ? 1 : 0,
-          0,
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "openid email profile",
-          null,
-          0,
-          null,
-        );
-      return first;
-    })();
+    // Step 4 (T-85-07, file-then-row ordering): Write avatar file BEFORE the SQL
+    // INSERT so that on SQL failure the file can be unlinked with no dangling pointer.
+    // If the file-write itself fails, we abort before any DB change — clean failure.
+    let avatarFilename: string;
+    try {
+      avatarFilename = await writeUserAvatar(id, req.file.mimetype, req.file.buffer);
+    } catch (writeErr) {
+      authLogger.error("Failed to write user avatar to disk", writeErr, {
+        operation: "user_create_avatar_write_failed",
+      });
+      return res.status(500).json({ error: "avatar write failed" });
+    }
+
+    let isFirstUser: boolean;
+    try {
+      isFirstUser = db.$client.transaction(() => {
+        const countResult = db.$client
+          .prepare("SELECT COUNT(*) as count FROM users")
+          .get() as { count?: number };
+        const first = (countResult?.count || 0) === 0;
+        db.$client
+          .prepare(
+            "INSERT INTO users (id, username, password_hash, is_admin, is_oidc, client_id, client_secret, issuer_url, authorization_url, token_url, identifier_path, name_path, scopes, totp_secret, totp_enabled, totp_backup_codes, avatar_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          )
+          .run(
+            id,
+            username,
+            password_hash,
+            first ? 1 : 0,
+            0,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "openid email profile",
+            null,
+            0,
+            null,
+            avatarFilename,
+          );
+        return first;
+      })();
+    } catch (sqlErr) {
+      // T-85-07: SQL INSERT failed — rollback the file we already wrote (ENOENT-tolerant).
+      await unlinkUserAvatar(avatarFilename);
+      authLogger.error("Failed to insert user row during registration", sqlErr, {
+        operation: "user_create_insert_failed",
+        userId: id,
+      });
+      return res.status(500).json({ error: "user create failed" });
+    }
 
     try {
       const defaultRoleName = isFirstUser ? "admin" : "user";
@@ -195,6 +232,9 @@ router.post("/create", async (req, res) => {
     try {
       await authManager.registerUser(id, password);
     } catch (encryptionError) {
+      // T-85-06b: Encryption setup failed — unlink the avatar file we wrote (Step 4)
+      // BEFORE deleting the row so cleanup is complete even if db.delete throws.
+      await unlinkUserAvatar(avatarFilename);
       await db.delete(users).where(eq(users.id, id));
       authLogger.error(
         "Failed to setup user encryption, user creation rolled back",
@@ -209,11 +249,13 @@ router.post("/create", async (req, res) => {
       });
     }
 
+    // D-17 (T-85-17): labeled forceSave after successful INSERT — crown-jewel invariant.
+    // Failure logs a non-fatal error: the row is durable in RAM and the next debounce flush
+    // will persist it. Do NOT fail the request on save error.
     try {
-      const { saveMemoryDatabaseToFile } = await import("../db/index.js");
-      await saveMemoryDatabaseToFile();
+      await DatabaseSaveTrigger.forceSave("phase-85-user-avatar-create");
     } catch (saveError) {
-      authLogger.error("Failed to persist user to disk", saveError, {
+      authLogger.error("Failed to persist user creation to disk", saveError, {
         operation: "user_create_save_failed",
         userId: id,
       });
@@ -235,6 +277,12 @@ router.post("/create", async (req, res) => {
     res.status(500).json({ error: "Failed to create user" });
   }
 });
+
+// Multer error handler scoped to /create — maps LIMIT_FILE_SIZE → 413,
+// mime-rejection → 400, LIMIT_UNEXPECTED_FILE → 400, other → 500.
+// Must be placed AFTER the router.post("/create", ...) registration to only
+// catch errors from that route (pattern from identity-avatar-batch.ts:453-478).
+router.use("/create", userAvatarMulterErrorHandler);
 
 /**
  * @openapi
@@ -1049,6 +1097,10 @@ router.get("/oidc/callback", async (req, res) => {
             : 24 * 60 * 60 * 1000;
         await authManager.registerOIDCUser(id, sessionDurationMs);
       } catch (encryptionError) {
+        // Phase 85 (D-07): OIDC user creation bypasses the mandatoriness gate because
+        // the OIDC redirect flow provides no avatar-upload opportunity. Backfill deferred
+        // per D-13; downstream self-serve flow will populate via PUT /users/:id/avatar
+        // (Plan 04). No avatar file to unlink on this rollback path.
         await db.delete(users).where(eq(users.id, id));
         authLogger.error(
           "Failed to setup OIDC user encryption, user creation rolled back",
