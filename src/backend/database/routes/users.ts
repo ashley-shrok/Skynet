@@ -352,11 +352,14 @@ router.post("/create", userAvatarUpload.single("avatar"), async (req, res) => {
     });
   } catch (err) {
     // Outer catch: unexpected throws from pure helpers or an unanticipated code path.
-    // Do NOT attempt deactivation here — if we are in the outer catch after mint success
-    // the mxid may be in scope, but we cannot distinguish "minted successfully and need rollback"
-    // from "threw before mint even reached the admin API". Best-effort orphan cleanup via log
-    // sweep handles the rare case. Local side effects are at most a partially-written state
-    // that the structured inner try/catch blocks were supposed to prevent.
+    // Do NOT attempt deactivation here. `mintedMxid` is in scope as a const, but from
+    // this frame we cannot tell whether the throw happened BEFORE createOrUpdateUser was
+    // called (in which case no Matrix account exists to deactivate) or AFTER a successful
+    // mint returned but before the structured inner try/catch blocks could apply their own
+    // rollback deactivation. Calling deactivateUser on an mxid that was never minted would
+    // fire an admin API call that 404s harmlessly, but it also complicates the log signal
+    // for the future orphan-sweep. Best-effort cleanup via that sweep is the right recovery
+    // path for the rare inner-block-throws-past-its-own-catch case.
     authLogger.error("Failed to create user", err);
     res.status(500).json({ error: "Failed to create user" });
   }
