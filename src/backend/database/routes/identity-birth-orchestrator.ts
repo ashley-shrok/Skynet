@@ -787,10 +787,12 @@ export async function runRelayMintAndWrite(
     mintedAccessToken = loginResult.accessToken;
 
     // -----------------------------------------------------------------------
-    // Phase 89 D-11 hook. Best-effort per D-12: backfill covers gaps. A
-    // failed join does NOT fail the birth — the observation loop's
+    // Phase 89 D-11 hook. Best-effort per D-12 (REFINED 2026-09-08 post-
+    // verifier — backfill is MANUAL per instance-deployer, NOT automatic).
+    // A failed join does NOT fail the birth — the observation loop's
     // classification will fall back to 'unknown foreign account' until the
-    // next backfill run or manual admin trigger corrects it.
+    // instance-deployer runs the manual backfill (see phase 89-02 SUMMARY
+    // § Manual backfill runbook) or a follow-up mint corrects it.
     // -----------------------------------------------------------------------
     try {
       const joinResult = await joinAgentToAgentsRegistry(mxid);

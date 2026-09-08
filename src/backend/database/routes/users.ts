@@ -331,13 +331,15 @@ router.post("/create", userAvatarUpload.single("avatar"), async (req, res) => {
       });
     }
 
-    // Phase 89 D-11 hook. Best-effort per D-12: backfill covers gaps. A
-    // failed join does NOT fail the create — the observation loop's
+    // Phase 89 D-11 hook. Best-effort per D-12 (REFINED 2026-09-08 post-
+    // verifier — backfill is MANUAL per instance-deployer, NOT automatic).
+    // A failed join does NOT fail the create — the observation loop's
     // classification for this human will fall back to 'unknown foreign
-    // account' until the next backfill run or manual admin trigger corrects
-    // it. Hook fires AFTER the INSERT transaction commits (so the row exists
-    // even if the join fails) and BEFORE the forceSave (so the RAM state is
-    // fully in place before flushing).
+    // account' until the instance-deployer runs the manual backfill (see
+    // phase 89-02 SUMMARY § Manual backfill runbook) or a follow-up mint
+    // corrects it. Hook fires AFTER the INSERT transaction commits (so the
+    // row exists even if the join fails) and BEFORE the forceSave (so the
+    // RAM state is fully in place before flushing).
     try {
       const joinResult = await joinHumanToHumansRegistry(mintedMxid);
       if (joinResult.ok === false) {
