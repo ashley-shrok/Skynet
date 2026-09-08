@@ -277,6 +277,20 @@ describe("file I/O", () => {
     );
   });
 
+  // M1 — path-traversal defense on readUserAvatar
+  it("readUserAvatar throws on path-traversal filename (../../etc/passwd.png)", async () => {
+    await expect(readUserAvatar("../../etc/passwd.png")).rejects.toThrow(
+      /disallowed characters|escapes the avatar directory/,
+    );
+  });
+
+  // M1 — path-traversal defense on unlinkUserAvatar
+  it("unlinkUserAvatar throws on path-traversal filename (../../etc/passwd)", async () => {
+    await expect(unlinkUserAvatar("../../etc/passwd")).rejects.toThrow(
+      /disallowed characters|escapes the avatar directory/,
+    );
+  });
+
   // Also tested as part of test 3, but explicitly: mkdir is called even if
   // USER_AVATARS_DIR doesn't exist yet.
   it("writeUserAvatar succeeds even when USER_AVATARS_DIR does not exist yet (mkdir recursive)", async () => {

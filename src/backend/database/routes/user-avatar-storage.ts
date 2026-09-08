@@ -63,6 +63,33 @@ const EXT_TO_MIME: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
+// Path-traversal defense — assertSafeFilename (M1, defense-in-depth)
+// ---------------------------------------------------------------------------
+
+/**
+ * Throws if `name` looks like a path-traversal attempt.
+ *
+ * Checks (defense-in-depth):
+ *  1. Fast deny-list: reject names containing `/`, `\`, or `..`
+ *  2. Structural: path.resolve(USER_AVATARS_DIR + name) must start with
+ *     path.resolve(USER_AVATARS_DIR) + path.sep — catches encoded separators
+ *     and other tricks that survive the fast check.
+ *
+ * Called at the very top of unlinkUserAvatar and readUserAvatar before any
+ * filesystem operation.
+ */
+function assertSafeFilename(name: string): void {
+  if (name.includes("/") || name.includes("\\") || name.includes("..")) {
+    throw new Error(`avatar filename contains disallowed characters: ${name}`);
+  }
+  const resolvedBase = path.resolve(USER_AVATARS_DIR) + path.sep;
+  const resolvedTarget = path.resolve(path.join(USER_AVATARS_DIR, name));
+  if (!resolvedTarget.startsWith(resolvedBase)) {
+    throw new Error(`avatar filename escapes the avatar directory: ${name}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Multer instance — VERBATIM shape from identity-avatar-batch.ts:406-422
 // ---------------------------------------------------------------------------
 
@@ -171,6 +198,8 @@ export async function unlinkUserAvatar(
   filenameOrNull: string | null | undefined,
 ): Promise<void> {
   if (!filenameOrNull) return;
+  // M1: path-traversal defense — throws on suspicious filenames.
+  assertSafeFilename(filenameOrNull);
   const filePath = path.join(USER_AVATARS_DIR, filenameOrNull);
   try {
     await fs.unlink(filePath);
@@ -201,6 +230,8 @@ export async function unlinkUserAvatar(
 export async function readUserAvatar(
   filename: string,
 ): Promise<{ bytes: Buffer; mime: string }> {
+  // M1: path-traversal defense — throws on suspicious filenames.
+  assertSafeFilename(filename);
   const filePath = path.join(USER_AVATARS_DIR, filename);
 
   // Derive mime from extension — extension encodes the mime (RESEARCH.md § 8).
