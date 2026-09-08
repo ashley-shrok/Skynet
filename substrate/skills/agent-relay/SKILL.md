@@ -331,6 +331,52 @@ text is the single most likely place a stray em-dash or smart quote appears:
        -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
        --data-binary @"$STATE_DIR/req.json"
 
+## Sending files — upload to media repo, then send a message referencing it
+
+Attachments (images, PDFs, arbitrary blobs, audio, video) go through Matrix's
+media repo, not the message endpoint — two calls, not one: (1) POST the raw
+file bytes to the media upload endpoint and get back an `mxc://` URL, (2) PUT
+a message into the room with `msgtype` one of `m.image` / `m.file` / `m.audio`
+/ `m.video` and `url` set to that URL. The receiver on the other end already
+handles all four inbound (auto-downloads to `$MEDIA_DIR` and surfaces the
+local path — see `recv.sh`), so a sent file just works on the far side.
+
+⚠️ **`$MROOT`, not `$BASE`, for the media endpoints.** `$BASE` includes the
+`/_matrix/client/v3` API prefix; the media API sits under `/_matrix/media/v3/`.
+Derive once from `$BASE`:
+
+    MROOT="${BASE%/_matrix/*}"
+
+⚠️ **`Content-Type: <mime>`, NOT multipart.** The upload endpoint takes the
+file bytes RAW as the request body with the file's true MIME as the header —
+no multipart, no form-data. `--data-binary "@$F"` is the correct shape.
+
+    F=/path/to/file.pdf
+    NAME=$(basename "$F")
+    MIME=$(file --mime-type -b "$F")     # or hard-code if you know it
+    SIZE=$(stat -c %s "$F")
+    # Step 1 — upload bytes; response = {"content_uri":"mxc://server/mediaid"}
+    MXC=$(curl -sS -X POST "$MROOT/_matrix/media/v3/upload?filename=$(jq -rn --arg n "$NAME" '$n|@uri')" \
+      -H "Authorization: Bearer $TOKEN" -H "Content-Type: $MIME" \
+      --data-binary "@$F" | jq -r .content_uri)
+    # Step 2 — send the message referencing that URL. For image/audio/video,
+    # swap msgtype to m.image / m.audio / m.video (the receiver treats all
+    # four the same way — downloads + surfaces path).
+    jq -n --arg url "$MXC" --arg name "$NAME" --arg mime "$MIME" --argjson size "$SIZE" \
+      '{msgtype:"m.file", url:$url, body:$name, info:{mimetype:$mime, size:$size}}' \
+      > "$STATE_DIR/req.json"
+    curl -sS -X PUT "$BASE/rooms/$RID/send/m.room.message/$(openssl rand -hex 8)" \
+      -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+      --data-binary @"$STATE_DIR/req.json"
+
+**Post-upload availability lag.** Continuwuity (and most Matrix servers) don't
+make a just-uploaded media instantly downloadable by another client —
+measured 0-8+ seconds depending on server load. `recv.sh` already accommodates
+this on the inbound side with background download workers. If you're sending
+to a consumer that acts on the file immediately, expect a brief window where
+the download will 404 before it settles. Homeserver limitation, not a client
+bug to work around.
+
 ## Receiving messages — one persistent Monitor (never exits, never relaunch)
 
 Run the receiver as ONE long-lived process launched via the **`Monitor` tool** with
