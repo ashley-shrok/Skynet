@@ -22,8 +22,9 @@
  *       → assert scope-switch-identity is aria-pressed=true for nelly
  *       (default not leaked from tina).
  *   S8: Scope flip resets activeTab — mount actor, click a non-default nav
- *       button (handoff), click scope-switch-role, assert activeTab is now
- *       "role" (not "handoff") via the active tabpanel's id suffix.
+ *       button (wakeups / identity-wakeups, updated in Phase 89 Plan 06 from
+ *       the removed Handoff tab), click scope-switch-role, assert activeTab is
+ *       now "role" (not "identity-wakeups") via the active tabpanel's id suffix.
  *
  * Mocking strategy mirrors IdentityModal.role-tab.test.tsx: WsStub factory
  * + module mocks on @/api/claude-session-api / @/api/identities-api /
@@ -308,18 +309,20 @@ describe("IdentityModal scope switch — activeTab reset", () => {
     renderModal({ coordinator: false });
     expect(activePanelIdSuffix()).toBe("identity");
 
-    // Click the Handoff nav button so activeTab becomes "handoff".
-    const handoffNavBtn = Array.from(
+    // Phase 89 Plan 06 (Rule 1 auto-fix): Handoff tab was removed in Phase 89
+    // Plan 05 (D-12). Updated to use "Wakeups" (identity-wakeups) which is a
+    // non-default tab still present in the Identity scope after the restructure.
+    const wakeupsNavBtn = Array.from(
       document.querySelectorAll(".shrink-0.flex.items-stretch button"),
-    ).find((b) => b.textContent?.includes("Handoff")) as
+    ).find((b) => b.textContent?.includes("Wakeups")) as
       | HTMLButtonElement
       | undefined;
-    expect(handoffNavBtn).toBeDefined();
-    fireEvent.click(handoffNavBtn!);
-    expect(activePanelIdSuffix()).toBe("handoff");
+    expect(wakeupsNavBtn).toBeDefined();
+    fireEvent.click(wakeupsNavBtn!);
+    expect(activePanelIdSuffix()).toBe("identity-wakeups");
 
     // Now flip scope to Role — activeTab should reset to "role"
-    // (the Role scope's default landing tab), NOT stay on "handoff"
+    // (the Role scope's default landing tab), NOT stay on "identity-wakeups"
     // (which no longer exists under Role scope's NAV_SECTIONS).
     switchScope("role");
     expect(activePanelIdSuffix()).toBe("role");

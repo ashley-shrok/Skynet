@@ -40,6 +40,9 @@ import { PrettyViewErrorOverlay } from "./PrettyViewErrorOverlay";
 import { usePaneResolvingMachine } from "./usePaneResolvingMachine";
 import type { WsTransportState, PaneState } from "./resolve-phase";
 import { IdentityModal } from "./IdentityModal";
+// Phase 89 Plan 06: RunbookEditorModal — swap-not-stack coordination (D-06).
+// Mounted as a top-level sibling alongside IdentityModal + EditableFileModal.
+import RunbookEditorModal from "./RunbookEditorModal";
 import { useAutoScroll } from "./use-auto-scroll";
 import { ComposeBox } from "./ComposeBox";
 import { DropOverlay } from "./DropOverlay";
@@ -677,6 +680,15 @@ export function PrettyView({
   // this to true; the IdentityModal handles close via onOpenChange (Esc,
   // backdrop, X button all route through shadcn Dialog's onOpenChange).
   const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
+  // Phase 89 Plan 06: swap-not-stack coordination (D-06) — non-null when the
+  // runbook editor is open, null when closed. Set by handleOpenRunbook (fired
+  // from IdentityModal's Runbooks tab row click); cleared to null by the
+  // RunbookEditorModal's onOpenChange(false) close handler. NO reopen-of-
+  // identity-modal-on-close per D-06 v1 posture.
+  const [runbookEditorOpenState, setRunbookEditorOpenState] = useState<
+    | null
+    | { roleName: string; runbookName: string }
+  >(null);
   // Phase 40 D-05/D-06: editor modal open state. Null when closed; an object
   // holding the URL + filename + messageEventId + agentIdentityName snapshot
   // when open. Set by handleOpenEditor (fired from a ChatMessage affordance
@@ -1614,6 +1626,23 @@ export function PrettyView({
     },
     [pvIdentity?.displayName],
   );
+  // Phase 89 Plan 06: Runbooks tab row click handler. D-06 swap-not-stack —
+  // closes the identity modal at the same tick the runbook editor opens.
+  // Defensive guard: if the identity has no resolved role, silently no-op
+  // (RunbooksTab's fetch would have returned an empty list via the D-10
+  // fast-path, so no row-click should reach here in that case — but the
+  // guard prevents crashes if some future call path bypasses the fast-path).
+  const handleOpenRunbook = useCallback((runbookName: string): void => {
+    const roleName = pvIdentity?.role ?? null;
+    if (roleName === null) {
+      console.debug("[PrettyView] handleOpenRunbook: no role — skipping", { runbookName });
+      return;
+    }
+    console.debug("[PrettyView] handleOpenRunbook: swap", { roleName, runbookName });
+    setIsIdentityModalOpen(false);
+    setRunbookEditorOpenState({ roleName, runbookName });
+  }, [pvIdentity]);
+
   const handleStageEditedFile = useCallback(
     (filename: string, content: string) => {
       const type = guessMimeFromFilename(filename) ?? "text/plain";
@@ -3194,6 +3223,8 @@ export function PrettyView({
           identity={pvIdentity}
           hue={pvHue}
           hostId={hostId}
+          // Phase 89 Plan 06: Runbooks tab row-click handler — D-06 swap-not-stack.
+          onOpenRunbook={handleOpenRunbook}
           container={chatRegionEl}
         />
       )}
@@ -3206,6 +3237,29 @@ export function PrettyView({
           via the existing AttachmentChipStrip wiring at ComposeBox and the
           existing reply-with-attachment path handles the send, so this plan
           adds zero new plumbing on the return trip. */}
+      {/* Phase 89 Plan 06: RunbookEditorModal — mounted as a top-level sibling
+          alongside IdentityModal + EditableFileModal. Portal target defaults
+          to document.body (no `container` prop passed) since this is a top-
+          level surface per D-06 swap-not-stack — the modal is NOT portaled
+          into chatRegionEl the way IdentityModal is; it fills the viewport
+          like SkillsEditorModal / GlobalFilesModal do.
+          runbookEditorOpenState.roleName + runbookName are already validated
+          non-null by handleOpenRunbook (the defensive guard rejects null-role
+          calls before setting state). */}
+      {runbookEditorOpenState && (
+        <RunbookEditorModal
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) {
+              console.debug("[PrettyView] runbook-editor-close: no reopen (D-06 swap-not-stack)");
+              setRunbookEditorOpenState(null);
+            }
+          }}
+          hostId={hostId}
+          roleName={runbookEditorOpenState.roleName}
+          runbookName={runbookEditorOpenState.runbookName}
+        />
+      )}
       {editorOpenState && (
         <EditableFileModal
           open={true}
