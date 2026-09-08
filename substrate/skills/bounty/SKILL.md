@@ -9,3 +9,9 @@ said. Do not analyze it, comment on it, research it, or start working on it. The
 point is a fast, zero-overhead parking spot; any understanding or investigation happens
 later, when the bounty is picked up. Capture it, confirm the slug in one line, and return
 to whatever you were doing.
+
+When creating the bounty file, set `"pinned": true` on the new bounty. Bounties captured
+via /bounty are user-authored (the invocation itself IS the user parking it), so they
+inherit user-pinned status by default — this is consistent with the id-skill § pinned
+rule that only the user pins, because /bounty invocations ARE the user pinning. She can
+unpin later if she wants it off her radar.
