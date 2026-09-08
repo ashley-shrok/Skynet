@@ -295,11 +295,14 @@ describe("CreateRoleDialog", () => {
     ).toBeNull();
 
     // Phase 84 (Plan 84-01 CHANGE F.1): the header blurb renders below
-    // the title, above the fields. Exact string from D-CONTEXT item 1
-    // (LOCKED for planning; user may redirect during execute).
+    // the title, above the fields. Phase 88 (Plan 88-02 Task 1): revised
+    // to a two-sentence paired-vocabulary form — shared verb "adopt" pairs
+    // with the sibling create-agent blurb at NewSessionDialog.tsx
+    // startDescription. Exact string from 88-CONTEXT.md §Verbatim copy
+    // Role blurb (LOCKED by Ashley greenlight 2026-09-07).
     expect(
       screen.getByText(
-        /A role is what an agent does and how it thinks — many agents can share one\./,
+        /Roles are the expertise your agents adopt\. Every agent using this role inherits its goals, rules, and knowledge\./,
       ),
     ).toBeTruthy();
 
