@@ -122,11 +122,22 @@ const twoHostTree: HostFolder = {
   ],
 };
 
+// Phase 88 (Plan 88-03 Task 4): renderDialog helper accepts isAdmin
+// with a default of `true` to preserve existing coverage's admin-surface
+// assumptions (Path + shell-only checkbox were universal before Phase 88;
+// they are now admin-gated). Tests in this file exercise the role
+// dropdown which lives inside the identity-cluster gate (post-Phase-88:
+// {!shellOnly && (…)}). Agent-mode is the new default (shellOnly=false)
+// so the dropdown IS visible on fresh mount — matches the pre-Phase-88
+// "identity-mode ON by default" behavior at the role-dropdown-visibility
+// surface. No test-body edits required beyond this helper + the Test 27
+// label-regex update below.
 function renderDialog(overrides: {
   open?: boolean;
   onClose?: () => void;
   onCreate?: ReturnType<typeof vi.fn>;
   hostTree?: HostFolder;
+  isAdmin?: boolean;
 } = {}) {
   const onCreate = overrides.onCreate ?? vi.fn();
   const onClose = overrides.onClose ?? vi.fn();
@@ -136,6 +147,7 @@ function renderDialog(overrides: {
       onClose={onClose}
       hostTree={overrides.hostTree ?? twoHostTree}
       onCreate={onCreate}
+      isAdmin={overrides.isAdmin ?? true}
     />,
   );
   return { ...result, onCreate, onClose };
@@ -246,14 +258,14 @@ describe("NewSessionDialog role dropdown: Test 22 — host change clears role + 
 // Test 23: Create disabled while role is empty (identity-mode ON)
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog role dropdown: Test 23 — Create blocked without role", () => {
-  it("Test 23: everything else valid but role empty → Create disabled; pick role → enabled", async () => {
+  it("Test 23: name valid + host picked but role empty → Create disabled; pick role → enabled", async () => {
+    // Phase 86 Plan 86-04 stripped cosmetic UI (title / brief / voice /
+    // color / avatar generate). Post-Plan-86-04 canOpen requires only
+    // host + valid name + role in identity-mode. This test was rewritten
+    // to remove references to the deleted title/brief/generate/img UI
+    // per D-CTX-86-surface-4 acceptance criteria.
     mockListRolesForHost.mockResolvedValueOnce([
       { name: "box-maintainer", description: "" },
-    ]);
-    mockPostGenerateAvatarBatch.mockResolvedValueOnce([
-      { id: "c1", url: "/c/c1" },
-      { id: "c2", url: "/c/c2" },
-      { id: "c3", url: "/c/c3" },
     ]);
     mockListIdentities.mockResolvedValue([]);
     mockGetIdentityExistsOnHost.mockResolvedValue(false);
@@ -261,15 +273,8 @@ describe("NewSessionDialog role dropdown: Test 23 — Create blocked without rol
     fireEvent.click(screen.getByText("alpha"));
     // Wait for the roles fetch to resolve so the dropdown appears
     await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
-    // Fill name / title / brief
+    // Fill name (title/brief/generate/img UI is gone post-Phase-86)
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
-    fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Alicia" } });
-    fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "brief" } });
-    fireEvent.click(getByRole("button", { name: /generate/i }));
-    await waitFor(() =>
-      expect(document.querySelectorAll("img").length).toBe(3),
-    );
-    fireEvent.click(document.querySelectorAll("img")[0].closest("button") as HTMLElement);
     // Create still disabled — role not picked
     const createBtn = getByRole("button", {
       name: /^(open|create|creating)/i,
@@ -289,13 +294,14 @@ describe("NewSessionDialog role dropdown: Test 23 — Create blocked without rol
 // ─────────────────────────────────────────────────────────────────────────────
 describe("NewSessionDialog role dropdown: Test 24 — birth payload carries role", () => {
   it("Test 24: submit success → openBirthStream body includes role: <picked>", async () => {
+    // Phase 86 Plan 86-04 stripped cosmetic UI (title/brief/generate/img).
+    // Post-Plan-86-04 the birth submit body carries hostId, name, role,
+    // voice:null, colorHue:null, task, poolPicked, path (no title, no
+    // avatarCandidateId). This test was rewritten to skip filling the
+    // deleted UI while still asserting the role wire-contract per
+    // D-CTX-86-surface-4 acceptance criteria.
     mockListRolesForHost.mockResolvedValueOnce([
       { name: "box-maintainer", description: "" },
-    ]);
-    mockPostGenerateAvatarBatch.mockResolvedValueOnce([
-      { id: "c1", url: "/c/c1" },
-      { id: "c2", url: "/c/c2" },
-      { id: "c3", url: "/c/c3" },
     ]);
     mockListIdentities.mockResolvedValue([]);
     mockGetIdentityExistsOnHost.mockResolvedValue(false);
@@ -304,13 +310,6 @@ describe("NewSessionDialog role dropdown: Test 24 — birth payload carries role
     fireEvent.click(screen.getByText("alpha"));
     await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
     fireEvent.change(getByLabelText(/^name$/i), { target: { value: "alicia" } });
-    fireEvent.change(getByLabelText(/^title$/i), { target: { value: "Alicia" } });
-    fireEvent.change(getByLabelText(/^brief$/i), { target: { value: "brief" } });
-    fireEvent.click(getByRole("button", { name: /generate/i }));
-    await waitFor(() =>
-      expect(document.querySelectorAll("img").length).toBe(3),
-    );
-    fireEvent.click(document.querySelectorAll("img")[0].closest("button") as HTMLElement);
     // Pick role
     fireEvent.change(getByLabelText(/^role$/i), {
       target: { value: "box-maintainer" },
@@ -391,18 +390,25 @@ describe("NewSessionDialog role dropdown: Test 26 — role resets on close", () 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 27: role dropdown NOT shown when identity-mode is OFF
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog role dropdown: Test 27 — hidden when identity-mode OFF", () => {
-  it("Test 27: uncheck identity-mode → role dropdown absent from DOM", async () => {
+describe("NewSessionDialog role dropdown: Test 27 — hidden when user opts into shell mode", () => {
+  it("Test 27: click 'Just a shell — no agent' → role dropdown absent from DOM", async () => {
+    // Phase 88 (Plan 88-03 Task 4): semantic-inverted from the old
+    // "identity-mode OFF" framing. Post-Phase-88 clicking the checkbox
+    // OPTS INTO shell mode (was: opted out of identity mode); the role
+    // dropdown disappears in shell mode because it lives inside the
+    // {!shellOnly && (…)} identity-cluster gate (Plan 88-02 Edit D).
+    // Label regex updated to match the new Plan 88-02 Edit C label text.
     mockListRolesForHost.mockResolvedValueOnce([
       { name: "box-maintainer", description: "" },
     ]);
     const { getByRole } = renderDialog();
-    // Identity-mode is ON by default; picking a host would populate the dropdown
+    // Agent mode is the new default (shellOnly=false); picking a host
+    // populates the dropdown as before.
     fireEvent.click(screen.getByText("alpha"));
     await waitFor(() => expect(screen.queryByLabelText(/^role$/i)).toBeTruthy());
-    // Now uncheck identity-mode
+    // Click the shell-only checkbox to opt INTO shell mode
     const checkbox = getByRole("checkbox", {
-      name: /create with new identity/i,
+      name: /just a shell.*no agent/i,
     });
     fireEvent.click(checkbox);
     // Role dropdown must disappear
