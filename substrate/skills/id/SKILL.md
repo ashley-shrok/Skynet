@@ -1325,6 +1325,12 @@ under the role's `runbooks/` and holds them in context silently. The identity is
 AWARE that a set of runbooks exists and knows their names, but does NOT read them
 in — content is read on demand only when a runbook is actually invoked.
 
+The role-file-watch (§ On wake: start your role-file watch) covers the role file's
+bytes but NOT the runbooks tree. Corollary: if you've already invoked a runbook this
+session (its content in context) and a peer identity edits that runbook mid-session,
+your in-context copy silently goes stale. Re-read from disk before executing a
+high-stakes step rather than trusting a previously-loaded copy.
+
 ### When to invoke one
 
 The user explicitly names it, or a scheduled wake-up's free-text instruction
@@ -1332,12 +1338,22 @@ references it, or the situation obviously matches one the identity is aware of. 
 the runbook then gets followed after reading is up to the agent's intuition — this
 section deliberately does not steer that.
 
+The awareness set is snapshot at load time. A peer identity may add a new runbook
+mid-session that your snapshot doesn't reflect — if a user names one you don't
+recognize, verify against disk rather than assuming it's absent.
+
 ### Editing rules
 
 Same governance as role-file edits (see § Editing the role and identity files):
 user-initiated changes are implicit approval; agent-proposed changes need explicit
 greenlight. Runbooks are role-scope, so an edit affects every identity the way a
 role-file edit does.
+
+For runbooks specifically, **user-initiated** looks like the user directing an edit at
+a specific runbook — "add / update / drop / remove X in the <name> runbook," or
+similar phrasing pointed at that runbook. **Agent-proposed** = sweep-and-refactor
+edits an agent notices while working — offer the diff and wait for greenlight before
+writing.
 
 ### Distinction from reference files
 
