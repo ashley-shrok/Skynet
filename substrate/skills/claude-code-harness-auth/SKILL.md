@@ -104,6 +104,22 @@ Runs from a scheduled wake-up spec. One clean check per day.
       fi
     fi
 
+### A.0.5 — trim old harness-auth-logs
+
+Keeps `~/.claude/harness-auth-logs/` bounded without a separate cron. Deletes only
+session directories that are BOTH beyond the 20 newest AND older than 30 days
+(whichever threshold keeps MORE, keeps). Runs once per daily wake, right before A.1.
+
+    LOGROOT=~/.claude/harness-auth-logs
+    if [ -d "$LOGROOT" ]; then
+      SAFE_BY_COUNT=$(ls -1t "$LOGROOT" 2>/dev/null | head -20)
+      find "$LOGROOT" -maxdepth 1 -mindepth 1 -type d -mtime +30 2>/dev/null | while read d; do
+        BN=$(basename "$d")
+        printf '%s\n' "$SAFE_BY_COUNT" | grep -qxF "$BN" && continue
+        rm -rf "$d"
+      done
+    fi
+
 ### A.1 — evaluate token age
 
     MARKER=~/.claude/identities/<name>/.oauth-token-install-marker
@@ -183,6 +199,23 @@ pieces of it.
       # DM: "✗ [box: <HOSTNAME>] setup-token didn't produce a URL — logs at $LOGDIR/live.log — will retry next daily wake"
       exit 0
     fi
+
+    # URL post-condition: assert the OAuth query params setup-token is supposed to emit
+    # are all present. If Claude Code ever changes the URL format and drops one, we want
+    # to fail LOUD here rather than silently ship an incomplete URL to Ashley whose
+    # browser OAuth flow would then fail with an obscure error. Belt to the length
+    # check's suspenders — length alone can't distinguish "full URL" from "full URL
+    # of a format that no longer produces a valid session."
+    for req in "client_id=" "response_type=" "code_challenge=" "state="; do
+      case "$URL" in
+        *"$req"*) ;;
+        *)
+          tmux kill-session -t "$SESSION" 2>/dev/null
+          # DM: "✗ [box: <HOSTNAME>] URL capture missing required param '$req' — Claude Code URL format may have changed. Logs at $LOGDIR/live.log. Skill needs an update before this can retry."
+          exit 0
+          ;;
+      esac
+    done
 
 The URL matcher is loose on purpose — Claude Code has changed URL formats between versions.
 If a future version breaks the matcher, the URL-capture timeout fires and Ashley gets a
@@ -382,9 +415,31 @@ that catches silent-invalid-token cases.**
       exit 1
     }
 
-    # Install marker for the daily-check age calculation — written ONLY after Anthropic
-    # verify passes. A bad token that got rolled back must not get its age reset, or the
-    # daily check would wait another ~11 months before re-prompting.
+    # Second Anthropic verify — against the token READ BACK FROM settings.json, not from
+    # memory. The first verify (above) confirmed the CAPTURED bytes are honored; this one
+    # confirms the INSTALLED bytes are honored. Closes the narrow race window between
+    # capture and merge (Anthropic-side revocation, subscription flap, TOCTOU on the
+    # settings.json write). 100-200ms cost, one class of bug closed.
+    HTTP2=$(curl -sS -o /tmp/harness-auth-verify2-$$.json -w "%{http_code}" \
+      https://api.anthropic.com/v1/messages \
+      -H "Content-Type: application/json" \
+      -H "anthropic-version: 2023-06-01" \
+      -H "Authorization: Bearer $INSTALLED" \
+      -d '{"model":"claude-haiku-4-5-20251001","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}')
+    if [ "$HTTP2" != "200" ]; then
+      cp "$SETTINGS.pre-token-backup" "$SETTINGS"
+      chmod 600 "$SETTINGS"
+      rm -f /tmp/harness-auth-verify2-$$.json
+      tmux kill-session -t "$SESSION" 2>/dev/null
+      rm -f "$ST"
+      # DM: "✗ [box: <HOSTNAME>] token was 200-verified pre-merge but $HTTP2 post-merge — race between capture and settings.json swap. Rolled back. Logs at $LOGDIR/live.log."
+      exit 1
+    fi
+    rm -f /tmp/harness-auth-verify2-$$.json
+
+    # Install marker for the daily-check age calculation — written ONLY after BOTH
+    # Anthropic verifies pass. A bad token that got rolled back must not get its age
+    # reset, or the daily check would wait another ~11 months before re-prompting.
     date -u +%Y-%m-%dT%H:%M:%SZ > ~/.claude/identities/<name>/.oauth-token-install-marker
 
     # Also stash the expired `.credentials.json` (if any) aside so it can't confuse Claude
