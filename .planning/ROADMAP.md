@@ -2040,7 +2040,7 @@ Plans:
 **Goal:** Add baseline backend support for Skynet's human users having avatars — one nullable pointer column on the users row, three backend endpoints (mandatory-at-create + change + serve), one shared byte-work helper, on-disk storage inside the encrypted data volume, delete-cleanup wired into all deletion paths, and the nginx edge sizing edit — with zero frontend surface. Downstream frontend build consumes this.
 **Requirements**: D-01 through D-23 (23 LOCKED decisions from 85-CONTEXT.md — REQUIREMENTS.md has no separate REQ-IDs for this phase)
 **Depends on:** Phase 84
-**Plans:** 6/7 plans executed
+**Plans:** 7/7 plans complete
 
 Plans:
 
@@ -2059,4 +2059,4 @@ Plans:
 - [x] 85-06-PLAN.md — nginx edge sizing: add `client_max_body_size 6M;` to /users location block in BOTH docker/nginx.conf AND docker/nginx-https.conf (D-19, D-20, D-21)
 
 **Wave 5** *(blocked on all prior waves)*
-- [ ] 85-07-PLAN.md — end-to-end integration test (create → serve → change → serve → delete → verify-clean, real HTTP + real filesystem + save-trigger spies) + human-smoke checkpoint verifying nginx edge cap works against a running container (D-07, D-09, D-10, D-11, D-14, D-15, D-16, D-17, D-18, D-19, D-20, D-21, D-22)
+- [x] 85-07-PLAN.md — end-to-end integration test (create → serve → change → serve → delete → verify-clean, real HTTP + real filesystem + save-trigger spies) + human-smoke checkpoint verifying nginx edge cap works against a running container (D-07, D-09, D-10, D-11, D-14, D-15, D-16, D-17, D-18, D-19, D-20, D-21, D-22)
