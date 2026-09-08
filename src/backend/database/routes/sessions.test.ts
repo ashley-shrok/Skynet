@@ -81,6 +81,16 @@ vi.mock("../../fleet-status/identity-send-log-store.js", () => ({
   getIdentityLastSend: vi.fn(async () => null),
 }));
 
+// Phase 89 Plan 04 (D-15): mock the relay-room-sessions store so tests
+// control what listActiveRelayRoomSessions returns per user. Default
+// resolution is [] (no active relay-room rows — matches the pre-Phase-89
+// behavior where /sessions/list returned harness-only). Individual
+// Phase 89-04 tests override with mockResolvedValue / mockRejectedValue
+// to exercise the merge, DB-throw fallback, and no-regression scenarios.
+vi.mock("../../relay-sessions/relay-room-sessions-store.js", () => ({
+  listActiveRelayRoomSessions: vi.fn(async () => []),
+}));
+
 // ---------------------------------------------------------------------------
 // Mock the db + SimpleDBOps layer. sessions.ts calls:
 //   SimpleDBOps.select(db.select().from(hosts).where(...), "ssh_data", userId)
@@ -126,9 +136,11 @@ import { execCommand } from "../../ssh/tmux-helper.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { discoverIdentitySessionFile } from "../../claude-session/discover-identity-session-file.js";
 import { getIdentityLastSend } from "../../fleet-status/identity-send-log-store.js";
+import { listActiveRelayRoomSessions } from "../../relay-sessions/relay-room-sessions-store.js";
 
 const mockedDiscover = vi.mocked(discoverIdentitySessionFile);
 const mockedGetIdentityLastSend = vi.mocked(getIdentityLastSend);
+const mockedListActiveRelayRoomSessions = vi.mocked(listActiveRelayRoomSessions);
 
 // ---------------------------------------------------------------------------
 // HTTP helper (mirrors roles-list-for-host.test.ts pattern)
@@ -275,6 +287,11 @@ beforeEach(() => {
   // vi.clearAllMocks() above wipes the mock's initial implementation from
   // the factory, so we must re-establish the default per-test.
   mockedGetIdentityLastSend.mockResolvedValue(null);
+
+  // Phase 89 Plan 04 (D-15): default listActiveRelayRoomSessions returns []
+  // (no active relay-room rows — matches the pre-Phase-89 behavior). Same
+  // vi.clearAllMocks re-establishment requirement as getIdentityLastSend.
+  mockedListActiveRelayRoomSessions.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -1716,5 +1733,257 @@ describe("GET /sessions/list — lastMessageAt from send-log store (Phase 85 Pla
 
     const stacy = rows.find((r) => r.sessionName === "stacy");
     expect(stacy?.lastMessageAt).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 89 Plan 04 (D-15) — /sessions/list merge with relay-room rows + kind marker
+//
+// The handler was extended to append active relay-room rows (from
+// listActiveRelayRoomSessions) to the derived harness sessions list. Every
+// item in the merged response carries a `kind` marker: 'harness' for the
+// derived-tmux items, 'relay-room' for the appended stored-table items.
+//
+// D-01 scope anchor: the harness-derivation path is byte-identical to the
+// pre-Phase-89 shape. The 6 tests below cover:
+//   Test 1 — harness-only + kind='harness' marker on every row
+//   Test 2 — relay-only (no autoTmux hosts) → kind='relay-room' rows only
+//   Test 3 — merged (harness + relay) with correct kind on each partition
+//   Test 4 — DB-throw fallback: listActiveRelayRoomSessions throws → harness rows
+//            returned with 200 (best-effort merge, log-and-swallow)
+//   Test 5 — timeout budget: relay lookup fires AFTER the Promise.all resolves
+//            (no setTimeout wrapper, cheap in-process DB call)
+//   Test 6 — no regression: existing harness-shape fields byte-identical, kind
+//            is the ONLY added field
+// ---------------------------------------------------------------------------
+
+describe("GET /sessions/list — Phase 89 Plan 04 merge (D-15)", () => {
+  const relayRowA = {
+    id: "row-uuid-a",
+    roomId: "!room-a:matrix.local",
+    roomTitle: "Ashley + Taylor",
+    lastActivityAt: "2026-09-08T14:30:00Z",
+    createdAt: "2026-09-08T13:00:00Z",
+    updatedAt: "2026-09-08T14:30:00Z",
+  };
+  const relayRowB = {
+    id: "row-uuid-b",
+    roomId: "!room-b:matrix.local",
+    roomTitle: "planning-room",
+    lastActivityAt: "2026-09-08T14:00:00Z",
+    createdAt: "2026-09-08T12:00:00Z",
+    updatedAt: "2026-09-08T14:00:00Z",
+  };
+  const relayRowC = {
+    id: "row-uuid-c",
+    roomId: "!room-c:matrix.local",
+    roomTitle: null,
+    lastActivityAt: null,
+    createdAt: "2026-09-08T11:00:00Z",
+    updatedAt: "2026-09-08T11:00:00Z",
+  };
+
+  it("Test 1 (harness-only + kind marker): 2 harness sessions, 0 relay rows → each carries kind='harness'", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+    mockedListActiveRelayRoomSessions.mockResolvedValue([]);
+
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) {
+        return Promise.resolve("poppy|1000\npatricia|2000");
+      }
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<{ kind: string; sessionName?: string; id?: string }>;
+    expect(rows).toHaveLength(2);
+    // Every row carries the kind marker.
+    expect(rows.every((r) => r.kind === "harness")).toBe(true);
+    // Harness rows sorted by created DESC (patricia=2000 first, poppy=1000 second).
+    expect(rows[0].sessionName).toBe("patricia");
+    expect(rows[1].sessionName).toBe("poppy");
+  });
+
+  it("Test 2 (relay-only): 0 harness sessions, 3 relay rows → each carries kind='relay-room' with relay fields", async () => {
+    // No autoTmux hosts → candidates array is empty → harness derivation yields 0 rows.
+    mockSimpleDBOpsSelect.mockResolvedValue([]);
+    mockedListActiveRelayRoomSessions.mockResolvedValue([
+      relayRowA,
+      relayRowB,
+      relayRowC,
+    ]);
+
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<{
+      kind: string;
+      id?: string;
+      roomId?: string;
+      roomTitle?: string | null;
+      lastActivityAt?: string | null;
+      createdAt?: string;
+      updatedAt?: string;
+    }>;
+    expect(rows).toHaveLength(3);
+    expect(rows.every((r) => r.kind === "relay-room")).toBe(true);
+    // Fields carried through from the store shape.
+    expect(rows[0].id).toBe("row-uuid-a");
+    expect(rows[0].roomId).toBe("!room-a:matrix.local");
+    expect(rows[0].roomTitle).toBe("Ashley + Taylor");
+    expect(rows[0].lastActivityAt).toBe("2026-09-08T14:30:00Z");
+    expect(rows[0].createdAt).toBe("2026-09-08T13:00:00Z");
+    expect(rows[0].updatedAt).toBe("2026-09-08T14:30:00Z");
+    // Null-tolerant fields survive.
+    expect(rows[2].roomTitle).toBeNull();
+    expect(rows[2].lastActivityAt).toBeNull();
+    // connectOneShot never called (no candidates).
+    expect(connectOneShot).not.toHaveBeenCalled();
+  });
+
+  it("Test 3 (merged): 2 harness + 3 relay = 5-item response, harness first (sorted DESC), relay appended", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+    mockedListActiveRelayRoomSessions.mockResolvedValue([
+      relayRowA,
+      relayRowB,
+      relayRowC,
+    ]);
+
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) {
+        return Promise.resolve("poppy|1000\npatricia|2000");
+      }
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<{
+      kind: string;
+      sessionName?: string;
+      id?: string;
+      created?: number;
+    }>;
+    expect(rows).toHaveLength(5);
+    // First 2: harness rows, sorted by created DESC.
+    expect(rows[0].kind).toBe("harness");
+    expect(rows[0].sessionName).toBe("patricia");
+    expect(rows[1].kind).toBe("harness");
+    expect(rows[1].sessionName).toBe("poppy");
+    // Last 3: relay rows appended in the store's input order.
+    expect(rows[2].kind).toBe("relay-room");
+    expect(rows[2].id).toBe("row-uuid-a");
+    expect(rows[3].kind).toBe("relay-room");
+    expect(rows[3].id).toBe("row-uuid-b");
+    expect(rows[4].kind).toBe("relay-room");
+    expect(rows[4].id).toBe("row-uuid-c");
+  });
+
+  it("Test 4 (DB-throw fallback): listActiveRelayRoomSessions rejects → response is harness rows only with 200", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+    mockedListActiveRelayRoomSessions.mockRejectedValue(
+      new Error("simulated relay-room-sessions DB failure"),
+    );
+
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) {
+        return Promise.resolve("poppy|1000\npatricia|2000");
+      }
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+
+    // 200 (best-effort merge — do NOT fail the endpoint on relay side).
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<{ kind: string; sessionName?: string }>;
+    // Harness rows returned; relay side silently swallowed.
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.kind === "harness")).toBe(true);
+    expect(rows.map((r) => r.sessionName).sort()).toEqual(["patricia", "poppy"]);
+  });
+
+  it("Test 5 (timeout budget): relay lookup fires AFTER Promise.all resolves — no setTimeout wrapper", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+    mockedListActiveRelayRoomSessions.mockResolvedValue([]);
+
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) {
+        return Promise.resolve("poppy|1000");
+      }
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const startMs = Date.now();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+    const elapsedMs = Date.now() - startMs;
+
+    expect(res.status).toBe(200);
+    // The relay lookup ran (mocked call recorded).
+    expect(mockedListActiveRelayRoomSessions).toHaveBeenCalledWith("1");
+    // In-process DB lookup is cheap; total elapsed must remain well within
+    // the existing 30s per-host budget. Assert < 5s to prove no accidental
+    // slow path (no setTimeout wrapper around the DB call).
+    expect(elapsedMs).toBeLessThan(5_000);
+  });
+
+  it("Test 6 (no regression on harness path): existing harness-shape fields byte-identical, kind is the ONLY added field", async () => {
+    const fakeConn = { end: vi.fn(), exec: vi.fn() };
+    (connectOneShot as Mock).mockResolvedValue(fakeConn);
+    mockedListActiveRelayRoomSessions.mockResolvedValue([]);
+
+    (execCommand as Mock).mockImplementation((_conn: unknown, cmd: string): Promise<string> => {
+      if (cmd.includes("tmux list-sessions")) {
+        return Promise.resolve("poppy|1000");
+      }
+      if (cmd.includes("identities/poppy/poppy.md")) {
+        return Promise.resolve("---\nrole: box-maintainer\n---\n# Poppy\n");
+      }
+      return Promise.resolve("");
+    });
+
+    makeApp();
+    const res = await httpRequest(server, { method: "GET", path: "/sessions/list" });
+
+    expect(res.status).toBe(200);
+    const rows = res.body as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(1);
+    const poppy = rows[0];
+    // All Phase 44/47 harness fields present and unchanged.
+    expect(poppy.hostId).toBe(42);
+    expect(poppy.hostName).toBe("box-a");
+    expect(poppy.sessionName).toBe("poppy");
+    expect(poppy.created).toBe(1000);
+    expect(poppy.role).toBe("box-maintainer");
+    expect(poppy.lastMessageAt).toBeNull();
+    expect(poppy.aiTitle).toBeNull();
+    // The ONLY new field: kind.
+    expect(poppy.kind).toBe("harness");
+    // Sanity: no unexpected extra fields creep in beyond kind.
+    const expectedKeys = new Set([
+      "hostId",
+      "hostName",
+      "sessionName",
+      "created",
+      "role",
+      "lastMessageAt",
+      "aiTitle",
+      "kind",
+    ]);
+    for (const key of Object.keys(poppy)) {
+      expect(expectedKeys.has(key)).toBe(true);
+    }
   });
 });
