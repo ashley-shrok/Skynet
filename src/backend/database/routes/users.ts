@@ -2416,6 +2416,26 @@ router.delete("/delete-account", authenticateJWT, async (req, res) => {
       );
     }
 
+    // Phase 88 D-09 — deactivate Matrix account BEFORE row DELETE (Pitfall 5 — cannot read mxid after DELETE).
+    // Best-effort per D-10: Synapse failure logs a warning with the orphan mxid and proceeds with the row DELETE
+    // anyway. Refusing to delete the Skynet account because of Synapse infra weirdness is worse UX than leaving
+    // a temporarily-orphaned deactivated Matrix account behind.
+    if (userRecord.mxid) {
+      const deactivateResult = await deactivateUser(userRecord.mxid);
+      if (!deactivateResult.ok) {
+        authLogger.warn(
+          "Matrix account deactivation failed on delete-account (orphaned mxid logged for future sweep — D-10 best-effort)",
+          {
+            operation: "delete_account_matrix_deactivate_failed",
+            userId,
+            mxid: userRecord.mxid,
+            status: deactivateResult.status,
+            error: deactivateResult.error,
+          },
+        );
+      }
+    }
+
     await db.delete(users).where(eq(users.id, userId));
 
     // M5: forceSave after row deletion — crown-jewel invariant (matches the
