@@ -2827,40 +2827,41 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     useEffect(() => {
       isMountedRef.current = true;
 
-      const currentHostId = hostConfig.id;
       return () => {
         if (!isMountedRef.current) {
           return;
         }
 
-        if (
-          currentHostIdRef.current !== currentHostId &&
-          currentHostIdRef.current !== null
-        ) {
-          isUnmountingRef.current = true;
-          shouldNotReconnectRef.current = true;
-          isReconnectingRef.current = false;
-          setIsConnecting(false);
-          if (reconnectTimeoutRef.current)
-            clearTimeout(reconnectTimeoutRef.current);
-          if (connectionTimeoutRef.current)
-            clearTimeout(connectionTimeoutRef.current);
-          if (totpTimeoutRef.current) clearTimeout(totpTimeoutRef.current);
-          if (pingIntervalRef.current) {
-            clearInterval(pingIntervalRef.current);
-            pingIntervalRef.current = null;
-          }
-          if (pongTimeoutRef.current) {
-            clearTimeout(pongTimeoutRef.current);
-            pongTimeoutRef.current = null;
-          }
-
-          if (webSocketRef.current) {
-            webSocketRef.current.close();
-          }
-
-          isMountedRef.current = false;
+        // Was gated on `currentHostIdRef.current !== currentHostId` — that
+        // silently skipped ws.close() on real unmounts where the host didn't
+        // change (the typical case), leaving the WS + onmessage closure alive
+        // with an orphan xterm instance. Symptom: terminal view "visually
+        // frozen but accepts keys" (data written into DOM-detached buffer).
+        // See [term-diag] write-suspicious mountId=… domConnected=null in
+        // /opt/skynet/console-forward-logs/console-forward.log for the trail.
+        isUnmountingRef.current = true;
+        shouldNotReconnectRef.current = true;
+        isReconnectingRef.current = false;
+        setIsConnecting(false);
+        if (reconnectTimeoutRef.current)
+          clearTimeout(reconnectTimeoutRef.current);
+        if (connectionTimeoutRef.current)
+          clearTimeout(connectionTimeoutRef.current);
+        if (totpTimeoutRef.current) clearTimeout(totpTimeoutRef.current);
+        if (pingIntervalRef.current) {
+          clearInterval(pingIntervalRef.current);
+          pingIntervalRef.current = null;
         }
+        if (pongTimeoutRef.current) {
+          clearTimeout(pongTimeoutRef.current);
+          pongTimeoutRef.current = null;
+        }
+
+        if (webSocketRef.current) {
+          webSocketRef.current.close();
+        }
+
+        isMountedRef.current = false;
       };
     }, [hostConfig.id, hostConfig.instanceId]);
 
