@@ -71,6 +71,12 @@ import {
   useSessionIsRecycling,
 } from "@/state/session-working-store";
 import { useSessionWaitingFor } from "@/state/session-waiting-store";
+// Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Ashley 2026-09-08 D-03
+// mechanical waiver): contextPct now lives on fleet-status (single source of
+// truth) rather than in this component's local useState. Both PrettyView and
+// the future Plan 06 relay-pane badge appendage subscribe to the same value
+// via this hook. Zero UX change; zero behavior change end-to-end.
+import { useSessionContextPct } from "@/api/fleet-status-client";
 import { WaitingBubble } from "./WaitingBubble";
 
 // Patch #148: mirror Terminal.tsx's proven WebSocket auto-reconnect pattern.
@@ -566,11 +572,17 @@ export function PrettyView({
   const [status, setStatus] = useState<Status>("connecting");
   const [inactiveReason, setInactiveReason] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  // Context-window fill %, scraped by the backend from Claude Code's tmux
-  // status line every 3s. null = backend hasn't emitted a reading yet on
-  // the current attach; hold-last is enforced upstream (the server doesn't
-  // emit on regex miss), so once set this value only moves on a real read.
-  const [contextPct, setContextPct] = useState<number | null>(null);
+  // Context-window fill %, sourced from the fleet-status shared map (single
+  // source of truth). Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism,
+  // Ashley 2026-09-08 D-03 mechanical waiver) SWAPPED the previous local
+  // `useState<number | null>(null)` for this hook — same variable name,
+  // same type, same behavior end-to-end. Backend dual-writes on every
+  // `context_pct` emission from claude-session-server, publishes on every
+  // fleet-status frame. The WS `context_pct` handler below at L~2269 is a
+  // no-op (backend still emits for backwards compat during transition;
+  // the frontend no longer consumes the WS variant since fleet-status is
+  // authoritative). null = no reading yet OR backend not yet emitted.
+  const contextPct = useSessionContextPct(hostId, tmuxSession ?? "");
   // Claude Code harness task list (TaskCreate + /queue items). Empty array
   // = confirmed no tasks; the backend polls every 3s and emits on change.
   // The panel above the compose box mounts only when the FILTERED list
@@ -1729,7 +1741,11 @@ export function PrettyView({
       setStatus("connecting");
       setInactiveReason(null);
       setErrorMessage(null);
-      setContextPct(null);
+      // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Ashley 2026-09-08
+      // D-03 mechanical waiver): contextPct now lives on fleet-status —
+      // no local reset needed. The fleet-status snapshot on the WS
+      // re-subscribe repopulates the store for this key; a `gone` frame
+      // clears the store entry naturally via AppShell's onGone dispatch.
       setHarnessTasks([]);
       setBackgroundedAgents([]);
       setBackgroundedShells([]);
@@ -1979,7 +1995,9 @@ export function PrettyView({
             );
             setMessages([]);
             setHarnessTasks([]);
-            setContextPct(null);
+            // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism) — contextPct
+            // now lives on fleet-status; no local reset needed. Next
+            // fleet-status frame reconciles.
             setBackgroundedAgents([]);
             setBackgroundedShells([]);
             setPlanPending(null);
@@ -2306,8 +2324,16 @@ export function PrettyView({
           break;
         }
         case "context_pct": {
-          console.info(`[ctx-pct-diag] received pct=${parsed.pct} sessionId=${tmuxSession ?? 'null'}`);
-          setContextPct(parsed.pct);
+          // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Ashley
+          // 2026-09-08 D-03 mechanical waiver): NO-OP. fleet-status is now
+          // the single source of truth for contextPct; the meter reads via
+          // useSessionContextPct at L~570. Backend STILL emits this frame
+          // for backwards compat during transition (per Task 1 acceptance
+          // criterion — WS emissions preserved verbatim, grep-verified);
+          // the frontend no longer consumes it here. Diag log preserved
+          // so a repro can still confirm the frame is arriving on the WS
+          // even though the state-source is now fleet-status.
+          console.info(`[ctx-pct-diag] received pct=${parsed.pct} sessionId=${tmuxSession ?? 'null'} (no-op — fleet-status is authoritative post-Phase-90-Wave-0)`);
           break;
         }
         case "dormant": {
@@ -2438,7 +2464,9 @@ export function PrettyView({
           // session_changed frame remains authoritative for the reset.
           setMessages([]);
           setHarnessTasks([]);
-          setContextPct(null);
+          // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism) — contextPct
+          // now lives on fleet-status; no local reset needed. Next
+          // fleet-status frame reconciles.
           setBackgroundedAgents([]);
           setBackgroundedShells([]);
           // Phase 34 Plan 06: hasBgWork feeder RETIRED on session_changed.

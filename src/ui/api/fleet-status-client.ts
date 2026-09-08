@@ -21,6 +21,7 @@
  *   trusts contents but never lets a parse error crash the client.
  */
 
+import { useSyncExternalStore } from "react";
 import type {
   FrontendOutboundFrame,
   SessionState,
@@ -130,6 +131,17 @@ export function createFleetStatusClient(
             url,
             stateCount: parsed.states.length,
           });
+          // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Ashley
+          // 2026-09-08 D-03 waiver): publish per-session contextPct into
+          // the co-located store so useSessionContextPct consumers
+          // (PrettyView post-swap, future relay-pane badge appendage)
+          // re-render on the very next snapshot with fresh values. The
+          // user's onSnapshot callback fires AFTER — matches the existing
+          // ordering discipline in AppShell where session-working-store,
+          // session-waiting-store, session-tmux-store all publish first.
+          for (const s of parsed.states) {
+            publishSessionContextPct(s.hostId, s.tmuxSession, s.contextPct ?? null);
+          }
           onSnapshot(parsed.states);
           break;
         case "update":
@@ -141,6 +153,11 @@ export function createFleetStatusClient(
             sessionId: parsed.state.sessionId,
             status: parsed.state.status,
           });
+          publishSessionContextPct(
+            parsed.state.hostId,
+            parsed.state.tmuxSession,
+            parsed.state.contextPct ?? null,
+          );
           onUpdate(parsed.state);
           break;
         case "gone":
@@ -151,6 +168,9 @@ export function createFleetStatusClient(
             tmuxSession: parsed.tmuxSession,
             sessionId: parsed.sessionId,
           });
+          // Clean up the contextPct entry so a session-not-in-fleet returns
+          // null on the hook (D-10 correctness — no stale reading).
+          publishSessionContextPctGone(parsed.hostId, parsed.tmuxSession);
           onGone(parsed.hostId, parsed.tmuxSession, parsed.sessionId);
           break;
         case "pong":
@@ -243,4 +263,136 @@ export function createFleetStatusClient(
       });
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Ashley 2026-09-08 D-03
+// waiver) — per-session contextPct store + useSessionContextPct hook.
+//
+// Co-located here rather than in a peer state module because contextPct only
+// flows in one direction (fleet-status → hook consumers), the publish side is
+// wired implicitly by createFleetStatusClient (no AppShell change needed for
+// this axis alone), and the store has a single axis (unlike session-working-
+// store's multi-axis composite). Same useSyncExternalStore + module-scoped
+// Map + Set<() => void> listener registry pattern as
+// src/ui/state/session-working-store.ts.
+//
+// KEY FORMAT: `${hostId}:${tmuxSession ?? ""}` — matches the backend
+// contextpct-store.ts and the frontend session-working-store convention.
+// This is the D-10 correctness invariant — both PrettyView (post D-03
+// mechanical swap) and the future Plan 06 relay-pane badge appendage MUST
+// build the key with the SAME shape.
+//
+// CONSUMED BY:
+//   - PrettyView.tsx (post D-03 mechanical waiver): replaces the local
+//     `useState<number | null>(null)` at L570 with
+//     `useSessionContextPct(hostId, tmuxSession ?? "")`. The WS
+//     `context_pct` handler at L2269 becomes a no-op (backend still emits
+//     for backwards compat; the frontend no longer reads it there).
+//   - Plan 06 AgentBadgeWithAppendage (future): reads the SAME hook so the
+//     same agent viewed on either surface shows identical values.
+// ---------------------------------------------------------------------------
+
+const contextPctStore = new Map<string, number | null>();
+const contextPctListeners = new Set<() => void>();
+
+function contextPctKey(hostId: string, tmuxSession: string | null): string {
+  return `${hostId}:${tmuxSession ?? ""}`;
+}
+
+function notifyContextPctListeners(): void {
+  for (const cb of contextPctListeners) cb();
+}
+
+/**
+ * Publish a contextPct value for a (hostId, tmuxSession) pair. Called
+ * internally by createFleetStatusClient on every snapshot + update frame.
+ * Skips notify when the value is unchanged for the key (no-op guard prevents
+ * spurious re-renders on repeated identical frames). Explicit null is a
+ * valid value (dormant sentinel / no reading yet).
+ */
+function publishSessionContextPct(
+  hostId: string,
+  tmuxSession: string | null,
+  pct: number | null,
+): void {
+  const key = contextPctKey(hostId, tmuxSession);
+  const existing = contextPctStore.get(key);
+  // No-op guard: only notify on actual change. Object.is handles null
+  // identity correctly and treats 0 as not-equal to -0 (harmless here).
+  if (contextPctStore.has(key) && Object.is(existing, pct)) return;
+  contextPctStore.set(key, pct);
+  notifyContextPctListeners();
+}
+
+/**
+ * Remove the contextPct entry for a (hostId, tmuxSession) pair. Called
+ * internally by createFleetStatusClient on every `gone` frame so a session
+ * that leaves the fleet no longer serves stale readings.
+ */
+function publishSessionContextPctGone(
+  hostId: string,
+  tmuxSession: string | null,
+): void {
+  const key = contextPctKey(hostId, tmuxSession);
+  if (!contextPctStore.has(key)) return;
+  contextPctStore.delete(key);
+  notifyContextPctListeners();
+}
+
+function subscribeContextPct(cb: () => void): () => void {
+  contextPctListeners.add(cb);
+  return () => {
+    contextPctListeners.delete(cb);
+  };
+}
+
+/**
+ * React hook — subscribe to a single session's contextPct value from the
+ * fleet-status stream. Returns null when:
+ *   - The (hostId, tmuxSession) key has never been published (session not in
+ *     fleet, or fleet-status client not yet connected).
+ *   - The most recent published value was null (fresh session pre-scrape,
+ *     dormant sentinel, or SSH-hiccup normalised-null on the backend).
+ *
+ * hostId is number-or-string on the caller side (PrettyView has number, the
+ * relay-pane badge appendage will also have a numeric fleet-derived hostId).
+ * Coerced to string here to match the backend contextpct-store's key format.
+ *
+ * useSyncExternalStore semantics: any publishSessionContextPct that changes
+ * the value for this key re-renders consumers. Unchanged frames are skipped
+ * at the publish boundary.
+ */
+export function useSessionContextPct(
+  hostId: string | number,
+  tmuxSession: string,
+): number | null {
+  const key = contextPctKey(String(hostId), tmuxSession);
+  const getSnapshot = (): number | null => {
+    const val = contextPctStore.get(key);
+    if (val === undefined) return null;
+    return val;
+  };
+  return useSyncExternalStore(subscribeContextPct, getSnapshot, getSnapshot);
+}
+
+/**
+ * TEST ONLY — reset the module-scoped contextPct store so each test starts
+ * from a clean slate. NOT a public API.
+ */
+export function __resetSessionContextPctForTests(): void {
+  contextPctStore.clear();
+  notifyContextPctListeners();
+}
+
+/**
+ * TEST ONLY — allow tests to directly publish a value without going through
+ * the WS lifecycle. Useful for isolation tests of the hook itself.
+ */
+export function __setSessionContextPctForTests(
+  hostId: string,
+  tmuxSession: string | null,
+  pct: number | null,
+): void {
+  publishSessionContextPct(hostId, tmuxSession, pct);
 }

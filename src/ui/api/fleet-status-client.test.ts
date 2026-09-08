@@ -681,3 +681,148 @@ describe("fleet-status-client: Test 9 — reconnect delay is full-jittered (R-54
     expect(gaveUp).toBeDefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Ashley 2026-09-08 D-03
+// waiver) — useSessionContextPct hook tests (behaviors 1-4 per plan).
+// ---------------------------------------------------------------------------
+
+describe("useSessionContextPct hook (Phase 90 Wave 0)", () => {
+  // Vitest uses jsdom by default per package.json; renderHook needs the DOM.
+  let renderHook: typeof import("@testing-library/react").renderHook;
+  let act: typeof import("@testing-library/react").act;
+  let useSessionContextPct: (
+    hostId: string | number,
+    tmuxSession: string,
+  ) => number | null;
+  let __setSessionContextPctForTests: (
+    hostId: string,
+    tmuxSession: string | null,
+    pct: number | null,
+  ) => void;
+  let __resetSessionContextPctForTests: () => void;
+
+  beforeEach(async () => {
+    // Import lazily so the vi.useFakeTimers() setup above doesn't interfere.
+    const rtl = await import("@testing-library/react");
+    renderHook = rtl.renderHook;
+    act = rtl.act;
+    const mod = await import("./fleet-status-client.js");
+    useSessionContextPct = mod.useSessionContextPct;
+    __setSessionContextPctForTests = mod.__setSessionContextPctForTests;
+    __resetSessionContextPctForTests = mod.__resetSessionContextPctForTests;
+    // Use REAL timers for hook tests — React scheduling depends on them.
+    vi.useRealTimers();
+    __resetSessionContextPctForTests();
+  });
+
+  afterEach(() => {
+    __resetSessionContextPctForTests();
+  });
+
+  it(
+    "Test 1 (behavior 1): returns the current contextPct for the given session from the subscribed store; returns null when the session record has no contextPct OR when the session is not present",
+    () => {
+      // Unpublished session → null.
+      const { result: r1 } = renderHook(() =>
+        useSessionContextPct(42, "never-published"),
+      );
+      expect(r1.current).toBeNull();
+
+      // Publish a value, mount hook, read.
+      __setSessionContextPctForTests("42", "tina", 55);
+      const { result: r2 } = renderHook(() =>
+        useSessionContextPct(42, "tina"),
+      );
+      expect(r2.current).toBe(55);
+
+      // Publish an explicit null (dormant/no-reading sentinel) → hook reads null.
+      act(() => {
+        __setSessionContextPctForTests("42", "tina", null);
+      });
+      expect(r2.current).toBeNull();
+    },
+  );
+
+  it(
+    "Test 2 (behavior 2): mounting subscribes; unmounting cleans up (mirrors the existing hook pattern)",
+    () => {
+      __setSessionContextPctForTests("42", "tina", 30);
+      const { result, unmount } = renderHook(() =>
+        useSessionContextPct(42, "tina"),
+      );
+      expect(result.current).toBe(30);
+
+      // Unmount should remove the listener — a subsequent publish must NOT
+      // throw or cause a stale render. React 18 renderHook.unmount is sync.
+      unmount();
+      expect(() => {
+        act(() => {
+          __setSessionContextPctForTests("42", "tina", 90);
+        });
+      }).not.toThrow();
+      // Freshly mounted hook sees the new value (proves the store is intact).
+      const { result: r2 } = renderHook(() =>
+        useSessionContextPct(42, "tina"),
+      );
+      expect(r2.current).toBe(90);
+    },
+  );
+
+  it(
+    "Test 3 (behavior 3): hook key format matches session-working-store convention — `${hostId}:${tmuxSession}` (D-10 correctness)",
+    () => {
+      // Publishing with a specific hostId+tmuxSession — the hook must resolve
+      // to the SAME key. String-vs-number hostId coercion must not collide.
+      __setSessionContextPctForTests("42", "tina", 65);
+      const { result } = renderHook(() =>
+        useSessionContextPct(42, "tina"), // numeric hostId — must resolve
+      );
+      expect(result.current).toBe(65);
+
+      // Different tmuxSession on same hostId → distinct key.
+      const { result: rOther } = renderHook(() =>
+        useSessionContextPct(42, "other"),
+      );
+      expect(rOther.current).toBeNull();
+
+      // Different hostId, same tmuxSession → distinct key.
+      __setSessionContextPctForTests("77", "tina", 12);
+      const { result: rHost77 } = renderHook(() =>
+        useSessionContextPct("77", "tina"),
+      );
+      expect(rHost77.current).toBe(12);
+      // Original still 65 (no collision).
+      expect(result.current).toBe(65);
+    },
+  );
+
+  it(
+    "Test 4 (behavior 4): reactive updates — a change to the underlying fleet-status snapshot re-renders consumers (useSyncExternalStore semantics)",
+    () => {
+      __setSessionContextPctForTests("42", "tina", 20);
+      const { result } = renderHook(() =>
+        useSessionContextPct(42, "tina"),
+      );
+      expect(result.current).toBe(20);
+
+      // Publish successive updates; hook must reflect each.
+      act(() => {
+        __setSessionContextPctForTests("42", "tina", 30);
+      });
+      expect(result.current).toBe(30);
+
+      act(() => {
+        __setSessionContextPctForTests("42", "tina", 50);
+      });
+      expect(result.current).toBe(50);
+
+      // Publishing an IDENTICAL value should be a no-op notify (guard in
+      // publishSessionContextPct). Hook value stays at 50.
+      act(() => {
+        __setSessionContextPctForTests("42", "tina", 50);
+      });
+      expect(result.current).toBe(50);
+    },
+  );
+});

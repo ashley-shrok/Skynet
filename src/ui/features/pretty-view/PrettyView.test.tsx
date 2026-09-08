@@ -1080,7 +1080,18 @@ describe("PrettyView — Fix B: session_holding_cleared self-clear (quick 260730
     expect(container.textContent).toContain('hi back');
   });
 
-  it("Test F3: contextPct set BEFORE session_holding_cleared is preserved after (no heavy-reset)", () => {
+  it("Test F3: contextPct sourced from fleet-status is preserved across session_holding_cleared (no heavy-reset)", async () => {
+    // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Ashley 2026-09-08
+    // D-03 mechanical waiver): contextPct now lives on fleet-status; the
+    // WS `context_pct` frame handler in PrettyView is a NO-OP. This test
+    // rewritten to publish contextPct via the fleet-status store (the
+    // authoritative source post-swap) and confirms session_holding_cleared
+    // does NOT wipe the meter reading. Same INTENT as before, updated
+    // publisher.
+    const { __setSessionContextPctForTests, __resetSessionContextPctForTests } =
+      await import("@/api/fleet-status-client");
+    __resetSessionContextPctForTests();
+
     const { container } = render(
       <PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={true} />,
     );
@@ -1094,8 +1105,11 @@ describe("PrettyView — Fix B: session_holding_cleared self-clear (quick 260730
       );
     });
 
-    // Send a contextPct frame so the % badge renders:
-    fireWsFrame(ws, { type: 'context_pct', pct: 42 });
+    // Publish contextPct via fleet-status (the post-swap source of truth) so
+    // the % badge renders:
+    act(() => {
+      __setSessionContextPctForTests("1", "s1", 42);
+    });
 
     // Arm holding + clear:
     fireWsFrame(ws, { type: 'session_holding' });
@@ -1110,9 +1124,12 @@ describe("PrettyView — Fix B: session_holding_cleared self-clear (quick 260730
     expect(container.querySelector('[role="status"]')).toBeNull();
     // contextPct value is surfaced via aria-valuenow on the context bar
     // (ComposeBox renders it with aria-valuenow={contextPct ?? undefined}).
-    // session_holding_cleared must NOT have reset it to null:
+    // Fleet-status is authoritative; session_holding_cleared does not clear
+    // the meter reading (it never did, but the source is now fleet-status).
     const ctxBar = container.querySelector('[aria-valuenow="42"]');
     expect(ctxBar).toBeTruthy();
+
+    __resetSessionContextPctForTests();
   });
 });
 
@@ -2000,5 +2017,132 @@ describe("Phase 56: invisible dormancy (no user-facing wake surface)", () => {
     );
     const wakeEmit = sentPayloads.find((p: { type?: string } | null) => p != null && p.type === 'wake');
     expect(wakeEmit).toBeUndefined();
+  });
+});
+
+// ─── Phase 90 Plan 00 Wave 0 — D-03 mechanical waiver regression tests ─────
+//
+// contextPct source-swap: the PrettyView meter reading now comes from
+// fleet-status via useSessionContextPct instead of a local useState that
+// caught `context_pct` WS frames. These regression tests prove the swap is
+// mechanical — no UX change, no behavior change end-to-end — and that the
+// context_pct WS handler is a no-op (no throw, no crash, no stale setter).
+describe("PrettyView — Phase 90 Wave 0 mechanical D-03 waiver regression", () => {
+  // jsdom does not implement ResizeObserver; useAutoScroll uses it in its
+  // effect. Same stub pattern as the other describe blocks above.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    wsStubs.length = 0;
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    const resizeObserverStub = vi.fn(function () {
+      return { observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn() };
+    });
+    vi.stubGlobal('ResizeObserver', resizeObserverStub);
+  });
+
+  it("Test 5: ComposeBox's contextPct prop still receives the current fleet-status value (mount-time swap correctness)", async () => {
+    const { __setSessionContextPctForTests, __resetSessionContextPctForTests } =
+      await import("@/api/fleet-status-client");
+    __resetSessionContextPctForTests();
+
+    // Pre-populate fleet-status for this session BEFORE mount so the very
+    // first render reads it via the hook.
+    __setSessionContextPctForTests("7", "swap-test", 42);
+
+    const { container } = render(
+      <PrettyView hostId={7} tmuxSession="swap-test" onSend={vi.fn(() => true)} isVisible={true} />,
+    );
+    const ws = getCurrentWs();
+    act(() => {
+      ws.onopen?.();
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'session', sessionFile: '/tmp/test.jsonl' }),
+        }),
+      );
+    });
+
+    // The meter is rendered by ComposeBox with aria-valuenow={contextPct}.
+    // Since contextPct is now sourced from the fleet-status hook, the meter
+    // reflects 42 without any WS `context_pct` frame having been sent.
+    const ctxBar = container.querySelector('[aria-valuenow="42"]');
+    expect(ctxBar).toBeTruthy();
+
+    __resetSessionContextPctForTests();
+  });
+
+  it("Test 6: fleet-status snapshot updates re-render the meter (reactive updates via useSyncExternalStore)", async () => {
+    const { __setSessionContextPctForTests, __resetSessionContextPctForTests } =
+      await import("@/api/fleet-status-client");
+    __resetSessionContextPctForTests();
+
+    __setSessionContextPctForTests("7", "swap-reactive", 20);
+
+    const { container } = render(
+      <PrettyView hostId={7} tmuxSession="swap-reactive" onSend={vi.fn(() => true)} isVisible={true} />,
+    );
+    const ws = getCurrentWs();
+    act(() => {
+      ws.onopen?.();
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'session', sessionFile: '/tmp/test.jsonl' }),
+        }),
+      );
+    });
+
+    expect(container.querySelector('[aria-valuenow="20"]')).toBeTruthy();
+
+    // Publish a new value; meter re-renders.
+    act(() => {
+      __setSessionContextPctForTests("7", "swap-reactive", 65);
+    });
+    expect(container.querySelector('[aria-valuenow="65"]')).toBeTruthy();
+    expect(container.querySelector('[aria-valuenow="20"]')).toBeNull();
+
+    __resetSessionContextPctForTests();
+  });
+
+  it("Test 7: WS `context_pct` frame arriving is a NO-OP — does not throw, does not crash, does not overwrite the fleet-status-sourced value", async () => {
+    const { __setSessionContextPctForTests, __resetSessionContextPctForTests } =
+      await import("@/api/fleet-status-client");
+    __resetSessionContextPctForTests();
+
+    __setSessionContextPctForTests("7", "swap-noop", 55);
+
+    const { container } = render(
+      <PrettyView hostId={7} tmuxSession="swap-noop" onSend={vi.fn(() => true)} isVisible={true} />,
+    );
+    const ws = getCurrentWs();
+    act(() => {
+      ws.onopen?.();
+      ws.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'session', sessionFile: '/tmp/test.jsonl' }),
+        }),
+      );
+    });
+
+    expect(container.querySelector('[aria-valuenow="55"]')).toBeTruthy();
+
+    // Fire a `context_pct` WS frame — the handler is a no-op post-swap. This
+    // MUST NOT throw, MUST NOT crash the component, and MUST NOT overwrite
+    // the fleet-status-sourced value (which stays at 55 because the store
+    // wasn't published). Inline the fireWsFrame helper shape used elsewhere.
+    expect(() => {
+      act(() => {
+        ws.onmessage?.(
+          new MessageEvent('message', {
+            data: JSON.stringify({ type: 'context_pct', pct: 99 }),
+          }),
+        );
+      });
+    }).not.toThrow();
+
+    // Meter STILL reads 55 (fleet-status is authoritative — 99 does NOT win).
+    expect(container.querySelector('[aria-valuenow="55"]')).toBeTruthy();
+    expect(container.querySelector('[aria-valuenow="99"]')).toBeNull();
+
+    __resetSessionContextPctForTests();
   });
 });
