@@ -339,6 +339,39 @@ vi.mock("../../utils/shared-credential-manager.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Phase 88 Plan 03: mocks for matrix-admin-client, username-to-mxid,
+// and matrix-admin-creds-store so that the POST /users/create path in
+// users.ts (now wired for mint-first provisioning) resolves cleanly and
+// the existing integration test still passes with no assertion changes.
+// ---------------------------------------------------------------------------
+
+vi.mock("../../matrix/matrix-admin-client.js", () => ({
+  createOrUpdateUser: vi.fn(async () => ({
+    ok: true,
+    mxid: "@alice_human:thenasty.taild9b663.ts.net",
+    password: "test-pw",
+    status: 201,
+  })),
+  deactivateUser: vi.fn(async () => ({ ok: true })),
+}));
+
+vi.mock("../../matrix/username-to-mxid.js", () => ({
+  buildHumanMxid: vi.fn(() => "@alice_human:thenasty.taild9b663.ts.net"),
+  generateHumanRelayPassword: vi.fn(() => "deadbeef00112233445566778899aabbccddeeff00112233"),
+  extractServerName: vi.fn(() => "thenasty.taild9b663.ts.net"),
+  sanitizeUsernameToLocalpart: vi.fn((s: string) => s.toLowerCase()),
+}));
+
+vi.mock("../../matrix/matrix-admin-creds-store.js", () => ({
+  getMatrixAdminCreds: vi.fn(async () => ({
+    homeserverBase: "http://100.113.23.63:8008",
+    userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+    accessToken: "syt_admin_token",
+    password: "admin-pw",
+  })),
+}));
+
+// ---------------------------------------------------------------------------
 // Image byte fixtures
 // Multer validates Content-Type (client-declared), not file magic bytes —
 // so any non-empty Buffer with the correct Content-Type header passes multer.
