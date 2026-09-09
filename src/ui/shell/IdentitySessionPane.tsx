@@ -266,6 +266,28 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
           {/* Always-mounted: PrettyView is the primary surface for identity panes.
               It owns its claude-session WS independently of Terminal. */}
           <PrettyView
+            // Phase 92 Slice 1 (D-07): discriminated-union source prop.
+            // Constructed inline as `{ kind: "harness", ... }` from the
+            // same host + effectiveTmuxSession + tabId inputs the redundant
+            // legacy props below carry. Slice 4 rewires the tabUtils
+            // dispatcher's relay branch to construct a
+            // `{ kind: "relay", ... }` variant at the sibling call site;
+            // Slice 3 will land the real relay adapter that consumes it.
+            source={{
+              kind: "harness",
+              hostId: parseInt(host.id, 10),
+              tmuxSession: effectiveTmuxSession ?? "",
+              tabId: tabId ?? undefined,
+            }}
+            // Phase 92 Slice 1 — redundant legacy props (Blocker 1
+            // resolution). Retained alongside `source` because many
+            // PrettyView internal consumers still read these flat props
+            // directly: the badge anchor at PrettyView.tsx:~L3349, the
+            // useSessionIsWorking key composition, the IdentityModal
+            // invocation, the fleet-identity-hosts lookup, and so on.
+            // Retirement of the redundant legacy props happens post-
+            // Slice-4 in a follow-up cleanup once every internal consumer
+            // has been proven to read from `source` instead.
             hostId={parseInt(host.id, 10)}
             tmuxSession={effectiveTmuxSession ?? ""}
             className="flex-1 min-h-0"
