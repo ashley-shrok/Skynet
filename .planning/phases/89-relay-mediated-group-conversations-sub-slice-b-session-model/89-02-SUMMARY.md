@@ -224,24 +224,27 @@ Ashley clarified after the verifier surfaced D-12 as a gap (verbatim: *"there's 
 
 **When to run:** Once, after deploying Phase 89 to a Skynet instance. Between deploy and this manual-run, pre-existing agents/humans are NOT in the registry rooms and their two-party DMs (with local agents specifically) will materialize as **duplicate sidebar entries** — normal harness session + peer relay-room entry for the same conversation. Running the backfill closes that gap by joining each pre-existing account to the appropriate registry room, after which the classifier's D-08/D-09 exclusion kicks in and the duplicates disappear on the next observation tick (~10s).
 
+> **⚠️ 2026-09-09 UPDATE: this runbook was rewritten.** The prior `docker exec skynet node --input-type=module <<...>>` invocation DID NOT WORK — Skynet's `:memory:` SQLite architecture (Phase 68) means each node process opens its OWN fresh empty in-memory DB. The utility only functions when called from within the live backend process. It's now exposed via an admin HTTP endpoint: `POST /relay-room/backfill` (source: `src/backend/database/routes/relay-registry-backfill.ts`, admin-JWT-gated). See bounty `registry-rooms-backfill-runbook-broken-in-memory-db`.
+
 **On t1000 (Taylor's instance):**
 
 ```bash
-# One-shot: enumerate humans from users table + (optionally) agents from disk,
-# join each into the appropriate registry room. Idempotent — safe to re-run.
-# Runs inside the Skynet container so it uses the same DB + admin creds path.
-sudo docker exec -i skynet node --input-type=module <<'EOF'
-const { runRegistryRoomsBackfill } = await import(
-  "/app/dist/backend/relay-sessions/registry-rooms-backfill.js"
-);
-// Humans-only backfill (the users-table SELECT path). Agents backfill needs
-// an enumerateAgentMxids injection — see the "Agents backfill" note below.
-const result = await runRegistryRoomsBackfill({});
-console.log(JSON.stringify(result, null, 2));
-EOF
+# One-shot: enumerate humans from users table, join each into the humans
+# registry room. Idempotent — has_backfilled_registry_rooms settings gate
+# makes re-runs fast no-ops. Runs against the LIVE backend (the endpoint
+# calls runRegistryRoomsBackfill in-process where db.$client is wired).
+#
+# ADMIN_JWT: open your Skynet browser session → DevTools → Application →
+# Cookies → copy the value of the `token` cookie (or Network tab → any
+# authenticated request → `Authorization: Bearer <token>` header).
+
+ADMIN_JWT=<your-admin-jwt>
+curl -sS -X POST \
+  -H "Authorization: Bearer $ADMIN_JWT" \
+  https://term.gigaashley.click/relay-room/backfill | jq .
 ```
 
-Expected output:
+Expected output (first run):
 
 ```json
 {
@@ -253,23 +256,32 @@ Expected output:
 }
 ```
 
-Then confirm the settings gate flipped so subsequent runs are fast no-ops:
+Expected output (re-run — gate flipped):
 
-```bash
-sudo docker exec skynet sqlite3 /data/skynet.db \
-  "SELECT value FROM settings WHERE key = 'has_backfilled_registry_rooms';"
-# Expected: true
+```json
+{ "ok": true, "skipped": true }
 ```
 
-Verify humans landed in the humans registry room (Ashley, Zoey, Laura on t1000):
+To force a re-run past the gate (rare — e.g. after schema changes):
 
 ```bash
-# Fetch registry-room IDs from settings, then query joined members via admin API
-sudo docker exec skynet sqlite3 /data/skynet.db \
-  "SELECT key, value FROM settings WHERE key IN ('humans_registry_room_id', 'agents_registry_room_id');"
+curl -sS -X POST \
+  -H "Authorization: Bearer $ADMIN_JWT" \
+  "https://term.gigaashley.click/relay-room/backfill?force=true" | jq .
 ```
 
-**On T800 (Stacy's instance):** Same command shape, executed inside T800's `skynet` container. Stacy runs this as part of her Phase 89 upgrade rollout.
+Verify humans landed in the humans registry room (Ashley, Zoey, Laura on t1000) via the admin API — or just check the frontend after ~10s (the observation-loop D-08/D-09 classifier will exclude the pre-existing DMs from re-materializing).
+
+**On T800 (Stacy's instance):** Same shape — POST to T800's URL with T800's admin JWT:
+
+```bash
+ADMIN_JWT=<stacy-admin-jwt>
+curl -sS -X POST \
+  -H "Authorization: Bearer $ADMIN_JWT" \
+  https://skynet.aithercloud.com/relay-room/backfill | jq .
+```
+
+Stacy runs this as part of her Phase 89 upgrade rollout, AFTER her `docker compose up --force-recreate` completes.
 
 **Agents backfill** — the `runRegistryRoomsBackfill` function accepts an optional `enumerateAgentMxids` dep for enumerating pre-existing agent accounts. The empty-invocation above skips it (agents backfill is a no-op), which is correct behavior for a first-cut deploy where pre-existing agents' DMs simply materialize as duplicate entries until a follow-up. If you want agents backfilled too, pass an SSH-based enumerator that reads `~/.claude/identities/<name>/relay.json` on each fleet host (D-12 explicitly allows disk reads at backfill time — the "no disk-based check" rule targets the observation loop for host-outage tolerance, not one-shot ops).
 
