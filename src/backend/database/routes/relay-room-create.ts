@@ -234,12 +234,40 @@ router.post("/create", authenticateJWT, async (req: Request, res: Response) => {
     }
 
     // ─── Step 3: MXID grammar filter — T-91-BE-04 Layer 1 ───────────────
-    let humanMxids = (body.humanMxids as unknown[]).filter(
-      (s): s is string => typeof s === "string" && MXID_RE.test(s),
+    // H2: log every drop so operators can triage malformed client submissions.
+    // Distinct op codes from the Layer-2 registry drops for easier log triage.
+    const rawHumanMxids = (body.humanMxids as unknown[]).filter(
+      (s): s is string => typeof s === "string",
     );
-    let agentMxids = (body.agentMxids as unknown[]).filter(
-      (s): s is string => typeof s === "string" && MXID_RE.test(s),
+    const rawAgentMxids = (body.agentMxids as unknown[]).filter(
+      (s): s is string => typeof s === "string",
     );
+
+    let humanMxids = rawHumanMxids.filter((s) => MXID_RE.test(s));
+    let agentMxids = rawAgentMxids.filter((s) => MXID_RE.test(s));
+
+    for (const droppedMxid of rawHumanMxids.filter((s) => !MXID_RE.test(s))) {
+      databaseLogger.warn(
+        "relay-room-create: dropped invalid-grammar human mxid (Layer 1)",
+        {
+          operation: "relay_room_create_dropped_invalid_grammar_human_mxid",
+          userId,
+          droppedMxid,
+          droppedCount: 1,
+        },
+      );
+    }
+    for (const droppedMxid of rawAgentMxids.filter((s) => !MXID_RE.test(s))) {
+      databaseLogger.warn(
+        "relay-room-create: dropped invalid-grammar agent mxid (Layer 1)",
+        {
+          operation: "relay_room_create_dropped_invalid_grammar_agent_mxid",
+          userId,
+          droppedMxid,
+          droppedCount: 1,
+        },
+      );
+    }
 
     // ─── Step 4: Fleet-registry filter — T-91-BE-04 Layer 2 ─────────────
     // Only human mxids are gated against users.mxid. Agent mxids pass

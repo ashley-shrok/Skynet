@@ -384,7 +384,7 @@ describe("POST /relay-room/create (Phase 91 Plan 03)", () => {
 
   // ─── Test 9: MXID grammar filter (T-91-BE-04 layer 1) ───────────────────
 
-  it("Test 9: invalid mxid in humanMxids is filtered out before inviteToRoom (T-91-BE-04 grammar)", async () => {
+  it("Test 9: invalid mxid in humanMxids filtered before inviteToRoom; Layer-1 drop logged (H2 — T-91-BE-04 grammar)", async () => {
     // 'not-an-mxid' fails MXID_RE; only BOB_MXID passes.
     // BOB_MXID is in the fleet registry, so it survives both layers.
     // Result: 1 human + 1 agent → valid room
@@ -398,6 +398,14 @@ describe("POST /relay-room/create (Phase 91 Plan 03)", () => {
     const inviteCalls = mockInviteToRoom.mock.calls.map((c) => c[1]);
     expect(inviteCalls).not.toContain("not-an-mxid");
     expect(inviteCalls).toContain(BOB_MXID);
+    // H2: Layer-1 grammar drop must be logged with distinct op code
+    expect(databaseLogger.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        operation: "relay_room_create_dropped_invalid_grammar_human_mxid",
+        droppedMxid: "not-an-mxid",
+      }),
+    );
   });
 
   // ─── Test 10: Fleet-registry filter (T-91-BE-04 layer 2) ────────────────
