@@ -51,7 +51,7 @@
 import { db } from "../database/db/index.js";
 import { DatabaseSaveTrigger } from "../utils/database-save-trigger.js";
 import { databaseLogger } from "../utils/logger.js";
-import { createRoom, joinRoom } from "../matrix/matrix-admin-client.js";
+import { assertNotOk, createRoom, joinRoom } from "../matrix/matrix-admin-client.js";
 import { getMatrixAdminCreds } from "../matrix/matrix-admin-creds-store.js";
 import { addAdminRoom, isAdminRoom } from "./admin-rooms-ignore-list.js";
 
@@ -185,6 +185,7 @@ export async function ensureRegistryRoomsExist(): Promise<EnsureRegistryRoomsRes
     if (created.ok) {
       agentsRoomId = created.roomId;
     } else {
+      assertNotOk(created);
       failures.push(`agents: ${created.reason}`);
     }
   }
@@ -194,6 +195,7 @@ export async function ensureRegistryRoomsExist(): Promise<EnsureRegistryRoomsRes
     if (created.ok) {
       humansRoomId = created.roomId;
     } else {
+      assertNotOk(created);
       failures.push(`humans: ${created.reason}`);
     }
   }
@@ -267,6 +269,7 @@ async function createRegistryRoom(
     roomAliasName,
   });
   if (!created.ok) {
+    assertNotOk(created);
     databaseLogger.warn("registry rooms create failed", {
       operation: "registry_rooms_create_failed",
       role,

@@ -50,6 +50,7 @@
 import { db } from "../database/db/index.js";
 import { DatabaseSaveTrigger } from "../utils/database-save-trigger.js";
 import { databaseLogger } from "../utils/logger.js";
+import { assertNotOk } from "../matrix/matrix-admin-client.js";
 import {
   ensureRegistryRoomsExist,
   joinAgentToAgentsRegistry,
@@ -129,6 +130,7 @@ export async function runRegistryRoomsBackfill(
   // idempotent).
   const ensured = await ensureRegistryRoomsExist();
   if (!ensured.ok) {
+    assertNotOk(ensured);
     databaseLogger.warn(
       "registry backfill aborted — ensureRegistryRoomsExist failed",
       {
@@ -160,6 +162,7 @@ export async function runRegistryRoomsBackfill(
     try {
       const r = await joinHumanToHumansRegistry(mxid);
       if (!r.ok) {
+        assertNotOk(r);
         humansFailed++;
         databaseLogger.warn(
           "registry backfill: humans join failed (best-effort per D-12)",
@@ -216,6 +219,7 @@ export async function runRegistryRoomsBackfill(
       try {
         const r = await joinAgentToAgentsRegistry(mxid);
         if (!r.ok) {
+          assertNotOk(r);
           agentsFailed++;
           databaseLogger.warn(
             "registry backfill: agents join failed (best-effort per D-12)",

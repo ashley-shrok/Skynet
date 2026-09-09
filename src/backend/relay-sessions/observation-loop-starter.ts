@@ -55,6 +55,7 @@
 
 import { db } from "../database/db/index.js";
 import { databaseLogger } from "../utils/logger.js";
+import { assertReasonErr } from "../matrix/matrix-admin-client.js";
 import {
   ensureRegistryRoomsExist,
   getAgentsRegistryRoomId,
@@ -114,6 +115,7 @@ export async function startObservationLoopOnBoot(): Promise<StartObservationLoop
   // (or manual re-invoke after creds are ingested) will retry.
   const ensured = await ensureRegistryRoomsExist();
   if (!ensured.ok) {
+    assertReasonErr(ensured);
     databaseLogger.warn(
       "[phase-89] observation-loop bootstrap aborted — ensureRegistryRoomsExist failed",
       {

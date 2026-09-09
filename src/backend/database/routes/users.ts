@@ -37,7 +37,7 @@ import {
   unlinkUserAvatar,
   readUserAvatar,
 } from "./user-avatar-storage.js";
-import { createOrUpdateUser, deactivateUser } from "../../matrix/matrix-admin-client.js";
+import { assertAdminErr, createOrUpdateUser, deactivateUser } from "../../matrix/matrix-admin-client.js";
 import { buildHumanMxid, generateHumanRelayPassword, extractServerName } from "../../matrix/username-to-mxid.js";
 import { getMatrixAdminCreds } from "../../matrix/matrix-admin-creds-store.js";
 // Phase 89-02 Task 3: post-mint humans-registry-room join hook (D-11).
@@ -200,6 +200,7 @@ router.post("/create", userAvatarUpload.single("avatar"), async (req, res) => {
     const bestEffortDeactivate = async (reason: string) => {
       const r = await deactivateUser(mintedMxid);
       if (!r.ok) {
+        assertAdminErr(r);
         authLogger.warn(
           "Matrix account deactivation failed during create rollback (orphaned mxid logged for future sweep)",
           {
@@ -2473,6 +2474,7 @@ router.delete("/delete-account", authenticateJWT, async (req, res) => {
     if (userRecord.mxid) {
       const deactivateResult = await deactivateUser(userRecord.mxid);
       if (!deactivateResult.ok) {
+        assertAdminErr(deactivateResult);
         authLogger.warn(
           "Matrix account deactivation failed on delete-account (orphaned mxid logged for future sweep — D-10 best-effort)",
           {

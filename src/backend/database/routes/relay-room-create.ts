@@ -74,6 +74,7 @@ import { users } from "../db/schema.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger } from "../../utils/logger.js";
 import {
+  assertNotOk,
   createRoomAsUser,
   inviteToRoom,
 } from "../../matrix/matrix-admin-client.js";
@@ -333,6 +334,7 @@ router.post("/create", authenticateJWT, async (req: Request, res: Response) => {
     // M6: discriminated union distinguishes DB error (500) from missing mxid (400).
     const viewerMxidResult = await lookupViewingUserMxid(userId);
     if (!viewerMxidResult.ok) {
+      assertNotOk(viewerMxidResult);
       if (viewerMxidResult.reason === "db_error") {
         return res.status(500).json({ ok: false, error: "service_unavailable" });
       }
@@ -357,6 +359,7 @@ router.post("/create", authenticateJWT, async (req: Request, res: Response) => {
     });
 
     if (!roomResult.ok) {
+      assertNotOk(roomResult);
       databaseLogger.warn(
         "relay-room-create: createRoomAsUser failed",
         {
@@ -382,6 +385,7 @@ router.post("/create", authenticateJWT, async (req: Request, res: Response) => {
     for (const mxid of allInvitees) {
       const inviteResult = await inviteToRoom(roomId, mxid, viewerMxid);
       if (!inviteResult.ok) {
+        assertNotOk(inviteResult);
         databaseLogger.warn(
           "relay-room-create: invite failed (best-effort — not rolling back)",
           {

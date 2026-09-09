@@ -66,7 +66,7 @@ import { databaseLogger } from "../utils/logger.js";
  * `id` for keying + logging, `name` for logging.
  */
 export interface EnumerationHostRecord {
-  id: string;
+  id: number;
   name: string;
 }
 

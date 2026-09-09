@@ -33,9 +33,9 @@ import {
   type EnumerationHostRecord,
 } from "./enumerate-agent-mxids.js";
 
-const HOST_A: EnumerationHostRecord = { id: "1", name: "wilma" };
-const HOST_B: EnumerationHostRecord = { id: "2", name: "betty" };
-const HOST_C: EnumerationHostRecord = { id: "3", name: "pebbles" };
+const HOST_A: EnumerationHostRecord = { id: 1, name: "wilma" };
+const HOST_B: EnumerationHostRecord = { id: 2, name: "betty" };
+const HOST_C: EnumerationHostRecord = { id: 3, name: "pebbles" };
 
 function makeDeps(overrides: Partial<EnumerateAgentMxidsDeps> = {}): EnumerateAgentMxidsDeps {
   return {

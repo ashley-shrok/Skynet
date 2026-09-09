@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { authLogger } from "../../utils/logger.js";
 import { db, DatabaseSaveTrigger } from "../db/index.js";
 import { unlinkUserAvatar } from "./user-avatar-storage.js";
-import { deactivateUser } from "../../matrix/matrix-admin-client.js";
+import { assertAdminErr, deactivateUser } from "../../matrix/matrix-admin-client.js";
 import {
   auditLogs,
   commandHistory,
@@ -114,6 +114,7 @@ export async function deleteUserAndRelatedData(userId: string): Promise<void> {
     if (avatarRow.length > 0 && avatarRow[0].mxid) {
       const deactivateResult = await deactivateUser(avatarRow[0].mxid);
       if (!deactivateResult.ok) {
+        assertAdminErr(deactivateResult);
         authLogger.warn(
           "Matrix account deactivation failed in deleteUserAndRelatedData (orphaned mxid logged for future sweep — D-10 best-effort)",
           {

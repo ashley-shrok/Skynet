@@ -44,6 +44,7 @@
  */
 
 import { databaseLogger } from "../utils/logger.js";
+import { assertAdminErr } from "../matrix/matrix-admin-client.js";
 import { classifyRoom } from "./observation-loop-classifier.js";
 import type { ActiveRelayRoomSession } from "./relay-room-sessions-store.js";
 
@@ -200,6 +201,7 @@ export async function runObservationTick(
     // Step 1: fetch the user's joined rooms via admin credential.
     const joinedResult = await deps.getUserJoinedRooms(userMxid);
     if (!joinedResult.ok) {
+      assertAdminErr(joinedResult);
       // D-06 no-destruction-on-failure — do NOT touch any existing row.
       databaseLogger.debug(
         "[phase-89] observation tick — joined_rooms fetch failed, no reconcile",
@@ -270,6 +272,7 @@ export async function runObservationTick(
 
       for (const { roomId, membersResult, tsResult, nameResult } of results) {
         if (!membersResult.ok) {
+          assertAdminErr(membersResult);
           // Per-room fetch failed. Do NOT add to fetchedRoomIds — Step 4's
           // reconcile will therefore skip any DB row for this room, honoring
           // D-06 (no destruction on failure — including per-room failures).
@@ -315,6 +318,7 @@ export async function runObservationTick(
         // failure / no state event) flows into materialize per D-02.
         const roomTitle = nameResult.ok ? nameResult.name : null;
         if (!nameResult.ok) {
+          assertAdminErr(nameResult);
           databaseLogger.debug(
             "[phase-89] observation tick — getRoomName failed, materializing with null title",
             {
@@ -484,6 +488,7 @@ async function getAgentsRegistryMembersCached(
   }
   const membersResult = await deps.getRoomJoinedMembers(agentsRegistryRoomId);
   if (!membersResult.ok) {
+    assertAdminErr(membersResult);
     databaseLogger.debug(
       "[phase-89] observation tick — agents registry members fetch failed, degraded classification",
       {

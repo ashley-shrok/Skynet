@@ -47,7 +47,30 @@ const ERR_MISSING_FIELD = "admin_api_missing_field";
 
 /** Discriminated-union return shape shared by every primitive. */
 type AdminOk<T> = { ok: true } & T;
-type AdminErr = { ok: false; status: number; error: string };
+export type AdminErr = { ok: false; status: number; error: string };
+
+// TS 6.0.3 narrowing workaround. `if (!r.ok) { ... r.status, r.error }` should
+// narrow r to the error variant but 6.0.3 lost it on discriminated unions
+// keyed by `ok`. See compose-drafts.ts:254 / plan-file-fetch.ts:297 for the
+// inline-cast precedent. These are zero-cost asserts predicates callers use
+// inside the `!r.ok` branch to re-narrow r to its error variant. Three names
+// for grep-visibility; identical body. (TS 2775 forbids const-aliasing an
+// assertion predicate, so each is its own function declaration.)
+export function assertNotOk<T extends { ok: boolean }>(
+  _r: T,
+): asserts _r is Extract<T, { ok: false }> {
+  // No-op — caller has already checked !_r.ok.
+}
+export function assertAdminErr<T extends { ok: boolean }>(
+  _r: T,
+): asserts _r is Extract<T, { ok: false }> {
+  // No-op — same as assertNotOk; distinct name for AdminErr call sites.
+}
+export function assertReasonErr<T extends { ok: boolean }>(
+  _r: T,
+): asserts _r is Extract<T, { ok: false }> {
+  // No-op — same as assertNotOk; distinct name for reason-shaped call sites.
+}
 
 // ---------------------------------------------------------------------------
 // createOrUpdateUser — PUT /_synapse/admin/v2/users/{mxid}
@@ -1433,7 +1456,10 @@ export async function createRoomAsUser(
   }
 
   const login = await loginAsUser(senderMxid);
-  if (!login.ok) return login;
+  if (!login.ok) {
+    assertAdminErr(login);
+    return login;
+  }
 
   const url = `${creds.homeserverBase}/_matrix/client/v3/createRoom`;
   const body: Record<string, unknown> = {
