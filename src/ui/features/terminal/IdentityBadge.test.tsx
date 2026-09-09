@@ -460,4 +460,56 @@ describe("IdentityBadge — Phase 67 coordinator watermark", () => {
     expect(inlineStyle).toContain("rgb(151, 189, 247)"); // = hsl(216, 85%, 78%)
     expect(inlineStyle).not.toContain("rgb(247, 207, 151)"); // ≠ hsl(35, 85%, 78%)
   });
+
+  // ── onContextMenu wire-up (pv-identity-badge-move-to-new-window bounty) ──
+  // Guards the identity-badge → PV context-menu integration surface. The
+  // badge itself only owns the handler wire; the menu rendering + item
+  // semantics live upstream (PrettyView + IdentitySessionPane). If a
+  // future refactor drops onContextMenu from the button/div render branches
+  // the "Move to new window" affordance goes silent — this catches it.
+  describe("onContextMenu prop", () => {
+    beforeEach(() => {
+      vi.mocked(useIdentities).mockReturnValue({
+        identities: [FIXTURE],
+        byKey: new Map([["tina", FIXTURE]]),
+        loaded: true,
+        refresh: vi.fn(),
+      });
+    });
+
+    it("CTX-1: interactive <button> branch fires onContextMenu on right-click", () => {
+      const onContextMenu = vi.fn();
+      render(
+        <IdentityBadge
+          identityKey="tina"
+          onClick={vi.fn()}
+          onContextMenu={onContextMenu}
+        />,
+      );
+      const root = screen.getByTestId("identity-badge-root");
+      expect(root.tagName).toBe("BUTTON");
+      fireEvent.contextMenu(root);
+      expect(onContextMenu).toHaveBeenCalledTimes(1);
+    });
+
+    it("CTX-2: non-interactive <div> branch also fires onContextMenu on right-click", () => {
+      const onContextMenu = vi.fn();
+      render(
+        <IdentityBadge identityKey="tina" onContextMenu={onContextMenu} />,
+      );
+      const root = screen.getByTestId("identity-badge-root");
+      expect(root.tagName).toBe("DIV");
+      fireEvent.contextMenu(root);
+      expect(onContextMenu).toHaveBeenCalledTimes(1);
+    });
+
+    it("CTX-3: no onContextMenu → default browser context menu is not suppressed", () => {
+      render(<IdentityBadge identityKey="tina" onClick={vi.fn()} />);
+      const root = screen.getByTestId("identity-badge-root");
+      // No throw + no attached handler ⇒ the event bubbles without React
+      // catching it. Just verify the render is clean.
+      expect(root).toBeTruthy();
+      fireEvent.contextMenu(root); // must not throw
+    });
+  });
 });

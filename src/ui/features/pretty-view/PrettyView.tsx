@@ -55,6 +55,10 @@ import {
   useSessionIdentity,
 } from "@/features/terminal/session-hue";
 import { IdentityBadge } from "@/features/terminal/IdentityBadge";
+import {
+  PrettyConversationContextMenu,
+  type PrettyContextMenuItem,
+} from "@/features/pretty-conversations/PrettyConversationContextMenu";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { formatInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 // Phase 53 Plan 03 — the retired recycling bridge import is REMOVED here
@@ -258,6 +262,14 @@ export interface PrettyViewProps {
   // (the sole production caller) always has `tab.id` in scope and passes
   // it through.
   tabId?: string;
+  // Context-menu items to attach to the IdentityBadge right-click. Absent
+  // = no context menu (badge behaves as before). Present = the shared
+  // PrettyConversationContextMenu opens at cursor on right-click with these
+  // items. Caller owns each item's onClick semantic (e.g. "Move to new
+  // window" builds a workspace spec + window.open + closes the current tab).
+  // Consumer is expected to omit the prop on mobile (right-click doesn't
+  // exist there; long-press is already wired to togglePrettyMode).
+  identityBadgeContextMenuItems?: PrettyContextMenuItem[];
 }
 
 type Status = "connecting" | "streaming" | "inactive" | "error";
@@ -515,6 +527,7 @@ export function PrettyView({
   onRegisterSendInterrupt,
   onUnregisterSendInterrupt,
   tabId,
+  identityBadgeContextMenuItems,
 }: PrettyViewProps) {
   const [messages, setMessages] = useState<StreamEvent[]>([]);
   // ── Phase 47 (load-more button) — per-pane state slots ────────────────
@@ -692,6 +705,12 @@ export function PrettyView({
   // this to true; the IdentityModal handles close via onOpenChange (Esc,
   // backdrop, X button all route through shadcn Dialog's onOpenChange).
   const [isIdentityModalOpen, setIsIdentityModalOpen] = useState(false);
+  // Identity badge right-click context menu. Populated on onContextMenu at
+  // cursor coords; cleared by the menu's onClose (Esc, click-outside, item
+  // click). Only opens when the caller supplied identityBadgeContextMenuItems.
+  const [identityBadgeMenu, setIdentityBadgeMenu] = useState<
+    { x: number; y: number } | null
+  >(null);
   // Phase 89 Plan 06: swap-not-stack coordination (D-06) — non-null when the
   // runbook editor is open, null when closed. Set by handleOpenRunbook (fired
   // from IdentityModal's Runbooks tab row click); cleared to null by the
@@ -3231,8 +3250,28 @@ export function PrettyView({
           onClick={() => setIsIdentityModalOpen(true)}
           onLongPress={onTogglePrettyMode}
           tabId={tabId}
+          onContextMenu={
+            identityBadgeContextMenuItems &&
+            identityBadgeContextMenuItems.length > 0
+              ? (e) => {
+                  e.preventDefault();
+                  setIdentityBadgeMenu({ x: e.clientX, y: e.clientY });
+                }
+              : undefined
+          }
         />
       )}
+      {identityBadgeMenu !== null &&
+        identityBadgeContextMenuItems &&
+        identityBadgeContextMenuItems.length > 0 && (
+          <PrettyConversationContextMenu
+            x={identityBadgeMenu.x}
+            y={identityBadgeMenu.y}
+            items={identityBadgeContextMenuItems}
+            hue={pvIdentity?.colorHue ?? null}
+            onClose={() => setIdentityBadgeMenu(null)}
+          />
+        )}
       {/* Phase 80 Plan 07: centered task pill in the top bar. Sibling to
           IdentityBadge (which stays top-right at z-[101]). Renders iff
           the identity resolves AND carries a truthy `task` string (D-06

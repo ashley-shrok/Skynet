@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useInjectedTurnRelay } from "./use-injected-turn-relay";
 import { CommandHistoryProvider } from "@/features/terminal/command-history/CommandHistoryContext";
 import { Terminal } from "@/features/terminal/Terminal";
@@ -10,7 +10,10 @@ import { IdentityModal } from "@/features/pretty-view/IdentityModal";
 import { MessageQueueDrawer } from "@/features/terminal/MessageQueueDrawer";
 import { sessionMatchKey, hueFromSessionName } from "@/features/terminal/session-hue";
 import { useIdentities } from "@/state/identities-store";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useTabsSafe } from "@/shell/TabContext";
+import { specForTab, encodeWorkspaceSpec } from "@/lib/tab-url";
+import type { PrettyContextMenuItem } from "@/features/pretty-conversations/PrettyConversationContextMenu";
 import type { Tab, Host } from "@/types/ui-types";
 import type { SSHHost } from "@/types";
 
@@ -100,10 +103,49 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
 
     const { previewTerminalTheme } = useTabsSafe();
     const { byKey: identitiesByKey } = useIdentities();
+    const isMobile = useIsMobile();
 
     const tabId = tab.id;
     const hostId = host.id;
     const effectiveTmuxSession = tab.targetTmuxSession ?? null;
+
+    // Identity-badge context-menu items — "Move to new window" mirrors the
+    // conversation-row Open/Move-in-new-window path (PrettyConversationRow.tsx
+    // ~L1418) but the label is always "Move" here: identity panes are
+    // always inActiveSet by definition (this pane IS the one you're
+    // interacting with), so the deactivate side-effect always applies on
+    // success. Desktop-only — mobile has no right-click and long-press is
+    // already wired to togglePrettyMode. specForTab returns null for tabs
+    // that aren't URL-addressable (e.g. dashboard); when null the menu is
+    // simply not offered (empty array → PrettyView renders no menu).
+    const identityBadgeContextMenuItems = useMemo<PrettyContextMenuItem[]>(() => {
+      if (isMobile) return [];
+      const spec = specForTab({
+        type: tab.type,
+        host: { name: host.name, id: host.id },
+        targetTmuxSession: effectiveTmuxSession,
+      });
+      if (spec === null) return [];
+      return [
+        {
+          label: "Move to new window",
+          onClick: () => {
+            const payload = encodeWorkspaceSpec({
+              tabs: [spec],
+              activeIndex: 0,
+              only: true,
+            });
+            const w = window.open("#" + payload, "_blank");
+            // Popup-blocker safety: window.open returns null when blocked.
+            // Only tear down the current tab if the new window opened OK,
+            // otherwise the user would lose their session with nowhere to go.
+            if (w !== null) {
+              onCloseTab?.(tabId);
+            }
+          },
+        },
+      ];
+    }, [isMobile, tab.type, host.name, host.id, effectiveTmuxSession, tabId, onCloseTab]);
 
     // --- Structured log: mount ---
     useEffect(() => {
@@ -234,6 +276,7 @@ export const IdentitySessionPane = forwardRef<IdentityPaneHandle, IdentitySessio
             // (Plan 58-01 gate `!!tabId && !isMobile`) and only the
             // terminal-mode surface badge would be a valid drag source.
             tabId={tabId}
+            identityBadgeContextMenuItems={identityBadgeContextMenuItems}
             onSend={(text: string, mqid?: string): boolean => {
               // Patch #110: collapse pretty-view submit into a SINGLE WS event
               // with text+CR + a synthetic messageQueueItemId.

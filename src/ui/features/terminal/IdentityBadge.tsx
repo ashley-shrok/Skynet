@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { DragEvent as ReactDragEvent } from "react";
+import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useIdentities } from "@/state/identities-store";
 import { useIsMobile } from "@/hooks/use-mobile";
 // Phase 68 Plan 04: avatarUrlWithHost deleted — backend bakes hostId into identity.avatarUrl.
@@ -47,6 +47,13 @@ export interface IdentityBadgeProps {
   // paths use, so no explicit disambiguation code is needed — same
   // mechanism Phase 56 patch #511 established for PrettyConversationRow).
   tabId?: string;
+  // Right-click / context-menu handler. Wired to both render branches
+  // (interactive <button> + non-interactive <div>) so callers can attach
+  // a pretty-view menu (e.g. "Move to new window") at the badge site
+  // without needing knowledge of the pretty-view menu component. Caller
+  // is responsible for calling e.preventDefault() to suppress the native
+  // browser context menu.
+  onContextMenu?: (e: ReactMouseEvent<HTMLElement>) => void;
 }
 
 // Quick 260806-lzd — single-variant refactor. The former `md` branch
@@ -62,6 +69,7 @@ export function IdentityBadge({
   onClick,
   onLongPress,
   tabId,
+  onContextMenu,
 }: IdentityBadgeProps) {
   const { byKey } = useIdentities();
   const identity = identityKey ? byKey.get(identityKey.toLowerCase()) : null;
@@ -304,6 +312,7 @@ export function IdentityBadge({
         onPointerCancel={handlePointerCancel}
         draggable={isDragSource}
         onDragStart={onDragStart}
+        onContextMenu={onContextMenu}
         aria-label="Open identity info"
         title="Identity info"
         className={`${rootClassName} cursor-pointer`}
@@ -319,6 +328,7 @@ export function IdentityBadge({
       aria-hidden="true"
       draggable={isDragSource}
       onDragStart={onDragStart}
+      onContextMenu={onContextMenu}
       className={rootClassName}
       style={rootStyle}
     >
