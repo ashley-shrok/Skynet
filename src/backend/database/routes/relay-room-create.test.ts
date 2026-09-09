@@ -649,4 +649,22 @@ describe("POST /relay-room/create (Phase 91 Plan 03)", () => {
       }),
     );
   });
+
+  // ─── Test 19: Room name max-length guard (L2) ────────────────────────────
+
+  it("Test 19: roomName > 256 chars after trim → 400 room_name_too_long (L2)", async () => {
+    // 257-character room name (just over the 256 limit)
+    const longName = "A".repeat(257);
+    const res = await fetch(`${baseUrl}/relay-room/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(makeBody({ roomName: longName })),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe("room_name_too_long");
+    // createRoomAsUser must NOT have been called
+    expect(mockCreateRoomAsUser).not.toHaveBeenCalled();
+  });
 });

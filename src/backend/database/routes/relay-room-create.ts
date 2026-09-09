@@ -247,6 +247,10 @@ router.post("/create", authenticateJWT, async (req: Request, res: Response) => {
     if (trimmed === "") {
       return res.status(400).json({ ok: false, error: "room_name_required" });
     }
+    // L2: max-length guard — prevents 1MB room names landing in structured logs.
+    if (trimmed.length > 256) {
+      return res.status(400).json({ ok: false, error: "room_name_too_long" });
+    }
 
     // ─── Step 3: MXID grammar filter — T-91-BE-04 Layer 1 ───────────────
     // H2: log every drop so operators can triage malformed client submissions.
