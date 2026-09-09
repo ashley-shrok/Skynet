@@ -1103,22 +1103,28 @@ export function createSshPollOrchestrator(
         return;
       }
       // Failure — log why and fall through to legacy for this tick.
+      // tsconfig.node.json has strict:false, so TS can't narrow the discriminated
+      // union via `if (result.ok) return`; access .reason via a typed cast.
+      const failed = result as {
+        ok: false;
+        reason: "null-exec" | "schema-mismatch" | "empty-output-on-nonempty-box";
+      };
       systemLogger.warn(
         "Fleet-status: batch path failed, falling back to legacy this tick",
         {
           operation: "fleet_status_batch_fallback",
           fleetHostId: host.id,
-          reason: result.reason,
+          reason: failed.reason,
         },
       );
       // On null-exec, force re-probe next tick (may be transient — SSH hiccup
       // that swallowed stdout, or script really disappeared between probe
       // and exec). Schema-mismatch and empty-on-nonempty are architectural
       // drift symptoms — leave the cache and force fallback until reconnect.
-      if (result.reason === "null-exec") {
+      if (failed.reason === "null-exec") {
         hostState.sweepScriptPresent = null;
       }
-      if (result.reason === "schema-mismatch") {
+      if (failed.reason === "schema-mismatch") {
         hostState.sweepSchemaMismatchThisConnection = true;
       }
     }
