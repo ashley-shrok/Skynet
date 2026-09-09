@@ -275,13 +275,22 @@ export async function refreshRelayRoomLastActivity(
     )
     .run(isoTs, userId, roomId);
 
+  // triggerSave (debounced, dirty-bit) — NOT forceSave. This is called on
+  // every observation tick per user per room (~7-8 rewrites/sec at fleet
+  // scale, saturated disk at 128 MB/sec sustained), which crown-jewel
+  // forceSave rewrites of the whole encrypted DB blob turned into a box-wide
+  // slowdown at t1000 immediately after the arc-close deploy 2026-09-09
+  // (diagnosis: tina, iostat + write-rate + mtime + callsite grep). last_activity_at
+  // is ephemeral bookkeeping — the next observation tick regenerates it from
+  // Matrix admin API within 10s, so losing it across container restart is fine.
+  // The debounced triggerSave lets the dirty-bit poller flush it periodically.
   try {
-    await DatabaseSaveTrigger.forceSave("phase-89-relay-session-refresh-activity");
+    await DatabaseSaveTrigger.triggerSave("phase-89-relay-session-refresh-activity");
   } catch (err) {
     databaseLogger.warn(
       "relay_room_sessions persistence flush failed — write persisted to RAM only",
       {
-        operation: "relay_room_session_force_save_failed",
+        operation: "relay_room_session_trigger_save_failed",
         reason: "phase-89-relay-session-refresh-activity",
         userId,
         roomId,

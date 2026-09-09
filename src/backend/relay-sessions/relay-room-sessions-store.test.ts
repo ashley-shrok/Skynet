@@ -77,6 +77,7 @@ vi.mock("../database/db/index.js", () => ({
 vi.mock("../utils/database-save-trigger.js", () => ({
   DatabaseSaveTrigger: {
     forceSave: vi.fn().mockResolvedValue(undefined),
+    triggerSave: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -103,6 +104,7 @@ import {
 import { DatabaseSaveTrigger } from "../utils/database-save-trigger.js";
 
 const forceSaveSpy = DatabaseSaveTrigger.forceSave as ReturnType<typeof vi.fn>;
+const triggerSaveSpy = DatabaseSaveTrigger.triggerSave as ReturnType<typeof vi.fn>;
 
 // ---------------------------------------------------------------------------
 // Test setup — fresh DB + seeded user per test.
@@ -119,6 +121,8 @@ beforeEach(() => {
 
   forceSaveSpy.mockClear();
   forceSaveSpy.mockResolvedValue(undefined);
+  triggerSaveSpy.mockClear();
+  triggerSaveSpy.mockResolvedValue(undefined);
 });
 
 // ---------------------------------------------------------------------------
@@ -269,7 +273,7 @@ describe("relay-room-sessions-store — refreshRelayRoomLastActivity", () => {
 });
 
 describe("relay-room-sessions-store — persistence flush discipline", () => {
-  it("Test 7: every mutating primitive calls forceSave with a phase-89-* label", async () => {
+  it("Test 7: crown-jewel primitives use forceSave; refreshLastActivity uses triggerSave (hotfix — disk sat)", async () => {
     await materializeRelayRoomSession("user-A", "!room1:server", "Room 1");
     await markRelayRoomSessionInactive("user-A", "!room1:server");
     await reactivateRelayRoomSession("user-A", "!room1:server");
@@ -279,16 +283,28 @@ describe("relay-room-sessions-store — persistence flush discipline", () => {
       "2026-09-08T12:00:00Z",
     );
 
-    // Four mutating primitives — four forceSave calls.
-    expect(forceSaveSpy).toHaveBeenCalledTimes(4);
+    // Three crown-jewel primitives (materialize / markInactive / reactivate)
+    // still use forceSave — they mutate row lifecycle state that must not be
+    // lost across container restart.
+    expect(forceSaveSpy).toHaveBeenCalledTimes(3);
     for (const call of forceSaveSpy.mock.calls) {
       expect(call[0]).toMatch(/^phase-89-/);
     }
 
-    // Read-only primitive does NOT trigger forceSave.
+    // refreshRelayRoomLastActivity uses debounced triggerSave — called on
+    // every observation tick per user per room; forceSave here saturated
+    // disk at t1000 immediately after the arc-close deploy 2026-09-09.
+    // last_activity_at is ephemeral (regenerates from Matrix admin API on
+    // next 10s tick), so debounced flush is correct.
+    expect(triggerSaveSpy).toHaveBeenCalledTimes(1);
+    expect(triggerSaveSpy.mock.calls[0][0]).toMatch(/^phase-89-/);
+
+    // Read-only primitive does NOT trigger any save.
     forceSaveSpy.mockClear();
+    triggerSaveSpy.mockClear();
     await listActiveRelayRoomSessions("user-A");
     expect(forceSaveSpy).not.toHaveBeenCalled();
+    expect(triggerSaveSpy).not.toHaveBeenCalled();
   });
 
   it("Test 8: if forceSave rejects, the primitive still returns without throwing (log-and-swallow)", async () => {
