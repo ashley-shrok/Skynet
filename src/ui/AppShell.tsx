@@ -62,6 +62,8 @@ import { dbHealthMonitor } from "@/lib/db-health-monitor";
 import type { SSHHostWithStatus } from "@/main-axios";
 // Phase 11 Plan 03 (PURGE-03): ConnectionsPanel import RETIRED alongside AppRail.
 import { PrettyConversationsPanel } from "@/features/pretty-conversations/PrettyConversationsPanel";
+// Phase 91 Plan 05 — CreateRelayRoomResponse type for onCreateRelayRoom callback.
+import type { CreateRelayRoomResponse } from "@/features/pretty-conversations/participant-types";
 import {
   updateHostTree,
   updateOpenTabs,
@@ -2173,6 +2175,55 @@ export function AppShell({
             // level activeSet removal is composed by the panel's
             // handleRowDeactivate before this callback fires).
             closeTab(row.id);
+          }}
+          onCreateRelayRoom={(result: CreateRelayRoomResponse) => {
+            // Phase 91 Plan 05 Task 3 — mirror onRelayRoomRowClick shape
+            // (L2139-2166) byte-for-byte but with roomId + roomTitle sourced
+            // from the create response instead of a sidebar row.
+            if (!result.roomId) {
+              // eslint-disable-next-line no-console
+              console.warn({
+                operation: "new_conversation_modal_missing_room_id",
+                roomTitle: result.roomTitle,
+              });
+              return;
+            }
+            // openTab signature: (host: Host | null, type: TabType, restore?,
+            // options?) — 4 args, no positional label between type and options bag.
+            const newTabId = openTab(null, "terminal", undefined, {
+              sessionKind: "relay-room",
+              relayRoomId: result.roomId,
+              relayRoomTitle: result.roomTitle ?? null,
+              label: result.roomTitle ?? result.roomId,
+              // Relay-room tabs have no tmux to create; safe-noop.
+              allowCreateTmux: false,
+            });
+            selectConversationDeferred(newTabId);
+            if (isTouchDevice) navigateToView();
+            if (isMobile) setSidebarOpen(false);
+            // eslint-disable-next-line no-console
+            console.info({
+              operation: "new_conversation_modal_tab_opened",
+              roomId: result.roomId,
+              roomTitle: result.roomTitle,
+            });
+            // W5: explicit fleet refresh — getSessionList runs ONCE per
+            // page-load (no polling), so the new relay-room row needs an
+            // explicit push into the store or the sidebar won't reflect it
+            // until the next reload. Best-effort: log-and-swallow refresh
+            // failure; the tab is already open so the user can send.
+            void getSessionList()
+              .then((sessions) => {
+                updateFleetSessions(sessions);
+              })
+              .catch((err: unknown) => {
+                // eslint-disable-next-line no-console
+                console.warn({
+                  operation: "new_conversation_modal_refresh_failed",
+                  roomId: result.roomId,
+                  err: err instanceof Error ? err.message : "unknown",
+                });
+              });
           }}
           onKillRow={async (row) => {
             // quick-260810-n3a: Kill the underlying tmux session on the host,
