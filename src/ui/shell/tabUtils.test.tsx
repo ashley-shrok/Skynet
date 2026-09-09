@@ -1,10 +1,10 @@
 /**
  * Phase 93 Slice 4 — tabUtils.tsx dispatcher rewire tests (D-04, D-06, D-21).
  *
- * The dispatcher retires the standalone RelayRoomSessionPane and routes
+ * The dispatcher retires the standalone relay-room pane and routes
  * relay-room tabs to the shared chat surface `PrettyView` with a relay-kind
  * source prop (D-04). The renderTabContent case "terminal" early-return
- * that gated the pre-Slice-4 inline RelayRoomSessionPane mount ahead of the
+ * that gated the pre-Slice-4 inline relay-room mount ahead of the
  * host-null gate retires (D-06); host-null handling moves inside
  * TerminalOrIdentitySessionPane's relay branch, and the case "terminal"
  * host-null gate widens with a `!== "relay-room"` exception.
@@ -15,7 +15,7 @@
  *   2. sessionKind harness (or undefined) + no identityKey → mounts
  *      TerminalTabContent (regression gate).
  *   3. sessionKind relay-room + relayRoomId set → mounts PrettyView with
- *      source.kind === "relay" (was: RelayRoomSessionPane pre-Slice-4).
+ *      source.kind === "relay".
  *   4. sessionKind relay-room + relayRoomId MISSING → console.warn
  *      "relay-room tab missing relayRoomId" and falls through to the existing
  *      dispatcher (no crash).
@@ -60,7 +60,7 @@ vi.mock("./IdentitySessionPane", () => ({
 
 // TerminalTabContent lives INSIDE tabUtils.tsx (not a separate module), so we
 // mock the Terminal feature it composes; the test just needs to see something
-// that clearly ISN'T RelayRoomSessionPane or IdentitySessionPane. Mock @/features/terminal/Terminal.
+// that clearly ISN'T PrettyView or IdentitySessionPane. Mock @/features/terminal/Terminal.
 vi.mock("@/features/terminal/Terminal", () => ({
   Terminal: () => <div data-testid="mock-terminal-tab-content" />,
 }));
@@ -294,7 +294,7 @@ describe("tabUtils dispatcher: relay-room third branch", () => {
     expect(relayIdx).toBeLessThan(identityIdx);
   });
 
-  it("Test 7 (Slice 4 dispatcher discipline): tabUtils.tsx contains PrettyView import + mount, no RelayRoomSessionPane refs", async () => {
+  it("Test 7 (Slice 4 dispatcher discipline): tabUtils.tsx contains PrettyView import + mount, no retired-pane refs", async () => {
     const filePath = path.resolve(
       process.cwd(),
       "src/ui/shell/tabUtils.tsx",
@@ -304,10 +304,10 @@ describe("tabUtils dispatcher: relay-room third branch", () => {
     expect(source).toContain('from "@/features/pretty-view/PrettyView"');
     // Relay branch mounts PrettyView with source.kind === "relay".
     expect(source).toMatch(/kind:\s*"relay"/);
-    // RelayRoomSessionPane retired — no lazy import, no JSX mount. Comment
-    // references to the retired name are allowed (they document the swap).
-    expect(source).not.toMatch(/import\("@\/shell\/RelayRoomSessionPane/);
-    expect(source).not.toMatch(/<RelayRoomSessionPane\b/);
+    // Retired pane — no lazy import, no JSX mount. Comment references
+    // documenting the swap are allowed (they explain the retirement).
+    expect(source).not.toMatch(/import\("@\/shell\/RelayRoomSession[Pp]ane/);
+    expect(source).not.toMatch(/<RelayRoomSession[Pp]ane\b/);
     // Case "terminal" host-null gate now widens with a `!== "relay-room"` exception (D-06).
     expect(source).toMatch(/!host\s*&&\s*tab\.sessionKind\s*!==\s*"relay-room"/);
   });
