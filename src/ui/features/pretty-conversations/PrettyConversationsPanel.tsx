@@ -132,6 +132,11 @@ import type { Host, HostFolder } from "@/types/ui-types";
 
 import { PrettyConversationRow } from "./PrettyConversationRow";
 import WeeklyUsageMeter from "./WeeklyUsageMeter";
+// Phase 91 Plan 05 — NewConversationModal: portal-mounted sibling of
+// GlobalFilesModal. Opened via the header three-dot menu "New conversation"
+// item. onCreateRelayRoom prop threads the create response to AppShell.
+import { NewConversationModal } from "./NewConversationModal";
+import type { CreateRelayRoomResponse } from "./participant-types";
 // Phase 70 Plan 04: header lockup (small icon + wordmark) now sourced from
 // brandingConfig (Plan 70-03) so operator-provided assets swap in. Prior
 // hardcoded inline-SVG logo import removed — no remaining consumers in this
@@ -284,6 +289,7 @@ export function PrettyConversationsPanel({
   onCloseSession,
   openTabIds = [],
   isAdmin = false,
+  onCreateRelayRoom,
 }: {
   // NEW in Wave 2: drives BOTH the header layout branching AND the child
   // rows' pin mechanism (mobile=swipe / desktop=hover-reveal). AppShell
@@ -379,6 +385,14 @@ export function PrettyConversationsPanel({
   // Sourced from /users/me.is_admin (AppShell state); default false so tests
   // and any non-AppShell caller render as non-admin (meter hidden).
   isAdmin?: boolean;
+  /**
+   * Phase 91 Plan 05 — Fired when the user successfully creates a relay room
+   * via NewConversationModal. AppShell wires this to open the relay-room tab
+   * via the canonical openTab signature (mirroring onRelayRoomRowClick). The
+   * modal itself calls onOpenChange(false) before this fires, so the prop is
+   * called after the modal has already closed.
+   */
+  onCreateRelayRoom?: (result: CreateRelayRoomResponse) => void;
 }) {
   const visibleInSplitTree = visibleInSplitTreeTabIds ?? EMPTY_VISIBLE_SET;
   const { t } = useTranslation();
@@ -584,6 +598,9 @@ export function PrettyConversationsPanel({
   const [globalFilesModalOpen, setGlobalFilesModalOpen] = useState(false);
   // Phase 44 SKILLED-01: SkillsEditorModal open/closed toggle (opened from menu item, sibling of GlobalFilesModal).
   const [skillsEditorModalOpen, setSkillsEditorModalOpen] = useState(false);
+  // Phase 91 Plan 05 — NewConversationModal open/closed toggle (opened from
+  // menu's "New conversation" item — v1 throwaway placement per shape §Philosophy).
+  const [newConversationModalOpen, setNewConversationModalOpen] = useState(false);
 
   // quick-260731-tgg: collapsed by default on every mount per Ashley's design lock.
   const [hiddenExpanded, setHiddenExpanded] = useState(false);
@@ -2041,6 +2058,21 @@ export function PrettyConversationsPanel({
         hostTree={hostTree ?? null}
         defaultHostId={null}
       />
+      {/* Phase 91 Plan 05 — NewConversationModal — portal-mounted sibling of
+          existing modal mounts. Opened via the header MoreVertical menu's "New
+          conversation" item. Controlled state; the modal itself owns form state
+          via useNewConversationForm hook. On successful create, calls
+          onCreateRelayRoom which threads through AppShell to open the pane. */}
+      {/* newConversationModalOpen controls the portal; setNewConversationModalOpen
+          is the toggle. onCreated closes + calls the AppShell callback. */}
+      <NewConversationModal
+        open={newConversationModalOpen}
+        onOpenChange={setNewConversationModalOpen}
+        onCreated={(result) => {
+          setNewConversationModalOpen(false);
+          onCreateRelayRoom?.(result); // AppShell-side handler opens the tab
+        }}
+      />
       {/* Phase 23 (GEFM-01): glass portal menu — keyboard-Escape + click-outside
           dismiss. Portal-mounted to document.body to escape overflow clipping
           from .pv-panel-header. Chrome mirrors PrettyConversationContextMenu.tsx
@@ -2066,7 +2098,9 @@ export function PrettyConversationsPanel({
           }}
         >
           {/* KEEP ORDER: New agent → New role → Edit global files… → Edit skills… (Phase 44 Pitfall 8 guard — do not alphabetize or reshuffle). */}
+          {/* Phase 91 — v1 throwaway placement; conversation-list area redesign will resurface this. */}
           {[
+            { label: "New conversation", onClick: () => setNewConversationModalOpen(true) }, // Phase 91 Plan 05
             { label: "New agent", onClick: () => setNewSessionDialogOpen(true) },
             { label: "New role", onClick: () => setCreateRoleDialogOpen(true) },
             { label: "Edit global files…", onClick: () => setGlobalFilesModalOpen(true) },
