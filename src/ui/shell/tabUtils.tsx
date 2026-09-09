@@ -303,6 +303,27 @@ export function renderTabContent(
       return <PrettyLandingCard />;
 
     case "terminal":
+      // Phase 91 UAT fix 2026-09-09 (Ashley): relay-room tabs are opened with
+      // type="terminal" + host=null (they have no fleet host — the room lives
+      // on the Matrix relay). The `!host` early return below would otherwise
+      // short-circuit them to "no host selected" and never route to the
+      // relay-room pane. Render RelayRoomSessionPane inline here BEFORE the
+      // host check — mirrors the identical branch inside
+      // TerminalOrIdentitySessionPane below (L204), just placed above the
+      // host-required gate so relay-room tabs reach the pane.
+      if (tab.sessionKind === "relay-room" && tab.relayRoomId) {
+        return (
+          <Suspense fallback={<EmptyState icon={TerminalSquare} messageKey="terminal.noHostSelected" />}>
+            <RelayRoomSessionPane
+              tab={tab}
+              roomId={tab.relayRoomId}
+              roomTitle={tab.relayRoomTitle ?? null}
+              isVisible={isVisible}
+              onCloseTab={onCloseTab}
+            />
+          </Suspense>
+        );
+      }
       if (!host)
         return (
           <EmptyState

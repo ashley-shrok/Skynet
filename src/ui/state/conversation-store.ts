@@ -320,6 +320,12 @@ function hydrateActiveSetFromStorage(): Set<string> {
 
 function isConversationTab(tab: Tab): boolean {
   if (!CONVERSATION_TAB_TYPES.has(tab.type)) return false;
+  // Phase 91 UAT fix 2026-09-09 (Ashley): relay-room tabs are host-less by
+  // design (the room lives on the Matrix relay, not a fleet host). Admit
+  // them so an openTab-derived row shows in the sidebar with row.id ===
+  // tab.id — matches the selectedId set by selectConversationDeferred(tabId),
+  // so the selection border renders.
+  if (tab.sessionKind === "relay-room" && tab.relayRoomId) return true;
   if (!tab.host) return false;
   return true;
 }
@@ -471,6 +477,25 @@ function resolveLastMessageAt(
 }
 
 function rowFromTab(tab: Tab, sessionRoleByKey: Map<string, string | null>): ConversationRow {
+  // Phase 91 UAT fix 2026-09-09 (Ashley): relay-room tabs have no host and
+  // no tmux session — carry their kind + roomId + roomTitle onto the row so
+  // handleRowSelect routes clicks to onRelayRoomRowClick. row.id === tab.id
+  // is what makes the selection border render (selectedId === tab.id after
+  // the click-open flow).
+  if (tab.sessionKind === "relay-room" && tab.relayRoomId) {
+    const lastMessageAt = resolveLastMessageAt(tab.id, undefined, null);
+    return {
+      id: tab.id,
+      type: tab.type,
+      label: tab.label,
+      host: undefined,
+      targetTmuxSession: null,
+      kind: "relay-room",
+      roomId: tab.relayRoomId,
+      roomTitle: tab.relayRoomTitle ?? null,
+      ...(lastMessageAt !== null ? { lastMessageAt } : {}),
+    };
+  }
   // Role lookup: prefer fleet-authoritative session.role (resolved on the identity's home box
   // via same SSH conn as tmux list-sessions), fall back to identitiesByKey as defense-in-depth.
   let role: string | null = null;
@@ -647,7 +672,15 @@ function computeSnapshot(): ConversationList {
   // NOT enter the dedup set (Test 26): its identity is "attached to hostA
   // without a known session", not the same as any named fleet session on hostA.
   const openTabsSessionKeys = new Set<string>();
+  // Phase 91 UAT fix 2026-09-09: parallel dedup set for relay-room tabs so
+  // an openTab-derived row wins over the FleetSession-derived synthetic row
+  // (openTabs-entry-wins, mirrors the harness dedup pattern above).
+  const openTabsRelayRoomIds = new Set<string>();
   for (const tab of conversationTabs) {
+    if (tab.sessionKind === "relay-room" && tab.relayRoomId) {
+      openTabsRelayRoomIds.add(tab.relayRoomId);
+      continue;
+    }
     if (!tab.host) continue;
     const tmux = tab.targetTmuxSession;
     if (tmux !== null && tmux !== "") {
@@ -676,6 +709,10 @@ function computeSnapshot(): ConversationList {
     // Build a proper relay-room row here and continue.
     if (session.kind === "relay-room") {
       if (session.id === undefined || session.roomId === undefined) continue;
+      // openTabs-entry-wins: skip when a relay-room tab already covers this
+      // roomId (its rowFromTab-derived row has row.id === tab.id, matching
+      // selectedId after click).
+      if (openTabsRelayRoomIds.has(session.roomId)) continue;
       const relayRow: ConversationRow = {
         id: session.id,
         type: "terminal",
@@ -817,7 +854,12 @@ function computeSnapshot(): ConversationList {
   let middlePushIndex = 0;
   for (const tab of conversationTabs) {
     if (emittedIds.has(tab.id)) continue; // already in pinned tier
-    if (!tab.host) continue; // defense-in-depth; isConversationTab already filtered
+    // Phase 91 UAT fix 2026-09-09: relay-room tabs are host-less by design;
+    // they were admitted by isConversationTab and MUST NOT be filtered out
+    // here. Harness tabs still require a host.
+    const isRelayRoomTab =
+      tab.sessionKind === "relay-room" && !!tab.relayRoomId;
+    if (!tab.host && !isRelayRoomTab) continue;
     const row = rowFromTab(tab, sessionRoleByKey);
     middleRows.push(row);
     middleInsertionOrder.set(row, middlePushIndex++);
