@@ -49,15 +49,7 @@ const manualChunkGroups: Record<string, string[]> = {
   // dialog actually opens.
   "remote-desktop-vendor": ["guacamole-common-js"],
   "graph-vendor": ["cytoscape", "react-cytoscapejs"],
-  "file-preview-vendor": [
-    "react-pdf",
-    "pdfjs-dist",
-    "react-photo-view",
-    "react-h5-audio-player",
-    "react-markdown",
-    "react-syntax-highlighter",
-    "remark-gfm",
-  ],
+  "markdown-vendor": ["react-markdown", "remark-gfm"],
 };
 
 function getManualChunk(id: string): string | undefined {
