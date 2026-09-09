@@ -4142,7 +4142,14 @@ export function PrettyView({
           onSend={handleComposeSend}
           // Phase 50 D-01: seed a pending bubble synchronously with the
           // WS write; PrettyView owns the FIFO pendingSends queue.
-          onOptimisticSend={handleOptimisticSend}
+          // Phase 93 Slice 6 (post-close fix): NOT seeded in relay mode — the
+          // relay adapter owns its own optimistic-bubble tracking (mqid FIFO
+          // head-matched against Matrix's `unsigned.transaction_id` echo per
+          // Pitfall 4). Passing `handleOptimisticSend` in relay mode would
+          // seed a SECOND local pending that the harness ingestion effect —
+          // gated off in relay — never head-matches, producing a duplicate
+          // bubble that flips red at the 20s timeout.
+          onOptimisticSend={source.kind === "relay" ? undefined : handleOptimisticSend}
           // Phase 50 D-03 failure-path repopulate — set by flipToFailed
           // to the failed pending's content; ComposeBox populates the
           // textarea and acks via onOverrideTextConsumed on the same tick.
@@ -4167,6 +4174,15 @@ export function PrettyView({
           // main text area of the compose box or pasting stuff in there
           // doesn't enable the send button."
           canSend={
+            // Phase 93 Slice 6 (post-close fix): relay mode is always sendable
+            // when the compose is mounted — harness `status`/`renderedState`
+            // both derive from the harness ingestion effect, which is gated
+            // off in relay mode, so they never leave the initial "connecting"
+            // state. Without this term, `canSend` stayed false in relay and
+            // the Send button rendered visually disabled. Enter-to-send still
+            // fired via ComposeBox.handleKeyDown (which bypasses canSend),
+            // which is why the relay-source tests didn't catch it.
+            source.kind === "relay" ||
             status === "streaming" ||
             renderedState === "dormant" ||
             renderedState === "active"
