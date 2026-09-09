@@ -53,10 +53,13 @@ import { IdentityBadge } from "@/features/terminal/IdentityBadge";
 import { useIdentities } from "@/state/identities-store";
 import { resolveMxidToIdentity } from "@/features/pretty-view/relay-mxid-resolve";
 import { AgentBadgeWithMeter } from "./AgentBadgeWithMeter";
+// Phase 93 Slice 4 (D-04): types re-homed to pretty-view/sources/ as part
+// of the standalone relay-room-pane tree retirement. Byte-identical shape
+// (Slice 3 Task 1 verbatim port of the wire types).
 import type {
   HumanParticipant,
   AgentParticipant,
-} from "@/features/relay-room-pane/relay-room-api";
+} from "./sources/relay-room-api";
 
 export interface MultiBadgeAnchorProps {
   /** Participants — humans + agents. Both arrays may be empty. */

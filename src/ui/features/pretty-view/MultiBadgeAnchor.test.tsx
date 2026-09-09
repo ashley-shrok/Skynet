@@ -18,10 +18,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render } from "@testing-library/react";
 import type { Identity } from "@/api/identities-api";
+// Phase 93 Slice 4 (D-04): types re-homed to pretty-view/sources/ as part
+// of the standalone relay-room-pane tree retirement.
 import type {
   HumanParticipant,
   AgentParticipant,
-} from "@/features/relay-room-pane/relay-room-api";
+} from "./sources/relay-room-api";
 
 function makeIdentity(
   identityKey: string,
