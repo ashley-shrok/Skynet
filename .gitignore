@@ -33,3 +33,7 @@ electron/build-info.cjs
 /.mcp.json
 /CLAUDE.md
 /old_db/
+
+# Playwright
+playwright-report/
+test-results/
