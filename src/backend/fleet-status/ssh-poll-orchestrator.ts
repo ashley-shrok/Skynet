@@ -53,6 +53,16 @@ import type { SubscriptionRegistry } from "./subscription-registry.js";
 import type { SessionState } from "./wire-protocol.js";
 import type { HostRecord } from "./host-id-resolver.js";
 import { writeSessionFileCache } from "./session-file-cache.js";
+// Phase 92 — v1 JSONL sweep wire contract (Plan 01). parseSweepJsonl is the
+// lenient parser that never throws; SWEEP_SCHEMA_VERSION is compared per-line
+// server-side, and any mismatch surfaces via parseSweepJsonl's schemaMismatch
+// flag which drives the caller-side fallback branch in pollOneHostBatch below.
+import {
+  parseSweepJsonl,
+  SWEEP_SCHEMA_VERSION,
+  type SweepPidLine,
+  type SweepIdentityLine,
+} from "./sweep-schema.js";
 // Phase 85 (D-07): per-tick `lastMessageAt` derivation reads Ashley's newest
 // send-time timestamp from the identity-name-keyed send-log store instead of
 // scanning the JSONL tail. `scanTailForNewestMessageAt` stays defined + exported
@@ -388,6 +398,160 @@ interface PerHostState {
   // IdentityRecycleCacheEntry docblock above for field-level semantics and
   // pollDormantOnlyIdentities for the per-tick update contract.
   identityRecycleState: Map<string, IdentityRecycleCacheEntry>;
+  // -------------------------------------------------------------------------
+  // Phase 92: sweep-first / legacy-fallback dispatch state.
+  //
+  // The fleet-status poller dispatches one of two pipelines per tick per host:
+  //   (batch)  — one `~/.local/bin/fleet-status-sweep` exec per host, parse
+  //              JSONL, drive the same compose+publish machinery as legacy.
+  //   (legacy) — the original ~9-11 exec/PID + ~5 exec/identity fan-out.
+  //
+  // Dispatch decision uses the `sweepScriptPresent` cache below. The probe
+  // (`test -x ~/.local/bin/fleet-status-sweep`) fires ONCE per host per
+  // SSH-channel lifetime — not per tick — so a slow-flip on the managed box
+  // (distributor installs the script, or human deletes it) is detected on
+  // the next SSH reconnect, not every 2s.
+  //
+  // Cache invalidation is signaled by `lastProbeChannelRef !== channel`
+  // (object-identity check against the current SshChannel). On acquireSsh-
+  // Channel reconnect, starter.ts hands us a fresh SshChannel wrapper, so
+  // the object identity differs and the probe re-fires. Cheaper than
+  // plumbing a callback through starter.ts's channel-teardown handlers.
+  //
+  // Transient recovery: on `sweep-exec null` in the batch path (SSH hiccup
+  // that swallowed the script's stdout), pollOneHost sets sweepScriptPresent
+  // back to null so the next tick re-probes. Permanent absence sets it to
+  // `false` (probe returned "no" or null), which blocks the batch path
+  // until the next channel reconnect.
+  //
+  // Schema drift: `sweepSchemaMismatchThisConnection` latches true on the
+  // first parse whose `schema_version !== SWEEP_SCHEMA_VERSION` and stays
+  // true for the rest of this SSH-channel lifetime. Blocks the batch path
+  // (falls straight to legacy) without re-invoking the sweep-exec every
+  // tick — a schema-version bump is a container-restart-scope event.
+  // -------------------------------------------------------------------------
+  sweepScriptPresent: boolean | null;
+  sweepSchemaMismatchThisConnection: boolean;
+  lastProbeChannelRef: SshChannel | null;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 92 — fetch/compose seam types
+//
+// processPid and the per-identity iteration of pollDormantOnlyIdentities are
+// split into two coordinated pieces: (a) a FETCH step that runs the exec fan-
+// out (legacy path) OR reads pre-fetched values from a SweepPidLine /
+// SweepIdentityLine (batch path), and (b) a COMPOSE + PUBLISH step that runs
+// the fingerprint, publish contract, cache write, and writeSessionFileCache
+// (RESEARCH G8) — SHARED by both paths so parity is guaranteed by construction.
+//
+// The two fetched-state structs mirror the intermediate values today's
+// processPid + pollDormantOnlyIdentities produce from their exec results. In
+// the legacy path fetchPerPidState / fetchPerIdentityState issue the same
+// per-PID / per-identity exec fan-out and populate these structs. In the batch
+// path the SweepPidLine / SweepIdentityLine fields map DIRECTLY onto these
+// struct fields (schema decision documented in sweep-schema.ts's
+// SWEEP_FIELD_PARITY table).
+//
+// PARITY NON-NEGOTIABLE: the compose helpers accept only these struct shapes,
+// so a SessionState frame published from the batch path is byte-identical to
+// one published from the legacy path for every field the sweep emits. The one
+// documented divergence — SWEEP_FIELD_PARITY.A3 (box-wide last-stop-payload
+// fallback) is NOT emitted by the sweep, so the batch path passes
+// hookPayloadRaw=null and background_tasks falls back to [] when
+// per_session_stop_payload is also null. Legacy path preserves the A3
+// fallback. This is a deliberate scope decision made in Plan 01.
+// ---------------------------------------------------------------------------
+
+/**
+ * Snapshot of every value processPid fetches over SSH before entering the
+ * compose+publish phase. Fields carry the RESEARCH.md exec-site letter (A1..
+ * A12) they parity with — batch-path callers fill these directly from a
+ * SweepPidLine; legacy-path fetchPerPidState fills them by running the
+ * existing exec fan-out.
+ *
+ * The mtime fields (A6/A7/A8) carry the RAW server-side reading — either a
+ * number × 1000 for a valid stat, or null for absent/SSH-hiccup/non-numeric.
+ * The COMPOSE step applies the "fail-open preserve cached value" reconciliation
+ * against PidCacheEntry (that logic depends on cache reads which are compose-
+ * side responsibility — mirrors L1482-1503, L1388-1403, L1408-1423 of the
+ * pre-refactor processPid).
+ */
+interface PerPidFetchedState {
+  /** A1 — `cat ~/.claude/sessions/<pid>.json` raw contents; null = mid-write */
+  sessionJsonRaw: string | null;
+  /** A2 — `/proc/<pid>/stat` read with sentinel (bounty 9c8d4a72) */
+  statResult: StatReadResult;
+  /**
+   * A3 — box-wide `~/.claude/fleet-status/last-stop-payload.json`. Legacy path
+   * always fetches; BATCH PATH PASSES `null` (SWEEP_FIELD_PARITY.A3 skip:
+   * sweep does NOT emit A3, per-session A9 supersedes; on both-null the
+   * caller falls back to emitHookPayloadWarn + background_tasks=[]).
+   */
+  hookPayloadRaw: string | null;
+  /** A4+A5 resolved — PID → tmux pane → tmux session name (identity name) */
+  tmuxSession: string | null;
+  /**
+   * A6 — RAW per-session stop-<sid>.json mtime × 1000 for this tick's read.
+   * null = SSH hiccup / file absent / non-numeric / sessionId failed the
+   * safe-char regex guard. Compose applies fail-open cache preservation.
+   */
+  freshLastStopAt: number | null;
+  /** A7 — RAW Phase 62 activity marker mtime × 1000 for this tick's read */
+  freshActivityMtime: number | null;
+  /** A8 — RAW Phase 62 stopped marker mtime × 1000 for this tick's read */
+  freshStoppedMtime: number | null;
+  /** A9 — per-session `stop-<sid>.json` payload; null when absent/SSH-hiccup */
+  perSessionHookPayloadRaw: string | null;
+  /**
+   * A10 — RAW `.dormant` sentinel read via source-A path.
+   * Discriminates on the stdout: "yes" → true, "no" → false, anything else
+   * (including null from SSH hiccup) → null (compose falls back to cache).
+   */
+  freshDormant: boolean | null;
+  /**
+   * A11 — Phase 32 discovery result. Legacy path caches per PID lifetime;
+   * batch path takes the SweepIdentityLine.jsonl_path for the joined
+   * identity (schema fold — no separate per-PID discovery on the wire).
+   */
+  jsonlPath: string | null;
+  /**
+   * A12 — up to 256KB tail of the identity's active JSONL for the ai-title
+   * scan. Null when jsonlPath is unknown/unreadable; caller runs
+   * scanTailForLatestAiTitle unchanged.
+   */
+  jsonlTail: string | null;
+}
+
+/**
+ * Snapshot of every value the per-identity iteration of
+ * pollDormantOnlyIdentities fetches over SSH before the compose+publish
+ * phase. Fields carry RESEARCH.md exec-site letters (B1..B5).
+ */
+interface PerIdentityFetchedState {
+  name: string;
+  /** B1 — `.dormant` sentinel */
+  isDormant: boolean;
+  /** B2 — `.recycled-at` sentinel */
+  isRecycledAt: boolean;
+  /** B3 — `.recycle-requested` sentinel */
+  isRecycleRequested: boolean;
+  /**
+   * Resolved layer1 recycling value AFTER fail-open preservation against
+   * the cached value (mirrors the L1060-1090 legacy scan-then-reconcile
+   * logic). This is NOT raw B5 — it's the final value the compose helper
+   * plugs into the OR-composition.
+   */
+  layer1RecyclingCached: boolean;
+  /** B4 — Phase 32 discovery result (post-stale-check in the legacy path) */
+  jsonlPath: string | null;
+  /**
+   * Next-tick stale-tail counter value. Legacy path increments/resets per
+   * the L1060-1089 rotation-defense rules; batch path resets to 0 (Plan 02's
+   * script does its own per-tick discovery, so cache-based staleness does
+   * not apply). Consumed by compose for the cache write.
+   */
+  nextStaleTailTickCount: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -855,9 +1019,36 @@ export function createSshPollOrchestrator(
   );
 
   // ---------------------------------------------------------------------------
-  // Poll one host
+  // Phase 92 — sweep-first / legacy-fallback dispatch
+  //
+  // pollOneHost is now a THIN DISPATCHER. It:
+  //   (1) Detects per-SSH-channel-lifetime cache invalidation (new channel
+  //       object → reset the probe cache).
+  //   (2) Probes for ~/.local/bin/fleet-status-sweep on first-tick-per-channel.
+  //   (3) On sweep-present + no schema-drift-latch: try pollOneHostBatch.
+  //       - On success: return.
+  //       - On failure (null exec / schema mismatch / empty-on-nonempty-box):
+  //         log the reason, force re-probe next tick if transient, fall
+  //         through to legacy.
+  //   (4) Otherwise: run pollOneHostLegacy (the pre-Phase-92 body verbatim).
+  //
+  // The `inFlight` guard at pollAllHosts wraps this whole function unchanged.
+  // A slow sweep-exec does NOT stack ticks (RESEARCH.md G5 preserved).
   // ---------------------------------------------------------------------------
 
+  /**
+   * Phase 92 — sweep-exec timeout. Larger than DISCOVERY_EXEC_TIMEOUT_MS (5s)
+   * because the sweep does per-identity fs walks that may hit cold disk cache
+   * on managed boxes with many identities. Still safely under the 2s poll
+   * interval's `inFlight` skip semantics on most boxes — a sweep that regularly
+   * exceeds this bound is a symptom of managed-box overload and should surface
+   * via `inFlight` skip logs (quick-260820-tm0), not a silent hang.
+   */
+  const SWEEP_EXEC_TIMEOUT_MS = 8000;
+
+  /**
+   * pollOneHost — dispatcher. See docblock above.
+   */
   async function pollOneHost(hostState: PerHostState): Promise<void> {
     const { host, channel } = hostState;
 
@@ -867,16 +1058,105 @@ export function createSshPollOrchestrator(
       tick: pollTickCount,
     });
 
+    // Reset per-connection presence cache if the SSH channel object changed.
+    // The starter.ts channel-teardown handlers (`client.on("end"/"close"/
+    // "error")`) drop the hostClients entry; the next acquireSshChannel
+    // returns a fresh SshChannel wrapper. Comparing object identity here is
+    // cheaper than plumbing a callback through starter.ts (open-question #4
+    // resolution: per-host-per-connection-lifetime probe cache).
+    if (hostState.channel !== hostState.lastProbeChannelRef) {
+      hostState.sweepScriptPresent = null;
+      hostState.sweepSchemaMismatchThisConnection = false;
+      hostState.lastProbeChannelRef = hostState.channel;
+    }
+
+    // Presence probe on first tick per SSH-channel lifetime OR after a
+    // sweep-exec null return (transient recovery — see below).
+    if (hostState.sweepScriptPresent === null) {
+      const probeRaw = await channel.exec(
+        "test -x ~/.local/bin/fleet-status-sweep 2>/dev/null && echo yes || echo no",
+      );
+      hostState.sweepScriptPresent =
+        probeRaw !== null && probeRaw.trim() === "yes";
+      systemLogger.info("Fleet-status: sweep-script presence probed", {
+        operation: "fleet_status_sweep_probe",
+        fleetHostId: host.id,
+        present: hostState.sweepScriptPresent,
+      });
+    }
+
+    // Dispatch: batch first, legacy fallback on failure.
+    if (
+      hostState.sweepScriptPresent &&
+      !hostState.sweepSchemaMismatchThisConnection
+    ) {
+      const result = await pollOneHostBatch(hostState);
+      if (result.ok) {
+        systemLogger.info("Fleet-status poll end (batch)", {
+          operation: "fleet_status_poll_end",
+          fleetHostId: host.id,
+          tick: pollTickCount,
+          path: "batch",
+          identityCount: result.identityCount,
+          pidCount: result.pidCount,
+        });
+        return;
+      }
+      // Failure — log why and fall through to legacy for this tick.
+      systemLogger.warn(
+        "Fleet-status: batch path failed, falling back to legacy this tick",
+        {
+          operation: "fleet_status_batch_fallback",
+          fleetHostId: host.id,
+          reason: result.reason,
+        },
+      );
+      // On null-exec, force re-probe next tick (may be transient — SSH hiccup
+      // that swallowed stdout, or script really disappeared between probe
+      // and exec). Schema-mismatch and empty-on-nonempty are architectural
+      // drift symptoms — leave the cache and force fallback until reconnect.
+      if (result.reason === "null-exec") {
+        hostState.sweepScriptPresent = null;
+      }
+      if (result.reason === "schema-mismatch") {
+        hostState.sweepSchemaMismatchThisConnection = true;
+      }
+    }
+
+    await pollOneHostLegacy(hostState);
+    systemLogger.info("Fleet-status poll end (legacy)", {
+      operation: "fleet_status_poll_end",
+      fleetHostId: host.id,
+      tick: pollTickCount,
+      path: "legacy",
+    });
+  }
+
+  /**
+   * pollOneHostLegacy — the pre-Phase-92 pollOneHost body extracted verbatim
+   * (rename + move, no behavior change). Used as the fallback branch of the
+   * new dispatcher when the sweep script is absent, returns null, or emits
+   * a schema-mismatched payload.
+   *
+   * Preserved as the mandatory backward-compat path per CONTEXT.md § Backward
+   * compat during rollout: "Do NOT hard-fail if the sweep script is absent."
+   */
+  async function pollOneHostLegacy(hostState: PerHostState): Promise<void> {
+    const { host, channel } = hostState;
+
     // (a) Enumerate session-JSON files
     const listing = await channel.exec(
       "ls -1 ~/.claude/sessions/*.json 2>/dev/null || true",
     );
 
     if (listing === null) {
-      systemLogger.warn("Fleet-status: ls of sessions dir returned null (SSH error)", {
-        operation: "fleet_status_host_ssh_unreachable",
-        fleetHostId: host.id,
-      });
+      systemLogger.warn(
+        "Fleet-status: ls of sessions dir returned null (SSH error)",
+        {
+          operation: "fleet_status_host_ssh_unreachable",
+          fleetHostId: host.id,
+        },
+      );
       return;
     }
 
@@ -900,14 +1180,7 @@ export function createSshPollOrchestrator(
 
     // (c) Phase 52 Plan 01 Task 3 — source B: enumerate ~/.claude/identities/
     //     for dormant-only identities that have NO live claude PID this tick
-    //     and publish SessionState frames for them. Built from the current
-    //     livenessMap AFTER source A's Promise.all completes so that identities
-    //     with live PIDs are properly excluded.
-    //
-    //     liveTmuxSet reflects genuinely-live-this-tick tmuxSessions because
-    //     source A's stale-reap path (isStaleFromStat) deletes reaped PID
-    //     entries from livenessMap before this point. Any lingering entry has
-    //     a live PID in the current tick.
+    //     and publish SessionState frames for them.
     const liveTmuxSet = new Set<string>();
     for (const entry of hostState.livenessMap.values()) {
       if (entry.tmuxSession !== null) {
@@ -915,13 +1188,215 @@ export function createSshPollOrchestrator(
       }
     }
     await pollDormantOnlyIdentities(hostState, liveTmuxSet);
+  }
 
-    systemLogger.info("Fleet-status poll end", {
-      operation: "fleet_status_poll_end",
-      fleetHostId: host.id,
-      tick: pollTickCount,
-      pidCount: pidNumbers.length,
-    });
+  /**
+   * pollOneHostBatch — Phase 92 batch path. Fires ONE `channel.exec` per host
+   * per poll cycle for the sweep script. Parses the JSONL emission and drives
+   * the SAME compose+publish machinery as the legacy path via the fetch/
+   * compose helpers.
+   *
+   * Failure modes:
+   *   - `null-exec`: sweep exec returned null (SSH transport hiccup, script
+   *     vanished, timeout). Caller falls through to legacy and re-probes.
+   *   - `schema-mismatch`: at least one parseable line carried a schema_version
+   *     other than SWEEP_SCHEMA_VERSION. Caller latches the mismatch flag,
+   *     blocking the batch path until channel reconnect.
+   *   - `empty-output-on-nonempty-box`: sweep returned zero identity + zero
+   *     pid lines, but we have prior-tick evidence the box has content
+   *     (livenessMap or identityRecycleState non-empty). Caller falls through
+   *     to legacy for this tick but does NOT latch — the next tick re-tries
+   *     the batch (script might be back after a transient failure).
+   *
+   * Success return carries observability counts for the poll-end log.
+   */
+  async function pollOneHostBatch(
+    hostState: PerHostState,
+  ): Promise<
+    | { ok: true; identityCount: number; pidCount: number }
+    | { ok: false; reason: "null-exec" | "schema-mismatch" | "empty-output-on-nonempty-box" }
+  > {
+    const { host, channel } = hostState;
+
+    // Sweep exec — ONE call per host per poll (the whole point of Phase 92).
+    // Wrapped in Promise.race to bound wall time and prevent inFlight stacking
+    // on a stalled managed box.
+    let sweepRaw: string | null;
+    try {
+      sweepRaw = await Promise.race([
+        channel.exec("~/.local/bin/fleet-status-sweep 2>/dev/null"),
+        new Promise<string | null>((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `pollOneHostBatch sweep-exec timeout after ${SWEEP_EXEC_TIMEOUT_MS}ms`,
+                ),
+              ),
+            SWEEP_EXEC_TIMEOUT_MS,
+          ),
+        ),
+      ]);
+    } catch (err) {
+      systemLogger.warn("Fleet-status: sweep-exec timeout or throw", {
+        operation: "fleet_status_sweep_exec_null",
+        fleetHostId: host.id,
+        error: err instanceof Error ? err.message : "unknown",
+      });
+      return { ok: false, reason: "null-exec" };
+    }
+
+    if (sweepRaw === null) {
+      systemLogger.warn("Fleet-status: sweep-exec returned null (SSH hiccup)", {
+        operation: "fleet_status_sweep_exec_null",
+        fleetHostId: host.id,
+      });
+      return { ok: false, reason: "null-exec" };
+    }
+
+    const parsed = parseSweepJsonl(sweepRaw);
+    if (parsed.schemaMismatch) {
+      systemLogger.warn(
+        "Fleet-status: sweep-emit schema_version mismatch — latching fallback",
+        {
+          operation: "fleet_status_sweep_schema_mismatch",
+          fleetHostId: host.id,
+          expectedSchemaVersion: SWEEP_SCHEMA_VERSION,
+          identityLineCount: parsed.identityLines.length,
+          pidLineCount: parsed.pidLines.length,
+          unknownLineCount: parsed.unknownLines,
+        },
+      );
+      return { ok: false, reason: "schema-mismatch" };
+    }
+
+    // Empty output disambiguation: freshly-provisioned or empty box vs
+    // broken script. Prior-tick evidence of content (livenessMap or
+    // identityRecycleState non-empty) → treat empty as suspicious and fall
+    // back to legacy for this tick. Otherwise accept as a genuine
+    // empty-box emission.
+    if (parsed.identityLines.length === 0 && parsed.pidLines.length === 0) {
+      const hasPriorContent =
+        hostState.livenessMap.size > 0 ||
+        hostState.identityRecycleState.size > 0;
+      if (hasPriorContent) {
+        return { ok: false, reason: "empty-output-on-nonempty-box" };
+      }
+      // Genuinely-empty box — success with zero counts.
+      return { ok: true, identityCount: 0, pidCount: 0 };
+    }
+
+    // Build a quick identity→SweepIdentityLine index for source-A PID lines
+    // that need to reuse the identity's jsonl_path (SWEEP_FIELD_PARITY A11
+    // fold — no separate per-PID discovery on the wire).
+    const identityLineByName = new Map<string, SweepIdentityLine>();
+    for (const line of parsed.identityLines) {
+      identityLineByName.set(line.identity, line);
+    }
+
+    // Source A — dispatch each SweepPidLine into the SAME compose helper the
+    // legacy path uses. writeSessionFileCache fires here (compose G8).
+    for (const pidLine of parsed.pidLines) {
+      const fetched = pidLineToPerPidFetched(pidLine, identityLineByName);
+      await composeAndPublishPerPid(hostState, pidLine.pid, fetched);
+    }
+
+    // Source B — build liveTmuxSet AFTER source A completes (source A's
+    // stale-reap may have deleted PIDs from livenessMap).
+    const liveTmuxSet = new Set<string>();
+    for (const entry of hostState.livenessMap.values()) {
+      if (entry.tmuxSession !== null) {
+        liveTmuxSet.add(entry.tmuxSession);
+      }
+    }
+
+    // Source B — dispatch each SweepIdentityLine into the SAME compose helper.
+    for (const identityLine of parsed.identityLines) {
+      const fetched = identityLineToPerIdentityFetched(identityLine, hostState);
+      const cached = hostState.identityRecycleState.get(identityLine.identity);
+      composeAndPublishPerIdentity(hostState, liveTmuxSet, fetched, cached);
+    }
+
+    return {
+      ok: true,
+      identityCount: parsed.identityLines.length,
+      pidCount: parsed.pidLines.length,
+    };
+  }
+
+  /**
+   * Adapter: SweepPidLine → PerPidFetchedState. Direct field-copy of the
+   * schema fields onto the fetched struct.
+   *
+   * Two SWEEP_FIELD_PARITY-documented divergences from the legacy fetch:
+   *   - `hookPayloadRaw = null` (A3 skip): sweep does NOT emit box-wide
+   *     last-stop-payload.json. Compose handles the null → falls back to
+   *     emitHookPayloadWarn + backgroundTasks=[] when per_session is also
+   *     null. Documented in sweep-schema.ts SWEEP_FIELD_PARITY.A3.
+   *   - `jsonlPath` sourced from the joined SweepIdentityLine (A11 fold):
+   *     per-PID discovery folded into the per-identity discovery on the
+   *     wire; PIDs on identities that have a SweepIdentityLine reuse that
+   *     identity's jsonl_path.
+   */
+  function pidLineToPerPidFetched(
+    pidLine: SweepPidLine,
+    identityLineByName: Map<string, SweepIdentityLine>,
+  ): PerPidFetchedState {
+    const identityLine = identityLineByName.get(pidLine.identity);
+    return {
+      sessionJsonRaw: pidLine.session_json,
+      statResult: pidLine.stat_result,
+      hookPayloadRaw: null, // SWEEP_FIELD_PARITY.A3 skip
+      tmuxSession: pidLine.identity,
+      freshLastStopAt: pidLine.per_session_stop_mtime_ms,
+      freshActivityMtime: pidLine.activity_mtime_ms,
+      freshStoppedMtime: pidLine.stopped_mtime_ms,
+      perSessionHookPayloadRaw: pidLine.per_session_stop_payload,
+      freshDormant: pidLine.dormant_a,
+      jsonlPath: pidLine.jsonl_tail !== null
+        // If sweep emitted a tail, the identity is real; get the path from
+        // the joined identity line. Sweep script guarantees a SweepIdentity-
+        // Line for every SweepPidLine.identity (per Plan 02 contract).
+        ? (identityLine?.jsonl_path ?? null)
+        : (identityLine?.jsonl_path ?? null),
+      jsonlTail: pidLine.jsonl_tail,
+    };
+  }
+
+  /**
+   * Adapter: SweepIdentityLine → PerIdentityFetchedState. Direct field-copy.
+   *
+   * B5 (layer1_recycling) fail-open reconciliation lives here so compose sees
+   * the resolved value ready to plug into the OR-composition:
+   *   - non-null value → use it directly (fresh scan verdict)
+   *   - null (tail unreadable this tick) → preserve cached value
+   *
+   * Stale-tail rediscovery counter resets to 0 in the batch path. Plan 02's
+   * script does its own discovery every tick, so the multi-tick rotation
+   * defense doesn't apply the same way; the counter stays defined on the
+   * cache for legacy-path continuity but batch-mode ticks never increment it.
+   */
+  function identityLineToPerIdentityFetched(
+    identityLine: SweepIdentityLine,
+    hostState: PerHostState,
+  ): PerIdentityFetchedState {
+    const cached = hostState.identityRecycleState.get(identityLine.identity);
+    // B5 fail-open — null tail-scan preserves cached layer1RecyclingCached.
+    const layer1RecyclingCached =
+      identityLine.layer1_recycling !== null
+        ? identityLine.layer1_recycling
+        : (cached?.layer1RecyclingCached ?? false);
+    return {
+      name: identityLine.identity,
+      isDormant: identityLine.dormant,
+      isRecycledAt: identityLine.recycled_at,
+      isRecycleRequested: identityLine.recycle_requested,
+      layer1RecyclingCached,
+      jsonlPath: identityLine.jsonl_path,
+      // Batch-path scripts perform per-tick discovery server-side; the multi-
+      // tick rotation defense does not apply here.
+      nextStaleTailTickCount: 0,
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -1047,129 +1522,177 @@ export function createSshPollOrchestrator(
     // deterministic cache updates in the presence of test-time mocked SSH.
     for (const { name, isDormant, isRecycledAt, isRecycleRequested } of statResults) {
       const cached = identityRecycleState.get(name);
+      const fetched = await fetchPerIdentityState(
+        hostState,
+        name,
+        cached,
+        isDormant,
+        isRecycledAt,
+        isRecycleRequested,
+      );
+      composeAndPublishPerIdentity(hostState, liveTmuxSet, fetched, cached);
+    }
+  }
 
-      // Phase 2 — discovery (fires when cache empty; rediscovers after
-      // stale-tail threshold trip nulls the cached jsonlPath).
-      let jsonlPath: string | null = cached?.jsonlPath ?? null;
-      if (jsonlPath === null) {
-        jsonlPath = await discoverIdentityJsonlPathViaChannel(channel, name);
-      }
+  /**
+   * fetchPerIdentityState — runs the pre-Phase-92 B1..B5 exec fan-out for one
+   * identity IN THE LEGACY PATH. Zero cache mutation, zero publish, zero
+   * logging.
+   *
+   * Discovery (B4) fires when the cache is empty; the fetched jsonlPath
+   * reflects a fresh discovery result (or null when discovery couldn't
+   * resolve). Layer 1 recycling scan (B5) runs against the tail read for the
+   * resolved path — the same fail-open preservation + rotation-defense
+   * stale-counter logic as pre-refactor. Returns a PerIdentityFetchedState
+   * that composeAndPublishPerIdentity consumes to drive the same publish
+   * contract as the pre-refactor per-identity iteration body.
+   *
+   * The three sentinel results (B1/B2/B3) are passed in from the caller's
+   * outer Promise.all — they're computed identically for every identity so
+   * batching them there stays in the legacy per-identity iteration wrapper.
+   */
+  async function fetchPerIdentityState(
+    hostState: PerHostState,
+    name: string,
+    cached: IdentityRecycleCacheEntry | undefined,
+    isDormant: boolean,
+    isRecycledAt: boolean,
+    isRecycleRequested: boolean,
+  ): Promise<PerIdentityFetchedState> {
+    const { channel } = hostState;
 
-      // Phase 3 — Layer 1 tail scan.
-      // Fail-open: null return → preserve cached value.
-      let layer1RecyclingCached: boolean = cached?.layer1RecyclingCached ?? false;
-      let nextStaleTailTickCount = cached?.staleTailTickCount ?? 0;
-      if (jsonlPath !== null) {
-        const tailRaw = await channel.exec(
-          `tail -c 262144 ${jsonlPath} 2>/dev/null || true`,
-        );
-        if (tailRaw !== null && tailRaw.trim() !== "") {
-          const scannedLayer1 = scanTailForLayer1RecyclingSignal(tailRaw);
-          if (scannedLayer1 !== null) {
-            layer1RecyclingCached = scannedLayer1;
-            // Fresh non-null scan → reset stale counter.
-            nextStaleTailTickCount = 0;
-          } else if (layer1RecyclingCached) {
-            // Tail had zero user turns AND we had a cached true value →
-            // increment stale counter (defense against JSONL rotation
-            // silently retiring the file we were watching).
-            nextStaleTailTickCount++;
-          } else {
-            // Tail had zero user turns and cache was false — reset counter.
-            nextStaleTailTickCount = 0;
-          }
+    // Phase 2 — discovery (fires when cache empty; rediscovers after
+    // stale-tail threshold trip nulls the cached jsonlPath).
+    let jsonlPath: string | null = cached?.jsonlPath ?? null;
+    if (jsonlPath === null) {
+      jsonlPath = await discoverIdentityJsonlPathViaChannel(channel, name);
+    }
+
+    // Phase 3 — Layer 1 tail scan.
+    // Fail-open: null return → preserve cached value.
+    let layer1RecyclingCached: boolean = cached?.layer1RecyclingCached ?? false;
+    let nextStaleTailTickCount = cached?.staleTailTickCount ?? 0;
+    if (jsonlPath !== null) {
+      const tailRaw = await channel.exec(
+        `tail -c 262144 ${jsonlPath} 2>/dev/null || true`,
+      );
+      if (tailRaw !== null && tailRaw.trim() !== "") {
+        const scannedLayer1 = scanTailForLayer1RecyclingSignal(tailRaw);
+        if (scannedLayer1 !== null) {
+          layer1RecyclingCached = scannedLayer1;
+          // Fresh non-null scan → reset stale counter.
+          nextStaleTailTickCount = 0;
         } else if (layer1RecyclingCached) {
-          // Empty tail / null exec AND cached true → tick stale counter.
+          // Tail had zero user turns AND we had a cached true value →
+          // increment stale counter (defense against JSONL rotation
+          // silently retiring the file we were watching).
           nextStaleTailTickCount++;
-        }
-        // else: empty tail + cached false → keep counter at 0 (no signal to defend).
-        if (nextStaleTailTickCount >= STALE_TAIL_REDISCOVERY_THRESHOLD) {
-          jsonlPath = null;
+        } else {
+          // Tail had zero user turns and cache was false — reset counter.
           nextStaleTailTickCount = 0;
         }
+      } else if (layer1RecyclingCached) {
+        // Empty tail / null exec AND cached true → tick stale counter.
+        nextStaleTailTickCount++;
       }
+      // else: empty tail + cached false → keep counter at 0 (no signal to defend).
+      if (nextStaleTailTickCount >= STALE_TAIL_REDISCOVERY_THRESHOLD) {
+        jsonlPath = null;
+        nextStaleTailTickCount = 0;
+      }
+    }
 
-      // Phase 4 — OR compose. Three axes match source A's pre-migration semantics.
-      const isRecycling = layer1RecyclingCached || isRecycleRequested || isRecycledAt;
+    return {
+      name,
+      isDormant,
+      isRecycledAt,
+      isRecycleRequested,
+      layer1RecyclingCached,
+      jsonlPath,
+      nextStaleTailTickCount,
+    };
+  }
 
-      // Phase 5 — conditional skip. When identity has a live PID AND is NOT
-      // recycling, source A owns publish for the non-recycle axes (dormant,
-      // status, waitingFor, backgroundTasks) — evict this identity's source-B
-      // cache and continue. This mirrors the pre-migration Phase 52 T3 skip
-      // semantics for the dormant axis (Test P52-01-T3-vi/-vii).
-      //
-      // When isRecycling === true, DO NOT skip — publish the source-B recycle
-      // frame regardless of live-PID state. Source A stamps recycling:false
-      // so both frames publish this tick without conflict (source A's frame
-      // carries the non-recycle axes; source B's frame carries the recycle
-      // axis to the registry so consumers see it).
-      //
-      // TRANSITION EDGE (quick-260823-73o T1-vi lock): if we're about to skip-
-      // and-evict AND the cached source-B frame had recycling:true, we MUST
-      // publish a final recycling:false source-B frame BEFORE evicting so
-      // consumers see the transition. Otherwise the last-published source-B
-      // frame for this identity would be a stale recycling:true and the
-      // registry would keep serving it to fresh subscribers until source B
-      // re-fires (which won't happen until the live PID goes away).
-      if (liveTmuxSet.has(name) && !isRecycling) {
-        const cachedRecycling = cached?.recycling ?? false;
-        if (cachedRecycling) {
-          const state: SessionState = {
-            hostId: host.id,
-            tmuxSession: name,
-            sessionId: "__dormant__",
-            pid: null,
-            status: "idle",
-            waitingFor: undefined,
-            backgroundTasks: [],
-            updatedAt: deps.now(),
-            lastMessageAt: null,
-            aiTitle: null,
+  /**
+   * composeAndPublishPerIdentity — full downstream of the per-identity
+   * iteration: OR compose the three recycle axes, apply the skip-and-evict
+   * transition-edge, fingerprint suppression, publish, cache write. Zero
+   * SSH calls.
+   *
+   * Byte-identical observable behavior to the pre-refactor per-identity
+   * iteration body. Batch-path callers synthesize the `fetched` struct from
+   * a SweepIdentityLine and drive this same publish contract.
+   */
+  function composeAndPublishPerIdentity(
+    hostState: PerHostState,
+    liveTmuxSet: Set<string>,
+    fetched: PerIdentityFetchedState,
+    cached: IdentityRecycleCacheEntry | undefined,
+  ): void {
+    const { host, identityRecycleState } = hostState;
+    const {
+      name,
+      isDormant,
+      isRecycledAt,
+      isRecycleRequested,
+      layer1RecyclingCached,
+      jsonlPath,
+      nextStaleTailTickCount,
+    } = fetched;
+
+    // Phase 4 — OR compose. Three axes match source A's pre-migration
+    // semantics.
+    const isRecycling = layer1RecyclingCached || isRecycleRequested || isRecycledAt;
+
+    // Phase 5 — conditional skip. When identity has a live PID AND is NOT
+    // recycling, source A owns publish for the non-recycle axes — evict this
+    // identity's source-B cache and continue.
+    //
+    // TRANSITION EDGE (quick-260823-73o T1-vi lock): if we're about to skip-
+    // and-evict AND the cached source-B frame had recycling:true, publish a
+    // final recycling:false source-B frame BEFORE evicting so consumers see
+    // the transition.
+    if (liveTmuxSet.has(name) && !isRecycling) {
+      const cachedRecycling = cached?.recycling ?? false;
+      if (cachedRecycling) {
+        const state: SessionState = {
+          hostId: host.id,
+          tmuxSession: name,
+          sessionId: "__dormant__",
+          pid: null,
+          status: "idle",
+          waitingFor: undefined,
+          backgroundTasks: [],
+          updatedAt: deps.now(),
+          lastMessageAt: null,
+          aiTitle: null,
+          dormant: isDormant,
+          recycling: false,
+        };
+        deps.registry.publishSessionState(host.id, state);
+        systemLogger.info(
+          "Fleet-status: source B frame published (recycling-false transition, pre-evict)",
+          {
+            operation: "fleet_status_source_b_publish",
+            fleetHostId: host.id,
+            identityName: name,
             dormant: isDormant,
             recycling: false,
-          };
-          deps.registry.publishSessionState(host.id, state);
-          systemLogger.info(
-            "Fleet-status: source B frame published (recycling-false transition, pre-evict)",
-            {
-              operation: "fleet_status_source_b_publish",
-              fleetHostId: host.id,
-              identityName: name,
-              dormant: isDormant,
-              recycling: false,
-              previousDormant: cached?.dormant ?? null,
-              previousRecycling: cached?.recycling ?? null,
-            },
-          );
-        }
-        identityRecycleState.delete(name);
-        continue;
+            previousDormant: cached?.dormant ?? null,
+            previousRecycling: cached?.recycling ?? null,
+          },
+        );
       }
+      identityRecycleState.delete(name);
+      return;
+    }
 
-      // Phase 6 — fingerprint + publish/suppress.
-      const fingerprint = `${isDormant ? "1" : "0"}|${isRecycling ? "1" : "0"}`;
+    // Phase 6 — fingerprint + publish/suppress.
+    const fingerprint = `${isDormant ? "1" : "0"}|${isRecycling ? "1" : "0"}`;
 
-      if (cached !== undefined && cached.lastPublishedFingerprint === fingerprint) {
-        // Cache hit — fingerprint identical → advance internal state (jsonlPath,
-        // layer1RecyclingCached, staleTailTickCount) but skip publish. This
-        // is critical: internal cache state updates every tick, but only
-        // (dormant, recycling) drift triggers a publish (source B fingerprint
-        // suppression contract inherited from Phase 52 T3 / Phase 53 CR C2).
-        identityRecycleState.set(name, {
-          dormant: isDormant,
-          recycling: isRecycling,
-          layer1RecyclingCached,
-          jsonlPath,
-          staleTailTickCount: nextStaleTailTickCount,
-          lastPublishedFingerprint: fingerprint,
-        });
-        continue;
-      }
-
-      // Fingerprint delta (or first appearance) → publish + update cache.
-      const previousDormant = cached?.dormant ?? null;
-      const previousRecycling = cached?.recycling ?? null;
-
+    if (cached !== undefined && cached.lastPublishedFingerprint === fingerprint) {
+      // Cache hit — fingerprint identical → advance internal state but skip
+      // publish (source B fingerprint suppression contract).
       identityRecycleState.set(name, {
         dormant: isDormant,
         recycling: isRecycling,
@@ -1178,69 +1701,138 @@ export function createSshPollOrchestrator(
         staleTailTickCount: nextStaleTailTickCount,
         lastPublishedFingerprint: fingerprint,
       });
+      return;
+    }
 
-      const state: SessionState = {
-        hostId: host.id,
-        tmuxSession: name,
-        sessionId: "__dormant__",
-        pid: null,
-        status: "idle",
-        waitingFor: undefined,
-        backgroundTasks: [],
-        updatedAt: deps.now(),
-        lastMessageAt: null,
-        aiTitle: null,
-        dormant: isDormant,
-        recycling: isRecycling,
-      };
-      deps.registry.publishSessionState(host.id, state);
+    // Fingerprint delta (or first appearance) → publish + update cache.
+    const previousDormant = cached?.dormant ?? null;
+    const previousRecycling = cached?.recycling ?? null;
 
-      systemLogger.info(
-        "Fleet-status: source B frame published",
-        {
-          operation: "fleet_status_source_b_publish",
-          fleetHostId: host.id,
-          identityName: name,
-          dormant: isDormant,
-          recycling: isRecycling,
-          previousDormant,
-          previousRecycling,
-        },
-      );
+    identityRecycleState.set(name, {
+      dormant: isDormant,
+      recycling: isRecycling,
+      layer1RecyclingCached,
+      jsonlPath,
+      staleTailTickCount: nextStaleTailTickCount,
+      lastPublishedFingerprint: fingerprint,
+    });
 
-      // Phase 7 — arm log (moved from source A per quick-260823-73o migration).
-      // Fires per-publish when recycling axis is true. Companion to the source B
-      // publish log above; both channels have matching forensic trails.
-      if (isRecycling) {
-        systemLogger.info("Fleet-status: recycling axis armed", {
-          operation: "fleet_status_recycling_armed",
-          fleetHostId: host.id,
-          identityName: name,
-          hasLivePid: liveTmuxSet.has(name),
-          layer1: layer1RecyclingCached,
-          requested: isRecycleRequested,
-          sentinel: isRecycledAt,
-          composed: isRecycling,
-          cachedLayer1: cached?.layer1RecyclingCached ?? false,
-          cachedRecycling: cached?.recycling ?? false,
-          cachedDormant: cached?.dormant ?? false,
-        });
-      }
+    const state: SessionState = {
+      hostId: host.id,
+      tmuxSession: name,
+      sessionId: "__dormant__",
+      pid: null,
+      status: "idle",
+      waitingFor: undefined,
+      backgroundTasks: [],
+      updatedAt: deps.now(),
+      lastMessageAt: null,
+      aiTitle: null,
+      dormant: isDormant,
+      recycling: isRecycling,
+    };
+    deps.registry.publishSessionState(host.id, state);
+
+    systemLogger.info("Fleet-status: source B frame published", {
+      operation: "fleet_status_source_b_publish",
+      fleetHostId: host.id,
+      identityName: name,
+      dormant: isDormant,
+      recycling: isRecycling,
+      previousDormant,
+      previousRecycling,
+    });
+
+    // Phase 7 — arm log.
+    if (isRecycling) {
+      systemLogger.info("Fleet-status: recycling axis armed", {
+        operation: "fleet_status_recycling_armed",
+        fleetHostId: host.id,
+        identityName: name,
+        hasLivePid: liveTmuxSet.has(name),
+        layer1: layer1RecyclingCached,
+        requested: isRecycleRequested,
+        sentinel: isRecycledAt,
+        composed: isRecycling,
+        cachedLayer1: cached?.layer1RecyclingCached ?? false,
+        cachedRecycling: cached?.recycling ?? false,
+        cachedDormant: cached?.dormant ?? false,
+      });
     }
   }
 
   // ---------------------------------------------------------------------------
-  // Process one PID within a poll cycle
+  // Phase 92 — processPid split into fetch + compose helpers.
+  //
+  // The historical pre-Phase-92 processPid interleaved ~9-11 SSH exec calls
+  // (RESEARCH.md A1..A12) with per-PID compose+publish+cache-write logic. That
+  // interleaving prevented a batch-mode caller from reusing the compose stage
+  // with pre-fetched values off the wire. Phase 92 splits the two phases at a
+  // deliberate seam:
+  //
+  //   fetchPerPidState(hostState, pid, cached)
+  //     → runs every SSH exec (A1-A12), no cache mutation, no publish.
+  //     → returns a PerPidFetchedState struct of raw / minimally-processed
+  //       values. Fail-open cache preservation happens in compose (see below).
+  //
+  //   composeAndPublishPerPid(hostState, pid, cached, isNew, fetched)
+  //     → runs parseSessionJson, sessionIdRotation detection, all
+  //       lastStopAt / activityMtime / stoppedMtime / lastMessageAt / aiTitle
+  //       fail-open reconciliation, fingerprint delta, publish, cache-write,
+  //       writeSessionFileCache. No SSH calls.
+  //
+  //   processPid(hostState, pid)
+  //     → thin wrapper: fetch → compose. Byte-identical observable behavior
+  //       to the pre-refactor function (verified by the existing 149-test
+  //       vitest suite; new batch-vs-legacy parity coverage lands in Plan 05).
+  //
+  // The batch path (pollOneHostBatch) skips fetchPerPidState and constructs a
+  // PerPidFetchedState directly from a SweepPidLine (schema alignment
+  // documented in sweep-schema.ts SWEEP_FIELD_PARITY), then calls
+  // composeAndPublishPerPid — driving byte-identical publish output as legacy.
+  //
+  // The single documented divergence: SWEEP_FIELD_PARITY.A3 skip. Sweep does
+  // not emit the box-wide `last-stop-payload.json`; batch path passes
+  // hookPayloadRaw=null, which flows through the existing perSessionUsable
+  // fallback branch to trigger emitHookPayloadWarn if per-session A9 is also
+  // absent. Legacy path preserves the A3 read + fallback verbatim.
+  //
+  // RESEARCH.md non-negotiables re-checked in this refactor:
+  //   G5 (inFlight guard): unchanged — operates outside processPid.
+  //   G6 (safe-char regex): applied caller-side in composeAndPublishPerPid
+  //       through the derived-*/perSessionHookPayloadRaw guard checks; batch
+  //       path additionally relies on Plan 02 server-side application. Belt-
+  //       and-suspenders preserved.
+  //   G7 (dual dormant reads): fetch produces freshDormant from A10; compose
+  //       reads SweepPidLine.dormant_a in the batch path — both feed the same
+  //       fail-open reconciliation and the same PidCacheEntry.dormant field.
+  //   G8 (writeSessionFileCache): moved from mid-legacy to compose helper —
+  //       fires in BOTH batch and legacy paths with the same shape.
   // ---------------------------------------------------------------------------
 
-  async function processPid(
+  /**
+   * fetchPerPidState — runs the pre-Phase-92 A1..A12 exec fan-out for one PID.
+   *
+   * Zero cache mutation, zero publish, zero logging (except discovery logging
+   * inherited from discoverIdentityJsonlPathViaChannel + getIdentityLastSend).
+   * Returns a PerPidFetchedState struct that composeAndPublishPerPid consumes
+   * to produce the identical observable behavior as the pre-refactor
+   * processPid.
+   *
+   * Cache-awareness: fetch takes the `cached` entry so it can honour the same
+   * per-PID cache-conditional exec skips the pre-refactor code used (tmux
+   * resolution + jsonlPath discovery both skip when cached). This keeps the
+   * exec count byte-identical to pre-Phase-92 on cache-hit ticks — a key
+   * property the existing test suite asserts.
+   */
+  async function fetchPerPidState(
     hostState: PerHostState,
     pid: number,
-  ): Promise<void> {
-    const { host, channel, livenessMap } = hostState;
-    const isNew = !livenessMap.has(pid);
+    cached: PidCacheEntry | undefined,
+  ): Promise<PerPidFetchedState> {
+    const { channel } = hostState;
 
-    // Kick off all parallel execs
+    // Kick off all parallel execs (A1 + A2 + A3)
     const sessionJsonPromise = channel.exec(
       `cat ~/.claude/sessions/${pid}.json`,
     );
@@ -1250,10 +1842,12 @@ export function createSshPollOrchestrator(
     // directly to isStaleFromStat and reaped live sessions on sshd MaxSessions
     // saturation. See fix-wip-indicator-transport-vs-dead.md.
     const statPromise = readStatWithSentinel(channel, pid);
-    const hookPayloadPromise = channel.exec(`cat ${hookPayloadPath} 2>/dev/null || true`);
+    const hookPayloadPromise = channel.exec(
+      `cat ${hookPayloadPath} 2>/dev/null || true`,
+    );
 
     // environ + tmux only for new PIDs (or PIDs with no cached tmuxSession)
-    const cached = livenessMap.get(pid);
+    const isNew = cached === undefined;
     const needsTmuxResolution = isNew || cached?.tmuxSession === null;
 
     const [sessionJsonRaw, statResult, hookPayloadRaw] = await Promise.all([
@@ -1262,26 +1856,48 @@ export function createSshPollOrchestrator(
       hookPayloadPromise,
     ]);
 
-    // Parse session JSON — the sessionId + procStart drive downstream state
-    // composition below. Phase 44 Plan 02: `cwd + sessionId` no longer drive
-    // the JSONL path derivation (see discovery block further down).
+    // If session JSON is missing/mid-write, short-circuit — compose will see
+    // sessionJsonRaw === null and return early (no state to compute).
     if (sessionJsonRaw === null || sessionJsonRaw.trim() === "") {
-      // File may be in mid-write; skip this PID for this tick
-      return;
+      return {
+        sessionJsonRaw,
+        statResult,
+        hookPayloadRaw,
+        tmuxSession: cached?.tmuxSession ?? null,
+        freshLastStopAt: null,
+        freshActivityMtime: null,
+        freshStoppedMtime: null,
+        perSessionHookPayloadRaw: null,
+        freshDormant: null,
+        jsonlPath: cached?.jsonlPath ?? null,
+        jsonlTail: null,
+      };
     }
 
-    const sessionJson = parseSessionJson(sessionJsonRaw);
-    if (sessionJson === null) {
-      return;
+    // Parse just enough of session JSON to gate the per-session reads below.
+    // The full parse happens again in compose (identical result) — this
+    // matches the pre-refactor pattern where both the safe-char regex gate
+    // AND the compose SessionState build read sessionJson.sessionId.
+    const sessionJsonPreview = parseSessionJson(sessionJsonRaw);
+    if (sessionJsonPreview === null) {
+      return {
+        sessionJsonRaw,
+        statResult,
+        hookPayloadRaw,
+        tmuxSession: cached?.tmuxSession ?? null,
+        freshLastStopAt: null,
+        freshActivityMtime: null,
+        freshStoppedMtime: null,
+        perSessionHookPayloadRaw: null,
+        freshDormant: null,
+        jsonlPath: cached?.jsonlPath ?? null,
+        jsonlTail: null,
+      };
     }
 
-    // Phase 44 Plan 02 — resolve tmuxSession EARLIER in the pipeline so it
-    // is available for the discovery call below. Discovery needs the
-    // identity name (== tmux session name on this fleet) to grep for the
-    // /id-first-turn record; the previous ordering (tmux resolution AFTER
-    // the tail-scan) can't feed that dependency without an extra tick of
-    // latency on cold-cache. The `needsTmuxResolution` gate is unchanged
-    // — cached-non-null tmuxSession skips the environ + tmux round-trips.
+    // A4 + A5 — resolve tmuxSession (PID → environ → pane → tmux session name)
+    // Phase 44 Plan 02 — resolved EARLY so discovery (A11) below can key on
+    // the identity name.
     let tmuxSession: string | null = cached?.tmuxSession ?? null;
     if (needsTmuxResolution) {
       tmuxSession = await resolvePidToTmuxSession(pid, {
@@ -1296,228 +1912,190 @@ export function createSshPollOrchestrator(
       });
     }
 
-    // -------------------------------------------------------------------------
-    // Phase 59 Plan 02 (WIP shell-idle gate — 2026-08-26) — per-session Stop
-    // file mtime read. sessionJson.sessionId is always known at this point
-    // (parseSessionJson returned non-null above). Issue ONE `stat -c %Y` exec
-    // per PID per tick (Pattern A — sequential; see Research § Backend read
-    // pattern for the Pattern-A-vs-B tradeoff — one extra RTT per PID per
-    // tick is acceptable overhead and matches the Phase 52 dormant stat
-    // pattern below).
-    //
-    // Shell-quoting via shellSingleQuote (T-59-02-01 mitigation): the
-    // sessionId flows through shellSingleQuote before interpolation into
-    // the shell command so a compromised harness cannot inject arbitrary
-    // shell via a malicious sessionId (mirrors the dormant sentinel stat's
-    // tmuxSession quoting pattern at line ~1040).
-    //
-    // Fail-open semantics (matches lastMessageAt / aiTitle / dormant
-    // patterns): null return from SSH exec preserves the cached value;
-    // empty stdout (file does not exist — `stat` writes to stderr and
-    // `|| true` swallows non-zero exit) yields the default cached value;
-    // non-numeric stdout preserves the cached value. On cold-start (no
-    // cached entry) the value is `null`, matching the wire schema's
-    // optional-nullable contract.
-    //
-    // Unit: seconds-since-epoch × 1000 = unix millis. Multiplication
-    // happens server-side so the wire's timestamp axes all share the same
-    // millis convention (Pitfall 3 / Research § Open Questions #3).
-    // -------------------------------------------------------------------------
-    let derivedLastStopAt: number | null = cached?.lastStopAt ?? null;
+    // A6 — Phase 59 per-session Stop file mtime.
     // Character-class discipline mirroring stop-hook.sh's write-side regex.
     // Any sessionId that would not have been accepted for a per-session write
     // must not be interpolated into a stat READ either — a `../` in sessionId
     // could otherwise stat a foreign file and publish its mtime as lastStopAt.
-    // (Shell-quoting alone is not enough — it prevents command injection but
-    // still allows path traversal inside the argument.)
-    if (/^[a-zA-Z0-9_-]+$/.test(sessionJson.sessionId)) {
-      const quotedSessionId = shellSingleQuote(sessionJson.sessionId);
+    // Shell-quoting alone is not enough — it prevents command injection but
+    // still allows path traversal inside the argument.
+    // (RESEARCH.md G6 belt-and-suspenders — same regex re-applied here.)
+    let freshLastStopAt: number | null = null;
+    if (/^[a-zA-Z0-9_-]+$/.test(sessionJsonPreview.sessionId)) {
+      const quotedSessionId = shellSingleQuote(sessionJsonPreview.sessionId);
       const stopMtimeRaw = await channel.exec(
         `stat -c %Y ~/.claude/fleet-status/stop-${quotedSessionId}.json 2>/dev/null || true`,
       );
       if (stopMtimeRaw !== null && stopMtimeRaw.trim() !== "") {
         const parsed = parseInt(stopMtimeRaw.trim(), 10);
         if (Number.isFinite(parsed)) {
-          derivedLastStopAt = parsed * 1000;
+          freshLastStopAt = parsed * 1000;
         }
-        // Non-numeric stdout → fail-open, keep cached value.
       }
-      // stopMtimeRaw === null (SSH hiccup) or empty (file absent) → fail-open,
-      // keep cached value.
     }
-    // sessionId failed the character-class guard → skip the stat entirely,
-    // preserve cached value. Fail-open in the safe direction (indicator
-    // defaults to on when lastStopAt stays null).
 
-    // -------------------------------------------------------------------------
-    // Phase 62 Plan 03 (WIP hook-based rewrite — 2026-08-30): per-session
-    // ACTIVITY marker mtime read. Second per-session mtime read follows below
-    // for the STOPPED marker.
-    //
-    // Two separate stat reads (not one batched `stat -c %Y activity stopped`)
-    // per T-62-03-03 threat entry — the batch optimization is DEFERRED because
-    // (a) profiling has not shown regression at the 2s poll cadence, (b) two
-    // separate reads let each empty-stdout / SSH-hiccup branch preserve its
-    // own cached value independently (a batched read would need to
-    // disambiguate two absent-file cases from a single stdout blob — more
-    // complex, easier to get wrong on the initial rollout), and (c) two
-    // separate reads match the Phase 59 pattern the reader is familiar with.
-    // See <threat_model> T-62-03-03 for the full deferral rationale (and
-    // this comment corresponds to the plan-review LOW-#10 acknowledgement).
-    //
-    // Shell-quoting via shellSingleQuote (T-62-03-02 mitigation): the same
-    // character-class regex `/^[a-zA-Z0-9_-]+$/` gate the Phase 59 block
-    // above uses is applied here — any sessionId that would not have been
-    // accepted for a per-session write (activity-hook.sh / stopped-hook.sh
-    // have the same regex on the write side) must not be interpolated into
-    // a stat READ either. A `../` in sessionId could otherwise stat a
-    // foreign session's marker and publish its mtime as our activityMtime.
-    // Shell-quoting alone is not enough — it prevents command injection but
-    // still allows path traversal inside the argument.
-    //
-    // Fail-open semantics (matches lastMessageAt / aiTitle / dormant /
-    // lastStopAt): null return from SSH exec preserves the cached value;
-    // empty stdout (file does not exist — `stat` writes to stderr and
-    // `|| true` swallows non-zero exit) preserves the cached value;
-    // non-numeric stdout preserves the cached value. On cold-start (no
-    // cached entry) the value is `null`, matching the wire schema's
-    // optional-nullable contract. Unit: seconds × 1000 = unix millis
-    // (server-side conversion for wire consistency with every other
-    // timestamp axis, matching Phase 59 lastStopAt's convention).
-    // -------------------------------------------------------------------------
-    let derivedActivityMtime: number | null = cached?.activityMtime ?? null;
-    if (/^[a-zA-Z0-9_-]+$/.test(sessionJson.sessionId)) {
-      const quotedSessionId = shellSingleQuote(sessionJson.sessionId);
+    // A7 — Phase 62 activity marker mtime.
+    let freshActivityMtime: number | null = null;
+    if (/^[a-zA-Z0-9_-]+$/.test(sessionJsonPreview.sessionId)) {
+      const quotedSessionId = shellSingleQuote(sessionJsonPreview.sessionId);
       const activityMtimeRaw = await channel.exec(
         `stat -c %Y ~/.claude/fleet-status/hooks/${quotedSessionId}/activity 2>/dev/null || true`,
       );
       if (activityMtimeRaw !== null && activityMtimeRaw.trim() !== "") {
         const parsed = parseInt(activityMtimeRaw.trim(), 10);
         if (Number.isFinite(parsed)) {
-          derivedActivityMtime = parsed * 1000;
+          freshActivityMtime = parsed * 1000;
         }
-        // Non-numeric stdout → fail-open, keep cached value.
       }
-      // activityMtimeRaw === null (SSH hiccup) or empty (file absent) →
-      // fail-open, keep cached value.
     }
-    // sessionId failed the character-class guard → skip the stat entirely,
-    // preserve cached value. Fail-open in the safe direction (frontend
-    // falls back to Phase 59 predicate when activityMtime stays null).
 
-    let derivedStoppedMtime: number | null = cached?.stoppedMtime ?? null;
-    if (/^[a-zA-Z0-9_-]+$/.test(sessionJson.sessionId)) {
-      const quotedSessionId = shellSingleQuote(sessionJson.sessionId);
+    // A8 — Phase 62 stopped marker mtime.
+    let freshStoppedMtime: number | null = null;
+    if (/^[a-zA-Z0-9_-]+$/.test(sessionJsonPreview.sessionId)) {
+      const quotedSessionId = shellSingleQuote(sessionJsonPreview.sessionId);
       const stoppedMtimeRaw = await channel.exec(
         `stat -c %Y ~/.claude/fleet-status/hooks/${quotedSessionId}/stopped 2>/dev/null || true`,
       );
       if (stoppedMtimeRaw !== null && stoppedMtimeRaw.trim() !== "") {
         const parsed = parseInt(stoppedMtimeRaw.trim(), 10);
         if (Number.isFinite(parsed)) {
-          derivedStoppedMtime = parsed * 1000;
+          freshStoppedMtime = parsed * 1000;
         }
-        // Non-numeric stdout → fail-open, keep cached value.
       }
-      // stoppedMtimeRaw === null (SSH hiccup) or empty (file absent) →
-      // fail-open, keep cached value.
     }
-    // sessionId failed the character-class guard → skip the stat entirely,
-    // preserve cached value (same fail-open direction as activity above).
 
-    // -------------------------------------------------------------------------
-    // Phase 62 Plan 03 MEDIUM-#4 code comment (LOCKED per plan review):
-    //
-    // The `perSessionHookPayloadRaw` read below (introduced by quick-260829-kmr)
-    // is the OLD Phase 59 per-session lastStopAt payload path. It also carries
-    // background_tasks[] for the box-wide `bg` consumer path after
-    // quick-260829-kmr — orthogonal to the Phase 62 direct-signal WIP predicate.
-    //
-    // It is KEPT DELIBERATELY during the Phase 62 rollout window per two
-    // distinct constraints:
-    //   1. CONTEXT.md § Out of scope: "the background-tasks list mechanism ...
-    //      stays as-is" — the payload's background_tasks[] feeds a consumer
-    //      unrelated to the WIP predicate this phase replaces.
-    //   2. CONTEXT.md § Rollout Option 1 (LOCKED): the Phase 59 lastStopAt
-    //      derivation (its `stat -c %Y ~/.claude/fleet-status/stop-<sid>.json`
-    //      sibling above at line ~1114) must keep publishing so the frontend
-    //      fallback branch on unupgraded boxes continues to have data. Both
-    //      the stat and this payload cat feed the retained Phase 59 signal set.
-    //
-    // The NEW Phase 62 marker reads live at
-    // `~/.claude/fleet-status/hooks/<sid>/{activity,stopped}` (added ABOVE
-    // this block in step 3 of Task 2 — search for `derivedActivityMtime` and
-    // `derivedStoppedMtime`). Both are read every tick during the rollout
-    // window. Frontend consumer (Plan 62-04) chooses which predicate applies
-    // per-session based on marker presence.
-    //
-    // A follow-up phase (post-full-rollout, orchestrator-tracked) retires
-    // this cat + the two Phase 59 stat/derivation blocks + the stop-hook.sh
-    // install entirely; until then the three reads coexist deliberately.
-    // Prevents a future maintainer from "cleaning up" one of the reads
-    // without understanding the rollout coupling.
-    // -------------------------------------------------------------------------
-
-    // -------------------------------------------------------------------------
-    // Quick 260829-kmr: per-session Stop-hook PAYLOAD read (separate from Phase 61's mtime
-    //   stat above). Mirrors Phase 61's regex + shellSingleQuote pattern so an illegal
-    //   sessionId cannot path-traverse a foreign identity's payload. On null/empty here
-    //   the consumer below falls back to the box-wide `hookPayloadRaw` for backward compat
-    //   with sessions that have not fired Stop since the Phase 61 hook re-install.
-    //   THIS FIXES the cross-identity background_tasks leak — the box-wide file is shared
-    //   across all Claude sessions on the box, so identity A previously saw identity B's
-    //   non-ambient tasks in its WIP indicator. Per-session file is session-scoped.
-    // -------------------------------------------------------------------------
+    // A9 — per-session Stop-hook payload.
     let perSessionHookPayloadRaw: string | null = null;
-    if (/^[a-zA-Z0-9_-]+$/.test(sessionJson.sessionId)) {
-      const quotedSessionId = shellSingleQuote(sessionJson.sessionId);
+    if (/^[a-zA-Z0-9_-]+$/.test(sessionJsonPreview.sessionId)) {
+      const quotedSessionId = shellSingleQuote(sessionJsonPreview.sessionId);
       perSessionHookPayloadRaw = await channel.exec(
         `cat ~/.claude/fleet-status/stop-${quotedSessionId}.json 2>/dev/null || true`,
       );
     }
-    // sessionId failed the guard → perSessionHookPayloadRaw stays null and the
-    // consumer below falls through to the box-wide `hookPayloadRaw`, mirroring
-    // the Phase 61 stat's fail-open-on-skip behavior at L1104-1106 above.
+
+    // A10 — source A dormant sentinel. Fail-open decoding: "yes" → true,
+    // "no" → false, anything else (null / unexpected) → null and compose
+    // preserves the cached value (T-52-01-01 mitigation).
+    let freshDormant: boolean | null = null;
+    if (tmuxSession !== null) {
+      const quotedTmuxSession = shellSingleQuote(tmuxSession);
+      const dormantRaw = await channel.exec(
+        `stat ~/.claude/identities/${quotedTmuxSession}/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
+      );
+      if (dormantRaw !== null) {
+        const trimmed = dormantRaw.trim();
+        if (trimmed === "yes") freshDormant = true;
+        else if (trimmed === "no") freshDormant = false;
+      }
+    }
+
+    // A11 — Phase 32 discovery. Cached across ticks; discovery fires ONCE per
+    // PID in the happy path.
+    let jsonlPath: string | null = cached?.jsonlPath ?? null;
+    if (tmuxSession !== null && jsonlPath === null) {
+      jsonlPath = await discoverIdentityJsonlPathViaChannel(channel, tmuxSession);
+    }
+
+    // A12 — 256KB JSONL tail (for scanTailForLatestAiTitle in compose).
+    let jsonlTail: string | null = null;
+    if (jsonlPath !== null) {
+      jsonlTail = await channel.exec(
+        `tail -c 262144 ${jsonlPath} 2>/dev/null || true`,
+      );
+    }
+
+    return {
+      sessionJsonRaw,
+      statResult,
+      hookPayloadRaw,
+      tmuxSession,
+      freshLastStopAt,
+      freshActivityMtime,
+      freshStoppedMtime,
+      perSessionHookPayloadRaw,
+      freshDormant,
+      jsonlPath,
+      jsonlTail,
+    };
+  }
+
+  /**
+   * composeAndPublishPerPid — full downstream of processPid: parse, sessionId-
+   * rotation detection, fail-open reconciliation, send-log lookup, fingerprint
+   * delta, publish, cache write, writeSessionFileCache. Zero SSH calls (the
+   * only await is a local send-log DB read).
+   *
+   * Byte-identical observable behavior to the pre-refactor processPid tail:
+   * every branch, every mutation, every log op is preserved in order. Batch-
+   * path callers synthesize the `fetched` struct from a SweepPidLine and drive
+   * this same publish contract — parity guaranteed by shared code path.
+   *
+   * RESEARCH.md G8 — writeSessionFileCache fires HERE (compose layer, not
+   * fetch) so both batch and legacy paths trigger it equally per tick.
+   */
+  async function composeAndPublishPerPid(
+    hostState: PerHostState,
+    pid: number,
+    fetched: PerPidFetchedState,
+  ): Promise<void> {
+    const { host, livenessMap } = hostState;
+    const cached = livenessMap.get(pid);
+    const isNew = cached === undefined;
+
+    // Parse session JSON — the sessionId + procStart drive downstream state
+    // composition below. Phase 44 Plan 02: `cwd + sessionId` no longer drive
+    // the JSONL path derivation.
+    if (fetched.sessionJsonRaw === null || fetched.sessionJsonRaw.trim() === "") {
+      // File may be in mid-write; skip this PID for this tick.
+      return;
+    }
+    const sessionJson = parseSessionJson(fetched.sessionJsonRaw);
+    if (sessionJson === null) {
+      return;
+    }
+
+    const tmuxSession = fetched.tmuxSession;
+
+    // A6 fail-open reconciliation — mirrors the pre-refactor
+    // `let derivedLastStopAt = cached?.lastStopAt ?? null; if (…) …` shape.
+    // Guard: fetch already gated the exec on the safe-char regex (G6); a
+    // sessionId that failed the regex yields freshLastStopAt === null and
+    // this branch preserves the cached value (fail-open in the safe
+    // direction — indicator defaults to on when lastStopAt stays null).
+    let derivedLastStopAt: number | null = cached?.lastStopAt ?? null;
+    if (fetched.freshLastStopAt !== null) {
+      derivedLastStopAt = fetched.freshLastStopAt;
+    }
+
+    // A7 fail-open reconciliation — Phase 62 activity mtime.
+    let derivedActivityMtime: number | null = cached?.activityMtime ?? null;
+    if (fetched.freshActivityMtime !== null) {
+      derivedActivityMtime = fetched.freshActivityMtime;
+    }
+
+    // A8 fail-open reconciliation — Phase 62 stopped mtime.
+    let derivedStoppedMtime: number | null = cached?.stoppedMtime ?? null;
+    if (fetched.freshStoppedMtime !== null) {
+      derivedStoppedMtime = fetched.freshStoppedMtime;
+    }
 
     // -------------------------------------------------------------------------
     // Phase 59 Plan 02 — server-side status-delta tracking for the
     // lastStatusChangeAt axis. MUST NOT source from sessionJson.updatedAt
-    // (Research § Common Pitfalls Pitfall 4: the harness bumps updatedAt
-    // on compose-box typing without a real state transition — using it
-    // as the source would defeat the whole point of the stop-gate).
+    // (Research § Common Pitfalls Pitfall 4).
     //
-    // Three mutually-exclusive branches:
-    //   1. First appearance (isNew) OR no cached lastStatus (undefined /
-    //      null on cold-cache) → seed to deps.now(). Combined with
-    //      lastStopAt === null on a fresh session, this defaults the
-    //      indicator on (correct — treat freshly-launched as still
-    //      working until we have evidence of a stop; Pitfall 5).
-    //   2. Transition (cached.lastStatus !== sessionJson.status) →
-    //      update to deps.now() (this tick IS the status-change tick).
-    //   3. Same-status tick → preserve cached lastStatusChangeAt (do NOT
-    //      bump on every same-status tick or the axis becomes noise).
-    // -------------------------------------------------------------------------
     // A PID whose sessionJson.sessionId has ROTATED since the previous poll
-    // (Claude Code compaction/resume rotates sessionId in-place, per Phase 44
-    // comments at L328-335) is effectively a fresh session for stop-gate
-    // purposes even though isNew is false. The previous sessionId's cached
-    // lastStopAt would be stale — a different file's mtime — and could make
-    // the shell-gate misfire on the new session. Treat sessionId rotation as
-    // an isNew-equivalent for the Phase 59 axes: reseed lastStatusChangeAt
-    // and drop the stale lastStopAt back to null (the new sessionId's per-
-    // session file may not have been written yet).
+    // (Claude Code compaction/resume rotates sessionId in-place) is
+    // effectively a fresh session for stop-gate purposes even though isNew is
+    // false. Reset the three mtime axes back to null; the new sessionId's
+    // per-session files may not exist yet.
+    // -------------------------------------------------------------------------
     const sessionIdRotated =
       !isNew &&
       cached !== undefined &&
       cached.sessionId !== sessionJson.sessionId;
     if (sessionIdRotated) {
       derivedLastStopAt = null;
-      // Phase 62 Plan 03 — rotation resets both new axes too. The rotated
-      // sessionId's marker files (activity + stopped) may not exist yet;
-      // preserving the previous sessionId's cached mtimes would publish
-      // stale foreign-session values and drive the WIP predicate wrong on
-      // the fresh session's first ticks. Same isNew-equivalent treatment
-      // as lastStopAt above — both signal sets stay in lockstep on
-      // rotation.
       derivedActivityMtime = null;
       derivedStoppedMtime = null;
     }
@@ -1536,115 +2114,23 @@ export function createSshPollOrchestrator(
       derivedLastStatusChangeAt = cached.lastStatusChangeAt;
     }
 
-    // Phase 52 Plan 01 Task 2 — source A dormant sentinel stat.
-    // Per PID-tick, when tmuxSession is non-null, stat the
-    // `~/.claude/identities/<tmuxSession>/.dormant` sentinel file. Trimmed
-    // stdout "yes" → dormant true; "no" → dormant false; anything else
-    // (null from SSH error, throw, unexpected output) → fail-open using
-    // cached value (defaulting to `false` on cold start).
-    //
-    // Shell-quoting via shellSingleQuote (T-52-01-02 mitigation): the helper
-    // returns the FULL quoted argument (e.g. `shellSingleQuote("tina")` →
-    // `'tina'`) so it is interpolated WITHOUT surrounding template quotes.
-    // Attacker-controlled tmuxSession values containing quotes/backticks
-    // cannot escape the single-quoted argument (shellSingleQuote replaces
-    // `'` → `'\''` inside the quoted region).
-    //
-    // Skipped when tmuxSession is null (identity name unknown) — use cache
-    // (default false on cold start).
-    //
-    // The dormant axis is DISTINCT from the JSONL tail-scan below: source A
-    // stats the identity folder directly, not the session JSONL. Cached in
-    // PidCacheEntry.dormant and participates in computeFingerprint so a
-    // dormant-only flip publishes a new frame (delta detection is per-axis).
+    // A10 fail-open reconciliation — dormant.
     let derivedDormant: boolean = cached?.dormant ?? false;
-    if (tmuxSession !== null) {
-      const quotedTmuxSession = shellSingleQuote(tmuxSession);
-      const dormantRaw = await channel.exec(
-        `stat ~/.claude/identities/${quotedTmuxSession}/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
-      );
-      if (dormantRaw !== null) {
-        const trimmed = dormantRaw.trim();
-        if (trimmed === "yes") {
-          derivedDormant = true;
-        } else if (trimmed === "no") {
-          derivedDormant = false;
-        }
-        // Anything else → fail-open, keep cached value (T-52-01-01 mitigation).
-      }
-      // dormantRaw === null → SSH hiccup → keep cached value (fail-open).
+    if (fetched.freshDormant !== null) {
+      derivedDormant = fetched.freshDormant;
     }
 
-    // quick-260823-73o — source A NO LONGER computes any of the three recycle
-    // axes. The `.recycled-at` sentinel stat (was Phase 53 Plan 01), the
-    // `.recycle-requested` stat (was quick-260823-recycle-overlay), and the
-    // Layer 1 /id reset tail scan (was quick-260822-0vw) have all been
-    // migrated into source B's pollDormantOnlyIdentities per-identity
-    // iteration. Source A now stamps `recycling: false` unconditionally in
-    // the composed SessionState below. RCA: source A iterates
-    // ~/.claude/tasks/*.json (PID files); during /id reset the outgoing PID
-    // is being torn down and source A's per-PID iteration hits a
-    // lifecycle-timing gap where none of the three axes ever evaluate true
-    // across the sentinel-present window. Source B is identity-folder-keyed
-    // and runs unconditionally per identity per tick — the correct seam.
-    // See pollDormantOnlyIdentities docblock for the migration + Ashley's
-    // 2026-08-23 UAT narration.
+    // A11 — jsonlPath was resolved in fetch (either cache hit or fresh
+    // discovery). Kept locally for the SessionState + cache-write below.
+    const jsonlPath = fetched.jsonlPath;
 
-    // Phase 44 Plan 02 — replace jsonlPathForSession derivation with
-    // discoverIdentityJsonlPathViaChannel (Phase 32 mechanism + SshChannel
-    // adapter). The Phase 41 Plan 03 `cwd + sessionId` construction was
-    // fragile against cwd drift and Claude Code sessionId rotation on
-    // compaction/resume — a live session could silently point at a stale
-    // JSONL that had stopped growing. The Phase 32 byte-pattern discovery
-    // walks `~/.claude/projects/*​/` mtime-descending and returns the newest
-    // JSONL whose first user-role line matches `/id <tmuxSession>`, which
-    // is stable across compaction + resume events.
-    //
-    // Cache the resolved path in PidCacheEntry.jsonlPath so subsequent ticks
-    // skip discovery entirely — discovery fires ONCE per PID in the happy
-    // path. Rediscover on stale-tail threshold (against a NON-NULL cached
-    // lastMessageAt only — see 44-CONTEXT.md § ssh-poll-orchestrator.ts
-    // swap for the tightened stale-tick condition rationale). If
-    // tmuxSession is null (identity name unknown), skip discovery this
-    // tick and keep the cached-or-null path.
-    let jsonlPath: string | null = cached?.jsonlPath ?? null;
-    if (tmuxSession !== null && jsonlPath === null) {
-      jsonlPath = await discoverIdentityJsonlPathViaChannel(channel, tmuxSession);
-    }
-
-    // Phase 85 (D-07): `derivedLastMessageAt` now reads from the identity-
-    // name-keyed send-log store instead of scanning the JSONL tail. The
-    // store is populated on the frontend send funnel (D-04 hook in
-    // useComposeSend); every send Ashley fires — text submit, reset,
-    // thumbs-up, recap, any current-or-future compose-surface button —
-    // stamps the store, and the next poll tick here reads it back.
-    //
-    // The transcript-scan pipeline stays alive for the aiTitle axis (still
-    // consumes the same tail buffer below via scanTailForLatestAiTitle) and
-    // for every other consumer that hangs off scanTailForNewestMessageAt
-    // (D-08 — src/backend/database/routes/sessions.ts byte-parallel copy).
-    //
-    // Fail-open semantics preserved: on `getIdentityLastSend` returning null
-    // (identity has never been sent to — D-09 first-ship contract) OR
-    // throwing (transient DB hiccup), keep the cached value (null on
-    // cold-start, prior fresh value otherwise). The store module itself
-    // catches drizzle errors and returns null; the try/catch here is
-    // belt-and-suspenders on the hot per-tick path.
+    // Phase 85 (D-07) — lastMessageAt from identity-name-keyed send-log store.
+    // Async local DB read (no SSH). Kept in compose so batch and legacy paths
+    // hit the store identically per tick.
     let derivedLastMessageAt: number | null = cached?.lastMessageAt ?? null;
     let derivedAiTitle: string | null = cached?.aiTitle ?? null;
-    // Phase 85 (D-07): stale-tail rediscovery counter RETIRES from the
-    // lastMessageAt axis (the send-log store never rotates in the JSONL
-    // sense — the identity_send_log table is a durable single-row-per-
-    // identity keyed shape). The field stays on PidCacheEntry because
-    // source B (pollDormantOnlyIdentities) still uses the same
-    // STALE_TAIL_REDISCOVERY_THRESHOLD constant + counter mechanics for its
-    // Layer 1 recycling tail scan (~L1051 above). ai-title discovery
-    // rediscovery, if ever separately governed, would drive off
-    // scannedAiTitle; that's a future concern, not a Phase 85 concern.
-    // Preserve the cached value so the cache-write paths downstream stamp
-    // the field consistently — the counter simply never increments on this
-    // axis anymore.
     const nextStaleTailTickCount = cached?.staleTailTickCount ?? 0;
+
     if (tmuxSession !== null) {
       try {
         const stored = await getIdentityLastSend(tmuxSession);
@@ -1672,59 +2158,22 @@ export function createSshPollOrchestrator(
         );
       }
     }
-    // quick-260823-73o — Layer 1 /id reset scan REMOVED from source A. Source B
-    // (pollDormantOnlyIdentities) now performs the Layer 1 tail scan per-identity
-    // per-tick with its own per-identity jsonlPath cache. Source A's tail exec
-    // still fires here for the aiTitle derivation (Phase 85 D-07: the
-    // lastMessageAt scan retired above; aiTitle stays on the tail).
-    if (jsonlPath !== null) {
-      // Phase 47 Plan 02 — tail width bumped from a line-count-bounded
-      // read to `tail -c 262144` (256KB byte-count) so an ai-title line
-      // older than the last handful of message-bearing lines is still
-      // captured. The sessions.ts /sessions/list route uses the same tail
-      // shape; both backend read paths stay aligned.
-      // Phase 85 (D-07): scanTailForNewestMessageAt no longer called here —
-      // lastMessageAt now derives from getIdentityLastSend above. aiTitle
-      // continues to consume the same tail buffer (only consumer left).
-      const tailRaw = await channel.exec(
-        `tail -c 262144 ${jsonlPath} 2>/dev/null || true`,
-      );
-      let scannedAiTitle: string | null = null;
-      if (tailRaw !== null && tailRaw.trim() !== "") {
-        // ONE buffer, ONE scan (aiTitle only). Phase 85 (D-07): the
-        // lastMessageAt scan retired; only scanTailForLatestAiTitle
-        // consumes the tail buffer in source A now. Layer 1 recycling
-        // scan already lives in source B (quick-260823-73o migration).
-        scannedAiTitle = scanTailForLatestAiTitle(tailRaw);
-      }
-      // Phase 47 Plan 02 — last-wins reconciliation for aiTitle. If the
-      // fresh tail-scan returned a non-null string, use it; otherwise
-      // preserve the cache (fail-open on transient SSH hiccup or a tick
-      // where the tail is empty). A truly-no-ai-title session's cache
-      // starts at null and stays null.
+
+    // A12 — scanTailForLatestAiTitle over the fetched jsonlTail (fail-open
+    // preservation: null scan return preserves the cache).
+    if (fetched.jsonlTail !== null && fetched.jsonlTail.trim() !== "") {
+      const scannedAiTitle = scanTailForLatestAiTitle(fetched.jsonlTail);
       if (scannedAiTitle !== null) {
         derivedAiTitle = scannedAiTitle;
       }
-      // Phase 85 (D-07): lastMessageAt no longer derived from tail — see
-      // store lookup above. Stale-tail counter retires from this axis; the
-      // former three-branch increment/advance/no-history logic and the
-      // STALE_TAIL_REDISCOVERY_THRESHOLD trip that invalidated `jsonlPath`
-      // both dropped from source A. ai-title discovery rediscovery, if
-      // needed in future, would drive off scannedAiTitle. The threshold
-      // constant + counter field stay defined because source B
-      // (pollDormantOnlyIdentities) still uses them for its Layer 1 tail
-      // scan rediscovery contract.
     }
 
     // Liveness check — bounty 9c8d4a72: branch on the tagged statResult BEFORE
     // calling isStaleFromStat so SSH transport errors never trigger a reap.
-    // Extract cast because backend tsconfig has strict:false, which disables
-    // discriminated-union narrowing on `!statResult.ok` in compound `&&`.
-    if (!statResult.ok && (statResult as Extract<StatReadResult, { ok: false }>).reason === 'transport') {
-      // SSH channel-open-failure (or unknown-shape response). Fail-OPEN: skip
-      // the stale-check this tick, leave the session in livenessMap, continue
-      // processPid so the row still re-publishes with fresh state. Debug (not
-      // warn) — this happens under sshd MaxSessions load and is recoverable.
+    if (
+      !fetched.statResult.ok &&
+      (fetched.statResult as Extract<StatReadResult, { ok: false }>).reason === "transport"
+    ) {
       systemLogger.debug(
         "Fleet-status: stat read transport error — skipping stale check this tick",
         {
@@ -1735,44 +2184,35 @@ export function createSshPollOrchestrator(
         },
       );
     } else {
-      // statResult is either {ok: true, content} or {ok: false, reason: 'enoent'}.
-      // isStaleFromStat's null-branch handles the ENOENT case (matches today's
-      // reap-on-ENOENT behavior); string content flows through the field22 check.
-      const statContents = statResult.ok ? statResult.content : null;
+      const statContents = fetched.statResult.ok ? fetched.statResult.content : null;
       const stale = isStaleFromStat(sessionJson.procStart, statContents);
       if (stale) {
-        // Reap: publish session_gone and drop from liveness map
         const entry = livenessMap.get(pid);
         const entryTmuxSession = entry?.tmuxSession ?? tmuxSession;
         const sessionId = entry?.sessionId ?? sessionJson.sessionId;
-
         systemLogger.info("Fleet-status: session stale — publishing gone", {
           operation: "fleet_status_stale_reap",
           fleetHostId: host.id,
           pid,
           sessionId,
         });
-
         deps.registry.publishSessionGone(host.id, entryTmuxSession, sessionId);
         livenessMap.delete(pid);
         return;
       }
     }
 
-    // Fix (quick-260829-kmr): per-session preferred, box-wide fallback,
-    // both-missing → warn once. `perSessionHookPayloadRaw` came from the
-    // session-scoped `~/.claude/fleet-status/stop-<sessionId>.json` read
-    // above; `hookPayloadRaw` came from the legacy box-wide
-    // `~/.claude/fleet-status/last-stop-payload.json` read at ~L1009. Widened
-    // "absent" semantic: emitHookPayloadWarn fires only when BOTH sources are
-    // null/empty. Debounce contract inside emitHookPayloadWarn preserved
-    // unchanged.
+    // Fix (quick-260829-kmr): per-session preferred, box-wide fallback, both-
+    // missing → warn once. Batch path passes hookPayloadRaw=null (SWEEP_FIELD_
+    // PARITY.A3 skip), so the fallback is a no-op there — matches the schema-
+    // designer intent. Legacy path preserves the A3 fallback verbatim.
     let backgroundTasks: SessionState["backgroundTasks"] = [];
     const perSessionUsable =
-      perSessionHookPayloadRaw !== null && perSessionHookPayloadRaw.trim() !== "";
+      fetched.perSessionHookPayloadRaw !== null &&
+      fetched.perSessionHookPayloadRaw.trim() !== "";
     const selectedHookPayloadRaw: string | null = perSessionUsable
-      ? perSessionHookPayloadRaw
-      : hookPayloadRaw;
+      ? fetched.perSessionHookPayloadRaw
+      : fetched.hookPayloadRaw;
     const isHookPayloadMissing =
       selectedHookPayloadRaw === null || selectedHookPayloadRaw.trim() === "";
 
@@ -1781,38 +2221,21 @@ export function createSshPollOrchestrator(
       if (payload !== null) {
         backgroundTasks = filterAmbientTasks(payload.background_tasks);
       } else {
-        // parseStopHookPayload returned null: malformed/schema-invalid — fail-open
         emitHookPayloadWarn(hostState, host.id);
       }
     } else {
-      // BOTH per-session AND box-wide null/empty — fail-open
       emitHookPayloadWarn(hostState, host.id);
     }
 
-    // quick-260823-73o — source A NO LONGER OR-composes recycle axes NOR emits
-    // the `fleet_status_recycling_armed` log. Both concerns have moved to
-    // source B (pollDormantOnlyIdentities). Source A stamps `recycling: false`
-    // unconditionally in the composed SessionState below.
-
-    // Phase 55 Plan 02: publish resolved sessionFile to the shared session-file
-    // cache for the Claude-session attach path (Plan 55-03) to read
-    // opportunistically; source A only — source B lacks a real pid and MUST NOT
-    // write here per Phase 55 RESEARCH § Pitfall 4; guards: jsonlPath must be
-    // resolved this tick (or cached from a prior tick), tmuxSession must be
-    // known (identity name resolved); the stale-liveness path returns at ~L1191
-    // above so we never write for a PID that is about to be reaped.
+    // Phase 55 Plan 02 (RESEARCH G8) — publish resolved sessionFile to the
+    // shared session-file cache. Sits in COMPOSE (not fetch) so BOTH batch
+    // and legacy paths trigger the write identically per tick — a non-
+    // negotiable of Phase 92.
     if (jsonlPath !== null && tmuxSession !== null) {
       writeSessionFileCache(host.id, tmuxSession, { sessionFile: jsonlPath, pid });
     }
 
-    // Compose SessionState — Phase 41 Plan 03 stamps lastMessageAt from the
-    // JSONL-tail derivation above (null when no message-bearing history is
-    // known for this session). Phase 47 Plan 02 stamps aiTitle from the
-    // SAME tail-read (shared buffer, one exec) — last-wins across
-    // multiple ai-title lines in the tail. Phase 52 Plan 01 Task 2 stamps
-    // dormant from the identity-folder .dormant sentinel stat above
-    // (fail-open to cached value on SSH hiccup). quick-260823-73o: recycling
-    // is now HARDCODED to false — source B is the sole publisher of that axis.
+    // Compose SessionState — same shape as pre-refactor processPid.
     const state: SessionState = {
       hostId: host.id,
       tmuxSession,
@@ -1826,66 +2249,32 @@ export function createSshPollOrchestrator(
       lastMessageAt: derivedLastMessageAt,
       aiTitle: derivedAiTitle,
       dormant: derivedDormant,
-      // inline-260830-source-a-omit-recycling (Ashley 2026-08-30, taylor):
-      // OMIT the recycling field on source A frames. Source B is the sole
-      // recycling authority (per quick-260823-73o migration comment above
-      // at ~L731). Previously source A stamped `recycling: false` explicitly,
-      // which wiped the frontend session-working-store's recycling axis
-      // (session-working-store.ts:382 Axis E flips cache to false on any
-      // defined wire value) immediately after source B fired
-      // `recycling: true` on sentinel drop. Source B's fingerprint dedup
-      // (ssh-poll-orchestrator.ts:943) then skipped republishing because
-      // isRecycling remained true — leaving the store cache stuck at false
-      // for the rest of the recycle window. Ashley report 2026-08-30:
-      // overlay armed briefly at sentinel drop then disappeared and never
-      // came back through /exit + harness kill + new claude launch.
-      // Omitting the field (wire schema is `z.boolean().nullable().optional()`,
-      // wire-protocol.ts:251) makes Axis E preserve the cache on source A
-      // frames — source B stays sole authority end-to-end.
+      // inline-260830-source-a-omit-recycling: recycling field OMITTED on
+      // source A frames. Source B is the sole recycling authority.
       lastStopAt: derivedLastStopAt,
       lastStatusChangeAt: derivedLastStatusChangeAt,
-      // Phase 62 Plan 03 — per-session activity + stopped marker mtimes.
-      // Both axes are consumed by the frontend session-working-store's new
-      // direct-signal WIP predicate in Plan 62-04 (`activityMtime >
-      // stoppedMtime` → working). Ride alongside the Phase 59 axes above
-      // per CONTEXT.md § Rollout Option 1 (LOCKED) — frontend chooses
-      // which predicate applies per-session based on marker presence.
       activityMtime: derivedActivityMtime,
       stoppedMtime: derivedStoppedMtime,
     };
 
-    // Delta semantics — only publish if fingerprint changed
+    // Delta semantics — only publish if fingerprint changed.
     const newFingerprint = computeFingerprint(state);
     const lastFingerprint = livenessMap.get(pid)?.lastPublishedFingerprint;
 
     if (newFingerprint !== lastFingerprint) {
       deps.registry.publishSessionState(host.id, state);
-
       systemLogger.info("Fleet-status: session state published", {
         operation: "fleet_status_session_state_published",
         fleetHostId: host.id,
         pid,
         sessionId: sessionJson.sessionId,
         status: sessionJson.status,
-        // quick-260823-73o: source A no longer stamps recycling (per
-        // inline-260830-source-a-omit-recycling, the field is now OMITTED
-        // rather than stamped `false` — Axis E preserves cache on undefined
-        // wire values). Log field DROPPED from source A publishes so a grep
-        // for `recycling:` on this log op cleanly separates source A (no
-        // hit) from source B (hit with true|false). dormant is still
-        // source-A-owned; keep it on the publish log.
         dormant: state.dormant,
-        // Phase 59 Plan 02 — forensic entries for the two new axes so future
-        // debugging can trace which axis drove a publish (T-59-02-04 mitigation).
         lastStopAt: state.lastStopAt,
         lastStatusChangeAt: state.lastStatusChangeAt,
-        // Phase 62 Plan 03 — forensic entries for the two new Phase 62 axes.
-        // Post-publish inspection can distinguish which signal set drove the
-        // frontend's per-session predicate choice during the rollout window.
         activityMtime: state.activityMtime,
         stoppedMtime: state.stoppedMtime,
       });
-
       livenessMap.set(pid, {
         sessionId: sessionJson.sessionId,
         tmuxSession,
@@ -1896,24 +2285,16 @@ export function createSshPollOrchestrator(
         jsonlPath,
         staleTailTickCount: nextStaleTailTickCount,
         dormant: derivedDormant,
-        // Phase 59 Plan 02 — cache the three new axes so the next tick's
-        // derivations (status-delta comparison and fail-open preservation)
-        // have the correct source-of-truth. Missing either branch would
-        // Pitfall-3 the same-status-many-ticks path (every tick would see
-        // cached lastStatus === undefined and re-treat as first-appearance).
         lastStatus: sessionJson.status,
         lastStatusChangeAt: derivedLastStatusChangeAt,
         lastStopAt: derivedLastStopAt,
-        // Phase 62 Plan 03 — cache the two new mtime axes so the next tick's
-        // fail-open preservation has the correct source-of-truth (matching
-        // the lastStopAt pattern above). Same Pitfall-3 invariant applies
-        // here: on a fingerprint-changed publish the fresh derived values
-        // become the new cache baseline.
         activityMtime: derivedActivityMtime,
         stoppedMtime: derivedStoppedMtime,
       });
     } else {
-      // Update procStart + tmux in case they changed without a state-change
+      // Update procStart + tmux + fresh derivations in case they changed
+      // without a state-change (Research § Pitfall 3 — every axis MUST be
+      // stamped on both branches so the cache stays lockstep with derivation).
       livenessMap.set(pid, {
         ...(livenessMap.get(pid) as PidCacheEntry),
         procStart: sessionJson.procStart,
@@ -1924,30 +2305,29 @@ export function createSshPollOrchestrator(
         jsonlPath,
         staleTailTickCount: nextStaleTailTickCount,
         dormant: derivedDormant,
-        // Phase 59 Plan 02 — SAME axes MUST be updated on the
-        // fingerprint-unchanged branch (Research § Pitfall 3). Omitting
-        // this branch means a same-status tick would preserve the OLD
-        // cached lastStatus AND lastStatusChangeAt via the spread — which
-        // is what we want — but lastStopAt could regress if a fresh mtime
-        // read succeeded on a tick that did not otherwise flip the
-        // fingerprint. Explicitly stamping all three keeps the cache
-        // in lockstep with the derivation logic.
         lastStatus: sessionJson.status,
         lastStatusChangeAt: derivedLastStatusChangeAt,
         lastStopAt: derivedLastStopAt,
-        // Phase 62 Plan 03 — SAME Pitfall-3 invariant applies to the two
-        // new mtime axes. Consider: a same-status same-payload tick where
-        // the activity or stopped marker's mtime changed via a hook fire
-        // that has ALREADY been fingerprinted+published on a prior tick.
-        // The fingerprint might match on THIS tick (mtime axis unchanged
-        // this-tick-vs-cache) yet the DERIVED values differ from the
-        // spread's cached values if a fresh stat succeeded. Explicitly
-        // stamping both keeps the cache in lockstep with the derivation
-        // logic, matching the lastStopAt handling above.
         activityMtime: derivedActivityMtime,
         stoppedMtime: derivedStoppedMtime,
       });
     }
+  }
+
+  /**
+   * processPid — legacy path entry point. Thin wrapper: fetch → compose.
+   *
+   * Observable behavior is byte-identical to the pre-refactor processPid.
+   * The existing 149-test vitest suite is the parity oracle — any behavioral
+   * drift here surfaces as a test failure.
+   */
+  async function processPid(
+    hostState: PerHostState,
+    pid: number,
+  ): Promise<void> {
+    const cached = hostState.livenessMap.get(pid);
+    const fetched = await fetchPerPidState(hostState, pid, cached);
+    await composeAndPublishPerPid(hostState, pid, fetched);
   }
 
   // ---------------------------------------------------------------------------
@@ -2093,6 +2473,12 @@ export function createSshPollOrchestrator(
         // pollDormantOnlyIdentities on each tick with the full 3-axis pipeline
         // state per identity.
         identityRecycleState: new Map(),
+        // Phase 92 — sweep-first / legacy-fallback dispatch cache. All three
+        // fields are per-SSH-channel-lifetime: reset when pollOneHost sees a
+        // fresh channel object reference (see PerHostState docblock above).
+        sweepScriptPresent: null,
+        sweepSchemaMismatchThisConnection: false,
+        lastProbeChannelRef: null,
       });
     } catch (err) {
       systemLogger.warn("Fleet-status: SSH channel acquire threw for host", {
