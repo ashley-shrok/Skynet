@@ -191,11 +191,13 @@ describe("PrettyConversationsPanel: Edit roles… menu entry (Phase 90 D-07 rewr
     expect(within(menu).getByRole("menuitem", { name: /edit roles/i })).toBeTruthy();
     // The old "New role" entry is GONE (D-07).
     expect(within(menu).queryByRole("menuitem", { name: /^new role$/i })).toBeNull();
-    // Menu order per D-07: New agent → Edit roles… → Edit global files… → Edit skills…
+    // Menu order per D-07 + Phase 91 prepend: New conversation → New agent →
+    // Edit roles… → Edit global files… → Edit skills…
     const items = within(menu).getAllByRole("menuitem").map((el) =>
       el.textContent?.trim() ?? "",
     );
     expect(items).toEqual([
+      "New conversation",
       "New agent",
       "Edit roles…",
       "Edit global files…",
