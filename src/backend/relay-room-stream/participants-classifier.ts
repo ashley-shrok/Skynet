@@ -150,14 +150,55 @@ export async function classifyParticipants(
 }
 
 /**
+ * M4 fixup 2026-09-09: small TTL cache around `lookupHumansFromUsersTable`.
+ *
+ * H1 wired the WS server's membership tick to fire every 2s per active
+ * room; each tick classifies participants, and classification calls
+ * `lookupHumansFromUsersTable`. Without a cache, that means one full
+ * `SELECT * FROM users` per room per tick. The users table is small (fleet
+ * scale) but there's no reason to hit it that often — the humans set only
+ * changes when a new user is added or an existing user's mxid rotates,
+ * events on the order of hours-to-days, not seconds.
+ *
+ * TTL of 30s: worst-case new-user visibility lag in a live pane is 30s +
+ * one membership tick period. That's fine for the "human just joined a
+ * new relay room" UX (they see themselves badge-listed immediately from
+ * their own tab; other tabs converge in seconds).
+ *
+ * Cache is process-wide (single-node fleet — same rationale as
+ * `matrix-admin-creds-store`'s memoization).
+ */
+const HUMANS_LOOKUP_TTL_MS = 30_000;
+
+interface HumansLookupCache {
+  value: Map<string, { displayName: string; userId: string }>;
+  expiresAt: number;
+}
+
+let humansLookupCache: HumansLookupCache | null = null;
+
+/**
+ * Test-only reset — drops the humans lookup cache so a fresh test starts
+ * from an empty state. NOT a public API.
+ */
+export function __resetHumansLookupCacheForTests(): void {
+  humansLookupCache = null;
+}
+
+/**
  * Production `lookupHumans` implementation. Reads users.mxid + users.id +
- * users.username via Drizzle and builds the mxid-keyed map. Called once
- * per classification (no caching — the humans set is small and drift
- * matters).
+ * users.username via Drizzle and builds the mxid-keyed map. Cached for
+ * HUMANS_LOOKUP_TTL_MS to avoid one SELECT * FROM users per membership
+ * tick (H1 wired the tick every 2s per active room; classification would
+ * otherwise fire 15x more DB reads than needed).
  */
 export async function lookupHumansFromUsersTable(): Promise<
   Map<string, { displayName: string; userId: string }>
 > {
+  const now = Date.now();
+  if (humansLookupCache !== null && humansLookupCache.expiresAt > now) {
+    return humansLookupCache.value;
+  }
   try {
     const rows = (await db
       .select({
@@ -180,6 +221,7 @@ export async function lookupHumansFromUsersTable(): Promise<
           : row.mxid;
       map.set(row.mxid, { displayName, userId: row.id });
     }
+    humansLookupCache = { value: map, expiresAt: now + HUMANS_LOOKUP_TTL_MS };
     return map;
   } catch (err) {
     databaseLogger.warn(
@@ -189,6 +231,9 @@ export async function lookupHumansFromUsersTable(): Promise<
         error: err instanceof Error ? err.message : "unknown",
       },
     );
+    // On DB error, do NOT poison the cache with an empty map — return an
+    // empty map to the caller for graceful degradation this call, but let
+    // the next call retry the DB (rather than serve stale empty for 30s).
     return new Map();
   }
 }
