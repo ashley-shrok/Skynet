@@ -886,6 +886,26 @@ export type IdentityRoleFileUpdatedEvent = {
   error?: string;
 };
 
+// Phase 90 Plan 90-03: role-name-keyed companion of the pair above. Consumed
+// by the RoleModal (Plan 90-04) which has no identity context. D-08.3
+// planner-pick — companion wire type rather than "frontend synthesizes an
+// identityKey" fallback.
+
+export type RoleUpdateFilePayload = {
+  type: "role:update-file";
+  roleName: string;
+  /** Backend SSH host id (LOCAL omitted / undefined routes to bind-mount). */
+  hostId?: number;
+  /** UTF-8 markdown payload (full-overwrite of ~/.claude/roles/<roleName>/<roleName>.md). */
+  contents: string;
+};
+export type RoleFileUpdatedEvent = {
+  type: "role:file-updated";
+  /** Server-echoed confirmed markdown post-write (via readRoleFileByName). */
+  markdown: string;
+  error?: string;
+};
+
 export type IdentityUpdateBountyPriorityPayload = {
   type: "identity:update-bounty-priority";
   identityKey: string;
@@ -1202,6 +1222,72 @@ export function countIdentityBounties(
           sock.close();
         } catch {
           /* ignore */
+        }
+      } catch {
+        /* ignore parse errors — wait for a valid frame */
+      }
+    };
+    const handleFail = () => {
+      if (responded) return;
+      responded = true;
+      reject(new Error("Connection failed"));
+    };
+    sock.onerror = handleFail;
+    sock.onclose = () => {
+      if (!responded) handleFail();
+    };
+  });
+}
+
+/**
+ * Phase 90 Plan 90-03 (D-08.3): fire a one-shot role-file update request keyed
+ * on roleName (NOT identityKey). Byte-shape mirror of the identity-keyed
+ * updateRoleFile helper inlined in IdentityModal (L1000+) — same
+ * openClaudeSessionSocket + send-on-open + resolve-on-matching-response +
+ * close-after-response pattern countIdentityBounties uses above.
+ *
+ * The role modal (Plan 90-04) has no identity context, so this helper is the
+ * clean save path for role-file cosmetic edits. Resolves with `{markdown}` on
+ * success (server-echoed post-write body via readRoleFileByName); throws
+ * `Error(env.error)` if the response envelope carries `error`.
+ */
+export function updateRoleFileByName(
+  roleName: string,
+  hostId: number,
+  contents: string,
+): Promise<{ markdown: string }> {
+  return new Promise((resolve, reject) => {
+    let responded = false;
+    const sock = openClaudeSessionSocket();
+    sock.onopen = () => {
+      const payload: RoleUpdateFilePayload = {
+        type: "role:update-file",
+        roleName,
+        hostId,
+        contents,
+      };
+      try {
+        sock.send(JSON.stringify(payload));
+      } catch {
+        /* ws may be mid-close */
+      }
+    };
+    sock.onmessage = (event: MessageEvent<string>) => {
+      if (responded) return;
+      try {
+        const raw = JSON.parse(event.data) as { type?: string };
+        if (raw.type !== "role:file-updated") return; // ignore unrelated frames
+        responded = true;
+        const env = raw as RoleFileUpdatedEvent;
+        try {
+          sock.close();
+        } catch {
+          /* ignore */
+        }
+        if (env.error) {
+          reject(new Error(env.error));
+        } else {
+          resolve({ markdown: env.markdown });
         }
       } catch {
         /* ignore parse errors — wait for a valid frame */
