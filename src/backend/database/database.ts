@@ -76,6 +76,7 @@ import agentResetRoutes from "./routes/agent-reset.js";
 // CLAUDE.md nginx caveat (Pitfall 6).
 import relayRoomCreateRoutes from "./routes/relay-room-create.js";
 import relayRoomParticipantsRoutes from "./routes/relay-room-participants.js";
+import relayRegistryBackfillRoutes from "./routes/relay-registry-backfill.js";
 import userPreferencesRoutes from "./routes/user-preferences.js";
 import debugRoutes from "./routes/debug.js";
 import voiceRoutes from "./routes/voice.js";
@@ -1950,6 +1951,12 @@ app.use("/relay-room", relayRoomCreateRoutes);
 // (WS route bound by relay-room-stream-server on port 30015) AND this REST
 // prefix — both blocks land in BOTH docker/nginx.conf AND docker/nginx-https.conf.
 app.use("/relay-room", relayRoomParticipantsRoutes);
+// Admin one-shot: POST /relay-room/backfill — runs runRegistryRoomsBackfill
+// inside the live backend (necessary because Skynet's :memory: SQLite means
+// docker-exec-node opens a fresh empty DB). See routes/relay-registry-backfill.ts
+// docblock + bounty registry-rooms-backfill-runbook-broken-in-memory-db.
+// Piggybacks on the /relay-room/ nginx block above — no new location required.
+app.use("/relay-room", relayRegistryBackfillRoutes);
 app.use("/user-preferences", userPreferencesRoutes);
 // RELAYBUB-04 (Phase 17): /relay-pointer needs matching location blocks in BOTH docker/nginx.conf
 // AND docker/nginx-https.conf — see CLAUDE.md nginx caveat. Handler uses head -c bounded remote
