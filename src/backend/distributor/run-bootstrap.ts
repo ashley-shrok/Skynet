@@ -44,6 +44,17 @@
  *      is absent). Failure to write is logged and marked in hadError; the
  *      never-throw contract is preserved.
  *
+ *   5. skynet-hostname write:
+ *      Write ~/.claude/skynet-hostname with the box's canonical Skynet
+ *      host.name (single-line, newline-terminated). Written on every sweep
+ *      (host.name is always in scope) with content-diff idempotency
+ *      (RESEARCH Pitfall 3 — no rewrite → no mtime churn). Agents read this
+ *      file in place of `$(hostname)` when constructing Skynet passthrough
+ *      file URLs, so cloud-VM boxes whose OS hostname is a meaningless
+ *      string (e.g. "ip-172-31-243-143") stop 404'ing with unknown_host.
+ *      Failure to write is logged and marked in hadError; the never-throw
+ *      contract is preserved.
+ *
  * NEVER-THROW CONTRACT:
  *   runBootstrapForHost NEVER rejects. All risky calls are wrapped in
  *   try/catch; failures are logged and the function resolves. The caller
@@ -80,6 +91,9 @@ export interface BootstrapResult {
    *  A false value here does NOT by itself imply hadError — a missing env var
    *  is a documented skip (RESEARCH Pitfall 4), not a per-host failure. */
   skynetParentOk: boolean;
+  /** Whether the ~/.claude/skynet-hostname write succeeded. Step 5 always runs
+   *  (host.name is always in scope); a false value here always implies hadError. */
+  skynetHostnameOk: boolean;
   /** True if any sub-step encountered an error. */
   hadError: boolean;
 }
@@ -151,6 +165,7 @@ export async function runBootstrapForHost(
   let settingsPatchOk = false;
   let gsdContextMonitorCleanupOk = false;
   let skynetParentOk = false;
+  let skynetHostnameOk = false;
   let hadError = false;
 
   // -------------------------------------------------------------------------
@@ -447,6 +462,58 @@ export async function runBootstrapForHost(
     );
   }
 
+  // -------------------------------------------------------------------------
+  // Step 5: Write ~/.claude/skynet-hostname — Skynet's canonical host.name
+  //         for this box. Written on every sweep (host.name is always in
+  //         scope) with content-diff idempotency (RESEARCH Pitfall 3 — no
+  //         rewrite → no mtime churn). Agents read this file in place of
+  //         `$(hostname)` when constructing Skynet passthrough file URLs, so
+  //         cloud-VM boxes whose OS hostname (e.g. "ip-172-31-243-143") does
+  //         not match Skynet's resolver name stop 404'ing with unknown_host.
+  //         NEVER-THROW contract preserved: channel-null, missing-sentinel,
+  //         and thrown-error branches each mark hadError without rejecting.
+  // -------------------------------------------------------------------------
+  try {
+    // Shell-safe single-quote escape: close-quote, escape a literal quote,
+    // reopen-quote. Keeps the NEW='...' assignment valid even when host.name
+    // contains an embedded single-quote character.
+    const safeHostname = host.name.replace(/'/g, "'\\''");
+    const cmd = [
+      `SH="$HOME/.claude/skynet-hostname"`,
+      `mkdir -p "$HOME/.claude"`,
+      `NEW='${safeHostname}'`,
+      `if [ -f "$SH" ] && [ "$(cat "$SH")" = "$NEW" ]; then`,
+      `  :  # idempotent no-op (RESEARCH Pitfall 3 — do not churn mtime)`,
+      `else`,
+      `  printf '%s\\n' "$NEW" > "$SH.new" && mv "$SH.new" "$SH"`,
+      `fi`,
+      `echo "__SKYNET_HOSTNAME_OK__"`,
+    ].join("\n");
+
+    const raw = await channel.exec(cmd);
+
+    if (raw === null) {
+      hadError = true;
+      logBootstrapFailed(host, "skynet-hostname-write", "channel returned null");
+    } else if (!raw.trimEnd().endsWith("__SKYNET_HOSTNAME_OK__")) {
+      hadError = true;
+      logBootstrapFailed(
+        host,
+        "skynet-hostname-write",
+        raw.trimEnd().slice(0, 500) || "skynet-hostname write failed",
+      );
+    } else {
+      skynetHostnameOk = true;
+    }
+  } catch (err) {
+    hadError = true;
+    logBootstrapFailed(
+      host,
+      "skynet-hostname-write",
+      err instanceof Error ? err.message : "unknown throw",
+    );
+  }
+
   const result: BootstrapResult = {
     alreadyEnabled,
     bootstrapRan,
@@ -454,6 +521,7 @@ export async function runBootstrapForHost(
     settingsPatchOk,
     gsdContextMonitorCleanupOk,
     skynetParentOk,
+    skynetHostnameOk,
     hadError,
   };
 
