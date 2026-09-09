@@ -226,11 +226,14 @@ describe("PrettyConversationsPanel: + New role button (Phase 23 GEFM-01 repoint)
     // D-CONTEXT item 3 — the checkbox goes away entirely because a role
     // without an agent is a modeling accident the UI stops advertising).
     //
-    // New detection signal: the header blurb "A role is what an agent
-    // does and how it thinks — many agents can share one." is unique to
-    // CreateRoleDialog. NewSessionDialog's description is "Pick a host
-    // and (optionally) name the agent." — no overlap in the matched
-    // substring "A role is what an agent does".
-    expect(dialog!.textContent).toMatch(/a role is what an agent does/i);
+    // Phase 88 (Plan 88-01, paired-blurb revision): the Phase-84 blurb
+    // "A role is what an agent does…" was rewritten to the paired
+    // adopt-vocabulary form shared with NewSessionDialog. Current
+    // CreateRoleDialog blurb: "Roles are the expertise your agents adopt.
+    // Every agent using this role inherits its goals, rules, and knowledge."
+    // NewSessionDialog's description is "Pick a host and (optionally)
+    // name the agent." — no overlap in the matched substring
+    // "roles are the expertise your agents adopt".
+    expect(dialog!.textContent).toMatch(/roles are the expertise your agents adopt/i);
   });
 });
