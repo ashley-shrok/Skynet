@@ -74,6 +74,7 @@ import agentResetRoutes from "./routes/agent-reset.js";
 // Matching nginx location blocks land in BOTH docker/nginx.conf AND
 // docker/nginx-https.conf for BOTH the WS path AND this REST path per
 // CLAUDE.md nginx caveat (Pitfall 6).
+import relayRoomCreateRoutes from "./routes/relay-room-create.js";
 import relayRoomParticipantsRoutes from "./routes/relay-room-participants.js";
 import userPreferencesRoutes from "./routes/user-preferences.js";
 import debugRoutes from "./routes/debug.js";
@@ -1937,6 +1938,13 @@ app.use("/sessions", sessionsRoutes);
 // Nginx dual-update required (see CLAUDE.md nginx caveat) — location blocks
 // added in BOTH docker/nginx.conf AND docker/nginx-https.conf.
 app.use("/agent-reset", agentResetRoutes);
+// Phase 91 Plan 03 — POST /relay-room/create (sub-slice C: new-conversation
+// modal backend endpoint). Mounts BEFORE the participants route so Express
+// finds /relay-room/create before the /:roomId/participants wildcard. The two
+// routes have non-overlapping paths so ordering is functionally irrelevant,
+// but placing create first improves readability. No additional nginx location
+// block needed — the existing /relay-room prefix block covers this path.
+app.use("/relay-room", relayRoomCreateRoutes);
 // Phase 90 Plan 04 Task 3 — GET /relay-room/:roomId/participants (BLOCKER
 // #4 fix per plan). Nginx dual-update required for BOTH /relay-room/websocket/
 // (WS route bound by relay-room-stream-server on port 30015) AND this REST
