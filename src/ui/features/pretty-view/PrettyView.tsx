@@ -58,6 +58,7 @@ import { useChatSurfaceAdapter } from "./sources/use-chat-surface-adapter";
 // `source.kind === "relay"`. Pure render — takes participants +
 // viewingUserMxid + fleetIdentityHosts + isReady as explicit props.
 import { MultiBadgeAnchor } from "./MultiBadgeAnchor";
+import { ChatSurfaceErrorState } from "./ChatSurfaceErrorState";
 import { useViewingUserMxid } from "@/state/viewing-user-store";
 import { buildIdentityHostsFromFleet } from "@/state/identities-store";
 import {
@@ -652,6 +653,20 @@ export function PrettyView({
   const viewingUserMxid = useViewingUserMxid();
   const fleetIdentityHosts = useFleetIdentityHosts();
   const [messages, setMessages] = useState<StreamEvent[]>([]);
+  // Phase 93 Slice 3 (D-09): shared message store reads either from the
+  // adapter (relay case) or from PrettyView's internal `messages` state
+  // (harness case, populated by the ingestion effect gated at L~1969+).
+  // The downstream message-list rendering is case-agnostic (D-08).
+  //
+  // In the HARNESS case, `chatSurfaceAdapter.messages` is the Slice 1 inert
+  // shim `[]` — the harness ingestion effect still owns its state (Pitfall 2
+  // resolution: useHarnessAdapter does NOT own ingestion; the shim is
+  // deliberately inert). `effectiveMessages` collapses to local `messages`
+  // in this case — this is intentional. Do NOT try to unify by making
+  // `useHarnessAdapter` populate its own `messages` — that would double-write
+  // and break Pitfall 2 (the adapter is inert by design).
+  const effectiveMessages: StreamEvent[] =
+    source.kind === "relay" ? chatSurfaceAdapter.messages : messages;
   // ── Phase 47 (load-more button) — per-pane state slots ────────────────
   // capOff: once flipped true (via handleLoadOlder — first click), cap
   //   enforcement in the ws.onmessage switch stops for this pane's
@@ -1272,6 +1287,10 @@ export function PrettyView({
   // ComposeBox-generated mqid threads through to the parent's onSend
   // (typically IdentitySessionPane's onSend at ~L237-270, which then
   // forwards to pvSendInputRef and the backend armPvSendWatchdog).
+  //
+  // Phase 93 Slice 3 (D-13): case-selected. Relay case routes to the
+  // adapter's sendMessage (mqid preserved verbatim — Pitfall 4 correlation).
+  // Harness case unchanged.
   const handleComposeSend = useCallback((text: string, mqid?: string): boolean => {
     const trimmed = text.trim();
     if (trimmed.startsWith('/btw ') || trimmed === '/btw') {
@@ -1289,8 +1308,17 @@ export function PrettyView({
     // A send is the strongest possible "I want to see the reply" signal —
     // force stick + jump regardless of prior scroll position.
     onSendFired();
+    if (source.kind === "relay") {
+      // D-13: relay send routes to adapter. mqid MUST propagate byte-for-
+      // byte to preserve Pitfall 4 (Matrix unsigned.transaction_id echo
+      // correlation). If ComposeBox somehow omitted an mqid, generate a
+      // fallback so the adapter's pending-send FIFO still has a key.
+      const effectiveMqid = mqid ?? `relay-fallback-${Date.now()}`;
+      void chatSurfaceAdapter.sendMessage(text, effectiveMqid);
+      return true;
+    }
     return onSend ? onSend(text, mqid) : false;
-  }, [onSend, onSendFired]);
+  }, [onSend, onSendFired, source.kind, chatSurfaceAdapter]);
 
   // ── Phase 50 Plan 03 (D-01..D-08 + D-15/D-19/D-20/D-21) ──────────────
   // pendingSends: FIFO queue of optimistic-bubble state. Seeded by
@@ -3006,7 +3034,7 @@ export function PrettyView({
   useEffect(() => {
     if (capOff) return;
     let derivedMin: number | null = null;
-    for (const m of messages) {
+    for (const m of effectiveMessages) {
       if (typeof m.line === "number") {
         if (derivedMin === null || m.line < derivedMin) {
           derivedMin = m.line;
@@ -3014,7 +3042,7 @@ export function PrettyView({
       }
     }
     setOldestLoadedLine((prev) => (prev === derivedMin ? prev : derivedMin));
-  }, [messages, capOff]);
+  }, [effectiveMessages, capOff]);
 
   // quick 260808-cd6: dormantRef mirror — keeps dormantRef.current in sync
   // with the `dormant` state so the WS onmessage auto-dismiss hook can read
@@ -3172,8 +3200,8 @@ export function PrettyView({
   // pane across re-mounts reuses the slot; unregister runs on unmount /
   // hostId or tmuxSession change.
   useEffect(() => {
-    messagesLenRef.current = messages.length;
-  }, [messages]);
+    messagesLenRef.current = effectiveMessages.length;
+  }, [effectiveMessages]);
   useEffect(() => {
     const key = `pretty-view:${hostId}:${tmuxSession ?? ""}`;
     console.info(`[render] pane-mount paneId=${key} paneType=pretty-view hostId=${hostId} sessionKey=${tmuxSession ?? 'null'}`);
@@ -3284,8 +3312,14 @@ export function PrettyView({
       // the harness slash-UI XML-wrapper form (<command-name>/id</command-name>)
       // — Ashley's PRIMARY /id invocation path from pretty-view slash-UI.
       // ── PHASE-43 ASIDE-ARM WALK START — DO NOT EDIT; byte-preserved per 43-CONTEXT.md aside-arm suppression walk decision ──
-      for (let i = messages.length - 1; i >= 0; i--) {
-        const m = messages[i];
+      // Phase 93 Slice 3 (D-09): reads from `effectiveMessages` (which
+      // collapses to local `messages` in the harness case — harness walk
+      // behavior byte-preserved). Relay case's messages never carry
+      // role:"user" MessageEvent types (they're relay_inbound/outbound), so
+      // the walk's isIdCommand short-circuit is a no-op for relay — semantic
+      // unchanged.
+      for (let i = effectiveMessages.length - 1; i >= 0; i--) {
+        const m = effectiveMessages[i];
         if (m.type === "message" && m.role === "user") {
           if (isIdCommand(m.content)) return;
           break;
@@ -3301,7 +3335,7 @@ export function PrettyView({
         }
       }
     }
-  }, [isIdleDerived, pvIdentity, messages]);
+  }, [isIdleDerived, pvIdentity, effectiveMessages]);
 
   // Phase 14 quick-task 260726-vbd: unmount cleanup for the 60s safety timer.
   // Ensures an asidePendingTimerRef pending during component unmount does not
@@ -3346,7 +3380,7 @@ export function PrettyView({
   const hasOlderMessages =
     sessionTotalLines != null &&
     sessionHasMore &&
-    sessionTotalLines > messages.length;
+    sessionTotalLines > effectiveMessages.length;
 
   return (
     <div
@@ -3746,11 +3780,37 @@ export function PrettyView({
         />
       )}
 
+      {/* Phase 93 Slice 3 (D-20): relay error state — renders IN PLACE OF
+          the message list when the relay adapter reports an unrecoverable
+          error (room-not-found, protocol, etc.). Same slot as the message
+          list container so the compose bar below still mounts (an error
+          state does not un-mount ComposeBox — the user may retype but a
+          send will fail-immediately per the adapter's fail-immediately
+          branch). V8 existence-oracle discipline: same title regardless of
+          reason (ChatSurfaceErrorState handles this internally).
+          Structured log fires here — no raw body, just operation + roomId. */}
+      {source.kind === "relay" && chatSurfaceAdapter.error !== null && (
+        (() => {
+          // eslint-disable-next-line no-console
+          console.info({
+            operation: "chat_surface_relay_error",
+            error: chatSurfaceAdapter.error,
+            roomId: source.kind === "relay" ? source.roomId : null,
+          });
+          return <ChatSurfaceErrorState />;
+        })()
+      )}
       {/* Phase 56 (2026-08-23): dormant-OR term removed — no former dormant-
           overlay sibling needs the container to mount in the zero-messages/
-          dormant case any more (that overlay was deleted in Plan 56-03). */}
-      {(status === "streaming" ||
-        ((status === "connecting" || status === "error") && messages.length > 0)) && (
+          dormant case any more (that overlay was deleted in Plan 56-03).
+          Phase 93 Slice 3: also mount when source.kind === "relay" (so the
+          relay adapter's messages can render even though harness `status`
+          is not "streaming"). Gated to NOT render when the relay error state
+          is showing (D-20 replaces message list). */}
+      {!(source.kind === "relay" && chatSurfaceAdapter.error !== null) &&
+        (status === "streaming" ||
+        ((status === "connecting" || status === "error") && effectiveMessages.length > 0) ||
+        source.kind === "relay") && (
         <div
           // Outer scroll container. useAutoScroll's scrollRef drives pinned-follow behavior.
           ref={scrollRef}
@@ -3802,7 +3862,7 @@ export function PrettyView({
               Plan 03) remain immediately below the .map output, in-flow
               inside the same outer scroll container — same structural
               layout invariant established by Phase 27 Plan 27-02 Step B. */}
-          {messages.map((m) => (
+          {effectiveMessages.map((m) => (
             // Phase 45 Bug #2 (Ashley UAT verbatim): 9px inter-bubble padding restored — technically padding but functionally margin per Ashley's clarification 2026-08-18.
             <div
               key={m.eventId}
@@ -3944,7 +4004,7 @@ export function PrettyView({
               by the MutationObserver + ResizeObserver in useAutoScroll — no
               re-arm timer needed here. `mode` is reducer-derived from the
               isTrusted scroll listener. */}
-          {mode === "not-at-bottom" && messages.length > 0 && (
+          {mode === "not-at-bottom" && effectiveMessages.length > 0 && (
             <div className="sticky bottom-2 pointer-events-none flex justify-end">
               <Button
                 size="icon-sm"
@@ -4072,8 +4132,13 @@ export function PrettyView({
           holding branch must be reconsidered — otherwise a send armed during
           holding would take the 20s branch even though the pane is
           transiently unavailable. */}
-      {onSend && (status === "streaming" || status === "error" || renderedState === "error" || renderedState === "dormant" || renderedState === "active") && (
+      {(onSend || source.kind === "relay") && (status === "streaming" || status === "error" || renderedState === "error" || renderedState === "dormant" || renderedState === "active" || source.kind === "relay") && (
         <ComposeBox
+          // Phase 93 D-11: pass mode based on source.kind — "relay" hides
+          // Row 1 + Paperclip monolithically; "harness" (default) preserves
+          // the full instrument bar. ChatSurfaceSource.kind is exactly
+          // `"harness" | "relay"` which matches ComposeBox's mode prop.
+          mode={source.kind}
           onSend={handleComposeSend}
           // Phase 50 D-01: seed a pending bubble synchronously with the
           // WS write; PrettyView owns the FIFO pendingSends queue.

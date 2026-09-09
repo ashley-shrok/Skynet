@@ -179,18 +179,31 @@ describe("PrettyView — Phase 92 Slice 1 source-prop foundation", () => {
     expect(/source[?]?:\s*ChatSurfaceSource/.test(src)).toBe(true);
   });
 
-  it("Test 3 (D-08 discipline): zero source.roomId or source.hostId reads occur outside narrowed source.kind === '...' blocks", () => {
+  it("Test 3 (D-08 discipline): every source.roomId or source.hostId read appears ONLY inside a narrowed source.kind === '...' block", () => {
     const src = readFileSync(
       path.resolve(__dirname, "PrettyView.tsx"),
       "utf-8",
     );
-    // Slice 1 only threads the source prop and gates the ingestion effect.
-    // Slice 1 introduces NO `source.roomId` reads at all. Slice 2 will add
-    // multi-badge rendering that reads `source` fields inside narrowed
-    // blocks — this test asserts the Slice 1 invariant.
-    expect(src.includes("source.roomId")).toBe(false);
-    // `source.hostId` also not read in Slice 1 (the fallback synthesis uses
-    // the outer-scope `hostId` flat prop, not `source.hostId`).
+    // Slice 3 (Phase 93 D-13/D-20) introduced narrowed `source.roomId`
+    // reads (structured logging for the relay error state). The D-08
+    // discipline is not "zero reads" — it's "every read is inside a
+    // narrowed block". Verify by locating each read and asserting a
+    // `source.kind === "relay"` narrowing occurs on the same line
+    // (ternary or logical-and) that gates the read.
+    const roomIdReads = src.split("\n").filter((ln) =>
+      ln.includes("source.roomId"),
+    );
+    for (const ln of roomIdReads) {
+      // Each such line must include a narrowing check on the same line
+      // (D-08 discipline: no case-detection off other fields — `source.kind`
+      // is the ONE hard case-discriminator).
+      expect(
+        ln.includes('source.kind === "relay"') ||
+          ln.includes("source.kind === 'relay'"),
+      ).toBe(true);
+    }
+    // `source.hostId` is not read anywhere — the fallback synthesis uses the
+    // outer-scope `hostId` flat prop, not `source.hostId`.
     expect(src.includes("source.hostId")).toBe(false);
   });
 
