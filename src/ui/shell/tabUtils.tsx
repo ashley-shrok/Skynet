@@ -208,13 +208,15 @@ function TerminalOrIdentitySessionPane({
       // Fall through to the existing dispatcher below.
     } else {
       return (
-        <RelayRoomSessionPane
-          tab={tab}
-          roomId={tab.relayRoomId}
-          roomTitle={tab.relayRoomTitle ?? null}
-          isVisible={isVisible}
-          onCloseTab={onCloseTab}
-        />
+        <Suspense fallback={<EmptyState icon={TerminalSquare} messageKey="terminal.noHostSelected" />}>
+          <RelayRoomSessionPane
+            tab={tab}
+            roomId={tab.relayRoomId}
+            roomTitle={tab.relayRoomTitle ?? null}
+            isVisible={isVisible}
+            onCloseTab={onCloseTab}
+          />
+        </Suspense>
       );
     }
   }
