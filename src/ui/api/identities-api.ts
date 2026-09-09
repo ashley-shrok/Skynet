@@ -270,10 +270,25 @@ export async function setIdentityNoDormancy(
 
 // ─── Phase 22 (SRIC-02): roles list per host ─────────────────────────────────
 // Backing route: src/backend/database/routes/roles-list-for-host.ts
-// GET /roles?hostId=<n> → [{name, description}]
+// GET /roles?hostId=<n> → [{name, description, ...cosmetics}]
 // Consumed by NewSessionDialog's Role dropdown (see plan 22-02 Task 4).
-
-export type RoleSummary = { name: string; description: string };
+//
+// Phase 90 Plan 90-01 (D-08.1 — planner-pick: extend existing endpoint, no
+// companion): backend now includes optional cosmetic frontmatter fields on
+// each entry (title, displayName, colorHue, voice, avatar). Missing/malformed
+// fields are OMITTED from the response — the widened type keeps every field
+// optional so two-field callers keep compiling untouched. Phase 90-05 uses
+// these fields to render `.pv-row` conversation-row-treatment rows in the
+// role's own hue with the role's own avatar (no follow-up round-trip).
+export type RoleSummary = {
+  name: string;
+  description: string;
+  title?: string;
+  displayName?: string;
+  colorHue?: number;
+  voice?: string;
+  avatar?: string;
+};
 
 export async function listRolesForHost(hostId: number): Promise<RoleSummary[]> {
   try {

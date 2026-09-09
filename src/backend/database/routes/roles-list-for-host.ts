@@ -42,6 +42,12 @@ import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import { sshLogger } from "../../utils/logger.js";
+// Phase 90 Plan 90-01 (D-08.1 — planner picks extend-existing over companion):
+// reuse the identity-side cosmetic frontmatter extractor to attach role-level
+// cosmetics (title/displayName/colorHue/voice/avatar) to each response entry.
+// Empty {} return means "no cosmetics on disk" — cosmetic fields OMITTED from
+// the response entry (not defaulted, not null-emitted).
+import { extractCosmeticsFromFrontmatter } from "../../claude-session/identity-artifact-reader.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -199,24 +205,60 @@ router.get(
         return res.json(validRoles.map((name) => ({ name, description: "" })));
       }
 
-      // 7. Split on ===ROLE:<n>=== delimiters and extract per-role description.
+      // 7. Split on ===ROLE:<n>=== delimiters and extract per-role description
+      //    + per-role cosmetic frontmatter.
       //    First split yields ["", "<name>", "<body>", "<name>", "<body>", ...]
       //    because the delimiter is at the start of every block.
+      //
+      // Phase 90 Plan 90-01 (D-08.1): in addition to the ## Role section
+      // description, also parse cosmetic YAML frontmatter (title, displayName,
+      // colorHue, voice, avatar) via the shared extractCosmeticsFromFrontmatter
+      // helper. Anything the extractor drops (malformed YAML, missing keys,
+      // out-of-range values) is silently absent from the response entry —
+      // callers ignore unknown keys and safe-default at render time.
       const blocks = catOutput.split(/^===ROLE:([a-z0-9-]+)===\s*$/m);
       // blocks[0] is the pre-first-delimiter text (empty or whitespace).
       // Then pairs of [name, body] follow.
       const descByName = new Map<string, string>();
+      // Only forward the 5 role-facing cosmetic fields. `coordinator` and
+      // `task` from the identity-side extractor are NOT surfaced here (roles
+      // don't consume them) per Plan 90-01 Task 1 acceptance criteria.
+      type RoleCosmetics = {
+        title?: string;
+        displayName?: string;
+        colorHue?: number;
+        voice?: string;
+        avatar?: string;
+      };
+      const cosByName = new Map<string, RoleCosmetics>();
       for (let i = 1; i < blocks.length; i += 2) {
         const name = blocks[i];
         const body = blocks[i + 1] ?? "";
         if (ROLE_NAME_PATTERN.test(name)) {
           descByName.set(name, extractRoleDescription(body));
+          // extractCosmeticsFromFrontmatter anchors on `^---` at the very start
+          // of the string — strip the leading newline the delimiter split leaves
+          // behind so a frontmatter block sitting immediately after the delimiter
+          // still matches. `replace` with a start-anchored regex is cheap and
+          // preserves body content otherwise.
+          const trimmedBody = body.replace(/^\s*\r?\n/, "");
+          const raw = extractCosmeticsFromFrontmatter(trimmedBody);
+          // Narrow to the 5 role-facing fields; omit coordinator/task.
+          const narrowed: RoleCosmetics = {};
+          if (raw.title !== undefined) narrowed.title = raw.title;
+          if (raw.displayName !== undefined) narrowed.displayName = raw.displayName;
+          if (raw.colorHue !== undefined) narrowed.colorHue = raw.colorHue;
+          if (raw.voice !== undefined) narrowed.voice = raw.voice;
+          if (raw.avatar !== undefined) narrowed.avatar = raw.avatar;
+          cosByName.set(name, narrowed);
         }
       }
 
       const result = validRoles.map((name) => ({
         name,
         description: descByName.get(name) ?? "",
+        // Spread cosmetics last — only present keys land on the entry.
+        ...(cosByName.get(name) ?? {}),
       }));
 
       return res.json(result);

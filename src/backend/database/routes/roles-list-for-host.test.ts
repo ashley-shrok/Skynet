@@ -345,6 +345,252 @@ describe("GET /roles?hostId=<n>", () => {
     expect(connectOneShot).not.toHaveBeenCalled();
   });
 
+  // ─── Phase 90 Plan 90-01: cosmetic frontmatter extraction per role ─────────
+  // D-08.1 (planner-pick: extend existing endpoint, no companion) — response
+  // entries now carry optional cosmetic fields (title, displayName, colorHue,
+  // voice, avatar) parsed from each role markdown's YAML frontmatter. Missing
+  // or malformed fields are OMITTED from the response (not defaulted, not
+  // null-emitted) — matches extractCosmeticsFromFrontmatter's contract.
+
+  it("Test A (P90-01): full cosmetic frontmatter → all fields on response entry", async () => {
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("ls ")) return "box-maintainer";
+      return [
+        "===ROLE:box-maintainer===",
+        "---",
+        "title: Skynet",
+        "displayName: Box Maintainer",
+        "colorHue: 320",
+        "voice: alloy",
+        "avatar: box-maintainer.webp",
+        "---",
+        "# box-maintainer",
+        "",
+        "## Role",
+        "Maintains the box.",
+      ].join("\n");
+    });
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/roles?hostId=7",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as Array<{
+      name: string;
+      description: string;
+      title?: string;
+      displayName?: string;
+      colorHue?: number;
+      voice?: string;
+      avatar?: string;
+    }>;
+    expect(body).toHaveLength(1);
+    expect(body[0]).toEqual({
+      name: "box-maintainer",
+      description: "Maintains the box.",
+      title: "Skynet",
+      displayName: "Box Maintainer",
+      colorHue: 320,
+      voice: "alloy",
+      avatar: "box-maintainer.webp",
+    });
+  });
+
+  it("Test B (P90-01): NO frontmatter block → only {name, description}, cosmetic fields omitted", async () => {
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("ls ")) return "plain-role";
+      return [
+        "===ROLE:plain-role===",
+        "# plain-role",
+        "",
+        "## Role",
+        "A role without frontmatter.",
+      ].join("\n");
+    });
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/roles?hostId=7",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as Array<Record<string, unknown>>;
+    expect(body).toHaveLength(1);
+    expect(body[0]).toEqual({
+      name: "plain-role",
+      description: "A role without frontmatter.",
+    });
+    // Cosmetic keys must be entirely absent — not null, not undefined-explicit.
+    expect("title" in body[0]).toBe(false);
+    expect("displayName" in body[0]).toBe(false);
+    expect("colorHue" in body[0]).toBe(false);
+    expect("voice" in body[0]).toBe(false);
+    expect("avatar" in body[0]).toBe(false);
+  });
+
+  it("Test C (P90-01): partial frontmatter (only colorHue) → only colorHue added, no other cosmetic keys", async () => {
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("ls ")) return "hued-only";
+      return [
+        "===ROLE:hued-only===",
+        "---",
+        "colorHue: 190",
+        "---",
+        "# hued-only",
+        "",
+        "## Role",
+        "Hue-only role.",
+      ].join("\n");
+    });
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/roles?hostId=7",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as Array<Record<string, unknown>>;
+    expect(body).toHaveLength(1);
+    expect(body[0]).toEqual({
+      name: "hued-only",
+      description: "Hue-only role.",
+      colorHue: 190,
+    });
+    expect("title" in body[0]).toBe(false);
+    expect("displayName" in body[0]).toBe(false);
+    expect("voice" in body[0]).toBe(false);
+    expect("avatar" in body[0]).toBe(false);
+  });
+
+  it("Test D (P90-01): malformed YAML frontmatter → entry {name, description} only", async () => {
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("ls ")) return "broken";
+      // Malformed YAML: unterminated flow mapping / tab-indented key
+      return [
+        "===ROLE:broken===",
+        "---",
+        "title: [unclosed",
+        "  colorHue: 320",
+        "---",
+        "# broken",
+        "",
+        "## Role",
+        "Broken frontmatter.",
+      ].join("\n");
+    });
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/roles?hostId=7",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as Array<Record<string, unknown>>;
+    expect(body).toHaveLength(1);
+    expect(body[0]).toEqual({
+      name: "broken",
+      description: "Broken frontmatter.",
+    });
+    // Malformed → extractor returns {} → no cosmetic keys.
+    expect("title" in body[0]).toBe(false);
+    expect("colorHue" in body[0]).toBe(false);
+  });
+
+  it("Test E (P90-01): out-of-range colorHue (400) → dropped from response", async () => {
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("ls ")) return "out-of-range";
+      return [
+        "===ROLE:out-of-range===",
+        "---",
+        "title: OK Title",
+        "colorHue: 400",
+        "---",
+        "# out-of-range",
+        "",
+        "## Role",
+        "Range gate.",
+      ].join("\n");
+    });
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/roles?hostId=7",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as Array<Record<string, unknown>>;
+    expect(body).toHaveLength(1);
+    // title kept (valid), colorHue dropped (range gate rejects 400)
+    expect(body[0]).toEqual({
+      name: "out-of-range",
+      description: "Range gate.",
+      title: "OK Title",
+    });
+    expect("colorHue" in body[0]).toBe(false);
+  });
+
+  it("Test F (P90-01): backwards-compat — two-field callers still see {name, description}", async () => {
+    // Simulate mixed roles: one with cosmetics, one without.
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("ls ")) return "cosmetic-role\nplain-role";
+      return [
+        "===ROLE:cosmetic-role===",
+        "---",
+        "title: Cosmetic",
+        "colorHue: 42",
+        "---",
+        "## Role",
+        "Has cosmetics.",
+        "===ROLE:plain-role===",
+        "## Role",
+        "No cosmetics.",
+      ].join("\n");
+    });
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/roles?hostId=7",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as Array<{ name: string; description: string }>;
+    expect(body).toHaveLength(2);
+    // Sorted alphabetically
+    const cosmetic = body.find((r) => r.name === "cosmetic-role")!;
+    const plain = body.find((r) => r.name === "plain-role")!;
+    // Backwards-compat: name + description populated for every entry.
+    expect(cosmetic.name).toBe("cosmetic-role");
+    expect(cosmetic.description).toBe("Has cosmetics.");
+    expect(plain.name).toBe("plain-role");
+    expect(plain.description).toBe("No cosmetics.");
+  });
+
+  it("Test G (P90-01): SSH cat failure fallback returns entries WITHOUT cosmetic scaffolding", async () => {
+    let callCount = 0;
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      callCount++;
+      if (cmd.includes("ls ")) return "one\ntwo";
+      // Second call (batched cat) throws — triggers the fallback at L199
+      throw new Error("Batched cat exec failed");
+    });
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/roles?hostId=7",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as Array<Record<string, unknown>>;
+    expect(body).toHaveLength(2);
+    // Fallback shape: {name, description: ""} — NO cosmetic keys added,
+    // because there was no markdown to extract from.
+    for (const entry of body) {
+      expect(entry.description).toBe("");
+      expect("title" in entry).toBe(false);
+      expect("displayName" in entry).toBe(false);
+      expect("colorHue" in entry).toBe(false);
+      expect("voice" in entry).toBe(false);
+      expect("avatar" in entry).toBe(false);
+    }
+    // Two exec calls: ls, then failing cat.
+    expect(callCount).toBe(2);
+  });
+
   it("Test 10: role names failing ROLE_NAME_PATTERN are silently dropped", async () => {
     // ls includes both valid + invalid entries. Only valid should reach the batched cat + response.
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
