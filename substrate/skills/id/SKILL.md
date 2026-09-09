@@ -846,8 +846,9 @@ box named `thenasty`, and the file at `/home/ubuntu/note.md`):
     https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md
 
 Construct one like so — read the parent-Skynet domain from `~/.claude/skynet-parent`
-(a single-line file the fleet distributor writes on every managed box) and pair
-it with `hostname` plus the file's absolute path:
+and the host segment from `~/.claude/skynet-hostname` (two single-line files the
+fleet distributor writes on every managed box) and pair them with the file's
+absolute path:
 
     SKYNET=$(cat ~/.claude/skynet-parent 2>/dev/null)
     if [ -z "$SKYNET" ]; then
@@ -855,7 +856,12 @@ it with `hostname` plus the file's absolute path:
            "Ask the box-maintainer role to check the distributor sweep." >&2
       exit 1
     fi
-    HOST=$(hostname)
+    HOST=$(cat ~/.claude/skynet-hostname 2>/dev/null)
+    if [ -z "$HOST" ]; then
+      echo "I can't share files right now — my Skynet hostname config is missing." \
+           "Ask the box-maintainer role to check the distributor sweep." >&2
+      exit 1
+    fi
     FILE=/home/ubuntu/note.md            # MUST be an absolute path (leading /)
     printf '[%s](%s/file/%s%s)\n' "$(basename "$FILE")" "$SKYNET" "$HOST" "$FILE"
 
@@ -869,9 +875,11 @@ original path is never touched by Skynet.
 
 **Rules that matter — bake them in every time:**
 
-- **Use the hostname, not an IP.** Skynet resolves the hostname against its per-user
-  host records (`thenasty`, `t1000`, whatever this box's name is). An IP won't
-  match a host record and the fetch will 404 with `unknown_host`.
+- **Use the hostname the distributor wrote to `~/.claude/skynet-hostname`, not an
+  IP and not `$(hostname)`.** That file contains the exact string Skynet uses to
+  resolve this box against its per-user host records. `$(hostname)` returns the
+  OS hostname, which on cloud VMs is a meaningless string like
+  `ip-172-31-243-143` and will 404 with `unknown_host`. Never invent a name.
 - **Path must be absolute** (leading `/`). Relative paths land you an
   `invalid path` error at the modal.
 - **Do NOT URL-encode the whole path** — browsers handle spaces/unicode at the
@@ -882,13 +890,17 @@ original path is never touched by Skynet.
   fail with a clean `permission_denied` / `path_forbidden` error surface in the
   modal. Don't try to sudo around this — ask the box owner to widen access if
   she genuinely needs to see the file.
-- **Missing `~/.claude/skynet-parent` = surface a clean user-facing error**,
-  never guess a domain and never fall back to any other file-sharing pattern.
-  The exact user-facing sentence: *"I can't share files right now — my
-  parent-Skynet config is missing. Ask the box-maintainer role to check the
-  distributor sweep."* On a fresh or unregistered box the distributor may not
-  have populated it yet; surfacing the failure lets her fix the underlying
-  problem instead of debugging a broken URL.
+- **Missing `~/.claude/skynet-parent` OR missing `~/.claude/skynet-hostname` =
+  surface a clean user-facing error**, never guess a domain or hostname and
+  never fall back to any other file-sharing pattern. The exact user-facing
+  sentences are the ones baked into the recipe above — parent missing: *"I
+  can't share files right now — my parent-Skynet config is missing. Ask the
+  box-maintainer role to check the distributor sweep."* Hostname missing: *"I
+  can't share files right now — my Skynet hostname config is missing. Ask the
+  box-maintainer role to check the distributor sweep."* On a fresh or
+  unregistered box the distributor may not have populated either file yet;
+  surfacing the failure lets her fix the underlying problem instead of
+  debugging a broken URL.
 
 **Why we replaced the old tailnet HTTP-server recipe.** Serving files off the
 tailnet IP over plain HTTP had three chronic pain points: (1) Chrome flagged
