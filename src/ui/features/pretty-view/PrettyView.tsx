@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isIosPwa } from "@/lib/is-ios-pwa";
@@ -53,6 +53,17 @@ import { RoleModal } from "./RoleModal";
 // stay). Slice 4 retires the redundant legacy props post-cleanup.
 import type { ChatSurfaceSource } from "./sources/chat-surface-source";
 import { useChatSurfaceAdapter } from "./sources/use-chat-surface-adapter";
+// Phase 93 Slice 2 (D-01/D-02/D-03): MultiBadgeAnchor extends the badge
+// anchor with the relay-case multi-participant row. Only mounted when
+// `source.kind === "relay"`. Pure render — takes participants +
+// viewingUserMxid + fleetIdentityHosts + isReady as explicit props.
+import { MultiBadgeAnchor } from "./MultiBadgeAnchor";
+import { useViewingUserMxid } from "@/state/viewing-user-store";
+import { buildIdentityHostsFromFleet } from "@/state/identities-store";
+import {
+  getFleetSessionsSnapshot,
+  subscribeConversationStore,
+} from "@/state/conversation-store";
 import {
   listRolesForHost,
   type Identity,
@@ -550,6 +561,38 @@ function guessMimeFromFilename(filename: string): string | null {
   }
 }
 
+// Phase 93 Slice 2 (D-01/D-03): fleet-derived identityKey → hostId mapping
+// for MultiBadgeAnchor's agent cells. Ported from Slice D's IdentityBadgeRow
+// (which retires in Slice 4). Cached on fleet-sessions array identity so
+// successive getSnapshot calls return the SAME object reference when the
+// fleet has not changed — otherwise useSyncExternalStore's Object.is check
+// enters an infinite update loop.
+let fleetIdentityHostsCache: {
+  fleetRef: unknown;
+  map: Record<string, number>;
+} | null = null;
+
+function getFleetIdentityHostsSnapshot(): Record<string, number> {
+  const fleet = getFleetSessionsSnapshot();
+  if (
+    fleetIdentityHostsCache !== null &&
+    fleetIdentityHostsCache.fleetRef === fleet
+  ) {
+    return fleetIdentityHostsCache.map;
+  }
+  const map = buildIdentityHostsFromFleet(fleet);
+  fleetIdentityHostsCache = { fleetRef: fleet, map };
+  return map;
+}
+
+function useFleetIdentityHosts(): Record<string, number> {
+  return useSyncExternalStore(
+    subscribeConversationStore,
+    getFleetIdentityHostsSnapshot,
+    getFleetIdentityHostsSnapshot,
+  );
+}
+
 export function PrettyView({
   source: sourceProp,
   hostId,
@@ -591,8 +634,23 @@ export function PrettyView({
   // isVisible for the WS gate Slice 3 will wire up. The stubbed relay peer
   // is inert in Slice 1 — no consumer routes to it yet (Slice 4 rewires
   // the dispatcher).
-  const _chatSurfaceAdapter = useChatSurfaceAdapter(source, isVisible);
-  void _chatSurfaceAdapter;
+  //
+  // Phase 93 Slice 2: MultiBadgeAnchor (relay case) consumes
+  // `chatSurfaceAdapter.participants` and `chatSurfaceAdapter.isReady`.
+  // Slice 2's relay mount is defensive — Slice 3's real adapter flips
+  // `isReady=true` once the first participants frame arrives; Slice 1's
+  // stub returns `isReady=false, participants={humans:[],agents:[]}` so
+  // the anchor shows the loading placeholder immediately for a relay
+  // source (Warning 2 fix).
+  const chatSurfaceAdapter = useChatSurfaceAdapter(source, isVisible);
+  // Phase 93 Slice 2 (D-01/D-03): viewing user's mxid + fleet-identity-hosts
+  // map. Both are read unconditionally here (Rules of Hooks) — the relay case
+  // consumes them via MultiBadgeAnchor; the harness case ignores them. Slice
+  // 3's real relay adapter subscribes internally to the same viewing-user
+  // store, so this read is a defensive belt-and-suspenders that also lets
+  // Slice 2 mount the anchor without waiting for adapter work.
+  const viewingUserMxid = useViewingUserMxid();
+  const fleetIdentityHosts = useFleetIdentityHosts();
   const [messages, setMessages] = useState<StreamEvent[]>([]);
   // ── Phase 47 (load-more button) — per-pane state slots ────────────────
   // capOff: once flipped true (via handleLoadOlder — first click), cap
@@ -3413,8 +3471,16 @@ export function PrettyView({
           between modes with Ctrl+Shift+O.
           Patch #87: onClick wires the lg badge as a click target that opens
           the IdentityModal. The md terminal-pane badge (patch #38) is
-          unaffected — this onClick prop is lg-only and ignored by md. */}
-      {pvIdentityKey && (
+          unaffected — this onClick prop is lg-only and ignored by md.
+
+          Phase 93 Slice 2 (D-01/D-08 discipline): the harness case is
+          gated on `source.kind === "harness"` at the outer JSX conditional
+          — the subtree inside is BYTE-IDENTICAL to Slice 1 (Pitfall 1
+          harness regression floor). The relay case renders the sibling
+          MultiBadgeAnchor block below. Both branches anchor at the SAME
+          position class (`absolute top-4 right-5 z-[101]`), so the badge
+          spot is layout-stable across source kinds. */}
+      {source.kind === "harness" && pvIdentityKey && (
         <IdentityBadge
           identityKey={pvIdentityKey}
           hostId={hostId}
@@ -3430,6 +3496,26 @@ export function PrettyView({
                 }
               : undefined
           }
+        />
+      )}
+      {/* Phase 93 Slice 2 (D-01/D-02/D-03/D-18): relay-case multi-badge
+          anchor. Mounted unconditionally when `source.kind === "relay"` —
+          MultiBadgeAnchor handles the loading placeholder internally
+          (Warning 2 fix) so the anchor position is parked at the D-01
+          spot from mount, even while the adapter is connecting. Slice 1's
+          stubbed relay adapter returns `isReady=false, participants={
+          humans:[], agents:[] }` so a Slice-2-era relay mount immediately
+          shows the "loading participants…" placeholder; Slice 3's real
+          adapter flips isReady=true when the first participants frame
+          arrives. */}
+      {source.kind === "relay" && (
+        <MultiBadgeAnchor
+          participants={
+            chatSurfaceAdapter.participants ?? { humans: [], agents: [] }
+          }
+          viewingUserMxid={viewingUserMxid ?? ""}
+          fleetIdentityHosts={fleetIdentityHosts}
+          isReady={chatSurfaceAdapter.isReady}
         />
       )}
       {identityBadgeMenu !== null &&
