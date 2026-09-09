@@ -905,4 +905,44 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
     expect(rmCalls.length).toBe(0);
   });
 
+  // -------------------------------------------------------------------------
+  // Test 12d (260909-dls review MEDIUM #1 fix): hand-edited non-canonical
+  // avatar filename in frontmatter → PUT avatar:null still deletes the
+  // frontmatter key, but the sibling-cleanup branch skips (no unlink, no
+  // rm -f) because the filename doesn't match the canonical
+  // `<identityKey>.<ext>` shape. Guards the REMOTE shell interpolation
+  // surface: only server-controlled `${identityKey}.${oldExt}` ever flows
+  // into execCommand, never a raw frontmatter string.
+  // -------------------------------------------------------------------------
+  it("Test 12d (260909-dls review): PUT avatar:null with non-canonical frontmatter filename — key deleted but sibling-cleanup skipped", async () => {
+    isLocalHostIdMock.mockReturnValue(false); // REMOTE path is where the shell surface matters
+    // Seed with an avatar: value that does NOT start with the identityKey prefix
+    readIdentityFileMock.mockResolvedValue({
+      markdown:
+        "---\nrole: box-maintainer\ndisplayName: Keep\navatar: some-other-role.png\n---\n\n# testkey\n",
+    });
+
+    const body = buildMultipartBody({
+      data: { hostId: 7, avatar: null },
+    });
+
+    const res = await httpPut(server, "/identities/testkey", body);
+
+    expect(res.status).toBe(200);
+
+    // Frontmatter key still deleted (the overlay branch runs regardless of
+    // canonicalness — only the on-disk sibling cleanup is gated).
+    expect(writeIdentityFileMock).toHaveBeenCalledTimes(1);
+    const [, , writtenMarkdown] = writeIdentityFileMock.mock.calls[0];
+    expect(writtenMarkdown).not.toMatch(/^avatar:/m);
+
+    // Sibling cleanup MUST NOT fire — oldExt was null because the frontmatter
+    // filename didn't start with `${identityKey}.`.
+    expect(fsUnlinkSpy).not.toHaveBeenCalled();
+    const rmCalls = execCommandMock.mock.calls.filter(([, cmd]) =>
+      String(cmd).startsWith("rm -f"),
+    );
+    expect(rmCalls.length).toBe(0);
+  });
+
 });

@@ -665,20 +665,25 @@ router.put(
       }
 
       // 260909-dls: avatar-revert sibling-file cleanup. When the null-delete
-      // branch above ran AND the identity previously had an avatar override,
+      // branch above ran AND the identity previously had an avatar override
+      // whose filename matches the canonical `<identityKey>.<ext>` shape,
       // hard-delete the sibling file on disk. Best-effort (missing file is
       // fine — matches the ext-swap cleanup pattern above). Ordering:
       // this runs AFTER writeIdentityFile so the frontmatter delete is
       // persisted before the sibling removal. A mid-motion crash between
       // the two steps leaves an orphaned sibling file, but readers correctly
       // fall back to the role's avatar via Phase 86 Plan 86-01, so the
-      // invariant holds.
-      if (meta.avatar === null && oldAvatar) {
+      // invariant holds. Gated on `oldExt` (only set when oldAvatar starts
+      // with `${identityKey}.`) — a hand-edited non-canonical frontmatter
+      // value is silently skipped so no non-identityKey filename ever flows
+      // into fs.unlink or (more importantly) the REMOTE shell command.
+      if (meta.avatar === null && oldExt) {
+        const canonicalName = `${identityKey}.${oldExt}`;
         if (local) {
           const oldPath = path.join(
             getLocalIdentitiesRoot(),
             identityKey,
-            oldAvatar,
+            canonicalName,
           );
           await fs.unlink(oldPath).catch(() => {
             /* best-effort */
@@ -686,7 +691,7 @@ router.put(
         } else if (conn) {
           await execCommand(
             conn,
-            `rm -f "$HOME/.claude/identities/${identityKey}/${oldAvatar}"`,
+            `rm -f "$HOME/.claude/identities/${identityKey}/${canonicalName}"`,
           ).catch(() => {
             /* best-effort */
           });
