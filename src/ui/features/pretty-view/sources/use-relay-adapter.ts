@@ -70,7 +70,7 @@
  *     relay_room_fetch_older, relay_room_participants_update.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   openRelayRoomSocket,
@@ -397,6 +397,11 @@ export function useRelayAdapter(
       // Reset error on successful open (patch #148 discipline — clear stale
       // banner from a prior attempt).
       setError(null);
+      // Reset the reconnect-attempt counter on a successful open — without this,
+      // once the 5-attempt cap fires the ladder is permanently exhausted and a
+      // healthy WS that later drops hours in never reconnects. Bug was inherited
+      // byte-for-behavior from the retired standalone hook via Slice 3 D-10 port.
+      reconnectAttemptsRef.current = 0;
       const payload: ConnectToRoomPayload = {
         type: "connectToRoom",
         roomId: roomIdRef.current,
@@ -575,15 +580,24 @@ export function useRelayAdapter(
 
   // Map MatrixEvent[] → ChatSurfaceMessage[] (D-16 render compatibility). The
   // mapper filters out non-text events (state changes, redactions, etc.).
-  const messages: ChatSurfaceMessage[] = [];
-  for (const evt of history) {
-    const mapped = matrixEventToStreamEvent(
-      evt,
-      viewingUserMxidRef.current,
-      roomIdRef.current,
-    );
-    if (mapped !== null) messages.push(mapped);
-  }
+  // Memoized on `history` so downstream consumers (PrettyView `effectiveMessages`,
+  // ComposeBox subtree via `handleComposeSend` useCallback deps) see a stable
+  // reference when the underlying history has not changed. Without this, the
+  // hook returned a fresh array + fresh object every render, defeating memoization
+  // across the compose subtree and re-firing every downstream effect.
+  const messages = useMemo<ChatSurfaceMessage[]>(() => {
+    const out: ChatSurfaceMessage[] = [];
+    for (const evt of history) {
+      const mapped = matrixEventToStreamEvent(
+        evt,
+        viewingUserMxidRef.current,
+        roomIdRef.current,
+      );
+      if (mapped !== null) out.push(mapped);
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [history]);
 
   // Suppress lint: pendingSends is observed by the hook internally (timers
   // fire against setPendingSends via flipToFailed) even though the returned
@@ -592,7 +606,10 @@ export function useRelayAdapter(
   // the Pitfall 4 correlation + timeout lifecycle.
   void pendingSends;
 
-  return {
+  // Memoize the returned object so consumers checking reference equality
+  // (React.memo, useCallback deps that include the adapter object) don't see
+  // a fresh reference every render.
+  return useMemo(() => ({
     messages,
     participants,
     sendMessage,
@@ -602,5 +619,15 @@ export function useRelayAdapter(
     loadOlderStatus,
     loadOlderError,
     fetchOlder,
-  };
+  }), [
+    messages,
+    participants,
+    sendMessage,
+    error,
+    isReady,
+    hasOlder,
+    loadOlderStatus,
+    loadOlderError,
+    fetchOlder,
+  ]);
 }
