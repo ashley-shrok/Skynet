@@ -1,7 +1,7 @@
 /**
  * remote-hook-install.ts — One-time-per-host fleet-status hook install helper.
  *
- * ## Purpose (Phase 62 extended shape)
+ * ## Purpose (Phase 62 extended shape + Phase 95 Part A deny extension)
  * Installs THREE fleet-status hook scripts onto an identity-hosting box by:
  *   (a) Dropping THREE .sh scripts atomically over SSH (`.tmp` + `mv` + `chmod +x`):
  *         - `stop-hook.sh`     at ~/.claude/hooks/skynet-fleet-status-stop.sh
@@ -13,17 +13,35 @@
  *         - `stopped-hook.sh`  at ~/.claude/hooks/skynet-fleet-status-stopped.sh
  *           (Phase 62 — touches per-session `stopped` marker on Stop + StopFailure
  *           + PermissionRequest events; is the RHS of the predicate above).
- *   (b) SSH-reading ~/.claude/settings.json, merging SIX hook entries in-memory
- *       (idempotent — no-op on second run), and writing back atomically via
- *       heredoc .tmp + mv:
+ *   (b) SSH-reading ~/.claude/settings.json, merging SIX hook entries + TWO
+ *       permission-deny entries in-memory (idempotent — no-op on second run),
+ *       and writing back atomically via heredoc .tmp + mv:
  *         - hooks.Stop[]              ← stop-hook  (existing, unchanged)
  *         - hooks.Stop[]              ← stopped-hook (Phase 62 — Stop fires BOTH)
  *         - hooks.UserPromptSubmit[]  ← activity-hook
  *         - hooks.PreToolUse[]        ← activity-hook
  *         - hooks.StopFailure[]       ← stopped-hook
  *         - hooks.PermissionRequest[] ← stopped-hook
+ *         - permissions.deny[]        ← "EnterPlanMode"    (Phase 95 Part A)
+ *         - permissions.deny[]        ← "ExitPlanMode"     (Phase 95 Part A)
  *   (c) Protecting ~/.claude/settings.json from clobbering if it contains
  *       invalid JSON — log + throw rather than overwriting.
+ *
+ * ## Phase 95 Part A — source-side plan-mode kill
+ * The two `permissions.deny` merges disable Claude Code plan mode fleet-wide.
+ * `EnterPlanMode` and `ExitPlanMode` are the CANONICAL tool names (verified
+ * against docs.claude.com/docs/en/tools-reference — see RESEARCH §1a-§1c) —
+ * NOT the internal Ink implementation names surfaced in per-session
+ * `deferred_tools_delta` attachments (RESEARCH §1b + G13). Claude Code's deny-rule engine
+ * strips deny-listed bare tool names from the model's context entirely — the
+ * tools become invisible, `tool_use` for them can never fire, no plan-approval
+ * prompts render. Wave 1 rollout: every fleet peer's next SSH-client acquire
+ * re-fires `installStopHook`, which idempotently merges the two entries into
+ * `~/.claude/settings.json`. Container restart is the reliable trigger; steady-
+ * state channel churn also picks it up. Structured `plan_mode_deny_applied` log
+ * op fires on every install-completion path (both write-happened and
+ * already-installed) so container logs give operators a fleet-wide inventory of
+ * which hosts got patched.
  *
  * ## Retained function name (starter.ts callsite compat)
  * The public export stays `installStopHook` — the single callsite in
@@ -411,6 +429,122 @@ export function readAndMergeStopHookSettings(
 }
 
 // ---------------------------------------------------------------------------
+// readAndMergePermissionDeny — PURE FUNCTION, no SSH (Phase 95 Part A)
+// ---------------------------------------------------------------------------
+
+/**
+ * Merge a bare tool name into a settings object's `permissions.deny` array,
+ * mirroring `readAndMergeHookSettings`' shape (pure function, shallow-copy
+ * discipline, idempotent, defensive-shape resilient).
+ *
+ * Returns `{ merged, alreadyInstalled }`. If `permissions.deny` already
+ * contains `toolName` as a string entry, returns the input unchanged with
+ * `alreadyInstalled: true`. Otherwise handles all three settings.json shapes:
+ *
+ *   1. `currentSettings.permissions` absent → create `{ permissions: { deny: [toolName] } }`
+ *      merged with existing top-level keys.
+ *   2. `currentSettings.permissions` exists but `deny` absent → create
+ *      `deny: [toolName]` alongside existing `permissions.*` keys.
+ *   3. `currentSettings.permissions.deny` exists as a non-empty array → append
+ *      `toolName` at end, preserving every existing entry (order-preserving).
+ *
+ * Defensive shape recovery: if `permissions` exists but is NOT a plain object
+ * (e.g. an array), it is overwritten as case 1. If `deny` exists but is NOT an
+ * array (e.g. null, string, object), it is overwritten as case 2. Both
+ * defensive-overwrite branches emit `systemLogger.warn` with operation
+ * `settings_permissions_shape_unexpected` and do not throw. Rationale:
+ * settings.json is user-editable; the merge must be resilient to any prior
+ * garbage without clobbering the user's intent unrecoverably.
+ *
+ * This function NEVER mutates its input — all spreads are shallow copies.
+ * Callers thread the returned `merged` object through successive calls to
+ * accumulate merges across multiple tool names (see installStopHook step 6c).
+ *
+ * Canonical tool names for the Phase 95 Part A install path are `EnterPlanMode`
+ * and `ExitPlanMode` (per docs.claude.com/docs/en/tools-reference).
+ */
+export function readAndMergePermissionDeny(
+  currentSettings: Record<string, unknown>,
+  toolName: string,
+): MergeResult {
+  const permissionsRaw = currentSettings.permissions;
+  const permissionsIsPlainObject =
+    permissionsRaw !== null &&
+    typeof permissionsRaw === "object" &&
+    !Array.isArray(permissionsRaw);
+
+  // Idempotency check: only meaningful when permissions is a plain object AND
+  // deny is a proper array of strings. Any other shape falls through to the
+  // defensive-recovery branch below.
+  if (permissionsIsPlainObject) {
+    const permissionsObj = permissionsRaw as Record<string, unknown>;
+    const denyRaw = permissionsObj.deny;
+    if (Array.isArray(denyRaw)) {
+      for (const entry of denyRaw) {
+        if (typeof entry === "string" && entry === toolName) {
+          return { merged: currentSettings, alreadyInstalled: true };
+        }
+      }
+    }
+  }
+
+  // Shallow-copy top-level settings.
+  const merged: Record<string, unknown> = { ...currentSettings };
+
+  // Case A: `permissions` is missing OR is a non-plain-object (defensive
+  // recovery — array, null, string, number, etc.). Overwrite with a fresh
+  // { deny: [toolName] }.
+  if (!permissionsIsPlainObject) {
+    if (permissionsRaw !== undefined) {
+      // Defensive overwrite — the mis-shaped value is being replaced.
+      systemLogger.warn(
+        "Fleet-status: settings.json `permissions` key has unexpected shape — overwriting with fresh object",
+        {
+          operation: "settings_permissions_shape_unexpected",
+          shapeSeen: Array.isArray(permissionsRaw)
+            ? "array"
+            : permissionsRaw === null
+              ? "null"
+              : typeof permissionsRaw,
+          toolName,
+        },
+      );
+    }
+    merged.permissions = { deny: [toolName] };
+    return { merged, alreadyInstalled: false };
+  }
+
+  // Case B: `permissions` is a plain object. Shallow-copy it.
+  const permissionsObj = permissionsRaw as Record<string, unknown>;
+  const newPermissions: Record<string, unknown> = { ...permissionsObj };
+  const denyRaw = permissionsObj.deny;
+
+  if (denyRaw === undefined) {
+    // Case B1: no `deny` array yet — create it with just this entry.
+    newPermissions.deny = [toolName];
+  } else if (Array.isArray(denyRaw)) {
+    // Case B2: `deny` exists as an array. Append the new entry (idempotency
+    // already handled above — reaching here means the entry is absent).
+    newPermissions.deny = [...denyRaw, toolName];
+  } else {
+    // Case B3: `deny` exists but is NOT an array (defensive recovery — string,
+    // object, number, null, etc.). Overwrite with a fresh array.
+    systemLogger.warn(
+      "Fleet-status: settings.json `permissions.deny` has unexpected shape — overwriting with fresh array",
+      {
+        operation: "settings_permissions_shape_unexpected",
+        shapeSeen: denyRaw === null ? "null" : typeof denyRaw,
+        toolName,
+      },
+    );
+    newPermissions.deny = [toolName];
+  }
+
+  merged.permissions = newPermissions;
+  return { merged, alreadyInstalled: false };
+}
+
+// ---------------------------------------------------------------------------
 // installStopHook (retained name — starter.ts callsite compat; extended shape)
 // ---------------------------------------------------------------------------
 
@@ -677,14 +811,58 @@ export async function installStopHook(
     }
   }
 
+  // Step 6c (Phase 95 Part A): Merge TWO permission-deny entries alongside the
+  // six hook merges above. Same shallow-copy discipline via
+  // readAndMergePermissionDeny. `allAlreadyInstalled` extends to cover the two
+  // new merges — the write-skip decision is now an AND-fold across ALL EIGHT
+  // merges. Structured `plan_mode_deny_applied` log op fires below on both
+  // install-completion paths (write-happened + already-installed) so container
+  // logs show a fleet-wide inventory of which hosts got patched.
+  //
+  // Canonical tool names per docs.claude.com/docs/en/tools-reference — NOT
+  // the internal Ink implementation names surfaced in per-session
+  // `deferred_tools_delta` attachments (RESEARCH §1b + G13).
+  const denyPlan: Array<{ toolName: string }> = [
+    { toolName: "EnterPlanMode" },
+    { toolName: "ExitPlanMode" },
+  ];
+  const denyResults: Record<string, boolean> = {};
+  for (const { toolName } of denyPlan) {
+    const { merged, alreadyInstalled } = readAndMergePermissionDeny(
+      running,
+      toolName,
+    );
+    running = merged;
+    denyResults[toolName] = alreadyInstalled;
+    if (!alreadyInstalled) {
+      allAlreadyInstalled = false;
+    }
+  }
+  const enterAlreadyInstalled = denyResults["EnterPlanMode"] ?? false;
+  const exitAlreadyInstalled = denyResults["ExitPlanMode"] ?? false;
+
   if (allAlreadyInstalled) {
     systemLogger.info(
-      "Fleet-status: all six hook entries already present in settings.json — skipping write",
+      "Fleet-status: all eight settings entries (six hook + two permission-deny) already present in settings.json — skipping write",
       {
         operation: "fleet_status_hook_install_already_present",
         remoteHookPath,
         remoteActivityHookPath,
         remoteStoppedHookPath,
+        permissionDenyToolNames: ["EnterPlanMode", "ExitPlanMode"],
+      },
+    );
+    // Phase 95 Part A verification breadcrumb — fires even on the idempotent
+    // no-op path so grep-of-container-logs gives an accurate fleet inventory
+    // regardless of whether this particular install actually mutated
+    // settings.json.
+    systemLogger.info(
+      "Fleet-substrate: plan-mode tools denied via permissions.deny",
+      {
+        operation: "plan_mode_deny_applied",
+        permissionDenyToolNames: ["EnterPlanMode", "ExitPlanMode"],
+        enterAlreadyInstalled,
+        exitAlreadyInstalled,
       },
     );
     return { hookInstalled: true, settingsUpdated: false };
@@ -709,6 +887,17 @@ export async function installStopHook(
       remoteHookPath,
       remoteActivityHookPath,
       remoteStoppedHookPath,
+      permissionDenyToolNames: ["EnterPlanMode", "ExitPlanMode"],
+    },
+  );
+  // Phase 95 Part A verification breadcrumb — see step 6c comment.
+  systemLogger.info(
+    "Fleet-substrate: plan-mode tools denied via permissions.deny",
+    {
+      operation: "plan_mode_deny_applied",
+      permissionDenyToolNames: ["EnterPlanMode", "ExitPlanMode"],
+      enterAlreadyInstalled,
+      exitAlreadyInstalled,
     },
   );
 

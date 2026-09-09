@@ -22,6 +22,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   readAndMergeStopHookSettings,
   readAndMergeHookSettings,
+  readAndMergePermissionDeny,
   installStopHook,
   uninstallStopHook,
   STOP_HOOK_SCRIPT_CONTENTS,
@@ -283,11 +284,14 @@ describe("installStopHook", () => {
     expect(settingsWriteCalls).toBeGreaterThan(0);
   });
 
-  it("Test 4: idempotent — second install skips settings write when ALL SIX entries already present (Phase 62 full-shape)", async () => {
-    // Post-Phase-62: settings.json must contain ALL SIX entries (two Stop
+  it("Test 4: idempotent — second install skips settings write when ALL EIGHT entries already present (Phase 62 + Phase 95 Part A full-shape)", async () => {
+    // Post-Phase-62: settings.json must contain ALL SIX hook entries (two Stop
     // entries, one each for UserPromptSubmit / PreToolUse / StopFailure /
     // PermissionRequest) for the idempotency short-circuit to fire.
-    // Post-patch-#454: all commands are ABSOLUTE (tilde-expanded) paths.
+    // Post-Phase-95-Part-A: settings.json must ALSO contain the TWO
+    // `permissions.deny` entries (EnterPlanMode + ExitPlanMode) — the write-
+    // skip decision is now an AND-fold across ALL EIGHT merges. Post-patch-#454:
+    // all commands are ABSOLUTE (tilde-expanded) paths.
     const stopPath = "/home/testuser/.claude/hooks/skynet-fleet-status-stop.sh";
     const activityPath =
       "/home/testuser/.claude/hooks/skynet-fleet-status-activity.sh";
@@ -311,6 +315,9 @@ describe("installStopHook", () => {
         PermissionRequest: [
           { hooks: [{ type: "command", command: stoppedPath }] },
         ],
+      },
+      permissions: {
+        deny: ["EnterPlanMode", "ExitPlanMode"],
       },
     });
 
@@ -1145,6 +1152,330 @@ describe("installStopHook (Phase 62 extended shape)", () => {
         remoteHookPath: P62_STOP_PATH,
         remoteActivityHookPath: P62_ACTIVITY_PATH,
         remoteStoppedHookPath: P62_STOPPED_PATH,
+      }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 95 Part A tests: readAndMergePermissionDeny helper (P1-P7) and
+// installStopHook two-entry deny merge integration (P8-P10).
+//
+// Purpose: verify the source-side kill for Claude Code plan mode. The helper
+// mirrors readAndMergeHookSettings' shape (pure function, shallow-copy discipline,
+// idempotent, defensive-shape resilient). installStopHook now merges 8 total
+// entries (6 hook + 2 permission-deny) with a single AND-fold controlling the
+// write-skip decision. The `plan_mode_deny_applied` log op is the Wave 1
+// verification breadcrumb — Ashley greps it across container logs to inventory
+// fleet coverage.
+// ---------------------------------------------------------------------------
+
+describe("readAndMergePermissionDeny (Phase 95 Part A)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("Test P1: helper — empty settings", () => {
+    const input: Record<string, unknown> = {};
+    const inputClone = JSON.parse(JSON.stringify(input));
+    const result = readAndMergePermissionDeny(input, "EnterPlanMode");
+    expect(result.alreadyInstalled).toBe(false);
+    const merged = result.merged as {
+      permissions: { deny: string[] };
+    };
+    expect(merged.permissions.deny).toEqual(["EnterPlanMode"]);
+    // Input must not be mutated
+    expect(input).toEqual(inputClone);
+  });
+
+  it("Test P2: helper — settings with only `hooks` key", () => {
+    const input = {
+      hooks: { Stop: [{ hooks: [{ command: "/foo" }] }] },
+    };
+    const inputClone = JSON.parse(JSON.stringify(input));
+    const result = readAndMergePermissionDeny(input, "EnterPlanMode");
+    expect(result.alreadyInstalled).toBe(false);
+    const merged = result.merged as {
+      hooks: unknown;
+      permissions: { deny: string[] };
+    };
+    // hooks preserved byte-identical
+    expect(merged.hooks).toEqual(input.hooks);
+    expect(merged.permissions.deny).toEqual(["EnterPlanMode"]);
+    // Input unchanged
+    expect(input).toEqual(inputClone);
+  });
+
+  it("Test P3: helper — settings with `permissions` but no `deny`", () => {
+    const input = {
+      permissions: { allow: ["Read"] },
+    };
+    const inputClone = JSON.parse(JSON.stringify(input));
+    const result = readAndMergePermissionDeny(input, "ExitPlanMode");
+    expect(result.alreadyInstalled).toBe(false);
+    const merged = result.merged as {
+      permissions: { allow: string[]; deny: string[] };
+    };
+    // Preserved existing permissions.allow
+    expect(merged.permissions.allow).toEqual(["Read"]);
+    expect(merged.permissions.deny).toEqual(["ExitPlanMode"]);
+    // Input unchanged
+    expect(input).toEqual(inputClone);
+  });
+
+  it("Test P4: helper — settings with existing `deny` containing other entries", () => {
+    const input = {
+      permissions: { deny: ["AskUserQuestion"] },
+    };
+    const inputClone = JSON.parse(JSON.stringify(input));
+    const result = readAndMergePermissionDeny(input, "EnterPlanMode");
+    expect(result.alreadyInstalled).toBe(false);
+    const merged = result.merged as {
+      permissions: { deny: string[] };
+    };
+    // Order-preserving append at end
+    expect(merged.permissions.deny).toEqual([
+      "AskUserQuestion",
+      "EnterPlanMode",
+    ]);
+    // Input unchanged
+    expect(input).toEqual(inputClone);
+  });
+
+  it("Test P5: helper — idempotency (entry already present)", () => {
+    const input = {
+      permissions: { deny: ["EnterPlanMode", "AskUserQuestion"] },
+    };
+    const result = readAndMergePermissionDeny(input, "EnterPlanMode");
+    expect(result.alreadyInstalled).toBe(true);
+    // Same reference — alreadyInstalled shortcut returns input unchanged
+    expect(result.merged).toBe(input);
+  });
+
+  it("Test P6: helper — defensive shape recovery — `permissions` is an array", () => {
+    const input: Record<string, unknown> = {
+      permissions: ["not", "an", "object"],
+    };
+    const inputClone = JSON.parse(JSON.stringify(input));
+    const result = readAndMergePermissionDeny(input, "EnterPlanMode");
+    expect(result.alreadyInstalled).toBe(false);
+    const merged = result.merged as {
+      permissions: { deny: string[] };
+    };
+    // The array is overwritten with a proper object containing deny
+    expect(merged.permissions).toEqual({ deny: ["EnterPlanMode"] });
+    // Defensive warn logged
+    expect(systemLogger.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        operation: "settings_permissions_shape_unexpected",
+      }),
+    );
+    // Input unchanged
+    expect(input).toEqual(inputClone);
+  });
+
+  it("Test P7: helper — defensive shape recovery — `deny` is a string", () => {
+    const input: Record<string, unknown> = {
+      permissions: { deny: "not-an-array" },
+    };
+    const inputClone = JSON.parse(JSON.stringify(input));
+    const result = readAndMergePermissionDeny(input, "EnterPlanMode");
+    expect(result.alreadyInstalled).toBe(false);
+    const merged = result.merged as {
+      permissions: { deny: string[] };
+    };
+    // The string is overwritten with a proper array containing the tool name
+    expect(merged.permissions.deny).toEqual(["EnterPlanMode"]);
+    // Defensive warn logged
+    expect(systemLogger.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        operation: "settings_permissions_shape_unexpected",
+      }),
+    );
+    // Input unchanged
+    expect(input).toEqual(inputClone);
+  });
+});
+
+describe("installStopHook (Phase 95 Part A — plan-mode deny)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function buildPhase95Channel(settingsJson?: string): MockSshChannel {
+    const channel = new MockSshChannel();
+    channel.setResponse(
+      '(cd ~ 2>/dev/null && pwd) || printf "%s" "$HOME"',
+      "/home/testuser\n",
+    );
+    channel.setResponse('rm -rf "/home/testuser/~"', "");
+    channel.setResponse("mkdir -p", "");
+    channel.setResponse("STOPHOOK_EOF", "");
+    channel.setResponse("ACTIVITY_HOOK_EOF", "");
+    channel.setResponse("STOPPED_HOOK_EOF", "");
+    channel.setResponse("test -x", "OK");
+    channel.setResponse("cat ~/.claude/settings.json", settingsJson ?? "");
+    channel.setResponse("SETTINGS_EOF", "");
+    return channel;
+  }
+
+  it("Test P8: installStopHook fires all 8 merges on fresh box + plan_mode_deny_applied fires", async () => {
+    const channel = buildPhase95Channel();
+    const result = await installStopHook(channel, {});
+    expect(result.settingsUpdated).toBe(true);
+
+    const written = extractLastSettingsWrite(channel.callLog);
+    expect(written).not.toBeNull();
+    const hooks = written!.hooks as Record<string, unknown>;
+    // Six hook entries still present (unchanged Phase-62 shape).
+    expect(hooks.Stop).toBeDefined();
+    expect(hooks.UserPromptSubmit).toBeDefined();
+    expect(hooks.PreToolUse).toBeDefined();
+    expect(hooks.StopFailure).toBeDefined();
+    expect(hooks.PermissionRequest).toBeDefined();
+    // Plus the two new permission.deny entries.
+    const permissions = written!.permissions as { deny: string[] };
+    expect(permissions).toBeDefined();
+    expect(permissions.deny).toEqual(["EnterPlanMode", "ExitPlanMode"]);
+
+    // plan_mode_deny_applied breadcrumb fires on the write-happened path.
+    expect(systemLogger.info).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        operation: "plan_mode_deny_applied",
+        permissionDenyToolNames: ["EnterPlanMode", "ExitPlanMode"],
+        enterAlreadyInstalled: false,
+        exitAlreadyInstalled: false,
+      }),
+    );
+  });
+
+  it("Test P9: installStopHook second run is no-op (idempotency across all 8)", async () => {
+    // Seed a settings.json that already has ALL SIX hook entries AND the two
+    // new deny entries. The install must skip the settings write.
+    const seeded = JSON.stringify({
+      hooks: {
+        Stop: [
+          {
+            hooks: [
+              { type: "command", command: P62_STOP_PATH },
+              { type: "command", command: P62_STOPPED_PATH },
+            ],
+          },
+        ],
+        UserPromptSubmit: [
+          { hooks: [{ type: "command", command: P62_ACTIVITY_PATH }] },
+        ],
+        PreToolUse: [
+          { hooks: [{ type: "command", command: P62_ACTIVITY_PATH }] },
+        ],
+        StopFailure: [
+          { hooks: [{ type: "command", command: P62_STOPPED_PATH }] },
+        ],
+        PermissionRequest: [
+          { hooks: [{ type: "command", command: P62_STOPPED_PATH }] },
+        ],
+      },
+      permissions: {
+        deny: ["EnterPlanMode", "ExitPlanMode"],
+      },
+    });
+
+    const channel = buildPhase95Channel(seeded);
+    const result = await installStopHook(channel, {});
+    expect(result.hookInstalled).toBe(true);
+    expect(result.settingsUpdated).toBe(false);
+
+    // NO settings write happened.
+    expect(channel.countCallsMatching("SETTINGS_EOF")).toBe(0);
+    expect(channel.countCallsMatching("settings.json.tmp")).toBe(0);
+
+    // The already-present log op fires with the extended permissionDenyToolNames field.
+    expect(systemLogger.info).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        operation: "fleet_status_hook_install_already_present",
+        permissionDenyToolNames: ["EnterPlanMode", "ExitPlanMode"],
+      }),
+    );
+
+    // plan_mode_deny_applied still fires (belt-and-suspenders fleet inventory).
+    expect(systemLogger.info).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        operation: "plan_mode_deny_applied",
+        permissionDenyToolNames: ["EnterPlanMode", "ExitPlanMode"],
+        enterAlreadyInstalled: true,
+        exitAlreadyInstalled: true,
+      }),
+    );
+  });
+
+  it("Test P10: installStopHook merges two new deny entries onto a box with only the six hooks pre-installed (mid-rollout)", async () => {
+    // Simulate a box that has all six Phase-62 hook entries but has never seen
+    // the Phase 95 deny extension. Settings has NO `permissions` key at all.
+    const midRolloutSettings = JSON.stringify({
+      hooks: {
+        Stop: [
+          {
+            hooks: [
+              { type: "command", command: P62_STOP_PATH },
+              { type: "command", command: P62_STOPPED_PATH },
+            ],
+          },
+        ],
+        UserPromptSubmit: [
+          { hooks: [{ type: "command", command: P62_ACTIVITY_PATH }] },
+        ],
+        PreToolUse: [
+          { hooks: [{ type: "command", command: P62_ACTIVITY_PATH }] },
+        ],
+        StopFailure: [
+          { hooks: [{ type: "command", command: P62_STOPPED_PATH }] },
+        ],
+        PermissionRequest: [
+          { hooks: [{ type: "command", command: P62_STOPPED_PATH }] },
+        ],
+      },
+    });
+
+    const channel = buildPhase95Channel(midRolloutSettings);
+    const result = await installStopHook(channel, {});
+    expect(result.settingsUpdated).toBe(true); // the two new denies triggered a write
+
+    const written = extractLastSettingsWrite(channel.callLog);
+    expect(written).not.toBeNull();
+    const hooks = written!.hooks as Record<string, unknown>;
+
+    // All six pre-existing hook entries preserved byte-for-byte.
+    const stop = hooks.Stop as Array<{ hooks: Array<{ command: string }> }>;
+    expect(stop[0].hooks.map((h) => h.command)).toEqual([
+      P62_STOP_PATH,
+      P62_STOPPED_PATH,
+    ]);
+    const ups = hooks.UserPromptSubmit as Array<{ hooks: Array<{ command: string }> }>;
+    expect(ups[0].hooks.map((h) => h.command)).toEqual([P62_ACTIVITY_PATH]);
+    const ptu = hooks.PreToolUse as Array<{ hooks: Array<{ command: string }> }>;
+    expect(ptu[0].hooks.map((h) => h.command)).toEqual([P62_ACTIVITY_PATH]);
+    const sf = hooks.StopFailure as Array<{ hooks: Array<{ command: string }> }>;
+    expect(sf[0].hooks.map((h) => h.command)).toEqual([P62_STOPPED_PATH]);
+    const pr = hooks.PermissionRequest as Array<{ hooks: Array<{ command: string }> }>;
+    expect(pr[0].hooks.map((h) => h.command)).toEqual([P62_STOPPED_PATH]);
+
+    // The two new permission.deny entries are present.
+    const permissions = written!.permissions as { deny: string[] };
+    expect(permissions.deny).toEqual(["EnterPlanMode", "ExitPlanMode"]);
+
+    // plan_mode_deny_applied fires with both flags false (new install of the deny).
+    expect(systemLogger.info).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        operation: "plan_mode_deny_applied",
+        permissionDenyToolNames: ["EnterPlanMode", "ExitPlanMode"],
+        enterAlreadyInstalled: false,
+        exitAlreadyInstalled: false,
       }),
     );
   });
