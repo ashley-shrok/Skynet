@@ -397,6 +397,12 @@ if (process.env.VITEST !== "true") {
     await (dbServer as unknown as { serverReady: Promise<void> }).serverReady;
     await import("./ssh/terminal.js");
     await import("./claude-session/claude-session-server.js");
+    // Phase 90 Plan 04 — relay-room-stream WebSocket server (port 30015).
+    // Self-starts on import (see relay-room-stream-server.ts L1342-1344 —
+    // guarded to skip in vitest/test env). Was never imported anywhere in
+    // the arc-close ship; nginx proxies /relay-room/websocket/ to 30015
+    // and returned 404 because nothing was listening. Ashley UAT 2026-09-09.
+    await import("./relay-room-stream/relay-room-stream-server.js");
     await import("./ssh/tunnel.js");
     await import("./ssh/file-manager.js");
     await import("./ssh/server-stats.js");
