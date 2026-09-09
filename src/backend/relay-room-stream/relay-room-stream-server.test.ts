@@ -27,7 +27,9 @@ import {
   handleSendMessage,
   parseClientFrame,
   checkRateLimit,
+  sweepRateWindows,
   __resetRateLimiterForTests,
+  __getRateWindowsSizeForTests,
   __resetRoomSubscriptionsForTests,
   __getRoomSubscriptionForTests,
   computeParticipantsFrame,
@@ -566,6 +568,53 @@ describe("checkRateLimit (real limiter, Phase 90 Plan 04 Task 2)", () => {
     }
     expect(checkRateLimit(OWNER_USER, now)).toBe(false);
     expect(checkRateLimit(OTHER_USER, now)).toBe(true);
+  });
+
+  // ==========================================================================
+  // M6 FIXUP TESTS (2026-09-09) — bounded rate-limit map
+  // ==========================================================================
+
+  it("Test M6a: sweepRateWindows drops entries whose timestamps have all aged out", () => {
+    const now = 1_000_000;
+    // Populate the map with two users.
+    checkRateLimit(OWNER_USER, now);
+    checkRateLimit(OTHER_USER, now);
+    expect(__getRateWindowsSizeForTests()).toBe(2);
+
+    // Sweep at exactly the window boundary — neither entry has aged out yet.
+    let dropped = sweepRateWindows(now);
+    expect(dropped).toBe(0);
+    expect(__getRateWindowsSizeForTests()).toBe(2);
+
+    // Sweep 60_001ms later — every entry is older than the cutoff.
+    dropped = sweepRateWindows(now + 60_001);
+    expect(dropped).toBe(2);
+    expect(__getRateWindowsSizeForTests()).toBe(0);
+  });
+
+  it("Test M6b: partially-aged entries survive; array is refreshed to drop stale entries", () => {
+    const now = 1_000_000;
+    // Mix of old + recent timestamps for the same user.
+    checkRateLimit(OWNER_USER, now); // old
+    checkRateLimit(OWNER_USER, now + 30_000); // recent
+
+    // Sweep just past the first entry's window.
+    const dropped = sweepRateWindows(now + 60_005);
+    // Only the "old" ts is beyond the cutoff (now+5ms). "recent"
+    // (now+30_000) is still within the 60s window from the sweep-now
+    // reference (now+60_005 - 60_000 = cutoff at now+5). Entry survives.
+    expect(dropped).toBe(0);
+    expect(__getRateWindowsSizeForTests()).toBe(1);
+
+    // Sweep well past — now every ts is stale.
+    const droppedAll = sweepRateWindows(now + 120_000);
+    expect(droppedAll).toBe(1);
+    expect(__getRateWindowsSizeForTests()).toBe(0);
+  });
+
+  it("Test M6c: sweep on an empty map is a safe no-op", () => {
+    expect(__getRateWindowsSizeForTests()).toBe(0);
+    expect(sweepRateWindows(Date.now())).toBe(0);
   });
 });
 

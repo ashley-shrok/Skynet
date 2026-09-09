@@ -203,8 +203,15 @@ export type ServerFrame =
  *
  * In-memory only (per-process). If skynet ever runs multi-process, this
  * needs Redis or similar — for now the fleet is a single-node deploy.
+ *
+ * M6 fixup 2026-09-09: bounded via a periodic sweep (see
+ * `sweepRateWindows` + `startRateLimiterSweep`) so an unbounded set of
+ * one-time users can't grow the map indefinitely on user churn.
  */
 const rateWindows = new Map<string, number[]>();
+
+/** How often the background sweep prunes empty rate-limit entries. */
+const RATE_LIMIT_SWEEP_INTERVAL_MS = 60_000;
 
 export function checkRateLimit(userId: string, now: number = Date.now()): boolean {
   const cutoff = now - RATE_LIMIT_WINDOW_MS;
@@ -219,9 +226,70 @@ export function checkRateLimit(userId: string, now: number = Date.now()): boolea
   return true;
 }
 
-/** Test-only reset — clears all rate-limit windows. */
+/**
+ * M6 fixup: sweep the rate-limit map — drop every entry whose (post-prune)
+ * timestamp array is empty. Exported for testability so scoped tests can
+ * exercise the pruning contract without spinning up a real timer.
+ *
+ * Runs in O(entries) per sweep. On a busy relay-room deploy, `rateWindows`
+ * peaks at the number of concurrently-sending users; the sweep is cheap.
+ */
+export function sweepRateWindows(now: number = Date.now()): number {
+  const cutoff = now - RATE_LIMIT_WINDOW_MS;
+  let dropped = 0;
+  for (const [userId, timestamps] of rateWindows) {
+    const pruned = timestamps.filter((ts) => ts > cutoff);
+    if (pruned.length === 0) {
+      rateWindows.delete(userId);
+      dropped += 1;
+    } else if (pruned.length !== timestamps.length) {
+      // Non-empty but shrunk — refresh the entry so a burst of stale
+      // entries isn't carried across future sweeps.
+      rateWindows.set(userId, pruned);
+    }
+  }
+  return dropped;
+}
+
+/**
+ * Bind the periodic sweep to the Node event loop. Called once at
+ * module-init time (via `startWebSocketServer`) so tests importing this
+ * module don't spawn a rogue timer. The interval handle is exported for
+ * test-side cleanup / assertions on lifecycle.
+ */
+let rateLimiterSweepTimer: NodeJS.Timeout | null = null;
+function startRateLimiterSweep(): void {
+  if (rateLimiterSweepTimer !== null) return;
+  rateLimiterSweepTimer = setInterval(() => {
+    try {
+      sweepRateWindows();
+    } catch (err) {
+      databaseLogger.warn("relay_room_stream rate-limit sweep failed", {
+        operation: "relay_room_stream_rate_limit_sweep_failed",
+        error: err instanceof Error ? err.message : "unknown",
+      });
+    }
+  }, RATE_LIMIT_SWEEP_INTERVAL_MS);
+  // Node's `unref` prevents the interval from pinning the event loop
+  // open at shutdown — matches the pattern used by other fleet background
+  // timers.
+  if (typeof rateLimiterSweepTimer.unref === "function") {
+    rateLimiterSweepTimer.unref();
+  }
+}
+
+/** Test-only reset — clears all rate-limit windows AND the sweep timer. */
 export function __resetRateLimiterForTests(): void {
   rateWindows.clear();
+  if (rateLimiterSweepTimer !== null) {
+    clearInterval(rateLimiterSweepTimer);
+    rateLimiterSweepTimer = null;
+  }
+}
+
+/** Test-only accessor — returns the current in-memory rate-window count. */
+export function __getRateWindowsSizeForTests(): number {
+  return rateWindows.size;
 }
 
 // ============================================================================
@@ -1096,6 +1164,10 @@ export function makeProductionDeps() {
 function startWebSocketServer(): void {
   const authManager = AuthManager.getInstance();
   const deps = makeProductionDeps();
+
+  // M6 fixup: start the background rate-limit sweep so an unbounded set
+  // of one-time users can't grow the map indefinitely.
+  startRateLimiterSweep();
 
   const wss = new WebSocketServer({ port: RELAY_ROOM_STREAM_PORT });
 
