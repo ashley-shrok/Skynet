@@ -4814,8 +4814,10 @@ describe("PrettyConversationsPanel: Phase 91 — New conversation menu item + mo
     expect(typeof onCreateRelayRoom).toBe("function");
   });
 
-  // Test 4: order-locked existing items unchanged
-  it("Test 4: existing menu items appear in locked order (New agent → New role → Edit global files… → Edit skills…)", () => {
+  // Test 4: order-locked existing items unchanged. Phase 90 Plan 90-06 (D-07)
+  // swapped "New role" for "Edit roles…"; expected order is now
+  // New conversation → New agent → Edit roles… → Edit global files… → Edit skills….
+  it("Test 4: existing menu items appear in locked order (New agent → Edit roles… → Edit global files… → Edit skills…)", () => {
     // This is a grep/source-level assertion.
     // We also verify via rendering that the items appear in source order.
     renderPanelWithCreateRelayRoom();
@@ -4829,13 +4831,13 @@ describe("PrettyConversationsPanel: Phase 91 — New conversation menu item + mo
 
     // The four locked items must appear in this order relative to each other.
     const agentIdx = labels.findIndex((l) => l === "New agent");
-    const roleIdx = labels.findIndex((l) => l === "New role");
+    const rolesIdx = labels.findIndex((l) => l.includes("Edit roles"));
     const filesIdx = labels.findIndex((l) => l.includes("global files"));
     const skillsIdx = labels.findIndex((l) => l.includes("skills"));
 
     expect(agentIdx).toBeGreaterThan(-1);
-    expect(roleIdx).toBeGreaterThan(agentIdx); // New role AFTER New agent
-    expect(filesIdx).toBeGreaterThan(roleIdx); // Edit global files… AFTER New role
+    expect(rolesIdx).toBeGreaterThan(agentIdx); // Edit roles… AFTER New agent
+    expect(filesIdx).toBeGreaterThan(rolesIdx); // Edit global files… AFTER Edit roles…
     expect(skillsIdx).toBeGreaterThan(filesIdx); // Edit skills… AFTER Edit global files…
   });
 
