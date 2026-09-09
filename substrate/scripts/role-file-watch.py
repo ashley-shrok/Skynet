@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
-"""role-file-watch.py — fourth ambient monitor: watch for edits to an identity's role file.
+"""role-file-watch.py — fourth ambient monitor: watch for edits to an identity's role AND identity files.
 
 The sibling of the relay receiver, the wake-up scheduler, and the context-watch.
 The receiver wakes on a MESSAGE, the scheduler on the CLOCK, the context-watch on
-CONTEXT PRESSURE — this fourth monitor wakes on a ROLE-FILE CHANGE, so mid-session
-edits by one identity of a multi-identity role become visible to peer identities of
-that role while they are still running.
+CONTEXT PRESSURE — this fourth monitor wakes on a ROLE-FILE OR IDENTITY-FILE CHANGE,
+so mid-session edits to either file become visible to a running identity without
+needing a full recycle.
 
 Why this exists: closes the mid-session gap where an agent's in-context copy of its
-role file has diverged from disk because another identity of the same role edited it.
-Every fresh /id load STILL reads the file from scratch — this is purely additive. The
-watch is diff-first and dumb on purpose: it fires the unified diff of what changed
-(inline when small, spilled to a file pointer when large), and lets the AGENT decide
-whether the change is its own edit or a peer's. See the design rationale in:
+role file or its own identity file has diverged from disk. For the role file, that's
+a peer identity of the same role editing it in another session. For the identity
+file, that's almost always Ashley editing it directly (cosmetic frontmatter changes,
+an identity-scope `remember`) — peer sessions of the SAME identity are essentially
+impossible. Every fresh /id load STILL reads both files from scratch; this is purely
+additive.
+
+The watch is diff-first and dumb on purpose: it fires the unified diff of what
+changed (inline when small, spilled to a file pointer when large), and lets the AGENT
+decide whether the change is its own echo, a peer's, or Ashley's. See the design
+rationale in:
   .planning/shapes/shape-role-file-watch.md (in the box-maintainer role's Skynet repo)
 
 Vendored into Skynet's substrate and distributed to every host running agent substrate
@@ -126,55 +132,70 @@ def _run_diff(baseline_path, role_file_path):
     return result.stdout
 
 
-def _emit_event(role, diff_stdout, spill_dir):
+def _emit_event(kind, label, diff_stdout, spill_dir):
     """Emit one event line (or spill to file if over INLINE_MAX).
+
+    `kind` is "role-file" or "identity-file"; `label` is the role name or identity
+    name respectively — the two together form the event tag the agent sees.
 
     INLINE_MAX is a BYTE cap (the harness measures the emitted line in UTF-8 bytes),
     so we check `len(line.encode("utf-8"))` — not `len(line)`, which counts code points.
-    Role files routinely contain multi-byte chars (curly quotes, em-dashes, emoji in
-    directives); a line at len==460 code points can be well over 460 bytes and get
-    truncated by the harness — exactly the failure mode the spill exists to prevent.
+    Role/identity files routinely contain multi-byte chars (curly quotes, em-dashes,
+    emoji in directives); a line at len==460 code points can be well over 460 bytes
+    and get truncated by the harness — exactly the failure mode the spill exists to
+    prevent.
     """
-    line = "📝 [role-file: %s] %s" % (role, diff_stdout)
+    line = "📝 [%s: %s] %s" % (kind, label, diff_stdout)
     if len(line.encode("utf-8")) <= INLINE_MAX:
         print(line, flush=True)
     else:
         # Spill: create spill_dir lazily, write full diff, emit pointer-only line.
+        # Spill filenames include the kind so role + identity spills at the same
+        # timestamp don't collide.
         os.makedirs(spill_dir, exist_ok=True)
         ts = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
-        spill_path = os.path.join(spill_dir, "%s.diff" % ts)
+        spill_path = os.path.join(spill_dir, "%s.%s.diff" % (ts, kind))
         with open(spill_path, "w") as f:
             f.write(diff_stdout)
         print(
-            "📝 [role-file: %s] diff too large to inline — read from %s"
-            % (role, spill_path),
+            "📝 [%s: %s] diff too large to inline — read from %s"
+            % (kind, label, spill_path),
             flush=True,
         )
 
 
-def _diff_and_emit(role, role_file_path, baseline_dir, last_snapshot_path, spill_dir):
-    """Compare current role file against baseline; if different, emit event and update baseline.
-    Returns True if role file is gone (caller should exit)."""
-    current = _read_bytes(role_file_path)
+def _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_dir):
+    """Compare current target file against its baseline; if different, emit event
+    and update baseline. Returns True if target file is gone (caller should exit)."""
+    current = _read_bytes(target_path)
     if current is None:
         print(
-            "⚠️ [role-file-watch] role file disappeared: %s" % role_file_path,
+            "⚠️ [role-file-watch] %s file disappeared: %s" % (kind, target_path),
             file=sys.stderr,
             flush=True,
         )
         return True  # signal caller to exit
 
-    baseline = _read_bytes(last_snapshot_path)
+    baseline = _read_bytes(baseline_path)
     if baseline is None:
         # Baseline missing mid-run (unusual) — re-snapshot silently.
-        _atomic_write_baseline(baseline_dir, last_snapshot_path, current)
+        _atomic_write_baseline(baseline_dir, baseline_path, current)
         return False
 
     if current != baseline:
-        diff_stdout = _run_diff(last_snapshot_path, role_file_path)
-        _emit_event(role, diff_stdout, spill_dir)
-        _atomic_write_baseline(baseline_dir, last_snapshot_path, current)
+        diff_stdout = _run_diff(baseline_path, target_path)
+        _emit_event(kind, label, diff_stdout, spill_dir)
+        _atomic_write_baseline(baseline_dir, baseline_path, current)
 
+    return False
+
+
+def _diff_and_emit_all(targets, baseline_dir, spill_dir):
+    """Run _diff_and_emit for every target. Returns True if ANY target is gone."""
+    for kind, label, target_path, baseline_path in targets:
+        gone = _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_dir)
+        if gone:
+            return True
     return False
 
 
@@ -219,12 +240,37 @@ def main():
         print("⚠️ [role-file-watch] %s" % msg, file=sys.stderr, flush=True)
         sys.exit(1)
 
-    # --- State dirs ---
+    # Identity file path already resolved above (identity_file_path).
+    # Both targets: (kind, label-for-emit, source-file, per-file-baseline).
     baseline_dir = os.path.join(ident_dir, "role-file-watch")
-    last_snapshot_path = os.path.join(baseline_dir, "last-snapshot")
+    role_baseline_path = os.path.join(baseline_dir, "last-snapshot.role")
+    identity_baseline_path = os.path.join(baseline_dir, "last-snapshot.identity")
+    targets = [
+        ("role-file", role, role_file_path, role_baseline_path),
+        ("identity-file", name, identity_file_path, identity_baseline_path),
+    ]
+
+    # --- State dirs ---
     spill_dir = os.path.join(baseline_dir, "spilled")
     state_dir = os.path.join(baseline_dir, ".state")
     os.makedirs(state_dir, exist_ok=True)
+
+    # --- One-time migration: legacy single-baseline `last-snapshot` → `last-snapshot.role`.
+    # Older versions of this script wrote a single `last-snapshot` file at
+    # `<ident>/role-file-watch/last-snapshot`. On first run of the two-target version we
+    # promote it to the role baseline (identity baseline cold-starts silently below).
+    legacy_baseline_path = os.path.join(baseline_dir, "last-snapshot")
+    if os.path.exists(legacy_baseline_path) and not os.path.exists(role_baseline_path):
+        try:
+            os.replace(legacy_baseline_path, role_baseline_path)
+        except OSError as e:
+            # Non-fatal — if the migration fails we just cold-start the role baseline
+            # below, which means one silent snapshot instead of continuity. Log it.
+            print(
+                "⚠️ [role-file-watch] legacy baseline migration failed: %s" % e,
+                file=sys.stderr,
+                flush=True,
+            )
 
     # --- Single-instance guard ---
     _single_instance(state_dir, ident_dir)
@@ -258,21 +304,26 @@ def main():
             flush=True,
         )
 
-    # --- Cold-start rule: if no baseline, snapshot silently and enter watch loop ---
-    if not os.path.exists(last_snapshot_path):
-        current = _read_bytes(role_file_path)
-        if current is None:
-            msg = "role file unreadable at startup: %s" % role_file_path
-            print("📝 [role-file-watch] SETUP FAILED: %s" % msg, flush=True)
-            print("⚠️ [role-file-watch] %s" % msg, file=sys.stderr, flush=True)
-            sys.exit(1)
-        _atomic_write_baseline(baseline_dir, last_snapshot_path, current)
-        # Emit NOTHING to stdout on cold start (shape file "silent on cold start" invariant)
-    else:
-        # --- Subsequent-run rule: diff at startup, emit if different ---
-        gone = _diff_and_emit(role, role_file_path, baseline_dir, last_snapshot_path, spill_dir)
-        if gone:
-            sys.exit(1)
+    # --- Cold-start rule: for each target, if no baseline, snapshot silently.
+    # Otherwise diff at startup and emit if the file changed while we were down.
+    # Cold start remains silent per shape invariant. This runs per-target
+    # independently so a legacy install (role baseline exists, identity does not) does
+    # the right thing: the role gets a startup diff, the identity gets a silent cold
+    # snapshot.
+    for kind, label, target_path, baseline_path in targets:
+        if not os.path.exists(baseline_path):
+            current = _read_bytes(target_path)
+            if current is None:
+                msg = "%s file unreadable at startup: %s" % (kind, target_path)
+                print("📝 [role-file-watch] SETUP FAILED: %s" % msg, flush=True)
+                print("⚠️ [role-file-watch] %s" % msg, file=sys.stderr, flush=True)
+                sys.exit(1)
+            _atomic_write_baseline(baseline_dir, baseline_path, current)
+            # Emit NOTHING to stdout on cold start (shape file "silent on cold start" invariant)
+        else:
+            gone = _diff_and_emit(kind, label, target_path, baseline_dir, baseline_path, spill_dir)
+            if gone:
+                sys.exit(1)
 
     # --- Watch loop ---
     use_inotify = shutil.which("inotifywait") is not None
@@ -287,7 +338,11 @@ def main():
     global _inotify_proc
 
     if use_inotify:
-        # inotifywait-based watch loop
+        # inotifywait-based watch loop. Both target files are passed to a single
+        # inotifywait invocation; on any event, we diff BOTH baselines (the target
+        # whose file didn't change is a no-op). This avoids parsing inotifywait's
+        # per-event filename output.
+        watched_paths = [t[2] for t in targets]  # role_file_path, identity_file_path
         while True:
             # Orphan check
             if harness_pid is not None:
@@ -301,8 +356,7 @@ def main():
                     [
                         "inotifywait", "-m",
                         "-e", "close_write,move_self,moved_to",
-                        role_file_path,
-                    ],
+                    ] + watched_paths,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
                     text=True,
@@ -324,13 +378,10 @@ def main():
                     if not event_line:
                         continue
 
-                    # move_self: the role file inode was replaced (e.g. mv new old).
-                    # Kill + respawn inotifywait to re-arm on the new inode.
+                    # move_self: a watched file's inode was replaced (e.g. mv new old).
+                    # Kill + respawn inotifywait to re-arm on the new inode(s).
                     if "MOVE_SELF" in event_line.upper():
-                        gone = _diff_and_emit(
-                            role, role_file_path, baseline_dir, last_snapshot_path, spill_dir
-                        )
-                        if gone:
+                        if _diff_and_emit_all(targets, baseline_dir, spill_dir):
                             sys.exit(1)
                         # Break inner loop to respawn inotifywait on new inode.
                         try:
@@ -343,16 +394,14 @@ def main():
                     # DELETE (rare)
                     if "DELETE_SELF" in event_line.upper():
                         print(
-                            "⚠️ [role-file-watch] role file deleted: %s" % role_file_path,
+                            "⚠️ [role-file-watch] a watched file was deleted: %s"
+                            % event_line,
                             file=sys.stderr,
                             flush=True,
                         )
                         sys.exit(1)
 
-                    gone = _diff_and_emit(
-                        role, role_file_path, baseline_dir, last_snapshot_path, spill_dir
-                    )
-                    if gone:
+                    if _diff_and_emit_all(targets, baseline_dir, spill_dir):
                         sys.exit(1)
 
             except Exception:
@@ -360,12 +409,12 @@ def main():
                 sys.exit(1)
 
     else:
-        # Fallback: mtime polling loop
+        # Fallback: mtime polling loop over both targets.
         try:
-            last_mtime = os.path.getmtime(role_file_path)
-        except OSError:
+            last_mtimes = {t[2]: os.path.getmtime(t[2]) for t in targets}
+        except OSError as e:
             print(
-                "⚠️ [role-file-watch] role file unreadable in polling loop: %s" % role_file_path,
+                "⚠️ [role-file-watch] target unreadable in polling loop: %s" % e,
                 file=sys.stderr,
                 flush=True,
             )
@@ -380,22 +429,24 @@ def main():
                     sys.exit(0)
 
             time.sleep(POLL)
-            try:
-                cur_mtime = os.path.getmtime(role_file_path)
-            except OSError:
-                print(
-                    "⚠️ [role-file-watch] role file disappeared: %s" % role_file_path,
-                    file=sys.stderr,
-                    flush=True,
-                )
-                sys.exit(1)
+            changed = False
+            for kind, label, target_path, baseline_path in targets:
+                try:
+                    cur_mtime = os.path.getmtime(target_path)
+                except OSError:
+                    print(
+                        "⚠️ [role-file-watch] %s file disappeared: %s"
+                        % (kind, target_path),
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    sys.exit(1)
+                if cur_mtime != last_mtimes[target_path]:
+                    last_mtimes[target_path] = cur_mtime
+                    changed = True
 
-            if cur_mtime != last_mtime:
-                last_mtime = cur_mtime
-                gone = _diff_and_emit(
-                    role, role_file_path, baseline_dir, last_snapshot_path, spill_dir
-                )
-                if gone:
+            if changed:
+                if _diff_and_emit_all(targets, baseline_dir, spill_dir):
                     sys.exit(1)
 
 

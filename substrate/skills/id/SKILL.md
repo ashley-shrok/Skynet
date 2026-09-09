@@ -660,12 +660,18 @@ session reaching 80% is a lot of turns) — it's a safety valve, not a chatty mo
 ## On wake: start your role-file watch
 
 The receiver wakes you on a **message**, the scheduler on the **clock**, the context-watch
-on **context pressure** — this fourth Monitor wakes you on a **role-file change**, so
-mid-session edits by one identity of a multi-identity role become visible to peer identities
-of that role while they are still running. It closes the gap where your in-context copy of
-the role file has diverged from disk because another identity edited it — a `remember X` or
-`forget X` made in another session lands in the file immediately, but running peer identities
-carry a now-stale copy until their next full recycle.
+on **context pressure** — this fourth Monitor wakes you on a **role-file OR identity-file
+change**, so mid-session edits to either file become visible while you are still running.
+
+Two cases it covers:
+- **Role file** (`~/.claude/roles/<role>/<role>.md`) — shared across every identity holding
+  the role. A `remember X` / `forget X` made in a peer identity's session lands in the file
+  immediately, but running peer identities carry a now-stale copy until their next full
+  recycle. The watch closes that gap.
+- **Identity file** (`~/.claude/identities/<name>/<name>.md`) — per-identity. Peer sessions
+  of the SAME identity are essentially impossible, so a foreign edit here is almost always
+  **Ashley editing directly** (a cosmetic frontmatter change — colorHue, avatar, displayName
+  — or an identity-scope `remember` she typed into another session for you).
 
 The watch is **diff-first, not re-read-first**: it fires the unified diff of what changed
 — inline in the wake event when the diff is small (under the harness's per-event character
@@ -676,22 +682,33 @@ no interpretation — the diff itself is what you read.
 Start it once per session, right after the context-watch, same primitive (a persistent
 `Monitor`). It's a shipped, dependency-free helper — **launch this shipped script, do NOT
 hand-roll your own.** The Skynet distributor keeps `~/.local/bin/role-file-watch` current
-on every container restart; launch it pointed at your identity dir:
+on every container restart; launch it pointed at your identity dir (the script covers both
+target files under that one identity scope — one Monitor, not two):
 
     # via the harness Monitor tool (persistent:true):
     #   description:  [ambient] <name> role-file watch
     #   command:      python3 ~/.local/bin/role-file-watch ~/.claude/identities/<name>
 
-**Agent-side reading protocol:** when the watch fires with a diff, read it. If you recognize
-the change as one you made yourself (via `remember X` / `always X` / `forget X` / `never X`
-acting on the user's word), ignore it — it's your own write echoing back. If it came from
-another identity of your role, adopt it: your mental model of the role file updates
-in-session without needing a full re-read. The watch is dumb on purpose — it doesn't try to
-detect who made the edit; that judgment lives with you, in the diff content itself.
+**Agent-side reading protocol:** when the watch fires with a diff, read it. The event tag
+tells you which file changed: `📝 [role-file: <role>]` or `📝 [identity-file: <name>]`. The
+watch is dumb on purpose — it doesn't try to detect who made the edit; that judgment lives
+with you, in the diff content itself. Three cases:
 
-The watch is silent on its very first run for an identity (cold start) — it snapshots the
-current role file as a baseline without firing, because a fresh identity has just read the
-file anyway. On subsequent runs, it catches any changes that happened between sessions.
+- **Your own echo** (either file). If you recognize the change as one you made yourself
+  (via `remember X` / `always X` / `forget X` / `never X` acting on the user's word),
+  ignore it — it's your own write coming back around.
+- **A peer identity's edit** (role file only). Another identity of your role wrote it
+  during their own session — adopt it as a role change. Your mental model of the role
+  file updates in-session without needing a full re-read.
+- **Ashley's direct edit** (either file, but the common case is the identity file).
+  She may edit the role or identity file directly (through Skynet's file modal, an SSH
+  session, or another agent she directed to write there). Adopt it the same way you'd
+  adopt anything she told you in chat — it's a user directive, just delivered through
+  the file rather than through a message.
+
+The watch is silent on its very first run for an identity (cold start) — it snapshots
+both files as baselines without firing, because a fresh identity has just read them
+anyway. On subsequent runs, it catches any changes that happened between sessions.
 
 See `.planning/shapes/shape-role-file-watch.md` in the box-maintainer role's Skynet repo
 for the full design rationale and scope edges.
@@ -1070,7 +1087,7 @@ Two peer folders at the top of `~/.claude/`, each with lowercased names (see §1
 - `handoff.md` — session carry (overwritten each save)
 - `wakeups/` — per-identity scheduled wake-up specs + scheduler state (`.state/`)
 - `ctxwatch/` — context-watch runtime state (`.state/`)
-- `role-file-watch/` — role-file-watch runtime state (`.state/`, `spilled/`, `last-snapshot` baseline)
+- `role-file-watch/` — role-file-watch runtime state (`.state/`, `spilled/`, `last-snapshot.role` + `last-snapshot.identity` baselines)
 - `relay.json` — durable per-identity Matrix account credentials
 - `relay-state/` — per-identity relay cursor + token
 - `.no-dormancy` — optional sentinel; present = always-on / exempt from
