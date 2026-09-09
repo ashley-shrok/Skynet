@@ -422,14 +422,15 @@ router.post("/create", authenticateJWT, async (req: Request, res: Response) => {
 
     // ─── Step 12: Look up sessionId for the response ──────────────────────
     // If materialize failed AND the observation loop hasn't caught up yet,
-    // the row may be absent — sessionId is '' in that case (client can
-    // poll or rely on the sidebar refresh from /sessions/list).
+    // the row may be absent — sessionId is null in that case (L4 fix: null
+    // is the canonical "absent" value; was "" which didn't communicate partial
+    // state). Client can poll or rely on the sidebar refresh from /sessions/list.
     const sessionRow = db.$client
       .prepare(
         `SELECT id FROM relay_room_sessions WHERE user_id = ? AND room_id = ?`,
       )
       .get(userId, roomId) as { id?: string } | undefined;
-    const sessionId = sessionRow?.id ?? "";
+    const sessionId: string | null = sessionRow?.id ?? null;
 
     // ─── Step 13: Structured success log — T-91-BE-06 audit trail ────────
     databaseLogger.info(

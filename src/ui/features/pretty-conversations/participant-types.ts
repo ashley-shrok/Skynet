@@ -141,9 +141,17 @@ export interface CreateRelayRoomResponse {
   /** Matrix room ID of the newly created room (`!roomId:server`). */
   roomId: string;
 
-  /** relay_room_sessions.id for the row materialised at create time (D-14
-   *  schema-as-coordinator pattern from Phase 89). */
-  sessionId: string;
+  /**
+   * relay_room_sessions.id for the row materialised at create time (D-14
+   * schema-as-coordinator pattern from Phase 89).
+   *
+   * L4: `null` when materialize failed and the observation-loop hasn't caught
+   * up yet (partial-success case). Callers must not assume non-null; use null
+   * as the signal to poll or rely on the sidebar refresh from /sessions/list.
+   * Previously was an empty string `""` which didn't communicate the partial
+   * state; `null` is the canonical "absent" value for optional identifiers.
+   */
+  sessionId: string | null;
 
   /** Room title as stored (trimmed roomName). Used to open the pane tab. */
   roomTitle: string;

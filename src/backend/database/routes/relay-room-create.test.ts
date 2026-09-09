@@ -508,7 +508,7 @@ describe("POST /relay-room/create (Phase 91 Plan 03)", () => {
     expect(res.status).toBe(201);
     const body = await res.json() as Record<string, unknown>;
     expect(body.ok).toBe(true);
-    expect(body.sessionId).toBe(""); // empty when row absent
+    expect(body.sessionId).toBeNull(); // L4 fix: null (not "") when row absent
 
     expect(databaseLogger.warn).toHaveBeenCalledWith(
       expect.any(String),

@@ -99,7 +99,7 @@ import { NewConversationModal } from "./NewConversationModal";
 async function renderOpen(
   overrides: {
     onOpenChange?: (open: boolean) => void;
-    onCreated?: (result: { ok: true; roomId: string; sessionId: string; roomTitle: string }) => void;
+    onCreated?: (result: { ok: true; roomId: string; sessionId: string | null; roomTitle: string }) => void;
   } = {},
 ) {
   const onOpenChange = overrides.onOpenChange ?? vi.fn();
@@ -306,13 +306,13 @@ describe("NewConversationModal", () => {
     let resolveCreate!: (val: {
       ok: true;
       roomId: string;
-      sessionId: string;
+      sessionId: string | null;
       roomTitle: string;
     }) => void;
     const pendingCreate = new Promise<{
       ok: true;
       roomId: string;
-      sessionId: string;
+      sessionId: string | null;
       roomTitle: string;
     }>((resolve) => {
       resolveCreate = resolve;
