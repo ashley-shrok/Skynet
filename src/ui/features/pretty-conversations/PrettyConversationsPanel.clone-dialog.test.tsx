@@ -285,7 +285,7 @@ describe("PrettyConversationsPanel: 'create new agent under this role' wiring (P
 
     // "create new agent under this role" menu item should be present (formerly 'Clone', then 'Spawn under this role')
     const spawnItem = screen.getByRole("menuitem", {
-      name: "create new agent under this role",
+      name: "Create new agent under this role",
     });
     expect(spawnItem).toBeTruthy();
 
@@ -328,7 +328,7 @@ describe("PrettyConversationsPanel: 'create new agent under this role' wiring (P
     const rowBody = rowWrapper.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(rowBody, { clientX: 100, clientY: 100 });
     fireEvent.click(
-      screen.getByRole("menuitem", { name: "create new agent under this role" }),
+      screen.getByRole("menuitem", { name: "Create new agent under this role" }),
     );
 
     // After invocation: the most-recent render passed open=true.
@@ -356,7 +356,7 @@ describe("PrettyConversationsPanel: 'create new agent under this role' wiring (P
     const rowBody = rowWrapper.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(rowBody, { clientX: 100, clientY: 100 });
     fireEvent.click(
-      screen.getByRole("menuitem", { name: "create new agent under this role" }),
+      screen.getByRole("menuitem", { name: "Create new agent under this role" }),
     );
 
     // Assert the panel never passed a truthy initialBrief on any render where
@@ -400,7 +400,7 @@ describe("PrettyConversationsPanel: 'create new agent under this role' wiring (P
     const rowBody = rowWrapper.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(rowBody, { clientX: 10, clientY: 10 });
     fireEvent.click(
-      screen.getByRole("menuitem", { name: "create new agent under this role" }),
+      screen.getByRole("menuitem", { name: "Create new agent under this role" }),
     );
 
     expect(newSessionDialogSpy).toHaveBeenCalled();

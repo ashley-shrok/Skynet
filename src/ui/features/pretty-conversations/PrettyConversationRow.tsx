@@ -1386,7 +1386,7 @@ export function PrettyConversationRow({
             // NewSessionDialog with the row's host + identity.role.
             if (onClone && identity) {
               items.push({
-                label: "create new agent under this role",
+                label: "Create new agent under this role",
                 onClick: onClone,
               });
             }

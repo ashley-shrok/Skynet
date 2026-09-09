@@ -151,7 +151,7 @@ describe("PrettyConversationRow: Clone menu item", () => {
 
     // "create new agent under this role" item should be present in the portal-mounted menu
     const spawnItem = screen.getByRole("menuitem", {
-      name: "create new agent under this role",
+      name: "Create new agent under this role",
     });
     expect(spawnItem).toBeTruthy();
 
@@ -180,7 +180,7 @@ describe("PrettyConversationRow: Clone menu item", () => {
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
 
-    expect(screen.queryByRole("menuitem", { name: "create new agent under this role" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Create new agent under this role" })).toBeNull();
   });
 
   it("Test 15: onClone provided but row has no identity → no spawn menu item", () => {
@@ -205,7 +205,7 @@ describe("PrettyConversationRow: Clone menu item", () => {
     const body = wrapper.querySelector('[role="button"]') as HTMLElement;
     fireEvent.contextMenu(body, { clientX: 100, clientY: 100 });
 
-    expect(screen.queryByRole("menuitem", { name: "create new agent under this role" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Create new agent under this role" })).toBeNull();
     expect(onClone).not.toHaveBeenCalled();
   });
 });
