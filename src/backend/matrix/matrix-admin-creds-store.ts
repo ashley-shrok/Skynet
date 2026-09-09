@@ -39,6 +39,12 @@ export interface MatrixAdminCreds {
   userId: string;
   accessToken: string;
   password: string;
+  // Optional override for the Matrix server_name portion of newly-minted mxids.
+  // null on legacy rows (falls back to deriving server_name from homeserverBase's
+  // URL host). Split into its own column so the URL can stay as a raw IP for
+  // container-DNS reachability while the mxid server_name is a hostname Synapse
+  // recognizes. Populated via PATCH /matrix-admin/creds/server-name.
+  serverName: string | null;
 }
 
 /**
@@ -93,7 +99,55 @@ export async function getMatrixAdminCreds(): Promise<MatrixAdminCreds | null> {
     userId: row.userId,
     accessToken,
     password,
+    serverName: row.serverName ?? null,
   };
+}
+
+/**
+ * Update only the `server_name` override column on the singleton row without
+ * touching the encrypted secrets. Returns true when the singleton row exists
+ * and the update applied, false when no row is present yet (caller must
+ * ingest full creds first via setMatrixAdminCreds).
+ *
+ * Split from setMatrixAdminCreds so an operator can rotate the override
+ * without re-supplying the accessToken/password — the whole point of the
+ * split is that server_name and homeserverBase are decoupled and either
+ * can move without disturbing the other.
+ */
+export async function setMatrixAdminServerName(
+  serverName: string | null,
+): Promise<boolean> {
+  const existing = await db
+    .select({ id: matrixAdminCreds.id })
+    .from(matrixAdminCreds)
+    .where(eq(matrixAdminCreds.id, SINGLETON_ID))
+    .limit(1);
+
+  if (!existing || existing.length === 0) {
+    return false;
+  }
+
+  await db
+    .update(matrixAdminCreds)
+    .set({
+      serverName,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(matrixAdminCreds.id, SINGLETON_ID));
+
+  try {
+    await DatabaseSaveTrigger.triggerSave("matrix_admin_creds_server_name_save");
+  } catch (saveError) {
+    databaseLogger.warn(
+      "matrix_admin_creds server_name triggerSave failed (non-fatal — write is in RAM, next save fires it)",
+      {
+        operation: "matrix_admin_creds_server_name_save_failed",
+        error: saveError,
+      },
+    );
+  }
+
+  return true;
 }
 
 /**
@@ -110,7 +164,9 @@ export async function getMatrixAdminCreds(): Promise<MatrixAdminCreds | null> {
  * RAM and next boot's initial load will pick it up if the save happens
  * later (or if a subsequent write's debounced save fires first).
  */
-export async function setMatrixAdminCreds(creds: MatrixAdminCreds): Promise<void> {
+export async function setMatrixAdminCreds(
+  creds: Omit<MatrixAdminCreds, "serverName">,
+): Promise<void> {
   const masterKey = await SystemCrypto.getInstance().getEncryptionKey();
 
   const encryptedAccessToken = FieldCrypto.encryptField(

@@ -720,6 +720,14 @@ export const matrixAdminCreds = sqliteTable("matrix_admin_creds", {
   userId: text("user_id").notNull(),
   accessToken: text("access_token").notNull(),
   password: text("password").notNull(),
+  // Nullable override for the Matrix server_name used when building mxids.
+  // When null (fresh install, or ingestion pre-dating the split), consumers
+  // fall back to deriving server_name from the URL host of homeserverBase.
+  // Split into its own column because the homeserverBase URL may need to
+  // stay as an IP (for reachability from a container whose DNS can't resolve
+  // the tailnet FQDN) while the server_name a Synapse deployment identifies
+  // itself with is a hostname. Populated via PATCH /matrix-admin/creds/server-name.
+  serverName: text("server_name"),
   createdAt: text("created_at")
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),

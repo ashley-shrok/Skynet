@@ -59,7 +59,9 @@ vi.mock("../utils/database-save-trigger.js", () => ({
 }));
 
 // The migration SQL for matrix_admin_creds — mirrors the exact shape added
-// to db/index.ts in Task 1.
+// to db/index.ts in Task 1, plus the nullable server_name column added
+// alongside the setMatrixAdminServerName + PATCH /matrix-admin/creds/server-name
+// change.
 const MATRIX_ADMIN_CREDS_CREATE_SQL = `
   CREATE TABLE IF NOT EXISTS matrix_admin_creds (
     id INTEGER PRIMARY KEY,
@@ -67,6 +69,7 @@ const MATRIX_ADMIN_CREDS_CREATE_SQL = `
     user_id TEXT NOT NULL,
     access_token TEXT NOT NULL,
     password TEXT NOT NULL,
+    server_name TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
@@ -95,7 +98,9 @@ describe("matrix-admin-creds-store", () => {
     const readBack = await getMatrixAdminCreds();
 
     expect(readBack).not.toBeNull();
-    expect(readBack).toEqual(creds);
+    // serverName is nullable and defaults to null on a fresh row (an operator
+    // seeds it separately via PATCH /matrix-admin/creds/server-name).
+    expect(readBack).toEqual({ ...creds, serverName: null });
   });
 
   it("Test 2: After setMatrixAdminCreds, raw access_token + password columns are FieldCrypto JSON (not plaintext)", async () => {
@@ -215,6 +220,91 @@ describe("matrix-admin-creds-store", () => {
       userId: "@new-admin:example.com",
       accessToken: "syt_new_token",
       password: "new-password",
+      serverName: null,
     });
+  });
+
+  it("Test 5: setMatrixAdminServerName round-trips through getMatrixAdminCreds; other fields unchanged", async () => {
+    const { setMatrixAdminCreds, setMatrixAdminServerName, getMatrixAdminCreds } = await import(
+      "./matrix-admin-creds-store.js"
+    );
+
+    await setMatrixAdminCreds({
+      homeserverBase: "http://100.113.23.63:8008",
+      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      accessToken: "syt_original_token",
+      password: "original-password",
+    });
+
+    const applied = await setMatrixAdminServerName("thenasty.taild9b663.ts.net");
+    expect(applied).toBe(true);
+
+    const readBack = await getMatrixAdminCreds();
+    expect(readBack).toEqual({
+      homeserverBase: "http://100.113.23.63:8008",
+      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      accessToken: "syt_original_token",
+      password: "original-password",
+      serverName: "thenasty.taild9b663.ts.net",
+    });
+  });
+
+  it("Test 6: setMatrixAdminServerName with null clears the override", async () => {
+    const { setMatrixAdminCreds, setMatrixAdminServerName, getMatrixAdminCreds } = await import(
+      "./matrix-admin-creds-store.js"
+    );
+
+    await setMatrixAdminCreds({
+      homeserverBase: "http://100.113.23.63:8008",
+      userId: "@skynet-admin:example.com",
+      accessToken: "syt_x",
+      password: "p",
+    });
+    await setMatrixAdminServerName("foo.bar");
+    expect((await getMatrixAdminCreds())?.serverName).toBe("foo.bar");
+
+    const cleared = await setMatrixAdminServerName(null);
+    expect(cleared).toBe(true);
+    expect((await getMatrixAdminCreds())?.serverName).toBeNull();
+  });
+
+  it("Test 7: setMatrixAdminServerName returns false when no singleton row exists", async () => {
+    const { setMatrixAdminServerName } = await import(
+      "./matrix-admin-creds-store.js"
+    );
+
+    // No setMatrixAdminCreds() call — the row doesn't exist yet.
+    const applied = await setMatrixAdminServerName("thenasty.taild9b663.ts.net");
+    expect(applied).toBe(false);
+  });
+
+  it("Test 8: setMatrixAdminCreds (rotation) preserves a previously-set server_name", async () => {
+    // Rotation-preservation invariant: an operator who has patched server_name
+    // separately should not lose that override when the accessToken/password
+    // are subsequently rotated via POST /matrix-admin/creds.
+    const { setMatrixAdminCreds, setMatrixAdminServerName, getMatrixAdminCreds } = await import(
+      "./matrix-admin-creds-store.js"
+    );
+
+    await setMatrixAdminCreds({
+      homeserverBase: "http://100.113.23.63:8008",
+      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      accessToken: "syt_first_token",
+      password: "first-password",
+    });
+    await setMatrixAdminServerName("thenasty.taild9b663.ts.net");
+
+    // Rotate secrets (as a fresh POST /matrix-admin/creds would).
+    await setMatrixAdminCreds({
+      homeserverBase: "http://100.113.23.63:8008",
+      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      accessToken: "syt_rotated_token",
+      password: "rotated-password",
+    });
+
+    const readBack = await getMatrixAdminCreds();
+    expect(readBack?.accessToken).toBe("syt_rotated_token");
+    expect(readBack?.password).toBe("rotated-password");
+    expect(readBack?.serverName).toBe("thenasty.taild9b663.ts.net");
   });
 });
