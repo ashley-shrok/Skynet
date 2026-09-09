@@ -256,9 +256,16 @@ export function RelayRoomPane({
             loadOlderError={stream.loadOlderError}
             onLoadOlder={() => {
               // Pass the oldest currently-loaded event's id as the cursor.
-              // Empty string sends will be no-oped by the backend / fail
-              // early on the hook if history is empty.
-              const oldest = stream.history[0]?.event_id ?? "";
+              // M1 fixup 2026-09-09: bail out before calling fetchOlder when
+              // history is empty — an empty-string cursor would generate a
+              // malformed WS frame that fails backend validation
+              // (`parseClientFrame` requires `beforeEventId.length > 0`).
+              // Belt-and-suspenders: the LoadMoreOlderButton already gates
+              // rendering on hasOlder=true, which implies history has at
+              // least one event, but a race between hook state updates
+              // could briefly expose this seam.
+              const oldest = stream.history[0]?.event_id;
+              if (oldest === undefined || oldest.length === 0) return;
               stream.fetchOlder(oldest);
             }}
             roomTitle={roomTitle}
