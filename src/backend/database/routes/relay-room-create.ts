@@ -210,6 +210,10 @@ async function loadFleetMxidRegistry(): Promise<{ humans: Set<string> }> {
  *         description: Downstream Matrix proxy failure
  */
 router.post("/create", authenticateJWT, async (req: Request, res: Response) => {
+  // M5: top-level try/catch so any unhandled synchronous throw (e.g. the direct
+  // db.$client.prepare().get() at Step 12) returns a structured 500 rather than
+  // leaving the request hanging. Error string is NOT leaked to the client.
+  try {
     const userId = (req as AuthenticatedRequest).userId;
 
     // ─── Step 1: Validate body shape ─────────────────────────────────────
@@ -429,6 +433,20 @@ router.post("/create", authenticateJWT, async (req: Request, res: Response) => {
       sessionId,
       roomTitle: trimmed,
     });
+  } catch (err) {
+    databaseLogger.warn(
+      "relay-room-create: unhandled error in handler",
+      {
+        operation: "relay_room_create_unhandled_error",
+        error: err instanceof Error ? err.message : "unknown",
+      },
+    );
+    // Never leak error detail to client (T-91-BE-05 info-disclosure mitigation).
+    if (!res.headersSent) {
+      return res.status(500).json({ ok: false, error: "internal_error" });
+    }
+    return res;
+  }
   },
 );
 

@@ -69,16 +69,19 @@ let __viewerMxid: string | null = "@viewer_human:server";
 //   2. sessionRow: SELECT id FROM relay_room_sessions WHERE user_id = ? AND room_id = ?
 let __fleetHumanMxids: string[] = ["@bob:s", "@viewer_human:server"];
 let __sessionId: string | null = "session-abc";
+// M5 test control: when true, the sessionRow prepare().get() throws synchronously.
+let __sessionRowThrows: boolean = false;
 
 vi.mock("../db/index.js", () => {
   // Track call order for prepare().get() to serve different results per call.
   let _prepareCallCount = 0;
   const dbClient = {
     prepare: (sql: string) => ({
-      get: (...args: unknown[]) => {
+      get: (..._args: unknown[]) => {
         // First prepare+get is for fleet registry (in loadFleetMxidRegistry we use .all())
         // But we need .all() for that. Let's check the sql string.
         if (sql.includes("relay_room_sessions")) {
+          if (__sessionRowThrows) throw new Error("DB connection lost");
           // sessionRow lookup
           return __sessionId !== null ? { id: __sessionId } : undefined;
         }
@@ -231,6 +234,7 @@ describe("POST /relay-room/create (Phase 91 Plan 03)", () => {
     __viewerMxid = VIEWER_MXID;
     __fleetHumanMxids = [BOB_MXID, VIEWER_MXID];
     __sessionId = "session-abc";
+    __sessionRowThrows = false;
     __createRoomAsUserResult = { ok: true, roomId: "!room:server" };
     __inviteToRoomResult = { ok: true };
     __materializeThrows = false;
@@ -564,7 +568,7 @@ describe("POST /relay-room/create (Phase 91 Plan 03)", () => {
 
   // ─── Test 16: Server-side viewer self-exclusion from humanMxids (M4) ─────
 
-  it("Test 16: viewerMxid in humanMxids is filtered out before inviteToRoom; no self-invite (M4)", async () => {
+  it("Test 16: viewerMxid in humanMxids filtered before inviteToRoom; no self-invite (M4)", async () => {
     // Client submits VIEWER_MXID in humanMxids — server must silently drop it
     // rather than sending a self-invite that Matrix would reject.
     const res = await fetch(`${baseUrl}/relay-room/create`, {
@@ -583,5 +587,30 @@ describe("POST /relay-room/create (Phase 91 Plan 03)", () => {
     // BOB_MXID and AGENT_MXID should still be invited
     expect(inviteCalls).toContain(BOB_MXID);
     expect(inviteCalls).toContain(AGENT_MXID);
+  });
+
+  // ─── Test 17: Top-level try/catch catches synchronous DB throw → 500 (M5) ─
+
+  it("Test 17: synchronous DB throw in sessionRow lookup → 500 internal_error; no error string leaked (M5)", async () => {
+    // db.$client.prepare(...).get() for relay_room_sessions throws synchronously.
+    // The top-level try/catch must intercept and return 500.
+    __sessionRowThrows = true;
+
+    const res = await fetch(`${baseUrl}/relay-room/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(makeBody()),
+    });
+    expect(res.status).toBe(500);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe("internal_error");
+    // Ensure DB error string is not leaked to client (T-91-BE-05)
+    expect(JSON.stringify(body)).not.toContain("DB connection lost");
+    // Handler logged the error
+    expect(databaseLogger.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ operation: "relay_room_create_unhandled_error" }),
+    );
   });
 });
