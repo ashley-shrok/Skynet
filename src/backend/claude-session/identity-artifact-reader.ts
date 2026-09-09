@@ -2714,6 +2714,450 @@ export async function writeRoleFileByName(
 }
 
 // ---------------------------------------------------------------------------
+// 6c. readRoleBountiesByName — Phase 90 Plan 90-07 (D-08.3)
+// ---------------------------------------------------------------------------
+
+/** Read all bounties for a role directly by role name — WITHOUT the identity
+ *  two-step used by readIdentityBounties. Byte-shape mirror of
+ *  readIdentityBounties MINUS the resolveRoleForIdentity step (since roleName
+ *  arrives directly, use it after ROLE_NAME_PATTERN validation).
+ *
+ *  Sibling of readRoleFileByName / writeRoleFileByName — the role-name-keyed
+ *  counterpart of readIdentityBounties for the RoleModal (Phase 90 Plan 90-04)
+ *  bounties tab. D-08.3 planner-pick — the modal has no identity context, so
+ *  it needs a bounties reader that doesn't require an identityKey.
+ *
+ *  Return shape identical to readIdentityBounties: `{ bounties, archivedBounties }`.
+ *  Opt-in archive read via `includeArchived` (default false) — mirrors the same
+ *  cheap-path behavior for roles with hundreds of archived bounties (quick
+ *  260823-80r).
+ *
+ *  ROLE_NAME_PATTERN gate fires BEFORE any I/O — same defense-in-depth as
+ *  readRoleFileByName's gate.
+ */
+export async function readRoleBountiesByName(
+  conn: SSHClientType | null,
+  roleName: string,
+  includeArchived: boolean = false,
+): Promise<{ bounties: unknown[]; archivedBounties: unknown[] }> {
+  // Gate BEFORE any I/O — same defense-in-depth as readRoleFileByName L621.
+  if (typeof roleName !== "string" || !ROLE_NAME_PATTERN.test(roleName)) {
+    throw new Error("invalid roleName");
+  }
+
+  if (conn === null) {
+    // LOCAL branch — mirrors readIdentityBounties LOCAL rooted at
+    // ~/.claude/roles/<roleName>/bounties/
+    const root = getLocalRolesRoot();
+    const baseDir = path.join(root, roleName, "bounties");
+
+    let openEntries: string[];
+    try {
+      openEntries = (await fs.readdir(baseDir)).filter((e) => e !== "archive");
+    } catch (err: unknown) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        (err as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
+        return { bounties: [], archivedBounties: [] };
+      }
+      throw err;
+    }
+
+    const bounties: unknown[] = [];
+    for (const entry of openEntries) {
+      const filePath = path.join(baseDir, entry, "bounty.json");
+      try {
+        const raw = await fs.readFile(filePath, "utf-8");
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        bounties.push(normalizeBounty(parsed, entry));
+      } catch (err) {
+        sshLogger.error(
+          "identity-artifact-reader: failed to parse local open role bounty.json",
+          err instanceof Error ? err : new Error(String(err)),
+          {
+            operation: "role_bounties_local_parse_error",
+            roleName,
+            filePath,
+          },
+        );
+        // Skip poisoned entry.
+      }
+    }
+
+    const archivedBounties: unknown[] = [];
+    if (includeArchived) {
+      const archiveDir = path.join(baseDir, "archive");
+      let archiveEntries: string[];
+      try {
+        archiveEntries = await fs.readdir(archiveDir);
+      } catch (err: unknown) {
+        if (
+          typeof err === "object" &&
+          err !== null &&
+          (err as NodeJS.ErrnoException).code === "ENOENT"
+        ) {
+          archiveEntries = [];
+        } else {
+          throw err;
+        }
+      }
+
+      for (const entry of archiveEntries) {
+        const filePath = path.join(archiveDir, entry, "bounty.json");
+        try {
+          const raw = await fs.readFile(filePath, "utf-8");
+          const parsed = JSON.parse(raw) as Record<string, unknown>;
+          archivedBounties.push(normalizeBounty(parsed, entry));
+        } catch (err) {
+          sshLogger.error(
+            "identity-artifact-reader: failed to parse local archive role bounty.json",
+            err instanceof Error ? err : new Error(String(err)),
+            {
+              operation: "role_bounties_archive_local_parse_error",
+              roleName,
+              filePath,
+            },
+          );
+          // Skip poisoned entry.
+        }
+      }
+    }
+
+    return { bounties, archivedBounties };
+  }
+
+  // REMOTE branch — delimiter-based dir enumeration. roleName validated by
+  // ROLE_NAME_PATTERN above, so direct interpolation inside double quotes is
+  // shell-safe (same defense as readRoleFileByName L647).
+  //
+  // Same empty/missing-dir tolerance guards as readIdentityBounties REMOTE:
+  // (a) `[ -d "$DIR" ] || exit 0`, (b) `[ "$d" = "*" ] && continue`,
+  // (c) trailing `exit 0` to override loop-last-command exit status.
+  const openCmd =
+    `DIR="$HOME/.claude/roles/${roleName}/bounties"; [ -d "$DIR" ] || exit 0; ` +
+    'cd "$DIR" || exit 0; ' +
+    'for d in */; do d="${d%/}"; [ "$d" = "*" ] && continue; ' +
+    '[ "$d" = "archive" ] && continue; ' +
+    '[ -f "$d/bounty.json" ] && echo "===DIR:$d===" && cat "$d/bounty.json"; done; ' +
+    'exit 0';
+
+  const openStdout = await execWithTimeout(conn, openCmd);
+  let archiveStdout = "";
+  if (includeArchived) {
+    const archiveCmd =
+      `DIR="$HOME/.claude/roles/${roleName}/bounties/archive"; [ -d "$DIR" ] || exit 0; ` +
+      'cd "$DIR" || exit 0; ' +
+      'for d in */; do d="${d%/}"; [ "$d" = "*" ] && continue; ' +
+      '[ -f "$d/bounty.json" ] && echo "===DIR:$d===" && cat "$d/bounty.json"; done; ' +
+      'exit 0';
+    archiveStdout = await execWithTimeout(conn, archiveCmd).catch(() => "");
+  }
+
+  function parseDelimited(stdout: string, roleNameForLog: string, isArchive: boolean): unknown[] {
+    const results: unknown[] = [];
+    if (!stdout) return results;
+    const chunks = stdout.split("===DIR:");
+    for (const chunk of chunks) {
+      if (!chunk.trim()) continue;
+      const separatorIdx = chunk.indexOf("===");
+      if (separatorIdx === -1) continue;
+      const dirName = chunk.slice(0, separatorIdx).trim();
+      const jsonContent = chunk.slice(separatorIdx + 3).trim();
+      if (!dirName || !jsonContent) continue;
+      try {
+        const parsed = JSON.parse(jsonContent) as Record<string, unknown>;
+        results.push(normalizeBounty(parsed, dirName));
+      } catch (err) {
+        sshLogger.error(
+          `identity-artifact-reader: failed to parse remote ${isArchive ? "archive " : ""}role bounty.json`,
+          err instanceof Error ? err : new Error(String(err)),
+          {
+            operation: isArchive
+              ? "role_bounties_archive_remote_parse_error"
+              : "role_bounties_remote_parse_error",
+            roleName: roleNameForLog,
+            dirName,
+          },
+        );
+        // Skip poisoned entry.
+      }
+    }
+    return results;
+  }
+
+  const bounties = parseDelimited(openStdout, roleName, false);
+  const archivedBounties = parseDelimited(archiveStdout, roleName, true);
+
+  return { bounties, archivedBounties };
+}
+
+// ---------------------------------------------------------------------------
+// 6d. readRoleWakeupsByName — Phase 90 Plan 90-07 (D-08.3)
+// ---------------------------------------------------------------------------
+
+/** Read all wakeup specs for a role directly by role name — WITHOUT the
+ *  identity two-step used by readRoleWakeups. Byte-shape mirror of
+ *  readRoleWakeups MINUS the resolveRoleForIdentity step (since roleName
+ *  arrives directly, use it after ROLE_NAME_PATTERN validation).
+ *
+ *  Sibling of readRoleFileByName / readRoleBountiesByName — role-name-keyed
+ *  counterpart for the RoleModal wakeups tab (Phase 90 Plan 90-04). D-08.3
+ *  planner-pick.
+ *
+ *  Return shape identical to readRoleWakeups: `{ wakeups: Wakeup[] }`.
+ *  Poisoned per-file JSON logged (operation "role_wakeups_by_name_*_parse_error")
+ *  and skipped — one bad wakeup file does not poison the whole list.
+ */
+export async function readRoleWakeupsByName(
+  conn: SSHClientType | null,
+  roleName: string,
+): Promise<{ wakeups: Wakeup[] }> {
+  // Gate BEFORE any I/O.
+  if (typeof roleName !== "string" || !ROLE_NAME_PATTERN.test(roleName)) {
+    throw new Error("invalid roleName");
+  }
+
+  if (conn === null) {
+    // LOCAL branch — mirrors readRoleWakeups LOCAL rooted at
+    // ~/.claude/roles/<roleName>/wakeups/
+    const root = getLocalRolesRoot();
+    const wakeupsDir = path.join(root, roleName, "wakeups");
+    let dirEntries: string[];
+    try {
+      dirEntries = await fs.readdir(wakeupsDir);
+    } catch (err: unknown) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        (err as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
+        return { wakeups: [] };
+      }
+      throw err;
+    }
+    const jsonFiles = dirEntries.filter((e) => e.endsWith(".json"));
+    const wakeups: Wakeup[] = [];
+    for (const filename of jsonFiles) {
+      const filePath = path.join(wakeupsDir, filename);
+      try {
+        const raw = await fs.readFile(filePath, "utf-8");
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        const stem = filename.replace(/\.json$/, "");
+        const name = typeof parsed.name === "string" ? parsed.name : stem;
+        const enabled =
+          typeof parsed.enabled === "boolean" ? parsed.enabled : false;
+        const instruction =
+          typeof parsed.instruction === "string" ? parsed.instruction : "";
+        const scheduleHuman = humanizeWakeupSchedule(parsed.schedule);
+        wakeups.push({ slug: stem, name, enabled, scheduleHuman, schedule: parsed.schedule ?? null, instruction });
+      } catch (err) {
+        sshLogger.error(
+          "identity-artifact-reader: failed to parse local role wakeup JSON (by name)",
+          err instanceof Error ? err : new Error(String(err)),
+          {
+            operation: "role_wakeups_by_name_local_parse_error",
+            roleName,
+            filename,
+          },
+        );
+        // Skip poisoned entry.
+      }
+    }
+    return { wakeups };
+  }
+
+  // REMOTE branch — delimiter-based one-liner. roleName validated by
+  // ROLE_NAME_PATTERN above; direct interpolation inside double quotes is
+  // shell-safe.
+  const cmd =
+    `cd "$HOME/.claude/roles/${roleName}/wakeups" 2>/dev/null && ` +
+    'for f in *.json; do echo "===FILE:$f==="; cat "$f"; done';
+  let stdout: string;
+  try {
+    stdout = await execWithTimeout(conn, cmd);
+  } catch {
+    return { wakeups: [] };
+  }
+
+  if (!stdout) return { wakeups: [] };
+
+  const wakeups: Wakeup[] = [];
+  const chunks = stdout.split("===FILE:");
+  for (const chunk of chunks) {
+    if (!chunk.trim()) continue;
+    const separatorIdx = chunk.indexOf("===");
+    if (separatorIdx === -1) continue;
+    const filename = chunk.slice(0, separatorIdx).trim();
+    const jsonContent = chunk.slice(separatorIdx + 3).trim();
+    if (!filename.endsWith(".json") || !jsonContent) continue;
+    try {
+      const parsed = JSON.parse(jsonContent) as Record<string, unknown>;
+      const stem = filename.replace(/\.json$/, "");
+      const name = typeof parsed.name === "string" ? parsed.name : stem;
+      const enabled =
+        typeof parsed.enabled === "boolean" ? parsed.enabled : false;
+      const instruction =
+        typeof parsed.instruction === "string" ? parsed.instruction : "";
+      const scheduleHuman = humanizeWakeupSchedule(parsed.schedule);
+      wakeups.push({ slug: stem, name, enabled, scheduleHuman, schedule: parsed.schedule ?? null, instruction });
+    } catch (err) {
+      sshLogger.error(
+        "identity-artifact-reader: failed to parse remote role wakeup JSON (by name)",
+        err instanceof Error ? err : new Error(String(err)),
+        {
+          operation: "role_wakeups_by_name_remote_parse_error",
+          roleName,
+          filename,
+        },
+      );
+      // Skip poisoned entry.
+    }
+  }
+  return { wakeups };
+}
+
+// ---------------------------------------------------------------------------
+// 6e. writeRoleWakeupByName (create-or-update) — Phase 90 Plan 90-07 (D-08.3)
+// ---------------------------------------------------------------------------
+
+/** Write a role-scope wakeup spec by role name — full-overwrite of
+ *  ~/.claude/roles/<roleName>/wakeups/<slug>.json where <slug> is derived
+ *  from spec.name via kebab-case normalization. Byte-shape mirror of
+ *  writeRoleWakeupCreate/writeRoleWakeupUpdate combined MINUS the
+ *  resolveRoleForIdentity step.
+ *
+ *  Unlike writeRoleWakeupCreate (which throws on clobber), this writer
+ *  performs a full-overwrite — the plan spec calls this "create or update"
+ *  semantics per the plan's must_have wording ("full-overwrite of the file").
+ *  Same atomic tmp+rename pattern as the identity/role wakeup writers.
+ *
+ *  Returns the refreshed {wakeups} list post-write via readRoleWakeupsByName
+ *  so the caller can atomically re-render without a follow-up read (mirrors
+ *  writeRoleWakeupCreate's convention).
+ *
+ *  Guards fire BEFORE any I/O:
+ *   1. ROLE_NAME_PATTERN.test(roleName)
+ *   2. validateWakeupSpec(spec) — name/enabled/schedule/instruction shape.
+ *   3. slug normalization + IDENTITY_SLUG_RE.test(slug).
+ */
+export async function writeRoleWakeupByName(
+  conn: SSHClientType | null,
+  roleName: string,
+  spec: WakeupSpec,
+): Promise<{ wakeups: Wakeup[] }> {
+  // Gate 1: role-name.
+  if (typeof roleName !== "string" || !ROLE_NAME_PATTERN.test(roleName)) {
+    throw new Error("invalid roleName");
+  }
+  // Gate 2: spec shape.
+  validateWakeupSpec(spec);
+  // Gate 3: derived slug.
+  const slug = normalizeWakeupSlug(spec.name);
+  if (!IDENTITY_SLUG_RE.test(slug)) {
+    throw new Error("name normalizes to empty or invalid slug");
+  }
+
+  // Canonical body serialized once so LOCAL + REMOTE write identical bytes.
+  const body = JSON.stringify(
+    { name: spec.name, enabled: spec.enabled, schedule: spec.schedule, instruction: spec.instruction },
+    null,
+    2,
+  ) + "\n";
+
+  if (conn === null) {
+    const root = getLocalRolesRoot();
+    const wakeupsDir = path.join(root, roleName, "wakeups");
+    // Defensive mkdir -p — mirrors writeRoleWakeupCreate L1583.
+    await fs.mkdir(wakeupsDir, { recursive: true });
+    const filePath = path.join(wakeupsDir, slug + ".json");
+    const tmpPath = filePath + ".tmp";
+    await fs.writeFile(tmpPath, body, "utf-8");
+    await fs.rename(tmpPath, filePath);
+    return readRoleWakeupsByName(conn, roleName);
+  }
+
+  // REMOTE branch — mkdir -p + python3 tmp+rename write (mirrors
+  // writeRoleWakeupCreate REMOTE MINUS the clobber check since this is
+  // create-or-update semantics per plan spec).
+  const targetPath = `$HOME/.claude/roles/${roleName}/wakeups/${slug}.json`;
+  const mkdirCmd = `mkdir -p "$HOME/.claude/roles/${roleName}/wakeups"`;
+  await execWithTimeout(conn, mkdirCmd);
+  const script =
+    'import json,os,sys\n' +
+    'p=sys.argv[1]\n' +
+    'd=json.loads(sys.stdin.read())\n' +
+    'tmp=p+".tmp"\n' +
+    'with open(tmp,"w") as f: json.dump(d,f,indent=2); f.write("\\n")\n' +
+    'os.rename(tmp,p)\n';
+  const payload = JSON.stringify({
+    name: spec.name,
+    enabled: spec.enabled,
+    schedule: spec.schedule,
+    instruction: spec.instruction,
+  }).replace(/'/g, "'\\''");
+  const writeCmd =
+    `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} "${targetPath}"`;
+  await execWithTimeout(conn, writeCmd);
+  return readRoleWakeupsByName(conn, roleName);
+}
+
+// ---------------------------------------------------------------------------
+// 6f. deleteRoleWakeupByName — Phase 90 Plan 90-07 (D-08.3)
+// ---------------------------------------------------------------------------
+
+/** Delete a role-scope wakeup by role name —
+ *  ~/.claude/roles/<roleName>/wakeups/<wakeupName>.json. Idempotent (succeeds
+ *  silently if the file is already absent — same as writeRoleWakeupDelete).
+ *  Byte-shape mirror of writeRoleWakeupDelete MINUS the resolveRoleForIdentity
+ *  step.
+ *
+ *  Guards fire BEFORE any I/O:
+ *   1. ROLE_NAME_PATTERN.test(roleName)
+ *   2. IDENTITY_SLUG_RE.test(wakeupName) — safe-filename gate to prevent SSH
+ *      path escape via `..` etc.
+ *
+ *  Returns the refreshed {wakeups} list post-delete via readRoleWakeupsByName.
+ */
+export async function deleteRoleWakeupByName(
+  conn: SSHClientType | null,
+  roleName: string,
+  wakeupName: string,
+): Promise<{ wakeups: Wakeup[] }> {
+  if (typeof roleName !== "string" || !ROLE_NAME_PATTERN.test(roleName)) {
+    throw new Error("invalid roleName");
+  }
+  if (!IDENTITY_SLUG_RE.test(wakeupName)) {
+    throw new Error("invalid wakeup slug");
+  }
+
+  if (conn === null) {
+    const root = getLocalRolesRoot();
+    const filePath = path.join(root, roleName, "wakeups", wakeupName + ".json");
+    try {
+      await fs.unlink(filePath);
+    } catch (err: unknown) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        (err as NodeJS.ErrnoException).code === "ENOENT"
+      ) {
+        // Idempotent — file already gone.
+      } else {
+        throw err;
+      }
+    }
+    return readRoleWakeupsByName(conn, roleName);
+  }
+
+  // REMOTE branch — `rm -f` is idempotent.
+  const cmd = `rm -f "$HOME/.claude/roles/${roleName}/wakeups/${wakeupName}.json"`;
+  await execWithTimeout(conn, cmd);
+  return readRoleWakeupsByName(conn, roleName);
+}
+
+// ---------------------------------------------------------------------------
 // 7. writeIdentityBountyPriority — patch bounty.json's priority field
 // ---------------------------------------------------------------------------
 //
