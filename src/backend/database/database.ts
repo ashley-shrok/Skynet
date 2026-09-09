@@ -30,6 +30,11 @@ import identityCloneRoutes from "./routes/identity-clone.js";
 import identityPoolRoutes from "../pool/pool-routes.js";
 import rolesListForHostRoutes from "./routes/roles-list-for-host.js";
 import rolesCreateRoutes from "./routes/roles-create.js";
+// Phase 90 Plan 90-02 (D-08.2): GET /roles/:name/avatar?hostId=<n> — role
+// avatar serve endpoint. Mounted at the same /roles base as the list +
+// create routers; the depth difference (`/` vs `/:name/avatar`) keeps them
+// from colliding under Express's chained-router mount.
+import rolesRoutes from "./routes/roles.js";
 import globalFilesListRoutes from "./routes/global-files.js";
 import globalFilesReadWriteRoutes from "./routes/global-files-read-write.js";
 // Phase 44 SKILLED-01: /skills-editor router — 7 endpoints
@@ -1899,6 +1904,11 @@ app.use("/roles", rolesListForHostRoutes);
 // same mount by chaining app.use. The list router only handles GET so POST
 // falls through to this router. Both /roles mounts appear BEFORE /identities.
 app.use("/roles", rolesCreateRoutes);
+// Phase 90 Plan 90-02 (D-08.2): GET /roles/:name/avatar?hostId=<n>. Same
+// /roles base again — chains cleanly because this router only defines
+// `router.get("/:name/avatar")`, which is depth-2 and cannot shadow the
+// list router's depth-0 `router.get("/")` enumeration route.
+app.use("/roles", rolesRoutes);
 // Phase 23 GEFM-03: GET /global-files?hostId=<n> — reads the per-host
 // configured file list from /app/data/global-files.json. Wave-2 plan
 // adds a second router on the same base path for POST /read + PUT /write.

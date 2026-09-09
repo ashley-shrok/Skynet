@@ -299,6 +299,20 @@ export async function listRolesForHost(hostId: number): Promise<RoleSummary[]> {
   }
 }
 
+// ─── Phase 90 Plan 90-02 (D-08.2): role avatar URL builder ───────────────────
+// Backing route: src/backend/database/routes/roles.ts
+// GET /roles/:name/avatar?hostId=<n> → image bytes with correct Content-Type
+// (404 if the role has no `avatar:` frontmatter or the sibling file is missing).
+//
+// Consumers: the Plan 90-05 roles-list modal (`.pv-row` rows carry a 40px
+// round `.pv-avatar` with `<img src={roleAvatarUrl(...)}>`) and the Plan
+// 90-04 role modal header. Returns a URL string for `<img src>` consumption —
+// no fetching function needed; matches the identity-avatar pattern where the
+// URL is baked into `identity.avatarUrl` and rendered directly.
+export function roleAvatarUrl(hostId: number, roleName: string): string {
+  return `/roles/${encodeURIComponent(roleName)}/avatar?hostId=${hostId}`;
+}
+
 // ─── Phase 80 Plan 80-05: pool name picker ───────────────────────────────────
 // Backing route: src/backend/pool/pool-routes.ts (plan 80-04)
 // POST /identities/pool/pick with JSON body {role, hostId} → { name: string }
