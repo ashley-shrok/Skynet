@@ -83,3 +83,47 @@ Both live in the /open transcript; the second is the reference for the identity-
 Related side-effect the phase should handle: the "New role" entry in the three-dots menu is retired in this phase, so any existing tests that assert its presence need updating (there is one, per the recent Phase 88 drift commit).
 
 Auto-proceed from vehicle-pick into `/gsd:discuss-phase` per the build skill; use this shape file as the seed for CONTEXT.md rather than re-eliciting the discovery.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-09
+**Vehicle used:** GSD phase (10 plans across 4 waves, 90-01 through 90-10)
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · role-scope tabs peeled out of the identity modal into a dedicated role modal; new roles-list modal is the front door; identity modal simplifies to identity-scope only with a title-line jump-back-to-role
+- **Shape: roles-list modal** — present · reached from three-dots "Edit roles…", vertical list of pv-row conversation-row rows with 40px avatar + display name + chevron, alphabetical, swap-not-stack row click, "+ New role" in header opens CreateRoleDialog
+- **Shape: role modal** — present · owns role file / runbooks / bounties / wakeups tabs; addressed by role name; hue-tinted chrome matches the row that opened it; no identity context; role-file tab grows the cosmetic edit block (title + color + voice + avatar) minus inherit/override
+- **Shape: identity modal refactor** — present · scope switch removed; four role-scope tabs removed; three identity-scope tabs (identity / wakeups / telegram) retained; title-line clickable treatment (dotted underline + chevron + hover shifts) added with displayName fallback when no title is set
+- **Shape: supporting piece (enumerate roles with cosmetics)** — present · GET /roles?hostId extended to include title, displayName, colorHue, voice, avatar per entry; also role-avatar GET + POST endpoints and role-name-keyed write path
+- **Philosophy: roles list is a directory not a dashboard** — present · rows carry only avatar + name + chevron; no bounty counts, identity counts, or activity glances
+- **Philosophy: role modal is role-scope not identity-adjacent** — present · no identity chip, no back-to-identity button, no preserved scope memory; every read/write addressed by role name after Plan 90-10 shim removal
+- **Philosophy: identity modal is a pure identity surface with quiet jump to role** — present · title-line treatment is a small subtitle-line decoration, not a headline; identity remains what the modal is about
+- **Prior context: three-dots menu swap** — present · order after swap is New agent · Edit roles… · Edit global files… · Edit skills…; "New role" entry retired and its capability folds into the roles-list modal's header button
+- **Prior context: role-level cosmetics treated as first-class** — present · backend surfaces role frontmatter cosmetics via extractCosmeticsFromFrontmatter; roles-list rows read them directly; neutral placeholder only in hand-broken-file edge case
+- **What would make it wrong: unrecognisable roles list** — present · rows use pv-row treatment with full hue-tinted glass gradient, 40px round hue avatar, display name, chevron — matches conversation-list row visual language
+- **What would make it wrong: title-line treatment invisible or too loud** — present · dotted underline + trailing chevron + brighter tone; hover shifts to solid underline + full chevron opacity; does not compete with displayName for attention
+- **What would make it wrong: role modal remembers which identity you came from** — present · no back-to-identity button; no identity chip; no scope memory; Plan 90-10 explicitly removed the earlier identity-shim prop
+- **What would make it wrong: role-scope content goes missing after the split** — present · role file, runbooks, bounties, and wakeups all lifted into RoleModal with the same tab bodies; role-file tab additionally gains cosmetic-edit block
+- **What would make it wrong: row click stacks instead of swaps** — present · row click closes RolesListModal via setRolesListModalOpen(false) then opens RoleModal via setRoleModalOpenState; one modal at a time
+- **What would make it wrong: role modal chrome hue diverges from the row** — present · role modal DialogContent gradient/border/box-shadow are all keyed on roleCosmetics.colorHue (same hue read from the RoleSummary that keyed the row)
+- **Scope edges: in-scope items delivered** — present · all three surface changes, menu-entry swap, "+ New role" inside roles-list header, title-line treatment, enumerate-roles-with-cosmetics, swap-not-stack, role-hue chrome, tests across the touched UI + supporting piece
+- **Scope edges: out-of-scope items respected** — present · no changes to role-scope tab body contents; no changes to identity-scope tabs; no changes to avatar-flow runbook; no new role-cosmetic editor UI beyond the block described in D-01
+- **Scope edges: deferred items respected** — present · no row enrichment with state; no search inside the list; no cross-fleet aggregation; no recently-active sort
+- **Scope edges: tempting-but-no items respected** — present · no recently-active sort; no role picker chip in identity modal beyond the title-line treatment; no last-viewed-role sync between entry points
+- **Shape line 21: role modal opens in chat region when swapped from identity modal** — drifted · role modal always portals to document.body regardless of entry path; endorsed by user as the settled shape — "yeah, I like the full viewport situation, so we're fine"
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+One deliberate override of the shape's original wording: line 21 said the role modal should open in the pane's chat region when swapped in from the identity modal, but the discuss-phase (CONTEXT.md D-03) locked always-global-viewport in both entry paths, and the user endorsed this as the settled shape at close-out. Otherwise a clean pass: every named commitment is present in the material, and no additions crept in beyond planner-authorised discretion items (empty-state secondary "+ New role" button in the roles-list body, per D-05 planner-picks-empty-state).
