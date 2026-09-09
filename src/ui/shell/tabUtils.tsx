@@ -20,14 +20,20 @@ const IdentitySessionPane = lazy(() =>
   import("@/shell/IdentitySessionPane").then((m) => ({ default: m.IdentitySessionPane })),
 );
 const GuacamoleApp = lazy(() => import("@/features/guacamole/GuacamoleApp"));
-const RelayRoomSessionPane = lazy(() =>
-  import("@/shell/RelayRoomSessionPane").then((m) => ({ default: m.RelayRoomSessionPane })),
-);
 import type {
   TerminalHandle,
   TerminalHostConfig,
 } from "@/features/terminal/Terminal";
 import { PrettyLandingCard } from "@/features/pretty-view/PrettyLandingCard";
+// Phase 93 Slice 4 (D-04): relay-room tabs now route through the shared
+// chat surface (PrettyView) with source.kind === "relay". The standalone
+// RelayRoomSessionPane retires; the pretty-view surface subsumes it via
+// Slice 1-3's source-prop machinery (discriminated-union adapter, multi-
+// badge anchor, case-selected send, ChatSurfaceErrorState). PrettyView is
+// imported directly (not lazy) — Slice 1 already threads PrettyView into
+// IdentitySessionPane so it's on the harness code path; adding a second
+// mount site here doesn't materially move the cold-start chunk cost.
+import { PrettyView } from "@/features/pretty-view/PrettyView";
 import type { Tab, TabType, Host } from "@/types/ui-types";
 import type { SSHHost } from "@/types";
 import { useTabsSafe } from "@/shell/TabContext";
@@ -176,7 +182,15 @@ function TerminalOrIdentitySessionPane({
   onTmuxSessionMissing,
 }: {
   tab: Tab;
-  host: Host;
+  // Phase 93 Slice 4 (D-06): host widened to `Host | null`. Relay-room tabs
+  // (sessionKind === "relay-room") have no fleet host — the room lives on
+  // the Matrix relay. The renderTabContent case "terminal" early-return
+  // that used to route relay-room tabs directly to RelayRoomSessionPane
+  // BEFORE the host-null gate retires; instead the host-null check widens
+  // to permit sessionKind === "relay-room" past it, and the relay branch
+  // inside THIS component handles the host-optional case. Non-relay
+  // terminal tabs still require a host at the caller (renderTabContent).
+  host: Host | null;
   label: string;
   isVisible: boolean;
   attach: boolean;
@@ -207,18 +221,46 @@ function TerminalOrIdentitySessionPane({
       console.warn("relay-room tab missing relayRoomId", { tabId: tab.id });
       // Fall through to the existing dispatcher below.
     } else {
+      // Phase 93 Slice 4 (D-04): mount the shared chat surface with a relay-
+      // kind source. PrettyView's case-branches (Slices 1-3) drive:
+      //   - source-prop-selected adapter (useRelayAdapter over WS)
+      //   - MultiBadgeAnchor rendering participants (Slice 2)
+      //   - case-selected handleComposeSend routing to adapter.sendMessage
+      //   - ChatSurfaceErrorState on adapter.error !== null
+      //   - ComposeBox mode="relay" hiding Row 1 + Paperclip
+      // The `hostId` + `tmuxSession` flat props are passed as inert
+      // defaults (0 / "") — the harness-only code paths that read them
+      // are gated behind `source.kind === "harness"` and never fire for
+      // a relay source. Suspense wrapper preserved for parity with the
+      // pre-Slice-4 mount UX (PrettyView isn't lazy at this call site,
+      // so the boundary is harmless; matches surrounding pattern).
       return (
         <Suspense fallback={<EmptyState icon={TerminalSquare} messageKey="terminal.noHostSelected" />}>
-          <RelayRoomSessionPane
-            tab={tab}
-            roomId={tab.relayRoomId}
-            roomTitle={tab.relayRoomTitle ?? null}
+          <PrettyView
+            source={{
+              kind: "relay",
+              roomId: tab.relayRoomId,
+              roomTitle: tab.relayRoomTitle ?? null,
+            }}
+            hostId={0}
+            tmuxSession=""
+            className="h-full w-full"
             isVisible={isVisible}
-            onCloseTab={onCloseTab}
           />
         </Suspense>
       );
     }
+  }
+
+  // Phase 93 Slice 4 (D-06): past the relay branch above, all remaining
+  // branches (identity-pane, plain-terminal) require a fleet host. If the
+  // caller passed host=null and sessionKind isn't "relay-room" (or fell
+  // through the defensive-warn path with missing relayRoomId), render the
+  // "no host selected" empty state. This restores the pre-Slice-4
+  // host-required invariant for non-relay branches without needing the
+  // renderTabContent early-return to double-gate.
+  if (!host) {
+    return <EmptyState icon={TerminalSquare} messageKey="terminal.noHostSelected" />;
   }
 
   const identityKey = tab.targetTmuxSession
@@ -303,34 +345,22 @@ export function renderTabContent(
       return <PrettyLandingCard />;
 
     case "terminal":
-      // Phase 91 UAT fix 2026-09-09 (Ashley): relay-room tabs are opened with
-      // type="terminal" + host=null (they have no fleet host — the room lives
-      // on the Matrix relay). The `!host` early return below would otherwise
-      // short-circuit them to "no host selected" and never route to the
-      // relay-room pane. Render RelayRoomSessionPane inline here BEFORE the
-      // host check — mirrors the identical branch inside
-      // TerminalOrIdentitySessionPane below (L204), just placed above the
-      // host-required gate so relay-room tabs reach the pane.
-      if (tab.sessionKind === "relay-room" && tab.relayRoomId) {
-        return (
-          <Suspense fallback={<EmptyState icon={TerminalSquare} messageKey="terminal.noHostSelected" />}>
-            <RelayRoomSessionPane
-              tab={tab}
-              roomId={tab.relayRoomId}
-              roomTitle={tab.relayRoomTitle ?? null}
-              isVisible={isVisible}
-              onCloseTab={onCloseTab}
-            />
-          </Suspense>
-        );
-      }
-      if (!host)
+      // Phase 93 Slice 4 (D-06): host-null gate widens for relay-room tabs.
+      // Previous Phase 91 UAT-fix early-return that mounted RelayRoomSessionPane
+      // inline HERE (before the host-null check) retires — TerminalOrIdentitySessionPane's
+      // relay branch (Slice 4 rewire above) now handles the host-optional case
+      // with a direct PrettyView-with-relay-source mount. Non-relay terminal
+      // tabs still require a host (unchanged behavior); relay-room tabs pass
+      // through with host=null to TerminalOrIdentitySessionPane which mounts
+      // the shared chat surface.
+      if (!host && tab.sessionKind !== "relay-room") {
         return (
           <EmptyState
             icon={TerminalSquare}
             messageKey="terminal.noHostSelected"
           />
         );
+      }
       // Phase 41 Plan 02: dispatch through TerminalOrIdentitySessionPane which
       // uses useIdentities().byKey to route identity panes → IdentitySessionPane
       // and non-identity terminal panes → TerminalTabContent (byte-unchanged).

@@ -1,24 +1,26 @@
 /**
- * Phase 90 Plan 07 Task 2 — tabUtils.tsx dispatcher widening tests.
+ * Phase 93 Slice 4 — tabUtils.tsx dispatcher rewire tests (D-04, D-06, D-21).
  *
- * The existing `TerminalOrIdentitySessionPane` dispatcher (in tabUtils.tsx)
- * has two branches: identity-pane vs plain terminal. This plan adds a THIRD
- * branch placed FIRST (most-specific discriminator wins): if
- * `tab.sessionKind === "relay-room"` AND `tab.relayRoomId` is set, mount
- * <RelayRoomSessionPane>. If sessionKind is 'relay-room' but relayRoomId is
- * missing, log-and-fall-through (defense against inconsistent tab-open sites).
+ * The dispatcher retires the standalone RelayRoomSessionPane and routes
+ * relay-room tabs to the shared chat surface `PrettyView` with a relay-kind
+ * source prop (D-04). The renderTabContent case "terminal" early-return
+ * that gated the pre-Slice-4 inline RelayRoomSessionPane mount ahead of the
+ * host-null gate retires (D-06); host-null handling moves inside
+ * TerminalOrIdentitySessionPane's relay branch, and the case "terminal"
+ * host-null gate widens with a `!== "relay-room"` exception.
  *
  * Behaviors:
  *   1. sessionKind harness (or undefined) + identityKey present → mounts
  *      IdentitySessionPane (regression gate).
  *   2. sessionKind harness (or undefined) + no identityKey → mounts
  *      TerminalTabContent (regression gate).
- *   3. sessionKind relay-room + relayRoomId set → mounts RelayRoomSessionPane.
+ *   3. sessionKind relay-room + relayRoomId set → mounts PrettyView with
+ *      source.kind === "relay" (was: RelayRoomSessionPane pre-Slice-4).
  *   4. sessionKind relay-room + relayRoomId MISSING → console.warn
  *      "relay-room tab missing relayRoomId" and falls through to the existing
  *      dispatcher (no crash).
  *   5. (implicit via Tests 1-4) — no regression on the existing branches.
- *   6. Source order — the new branch is placed BEFORE the identity-pane
+ *   6. Source order — the relay-room branch appears BEFORE the identity-pane
  *      branch in tabUtils.tsx (verified via a text grep of the impl file).
  *
  * Mocks: each of the three inner components is replaced with a
@@ -32,17 +34,20 @@ import * as path from "node:path";
 
 // ── Mocks: swap the three inner components with data-testid doubles ─────────
 
-vi.mock("./RelayRoomSessionPane", () => ({
-  RelayRoomSessionPane: (props: {
-    roomId: string;
-    roomTitle: string | null;
-    isVisible: boolean;
+// Phase 93 Slice 4 (D-04): relay-room tabs now route to PrettyView with a
+// relay-kind source. Mock exposes source.kind + roomId + isVisible so the
+// dispatch-target assertions can inspect what tabUtils passed through.
+vi.mock("@/features/pretty-view/PrettyView", () => ({
+  PrettyView: (props: {
+    source?: { kind?: string; roomId?: string; roomTitle?: string | null };
+    isVisible?: boolean;
   }) => (
     <div
-      data-testid="mock-relay-room-session-pane"
-      data-room-id={props.roomId}
-      data-room-title={props.roomTitle ?? ""}
-      data-visible={String(props.isVisible)}
+      data-testid="mock-pretty-view"
+      data-source-kind={props.source?.kind ?? "none"}
+      data-room-id={props.source?.roomId ?? ""}
+      data-room-title={props.source?.roomTitle ?? ""}
+      data-visible={String(props.isVisible ?? false)}
     />
   ),
 }));
@@ -177,7 +182,7 @@ describe("tabUtils dispatcher: relay-room third branch", () => {
     render(<>{renderTabContent(tab)}</>);
     // Panes are lazy-loaded (post-2026-09-08 perf work) — await Suspense resolve.
     expect(await screen.findByTestId("mock-identity-session-pane")).not.toBeNull();
-    expect(screen.queryByTestId("mock-relay-room-session-pane")).toBeNull();
+    expect(screen.queryByTestId("mock-pretty-view")).toBeNull();
     expect(screen.queryByTestId("mock-terminal-tab-content")).toBeNull();
   });
 
@@ -188,7 +193,7 @@ describe("tabUtils dispatcher: relay-room third branch", () => {
     });
     render(<>{renderTabContent(tab)}</>);
     expect(await screen.findByTestId("mock-identity-session-pane")).not.toBeNull();
-    expect(screen.queryByTestId("mock-relay-room-session-pane")).toBeNull();
+    expect(screen.queryByTestId("mock-pretty-view")).toBeNull();
   });
 
   it("Test 2 (regression): sessionKind harness + no matching identityKey → TerminalTabContent", async () => {
@@ -199,10 +204,10 @@ describe("tabUtils dispatcher: relay-room third branch", () => {
     render(<>{renderTabContent(tab)}</>);
     expect(await screen.findByTestId("mock-terminal-tab-content")).not.toBeNull();
     expect(screen.queryByTestId("mock-identity-session-pane")).toBeNull();
-    expect(screen.queryByTestId("mock-relay-room-session-pane")).toBeNull();
+    expect(screen.queryByTestId("mock-pretty-view")).toBeNull();
   });
 
-  it("Test 3 (NEW): sessionKind relay-room + relayRoomId set → RelayRoomSessionPane", async () => {
+  it("Test 3 (Slice 4 rewire, D-04): sessionKind relay-room + relayRoomId set → PrettyView with source.kind === 'relay'", async () => {
     const tab = makeTab({
       sessionKind: "relay-room",
       relayRoomId: "!abc:matrix.example",
@@ -211,12 +216,41 @@ describe("tabUtils dispatcher: relay-room third branch", () => {
       targetTmuxSession: null,
     });
     render(<>{renderTabContent(tab, undefined, undefined, undefined, /* isVisible */ true)}</>);
-    const pane = await screen.findByTestId("mock-relay-room-session-pane");
-    expect(pane).not.toBeNull();
-    expect(pane.getAttribute("data-room-id")).toBe("!abc:matrix.example");
-    expect(pane.getAttribute("data-room-title")).toBe("Design room");
-    expect(pane.getAttribute("data-visible")).toBe("true");
+    const pv = await screen.findByTestId("mock-pretty-view");
+    expect(pv).not.toBeNull();
+    expect(pv.getAttribute("data-source-kind")).toBe("relay");
+    expect(pv.getAttribute("data-room-id")).toBe("!abc:matrix.example");
+    expect(pv.getAttribute("data-room-title")).toBe("Design room");
+    expect(pv.getAttribute("data-visible")).toBe("true");
     // Neither of the existing branches fired.
+    expect(screen.queryByTestId("mock-identity-session-pane")).toBeNull();
+    expect(screen.queryByTestId("mock-terminal-tab-content")).toBeNull();
+  });
+
+  it("Test 3b (Slice 4, D-06): relay-room tab with host: null still routes to PrettyView (not the 'no host selected' EmptyState)", async () => {
+    const tab = makeTab({
+      sessionKind: "relay-room",
+      relayRoomId: "!room:x",
+      relayRoomTitle: null,
+      targetTmuxSession: null,
+      host: undefined, // relay-room tabs have no fleet host
+    });
+    render(<>{renderTabContent(tab, undefined, undefined, undefined, /* isVisible */ true)}</>);
+    const pv = await screen.findByTestId("mock-pretty-view");
+    expect(pv).not.toBeNull();
+    expect(pv.getAttribute("data-source-kind")).toBe("relay");
+    expect(pv.getAttribute("data-room-id")).toBe("!room:x");
+  });
+
+  it("Test 3c (Slice 4 regression floor, D-06): non-relay terminal tab with host: null still returns 'no host selected' EmptyState", () => {
+    const tab = makeTab({
+      // sessionKind omitted / harness — this is a normal terminal tab
+      targetTmuxSession: "other-session",
+      host: undefined,
+    });
+    render(<>{renderTabContent(tab)}</>);
+    // Empty state renders (via translation-key text); no pane mounts.
+    expect(screen.queryByTestId("mock-pretty-view")).toBeNull();
     expect(screen.queryByTestId("mock-identity-session-pane")).toBeNull();
     expect(screen.queryByTestId("mock-terminal-tab-content")).toBeNull();
   });
@@ -239,8 +273,8 @@ describe("tabUtils dispatcher: relay-room third branch", () => {
       );
     });
     expect(matching).toBeDefined();
-    // Fall-through: no RelayRoomSessionPane; existing dispatcher rendered.
-    expect(screen.queryByTestId("mock-relay-room-session-pane")).toBeNull();
+    // Fall-through: no PrettyView (relay branch bailed); existing dispatcher rendered.
+    expect(screen.queryByTestId("mock-pretty-view")).toBeNull();
     expect(await screen.findByTestId("mock-terminal-tab-content")).not.toBeNull();
   });
 
@@ -258,5 +292,23 @@ describe("tabUtils dispatcher: relay-room third branch", () => {
     // (lower line number ↔ smaller string index in a monotonically-scanned
     // file). Guards against a future refactor that reorders branches.
     expect(relayIdx).toBeLessThan(identityIdx);
+  });
+
+  it("Test 7 (Slice 4 dispatcher discipline): tabUtils.tsx contains PrettyView import + mount, no RelayRoomSessionPane refs", async () => {
+    const filePath = path.resolve(
+      process.cwd(),
+      "src/ui/shell/tabUtils.tsx",
+    );
+    const source = await fs.readFile(filePath, "utf8");
+    // Direct import of PrettyView (Slice 4 rewire).
+    expect(source).toContain('from "@/features/pretty-view/PrettyView"');
+    // Relay branch mounts PrettyView with source.kind === "relay".
+    expect(source).toMatch(/kind:\s*"relay"/);
+    // RelayRoomSessionPane retired — no lazy import, no JSX mount. Comment
+    // references to the retired name are allowed (they document the swap).
+    expect(source).not.toMatch(/import\("@\/shell\/RelayRoomSessionPane/);
+    expect(source).not.toMatch(/<RelayRoomSessionPane\b/);
+    // Case "terminal" host-null gate now widens with a `!== "relay-room"` exception (D-06).
+    expect(source).toMatch(/!host\s*&&\s*tab\.sessionKind\s*!==\s*"relay-room"/);
   });
 });
