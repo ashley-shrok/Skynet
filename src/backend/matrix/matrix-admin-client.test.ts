@@ -1153,10 +1153,10 @@ describe("getRoomName", () => {
     }
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const url = fetchMock.mock.calls[0][0] as string;
-    // Client-server API (not admin API — m.room.name state event is a
-    // client-server concept, and the admin credential works on both).
+    // Synapse admin room-details endpoint — works for server-admins regardless
+    // of room membership. Response carries `name` at top level.
     expect(url).toBe(
-      `${HAPPY_CREDS.homeserverBase}/_matrix/client/v3/rooms/${encodeURIComponent("!r1:server")}/state/m.room.name`,
+      `${HAPPY_CREDS.homeserverBase}/_synapse/admin/v1/rooms/${encodeURIComponent("!r1:server")}`,
     );
     const opts = fetchMock.mock.calls[0][1] as RequestInit;
     expect(opts.method).toBe("GET");
@@ -1301,8 +1301,8 @@ describe("getRoomMessages (Phase 90 Plan 03 Task 1)", () => {
     expect(url).toContain("dir=b");
     expect(url).toContain("from=t99_cursor");
     expect(url).toContain("limit=20");
-    // Client-server API endpoint shape
-    expect(url).toContain("/_matrix/client/v3/rooms/");
+    // Synapse admin API endpoint shape — bypasses room-membership requirement.
+    expect(url).toContain("/_synapse/admin/v1/rooms/");
     expect(url).toContain("/messages?");
   });
 
