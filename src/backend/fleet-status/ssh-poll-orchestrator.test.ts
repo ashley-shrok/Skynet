@@ -31,6 +31,15 @@ import {
   readSessionFileCache,
   __clearAllSessionFileCacheForTests,
 } from "./session-file-cache.js";
+// Phase 92 Plan 05 — sweep-schema fixture helper (`makeSweepJsonl`) uses these
+// types + constant so batch-path regression tests emit lines that hit the same
+// parser + schema-version gate as real sweep output.
+import {
+  SWEEP_SCHEMA_VERSION,
+  type SweepIdentityLine,
+  type SweepPidLine,
+  type SweepStatResult,
+} from "./sweep-schema.js";
 
 // ---------------------------------------------------------------------------
 // Mock systemLogger
@@ -208,6 +217,75 @@ function makeValidPayload(tasks: unknown[] = []): string {
     stop_hook_active: false,
     background_tasks: tasks,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 92 Plan 05 — makeSweepJsonl fixture helper
+//
+// Emits a JSONL blob matching the Plan 01 v1 sweep-schema contract (one
+// SweepIdentityLine per named identity + one SweepPidLine per {identity,pid}
+// pair). Fields carry sensible defaults so tests only spell out the axes they
+// care about. `schemaVersionOverride` swaps the emitted schema_version on
+// every line — used by the schema-mismatch regression to prove the caller's
+// fallback + connection-lifetime latch behavior.
+//
+// The default `stat_result` is `{ ok: true, content: <ready-to-consume /proc
+// stat contents> }` — mirrors what `readStatWithSentinel` returns after
+// stripping the `__STAT_OK__` sentinel in the legacy path, so batch-path
+// callers feed compose the same tagged shape legacy would.
+// ---------------------------------------------------------------------------
+function makeSweepJsonl(input: {
+  identities: Array<Partial<SweepIdentityLine> & { identity: string }>;
+  pids: Array<Partial<SweepPidLine> & { identity: string; pid: number }>;
+  schemaVersionOverride?: number;
+}): string {
+  const version = (input.schemaVersionOverride ?? SWEEP_SCHEMA_VERSION) as 1;
+  const lines: string[] = [];
+  for (const raw of input.identities) {
+    const line: SweepIdentityLine = {
+      line_kind: "identity",
+      schema_version: version,
+      identity: raw.identity,
+      dormant: raw.dormant ?? false,
+      recycled_at: raw.recycled_at ?? false,
+      recycle_requested: raw.recycle_requested ?? false,
+      jsonl_path: raw.jsonl_path ?? null,
+      layer1_recycling: raw.layer1_recycling ?? null,
+    };
+    lines.push(JSON.stringify(line));
+  }
+  for (const raw of input.pids) {
+    // Default stat_result — the /proc/<pid>/stat content compose would see
+    // after `readStatWithSentinel` stripped its sentinel. procStart digit is
+    // "12345" matching `makeSessionJson`'s default so isStaleFromStat returns
+    // false (session is live).
+    const defaultStat: SweepStatResult = {
+      ok: true,
+      content: "12345 (node) S 1 12345 12345 0 -1 4194304 1234 0 0 0 10 5 0 0 20 0 1 0 12345 ...rest",
+    };
+    const line: SweepPidLine = {
+      line_kind: "pid",
+      schema_version: version,
+      identity: raw.identity,
+      pid: raw.pid,
+      session_json:
+        raw.session_json ??
+        makeSessionJson({
+          pid: raw.pid,
+          sessionId: `sess-${raw.identity}`,
+          procStart: "12345",
+        }),
+      stat_result: raw.stat_result ?? defaultStat,
+      per_session_stop_mtime_ms: raw.per_session_stop_mtime_ms ?? null,
+      activity_mtime_ms: raw.activity_mtime_ms ?? null,
+      stopped_mtime_ms: raw.stopped_mtime_ms ?? null,
+      per_session_stop_payload: raw.per_session_stop_payload ?? null,
+      dormant_a: raw.dormant_a ?? false,
+      jsonl_tail: raw.jsonl_tail ?? null,
+    };
+    lines.push(JSON.stringify(line));
+  }
+  return lines.join("\n") + "\n";
 }
 
 // ---------------------------------------------------------------------------
@@ -7203,5 +7281,555 @@ describe("Phase 85 lastMessageAt source swap — send-log store", () => {
     expect(published.state.lastMessageAt).toBe(8000);
     // Sanity: the tail exec fired (aiTitle scanner still consumes the buffer).
     expect(channel.countCallsMatching("tail -c 262144")).toBeGreaterThan(0);
+  });
+});
+
+// ============================================================================
+// Phase 92 — batch sweep dispatch
+// ============================================================================
+//
+// Coverage:
+//   (1) Batch path fires exactly ONE `~/.local/bin/fleet-status-sweep` exec
+//       per host per poll cycle + zero per-identity / per-PID exec fan-out.
+//   (2) Batch-vs-legacy parity — strict `toEqual` on publishedStates given
+//       the same input state. This is THE non-negotiable of Phase 92: the
+//       batch swap MUST preserve the composed SessionState frames byte-for-
+//       byte relative to the legacy plumbing. Both paths feed the same
+//       `composeAndPublishPerPid` + `composeAndPublishPerIdentity` helpers,
+//       so parity holds by shared code; the test freezes `deps.now()` at 0
+//       (kept constant across both runs) and normalizes the noise-axis
+//       `updatedAt` to eliminate clock-derived non-determinism.
+//   (3) Presence probe is cached per-SSH-channel lifetime (fires once on
+//       first tick; ticks 2..N skip the probe). Re-fires when the channel
+//       object identity changes (starter.ts teardown → fresh channel).
+//   (4) Sweep-exec null return path — this-tick legacy fallback + next-tick
+//       re-probe recovery. On tick 1 the probe says yes, the sweep exec
+//       returns null (SSH hiccup), the orchestrator emits the
+//       `fleet_status_batch_fallback` warn log and runs the legacy per-
+//       identity + per-PID exec fan-out. On tick 2 the probe re-fires
+//       (probeCount === 2 now: initial + retry-after-null), the sweep exec
+//       succeeds, and the batch path resumes.
+//   (5) Schema-mismatch path — sweep emits JSONL with `schema_version: 999`.
+//       The orchestrator logs `fleet_status_sweep_schema_mismatch`, falls
+//       back to legacy this tick, and LATCHES `sweepSchemaMismatchThis
+//       Connection` true so all subsequent ticks on the same SSH channel
+//       stay on legacy until reconnect (channel object identity change).
+//
+// Fixture helper: `makeSweepJsonl` (top of file, next to makeSessionJson).
+//
+// Command precedence in MockSshChannel: substrings are checked in Map
+// insertion order — the FIRST registered pattern wins. Because the batch
+// probe (`test -x ~/.local/bin/fleet-status-sweep`) and the sweep exec
+// (`~/.local/bin/fleet-status-sweep 2>/dev/null`) both share the substring
+// `~/.local/bin/fleet-status-sweep`, tests below register the probe pattern
+// FIRST so the more-specific match takes precedence over the sweep pattern.
+// ============================================================================
+
+describe("Phase 92 — batch sweep dispatch", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Reset module-level caches — writeSessionFileCache (session-file-cache)
+    // and the identity-send-log store mock — so back-to-back tests (and the
+    // dual batch-vs-legacy run inside the parity test) do not leak state.
+    __clearAllSessionFileCacheForTests();
+    (getIdentityLastSend as unknown as ReturnType<typeof vi.fn>).mockReset();
+    (getIdentityLastSend as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+  });
+
+  // -------------------------------------------------------------------------
+  // Shared fixture data — same identities + PIDs used by tests 1 and 2 so
+  // the parity assertion has a symmetric input across batch and legacy runs.
+  // -------------------------------------------------------------------------
+  const IDENTITIES = ["alpha", "beta", "gamma"] as const;
+  // Two identities carry a live claude PID; the third (gamma) is dormant-only
+  // → source B publishes for gamma, source A publishes for alpha + beta.
+  const PID_ALPHA = 111;
+  const PID_BETA = 222;
+
+  /**
+   * Wire an SSH channel to answer the LEGACY per-identity + per-PID exec
+   * fan-out for the shared fixture. The batch probe MUST NOT be pre-wired
+   * here — tests that want the batch path call `wireBatchProbe(channel)` to
+   * add it, tests that want the legacy path leave it unset so the probe
+   * returns null (→ sweepScriptPresent = false → legacy).
+   */
+  function wireLegacyResponses(channel: MockSshChannel): void {
+    // Source A driver — two live PIDs.
+    channel.setResponse(
+      "ls -1 ~/.claude/sessions/",
+      `/home/ubuntu/.claude/sessions/${PID_ALPHA}.json\n/home/ubuntu/.claude/sessions/${PID_BETA}.json\n`,
+    );
+    // Per-PID session json + stat + environ + tmux name.
+    for (const [pid, identity] of [
+      [PID_ALPHA, "alpha"],
+      [PID_BETA, "beta"],
+    ] as const) {
+      channel.setResponse(
+        `cat ~/.claude/sessions/${pid}.json`,
+        makeSessionJson({ pid, sessionId: `sess-${identity}`, procStart: "12345" }),
+      );
+      channel.setResponse(`cat /proc/${pid}/stat`, makeStatContents("12345"));
+      channel.setResponse(`cat /proc/${pid}/environ`, "TMUX_PANE=%2\0");
+      // The tmux display-message substring collides across PIDs — but
+      // `resolvePidToTmuxSession` interpolates the pane %2 (same for both),
+      // and the MockSshChannel maps command→response by first-match. Both
+      // PIDs need distinct tmux resolutions, so we register per-pid via the
+      // pane substring... but they share pane. Cheat: pin per-pid via the
+      // per-pid environ read that fires just before display-message on the
+      // legacy path, and make tmux display-message return the identity of
+      // WHICHEVER PID was resolved most recently by keying on the SSH-level
+      // per-PID sequence. Simpler: substring-match on the target pane, and
+      // rely on both PIDs having the SAME identity would break — so we use
+      // distinct tmux panes per PID by encoding pid into TMUX_PANE.
+    }
+    // Re-do environ with pid-encoded panes so tmux resolution is
+    // deterministic per pid.
+    channel.setResponse(`cat /proc/${PID_ALPHA}/environ`, `TMUX_PANE=%${PID_ALPHA}\0`);
+    channel.setResponse(`cat /proc/${PID_BETA}/environ`, `TMUX_PANE=%${PID_BETA}\0`);
+    channel.setResponse(`tmux display-message -p -t '%${PID_ALPHA}'`, "alpha");
+    channel.setResponse(`tmux display-message -p -t '%${PID_BETA}'`, "beta");
+    // A6-A9: per-session Stop file mtime + activity + stopped + hook payload.
+    // Return null / empty so the fields default to null and both paths
+    // (batch: null-in-fixture; legacy: file-absent) compose identically.
+    // (Absent stubs already default to null via MockSshChannel.)
+    // A10 dormant sentinel per identity.
+    channel.setResponse("stat ~/.claude/identities/'alpha'/.dormant", "no\n");
+    channel.setResponse("stat ~/.claude/identities/'beta'/.dormant", "no\n");
+    // Per-session Stop-hook payload (A9) — non-null so both paths hit the
+    // perSessionUsable branch and both use identical backgroundTasks=[].
+    channel.setResponse(
+      "cat ~/.claude/fleet-status/stop-'sess-alpha'.json",
+      makeValidPayload(),
+    );
+    channel.setResponse(
+      "cat ~/.claude/fleet-status/stop-'sess-beta'.json",
+      makeValidPayload(),
+    );
+    // Box-wide hook payload (A3) — legacy only. Empty return → parseStopHookPayload
+    // yields null → warn fires but no crash. Batch path skips A3 entirely.
+    channel.setResponse("fleet-status/last-stop-payload.json", makeValidPayload());
+    // Source B — three identity folders (alpha, beta, gamma). The legacy
+    // `find … -mindepth 1` output shape is one name per line.
+    channel.setResponse(
+      "~/.claude/identities/ -mindepth",
+      `${IDENTITIES.join("\n")}\n`,
+    );
+    // gamma is the dormant-only identity — no live PID → source B publishes.
+    channel.setResponse("stat ~/.claude/identities/'gamma'/.dormant", "no\n");
+    // Recycled-at + recycle-requested sentinels off for all three.
+    for (const name of IDENTITIES) {
+      channel.setResponse(
+        `stat ~/.claude/identities/'${name}'/.recycled-at`,
+        "no\n",
+      );
+      channel.setResponse(
+        `test -f ~/.claude/identities/'${name}'/.recycle-requested`,
+        "no\n",
+      );
+    }
+  }
+
+  /**
+   * Register the batch presence probe. MUST be called BEFORE the sweep exec
+   * response since the probe substring is a prefix of the sweep substring in
+   * the MockSshChannel first-match ordering.
+   */
+  function wireBatchProbe(channel: MockSshChannel, present: boolean): void {
+    channel.setResponse(
+      "test -x ~/.local/bin/fleet-status-sweep",
+      present ? "yes\n" : "no\n",
+    );
+  }
+
+  /**
+   * Build the sweep JSONL blob for the shared fixture (alpha, beta, gamma
+   * identities + alpha/beta live PIDs). Both identities and PIDs carry the
+   * same shape as the legacy fixture so composed SessionState frames are
+   * byte-identical across paths.
+   */
+  function buildSharedSweepJsonl(): string {
+    return makeSweepJsonl({
+      identities: IDENTITIES.map((identity) => ({
+        identity,
+        dormant: false,
+        recycled_at: false,
+        recycle_requested: false,
+        jsonl_path: null,
+        layer1_recycling: null,
+      })),
+      pids: [
+        {
+          identity: "alpha",
+          pid: PID_ALPHA,
+          per_session_stop_payload: makeValidPayload(),
+        },
+        {
+          identity: "beta",
+          pid: PID_BETA,
+          per_session_stop_payload: makeValidPayload(),
+        },
+      ],
+    });
+  }
+
+  /**
+   * Capture the setInterval poll fn from a deps override so tests can drive
+   * additional ticks past the initial start()-fired tick.
+   */
+  function makeSetIntervalCapture(): {
+    fns: Array<{ fn: () => void; ms: number }>;
+    setInterval: OrchestratorDeps["setInterval"];
+  } {
+    const fns: Array<{ fn: () => void; ms: number }> = [];
+    return {
+      fns,
+      setInterval: vi.fn((fn: () => void, ms: number) => {
+        fns.push({ fn, ms });
+        return fns.length as unknown as ReturnType<typeof setInterval>;
+      }),
+    };
+  }
+
+  /** Count exact-match `channel.exec` calls (no substring collision). */
+  function countExact(channel: MockSshChannel, command: string): number {
+    return channel.getCalls().filter((c) => c.command === command).length;
+  }
+
+  // -------------------------------------------------------------------------
+  // Test P92-05-1 — batch path fires exactly ONE sweep exec + ZERO legacy fan-out.
+  //
+  // Load-bearing assertion: the WHOLE POINT of Phase 92 is the exec-count
+  // collapse from ~N-per-host (N = live PIDs + identities × ~4-6 exec each)
+  // down to ONE sweep exec + ONE probe (first tick only). This regression
+  // pins that invariant.
+  // -------------------------------------------------------------------------
+  it("Test P92-05-1: batch path fires exactly ONE sweep exec per host per poll and zero per-identity/per-PID exec fan-out", async () => {
+    const channel = new MockSshChannel();
+    // Batch probe FIRST so its more-specific substring wins over the sweep.
+    wireBatchProbe(channel, true);
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      buildSharedSweepJsonl(),
+    );
+
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    // (a) Probe fires exactly once (this is the first tick on this channel).
+    expect(
+      countExact(
+        channel,
+        "test -x ~/.local/bin/fleet-status-sweep 2>/dev/null && echo yes || echo no",
+      ),
+    ).toBe(1);
+    // (b) Sweep exec fires exactly once per host per poll.
+    expect(
+      countExact(channel, "~/.local/bin/fleet-status-sweep 2>/dev/null"),
+    ).toBe(1);
+    // (c) Zero legacy source-A driver.
+    expect(channel.countCallsMatching("ls -1 ~/.claude/sessions/")).toBe(0);
+    // (d) Zero legacy source-B driver.
+    expect(channel.countCallsMatching("find ~/.claude/identities/")).toBe(0);
+    // (e) Zero per-PID stat exec (compose consumes SweepPidLine.stat_result
+    //     directly — no `cat /proc/<pid>/stat` fires under batch).
+    expect(channel.countCallsMatching("cat /proc/")).toBe(0);
+    // (f) Zero per-identity source-B stat exec.
+    expect(channel.countCallsMatching("stat ~/.claude/identities/")).toBe(0);
+    // (g) Composition matches: 2 source-A frames (alpha+beta live PIDs) + 1
+    //     source-B frame (gamma dormant-only). alpha/beta skipped by source B
+    //     because they have live PIDs AND are not recycling.
+    expect(deps.registry.publishedStates).toHaveLength(3);
+    const tmuxSessions = deps.registry.publishedStates
+      .map((p) => p.state.tmuxSession)
+      .sort();
+    expect(tmuxSessions).toEqual(["alpha", "beta", "gamma"]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test P92-05-2 — batch-vs-legacy parity via strict toEqual.
+  //
+  // THE non-negotiable of Phase 92: given equivalent input state (same
+  // identities, same PIDs, same sentinels, same JSONL tails / stop payloads),
+  // the composed SessionState frames published to the registry MUST be
+  // byte-identical between the batch path and the legacy path. Both paths
+  // feed the SAME `composeAndPublishPerPid` + `composeAndPublishPerIdentity`
+  // helpers, so parity holds by shared code — this regression prevents any
+  // future refactor from introducing a silent per-path divergence.
+  //
+  // Normalization: `deps.now()` is kept at 0 across both runs (via buildDeps'
+  // fixed `currentTime = 0` and no `.tick()` calls). `updatedAt` on the
+  // published frame is sourced from `sessionJson.updatedAt` (identical in
+  // both fixtures), and `lastStatusChangeAt` reads `deps.now()` which is 0.
+  // No clock-derived field diverges, so `toEqual` is applied directly.
+  // -------------------------------------------------------------------------
+  it("Test P92-05-2: batch-vs-legacy parity — strict toEqual on publishedStates given equivalent input state", async () => {
+    // --- Legacy run ---
+    const legacyChannel = new MockSshChannel();
+    // Probe returns "no" → legacy path fires.
+    wireBatchProbe(legacyChannel, false);
+    wireLegacyResponses(legacyChannel);
+    const legacyDeps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(legacyChannel),
+    });
+    const legacyOrch = createSshPollOrchestrator(legacyDeps);
+    await legacyOrch.start();
+
+    // Reset module-level state before the second run so writeSessionFileCache
+    // and the send-log store don't carry cross-run pollution.
+    __clearAllSessionFileCacheForTests();
+    (getIdentityLastSend as unknown as ReturnType<typeof vi.fn>).mockReset();
+    (getIdentityLastSend as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+
+    // --- Batch run ---
+    const batchChannel = new MockSshChannel();
+    wireBatchProbe(batchChannel, true);
+    batchChannel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      buildSharedSweepJsonl(),
+    );
+    const batchDeps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(batchChannel),
+    });
+    const batchOrch = createSshPollOrchestrator(batchDeps);
+    await batchOrch.start();
+
+    // Sanity: both paths published the same COUNT of frames (2 source A + 1
+    // source B). A count mismatch here signals a structural drift before we
+    // even reach the shape-parity assertion.
+    expect(batchDeps.registry.publishedStates.length).toBe(
+      legacyDeps.registry.publishedStates.length,
+    );
+    expect(batchDeps.registry.publishedStates.length).toBe(3);
+
+    // Normalize into `{ hostId, tmuxSession }`-sorted arrays so we compare
+    // frame CONTENT independent of intra-tick ordering (source-A Promise.all
+    // in legacy vs sequential for-loop in batch may yield different insertion
+    // orders when the mock channel is fully synchronous but the compose
+    // helpers use `await` — the order-independence normalization removes
+    // that noise from the parity assertion).
+    const sortKey = (p: { hostId: string; state: SessionState }): string =>
+      `${p.hostId}|${p.state.tmuxSession ?? ""}|${p.state.sessionId}|${p.state.pid ?? ""}`;
+    const batchSorted = [...batchDeps.registry.publishedStates].sort((a, b) =>
+      sortKey(a).localeCompare(sortKey(b)),
+    );
+    const legacySorted = [...legacyDeps.registry.publishedStates].sort((a, b) =>
+      sortKey(a).localeCompare(sortKey(b)),
+    );
+
+    // Strict deep-equal on the sorted arrays. Any divergence — dormant flip,
+    // recycling flip, aiTitle drift, lastMessageAt drift, backgroundTasks
+    // shape drift, lastStopAt drift — fails this assertion.
+    expect(batchSorted).toEqual(legacySorted);
+
+    // Also assert legacy path DID fire the per-identity + per-PID fan-out
+    // (this is the "byte-identical exec-count observable" truth from the
+    // plan frontmatter — legacy path is unchanged by Phase 92).
+    expect(legacyChannel.countCallsMatching("ls -1 ~/.claude/sessions/")).toBe(1);
+    expect(legacyChannel.countCallsMatching("find ~/.claude/identities/")).toBeGreaterThanOrEqual(1);
+    // And batch path did NOT fire the sweep-exec substring on the legacy
+    // channel (no cross-run contamination).
+    expect(
+      countExact(legacyChannel, "~/.local/bin/fleet-status-sweep 2>/dev/null"),
+    ).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test P92-05-3 — presence probe fires ONCE per SSH-channel lifetime.
+  //
+  // The probe (`test -x ~/.local/bin/fleet-status-sweep`) is expensive
+  // ONLY relative to "not firing at all"; the whole point of caching it per
+  // SSH-channel lifetime is that a stable channel does not re-probe every
+  // tick. This regression pins the cache lifetime: 3 ticks → 1 probe, 3
+  // sweep execs.
+  // -------------------------------------------------------------------------
+  it("Test P92-05-3: presence probe fires once per SSH-channel lifetime, not per tick", async () => {
+    const channel = new MockSshChannel();
+    wireBatchProbe(channel, true);
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      buildSharedSweepJsonl(),
+    );
+
+    const capture = makeSetIntervalCapture();
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: capture.setInterval,
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1 — probe + sweep
+
+    const pollFn = capture.fns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn(); // tick 2 — sweep only (probe cache hit)
+      await pollFn.fn(); // tick 3 — sweep only (probe cache hit)
+    }
+
+    // Probe fires exactly once — cached across ticks 2 and 3.
+    expect(
+      countExact(
+        channel,
+        "test -x ~/.local/bin/fleet-status-sweep 2>/dev/null && echo yes || echo no",
+      ),
+    ).toBe(1);
+    // Sweep exec fires exactly once per tick — 3 ticks total.
+    expect(
+      countExact(channel, "~/.local/bin/fleet-status-sweep 2>/dev/null"),
+    ).toBe(3);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test P92-05-4 — sweep-exec null return: this-tick legacy fallback +
+  // next-tick re-probe recovery.
+  //
+  // Failure mode: transient SSH-side error swallows the sweep script's
+  // stdout (`Channel open failure` shape). The orchestrator MUST fall
+  // through to legacy for the current tick (so consumers still get frames)
+  // AND MUST invalidate the probe cache (set sweepScriptPresent = null) so
+  // the NEXT tick re-probes and retries the batch path. Persistent script
+  // absence would then re-latch legacy on tick 3; a transient hiccup lets
+  // batch resume.
+  // -------------------------------------------------------------------------
+  it("Test P92-05-4: sweep exec returning null triggers legacy fallback this tick + re-probe next tick", async () => {
+    const channel = new MockSshChannel();
+    // Probe returns yes on both tick 1 and tick 2's re-probe.
+    wireBatchProbe(channel, true);
+    // Wire legacy responses so tick 1's fallback has data.
+    wireLegacyResponses(channel);
+    // Sweep exec: null on tick 1 (simulate hiccup), valid JSONL on tick 2.
+    // MockSshChannel's setResponse is last-write-wins per pattern — we
+    // rewire between ticks.
+    channel.setResponse("~/.local/bin/fleet-status-sweep 2>/dev/null", null);
+
+    const capture = makeSetIntervalCapture();
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: capture.setInterval,
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1
+
+    // Tick 1: batch attempted (sweep exec fired once) + failed + legacy fired.
+    expect(
+      countExact(channel, "~/.local/bin/fleet-status-sweep 2>/dev/null"),
+    ).toBe(1);
+    // Legacy fan-out fired on tick 1 (source A driver ran).
+    expect(channel.countCallsMatching("ls -1 ~/.claude/sessions/")).toBeGreaterThanOrEqual(1);
+    // Fallback warn logged.
+    expect(
+      (systemLogger.warn as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        (call) => {
+          const meta = call[1] as { operation?: string } | undefined;
+          return meta?.operation === "fleet_status_batch_fallback";
+        },
+      ),
+    ).toBe(true);
+
+    // Prime tick 2: sweep now returns valid JSONL.
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      buildSharedSweepJsonl(),
+    );
+    const listingCallsAfterTick1 = channel.countCallsMatching("ls -1 ~/.claude/sessions/");
+
+    const pollFn = capture.fns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn(); // tick 2 — re-probe + sweep succeeds
+    }
+
+    // Probe fired AGAIN on tick 2 (re-probe triggered by null-exec on tick 1).
+    expect(
+      countExact(
+        channel,
+        "test -x ~/.local/bin/fleet-status-sweep 2>/dev/null && echo yes || echo no",
+      ),
+    ).toBe(2);
+    // Sweep exec fired once on tick 2 (total 2 across both ticks).
+    expect(
+      countExact(channel, "~/.local/bin/fleet-status-sweep 2>/dev/null"),
+    ).toBe(2);
+    // No additional legacy fan-out on tick 2 — batch succeeded.
+    expect(channel.countCallsMatching("ls -1 ~/.claude/sessions/")).toBe(
+      listingCallsAfterTick1,
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Test P92-05-5 — schema-mismatch: this-tick legacy fallback + connection-
+  // lifetime latch.
+  //
+  // Failure mode: sweep script upgraded on the box emits JSONL with a schema
+  // version the caller doesn't recognise (999 in the test). The orchestrator
+  // MUST fall back to legacy this tick AND LATCH `sweepSchemaMismatchThis
+  // Connection = true` so all subsequent ticks on the SAME SSH channel skip
+  // the batch path (no point re-trying — the drift is architectural, not
+  // transient). Only a channel reconnect (channel object identity change)
+  // clears the latch.
+  // -------------------------------------------------------------------------
+  it("Test P92-05-5: schema-version mismatch on sweep emission triggers this-tick legacy fallback + connection-lifetime latch", async () => {
+    const channel = new MockSshChannel();
+    wireBatchProbe(channel, true);
+    // Wire legacy responses so fallback has data.
+    wireLegacyResponses(channel);
+    // Sweep returns valid JSONL but with schema_version: 999.
+    channel.setResponse(
+      "~/.local/bin/fleet-status-sweep 2>/dev/null",
+      makeSweepJsonl({
+        identities: IDENTITIES.map((identity) => ({ identity })),
+        pids: [
+          { identity: "alpha", pid: PID_ALPHA },
+          { identity: "beta", pid: PID_BETA },
+        ],
+        schemaVersionOverride: 999,
+      }),
+    );
+
+    const capture = makeSetIntervalCapture();
+    const deps = buildDeps({
+      acquireSshChannel: vi.fn().mockResolvedValue(channel),
+      setInterval: capture.setInterval,
+    });
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start(); // tick 1
+
+    // Tick 1: sweep fired (once) + schema-mismatch detected + legacy fired.
+    expect(
+      countExact(channel, "~/.local/bin/fleet-status-sweep 2>/dev/null"),
+    ).toBe(1);
+    // Schema-mismatch warn logged.
+    expect(
+      (systemLogger.warn as unknown as ReturnType<typeof vi.fn>).mock.calls.some(
+        (call) => {
+          const meta = call[1] as { operation?: string; reason?: string } | undefined;
+          return (
+            meta?.operation === "fleet_status_batch_fallback" &&
+            meta?.reason === "schema-mismatch"
+          );
+        },
+      ),
+    ).toBe(true);
+    // Legacy fan-out fired on tick 1.
+    const listingCallsAfterTick1 = channel.countCallsMatching("ls -1 ~/.claude/sessions/");
+    expect(listingCallsAfterTick1).toBeGreaterThanOrEqual(1);
+
+    const pollFn = capture.fns.find((f) => f.ms === 2000);
+    expect(pollFn).toBeDefined();
+    if (pollFn) {
+      await pollFn.fn(); // tick 2 — latch keeps batch off
+    }
+
+    // Tick 2: sweep exec did NOT fire (schema-mismatch latched off until
+    // channel reconnect). Total sweep-exec count is STILL 1 after tick 2.
+    expect(
+      countExact(channel, "~/.local/bin/fleet-status-sweep 2>/dev/null"),
+    ).toBe(1);
+    // Legacy fan-out fired AGAIN on tick 2.
+    expect(channel.countCallsMatching("ls -1 ~/.claude/sessions/")).toBeGreaterThan(
+      listingCallsAfterTick1,
+    );
   });
 });
