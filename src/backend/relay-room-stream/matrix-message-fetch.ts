@@ -98,11 +98,31 @@ export async function fetchRoomHistory(
     return result;
   }
 
+  // M3 fixup 2026-09-09: filter non-`m.room.message` events out of the
+  // batch before returning to the WS server. Matrix `/messages` returns
+  // every kind of timeline event — state changes (m.room.member joins,
+  // m.room.name renames, m.room.topic edits), reactions, redactions, etc.
+  // The relay-room pane only renders message bubbles; unfiltered state
+  // events used to fall through to `RelayMessageList.extractBody` and
+  // render as blank inbound bubbles attributed to whoever caused the
+  // state change. Doing the filter here (backend) rather than in the
+  // React render layer keeps WS payloads leaner (state events on a busy
+  // room can outnumber messages) AND ensures downstream primitives never
+  // see events they weren't designed for.
+  //
+  // NOTE: this is intentionally lenient about ordering — Matrix returns
+  // events in the requested `dir`, so removing non-messages from the
+  // middle just tightens the chunk without violating the caller's
+  // pagination expectations. The `end`/`start` cursors still point at the
+  // original chunk boundaries (they are opaque tokens; Matrix, not us,
+  // decides how they advance).
+  const messagesOnly = result.events.filter((e) => e.type === "m.room.message");
+
   // Happy path: pass-through. Empty chunk is D-17 empty-room state and is
   // returned as-is (`{ok: true, events: []}`) — the WS server's initial
   // history_batch frame will just have zero events; the pane renders with
   // the presence row + compose bar only.
-  const passthrough: FetchRoomHistoryOk = { ok: true, events: result.events };
+  const passthrough: FetchRoomHistoryOk = { ok: true, events: messagesOnly };
   if (result.end !== undefined) passthrough.end = result.end;
   if (result.start !== undefined) passthrough.start = result.start;
   return passthrough;

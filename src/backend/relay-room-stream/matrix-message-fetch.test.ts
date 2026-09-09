@@ -157,4 +157,95 @@ describe("fetchRoomHistory (Phase 90 Plan 04 Task 1)", () => {
       error: "admin_api_proxy_error",
     });
   });
+
+  // ==========================================================================
+  // M3 FIXUP TESTS (2026-09-09) — filter non-message events server-side
+  // ==========================================================================
+
+  const STATE_MEMBER_EVENT = {
+    event_id: "$evt-join-1:server",
+    type: "m.room.member",
+    sender: "@ashley_human:server",
+    origin_server_ts: 1700000001000,
+    content: { membership: "join" },
+  };
+  const STATE_NAME_EVENT = {
+    event_id: "$evt-name-1:server",
+    type: "m.room.name",
+    sender: "@ashley_human:server",
+    origin_server_ts: 1700000002000,
+    content: { name: "Working session" },
+  };
+  const REACTION_EVENT = {
+    event_id: "$evt-reax-1:server",
+    type: "m.reaction",
+    sender: "@ashley_human:server",
+    origin_server_ts: 1700000003000,
+    content: { "m.relates_to": { rel_type: "m.annotation", key: "👍" } },
+  };
+
+  it("M3-fixup: filters m.room.member state events out of the returned chunk", async () => {
+    mockGetRoomMessages.mockResolvedValueOnce({
+      ok: true,
+      events: [SAMPLE_EVENT, STATE_MEMBER_EVENT],
+    });
+    const result = await fetchRoomHistory("!room:server", {
+      dir: "b",
+      count: 20,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.events.length).toBe(1);
+      expect(result.events[0]!.type).toBe("m.room.message");
+    }
+  });
+
+  it("M3-fixup: filters mixed state + reaction events; preserves m.room.message order", async () => {
+    const secondMessage = {
+      ...SAMPLE_EVENT,
+      event_id: "$evt-2:server",
+      content: { msgtype: "m.text", body: "second" },
+    };
+    mockGetRoomMessages.mockResolvedValueOnce({
+      ok: true,
+      events: [
+        SAMPLE_EVENT,
+        STATE_MEMBER_EVENT,
+        REACTION_EVENT,
+        secondMessage,
+        STATE_NAME_EVENT,
+      ],
+      end: "cursor-next",
+    });
+    const result = await fetchRoomHistory("!room:server", {
+      dir: "b",
+      count: 20,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // Two messages survive; state + reaction dropped.
+      expect(result.events.length).toBe(2);
+      expect(result.events.map((e) => e.event_id)).toEqual([
+        "$evt-1:server",
+        "$evt-2:server",
+      ]);
+      // Cursor pass-through unchanged (opaque tokens, Matrix owns them).
+      expect(result.end).toBe("cursor-next");
+    }
+  });
+
+  it("M3-fixup: all-state chunk produces an empty event array (renders as empty-room state at the pane)", async () => {
+    mockGetRoomMessages.mockResolvedValueOnce({
+      ok: true,
+      events: [STATE_MEMBER_EVENT, STATE_NAME_EVENT, REACTION_EVENT],
+    });
+    const result = await fetchRoomHistory("!room:server", {
+      dir: "b",
+      count: 20,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.events).toEqual([]);
+    }
+  });
 });
