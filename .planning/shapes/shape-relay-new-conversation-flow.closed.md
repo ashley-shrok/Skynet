@@ -120,3 +120,53 @@ Depends on sub-slices A and B (both shipped). Can proceed in parallel with sub-s
 The prototype at http://100.99.149.8:8899/index.html is the reference for the modal's shape at both surfaces. The phase's CONTEXT.md should seed from this shape file per `/build` convention — don't re-elicit the discovery `/open` already produced.
 
 `/close relay-new-conversation-flow` closes the sub-slice at the end. The parent arc's `/close relay-mediated-group-conversations` runs later against the master shape once C and E and the ship all complete.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-09
+**Vehicle used:** /build outer with a GSD phase (Phase 91) for the code work — matches the shape's Vehicle notes.
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · Menu entry opens a modal that lists humans + agents with a filter, takes a mandatory room name, creates a relay room as the user, invites participants, materializes a session, opens the pane.
+- **Shape — Modal header (title + close X)** — present · Header renders "New conversation" title and an X close button; X and Esc are the only close paths.
+- **Shape — Mandatory room name field** — present · Labeled input with aria-required; empty trimmed name blocks the gate on both client and server.
+- **Shape — Chips strip with swatch/name/X and empty-state placeholder** — present · Chip strip renders placeholder text when nothing is picked; each chip carries a color swatch (identity hue), truncated name, and an X remove button.
+- **Shape — Search field with clear button and "N of M" section counts when active** — present · Type-to-filter search input with clear-X when non-empty; section headers switch to "(filtered of total)" when a filter is active.
+- **Shape — Sectioned single list (Humans + Agents) with avatar, name, agent subtitle, tap-toggle, check circle** — present · Two section headers; hue-tinted avatar disc; agent subtitle rendered from title/role; tap or Enter/Space toggles; check circle fills emerald when selected.
+- **Shape — Create button disabled until three gates hold, with hint text explaining the blocker** — present · Gate reasons cover no-room-name / no-participants / single-agent-only / submitting; hint text renders below the button per reason.
+- **Shape — Mobile full-screen and desktop centered ~560px on the same modal** — present · Single component uses viewport-fill classes plus md-breakpoint classes to shift from mobile fill to centered dialog.
+- **Shape — Post-confirm sequence: create as user → invite → materialize → sidebar entry → pane opens** — present · Route calls createRoomAsUser as viewer, loops inviteToRoom for humans and agents, calls materializeRelayRoomSession, and the panel-to-AppShell callback opens the relay-room tab, selects it, and refreshes the fleet session list.
+- **Philosophy — Orthogonal to agent creation (no agent birth from this modal)** — present · Modal only surfaces existing fleet agents from the identities store; no create-new-agent affordance.
+- **Philosophy — Fixed membership + fixed name at create time** — present · No rename route, no add-participant-after-create route, no rename affordance in the modal.
+- **Philosophy — Single-agent-alone disallowed for UX coherence** — present · Both client gate and backend refuse a single-agent-only pick with a dedicated reason string and hint text.
+- **Philosophy — Search-first browse** — present · Search input sits above the sectioned list and filters both sections case-insensitively by substring.
+- **Philosophy — Both surfaces validated** — present · Same modal component adapts by CSS media query; tests assert both surface class sets on the content element.
+- **Philosophy — Icon placement is v1 throwaway (inside existing three-dot menu)** — present · New conversation is the first item of the existing MoreVertical portal menu of the conversation list header — no new sidebar chrome.
+- **Prior context — Humans from Skynet user set, agents from existing fleet** — present · Humans come from /users/list-basic widened with mxid; agents from the identities store; null-mxid humans and non-derivable-mxid agents filtered out.
+- **Prior context — Sub-slice B materialization loop is the sidebar path** — present · Fast-path materialize runs at create; observation loop remains the safety net; AppShell nudges the fleet-session store so the sidebar shows the new row immediately.
+- **What would make it wrong: single agent picked and Create fires** — present · Client gate returns single-agent-only and backend returns 400 single_agent_disallowed; neither path creates such a room.
+- **What would make it wrong: room created but session never materializes** — present · Fast-path materialize runs with try/catch logging; observation loop as safety net; AppShell fleet-session refresh after create.
+- **What would make it wrong: participants restricted to online/reachable** — present · Humans come from the full users table filtered only by non-null mxid; agents from the fleet identity list; no online/reachable gate.
+- **What would make it wrong: two rapid clicks on Create produce two rooms** — present · Submit guarded by synchronous in-flight ref plus submitting gate reason flipping before the async call.
+- **What would make it wrong: adding an agent triggers a wake or prompt to accept** — present · Backend fans out plain Matrix invites using the viewer's token; no wake, prompt, or acceptance ceremony.
+- **What would make it wrong: search filter broken or missing** — present · Search field is a controlled input driving case-insensitive substring filter across both sections; section headers show filtered-of-total counts.
+- **What would make it wrong: modal works on one surface but breaks on the other** — present · Single component with CSS breakpoint switching; both class sets verified.
+- **What would make it wrong: Create button enabled while state is invalid** — present · Gate priority order covers every invalid state; button disabled prop bound to gate.ok directly.
+- **Scope — In: menu action, modal UI, three guards, create-and-invite wiring, handoff, in-process tests** — present · All in-scope items present; hook, modal, sub-components, route, matrix primitives, panel wiring, AppShell handler, and test files ship together.
+- **Scope — Out: pane rendering, session-model plumbing, human identities, agent creation, post-create membership/rename** — present · Pane rendering handled by existing sub-slice-D machinery via openTab; no changes to sub-slices A or B substrate beyond consuming them; no agent creation and no post-create membership or rename routes.
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+The backend adds a MAX_PARTICIPANTS=32 cap that isn't named in the shape but reads as a routine anti-DoS guard rather than a product feature. Room-name input auto-focuses on open and the surface uses the existing glass-modal styling — both align with sibling modals rather than introducing new UX. The AppShell callback also nudges the fleet-session store with an explicit refresh after create so the sidebar shows the new row without waiting for the observation loop; this looks like service to the shape's "sidebar entry appears" commitment rather than an addition. One documented limitation carried in the material: agent-mxid validation on the backend is grammar-only (no fleet registry for agents since the identities table was retired in an earlier phase); the material treats this as an acceptable v1 limitation bounded by JWT auth and the frontend picker only surfacing real agents. Worth remembering if a fleet-registry for agents is ever reintroduced.
