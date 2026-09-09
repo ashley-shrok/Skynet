@@ -75,13 +75,19 @@ export async function materializeRelayRoomSession(
   });
 
   const id = randomUUID();
-  db.$client
+  const result = db.$client
     .prepare(
       `INSERT INTO relay_room_sessions (id, user_id, room_id, room_title, state)
        VALUES (?, ?, ?, ?, 'active')
        ON CONFLICT(user_id, room_id) DO NOTHING`,
     )
     .run(id, userId, roomId, roomTitle);
+
+  // Skip save when the INSERT was a no-op (row already existed). Observation
+  // loop calls this per-tick per-room; without this guard every tick fires a
+  // full-DB rewrite via forceSave. Only save when a real INSERT happened.
+  // (Disk-sat hotfix 2026-09-09: tina diagnosis, node PID was writing 128 MB/sec.)
+  if (result.changes === 0) return;
 
   try {
     await DatabaseSaveTrigger.forceSave("phase-89-relay-session-materialize");
@@ -120,7 +126,7 @@ export async function markRelayRoomSessionInactive(
     roomId,
   });
 
-  db.$client
+  const result = db.$client
     .prepare(
       `UPDATE relay_room_sessions
          SET state = 'inactive',
@@ -130,6 +136,10 @@ export async function markRelayRoomSessionInactive(
          AND state = 'active'`,
     )
     .run(userId, roomId);
+
+  // Skip save when the UPDATE was a no-op (row already inactive or missing).
+  // Disk-sat hotfix — see materializeRelayRoomSession above.
+  if (result.changes === 0) return;
 
   try {
     await DatabaseSaveTrigger.forceSave("phase-89-relay-session-inactive");
@@ -168,7 +178,7 @@ export async function reactivateRelayRoomSession(
     roomId,
   });
 
-  db.$client
+  const result = db.$client
     .prepare(
       `UPDATE relay_room_sessions
          SET state = 'active',
@@ -178,6 +188,10 @@ export async function reactivateRelayRoomSession(
          AND state = 'inactive'`,
     )
     .run(userId, roomId);
+
+  // Skip save when the UPDATE was a no-op (row already active or missing).
+  // Disk-sat hotfix — see materializeRelayRoomSession above.
+  if (result.changes === 0) return;
 
   try {
     await DatabaseSaveTrigger.forceSave("phase-89-relay-session-reactivate");
