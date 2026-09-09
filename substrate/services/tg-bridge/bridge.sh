@@ -431,19 +431,33 @@ mx_sync_for_human(){ # args: human_name
   done
 }
 
-# ---- inotifywait-based registry reload (Phase B) ------------------------------
+# ---- inotifywait-based registry reload -------------------------------
 # Skynet writes /state/registry.json when activation/disconnect UI actions
 # modify telegram_bot_tokens (Plan 03 handlers call Plan 04's
-# rewriteRegistryFromCurrentState). inotifywait picks that up and re-execs
-# the whole bridge. Ship-gate: the re-exec is fast (<5s including config
-# sourcing) — SINCE_FILE cursor persistence ensures no messages drop during
-# the gap.
+# rewriteRegistryFromCurrentState). inotifywait picks that up and exits
+# the whole bridge process; docker compose `restart: always` respawns a
+# clean copy within ~2s. SINCE_FILE cursor persistence ensures no messages
+# drop across the gap.
+#
+# Why exit-and-restart, not exec-in-place: an earlier version of this
+# watcher called `exec "$0" "$@"` to reload without a container restart.
+# `exec` replaces the parent shell's process image but leaves the parent's
+# background workers (tg_poller, mx_sync_for_human) running as orphans of
+# PID 1. Every registry.json change spawned a fresh set of workers on top
+# of the previous set. After N reloads there were N concurrent mx_sync
+# loops on the same token, each independently forwarding every outbound
+# message to Telegram — one Matrix event became N Telegram sends. The
+# container restart tears the whole process tree down together, so no
+# generation can survive into the next.
 reload_watcher(){
   while true; do
     inotifywait -q -e close_write,moved_to,modify "$REGISTRY_FILE" >/dev/null
-    echo "[tg-bridge] registry.json changed — re-exec"
-    log "registry.json changed — re-exec"
-    exec "$0" "$@"
+    echo "[tg-bridge] registry.json changed — signalling parent to exit for clean restart"
+    log "registry.json changed — signalling parent to exit for clean restart"
+    # Signal the parent bridge.sh (not this backgrounded subshell) — the
+    # parent's TERM trap kills every child job (including us) and exits.
+    kill -TERM "$PPID"
+    exit 0
   done
 }
 
