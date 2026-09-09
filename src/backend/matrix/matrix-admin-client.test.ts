@@ -49,6 +49,8 @@ import {
   getRoomMessages,
   sendMessageAsUser,
   __resetUserTokenCacheForTests,
+  inviteToRoom,
+  createRoomAsUser,
 } from "./matrix-admin-client.js";
 import { getMatrixAdminCreds } from "./matrix-admin-creds-store.js";
 import { databaseLogger } from "../utils/logger.js";
@@ -2026,5 +2028,238 @@ describe("sendMessageAsUser (Phase 90 Plan 03 Task 2)", () => {
     const now = Date.now();
     expect(loginBody.valid_until_ms).toBeGreaterThan(now);
     expect(loginBody.valid_until_ms).toBeLessThan(now + 2 * 60 * 60 * 1000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// inviteToRoom — POST /_matrix/client/v3/rooms/{roomId}/invite
+// ---------------------------------------------------------------------------
+
+describe("inviteToRoom", () => {
+  it("Test 1: happy path admin — fetch 200 returns { ok: true }; URL contains encoded roomId; body is { user_id }; auth header is admin Bearer", async () => {
+    stubFetchOk(200, {});
+    const result = await inviteToRoom("!room:s", "@bob:s");
+    expect(result.ok).toBe(true);
+    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(fetchCalls).toHaveLength(1);
+    const [url, init] = fetchCalls[0] as [string, RequestInit];
+    expect(url).toContain("/_matrix/client/v3/rooms/" + encodeURIComponent("!room:s") + "/invite");
+    expect(JSON.parse(init.body as string)).toEqual({ user_id: "@bob:s" });
+    expect((init.headers as Record<string, string>)["Authorization"]).toBe(`Bearer ${HAPPY_CREDS.accessToken}`);
+  });
+
+  it("Test 2: happy path user — loginAsUser returns userTok; fetch 200 returns { ok: true }; auth header is Bearer userTok", async () => {
+    const fetchMock = vi.fn();
+    // First call: loginAsUser endpoint
+    fetchMock.mockImplementationOnce(async () =>
+      mockFetchResponse(200, { access_token: "userTok" }),
+    );
+    // Second call: invite endpoint
+    fetchMock.mockImplementationOnce(async () => mockFetchResponse(200, {}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await inviteToRoom("!room:s", "@bob:s", "@alice:s");
+    expect(result.ok).toBe(true);
+
+    // The invite call (second) should carry userTok, not admin token
+    const inviteInit = fetchMock.mock.calls[1][1] as RequestInit;
+    expect((inviteInit.headers as Record<string, string>)["Authorization"]).toBe("Bearer userTok");
+
+    // loginAsUser was called with '@alice:s'
+    const loginUrl = fetchMock.mock.calls[0][0] as string;
+    expect(loginUrl).toContain(encodeURIComponent("@alice:s"));
+  });
+
+  it("Test 3: non-2xx 403 → { ok: false, status: 403, error: 'admin_api_non_2xx' }", async () => {
+    stubFetchOk(403, { errcode: "M_FORBIDDEN" });
+    const result = await inviteToRoom("!room:s", "@bob:s");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(403);
+      expect(result.error).toBe("admin_api_non_2xx");
+    }
+  });
+
+  it("Test 4: timeout (AbortError) → { ok: false, status: 504, error: 'admin_api_timeout' }; clearTimeout called in error path", async () => {
+    vi.useFakeTimers();
+    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+    stubFetchAbort();
+    const result = await inviteToRoom("!room:s", "@bob:s");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(504);
+      expect(result.error).toBe("admin_api_timeout");
+    }
+    expect(clearTimeoutSpy).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("Test 5: loginAsUser failure short-circuits — { ok: false, status: 401, error: 'ERR_LOGIN_FAILED' } returned without calling fetch for invite", async () => {
+    const fetchMock = vi.fn();
+    // loginAsUser call returns non-2xx → will be mapped to AdminErr by loginAsUser
+    fetchMock.mockImplementationOnce(async () =>
+      mockFetchResponse(401, { error: "bad creds" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await inviteToRoom("!room:s", "@bob:s", "@alice:s");
+    expect(result.ok).toBe(false);
+    // Only the loginAsUser fetch should fire — no invite fetch
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    if (!result.ok) {
+      expect(result.status).toBe(401);
+    }
+  });
+
+  it("Test 6: getMatrixAdminCreds returns null → { ok: false, status: 500, error: 'matrix_admin_creds_missing' }", async () => {
+    vi.mocked(getMatrixAdminCreds).mockResolvedValue(null);
+    const result = await inviteToRoom("!room:s", "@bob:s");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(500);
+      expect(result.error).toBe("matrix_admin_creds_missing");
+    }
+  });
+
+  it("Test 7: encodeURIComponent applied to roomId with special chars (+, /)", async () => {
+    stubFetchOk(200, {});
+    await inviteToRoom("!room+with/special:s", "@bob:s");
+    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    const [url] = fetchCalls[0] as [string, RequestInit];
+    // The raw '+' and '/' must NOT appear in the path segment
+    expect(url).not.toContain("!room+with/special");
+    // The encoded forms must appear
+    expect(url).toContain("%2B");
+    expect(url).toContain("%2F");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createRoomAsUser — POST /_matrix/client/v3/createRoom (user-scoped)
+// ---------------------------------------------------------------------------
+
+describe("createRoomAsUser", () => {
+  it("Test 1: happy path — loginAsUser → userTok; fetch 200 with room_id; returns { ok: true, roomId, roomAlias: undefined }; URL is /createRoom; auth header is Bearer userTok", async () => {
+    const fetchMock = vi.fn();
+    fetchMock.mockImplementationOnce(async () =>
+      mockFetchResponse(200, { access_token: "userTok" }),
+    );
+    fetchMock.mockImplementationOnce(async () =>
+      mockFetchResponse(200, { room_id: "!room:s" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createRoomAsUser("@alice:s", {
+      name: "Chat",
+      preset: "private_chat",
+      visibility: "private",
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.roomId).toBe("!room:s");
+      expect(result.roomAlias).toBeUndefined();
+    }
+
+    const createInit = fetchMock.mock.calls[1][1] as RequestInit;
+    expect((createInit.headers as Record<string, string>)["Authorization"]).toBe("Bearer userTok");
+
+    const createUrl = fetchMock.mock.calls[1][0] as string;
+    expect(createUrl).toContain("/_matrix/client/v3/createRoom");
+
+    const body = JSON.parse(createInit.body as string) as Record<string, unknown>;
+    expect(body.name).toBe("Chat");
+    expect(body.preset).toBe("private_chat");
+    expect(body.visibility).toBe("private");
+  });
+
+  it("Test 2: loginAsUser failure → AdminErr returned without calling fetch for createRoom", async () => {
+    const fetchMock = vi.fn();
+    fetchMock.mockImplementationOnce(async () =>
+      mockFetchResponse(401, { error: "bad creds" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createRoomAsUser("@alice:s", { name: "Chat" });
+    expect(result.ok).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    if (!result.ok) {
+      expect(result.status).toBe(401);
+    }
+  });
+
+  it("Test 3: non-2xx 400 → { ok: false, status: 400, error: 'admin_api_non_2xx' }", async () => {
+    const fetchMock = vi.fn();
+    fetchMock.mockImplementationOnce(async () =>
+      mockFetchResponse(200, { access_token: "userTok" }),
+    );
+    fetchMock.mockImplementationOnce(async () =>
+      mockFetchResponse(400, { errcode: "M_BAD_JSON" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createRoomAsUser("@alice:s", { name: "Chat" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(400);
+      expect(result.error).toBe("admin_api_non_2xx");
+    }
+  });
+
+  it("Test 4: timeout (AbortError) → { ok: false, status: 504, error: 'admin_api_timeout' }; clearTimeout called", async () => {
+    vi.useFakeTimers();
+    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+
+    const fetchMock = vi.fn();
+    fetchMock.mockImplementationOnce(async () =>
+      mockFetchResponse(200, { access_token: "userTok" }),
+    );
+    fetchMock.mockImplementationOnce(async () => {
+      throw new DOMException("The user aborted a request.", "AbortError");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createRoomAsUser("@alice:s", { name: "Chat" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(504);
+      expect(result.error).toBe("admin_api_timeout");
+    }
+    expect(clearTimeoutSpy).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("Test 5: response body missing room_id → { ok: false, status: 502, error: ERR_PROXY }", async () => {
+    const fetchMock = vi.fn();
+    fetchMock.mockImplementationOnce(async () =>
+      mockFetchResponse(200, { access_token: "userTok" }),
+    );
+    fetchMock.mockImplementationOnce(async () =>
+      mockFetchResponse(200, {}),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createRoomAsUser("@alice:s", { name: "Chat" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(502);
+      expect(result.error).toBe("admin_api_proxy_error");
+    }
+  });
+
+  it("Test 6: optional roomAliasName forwarded in body as room_alias_name", async () => {
+    const fetchMock = vi.fn();
+    fetchMock.mockImplementationOnce(async () =>
+      mockFetchResponse(200, { access_token: "userTok" }),
+    );
+    fetchMock.mockImplementationOnce(async () =>
+      mockFetchResponse(200, { room_id: "!room:s" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createRoomAsUser("@a:s", { name: "X", roomAliasName: "test-room" });
+
+    const createInit = fetchMock.mock.calls[1][1] as RequestInit;
+    const body = JSON.parse(createInit.body as string) as Record<string, unknown>;
+    expect(body.room_alias_name).toBe("test-room");
   });
 });
