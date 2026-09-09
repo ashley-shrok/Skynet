@@ -64,11 +64,13 @@ describe("ParticipantChip (Phase 91 Plan 04)", () => {
     // displayName text visible
     expect(screen.getByText("Alice")).toBeInTheDocument();
 
-    // Color swatch has hsl(200 in inline style
+    // Color swatch has hsl(200 in the swatch color value.
+    // jsdom normalizes inline style HSL to RGB; use data-swatch-color
+    // attribute (set by ParticipantChip) to assert the original HSL string.
     const chip = screen.getByTestId("participant-chip");
     const swatch = chip.querySelector("[aria-hidden]") as HTMLElement | null;
     expect(swatch).not.toBeNull();
-    expect(swatch!.style.background).toContain("hsl(200");
+    expect(swatch!.getAttribute("data-swatch-color")).toContain("hsl(200");
 
     // X-remove button has correct aria-label
     const removeBtn = screen.getByRole("button", { name: "Remove Alice" });
@@ -100,7 +102,9 @@ describe("ParticipantChip (Phase 91 Plan 04)", () => {
     const chip = screen.getByTestId("participant-chip");
     const swatch = chip.querySelector("[aria-hidden]") as HTMLElement | null;
     expect(swatch).not.toBeNull();
-    expect(swatch!.style.background).toBe("hsl(210, 8%, 50%)");
+    // jsdom normalizes HSL to RGB in style; use data-swatch-color attribute
+    // (set by ParticipantChip) to assert the original NEUTRAL_GREY HSL string.
+    expect(swatch!.getAttribute("data-swatch-color")).toBe("hsl(210, 8%, 50%)");
   });
 });
 
