@@ -30,23 +30,26 @@
  *   `systemctl --user daemon-reload` at the start of every sweep, so systemd
  *   has already re-read the unit before the restart hook fires.
  *
- * ROW-COUNT RECONCILIATION (15 items vs. 21 rows):
+ * ROW-COUNT RECONCILIATION (16 items vs. 22 rows):
  *   The shape doc counts "15 items" — that's 7 single-file skills + 1 skill
  *   with 1 companion (agent-relay: SKILL.md + recv.sh) + 1 skill with 3
  *   companions (id: SKILL.md + actor-status-prompt + clone-picker-prompt +
- *   coordinator-instructions) + 6 helper scripts. The byte-compare mechanism
- *   in Plan 03 pushes files, not "items", so this catalog has one row per
- *   file. The bootstrap bounty adds 1 more row (agent-supervisor.service):
+ *   coordinator-instructions) + 6 helper scripts. Phase 92 appends
+ *   fleet-status-sweep as the 7th helper script, bringing the conceptual
+ *   count to 16. The byte-compare mechanism in Plan 03 pushes files, not
+ *   "items", so this catalog has one row per file. The bootstrap bounty adds
+ *   1 more row (agent-supervisor.service):
  *     - 4 rows for id/          (SKILL.md + 3 companions)
  *     - 2 rows for agent-relay/ (SKILL.md + recv.sh)
  *     - 7 rows for the single-file skills (backlog, bounty,
  *       claude-code-harness-auth, next-bounty, promote-to-coordinator,
  *       queue, role)
- *     - 7 rows for helper scripts under scripts/
+ *     - 8 rows for helper scripts under scripts/
  *       (role-file-watch is the fourth ambient monitor, sibling of
- *       wakeup-scheduler + context-watch)
+ *       wakeup-scheduler + context-watch; fleet-status-sweep is the
+ *       Phase 92 batch sweep for the fleet-status poller)
  *     - 1 row for user-onboarding/agent-supervisor.service
- *   Total = 21.
+ *   Total = 22.
  */
 
 /**
@@ -87,9 +90,10 @@ export interface CatalogEntry {
 }
 
 /**
- * The 21-row hand-maintained catalog. Ordered skills-side first, then
- * scripts-side, then user-onboarding/ files. Within skills, multi-file skills
- * (id, agent-relay) appear before single-file skills for reviewability.
+ * The 22-row hand-maintained catalog. Ordered skills-side first, then
+ * scripts-side, then user-onboarding/ files, then Phase 92 additions
+ * (fleet-status-sweep). Within skills, multi-file skills (id, agent-relay)
+ * appear before single-file skills for reviewability.
  */
 export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   // --- id skill (4 rows: SKILL.md + 3 companion prompts) ---
@@ -236,5 +240,16 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     bundledPath: "/app/fleet-substrate/user-onboarding/agent-supervisor.service",
     installPath: "~/.config/systemd/user/agent-supervisor.service",
     restartHook: "agent-supervisor.service",
+  },
+
+  // --- fleet-status-sweep (1 row: python batch sweep for fleet-status poller — Phase 92) ---
+  // On-demand batch sweep invoked by the fleet-status poller (one exec per host,
+  // not one per agent). No restart hook — the sweep is a short-lived script the
+  // caller runs on demand, so new bytes are picked up on the next invocation.
+  {
+    slug: "fleet-status-sweep",
+    bundledPath: "/app/fleet-substrate/scripts/fleet-status-sweep.py",
+    installPath: "~/.local/bin/fleet-status-sweep",
+    restartHook: null,
   },
 ] as const;

@@ -32,15 +32,16 @@ function bundledPathToRepoPath(bundledPath: string): string {
 }
 
 describe("FLEET_SUBSTRATE_CATALOG", () => {
-  it("Test 1: contains exactly 21 entries (15 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor)", () => {
-    // 15 = 7 single-file skills + agent-relay (SKILL.md + recv.sh counted as
-    // one item) + id (SKILL.md + 3 companions counted as one item) + 6 helper
+  it("Test 1: contains exactly 22 entries (16 conceptual items + agent-supervisor.service unit + role-file-watch fourth ambient monitor + fleet-status-sweep Phase 92)", () => {
+    // 16 = 7 single-file skills + agent-relay (SKILL.md + recv.sh counted as
+    // one item) + id (SKILL.md + 3 companions counted as one item) + 7 helper
     // scripts. Per-FILE row layout is required by the byte-compare mechanism
-    // in Plan 03, so the array has 13 skill-side rows + 7 scripts-side rows +
+    // in Plan 03, so the array has 13 skill-side rows + 8 scripts-side rows +
     // 1 user-onboarding row (agent-supervisor.service).
     // role-file-watch is the 7th helper script (fourth ambient monitor alongside
-    // wakeup-scheduler and context-watch).
-    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(21);
+    // wakeup-scheduler and context-watch). fleet-status-sweep is the 8th helper
+    // script (Phase 92 batch sweep for the fleet-status poller).
+    expect(FLEET_SUBSTRATE_CATALOG.length).toBe(22);
   });
 
   it("Test 2: every bundledPath starts with /app/fleet-substrate/skills/, /app/fleet-substrate/scripts/, or /app/fleet-substrate/user-onboarding/", () => {
@@ -99,10 +100,10 @@ describe("FLEET_SUBSTRATE_CATALOG", () => {
 
     // 13 skill-side files: 4 under id/ + 2 under agent-relay/ + 7 single-file skills
     expect(skillRows.length).toBe(13);
-    // 7 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
+    // 8 helper scripts: agent-supervisor + wakeup-scheduler + context-watch +
     // role-file-watch (4th ambient monitor) + usage-reporter + install-usage-reporter +
-    // claude-usage-collector
-    expect(scriptRows.length).toBe(7);
+    // claude-usage-collector + fleet-status-sweep (Phase 92 batch sweep)
+    expect(scriptRows.length).toBe(8);
     // 1 user-onboarding file: agent-supervisor.service
     expect(userOnboardingRows.length).toBe(1);
 
