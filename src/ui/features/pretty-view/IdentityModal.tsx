@@ -1370,18 +1370,10 @@ export function IdentityModal({
       } else if (hueDraft !== hueResolvedInitial) {
         meta.colorHue = hueDraft;
       }
-      // Phase 86 Plan 86-05: avatar-revert wire — send meta.avatar = null so
-      // the backend can (in a future extension) delete the identity's avatar
-      // frontmatter key and the identity falls back to serving the role's
-      // avatar via Plan 86-01's GET /:key/avatar role-folder fallback. Today
-      // the backend PUT handler does not read meta.avatar (unknown field is
-      // silently ignored per the JSON.parse pass-through), so this is a
-      // no-op wire — matches the plan's Task 1 Step 5 fallback: "server
-      // no-ops the delete if the field was already absent." The affordance
-      // is still valuable UX because it (a) tells the user the option exists
-      // and (b) will start working the moment the backend gains a delete
-      // path. `meta.avatar = null` is safe to emit regardless of whether
-      // the identity already had its own avatar.
+      // 260909-dls: avatar-revert wire — backend PUT handler deletes the
+      // identity's `avatar:` frontmatter key + sibling file on disk (see
+      // src/backend/database/routes/identities.ts null-delete branch).
+      // Post-revert GET falls back to the role's avatar via Phase 86 Plan 86-01.
       if (avatarReverting) {
         meta.avatar = null;
       }

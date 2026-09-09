@@ -61,6 +61,11 @@ type IdentityMetadata = {
   title?: string | null;
   colorHue?: number | null;
   voice?: string | null;
+  /** 260909-dls: avatar-revert wire. null = delete the identity's avatar
+   *  frontmatter key + hard-delete sibling file (see null-delete overlay
+   *  branch below). Absent = leave alone. Non-null string values via this
+   *  field are ignored — avatar bytes arrive via req.file (multipart upload). */
+  avatar?: string | null;
   /** Phase 66 Plan 66-02: required for the PUT disk-write flip. The
    *  frontend threads this from IdentityModal's existing `hostId` prop
    *  (which flows through per Phase 22 SRIC). The backend uses it to
@@ -593,6 +598,13 @@ router.put(
         if (meta.voice === null) delete overlaid.voice;
         else overlaid.voice = meta.voice;
       }
+      if (meta.avatar !== undefined) {
+        if (meta.avatar === null) delete overlaid.avatar;
+        // Non-null values in meta.avatar are silently ignored — avatar bytes
+        // arrive via req.file (multipart upload) at the "---- Avatar handling
+        // ----" block below, NOT via the JSON meta payload. Only the null-
+        // revert case is meaningful here.
+      }
 
       // ---- Avatar handling ----
       let newExt: string | null = null;
@@ -649,6 +661,35 @@ router.put(
               /* best-effort */
             });
           }
+        }
+      }
+
+      // 260909-dls: avatar-revert sibling-file cleanup. When the null-delete
+      // branch above ran AND the identity previously had an avatar override,
+      // hard-delete the sibling file on disk. Best-effort (missing file is
+      // fine — matches the ext-swap cleanup pattern above). Ordering:
+      // this runs AFTER writeIdentityFile so the frontmatter delete is
+      // persisted before the sibling removal. A mid-motion crash between
+      // the two steps leaves an orphaned sibling file, but readers correctly
+      // fall back to the role's avatar via Phase 86 Plan 86-01, so the
+      // invariant holds.
+      if (meta.avatar === null && oldAvatar) {
+        if (local) {
+          const oldPath = path.join(
+            getLocalIdentitiesRoot(),
+            identityKey,
+            oldAvatar,
+          );
+          await fs.unlink(oldPath).catch(() => {
+            /* best-effort */
+          });
+        } else if (conn) {
+          await execCommand(
+            conn,
+            `rm -f "$HOME/.claude/identities/${identityKey}/${oldAvatar}"`,
+          ).catch(() => {
+            /* best-effort */
+          });
         }
       }
 
