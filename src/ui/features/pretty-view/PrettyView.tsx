@@ -47,6 +47,12 @@ import RunbookEditorModal from "./RunbookEditorModal";
 // identity-modal title-line jump. Mounted as a top-level sibling alongside
 // IdentityModal + RunbookEditorModal.
 import { RoleModal } from "./RoleModal";
+// Phase 92 Slice 1 (D-07): ChatSurfaceSource discriminated-union prop +
+// unified adapter hook. Slice 1 wires the type and the hook contract; the
+// harness case is byte-preserved (redundant legacy hostId/tmuxSession props
+// stay). Slice 4 retires the redundant legacy props post-cleanup.
+import type { ChatSurfaceSource } from "./sources/chat-surface-source";
+import { useChatSurfaceAdapter } from "./sources/use-chat-surface-adapter";
 import {
   listRolesForHost,
   type Identity,
@@ -201,6 +207,29 @@ export const PENDING_SEND_TIMEOUT_MS_DORMANT = 220_000;
 //      violating the FALLBACK-01 letter.
 
 export interface PrettyViewProps {
+  // Phase 92 Slice 1 (D-07): discriminated-union source prop. Every case-
+  // based branch introduced by phase 92 reads `source.kind` (D-08). The
+  // flat `hostId` / `tmuxSession` / `tabId` props below are INTENTIONALLY
+  // RETAINED alongside `source` during Slices 1-4 per Blocker 1 resolution
+  // — many PrettyView internal consumers (badge anchor at ~L3349, task
+  // pill, IdentityModal, fleet-identity-hosts lookup, useSessionIsWorking)
+  // still read the flat props. Retirement of the redundant legacy props
+  // happens in a follow-up cleanup post-Slice-4 once every internal
+  // consumer has been proven to read from `source` for the relay case.
+  //
+  // OPTIONAL DURING SLICE 1 (auto-fix Rule 3 / Slice-1 test compatibility):
+  // Slice 1 accepts a nullable source so existing PrettyView tests that
+  // predate Phase 92 mount without a `source` prop still typecheck AND
+  // render byte-identically to pre-slice. When omitted, PrettyView
+  // synthesizes a harness-kind source from the flat `hostId` /
+  // `tmuxSession` / `tabId` props on the fly (see body below). Task 3
+  // updates the sole production call site (IdentitySessionPane) to pass
+  // `source={{ kind: "harness", ... }}` explicitly ALONGSIDE the redundant
+  // legacy props. When Slice 4 rewires the tabUtils dispatcher for relay
+  // tabs, callers MUST pass `source` explicitly — the synthesized fallback
+  // is harness-only by construction. Post-Slice-4 cleanup can flip this
+  // back to required once every internal caller has been migrated.
+  source?: ChatSurfaceSource;
   hostId: number;
   tmuxSession: string;
   className?: string;
@@ -522,6 +551,7 @@ function guessMimeFromFilename(filename: string): string | null {
 }
 
 export function PrettyView({
+  source: sourceProp,
   hostId,
   tmuxSession,
   className,
@@ -538,6 +568,31 @@ export function PrettyView({
   tabId,
   identityBadgeContextMenuItems,
 }: PrettyViewProps) {
+  // Phase 92 Slice 1 (D-07 fallback synthesis): during Slice 1 the `source`
+  // prop is optional so existing PrettyView tests that predate Phase 92
+  // mount byte-identically. When omitted, synthesize a harness-kind source
+  // from the flat `hostId` / `tmuxSession` / `tabId` props. Task 3 wires
+  // IdentitySessionPane to pass `source` explicitly; Slice 4 rewires the
+  // tabUtils relay branch. Post-Slice-4 cleanup can flip this back to a
+  // required prop once every internal caller has been migrated.
+  const source: ChatSurfaceSource = sourceProp ?? {
+    kind: "harness",
+    hostId,
+    tmuxSession,
+    tabId,
+  };
+  // Phase 92 Slice 1 (D-09, Pitfall 2): unified adapter hook. Calls BOTH
+  // useHarnessAdapter and useRelayAdapter unconditionally (in stable order)
+  // and returns whichever adapter's state matches `source.kind`. Slice 1
+  // keeps PrettyView's own `messages` state (declared just below) as the
+  // source of truth for the harness case; the harness ingestion effect at
+  // L~1852 is gated on `source.kind === "harness"`. The adapter call here
+  // establishes the hook-order contract for later slices, and threads
+  // isVisible for the WS gate Slice 3 will wire up. The stubbed relay peer
+  // is inert in Slice 1 — no consumer routes to it yet (Slice 4 rewires
+  // the dispatcher).
+  const _chatSurfaceAdapter = useChatSurfaceAdapter(source, isVisible);
+  void _chatSurfaceAdapter;
   const [messages, setMessages] = useState<StreamEvent[]>([]);
   // ── Phase 47 (load-more button) — per-pane state slots ────────────────
   // capOff: once flipped true (via handleLoadOlder — first click), cap
@@ -1850,6 +1905,14 @@ export function PrettyView({
   }, [renderedState]);
 
   useEffect(() => {
+    // Phase 92 Slice 1 (D-09): harness ingestion runs only when source is
+    // harness. Relay case's ingestion is owned by useRelayAdapter (Slice 3).
+    // Guard is the FIRST statement so no harness-specific state mutation
+    // ever runs during a relay-source mount. `source.kind` is added to the
+    // effect's dep array below so the effect re-fires if the case flips
+    // (which does not happen for a stably-mounted harness pane — so harness
+    // behavior is byte-preserved).
+    if (source.kind !== "harness") return;
     // Patch #148: distinguish a fresh pane mount from a retryKey-triggered re-run.
     // On a fresh pane (hostId/tmuxSession changed), reset ALL state and the attempt
     // counter. On a retry re-run (same pane, retryKey bumped), preserve messages/
@@ -2767,7 +2830,12 @@ export function PrettyView({
       // ws.onopen.
       setUploadWs(null);
     };
-  }, [hostId, tmuxSession, retryKey]);
+    // Phase 92 Slice 1 (D-09): `source.kind` added so the effect re-fires
+    // when the case flips (which does not happen for a stably-mounted
+    // harness pane — dep is inert for the harness case). Guard at the top
+    // of the effect body ensures the effect short-circuits when a relay
+    // source is passed.
+  }, [source.kind, hostId, tmuxSession, retryKey]);
 
   // Patch #148: visibilitychange handler — the direct Ashley iOS PWA fix.
   // Patch #156 hard-gates this effect on isIosPwa() because on Chrome desktop
