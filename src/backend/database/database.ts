@@ -82,6 +82,7 @@ import agentResetRoutes from "./routes/agent-reset.js";
 import relayRoomCreateRoutes from "./routes/relay-room-create.js";
 import relayRoomParticipantsRoutes from "./routes/relay-room-participants.js";
 import relayRegistryBackfillRoutes from "./routes/relay-registry-backfill.js";
+import relayRoomAdminJoinAllRoutes from "./routes/relay-room-admin-join-all.js";
 import userPreferencesRoutes from "./routes/user-preferences.js";
 import debugRoutes from "./routes/debug.js";
 import voiceRoutes from "./routes/voice.js";
@@ -1967,6 +1968,13 @@ app.use("/relay-room", relayRoomParticipantsRoutes);
 // docblock + bounty registry-rooms-backfill-runbook-broken-in-memory-db.
 // Piggybacks on the /relay-room/ nginx block above — no new location required.
 app.use("/relay-room", relayRegistryBackfillRoutes);
+// One-shot: POST /relay-room/admin-join-all — retroactively joins
+// @skynet-admin into every user-owned relay room (from relay_room_sessions).
+// Solves the "admin not in room → getRoomMessages 403 → WS inactive → pane
+// flicker" gap for rooms created before the create-endpoint auto-join fix.
+// See routes/relay-room-admin-join-all.ts docblock. Piggybacks on the same
+// /relay-room/ nginx block.
+app.use("/relay-room", relayRoomAdminJoinAllRoutes);
 app.use("/user-preferences", userPreferencesRoutes);
 // RELAYBUB-04 (Phase 17): /relay-pointer needs matching location blocks in BOTH docker/nginx.conf
 // AND docker/nginx-https.conf — see CLAUDE.md nginx caveat. Handler uses head -c bounded remote
