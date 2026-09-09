@@ -2010,7 +2010,17 @@ export function AppShell({
         tab.type === "terminal" &&
         tab.targetTmuxSession != null &&
         identitiesByKey.has(tab.targetTmuxSession.toLowerCase());
-      const isTerminal = tab.type === "terminal" && !isIdentityTerminal;
+      // Relay-room tabs are opened with type="terminal" so they slot into the
+      // same tab-strip machinery, but they render a lazy React component (not
+      // xterm.js) and MUST NOT get the terminal-visibility styling below, or
+      // the transparent full-viewport overlay catches all clicks and shows a
+      // stuck Suspense fallback on top of every other pane. (Bug at arc-close
+      // UAT 2026-09-09 — Ashley: no relay-room tab in strip + "no host selected"
+      // bubble stuck at top middle + entire pane area became un-clickable.)
+      const isRelayRoom =
+        tab.type === "terminal" && tab.sessionKind === "relay-room";
+      const isTerminal =
+        tab.type === "terminal" && !isIdentityTerminal && !isRelayRoom;
       const node = getTabNode(tab.id, isTerminal);
       const inPane =
         hasSplit && findLeaf(splitTree, tab.id) !== null;
@@ -2902,7 +2912,11 @@ export function AppShell({
                     tab.type === "terminal" &&
                     tab.targetTmuxSession != null &&
                     identitiesByKey.has(tab.targetTmuxSession.toLowerCase());
-                  const tabNode = getTabNode(tab.id, tab.type === "terminal" && !_isIdentityTerminal);
+                  // Relay-room tabs are non-terminal despite type="terminal" —
+                  // see the isRelayRoom comment in the tabs-effect above.
+                  const _isRelayRoom =
+                    tab.type === "terminal" && tab.sessionKind === "relay-room";
+                  const tabNode = getTabNode(tab.id, tab.type === "terminal" && !_isIdentityTerminal && !_isRelayRoom);
                   const inPane =
                     hasSplit && findLeaf(splitTree, tab.id) !== null;
                   // Plan 06-02: `isVisible` signal for every mounted pane
