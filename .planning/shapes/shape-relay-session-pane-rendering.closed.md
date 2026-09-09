@@ -114,3 +114,55 @@ The one shape decision the plan phase needs to reason from directly — and that
 Depends on sub-slices A (human relay identities first-class) and B (session-model generalization) — both landed prior to this session. Can be run in parallel with sub-slice C (new-conversation flow) per the master shape; C wasn't the pick for this session but is unblocked whenever it starts.
 
 The identity implementing this work is box-maintainer (taylor), working out of `~/skynet-taylor/`. The bounty's timeline is where cross-phase context and decisions taken during execution should be recorded. Per Ashley standing plan: this phase lands as commits only; no push. Ship for the whole arc happens after Slices C + E land and `/close relay-mediated-group-conversations` passes against the master shape.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-09
+**Vehicle used:** /gsd:phase
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · sidebar row-click opens a room-backed session in a distinct pane with bubbles attributed by sender, participant badges at top, per-agent meter+reset appendages, viewer-identity compose
+- **Shape: pane detection + separate pane** — present · kind='relay-room' routed at the shell dispatcher to a distinct pane implementation — not a branch inside pretty view
+- **Shape: bubbles (relay-sourced, sender-attributed, hue-encoded)** — present · inbound bubbles use the already-shipped sender-hue primitive (forked to expanded-always for relay-room), outbound bubbles use the you-speaking right-aligned style
+- **Shape: identity-badge row (humans first alpha, agents alpha, viewer excluded)** — present · sort + self-exclusion filter present; overflow-x-auto narrow-viewport fallback matches D-20
+- **Shape: per-agent badge appendage (shrunk meter + reset)** — present · reads via the same per-agent context source pretty view reads, writes reset through the same shared endpoint pretty view now uses — no drift risk by construction
+- **Shape: per-human badge (name/hue/avatar, no appendage)** — present · plain badge cell, no meter, no reset — absence-as-affordance intact
+- **Shape: compose box (lower half only, no reset/meter/queue/stop/thumbs-up/recap, attach hidden)** — present · upper-area slot passed undefined; attach slot passed undefined (hidden entirely, not disabled-with-tooltip)
+- **Shape: send round-trip via viewing user's own relay identity** — present · send goes out through viewer's mxid via the relay-room WS with a client-supplied correlation id
+- **Shape: message-history pagination mirrors pretty view** — present · load-older button reused, page size matches pretty view's 20
+- **Philosophy: two panes side-by-side, not one pane with a branch** — present · peer shell wrapper mounted from the dispatcher; zero branching inside pretty view
+- **Philosophy: share truly-primitive pieces, don't share pane orchestration** — present · outbound-bubble + compose-shell + inbound-bubble extracted/forked as standalone primitives; pane orchestration is bespoke to the relay pane
+- **Philosophy: don't touch pretty view in this slice** — present · production diff in pretty view is confined to ONE file, ONE function (the reset dispatch rewire) — even tighter than the shape's TWO-edit note
+- **Philosophy: existing visual language reused, no new controls invented** — present · meter well + reset button are verbatim-shrunk copies of the pretty-view compose meter; identity badges are the shared primitive
+- **Philosophy: absence-as-affordance (no appendage = human)** — present · human cell has no appendage; agent cell always has one; distinguishing marker is the absence itself
+- **Philosophy: mobile is intentionally v1.5** — present · narrow-viewport fallback is a horizontal scroll only; no mobile-specific chrome introduced
+- **Scope edges: IN** — present · all in-scope items present: pane detection, new pane, shared primitives extracted, per-agent state channel wired, pagination, optimistic-send scaffolding (see WAF drift below), attach hidden, defensive error states for empty/not-found/attachment
+- **Scope edges: OUT** — present · no changes to pretty-view harness behavior; no room creation; no agent multi-participant etiquette; no attach support; no shared-primitive convergence for pretty view
+- **Scope edges: deferred + tempting-but-no** — present · no disabled-attach-with-tooltip, no kick-member action, no unified component with kind-branch, no single-human-in-agent-group special case, no recency-based row reshuffle
+- **What would make it wrong: relay pane is a branch inside pretty view** — present · guarded — dispatch happens at the shell layer, pane is a standalone implementation
+- **What would make it wrong: bubbles fail to attribute correctly** — present · inbound bubbles resolve sender via mxid → identity → hue; every event carries its own sender-scoped rendering
+- **What would make it wrong: per-agent meter/reset shows a different state than the same agent's own harness pane** — present · same store, same key format, same endpoint on both sides — correctness by construction
+- **What would make it wrong: compose box looks or feels noticeably different from pretty view's compose** — present · compose shell is a verbatim copy of pretty view's row-2, same textarea styling and same Enter-to-send semantic
+- **What would make it wrong: message history loads all at once (pagination skipped)** — present · hasMore/loadOlder scaffolding wired end-to-end; initial batch + load-older-button + WS fetch-older-range frame
+- **What would make it wrong: outbound bubble doesn't appear because send is waiting on relay confirmation** — drifted · bubble in fact only appears once the relay echoes the sent event back; the pending-send record is a lookup table, not its own rendered bubble — user: 'since it's not done, maybe we leave it, and then I'll be back if I think this new type of session needs optimistic bubbles'
+- **What would make it wrong: human's badge acquires an appendage / agent's badge missing one** — present · role-branched at the row cell; human cell renders plain badge, agent cell renders badge + appendage
+- **What would make it wrong: pretty view for harness sessions has a behavior regression after this slice ships** — present · production edit is confined to reset-dispatch rewire only; the dispatch changed from WS-funnel to an HTTP endpoint but every other observable (drain-sweep, text-clear, on-reset-clicked-on-success-only invariant, error-message discipline) is preserved verbatim
+- **What would make it wrong: sidebar row-click hits a broken-looking error state when the room doesn't exist** — present · quiet card 'This conversation is no longer available.' with optional subline; no retry button, no shouty warning icon
+
+### Additions (in the result, not in the shape)
+
+- Shell wrapper exposes a session-pane handle surface (toggle-pretty-mode, toggle-message-queue, disconnect, reconnect, fit, send-input, notify-resize, refresh, open-file-manager) as no-ops so any polymorphic tab-handle consumer keeps working on a relay pane — endorsed-as-drift
+- Second error-state variant beyond room-not-found: 'Session expired / Please refresh to sign back in.' fired when the participants fetch returns an auth failure — endorsed-as-drift
+
+### Follow-ups
+
+- Decide whether relay sessions need optimistic-on-Enter outbound bubbles (as pretty view has) — will re-open as a separate piece of work if it turns out this new session type needs them — new-shape
+- App-wide vs per-pane auth-expired handling — the per-pane session-expired card here touches a broader question about where auth-lapse UX should live — accepted-as-drift
+
+### Notes
+
+Pretty-view protection came out tighter than the shape guarded — the shape said TWO explicit mechanical edits landed in pretty-view under waiver; the actual production diff is ONE file (ComposeBox) and ONE function (the reset dispatch rewire), with test files updated to match. Untouched-in-production files include PrettyView.tsx itself. Also worth carrying forward: the AgentBadgeWithAppendage 'correctness by construction' pattern — reading from the same store key format and writing through the same endpoint pretty view uses, at the same resolution site, so drift between the two surfaces cannot happen silently. And the compose-shell + outbound-bubble + inbound-bubble were extracted as standalone copies rather than shared imports, deliberately: the shape's 'don't touch pretty view' invariant is stronger than a dedupe would be. Optimistic-send behavior is the one place the shape's WAF turned out to be a real behavioral gap accepted-as-deferred rather than caught-and-fixed — worth flagging for the future new-shape if relay-room UX starts feeling laggy on send.
