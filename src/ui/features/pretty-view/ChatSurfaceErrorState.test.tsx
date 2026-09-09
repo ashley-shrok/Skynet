@@ -76,6 +76,40 @@ describe("ChatSurfaceErrorState (Phase 93 Slice 3)", () => {
     expect(screen.getByText("<b>bold</b>")).toBeInTheDocument();
   });
 
+  it("Test 8b (Slice 6 reshape): renders as an overlay — scrim with absolute inset-0 + z-[99] + backdrop-blur, matching PrettyViewErrorOverlay pattern", () => {
+    const { container } = render(<ChatSurfaceErrorState />);
+    const scrim = container.querySelector('[data-testid="chat-surface-error-state"]');
+    expect(scrim).not.toBeNull();
+    // Same scrim tokens as PrettyViewErrorOverlay + SessionHoldingOverlay
+    // (post-close reshape ask 2026-09-09: match existing overlay pattern
+    // rather than in-flow flex-1 replacement of the message list).
+    expect(scrim!.className).toContain("absolute");
+    expect(scrim!.className).toContain("inset-0");
+    expect(scrim!.className).toContain("z-[99]");
+    expect(scrim!.className).toContain("backdrop-blur-md");
+    expect(scrim!.className).toContain("bg-black/40");
+    // iOS Safari backdrop-filter hardening — patch #333 lesson, non-negotiable
+    // for any backdrop-filter surface in this fork.
+    expect(scrim!.className).toContain("isolate");
+    expect(scrim!.className).toContain("[transform:translateZ(0)]");
+    // Scrim blocks clicks / typing on what it covers.
+    expect(scrim!.className).toContain("pointer-events-auto");
+  });
+
+  it("Test 8c (Slice 6 reshape): renders the static warm-red glyph (motion-channel guardrail — no spinner)", () => {
+    const { container } = render(<ChatSurfaceErrorState />);
+    // Sibling overlays (PrettyViewErrorOverlay + SessionHoldingOverlay error
+    // variant) both use a static RefreshCcw with warm-red hue; motion-channel
+    // guardrail: NO spin-animation class here. Guarding against a future
+    // refactor that adds `animate-spin` (would blur the semantic between
+    // "something is happening" and "state").
+    const svg = container.querySelector("svg");
+    expect(svg).not.toBeNull();
+    expect(svg!.getAttribute("aria-hidden")).toBe("true");
+    expect(svg!.className.baseVal).toContain("text-[hsl(0,72%,60%)]");
+    expect(svg!.className.baseVal).not.toContain("animate-spin");
+  });
+
   it("Test 10 (D-20 existence-oracle discipline): renders same title regardless of underlying reason", () => {
     // The D-20 discipline: no per-status branching. If a caller passes no
     // custom title, the default copy fires regardless of whether the source

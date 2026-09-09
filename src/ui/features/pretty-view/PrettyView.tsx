@@ -644,6 +644,28 @@ export function PrettyView({
   // the anchor shows the loading placeholder immediately for a relay
   // source (Warning 2 fix).
   const chatSurfaceAdapter = useChatSurfaceAdapter(source, isVisible);
+  // Phase 93 Slice 6 (post-close fix): log relay-adapter error transitions
+  // via useEffect (was inline console.info inside a JSX IIFE — fired every
+  // render while error !== null, spamming logs proportional to render count).
+  // Now fires once per transition into a new error value, which is what ops-
+  // grep actually wants. Structured payload: operation slug + roomId + the
+  // error itself (never raw event body). Reset-log-suppress: when the error
+  // clears (transitions back to null), no log fires — that's a recovery, not
+  // an incident.
+  useEffect(() => {
+    if (chatSurfaceAdapter.error === null) return;
+    // eslint-disable-next-line no-console
+    console.info({
+      operation: "chat_surface_relay_error",
+      error: chatSurfaceAdapter.error,
+      // D-08 discipline: relay-narrowed field read appears ONLY inline with
+      // the source.kind === "relay" narrowing on the same line (see
+      // PrettyView.source-prop.test.tsx Test 3 per-line check). An
+      // `if (!relay) return;` guard on a prior line + a bare field read
+      // later would violate the test's per-line grep.
+      roomId: source.kind === "relay" ? source.roomId : null,
+    });
+  }, [source, chatSurfaceAdapter.error]);
   // Phase 93 Slice 2 (D-01/D-03): viewing user's mxid + fleet-identity-hosts
   // map. Both are read unconditionally here (Rules of Hooks) — the relay case
   // consumes them via MultiBadgeAnchor; the harness case ignores them. Slice
@@ -3780,35 +3802,32 @@ export function PrettyView({
         />
       )}
 
-      {/* Phase 93 Slice 3 (D-20): relay error state — renders IN PLACE OF
-          the message list when the relay adapter reports an unrecoverable
-          error (room-not-found, protocol, etc.). Same slot as the message
-          list container so the compose bar below still mounts (an error
-          state does not un-mount ComposeBox — the user may retype but a
-          send will fail-immediately per the adapter's fail-immediately
-          branch). V8 existence-oracle discipline: same title regardless of
-          reason (ChatSurfaceErrorState handles this internally).
-          Structured log fires here — no raw body, just operation + roomId. */}
+      {/* Phase 93 Slice 3 (D-20) + Slice 6 post-close reshape:
+          ChatSurfaceErrorState — friendly OVERLAY for relay rooms that are no
+          longer available (kicked, room-not-found, WS inactive frame). Same
+          scrim + z-band + glass card treatment as PrettyViewErrorOverlay /
+          SessionHoldingOverlay error variant, so it feels like the existing
+          chat-surface's overlay family rather than a new-type error screen
+          (Ashley close-out ask 2026-09-09). The message-list container below
+          stays mounted underneath the overlay. Structured log fires from a
+          separate useEffect above — do NOT re-inline it here (spamming logs
+          proportional to render count is the pre-Slice-6 bug this replaces). */}
       {source.kind === "relay" && chatSurfaceAdapter.error !== null && (
-        (() => {
-          // eslint-disable-next-line no-console
-          console.info({
-            operation: "chat_surface_relay_error",
-            error: chatSurfaceAdapter.error,
-            roomId: source.kind === "relay" ? source.roomId : null,
-          });
-          return <ChatSurfaceErrorState />;
-        })()
+        <ChatSurfaceErrorState />
       )}
+
       {/* Phase 56 (2026-08-23): dormant-OR term removed — no former dormant-
           overlay sibling needs the container to mount in the zero-messages/
           dormant case any more (that overlay was deleted in Plan 56-03).
           Phase 93 Slice 3: also mount when source.kind === "relay" (so the
           relay adapter's messages can render even though harness `status`
-          is not "streaming"). Gated to NOT render when the relay error state
-          is showing (D-20 replaces message list). */}
-      {!(source.kind === "relay" && chatSurfaceAdapter.error !== null) &&
-        (status === "streaming" ||
+          is not "streaming"). Phase 93 Slice 6 (post-close fix): removed the
+          `!(source.kind === "relay" && chatSurfaceAdapter.error !== null)`
+          gate — the relay error state is now an OVERLAY (scrim + z-band card,
+          mirroring PrettyViewErrorOverlay per Ashley's close-out ask), so the
+          message-list container stays mounted underneath the overlay rather
+          than being replaced by it. */}
+      {(status === "streaming" ||
         ((status === "connecting" || status === "error") && effectiveMessages.length > 0) ||
         source.kind === "relay") && (
         <div

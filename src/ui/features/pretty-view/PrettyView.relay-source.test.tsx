@@ -430,11 +430,22 @@ describe("PrettyView relay source (Phase 93 Slice 3 Task 3)", () => {
       container.querySelector('[data-testid="chat-surface-error-title"]')
         ?.textContent,
     ).toContain("This conversation is no longer available.");
-    // The message list (relay bubbles) is NOT rendered (error replaces
-    // messages per plan Task 3 step 4 semantics).
-    expect(
-      container.querySelectorAll('[data-testid="mock-relay-inbound-bubble"]'),
-    ).toHaveLength(0);
+    // Slice 6 post-close reshape (2026-09-09): ChatSurfaceErrorState is now
+    // an OVERLAY (scrim + z-band card, mirroring PrettyViewErrorOverlay per
+    // Ashley's close-out ask), NOT an in-flow replacement. The message list
+    // stays mounted underneath; the scrim covers it visually via
+    // `absolute inset-0 z-[99] backdrop-blur-md bg-black/40`. This mirrors
+    // how PrettyViewErrorOverlay + SessionHoldingOverlay behave when they
+    // mount on the harness case — the message list stays mounted, the
+    // scrim overlays it. The inbound bubbles CAN render underneath the
+    // overlay; that's the expected overlay semantics.
+    const errorOverlay = container.querySelector(
+      '[data-testid="chat-surface-error-state"]',
+    ) as HTMLElement | null;
+    expect(errorOverlay).not.toBeNull();
+    expect(errorOverlay!.className).toContain("absolute");
+    expect(errorOverlay!.className).toContain("inset-0");
+    expect(errorOverlay!.className).toContain("z-[99]");
   });
 
   it("Test 6b (error state absent when adapter.error === null): ChatSurfaceErrorState does NOT render", () => {

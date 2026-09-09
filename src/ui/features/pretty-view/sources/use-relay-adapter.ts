@@ -571,13 +571,6 @@ export function useRelayAdapter(
 
   // ── Return the ChatSurfaceAdapterState-compatible shape ──────────────────
 
-  // No-op return when source is null (harness case caller via
-  // useChatSurfaceAdapter): return the idle singleton so the harness case sees
-  // participants={humans:[],agents:[]}, isReady=false, empty messages.
-  if (source === null) {
-    return IDLE_STATE;
-  }
-
   // Map MatrixEvent[] → ChatSurfaceMessage[] (D-16 render compatibility). The
   // mapper filters out non-text events (state changes, redactions, etc.).
   // Memoized on `history` so downstream consumers (PrettyView `effectiveMessages`,
@@ -585,6 +578,12 @@ export function useRelayAdapter(
   // reference when the underlying history has not changed. Without this, the
   // hook returned a fresh array + fresh object every render, defeating memoization
   // across the compose subtree and re-firing every downstream effect.
+  //
+  // Pitfall 2 discipline: this useMemo is called UNCONDITIONALLY (before the
+  // source === null early-return below). Placing it after the early-return
+  // would violate rules-of-hooks on kind-flip — first render with source=null
+  // returns before the hook, next render with source=non-null calls it,
+  // React throws "Rendered more hooks than during previous render."
   const messages = useMemo<ChatSurfaceMessage[]>(() => {
     const out: ChatSurfaceMessage[] = [];
     for (const evt of history) {
@@ -599,17 +598,11 @@ export function useRelayAdapter(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [history]);
 
-  // Suppress lint: pendingSends is observed by the hook internally (timers
-  // fire against setPendingSends via flipToFailed) even though the returned
-  // shape doesn't expose it. Optimistic-bubble rendering could be added in a
-  // later slice if needed; for now the pending-send FIFO exists purely for
-  // the Pitfall 4 correlation + timeout lifecycle.
-  void pendingSends;
-
   // Memoize the returned object so consumers checking reference equality
   // (React.memo, useCallback deps that include the adapter object) don't see
-  // a fresh reference every render.
-  return useMemo(() => ({
+  // a fresh reference every render. Same Pitfall 2 discipline as `messages`
+  // above: called unconditionally before the source === null early-return.
+  const memoizedActiveState = useMemo(() => ({
     messages,
     participants,
     sendMessage,
@@ -630,4 +623,21 @@ export function useRelayAdapter(
     loadOlderError,
     fetchOlder,
   ]);
+
+  // No-op return when source is null (harness case caller via
+  // useChatSurfaceAdapter): return the idle singleton so the harness case sees
+  // participants={humans:[],agents:[]}, isReady=false, empty messages. This
+  // early-return sits BELOW the two useMemos above (Pitfall 2 discipline).
+  if (source === null) {
+    return IDLE_STATE;
+  }
+
+  // Suppress lint: pendingSends is observed by the hook internally (timers
+  // fire against setPendingSends via flipToFailed) even though the returned
+  // shape doesn't expose it. Optimistic-bubble rendering could be added in a
+  // later slice if needed; for now the pending-send FIFO exists purely for
+  // the Pitfall 4 correlation + timeout lifecycle.
+  void pendingSends;
+
+  return memoizedActiveState;
 }

@@ -1872,7 +1872,17 @@ describe("PrettyView — relay-source optimistic bubbles (Phase 93 Slice 5)", ()
   // describes above are unaffected because the returned inert shape's
   // messages === [], which mirrors useHarnessAdapter's Slice 1 shim.
 
-  it("Test 1 (D-14 optimistic bubble emitted on send-attempt, relay case): mount with relay source, trigger send → adapter.sendMessage called and pending bubble renders synchronously", async () => {
+  it("Test 1 (Slice 6 post-close fix — regression floor for Info-5): relay send routes to adapter.sendMessage with mqid AND does NOT seed PrettyView.pendingSends", async () => {
+    // Slice 5 originally asserted PrettyView.pendingSends seeded an optimistic
+    // bubble on every relay send-attempt (via handleOptimisticSend). Slice 6's
+    // post-close code-review Info-5 identified this as a real bug: local
+    // pendingSends never head-matches in relay mode (harness ingestion effect
+    // is gated off), producing a DOUBLE bubble (local pending + adapter's own
+    // optimistic in adapter.messages) that then flips red at the 20s timeout.
+    // Fix: PrettyView passes `onOptimisticSend={source.kind === "relay" ?
+    // undefined : handleOptimisticSend}` — the adapter owns relay-case
+    // optimistic bubbles internally (verified end-to-end at hook level in
+    // use-relay-adapter.test.ts Test 5). This test locks in the fix.
     const { container } = mountRelay();
 
     // Wait for the ComposeBox textarea to appear — the relay-case mount
@@ -1895,20 +1905,16 @@ describe("PrettyView — relay-source optimistic bubbles (Phase 93 Slice 5)", ()
     // (see ComposeBox.tsx L530).
     expect(mqid).toMatch(/^pv-optim-/);
 
-    // D-14: optimistic bubble emits on send-attempt (before adapter.sendMessage
-    // resolves). Bubble is a ChatMessage rendered via PrettyView.pendingSends
-    // — same visual shape as the harness case (D-08 shared primitive).
-    await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
-    const pendingEl = container.querySelector('[data-event-id^="pending-"]')!;
-    expect(pendingEl).not.toBeNull();
-    // The pending bubble's data-event-id derives from ComposeBox's mqid —
-    // the SAME mqid that PrettyView.handleComposeSend forwarded to
-    // adapter.sendMessage (Pitfall 4 correlation precondition).
-    expect(pendingEl.getAttribute("data-event-id")).toBe(`pending-${mqid}`);
-    // Bubble content is the payload.
-    expect(pendingEl.textContent).toContain("hello relay");
-    // The latest-sending pending has the spinner (D-04 latest-only).
-    expect(pendingEl.querySelector("[data-pv-bubble-spinner]")).not.toBeNull();
+    // Slice 6 regression floor: NO local PrettyView.pendingSends bubble
+    // emitted in relay mode. Adapter owns the optimistic bubble via
+    // adapter.messages (this composed test mocks the adapter, so no
+    // optimistic bubble appears from adapter.messages either — hook-level
+    // Test 5 in use-relay-adapter.test.ts covers the adapter's own pending
+    // FIFO + echo correlation).
+    expect(countPendingBubbles(container)).toBe(0);
+    expect(
+      container.querySelector('[data-event-id^="pending-"]'),
+    ).toBeNull();
   });
 
   it("Test 2 (Pitfall 4 echo correlation at composed level): adapter.messages populated with echoed relay_outbound event (unsigned.transaction_id === mqid semantics) → real bubble renders in the message list", async () => {
@@ -1934,7 +1940,11 @@ describe("PrettyView — relay-source optimistic bubbles (Phase 93 Slice 5)", ()
     typeAndEnter(container, "hello");
     await waitFor(() => expect(sendMessageSpy).toHaveBeenCalledTimes(1));
     const [, mqid] = sendMessageSpy.mock.calls[0];
-    await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
+    // Slice 6 post-close fix: no local PrettyView pendingSends in relay
+    // mode (Info-5). Adapter owns the optimistic bubble via adapter.messages.
+    // The composed test's mock adapter doesn't simulate the adapter's own
+    // pending — hook-level Test 5 in use-relay-adapter.test.ts covers that.
+    expect(countPendingBubbles(container)).toBe(0);
 
     // Simulate the adapter post-echo state: unsigned.transaction_id === mqid
     // → the adapter has appended the real relay_outbound event to messages.
@@ -2008,12 +2018,16 @@ describe("PrettyView — relay-source optimistic bubbles (Phase 93 Slice 5)", ()
     expect(outboundHeader.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("Test 3 (D-14 timeout → failed state, relay case): 20s advance flips optimistic pending to failed — same D-14 fleet rule as harness case", async () => {
+  it("Test 3 (Slice 6 post-close fix — D-14 timeout is adapter-owned in relay mode): 20s advance does NOT flip a local pending bubble because no local pending is seeded in relay", async () => {
+    // Slice 5 originally asserted PrettyView-owned local pendingSends flipped
+    // to failed at 20s in relay mode. Slice 6 fix (Info-5): no local
+    // pendingSends is seeded in relay mode — the adapter owns the pending
+    // FIFO + 20s timeout internally (hook-level coverage in
+    // use-relay-adapter.test.ts Test 3+5). At composed level, the assertion
+    // is simply that nothing local flips after 20s (no local state to flip).
     vi.useFakeTimers();
     const { container } = mountRelay();
 
-    // Wait for textarea (relay case ComposeBox is mounted unconditionally
-    // when source.kind === "relay").
     await act(async () => {
       await Promise.resolve();
     });
@@ -2021,41 +2035,30 @@ describe("PrettyView — relay-source optimistic bubbles (Phase 93 Slice 5)", ()
     await act(async () => {
       await Promise.resolve();
     });
-    expect(countPendingBubbles(container)).toBe(1);
-    // Spinner present (sending state).
-    expect(container.querySelector("[data-pv-bubble-spinner]")).not.toBeNull();
+    // Slice 6: no local pending in relay mode.
+    expect(countPendingBubbles(container)).toBe(0);
+    expect(container.querySelector("[data-pv-bubble-spinner]")).toBeNull();
 
-    // Advance past 20000ms — the D-14 20s no-echo timer fires.
+    // Advance past 20000ms — no local timer to fire.
     await act(async () => {
       vi.advanceTimersByTime(20001);
       await Promise.resolve();
     });
-    // Pending flipped to failed.
-    expect(container.querySelector("[data-pv-bubble-failed]")).not.toBeNull();
-    // No spinner (mutually exclusive with failed state).
+    // Still no local failed bubble (nothing local to flip; adapter owns
+    // this state internally per use-relay-adapter.ts's timeout FIFO).
+    expect(container.querySelector("[data-pv-bubble-failed]")).toBeNull();
     expect(container.querySelector("[data-pv-bubble-spinner]")).toBeNull();
   });
 
-  it("Test 4 (WS-not-open architectural note): adapter.sendMessage resolving false does NOT flip optimistic to failed at composed level — production-code gap surfaced by test", async () => {
-    // Rule 4 architectural note (per plan): PrettyView.handleComposeSend
-    // for the relay case does `void chatSurfaceAdapter.sendMessage(...)` and
-    // returns `true` unconditionally (PrettyView.tsx L1311-1319). This
-    // means ComposeBox never fires `immediateFailure: true` for the relay
-    // case — even when the adapter's WS is not open. The optimistic bubble
-    // stays "sending" until the D-14 20s timer flips it (see Test 3).
-    //
-    // Wiring adapter-sendMessage-resolved-false → immediateFailure would
-    // require:
-    //   (a) PrettyView.handleComposeSend awaiting adapter.sendMessage and
-    //       returning its resolved boolean (breaks the return-synchronously
-    //       contract ComposeBox expects), OR
-    //   (b) The adapter exposing a synchronous "wsReady" observable that
-    //       PrettyView reads in handleComposeSend.
-    //
-    // Both are architectural changes (D-13 + D-14 semantics). Slice 5's
-    // scope per D-21 is test-migration only — this test documents the
-    // current behavior AS-IS: adapter.sendMessage returning false does not
-    // fail-immediately the optimistic bubble at composed level.
+  it("Test 4 (Slice 6 post-close fix — adapter-owned failure behavior): sendMessage resolving false does NOT surface at composed level because relay optimistic is adapter-owned", async () => {
+    // Slice 5 originally asserted a local PrettyView pending bubble emitted
+    // on send + stayed sending (immediateFailure not wired for relay). Slice
+    // 6 fix (Info-5): no local pending emitted at all in relay mode. The
+    // adapter's own sendMessage promise resolution flows into the adapter's
+    // internal pending FIFO — hook-level Test 3 in use-relay-adapter.test.ts
+    // covers the adapter's failure-path behavior. Composed level asserts
+    // only what it can observe: adapter.sendMessage was called, and no
+    // local pending bubble was seeded.
     sendMessageSpy.mockImplementation(async () => false); // WS not open
 
     const { container } = mountRelay();
@@ -2066,14 +2069,10 @@ describe("PrettyView — relay-source optimistic bubbles (Phase 93 Slice 5)", ()
     typeAndEnter(container, "ws-not-open");
 
     await waitFor(() => expect(sendMessageSpy).toHaveBeenCalledTimes(1));
-    // Optimistic bubble still emitted (D-14 — on send-attempt, regardless
-    // of adapter result).
-    await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
-    // But NO [data-pv-bubble-failed] yet — the immediateFailure path is
-    // not wired for the relay case at composed level (see above).
+    // Slice 6: no local pending. Adapter owns the failure surface.
+    expect(countPendingBubbles(container)).toBe(0);
     expect(container.querySelector("[data-pv-bubble-failed]")).toBeNull();
-    // Spinner still present (sending state).
-    expect(container.querySelector("[data-pv-bubble-spinner]")).not.toBeNull();
+    expect(container.querySelector("[data-pv-bubble-spinner]")).toBeNull();
   });
 
   it("Test 5 (Pitfall 4 mqid preservation end-to-end): ComposeBox-generated mqid threads byte-for-byte through PrettyView.handleComposeSend into adapter.sendMessage", async () => {
@@ -2111,17 +2110,14 @@ describe("PrettyView — relay-source optimistic bubbles (Phase 93 Slice 5)", ()
     expect(firstMqid).toMatch(/^pv-optim-/);
     expect(secondMqid).toMatch(/^pv-optim-/);
 
-    // Both optimistic bubbles render with data-event-id derived from the
-    // SAME mqid ComposeBox forwarded to the adapter (three-way byte-for-
-    // byte identity).
-    const pendings = container.querySelectorAll('[data-event-id^="pending-"]');
-    expect(pendings.length).toBe(2);
-    const pendingIds = Array.from(pendings).map((el) =>
-      el.getAttribute("data-event-id"),
-    );
-    // Order matters: FIFO — first send seeds first pending.
-    expect(pendingIds[0]).toBe(`pending-${firstMqid}`);
-    expect(pendingIds[1]).toBe(`pending-${secondMqid}`);
+    // Slice 6 post-close fix: no local PrettyView pending bubbles in relay
+    // mode — the mqid three-way identity is verified at the adapter-call
+    // level above (adapter.sendMessage received both fresh mqids in order).
+    // The adapter's internal pending FIFO keyed on those mqids is covered
+    // end-to-end at the hook level in use-relay-adapter.test.ts Test 5.
+    expect(
+      container.querySelectorAll('[data-event-id^="pending-"]').length,
+    ).toBe(0);
   });
 
   it("Test 6 (harness case unchanged — regression floor): mount with source.kind === 'harness' → send does NOT invoke adapter.sendMessage; harness onSend prop IS invoked with (text, mqid)", async () => {
