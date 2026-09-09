@@ -74,6 +74,7 @@ import {
   readIdentityBounties,
   readIdentityBountyCounts,
   readRoleFile,
+  readRoleFileByName,
   readRoleWakeups,
   writeIdentityWakeupUpdate,
   writeRoleWakeupUpdate,
@@ -85,6 +86,7 @@ import {
   writeIdentityHistory,
   writeIdentityHandoff,
   writeRoleFile,
+  writeRoleFileByName,
   writeIdentityBountyPriority,
   writeIdentityBountyStatus,
   writeIdentityBountyPinned,
@@ -97,6 +99,7 @@ import {
   type BountyFieldsPatch,
   type WakeupSpec,
 } from "./identity-artifact-reader.js";
+import { ROLE_NAME_PATTERN } from "../database/routes/identity-birth-orchestrator.js";
 
 /**
  * Live Claude-session WebSocket server on port 30011.
@@ -130,6 +133,7 @@ import {
  *     // Phase 18 / IDMEDIT-06: markdown write surfaces (full-overwrite, tmp+rename atomic):
  *     { type: "identity:update-identity-file", identityKey: string, hostId: number, contents: string } // Phase 18: full-overwrite <key>/<key>.md via SFTP tmp+rename (REMOTE) or fs tmp+rename (LOCAL)
  *     { type: "identity:update-role-file", identityKey: string, hostId: number, contents: string }     // Phase 22 SRIC-06: full-overwrite ~/.claude/roles/<role>/<role>.md via backend two-step
+ *     { type: "role:update-file", roleName: string, hostId?: number, contents: string }                 // Phase 90 Plan 90-03: role-name-keyed companion of identity:update-role-file — full-overwrite ~/.claude/roles/<roleName>/<roleName>.md without the identity two-step. Consumed by the RoleModal (Plan 90-04) which has no identity context.
  *     { type: "identity:update-history", identityKey: string, hostId: number, contents: string }       // Phase 18: full-overwrite <key>/history.md
  *     { type: "identity:update-handoff", identityKey: string, hostId: number, contents: string }       // Phase 18: full-overwrite <key>/handoff.md
  *     // hostId routing (patch #92): when omitted OR when the hostId is in IDENTITIES_LOCAL_HOST_IDS,
@@ -185,6 +189,7 @@ import {
  *     // Phase 18 / IDMEDIT-06: post-write echoes — server re-reads after write so client rehydrates from server-side truth:
  *     { type: "identity:identity-file-updated", markdown: string, error?: string } // Phase 18: response to identity:update-identity-file (confirmed markdown post-write)
  *     { type: "identity:role-file-updated", markdown: string, error?: string }      // Phase 22 SRIC-06: response to identity:update-role-file (confirmed markdown post-write, re-read via two-step)
+ *     { type: "role:file-updated", markdown: string, error?: string }                // Phase 90 Plan 90-03: response to role:update-file (confirmed markdown post-write, re-read via readRoleFileByName)
  *     { type: "identity:history-updated", entries: string[], error?: string }       // Phase 18: response to identity:update-history (server re-reads + re-parses entries)
  *     { type: "identity:handoff-updated", markdown: string, error?: string }        // Phase 18: response to identity:update-handoff (confirmed markdown post-write)
  *
@@ -1433,6 +1438,90 @@ export async function handleIdentityUpdateRoleFile(
 // above. Vitest drives the handlers directly with mocked reader/writer helpers.
 export const __handleIdentityGetRoleFileForTests = handleIdentityGetRoleFile;
 export const __handleIdentityUpdateRoleFileForTests = handleIdentityUpdateRoleFile;
+
+// ─── Phase 90 Plan 90-03: role:update-file WS handler ─────────────────────────
+//
+// Byte-shape mirror of handleIdentityUpdateRoleFile above, keyed directly on
+// roleName (no identity two-step). Companion wire type for the RoleModal
+// (Phase 90 Plan 90-04) save path — the role modal has no identity context,
+// so the identity-keyed handler is awkward. D-08.3 planner-pick: added a
+// companion wire type rather than having the frontend synthesize an
+// identityKey from the host's identity list (which breaks if the roles-list
+// host has no local identities).
+//
+// After write, re-reads via readRoleFileByName so the client rehydrates from
+// server-side truth (no client-side draft trust). writeRoleFileByName handles
+// the ROLE_NAME_PATTERN gate + byte cap internally, so the outer catch
+// propagates helper errors verbatim on the response envelope.
+
+export async function handleRoleUpdateFile(
+  ws: WebSocket,
+  msg: unknown,
+  userId: string | undefined,
+): Promise<void> {
+  const m = (msg ?? {}) as { roleName?: unknown; hostId?: unknown; contents?: unknown };
+  const rawRoleName = m.roleName;
+  const rawContents = m.contents;
+  if (typeof rawRoleName !== "string" || !ROLE_NAME_PATTERN.test(rawRoleName)) {
+    try { ws.send(JSON.stringify({ type: "role:file-updated", markdown: "", error: "invalid roleName" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=role:file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+    return;
+  }
+  if (typeof rawContents !== "string") {
+    try { ws.send(JSON.stringify({ type: "role:file-updated", markdown: "", error: "contents must be a string" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=role:file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+    return;
+  }
+  const roleName = rawRoleName;
+  const contents = rawContents;
+  const rawHostId = m.hostId;
+  const hostIdNum =
+    typeof rawHostId === "number" && Number.isFinite(rawHostId) && rawHostId > 0
+      ? rawHostId
+      : undefined;
+  const useLocal = hostIdNum === undefined || isLocalHostId(hostIdNum);
+  try {
+    let markdown: string;
+    if (useLocal) {
+      await writeRoleFileByName(null, roleName, contents);
+      ({ markdown } = await readRoleFileByName(null, roleName));
+      sshLogger.info("role:update-file", {
+        operation: "role_update_file",
+        userId, roleName, hostId: hostIdNum, useLocal: true,
+        bytes: Buffer.byteLength(contents, "utf-8"),
+      });
+    } else {
+      const resolved = await resolveHostById(hostIdNum!, userId!);
+      if (!resolved) {
+        try { ws.send(JSON.stringify({ type: "role:file-updated", markdown: "", error: "host not found" })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=role:file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+        return;
+      }
+      const conn = await connectOneShot(resolved as unknown as Parameters<typeof connectOneShot>[0], 5000);
+      try {
+        await writeRoleFileByName(conn, roleName, contents);
+        ({ markdown } = await readRoleFileByName(conn, roleName));
+        sshLogger.info("role:update-file", {
+          operation: "role_update_file",
+          userId, roleName, hostId: hostIdNum, useLocal: false,
+          bytes: Buffer.byteLength(contents, "utf-8"),
+        });
+      } finally {
+        try { conn.end(); } catch (err) { databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" }); }
+      }
+    }
+    try { ws.send(JSON.stringify({ type: "role:file-updated", markdown })); } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=role:file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+  } catch (err) {
+    sshLogger.error(
+      "role:update-file unexpected error",
+      err instanceof Error ? err : new Error(String(err)),
+      { operation: "role_update_file_error", userId, roleName, hostId: hostIdNum },
+    );
+    try {
+      ws.send(JSON.stringify({ type: "role:file-updated", markdown: "", error: err instanceof Error ? err.message : String(err) }));
+    } catch (err) { databaseLogger.warn(`[ws-server] send-failed msgType=role:file-updated err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" }); }
+  }
+}
+
+// Test seam — Phase 90 Plan 90-03. Same pattern as __handleIdentityUpdateRoleFileForTests.
+export const __handleRoleUpdateFileForTests = handleRoleUpdateFile;
 
 // ─── Phase 72 Plan 01: role-scope wakeup CRUD + identity-scope create/delete ──
 //
@@ -5753,6 +5842,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // at the module-scope function below.
     if (msg.type === "identity:update-role-file") {
       await handleIdentityUpdateRoleFile(ws, msg, userId);
+      return;
+    }
+
+    // Phase 90 Plan 90-03: role:update-file — role-name-keyed companion of
+    // identity:update-role-file. Delegates to handleRoleUpdateFile (exported
+    // for tests). D-08.3 planner-pick — RoleModal (Plan 90-04) has no
+    // identity context so it uses this handler.
+    if (msg.type === "role:update-file") {
+      await handleRoleUpdateFile(ws, msg, userId);
       return;
     }
 
