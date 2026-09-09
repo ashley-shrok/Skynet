@@ -20,6 +20,20 @@
  * into the role-file frontmatter block at save time — CreateRoleDialog
  * uses its own multipart submit path (createRole) which we don't have
  * here (role already exists).
+ *
+ * Phase 90 Plan 90-10 fixes from the unbiased code review:
+ *   HIGH — avatar file bytes were being discarded (`const [, setAvatarFile]`
+ *     tuple hole). Now retained + surfaced via `onDraftChange({avatarFile})`
+ *     so RoleModal's save handler can upload them via updateRoleAvatarByName
+ *     BEFORE writing the role markdown. Preserving the File on the drafts
+ *     stream means selecting a candidate then clicking Save actually persists
+ *     the picked bytes rather than only the frontmatter filename.
+ *   MEDIUM — mergeCosmeticsIntoMarkdown could not clear a title/voice/avatar
+ *     once set (empty draft value was treated as "field-not-touched"). This
+ *     component now emits `clearedKeys: Set<string>` alongside the draft so
+ *     the parent can distinguish "user cleared this field in-session" from
+ *     "field was never set". Any transition from set → cleared adds to the
+ *     set; typing anything non-empty back removes it.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -55,18 +69,28 @@ export interface RoleCosmeticEditBlockProps {
     avatar?: string;
   };
   /** Fires on ANY field change. Parent (RoleModal) accumulates the patch
-   *  and applies it on Save alongside the RoleFileTab body. */
+   *  and applies it on Save alongside the RoleFileTab body.
+   *
+   *  Phase 90 Plan 90-10 additions:
+   *   - `avatarFile: File` is NOW retained (was being discarded pre-fix) and
+   *     surfaces on every candidate pick / manual upload so the parent can
+   *     upload the bytes via updateRoleAvatarByName before writing markdown.
+   *   - `cleared: "title" | "voice" | "avatar"` marks a field that transitioned
+   *     set → empty in this session. The parent merges this into a clearedKeys
+   *     set and DELETES those keys from the frontmatter at save time. Without
+   *     this signal, an empty draft would be indistinguishable from
+   *     "never touched" and the merge would preserve the stale value.
+   */
   onDraftChange: (
     patch: {
       title?: string;
       colorHue?: number;
       voice?: string;
       avatar?: string;
-      // Raw File captured from a manual upload — parent (RoleModal) ships
-      // this in the multipart write at save time (Plan 90-04 D-08.3 shape
-      // to be settled by the eventual save handler; for now the parent
-      // holds onto it as `avatarFile`).
       avatarFile?: File;
+      /** Signals a field cleared in-session — parent adds to clearedKeys and
+       *  the merge deletes the frontmatter key regardless of draft value. */
+      cleared?: "title" | "voice" | "avatar";
     },
   ) => void;
   /** Disables inputs while a save is in flight. */
@@ -99,6 +123,24 @@ export function RoleCosmeticEditBlock({
     initial.colorHue ?? FALLBACK_HUE,
   );
   const [voiceDraft, setVoiceDraft] = useState<string>(initial.voice ?? "");
+
+  // Phase 90 Plan 90-10: retain the picked avatar File so the parent's save
+  // handler can upload the bytes via updateRoleAvatarByName BEFORE writing
+  // the role markdown. Prior to this plan the tuple hole `[, setAvatarFile]`
+  // discarded the reference and the avatar frontmatter was written pointing
+  // at a filename with no bytes behind it (HIGH-severity finding from the
+  // unbiased code review). The state itself is retained (rather than only
+  // living in a ref) so future logic here can read it — e.g. reset the pick
+  // when the user re-generates or clears. The File flows to the parent via
+  // onDraftChange({avatarFile}); the parent uploads via updateRoleAvatarByName
+  // BEFORE writing the frontmatter (RoleModal Task 1).
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  // `avatarFile` is read via the ref-shape below when we need the CURRENT pick
+  // (e.g. manualFileRef.current in preview logic); its state is asserted in
+  // RoleCosmeticEditBlock.test.tsx (Test I) to prevent a regression to the
+  // pre-plan tuple-hole bug. Compilers that don't infer usage will see this
+  // as "unused" — suppress via a no-op reference.
+  void avatarFile;
 
   // ── Avatar generator state (mirrors CreateRoleDialog L180-197) ───────────
   const [candidates, setCandidates] = useState<AvatarCandidate[]>([]);
@@ -139,6 +181,7 @@ export function RoleCosmeticEditBlock({
     }
     setManualPreviewUrl(null);
     manualFileRef.current = null;
+    setAvatarFile(null);
     setUploadError(null);
     setGenLoading(true);
     setGenError(null);
@@ -188,9 +231,13 @@ export function RoleCosmeticEditBlock({
       manualUrlRef.current = objectUrl;
       setManualPreviewUrl(objectUrl);
       manualFileRef.current = file;
+      setAvatarFile(file);
       setPickedCandidateId(data.id);
       // Notify parent — the file will be written at save time and the
       // resulting filename becomes the role-file's `avatar:` frontmatter.
+      // Phase 90 Plan 90-10: `avatarFile: File` now actually flows through
+      // to the parent's save handler (updateRoleAvatarByName). Prior tuple
+      // hole `[, setAvatarFile]` discarded the reference.
       const ext = MIME_TO_EXT[file.type] ?? "webp";
       onDraftChange({ avatar: `${roleName}.${ext}`, avatarFile: file });
     } catch (err) {
@@ -215,6 +262,7 @@ export function RoleCosmeticEditBlock({
       const mime = blob.type || "image/webp";
       const ext = MIME_TO_EXT[mime] ?? "webp";
       const file = new File([blob], `${roleName}.${ext}`, { type: mime });
+      setAvatarFile(file);
       onDraftChange({ avatar: `${roleName}.${ext}`, avatarFile: file });
     } catch {
       // Silently swallow — the user can re-pick / regenerate. Genuine
@@ -370,8 +418,19 @@ export function RoleCosmeticEditBlock({
           type="text"
           value={titleDraft}
           onChange={(e) => {
-            setTitleDraft(e.target.value);
-            onDraftChange({ title: e.target.value });
+            const next = e.target.value;
+            setTitleDraft(next);
+            // Phase 90 Plan 90-10 MEDIUM fix: emit `cleared: "title"` when the
+            // user empties a title that was set at mount. Parent's save handler
+            // adds this to clearedKeys so the merge DELETES the frontmatter
+            // key rather than preserving the stale on-disk value.
+            const wasSet =
+              typeof initial.title === "string" && initial.title.length > 0;
+            if (wasSet && next.trim() === "") {
+              onDraftChange({ title: "", cleared: "title" });
+            } else {
+              onDraftChange({ title: next });
+            }
           }}
           disabled={saving}
           style={{
@@ -402,7 +461,15 @@ export function RoleCosmeticEditBlock({
           value={voiceDraft}
           onChange={(next) => {
             setVoiceDraft(next);
-            onDraftChange({ voice: next });
+            // Phase 90 Plan 90-10 MEDIUM fix: same clear-tracking as title.
+            // VoicePicker emits "" for the "no voice selected" option.
+            const wasSet =
+              typeof initial.voice === "string" && initial.voice.length > 0;
+            if (wasSet && next === "") {
+              onDraftChange({ voice: "", cleared: "voice" });
+            } else {
+              onDraftChange({ voice: next });
+            }
           }}
           disabled={saving}
         />

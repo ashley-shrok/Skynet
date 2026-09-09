@@ -1,36 +1,31 @@
 /**
- * Phase 90 Plan 90-04 Task 2 — RoleBountiesTab
+ * Phase 90 Plan 90-04 Task 2 — RoleBountiesTab (Plan 90-10 shim-removal refactor)
  *
  * Lift of the identity-modal Bounties tab body (IdentityModal.tsx L2212-2501)
- * into a standalone component consumed by the new RoleModal (Task 3).
+ * into a standalone component consumed by the new RoleModal.
  *
- * ── identity-shim (Wave-2 planner note per 90-04 PLAN §objective) ────────────
- * The existing `identity:list-bounties` WS type is identity-keyed. Plan 90-03
- * added a role-name-keyed WRITE path (`role:update-file`); adding role-name-
- * keyed READ variants for bounties + role-wakeups + role-file-read would
- * balloon this phase, so this component accepts an `identityShimKey` prop and
- * threads it through the existing wire type. The caller (RolesListModal +
- * PrettyView identity-modal title-line jump) resolves ANY identity holding
- * the target role on the selected host and passes its key. This is a wire-
- * shim only — the tab never displays identity data. Post-Phase-90 the WS
- * wire type can be replaced with a role-name-keyed variant.
+ * ── Plan 90-10: role-name-keyed reads (identity-shim prop removed) ─────────
+ * D-08.3 (CONTEXT.md lock) rejects the identity indirection. Plan 90-09
+ * shipped `listBountiesForRoleName({roleName, hostId, includeArchived?})` in
+ * claude-session-api.ts; this component consumes it directly. There is no
+ * identity indirection anywhere in the read path.
  *
  * ── Behavior parity with IdentityModal bounties tab ──────────────────────────
  * Same client-side sort/group logic (pinned → in_progress → rest → other),
- * same lazy archive load (WS omits `includeArchived: true` on initial fetch;
- * expanding the Archive accordion fires a second WS with the flag), same
- * client-side search (case-insensitive substring against title / premise /
- * slug / keywords). CRUD side effects (priority / status / pin / needs-desk
+ * same lazy archive load (helper omits `includeArchived: true` on initial
+ * fetch; expanding the Archive accordion fires a second call with the flag),
+ * same client-side search (case-insensitive substring against title / premise
+ * / slug / keywords). CRUD side effects (priority / status / pin / needs-desk
  * / archive / delete / field edits) INTENTIONALLY not lifted in this file —
- * the identity-modal's CRUD is Wave-2's scope-boundary; wiring role-modal
- * bounty CRUD is future work behind the same identityShimKey.
+ * bounty mutations from the modal UI are v2 scope (bounties are typically
+ * edited via terminal). If a mutation handler was ever added, it would
+ * consume a future `role:update-bounty` wire type; today the tab is read-only.
  */
 
 import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import { X } from "lucide-react";
@@ -44,10 +39,8 @@ import { Skeleton } from "@/components/skeleton";
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
 import {
-  openClaudeSessionSocket,
+  listBountiesForRoleName,
   type Bounty,
-  type IdentityListBountiesPayload,
-  type IdentityBountiesEvent,
 } from "@/api/claude-session-api";
 import { BountyCard } from "./BountyCard";
 
@@ -84,12 +77,11 @@ function sortBounties(bounties: Bounty[]): Bounty[] {
 }
 
 export interface RoleBountiesTabProps {
-  /** Wave-2 identity-shim: any identity holding the target role on the
-   *  selected host. Threaded through the existing `identity:list-bounties`
-   *  wire type unchanged. Never displayed to the user. */
-  identityShimKey: string;
-  /** SSH host id — pane's active host, mirrors IdentityModal's `hostId`
-   *  prop. Threaded into the WS payload alongside identityKey. */
+  /** Role slug (kebab-case). Threaded into every listBountiesForRoleName call.
+   *  Phase 90 Plan 90-10: the earlier identity-shim prop was removed after
+   *  Plan 90-09 shipped the role-name-keyed helper (D-08.3 lock). */
+  roleName: string;
+  /** SSH host id — pane's active host, threaded into the byName helper. */
   hostId: number;
   /** Role's colorHue — drives the search-bar background tint so the sticky
    *  header integrates with the parent RoleModal's hue chrome. */
@@ -97,7 +89,7 @@ export interface RoleBountiesTabProps {
 }
 
 export function RoleBountiesTab({
-  identityShimKey,
+  roleName,
   hostId,
   hue,
 }: RoleBountiesTabProps): JSX.Element {
@@ -117,13 +109,13 @@ export function RoleBountiesTab({
   // Search box (mirrors IdentityModal L245).
   const [bountyQuery, setBountyQuery] = useState<string>("");
 
-  // Track socket refs so we can close them on unmount / refetch.
-  const wsRef = useRef<WebSocket | null>(null);
-  const archiveWsRef = useRef<WebSocket | null>(null);
-
   // ── Initial fetch ────────────────────────────────────────────────────────
+  //
+  // Plan 90-10 shim removal: routes through listBountiesForRoleName which
+  // handles socket lifecycle internally. The prior openClaudeSessionSocket
+  // plumbing was pure duplication.
   useEffect(() => {
-    if (!identityShimKey) return;
+    if (!roleName) return;
     setLoading(true);
     setError(null);
     setBounties([]);
@@ -133,147 +125,58 @@ export function RoleBountiesTab({
     setArchiveAccordionValue("");
 
     let cancelled = false;
-    const ws = openClaudeSessionSocket();
-    wsRef.current = ws;
 
-    ws.onopen = () => {
-      if (cancelled) return;
-      const payload: IdentityListBountiesPayload = {
-        type: "identity:list-bounties",
-        identityKey: identityShimKey,
-        hostId,
-      };
+    void (async () => {
       try {
-        ws.send(JSON.stringify(payload));
-      } catch {
-        /* ignore — ws may be mid-close */
+        const { bounties: fetched } = await listBountiesForRoleName({
+          roleName,
+          hostId,
+          // includeArchived intentionally omitted — the lazy loader below
+          // fetches the archive on accordion expand.
+        });
+        if (cancelled) return;
+        setBounties((fetched as Bounty[]) ?? []);
+        setLoading(false);
+      } catch (e) {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : "Connection failed");
+        setLoading(false);
       }
-    };
-
-    ws.onmessage = (event: MessageEvent<string>) => {
-      if (cancelled) return;
-      let parsed: IdentityBountiesEvent;
-      try {
-        const raw = JSON.parse(event.data) as { type?: string };
-        if (raw.type !== "identity:bounties") return;
-        parsed = raw as IdentityBountiesEvent;
-      } catch {
-        return;
-      }
-      setBounties(parsed.bounties ?? []);
-      // DO NOT setArchivedBounties from initial fetch — backend returns []
-      // when includeArchived is omitted (its default). The lazy loader
-      // below owns archive population.
-      if (parsed.error) setError(parsed.error);
-      setLoading(false);
-      try {
-        ws.close();
-      } catch {
-        /* ignore */
-      }
-    };
-
-    const handleFailure = () => {
-      if (cancelled) return;
-      setError("Connection failed");
-      setLoading(false);
-    };
-    ws.onerror = handleFailure;
-    ws.onclose = () => {
-      if (!cancelled && loading) handleFailure();
-    };
+    })();
 
     return () => {
       cancelled = true;
-      try {
-        ws.close();
-      } catch {
-        /* ignore */
-      }
-      wsRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identityShimKey, hostId, refetchKey]);
+  }, [roleName, hostId, refetchKey]);
 
   // ── Lazy archive loader ──────────────────────────────────────────────────
   const loadArchivedBounties = useCallback(() => {
-    if (!identityShimKey) return;
+    if (!roleName) return;
     if (archivedLoadState === "loaded" && archivedError === null) return;
     if (archivedLoadState === "loading") return;
 
     setArchivedLoadState("loading");
     setArchivedError(null);
 
-    let responded = false;
-    const sock = openClaudeSessionSocket();
-    archiveWsRef.current = sock;
-
-    sock.onopen = () => {
-      const payload: IdentityListBountiesPayload = {
-        type: "identity:list-bounties",
-        identityKey: identityShimKey,
-        hostId,
-        includeArchived: true,
-      };
+    void (async () => {
       try {
-        sock.send(JSON.stringify(payload));
-      } catch {
-        /* ignore */
+        const { archivedBounties: fetched } = await listBountiesForRoleName({
+          roleName,
+          hostId,
+          includeArchived: true,
+        });
+        setArchivedBounties((fetched as Bounty[]) ?? []);
+        setArchivedLoadState("loaded");
+        setArchivedError(null);
+      } catch (e) {
+        setArchivedError(
+          e instanceof Error ? e.message : "Failed to load archive",
+        );
+        setArchivedLoadState("unloaded");
+        setArchiveAccordionValue("");
       }
-    };
-
-    sock.onmessage = (event: MessageEvent<string>) => {
-      if (responded) return;
-      try {
-        const raw = JSON.parse(event.data) as { type?: string };
-        if (raw.type !== "identity:bounties") return;
-        responded = true;
-        const parsed = raw as IdentityBountiesEvent;
-        if (parsed.error) {
-          setArchivedError(parsed.error);
-          setArchivedLoadState("unloaded");
-          setArchiveAccordionValue("");
-        } else {
-          setArchivedBounties(parsed.archivedBounties ?? []);
-          setArchivedLoadState("loaded");
-          setArchivedError(null);
-        }
-        try {
-          sock.close();
-        } catch {
-          /* ignore */
-        }
-      } catch {
-        /* ignore */
-      }
-    };
-
-    const handleFail = () => {
-      if (responded) return;
-      responded = true;
-      setArchivedError("Failed to load archive");
-      setArchivedLoadState("unloaded");
-      setArchiveAccordionValue("");
-    };
-    sock.onerror = handleFail;
-    sock.onclose = () => {
-      if (!responded) handleFail();
-    };
-  }, [identityShimKey, hostId, archivedLoadState, archivedError]);
-
-  // Close archive socket on unmount.
-  useEffect(() => {
-    return () => {
-      const sock = archiveWsRef.current;
-      if (sock) {
-        try {
-          sock.close();
-        } catch {
-          /* ignore */
-        }
-      }
-    };
-  }, []);
+    })();
+  }, [roleName, hostId, archivedLoadState, archivedError]);
 
   // ── Group open bounties (lifted verbatim from IdentityModal L788-822) ─────
   const grouped = useMemo(() => {

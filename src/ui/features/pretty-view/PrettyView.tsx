@@ -734,12 +734,17 @@ export function PrettyView({
   // IdentityModal's title-line click), cleared to null by the RoleModal's
   // onOpenChange(false) close handler. No reopen-of-identity-modal on close
   // per D-03 (no per-pane context, no back-navigation).
+  // Phase 90 Plan 90-10 (D-08.3 lock): the earlier identity-shim prop was
+  // removed from this state slot. Every read/write on the RoleModal now routes
+  // through role-name-keyed helpers (Plan 90-09), so `roleName` + `hostId`
+  // fully identifies every artifact the modal touches. `hue` is retained
+  // because it also feeds downstream chrome computations at the PrettyView
+  // level.
   const [roleModalOpenState, setRoleModalOpenState] = useState<
     | null
     | {
         roleName: string;
         roleCosmetics: RoleSummary;
-        identityShimKey: string;
         hue: number;
       }
   >(null);
@@ -1740,10 +1745,10 @@ export function PrettyView({
           voice: identity.roleDefaults.voice,
           avatar: identity.roleDefaults.avatar,
         };
+        // Plan 90-10: no identity indirection — the modal reads/writes by role name.
         setRoleModalOpenState({
           roleName,
           roleCosmetics: cosmetics,
-          identityShimKey: identity.identityKey,
           hue: cosmetics.colorHue ?? 190,
         });
         return;
@@ -1762,7 +1767,6 @@ export function PrettyView({
           setRoleModalOpenState({
             roleName,
             roleCosmetics: match,
-            identityShimKey: identity.identityKey,
             hue: match.colorHue ?? 190,
           });
         })
@@ -3450,7 +3454,6 @@ export function PrettyView({
           roleName={roleModalOpenState.roleName}
           roleCosmetics={roleModalOpenState.roleCosmetics}
           hostId={hostId}
-          identityShimKey={roleModalOpenState.identityShimKey}
           onOpenRunbook={(runbookName) => {
             // Nested swap-not-stack: close role modal, open runbook editor
             // with the role modal's own roleName (no reliance on pvIdentity).

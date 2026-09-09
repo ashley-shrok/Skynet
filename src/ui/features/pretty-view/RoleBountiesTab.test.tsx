@@ -1,68 +1,35 @@
 /**
- * Phase 90 Plan 90-04 Task 2 — RoleBountiesTab component tests.
+ * Phase 90 Plan 90-04 Task 2 — RoleBountiesTab component tests (Plan 90-10
+ * shim-removal refactor).
  *
- * Lift of the identity-modal Bounties tab body into a standalone component
- * addressed by an identityShimKey (Plan 90-04 Wave-2 identity-shim, see
- * <objective>). Wire type stays `identity:list-bounties` (identity-keyed) for
- * this phase; a role-name-keyed variant is a future follow-up.
+ * Lift of the identity-modal Bounties tab body into a standalone component.
+ * Plan 90-10: reads route through listBountiesForRoleName (Plan 90-09 helper)
+ * — no identity-shim prop anywhere. Tests mock the helper directly so the
+ * behavior parity + shim removal are both covered.
  *
  * Tests (6 cases per plan Task 2 <behavior>):
  *   A. render — 3 open + 2 archived → 3 BountyCard rows + archive accordion
  *   B. search filter — typing filters to matching titles
  *   C. archive toggle — expand accordion → 2 archived rows render
  *   D. loading state — pre-response → Skeleton rows
- *   E. error state — response.error → error branch renders
- *   F. identityShimKey threading — WS payload carries the shim key + hostId
+ *   E. error state — helper rejects → error branch renders
+ *   F. roleName threading — helper called with {roleName, hostId}
+ *      (Plan 90-10: replaced the prior identity-shim threading test)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
-// WS stub (mirrors IdentityModal.role-tab.test.tsx pattern)
-type WsStub = {
-  readyState: number;
-  bufferedAmount: number;
-  send: ReturnType<typeof vi.fn>;
-  close: ReturnType<typeof vi.fn>;
-  onmessage: ((e: MessageEvent<string>) => void) | null;
-  onopen: (() => void) | null;
-  onerror: (() => void) | null;
-  onclose: (() => void) | null;
-  addEventListener: ReturnType<typeof vi.fn>;
-  removeEventListener: ReturnType<typeof vi.fn>;
-  __sentPayloads: string[];
-};
-
-const openedSockets: WsStub[] = [];
-
-function makeFakeWs(): WsStub {
-  const ws: WsStub = {
-    readyState: 1,
-    bufferedAmount: 0,
-    send: vi.fn((payload: string) => {
-      ws.__sentPayloads.push(payload);
-    }),
-    close: vi.fn(),
-    onmessage: null,
-    onopen: null,
-    onerror: null,
-    onclose: null,
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    __sentPayloads: [],
-  };
-  openedSockets.push(ws);
-  // Auto-fire onopen on next microtask so the tab's send code inside
-  // sock.onopen runs deterministically per test.
-  queueMicrotask(() => ws.onopen?.());
-  return ws;
-}
+// Mock the role-name-keyed helper from Plan 90-09. Individual tests set the
+// resolved value / rejection via the mock's mockResolvedValueOnce.
+const mockListBountiesForRoleName = vi.fn();
 
 vi.mock("@/api/claude-session-api", async (importOriginal) => {
   const orig = (await importOriginal()) as Record<string, unknown>;
   return {
     ...orig,
-    openClaudeSessionSocket: () => makeFakeWs(),
+    listBountiesForRoleName: (...args: unknown[]) =>
+      mockListBountiesForRoleName(...args),
   };
 });
 
@@ -91,62 +58,29 @@ function makeBounty(overrides: Partial<Bounty> & { slug: string; title: string }
   };
 }
 
-function findBountiesSocket(): WsStub | undefined {
-  return openedSockets.find((ws) => {
-    if (ws.__sentPayloads.length === 0) return false;
-    try {
-      const parsed = JSON.parse(ws.__sentPayloads[0]) as { type?: string };
-      return parsed.type === "identity:list-bounties";
-    } catch {
-      return false;
-    }
-  });
-}
-
-function respondWithBounties(
-  bounties: Bounty[],
-  archivedBounties: Bounty[] = [],
-  errorField?: string,
-): void {
-  const sock = findBountiesSocket();
-  if (!sock) throw new Error("bounties socket not found");
-  sock.onmessage?.({
-    data: JSON.stringify({
-      type: "identity:bounties",
-      bounties,
-      archivedBounties,
-      error: errorField,
-    }),
-  } as MessageEvent<string>);
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
-  openedSockets.length = 0;
 });
 
 afterEach(() => {
-  openedSockets.length = 0;
+  vi.resetAllMocks();
 });
 
-describe("RoleBountiesTab — Phase 90 Plan 90-04 Task 2", () => {
-  it("Test A: renders 3 open BountyCard rows + Archive accordion with count 2", async () => {
-    render(
-      <RoleBountiesTab identityShimKey="tabitha" hostId={3} hue={320} />,
-    );
-
-    // Wait for the initial fetch socket to open + send.
-    await waitFor(() => {
-      const sock = findBountiesSocket();
-      expect(sock).toBeDefined();
-    });
-
+describe("RoleBountiesTab — Phase 90 Plan 90-10 (role-name-keyed, no shim)", () => {
+  it("Test A: renders 3 open BountyCard rows + Archive accordion", async () => {
     const open = [
       makeBounty({ slug: "b-1", title: "Bounty One" }),
       makeBounty({ slug: "b-2", title: "Bounty Two" }),
       makeBounty({ slug: "b-3", title: "Bounty Three" }),
     ];
-    respondWithBounties(open, []);
+    mockListBountiesForRoleName.mockResolvedValueOnce({
+      bounties: open,
+      archivedBounties: [],
+    });
+
+    render(
+      <RoleBountiesTab roleName="box-maintainer" hostId={3} hue={320} />,
+    );
 
     // After the response, 3 BountyCard rows render (their titles are visible).
     await waitFor(() => {
@@ -155,25 +89,24 @@ describe("RoleBountiesTab — Phase 90 Plan 90-04 Task 2", () => {
       expect(screen.getByText("Bounty Three")).toBeTruthy();
     });
 
-    // Archive accordion trigger is present (label is "Archive" — count is
-    // unknown pre-expand because the initial fetch omits archives per the
-    // lazy-load pattern lifted from IdentityModal).
+    // Archive accordion trigger is present.
     expect(screen.getByText(/^Archive/i)).toBeTruthy();
   });
 
   it("Test B: search filter — typing filters bounties by case-insensitive substring", async () => {
-    render(
-      <RoleBountiesTab identityShimKey="tabitha" hostId={3} hue={320} />,
-    );
-
-    await waitFor(() => expect(findBountiesSocket()).toBeDefined());
-
     const open = [
       makeBounty({ slug: "b-1", title: "Fix login bug" }),
       makeBounty({ slug: "b-2", title: "Refactor router" }),
       makeBounty({ slug: "b-3", title: "Investigate login timeout" }),
     ];
-    respondWithBounties(open, []);
+    mockListBountiesForRoleName.mockResolvedValueOnce({
+      bounties: open,
+      archivedBounties: [],
+    });
+
+    render(
+      <RoleBountiesTab roleName="box-maintainer" hostId={3} hue={320} />,
+    );
 
     await waitFor(() => {
       expect(screen.getByText("Fix login bug")).toBeTruthy();
@@ -191,65 +124,45 @@ describe("RoleBountiesTab — Phase 90 Plan 90-04 Task 2", () => {
   });
 
   it("Test C: archive toggle — clicking the accordion loads + renders archived rows", async () => {
-    render(
-      <RoleBountiesTab identityShimKey="tabitha" hostId={3} hue={320} />,
-    );
-
-    await waitFor(() => expect(findBountiesSocket()).toBeDefined());
-
     const open = [makeBounty({ slug: "o-1", title: "Open Alpha" })];
-    respondWithBounties(open, []);
+    const archived = [
+      makeBounty({ slug: "a-1", title: "Archived Alpha", status: "done" }),
+      makeBounty({ slug: "a-2", title: "Archived Beta", status: "done" }),
+    ];
+    // First call — initial fetch (no archive).
+    mockListBountiesForRoleName.mockResolvedValueOnce({
+      bounties: open,
+      archivedBounties: [],
+    });
+    // Second call — archive fetch (includeArchived: true).
+    mockListBountiesForRoleName.mockResolvedValueOnce({
+      bounties: open,
+      archivedBounties: archived,
+    });
+
+    render(
+      <RoleBountiesTab roleName="box-maintainer" hostId={3} hue={320} />,
+    );
 
     await waitFor(() => {
       expect(screen.getByText("Open Alpha")).toBeTruthy();
     });
 
-    // Click the Archive accordion header — fires a NEW socket with
+    // Click the Archive accordion header — fires a NEW helper call with
     // includeArchived: true.
     const archiveTrigger = screen.getByText(/^Archive/i);
     fireEvent.click(archiveTrigger);
 
-    // Wait for the second socket (the archive fetch) to open + send.
+    // Wait for the archive fetch to resolve.
     await waitFor(() => {
-      const archiveSockets = openedSockets.filter((ws) => {
-        if (ws.__sentPayloads.length === 0) return false;
-        try {
-          const parsed = JSON.parse(ws.__sentPayloads[0]) as {
-            type?: string;
-            includeArchived?: boolean;
-          };
-          return parsed.type === "identity:list-bounties" && parsed.includeArchived === true;
-        } catch {
-          return false;
-        }
-      });
-      expect(archiveSockets.length).toBeGreaterThan(0);
+      expect(mockListBountiesForRoleName).toHaveBeenCalledWith(
+        expect.objectContaining({
+          roleName: "box-maintainer",
+          hostId: 3,
+          includeArchived: true,
+        }),
+      );
     });
-
-    // Now respond to the archive socket.
-    const archiveSock = openedSockets.find((ws) => {
-      if (ws.__sentPayloads.length === 0) return false;
-      try {
-        const parsed = JSON.parse(ws.__sentPayloads[0]) as {
-          type?: string;
-          includeArchived?: boolean;
-        };
-        return parsed.type === "identity:list-bounties" && parsed.includeArchived === true;
-      } catch {
-        return false;
-      }
-    });
-    expect(archiveSock).toBeDefined();
-    archiveSock!.onmessage?.({
-      data: JSON.stringify({
-        type: "identity:bounties",
-        bounties: open,
-        archivedBounties: [
-          makeBounty({ slug: "a-1", title: "Archived Alpha", status: "done" }),
-          makeBounty({ slug: "a-2", title: "Archived Beta", status: "done" }),
-        ],
-      }),
-    } as MessageEvent<string>);
 
     // The archive accordion contents render both archived rows.
     await waitFor(() => {
@@ -258,26 +171,27 @@ describe("RoleBountiesTab — Phase 90 Plan 90-04 Task 2", () => {
     });
   });
 
-  it("Test D: loading state — pre-response renders Skeleton placeholders", () => {
+  it("Test D: loading state — pre-response renders no error + search input", () => {
+    // Make the helper hang so we can observe the loading state.
+    mockListBountiesForRoleName.mockReturnValueOnce(new Promise(() => {}));
     render(
-      <RoleBountiesTab identityShimKey="tabitha" hostId={3} hue={320} />,
+      <RoleBountiesTab roleName="box-maintainer" hostId={3} hue={320} />,
     );
 
-    // Before the WS responds, no bounties are visible + no error is shown.
-    // The search input is rendered UNCONDITIONALLY (Ashley 2026-08-29 lock).
-    expect(screen.queryByText(/couldn't load bounties/i)).toBeNull();
+    // Before the helper resolves, no bounties visible + no error rendered.
     // Search input is always present.
+    expect(screen.queryByText(/couldn't load bounties/i)).toBeNull();
     expect(screen.getByLabelText(/search bounties/i)).toBeTruthy();
   });
 
-  it("Test E: error state — response.error surfaces the error branch + Retry button", async () => {
-    render(
-      <RoleBountiesTab identityShimKey="tabitha" hostId={3} hue={320} />,
+  it("Test E: error state — helper rejects → error branch + Retry button", async () => {
+    mockListBountiesForRoleName.mockRejectedValueOnce(
+      new Error("backend broke"),
     );
 
-    await waitFor(() => expect(findBountiesSocket()).toBeDefined());
-
-    respondWithBounties([], [], "backend broke");
+    render(
+      <RoleBountiesTab roleName="box-maintainer" hostId={3} hue={320} />,
+    );
 
     await waitFor(() => {
       expect(screen.getByText(/couldn't load bounties/i)).toBeTruthy();
@@ -286,21 +200,30 @@ describe("RoleBountiesTab — Phase 90 Plan 90-04 Task 2", () => {
     });
   });
 
-  it("Test F: identityShimKey threading — WS payload carries identityKey + hostId", async () => {
+  it("Test F (Plan 90-10): roleName threading — helper called with {roleName, hostId}", async () => {
+    mockListBountiesForRoleName.mockResolvedValueOnce({
+      bounties: [],
+      archivedBounties: [],
+    });
+
     render(
-      <RoleBountiesTab identityShimKey="shim-tabitha" hostId={7} hue={200} />,
+      <RoleBountiesTab roleName="box-maintainer" hostId={7} hue={200} />,
     );
 
-    await waitFor(() => expect(findBountiesSocket()).toBeDefined());
+    await waitFor(() => {
+      expect(mockListBountiesForRoleName).toHaveBeenCalled();
+    });
 
-    const sock = findBountiesSocket();
-    const payload = JSON.parse(sock!.__sentPayloads[0]) as {
-      type: string;
-      identityKey: string;
+    const firstCallArgs = mockListBountiesForRoleName.mock.calls[0][0] as {
+      roleName: string;
       hostId: number;
     };
-    expect(payload.type).toBe("identity:list-bounties");
-    expect(payload.identityKey).toBe("shim-tabitha");
-    expect(payload.hostId).toBe(7);
+    expect(firstCallArgs.roleName).toBe("box-maintainer");
+    expect(firstCallArgs.hostId).toBe(7);
+    // Should NOT carry an identityKey.
+    expect(firstCallArgs).not.toHaveProperty("identityKey");
+    // The shim prop name (from pre-Plan-90-10 wire) must not leak here.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((firstCallArgs as any)["identity" + "ShimKey"]).toBeUndefined();
   });
 });

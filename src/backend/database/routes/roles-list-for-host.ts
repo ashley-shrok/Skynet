@@ -48,18 +48,14 @@ import { sshLogger } from "../../utils/logger.js";
 // Empty {} return means "no cosmetics on disk" — cosmetic fields OMITTED from
 // the response entry (not defaulted, not null-emitted).
 import { extractCosmeticsFromFrontmatter } from "../../claude-session/identity-artifact-reader.js";
+// Phase 90 Plan 90-10 (LOW-severity cleanup): ROLE_NAME_PATTERN promoted to
+// `src/backend/utils/role-name-pattern.ts`. Was previously cloned locally here
+// and in roles.ts. Import from shared location to prevent regex-divergence.
+import { ROLE_NAME_PATTERN } from "../../utils/role-name-pattern.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
-
-/**
- * Role name validator — kebab-case-lowercase per D-CONTEXT §Frontend surfaces.
- * Stricter subset of IDENTITY_KEY_RE (no dots, slashes, plus, equals, underscores).
- * Applied both to entries read from `ls ~/.claude/roles/` (SSH branch defense
- * in depth per STRIDE T-22-02-02) and any future role-name request params.
- */
-const ROLE_NAME_PATTERN = /^[a-z0-9-]+$/;
 
 /** SSH connect timeout — matches other one-shot SSH endpoints. */
 const SSH_CONNECT_TIMEOUT_MS = 5000;

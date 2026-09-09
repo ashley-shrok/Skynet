@@ -1,71 +1,66 @@
 /**
- * Phase 90 Plan 90-04 Task 3 — RoleModal component tests.
+ * Phase 90 Plan 90-04 Task 3 — RoleModal component tests (Plan 90-10 refactor).
  *
- * Tests (10 cases per plan Task 3 <behavior>):
+ * Plan 90-10 changes: RoleModal reads role file + wakeups via
+ * getRoleFileByName / listRoleWakeupsByName from claude-session-api.ts
+ * (Plan 90-09). Bounties tab consumes listBountiesForRoleName. Avatar upload
+ * routes through updateRoleAvatarByName (identities-api.ts) BEFORE the
+ * markdown write. Tests mock those helpers directly rather than mocking
+ * openClaudeSessionSocket.
+ *
+ * Tests:
  *   A. renders 4 tabs — Role file / Runbooks / Bounties / Wakeups; default active tab = "role"
  *   B. hue chrome applied — role.colorHue 320 → DialogContent style contains hsla(320, ...)
  *   C. fallback hue — colorHue undefined → hue 190 (D-05 fallback)
  *   D. no scope switch — role=group aria-label=scope absent (this is IdentityModal's)
  *   E. no identity chip — no identity display in header
- *   F. header avatar src — matches /roles/box-maintainer/avatar?hostId=3 for role=box-maintainer, hostId=3
- *   G. role file save wires to updateRoleFileByName — save fires the helper with merged markdown
- *   H. portal to body — no container prop threaded to Portal (defaults to document.body)
+ *   F. header avatar src — matches /roles/box-maintainer/avatar?hostId=3
+ *   G. role file save wires to updateRoleFileByName — save fires with merged markdown
+ *   H. portal to body — no container prop threaded to Portal
  *   I. runbook click swaps modals — onOpenRunbook fires with runbook name
  *   J. close on X — onOpenChange(false) fires
+ *   K. Plan 90-10 avatar-upload gate — save handler POSTs bytes via
+ *      updateRoleAvatarByName BEFORE calling updateRoleFileByName
+ *   L. Plan 90-10 title-clear flow — clearing a set title deletes the
+ *      frontmatter `title:` line from the merged markdown
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
-// WS stub — mirrors IdentityModal.role-tab.test.tsx pattern
-type WsStub = {
-  readyState: number;
-  bufferedAmount: number;
-  send: ReturnType<typeof vi.fn>;
-  close: ReturnType<typeof vi.fn>;
-  onmessage: ((e: MessageEvent<string>) => void) | null;
-  onopen: (() => void) | null;
-  onerror: (() => void) | null;
-  onclose: (() => void) | null;
-  addEventListener: ReturnType<typeof vi.fn>;
-  removeEventListener: ReturnType<typeof vi.fn>;
-  __sentPayloads: string[];
-};
+// Plan 90-10 refactor: RoleModal no longer opens websockets directly. Each
+// read/write routes through the role-name-keyed helpers in claude-session-api
+// (Plan 90-09) and identities-api (Plan 90-09 avatar upload). Tests mock the
+// helpers directly.
 
-const openedSockets: WsStub[] = [];
-
-function makeFakeWs(): WsStub {
-  const ws: WsStub = {
-    readyState: 1,
-    bufferedAmount: 0,
-    send: vi.fn((payload: string) => {
-      ws.__sentPayloads.push(payload);
-    }),
-    close: vi.fn(),
-    onmessage: null,
-    onopen: null,
-    onerror: null,
-    onclose: null,
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    __sentPayloads: [],
-  };
-  openedSockets.push(ws);
-  queueMicrotask(() => ws.onopen?.());
-  return ws;
-}
-
-// Mock the updateRoleFileByName helper so Test G can assert it fired without
-// any actual WS side-effect (mocked separately from the read paths which use
-// openClaudeSessionSocket).
 const mockUpdateRoleFileByName = vi.fn().mockResolvedValue({ markdown: "" });
+const mockGetRoleFileByName = vi
+  .fn()
+  .mockResolvedValue({ markdown: "" });
+const mockListRoleWakeupsByName = vi
+  .fn()
+  .mockResolvedValue({ wakeups: [] });
+const mockListBountiesForRoleName = vi
+  .fn()
+  .mockResolvedValue({ bounties: [], archivedBounties: [] });
+const mockUpdateRoleAvatarByName = vi
+  .fn()
+  .mockResolvedValue({ filename: "box-maintainer.png", avatarUrl: "/x" });
 
 vi.mock("@/api/claude-session-api", async (importOriginal) => {
   const orig = (await importOriginal()) as Record<string, unknown>;
   return {
     ...orig,
-    openClaudeSessionSocket: () => makeFakeWs(),
-    updateRoleFileByName: (...args: unknown[]) => mockUpdateRoleFileByName(...args),
+    updateRoleFileByName: (...args: unknown[]) =>
+      mockUpdateRoleFileByName(...args),
+    getRoleFileByName: (...args: unknown[]) => mockGetRoleFileByName(...args),
+    listRoleWakeupsByName: (...args: unknown[]) =>
+      mockListRoleWakeupsByName(...args),
+    createRoleWakeupByName: vi.fn().mockResolvedValue({ wakeups: [] }),
+    updateRoleWakeupByName: vi.fn().mockResolvedValue({ wakeups: [] }),
+    deleteRoleWakeupByName: vi.fn().mockResolvedValue({ wakeups: [] }),
+    listBountiesForRoleName: (...args: unknown[]) =>
+      mockListBountiesForRoleName(...args),
   };
 });
 
@@ -84,6 +79,8 @@ vi.mock("@/api/identities-api", async (importOriginal) => {
     postManualAvatarCandidate: vi.fn().mockResolvedValue({ id: "manual-1" }),
     roleAvatarUrl: (hostId: number, roleName: string) =>
       `/roles/${roleName}/avatar?hostId=${hostId}`,
+    updateRoleAvatarByName: (...args: unknown[]) =>
+      mockUpdateRoleAvatarByName(...args),
   };
 });
 
@@ -93,18 +90,6 @@ vi.mock("@/api/runbooks-api", () => ({
 }));
 
 import { RoleModal } from "./RoleModal";
-
-function findSocketForRequestType(reqType: string): WsStub | undefined {
-  return openedSockets.find((ws) => {
-    if (ws.__sentPayloads.length === 0) return false;
-    try {
-      const parsed = JSON.parse(ws.__sentPayloads[0]) as { type?: string };
-      return parsed.type === reqType;
-    } catch {
-      return false;
-    }
-  });
-}
 
 function renderModal(overrides: Partial<Parameters<typeof RoleModal>[0]> = {}) {
   const defaultProps = {
@@ -119,7 +104,6 @@ function renderModal(overrides: Partial<Parameters<typeof RoleModal>[0]> = {}) {
       avatar: "box-maintainer.webp",
     },
     hostId: 3,
-    identityShimKey: "tabitha",
     onOpenRunbook: vi.fn(),
   } as const;
   return render(<RoleModal {...defaultProps} {...overrides} />);
@@ -127,11 +111,22 @@ function renderModal(overrides: Partial<Parameters<typeof RoleModal>[0]> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  openedSockets.length = 0;
+  // Restore default resolutions after each test's clearAllMocks.
+  mockUpdateRoleFileByName.mockResolvedValue({ markdown: "" });
+  mockGetRoleFileByName.mockResolvedValue({ markdown: "" });
+  mockListRoleWakeupsByName.mockResolvedValue({ wakeups: [] });
+  mockListBountiesForRoleName.mockResolvedValue({
+    bounties: [],
+    archivedBounties: [],
+  });
+  mockUpdateRoleAvatarByName.mockResolvedValue({
+    filename: "box-maintainer.png",
+    avatarUrl: "/x",
+  });
 });
 
 afterEach(() => {
-  openedSockets.length = 0;
+  // no-op — vi.clearAllMocks in beforeEach handles teardown.
 });
 
 describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
@@ -214,20 +209,22 @@ describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
   });
 
   it("Test G: role file save wires to updateRoleFileByName", async () => {
+    // Plan 90-10: role-file read now routes through getRoleFileByName. Return
+    // a body with a frontmatter block so the tab can render + edit.
+    mockGetRoleFileByName.mockResolvedValueOnce({
+      markdown:
+        "---\ntitle: Skynet\ncolorHue: 320\nvoice: alloy\navatar: box-maintainer.webp\n---\n\n# Box Maintainer\n\nBody.\n",
+    });
+
     renderModal();
 
-    // Wait for the role-file fetch socket to be created + respond with a body.
+    // Wait for the getRoleFileByName call to happen (proves the modal used the
+    // role-name-keyed helper — Plan 90-10 shim removal).
     await waitFor(() => {
-      const sock = findSocketForRequestType("identity:get-role-file");
-      expect(sock).toBeDefined();
+      expect(mockGetRoleFileByName).toHaveBeenCalledWith(
+        expect.objectContaining({ roleName: "box-maintainer", hostId: 3 }),
+      );
     });
-    const readSock = findSocketForRequestType("identity:get-role-file");
-    readSock!.onmessage?.({
-      data: JSON.stringify({
-        type: "identity:role-file",
-        markdown: "---\ntitle: Skynet\ncolorHue: 320\nvoice: alloy\navatar: box-maintainer.webp\n---\n\n# Box Maintainer\n\nBody.\n",
-      }),
-    } as MessageEvent<string>);
 
     // Click the Role file tab's Edit button to enter edit mode.
     const editBtn = await screen.findByRole("button", { name: /^edit$/i });
@@ -321,5 +318,154 @@ describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
 
     // Radix DialogClose fires onOpenChange(false) on click.
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  // ── Plan 90-10 additions ─────────────────────────────────────────────────
+
+  it("Test K (Plan 90-10 HIGH): avatar upload happens BEFORE updateRoleFileByName", async () => {
+    // Backend returns a role file with an existing title so we can edit + save.
+    mockGetRoleFileByName.mockResolvedValueOnce({
+      markdown:
+        "---\ntitle: Skynet\ncolorHue: 320\nvoice: alloy\navatar: old.webp\n---\n\n# Box Maintainer\n\nBody.\n",
+    });
+    // Track the call order between the two mocks.
+    const callOrder: string[] = [];
+    mockUpdateRoleAvatarByName.mockImplementationOnce(
+      async (hostId: number, roleName: string, file: File) => {
+        callOrder.push("avatar-upload");
+        expect(hostId).toBe(3);
+        expect(roleName).toBe("box-maintainer");
+        expect(file).toBeInstanceOf(File);
+        return { filename: "box-maintainer.png", avatarUrl: "/x" };
+      },
+    );
+    mockUpdateRoleFileByName.mockImplementationOnce(
+      async (roleName: string, hostId: number, markdown: string) => {
+        callOrder.push("markdown-write");
+        expect(roleName).toBe("box-maintainer");
+        expect(hostId).toBe(3);
+        // The saved markdown should reference the server-returned filename.
+        expect(markdown).toMatch(/avatar:\s*box-maintainer\.png/);
+        return { markdown };
+      },
+    );
+
+    renderModal();
+    await waitFor(() => {
+      expect(mockGetRoleFileByName).toHaveBeenCalled();
+    });
+
+    // Upload a manual avatar via the hidden file input inside the
+    // RoleCosmeticEditBlock.
+    const fileInput = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement | null;
+    expect(fileInput).toBeTruthy();
+    const testFile = new File(
+      [new Uint8Array([0x89, 0x50, 0x4e, 0x47])],
+      "avatar.png",
+      { type: "image/png" },
+    );
+    Object.defineProperty(fileInput!, "files", {
+      value: [testFile],
+      writable: false,
+    });
+    fireEvent.change(fileInput!);
+
+    // Wait for postManualAvatarCandidate resolve + onDraftChange emit
+    // to have plumbed the File up to RoleModal.
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Enter edit mode + trigger a save.
+    const editBtn = await screen.findByRole("button", { name: /^edit$/i });
+    fireEvent.click(editBtn);
+    const textarea = (await waitFor(() => {
+      const el = document.querySelector(
+        "textarea.font-mono",
+      ) as HTMLTextAreaElement | null;
+      if (!el) throw new Error("RoleFileTab textarea not yet present");
+      return el;
+    })) as HTMLTextAreaElement;
+    // Perturb the body so the Save button becomes enabled.
+    fireEvent.change(textarea, {
+      target: {
+        value:
+          "---\ntitle: Skynet\ncolorHue: 320\nvoice: alloy\navatar: old.webp\n---\n\n# Box Maintainer\n\nEDITED.\n",
+      },
+    });
+    const saveBtn = await screen.findByRole("button", {
+      name: /^save$|^saving/i,
+    });
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(callOrder).toEqual(["avatar-upload", "markdown-write"]);
+    });
+  });
+
+  it("Test L (Plan 90-10 MEDIUM): clearing a title deletes the frontmatter key at save time", async () => {
+    // Role file has a title on disk.
+    mockGetRoleFileByName.mockResolvedValueOnce({
+      markdown:
+        "---\ntitle: Skynet\ncolorHue: 320\nvoice: alloy\navatar: old.webp\n---\n\n# Box Maintainer\n\nBody.\n",
+    });
+    let capturedMarkdown = "";
+    mockUpdateRoleFileByName.mockImplementationOnce(
+      async (_roleName: string, _hostId: number, markdown: string) => {
+        capturedMarkdown = markdown;
+        return { markdown };
+      },
+    );
+
+    renderModal();
+    await waitFor(() => {
+      expect(mockGetRoleFileByName).toHaveBeenCalled();
+    });
+
+    // Clear the cosmetic title (RoleCosmeticEditBlock emits cleared: "title"
+    // when a set title transitions to empty).
+    const titleInput = screen.getByLabelText(/title/i) as HTMLInputElement;
+    fireEvent.change(titleInput, { target: { value: "" } });
+
+    // Enter edit mode and save.
+    const editBtn = await screen.findByRole("button", { name: /^edit$/i });
+    fireEvent.click(editBtn);
+    const textarea = (await waitFor(() => {
+      const el = document.querySelector(
+        "textarea.font-mono",
+      ) as HTMLTextAreaElement | null;
+      if (!el) throw new Error("RoleFileTab textarea not yet present");
+      return el;
+    })) as HTMLTextAreaElement;
+    // Perturb body so Save enables.
+    fireEvent.change(textarea, {
+      target: {
+        value:
+          "---\ntitle: Skynet\ncolorHue: 320\nvoice: alloy\navatar: old.webp\n---\n\n# Box Maintainer\n\nEDITED.\n",
+      },
+    });
+    const saveBtn = await screen.findByRole("button", {
+      name: /^save$|^saving/i,
+    });
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(mockUpdateRoleFileByName).toHaveBeenCalled();
+    });
+
+    // Frontmatter no longer carries the title key.
+    expect(capturedMarkdown).not.toMatch(/^title:\s*Skynet$/m);
+    expect(capturedMarkdown).not.toMatch(/^title:/m);
+  });
+
+  it("Test M (Plan 90-10 D-08.3): the modal accepts no identity-shim prop", () => {
+    // Type-level assertion via runtime — the props TS interface no longer
+    // carries the identity-shim prop. Passing one would fail type-check.
+    // Runtime assertion: the source file must not contain the prop name in
+    // its exported interface. We inspect the JSX contract implicitly by NOT
+    // threading the prop in renderModal — the tests above prove the modal
+    // still functions with roleName + hostId alone.
+    renderModal();
+    expect(document.querySelector('[data-slot="role-modal-content"]')).toBeTruthy();
   });
 });

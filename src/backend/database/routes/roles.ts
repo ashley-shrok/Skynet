@@ -71,18 +71,14 @@ import {
   writeRoleFileByName,
   MIME_TO_AVATAR_EXT,
 } from "../../claude-session/identity-artifact-reader.js";
+// Phase 90 Plan 90-10 (LOW-severity cleanup): ROLE_NAME_PATTERN promoted to
+// `src/backend/utils/role-name-pattern.ts` — was previously cloned locally.
+// Consolidating avoids the divergence risk called out in the unbiased code review.
+import { ROLE_NAME_PATTERN } from "../../utils/role-name-pattern.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
-
-/**
- * Role name validator — kebab-case-lowercase per D-CONTEXT §Frontend surfaces.
- * Cloned from `roles-list-for-host.ts:62` per plan Task 1 §(2) — the two
- * routers keep their gates local so a future divergence in one doesn't
- * silently loosen the other.
- */
-const ROLE_NAME_PATTERN = /^[a-z0-9-]+$/;
 
 /** SSH connect timeout — matches other one-shot SSH endpoints. */
 const SSH_CONNECT_TIMEOUT_MS = 5000;
@@ -164,6 +160,10 @@ router.get(
 
     // 3. LOCAL vs REMOTE branch — `isLocalHostId` signals the local disk
     //    read path (conn=null); otherwise resolve the host and open SSH.
+    //    Phase 90 Plan 90-10 (LOW cleanup 2): differentiate resolveHostById
+    //    "no such host / not owned by user" (→ "host not resolvable") from
+    //    the SSH-connect-throw path (→ "host unreachable"). Same HTTP code,
+    //    distinct bodies so debugging picks the right rabbit hole.
     const local = isLocalHostId(hostIdNum);
     let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
     if (!local) {
@@ -172,7 +172,7 @@ router.get(
         if (!host) {
           return res
             .status(502)
-            .json({ error: "host unreachable" });
+            .json({ error: "host not resolvable" });
         }
         conn = await connectOneShot(
           host as unknown as Parameters<typeof connectOneShot>[0],
@@ -229,14 +229,43 @@ router.get(
       // 7. Stream the bytes with the correct Content-Type. No ETag/caching
       //    machinery here — role avatars change rarely; keeping this
       //    endpoint minimal until a caching need emerges.
-      res.setHeader("Content-Type", readResult.mime);
-      res.setHeader("Content-Length", String(readResult.bytes.byteLength));
-      res.setHeader("Cache-Control", "no-store");
-      return res.send(readResult.bytes);
-    } catch {
-      // Any unexpected path here (post-read failure, response write error)
-      // → 502 rather than 5xx. Never leaks raw SSH exceptions.
-      return res.status(502).json({ error: "host unreachable" });
+      //
+      //    Phase 90 Plan 90-10 (LOW-severity cleanup 2): a stream-side write
+      //    failure surfaces as a distinct 502 body from the resolve-side
+      //    "host unreachable" — the caller (and any future log-aggregation)
+      //    can tell "we got the bytes but couldn't write the response"
+      //    apart from "we couldn't reach the host at all".
+      try {
+        res.setHeader("Content-Type", readResult.mime);
+        res.setHeader("Content-Length", String(readResult.bytes.byteLength));
+        res.setHeader("Cache-Control", "no-store");
+        return res.send(readResult.bytes);
+      } catch (streamErr) {
+        sshLogger.warn("roles-avatar: response stream write failed", {
+          operation: "roles_avatar_stream_error",
+          hostId: hostIdNum,
+          roleName,
+          error:
+            streamErr instanceof Error ? streamErr.message : "Unknown",
+        });
+        return res.status(502).json({ error: "avatar stream error" });
+      }
+    } catch (unexpectedErr) {
+      // Any unexpected path here (post-read failure not caught above,
+      // frontmatter-parse throw etc.) → 502 with a body distinct from the
+      // pre-read "host unreachable" upstream path. Phase 90 Plan 90-10:
+      // the review flagged the prior catch-all as misleading. Frontmatter
+      // parse throws are the primary trigger — extractCosmeticsFromFrontmatter
+      // does not throw on malformed YAML today, but tightening the contract
+      // upstream should not silently degrade the error message here.
+      sshLogger.warn("roles-avatar: role file read/parse error", {
+        operation: "roles_avatar_read_error",
+        hostId: hostIdNum,
+        roleName,
+        error:
+          unexpectedErr instanceof Error ? unexpectedErr.message : "Unknown",
+      });
+      return res.status(502).json({ error: "role file read error" });
     } finally {
       if (conn) {
         try {

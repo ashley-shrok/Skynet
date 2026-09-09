@@ -9,7 +9,8 @@
  * additional mocks — the harness proves the SHAPE of the coordination.
  *
  * Tests:
- *   A: state slot shape — { roleName, roleCosmetics, identityShimKey, hue } | null
+ *   A: state slot shape — { roleName, roleCosmetics, hue } | null
+ *      (Plan 90-10: identity-shim removed — RoleModal reads by role name.)
  *   B: handleOpenRoleModal derives cosmetics from identity.roleDefaults
  *   C: identity-modal title-line click closes identity modal (via onOpenChange
  *      in the IdentityModal click handler — proven by the modal actually
@@ -73,7 +74,18 @@ vi.mock("@/api/claude-session-api", async (importOriginal) => {
   return {
     ...orig,
     openClaudeSessionSocket: () => makeFakeWs(),
-    updateRoleFileByName: vi.fn().mockResolvedValue(undefined),
+    updateRoleFileByName: vi.fn().mockResolvedValue({ markdown: "" }),
+    // Plan 90-10: RoleModal + RoleBountiesTab now consume the 6 role-name-keyed
+    // helpers from Plan 90-09. Stub each so the modal renders without hanging
+    // on unresolved promises.
+    getRoleFileByName: vi.fn().mockResolvedValue({ markdown: "" }),
+    listRoleWakeupsByName: vi.fn().mockResolvedValue({ wakeups: [] }),
+    createRoleWakeupByName: vi.fn().mockResolvedValue({ wakeups: [] }),
+    updateRoleWakeupByName: vi.fn().mockResolvedValue({ wakeups: [] }),
+    deleteRoleWakeupByName: vi.fn().mockResolvedValue({ wakeups: [] }),
+    listBountiesForRoleName: vi
+      .fn()
+      .mockResolvedValue({ bounties: [], archivedBounties: [] }),
   };
 });
 
@@ -167,12 +179,11 @@ function TestHarness({ identity, onRunbookOpen }: TestHarnessProps): React.React
     | {
         roleName: string;
         roleCosmetics: RoleSummary;
-        identityShimKey: string;
         hue: number;
       }
   >(null);
 
-  // Mirror PrettyView.handleOpenRoleModal shape.
+  // Mirror PrettyView.handleOpenRoleModal shape (Plan 90-10 — no shim).
   const handleOpenRoleModal = React.useCallback((id: Identity) => {
     if (id.role === null) return;
     if (id.roleDefaults) {
@@ -187,7 +198,6 @@ function TestHarness({ identity, onRunbookOpen }: TestHarnessProps): React.React
       setRoleModalOpenState({
         roleName: id.role,
         roleCosmetics: cosmetics,
-        identityShimKey: id.identityKey,
         hue: cosmetics.colorHue ?? 190,
       });
     }
@@ -224,7 +234,6 @@ function TestHarness({ identity, onRunbookOpen }: TestHarnessProps): React.React
           roleName={roleModalOpenState.roleName}
           roleCosmetics={roleModalOpenState.roleCosmetics}
           hostId={7}
-          identityShimKey={roleModalOpenState.identityShimKey}
           onOpenRunbook={(rn) => handleOpenRunbook(rn, roleModalOpenState.roleName)}
         />
       )}

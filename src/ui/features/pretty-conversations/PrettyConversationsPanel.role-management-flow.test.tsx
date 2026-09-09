@@ -216,7 +216,17 @@ vi.mock("@/api/claude-session-api", async (importOriginal) => {
   return {
     ...orig,
     openClaudeSessionSocket: () => makeFakeWs(),
-    updateRoleFileByName: vi.fn().mockResolvedValue(undefined),
+    updateRoleFileByName: vi.fn().mockResolvedValue({ markdown: "" }),
+    // Plan 90-10: RoleModal + RoleBountiesTab consume the 6 role-name-keyed
+    // helpers from Plan 90-09. Stub each so the modal renders cleanly.
+    getRoleFileByName: vi.fn().mockResolvedValue({ markdown: "" }),
+    listRoleWakeupsByName: vi.fn().mockResolvedValue({ wakeups: [] }),
+    createRoleWakeupByName: vi.fn().mockResolvedValue({ wakeups: [] }),
+    updateRoleWakeupByName: vi.fn().mockResolvedValue({ wakeups: [] }),
+    deleteRoleWakeupByName: vi.fn().mockResolvedValue({ wakeups: [] }),
+    listBountiesForRoleName: vi
+      .fn()
+      .mockResolvedValue({ bounties: [], archivedBounties: [] }),
   };
 });
 
@@ -533,12 +543,12 @@ describe("Phase 90 role-management flow — CreateRoleDialog stack", () => {
 // (see PrettyView.role-modal-swap.test.tsx for the shape lock).
 function TitleJumpHarness(): React.ReactElement {
   const [isIdModalOpen, setIsIdModalOpen] = React.useState(true);
+  // Plan 90-10 (D-08.3): identity-shim removed — RoleModal reads by role name.
   const [roleModalState, setRoleModalState] = React.useState<
     | null
     | {
         roleName: string;
         roleCosmetics: RoleSummary;
-        identityShimKey: string;
         hue: number;
       }
   >(null);
@@ -555,7 +565,6 @@ function TitleJumpHarness(): React.ReactElement {
     setRoleModalState({
       roleName: id.role,
       roleCosmetics: cosmetics,
-      identityShimKey: id.identityKey,
       hue: cosmetics.colorHue ?? 190,
     });
   }, []);
@@ -579,7 +588,6 @@ function TitleJumpHarness(): React.ReactElement {
           roleName={roleModalState.roleName}
           roleCosmetics={roleModalState.roleCosmetics}
           hostId={3}
-          identityShimKey={roleModalState.identityShimKey}
           onOpenRunbook={vi.fn()}
         />
       )}

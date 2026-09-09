@@ -1,5 +1,5 @@
 /**
- * Phase 90 Plan 90-04 Task 3 — RoleModal
+ * Phase 90 Plan 90-04 Task 3 — RoleModal (Plan 90-10 shim-removal refactor)
  *
  * D-03 (LOCKED — Ashley 2026-09-09): the role modal is a GLOBAL modal —
  *   portals to `document.body`, no chat-region target, no portal-target
@@ -17,20 +17,31 @@
  *   only (post-Phase-90-06); RoleModal owns role-scope tabs (role file /
  *   runbooks / bounties / wakeups).
  *
- * Wave-2 identity-shim: bounties + role-scope wakeups + role-file read all
- * still route through identity-keyed WS wire types in this plan. RoleModal
- * accepts an `identityShimKey` prop from its caller (RolesListModal, or
- * PrettyView's identity-modal title-line jump). This is a wire-shim only —
- * the modal never displays identity data. Future phases can add role-name-
- * keyed WS variants.
+ * D-08.3 (LOCKED — CONTEXT.md rejects the identity indirection): every
+ *   read/write path on this modal is addressed BY ROLE NAME. Callers pass
+ *   `roleName` + `hostId`; that pair fully identifies every artifact the
+ *   modal touches. (Plan 90-10 dropped the earlier Wave-2 identity prop
+ *   after Plan 90-09 shipped the 6 role-name-keyed helpers in
+ *   claude-session-api.ts.)
  *
- * Save path: `handleRoleFileSave` merges the cosmetic drafts from
- * RoleCosmeticEditBlock into the frontmatter block of the RoleFileTab body
- * and pushes the merged markdown via Plan 90-03's `updateRoleFileByName`
- * (role-name-keyed WS wire type — no identity indirection).
+ * Save path (Plan 90-10 additions):
+ *   1. If cosmeticDraft carries an `avatarFile` (raw File bytes from a
+ *      manual upload or a picked generated candidate), upload via
+ *      updateRoleAvatarByName BEFORE writing the markdown. On success, use
+ *      the server-returned filename as the frontmatter's `avatar:` value
+ *      (overwriting the local draft value if they differ). On failure,
+ *      ABORT the markdown write and surface the error to the user — the
+ *      modal stays open so the draft is preserved.
+ *   2. mergeCosmeticsIntoMarkdown now accepts a `clearedKeys` set. Keys in
+ *      that set are DELETED from the frontmatter (regardless of draft value),
+ *      matching the semantic "user cleared this field in-session". Prior to
+ *      Plan 90-10, an empty draft was indistinguishable from "field never
+ *      touched" — the merge preserved the stale value and the user could
+ *      not clear a title/voice/avatar once set.
+ *   3. updateRoleFileByName (Plan 90-03, unchanged — already role-name-keyed).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlarmClock,
   BookOpen,
@@ -46,20 +57,14 @@ import {
 } from "@/components/dialog";
 import { Tabs, TabsContent } from "@/components/tabs";
 import { cn } from "@/lib/utils";
-import { roleAvatarUrl } from "@/api/identities-api";
+import { roleAvatarUrl, updateRoleAvatarByName } from "@/api/identities-api";
 import {
-  openClaudeSessionSocket,
   updateRoleFileByName,
-  type IdentityGetRoleFilePayload,
-  type IdentityRoleFileEvent,
-  type IdentityListRoleWakeupsPayload,
-  type IdentityRoleWakeupsEvent,
-  type IdentityUpdateRoleWakeupPayload,
-  type IdentityRoleWakeupUpdatedEvent,
-  type IdentityCreateRoleWakeupPayload,
-  type IdentityRoleWakeupCreatedEvent,
-  type IdentityDeleteRoleWakeupPayload,
-  type IdentityRoleWakeupDeletedEvent,
+  getRoleFileByName,
+  listRoleWakeupsByName,
+  createRoleWakeupByName,
+  updateRoleWakeupByName,
+  deleteRoleWakeupByName,
   type WakeupSpecWire,
   type Wakeup,
 } from "@/api/claude-session-api";
@@ -102,10 +107,20 @@ function titleCase(slug: string): string {
  * Rules:
  *   - If the body starts with a `---\n...\n---\n` block, splice inside.
  *   - Otherwise, prepend a fresh frontmatter block.
- *   - For each cosmetic key present in the draft, upsert. For keys the
- *     draft doesn't touch, leave any existing value untouched.
+ *   - For each cosmetic key present in the draft AND non-empty, upsert.
+ *   - For each key in `clearedKeys`, DELETE from the frontmatter regardless
+ *     of the draft value. This is how the user clears a title/voice/avatar
+ *     that was set on disk (Plan 90-10 MEDIUM fix).
+ *   - For keys the draft doesn't touch and are NOT in clearedKeys, leave
+ *     any existing value untouched (never-touched fields survive).
+ *
+ * `clearedKeys` is exported alongside via the RoleCosmeticEditBlock's
+ * `cleared: "title" | "voice" | "avatar"` signal — the parent (this file)
+ * accumulates the set and passes it here at save time.
+ *
+ * Exported for tests in RoleModal.test.tsx.
  */
-function mergeCosmeticsIntoMarkdown(
+export function mergeCosmeticsIntoMarkdown(
   currentBody: string,
   cosmetics: {
     title?: string;
@@ -113,8 +128,10 @@ function mergeCosmeticsIntoMarkdown(
     voice?: string;
     avatar?: string;
   },
+  clearedKeys?: ReadonlySet<string>,
 ): string {
   const cosmeticKeys = ["title", "colorHue", "voice", "avatar"] as const;
+  const cleared = clearedKeys ?? new Set<string>();
   // Detect a leading `---\n...\n---\n` frontmatter block.
   const fmRe = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
   const match = currentBody.match(fmRe);
@@ -133,7 +150,11 @@ function mergeCosmeticsIntoMarkdown(
     if (keyMatch) {
       const key = keyMatch[1];
       seenKeys.add(key);
-      // Overwrite value if the caller passed a draft for this key.
+      // Plan 90-10: cleared keys are DELETED (skip the line entirely).
+      if (cleared.has(key)) {
+        continue;
+      }
+      // Overwrite value if the caller passed a non-empty draft.
       if (cosmeticKeys.includes(key as typeof cosmeticKeys[number])) {
         const draftVal = cosmetics[key as keyof typeof cosmetics];
         if (draftVal !== undefined && draftVal !== "") {
@@ -144,9 +165,12 @@ function mergeCosmeticsIntoMarkdown(
     }
     newLines.push(line);
   }
-  // Append any draft keys the existing block didn't have.
+  // Append any draft keys the existing block didn't have. Cleared keys skip
+  // the append too — a cleared key that had no existing line to delete is a
+  // no-op (user pressed "clear" on a field that was never set).
   for (const key of cosmeticKeys) {
     if (seenKeys.has(key)) continue;
+    if (cleared.has(key)) continue;
     const val = cosmetics[key];
     if (val !== undefined && val !== "") {
       newLines.push(`${key}: ${yamlScalar(val)}`);
@@ -168,92 +192,12 @@ function yamlScalar(value: string | number): string {
   return value;
 }
 
-// ── Single-shot WS helper (mirrors IdentityModal openOneShot at L434-467) ────
-function openOneShot<Req extends { type: string }, Res extends { type: string }>(
-  request: Req,
-  expectedType: string,
-  onSuccess: (data: Res) => void,
-  onError: (err: string) => void,
-  isCancelled: () => boolean,
-): WebSocket {
-  let responded = false;
-  const sock = openClaudeSessionSocket();
-  sock.onopen = () => {
-    if (isCancelled()) return;
-    try {
-      sock.send(JSON.stringify(request));
-    } catch {
-      /* ignore */
-    }
-  };
-  sock.onmessage = (event: MessageEvent<string>) => {
-    if (isCancelled() || responded) return;
-    try {
-      const raw = JSON.parse(event.data) as { type?: string };
-      if (raw.type !== expectedType) return;
-      responded = true;
-      onSuccess(raw as Res);
-      try {
-        sock.close();
-      } catch {
-        /* ignore */
-      }
-    } catch {
-      /* ignore */
-    }
-  };
-  const handleFail = () => {
-    if (isCancelled() || responded) return;
-    responded = true;
-    onError("Connection failed");
-  };
-  sock.onerror = handleFail;
-  sock.onclose = () => {
-    if (!responded) handleFail();
-  };
-  return sock;
-}
-
-// Wakeup CRUD mutation helper (mirrors IdentityModal sendIdentityMutation
-// L828-855). Returns a Promise that resolves on the matching response.
-function sendMutation<Req, Res extends { error?: string; type: string }>(
-  request: Req,
-  expectedType: string,
-): Promise<Res> {
-  return new Promise<Res>((resolve, reject) => {
-    const sock = openClaudeSessionSocket();
-    let settled = false;
-    const finish = (val: Res | Error) => {
-      if (settled) return;
-      settled = true;
-      try {
-        sock.close();
-      } catch {
-        /* ignore */
-      }
-      if (val instanceof Error) reject(val);
-      else resolve(val);
-    };
-    sock.onopen = () => {
-      try {
-        sock.send(JSON.stringify(request));
-      } catch (e) {
-        finish(e instanceof Error ? e : new Error(String(e)));
-      }
-    };
-    sock.onmessage = (event: MessageEvent<string>) => {
-      try {
-        const raw = JSON.parse(event.data) as { type?: string };
-        if (raw.type !== expectedType) return;
-        finish(raw as Res);
-      } catch {
-        /* ignore */
-      }
-    };
-    sock.onerror = () => finish(new Error("Connection failed"));
-    sock.onclose = () => finish(new Error("Connection closed before response"));
-  });
-}
+// Phase 90 Plan 90-10: openOneShot + sendMutation helpers deleted. The 6
+// role-name-keyed API helpers from Plan 90-09 (getRoleFileByName,
+// listRoleWakeupsByName, createRoleWakeupByName, updateRoleWakeupByName,
+// deleteRoleWakeupByName, updateRoleFileByName) all return Promises with the
+// same connection lifecycle baked in, so the modal-local WS plumbing was pure
+// duplication of what claude-session-api.ts already owns.
 
 export interface RoleModalProps {
   /** Controlled — true = modal open. */
@@ -263,7 +207,10 @@ export interface RoleModalProps {
    *  clean up their own state. */
   onOpenChange: (open: boolean) => void;
   /** Role slug (kebab-case). Addresses ALL of: header avatar, role-file
-   *  fetch/write, runbooks + role-wakeups scoping. */
+   *  fetch/write, runbooks + role-wakeups scoping, bounty read, avatar upload.
+   *  Phase 90 Plan 90-10: this is the ONLY addressing prop for role-scope
+   *  reads/writes — the earlier Wave-2 identity prop was removed after Plan
+   *  90-09 shipped 6 role-name-keyed API helpers (D-08.3 lock). */
   roleName: string;
   /** Role cosmetics from Plan 90-01's RoleSummary. All keys optional. */
   roleCosmetics: {
@@ -273,12 +220,9 @@ export interface RoleModalProps {
     voice?: string;
     avatar?: string;
   };
-  /** SSH host id — pane's active host. */
+  /** SSH host id — pane's active host. Threaded through every role-name-keyed
+   *  helper as `hostId`. */
   hostId: number;
-  /** Wave-2 identity-shim — an identity holding the target role on the
-   *  selected host, used for identity-keyed READ paths (bounties, role-
-   *  wakeups, role-file read). Never displayed. */
-  identityShimKey: string;
   /** Fired when a Runbooks tab row is clicked. Parent (PrettyView in Plan
    *  90-06) owns swap-not-stack coordination — closes this RoleModal and
    *  opens RunbookEditorModal for {roleName, runbookName}. */
@@ -291,7 +235,6 @@ export function RoleModal({
   roleName,
   roleCosmetics,
   hostId,
-  identityShimKey,
   onOpenRunbook,
 }: RoleModalProps): JSX.Element {
   const hue = roleCosmetics.colorHue ?? FALLBACK_HUE;
@@ -313,82 +256,90 @@ export function RoleModal({
     voice?: string;
     avatar?: string;
   }>({});
-  // Held separately so the file object can (later) be shipped in a
-  // multipart write. Not consumed by updateRoleFileByName in this plan —
-  // avatar-file write is a follow-up phase (planner scope note).
-  const [, setAvatarFile] = useState<File | null>(null);
-
-  const openSocketsRef = useRef<WebSocket[]>([]);
+  // Phase 90 Plan 90-10 HIGH fix: retain the picked avatar File so we can
+  // POST it to the backend via updateRoleAvatarByName BEFORE writing the
+  // role markdown. Prior to this plan the file was discarded and the
+  // frontmatter pointed at a filename with no bytes behind it.
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  // Phase 90 Plan 90-10 MEDIUM fix: track which cosmetic keys the user has
+  // cleared in-session. mergeCosmeticsIntoMarkdown DELETES these keys from
+  // the frontmatter regardless of draft value — otherwise an empty draft is
+  // indistinguishable from "field never touched" and the merge preserves
+  // stale on-disk values. The RoleCosmeticEditBlock signals via
+  // `cleared: "title" | "voice" | "avatar"` on onDraftChange emissions.
+  const [clearedKeys, setClearedKeys] = useState<Set<string>>(new Set());
+  // Save-side errors are reported by throwing from handleRoleFileSave — the
+  // RoleFileTab's own onSave promise handler catches the throw and renders
+  // its saveError UI. The modal stays open so the draft is preserved. No
+  // separate error state needed here.
 
   // ── Fetch role file + role-wakeups on open ────────────────────────────────
+  //
+  // Plan 90-10 shim removal: both reads route through role-name-keyed helpers
+  // from claude-session-api.ts (Plan 90-09). The prior openOneShot plumbing
+  // was pure duplication.
   useEffect(() => {
-    if (!open || !identityShimKey) return;
+    if (!open) return;
 
     setRoleFileState({ status: "loading" });
     setRoleWakeupsState({ status: "loading" });
     setCosmeticDraft({});
     setAvatarFile(null);
+    setClearedKeys(new Set());
+    // (Errors surface via the throw path — RoleFileTab renders its own UI.)
     setActiveTab("role");
 
     let cancelled = false;
-    const cancelledRef = () => cancelled;
-    const sockets: WebSocket[] = [];
 
-    sockets.push(
-      openOneShot<IdentityGetRoleFilePayload, IdentityRoleFileEvent>(
-        {
-          type: "identity:get-role-file",
-          identityKey: identityShimKey,
-          hostId,
-        },
-        "identity:role-file",
-        (ev) =>
-          setRoleFileState(
-            ev.error
-              ? { status: "error", error: ev.error }
-              : { status: "ready", data: ev.markdown },
-          ),
-        (e) => setRoleFileState({ status: "error", error: e }),
-        cancelledRef,
-      ),
-    );
+    void (async () => {
+      try {
+        const { markdown } = await getRoleFileByName({ roleName, hostId });
+        if (!cancelled) {
+          setRoleFileState({ status: "ready", data: markdown });
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setRoleFileState({
+            status: "error",
+            error: e instanceof Error ? e.message : "Connection failed",
+          });
+        }
+      }
+    })();
 
-    sockets.push(
-      openOneShot<IdentityListRoleWakeupsPayload, IdentityRoleWakeupsEvent>(
-        {
-          type: "identity:list-role-wakeups",
-          identityKey: identityShimKey,
-          hostId,
-        },
-        "identity:role-wakeups",
-        (ev) =>
-          setRoleWakeupsState(
-            ev.error
-              ? { status: "error", error: ev.error }
-              : { status: "ready", data: ev.wakeups },
-          ),
-        (e) => setRoleWakeupsState({ status: "error", error: e }),
-        cancelledRef,
-      ),
-    );
-
-    openSocketsRef.current = sockets;
+    void (async () => {
+      try {
+        const { wakeups } = await listRoleWakeupsByName({ roleName, hostId });
+        if (!cancelled) {
+          setRoleWakeupsState({ status: "ready", data: wakeups });
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setRoleWakeupsState({
+            status: "error",
+            error: e instanceof Error ? e.message : "Connection failed",
+          });
+        }
+      }
+    })();
 
     return () => {
       cancelled = true;
-      for (const s of sockets) {
-        try {
-          s.close();
-        } catch {
-          /* ignore */
-        }
-      }
-      openSocketsRef.current = [];
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, identityShimKey, hostId]);
+  }, [open, roleName, hostId]);
 
   // ── Role-scope wakeup CRUD (byte-shape mirror of IdentityModal L922-974) ──
+  //
+  // Plan 90-10 shim removal: mutations route through role-name-keyed helpers
+  // from claude-session-api.ts (Plan 90-09). The updateRoleWakeupByName /
+  // createRoleWakeupByName / deleteRoleWakeupByName helpers all resolve with
+  // `{wakeups}` (the FRESH post-write list) so we can update state in one shot.
+  //
+  // Compatibility with WakeupsTab's onUpdate signature: the tab still calls
+  // `onUpdate(wakeupSlug, updates)` — we rebuild the FULL WakeupSpecWire by
+  // reading the current wakeup and applying the patch. This matches how
+  // IdentityModal's L922-974 layer worked; the byName variant just replaces
+  // the wire type.
   const updateRoleWakeup = useCallback(
     async (
       wakeupSlug: string,
@@ -399,75 +350,104 @@ export function RoleModal({
         instruction?: string;
       },
     ): Promise<void> => {
-      const payload: IdentityUpdateRoleWakeupPayload = {
-        type: "identity:update-role-wakeup",
-        identityKey: identityShimKey,
-        hostId,
-        wakeupSlug,
-        updates,
+      // Locate the current wakeup so we can construct a full spec. The tab
+      // passes a slug; the byName WS payload wants a full spec.
+      const current =
+        roleWakeupsState.status === "ready"
+          ? roleWakeupsState.data.find((w) => w.name === wakeupSlug)
+          : undefined;
+      if (!current) {
+        throw new Error(`wakeup not found: ${wakeupSlug}`);
+      }
+      const spec: WakeupSpecWire = {
+        name: updates.name ?? current.name,
+        enabled: updates.enabled ?? current.enabled,
+        // WakeupSpecWire.schedule is the same shape the wakeup carries.
+        schedule: (updates.schedule ?? current.schedule) as WakeupSpecWire["schedule"],
+        instruction: updates.instruction ?? current.instruction,
       };
-      const res = await sendMutation<
-        IdentityUpdateRoleWakeupPayload,
-        IdentityRoleWakeupUpdatedEvent
-      >(payload, "identity:role-wakeup-updated");
-      if (res.error) throw new Error(res.error);
+      const res = await updateRoleWakeupByName({ roleName, hostId, spec });
       setRoleWakeupsState({ status: "ready", data: res.wakeups });
     },
-    [identityShimKey, hostId],
+    [roleName, hostId, roleWakeupsState],
   );
 
   const createRoleWakeup = useCallback(
     async (spec: WakeupSpecWire): Promise<void> => {
-      const payload: IdentityCreateRoleWakeupPayload = {
-        type: "identity:create-role-wakeup",
-        identityKey: identityShimKey,
-        hostId,
-        spec,
-      };
-      const res = await sendMutation<
-        IdentityCreateRoleWakeupPayload,
-        IdentityRoleWakeupCreatedEvent
-      >(payload, "identity:role-wakeup-created");
-      if (res.error) throw new Error(res.error);
+      const res = await createRoleWakeupByName({ roleName, hostId, spec });
       setRoleWakeupsState({ status: "ready", data: res.wakeups });
     },
-    [identityShimKey, hostId],
+    [roleName, hostId],
   );
 
   const deleteRoleWakeup = useCallback(
     async (wakeupSlug: string): Promise<void> => {
-      const payload: IdentityDeleteRoleWakeupPayload = {
-        type: "identity:delete-role-wakeup",
-        identityKey: identityShimKey,
+      const res = await deleteRoleWakeupByName({
+        roleName,
         hostId,
-        wakeupSlug,
-      };
-      const res = await sendMutation<
-        IdentityDeleteRoleWakeupPayload,
-        IdentityRoleWakeupDeletedEvent
-      >(payload, "identity:role-wakeup-deleted");
-      if (res.error) throw new Error(res.error);
+        wakeupName: wakeupSlug,
+      });
       setRoleWakeupsState({ status: "ready", data: res.wakeups });
     },
-    [identityShimKey, hostId],
+    [roleName, hostId],
   );
 
   // ── Role-file save handler ────────────────────────────────────────────────
-  // Splices the accumulated cosmeticDraft into the RoleFileTab body's
-  // frontmatter block, then pushes via updateRoleFileByName (Plan 90-03).
+  //
+  // Plan 90-10 additions:
+  //   1. If cosmeticDraft carries an avatarFile, POST it via
+  //      updateRoleAvatarByName BEFORE writing the markdown. On success,
+  //      use the server-returned filename in the frontmatter's avatar field.
+  //      On failure, ABORT the markdown write and surface the error.
+  //   2. Pass clearedKeys through to mergeCosmeticsIntoMarkdown so cleared
+  //      fields are DELETED (not preserved).
   const handleRoleFileSave = useCallback(
     async (fileBody: string): Promise<void> => {
-      const mergedMarkdown = mergeCosmeticsIntoMarkdown(fileBody, cosmeticDraft);
-      const res = await updateRoleFileByName(roleName, hostId, mergedMarkdown);
+      // (Errors surface via the throw path — RoleFileTab renders its own UI.)
+
+      // Local copy of the cosmetic draft — we may overwrite `avatar` from
+      // the server response before merging.
+      let effectiveDraft = { ...cosmeticDraft };
+
+      // Step 1: upload avatar bytes if the user picked / uploaded a File.
+      // On failure, throw — RoleFileTab's onSave promise handler catches and
+      // renders its own saveError UI. Modal stays open; drafts are preserved.
+      if (avatarFile) {
+        const { filename } = await updateRoleAvatarByName(
+          hostId,
+          roleName,
+          avatarFile,
+        );
+        // Server owns the on-disk filename — overwrite the draft to match.
+        effectiveDraft = { ...effectiveDraft, avatar: filename };
+      }
+
+      // Step 2: merge cosmetics (with any avatar overwrite from step 1) into
+      // the frontmatter and write the markdown. updateRoleFileByName rejects
+      // with Error(env.error) on write failure — that reject propagates to
+      // the RoleFileTab which catches and renders the save-failed UI.
+      const mergedMarkdown = mergeCosmeticsIntoMarkdown(
+        fileBody,
+        effectiveDraft,
+        clearedKeys,
+      );
+      const res = await updateRoleFileByName(
+        roleName,
+        hostId,
+        mergedMarkdown,
+      );
       // Server-echo becomes the new source of truth.
       setRoleFileState({ status: "ready", data: res.markdown });
       setCosmeticDraft({});
       setAvatarFile(null);
+      setClearedKeys(new Set());
     },
-    [roleName, hostId, cosmeticDraft],
+    [roleName, hostId, cosmeticDraft, clearedKeys, avatarFile],
   );
 
   // ── Cosmetic-block onDraftChange handler ──────────────────────────────────
+  //
+  // Plan 90-10: also accumulates clearedKeys from the block's `cleared` signal.
   const onCosmeticDraftChange = useCallback(
     (patch: {
       title?: string;
@@ -475,10 +455,38 @@ export function RoleModal({
       voice?: string;
       avatar?: string;
       avatarFile?: File;
+      cleared?: "title" | "voice" | "avatar";
     }) => {
-      const { avatarFile: nextFile, ...cosmeticPatch } = patch;
+      const { avatarFile: nextFile, cleared, ...cosmeticPatch } = patch;
       if (nextFile !== undefined) setAvatarFile(nextFile);
       setCosmeticDraft((prev) => ({ ...prev, ...cosmeticPatch }));
+      if (cleared) {
+        setClearedKeys((prev) => {
+          const next = new Set(prev);
+          next.add(cleared);
+          return next;
+        });
+      } else if (cosmeticPatch.title !== undefined) {
+        // Typing a non-empty title after a clear removes the "cleared" mark.
+        // Same logic applies to voice via the else-if below.
+        if (cosmeticPatch.title.trim().length > 0) {
+          setClearedKeys((prev) => {
+            if (!prev.has("title")) return prev;
+            const next = new Set(prev);
+            next.delete("title");
+            return next;
+          });
+        }
+      } else if (cosmeticPatch.voice !== undefined) {
+        if (cosmeticPatch.voice.length > 0) {
+          setClearedKeys((prev) => {
+            if (!prev.has("voice")) return prev;
+            const next = new Set(prev);
+            next.delete("voice");
+            return next;
+          });
+        }
+      }
     },
     [],
   );
@@ -642,7 +650,7 @@ export function RoleModal({
               className="flex-1 min-h-0 flex flex-col"
             >
               <RoleBountiesTab
-                identityShimKey={identityShimKey}
+                roleName={roleName}
                 hostId={hostId}
                 hue={hue}
               />

@@ -1310,8 +1310,8 @@ export function updateRoleFileByName(
 // Byte-shape mirrors of updateRoleFileByName above — one-shot open →
 // send-on-open → resolve on matching response envelope → close socket.
 // Backend handlers for these six wire types shipped in Plan 90-07.
-// Consumers (RoleModal + RoleBountiesTab + RoleCosmeticEditBlock) land in
-// Plan 90-10 and use these to drop the identityShimKey pattern.
+// Consumers (RoleModal + RoleBountiesTab + RoleCosmeticEditBlock) landed in
+// Plan 90-10 and use these instead of the earlier identity-keyed reads.
 //
 // Wire type / response type pairs:
 //   role:get-file        {roleName, hostId?}                       -> role:file-loaded     {markdown, error?}

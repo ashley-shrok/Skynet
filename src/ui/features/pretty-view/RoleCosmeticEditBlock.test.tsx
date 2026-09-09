@@ -8,7 +8,7 @@
  * "revert to role default" buttons — a role IS the source of truth for its
  * cosmetics, so those affordances have no defined target on this surface.
  *
- * Tests (8 cases per plan Task 1 <behavior>):
+ * Tests (8 cases per plan Task 1 <behavior> + 2 Plan 90-10 additions):
  *   A. render — mount w/ full initial cosmetics → all four inputs pre-filled
  *   B. title edit — typing fires onDraftChange({title})
  *   C. color pick — ColorPicker onChange fires → onDraftChange({colorHue})
@@ -17,6 +17,10 @@
  *   F. no scope switch — role=group aria-label=scope absent (belt+suspenders)
  *   G. avatar generator smoke — Generate button renders, triggerable
  *   H. empty initial — mounts w/ initial={} → neutral fallbacks
+ *   I. Plan 90-10 HIGH fix — manual upload passes File through onDraftChange.avatarFile
+ *      (regression guard: pre-plan tuple hole discarded the file).
+ *   J. Plan 90-10 MEDIUM fix — clearing a title that was set at mount emits
+ *      `cleared: "title"` so the parent can DELETE the frontmatter key.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -245,5 +249,120 @@ describe("RoleCosmeticEditBlock — Phase 90 Plan 90-04 (no inherit/override)", 
     // ColorPicker at neutral fallback 190 (D-05 app-accent fallback)
     const colorSlider = document.getElementById("role-color-picker") as HTMLInputElement;
     expect(colorSlider.value).toBe("190");
+  });
+
+  // ── Phase 90 Plan 90-10 additions ─────────────────────────────────────────
+
+  it("Test I (Plan 90-10 HIGH): manual upload passes the File through onDraftChange.avatarFile", async () => {
+    const onDraftChange = vi.fn();
+    render(
+      <RoleCosmeticEditBlock
+        roleName="box-maintainer"
+        hostId={3}
+        initial={{ title: "Skynet", colorHue: 320, voice: "alloy" }}
+        onDraftChange={onDraftChange}
+        saving={false}
+      />,
+    );
+
+    // Grab the hidden file input inside the Upload label.
+    const fileInput = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement | null;
+    expect(fileInput).toBeTruthy();
+
+    // Fabricate a File; jsdom + testing-library accept the Files list directly.
+    const testFile = new File(
+      [new Uint8Array([0x89, 0x50, 0x4e, 0x47])],
+      "avatar.png",
+      { type: "image/png" },
+    );
+    Object.defineProperty(fileInput!, "files", {
+      value: [testFile],
+      writable: false,
+    });
+    fireEvent.change(fileInput!);
+
+    // Wait for the async postManualAvatarCandidate resolve + onDraftChange emit.
+    await vi.waitFor(() => {
+      expect(onDraftChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          avatar: expect.stringMatching(/^box-maintainer\.png$/),
+          avatarFile: testFile,
+        }),
+      );
+    });
+  });
+
+  it("Test J (Plan 90-10 MEDIUM): clearing a title that was set at mount emits cleared:'title'", () => {
+    const onDraftChange = vi.fn();
+    render(
+      <RoleCosmeticEditBlock
+        roleName="box-maintainer"
+        hostId={3}
+        initial={{ title: "Skynet", colorHue: 320, voice: "alloy" }}
+        onDraftChange={onDraftChange}
+        saving={false}
+      />,
+    );
+
+    const titleInput = screen.getByLabelText(/title/i) as HTMLInputElement;
+    // Clear the title field entirely.
+    fireEvent.change(titleInput, { target: { value: "" } });
+
+    // The clear signal is emitted so the parent can DELETE the frontmatter key.
+    expect(onDraftChange).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "", cleared: "title" }),
+    );
+  });
+
+  it("Test J2 (Plan 90-10 MEDIUM): typing a non-empty title after clearing does NOT emit cleared", () => {
+    const onDraftChange = vi.fn();
+    render(
+      <RoleCosmeticEditBlock
+        roleName="box-maintainer"
+        hostId={3}
+        initial={{ title: "Skynet", colorHue: 320, voice: "alloy" }}
+        onDraftChange={onDraftChange}
+        saving={false}
+      />,
+    );
+
+    const titleInput = screen.getByLabelText(/title/i) as HTMLInputElement;
+    // Clear, then type a fresh value.
+    fireEvent.change(titleInput, { target: { value: "" } });
+    fireEvent.change(titleInput, { target: { value: "Skynet Guardian" } });
+
+    // The last call should NOT carry `cleared`.
+    const lastCall = onDraftChange.mock.calls.at(-1)?.[0];
+    expect(lastCall).toEqual(
+      expect.objectContaining({ title: "Skynet Guardian" }),
+    );
+    expect(lastCall).not.toHaveProperty("cleared");
+  });
+
+  it("Test J3 (Plan 90-10 MEDIUM): clearing a title that was NEVER set does NOT emit cleared", () => {
+    const onDraftChange = vi.fn();
+    render(
+      <RoleCosmeticEditBlock
+        roleName="box-maintainer"
+        hostId={3}
+        initial={{ colorHue: 320 }} // no title
+        onDraftChange={onDraftChange}
+        saving={false}
+      />,
+    );
+
+    const titleInput = screen.getByLabelText(/title/i) as HTMLInputElement;
+    // Type something, then clear it.
+    fireEvent.change(titleInput, { target: { value: "typed" } });
+    onDraftChange.mockClear();
+    fireEvent.change(titleInput, { target: { value: "" } });
+
+    // Since initial.title was undefined, the "cleared" signal must NOT fire
+    // (the merge has nothing to delete — draft is just empty).
+    const lastCall = onDraftChange.mock.calls.at(-1)?.[0];
+    expect(lastCall).toEqual({ title: "" });
+    expect(lastCall).not.toHaveProperty("cleared");
   });
 });

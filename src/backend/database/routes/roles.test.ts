@@ -15,7 +15,9 @@
  *   E: invalid role name (path traversal via `..`) — 400 BEFORE any SSH work
  *   F: missing hostId query — 400
  *   G: invalid hostId query — 400
- *   H: host resolver returns null — 502 { error: "host unreachable" }
+ *   H: host resolver returns null — 502 { error: "host not resolvable" }
+ *      (Phase 90 Plan 90-10 LOW cleanup: differentiated from SSH-connect-throw
+ *      "host unreachable" so debugging picks the right rabbit hole.)
  *   I: URL-encoded path traversal (%2E%2E%2F) — 400 (Express decodes → fails
  *      ROLE_NAME_PATTERN before SSH; STRIDE T-22-02-02 parallel).
  *   J: readRoleFileByName throws — silent-fallback to 404 (mirrors identities.ts:846-848).
@@ -376,7 +378,11 @@ describe("Phase 90 Plan 90-02: GET /roles/:name/avatar", () => {
   // Test H: host resolver returns null → 502
   // -------------------------------------------------------------------------
 
-  it("H: host resolver returns null → 502", async () => {
+  it("H: host resolver returns null → 502 'host not resolvable'", async () => {
+    // Phase 90 Plan 90-10 LOW cleanup 2: resolveHostById returning null is now
+    // distinct from an SSH-connect-throw. Both are 502 but with different
+    // bodies so a future observer can distinguish "host doesn't exist / user
+    // doesn't own it" from "we can't reach the host right now".
     mockResolvedHost = null;
 
     const res = await httpRequest(server, {
@@ -385,7 +391,7 @@ describe("Phase 90 Plan 90-02: GET /roles/:name/avatar", () => {
     });
 
     expect(res.status).toBe(502);
-    expect((res.body as { error: string }).error).toMatch(/unreachable/i);
+    expect((res.body as { error: string }).error).toMatch(/host not resolvable/i);
     expect(recordedRoleReadCalls).toHaveLength(0);
   });
 

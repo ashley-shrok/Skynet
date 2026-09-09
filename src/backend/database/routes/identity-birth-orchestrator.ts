@@ -80,8 +80,14 @@ export const TMUX_NEW_SESSION_FLAGS = "-x 220 -y 50";
  * validation at identity-birth.ts (T-22-02-01 shell-injection mitigation:
  * the role name is interpolated into SSH exec commands that build the
  * identity file target path).
+ *
+ * Phase 90 Plan 90-10 (LOW-severity cleanup): the canonical definition now
+ * lives in `src/backend/utils/role-name-pattern.ts`. This module re-exports
+ * for backward compatibility with existing importers (test files reference
+ * this path). New code should import from `../../utils/role-name-pattern.js`.
  */
-export const ROLE_NAME_PATTERN = /^[a-z0-9-]+$/;
+import { ROLE_NAME_PATTERN } from "../../utils/role-name-pattern.js";
+export { ROLE_NAME_PATTERN };
 
 /**
  * Phase 22 SRIC-02 seed comment embedded in the pre-written identity file.

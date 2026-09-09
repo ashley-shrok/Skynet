@@ -613,12 +613,15 @@ export function PrettyConversationsPanel({
   // RolesListModal's onSelectRole (row click closes list + opens role modal).
   // Also used by the nested RoleModal → RunbookEditorModal swap through
   // runbookEditorOpenState below. Cleared to null on close.
+  // Phase 90 Plan 90-10 (D-08.3 lock): the earlier identity-shim prop was
+  // removed from this state slot. Every read/write on the RoleModal now routes
+  // through role-name-keyed helpers (Plan 90-09), so `roleName` + `hostId`
+  // fully identifies every artifact the modal touches.
   const [roleModalOpenState, setRoleModalOpenState] = useState<
     | null
     | {
         roleName: string;
         roleCosmetics: import("@/api/identities-api").RoleSummary;
-        identityShimKey: string;
         hostId: number;
       }
   >(null);
@@ -2100,18 +2103,12 @@ export function PrettyConversationsPanel({
         onSelectRole={({ roleName, roleCosmetics, hostId: pickedHostId }) => {
           // D-04 swap-not-stack: close list, open role modal.
           setRolesListModalOpen(false);
-          // identityShimKey resolution: pick ANY identity holding this role on
-          // the selected host. Wave-2 identity-shim requirement (Plan 90-04
-          // RoleModal contract). If no identity holds this role yet (fresh role
-          // with no assignees), we pass empty string — RoleModal's tabs handle
-          // the missing-identity branch via their own error state.
-          const shim = Array.from(identitiesByKey.values()).find(
-            (i) => i.role === roleName,
-          )?.identityKey ?? "";
+          // Phase 90 Plan 90-10 (D-08.3): the identity-shim derivation was
+          // removed — the RoleModal now reads/writes purely by role name via
+          // Plan 90-09's role-name-keyed helpers. No identity indirection.
           setRoleModalOpenState({
             roleName,
             roleCosmetics,
-            identityShimKey: shim,
             hostId: pickedHostId,
           });
         }}
@@ -2129,7 +2126,6 @@ export function PrettyConversationsPanel({
           roleName={roleModalOpenState.roleName}
           roleCosmetics={roleModalOpenState.roleCosmetics}
           hostId={roleModalOpenState.hostId}
-          identityShimKey={roleModalOpenState.identityShimKey}
           onOpenRunbook={(runbookName) => {
             // Nested swap: close role modal, open runbook editor.
             // Capture hostId + roleName BEFORE clearing roleModalOpenState so
