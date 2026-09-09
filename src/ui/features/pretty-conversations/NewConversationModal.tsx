@@ -330,9 +330,7 @@ export function NewConversationModal({
                 pickedMxids={new Set(form.picked.map((p) => p.mxid))}
                 onToggle={form.toggle}
                 filterActive={form.searchQuery.trim() !== ""}
-                humansTotal={
-                  humans.length - (viewingUserMxid ? 1 : 0)
-                }
+                humansTotal={humans.length}
                 agentsTotal={agents.length}
               />
             </div>

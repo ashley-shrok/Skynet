@@ -98,8 +98,10 @@ vi.mock("@/state/identities-store", () => ({
 // ─── user-management-api (Plan 06 mock: mutable per-test) ─────────────────────
 
 vi.mock("@/api/user-management-api", () => ({
+  // server-side self-exclusion: /users/list-basic returns only OTHER users
+  // (ne(users.id, userId) in user-admin-routes.ts:126). Viewer (alice) is never
+  // in the response — the mock matches that contract (H1 fix).
   getUsersListBasic: vi.fn(async () => [
-    { id: "u-alice", username: "alice", mxid: "@alice:s" },
     { id: "u-bob", username: "bob", mxid: "@bob:s" },
   ]),
   // getPinnedIds / getHiddenIds are consumed by PrettyConversationsPanel mount effect.
@@ -316,9 +318,10 @@ async function openNewConversationModal() {
 beforeEach(() => {
   vi.clearAllMocks();
 
-  // Re-arm default getUsersListBasic (alice + bob, both with mxids).
+  // Re-arm default getUsersListBasic — server-side self-exclusion means alice
+  // (the viewer) is never in the response (H1 fix: matches user-admin-routes.ts
+  // ne(users.id, userId) contract). Only non-viewer users are returned.
   vi.mocked(getUsersListBasic).mockResolvedValue([
-    { id: "u-alice", username: "alice", mxid: "@alice:s" },
     { id: "u-bob", username: "bob", mxid: "@bob:s" },
   ]);
 
@@ -516,6 +519,10 @@ describe("NewConversationModal — full user flow", () => {
 
   it("Test 6 (self-exclude): viewingUserMxid=@alice:s → alice absent from Humans picker; only Bob visible", async () => {
     // useViewingUserMxid returns @alice:s (default mock).
+    // H1 fix: getUsersListBasic mock returns only [bob] — server already
+    // self-excludes alice (ne(users.id, userId) in user-admin-routes.ts:126).
+    // useNewConversationForm also applies client-side self-exclusion, which is
+    // a no-op when alice is not in the list (belt-and-suspenders).
     renderPanel();
 
     const dialog = await openNewConversationModal();
@@ -526,7 +533,7 @@ describe("NewConversationModal — full user flow", () => {
       expect(within(dialog).getByText("bob")).toBeInTheDocument();
     });
 
-    // Alice must NOT appear in the picker (self-excluded).
+    // Alice must NOT appear in the picker (never in response + client-side guard).
     expect(within(dialog).queryByText("alice")).not.toBeInTheDocument();
   });
 
@@ -600,9 +607,10 @@ describe("NewConversationModal — full user flow", () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   it("Test 8 (search filter): typing 'B' in search → only Bob visible; section header shows '1 of 1' or equivalent count", async () => {
-    // getUsersListBasic returns alice + bob; alice is self-excluded.
-    // So unfiltered Humans section = [bob] (1 human after self-exclude).
+    // getUsersListBasic returns [bob] only (server self-excludes alice per H1 fix).
+    // unfiltered Humans section = [bob] (humansTotal = 1).
     // After filter 'B': bob matches (displayName 'bob' contains 'b').
+    // Section header renders "Humans (1 of 1)" when filterActive=true.
     renderPanel();
 
     const dialog = await openNewConversationModal();
@@ -622,19 +630,16 @@ describe("NewConversationModal — full user flow", () => {
     // Nelly (agent) should NOT match "B" in agents section.
     // (Nelly's displayName "Nelly" does not contain "B" case-insensitively.)
     // The Agents section shows "No agents available" when filtered to 0.
-    // OR Nelly is not rendered (agents empty after filter).
 
-    // Section header must show a count (filter is active → "N of M" format).
-    // ParticipantList SectionHeader renders "Humans (1 of 1)" when filterActive.
-    // humansTotal = humans.length - 1 (alice excluded) = 1 (only bob).
+    // Section header must show exact count (filter is active → "N of M" format).
+    // humansTotal = humans.length (1 — bob only, H1 fix: no self-exclusion subtraction).
     // filteredCount = 1 (bob matches "B").
+    // SectionHeader renders "Humans (1 of 1)" exactly (L1 fix: exact string match).
     const humansSection = Array.from(dialog.querySelectorAll('[role="separator"]')).find(
       (el) => el.textContent?.toLowerCase().includes("human"),
     );
-    // The separator should include a count when filter is active.
-    expect(humansSection?.textContent?.toLowerCase()).toMatch(
-      /human.*\d.*of.*\d/,
-    );
+    // Exact count assertion — "humans (1 of 1)" (L1 fix: replaces brittle regex).
+    expect(humansSection?.textContent?.toLowerCase()).toContain("humans (1 of 1)");
   });
 
 });
