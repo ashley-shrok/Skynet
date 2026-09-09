@@ -210,4 +210,40 @@ describe("useNewConversationForm", () => {
     expect(mxids).toContain(HUMAN_B.mxid);
     expect(mxids).toContain(HUMAN_C.mxid);
   });
+
+  // ─── Test 9: reset() — clears all form state (M1 fix) ───────────────────
+  it("Test 9: reset() clears roomName, picked, searchQuery, submitting, error to initial values", () => {
+    const { result } = renderHook(() =>
+      useNewConversationForm({ humans: ALL_HUMANS, agents: ALL_AGENTS, viewingUserMxid: null }),
+    );
+
+    // Accumulate state
+    act(() => {
+      result.current.setRoomName("My Room");
+      result.current.toggle(HUMAN_A.mxid);
+      result.current.setSearchQuery("ali");
+      result.current.setSubmitting(true);
+      result.current.setError("something went wrong");
+    });
+
+    // Verify state was set
+    expect(result.current.roomName).toBe("My Room");
+    expect(result.current.picked).toHaveLength(1);
+    expect(result.current.searchQuery).toBe("ali");
+    expect(result.current.submitting).toBe(true);
+    expect(result.current.error).toBe("something went wrong");
+
+    // Reset
+    act(() => {
+      result.current.reset();
+    });
+
+    // All back to initial
+    expect(result.current.roomName).toBe("");
+    expect(result.current.picked).toHaveLength(0);
+    expect(result.current.searchQuery).toBe("");
+    expect(result.current.submitting).toBe(false);
+    expect(result.current.error).toBeNull();
+    expect(result.current.gate).toEqual({ ok: false, reason: "no-room-name" });
+  });
 });

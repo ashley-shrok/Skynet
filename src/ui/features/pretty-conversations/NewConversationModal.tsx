@@ -142,6 +142,17 @@ export function NewConversationModal({
   // ─── Form hook ──────────────────────────────────────────────────────────────
   const form = useNewConversationForm({ humans, agents, viewingUserMxid });
 
+  // M1: Reset form state when the modal closes so the next open sees a clean
+  // slate (no stale roomName, picked participants, searchQuery, or error).
+  // The effect fires when `open` transitions false → true as well, but
+  // reset() on open is a harmless no-op (state is already empty on first open).
+  useEffect(() => {
+    if (!open) {
+      form.reset();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   // T-91-FE-01 debounce guard — a ref-based in-flight lock so the second
   // rapid click is a no-op even before React flushes the setSubmitting(true)
   // state update. The ref fires synchronously; the gate check is a redundant

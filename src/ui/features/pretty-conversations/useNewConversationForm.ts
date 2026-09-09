@@ -49,6 +49,13 @@ export interface UseNewConversationFormReturn {
   setSubmitting: (b: boolean) => void;
   error: string | null;
   setError: (s: string | null) => void;
+  /**
+   * Reset all form state to initial values.
+   * Called by the modal when open transitions to false (M1 fix: prevents stale
+   * state across re-open cycles — roomName, pickedMxids, searchQuery, error all
+   * reset to empty so the next open sees a clean slate).
+   */
+  reset: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -151,6 +158,19 @@ export function useNewConversationForm(
     });
   }, []);
 
+  /**
+   * Reset all form state to initial values (M1 fix).
+   * Called by the modal when open transitions to false so the next open
+   * sees a clean slate (no stale roomName, picks, searchQuery, or error).
+   */
+  const reset = useCallback(() => {
+    setRoomName("");
+    setPickedMxids(new Set<string>());
+    setSearchQuery("");
+    setSubmitting(false);
+    setError(null);
+  }, []);
+
   return {
     roomName,
     setRoomName,
@@ -166,5 +186,6 @@ export function useNewConversationForm(
     setSubmitting,
     error,
     setError,
+    reset,
   };
 }
