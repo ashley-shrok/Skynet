@@ -784,9 +784,13 @@ describe("queue slots (bounty: message-queue-in-pretty-view)", () => {
     render(<ComposeBox {...baseProps()} />);
     await flushMountEffect();
 
-    const plusBtn = screen.getByRole("button", { name: /queue a message/i });
-    fireEvent.click(plusBtn);
-    fireEvent.click(plusBtn);
+    // Quick 260909-cdi: the "Queue a message" affordance is now the
+    // QueuePlusTab pebble-notch. It re-parents between the primary wrapper
+    // and the first QueuedRow when slots exist, so the DOM node found before
+    // the first click is unmounted after the first click. Re-query on each
+    // click to get the currently-mounted tab.
+    fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
+    fireEvent.click(screen.getByRole("button", { name: /queue a message/i }));
 
     // Should have 2 queue slots now (plus primary = 3 total textareas)
     expect(screen.getAllByRole("textbox").length).toBe(3);

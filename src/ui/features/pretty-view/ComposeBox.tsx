@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createLogDedup } from "@/lib/log-dedup";
-import { CircleHelp, ListPlus, Paperclip, RefreshCw, RotateCcw, RotateCwFadingClock, Square, ThumbsUp, X } from "lucide-react";
+import { CircleHelp, Paperclip, Plus, RefreshCw, RotateCcw, RotateCwFadingClock, Square, ThumbsUp, X } from "lucide-react";
 import { Button } from "@/components/button";
 import { Textarea } from "@/components/textarea";
 import { cn } from "@/lib/utils";
@@ -2443,46 +2443,24 @@ export function ComposeBox({
         <div className="flex-1" aria-hidden="true" />
         {/* Aux-button group — Paperclip moved OUT to inside the Row 2
             textarea (2026-07-30 vtk, mirroring Send on the LEFT); this
-            group now hosts Queue-a-message (ListPlus), Stop, ThumbsUp,
-            Recap (CircleHelp), Hourglass with most-used (Hourglass) on
-            the right, mirroring distance-from-meter logic. Vehicle B
-            (quick 260801-62m) stripped the /queue and /bounty prefix-
-            send buttons formerly between Recap and Hourglass.
-            Patch #83 marker: RotateCcw lives in the meter's reset cell.
-            Patch #84 marker: Queue button arms the idle-watchdog. */}
+            group hosts Stop, ThumbsUp, Recap (CircleHelp). Quick
+            260909-cdi retired the Queue-a-message ListPlus button from
+            this row — the queue-a-message affordance is now the pebble-
+            notch QueuePlusTab that rides on the topmost textarea's top
+            edge. Vehicle B (quick 260801-62m) stripped the /queue and
+            /bounty prefix-send buttons formerly between Recap and
+            Hourglass.
+            Patch #83 marker: RotateCcw lives in the meter's reset cell. */}
         <div className="flex flex-row gap-1">
-          {/* Bounty message-queue-in-pretty-view: Queue-a-message button
-              (ListPlus icon) — appends a new queue-slot textarea stacked
-              above Row 2. Leftmost of the aux buttons. Same warm-neutral
-              Glass treatment as neighbors. Mobile size (bounty
-              composebox-aux-buttons-75-percent-size-on-mobile,
-              2026-08-01): max-md:size-9 [&_svg]:max-md:size-[1.125rem] —
-              75% of the original #165 max-md:size-12 bump per Ashley
-              mobile UAT ("could probably be like 75% of their current
-              size. And that would be comfortable"). Vehicle B (quick
-              260801-62m) renamed from "Add queued message textarea" /
-              Plus icon to "Queue a message" / ListPlus icon. */}
-          <Button
-            size="icon-sm"
-            variant="secondary"
-            onClick={() => setQueueSlots((prev) => [...prev, { id: makeSlotId(), text: "" }])}
-            aria-label="Queue a message"
-            title="Queue a message"
-            className={cn(
-              "cursor-pointer max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
-              // Same dark blue-gray treatment as the mobile back-to-list
-              // button (AppShell.tsx:1651-1654, patch #272). Hue 218 at
-              // 25% sat — "part of the scheme" per Ashley, ambient chrome
-              // that doesn't compete with blue-190 CTAs.
-              "bg-[linear-gradient(160deg,hsla(218,25%,22%,0.85),hsla(218,25%,14%,0.9))]",
-              "text-[color:var(--color-pv-fg)]",
-              "border-[hsla(218,35%,55%,0.35)]",
-              "shadow-[0_4px_12px_rgba(0,0,0,0.6),inset_0_2px_0_rgba(220,225,245,0.3),0_0_24px_hsla(218,40%,55%,0.3)]",
-              "hover:brightness-110 hover:shadow-[0_6px_16px_rgba(0,0,0,0.65),inset_0_2px_0_rgba(220,225,245,0.35),0_0_28px_hsla(218,40%,55%,0.4)]",
-            )}
-          >
-            <ListPlus className="size-4" />
-          </Button>
+          {/* Quick 260909-cdi: the aux-row Queue-a-message ListPlus button
+              was removed here. The queue-a-message affordance moved to a
+              pebble-notch plus-tab (QueuePlusTab) that rides on the top
+              edge of whichever textarea is currently topmost in the
+              compose stack — primary when queueSlots is empty; the first
+              QueuedRow (index 0) when slots exist. The tab's onClick
+              PREPENDS a new empty slot at index 0 (locality: click on top
+              adds on top). aria-label "Queue a message" is preserved on
+              the tab so existing selectors keep working. */}
           {/* Patch #120: Stop button — safety valve for Ctrl-C into the
               attached tmux session. Shares ThumbsUp's warm-neutral Glass
               treatment (VISUAL-08 HARD LOCK — Send remains the sole
@@ -2558,7 +2536,7 @@ export function ComposeBox({
             // jumpToBottom via the parent-bound onGoodToGo prop per Phase 70) alongside handleQuickSend, matching the 'thumbs up'
             // quick-button above. Per 32-CONTEXT.md § Wire into PrettyView "ALL send paths"
             // rule + 32-PATTERNS.md § 2d Send-path callsite swaps table.
-            onClick={() => { onGoodToGo?.(); handleQuickSend("/explain the current situation"); }}
+            onClick={() => { onGoodToGo?.(); handleQuickSend("/explain what has gone on since my last message"); }}
             disabled={asideActive === true || recycleActive === true || planPendingActive === true || reconnectingActive === true}
             aria-label="Recap the current situation"
             title="Recap"
@@ -2593,10 +2571,14 @@ export function ComposeBox({
           (adjacent to the primary Row 2 textarea below). */}
       {queueSlots.length > 0 && (
         <div className="flex flex-col gap-2 mb-1">
-          {queueSlots.map((slot) => (
+          {queueSlots.map((slot, index) => (
             <QueuedRow
               key={slot.id}
               slot={slot}
+              isTopmostInStack={index === 0}
+              onAddSlotAtTop={() =>
+                setQueueSlots((prev) => [{ id: makeSlotId(), text: "" }, ...prev])
+              }
               voice={voice}
               micTarget={micTarget}
               setMicTarget={setMicTarget}
@@ -2642,7 +2624,22 @@ export function ComposeBox({
             absolute-inset over the Textarea while the Textarea itself
             fills the wrapper. `relative` is the positioning context for
             the overlay. */}
-        <div className="relative flex-1 self-stretch">
+        <div className="relative flex-1 self-stretch" data-testid="compose-primary-wrapper">
+        {/* Quick 260909-cdi: QueuePlusTab — the pebble-notch plus-tab
+            affordance. Rides on the primary wrapper WHEN and only when
+            queueSlots is empty. When slots exist, the tab hops onto the
+            first QueuedRow's outer wrapper instead (see queueSlots.map
+            callsite below → QueuedRow renders it internally gated on
+            isTopmostInStack). Clicking prepends a new empty slot at
+            index 0. Placed BEFORE the chipStripRef div so it visually
+            sits on the topmost edge of the wrapper. */}
+        {queueSlots.length === 0 && (
+          <QueuePlusTab
+            onAdd={() =>
+              setQueueSlots((prev) => [{ id: makeSlotId(), text: "" }, ...prev])
+            }
+          />
+        )}
         {/* Quick 260802-wxy: overlaid chip strip. Renders as an
             absolutely-positioned child at the TOP of the wrapper (before
             the Textarea) so it visually attaches to the message being
@@ -3085,8 +3082,57 @@ export function ComposeBox({
 // protrudes OUTSIDE the textarea border.
 // ============================================================================
 
+// ============================================================================
+// Quick 260909-cdi: QueuePlusTab — the pebble-notch plus-tab affordance that
+// replaces the deleted ListPlus aux-row button. Renders as a real
+// <button type="button"> with aria-label "Queue a message" so existing
+// selectors (e.g. hold-to-mic.test.tsx:1132's
+// `getByRole("button", { name: /queue a message/i })`) continue to resolve
+// without change. Visually it's a small pebble absolutely positioned so its
+// bottom overlaps the top edge of the surrounding wrapper (position: relative
+// on the wrapper is a precondition — satisfied by both the primary wrapper
+// and the QueuedRow outer wrapper). Fill blends into the compose surround
+// (--color-pv-base/-base-mid gradient) so the plus glyph is the visible
+// affordance, not the container. Always clickable — no disable rules, matching
+// the deleted button's behavior verbatim.
+// ============================================================================
+function QueuePlusTab({ onAdd }: { onAdd: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onAdd}
+      aria-label="Queue a message"
+      title="Queue a message"
+      className={cn(
+        "absolute top-[-12px] left-1/2 -translate-x-1/2 z-10",
+        "w-10 h-[22px] rounded-full",
+        "inline-flex items-center justify-center",
+        "bg-[linear-gradient(180deg,var(--color-pv-base),var(--color-pv-base-mid))]",
+        "border border-[rgba(220,225,245,0.04)]",
+        "text-[color:var(--color-pv-fg-muted)]",
+        "cursor-pointer",
+        "hover:brightness-110 hover:text-[color:var(--color-pv-fg)]",
+        "transition-[filter,color] duration-150",
+      )}
+    >
+      <Plus className="size-3" strokeWidth={1.5} aria-hidden="true" />
+    </button>
+  );
+}
+
 interface QueuedRowProps {
   slot: { id: string; text: string };
+  // Quick 260909-cdi: true only for the slot at index 0 of queueSlots. Gates
+  // whether the QueuePlusTab pebble-notch renders inside this row's outer
+  // wrapper. Exactly one row in the stack should have this true at any time;
+  // when queueSlots is empty, the primary wrapper hosts the tab instead.
+  isTopmostInStack: boolean;
+  // Quick 260909-cdi: bound in the parent to a closure that prepends a new
+  // empty slot at index 0 of queueSlots (locality: clicking a plus on top of
+  // the stack adds a slot on top of the stack). Same closure body as the
+  // primary wrapper's onAdd; threaded through so QueuedRow can wire its
+  // (conditional) QueuePlusTab child without knowing about setQueueSlots.
+  onAddSlotAtTop: () => void;
   voice: ReturnType<typeof useVoiceRecording>;
   micTarget: "primary" | string;
   // quick-260814-o22: threaded from parent so the slot MicButton's onPointerDown
@@ -3136,6 +3182,8 @@ interface QueuedRowProps {
 function QueuedRow(props: QueuedRowProps) {
   const {
     slot,
+    isTopmostInStack,
+    onAddSlotAtTop,
     voice,
     micTarget,
     setMicTarget,
@@ -3315,6 +3363,13 @@ function QueuedRow(props: QueuedRowProps) {
 
   return (
     <div className="relative flex-1" data-slot-id={slot.id}>
+      {/* Quick 260909-cdi: QueuePlusTab rides on the FIRST QueuedRow only.
+          When multiple slots exist, this is the topmost slot in the stack;
+          when only one slot exists, this row IS the topmost. Gate on
+          isTopmostInStack (parent computes `index === 0`). Placed as the
+          FIRST child of the outer wrapper so it visually notches into the
+          top edge of this row's textarea. */}
+      {isTopmostInStack && <QueuePlusTab onAdd={onAddSlotAtTop} />}
       {/* Quick 260803-05i: Delete × top-left corner tab. SIBLING of the
           inner content wrapper below so it protrudes OUTSIDE the textarea
           border (via -top-2 -left-2). Task 1 introduced this at top-right;

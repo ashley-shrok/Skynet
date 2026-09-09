@@ -314,12 +314,12 @@ describe("ComposeBox — send funnel (Phase 68 Plan 01)", () => {
     // Exactly one pending bubble seeded — recap has NO override, bubble text == send text.
     await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
     const pendingEl = container.querySelector('[data-event-id^="pending-"]')!;
-    expect(pendingEl.textContent).toContain("/explain the current situation");
+    expect(pendingEl.textContent).toContain("/explain what has gone on since my last message");
 
     // onSend received the exact recap command string.
     expect(onSendMock).toHaveBeenCalledOnce();
     const [callPayload, callMqid] = onSendMock.mock.calls[0] as [string, string];
-    expect(callPayload).toBe("/explain the current situation");
+    expect(callPayload).toBe("/explain what has gone on since my last message");
     expect(callMqid).toMatch(/^pv-optim-\d+-[0-9a-z]{8}$/);
     expect(onSendMqidCapture).toMatch(/^pv-optim-\d+-[0-9a-z]{8}$/);
   });
