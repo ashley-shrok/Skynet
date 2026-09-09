@@ -2140,3 +2140,13 @@ Plans:
 **Wave 6** *(blocked on Wave 5 completion)*
 
 - [x] 89-06-PLAN.md — Wave 6 (depends 89-05): PrettyView owns swap-not-stack coordination (D-06) — new `runbookEditorOpenState` state slot + `handleOpenRunbook` handler that closes identity modal + opens RunbookEditorModal at same tick + no reopen-on-close; new in-process test suite `IdentityModal.runbooks-swap.test.tsx` with 5 test cases (S1 happy path, S2 swap-close-does-not-reopen, S3 null-role fast path, S4 empty list, S5 alphabetical)
+
+### Phase 90: role-management-modal — split role-level tabs out of the identity modal into their own role modal, addressed by role name; add a roles-list surface reached from the conversation-list three-dots menu ("Edit roles…"); rows render in conversation-row treatment (hue-tinted glass with the role's own colorHue + avatar); clicking a row swap-not-stack opens the role modal in the role's hue; identity modal loses its top segmented scope switch + four role-scope tabs (role file / runbooks / bounties / wakeups) — becomes purely identity-scoped; identity's title line (subtitle under displayName) gets a dotted-underline + chevron clickable treatment that closes the identity modal and opens the role modal for the identity's role; "New role" folds from the three-dots menu into a "+ New role" button in the roles-list modal header; formalizes role-level avatar/hue as expected (roles-list reads role-file frontmatter cosmetics). Shape: .planning/shapes/shape-role-management-modal-split.md. Bounty: role-management-modal-split.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 89
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 90 to break down)
