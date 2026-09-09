@@ -2704,7 +2704,18 @@ export function ComposeBox({
             the top-anchored chips. */}
         <div
           ref={chipStripRef}
-          className="absolute top-0 left-0 right-0 z-10 px-2 pt-2 pointer-events-auto"
+          className={cn(
+            "absolute top-0 left-0 right-0 z-10 px-2 pt-2",
+            // When no attachments are staged, AttachmentChipStrip returns null
+            // but this wrapper still renders — its `pt-2` creates an 8px
+            // invisible hit-box across the top of the compose wrapper. Same
+            // z-10 as the QueuePlusTab pebble; as the later sibling this div
+            // was winning the stack and swallowing hover on the pebble's
+            // in-wrapper half. Only capture events when the strip has content.
+            (stagedAttachments?.length ?? 0) === 0
+              ? "pointer-events-none"
+              : "pointer-events-auto",
+          )}
         >
           <AttachmentChipStrip
             attachments={stagedAttachments ?? []}
@@ -3468,7 +3479,14 @@ function QueuedRow(props: QueuedRowProps) {
             resets chipStripHeight to 0 in the null branch. */}
         <div
           ref={chipStripRef}
-          className="absolute top-0 left-0 right-0 z-10 px-2 pt-2 pointer-events-auto"
+          className={cn(
+            "absolute top-0 left-0 right-0 z-10 px-2 pt-2",
+            // Same fix as the primary wrapper: when the strip is empty, mark
+            // it pointer-events-none so its invisible pt-2 hit-box doesn't
+            // swallow hover on the QueuePlusTab pebble that rides above it
+            // on the topmost QueuedRow.
+            stagedCount === 0 ? "pointer-events-none" : "pointer-events-auto",
+          )}
         >
           <AttachmentChipStrip
             attachments={stagedForThisSlot}
