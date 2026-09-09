@@ -174,8 +174,12 @@ describe("ParticipantList (Phase 91 Plan 04)", () => {
         onToggle={vi.fn()}
       />,
     );
-    // Per plan: "both sections always visible even if empty" — Humans header present
-    expect(screen.getByText(/Humans/i)).toBeInTheDocument();
+    // Per plan: "both sections always visible even if empty" — Humans header present.
+    // Multiple elements may contain "Humans" (header + "No humans available" placeholder),
+    // so use the separator role to target the section header specifically.
+    const separator = screen.getAllByRole("separator")[0];
+    expect(separator).toBeInTheDocument();
+    expect(separator.textContent).toMatch(/Humans/i);
     expect(screen.getByText("Xbot")).toBeInTheDocument();
   });
 
@@ -253,9 +257,12 @@ describe("ParticipantList (Phase 91 Plan 04)", () => {
         onToggle={vi.fn()}
       />,
     );
-    const img = screen.getByRole("img", { hidden: true });
-    expect(img).toHaveAttribute("src", "https://x/a.png");
-    expect(img).toHaveAttribute("alt", "");
+    // img with alt="" has presentation role (not "img") in a11y tree.
+    // Query directly via the DOM (avatarUrl uniquely identifies the src).
+    const img = document.querySelector("img[src='https://x/a.png']") as HTMLImageElement | null;
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute("src")).toBe("https://x/a.png");
+    expect(img!.getAttribute("alt")).toBe("");
   });
 
   // Test 11: hue applied to avatar disc inline style
