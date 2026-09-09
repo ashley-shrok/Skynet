@@ -1,8 +1,9 @@
 /**
  * Phase 38 (identity-sharing, Plan 38-01, Task 1): Tests for GET /users/list-basic.
+ * Phase 91 (slice C, Plan 91-00, Task 1): Widened to include mxid on every row.
  *
  * The picker-facing users list — reachable by ANY authenticated user (not
- * admin-only), returning ONLY {id, username} for every user EXCEPT the
+ * admin-only), returning {id, username, mxid} for every user EXCEPT the
  * requester (server-side self-exclusion).
  *
  * Scaffold follows identity-clone.test.ts:
@@ -11,12 +12,14 @@
  *   - in-memory dbState.users with a `.all()` filter that supports both
  *     "id === X" (eq) and "id !== X" (ne, for self-exclusion)
  *
- * Test coverage (5 tests, 1:1 with plan Task 1 <behavior> items):
+ * Test coverage (7 tests):
  *   1: No JWT → 401
  *   2: Valid JWT for u-alice, users=[alice,bob,carol] → 200 {users:[bob,carol]}
  *   3: Only requester in users table → 200 {users:[]}
- *   4: Each row has exactly {id, username} — no sensitive fields
+ *   4: Each row has exactly {id, username, mxid} — no sensitive fields
  *   5: DB error during select → 500 {error:"Failed to list users"}
+ *   6 (Phase 91-00): returns mxid on every row when mxid is populated
+ *   7 (Phase 91-00): returns null mxid for pre-Phase-88 users (mxid=null preserved, not coerced)
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -57,6 +60,7 @@ vi.mock("../../utils/auth-manager.js", () => {
 type UserRow = {
   id: string;
   username: string;
+  mxid?: string | null;
   passwordHash?: string;
   isAdmin?: boolean;
   isOidc?: boolean;
@@ -97,6 +101,7 @@ vi.mock("../db/schema.js", () => ({
   users: {
     id: { _colName: "id" },
     username: { _colName: "username" },
+    mxid: { _colName: "mxid" },
     isAdmin: { _colName: "isAdmin" },
     isOidc: { _colName: "isOidc" },
     passwordHash: { _colName: "passwordHash" },
@@ -312,11 +317,12 @@ describe("GET /users/list-basic", () => {
     expect(body.users).toEqual([]);
   });
 
-  it("Test 4: every returned row has EXACTLY {id, username} — no sensitive fields", async () => {
+  it("Test 4: every returned row has EXACTLY {id, username, mxid} — no sensitive fields", async () => {
     dbState.users = [
       {
         id: "u-alice",
         username: "alice",
+        mxid: "@alice:server",
         isAdmin: true,
         isOidc: true,
         passwordHash: "hash-alice",
@@ -325,6 +331,7 @@ describe("GET /users/list-basic", () => {
       {
         id: "u-bob",
         username: "bob",
+        mxid: "@bob:server",
         isAdmin: false,
         isOidc: false,
         passwordHash: "hash-bob",
@@ -342,8 +349,9 @@ describe("GET /users/list-basic", () => {
     };
     expect(body.users.length).toBe(1);
     const row = body.users[0];
-    // Explicit sensitive-field non-leak: exactly the two allowed keys
-    expect(Object.keys(row).sort()).toEqual(["id", "username"]);
+    // Explicit sensitive-field non-leak: exactly the three allowed keys
+    // (Phase 91-00 widened from {id, username} to {id, username, mxid})
+    expect(Object.keys(row).sort()).toEqual(["id", "mxid", "username"]);
     // Defensive: assert each forbidden field is undefined even if serializer
     // added it under a different casing
     expect(row.isAdmin).toBeUndefined();
@@ -351,6 +359,58 @@ describe("GET /users/list-basic", () => {
     expect(row.passwordHash).toBeUndefined();
     expect(row.totpSecret).toBeUndefined();
     expect(row.email).toBeUndefined();
+  });
+
+  // ── Phase 91-00 new tests: mxid on every row ──────────────────────────────
+
+  it("Test 6 (Phase 91-00): returns mxid on every row when mxid is populated", async () => {
+    dbState.users = [
+      { id: "u-alice", username: "alice", mxid: "@alice_human:s" },
+      { id: "u-bob", username: "bob", mxid: "@bob_human:s" },
+      { id: "u-carol", username: "carol", mxid: "@carol_human:s" },
+    ];
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/users/list-basic",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as {
+      users: Array<{ id: string; username: string; mxid: string | null }>;
+    };
+    // alice is the requester (mockUserId = "u-alice") — excluded
+    expect(body.users.length).toBe(2);
+    const byId = Object.fromEntries(body.users.map((u) => [u.id, u]));
+    expect(byId["u-bob"]?.mxid).toBe("@bob_human:s");
+    expect(byId["u-carol"]?.mxid).toBe("@carol_human:s");
+    // mxid field must be present on every row (not omitted)
+    for (const row of body.users) {
+      expect("mxid" in row).toBe(true);
+    }
+  });
+
+  it("Test 7 (Phase 91-00): returns null mxid for pre-Phase-88 users — not coerced to empty string, not omitted", async () => {
+    dbState.users = [
+      { id: "u-alice", username: "alice", mxid: "@alice_human:s" },
+      { id: "u-bob", username: "bob", mxid: null }, // pre-Phase-88 user: no relay identity
+    ];
+
+    const res = await httpRequest(server, {
+      method: "GET",
+      path: "/users/list-basic",
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as {
+      users: Array<{ id: string; username: string; mxid: string | null }>;
+    };
+    // alice is the requester — excluded; only bob in response
+    expect(body.users.length).toBe(1);
+    const bobRow = body.users[0];
+    expect(bobRow).toBeDefined();
+    expect(bobRow!.id).toBe("u-bob");
+    // null must be preserved — not coerced to "" and not omitted
+    expect(bobRow!.mxid).toBeNull();
+    expect("mxid" in bobRow!).toBe(true);
   });
 
   it("Test 5: DB error during select → 500 {error:'Failed to list users'}", async () => {
