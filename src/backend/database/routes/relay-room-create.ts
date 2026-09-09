@@ -76,7 +76,6 @@ import { databaseLogger } from "../../utils/logger.js";
 import {
   createRoomAsUser,
   inviteToRoom,
-  joinRoom,
 } from "../../matrix/matrix-admin-client.js";
 import { assertNotOk } from "../../matrix/matrix-admin-narrow.js";
 import { materializeRelayRoomSession } from "../../relay-sessions/relay-room-sessions-store.js";
@@ -374,32 +373,6 @@ router.post("/create", authenticateJWT, async (req: Request, res: Response) => {
     }
 
     const roomId = roomResult.roomId;
-
-    // ─── Step 9b: Force @skynet-admin into the room ─────────────────────
-    // Backend reads (getRoomMessages, getRoomJoinedMembers) are admin-
-    // mediated per T-90-BE-03 — they use the admin token. Synapse rejects
-    // /messages calls from non-members with 403 → the WS server would
-    // canonicalize this to "not_member" and emit an inactive-frame close,
-    // which the frontend renders as "This conversation is no longer
-    // available." (Ashley UAT 2026-09-09 — pane flicker root cause.)
-    // Fix: join @skynet-admin to every relay-room at creation time so
-    // admin-mediated reads succeed. Best-effort — a join failure logs but
-    // does NOT roll back the room (matches invite-loop policy). Idempotent
-    // per Synapse admin API (re-join is a no-op).
-    const adminJoinResult = await joinRoom(roomId);
-    if (!adminJoinResult.ok) {
-      assertNotOk(adminJoinResult);
-      databaseLogger.warn(
-        "relay-room-create: admin auto-join failed (best-effort — room usable but reads will 403 until admin joins)",
-        {
-          operation: "relay_room_create_admin_join_failed",
-          userId,
-          roomId,
-          downstreamStatus: adminJoinResult.status,
-          downstreamError: adminJoinResult.error,
-        },
-      );
-    }
 
     // ─── Step 10: Invite loop — best-effort (planner-locked policy) ──────
     // On any per-invite failure: log relay_room_create_invite_failed and

@@ -794,7 +794,12 @@ export async function getRoomName(
     return { ok: false, status: 500, error: ERR_CREDS_MISSING };
   }
 
-  const url = `${creds.homeserverBase}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.name`;
+  // Use Synapse admin room-details endpoint — works for server-admins
+  // regardless of room membership. Response shape carries `name` directly
+  // (null when unset), so no state-event filter needed. (Ashley UAT
+  // 2026-09-09 — swap out client-server /state/m.room.name which 403s
+  // when admin isn't a room member.)
+  const url = `${creds.homeserverBase}/_synapse/admin/v1/rooms/${encodeURIComponent(roomId)}`;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -808,8 +813,9 @@ export async function getRoomName(
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
-    // 404 = state event unset. Common for DMs and rooms that never had a
-    // name set. Return name:null as legitimate data, not an error.
+    // 404 from admin room-details = room doesn't exist. Return name:null
+    // as legitimate data (matches prior client-server-404 = "name state
+    // event unset" fallback shape).
     if (response.status === 404) {
       return { ok: true, name: null };
     }
@@ -1067,7 +1073,13 @@ export async function getRoomMessages(
   if (opts.limit !== undefined) {
     params.set("limit", String(opts.limit));
   }
-  const url = `${creds.homeserverBase}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/messages?${params.toString()}`;
+  // Use Synapse admin API (v1.75+) — bypasses room-membership requirement.
+  // Ashley UAT 2026-09-09 + nicole diagnosis: the client-server /messages
+  // endpoint requires the caller to be a room member (or public join_rules),
+  // so admin-mediated reads 403'd on every user-created private relay room.
+  // Synapse's admin equivalent works for server-admins regardless of
+  // membership. Same response shape (chunk/start/end).
+  const url = `${creds.homeserverBase}/_synapse/admin/v1/rooms/${encodeURIComponent(roomId)}/messages?${params.toString()}`;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
