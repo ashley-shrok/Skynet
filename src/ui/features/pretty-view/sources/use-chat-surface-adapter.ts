@@ -13,10 +13,11 @@
 //     stays minimal per D-07 (source describes WHAT, not runtime state).
 //
 // Phase 93 Slice 3: the inline Slice 1 stub is REMOVED. `useRelayAdapter` is
-// now imported from `./use-relay-adapter` (real hook ported from
-// `src/ui/features/relay-room-pane/use-relay-room-stream.ts` per D-10). The
-// hook signature, nullable source input, initial state, and return shape all
-// match what Slice 1 stubbed — this is a drop-in replacement.
+// now imported from `./use-relay-adapter` (real hook ported from the
+// retired Slice D relay-source stream hook per D-10; Slice 4 deleted the
+// standalone source). The hook signature, nullable source input, initial
+// state, and return shape all match what Slice 1 stubbed — this is a
+// drop-in replacement.
 
 import type {
   ChatSurfaceSource,

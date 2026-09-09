@@ -3,8 +3,9 @@
  *
  * Small state module exposing `useViewingUserMxid(): string | null` — the
  * single source of truth for the viewing user's Matrix mxid. Drives (a)
- * IdentityBadgeRow's D-07 self-exclusion filter and (b) RelayMessageList's
- * inbound-vs-outbound discrimination.
+ * MultiBadgeAnchor's D-03 self-exclusion filter and (b) PrettyView's
+ * shared inbound-vs-outbound discrimination via RelayInboundBubble (per
+ * Phase 93 Slices 2 and 3).
  *
  * Implementation choice (Option A per PLAN.md): fetches via `getUserInfo()`
  * (widened to include `mxid?: string`). Caches the value in a

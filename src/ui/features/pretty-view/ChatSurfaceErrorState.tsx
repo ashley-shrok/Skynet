@@ -1,8 +1,9 @@
-// Phase 93 Slice 3 — ported from Slice D's relay-room-pane/error-state.tsx
-// per D-10 (retirement moves this out of the retiring tree). Byte-for-behavior
-// port; only the export name, testid values, and this header changed. The
-// V8 no-existence-oracle discipline (D-20) — same title regardless of the
-// underlying reason — is preserved verbatim.
+// Phase 93 Slice 3 — ported from Slice D's standalone relay-source error
+// state per D-10 (retirement moved this out of the now-retired standalone
+// tree; Slice 4 deleted the source). Byte-for-behavior port; only the
+// export name, testid values, and this header changed. The V8 no-existence-
+// oracle discipline (D-20) — same title regardless of the underlying reason
+// — is preserved verbatim.
 //
 // ---
 //

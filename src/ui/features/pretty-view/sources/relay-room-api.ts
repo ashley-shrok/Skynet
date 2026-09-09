@@ -1,10 +1,10 @@
 /**
  * Phase 93 Slice 3 — ported from Slice D's relay-room-api.ts per D-10.
  *
- * The retirement moves this out of the retiring `src/ui/features/relay-room-pane/`
- * tree (Slice 4 deletes it there). This is a byte-for-behavior port: wire types
- * + `openRelayRoomSocket()` helper are preserved verbatim; only the module-header
- * JSDoc is rewritten to reflect the new home.
+ * The retirement moved this out of the (now-retired per Phase 93 Slice 4)
+ * standalone relay-source tree. This is a byte-for-behavior port: wire
+ * types + `openRelayRoomSocket()` helper are preserved verbatim; only the
+ * module-header JSDoc is rewritten to reflect the new home.
  *
  * ---
  *

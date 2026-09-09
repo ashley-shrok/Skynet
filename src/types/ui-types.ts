@@ -211,7 +211,7 @@ export type Tab = {
   // Carries the Phase-89 `kind` marker from the sidebar row (see
   // `FleetSession` in @/state/conversation-store) down to the pane-mount
   // dispatcher (Plan 07's tabUtils.tsx widening) so the dispatcher can
-  // branch to `RelayRoomSessionPane` for `sessionKind === "relay-room"`
+  // branch to the shared chat surface (PrettyView with source.kind === "relay" per Phase 93 Slice 4) for `sessionKind === "relay-room"`
   // without re-reading the sidebar store at mount time.
   //
   // Field name is `sessionKind` (NOT `kind`) intentionally: `Tab` already

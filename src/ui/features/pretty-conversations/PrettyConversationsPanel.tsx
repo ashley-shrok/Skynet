@@ -327,8 +327,9 @@ export function PrettyConversationsPanel({
   // 89 sidebar merge; Plan 01 widened FleetSession + Plan 07 propagated the
   // fields onto the ConversationRow shape). AppShell owns the tab-spawn
   // side effect: constructs a Tab with sessionKind + relayRoomId +
-  // relayRoomTitle set so tabUtils's dispatcher (Plan 07 Task 2) routes
-  // the tab to RelayRoomSessionPane. Priority in handleRowSelect: AFTER
+  // relayRoomTitle set so tabUtils's dispatcher routes the tab to the
+  // shared chat surface (PrettyView with source.kind === "relay" per
+  // Phase 93 Slice 4). Priority in handleRowSelect: AFTER
   // rdpHostRow + fleetOnly branches (which gate on their own row-shape
   // markers), BEFORE the default selectConversation path. When omitted,
   // relay-room rows fall through to selectConversation (matches

@@ -103,7 +103,9 @@ export async function fetchRoomHistory(
   // every kind of timeline event — state changes (m.room.member joins,
   // m.room.name renames, m.room.topic edits), reactions, redactions, etc.
   // The relay-room pane only renders message bubbles; unfiltered state
-  // events used to fall through to `RelayMessageList.extractBody` and
+  // events used to fall through to the message-list body extractor (now
+  // internalized into the shared chat surface via `useRelayAdapter`'s
+  // MatrixEvent -> StreamEvent mapper per Phase 93 Slice 3) and
   // render as blank inbound bubbles attributed to whoever caused the
   // state change. Doing the filter here (backend) rather than in the
   // React render layer keeps WS payloads leaner (state events on a busy

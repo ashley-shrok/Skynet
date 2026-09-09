@@ -563,11 +563,11 @@ function guessMimeFromFilename(filename: string): string | null {
 }
 
 // Phase 93 Slice 2 (D-01/D-03): fleet-derived identityKey → hostId mapping
-// for MultiBadgeAnchor's agent cells. Ported from Slice D's IdentityBadgeRow
-// (which retires in Slice 4). Cached on fleet-sessions array identity so
-// successive getSnapshot calls return the SAME object reference when the
-// fleet has not changed — otherwise useSyncExternalStore's Object.is check
-// enters an infinite update loop.
+// for MultiBadgeAnchor's agent cells. Ported from Slice D's standalone
+// identity-badge row (Phase 93 Slice 4 retired the source). Cached on
+// fleet-sessions array identity so successive getSnapshot calls return the
+// SAME object reference when the fleet has not changed — otherwise
+// useSyncExternalStore's Object.is check enters an infinite update loop.
 let fleetIdentityHostsCache: {
   fleetRef: unknown;
   map: Record<string, number>;

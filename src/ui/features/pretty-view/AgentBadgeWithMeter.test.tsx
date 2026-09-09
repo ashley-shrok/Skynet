@@ -1,8 +1,8 @@
 /**
  * Phase 93 Slice 2 Task 1 — AgentBadgeWithMeter tests.
  *
- * AgentBadgeWithMeter is a byte-preserving port of Slice D's
- * `AgentBadgeWithAppendage` (retiring in Slice 4). Renders the plain
+ * AgentBadgeWithMeter is a byte-preserving port of Slice D's agent badge
+ * with appendage (Phase 93 Slice 4 retired the source). Renders the plain
  * IdentityBadge + a shrunk meter appendage (sourced via Wave 0
  * `useSessionContextPct`) + a reset button (dispatches to Wave 0
  * `POST /agent-reset` endpoint).

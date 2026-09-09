@@ -3,11 +3,13 @@
  *
  * Small state module exposing `useViewingUserMxid(): string | null` — the
  * single source of truth for the viewing user's Matrix mxid. Drives:
- *   (a) IdentityBadgeRow's D-07 self-exclusion filter (viewing user is not
- *       rendered as a badge in the participant row).
- *   (b) RelayMessageList's inbound-vs-outbound bubble discrimination
- *       (events with `sender === viewingUserMxid` render as OutboundBubble;
- *       others render as RelayRoomInboundBubble).
+ *   (a) MultiBadgeAnchor's D-03 self-exclusion filter (viewing user is not
+ *       rendered as a badge in the participant row of the shared chat
+ *       surface per Phase 93 Slice 2).
+ *   (b) PrettyView's shared inbound-vs-outbound bubble discrimination via
+ *       RelayInboundBubble (events with `sender === viewingUserMxid` render
+ *       as OutboundBubble; others render as RelayInboundBubble per Phase 93
+ *       Slice 3).
  *
  * ## W#8 sourcing decision (Option A per PLAN.md)
  *
@@ -145,8 +147,10 @@ function getUserIdSnapshot(): string | null {
  *
  * The hook is deliberately shape-simple: a single nullable string. Callers
  * that need to distinguish "loading" from "no mxid known" should wait for a
- * non-null value before rendering downstream state (RelayRoomPane does this
- * by rendering a small loading indicator while `viewingUserMxid === null`).
+ * non-null value before rendering downstream state (PrettyView with relay
+ * source does this validation via useRelayAdapter per Phase 93 Slice 3 —
+ * the adapter is inert while `viewingUserMxid === null` and the shared
+ * chat surface's loading affordances cover the pending state).
  *
  * Fetch semantics: fires ONCE per app-mount on first subscription; all
  * subsequent consumers read the cached value. See module docblock for the
@@ -164,9 +168,10 @@ export function useViewingUserMxid(): string | null {
  * the field). Sourced from the SAME `/users/me` response — combining
  * both hooks costs zero extra network round-trips.
  *
- * Used by RelayRoomPane so its structured logs carry the real userId
- * instead of the previous hardcoded `0` placeholder that polluted
- * ops-grep across every log line the pane emits.
+ * Used by useRelayAdapter (the shared chat surface's relay source per Phase
+ * 93 Slice 3) so its structured logs carry the real userId instead of the
+ * previous hardcoded `0` placeholder that polluted ops-grep across every
+ * log line the relay-source path emits.
  */
 export function useViewingUserId(): string | null {
   return useSyncExternalStore(subscribe, getUserIdSnapshot, getUserIdSnapshot);

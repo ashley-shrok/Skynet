@@ -54,7 +54,7 @@ import { useIdentities } from "@/state/identities-store";
 import { resolveMxidToIdentity } from "@/features/pretty-view/relay-mxid-resolve";
 import { AgentBadgeWithMeter } from "./AgentBadgeWithMeter";
 // Phase 93 Slice 4 (D-04): types re-homed to pretty-view/sources/ as part
-// of the standalone relay-room-pane tree retirement. Byte-identical shape
+// of the standalone relay-source tree retirement. Byte-identical shape
 // (Slice 3 Task 1 verbatim port of the wire types).
 import type {
   HumanParticipant,

@@ -289,7 +289,7 @@ export function createFleetStatusClient(
 //     `useSessionContextPct(hostId, tmuxSession ?? "")`. The WS
 //     `context_pct` handler at L2269 becomes a no-op (backend still emits
 //     for backwards compat; the frontend no longer reads it there).
-//   - Plan 06 AgentBadgeWithAppendage (future): reads the SAME hook so the
+//   - AgentBadgeWithMeter (src/ui/features/pretty-view/AgentBadgeWithMeter.tsx per Phase 93): reads the SAME hook so the
 //     same agent viewed on either surface shows identical values.
 // ---------------------------------------------------------------------------
 

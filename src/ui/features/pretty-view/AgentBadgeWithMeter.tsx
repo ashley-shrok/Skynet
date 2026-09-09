@@ -1,10 +1,10 @@
 /**
  * Phase 93 Slice 2 Task 1 — AgentBadgeWithMeter.
  *
- * Ported byte-for-byte from Slice D's AgentBadgeWithAppendage per D-10
- * (deletion source stays untouched until Slice 4 retirement). Renames the
- * exported function + rehomes into pretty-view/ so the relay pane retirement
- * doesn't orphan it.
+ * Ported byte-for-byte from Slice D's agent badge with appendage per D-10
+ * (Phase 93 Slice 4 retired the source). Renames the exported function +
+ * rehomes into pretty-view/ so the retirement of the standalone relay-source
+ * tree doesn't orphan it.
  *
  * Renders the plain IdentityBadge (D-08 reuse — same badges as pretty view
  * / terminal mode) PLUS a shrunk meter appendage (sourced via Wave 0's

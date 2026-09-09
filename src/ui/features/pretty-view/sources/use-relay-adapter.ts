@@ -1,10 +1,11 @@
 /**
  * Phase 93 Slice 3 — useRelayAdapter.
  *
- * Ported byte-for-behavior from Slice D's `use-relay-room-stream.ts` per D-10
- * (retirement moves this out of the retiring `src/ui/features/relay-room-pane/`
- * tree; Slice 4 deletes the source). This slice keeps the standalone relay pane
- * routed to via RelayRoomPane, so the source is not deleted yet.
+ * Ported byte-for-behavior from Slice D's standalone relay-source stream
+ * hook per D-10 (retirement moved this out of the standalone relay-source
+ * tree; Phase 93 Slice 4 retired the source). This hook now owns the WS
+ * lifecycle for the relay case of the shared chat surface — PrettyView with
+ * source.kind === "relay" reads adapter.messages via useChatSurfaceAdapter.
  *
  * Key differences vs. the source hook:
  *   1. Export renamed `useRelayRoomStream` → `useRelayAdapter`.

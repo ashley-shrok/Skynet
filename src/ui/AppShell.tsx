@@ -1445,7 +1445,8 @@ export function AppShell({
       label?: string;
       allowCreateTmux?: boolean;
       // Phase 90 Plan 07 Task 3 — relay-room fields threaded onto the Tab
-      // so tabUtils's dispatcher (Task 2) branches to RelayRoomSessionPane.
+      // so tabUtils's dispatcher branches to the shared chat surface
+      // (PrettyView with source.kind === "relay" per Phase 93 Slice 4).
       // Plan 01 widened Tab with these three fields; here we accept them
       // as options and pass them onto the Tab object below.
       sessionKind?: "harness" | "relay-room";
@@ -2152,8 +2153,9 @@ export function AppShell({
             // Phase 90 Plan 07 Task 3 (BLOCKER #3 fix). Mirrors the shape
             // of onDetachedRowClick — both open a session pane on click —
             // but with the relay-room fields threaded through the openTab
-            // options bag so tabUtils's dispatcher (Task 2) branches to
-            // RelayRoomSessionPane. First arg to openTab is null: relay-
+            // options bag so tabUtils's dispatcher branches to the shared
+            // chat surface (PrettyView with source.kind === "relay" per
+            // Phase 93 Slice 4). First arg to openTab is null: relay-
             // room tabs have NO Host (the room lives on the Matrix relay,
             // not any fleet host). openTab was widened to accept
             // `Host | null` for exactly this call site.

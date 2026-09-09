@@ -27,8 +27,8 @@ import type {
 import { PrettyLandingCard } from "@/features/pretty-view/PrettyLandingCard";
 // Phase 93 Slice 4 (D-04): relay-room tabs now route through the shared
 // chat surface (PrettyView) with source.kind === "relay". The standalone
-// RelayRoomSessionPane retires; the pretty-view surface subsumes it via
-// Slice 1-3's source-prop machinery (discriminated-union adapter, multi-
+// relay-room session pane has retired; the pretty-view surface subsumes it
+// via Slice 1-3's source-prop machinery (discriminated-union adapter, multi-
 // badge anchor, case-selected send, ChatSurfaceErrorState). PrettyView is
 // imported directly (not lazy) — Slice 1 already threads PrettyView into
 // IdentitySessionPane so it's on the harness code path; adding a second
@@ -185,11 +185,13 @@ function TerminalOrIdentitySessionPane({
   // Phase 93 Slice 4 (D-06): host widened to `Host | null`. Relay-room tabs
   // (sessionKind === "relay-room") have no fleet host — the room lives on
   // the Matrix relay. The renderTabContent case "terminal" early-return
-  // that used to route relay-room tabs directly to RelayRoomSessionPane
-  // BEFORE the host-null gate retires; instead the host-null check widens
-  // to permit sessionKind === "relay-room" past it, and the relay branch
-  // inside THIS component handles the host-optional case. Non-relay
-  // terminal tabs still require a host at the caller (renderTabContent).
+  // that used to route relay-room tabs directly to the standalone relay-
+  // room pane BEFORE the host-null gate has retired; instead the host-null
+  // check widens to permit sessionKind === "relay-room" past it, and the
+  // relay branch inside THIS component mounts the shared chat surface
+  // (PrettyView with source.kind === "relay"), handling the host-optional
+  // case. Non-relay terminal tabs still require a host at the caller
+  // (renderTabContent).
   host: Host | null;
   label: string;
   isVisible: boolean;
@@ -346,13 +348,13 @@ export function renderTabContent(
 
     case "terminal":
       // Phase 93 Slice 4 (D-06): host-null gate widens for relay-room tabs.
-      // Previous Phase 91 UAT-fix early-return that mounted RelayRoomSessionPane
-      // inline HERE (before the host-null check) retires — TerminalOrIdentitySessionPane's
-      // relay branch (Slice 4 rewire above) now handles the host-optional case
-      // with a direct PrettyView-with-relay-source mount. Non-relay terminal
-      // tabs still require a host (unchanged behavior); relay-room tabs pass
-      // through with host=null to TerminalOrIdentitySessionPane which mounts
-      // the shared chat surface.
+      // Previous Phase 91 UAT-fix early-return that mounted the standalone
+      // relay-room pane inline HERE (before the host-null check) has retired —
+      // TerminalOrIdentitySessionPane's relay branch (Slice 4 rewire above)
+      // now handles the host-optional case with a direct PrettyView-with-relay-
+      // source mount. Non-relay terminal tabs still require a host (unchanged
+      // behavior); relay-room tabs pass through with host=null to
+      // TerminalOrIdentitySessionPane which mounts the shared chat surface.
       if (!host && tab.sessionKind !== "relay-room") {
         return (
           <EmptyState

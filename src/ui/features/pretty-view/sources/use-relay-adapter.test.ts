@@ -1,8 +1,9 @@
 /**
  * Phase 93 Slice 3 — useRelayAdapter tests.
  *
- * Ported from Slice D's use-relay-room-stream.test.ts (byte-preserved assertion
- * set; only import path, hook name, and call signature updated). Coverage:
+ * Ported from Slice D's standalone relay-source stream hook tests (byte-
+ * preserved assertion set; only import path, hook name, and call signature
+ * updated per Phase 93 Slice 3; Slice 4 retired the source). Coverage:
  *
  *   - WS lifecycle (open on mount+visible; close on !visible/unmount).
  *   - Frame dispatch (session, history_batch, live_event, send_ack,

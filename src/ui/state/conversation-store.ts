@@ -190,7 +190,7 @@ export type FleetSession = {
   // propagates `kind` + `roomId` + `roomTitle` onto the created Tab's
   // `sessionKind` / `relayRoomId` / `relayRoomTitle` fields (see Plan 07),
   // where the pane-mount dispatcher branches on `sessionKind` to render
-  // either PrettyView or RelayRoomSessionPane.
+  // PrettyView (either source variant: harness or relay per Phase 93).
   //
   // Cache-version bump v3 → v4 (see FLEET_CACHE_KEY comment below) forces
   // one clean cold-start after deploy so persisted v3 objects — which
