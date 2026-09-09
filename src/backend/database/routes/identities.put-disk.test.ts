@@ -278,6 +278,26 @@ vi.mock("../../ssh/tmux-helper.js", () => ({
   execCommand: (conn: unknown, cmd: string) => execCommandMock(conn, cmd),
 }));
 
+// ---------------------------------------------------------------------------
+// fs/promises mock — spy on unlink only; pass through real implementations
+// for any other method (none used in this test file). The identities.ts
+// handler imports `* as fs from "node:fs/promises"` so we mock under that
+// same specifier.
+//
+// vi.hoisted() runs BEFORE module loading and before other vi.mock factories,
+// making the spy safe to reference in both the factory and the test body.
+// ---------------------------------------------------------------------------
+
+const { fsUnlinkSpy } = vi.hoisted(() => ({ fsUnlinkSpy: vi.fn() }));
+
+vi.mock("node:fs/promises", async () => {
+  const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+  return {
+    ...actual,
+    unlink: (...args: Parameters<typeof actual.unlink>) => fsUnlinkSpy(...args),
+  };
+});
+
 vi.mock("../../ssh/host-resolver.js", () => ({
   resolveHostById: vi.fn().mockResolvedValue({
     ip: "10.0.0.5",
@@ -400,6 +420,7 @@ beforeEach(() => {
   connectOneShotMock.mockResolvedValue(makeFakeConnWithEnd());
   execCommandMock.mockResolvedValue("");
   forceSaveMock.mockResolvedValue(undefined);
+  fsUnlinkSpy.mockResolvedValue(undefined);
 
   const app = express();
   app.use("/identities", identitiesRouter);
@@ -768,6 +789,120 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
     // readIdentityFile called twice: once pre-write (to load frontmatter for
     // overlay) and once post-write (echo re-read for the response).
     expect(readIdentityFileMock).toHaveBeenCalledTimes(2);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 12a (260909-dls): LOCAL avatar-null deletes frontmatter key + sibling
+  // -------------------------------------------------------------------------
+  it("Test 12a (260909-dls): PUT avatar:null on LOCAL host — frontmatter avatar key deleted + fs.unlink fired with sibling path", async () => {
+    isLocalHostIdMock.mockReturnValue(true);
+    readIdentityFileMock.mockResolvedValue({
+      markdown:
+        "---\nrole: box-maintainer\ndisplayName: Keep\navatar: testkey.webp\n---\n\n# testkey\n",
+    });
+
+    const body = buildMultipartBody({
+      data: { hostId: 1, avatar: null },
+    });
+
+    const res = await httpPut(server, "/identities/testkey", body);
+
+    expect(res.status).toBe(200);
+
+    // writeIdentityFile must have been called once
+    expect(writeIdentityFileMock).toHaveBeenCalledTimes(1);
+    const [, , writtenBody] = writeIdentityFileMock.mock.calls[0];
+    const fm = loadWrittenFrontmatter(writtenBody as string);
+
+    // avatar key must be gone from the written frontmatter
+    expect("avatar" in fm).toBe(false);
+
+    // fs.unlink must have been called once with a path containing testkey/testkey.webp
+    expect(fsUnlinkSpy).toHaveBeenCalledTimes(1);
+    expect(fsUnlinkSpy.mock.calls[0][0]).toEqual(
+      expect.stringContaining("testkey/testkey.webp"),
+    );
+
+    // execCommand rm -f must NOT have been called (LOCAL path uses fs.unlink)
+    const rmCalls = execCommandMock.mock.calls.filter(([, cmd]) =>
+      String(cmd).startsWith("rm -f"),
+    );
+    expect(rmCalls.length).toBe(0);
+
+    // Response avatarUrl still resolves to the identity's avatar endpoint
+    const responseBody = res.body as { avatarUrl?: string };
+    expect(responseBody.avatarUrl).toContain("/identities/testkey/avatar");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 12b (260909-dls): REMOTE avatar-null deletes frontmatter key + execCommand rm -f
+  // -------------------------------------------------------------------------
+  it("Test 12b (260909-dls): PUT avatar:null on REMOTE host — frontmatter avatar key deleted + execCommand rm -f fired", async () => {
+    // isLocalHostIdMock defaults to false (REMOTE) — no override needed
+    readIdentityFileMock.mockResolvedValue({
+      markdown:
+        "---\nrole: box-maintainer\ndisplayName: Keep\navatar: testkey.png\n---\n\n# testkey\n",
+    });
+
+    const body = buildMultipartBody({
+      data: { hostId: 7, avatar: null },
+    });
+
+    const res = await httpPut(server, "/identities/testkey", body);
+
+    expect(res.status).toBe(200);
+
+    // writeIdentityFile must have been called once
+    expect(writeIdentityFileMock).toHaveBeenCalledTimes(1);
+    const [, , writtenBody] = writeIdentityFileMock.mock.calls[0];
+    const fm = loadWrittenFrontmatter(writtenBody as string);
+
+    // avatar key must be gone from the written frontmatter
+    expect("avatar" in fm).toBe(false);
+
+    // execCommand rm -f must have been called exactly once with the old sibling path
+    const rmCalls = execCommandMock.mock.calls.filter(([, cmd]) =>
+      String(cmd).startsWith("rm -f"),
+    );
+    expect(rmCalls.length).toBe(1);
+    const rmCmd = String(rmCalls[0][1]);
+    expect(rmCmd).toContain(
+      `rm -f "$HOME/.claude/identities/testkey/testkey.png"`,
+    );
+
+    // fs.unlink must NOT have been called (REMOTE path uses execCommand)
+    expect(fsUnlinkSpy).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 12c (260909-dls): idempotent no-op — avatar:null on identity with no override
+  // -------------------------------------------------------------------------
+  it("Test 12c (260909-dls): PUT avatar:null when identity has no avatar override — safe no-op (200, no unlink, no rm -f)", async () => {
+    isLocalHostIdMock.mockReturnValue(true);
+    // Seed markdown WITHOUT any avatar: key in frontmatter
+    readIdentityFileMock.mockResolvedValue({
+      markdown:
+        "---\nrole: box-maintainer\ndisplayName: Keep\ntitle: Some Title\n---\n\n# testkey\n",
+    });
+
+    const body = buildMultipartBody({
+      data: { hostId: 1, avatar: null },
+    });
+
+    const res = await httpPut(server, "/identities/testkey", body);
+
+    // Must not crash
+    expect(res.status).toBe(200);
+
+    // writeIdentityFile was still called (frontmatter re-emitted with other fields)
+    expect(writeIdentityFileMock).toHaveBeenCalledTimes(1);
+
+    // Neither sibling-cleanup path should fire (oldAvatar was null)
+    expect(fsUnlinkSpy).not.toHaveBeenCalled();
+    const rmCalls = execCommandMock.mock.calls.filter(([, cmd]) =>
+      String(cmd).startsWith("rm -f"),
+    );
+    expect(rmCalls.length).toBe(0);
   });
 
 });
