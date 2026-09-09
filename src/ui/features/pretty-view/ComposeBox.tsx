@@ -298,6 +298,13 @@ export interface ComposeBoxProps {
   // from the touch-target row-height gate so desktop can also show the
   // paperclip in a compact row (post-#121 aux row has room).
   showPaperclip?: boolean;
+  /**
+   * Phase 93 D-11: compose chrome mode. When "relay", the Row 1 instrument
+   * bar (meter/reset/queue/stop/thumbs-up/recap) AND the Paperclip attach
+   * button are HIDDEN monolithically. Textarea + Send visual shell unchanged
+   * per D-12. Default "harness" preserves today's behavior at every call site.
+   */
+  mode?: "harness" | "relay";
   // Gates the Row 1 top-row min-h between `min-h-[44px]` (touch, WCAG
   // 2.5.5 touch-target compliance) and `min-h-8` (desktop compact).
   // Sourced from PrettyView's useIsTouchDevice() call (patch #102 — the
@@ -571,6 +578,7 @@ export function ComposeBox({
   stagedAttachments,
   onRemoveAttachment,
   showPaperclip,
+  mode = "harness",
   isTouchDevice,
   onAttachFiles,
   onAttachFilesForTarget,
@@ -2317,8 +2325,14 @@ export function ComposeBox({
           `showPaperclip`. Patch #123 decoupled the two: `showPaperclip`
           used to double as the height proxy, which prevented desktop
           from opting into the paperclip without also inheriting the
-          chunky 44px row. */}
-      <div className={cn("flex items-center gap-2 mb-[3px]", isTouchDevice ? "min-h-[44px]" : "min-h-8")}>
+          chunky 44px row.
+
+          Phase 93 D-11: entire Row 1 subtree is hidden monolithically
+          when `mode === "relay"`. Row 2 (below) stays byte-identical
+          (D-12). Default mode is "harness" — harness case renders Row 1
+          unchanged. */}
+      {mode !== "relay" && (
+      <div data-testid="compose-row-1" className={cn("flex items-center gap-2 mb-[3px]", isTouchDevice ? "min-h-[44px]" : "min-h-8")}>
         {/* Patch #83: cohesive segmented-well meter with integrated reset
             cell (one instrument). The well ALWAYS mounts (segments show
             dim when contextPct is null so the row geometry never jitters
@@ -2612,6 +2626,7 @@ export function ComposeBox({
               content. */}
         </div>
       </div>
+      )}
       {/* Bounty message-queue-in-pretty-view: queue-slot stack.
           Renders between Row 1 and Row 2. Each slot is an independent
           textarea with its own Send, Delete (X), and Mic button.
@@ -2668,8 +2683,10 @@ export function ComposeBox({
       {/* Row 2 — compose bar: textarea (flex-1, auto-grows 1→6 rows) +
           Send button. items-end so Send pins to the textarea bottom edge
           as the textarea grows. VISUAL-08 HARD LOCK on Send's amber
-          gradient — never change. */}
-      <div className="flex items-end gap-2">
+          gradient — never change.
+          Phase 93 D-12: Row 2 is byte-identical between mode="harness"
+          and mode="relay" (only Row 1 + Paperclip differ). */}
+      <div data-testid="compose-row-2" className="flex items-end gap-2">
         {/* Patch #84: textarea wrapper. The wrapper owns flex sizing
             (`flex-1 self-stretch`) so the pending overlay can position
             absolute-inset over the Textarea while the Textarea itself
@@ -2885,8 +2902,10 @@ export function ComposeBox({
             not shadcn Button — same reason as Send (#129 wrapper-
             specificity trap). aria-label / title / onClick preserved
             verbatim from the old aux-group Paperclip so Tests 3/4/5
-            keep passing. */}
-        {showPaperclip && (
+            keep passing.
+            Phase 93 D-11: Paperclip is hidden monolithically when
+            mode === "relay" alongside Row 1 (harness-only chrome). */}
+        {showPaperclip && mode !== "relay" && (
           <button
             type="button"
             onClick={() => handleOpenFilePicker("primary")}
