@@ -1150,6 +1150,95 @@ export async function getRoomMessages(
 
 export type SendMessageAsUserOk = AdminOk<{ eventId: string }>;
 
+// ---------------------------------------------------------------------------
+// Per-user access-token cache (H2 fixup 2026-09-09)
+// ---------------------------------------------------------------------------
+//
+// Before H2, every sendMessageAsUser call ran a fresh loginAsUser round-trip
+// to Synapse before the send PUT — an unnecessary admin-API request per
+// message even when a valid token had just been minted milliseconds ago.
+// At relay-room chat cadence (multiple sends per minute per user in an
+// active group), this doubled the admin-token traffic to Synapse.
+//
+// Cache shape: module-scoped Map<mxid, {token, expiresAt}>. TTL is 1 hour,
+// well within Synapse's default token lifespan. loginAsUser is called with
+// `validUntilMs = Date.now() + TOKEN_CACHE_TTL_MS` so Synapse itself expires
+// the token at the same time — a stolen cached token can't outlive the
+// server-side lifetime.
+//
+// On send 401 (Synapse says the token is no longer valid — user password
+// rotated, admin revoked the token, etc.), the cache entry is evicted and
+// sendMessageAsUser retries ONCE with a freshly-minted token. Beyond one
+// retry, subsequent failures are returned to the caller — retrying past
+// that would only hide a real problem.
+//
+// Threat T-90-BE-01 preserved: tokens are only ever held in memory; the
+// cache is never serialized. Logs never carry the token value.
+
+const TOKEN_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+interface CachedUserToken {
+  token: string;
+  expiresAt: number;
+}
+
+const userTokenCache = new Map<string, CachedUserToken>();
+
+/**
+ * Test-only reset. Clears every cached per-user token so a fresh test starts
+ * from an empty cache.
+ */
+export function __resetUserTokenCacheForTests(): void {
+  userTokenCache.clear();
+}
+
+/**
+ * Get a cached token for `mxid` if it is present AND not yet expired.
+ * Returns null on miss or expiry (expired entries are evicted).
+ */
+function getCachedUserToken(mxid: string, now: number): string | null {
+  const entry = userTokenCache.get(mxid);
+  if (entry === undefined) return null;
+  if (entry.expiresAt <= now) {
+    userTokenCache.delete(mxid);
+    return null;
+  }
+  return entry.token;
+}
+
+/**
+ * Store a freshly-minted user token in the cache with a TTL bounded by
+ * TOKEN_CACHE_TTL_MS. The Synapse-side validity ceiling (passed via
+ * validUntilMs on loginAsUser) matches this ceiling exactly.
+ */
+function putCachedUserToken(mxid: string, token: string, now: number): void {
+  userTokenCache.set(mxid, {
+    token,
+    expiresAt: now + TOKEN_CACHE_TTL_MS,
+  });
+}
+
+/**
+ * Ensure a valid per-user token is cached; mint via loginAsUser on a miss
+ * or expiry. Returns the token on success or the loginAsUser error verbatim
+ * on failure (preserves the pre-H2 caller-visible error semantics).
+ */
+async function ensureUserToken(
+  mxid: string,
+): Promise<{ ok: true; token: string } | AdminErr> {
+  const now = Date.now();
+  const cached = getCachedUserToken(mxid, now);
+  if (cached !== null) {
+    return { ok: true, token: cached };
+  }
+  const login = await loginAsUser(mxid, now + TOKEN_CACHE_TTL_MS);
+  if (login.ok === false) {
+    return login;
+  }
+  putCachedUserToken(mxid, login.accessToken, now);
+  return { ok: true, token: login.accessToken };
+}
+
 /**
  * Send an m.room.message into a room ON BEHALF OF the specified user.
  *
@@ -1167,9 +1256,10 @@ export type SendMessageAsUserOk = AdminOk<{ eventId: string }>;
  *   mqid directly as the txnId so the Matrix `unsigned.transaction_id`
  *   echo-back matches on the way in (Pitfall 4 correlation infrastructure).
  *
- * Composition:
- *   1. loginAsUser(senderMxid) → per-user access token
- *   2. PUT rooms/.../send/m.room.message/{txnId} with Bearer <that token>
+ * Composition (H2 fixup 2026-09-09):
+ *   1. ensureUserToken(senderMxid) → cached per-user token (mints on miss).
+ *   2. PUT rooms/.../send/m.room.message/{txnId} with Bearer <that token>.
+ *   3. On 401: evict cache entry, mint a fresh token, retry step 2 ONCE.
  *
  * If loginAsUser fails, its error is returned verbatim (no wrapping) so the
  * caller can distinguish auth-mint failures from send failures.
@@ -1186,25 +1276,63 @@ export async function sendMessageAsUser(
   body: string,
   txnId: string,
 ): Promise<SendMessageAsUserOk | AdminErr> {
-  // Step 1: mint per-user access token. If this fails, pass the error
-  // through verbatim — callers can distinguish auth-mint failures from
-  // send failures by the returned error code.
-  //
-  // `=== false` narrowing (not `!login.ok`) — strict tsc doesn't narrow
-  // discriminated unions on `!x.ok` for AdminErr | LoginAsUserOk; established
-  // pattern used by src/backend/telegram/human-token-writer.ts L41 (see
-  // commit 967ab598 for the original discovery).
-  const login = await loginAsUser(senderMxid);
-  if (login.ok === false) {
-    return login;
+  // Step 1: obtain a per-user access token via the cache (mints on miss).
+  const first = await ensureUserToken(senderMxid);
+  if (first.ok === false) {
+    return first;
   }
 
-  // Step 2: resolve admin creds again to obtain the homeserverBase. (loginAsUser
-  // already resolved creds internally, but the base URL is not exposed on its
-  // return — cheap to re-resolve since matrix-admin-creds-store memoizes.)
+  // Step 2: attempt the send with the first token.
+  const firstResult = await sendMessageOnce(
+    first.token,
+    senderMxid,
+    roomId,
+    body,
+    txnId,
+  );
+  if (firstResult.retryable !== true) {
+    return firstResult.result;
+  }
+
+  // Step 3 (H2): 401 on the send — evict the cached token and try ONCE more
+  // with a freshly-minted token. Beyond one retry, subsequent failures are
+  // returned to the caller.
+  userTokenCache.delete(senderMxid);
+  const second = await ensureUserToken(senderMxid);
+  if (second.ok === false) {
+    return second;
+  }
+  const retryResult = await sendMessageOnce(
+    second.token,
+    senderMxid,
+    roomId,
+    body,
+    txnId,
+  );
+  return retryResult.result;
+}
+
+/**
+ * One-shot send attempt. Returns `retryable: true` when the send hit a 401
+ * (invalid/expired user token — evict cache + retry with a fresh mint);
+ * returns `retryable: false` for every other outcome so the caller stops.
+ */
+async function sendMessageOnce(
+  userToken: string,
+  _senderMxid: string,
+  roomId: string,
+  body: string,
+  txnId: string,
+): Promise<{
+  result: SendMessageAsUserOk | AdminErr;
+  retryable: boolean;
+}> {
   const creds = await getMatrixAdminCreds();
   if (!creds) {
-    return { ok: false, status: 500, error: ERR_CREDS_MISSING };
+    return {
+      result: { ok: false, status: 500, error: ERR_CREDS_MISSING },
+      retryable: false,
+    };
   }
 
   const url = `${creds.homeserverBase}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${encodeURIComponent(txnId)}`;
@@ -1215,11 +1343,12 @@ export async function sendMessageAsUser(
     const response = await fetch(url, {
       method: "PUT",
       headers: {
-        // CRITICAL (T-90-BE-03 / Pitfall 3): Bearer <login.accessToken>, NOT
-        // <creds.accessToken>. If the admin token is used here, every message
-        // in the room is attributed to @skynet-admin instead of the actual
-        // sender. Task 2 Test 2 is a dedicated regression gate on this line.
-        Authorization: `Bearer ${login.accessToken}`,
+        // CRITICAL (T-90-BE-03 / Pitfall 3): Bearer <userToken>, NOT
+        // <creds.accessToken>. If the admin token is used here, every
+        // message in the room is attributed to @skynet-admin instead of
+        // the actual sender. Task 2 Test 2 is a dedicated regression
+        // gate on this line.
+        Authorization: `Bearer ${userToken}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ msgtype: "m.text", body }),
@@ -1227,20 +1356,33 @@ export async function sendMessageAsUser(
     });
     clearTimeout(timeoutId);
     if (!response.ok) {
-      return { ok: false, status: response.status, error: ERR_NON_2XX };
+      // H2: only 401 is retryable (invalid/expired user token). Other
+      // non-2xx responses go straight back to the caller so a rate-
+      // limit or Matrix outage isn't hidden behind a retry.
+      const retryable = response.status === 401;
+      return {
+        result: { ok: false, status: response.status, error: ERR_NON_2XX },
+        retryable,
+      };
     }
     const parsed = (await response.json()) as { event_id?: unknown };
     if (typeof parsed.event_id !== "string" || parsed.event_id.length === 0) {
-      return { ok: false, status: 500, error: ERR_MISSING_FIELD };
+      return {
+        result: { ok: false, status: 500, error: ERR_MISSING_FIELD },
+        retryable: false,
+      };
     }
-    return { ok: true, eventId: parsed.event_id };
+    return { result: { ok: true, eventId: parsed.event_id }, retryable: false };
   } catch (err: unknown) {
     clearTimeout(timeoutId);
     if (err instanceof DOMException && err.name === "AbortError") {
-      return { ok: false, status: 504, error: ERR_TIMEOUT };
+      return {
+        result: { ok: false, status: 504, error: ERR_TIMEOUT },
+        retryable: false,
+      };
     }
     // Security V7: log operation only. NEVER include the minted access token
-    // (`login.accessToken`), the admin token, or the request body (`body`
+    // (`userToken`), the admin token, or the request body (`body`
     // parameter) — the raw `err` object may serialize the fetch options in
     // some Node builds; databaseLogger's own scrubbing is the second line of
     // defense but we do not rely on it here. The `err` argument is passed as
@@ -1249,6 +1391,9 @@ export async function sendMessageAsUser(
     databaseLogger.error("matrix admin proxy error", err, {
       operation: "matrix_admin_send_message_as_user",
     });
-    return { ok: false, status: 502, error: ERR_PROXY };
+    return {
+      result: { ok: false, status: 502, error: ERR_PROXY },
+      retryable: false,
+    };
   }
 }

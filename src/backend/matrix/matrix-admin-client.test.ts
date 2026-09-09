@@ -48,6 +48,7 @@ import {
   getRoomName,
   getRoomMessages,
   sendMessageAsUser,
+  __resetUserTokenCacheForTests,
 } from "./matrix-admin-client.js";
 import { getMatrixAdminCreds } from "./matrix-admin-creds-store.js";
 import { databaseLogger } from "../utils/logger.js";
@@ -1468,6 +1469,12 @@ describe("getRoomMessages (Phase 90 Plan 03 Task 1)", () => {
 // ---------------------------------------------------------------------------
 
 describe("sendMessageAsUser (Phase 90 Plan 03 Task 2)", () => {
+  // H2 fixup 2026-09-09: reset the per-user token cache before each test so
+  // one test's cached token doesn't leak into the next.
+  beforeEach(() => {
+    __resetUserTokenCacheForTests();
+  });
+
   /**
    * Helper: stub fetch to return the loginAsUser response FIRST, then the
    * send response SECOND. Mirrors the two-call sequence in the primitive:
@@ -1783,7 +1790,11 @@ describe("sendMessageAsUser (Phase 90 Plan 03 Task 2)", () => {
     await sendMessageAsUser("@a:s", "!r:s", "hi", "mqid-1");
     // At least 2 clearTimeouts on success (one for loginAsUser, one for send).
     expect(clearSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
-    // Error path — send AbortError
+    // Error path — send AbortError. H2 fixup: reset the per-user token cache
+    // so the second sendMessageAsUser also runs loginAsUser (mints a fresh
+    // token) rather than reusing the cached one — keeps the test's intent
+    // that BOTH login-fetch AND send-fetch clearTimeouts are exercised.
+    __resetUserTokenCacheForTests();
     const fetchMock = vi.fn();
     fetchMock
       .mockImplementationOnce(async () =>
@@ -1812,5 +1823,208 @@ describe("sendMessageAsUser (Phase 90 Plan 03 Task 2)", () => {
     // rawTxnId happens to contain only unreserved characters, so
     // encodeURIComponent leaves it verbatim — assert it appears exactly.
     expect(sendUrl.endsWith(`/send/m.room.message/${rawTxnId}`)).toBe(true);
+  });
+
+  // ==========================================================================
+  // H2 FIXUP TESTS (2026-09-09) — per-user access-token LRU cache
+  // ==========================================================================
+
+  it("Test H2a: second send for the same mxid reuses the cached token — no extra loginAsUser round-trip", async () => {
+    // First send: login + send (2 fetches). Second send: send-only (1 fetch,
+    // reuses cached token). Total across two sends: 3 fetches.
+    const fetchMock = vi.fn();
+    fetchMock
+      // Call 0: loginAsUser
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(200, { access_token: "user-tok-cached" }),
+      )
+      // Call 1: first send PUT
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(200, { event_id: "$e-1:s" }),
+      )
+      // Call 2: second send PUT (no login PUT precedes it — cache hit)
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(200, { event_id: "$e-2:s" }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    await sendMessageAsUser("@ashley:s", "!r:s", "hi 1", "mqid-1");
+    await sendMessageAsUser("@ashley:s", "!r:s", "hi 2", "mqid-2");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // Call 0 is POST /_synapse/admin/v1/users/.../login
+    expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("POST");
+    // Calls 1 + 2 are both send PUTs
+    expect((fetchMock.mock.calls[1][1] as RequestInit).method).toBe("PUT");
+    expect((fetchMock.mock.calls[2][1] as RequestInit).method).toBe("PUT");
+    // Both PUTs carry the SAME user token from the single login mint.
+    expect(
+      (fetchMock.mock.calls[1][1] as RequestInit).headers as Record<
+        string,
+        string
+      >,
+    ).toEqual(
+      expect.objectContaining({
+        Authorization: "Bearer user-tok-cached",
+      }),
+    );
+    expect(
+      (fetchMock.mock.calls[2][1] as RequestInit).headers as Record<
+        string,
+        string
+      >,
+    ).toEqual(
+      expect.objectContaining({
+        Authorization: "Bearer user-tok-cached",
+      }),
+    );
+  });
+
+  it("Test H2b: per-user isolation — a different mxid mints its own token", async () => {
+    const fetchMock = vi.fn();
+    fetchMock
+      // Call 0: login for @a
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(200, { access_token: "tok-a" }),
+      )
+      // Call 1: @a send
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(200, { event_id: "$e-a:s" }),
+      )
+      // Call 2: login for @b (different mxid — no cache hit)
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(200, { access_token: "tok-b" }),
+      )
+      // Call 3: @b send
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(200, { event_id: "$e-b:s" }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    await sendMessageAsUser("@a:s", "!r:s", "hi", "m-a");
+    await sendMessageAsUser("@b:s", "!r:s", "hi", "m-b");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    // Login URLs point at the respective mxids.
+    expect(fetchMock.mock.calls[0][0] as string).toContain(
+      encodeURIComponent("@a:s"),
+    );
+    expect(fetchMock.mock.calls[2][0] as string).toContain(
+      encodeURIComponent("@b:s"),
+    );
+  });
+
+  it("Test H2c: send 401 evicts the cached token and retries ONCE with a freshly-minted token", async () => {
+    const fetchMock = vi.fn();
+    fetchMock
+      // Call 0: initial login
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(200, { access_token: "tok-stale" }),
+      )
+      // Call 1: send with cached token → 401 (token no longer valid)
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(401, { errcode: "M_UNKNOWN_TOKEN" }),
+      )
+      // Call 2: post-eviction re-login
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(200, { access_token: "tok-fresh" }),
+      )
+      // Call 3: retry send with fresh token → success
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(200, { event_id: "$e-retry:s" }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await sendMessageAsUser("@ash:s", "!r:s", "hi", "m-1");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.eventId).toBe("$e-retry:s");
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    // First send used the stale token; retry PUT used the fresh one.
+    expect(
+      (fetchMock.mock.calls[1][1] as RequestInit).headers as Record<
+        string,
+        string
+      >,
+    ).toEqual(
+      expect.objectContaining({
+        Authorization: "Bearer tok-stale",
+      }),
+    );
+    expect(
+      (fetchMock.mock.calls[3][1] as RequestInit).headers as Record<
+        string,
+        string
+      >,
+    ).toEqual(
+      expect.objectContaining({
+        Authorization: "Bearer tok-fresh",
+      }),
+    );
+  });
+
+  it("Test H2d: second 401 (fresh-mint also rejected) returns to caller — no infinite retry loop", async () => {
+    const fetchMock = vi.fn();
+    fetchMock
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(200, { access_token: "tok-1" }),
+      )
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(401, { errcode: "M_UNKNOWN_TOKEN" }),
+      )
+      // Retry-mint
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(200, { access_token: "tok-2" }),
+      )
+      // Retry send → also 401
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(401, { errcode: "M_UNKNOWN_TOKEN" }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await sendMessageAsUser("@ash:s", "!r:s", "hi", "m-1");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(401);
+    }
+    // Exactly 4 fetches — no third retry attempt.
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("Test H2e: non-401 send failure does NOT trigger retry (403 goes straight back to caller)", async () => {
+    const fetchMock = vi.fn();
+    fetchMock
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(200, { access_token: "tok-1" }),
+      )
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(403, { errcode: "M_FORBIDDEN" }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await sendMessageAsUser("@ash:s", "!r:s", "hi", "m-1");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(403);
+    }
+    // Only 2 fetches — login + one send, no retry mint.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("Test H2f: loginAsUser call carries a validUntilMs bound (Synapse-side ceiling matches cache TTL)", async () => {
+    const fetchMock = vi.fn();
+    fetchMock
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(200, { access_token: "tok" }),
+      )
+      .mockImplementationOnce(async () =>
+        mockFetchResponse(200, { event_id: "$e:s" }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    await sendMessageAsUser("@ash:s", "!r:s", "hi", "m-1");
+    // Login body carries valid_until_ms.
+    const loginBody = JSON.parse(
+      (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+    );
+    expect(typeof loginBody.valid_until_ms).toBe("number");
+    // Ceiling is roughly Date.now() + 1h; sanity-check it lands in the
+    // near future (allow a broad window for CI clock drift).
+    const now = Date.now();
+    expect(loginBody.valid_until_ms).toBeGreaterThan(now);
+    expect(loginBody.valid_until_ms).toBeLessThan(now + 2 * 60 * 60 * 1000);
   });
 });
