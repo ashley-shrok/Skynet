@@ -318,7 +318,9 @@ describe("ComposeBox — queued-slot attachment send (quick-260829-nt9)", () => 
 
     // We don't know the auto-generated slot IDs ahead of time, so we
     // capture the slot IDs after adding slots and return an attachment
-    // for the first slot only (head). The getStagedAttachmentsForTarget
+    // for the head slot only — the topmost row, which under quick 260909-cdi
+    // prepend semantics is the MOST RECENTLY created slot (index 0 of
+    // queueSlots after two plus-tab clicks). The getStagedAttachmentsForTarget
     // mock is set up dynamically after slots are rendered.
     // Start with an empty implementation; we'll update it after rendering.
     let headSlotTarget = "";
@@ -351,11 +353,15 @@ describe("ComposeBox — queued-slot attachment send (quick-260829-nt9)", () => 
     // getStagedAttachmentsForTarget to return an attachment for the head slot.
     const slotContainers = document.querySelectorAll("[data-slot-id]");
     expect(slotContainers.length).toBeGreaterThanOrEqual(2);
-    // slots render before primary: index 0 = first slot (head)
+    // slots render above primary; queue-260909-cdi prepend semantics mean
+    // index 0 = topmost row = most recently created ("head" here is
+    // POSITIONAL, not temporal).
     headSlotTarget = `queued:${slotContainers[0].getAttribute("data-slot-id")}`;
 
     const allTextareas = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
-    // slots render before primary: index 0 = first slot (head), index 1 = second slot (tail).
+    // index 0 = topmost (newest) slot's textarea, index 1 = second slot's
+    // textarea (older), index 2 = primary. "head"/"tail" naming below is
+    // POSITIONAL only.
     const headTextarea = allTextareas[0];
     const tailTextarea = allTextareas[1];
 

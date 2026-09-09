@@ -2567,8 +2567,11 @@ export function ComposeBox({
       {/* Bounty message-queue-in-pretty-view: queue-slot stack.
           Renders between Row 1 and Row 2. Each slot is an independent
           textarea with its own Send, Delete (X), and Mic button.
-          Slots stack vertically; oldest at top, newest at bottom
-          (adjacent to the primary Row 2 textarea below). */}
+          Slots stack vertically; newest at top, oldest at bottom
+          (adjacent to the primary Row 2 textarea below). Quick 260909-cdi
+          flipped the ordering — clicking the QueuePlusTab pebble-notch
+          prepends at index 0, so the tab that lives on the topmost
+          textarea's top edge rides up onto the freshly-inserted slot. */}
       {queueSlots.length > 0 && (
         <div className="flex flex-col gap-2 mb-1">
           {queueSlots.map((slot, index) => (
@@ -3113,6 +3116,13 @@ function QueuePlusTab({ onAdd }: { onAdd: () => void }) {
         "cursor-pointer",
         "hover:brightness-110 hover:text-[color:var(--color-pv-fg)]",
         "transition-[filter,color] duration-150",
+        // M2 code-review finding (2026-09-09): the retired ListPlus shadcn Button
+        // carried a visible keyboard focus outline; this bare <button> inherits
+        // none. Add a modest identity-hue focus-visible ring at 1px so
+        // keyboard-only users see focus without breaking "quiet chrome" at rest.
+        "focus-visible:outline-none",
+        "focus-visible:ring-1 focus-visible:ring-[hsla(var(--pv-id-hue,218),70%,55%,0.35)]",
+        "focus-visible:border-[hsla(var(--pv-id-hue,218),70%,60%,0.55)]",
       )}
     >
       <Plus className="size-3" strokeWidth={1.5} aria-hidden="true" />

@@ -132,9 +132,11 @@ describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 1: aux button disable
   //
   // Task 1 Test 8 REMOVED (Vehicle B strip, quick 260801-62m): the /queue
   // (ListPlus prefix-send) button no longer exists — superseded by the
-  // queued-message textareas managed by the "Queue a message" (ListPlus)
-  // add-textarea button in Row 2. Removal-assertion coverage now lives in
-  // ComposeBox.test.tsx under the "Vehicle B strip" describe block.
+  // queued-message textareas managed by the "Queue a message" Plus-glyph
+  // pebble-notch tab (quick 260909-cdi retired the aux-row ListPlus button
+  // and moved the affordance onto the topmost textarea's top edge).
+  // Removal-assertion coverage now lives in ComposeBox.test.tsx under the
+  // "Vehicle B strip" describe block.
 });
 
 describe("ComposeBox — Phase 14 Wave 4 aside morph (Task 2: Send button morph)", () => {
