@@ -88,13 +88,26 @@ export function NewConversationModal({
   }, [viewingUserMxid]);
 
   // Fetch humans when modal opens (not on every render — open gate).
+  // M2: AbortController per open-cycle to cancel in-flight requests on close
+  // or re-open. basicUsers is cleared on close so stale data never populates
+  // a re-opened modal.
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      // Clear stale users on close so re-open starts fresh (M2 fix).
+      setBasicUsers(null);
+      return;
+    }
     // eslint-disable-next-line no-console
     console.info({ operation: "new_conversation_modal_opened" });
+    const controller = new AbortController();
     getUsersListBasic()
-      .then(setBasicUsers)
+      .then((users) => {
+        if (!controller.signal.aborted) {
+          setBasicUsers(users);
+        }
+      })
       .catch((err: unknown) => {
+        if (controller.signal.aborted) return; // ignore cancelled fetches
         setBasicUsers([]);
         // eslint-disable-next-line no-console
         console.warn({
@@ -102,6 +115,9 @@ export function NewConversationModal({
           err: err instanceof Error ? err.message : "unknown",
         });
       });
+    return () => {
+      controller.abort();
+    };
   }, [open]);
 
   // Humans: filter out null-mxid users (Test 14), derive colorHue via
