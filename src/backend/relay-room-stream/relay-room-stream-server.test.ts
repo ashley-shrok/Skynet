@@ -11,7 +11,7 @@
  * pure-dispatch tests since JWT auth + URL trust are the same code path).
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Mock the matrix-admin-client boundary — the tests should not hit real
 // Matrix or admin creds. classifyParticipants is exercised directly (it
@@ -29,8 +29,11 @@ import {
   checkRateLimit,
   __resetRateLimiterForTests,
   __resetRoomSubscriptionsForTests,
+  __getRoomSubscriptionForTests,
   computeParticipantsFrame,
   runMembershipTick,
+  runLiveEventTick,
+  subscribeRoom,
   memberSetsEqual,
   RELAY_ROOM_STREAM_PORT,
   type WsAuthContext,
@@ -38,6 +41,9 @@ import {
   type HandleFetchOlderDeps,
   type HandleSendMessageDeps,
   type ComputeParticipantsDeps,
+  type LiveEventTickDeps,
+  type RoomTickDeps,
+  type ServerFrame,
 } from "./relay-room-stream-server.js";
 
 const OWNER_USER = "user-owner-1";
@@ -84,7 +90,7 @@ function makeConnectDeps(overrides: {
       ),
     fetchInitialHistory:
       overrides.fetchInitialHistory ??
-      (async () => ({ ok: true, events: [], hasMore: false })),
+      (async () => ({ ok: true, events: [], hasMore: false, endToken: null })),
   };
 }
 
@@ -206,6 +212,7 @@ describe("handleConnectToRoom (Phase 90 Plan 04 Task 2)", () => {
         ok: true,
         events: [{ event_id: "$e1:s" }, { event_id: "$e2:s" }],
         hasMore: true,
+        endToken: "end-cursor-1",
       }),
     });
     const outcome = await handleConnectToRoom(
@@ -696,6 +703,257 @@ describe("runMembershipTick (W#9 — Phase 90 Plan 04 Task 2 Test 11)", () => {
     expect(memberSetsEqual(new Set(["a", "b"]), new Set(["b", "a"]))).toBe(true);
     expect(memberSetsEqual(new Set(["a"]), new Set(["a", "b"]))).toBe(false);
     expect(memberSetsEqual(new Set(), new Set())).toBe(true);
+  });
+});
+
+// ============================================================================
+// H1 FIXUP TESTS (2026-09-09) — live_event tick + subscribeRoom lifecycle
+// ============================================================================
+
+describe("runLiveEventTick (H1 fixup — inbound message subscription)", () => {
+  it("Test LE-1: null sinceToken short-circuits — returns empty events and null cursor without fetching", async () => {
+    const fetchLive = vi.fn();
+    const deps: LiveEventTickDeps = { fetchLive };
+    const result = await runLiveEventTick(ROOM_ID, null, deps);
+    expect(fetchLive).not.toHaveBeenCalled();
+    expect(result.events).toEqual([]);
+    expect(result.nextSinceToken).toBeNull();
+  });
+
+  it("Test LE-2: happy-path advance — returns events + nextSinceToken from response `end`", async () => {
+    const deps: LiveEventTickDeps = {
+      fetchLive: vi.fn().mockResolvedValue({
+        ok: true,
+        events: [{ event_id: "$live-1:s" }, { event_id: "$live-2:s" }],
+        nextSinceToken: "cursor-after",
+      }),
+    };
+    const result = await runLiveEventTick(ROOM_ID, "cursor-before", deps);
+    expect(result.events.length).toBe(2);
+    expect(result.nextSinceToken).toBe("cursor-after");
+  });
+
+  it("Test LE-3: fetch failure preserves the previous cursor (transient-fail discipline)", async () => {
+    const deps: LiveEventTickDeps = {
+      fetchLive: vi.fn().mockResolvedValue({
+        ok: false,
+        status: 502,
+        error: "admin_api_proxy_error",
+      }),
+    };
+    const result = await runLiveEventTick(ROOM_ID, "cursor-preserve", deps);
+    expect(result.events).toEqual([]);
+    // Cursor unchanged so the next tick retries from the same point.
+    expect(result.nextSinceToken).toBe("cursor-preserve");
+  });
+
+  it("Test LE-4: no new events — returns empty batch, advances cursor if server gave a new one", async () => {
+    const deps: LiveEventTickDeps = {
+      fetchLive: vi.fn().mockResolvedValue({
+        ok: true,
+        events: [],
+        nextSinceToken: "same-cursor",
+      }),
+    };
+    const result = await runLiveEventTick(ROOM_ID, "cursor-x", deps);
+    expect(result.events).toEqual([]);
+    expect(result.nextSinceToken).toBe("same-cursor");
+  });
+});
+
+describe("subscribeRoom (H1 fixup — per-room tick driver + subscriber lifecycle)", () => {
+  beforeEach(() => {
+    __resetRoomSubscriptionsForTests();
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    __resetRoomSubscriptionsForTests();
+  });
+
+  function makeTickDeps(overrides: {
+    fetchMembers?: ComputeParticipantsDeps["fetchMembers"];
+    fetchLive?: LiveEventTickDeps["fetchLive"];
+    classifierDeps?: ComputeParticipantsDeps["classifierDeps"];
+  } = {}): RoomTickDeps {
+    return {
+      fetchMembers:
+        overrides.fetchMembers ??
+        (async () => ({ ok: true, memberMxids: [OWNER_MXID, AGENT_MXID] })),
+      fetchLive:
+        overrides.fetchLive ??
+        (async () => ({ ok: true, events: [], nextSinceToken: "unused" })),
+      classifierDeps: overrides.classifierDeps ?? makeClassifierDeps(),
+    };
+  }
+
+  it("Test H1a: first subscriber boots both timers; second subscriber shares the same subscription", () => {
+    const deps = makeTickDeps();
+    const emit1 = vi.fn();
+    const emit2 = vi.fn();
+    const dispose1 = subscribeRoom(
+      ROOM_ID,
+      emit1,
+      "cursor-1",
+      new Set([OWNER_MXID]),
+      deps,
+    );
+    const dispose2 = subscribeRoom(
+      ROOM_ID,
+      emit2,
+      "cursor-2",
+      new Set([OWNER_MXID, AGENT_MXID]),
+      deps,
+    );
+    const sub = __getRoomSubscriptionForTests(ROOM_ID);
+    expect(sub).toBeDefined();
+    expect(sub!.subscribers.size).toBe(2);
+    expect(sub!.membershipTimer).not.toBeNull();
+    expect(sub!.liveEventTimer).not.toBeNull();
+    // Cursor stays with the first seed — second subscriber's seed is
+    // only used if the first seed was null.
+    expect(sub!.sinceToken).toBe("cursor-1");
+    dispose1();
+    dispose2();
+  });
+
+  it("Test H1b: live_event frame emitted when new inbound arrives via poll — all subscribers receive it", async () => {
+    const newEvent = {
+      event_id: "$live-new:s",
+      type: "m.room.message",
+      sender: "@sender:s",
+      content: { body: "hello" },
+    };
+    const fetchLive = vi
+      .fn()
+      // First tick returns the new event; subsequent ticks empty.
+      .mockResolvedValueOnce({
+        ok: true,
+        events: [newEvent],
+        nextSinceToken: "cursor-2",
+      })
+      .mockResolvedValue({
+        ok: true,
+        events: [],
+        nextSinceToken: "cursor-2",
+      });
+    const deps = makeTickDeps({ fetchLive });
+    const emitA = vi.fn();
+    const emitB = vi.fn();
+    subscribeRoom(ROOM_ID, emitA, "cursor-1", new Set(), deps);
+    subscribeRoom(ROOM_ID, emitB, "cursor-1", new Set(), deps);
+
+    // Advance timers past one live-event tick + flush microtasks.
+    await vi.advanceTimersByTimeAsync(2_100);
+
+    const liveFramesA = emitA.mock.calls
+      .map((c) => c[0] as ServerFrame)
+      .filter((f) => f.type === "live_event");
+    const liveFramesB = emitB.mock.calls
+      .map((c) => c[0] as ServerFrame)
+      .filter((f) => f.type === "live_event");
+    expect(liveFramesA.length).toBe(1);
+    expect(liveFramesB.length).toBe(1);
+    expect((liveFramesA[0] as { event: unknown }).event).toEqual(newEvent);
+  });
+
+  it("Test H1c: participants frame emitted on membership change — all subscribers receive it", async () => {
+    let tick = 0;
+    const fetchMembers: ComputeParticipantsDeps["fetchMembers"] = async () => {
+      tick += 1;
+      // First tick: baseline; second tick: new agent joins.
+      if (tick <= 1) {
+        return { ok: true, memberMxids: [OWNER_MXID] };
+      }
+      return { ok: true, memberMxids: [OWNER_MXID, AGENT_MXID] };
+    };
+    const deps = makeTickDeps({ fetchMembers });
+    const emit = vi.fn();
+    subscribeRoom(ROOM_ID, emit, null, new Set([OWNER_MXID]), deps);
+
+    // Advance past two membership ticks — first sees no change, second
+    // sees the new member and emits.
+    await vi.advanceTimersByTimeAsync(4_500);
+
+    const partFrames = emit.mock.calls
+      .map((c) => c[0] as ServerFrame)
+      .filter((f) => f.type === "participants");
+    expect(partFrames.length).toBeGreaterThanOrEqual(1);
+    // Last participants frame carries the FULL new list.
+    const last = partFrames[partFrames.length - 1] as {
+      humans: Array<{ mxid: string }>;
+      agents: Array<{ mxid: string }>;
+    };
+    expect(last.humans.length + last.agents.length).toBe(2);
+  });
+
+  it("Test H1d: subscriber deregistration on dispose — last subscriber clears both timers", () => {
+    const deps = makeTickDeps();
+    const emit = vi.fn();
+    const dispose = subscribeRoom(
+      ROOM_ID,
+      emit,
+      "cursor-1",
+      new Set(),
+      deps,
+    );
+    const subBefore = __getRoomSubscriptionForTests(ROOM_ID);
+    expect(subBefore!.membershipTimer).not.toBeNull();
+    expect(subBefore!.liveEventTimer).not.toBeNull();
+
+    dispose();
+
+    const subAfter = __getRoomSubscriptionForTests(ROOM_ID);
+    // Last subscriber gone → subscription removed entirely.
+    expect(subAfter).toBeUndefined();
+  });
+
+  it("Test H1e: two subscribers, one disposes — timers stay running for the other", () => {
+    const deps = makeTickDeps();
+    const emitA = vi.fn();
+    const emitB = vi.fn();
+    const disposeA = subscribeRoom(ROOM_ID, emitA, "cursor-1", new Set(), deps);
+    subscribeRoom(ROOM_ID, emitB, "cursor-1", new Set(), deps);
+
+    disposeA();
+    const sub = __getRoomSubscriptionForTests(ROOM_ID);
+    expect(sub).toBeDefined();
+    expect(sub!.subscribers.size).toBe(1);
+    // Timers still active.
+    expect(sub!.membershipTimer).not.toBeNull();
+    expect(sub!.liveEventTimer).not.toBeNull();
+  });
+
+  it("Test H1f: emit throw doesn't kill the tick — the other subscriber still receives", async () => {
+    const newEvent = {
+      event_id: "$live-1:s",
+      type: "m.room.message",
+      sender: "@s:s",
+      content: {},
+    };
+    const fetchLive = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        events: [newEvent],
+        nextSinceToken: "cursor-2",
+      })
+      .mockResolvedValue({ ok: true, events: [], nextSinceToken: "cursor-2" });
+    const deps = makeTickDeps({ fetchLive });
+    const emitThrow = vi.fn(() => {
+      throw new Error("emit failed");
+    });
+    const emitOk = vi.fn();
+    subscribeRoom(ROOM_ID, emitThrow, "cursor-1", new Set(), deps);
+    subscribeRoom(ROOM_ID, emitOk, "cursor-1", new Set(), deps);
+
+    await vi.advanceTimersByTimeAsync(2_100);
+
+    // Second subscriber's emit still fired at least once with the live event.
+    const okLive = emitOk.mock.calls
+      .map((c) => c[0] as ServerFrame)
+      .filter((f) => f.type === "live_event");
+    expect(okLive.length).toBe(1);
   });
 });
 
