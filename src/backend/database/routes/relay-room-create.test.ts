@@ -561,4 +561,27 @@ describe("POST /relay-room/create (Phase 91 Plan 03)", () => {
     // Different roomIds (Matrix creates separate rooms even for same name)
     expect(b1.roomId).not.toBe(b2.roomId);
   });
+
+  // ─── Test 16: Server-side viewer self-exclusion from humanMxids (M4) ─────
+
+  it("Test 16: viewerMxid in humanMxids is filtered out before inviteToRoom; no self-invite (M4)", async () => {
+    // Client submits VIEWER_MXID in humanMxids — server must silently drop it
+    // rather than sending a self-invite that Matrix would reject.
+    const res = await fetch(`${baseUrl}/relay-room/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(makeBody({
+        humanMxids: [VIEWER_MXID, BOB_MXID],
+        agentMxids: [AGENT_MXID],
+      })),
+    });
+    expect(res.status).toBe(201);
+
+    // VIEWER_MXID must NOT appear in any inviteToRoom call
+    const inviteCalls = mockInviteToRoom.mock.calls.map((c) => c[1]);
+    expect(inviteCalls).not.toContain(VIEWER_MXID);
+    // BOB_MXID and AGENT_MXID should still be invited
+    expect(inviteCalls).toContain(BOB_MXID);
+    expect(inviteCalls).toContain(AGENT_MXID);
+  });
 });

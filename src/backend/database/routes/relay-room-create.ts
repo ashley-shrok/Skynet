@@ -316,6 +316,12 @@ router.post("/create", authenticateJWT, async (req: Request, res: Response) => {
       return res.status(400).json({ ok: false, error: "viewer_no_mxid" });
     }
 
+    // M4: Remove viewerMxid from humanMxids server-side.
+    // Matrix rejects the viewer's self-invite gracefully, but removing it here
+    // avoids the unnecessary invite call and log line. The viewer is already
+    // PL100 room creator via createRoomAsUser — no invite needed.
+    humanMxids = humanMxids.filter((m) => m !== viewerMxid);
+
     // ─── Step 9: Create room as the viewer (planner-locked: createRoomAsUser)
     // createRoomAsUser mints a per-user token via loginAsUser(viewerMxid) so
     // the viewer is PL100 creator — matches shape §Shape "via the user's own
