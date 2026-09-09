@@ -102,11 +102,19 @@ const MAX_PARTICIPANTS = 32;
 const MXID_RE = /^@[a-z0-9._=/+-]{1,255}:[a-z0-9.-]{1,255}$/;
 
 // ---------------------------------------------------------------------------
-// lookupViewingUserMxid — verbatim from relay-room-participants.ts L78-99.
-// Returns null if the user row is absent or mxid is NULL / empty string.
+// lookupViewingUserMxid — M6: discriminated union return type.
+//
+// Distinguishes "user has no mxid" (viewer_no_mxid → 400) from
+// "DB unavailable" (db_error → 500 service_unavailable). Previously both
+// cases returned null and both mapped to 400 viewer_no_mxid, masking DB
+// failures as user-configuration errors.
 // ---------------------------------------------------------------------------
 
-async function lookupViewingUserMxid(userId: string): Promise<string | null> {
+type ViewerMxidResult =
+  | { ok: true; mxid: string }
+  | { ok: false; reason: "no_mxid" | "db_error" };
+
+async function lookupViewingUserMxid(userId: string): Promise<ViewerMxidResult> {
   try {
     const rows = (await db
       .select({ mxid: users.mxid })
@@ -114,18 +122,21 @@ async function lookupViewingUserMxid(userId: string): Promise<string | null> {
       .where(eq(users.id, userId))
       .limit(1)) as Array<{ mxid: string | null }>;
     const row = rows[0];
-    if (row === undefined) return null;
-    return typeof row.mxid === "string" && row.mxid.length > 0 ? row.mxid : null;
+    if (row === undefined) return { ok: false, reason: "no_mxid" };
+    if (typeof row.mxid === "string" && row.mxid.length > 0) {
+      return { ok: true, mxid: row.mxid };
+    }
+    return { ok: false, reason: "no_mxid" };
   } catch (err) {
     databaseLogger.warn(
-      "relay-room-create: lookupViewingUserMxid failed",
+      "relay-room-create: lookupViewingUserMxid failed — DB unavailable",
       {
-        operation: "relay_room_create_lookup_viewer_mxid_failed",
+        operation: "relay_room_create_lookup_viewer_mxid_db_error",
         userId,
         error: err instanceof Error ? err.message : "unknown",
       },
     );
-    return null;
+    return { ok: false, reason: "db_error" };
   }
 }
 
@@ -315,10 +326,15 @@ router.post("/create", authenticateJWT, async (req: Request, res: Response) => {
     // ─── Step 8: Viewer mxid lookup — T-91-BE-02 ─────────────────────────
     // Derived server-side from JWT userId → users.mxid. Request body never
     // carries viewerMxid — impossible to spoof the room creator identity.
-    const viewerMxid = await lookupViewingUserMxid(userId);
-    if (viewerMxid === null) {
+    // M6: discriminated union distinguishes DB error (500) from missing mxid (400).
+    const viewerMxidResult = await lookupViewingUserMxid(userId);
+    if (!viewerMxidResult.ok) {
+      if (viewerMxidResult.reason === "db_error") {
+        return res.status(500).json({ ok: false, error: "service_unavailable" });
+      }
       return res.status(400).json({ ok: false, error: "viewer_no_mxid" });
     }
+    const viewerMxid = viewerMxidResult.mxid;
 
     // M4: Remove viewerMxid from humanMxids server-side.
     // Matrix rejects the viewer's self-invite gracefully, but removing it here

@@ -71,6 +71,8 @@ let __fleetHumanMxids: string[] = ["@bob:s", "@viewer_human:server"];
 let __sessionId: string | null = "session-abc";
 // M5 test control: when true, the sessionRow prepare().get() throws synchronously.
 let __sessionRowThrows: boolean = false;
+// M6 test control: when true, the drizzle db.select() path (viewerMxid lookup) rejects.
+let __viewerMxidDbError: boolean = false;
 
 vi.mock("../db/index.js", () => {
   // Track call order for prepare().get() to serve different results per call.
@@ -102,12 +104,16 @@ vi.mock("../db/index.js", () => {
     select: () => ({
       from: () => ({
         where: () => ({
-          limit: () =>
-            Promise.resolve(
+          limit: () => {
+            if (__viewerMxidDbError) {
+              return Promise.reject(new Error("DB unavailable"));
+            }
+            return Promise.resolve(
               __viewerMxid !== null
                 ? [{ mxid: __viewerMxid }]
                 : [{ mxid: null }],
-            ),
+            );
+          },
         }),
       }),
     }),
@@ -235,6 +241,7 @@ describe("POST /relay-room/create (Phase 91 Plan 03)", () => {
     __fleetHumanMxids = [BOB_MXID, VIEWER_MXID];
     __sessionId = "session-abc";
     __sessionRowThrows = false;
+    __viewerMxidDbError = false;
     __createRoomAsUserResult = { ok: true, roomId: "!room:server" };
     __inviteToRoomResult = { ok: true };
     __materializeThrows = false;
@@ -591,6 +598,7 @@ describe("POST /relay-room/create (Phase 91 Plan 03)", () => {
 
   // ─── Test 17: Top-level try/catch catches synchronous DB throw → 500 (M5) ─
 
+
   it("Test 17: synchronous DB throw in sessionRow lookup → 500 internal_error; no error string leaked (M5)", async () => {
     // db.$client.prepare(...).get() for relay_room_sessions throws synchronously.
     // The top-level try/catch must intercept and return 500.
@@ -611,6 +619,34 @@ describe("POST /relay-room/create (Phase 91 Plan 03)", () => {
     expect(databaseLogger.warn).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({ operation: "relay_room_create_unhandled_error" }),
+    );
+  });
+
+  // ─── Test 18: DB error during viewerMxid lookup → 500 service_unavailable (M6) ─
+
+  it("Test 18: DB unavailable during viewerMxid lookup → 500 service_unavailable; not 400 viewer_no_mxid (M6)", async () => {
+    // Simulate a DB error in the drizzle select path (lookupViewingUserMxid).
+    // M6 fix: this should return 500 service_unavailable, not 400 viewer_no_mxid,
+    // so operators can distinguish "user has no mxid" from "DB is down".
+    __viewerMxidDbError = true;
+
+    const res = await fetch(`${baseUrl}/relay-room/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(makeBody()),
+    });
+    expect(res.status).toBe(500);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe("service_unavailable");
+    // Must NOT return viewer_no_mxid (that's the "user has no mxid" case)
+    expect(body.error).not.toBe("viewer_no_mxid");
+    // DB error was logged with distinct op code
+    expect(databaseLogger.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        operation: "relay_room_create_lookup_viewer_mxid_db_error",
+      }),
     );
   });
 });
