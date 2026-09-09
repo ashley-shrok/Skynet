@@ -348,7 +348,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
 
   // ─── Task 2 — rows, click routing, + New role, empty state ─────────────────
 
-  it("I: full-cosmetics row — inline style contains the hue-tinted gradient stops keyed on colorHue", async () => {
+  it("I: full-cosmetics row — inline style contains the hue-tinted tokens keyed on colorHue", async () => {
     render(
       <RolesListModal
         open={true}
@@ -360,14 +360,22 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
     );
     // 3 roles alphabetical by displayName → Ally, Box Maintainer, Unadorned
     const row = await screen.findByRole("button", { name: /Box Maintainer/ });
-    // Inline gradient contains the box-maintainer hue (320) with the .pv-row
-    // stop tokens.
+    // Inline .pv-row treatment keyed on the box-maintainer hue (320).
+    // Note: jsdom normalizes `hsla()` in background/border to `rgba()` but
+    // retains raw `hsla()` in `box-shadow`. Assert on the box-shadow slot
+    // (hue-glow ring stop) — that carries the hue verbatim.
     const style = row.getAttribute("style") ?? "";
-    expect(style).toMatch(/hsla\(320,\s*50%,\s*38%,\s*0\.55\)/i);
-    expect(style).toMatch(/hsla\(320,\s*45%,\s*24%,\s*0\.6/i);
+    expect(style).toMatch(/hsla\(320,\s*70%,\s*55%,\s*0\.20?\)/i);
+    expect(style).toMatch(/hsla\(320,\s*70%,\s*52%,\s*0\.18?\)/i);
+    // Also assert the row's border-radius token (14px = .pv-row's
+    // --radius-pv-bubble) survives the round-trip.
+    expect(style).toMatch(/border-radius:\s*14px/i);
     // The 40px round avatar is present (an <img> pointing at the role avatar URL).
-    const avatar = within(row).getByRole("img");
-    expect(avatar.getAttribute("src")).toContain(
+    // Note: `<img alt="">` has no implicit role (WAI-ARIA "presentation" default
+    // for empty alt), so we query the element directly via tagName.
+    const avatar = row.querySelector("img");
+    expect(avatar).not.toBeNull();
+    expect(avatar?.getAttribute("src")).toContain(
       "/roles/box-maintainer/avatar?hostId=2",
     );
   });
@@ -385,7 +393,10 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
     // The `unadorned` role has no colorHue → hue 190 fallback per D-05.
     const row = await screen.findByRole("button", { name: /Unadorned/ });
     const style = row.getAttribute("style") ?? "";
-    expect(style).toMatch(/hsla\(190,\s*50%,\s*38%,\s*0\.55\)/i);
+    // Fallback hue 190 leaks through the box-shadow hsla slot (jsdom
+    // preserves box-shadow hsla verbatim while normalizing background hsla
+    // to rgba — see Test I for the same substring assertion strategy).
+    expect(style).toMatch(/hsla\(190,\s*70%,\s*55%,\s*0\.20?\)/i);
     // Row must be a live button — no aria-disabled / disabled attribute
     expect((row as HTMLButtonElement).disabled).toBe(false);
   });
@@ -425,12 +436,16 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
       />,
     );
     await waitFor(() => expect(screen.queryByText("Ally")).toBeTruthy());
-    // The two role rows should appear in Ally, Zeb order — check via
-    // DOM position of the button elements bearing those names.
+    // The two role rows should appear in Ally, Zeb order — filter by the
+    // aria-label pinned on each row (`Ally` / `Zeb`), then walk their DOM
+    // order to confirm sorting.
     const rows = screen
       .getAllByRole("button")
-      .filter((b) => /^(Ally|Zeb)$/.test(b.textContent?.trim() ?? ""));
-    expect(rows.map((r) => r.textContent?.trim())).toEqual(["Ally", "Zeb"]);
+      .filter((b) => {
+        const label = b.getAttribute("aria-label");
+        return label === "Ally" || label === "Zeb";
+      });
+    expect(rows.map((r) => r.getAttribute("aria-label"))).toEqual(["Ally", "Zeb"]);
   });
 
   it("M: row click — emits onSelectRole with full RoleSummary + hostId", async () => {
@@ -513,7 +528,12 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         expect(screen.queryByText(/this host has no roles yet/i)).toBeTruthy(),
       { timeout: 2000 },
     );
-    // + New role button still present in the header
-    expect(screen.queryByRole("button", { name: /\+ New role/i })).toBeTruthy();
+    // + New role button remains available — the header button always renders
+    // and the empty-state body renders its own prominent secondary. Both are
+    // acceptable per D-05 "surface the + New role affordance prominently".
+    const newRoleButtons = screen.getAllByRole("button", {
+      name: /\+ New role/i,
+    });
+    expect(newRoleButtons.length).toBeGreaterThanOrEqual(1);
   });
 });
