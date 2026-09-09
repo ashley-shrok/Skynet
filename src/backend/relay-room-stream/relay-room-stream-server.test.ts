@@ -869,11 +869,21 @@ describe("subscribeRoom (H1 fixup — per-room tick driver + subscriber lifecycl
     };
     const deps = makeTickDeps({ fetchMembers });
     const emit = vi.fn();
-    subscribeRoom(ROOM_ID, emit, null, new Set([OWNER_MXID]), deps);
+    // Test-override the membership interval to keep the assertion fast —
+    // the production 30s cadence (post-M5 fixup) would need a 60_000ms
+    // fake-timer advance per tick otherwise.
+    subscribeRoom(
+      ROOM_ID,
+      emit,
+      null,
+      new Set([OWNER_MXID]),
+      deps,
+      { membershipMs: 1_000 },
+    );
 
     // Advance past two membership ticks — first sees no change, second
     // sees the new member and emits.
-    await vi.advanceTimersByTimeAsync(4_500);
+    await vi.advanceTimersByTimeAsync(2_500);
 
     const partFrames = emit.mock.calls
       .map((c) => c[0] as ServerFrame)

@@ -101,8 +101,16 @@ const RATE_LIMIT_MAX_SENDS = 30;
 /** Initial history load size (matches pretty view's D-14 = 20). */
 const INITIAL_HISTORY_COUNT = 20;
 
-/** Membership-tick poll interval (piggybacks with live-event poll). */
-export const MEMBERSHIP_POLL_INTERVAL_MS = 2_000;
+/**
+ * Membership-tick poll interval. M5 fixup 2026-09-09: bumped 2s → 30s
+ * now that H1 wired the tick. Membership changes are user-initiated
+ * joins/leaves (order of hours-to-days); worst-case 30s badge-row
+ * update lag is fine and saves 15x the `getRoomJoinedMembers` calls
+ * the 2s cadence would generate against Synapse. Live inbound messages
+ * still poll at `LIVE_EVENT_POLL_INTERVAL_MS` (2s) since those ARE the
+ * primary UX signal.
+ */
+export const MEMBERSHIP_POLL_INTERVAL_MS = 30_000;
 
 /**
  * Live-event tick poll interval. Faster than the membership tick because
