@@ -20,6 +20,7 @@ import type { AuthenticatedRequest } from "../../types/index.js";
 import {
   setMatrixAdminCreds,
   getMatrixAdminCreds,
+  setMatrixAdminServerName,
 } from "./matrix-admin-creds-store.js";
 import { mintAndWriteHumanToken } from "../telegram/human-token-writer.js";
 import { TG_BRIDGE_STATE_DIR } from "../telegram/shared-volume.js";
@@ -118,10 +119,79 @@ router.get(
         present: true,
         mxid: creds.userId,
         homeserverBase: creds.homeserverBase,
+        serverName: creds.serverName,
       });
     } catch (err) {
       authLogger.error("Failed to read matrix-admin creds metadata", err);
       res.status(500).json({ error: "Failed to read matrix-admin creds metadata" });
+    }
+  },
+);
+
+// PATCH the server_name override on the singleton matrix_admin_creds row
+// without touching the encrypted accessToken/password columns. Exists so
+// the operator can decouple the mxid domain from the homeserverBase URL
+// host — needed when the URL must stay as a raw IP (container DNS can't
+// resolve the tailnet FQDN) but Synapse's real server_name is a hostname.
+//
+// Body: `{ serverName: string | null }`. A null (or explicit null) clears
+// the override; consumers then fall back to URL-host derivation.
+// Non-string / non-null / empty-string values return 400. The Matrix mxid
+// domain-part alphabet is `[a-z0-9.-]{1,255}` (per MXID_RE above);
+// enforced here so a bad value can't sneak through to mint calls.
+router.patch(
+  "/creds/server-name",
+  express.json(),
+  requireAdmin,
+  async (req: Request, res: Response): Promise<void> => {
+    const adminUserId = (req as AuthenticatedRequest).userId;
+    const { serverName } = (req.body ?? {}) as Record<string, unknown>;
+
+    if (serverName !== null && typeof serverName !== "string") {
+      res
+        .status(400)
+        .json({ error: "serverName must be a string or null" });
+      return;
+    }
+    if (typeof serverName === "string") {
+      if (serverName.length === 0 || serverName.length > 255) {
+        res
+          .status(400)
+          .json({ error: "serverName must be 1-255 chars (or null to clear)" });
+        return;
+      }
+      if (!/^[a-z0-9.-]+$/.test(serverName)) {
+        res
+          .status(400)
+          .json({ error: "serverName must match [a-z0-9.-]+" });
+        return;
+      }
+    }
+
+    try {
+      const applied = await setMatrixAdminServerName(
+        serverName as string | null,
+      );
+      if (!applied) {
+        res.status(409).json({
+          error:
+            "matrix_admin_creds not yet ingested — POST /matrix-admin/creds first",
+        });
+        return;
+      }
+
+      authLogger.info("matrix-admin server_name patched", {
+        operation: "matrix_admin_creds_server_name_patch",
+        adminId: adminUserId,
+        serverName,
+      });
+
+      res.json({ ok: true, serverName });
+    } catch (err) {
+      authLogger.error("Failed to patch matrix-admin server_name", err);
+      res
+        .status(500)
+        .json({ error: "Failed to patch matrix-admin server_name" });
     }
   },
 );

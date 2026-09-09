@@ -178,7 +178,12 @@ router.post("/create", userAvatarUpload.single("avatar"), async (req, res) => {
       });
       return res.status(500).json({ error: "relay identity provisioning failed: admin creds missing" });
     }
-    const serverName = extractServerName(adminCreds.homeserverBase);
+    // Prefer the explicit server_name override when set; fall back to
+    // URL-host derivation for legacy rows. The two are decoupled because
+    // homeserverBase may need to stay as a raw IP for container-DNS reach
+    // while Synapse's actual server_name is a hostname.
+    const serverName =
+      adminCreds.serverName ?? extractServerName(adminCreds.homeserverBase);
     const mintedMxid = buildHumanMxid(username, serverName);
     const displayname = deriveDisplayname(username);
     const relayPassword = generateHumanRelayPassword();

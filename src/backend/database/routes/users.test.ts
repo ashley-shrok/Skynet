@@ -376,6 +376,7 @@ vi.mock("../../matrix/matrix-admin-creds-store.js", () => ({
     userId: "@skynet-admin:thenasty.taild9b663.ts.net",
     accessToken: "syt_admin_token",
     password: "admin-pw",
+    serverName: null,
   })),
 }));
 

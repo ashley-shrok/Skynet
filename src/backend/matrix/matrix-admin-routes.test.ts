@@ -61,14 +61,16 @@ vi.mock("../utils/auth-manager.js", () => {
 // Mock the creds store + saveMemoryDatabaseToFile
 // ---------------------------------------------------------------------------
 
-const { setMatrixAdminCredsMock, getMatrixAdminCredsMock } = vi.hoisted(() => ({
+const { setMatrixAdminCredsMock, getMatrixAdminCredsMock, setMatrixAdminServerNameMock } = vi.hoisted(() => ({
   setMatrixAdminCredsMock: vi.fn(),
   getMatrixAdminCredsMock: vi.fn(),
+  setMatrixAdminServerNameMock: vi.fn(),
 }));
 
 vi.mock("./matrix-admin-creds-store.js", () => ({
   setMatrixAdminCreds: setMatrixAdminCredsMock,
   getMatrixAdminCreds: getMatrixAdminCredsMock,
+  setMatrixAdminServerName: setMatrixAdminServerNameMock,
 }));
 
 const { saveMemoryDatabaseToFileMock, dbSelectMock } = vi.hoisted(() => ({
@@ -304,6 +306,7 @@ describe("GET /matrix-admin/creds", () => {
       userId: "@skynet-admin:thenasty.taild9b663.ts.net",
       password: "SECRET-DO-NOT-LEAK",
       accessToken: "SECRET-TOKEN-DO-NOT-LEAK",
+      serverName: "thenasty.taild9b663.ts.net",
     });
     const res = await request(server.port, "GET", "/matrix-admin/creds");
     expect(res.status).toBe(200);
@@ -312,8 +315,137 @@ describe("GET /matrix-admin/creds", () => {
       present: true,
       mxid: "@skynet-admin:thenasty.taild9b663.ts.net",
       homeserverBase: "http://100.113.23.63:8008",
+      serverName: "thenasty.taild9b663.ts.net",
     });
     expect(res.body).not.toMatch(/SECRET/);
+  });
+
+  it("surfaces serverName:null when the override has not been patched", async () => {
+    getMatrixAdminCredsMock.mockResolvedValue({
+      homeserverBase: "http://100.113.23.63:8008",
+      userId: "@skynet-admin:thenasty.taild9b663.ts.net",
+      password: "p",
+      accessToken: "t",
+      serverName: null,
+    });
+    const res = await request(server.port, "GET", "/matrix-admin/creds");
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body).serverName).toBeNull();
+  });
+});
+
+describe("PATCH /matrix-admin/creds/server-name", () => {
+  let server: { port: number; close: () => Promise<void> };
+
+  beforeEach(async () => {
+    setMatrixAdminServerNameMock.mockReset();
+    mockIsAdmin = true;
+    server = await startServer();
+  });
+
+  afterEach(async () => {
+    await server.close();
+  });
+
+  it("401 when no auth token present", async () => {
+    mockIsAdmin = null;
+    const res = await request(
+      server.port,
+      "PATCH",
+      "/matrix-admin/creds/server-name",
+      { serverName: "thenasty.taild9b663.ts.net" },
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("403 when caller is authenticated but not admin", async () => {
+    mockIsAdmin = false;
+    const res = await request(
+      server.port,
+      "PATCH",
+      "/matrix-admin/creds/server-name",
+      { serverName: "thenasty.taild9b663.ts.net" },
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("400 when serverName is neither string nor null", async () => {
+    const res = await request(
+      server.port,
+      "PATCH",
+      "/matrix-admin/creds/server-name",
+      { serverName: 42 },
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("400 when serverName is an empty string", async () => {
+    const res = await request(
+      server.port,
+      "PATCH",
+      "/matrix-admin/creds/server-name",
+      { serverName: "" },
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("400 when serverName contains illegal characters (uppercase, colon, etc.)", async () => {
+    for (const bad of [
+      "Thenasty.example.com", // uppercase
+      "host:8008", // colon (port)
+      "host with space",
+      "host_underscore",
+    ]) {
+      const res = await request(
+        server.port,
+        "PATCH",
+        "/matrix-admin/creds/server-name",
+        { serverName: bad },
+      );
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it("409 when singleton row has not been ingested yet", async () => {
+    setMatrixAdminServerNameMock.mockResolvedValue(false);
+    const res = await request(
+      server.port,
+      "PATCH",
+      "/matrix-admin/creds/server-name",
+      { serverName: "thenasty.taild9b663.ts.net" },
+    );
+    expect(res.status).toBe(409);
+  });
+
+  it("200 on successful patch — calls setMatrixAdminServerName with the value", async () => {
+    setMatrixAdminServerNameMock.mockResolvedValue(true);
+    const res = await request(
+      server.port,
+      "PATCH",
+      "/matrix-admin/creds/server-name",
+      { serverName: "thenasty.taild9b663.ts.net" },
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({
+      ok: true,
+      serverName: "thenasty.taild9b663.ts.net",
+    });
+    expect(setMatrixAdminServerNameMock).toHaveBeenCalledWith(
+      "thenasty.taild9b663.ts.net",
+    );
+  });
+
+  it("200 on null clear — calls setMatrixAdminServerName(null)", async () => {
+    setMatrixAdminServerNameMock.mockResolvedValue(true);
+    const res = await request(
+      server.port,
+      "PATCH",
+      "/matrix-admin/creds/server-name",
+      { serverName: null },
+    );
+    expect(res.status).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ ok: true, serverName: null });
+    expect(setMatrixAdminServerNameMock).toHaveBeenCalledWith(null);
   });
 });
 
