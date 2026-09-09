@@ -1312,6 +1312,184 @@ export async function sendMessageAsUser(
   return retryResult.result;
 }
 
+// ---------------------------------------------------------------------------
+// inviteToRoom — POST /_matrix/client/v3/rooms/{roomId}/invite
+// ---------------------------------------------------------------------------
+
+export type InviteToRoomOk = { ok: true };
+
+/**
+ * Invite a Matrix user to a room. Called from Slice C's
+ * `POST /relay-room/create` after room creation succeeds.
+ *
+ * POST /_matrix/client/v3/rooms/{roomId}/invite
+ *
+ * Body: { user_id: mxidToInvite }
+ *
+ * Two auth paths:
+ * - If `senderMxid` is provided, the invite is sent via that user's own
+ *   token (minted via `loginAsUser`) — matches the shape file's "the room
+ *   is created via the user's own relay identity" requirement.
+ * - If `senderMxid` is omitted, the invite is sent via admin creds
+ *   (functional but attributes the invite to @skynet-admin — used only
+ *   for internal/system flows).
+ *
+ * Follows all six per-primitive invariants at L1-46:
+ *   1. getMatrixAdminCreds() — 500/creds-missing on null.
+ *   2. encodeURIComponent on roomId path arg (T-91-02-T1 mitigate).
+ *   3. Authorization: Bearer <token>.
+ *   4. AbortController + 30s REQUEST_TIMEOUT_MS.
+ *   5. clearTimeout in BOTH success and error paths.
+ *   6. { ok: true } | AdminErr discriminated return (T-91-02-I1 mitigate).
+ */
+export async function inviteToRoom(
+  roomId: string,
+  mxidToInvite: string,
+  senderMxid?: string,
+): Promise<InviteToRoomOk | AdminErr> {
+  const creds = await getMatrixAdminCreds();
+  if (!creds) {
+    return { ok: false, status: 500, error: ERR_CREDS_MISSING };
+  }
+
+  let accessToken: string;
+  if (senderMxid !== undefined) {
+    const login = await loginAsUser(senderMxid);
+    if (!login.ok) return login;
+    accessToken = login.accessToken;
+  } else {
+    accessToken = creds.accessToken;
+  }
+
+  // T-91-02-T1: encodeURIComponent on roomId — defense against path-traversal
+  const url = `${creds.homeserverBase}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/invite`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ user_id: mxidToInvite }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: ERR_NON_2XX };
+    }
+    return { ok: true };
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return { ok: false, status: 504, error: ERR_TIMEOUT };
+    }
+    databaseLogger.error("matrix admin proxy error", err, {
+      operation: "matrix_admin_invite_to_room",
+    });
+    return { ok: false, status: 502, error: ERR_PROXY };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// createRoomAsUser — POST /_matrix/client/v3/createRoom (user-scoped)
+// ---------------------------------------------------------------------------
+
+export type CreateRoomAsUserOk = AdminOk<{ roomId: string; roomAlias?: string }>;
+
+/**
+ * Create a Matrix room on behalf of a specific user (user is PL100 creator).
+ *
+ * POST /_matrix/client/v3/createRoom
+ *
+ * This is a peer of `createRoom` (L867) with one key difference: instead of
+ * the admin token, it mints a per-user token via `loginAsUser(senderMxid)` so
+ * the resulting room's creator is the user, not @skynet-admin.
+ *
+ * Shape file requirement: "A room is created on the relay via the user's own
+ * relay identity." This ensures PL100 attribution — the sender is the room
+ * creator — and is the reason this peer exists alongside the admin-scoped
+ * `createRoom`.
+ *
+ * Follows all six per-primitive invariants at L1-46.
+ * Defensive: a 200 response without room_id is treated as a Matrix-side
+ * contract violation and returns ERR_PROXY (not a silent success with an
+ * empty roomId).
+ */
+export async function createRoomAsUser(
+  senderMxid: string,
+  opts: {
+    name: string;
+    preset?: string;
+    visibility?: "private" | "public";
+    roomAliasName?: string;
+  },
+): Promise<CreateRoomAsUserOk | AdminErr> {
+  const creds = await getMatrixAdminCreds();
+  if (!creds) {
+    return { ok: false, status: 500, error: ERR_CREDS_MISSING };
+  }
+
+  const login = await loginAsUser(senderMxid);
+  if (!login.ok) return login;
+
+  const url = `${creds.homeserverBase}/_matrix/client/v3/createRoom`;
+  const body: Record<string, unknown> = {
+    name: opts.name,
+    preset: opts.preset ?? "private_chat",
+    visibility: opts.visibility ?? "private",
+  };
+  if (opts.roomAliasName !== undefined) {
+    body.room_alias_name = opts.roomAliasName;
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${login.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: ERR_NON_2XX };
+    }
+    const parsed = (await response.json()) as {
+      room_id?: unknown;
+      room_alias?: unknown;
+    };
+    if (typeof parsed.room_id !== "string" || parsed.room_id.length === 0) {
+      // Defensive: a 200 without room_id is a Matrix-side contract violation.
+      return { ok: false, status: 502, error: ERR_PROXY };
+    }
+    const result: CreateRoomAsUserOk = { ok: true, roomId: parsed.room_id };
+    if (typeof parsed.room_alias === "string" && parsed.room_alias.length > 0) {
+      result.roomAlias = parsed.room_alias;
+    }
+    return result;
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return { ok: false, status: 504, error: ERR_TIMEOUT };
+    }
+    databaseLogger.error("matrix admin proxy error", err, {
+      operation: "matrix_admin_create_room_as_user",
+    });
+    return { ok: false, status: 502, error: ERR_PROXY };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// sendMessageOnce (internal helper for sendMessageAsUser)
+// ---------------------------------------------------------------------------
+
 /**
  * One-shot send attempt. Returns `retryable: true` when the send hit a 401
  * (invalid/expired user token — evict cache + retry with a fresh mint);
