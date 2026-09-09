@@ -313,6 +313,41 @@ export function roleAvatarUrl(hostId: number, roleName: string): string {
   return `/roles/${encodeURIComponent(roleName)}/avatar?hostId=${hostId}`;
 }
 
+// ─── Phase 90 Plan 90-09: role avatar upload helper (Plan 90-08 companion) ──
+// Backing route: src/backend/database/routes/roles.ts
+// POST /roles/:name/avatar?hostId=<n> body: multipart/form-data { avatar: File }
+//   → 201 { filename, avatarUrl }
+//
+// Mirrors the identity avatar-upload multipart pattern (see updateIdentity /
+// postManualAvatarCandidate above). The Content-Type override is REQUIRED —
+// axios v1's default JSON transform would drop the File field otherwise
+// (see postManualAvatarCandidate L200-207 for the historical write-up).
+//
+// Consumer (Plan 90-10): RoleCosmeticEditBlock avatar-swap save path.
+// Errors propagate via handleApiError as thrown Error — caller catches to
+// render the UI failure state.
+export async function updateRoleAvatarByName(
+  hostId: number,
+  roleName: string,
+  file: File,
+): Promise<{ filename: string; avatarUrl: string }> {
+  try {
+    const formData = new FormData();
+    formData.append("avatar", file);
+    const response = await authApi.post(
+      `/roles/${encodeURIComponent(roleName)}/avatar`,
+      formData,
+      {
+        params: { hostId },
+        headers: { "Content-Type": "multipart/form-data" },
+      },
+    );
+    return response.data as { filename: string; avatarUrl: string };
+  } catch (error) {
+    handleApiError(error, "upload role avatar");
+  }
+}
+
 // ─── Phase 80 Plan 80-05: pool name picker ───────────────────────────────────
 // Backing route: src/backend/pool/pool-routes.ts (plan 80-04)
 // POST /identities/pool/pick with JSON body {role, hostId} → { name: string }

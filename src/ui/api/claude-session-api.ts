@@ -1304,3 +1304,445 @@ export function updateRoleFileByName(
     };
   });
 }
+
+// ─── Phase 90 Plan 90-09: role-name-keyed WS one-shots ─────────────────────
+//
+// Byte-shape mirrors of updateRoleFileByName above — one-shot open →
+// send-on-open → resolve on matching response envelope → close socket.
+// Backend handlers for these six wire types shipped in Plan 90-07.
+// Consumers (RoleModal + RoleBountiesTab + RoleCosmeticEditBlock) land in
+// Plan 90-10 and use these to drop the identityShimKey pattern.
+//
+// Wire type / response type pairs:
+//   role:get-file        {roleName, hostId?}                       -> role:file-loaded     {markdown, error?}
+//   role:list-bounties   {roleName, hostId?, includeArchived?}     -> role:bounties-loaded {bounties, archivedBounties, error?}
+//   role:list-wakeups    {roleName, hostId?}                       -> role:wakeups-loaded  {wakeups, error?}
+//   role:create-wakeup   {roleName, hostId?, spec: WakeupSpecWire} -> role:wakeup-created  {wakeups, error?}
+//   role:update-wakeup   {roleName, hostId?, spec: WakeupSpecWire} -> role:wakeup-updated  {wakeups, error?}
+//   role:delete-wakeup   {roleName, hostId?, wakeupName}           -> role:wakeup-deleted  {wakeups, error?}
+
+export type RoleGetFilePayload = {
+  type: "role:get-file";
+  roleName: string;
+  /** Backend SSH host id (LOCAL omitted / undefined routes to bind-mount). */
+  hostId?: number;
+};
+export type RoleFileLoadedEvent = {
+  type: "role:file-loaded";
+  markdown: string;
+  error?: string;
+};
+
+export type RoleListBountiesPayload = {
+  type: "role:list-bounties";
+  roleName: string;
+  hostId?: number;
+  /** Opt-in archive read on write-then-refetch (defaults to false server-side). */
+  includeArchived?: boolean;
+};
+export type RoleBountiesLoadedEvent = {
+  type: "role:bounties-loaded";
+  bounties: unknown[];
+  /** Always present; empty array when includeArchived omitted. */
+  archivedBounties: unknown[];
+  error?: string;
+};
+
+export type RoleListWakeupsPayload = {
+  type: "role:list-wakeups";
+  roleName: string;
+  hostId?: number;
+};
+export type RoleWakeupsLoadedEvent = {
+  type: "role:wakeups-loaded";
+  wakeups: Wakeup[];
+  error?: string;
+};
+
+export type RoleCreateWakeupPayload = {
+  type: "role:create-wakeup";
+  roleName: string;
+  hostId?: number;
+  spec: WakeupSpecWire;
+};
+export type RoleWakeupCreatedEvent = {
+  type: "role:wakeup-created";
+  wakeups: Wakeup[];
+  error?: string;
+};
+
+export type RoleUpdateWakeupPayload = {
+  type: "role:update-wakeup";
+  roleName: string;
+  hostId?: number;
+  spec: WakeupSpecWire;
+};
+export type RoleWakeupUpdatedEvent = {
+  type: "role:wakeup-updated";
+  wakeups: Wakeup[];
+  error?: string;
+};
+
+export type RoleDeleteWakeupPayload = {
+  type: "role:delete-wakeup";
+  roleName: string;
+  hostId?: number;
+  /** filename stem of roles/<role>/wakeups/<name>.json — server IDENTITY_SLUG_RE gated. */
+  wakeupName: string;
+};
+export type RoleWakeupDeletedEvent = {
+  type: "role:wakeup-deleted";
+  wakeups: Wakeup[];
+  error?: string;
+};
+
+/**
+ * Read ~/.claude/roles/<roleName>/<roleName>.md. Resolves `{markdown}` on
+ * success; rejects with `Error(env.error)` if the envelope carries `error`
+ * (e.g. invalid roleName, host-not-found).
+ */
+export function getRoleFileByName(args: {
+  roleName: string;
+  hostId?: number;
+}): Promise<{ markdown: string }> {
+  return new Promise((resolve, reject) => {
+    let responded = false;
+    const sock = openClaudeSessionSocket();
+    sock.onopen = () => {
+      const payload: RoleGetFilePayload = {
+        type: "role:get-file",
+        roleName: args.roleName,
+        hostId: args.hostId,
+      };
+      try {
+        sock.send(JSON.stringify(payload));
+      } catch {
+        /* ws may be mid-close */
+      }
+    };
+    sock.onmessage = (event: MessageEvent<string>) => {
+      if (responded) return;
+      try {
+        const raw = JSON.parse(event.data) as { type?: string };
+        if (raw.type !== "role:file-loaded") return;
+        responded = true;
+        const env = raw as RoleFileLoadedEvent;
+        try {
+          sock.close();
+        } catch {
+          /* ignore */
+        }
+        if (env.error) {
+          reject(new Error(env.error));
+        } else {
+          resolve({ markdown: env.markdown });
+        }
+      } catch {
+        /* ignore parse errors */
+      }
+    };
+    const handleFail = () => {
+      if (responded) return;
+      responded = true;
+      reject(new Error("Connection failed"));
+    };
+    sock.onerror = handleFail;
+    sock.onclose = () => {
+      if (!responded) handleFail();
+    };
+  });
+}
+
+/**
+ * List ~/.claude/roles/<roleName>/bounties/. Resolves
+ * `{bounties, archivedBounties}` on success — archivedBounties is always
+ * present; empty when includeArchived is omitted.
+ */
+export function listBountiesForRoleName(args: {
+  roleName: string;
+  hostId?: number;
+  includeArchived?: boolean;
+}): Promise<{ bounties: unknown[]; archivedBounties: unknown[] }> {
+  return new Promise((resolve, reject) => {
+    let responded = false;
+    const sock = openClaudeSessionSocket();
+    sock.onopen = () => {
+      const payload: RoleListBountiesPayload = {
+        type: "role:list-bounties",
+        roleName: args.roleName,
+        hostId: args.hostId,
+        includeArchived: args.includeArchived,
+      };
+      try {
+        sock.send(JSON.stringify(payload));
+      } catch {
+        /* ws may be mid-close */
+      }
+    };
+    sock.onmessage = (event: MessageEvent<string>) => {
+      if (responded) return;
+      try {
+        const raw = JSON.parse(event.data) as { type?: string };
+        if (raw.type !== "role:bounties-loaded") return;
+        responded = true;
+        const env = raw as RoleBountiesLoadedEvent;
+        try {
+          sock.close();
+        } catch {
+          /* ignore */
+        }
+        if (env.error) {
+          reject(new Error(env.error));
+        } else {
+          resolve({
+            bounties: env.bounties,
+            archivedBounties: env.archivedBounties,
+          });
+        }
+      } catch {
+        /* ignore parse errors */
+      }
+    };
+    const handleFail = () => {
+      if (responded) return;
+      responded = true;
+      reject(new Error("Connection failed"));
+    };
+    sock.onerror = handleFail;
+    sock.onclose = () => {
+      if (!responded) handleFail();
+    };
+  });
+}
+
+/**
+ * List ~/.claude/roles/<roleName>/wakeups/*.json. Resolves `{wakeups}` on
+ * success.
+ */
+export function listRoleWakeupsByName(args: {
+  roleName: string;
+  hostId?: number;
+}): Promise<{ wakeups: Wakeup[] }> {
+  return new Promise((resolve, reject) => {
+    let responded = false;
+    const sock = openClaudeSessionSocket();
+    sock.onopen = () => {
+      const payload: RoleListWakeupsPayload = {
+        type: "role:list-wakeups",
+        roleName: args.roleName,
+        hostId: args.hostId,
+      };
+      try {
+        sock.send(JSON.stringify(payload));
+      } catch {
+        /* ws may be mid-close */
+      }
+    };
+    sock.onmessage = (event: MessageEvent<string>) => {
+      if (responded) return;
+      try {
+        const raw = JSON.parse(event.data) as { type?: string };
+        if (raw.type !== "role:wakeups-loaded") return;
+        responded = true;
+        const env = raw as RoleWakeupsLoadedEvent;
+        try {
+          sock.close();
+        } catch {
+          /* ignore */
+        }
+        if (env.error) {
+          reject(new Error(env.error));
+        } else {
+          resolve({ wakeups: env.wakeups });
+        }
+      } catch {
+        /* ignore parse errors */
+      }
+    };
+    const handleFail = () => {
+      if (responded) return;
+      responded = true;
+      reject(new Error("Connection failed"));
+    };
+    sock.onerror = handleFail;
+    sock.onclose = () => {
+      if (!responded) handleFail();
+    };
+  });
+}
+
+/**
+ * Create a role-scope wakeup. Slug is derived server-side from `spec.name`
+ * (kebab-case). Resolves with the FRESH wakeups list post-write so callers
+ * can atomically re-render without a follow-up read.
+ */
+export function createRoleWakeupByName(args: {
+  roleName: string;
+  hostId?: number;
+  spec: WakeupSpecWire;
+}): Promise<{ wakeups: Wakeup[] }> {
+  return new Promise((resolve, reject) => {
+    let responded = false;
+    const sock = openClaudeSessionSocket();
+    sock.onopen = () => {
+      const payload: RoleCreateWakeupPayload = {
+        type: "role:create-wakeup",
+        roleName: args.roleName,
+        hostId: args.hostId,
+        spec: args.spec,
+      };
+      try {
+        sock.send(JSON.stringify(payload));
+      } catch {
+        /* ws may be mid-close */
+      }
+    };
+    sock.onmessage = (event: MessageEvent<string>) => {
+      if (responded) return;
+      try {
+        const raw = JSON.parse(event.data) as { type?: string };
+        if (raw.type !== "role:wakeup-created") return;
+        responded = true;
+        const env = raw as RoleWakeupCreatedEvent;
+        try {
+          sock.close();
+        } catch {
+          /* ignore */
+        }
+        if (env.error) {
+          reject(new Error(env.error));
+        } else {
+          resolve({ wakeups: env.wakeups });
+        }
+      } catch {
+        /* ignore parse errors */
+      }
+    };
+    const handleFail = () => {
+      if (responded) return;
+      responded = true;
+      reject(new Error("Connection failed"));
+    };
+    sock.onerror = handleFail;
+    sock.onclose = () => {
+      if (!responded) handleFail();
+    };
+  });
+}
+
+/**
+ * Update a role-scope wakeup (full-overwrite via writeRoleWakeupByName —
+ * same writer as create, distinct wire type so client can distinguish
+ * optimistic UI). Resolves with the FRESH wakeups list post-write.
+ */
+export function updateRoleWakeupByName(args: {
+  roleName: string;
+  hostId?: number;
+  spec: WakeupSpecWire;
+}): Promise<{ wakeups: Wakeup[] }> {
+  return new Promise((resolve, reject) => {
+    let responded = false;
+    const sock = openClaudeSessionSocket();
+    sock.onopen = () => {
+      const payload: RoleUpdateWakeupPayload = {
+        type: "role:update-wakeup",
+        roleName: args.roleName,
+        hostId: args.hostId,
+        spec: args.spec,
+      };
+      try {
+        sock.send(JSON.stringify(payload));
+      } catch {
+        /* ws may be mid-close */
+      }
+    };
+    sock.onmessage = (event: MessageEvent<string>) => {
+      if (responded) return;
+      try {
+        const raw = JSON.parse(event.data) as { type?: string };
+        if (raw.type !== "role:wakeup-updated") return;
+        responded = true;
+        const env = raw as RoleWakeupUpdatedEvent;
+        try {
+          sock.close();
+        } catch {
+          /* ignore */
+        }
+        if (env.error) {
+          reject(new Error(env.error));
+        } else {
+          resolve({ wakeups: env.wakeups });
+        }
+      } catch {
+        /* ignore parse errors */
+      }
+    };
+    const handleFail = () => {
+      if (responded) return;
+      responded = true;
+      reject(new Error("Connection failed"));
+    };
+    sock.onerror = handleFail;
+    sock.onclose = () => {
+      if (!responded) handleFail();
+    };
+  });
+}
+
+/**
+ * Delete a role-scope wakeup by filename stem (idempotent — missing target
+ * is not an error). Resolves with the FRESH wakeups list post-delete.
+ */
+export function deleteRoleWakeupByName(args: {
+  roleName: string;
+  hostId?: number;
+  wakeupName: string;
+}): Promise<{ wakeups: Wakeup[] }> {
+  return new Promise((resolve, reject) => {
+    let responded = false;
+    const sock = openClaudeSessionSocket();
+    sock.onopen = () => {
+      const payload: RoleDeleteWakeupPayload = {
+        type: "role:delete-wakeup",
+        roleName: args.roleName,
+        hostId: args.hostId,
+        wakeupName: args.wakeupName,
+      };
+      try {
+        sock.send(JSON.stringify(payload));
+      } catch {
+        /* ws may be mid-close */
+      }
+    };
+    sock.onmessage = (event: MessageEvent<string>) => {
+      if (responded) return;
+      try {
+        const raw = JSON.parse(event.data) as { type?: string };
+        if (raw.type !== "role:wakeup-deleted") return;
+        responded = true;
+        const env = raw as RoleWakeupDeletedEvent;
+        try {
+          sock.close();
+        } catch {
+          /* ignore */
+        }
+        if (env.error) {
+          reject(new Error(env.error));
+        } else {
+          resolve({ wakeups: env.wakeups });
+        }
+      } catch {
+        /* ignore parse errors */
+      }
+    };
+    const handleFail = () => {
+      if (responded) return;
+      responded = true;
+      reject(new Error("Connection failed"));
+    };
+    sock.onerror = handleFail;
+    sock.onclose = () => {
+      if (!responded) handleFail();
+    };
+  });
+}
