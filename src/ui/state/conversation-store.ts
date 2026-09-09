@@ -199,6 +199,15 @@ export type FleetSession = {
   kind?: "harness" | "relay-room";
   roomId?: string;
   roomTitle?: string | null;
+  // Phase 91 UAT fix 2026-09-09 — relay-room-only fields on the wire
+  // (Skynet backend appends these when kind === "relay-room"; see
+  // sessions-merge-helper.ts RelayRoomSessionRow). Optional so harness
+  // rehydrates keep typechecking. Consumed by the relay-room row-builder
+  // branch in computeSnapshot() (fleetSyntheticRows loop).
+  id?: string;
+  lastActivityAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 type SnapshotForTest = ConversationList & {
@@ -659,6 +668,30 @@ function computeSnapshot(): ConversationList {
   const fleetHostNameFallback = new Map<string, string>();
   const fleetSyntheticRows: { hostIdStr: string; row: ConversationRow }[] = [];
   for (const session of state.fleetSessions) {
+    // Phase 91 UAT fix 2026-09-09 (Ashley): relay-room sessions on the wire
+    // have a completely different shape from harness sessions — no hostId,
+    // no hostName, no sessionName, no role. Passing them through the harness
+    // synthetic-row loop below produces a malformed row (host:undefined,
+    // id="fleet::undefined::undefined") that never surfaces in the sidebar.
+    // Build a proper relay-room row here and continue.
+    if (session.kind === "relay-room") {
+      if (session.id === undefined || session.roomId === undefined) continue;
+      const relayRow: ConversationRow = {
+        id: session.id,
+        type: "terminal",
+        label: session.roomTitle ?? session.roomId,
+        host: undefined,
+        targetTmuxSession: null,
+        kind: "relay-room",
+        roomId: session.roomId,
+        roomTitle: session.roomTitle ?? null,
+        ...(session.lastActivityAt !== undefined && session.lastActivityAt !== null
+          ? { lastMessageAt: new Date(session.lastActivityAt).getTime() }
+          : { lastMessageAt: null }),
+      };
+      fleetSyntheticRows.push({ hostIdStr: "__relay__", row: relayRow });
+      continue;
+    }
     const hostIdStr = String(session.hostId);
     const key = dedupKey(hostIdStr, session.sessionName);
     if (openTabsSessionKeys.has(key)) continue; // openTabs-entry-wins
