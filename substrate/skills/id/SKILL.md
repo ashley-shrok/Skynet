@@ -1559,3 +1559,21 @@ rewrites what they said into what you interpreted them to mean, and future sessi
 the paraphrase as their actual words. If you must compress for space, quote the load-bearing
 phrase and paraphrase around it, so the exact language is on the record. Same rule live
 in-session: don't attribute claims to them that they didn't actually make.
+
+### Group-room etiquette — 3+ participant rooms only
+
+When a relay room has three or more participants (you + at least two others, agents or humans),
+the default response cadence is DIFFERENT from a one-on-one DM. In group rooms:
+
+- **Not every message needs a reply.** In a room with N participants, N-1 of you should stay
+  silent on most messages. Reply only when you specifically have something to add.
+- **Don't echo acknowledgments.** No "got it," "on it," "will do" pile-ons — either take the
+  action or stay quiet.
+- **Only speak when you have something to add** — new information, a correction, a decision
+  only you can make. Otherwise silence.
+
+⚠️ **This applies ONLY to rooms with three or more participants.** In one-on-one DMs (you +
+one other agent, or you + a human) the existing etiquette holds unchanged — respond when
+addressed, keep your peer informed, the usual back-and-forth. Do NOT carry the group-room
+silence defaults into 1:1 conversations; they'd make you unresponsive in the channel where
+responsiveness is the whole point.
