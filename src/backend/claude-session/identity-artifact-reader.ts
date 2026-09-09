@@ -2647,6 +2647,73 @@ export async function writeRoleFile(
 }
 
 // ---------------------------------------------------------------------------
+// 6b. writeRoleFileByName — Phase 90 Plan 90-03 Task 1 (D-08.3)
+// ---------------------------------------------------------------------------
+
+/** Write a role file (~/.claude/roles/<roleName>/<roleName>.md) atomically,
+ * keyed directly on roleName — WITHOUT the identity two-step used by writeRoleFile
+ * above. Byte-shape mirror of writeRoleFile MINUS the resolveRoleForIdentity
+ * step at L2623 (since roleName arrives directly, use it after ROLE_NAME_PATTERN
+ * validation).
+ *
+ * Sibling of readRoleFileByName (L615) — both are the role-name-keyed
+ * counterparts of the identity-key-keyed readRoleFile/writeRoleFile pair. The
+ * RoleModal (Phase 90 Plan 90-04) has no identity context, so it needs a save
+ * path that doesn't require an identityKey (D-08.3 planner-pick — rejected the
+ * "frontend synthesizes identityKey" fallback because it breaks if the
+ * roles-list host has no local identities).
+ *
+ * Guards run in this order (defense-in-depth per T-22-06-01/02/03/04):
+ *   1. ROLE_NAME_PATTERN.test(roleName) — rejects before any I/O.
+ *   2. Byte cap (IDMEDIT_MAX_MARKDOWN_BYTES = 2MB) — rejects before any I/O.
+ *
+ * REMOTE branch uses writeMarkdownFileAtomic (SFTP tmp+rename via
+ * posix-rename@openssh.com) — the SAME helper writeRoleFile uses, carrying
+ * the EEXIST fix from quick 260802-qrw / patch #268.
+ *
+ * LOCAL branch does defensive mkdir -p on the role folder before the atomic
+ * write — mirrors writeRoleFile L2632. Cheap and forgiving for a fresh role
+ * whose folder was created via a separate flow (or a stale env).
+ */
+export async function writeRoleFileByName(
+  conn: SSHClientType | null,
+  roleName: string,
+  contents: string,
+): Promise<void> {
+  // Guard 1: role-name gate BEFORE any I/O — same defense-in-depth pattern as
+  // readRoleFileByName's ROLE_NAME_PATTERN gate (L621).
+  if (typeof roleName !== "string" || !ROLE_NAME_PATTERN.test(roleName)) {
+    throw new Error("invalid roleName");
+  }
+  // Guard 2: byte cap BEFORE any I/O.
+  if (Buffer.byteLength(contents, "utf-8") > IDMEDIT_MAX_MARKDOWN_BYTES) {
+    throw new Error("markdown payload exceeds IDMEDIT_MAX_MARKDOWN_BYTES");
+  }
+
+  if (conn === null) {
+    // LOCAL branch — tmp+rename via Node fs, mirrors writeRoleFile LOCAL
+    // pattern rooted at ROLES_HOST_DIR/<roleName>/<roleName>.md
+    const root = getLocalRolesRoot();
+    const roleDir = path.join(root, roleName);
+    // Defensive mkdir -p — mirrors writeRoleFile L2632.
+    await fs.mkdir(roleDir, { recursive: true });
+    const filePath = path.join(roleDir, roleName + ".md");
+    const tmpPath = filePath + ".tmp";
+    await fs.writeFile(tmpPath, contents, "utf-8");
+    await fs.rename(tmpPath, filePath);
+    return;
+  }
+
+  // REMOTE branch — echo $HOME then SFTP write to
+  // <home>/.claude/roles/<roleName>/<roleName>.md via writeMarkdownFileAtomic
+  // (ext_openssh_rename — see writeMarkdownFileAtomic prologue for the
+  // EEXIST rationale that made plain sftp.rename unsafe).
+  const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
+  const targetPath = `${remoteHome}/.claude/roles/${roleName}/${roleName}.md`;
+  await writeMarkdownFileAtomic(conn, targetPath, contents);
+}
+
+// ---------------------------------------------------------------------------
 // 7. writeIdentityBountyPriority — patch bounty.json's priority field
 // ---------------------------------------------------------------------------
 //
