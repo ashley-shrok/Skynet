@@ -77,10 +77,17 @@ export function registerUserAdminRoutes(
    *   get:
    *     summary: List other users (picker-facing)
    *     description: |
-   *       Returns {id, username} for every user OTHER than the requester.
-   *       Reachable by any authenticated user (NOT admin-gated). Used by the
-   *       Phase 38 identity-sharing picker inside the identity modal to
-   *       populate the target-user selector.
+   *       Returns `{ users: [{id, username, mxid}] }` for every user OTHER
+   *       than the requester. Reachable by any authenticated user (NOT
+   *       admin-gated). Used by the Phase 38 identity-sharing picker and by
+   *       the Phase 91 slice C new-conversation modal to populate human
+   *       participant pickers.
+   *
+   *       `mxid` is the Phase 88 slice A relay identity
+   *       (`@localpart_human:server`). It is null for pre-Phase-88 users who
+   *       were never minted a relay identity. Slice C's new-conversation modal
+   *       (Phase 91) filters mxid-less users out of the Humans picker — they
+   *       cannot participate in a relay-mediated room by construction.
    *
    *       Explicitly excludes sensitive fields: isAdmin, isOidc, passwordHash,
    *       totpSecret, OIDC config, email, etc. The picker only needs display
@@ -93,7 +100,8 @@ export function registerUserAdminRoutes(
    *     responses:
    *       200:
    *         description: |
-   *           A list of other users as `{ users: [{id, username}] }`.
+   *           A list of other users as `{ users: [{id, username, mxid}] }`.
+   *           mxid is string for Phase 88+ users, null for pre-Phase-88 users.
    *           Returns 200 with an empty array (NOT 404/204) when the requester
    *           is the only user in the deployment; the frontend hides its
    *           picker affordance on empty response.
@@ -110,8 +118,10 @@ export function registerUserAdminRoutes(
       // `ne(users.id, userId)` enforces server-side self-exclusion so the
       // requester never appears in their own picker (Phase 38 shape guard:
       // "If the picker shows the current user in the list.").
+      // Phase 91-00: added mxid to the SELECT list (additive widening —
+      // mxid is the Phase 88 relay identity; null for pre-Phase-88 users).
       const otherUsers = await db
-        .select({ id: users.id, username: users.username })
+        .select({ id: users.id, username: users.username, mxid: users.mxid })
         .from(users)
         .where(ne(users.id, userId));
 

@@ -15,20 +15,42 @@ export async function getUserList(): Promise<{ users: UserInfo[] }> {
 
 // ─── Phase 38: identity sharing — picker-facing users list ──────────────────
 // Backing route: src/backend/database/routes/user-admin-routes.ts (/users/list-basic)
-// GET /users/list-basic → { users: [{id, username}, ...] }
+// GET /users/list-basic → { users: [{id, username, mxid}, ...] }
 // Every user OTHER than the requester (server-side ne(users.id, requester)).
 // Empty array on single-user deployments — picker hides itself in that case.
 //
 // Distinct from /users/list (admin-gated, exposes isAdmin/isOidc/etc.); this
-// route is reachable by any authenticated user and is scoped to id+username
+// route is reachable by any authenticated user and is scoped to id+username+mxid
 // only, enforced by an explicit-columns drizzle select on the backend.
+//
+// Phase 91-00 widening: mxid added as string | null. Phase 88 slice A mints
+// mxids at POST /users/create; pre-Phase-88 users may have mxid=null. Slice
+// C's new-conversation modal (Phase 91) filters mxid-less users out of the
+// Humans picker — they cannot participate in a relay-mediated room by
+// construction.
 //
 
 export interface BasicUser {
   id: string;
   username: string;
+  /** Phase 88 slice A relay identity (`@localpart_human:server`).
+   *  Null for pre-Phase-88 users who were never minted a relay
+   *  identity. Slice C's new-conversation modal (Phase 91) filters
+   *  mxid-less users out of the Humans picker — they cannot
+   *  participate in a relay-mediated room by construction. */
+  mxid: string | null;
 }
 
+/**
+ * Fetch the picker-facing user list (every user except the requester).
+ *
+ * Returns `BasicUser[]` where each entry carries `{id, username, mxid}`.
+ * `mxid` is the Phase 88 relay identity string for Phase 88+ users, or
+ * null for pre-Phase-88 users who were never minted a relay identity.
+ * Phase 91 slice C's new-conversation modal filters mxid-less users out of
+ * the Humans picker — they cannot participate in relay-mediated rooms by
+ * construction (Phase 88 didn't mint a Matrix identity for them).
+ */
 export async function getUsersListBasic(): Promise<BasicUser[]> {
   try {
     const response = await authApi.get("/users/list-basic");
