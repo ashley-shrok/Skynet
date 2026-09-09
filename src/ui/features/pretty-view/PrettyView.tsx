@@ -43,6 +43,15 @@ import { IdentityModal } from "./IdentityModal";
 // Phase 89 Plan 06: RunbookEditorModal — swap-not-stack coordination (D-06).
 // Mounted as a top-level sibling alongside IdentityModal + EditableFileModal.
 import RunbookEditorModal from "./RunbookEditorModal";
+// Phase 90 Plan 90-06 (D-04): RoleModal — swap-not-stack target for the
+// identity-modal title-line jump. Mounted as a top-level sibling alongside
+// IdentityModal + RunbookEditorModal.
+import { RoleModal } from "./RoleModal";
+import {
+  listRolesForHost,
+  type Identity,
+  type RoleSummary,
+} from "@/api/identities-api";
 import { useAutoScroll } from "./use-auto-scroll";
 import { ComposeBox } from "./ComposeBox";
 import { DropOverlay } from "./DropOverlay";
@@ -719,6 +728,20 @@ export function PrettyView({
   const [runbookEditorOpenState, setRunbookEditorOpenState] = useState<
     | null
     | { roleName: string; runbookName: string }
+  >(null);
+  // Phase 90 Plan 90-06 (D-04): swap-not-stack coordination for the identity-
+  // modal title-line jump. Non-null when the role modal is open (opened via
+  // IdentityModal's title-line click), cleared to null by the RoleModal's
+  // onOpenChange(false) close handler. No reopen-of-identity-modal on close
+  // per D-03 (no per-pane context, no back-navigation).
+  const [roleModalOpenState, setRoleModalOpenState] = useState<
+    | null
+    | {
+        roleName: string;
+        roleCosmetics: RoleSummary;
+        identityShimKey: string;
+        hue: number;
+      }
   >(null);
   // Phase 40 D-05/D-06: editor modal open state. Null when closed; an object
   // holding the URL + filename + messageEventId + agentIdentityName snapshot
@@ -1663,16 +1686,92 @@ export function PrettyView({
   // (RunbooksTab's fetch would have returned an empty list via the D-10
   // fast-path, so no row-click should reach here in that case — but the
   // guard prevents crashes if some future call path bypasses the fast-path).
-  const handleOpenRunbook = useCallback((runbookName: string): void => {
-    const roleName = pvIdentity?.role ?? null;
-    if (roleName === null) {
-      console.debug("[PrettyView] handleOpenRunbook: no role — skipping", { runbookName });
-      return;
-    }
-    console.debug("[PrettyView] handleOpenRunbook: swap", { roleName, runbookName });
-    setIsIdentityModalOpen(false);
-    setRunbookEditorOpenState({ roleName, runbookName });
-  }, [pvIdentity]);
+  //
+  // Phase 90 Plan 90-06: optional `roleNameOverride` param supports the
+  // nested swap RoleModal → RunbookEditorModal. RoleModal already knows the
+  // roleName (it was opened for that role), so it passes it in explicitly
+  // rather than depending on pvIdentity?.role. This also lets a RoleModal
+  // opened via title-line-jump-from-a-different-identity resolve correctly
+  // (though the current UI always jumps to the identity's own role).
+  const handleOpenRunbook = useCallback(
+    (runbookName: string, roleNameOverride?: string): void => {
+      const roleName = roleNameOverride ?? pvIdentity?.role ?? null;
+      if (roleName === null) {
+        console.debug("[PrettyView] handleOpenRunbook: no role — skipping", { runbookName });
+        return;
+      }
+      console.debug("[PrettyView] handleOpenRunbook: swap", { roleName, runbookName });
+      setIsIdentityModalOpen(false);
+      setRoleModalOpenState(null);
+      setRunbookEditorOpenState({ roleName, runbookName });
+    },
+    [pvIdentity],
+  );
+
+  // Phase 90 Plan 90-06 (D-04): identity-modal title-line click handler.
+  // Swap-not-stack coordination — the identity modal's onClick handler
+  // already fires onOpenChange(false), so we only need to derive the
+  // RoleSummary and set roleModalOpenState here.
+  //
+  // Cosmetics derivation:
+  //   1. Prefer `identity.roleDefaults` if present — it already carries the
+  //      role's title / colorHue / voice / avatar (populated by the backend
+  //      identity read in Phase 86). No round-trip needed for the common case.
+  //   2. Fallback: `listRolesForHost(hostId).then(...)` to fetch the RoleSummary
+  //      by name. Rare — most identities have roleDefaults populated.
+  //
+  // See 90-CONTEXT.md D-04 for the fallback rationale.
+  const handleOpenRoleModal = useCallback(
+    (identity: Identity): void => {
+      if (identity.role === null) {
+        console.debug("[PrettyView] handleOpenRoleModal: no role — skipping", {
+          identity: identity.identityKey,
+        });
+        return;
+      }
+      const roleName = identity.role;
+      // Preferred path: use identity.roleDefaults directly.
+      if (identity.roleDefaults) {
+        const cosmetics: RoleSummary = {
+          name: roleName,
+          description: "",
+          title: identity.roleDefaults.title,
+          colorHue: identity.roleDefaults.colorHue,
+          voice: identity.roleDefaults.voice,
+          avatar: identity.roleDefaults.avatar,
+        };
+        setRoleModalOpenState({
+          roleName,
+          roleCosmetics: cosmetics,
+          identityShimKey: identity.identityKey,
+          hue: cosmetics.colorHue ?? 190,
+        });
+        return;
+      }
+      // Fallback path: fetch the RoleSummary via listRolesForHost.
+      listRolesForHost(hostId)
+        .then((rows) => {
+          const match = rows.find((r) => r.name === roleName);
+          if (!match) {
+            console.warn(
+              "[PrettyView] handleOpenRoleModal: role not found on host",
+              { roleName, hostId },
+            );
+            return;
+          }
+          setRoleModalOpenState({
+            roleName,
+            roleCosmetics: match,
+            identityShimKey: identity.identityKey,
+            hue: match.colorHue ?? 190,
+          });
+        })
+        .catch((err) => {
+          console.warn("[PrettyView] handleOpenRoleModal: fetch failed", err);
+        });
+    },
+    [hostId],
+  );
 
   const handleStageEditedFile = useCallback(
     (filename: string, content: string) => {
@@ -3322,9 +3421,41 @@ export function PrettyView({
           identity={pvIdentity}
           hue={pvHue}
           hostId={hostId}
-          // Phase 89 Plan 06: Runbooks tab row-click handler — D-06 swap-not-stack.
-          onOpenRunbook={handleOpenRunbook}
+          // Phase 90 Plan 90-06 (D-04): title-line click handler — swap-not-stack
+          // coordination. IdentityModal already fires onOpenChange(false) at the
+          // same tick; this handler resolves the RoleSummary and opens the role
+          // modal (which is mounted below at document.body per D-03).
+          // Phase 89's Runbooks-tab onOpenRunbook is retired — Runbooks moved
+          // to RoleModal (Plan 90-04); nested runbook swap now goes through
+          // RoleModal's onOpenRunbook mounted below.
+          onOpenRoleModal={handleOpenRoleModal}
           container={chatRegionEl}
+        />
+      )}
+      {/* Phase 90 Plan 90-06 (D-04): RoleModal — swap-not-stack sibling of
+          IdentityModal. Portal target defaults to document.body per D-03 (no
+          per-pane context — matches GlobalFilesModal/SkillsEditorModal chrome).
+          Runbook row click inside this modal delegates to handleOpenRunbook
+          (nested swap: RoleModal → RunbookEditorModal). Closing the role modal
+          just clears state — no reopen of the identity modal per D-03. */}
+      {roleModalOpenState && (
+        <RoleModal
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) {
+              console.debug("[PrettyView] role-modal-close: no reopen (D-03 no per-pane context)");
+              setRoleModalOpenState(null);
+            }
+          }}
+          roleName={roleModalOpenState.roleName}
+          roleCosmetics={roleModalOpenState.roleCosmetics}
+          hostId={hostId}
+          identityShimKey={roleModalOpenState.identityShimKey}
+          onOpenRunbook={(runbookName) => {
+            // Nested swap-not-stack: close role modal, open runbook editor
+            // with the role modal's own roleName (no reliance on pvIdentity).
+            handleOpenRunbook(runbookName, roleModalOpenState.roleName);
+          }}
         />
       )}
       {/* Phase 40 D-05/D-06/D-07: editor modal mounts alongside IdentityModal.

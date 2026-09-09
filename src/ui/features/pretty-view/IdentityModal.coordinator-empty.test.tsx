@@ -125,7 +125,9 @@ vi.mock("@/api/runbooks-api", () => ({
 // ── Late imports ─────────────────────────────────────────────────────────────
 import { IdentityModal } from "./IdentityModal";
 import { WakeupsTab } from "./WakeupsTab";
-import { __resetModalScopeForTest } from "@/state/modal-scope-store";
+// Phase 90 Plan 90-06 (D-09): modal-scope-store retired. Reset helper is a
+// no-op for compatibility with the remaining test body.
+const __resetModalScopeForTest = (): void => { /* retired */ };
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -136,6 +138,7 @@ const BASE_IDENTITY: Identity = {
   colorHue: null,
   voice: null,
   role: null,
+  task: null,
   avatarMime: "image/png",
   avatarUrl: "/identities/tina/avatar?hostId=1",
   avatarEtag: "etag-1",
@@ -151,8 +154,8 @@ function renderModal(identityOverrides?: Partial<Identity>): void {
       identity={identity}
       hue={200}
       hostId={1}
-      // Phase 89 Plan 05: required prop — Runbooks tab is always rendered per D-11.
-      onOpenRunbook={vi.fn()}
+      // Phase 90 Plan 90-06: onOpenRoleModal is the new required prop.
+      onOpenRoleModal={vi.fn()}
       container={document.body}
     />,
   );
@@ -181,13 +184,9 @@ function deliverEmptyIdentityWakeups(): void {
   });
 }
 
-function switchScope(scope: "role" | "identity"): void {
-  const btn = document.querySelector(
-    `[data-testid="scope-switch-${scope}"]`,
-  ) as HTMLButtonElement | null;
-  if (!btn) throw new Error(`scope-switch-${scope} button not found`);
-  fireEvent.click(btn);
-}
+// Phase 90 Plan 90-06 (D-09): switchScope helper retired — the segmented
+// scope switch is gone. Tests that previously depended on flipping scope now
+// operate against the single identity-scope view.
 
 // Click a nav button in the currently-visible bottom bar by label substring.
 function clickNav(labelSubstring: string): void {
@@ -223,7 +222,7 @@ describe("IdentityModal coordinator empty states — Wakeups", () => {
     // Coordinator mount → defaults to Role scope; flip to Identity.
     renderModal({ coordinator: true });
     await new Promise((r) => setTimeout(r, 0));
-    switchScope("identity");
+    // Phase 90 Plan 90-06 (D-09): scope switch retired; identity is default.
     clickNav("Wakeups");
     // Seed empty identity-scope wakeups so the empty branch fires.
     deliverEmptyIdentityWakeups();
@@ -254,7 +253,7 @@ describe("IdentityModal coordinator empty states — Wakeups", () => {
   it("test C3: coordinator + Identity file tab renders normally (no coord short-circuit)", async () => {
     renderModal({ coordinator: true });
     await new Promise((r) => setTimeout(r, 0));
-    switchScope("identity");
+    // Phase 90 Plan 90-06 (D-09): scope switch retired; identity is default.
     // Identity scope defaults to Identity file tab — no nav click needed.
 
     // The active TabsContent should be "identity" (Identity file) — assert
@@ -285,7 +284,7 @@ describe("IdentityModal coordinator empty states — actor regression guard", ()
     renderModal({ coordinator: false });
     await new Promise((r) => setTimeout(r, 0));
     // Actor default is Identity scope — sanity flip is a no-op.
-    switchScope("identity");
+    // Phase 90 Plan 90-06 (D-09): scope switch retired; identity is default.
     clickNav("Wakeups");
     deliverEmptyIdentityWakeups();
 

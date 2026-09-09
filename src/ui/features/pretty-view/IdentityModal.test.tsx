@@ -119,6 +119,7 @@ const BASE_IDENTITY: Identity = {
   colorHue: null,
   voice: null,
   role: null,
+  task: null,
   avatarMime: "image/png",
   avatarUrl: "/identities/tina/avatar?hostId=1",
   avatarEtag: "etag-1",
@@ -138,28 +139,17 @@ function renderModal(identityOverrides?: Partial<Identity>): {
       identity={identity}
       hue={200}
       hostId={1}
-      // Phase 89 Plan 05: required prop — Runbooks tab is always rendered per D-11.
-      onOpenRunbook={vi.fn()}
+      // Phase 90 Plan 90-06: onOpenRoleModal is the new required prop —
+      // title-line click handler for the D-04 clickable treatment.
+      onOpenRoleModal={vi.fn()}
       container={document.body}
     />,
   );
   return { onOpenChangeSpy };
 }
 
-// Phase 72 Plan 03: helper for flipping the segmented Role/Identity scope
-// switch that was added above the Tabs component. Tests in this file focus
-// on title/avatar/hue/voice editors that live in the header (ABOVE the scope
-// switch), so most tests don't need it — kept here for parity with the other
-// IdentityModal test files where scope-specific tabs (Bounties / History /
-// Role file / role-wakeups) are only reachable after switching scope.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function switchScope(scope: "role" | "identity"): void {
-  const btn = document.querySelector(
-    `[data-testid="scope-switch-${scope}"]`,
-  ) as HTMLButtonElement | null;
-  if (!btn) throw new Error(`scope-switch-${scope} button not found`);
-  fireEvent.click(btn);
-}
+// Phase 90 Plan 90-06 (D-09): the switchScope helper was retired — the
+// segmented Role/Identity scope switch is gone from the identity modal.
 
 // ── Test suite ────────────────────────────────────────────────────────────────
 describe("IdentityModal — title + avatar edit (quick 260731-1c8)", () => {

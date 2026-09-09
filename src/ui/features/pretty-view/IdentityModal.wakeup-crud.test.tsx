@@ -1,7 +1,8 @@
 /**
- * Phase 72 Plan 03 — IdentityModal wakeup CRUD WS-message integration tests.
+ * Phase 90 Plan 90-06 (rewrite of Phase 72 Plan 03) — IdentityModal wakeup CRUD
+ * WS-message integration tests. IDENTITY-SCOPE ONLY.
  *
- * 4 tests asserting the create/delete affordances in each scope's Wakeups
+ * 2 tests asserting the create/delete affordances in the identity-scope Wakeups
  * tab send the correct wire type + payload shape through the WS layer:
  *
  *   W1: identity scope create — actor mount + tap Add-wakeup pill + fill
@@ -11,18 +12,9 @@
  *   W2: identity scope delete — actor mount + click trash + confirm →
  *       asserts one fake WS socket sent "identity:delete-wakeup" with
  *       correct identityKey + wakeupSlug.
- *   W3: role scope create — coordinator mount (defaults to Role scope) +
- *       tap Add-wakeup pill in Role Wakeups tab + fill form + Save →
- *       asserts one fake WS socket sent "identity:create-role-wakeup"
- *       with the same payload shape as W1.
- *   W4: role scope delete — coordinator mount + click trash on role-scope
- *       wakeup row + confirm → asserts one fake WS socket sent
- *       "identity:delete-role-wakeup" with correct identityKey + wakeupSlug.
  *
- * Mocking strategy mirrors IdentityModal.role-tab.test.tsx: WsStub factory +
- * module mocks. The initial-fetch effect opens 7 sockets (bounties + 6
- * artifacts including identity-wakeups + role-wakeups); we pre-seed the
- * relevant scope's wakeup list so the delete-row can act on it.
+ * (Tests W3 + W4 for role-scope wakeup CRUD were RETIRED — role-scope wakeups
+ * moved to RoleModal in Plan 90-04. Coverage lives in RoleModal.test.tsx.)
  */
 
 import {
@@ -126,7 +118,8 @@ vi.mock("@/api/runbooks-api", () => ({
 
 // ── Late imports ─────────────────────────────────────────────────────────────
 import { IdentityModal } from "./IdentityModal";
-import { __resetModalScopeForTest } from "@/state/modal-scope-store";
+// Phase 90 Plan 90-06 (D-09): __resetModalScopeForTest reference DELETED —
+// the modal-scope store no longer backs identity-modal state.
 
 // ── Fixture ──────────────────────────────────────────────────────────────────
 
@@ -137,6 +130,7 @@ const BASE_IDENTITY: Identity = {
   colorHue: null,
   voice: null,
   role: null,
+  task: null,
   avatarMime: "image/png",
   avatarUrl: "/identities/tina/avatar?hostId=1",
   avatarEtag: "etag-1",
@@ -152,8 +146,8 @@ function renderModal(identityOverrides?: Partial<Identity>): void {
       identity={identity}
       hue={200}
       hostId={1}
-      // Phase 89 Plan 05: required prop — Runbooks tab is always rendered per D-11.
-      onOpenRunbook={vi.fn()}
+      // Phase 90 Plan 90-06: onOpenRoleModal is the new required prop.
+      onOpenRoleModal={vi.fn()}
       container={document.body}
     />,
   );
@@ -194,36 +188,9 @@ function deliverIdentityWakeups(): void {
   });
 }
 
-// Seed the role-scope wakeups list so a delete-row is present.
-function deliverRoleWakeups(): void {
-  const sock = findSocketForRequestType("identity:list-role-wakeups");
-  expect(sock).toBeDefined();
-  act(() => {
-    sock!.onmessage!({
-      data: JSON.stringify({
-        type: "identity:role-wakeups",
-        wakeups: [
-          {
-            slug: "hourly-role-check",
-            name: "hourly-role-check",
-            enabled: true,
-            schedule: { type: "interval", every: "1h" },
-            scheduleHuman: "every 1h",
-            instruction: "Check the role folder.",
-          },
-        ],
-      }),
-    } as MessageEvent<string>);
-  });
-}
-
-function switchScope(scope: "role" | "identity"): void {
-  const btn = document.querySelector(
-    `[data-testid="scope-switch-${scope}"]`,
-  ) as HTMLButtonElement | null;
-  if (!btn) throw new Error(`scope-switch-${scope} button not found`);
-  fireEvent.click(btn);
-}
+// Phase 90 Plan 90-06 (D-09): deliverRoleWakeups + switchScope helpers DELETED
+// — role-scope wakeups moved to RoleModal (Plan 90-04). Coverage lives in
+// RoleModal.test.tsx.
 
 // Click the Wakeups nav button in the currently-visible bottom bar.
 function clickWakeupsNav(): void {
@@ -239,7 +206,6 @@ function clickWakeupsNav(): void {
 beforeEach(() => {
   vi.clearAllMocks();
   openedSockets.length = 0;
-  __resetModalScopeForTest();
 });
 
 afterEach(() => {
@@ -254,12 +220,11 @@ afterAll(() => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Test W1 — identity scope create → identity:create-wakeup
 // ─────────────────────────────────────────────────────────────────────────────
-describe("IdentityModal wakeup CRUD — identity scope (Phase 72 Plan 03)", () => {
+describe("IdentityModal wakeup CRUD — identity scope (Phase 90 Plan 90-06)", () => {
   it("test W1: create-wakeup — Save fires identity:create-wakeup with correct payload shape", async () => {
     renderModal({ coordinator: false });
     await new Promise((r) => setTimeout(r, 0));
-    // Actor mount defaults to scope=identity — no-op switchScope for clarity.
-    switchScope("identity");
+    // Phase 90 D-09: identity modal is identity-scope only; no scope switch.
     // Click Wakeups nav so the pane is active.
     clickWakeupsNav();
     // Pre-seed the identity-scope list so the tab renders in "ready" (not
@@ -315,7 +280,6 @@ describe("IdentityModal wakeup CRUD — identity scope (Phase 72 Plan 03)", () =
   it("test W2: delete-wakeup — clicking trash + confirm fires identity:delete-wakeup with correct payload", async () => {
     renderModal({ coordinator: false });
     await new Promise((r) => setTimeout(r, 0));
-    switchScope("identity");
     clickWakeupsNav();
     // Pre-seed a wakeup so the trash icon exists.
     deliverIdentityWakeups();
@@ -351,95 +315,6 @@ describe("IdentityModal wakeup CRUD — identity scope (Phase 72 Plan 03)", () =
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Test W3 — role scope create → identity:create-role-wakeup
-// ─────────────────────────────────────────────────────────────────────────────
-describe("IdentityModal wakeup CRUD — role scope (Phase 72 Plan 03)", () => {
-  it("test W3: create-role-wakeup — Save fires identity:create-role-wakeup with correct payload shape", async () => {
-    // Coordinator mount → defaults to scope='role'.
-    renderModal({ coordinator: true });
-    await new Promise((r) => setTimeout(r, 0));
-    // Sanity-flip is a no-op since coord defaults to role; keep it for parity.
-    switchScope("role");
-    // Click Wakeups nav under Role scope so the role-wakeups pane is active.
-    clickWakeupsNav();
-    // Pre-seed the role-scope list.
-    deliverRoleWakeups();
-
-    // Tap Add-wakeup pill on the Role Wakeups tab.
-    fireEvent.click(screen.getByTestId("wakeup-add-button"));
-
-    fireEvent.change(screen.getByLabelText(/Name/i), {
-      target: { value: "role-morning-check" },
-    });
-    fireEvent.change(screen.getByLabelText(/Instruction/i), {
-      target: { value: "check the role folder" },
-    });
-
-    fireEvent.click(screen.getByTestId("add-wakeup-save"));
-
-    await waitFor(() => {
-      const sock = findSocketForRequestType("identity:create-role-wakeup");
-      expect(sock).toBeDefined();
-    });
-
-    const createSock = findSocketForRequestType("identity:create-role-wakeup")!;
-    const payload = JSON.parse(createSock.__sentPayloads[0]) as {
-      type: string;
-      identityKey: string;
-      hostId: number;
-      spec: {
-        name: string;
-        enabled: boolean;
-        instruction: string;
-        schedule: Record<string, unknown> | null;
-      };
-    };
-    expect(payload.type).toBe("identity:create-role-wakeup");
-    expect(payload.identityKey).toBe("tina");
-    expect(payload.hostId).toBe(1);
-    expect(payload.spec.name).toBe("role-morning-check");
-    expect(payload.spec.instruction).toBe("check the role folder");
-    expect(payload.spec.enabled).toBe(true);
-    expect(payload.spec.schedule).toBeTruthy();
-    expect(typeof payload.spec.schedule).toBe("object");
-  });
-
-  // ───────────────────────────────────────────────────────────────────────────
-  // Test W4 — role scope delete → identity:delete-role-wakeup
-  // ───────────────────────────────────────────────────────────────────────────
-  it("test W4: delete-role-wakeup — clicking trash + confirm fires identity:delete-role-wakeup with correct payload", async () => {
-    renderModal({ coordinator: true });
-    await new Promise((r) => setTimeout(r, 0));
-    switchScope("role");
-    clickWakeupsNav();
-    deliverRoleWakeups();
-
-    await waitFor(() => {
-      expect(screen.getByTestId("wakeup-delete-icon")).toBeTruthy();
-    });
-    fireEvent.click(screen.getByTestId("wakeup-delete-icon"));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("wakeup-delete-confirm")).toBeTruthy();
-    });
-    fireEvent.click(screen.getByTestId("wakeup-delete-confirm"));
-
-    await waitFor(() => {
-      const sock = findSocketForRequestType("identity:delete-role-wakeup");
-      expect(sock).toBeDefined();
-    });
-
-    const deleteSock = findSocketForRequestType("identity:delete-role-wakeup")!;
-    const payload = JSON.parse(deleteSock.__sentPayloads[0]) as {
-      type: string;
-      identityKey: string;
-      hostId: number;
-      wakeupSlug: string;
-    };
-    expect(payload.type).toBe("identity:delete-role-wakeup");
-    expect(payload.identityKey).toBe("tina");
-    expect(payload.hostId).toBe(1);
-    expect(payload.wakeupSlug).toBe("hourly-role-check");
-  });
-});
+// Phase 90 Plan 90-06 (D-09): Tests W3 + W4 (role-scope wakeup CRUD)
+// DELETED — role-scope wakeups moved to RoleModal (Plan 90-04). Coverage
+// lives in RoleModal.test.tsx.

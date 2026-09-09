@@ -59,6 +59,13 @@ import { createPortal } from "react-dom";
 import { ChevronDown, ChevronRight, EyeOff, Filter, Loader2, Monitor, MoreVertical, Search, X } from "lucide-react";
 import GlobalFilesModal from "@/features/pretty-view/GlobalFilesModal";
 import SkillsEditorModal from "@/features/pretty-view/SkillsEditorModal";
+// Phase 90 Plan 90-06 (D-07 / D-04): the three-dots menu "Edit roles…" entry
+// opens RolesListModal; a row click swaps to RoleModal; runbook click swaps to
+// RunbookEditorModal (mirrors PrettyView's mount at L3281). All three are
+// mounted as siblings alongside GlobalFilesModal + SkillsEditorModal.
+import { RolesListModal } from "@/features/pretty-view/RolesListModal";
+import { RoleModal } from "@/features/pretty-view/RoleModal";
+import RunbookEditorModal from "@/features/pretty-view/RunbookEditorModal";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -115,11 +122,8 @@ import {
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/popover";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { NewSessionDialog, type NewSessionOnCreateOpts } from "@/sidebar/NewSessionDialog";
-// Phase 22 (SRIC-04): CreateRoleDialog + `+ New role` launcher next to the pencil.
-// Chain-to-create-identity hook (onChainToCreateIdentity) is deferred to Plan 22-05
-// / SRIC-05 — this panel does NOT provide the callback (undefined-safe on the
-// dialog side, verified by CreateRoleDialog.test.tsx Test 17b).
-import { CreateRoleDialog } from "@/sidebar/CreateRoleDialog";
+// Phase 90 Plan 90-06 (D-07): CreateRoleDialog import DELETED — role creation
+// now lives inside RolesListModal (which imports CreateRoleDialog internally).
 // Phase 80: clone flow repurposed into unified NewSessionDialog pre-seeded
 // with initialHost + initialRole via the existing chain-hook mechanism
 // (identical to CreateRoleDialog's onChainToCreateIdentity path). See
@@ -569,9 +573,9 @@ export function PrettyConversationsPanel({
 
   // Local state: NewSessionDialog open/closed toggle (opened by pencil).
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
-  // Phase 22 (SRIC-04): CreateRoleDialog open/closed toggle (opened by the
-  // sibling `+ New role` launcher button, mounted below alongside NewSessionDialog).
-  const [createRoleDialogOpen, setCreateRoleDialogOpen] = useState(false);
+  // Phase 90 Plan 90-06 (D-07): panel-level createRoleDialogOpen state slot
+  // DELETED. CreateRoleDialog is now mounted inside RolesListModal (D-10 stack)
+  // rather than as a sibling of NewSessionDialog. See <RolesListModal> mount below.
   // Phase 22 (SRIC-05): chain-into-create-identity pre-fill payload. Set when
   // CreateRoleDialog fires onChainToCreateIdentity ({role, host}); consumed by
   // the NewSessionDialog mount as its initialHost + initialRole props. Cleared
@@ -601,6 +605,30 @@ export function PrettyConversationsPanel({
   // Phase 91 Plan 05 — NewConversationModal open/closed toggle (opened from
   // menu's "New conversation" item — v1 throwaway placement per shape §Philosophy).
   const [newConversationModalOpen, setNewConversationModalOpen] = useState(false);
+  // Phase 90 Plan 90-06 (D-07): RolesListModal open/closed toggle. Opened by the
+  // three-dots menu "Edit roles…" entry (which replaces the deleted "New role"
+  // entry). See <RolesListModal> mount below.
+  const [rolesListModalOpen, setRolesListModalOpen] = useState(false);
+  // Phase 90 Plan 90-06 (D-04): role modal swap-not-stack coordination. Set by
+  // RolesListModal's onSelectRole (row click closes list + opens role modal).
+  // Also used by the nested RoleModal → RunbookEditorModal swap through
+  // runbookEditorOpenState below. Cleared to null on close.
+  const [roleModalOpenState, setRoleModalOpenState] = useState<
+    | null
+    | {
+        roleName: string;
+        roleCosmetics: import("@/api/identities-api").RoleSummary;
+        identityShimKey: string;
+        hostId: number;
+      }
+  >(null);
+  // Phase 90 Plan 90-06 (D-06): nested RunbookEditorModal swap target. RoleModal
+  // opened from RolesListModal fires onOpenRunbook → set this state → RoleModal
+  // closes + RunbookEditorModal opens. Mirrors PrettyView's mount at L3281 shape.
+  const [panelRunbookEditorOpenState, setPanelRunbookEditorOpenState] = useState<
+    | null
+    | { roleName: string; runbookName: string; hostId: number }
+  >(null);
 
   // quick-260731-tgg: collapsed by default on every mount per Ashley's design lock.
   const [hiddenExpanded, setHiddenExpanded] = useState(false);
@@ -2007,29 +2035,14 @@ export function PrettyConversationsPanel({
           isAdmin={isAdmin}
         />
       )}
-      {/* Phase 22 (SRIC-04 + SRIC-05): CreateRoleDialog — portal-mounted
-          sibling of NewSessionDialog. Gated on the SAME showPencilButton
-          predicate so both dialogs share their onCreateSession-wired
-          lifecycle. Phase 22 SRIC-05 wires onChainToCreateIdentity: when
-          CreateRoleDialog submits with the chain checkbox CHECKED (default),
-          this callback fires with {role, host} — we close CRD, stash the
-          pre-fill in chainPrefill state, and open NewSessionDialog which
-          then reads chainPrefill via its new initialHost + initialRole
-          props (Plan 22-05 Task 1). */}
-      {showPencilButton && (
-        <CreateRoleDialog
-          open={createRoleDialogOpen}
-          onClose={() => setCreateRoleDialogOpen(false)}
-          hostTree={hostTree ?? null}
-          onChainToCreateIdentity={(opts) => {
-            // Phase 22 SRIC-05: on CRD chain fire → close CRD, stash pre-fill,
-            // open NSD with initialHost + initialRole seeded.
-            setCreateRoleDialogOpen(false);
-            setChainPrefill(opts);
-            setNewSessionDialogOpen(true);
-          }}
-        />
-      )}
+      {/* Phase 90 Plan 90-06 (D-07): the panel-level CreateRoleDialog mount is
+          DELETED. Role creation is now reached via the three-dots menu's
+          "Edit roles…" entry → RolesListModal → its header '+ New role' button
+          (which internally mounts its own CreateRoleDialog stack per D-10).
+          Trade-off: the CRD → chainPrefill → NewSessionDialog "chain into
+          create identity" flow that lived here is dropped for this entry
+          point. If Ashley wants it back, RolesListModal can grow an
+          onChainToCreateIdentity prop in a follow-up. */}
       {/* Phase 80: the dedicated clone-dialog mount was DELETED. The row
           context-menu "create new agent under this role" item (formerly labeled
           "Clone") now routes through the NewSessionDialog mount above via
@@ -2073,6 +2086,78 @@ export function PrettyConversationsPanel({
           onCreateRelayRoom?.(result); // AppShell-side handler opens the tab
         }}
       />
+      {/* Phase 90 Plan 90-06 (D-07): RolesListModal — portal-mounted sibling of
+          GlobalFilesModal + SkillsEditorModal. Opened via the header menu's
+          "Edit roles…" item. defaultHostId={null} deliberate — the panel-header
+          trigger has no active-conversation context, so the modal falls through
+          to its own host picker (matches GlobalFilesModal + SkillsEditorModal
+          shape). Row click swaps to <RoleModal> below (D-04 swap-not-stack). */}
+      <RolesListModal
+        open={rolesListModalOpen}
+        onOpenChange={setRolesListModalOpen}
+        hostTree={hostTree ?? null}
+        defaultHostId={null}
+        onSelectRole={({ roleName, roleCosmetics, hostId: pickedHostId }) => {
+          // D-04 swap-not-stack: close list, open role modal.
+          setRolesListModalOpen(false);
+          // identityShimKey resolution: pick ANY identity holding this role on
+          // the selected host. Wave-2 identity-shim requirement (Plan 90-04
+          // RoleModal contract). If no identity holds this role yet (fresh role
+          // with no assignees), we pass empty string — RoleModal's tabs handle
+          // the missing-identity branch via their own error state.
+          const shim = Array.from(identitiesByKey.values()).find(
+            (i) => i.role === roleName,
+          )?.identityKey ?? "";
+          setRoleModalOpenState({
+            roleName,
+            roleCosmetics,
+            identityShimKey: shim,
+            hostId: pickedHostId,
+          });
+        }}
+      />
+      {/* Phase 90 Plan 90-06 (D-04): RoleModal — swap target for RolesListModal
+          row click. Mounted at document.body via its own DialogPrimitive.Portal
+          (D-03). Runbook row click nests to RunbookEditorModal (below) —
+          mirrors PrettyView's mount pattern. */}
+      {roleModalOpenState && (
+        <RoleModal
+          open={true}
+          onOpenChange={(o) => {
+            if (!o) setRoleModalOpenState(null);
+          }}
+          roleName={roleModalOpenState.roleName}
+          roleCosmetics={roleModalOpenState.roleCosmetics}
+          hostId={roleModalOpenState.hostId}
+          identityShimKey={roleModalOpenState.identityShimKey}
+          onOpenRunbook={(runbookName) => {
+            // Nested swap: close role modal, open runbook editor.
+            // Capture hostId + roleName BEFORE clearing roleModalOpenState so
+            // the runbook editor can read them even after the parent state
+            // slot went null.
+            setPanelRunbookEditorOpenState({
+              roleName: roleModalOpenState.roleName,
+              runbookName,
+              hostId: roleModalOpenState.hostId,
+            });
+            setRoleModalOpenState(null);
+          }}
+        />
+      )}
+      {/* Phase 90 Plan 90-06 (D-06 nested): RunbookEditorModal — swap target
+          for RoleModal's onOpenRunbook. Mirrors PrettyView's mount at L3281.
+          Close just clears state (no reopen of RoleModal per D-03). */}
+      {panelRunbookEditorOpenState && (
+        <RunbookEditorModal
+          open={true}
+          onOpenChange={(o) => {
+            if (!o) setPanelRunbookEditorOpenState(null);
+          }}
+          hostId={panelRunbookEditorOpenState.hostId}
+          roleName={panelRunbookEditorOpenState.roleName}
+          runbookName={panelRunbookEditorOpenState.runbookName}
+        />
+      )}
       {/* Phase 23 (GEFM-01): glass portal menu — keyboard-Escape + click-outside
           dismiss. Portal-mounted to document.body to escape overflow clipping
           from .pv-panel-header. Chrome mirrors PrettyConversationContextMenu.tsx
@@ -2097,12 +2182,16 @@ export function PrettyConversationsPanel({
             color: "#e8e4d8",
           }}
         >
-          {/* KEEP ORDER: New agent → New role → Edit global files… → Edit skills… (Phase 44 Pitfall 8 guard — do not alphabetize or reshuffle). */}
-          {/* Phase 91 — v1 throwaway placement; conversation-list area redesign will resurface this. */}
+          {/* KEEP ORDER: New conversation → New agent → Edit roles… → Edit global files… → Edit skills… (Phase 44 Pitfall 8 guard — do not alphabetize or reshuffle).
+              Phase 90 Plan 90-06 (D-07): "New role" swapped out for "Edit roles…"
+              — the roles-list modal is the new front door to role creation
+              (via its header '+ New role' button) AND to per-role editing.
+              Phase 91 — "New conversation" prepended as v1 throwaway placement;
+              conversation-list area redesign will resurface this. */}
           {[
             { label: "New conversation", onClick: () => setNewConversationModalOpen(true) }, // Phase 91 Plan 05
             { label: "New agent", onClick: () => setNewSessionDialogOpen(true) },
-            { label: "New role", onClick: () => setCreateRoleDialogOpen(true) },
+            { label: "Edit roles…", onClick: () => setRolesListModalOpen(true) },
             { label: "Edit global files…", onClick: () => setGlobalFilesModalOpen(true) },
             { label: "Edit skills…", onClick: () => setSkillsEditorModalOpen(true) },
           ].map((item) => (

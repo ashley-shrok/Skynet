@@ -103,12 +103,9 @@ vi.mock("@/api/runbooks-api", () => ({
 import { updateIdentity } from "@/api/identities-api";
 import { IdentityModal } from "./IdentityModal";
 import { postSpeak, getVoices } from "@/api/voice-api";
-// Phase 72 Plan 03: defensive per-test reset of the modal-scope-store so
-// scope memory from one test never leaks into the next. Voice picker lives
-// in the title bar above the scope switch — tests here don't touch scope-
-// conditional tabs — but the reset is cheap insurance against future
-// interaction and matches the pattern in every other IdentityModal test file.
-import { __resetModalScopeForTest } from "@/state/modal-scope-store";
+// Phase 90 Plan 90-06 (D-09): modal-scope-store retired. Reset helper is a
+// no-op for compatibility with the remaining test body.
+const __resetModalScopeForTest = (): void => { /* retired */ };
 
 const mockedUpdateIdentity = vi.mocked(updateIdentity);
 const mockedGetVoices = vi.mocked(getVoices);
@@ -135,6 +132,7 @@ const BASE_IDENTITY: Identity = {
   colorHue: null,
   voice: null,
   role: null,
+  task: null,
   avatarMime: "image/png",
   avatarUrl: "/identities/elena/avatar?hostId=1",
   avatarEtag: "etag-v1",
@@ -150,8 +148,8 @@ function renderModal(identityOverrides?: Partial<Identity>) {
       identity={identity}
       hue={200}
       hostId={1}
-      // Phase 89 Plan 05: required prop — Runbooks tab is always rendered per D-11.
-      onOpenRunbook={vi.fn()}
+      // Phase 90 Plan 90-06: onOpenRoleModal is the new required prop.
+      onOpenRoleModal={vi.fn()}
       container={document.body}
     />,
   );

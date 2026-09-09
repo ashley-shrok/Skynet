@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 // Phase 86 Plan 86-05: type-only React import for ReactNode in the inherit-
 // override render helpers below (renderInheritedBadge / renderRevertButton).
 // Mirrors the pattern used by src/ui/components/section-card.tsx.
 import type React from "react";
-import { AlarmClock, BookOpen, Pencil, Send, Target, User, Users, X } from "lucide-react";
+import { AlarmClock, Pencil, Send, User, X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import {
   DialogHeader,
@@ -11,25 +11,8 @@ import {
   DialogClose,
 } from "@/components/dialog";
 import { Tabs, TabsContent } from "@/components/tabs";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/accordion";
-import { Skeleton } from "@/components/skeleton";
 import { Button } from "@/components/button";
-// Quick 260829-f9l: shadcn Input for the Bounties-tab search box.
-import { Input } from "@/components/input";
 import { Switch } from "@/components/switch";
-// Quick 260727-tb1: piggyback path — when Ashley reprioritizes a bounty via
-// the modal, invalidate the panel's cached pinned count for this identity
-// so the .pv-bounty-badge refreshes immediately instead of waiting for the
-// next 60s poll. The spec (Key design decision #5) calls for wiring this
-// off the identity:bounty-priority-updated response; the modal is the
-// natural placement because it owns both identityKey + hostId + the WS
-// response callback (there is no shared identity:* listener elsewhere).
-import { invalidateIdentity as invalidateBountyCount } from "@/state/bounty-counts-store";
 // Quick 260731-1c8: add inline title + avatar editor to the Identity tab.
 // updateIdentity is the existing PUT /identities/:identityKey HTTP client; applyIdentityChange
 // broadcasts the fresh identity to all useIdentities() consumers so live
@@ -47,74 +30,27 @@ import { VoicePicker } from "./pickers/VoicePicker";
 import { ColorPicker } from "./pickers/ColorPicker";
 import {
   openClaudeSessionSocket,
-  type Bounty,
-  type BountyPriority,
-  type BountyStatus,
-  type IdentityBountiesEvent,
-  type IdentityListBountiesPayload,
   type IdentityGetIdentityFilePayload,
   type IdentityIdentityFileEvent,
   type IdentityListWakeupsPayload,
   type IdentityWakeupsEvent,
   type IdentityUpdateWakeupPayload,
   type IdentityWakeupUpdatedEvent,
-  type IdentityUpdateBountyPriorityPayload,
-  type IdentityBountyPriorityUpdatedEvent,
-  type IdentityUpdateBountyStatusPayload,
-  type IdentityBountyStatusUpdatedEvent,
-  type IdentityUpdateBountyPinnedPayload,
-  type IdentityBountyPinnedUpdatedEvent,
-  type IdentityUpdateBountyNeedsDeskPayload,
-  type IdentityBountyNeedsDeskUpdatedEvent,
-  type IdentityArchiveBountyPayload,
-  type IdentityBountyArchivedEvent,
-  type IdentityDeleteBountyPayload,
-  type IdentityBountyDeletedEvent,
-  type BountyFieldsPatch,
-  type IdentityUpdateBountyFieldsPayload,
-  type IdentityBountyFieldsUpdatedEvent,
   type Wakeup,
   // Phase 18 / IDMEDIT-01: markdown-tab write wire types from Plan 01
   type IdentityUpdateIdentityFilePayload,
   type IdentityIdentityFileUpdatedEvent,
-  // Phase 22 SRIC-06 / Plan 22-06: role-file read + update wire types.
-  // Backend does the two-step; frontend contract stays (identityKey, hostId).
-  type IdentityGetRoleFilePayload,
-  type IdentityRoleFileEvent,
-  type IdentityUpdateRoleFilePayload,
-  type IdentityRoleFileUpdatedEvent,
-  // Phase 72 Plan 01: role-scope + identity-scope wakeup CRUD wire types
-  // consumed by the two Wakeups panes in Wave 3 (identity:*-wakeup for
-  // identity scope, identity:*-role-wakeup for role scope).
+  // Phase 72 Plan 01: identity-scope wakeup CRUD wire types.
+  // Phase 90 Plan 90-06: role-scope wire types removed — role scope moves to RoleModal.
   type WakeupSpecWire,
-  type IdentityListRoleWakeupsPayload,
-  type IdentityRoleWakeupsEvent,
-  type IdentityCreateRoleWakeupPayload,
-  type IdentityRoleWakeupCreatedEvent,
-  type IdentityUpdateRoleWakeupPayload,
-  type IdentityRoleWakeupUpdatedEvent,
-  type IdentityDeleteRoleWakeupPayload,
-  type IdentityRoleWakeupDeletedEvent,
   type IdentityCreateWakeupPayload,
   type IdentityWakeupCreatedEvent,
   type IdentityDeleteWakeupPayload,
   type IdentityWakeupDeletedEvent,
 } from "@/api/claude-session-api";
-// Phase 72 Plan 03: per-identity scope memory for the segmented Role/Identity
-// switch that lives above the Tabs component. Store is browser-session-only
-// (in-memory Map); the modal derives the coord-vs-actor default when
-// useModalScope returns undefined.
-import {
-  useModalScope,
-  setModalScope,
-  type ModalScope,
-} from "@/state/modal-scope-store";
 import type { Identity } from "@/api/identities-api";
-import { BountyCard } from "./BountyCard";
 import { cn } from "@/lib/utils";
 import { IdentityFileTab, type TabState } from "./IdentityFileTab";
-import { RoleFileTab } from "./RoleFileTab";
-import { RunbooksTab } from "./RunbooksTab";
 import { WakeupsTab } from "./WakeupsTab";
 // Phase 79 Plan 07 — Telegram bridge tab (identity-scope, fixed real-estate
 // per CONTEXT § Locked decisions #2). TelegramState is threaded from a
@@ -126,67 +62,102 @@ import { TelegramTab, type TelegramState } from "./TelegramTab";
 // the same source of truth.
 import { getUserInfo } from "@/main-axios";
 
-// Patch #87: tabbed near-fullscreen modal for the identity's bounties.
-// Patch #17g: renamed Standing Directives → Identity; promoted Identity to
-//   position 1 + default active tab; parallel fetch of artifacts (identity
-//   file, wakeups) on modal open; tab renderers extracted to sibling files
-//   (IdentityFileTab / WakeupsTab / RunbooksTab). Bounties tab structure
-//   and patch #87 attribution preserved. Phase 89 Plan 05: History + Handoff
-//   tab surface removed per D-12; Runbooks tab added per D-08 through D-13.
-// Patch #92: hostId prop threads pane host to backend for cross-machine identity reads.
-//   All 5 WS request payloads now carry hostId; useEffect deps include hostId so
-//   switching panes re-fetches against the correct host.
+// Phase 90 Plan 90-06 (D-09): identity modal is now identity-scope only.
+// Post-Phase-90-06 nav sections: Identity file / Wakeups / Telegram. All
+// role-scope surfaces (Role file / Runbooks / Bounties / Role-Wakeups)
+// moved to the new RoleModal component (Plan 90-04). The segmented
+// Role/Identity scope switch is deleted; ModalScope store retired.
 //
-// Opens on click of the lg IdentityBadge in PrettyView (Task 3). Fetches
-// bounties via a one-shot identity:list-bounties WS request (D-02). Closes
-// the WS after the single response — no live subscription (D-13).
+// Patch #17g: parallel fetch of artifacts (identity file, wakeups) on modal
+// open; tab renderers extracted to sibling files (IdentityFileTab /
+// WakeupsTab). Patch #92: hostId prop threads pane host to backend for
+// cross-machine identity reads.
 //
-// Modal uses the same glass tokens as the IdentityBadge lg branch (D-05):
-// same gradient/backdrop-blur/border/shadow family so the badge appears to
+// Opens on click of the lg IdentityBadge in PrettyView (Task 3). Modal uses
+// the same glass tokens as the IdentityBadge lg branch (D-05): same
+// gradient/backdrop-blur/border/shadow family so the badge appears to
 // "expand" to fill the surface. shadcn DialogContent base overrides use `!`
 // important suffix per patch #81 rule (D-06).
+
+// Phase 90 Plan 90-06 (D-04): clickable title-line span.
 //
-// Role scope tabs: Role file / Runbooks / Bounties / Wakeups.
-// Identity scope tabs: Identity file / Wakeups / Telegram.
-// Phase 89 Plan 05: History + Handoff tabs removed per D-12; Runbooks added.
-// Sort/group logic is client-side only (D-08, D-09). Archive section is a
-// collapsed Accordion below the open groups (D-03).
-
-const PRIORITY_WEIGHT: Record<string, number> = {
-  urgent: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
-  unprioritized: 4,
-};
-
-// Patch #172: `pinned` is now an independent boolean field. Pinned bounties
-// get their own top group (`pinned`) rendered above the in_progress fence
-// regardless of status. Below that, in_progress keeps its fence; `rest`
-// still collapses waiting_on_someone_else + anything else that's not
-// in_progress + not done/dropped into one flat priority-sorted region (no
-// header). done/dropped-in-place bounties still bucket to `other` with a
-// quiet header so recently-closed work doesn't blend into open work.
-const OPEN_STATUS_ORDER = ["pinned", "in_progress", "rest", "other"];
-
-const GROUP_LABELS: Record<string, string> = {
-  pinned: "Pinned", // patch #172: pinned-boolean global top group
-  in_progress: "In Progress",
-  rest: "", // patch #109: no header for the flat priority-sorted region
-  other: "Other",
-};
-
-function priorityWeight(p: string): number {
-  return PRIORITY_WEIGHT[p] ?? 4;
-}
-
-function sortBounties(bounties: Bounty[]): Bounty[] {
-  return [...bounties].sort((a, b) => {
-    const pd = priorityWeight(a.priority) - priorityWeight(b.priority);
-    if (pd !== 0) return pd;
-    // updated_at desc (most recent first)
-    return (b.updated_at ?? "").localeCompare(a.updated_at ?? "");
-  });
+// D-04 exact spec: cursor:pointer + color #c4b89a + dotted underline
+// (rgba(196, 184, 154, 0.35) at 2px offset) + trailing chevron `›` span with
+// marginLeft:3, opacity:0.7, transition 120ms. On hover: color #f0ebe0,
+// decoration solid, decoration-color rgba(240, 235, 224, 0.6), chevron
+// opacity 1. Native `title` attribute `Open role modal: <role-display-name>`.
+// Keyboard: Enter/Space activate.
+//
+// Implemented as a role="button" span (rather than <button>) so it can sit
+// inside the flex column above as a text element without breaking the
+// truncate class. Matches the panel-menu hover-flip pattern from
+// PrettyConversationsPanel.tsx L2061-2062 — no pseudo-classes, inline
+// style flips via onMouseEnter/onMouseLeave.
+function TitleLineJumpToRole({
+  identity,
+  text,
+  className,
+  jumpTargetLabel,
+  onJump,
+}: {
+  identity: Identity;
+  text: string;
+  className?: string;
+  jumpTargetLabel: string;
+  onJump: () => void;
+}): React.ReactElement {
+  const REST_COLOR = "#c4b89a";
+  const REST_DECO_COLOR = "rgba(196, 184, 154, 0.35)";
+  const HOVER_COLOR = "#f0ebe0";
+  const HOVER_DECO_COLOR = "rgba(240, 235, 224, 0.6)";
+  const [hovered, setHovered] = useState(false);
+  const handleActivate = useCallback(
+    (e: React.MouseEvent | React.KeyboardEvent) => {
+      e.stopPropagation();
+      onJump();
+    },
+    [onJump],
+  );
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      aria-label={`Open role modal: ${jumpTargetLabel}`}
+      title={`Open role modal: ${jumpTargetLabel}`}
+      data-testid="identity-modal-title-line-jump"
+      data-identity-key={identity.identityKey}
+      className={className}
+      style={{
+        cursor: "pointer",
+        color: hovered ? HOVER_COLOR : REST_COLOR,
+        textDecoration: "underline",
+        textDecorationStyle: hovered ? "solid" : "dotted",
+        textDecorationColor: hovered ? HOVER_DECO_COLOR : REST_DECO_COLOR,
+        textUnderlineOffset: "2px",
+        transition: "color 120ms, text-decoration 120ms",
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={handleActivate}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleActivate(e);
+        }
+      }}
+    >
+      {text}
+      <span
+        style={{
+          marginLeft: 3,
+          opacity: hovered ? 1 : 0.7,
+          transition: "opacity 120ms",
+        }}
+      >
+        {"›"}
+      </span>
+    </span>
+  );
 }
 
 export function IdentityModal({
@@ -195,21 +166,22 @@ export function IdentityModal({
   identity,
   hue,
   hostId,
-  onOpenRunbook,
+  onOpenRoleModal,
   container,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   identity: Identity;
   hue: number;
-  /** patch #92: pane's SSH host id — threads into all 5 WS requests for cross-machine reads. */
+  /** patch #92: pane's SSH host id — threads into all WS requests for cross-machine reads. */
   hostId: number;
-  /** Phase 89 Plan 05: fired when a Runbooks tab row is clicked. PrettyView owns the
-   *  swap-not-stack coordination — closes this identity modal and opens RunbookEditorModal
-   *  for {roleName: identity.role, runbookName}. Wave 6 (PrettyView) supplies the impl;
-   *  there is no fail-closed default because the Runbooks tab is always rendered (D-11)
-   *  and any missing impl would fail loudly. */
-  onOpenRunbook: (runbookName: string) => void;
+  /** Phase 90 Plan 90-06 (D-04): fired when the title-line span (or displayName
+   *  fallback) is clicked. Parent (PrettyView) owns swap-not-stack coordination —
+   *  the click handler in this modal calls onOpenChange(false) at the same tick
+   *  onOpenRoleModal fires, so the parent's handler only needs to open the role
+   *  modal (no double-close). Guard branch: when identity.role is null, the
+   *  title-line renders un-decorated and this prop is not invoked (defensive). */
+  onOpenRoleModal: (identity: Identity) => void;
   /** patch #108: DOM element to portal into (chat-content region of PrettyView) so the modal
    *  covers only bubbles/tasks/shells and leaves the composer + identity badge uncovered.
    *  When null (transient first render), Portal defaults to document.body — harmless because
@@ -217,66 +189,12 @@ export function IdentityModal({
    *  has been set. Container must be `position: relative` for absolute positioning to resolve. */
   container?: HTMLElement | null;
 }) {
-  const [bounties, setBounties] = useState<Bounty[]>([]);
-  const [archivedBounties, setArchivedBounties] = useState<Bounty[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Quick 260823-80r: archive is loaded lazily on Accordion expand. The
-  // initial modal-open bounties fetch omits `includeArchived: true`, so the
-  // backend returns `archivedBounties: []` without running the expensive
-  // `for d in */; do cat "$d/bounty.json"; done` shell one-liner (which
-  // exceeds REMOTE_EXEC_TIMEOUT_MS for roles like Wendy/Molly/Aqua on host 7).
-  //   unloaded — the accordion has never been opened this session; label reads `Archive`
-  //   loading  — a fetch is in flight; label reads `Archive (loading…)`
-  //   loaded   — server responded; label reads `Archive (N)`
-  // Failure surfaces via `archivedError` while `archivedLoadState` returns to
-  // `unloaded` so the next click re-fires the fetch.
-  const [archivedLoadState, setArchivedLoadState] = useState<
-    "unloaded" | "loading" | "loaded"
-  >("unloaded");
-  const [archivedError, setArchivedError] = useState<string | null>(null);
-  // Quick 260829-f9l: client-side search box for the Bounties tab. Filters
-  // BOTH open partitions AND (when loaded) the archive accordion body by
-  // case-insensitive substring match against title / premise / slug /
-  // keywords[]. No debounce (list is < 100 items per role — useMemo is enough).
-  // Typing MUST NOT force an archive fetch — the accordion still owns the
-  // lazy-load click gesture; typing while archive is unloaded surfaces a
-  // hint below the query-driven empty state instead.
-  const [bountyQuery, setBountyQuery] = useState<string>("");
-  // Quick 260823-80r: controlled Radix Accordion value. Empty string = closed;
-  // "archive" = expanded. We control it so the failure path can programmatically
-  // close the accordion on WS-close-before-response, guaranteeing that the
-  // user's next click on the trigger transitions "" → "archive" (which fires
-  // `onValueChange("archive")` and re-triggers the fetch). Without the
-  // controlled value, an uncontrolled Radix Accordion stays "open" after a
-  // failed fetch and the retry click would fire `onValueChange("")` instead,
-  // silently no-op'ing.
-  const [archiveAccordionValue, setArchiveAccordionValue] = useState<string>("");
-  // Phase 72 Plan 03: Role/Identity scope memory. Store returns undefined when
-  // this identity has no scope entry yet; caller derives the coord-vs-actor
-  // default (coordinator → "role", actor → "identity"). activeTab is derived
-  // from scope below.
-  const storedScope = useModalScope(identity.identityKey);
-  const defaultScope: ModalScope = identity.coordinator ? "role" : "identity";
-  const scope: ModalScope = storedScope ?? defaultScope;
-  const onScopeChange = useCallback(
-    (next: ModalScope) => setModalScope(identity.identityKey, next),
-    [identity.identityKey],
-  );
-  // Phase 22 SRIC-06 / Plan 22-06 → Phase 72 Plan 03: default active tab used
-  // to be flat "bounties" (Ashley 2026-08-05). Now derives from scope: Role
-  // scope defaults to Role file tab, Identity scope defaults to Identity file
-  // tab. Scope-change auto-resets activeTab because tabs are scope-conditional
-  // (see useEffect below).
-  const [activeTab, setActiveTab] = useState<string>(scope === "role" ? "role" : "identity");
-  useEffect(() => {
-    // Reset activeTab to the scope's default landing tab when scope flips —
-    // the previously-selected tab may not exist in the new scope's NAV_SECTIONS
-    // (e.g. "bounties" is Role-scope only, "handoff" is Identity-scope only).
-    setActiveTab(scope === "role" ? "role" : "identity");
-  }, [scope]);
-  // refetchKey increments on Retry to re-trigger the fetch effect.
-  const [refetchKey, setRefetchKey] = useState(0);
+  // Phase 90 Plan 90-06 (D-09): identity modal is identity-scope only.
+  // The segmented scope switch, its useModalScope memory, the scope-conditional
+  // activeTab reset, the bounties list + archive state, and the refetchKey are
+  // all DELETED — those belonged to role-scope tabs that now live in RoleModal.
+  // Default landing tab: "identity" (was scope-derived).
+  const [activeTab, setActiveTab] = useState<string>("identity");
 
   // Quick 260731-1c8: inline editor state for the Identity tab.
   // titleDraft: controlled value for the title <input>.
@@ -332,56 +250,24 @@ export function IdentityModal({
   const [staysAwakeSaving, setStaysAwakeSaving] = useState<boolean>(false);
 
   // Patch #191: bottom icon-bar nav for section switching (Telegram-shape).
-  // Replaces the previous shadcn TabsList strip, which (a) aesthetically didn't
-  // match Skynet's pretty-view visual language and (b) got CUT OFF on narrow
-  // mobile viewports. Bottombar is mobile-safe by construction — evenly-flexed
-  // slots + icon-first labels.
   //
-  // Phase 72 Plan 03: single 6-item NAV_SECTIONS split into two per-scope
-  // variants. Phase 89 Plan 05: Role scope now shows 4 tabs (Role file /
-  // Runbooks / Bounties / Wakeups — History removed per D-12, Runbooks added
-  // per D-08/D-13); Identity scope now shows 3 tabs (Identity file / Wakeups /
-  // Telegram — Handoff removed per D-12). The Wakeups tab under Role scope
-  // carries value="role-wakeups" and routes through the role-scope WS handlers;
-  // under Identity scope it carries value="identity-wakeups" and routes through
-  // the identity-scope handlers. The bottom-bar labels intentionally use
-  // "Role file" / "Identity file" instead of just "Role" / "Identity" — the
-  // top segmented scope switch already disambiguates scope, so the tab label
-  // describes the artifact.
-  const NAV_SECTIONS_ROLE = [
-    { value: "role", label: "Role file", Icon: Users },
-    // Phase 89 Plan 05: Runbooks tab (role scope) inserted as second entry per D-13 spirit.
-    // D-13's flat order "role file, runbooks, identity file, bounties, wake-ups" interleaves
-    // scopes and is not achievable without a Phase-72-Plan-03 scope-regrouping (own bounty).
-    // Runbooks stays role-scope (data lives at ~/.claude/roles/<role>/runbooks/).
-    // Tab body renders as <TabsContent value="runbooks" ...> (see below).
-    { value: "runbooks", label: "Runbooks", Icon: BookOpen },
-    { value: "bounties", label: "Bounties", Icon: Target },
-    { value: "role-wakeups", label: "Wakeups", Icon: AlarmClock },
-  ] as const;
-  const NAV_SECTIONS_IDENTITY = [
+  // Phase 90 Plan 90-06 (D-09): the two per-scope NAV_SECTIONS variants collapse
+  // to a single NAV_SECTIONS array — role-scope entries (Role file / Runbooks /
+  // Bounties / Role-Wakeups) migrated to RoleModal (Plan 90-04). Post-Phase-90-06
+  // labels are just plain "Identity file" / "Wakeups" / "Telegram" — no
+  // scope-disambiguating prefix needed since scope switch is gone.
+  const NAV_SECTIONS = [
     { value: "identity", label: "Identity file", Icon: User },
     { value: "identity-wakeups", label: "Wakeups", Icon: AlarmClock },
-    // Phase 89 Plan 05: Handoff tab removed per D-12. Handoff entry deleted.
     // Phase 79 Plan 07 — Telegram bridge tab (CONTEXT § 2 fixed real-estate).
     { value: "telegram", label: "Telegram", Icon: Send },
   ] as const;
-  const NAV_SECTIONS = scope === "role" ? NAV_SECTIONS_ROLE : NAV_SECTIONS_IDENTITY;
 
-  // Patch #17g: independent state slots for each new artifact tab.
+  // Patch #17g: independent state slots for each artifact tab.
   const [identityFileState, setIdentityFileState] = useState<TabState<string>>({ status: "loading" });
-  // Phase 22 SRIC-06 / Plan 22-06: sixth state slot for the Role tab. Backend
-  // does the two-step (identity file → role: frontmatter → role artifact) so
-  // the frontend just observes the wire {markdown, error?} shape.
-  const [roleFileState, setRoleFileState] = useState<TabState<string>>({ status: "loading" });
-  // Phase 72 Plan 03: renamed the identity-scope slot for scope clarity —
-  // it always held identity-scope wakeups but the old name (pre-72) no longer
-  // disambiguates now that a parallel role-scope slot lives beside it.
-  // `roleWakeupsState` is fed by a parallel identity:list-role-wakeups fetch
-  // on modal open so both scopes' Wakeups tabs render instantly on scope
-  // switch.
+  // Phase 90 Plan 90-06: identity-scope wakeups state (role-scope roleWakeupsState
+  // moved to RoleModal). Kept name for symmetry with the identity-wakeups tab value.
   const [identityWakeupsState, setIdentityWakeupsState] = useState<TabState<Wakeup[]>>({ status: "loading" });
-  const [roleWakeupsState, setRoleWakeupsState] = useState<TabState<Wakeup[]>>({ status: "loading" });
   // Phase 79 Plan 07 — Telegram bridge tab state. Fetched on modal open via
   // getTelegramStatus (see effect below).
   const [telegramState, setTelegramState] = useState<TelegramState>({ status: "loading" });
@@ -394,42 +280,27 @@ export function IdentityModal({
 
   const wsRef = useRef<WebSocket | null>(null);
 
-  // Fetch bounties + 4 new artifacts when modal opens (or refetch key increments).
-  // All 5 WS requests fire in parallel in a single useEffect — independent state
-  // slots so one broken artifact does not take down the others.
+  // Phase 90 Plan 90-06 (D-09): initial-fetch effect drastically simplified —
+  // only 2 parallel fetches now (identity file + identity-scope wakeups).
+  // The bounties WS request, role-file WS request, role-scope wakeups WS
+  // request, and the loadArchivedBounties lazy loader all migrated to
+  // RoleModal (Plan 90-04). Independent state slots so one broken artifact
+  // doesn't take down the other.
   useEffect(() => {
     if (!open || !identity.identityKey) return;
 
-    setLoading(true);
-    setError(null);
-    setBounties([]);
-    setArchivedBounties([]);
-    // Quick 260823-80r: reset lazy archive state — a fresh modal open (or
-    // identity/host switch) must not carry over the previous session's
-    // loaded/loading/error state, or the user would see the wrong count in
-    // the trigger label until they clicked again.
-    setArchivedLoadState("unloaded");
-    setArchivedError(null);
-    setArchiveAccordionValue("");
-
-    // Reset artifact state slots to loading (Phase 72 Plan 03: roleWakeupsState
-    // was added alongside identityWakeupsState; Phase 89 Plan 05: two fetch slots
-    // removed per D-12 dead-code posture).
+    // Reset artifact state slots to loading.
     setIdentityFileState({ status: "loading" });
-    setRoleFileState({ status: "loading" });
     setIdentityWakeupsState({ status: "loading" });
-    setRoleWakeupsState({ status: "loading" });
     // Phase 79 Plan 07 — reset Telegram tab state + authUserId on modal
     // open / identity switch. Effects below re-fetch both.
     setTelegramState({ status: "loading" });
     setAuthUserId("");
 
     let cancelled = false;
-    const ws = openClaudeSessionSocket();
-    wsRef.current = ws;
 
-    // Patch #17g: one-shot helper for the 4 new artifact fetches.
-    // Opens its own WS, sends request on open, resolves on first matching response.
+    // Patch #17g: one-shot helper. Opens its own WS, sends request on open,
+    // resolves on first matching response.
     const artifactSockets: WebSocket[] = [];
     function openOneShot<Req extends { type: string }, Res extends { type: string }>(
       request: Req,
@@ -466,66 +337,6 @@ export function IdentityModal({
       return sock;
     }
 
-    // Existing bounties WS (patch #87/#92 — now includes hostId).
-    ws.onopen = () => {
-      if (cancelled) return;
-      const payload: IdentityListBountiesPayload = {
-        type: "identity:list-bounties",
-        identityKey: identity.identityKey,
-        hostId,
-      };
-      try {
-        ws.send(JSON.stringify(payload));
-      } catch {
-        /* ws may be mid-close */
-      }
-    };
-
-    ws.onmessage = (event: MessageEvent<string>) => {
-      if (cancelled) return;
-      let parsed: IdentityBountiesEvent;
-      try {
-        const raw = JSON.parse(event.data) as { type?: string };
-        if (raw.type !== "identity:bounties") return; // ignore unrecognized frames
-        parsed = raw as IdentityBountiesEvent;
-      } catch {
-        return;
-      }
-      setBounties(parsed.bounties ?? []);
-      // Quick 260823-80r: DO NOT setArchivedBounties from the initial fetch —
-      // the backend returns `archivedBounties: []` when includeArchived is
-      // omitted (its new default), so this call would clobber whatever
-      // loadArchivedBounties() has already populated (which is nothing on
-      // the initial open, but the removal keeps the seam clean for the
-      // future case where a mutation refetch races with the initial load).
-      // Actual archive population lives in loadArchivedBounties() below.
-      if (parsed.error) setError(parsed.error);
-      setLoading(false);
-      // One-shot: close WS after receiving the response (D-13).
-      try {
-        ws.close();
-      } catch {
-        /* ignore */
-      }
-    };
-
-    const handleFailure = () => {
-      if (cancelled) return;
-      setError("Connection failed");
-      setLoading(false);
-    };
-
-    ws.onerror = handleFailure;
-    ws.onclose = () => {
-      // Only treat as failure if we haven't received a response yet.
-      if (!cancelled && loading) {
-        handleFailure();
-      }
-    };
-
-    // Patch #17g/#92: fire 4 new artifact fetches in parallel; each carries hostId.
-    // Phase 22 SRIC-06 / Plan 22-06: add sixth parallel fetch for the role file.
-    // Backend does the two-step; frontend only sees the wire {markdown, error?} shape.
     openOneShot<IdentityGetIdentityFilePayload, IdentityIdentityFileEvent>(
       { type: "identity:get-identity-file", identityKey: identity.identityKey, hostId, },
       "identity:identity-file",
@@ -533,15 +344,6 @@ export function IdentityModal({
         ? { status: "error", error: ev.error }
         : { status: "ready", data: ev.markdown }),
       (e) => setIdentityFileState({ status: "error", error: e }),
-    );
-
-    openOneShot<IdentityGetRoleFilePayload, IdentityRoleFileEvent>(
-      { type: "identity:get-role-file", identityKey: identity.identityKey, hostId, },
-      "identity:role-file",
-      (ev) => setRoleFileState(ev.error
-        ? { status: "error", error: ev.error }
-        : { status: "ready", data: ev.markdown }),
-      (e) => setRoleFileState({ status: "error", error: e }),
     );
 
     openOneShot<IdentityListWakeupsPayload, IdentityWakeupsEvent>(
@@ -553,96 +355,15 @@ export function IdentityModal({
       (e) => setIdentityWakeupsState({ status: "error", error: e }),
     );
 
-    // Phase 72 Plan 03: parallel fetch for role-scope wakeups so scope-switching
-    // to Role reveals the list without a wait. Byte-shape mirror of the
-    // identity-scope fetch above; swaps the wire type and target state slot.
-    openOneShot<IdentityListRoleWakeupsPayload, IdentityRoleWakeupsEvent>(
-      { type: "identity:list-role-wakeups", identityKey: identity.identityKey, hostId, },
-      "identity:role-wakeups",
-      (ev) => setRoleWakeupsState(ev.error
-        ? { status: "error", error: ev.error }
-        : { status: "ready", data: ev.wakeups }),
-      (e) => setRoleWakeupsState({ status: "error", error: e }),
-    );
-
     return () => {
       cancelled = true;
-      try { ws.close(); } catch { /* ignore */ }
       for (const sock of artifactSockets) {
         try { sock.close(); } catch { /* ignore */ }
       }
       wsRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, identity.identityKey, hostId, refetchKey]);
-
-  // Quick 260823-80r: lazy archive loader. Fires a NEW one-shot WS with
-  // `includeArchived: true` when the user first expands the Archive accordion.
-  // Idempotent — the `archivedLoadState === "loaded"` early return means a
-  // second click (collapse → re-expand) does not open another WS. Failure
-  // (WS closes before response) sets `archivedError` + returns state to
-  // `unloaded` so the very next click on the trigger retries. This mirrors
-  // the one-shot pattern used elsewhere in the modal (openOneShot in the
-  // initial-fetch effect, sendIdentityMutation for the write-then-refetch
-  // path) — same shape, different lifecycle.
-  //
-  // Reads state via `archivedLoadState` (functional check inside the
-  // callback would be cleaner but the closure over the current render's
-  // state is fine because the useCallback deps include it, so React
-  // regenerates the callback on every state transition — no stale reads).
-  const loadArchivedBounties = useCallback(() => {
-    if (!identity.identityKey) return;
-    // Idempotency: once loaded (with no error), the current archivedBounties
-    // state is authoritative and a re-expand should render from it. The
-    // error case falls through to a fresh fetch (retry).
-    if (archivedLoadState === "loaded" && archivedError === null) return;
-    if (archivedLoadState === "loading") return; // in flight — dedupe
-
-    setArchivedLoadState("loading");
-    setArchivedError(null);
-
-    let responded = false;
-    const sock = openClaudeSessionSocket();
-    sock.onopen = () => {
-      const payload: IdentityListBountiesPayload = {
-        type: "identity:list-bounties",
-        identityKey: identity.identityKey,
-        hostId,
-        includeArchived: true,
-      };
-      try { sock.send(JSON.stringify(payload)); } catch { /* ws mid-close */ }
-    };
-    sock.onmessage = (event: MessageEvent<string>) => {
-      if (responded) return;
-      try {
-        const raw = JSON.parse(event.data) as { type?: string };
-        if (raw.type !== "identity:bounties") return;
-        const parsed = raw as IdentityBountiesEvent;
-        responded = true;
-        setArchivedBounties(parsed.archivedBounties ?? []);
-        setArchivedLoadState("loaded");
-        setArchivedError(null);
-        try { sock.close(); } catch { /* ignore */ }
-      } catch { /* ignore */ }
-    };
-    const handleFail = () => {
-      if (responded) return;
-      responded = true;
-      // Return to unloaded so the next trigger click retries. `archivedError`
-      // drives the trigger label into the "failed to load — click to retry"
-      // variant so the user knows why the count didn't appear. We also
-      // programmatically CLOSE the accordion (value → "") so the retry click
-      // fires a "" → "archive" transition (Radix only invokes onValueChange
-      // when the value actually changes — clicking a still-open accordion
-      // after a failure would otherwise fire onValueChange("") and NOT
-      // re-invoke this loader).
-      setArchivedError("Failed to load archive");
-      setArchivedLoadState("unloaded");
-      setArchiveAccordionValue("");
-    };
-    sock.onerror = handleFail;
-    sock.onclose = () => { if (!responded) handleFail(); };
-  }, [identity.identityKey, hostId, archivedLoadState, archivedError]);
+  }, [open, identity.identityKey, hostId]);
 
   // Quick 260731-1c8: reset editor state on fresh open or identity switch.
   // Revokes any prior avatarPreviewUrl to avoid memory leaks; resets
@@ -777,49 +498,8 @@ export function IdentityModal({
     return () => { cancelled = true; };
   }, [open, identity.identityKey]);
 
-  // Patch #172: pinned-first partition. `pinned` is now an independent
-  // boolean field (fleet migration #168), so ANY bounty with pinned===true
-  // wins the top group regardless of its `status` value. Below the pinned
-  // group, patch #109's semantics still apply: in_progress fence + flat
-  // priority-sorted rest + done/dropped-in-place → `other`. The pinned
-  // check runs BEFORE the isArchived check so a pinned done/dropped bounty
-  // still sits in Pinned (Ashley's requested behavior — pinning is the
-  // "keep this visible" signal orthogonal to lifecycle).
-  const grouped = useMemo(() => {
-    const groups: Record<string, Bounty[]> = {
-      pinned: [],
-      in_progress: [],
-      rest: [],
-      other: [],
-    };
-    for (const b of bounties) {
-      if (b.pinned === true) {
-        groups.pinned.push(b);
-        continue;
-      }
-      const isArchived = b.status === "done" || b.status === "dropped";
-      if (isArchived) {
-        // done/dropped in open dir: treat as archived-in-place (D-09).
-        groups.other.push(b);
-        continue;
-      }
-      if (b.status === "in_progress") {
-        groups.in_progress.push(b);
-      } else {
-        // waiting_on_someone_else, or any other open non-pinned status →
-        // all collapse into the flat priority-sorted rest region.
-        groups.rest.push(b);
-      }
-    }
-    // Sort every partition by priority asc, updated_at desc (same
-    // sortBounties helper — the CHANGE is at the partition layer, not the
-    // in-partition sort). This preserves within-group priority ordering
-    // for the new pinned group too.
-    for (const key of Object.keys(groups)) {
-      groups[key] = sortBounties(groups[key]);
-    }
-    return groups;
-  }, [bounties]);
+  // Phase 90 Plan 90-06: bounty grouping / `grouped` memo DELETED — bounties
+  // moved to RoleModal via RoleBountiesTab (Plan 90-04 Task 2).
 
   // Patch #154: one-shot mutation helper. Opens a WS, sends the mutation,
   // resolves with the fresh list from the server response. Mirrors the
@@ -916,62 +596,9 @@ export function IdentityModal({
     setIdentityWakeupsState({ status: "ready", data: res.wakeups });
   }
 
-  // Phase 72 Plan 03: role-scope update handler. Mirrors updateWakeup but
-  // hits the identity:update-role-wakeup wire type (backend two-step resolves
-  // identityKey → role → ~/.claude/roles/<role>/wakeups/<slug>.json).
-  async function updateRoleWakeup(
-    wakeupSlug: string,
-    updates: { enabled?: boolean; schedule?: unknown; name?: string; instruction?: string },
-  ): Promise<void> {
-    if (!identity.identityKey) throw new Error("no identity key");
-    const payload: IdentityUpdateRoleWakeupPayload = {
-      type: "identity:update-role-wakeup",
-      identityKey: identity.identityKey,
-      hostId,
-      wakeupSlug,
-      updates,
-    };
-    const res = await sendIdentityMutation<IdentityUpdateRoleWakeupPayload, IdentityRoleWakeupUpdatedEvent>(
-      payload,
-      "identity:role-wakeup-updated",
-    );
-    if (res.error) throw new Error(res.error);
-    setRoleWakeupsState({ status: "ready", data: res.wakeups });
-  }
-
-  // Phase 72 Plan 03: role-scope create handler.
-  async function createRoleWakeup(spec: WakeupSpecWire): Promise<void> {
-    if (!identity.identityKey) throw new Error("no identity key");
-    const payload: IdentityCreateRoleWakeupPayload = {
-      type: "identity:create-role-wakeup",
-      identityKey: identity.identityKey,
-      hostId,
-      spec,
-    };
-    const res = await sendIdentityMutation<IdentityCreateRoleWakeupPayload, IdentityRoleWakeupCreatedEvent>(
-      payload,
-      "identity:role-wakeup-created",
-    );
-    if (res.error) throw new Error(res.error);
-    setRoleWakeupsState({ status: "ready", data: res.wakeups });
-  }
-
-  // Phase 72 Plan 03: role-scope delete handler.
-  async function deleteRoleWakeup(wakeupSlug: string): Promise<void> {
-    if (!identity.identityKey) throw new Error("no identity key");
-    const payload: IdentityDeleteRoleWakeupPayload = {
-      type: "identity:delete-role-wakeup",
-      identityKey: identity.identityKey,
-      hostId,
-      wakeupSlug,
-    };
-    const res = await sendIdentityMutation<IdentityDeleteRoleWakeupPayload, IdentityRoleWakeupDeletedEvent>(
-      payload,
-      "identity:role-wakeup-deleted",
-    );
-    if (res.error) throw new Error(res.error);
-    setRoleWakeupsState({ status: "ready", data: res.wakeups });
-  }
+  // Phase 90 Plan 90-06 (D-09): role-scope wakeup CRUD handlers (updateRoleWakeup,
+  // createRoleWakeup, deleteRoleWakeup) DELETED — coverage moved to RoleModal
+  // (Plan 90-04).
 
   // Phase 18 / IDMEDIT-01: save handler for the identity file (<key>.md).
   // Byte-shape mirror of updateWakeup — sendIdentityMutation generic, throws on
@@ -992,26 +619,9 @@ export function IdentityModal({
     setIdentityFileState({ status: "ready", data: res.markdown });
   }
 
-  // Phase 22 SRIC-06 / Plan 22-06: save handler for the role file
-  // (~/.claude/roles/<role>/<role>.md). Byte-shape mirror of updateIdentityFile
-  // — same sendIdentityMutation, same throw-on-res.error, same
-  // set-from-server-echo. Backend does the two-step + re-read so this frontend
-  // is a mechanical mirror of the identity-file handler.
-  async function updateRoleFile(contents: string): Promise<void> {
-    if (!identity.identityKey) throw new Error("no identity key");
-    const payload: IdentityUpdateRoleFilePayload = {
-      type: "identity:update-role-file",
-      identityKey: identity.identityKey,
-      hostId,
-      contents,
-    };
-    const res = await sendIdentityMutation<IdentityUpdateRoleFilePayload, IdentityRoleFileUpdatedEvent>(
-      payload,
-      "identity:role-file-updated",
-    );
-    if (res.error) throw new Error(res.error);
-    setRoleFileState({ status: "ready", data: res.markdown });
-  }
+  // Phase 90 Plan 90-06 (D-09): updateRoleFile DELETED — coverage moved to
+  // RoleModal (Plan 90-04) which uses updateRoleFileByName (role-name-keyed
+  // WS wire type from Plan 90-03).
 
   // Quick 260811-ax1: toggle handler for the "Stays awake" switch.
   // Optimistic update: flip state immediately, revert on error + toast.
@@ -1030,273 +640,11 @@ export function IdentityModal({
     }
   }
 
-  async function updateBountyPriority(
-    bountySlug: string,
-    priority: BountyPriority,
-  ): Promise<void> {
-    if (!identity.identityKey) throw new Error("no identity key");
-    // Quick 260823-80r: only opt into the archive refetch if the modal has
-    // already loaded the archive this session — otherwise the backend would
-    // do the expensive walk we're specifically trying to avoid, AND the
-    // returned archivedBounties would clobber our (correctly empty pre-load)
-    // local state. When archive is loaded, we DO want the fresh list so any
-    // knock-on effects (e.g. priority change on an archived pinned bounty)
-    // reflect immediately.
-    const archiveLoaded = archivedLoadState === "loaded";
-    const payload: IdentityUpdateBountyPriorityPayload = {
-      type: "identity:update-bounty-priority",
-      identityKey: identity.identityKey,
-      hostId,
-      bountySlug,
-      priority,
-      includeArchived: archiveLoaded,
-    };
-    const res = await sendIdentityMutation<
-      IdentityUpdateBountyPriorityPayload,
-      IdentityBountyPriorityUpdatedEvent
-    >(payload, "identity:bounty-priority-updated");
-    if (res.error) throw new Error(res.error);
-    setBounties(res.bounties);
-    if (archiveLoaded) setArchivedBounties(res.archivedBounties);
-    // Quick 260727-tb1: immediate-refresh piggyback. A priority change may
-    // co-occur with a status change (or be a leading indicator of one), so
-    // we invalidate the panel's cached pinned count for this identity
-    // rather than wait up to 60s for the next poll. Fire-and-forget — the
-    // store's error path already logs; the modal's own UI state is
-    // authoritatively driven by res.bounties above.
-    void invalidateBountyCount(identity.identityKey, hostId);
-  }
-
-  // Quick 260727-v0b: byte-shape mirror of updateBountyPriority for the
-  // parallel status write surface. Same one-shot request / fresh-list
-  // response pattern; also invalidates the panel's cached pinned count —
-  // even MORE strongly justified than the priority case, because a status
-  // flip to/from `pinned` DIRECTLY changes the pinned count (the priority
-  // path's invalidation was speculative; this one is deterministic).
-  async function updateBountyStatus(
-    bountySlug: string,
-    status: BountyStatus,
-  ): Promise<void> {
-    if (!identity.identityKey) throw new Error("no identity key");
-    // Quick 260823-80r: opt-in archive refetch (see updateBountyPriority for rationale).
-    const archiveLoaded = archivedLoadState === "loaded";
-    const payload: IdentityUpdateBountyStatusPayload = {
-      type: "identity:update-bounty-status",
-      identityKey: identity.identityKey,
-      hostId,
-      bountySlug,
-      status,
-      includeArchived: archiveLoaded,
-    };
-    const res = await sendIdentityMutation<
-      IdentityUpdateBountyStatusPayload,
-      IdentityBountyStatusUpdatedEvent
-    >(payload, "identity:bounty-status-updated");
-    if (res.error) throw new Error(res.error);
-    setBounties(res.bounties);
-    if (archiveLoaded) setArchivedBounties(res.archivedBounties);
-    void invalidateBountyCount(identity.identityKey, hostId);
-  }
-
-  // Quick 260728-sqk / patch #172: byte-shape mirror of updateBountyStatus
-  // for the parallel `pinned` write surface. `pinned` is an independent
-  // boolean orthogonal to lifecycle status; toggling directly changes the
-  // panel's cached pinned count so invalidateBountyCount is deterministic
-  // (unlike the priority case which was speculative).
-  async function updateBountyPinned(
-    bountySlug: string,
-    pinned: boolean,
-  ): Promise<void> {
-    if (!identity.identityKey) throw new Error("no identity key");
-    // Quick 260823-80r: opt-in archive refetch (see updateBountyPriority for rationale).
-    const archiveLoaded = archivedLoadState === "loaded";
-    const payload: IdentityUpdateBountyPinnedPayload = {
-      type: "identity:update-bounty-pinned",
-      identityKey: identity.identityKey,
-      hostId,
-      bountySlug,
-      pinned,
-      includeArchived: archiveLoaded,
-    };
-    const res = await sendIdentityMutation<
-      IdentityUpdateBountyPinnedPayload,
-      IdentityBountyPinnedUpdatedEvent
-    >(payload, "identity:bounty-pinned-updated");
-    if (res.error) throw new Error(res.error);
-    setBounties(res.bounties);
-    if (archiveLoaded) setArchivedBounties(res.archivedBounties);
-    void invalidateBountyCount(identity.identityKey, hostId);
-  }
-
-  // This quick: byte-shape mirror of updateBountyPinned for the parallel
-  // `needs_desk` write surface. Independent user-reserved boolean orthogonal
-  // to both `status` and `pinned`. Toggling deterministically changes the
-  // panel's cached needsDeskCount so invalidateBountyCount fires the same
-  // fire-and-forget as pinned.
-  async function updateBountyNeedsDesk(
-    bountySlug: string,
-    needsDesk: boolean,
-  ): Promise<void> {
-    if (!identity.identityKey) throw new Error("no identity key");
-    // Quick 260823-80r: opt-in archive refetch (see updateBountyPriority for rationale).
-    const archiveLoaded = archivedLoadState === "loaded";
-    const payload: IdentityUpdateBountyNeedsDeskPayload = {
-      type: "identity:update-bounty-needs-desk",
-      identityKey: identity.identityKey,
-      hostId,
-      bountySlug,
-      needs_desk: needsDesk,
-      includeArchived: archiveLoaded,
-    };
-    const res = await sendIdentityMutation<
-      IdentityUpdateBountyNeedsDeskPayload,
-      IdentityBountyNeedsDeskUpdatedEvent
-    >(payload, "identity:bounty-needs-desk-updated");
-    if (res.error) throw new Error(res.error);
-    setBounties(res.bounties);
-    if (archiveLoaded) setArchivedBounties(res.archivedBounties);
-    void invalidateBountyCount(identity.identityKey, hostId);
-  }
-
-  // Phase 18 / IDMEDIT-04 / Plan 05: byte-shape mirror of updateBountyPriority
-  // for the bounty field editor write surface. Accepts a partial patch covering
-  // any subset of the seven editable fields (title, premise, todos, keywords,
-  // source_links, deadline, meeting_questions); server merges only the provided
-  // keys. invalidateBountyCount fire-and-forget matches the existing convention
-  // (a field edit such as todos-done-toggle or meeting_questions-add can
-  // indirectly affect counts in future derivation expansions).
-  async function updateBountyFields(
-    bountySlug: string,
-    patch: BountyFieldsPatch,
-  ): Promise<void> {
-    if (!identity.identityKey) throw new Error("no identity key");
-    // Quick 260823-80r: opt-in archive refetch (see updateBountyPriority for rationale).
-    const archiveLoaded = archivedLoadState === "loaded";
-    const payload: IdentityUpdateBountyFieldsPayload = {
-      type: "identity:update-bounty-fields",
-      identityKey: identity.identityKey,
-      hostId,
-      bountySlug,
-      patch,
-      includeArchived: archiveLoaded,
-    };
-    const res = await sendIdentityMutation<
-      IdentityUpdateBountyFieldsPayload,
-      IdentityBountyFieldsUpdatedEvent
-    >(payload, "identity:bounty-fields-updated");
-    if (res.error) throw new Error(res.error);
-    setBounties(res.bounties);
-    if (archiveLoaded) setArchivedBounties(res.archivedBounties);
-    // Rebuild the pinned-count cache — a field edit (especially todos state
-    // changes or a meeting_questions add) can flip counts indirectly if the
-    // panel's count derivation ever expands beyond raw pinned. Fire-and-
-    // forget matches the existing convention.
-    void invalidateBountyCount(identity.identityKey, hostId);
-  }
-
-  // Quick 260727-wd0: byte-shape mirror of updateBountyStatus for the
-  // archive write surface. Payload has NO status field — server decides
-  // internally (flip live→done or preserve terminal). Same fresh-list
-  // response pattern; also invalidates the pinned count because archiving
-  // a pinned live bounty deterministically drops the count by 1.
-  async function archiveBounty(bountySlug: string): Promise<void> {
-    if (!identity.identityKey) throw new Error("no identity key");
-    // Quick 260823-80r: opt-in archive refetch (see updateBountyPriority for rationale).
-    const archiveLoaded = archivedLoadState === "loaded";
-    const payload: IdentityArchiveBountyPayload = {
-      type: "identity:archive-bounty",
-      identityKey: identity.identityKey,
-      hostId,
-      bountySlug,
-      includeArchived: archiveLoaded,
-    };
-    const res = await sendIdentityMutation<
-      IdentityArchiveBountyPayload,
-      IdentityBountyArchivedEvent
-    >(payload, "identity:bounty-archived");
-    if (res.error) throw new Error(res.error);
-    setBounties(res.bounties);
-    if (archiveLoaded) setArchivedBounties(res.archivedBounties);
-    void invalidateBountyCount(identity.identityKey, hostId);
-  }
-
-  // Quick 260729-g5r: byte-shape mirror of archiveBounty for the delete
-  // write surface. Unlike archive, deleteBounty is threaded to BOTH open
-  // AND archived render sites below — permanent rm -rf applies regardless
-  // of location. window.confirm() gate lives in BountyCard (destructive
-  // UX belongs next to the button, not at the API-call layer).
-  async function deleteBounty(bountySlug: string): Promise<void> {
-    if (!identity.identityKey) throw new Error("no identity key");
-    // Quick 260823-80r: opt-in archive refetch (see updateBountyPriority for rationale).
-    const archiveLoaded = archivedLoadState === "loaded";
-    const payload: IdentityDeleteBountyPayload = {
-      type: "identity:delete-bounty",
-      identityKey: identity.identityKey,
-      hostId,
-      bountySlug,
-      includeArchived: archiveLoaded,
-    };
-    const res = await sendIdentityMutation<
-      IdentityDeleteBountyPayload,
-      IdentityBountyDeletedEvent
-    >(payload, "identity:bounty-deleted");
-    if (res.error) throw new Error(res.error);
-    setBounties(res.bounties);
-    if (archiveLoaded) setArchivedBounties(res.archivedBounties);
-    void invalidateBountyCount(identity.identityKey, hostId);
-  }
-
-  const sortedArchive = useMemo(
-    () => [...archivedBounties].sort((a, b) =>
-      (b.updated_at ?? "").localeCompare(a.updated_at ?? ""),
-    ),
-    [archivedBounties],
-  );
-
-  const hasOpen = OPEN_STATUS_ORDER.some((s) => grouped[s].length > 0) ||
-    grouped.other.length > 0;
-  const hasArchive = sortedArchive.length > 0;
-
-  // Quick 260829-f9l: normalized query + filter predicate for the Bounties
-  // tab search box. `bountyQueryNorm` runs .trim().toLowerCase() ONCE per
-  // keystroke; the predicate builds one `hay` per card and does one
-  // .includes() call. `keywords.join(" ")` is safe because a keyword like
-  // "web-ui" never straddles the space boundary — collapsing to a single
-  // .includes() beats a per-keyword .some() branch for the < 100-card list.
-  const bountyQueryNorm = useMemo(
-    () => bountyQuery.trim().toLowerCase(),
-    [bountyQuery],
-  );
-  const bountyMatchesQuery = useCallback(
-    (b: Bounty): boolean => {
-      if (!bountyQueryNorm) return true;
-      const hay = [
-        b.title,
-        b.premise,
-        b.slug,
-        b.keywords.join(" "),
-      ]
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(bountyQueryNorm);
-    },
-    [bountyQueryNorm],
-  );
-  // Derived visibility booleans post-filter — used to drive the query-driven
-  // empty state below. Kept as separate useMemo blocks so the archive check
-  // only recomputes when sortedArchive changes; the open check depends on
-  // `grouped` which recomputes on every bounty set update.
-  const hasOpenAfterFilter = useMemo(
-    () =>
-      OPEN_STATUS_ORDER.some((s) =>
-        (grouped[s] ?? []).some(bountyMatchesQuery),
-      ),
-    [grouped, bountyMatchesQuery],
-  );
-  const hasArchiveAfterFilter = useMemo(
-    () => sortedArchive.some(bountyMatchesQuery),
-    [sortedArchive, bountyMatchesQuery],
-  );
+  // Phase 90 Plan 90-06 (D-09): all bounty mutation handlers (updateBountyPriority,
+  // updateBountyStatus, updateBountyPinned, updateBountyNeedsDesk, updateBountyFields,
+  // archiveBounty, deleteBounty) DELETED — coverage moved to RoleBountiesTab
+  // (Plan 90-04 Task 2). The `sortedArchive`, `hasOpen`, `hasArchive`, and
+  // bounty-query filter derivations went with them.
 
   // Quick 260731-1c8: Identity-tab editor handlers.
 
@@ -1732,14 +1080,62 @@ export function IdentityModal({
             className="flex flex-col min-w-0 flex-1"
             style={{ position: "relative", zIndex: 1 }}
           >
-            <span className="font-semibold text-base text-[#f0ebe0] truncate leading-tight">
-              {identity.displayName}
-            </span>
-            {identity.title && (
-              <span className="text-xs text-[#a89a80] truncate leading-tight">
-                {identity.title}
-              </span>
-            )}
+            {/* Phase 90 Plan 90-06 (D-04): title-line clickable treatment.
+                When identity.role !== null AND identity.title is present, the
+                title span is a clickable element with dotted underline + chevron.
+                When identity.title is null but role !== null, the displayName
+                span itself gets the treatment (D-04 fallback). When role === null,
+                nothing is clickable (defensive — no target to jump to).
+                Click closes this modal AND fires onOpenRoleModal at the same tick
+                (swap-not-stack per D-03 — PrettyView opens the role modal).
+                See 90-CONTEXT.md D-04 for exact colors. */}
+            {(() => {
+              const canJumpToRole = identity.role !== null;
+              const hasTitle =
+                typeof identity.title === "string" && identity.title.length > 0;
+              const jumpTargetLabel = identity.role ?? identity.displayName;
+              return (
+                <>
+                  {hasTitle ? (
+                    <span className="font-semibold text-base text-[#f0ebe0] truncate leading-tight">
+                      {identity.displayName}
+                    </span>
+                  ) : canJumpToRole ? (
+                    <TitleLineJumpToRole
+                      identity={identity}
+                      text={identity.displayName}
+                      className="font-semibold text-base truncate leading-tight"
+                      jumpTargetLabel={jumpTargetLabel}
+                      onJump={() => {
+                        onOpenChange(false);
+                        onOpenRoleModal(identity);
+                      }}
+                    />
+                  ) : (
+                    <span className="font-semibold text-base text-[#f0ebe0] truncate leading-tight">
+                      {identity.displayName}
+                    </span>
+                  )}
+                  {hasTitle && canJumpToRole && (
+                    <TitleLineJumpToRole
+                      identity={identity}
+                      text={identity.title as string}
+                      className="text-xs truncate leading-tight"
+                      jumpTargetLabel={jumpTargetLabel}
+                      onJump={() => {
+                        onOpenChange(false);
+                        onOpenRoleModal(identity);
+                      }}
+                    />
+                  )}
+                  {hasTitle && !canJumpToRole && (
+                    <span className="text-xs text-[#a89a80] truncate leading-tight">
+                      {identity.title}
+                    </span>
+                  )}
+                </>
+              );
+            })()}
           </div>
           {/* Quick 260811-ax1: "Stays awake" sentinel toggle. Switch checked =
               .no-dormancy sentinel present on the identity's host. Disabled
@@ -2074,120 +1470,19 @@ export function IdentityModal({
           </div>
         )}
 
-        {/* Phase 72 Plan 03: segmented Role/Identity scope switch. Mounts
-            between the title/avatar editor region above and the Tabs
-            component below. Two rounded-pill buttons in a hue-tinted glass
-            capsule; the selected side wears an inset ring + hue-tinted fill
-            matching the selected-tab pill treatment in the bottom icon-bar
-            (see the NAV_SECTIONS loop below). aria-pressed encodes the
-            selection state for screen readers + tests. The variant D sketch
-            (.planning/sketches/001-identity-modal-role-vs-identity-split)
-            grounds the visual. Coord vs actor default is derived from
-            identity.coordinator when useModalScope returns undefined; taps
-            write to the store and re-render the modal (which also flips
-            activeTab via the scope-effect above). */}
-        <div className="shrink-0 px-4 pt-3 pb-2 flex justify-center">
-          <div
-            role="group"
-            aria-label="Scope"
-            className="inline-flex rounded-full border border-white/15 p-0.5"
-            style={{ background: `hsla(${hue}, 30%, 15%, 0.4)` }}
-          >
-            <button
-              type="button"
-              data-testid="scope-switch-role"
-              aria-pressed={scope === "role"}
-              onClick={() => onScopeChange("role")}
-              className={cn(
-                "px-4 py-1 rounded-full text-xs font-semibold cursor-pointer transition-colors",
-                scope === "role"
-                  ? "text-[#f0ebe0]"
-                  : "text-[#a89a80] hover:text-[#e8e4d8]",
-              )}
-              style={
-                scope === "role"
-                  ? {
-                      background: `hsla(${hue}, 80%, 60%, 0.28)`,
-                      boxShadow: `inset 0 0 0 1px hsla(${hue}, 80%, 70%, 0.4)`,
-                    }
-                  : undefined
-              }
-            >
-              Role
-            </button>
-            <button
-              type="button"
-              data-testid="scope-switch-identity"
-              aria-pressed={scope === "identity"}
-              onClick={() => onScopeChange("identity")}
-              className={cn(
-                "px-4 py-1 rounded-full text-xs font-semibold cursor-pointer transition-colors",
-                scope === "identity"
-                  ? "text-[#f0ebe0]"
-                  : "text-[#a89a80] hover:text-[#e8e4d8]",
-              )}
-              style={
-                scope === "identity"
-                  ? {
-                      background: `hsla(${hue}, 80%, 60%, 0.28)`,
-                      boxShadow: `inset 0 0 0 1px hsla(${hue}, 80%, 70%, 0.4)`,
-                    }
-                  : undefined
-              }
-            >
-              Identity
-            </button>
-          </div>
-        </div>
+        {/* Phase 90 Plan 90-06 (D-09): segmented Role/Identity scope switch
+            DELETED. Identity modal is identity-scope only; role-scope tabs
+            moved to RoleModal (Plan 90-04). Title-line clickable treatment
+            (D-04) above provides the jump path to the role modal. */}
 
-        {/* Tabs — patch #17g + Phase 89 Plan 05 restructure.
-            Phase 22 SRIC-06 / Plan 22-06: Role tab inserted at position 0 (FIRST)
-            per D-CONTEXT §UX rules ("Role tab is FIRST and DEFAULT").
-            Patch #191: shadcn TabsList replaced with a bottom icon-bar
-            (rendered after the TabsContent blocks below).
-            Phase 72 Plan 03: NAV_SECTIONS now scope-conditional.
-            Phase 89 Plan 05: Role scope = [role, runbooks, bounties, role-wakeups];
-            Identity scope = [identity, identity-wakeups, telegram].
-            History + Handoff removed per D-12; Runbooks added per D-08 through D-13. */}
+        {/* Tabs — Phase 90 Plan 90-06 post-refactor: 3 tabs (Identity file /
+            Wakeups / Telegram) — identity scope only. Role file, Runbooks,
+            Bounties, and Role-Wakeups all moved to RoleModal. */}
         <Tabs
           value={activeTab}
           onValueChange={setActiveTab}
           className="flex-1 min-h-0 flex flex-col"
         >
-          {/* Role tab — Phase 22 SRIC-06: DEFAULT tab; renders the identity's
-              role file (~/.claude/roles/<role>/<role>.md) via the backend
-              two-step. Missing role: frontmatter surfaces as RoleFileTab's
-              error branch — NO fallback empty state per D-CONTEXT lock. */}
-          <TabsContent
-            value="role"
-            className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
-          >
-            <RoleFileTab state={roleFileState} onSave={updateRoleFile} />
-          </TabsContent>
-
-          {/* Phase 89 Plan 05: Runbooks tab (role scope, always rendered per D-11).
-              Sits inside NAV_SECTIONS_ROLE between Role file and Bounties.
-              D-13's flat spelling "role file, runbooks, identity file, bounties,
-              wake-ups" implies an across-scope visible order that is not
-              achievable without a scope-regrouping outside this phase's scope
-              (see C.6 note + Plan 89-05 must_haves.truths for the flagged
-              discrepancy). Runbooks stays role-scope (data lives at
-              ~/.claude/roles/<role>/runbooks/); scope-regrouping to interleave
-              identity-file would be its own bounty. Body is the bare-list
-              launcher per D-08 through D-11; row-click routes through
-              onOpenRunbook to Wave-6 PrettyView which owns the swap-not-stack
-              coordination (D-06). */}
-          <TabsContent
-            value="runbooks"
-            className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
-          >
-            <RunbooksTab
-              hostId={hostId}
-              roleName={identity.role}
-              onOpenRunbook={onOpenRunbook}
-            />
-          </TabsContent>
-
           {/* Identity tab — patch #17g: renders <key>.md as markdown.
               Quick 260731-1c8: adds inline title + avatar editor ABOVE the markdown
               block. Editor exposes exactly two fields (title + avatar); displayName
@@ -2200,313 +1495,12 @@ export function IdentityModal({
             <IdentityFileTab state={identityFileState} onSave={updateIdentityFile} />
           </TabsContent>
 
-          {/* Bounties tab — populated (patch #87 — unchanged) */}
-          {/* Quick 260829-f9l: split pane into flex-col so the search input
-              can sit sticky at the top of the inner scroll container. The
-              old `overflow-y-auto px-6 py-4` moved off the pane onto the
-              inner scroll <div>; the pane itself is now just a vertical
-              flex column that hosts (a) the sticky search bar and (b) the
-              scroll container. Sticky bar lives INSIDE the scroll container
-              so it stays visible while scrolling the bounty list (matches
-              Ashley's ask). */}
-          <TabsContent
-            value="bounties"
-            className="flex-1 min-h-0 flex flex-col"
-          >
-            <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-0 pb-4">
-            {/* Quick 260829-f9l: sticky search input. `sticky top-0` inside
-                the scroll container pins the bar to the top of the scroll
-                region. Background is hue-tinted to match the modal's own
-                gradient (Ashley 2026-08-29: the fixed near-black token
-                looked like a "weird darkness" out-of-place against the
-                identity-hue modal). Uses a mid-gradient stop as an inline
-                style so it participates in the per-identity hue. backdrop-
-                blur still covers content underneath as it scrolls past.
-                Rendered UNCONDITIONALLY so keyboard focus is never yanked
-                out of it by branch swaps. */}
-            <div
-              className="sticky top-0 z-10 -mx-6 px-6 pt-4 pb-2 backdrop-blur"
-              style={{ background: `hsla(${hue}, 45%, 25%, 0.82)` }}
-            >
-              <div className="relative">
-                <Input
-                  value={bountyQuery}
-                  onChange={(e) => setBountyQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      setBountyQuery("");
-                    }
-                  }}
-                  placeholder="Search bounties…"
-                  aria-label="Search bounties"
-                  className={
-                    // Reuse the muted glass token classes from the title editor
-                    // (~line 1001 in the pre-change file) so the search input
-                    // sits visually with the rest of the modal's editor chrome.
-                    "text-sm bg-white/5 border-white/20 text-[#f0ebe0] pr-8"
-                  }
-                />
-                {bountyQuery !== "" && (
-                  <button
-                    type="button"
-                    onClick={() => setBountyQuery("")}
-                    aria-label="Clear search"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer text-[var(--color-pv-fg-muted)] hover:text-[#e8e4d8]"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-            {loading ? (
-              // Loading skeleton — 3 placeholder cards
-              <div className="flex flex-col gap-3">
-                <Skeleton className="h-32 w-full rounded-[var(--radius-pv-bubble)]" />
-                <Skeleton className="h-32 w-full rounded-[var(--radius-pv-bubble)]" />
-                <Skeleton className="h-32 w-full rounded-[var(--radius-pv-bubble)]" />
-              </div>
-            ) : error ? (
-              // Error state with retry button
-              <div className="flex flex-col items-start gap-3">
-                <div className="text-sm text-[color:var(--color-pv-code-fg)]">
-                  Couldn&apos;t load bounties: {error}
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setRefetchKey((k) => k + 1)}
-                >
-                  Retry
-                </Button>
-              </div>
-            ) : !hasOpen && !hasArchive && archivedLoadState === "loaded" && bountyQueryNorm === "" ? (
-              // Empty state — quick 260823-80r: only render this pure-empty
-              // branch once we've CONFIRMED (loaded) the archive is also
-              // empty. Otherwise fall through so the Archive accordion below
-              // stays clickable (the whole point of the lazy-load fix is
-              // that we DON'T know if archive is empty on modal open).
-              // Quick 260829-f9l: gate on `bountyQueryNorm === ""` so a
-              // non-empty query yields the query-driven empty state below
-              // instead of this "no bounties at all" message.
-              <div className="flex flex-col gap-1 text-sm text-[var(--color-pv-fg-muted)]">
-                <p>No open bounties for {identity.displayName}.</p>
-                <p className="text-xs">Archive will show here when populated.</p>
-              </div>
-            ) : (
-              <>
-                {/* Patch #109: in_progress fence + flat priority-sorted rest
-                    + done/dropped stragglers. OPEN_STATUS_ORDER now enumerates
-                    only three partitions; the empty-label GROUP_LABELS entry
-                    for "rest" suppresses the header for that region so it
-                    reads as one continuous priority-ordered list under the
-                    In Progress fence. */}
-                {OPEN_STATUS_ORDER.map((statusKey) => {
-                  const group = grouped[statusKey];
-                  // Quick 260829-f9l: filter the group and hide the entire
-                  // partition header when its post-filter card count is
-                  // zero — otherwise a lonely "Pinned" header would sit
-                  // above an empty region when the query filters away all
-                  // its cards.
-                  const filteredGroup = (group ?? []).filter(bountyMatchesQuery);
-                  if (!group || filteredGroup.length === 0) return null;
-                  const label = GROUP_LABELS[statusKey];
-                  return (
-                    <div key={statusKey} className="mb-6">
-                      {label && (
-                        <h3 className="text-xs uppercase tracking-wide text-[var(--color-pv-fg-muted)] mb-2">
-                          {label}
-                        </h3>
-                      )}
-                      <div className="flex flex-col gap-3">
-                        {/* Quick 260829-f9l: render post-filter set. */}
-                        {filteredGroup.map((b) => (
-                          <BountyCard
-                            key={b.id}
-                            bounty={b}
-                            hue={hue}
-                            // Patch #154: "other" bucket = done/dropped in the
-                            // open dir; priority is meaningless for terminal
-                            // bounties, so we deliberately don't pass an
-                            // onPriorityChange handler for that partition.
-                            onPriorityChange={
-                              statusKey === "other"
-                                ? undefined
-                                : (p) => updateBountyPriority(b.slug, p)
-                            }
-                            // Quick 260727-v0b: DELIBERATELY different from
-                            // priority above — status IS meaningful on
-                            // done/dropped bounties (resurrect: click
-                            // "pinned" to pull them back into working set).
-                            // Threaded for ALL three partitions including
-                            // "other".
-                            onStatusChange={(s) => updateBountyStatus(b.slug, s)}
-                            // Quick 260728-sqk / patch #172: pin toggle
-                            // threaded for ALL FOUR partitions (pinned /
-                            // in_progress / rest / other). Pinning a
-                            // done-in-place bounty is a legal resurrect
-                            // signal on the pinned axis same as status.
-                            onPinnedChange={(next) => updateBountyPinned(b.slug, next)}
-                            // This quick: needs_desk toggle threaded for ALL
-                            // FOUR partitions (mirrors pinned above). Flipping
-                            // needs_desk on a done/dropped bounty stays legal
-                            // — same user-reserved-flag semantics as pinned.
-                            onNeedsDeskChange={(next) => updateBountyNeedsDesk(b.slug, next)}
-                            // Quick 260727-wd0: Archive button threaded for
-                            // ALL THREE OPEN partitions (in_progress / rest
-                            // / other) — a single addition here covers all
-                            // three because they share this BountyCard render.
-                            // Deliberately NOT passed to sortedArchive.map
-                            // below (locked semantics rule #3: cards already
-                            // under archive/ don't get the button; unarchive
-                            // is a separate follow-up).
-                            onArchive={() => archiveBounty(b.slug)}
-                            // Quick 260729-g5r: Delete button threaded for
-                            // ALL THREE OPEN partitions alongside Archive
-                            // above. Unlike Archive, Delete is ALSO threaded
-                            // to sortedArchive.map below — permanent rm -rf
-                            // applies regardless of location (locked D-2).
-                            onDelete={() => deleteBounty(b.slug)}
-                            // Phase 18 / IDMEDIT-04 / Plan 05: field editors
-                            // threaded for ALL THREE OPEN partitions
-                            // (pinned / in_progress / rest / other via
-                            // OPEN_STATUS_ORDER). Archived cards also get
-                            // field editors (sortedArchive.map below) since
-                            // even archived bounties can have fields edited
-                            // (e.g. retrospective meeting_question).
-                            onFieldsChange={(patch) => updateBountyFields(b.slug, patch)}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {/* Quick 260829-f9l: query-driven empty state. Fires when the
-                    user has typed something AND no open partition renders any
-                    card AND either (a) the archive is loaded and also has no
-                    matches, or (b) the archive isn't loaded (in which case we
-                    can't know for sure — append the archive-not-loaded hint so
-                    Ashley knows to click the accordion to include it). Placed
-                    BEFORE the Archive accordion so the accordion trigger is
-                    still clickable underneath the message and the lazy-load
-                    still works. */}
-                {bountyQueryNorm !== "" &&
-                  !hasOpenAfterFilter &&
-                  ((archivedLoadState === "loaded" && !hasArchiveAfterFilter) ||
-                    archivedLoadState !== "loaded") && (
-                    <div className="flex flex-col gap-1 text-sm text-[var(--color-pv-fg-muted)] mt-4">
-                      <p>no matches for &ldquo;{bountyQuery}&rdquo;</p>
-                      {archivedLoadState !== "loaded" && (
-                        <p className="text-xs">
-                          archive not loaded — expand to include it
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                {/* Archive accordion — quick 260823-80r: rendered whenever
-                    we don't know for sure that archive is empty, so the user
-                    always has a click target to trigger the lazy load. Only
-                    hidden once we've CONFIRMED (loaded + no error) that the
-                    archive is empty. */}
-                {(archivedLoadState !== "loaded" || hasArchive) && (
-                  <Accordion
-                    type="single"
-                    collapsible
-                    value={archiveAccordionValue}
-                    onValueChange={(val) => {
-                      // Quick 260823-80r: controlled — mirror Radix's value into
-                      // our own state so failure paths can programmatically
-                      // close the accordion (see loadArchivedBounties.handleFail).
-                      setArchiveAccordionValue(val);
-                      // Fire the archive fetch when the user expands. Idempotency
-                      // lives inside loadArchivedBounties (early return when
-                      // already loaded).
-                      if (val === "archive") loadArchivedBounties();
-                    }}
-                  >
-                    <AccordionItem value="archive" className="border-white/10">
-                      <AccordionTrigger className="text-sm text-[var(--color-pv-fg-muted)] hover:text-[#e8e4d8] hover:no-underline">
-                        {/* Quick 260823-80r: label variants
-                            - failed → "Archive (failed to load — click to retry)"
-                            - loading → "Archive (loading…)"
-                            - loaded  → "Archive (N)"
-                            - unloaded (default) → "Archive" (no count — unknown) */}
-                        {archivedError !== null
-                          ? "Archive (failed to load — click to retry)"
-                          : archivedLoadState === "loading"
-                            ? "Archive (loading…)"
-                            : archivedLoadState === "loaded"
-                              ? `Archive (${sortedArchive.length})`
-                              : "Archive"}
-                      </AccordionTrigger>
-                      <AccordionContent>
-                        <div className="flex flex-col gap-3 pt-2">
-                          {/* Quick 260829-f9l: filter archive body by the
-                              same predicate. The accordion TRIGGER label
-                              still shows the total archive count (not the
-                              filtered count) — Ashley's ask centers on
-                              scanning matches, and the "Archive (N)" label
-                              is the "how big is the archive drawer" signal. */}
-                          {sortedArchive.filter(bountyMatchesQuery).map((b) => (
-                            <BountyCard
-                              key={b.id}
-                              bounty={b}
-                              hue={hue}
-                              archived
-                              // Quick 260727-v0b: onStatusChange threaded for
-                              // archived bounties too — that IS the resurrect
-                              // flow. Deliberately NO onPriorityChange (still
-                              // meaningless for archived bounties, so the
-                              // Priority row stays hidden per patch #154's
-                              // gate on `onPriorityChange &&`).
-                              onStatusChange={(s) => updateBountyStatus(b.slug, s)}
-                              // Quick 260728-sqk / patch #172: pin toggle
-                              // threaded for archived bounties too — unpinning
-                              // an archived pinned bounty stays legal, and
-                              // re-pinning is the resurrect signal on the
-                              // pinned axis (same rationale as onStatusChange).
-                              onPinnedChange={(next) => updateBountyPinned(b.slug, next)}
-                              // This quick: needs_desk toggle threaded for
-                              // archived bounties too — flipping the flag on
-                              // an archived bounty stays legal, same rationale
-                              // as onPinnedChange above.
-                              onNeedsDeskChange={(next) => updateBountyNeedsDesk(b.slug, next)}
-                              /* Quick 260727-wd0: NO onArchive here — cards
-                                 under archive/ do not get an Archive button
-                                 (unarchive is a separate follow-up).
-                                 Quick 260729-g5r: onDelete IS threaded here
-                                 — permanent delete applies to archived cards
-                                 too (locked design D-2). */
-                              onDelete={() => deleteBounty(b.slug)}
-                              // Phase 18 / IDMEDIT-04 / Plan 05: field editors
-                              // threaded for archived cards too — archived
-                              // bounties can still have fields edited (e.g.
-                              // add a retrospective meeting_question). SCRATCH-
-                              // REPORT may gate specific fields read-only
-                              // inside the card (none locked as read-only in
-                              // the report for archived cards).
-                              onFieldsChange={(patch) => updateBountyFields(b.slug, patch)}
-                            />
-                          ))}
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  </Accordion>
-                )}
-              </>
-            )}
-            </div>
-          </TabsContent>
-
-          {/* Wakeups tabs — Phase 72 Plan 03: split into two panes, one per
-              scope, each wired to the matching scope's WS handlers. Only one
-              pane is reachable at a time because NAV_SECTIONS is scope-
-              conditional (Role scope shows the role-wakeups tab; Identity
-              scope shows the identity-wakeups tab). Both state slots are
-              pre-fetched on modal open so a scope switch reveals the list
-              without a wait. */}
+          {/* Phase 90 Plan 90-06 (D-09): Bounties tab DELETED — bounties
+              moved to RoleBountiesTab under RoleModal (Plan 90-04 Task 2).
+              The sticky-search input, group renderers, archive accordion, and
+              lazy-load loader all migrated with it. */}
+          {/* Wakeups tab — Phase 90 Plan 90-06: identity-scope only now.
+              The parallel role-wakeups TabsContent moved to RoleModal. */}
           <TabsContent
             value="identity-wakeups"
             className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
@@ -2521,20 +1515,9 @@ export function IdentityModal({
               onDelete={deleteIdentityWakeup}
             />
           </TabsContent>
-          <TabsContent
-            value="role-wakeups"
-            className="flex-1 min-h-0 overflow-y-auto px-6 py-4"
-          >
-            <WakeupsTab
-              state={roleWakeupsState}
-              hue={hue}
-              scope="role"
-              isCoordinator={identity.coordinator}
-              onUpdate={updateRoleWakeup}
-              onCreate={createRoleWakeup}
-              onDelete={deleteRoleWakeup}
-            />
-          </TabsContent>
+          {/* Phase 90 Plan 90-06 (D-09): role-wakeups TabsContent DELETED —
+              role-scope wakeups moved to RoleModal (Plan 90-04). Only the
+              identity-wakeups TabsContent above remains in this modal. */}
 
           {/* Phase 79 Plan 07 — Telegram bridge tab (identity-scope only).
               humanUserId sourced from getUserInfo() in the useEffect above

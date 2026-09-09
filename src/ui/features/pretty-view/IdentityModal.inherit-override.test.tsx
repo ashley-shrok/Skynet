@@ -113,7 +113,9 @@ vi.mock("@/api/runbooks-api", () => ({
 // ── Late imports ─────────────────────────────────────────────────────────────
 import { updateIdentity } from "@/api/identities-api";
 import { IdentityModal } from "./IdentityModal";
-import { __resetModalScopeForTest } from "@/state/modal-scope-store";
+// Phase 90 Plan 90-06 (D-09): modal-scope-store retired. Reset helper is a
+// no-op for compatibility with the remaining test body.
+const __resetModalScopeForTest = (): void => { /* retired */ };
 
 const mockedUpdateIdentity = vi.mocked(updateIdentity);
 
@@ -162,8 +164,8 @@ function renderModal(identityOverrides?: Partial<Identity>) {
       identity={identity}
       hue={200}
       hostId={1}
-      // Phase 89 Plan 05: required prop — Runbooks tab is always rendered per D-11.
-      onOpenRunbook={vi.fn()}
+      // Phase 90 Plan 90-06: onOpenRoleModal is the new required prop.
+      onOpenRoleModal={vi.fn()}
       container={document.body}
     />,
   );

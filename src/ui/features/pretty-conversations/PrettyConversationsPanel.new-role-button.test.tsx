@@ -1,19 +1,17 @@
-// ─── PrettyConversationsPanel — `+ New role` button coverage (Phase 22 SRIC-04 Plan 22-04 Task 2)
+// ─── PrettyConversationsPanel — three-dots menu "Edit roles…" coverage
+// (Phase 90 Plan 90-06 Task 3 — rewrite of the Phase 22/23 "+ New role" suite).
 //
-// Test 21 (from the plan's <behavior> spec): PrettyConversationsPanel renders
-// a `+ New role` button in the header, positioned next to the existing
-// pencil-icon `+ New agent` button. Clicking opens CreateRoleDialog. The
-// button is only rendered when `onCreateSession` prop is wired (gates on the
-// same `showPencilButton` predicate as the existing pencil).
+// Phase 90 (D-07): the three-dots menu's "New role" entry was DELETED and
+// replaced with "Edit roles…", which opens RolesListModal. The rewritten
+// tests keep the file name for git-blame continuity but swap all assertions
+// from the old "New role" surface to the new "Edit roles…" surface.
 //
 // Kept as a sibling test file (not appended to PrettyConversationsPanel.test.tsx)
-// so the new-role button surface stays isolated from the 25+ pre-existing tests
-// in the main suite — matches the sibling-file pattern from Plan 22-02 Task 4
-// (NewSessionDialog.role-dropdown.test.tsx) and Plan 22-01 Task 1
-// (identity-artifact-reader.two-step.test.tsx).
+// so the surface stays isolated from the 25+ pre-existing tests in the main
+// suite — matches the sibling-file pattern from Plan 22-02 Task 4.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent, screen, within } from "@testing-library/react";
+import { render, fireEvent, screen, within, waitFor } from "@testing-library/react";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 // ─── Global mocks (BEFORE component import — Vitest hoists vi.mock) ──────────
@@ -53,7 +51,6 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
 }));
 
 vi.mock("@/state/conversation-store", () => ({
-  // Phase 41 Plan 01: three-zone shape — `middle` + `rdpGroup` replace `grouped`.
   useConversations: () => ({ activeSet: [], pinned: [], middle: [], rdpGroup: null }),
   useSelectedConversationId: () => null,
   usePinnedIds: () => new Set(),
@@ -80,32 +77,50 @@ vi.mock("@/api/user-preferences-api", () => ({
   putHiddenIds: vi.fn().mockResolvedValue([]),
 }));
 
-// Phase 41 Plan 03: conversation-store now imports subscribeSessionWorkingStore
-// + getSessionLastMessageAt at module init to bridge the working-store's
-// lastMessageAt cache into row derivation. Both stubbed as no-ops here so
-// module init does not throw when this test file mocks the working-store.
 vi.mock("@/state/session-working-store", () => ({
   useSessionIsWorking: () => false,
   useSessionLastMessageAt: () => null,
   getSessionLastMessageAt: () => null,
   subscribeSessionWorkingStore: (_cb: () => void) => () => {},
-  // Phase 47 Plan 04: PrettyConversationRowLive subscribes to the aiTitle
-  // axis via useSessionAiTitle (Plan 47-03 chokepoint). Returns null so
-  // the threaded prop stays null in this new-role-button suite (which
-  // doesn't exercise the ai-title surface).
   useSessionAiTitle: () => null,
-  // Phase 52 Plan 03 (plan-checker B-2 fix): Panel.tsx now imports
-  // getSessionWorkingSnapshot + useSessionIsDormant. Without these
-  // stubs every existing test throws TypeError on render.
   getSessionWorkingSnapshot: () => new Map(),
   useSessionIsDormant: () => false,
 }));
 
-// Phase 23 (GEFM-01): mock GlobalFilesModal so this test suite does not pull in
-// the full modal dep tree. The modal is open=false in every test here.
+// Phase 23 (GEFM-01): mock GlobalFilesModal so this test suite doesn't pull the
+// full modal dep tree.
 vi.mock("@/features/pretty-view/GlobalFilesModal", () => ({
-  default: (props: { open: boolean }) => (props.open ? <div data-testid="global-files-modal-stub" /> : null),
+  default: (props: { open: boolean }) =>
+    props.open ? <div data-testid="global-files-modal-stub" /> : null,
 }));
+
+// Phase 90 Plan 90-06: mock SkillsEditorModal + RoleModal + RunbookEditorModal
+// so the panel mounts them as stubs. RolesListModal we let render for real —
+// it's the one whose "Roles" title we assert on.
+vi.mock("@/features/pretty-view/SkillsEditorModal", () => ({
+  default: (props: { open: boolean }) =>
+    props.open ? <div data-testid="skills-editor-modal-stub" /> : null,
+}));
+vi.mock("@/features/pretty-view/RoleModal", () => ({
+  RoleModal: (props: { open: boolean }) =>
+    props.open ? <div data-testid="role-modal-stub" /> : null,
+}));
+vi.mock("@/features/pretty-view/RunbookEditorModal", () => ({
+  default: (props: { open: boolean }) =>
+    props.open ? <div data-testid="runbook-editor-modal-stub" /> : null,
+}));
+
+// Mock the identities API listRolesForHost so RolesListModal renders without a
+// backend call.
+vi.mock("@/api/identities-api", async (importOriginal) => {
+  const orig = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...orig,
+    listRolesForHost: vi.fn().mockResolvedValue([]),
+    roleAvatarUrl: (hostId: number, roleName: string) =>
+      `/roles/${roleName}/avatar?hostId=${hostId}`,
+  };
+});
 
 vi.mock("@/api/global-files-api", () => ({
   listGlobalFiles: vi.fn().mockResolvedValue([]),
@@ -158,19 +173,8 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-// Phase 23 (GEFM-01): helper to open the header menu and click a named item.
-function openMenuAndClickItem(itemNamePattern: RegExp) {
-  const menuBtn = screen.getByTestId("pv-header-menu-button");
-  fireEvent.click(menuBtn);
-  const menu = screen.getByRole("menu");
-  const item = within(menu).getByRole("menuitem", { name: itemNamePattern });
-  fireEvent.click(item);
-}
-
-describe("PrettyConversationsPanel: + New role button (Phase 23 GEFM-01 repoint)", () => {
-  it("Test 21a (repoint): 'New role' is a menu item in the MoreVertical dropdown when onCreateSession is wired", () => {
-    // Phase 23: the `+ New role` button is no longer a standalone header button.
-    // It lives as the second item in the MoreVertical menu (after "New agent").
+describe("PrettyConversationsPanel: Edit roles… menu entry (Phase 90 D-07 rewrite)", () => {
+  it("Test 21a (Phase 90 D-07): 'Edit roles…' is a menu item in the MoreVertical dropdown when onCreateSession is wired", () => {
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -180,16 +184,28 @@ describe("PrettyConversationsPanel: + New role button (Phase 23 GEFM-01 repoint)
       />,
     );
 
-    // Open the menu first
+    // Open the menu
     fireEvent.click(screen.getByTestId("pv-header-menu-button"));
     const menu = screen.getByRole("menu");
-    // "New role" item is present in the menu
-    expect(within(menu).getByRole("menuitem", { name: /new role/i })).toBeTruthy();
+    // The new entry is present.
+    expect(within(menu).getByRole("menuitem", { name: /edit roles/i })).toBeTruthy();
+    // The old "New role" entry is GONE (D-07).
+    expect(within(menu).queryByRole("menuitem", { name: /^new role$/i })).toBeNull();
+    // Menu order per D-07: New agent → Edit roles… → Edit global files… → Edit skills…
+    const items = within(menu).getAllByRole("menuitem").map((el) =>
+      el.textContent?.trim() ?? "",
+    );
+    expect(items).toEqual([
+      "New agent",
+      "Edit roles…",
+      "Edit global files…",
+      "Edit skills…",
+    ]);
   });
 
-  it("Test 21b (repoint): the MoreVertical menu button (and thus 'New role') is absent when onCreateSession is undefined", () => {
-    // Phase 23: showPencilButton gate applies to the whole menu button, not individual items.
-    // When onCreateSession is undefined, the menu button does not render → no menu → no items.
+  it("Test 21b (unchanged gate): the MoreVertical menu button is absent when onCreateSession is undefined", () => {
+    // Phase 23 gate carries over unchanged — the whole menu vanishes when
+    // the panel has no onCreateSession callback wired.
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -201,8 +217,7 @@ describe("PrettyConversationsPanel: + New role button (Phase 23 GEFM-01 repoint)
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
-  it("Test 21c (Phase 23 GEFM-01 repoint; Phase 84 Plan 01 signal swap): clicking 'New role' from the menu opens CreateRoleDialog (detection signal now the header blurb, not the deleted 'then create an agent' checkbox)", () => {
-    // Phase 23: the flow is: click menu button → click "New role" → CreateRoleDialog opens.
+  it("Test 21c (Phase 90 D-07): clicking 'Edit roles…' opens RolesListModal (detection signal: the modal's 'Roles' title)", async () => {
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -212,28 +227,23 @@ describe("PrettyConversationsPanel: + New role button (Phase 23 GEFM-01 repoint)
       />,
     );
 
-    // Dialog is not open before click
+    // Dialog is not open before click.
     expect(document.querySelectorAll('[role="dialog"]').length).toBe(0);
 
-    // Open menu and click "New role"
-    openMenuAndClickItem(/new role/i);
+    // Open menu and click "Edit roles…"
+    fireEvent.click(screen.getByTestId("pv-header-menu-button"));
+    const menu = screen.getByRole("menu");
+    const editRolesItem = within(menu).getByRole("menuitem", {
+      name: /edit roles/i,
+    });
+    fireEvent.click(editRolesItem);
 
-    // CreateRoleDialog is now rendered — look for its distinctive content.
-    const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null;
-    expect(dialog).toBeTruthy();
-    // Phase 84 (Plan 84-01): the "Then create an agent" checkbox that used
-    // to be this suite's dialog-detection signal was deleted from DOM (per
-    // D-CONTEXT item 3 — the checkbox goes away entirely because a role
-    // without an agent is a modeling accident the UI stops advertising).
-    //
-    // Phase 88 (Plan 88-01, paired-blurb revision): the Phase-84 blurb
-    // "A role is what an agent does…" was rewritten to the paired
-    // adopt-vocabulary form shared with NewSessionDialog. Current
-    // CreateRoleDialog blurb: "Roles are the expertise your agents adopt.
-    // Every agent using this role inherits its goals, rules, and knowledge."
-    // NewSessionDialog's description is "Pick a host and (optionally)
-    // name the agent." — no overlap in the matched substring
-    // "roles are the expertise your agents adopt".
-    expect(dialog!.textContent).toMatch(/roles are the expertise your agents adopt/i);
+    // RolesListModal is now rendered — assert on its "Roles" DialogTitle.
+    await waitFor(() => {
+      const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null;
+      expect(dialog).toBeTruthy();
+      // Its title contains the word "Roles" (from RolesListModal DialogTitle).
+      expect(dialog!.textContent).toMatch(/^Roles/);
+    });
   });
 });
