@@ -2117,6 +2117,111 @@ export async function writeAvatarSiblingFile(
 }
 
 // ---------------------------------------------------------------------------
+// 6a-bis. writeRoleAvatarByName — Phase 90 Plan 90-08 Task 1
+// ---------------------------------------------------------------------------
+
+/** Regex for accepted role avatar filenames — kebab-case-lowercase basename
+ *  + one of the four canonical raster-image extensions accepted at write
+ *  time. Mirrors readAvatarSiblingFileByRole's filename gate at L2417-2419
+ *  MINUS the `svg` alternative — the POST /roles/:name/avatar upload endpoint
+ *  intentionally rejects svg (frontend picker doesn't offer it; svg carries
+ *  script-injection risk that raster formats don't). The reader tolerates
+ *  svg for legacy on-disk files that predate this write-side gate. */
+const ROLE_AVATAR_FILENAME_RE = /^[a-z0-9-]+\.(webp|png|jpg|gif)$/;
+
+/**
+ * Write a role's sibling avatar file (~/.claude/roles/<roleName>/<filename>).
+ *
+ * Sibling of writeRoleFileByName (L2678) — role-name-keyed write helper that
+ * lands the uploaded avatar bytes next to the role markdown. Called by the
+ * POST /roles/:name/avatar handler (Phase 90 Plan 90-08 Task 2) AFTER
+ * server-side MIME + size validation, and AFTER the frontmatter round-trip
+ * (readRoleFileByName → splice `avatar:` key → writeRoleFileByName).
+ *
+ * Byte-shape mirror of writeAvatarSiblingFile (L2084) — same guard order,
+ * same LOCAL vs REMOTE branch structure, same underlying SFTP helper
+ * (sftpWriteBinaryAtomic → ext_openssh_rename atomic overwrite).
+ *
+ * Guards run in this order (defense-in-depth per T-90-08-01/02/03):
+ *   1. ROLE_NAME_PATTERN.test(roleName) — shell-safety gate; rejects
+ *      before any I/O. Same regex writeRoleFileByName enforces at L2685.
+ *   2. ROLE_AVATAR_FILENAME_RE.test(filename) — filename gate; forbids
+ *      path traversal (`../`, `/`) and non-canonical extensions. Also
+ *      rejects at the syntactic level any filename with shell-special
+ *      characters — none of `[a-z0-9-]` require quoting inside the
+ *      double-quoted paths below.
+ *   3. Buffer.isBuffer(bytes) — reject non-Buffer inputs at the boundary
+ *      so a misuse from a future caller (passing a string or array) surfaces
+ *      as a loud throw instead of an SFTP-layer crash.
+ *   4. bytes.byteLength ≤ IDMEDIT_MAX_AVATAR_BYTES — DoS cap BEFORE
+ *      opening SFTP; mirrors writeAvatarSiblingFile L2099.
+ *
+ * LOCAL branch (conn === null):
+ *   - Defensive mkdir -p on the role folder (mirrors writeRoleFileByName
+ *     L2699 — role folder is expected to exist post-create but a stale
+ *     ROLES_HOST_DIR may be missing it).
+ *   - tmp+rename atomic write via Node fs.
+ *
+ * REMOTE branch (conn is SSHClientType):
+ *   - Defensive `mkdir -p "$HOME/.claude/roles/<roleName>"` via execWithTimeout
+ *     BEFORE the SFTP write, matching the LOCAL branch's mkdir. Cheap and
+ *     forgiving on a role folder that already exists.
+ *   - Resolve $HOME then SFTP tmp+rename via sftpWriteBinaryAtomic.
+ *
+ * Throws on any guard failure, mkdir failure, or SFTP failure. Caller in
+ * roles.ts POST handler catches + returns 502 (upstream-detail-suppressed).
+ */
+export async function writeRoleAvatarByName(
+  conn: SSHClientType | null,
+  roleName: string,
+  filename: string,
+  bytes: Buffer,
+): Promise<void> {
+  // Guard 1: role-name gate BEFORE any I/O.
+  if (typeof roleName !== "string" || !ROLE_NAME_PATTERN.test(roleName)) {
+    throw new Error("invalid roleName");
+  }
+  // Guard 2: filename gate BEFORE any I/O. Rejects `../` traversal, `/`
+  // path separators, uppercase, non-canonical exts, shell metachars.
+  if (typeof filename !== "string" || !ROLE_AVATAR_FILENAME_RE.test(filename)) {
+    throw new Error("invalid avatar filename");
+  }
+  // Guard 3: reject non-Buffer inputs at the boundary.
+  if (!Buffer.isBuffer(bytes)) {
+    throw new Error("bytes must be a Buffer");
+  }
+  // Guard 4: DoS cap BEFORE opening SFTP — mirrors writeAvatarSiblingFile L2099.
+  if (bytes.byteLength > IDMEDIT_MAX_AVATAR_BYTES) {
+    throw new Error("avatar payload exceeds IDMEDIT_MAX_AVATAR_BYTES");
+  }
+
+  if (conn === null) {
+    // LOCAL branch — mkdir -p + tmp+rename via Node fs. Mirrors
+    // writeRoleFileByName LOCAL pattern (L2693-2704) minus utf-8 encoding.
+    const root = getLocalRolesRoot();
+    const roleDir = path.join(root, roleName);
+    await fs.mkdir(roleDir, { recursive: true });
+    const filePath = path.join(roleDir, filename);
+    const tmpPath = filePath + ".tmp";
+    await fs.writeFile(tmpPath, bytes);
+    await fs.rename(tmpPath, filePath);
+    return;
+  }
+
+  // REMOTE branch — defensive mkdir -p, then SFTP tmp+rename via
+  // sftpWriteBinaryAtomic (ext_openssh_rename). Both roleName and filename
+  // have passed regex gates above; direct interpolation into the mkdir
+  // command is shell-safe (same defense as writeRoleFile L2644-2646).
+  await execWithTimeout(
+    conn,
+    `mkdir -p "$HOME/.claude/roles/${roleName}"`,
+  );
+  const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
+  const targetPath = `${remoteHome}/.claude/roles/${roleName}/${filename}`;
+  await sftpWriteBinaryAtomic(conn, targetPath, bytes);
+}
+
+// ---------------------------------------------------------------------------
 // 6c. Cosmetics reads — Phase 66 Plan 03
 // ---------------------------------------------------------------------------
 //
