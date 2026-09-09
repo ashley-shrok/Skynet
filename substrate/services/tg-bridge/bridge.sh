@@ -471,8 +471,15 @@ while IFS= read -r name; do
   fi
   tg_poller "$name" "$tok" &
 done < <(jq -r '.agents[]
-  | select(((.humans // []) | map(select(.chat_id!=null and .room!=null)) | length > 0))
+  | select(((.humans // []) | length > 0))
   | .name' "$REGISTRY_FILE")
+# Phase 83 Fix B refinement: poll every agent with AT LEAST ONE human configured,
+# even before that human's chat_id is populated. The `tg_poller` unknown-chat_id
+# branch writes /state/<agent>.pending-chat-id sentinels which Skynet's reconcile
+# loop reads and back-fills. Without this, the initial /start from a fresh
+# activation is never seen by any poller (chicken-and-egg: no poller → no chat_id
+# → no poller). The `mx_sync_for_human` filter below still gates on chat_id !=
+# null and room != null — that side needs both fields to route MX→TG.
 
 # spawn one Matrix sync loop per distinct human that has at least one active
 # (agent, chat) row.
