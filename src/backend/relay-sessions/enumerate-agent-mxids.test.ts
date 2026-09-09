@@ -62,7 +62,7 @@ describe("enumerateAgentMxidsViaSSH", () => {
     const deps = makeDeps({
       listHosts: vi.fn(async () => [HOST_A, HOST_B]),
       runSshCommand: vi.fn(async (host: EnumerationHostRecord) => {
-        if (host.id === "1") {
+        if (host.id === 1) {
           return "@alice-agent:server\n@bob-agent:server\n";
         }
         // Cross-host duplicate: @bob-agent also on host B. Should dedupe.
@@ -112,8 +112,8 @@ describe("enumerateAgentMxidsViaSSH", () => {
     const deps = makeDeps({
       listHosts: vi.fn(async () => [HOST_A, HOST_B, HOST_C]),
       runSshCommand: vi.fn(async (host: EnumerationHostRecord) => {
-        if (host.id === "2") throw new Error("SSH connection dropped");
-        if (host.id === "1") return "@a1:s\n";
+        if (host.id === 2) throw new Error("SSH connection dropped");
+        if (host.id === 1) return "@a1:s\n";
         return "@c1:s\n";
       }),
     });
@@ -130,7 +130,7 @@ describe("enumerateAgentMxidsViaSSH", () => {
     const deps = makeDeps({
       listHosts: vi.fn(async () => [HOST_A, HOST_B]),
       runSshCommand: vi.fn(async (host: EnumerationHostRecord) => {
-        if (host.id === "1") return null; // SSH failure
+        if (host.id === 1) return null; // SSH failure
         return "@b1:s\n";
       }),
     });

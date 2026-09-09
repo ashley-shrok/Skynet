@@ -37,7 +37,8 @@ import {
   unlinkUserAvatar,
   readUserAvatar,
 } from "./user-avatar-storage.js";
-import { assertAdminErr, createOrUpdateUser, deactivateUser } from "../../matrix/matrix-admin-client.js";
+import { createOrUpdateUser, deactivateUser } from "../../matrix/matrix-admin-client.js";
+import { assertAdminErr } from "../../matrix/matrix-admin-narrow.js";
 import { buildHumanMxid, generateHumanRelayPassword, extractServerName } from "../../matrix/username-to-mxid.js";
 import { getMatrixAdminCreds } from "../../matrix/matrix-admin-creds-store.js";
 // Phase 89-02 Task 3: post-mint humans-registry-room join hook (D-11).

@@ -50,7 +50,7 @@
 import { db } from "../database/db/index.js";
 import { DatabaseSaveTrigger } from "../utils/database-save-trigger.js";
 import { databaseLogger } from "../utils/logger.js";
-import { assertNotOk } from "../matrix/matrix-admin-client.js";
+import { assertNotOk } from "../matrix/matrix-admin-narrow.js";
 import {
   ensureRegistryRoomsExist,
   joinAgentToAgentsRegistry,

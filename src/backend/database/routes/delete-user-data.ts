@@ -2,7 +2,8 @@ import { eq } from "drizzle-orm";
 import { authLogger } from "../../utils/logger.js";
 import { db, DatabaseSaveTrigger } from "../db/index.js";
 import { unlinkUserAvatar } from "./user-avatar-storage.js";
-import { assertAdminErr, deactivateUser } from "../../matrix/matrix-admin-client.js";
+import { deactivateUser } from "../../matrix/matrix-admin-client.js";
+import { assertAdminErr } from "../../matrix/matrix-admin-narrow.js";
 import {
   auditLogs,
   commandHistory,

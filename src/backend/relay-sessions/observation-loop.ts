@@ -44,7 +44,7 @@
  */
 
 import { databaseLogger } from "../utils/logger.js";
-import { assertAdminErr } from "../matrix/matrix-admin-client.js";
+import { assertAdminErr } from "../matrix/matrix-admin-narrow.js";
 import { classifyRoom } from "./observation-loop-classifier.js";
 import type { ActiveRelayRoomSession } from "./relay-room-sessions-store.js";
 

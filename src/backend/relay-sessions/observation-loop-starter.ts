@@ -55,7 +55,7 @@
 
 import { db } from "../database/db/index.js";
 import { databaseLogger } from "../utils/logger.js";
-import { assertReasonErr } from "../matrix/matrix-admin-client.js";
+import { assertReasonErr } from "../matrix/matrix-admin-narrow.js";
 import {
   ensureRegistryRoomsExist,
   getAgentsRegistryRoomId,

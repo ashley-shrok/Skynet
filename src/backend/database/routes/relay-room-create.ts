@@ -74,10 +74,10 @@ import { users } from "../db/schema.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger } from "../../utils/logger.js";
 import {
-  assertNotOk,
   createRoomAsUser,
   inviteToRoom,
 } from "../../matrix/matrix-admin-client.js";
+import { assertNotOk } from "../../matrix/matrix-admin-narrow.js";
 import { materializeRelayRoomSession } from "../../relay-sessions/relay-room-sessions-store.js";
 
 const router = express.Router();

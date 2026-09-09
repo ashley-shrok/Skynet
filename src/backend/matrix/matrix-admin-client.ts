@@ -49,28 +49,10 @@ const ERR_MISSING_FIELD = "admin_api_missing_field";
 type AdminOk<T> = { ok: true } & T;
 export type AdminErr = { ok: false; status: number; error: string };
 
-// TS 6.0.3 narrowing workaround. `if (!r.ok) { ... r.status, r.error }` should
-// narrow r to the error variant but 6.0.3 lost it on discriminated unions
-// keyed by `ok`. See compose-drafts.ts:254 / plan-file-fetch.ts:297 for the
-// inline-cast precedent. These are zero-cost asserts predicates callers use
-// inside the `!r.ok` branch to re-narrow r to its error variant. Three names
-// for grep-visibility; identical body. (TS 2775 forbids const-aliasing an
-// assertion predicate, so each is its own function declaration.)
-export function assertNotOk<T extends { ok: boolean }>(
-  _r: T,
-): asserts _r is Extract<T, { ok: false }> {
-  // No-op — caller has already checked !_r.ok.
-}
-export function assertAdminErr<T extends { ok: boolean }>(
-  _r: T,
-): asserts _r is Extract<T, { ok: false }> {
-  // No-op — same as assertNotOk; distinct name for AdminErr call sites.
-}
-export function assertReasonErr<T extends { ok: boolean }>(
-  _r: T,
-): asserts _r is Extract<T, { ok: false }> {
-  // No-op — same as assertNotOk; distinct name for reason-shaped call sites.
-}
+// Narrowing helpers live in ./matrix-admin-narrow.ts (separate module so
+// external tests that `vi.mock("./matrix-admin-client")` don't need to also
+// stub these helpers). Import them directly from the narrow module below.
+import { assertAdminErr } from "./matrix-admin-narrow.js";
 
 // ---------------------------------------------------------------------------
 // createOrUpdateUser — PUT /_synapse/admin/v2/users/{mxid}

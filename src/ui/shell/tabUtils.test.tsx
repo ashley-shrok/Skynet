@@ -169,39 +169,40 @@ describe("tabUtils dispatcher: relay-room third branch", () => {
     warnSpy.mockRestore();
   });
 
-  it("Test 1 (regression): sessionKind harness + identityKey present → IdentitySessionPane", () => {
+  it("Test 1 (regression): sessionKind harness + identityKey present → IdentitySessionPane", async () => {
     const tab = makeTab({
       sessionKind: "harness",
       targetTmuxSession: "tina", // resolves against mock identities
     });
     render(<>{renderTabContent(tab)}</>);
-    expect(screen.queryByTestId("mock-identity-session-pane")).not.toBeNull();
+    // Panes are lazy-loaded (post-2026-09-08 perf work) — await Suspense resolve.
+    expect(await screen.findByTestId("mock-identity-session-pane")).not.toBeNull();
     expect(screen.queryByTestId("mock-relay-room-session-pane")).toBeNull();
     expect(screen.queryByTestId("mock-terminal-tab-content")).toBeNull();
   });
 
-  it("Test 1b (regression, undefined sessionKind = harness backward-compat): identityKey present → IdentitySessionPane", () => {
+  it("Test 1b (regression, undefined sessionKind = harness backward-compat): identityKey present → IdentitySessionPane", async () => {
     const tab = makeTab({
       // sessionKind omitted (undefined)
       targetTmuxSession: "tina",
     });
     render(<>{renderTabContent(tab)}</>);
-    expect(screen.queryByTestId("mock-identity-session-pane")).not.toBeNull();
+    expect(await screen.findByTestId("mock-identity-session-pane")).not.toBeNull();
     expect(screen.queryByTestId("mock-relay-room-session-pane")).toBeNull();
   });
 
-  it("Test 2 (regression): sessionKind harness + no matching identityKey → TerminalTabContent", () => {
+  it("Test 2 (regression): sessionKind harness + no matching identityKey → TerminalTabContent", async () => {
     const tab = makeTab({
       sessionKind: "harness",
       targetTmuxSession: "other-session", // NOT in mock identities map
     });
     render(<>{renderTabContent(tab)}</>);
-    expect(screen.queryByTestId("mock-terminal-tab-content")).not.toBeNull();
+    expect(await screen.findByTestId("mock-terminal-tab-content")).not.toBeNull();
     expect(screen.queryByTestId("mock-identity-session-pane")).toBeNull();
     expect(screen.queryByTestId("mock-relay-room-session-pane")).toBeNull();
   });
 
-  it("Test 3 (NEW): sessionKind relay-room + relayRoomId set → RelayRoomSessionPane", () => {
+  it("Test 3 (NEW): sessionKind relay-room + relayRoomId set → RelayRoomSessionPane", async () => {
     const tab = makeTab({
       sessionKind: "relay-room",
       relayRoomId: "!abc:matrix.example",
@@ -210,17 +211,17 @@ describe("tabUtils dispatcher: relay-room third branch", () => {
       targetTmuxSession: null,
     });
     render(<>{renderTabContent(tab, undefined, undefined, undefined, /* isVisible */ true)}</>);
-    const pane = screen.queryByTestId("mock-relay-room-session-pane");
+    const pane = await screen.findByTestId("mock-relay-room-session-pane");
     expect(pane).not.toBeNull();
-    expect(pane!.getAttribute("data-room-id")).toBe("!abc:matrix.example");
-    expect(pane!.getAttribute("data-room-title")).toBe("Design room");
-    expect(pane!.getAttribute("data-visible")).toBe("true");
+    expect(pane.getAttribute("data-room-id")).toBe("!abc:matrix.example");
+    expect(pane.getAttribute("data-room-title")).toBe("Design room");
+    expect(pane.getAttribute("data-visible")).toBe("true");
     // Neither of the existing branches fired.
     expect(screen.queryByTestId("mock-identity-session-pane")).toBeNull();
     expect(screen.queryByTestId("mock-terminal-tab-content")).toBeNull();
   });
 
-  it("Test 4 (defensive): sessionKind relay-room + relayRoomId MISSING → console.warn + fall through, no crash", () => {
+  it("Test 4 (defensive): sessionKind relay-room + relayRoomId MISSING → console.warn + fall through, no crash", async () => {
     const tab = makeTab({
       sessionKind: "relay-room",
       // relayRoomId omitted — defensive path.
@@ -240,7 +241,7 @@ describe("tabUtils dispatcher: relay-room third branch", () => {
     expect(matching).toBeDefined();
     // Fall-through: no RelayRoomSessionPane; existing dispatcher rendered.
     expect(screen.queryByTestId("mock-relay-room-session-pane")).toBeNull();
-    expect(screen.queryByTestId("mock-terminal-tab-content")).not.toBeNull();
+    expect(await screen.findByTestId("mock-terminal-tab-content")).not.toBeNull();
   });
 
   it("Test 6 (source order): the relay-room branch appears BEFORE the identity-pane branch in tabUtils.tsx", async () => {
