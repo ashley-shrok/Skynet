@@ -3613,6 +3613,23 @@ wss.on("connection", async (ws: WebSocket, req) => {
     sessionId,
   });
 
+  // wire_boot: sent BEFORE any other frame on a fresh WS attach. Signals
+  // that backend state — including the per-WS `lineNum` counter driving
+  // frame `line` values — has restarted from zero. Without this, a client
+  // that reconnects against a fresh backend closure (this container just
+  // restarted, or the ws-side simply re-did its auth handshake after any
+  // transient) keeps its pre-reconnect `messages` array — which carries
+  // now-higher pre-reconnect `line` values — and every post-reconnect
+  // frame (with fresh `line: 1, 2, 3, ...`) sorts BELOW them and gets
+  // silently discarded by the 20-item cap-drop at insert time. Client's
+  // `wire_boot` case handler resets `messages` state before subsequent
+  // frames arrive so the fresh line-counter has a clean sort space.
+  try {
+    ws.send(JSON.stringify({ type: "wire_boot" }));
+  } catch (sendErr) {
+    databaseLogger.warn(`[ws-server] send-failed msgType=wire_boot err="${sendErr instanceof Error ? sendErr.message : String(sendErr)}"`, { operation: "ws_send_failed" });
+  }
+
   // Phase 14 Wave 2: initialize this WS's overlap-ignore state in the
   // module-scope asideState Map (per CONTEXT.md § Backend per-connection
   // state lock 2026-07-26). Cleaned up in ws.on("close") below.

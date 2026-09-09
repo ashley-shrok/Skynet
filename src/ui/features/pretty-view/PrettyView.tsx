@@ -1940,6 +1940,16 @@ export function PrettyView({
             setDormant(false);
           }
           // pane_state === "error" — leave dormant unchanged (Risk 2).
+          // Sister-fix to Phase 62: on reconnect against a dormant pane, backend
+          // sends pane_state but no `session` frame (the ONLY site that clears
+          // status back to "streaming" — line ~1947). Without this line, status
+          // stays "error" post-reconnect → reconnectingActive stays true →
+          // send/reset/thumbs/recap disabled even though the WS is healthy and
+          // paneState is dormant. Any healthy pane_state proves the WS works.
+          if (parsed.state !== "error" && statusRef.current === "error") {
+            console.info(`[diag-status-clear] pane-state-drove-status-clear state=${parsed.state} sessionId=${tmuxSession ?? 'null'} hostId=${hostId}`);
+            setStatus("streaming");
+          }
           break;
         }
         case "session": {
@@ -2465,6 +2475,28 @@ export function PrettyView({
         case "tail_error": {
           // Recoverable — surface as a banner but keep the message list.
           setErrorMessage(parsed.message);
+          break;
+        }
+        case "wire_boot": {
+          // Backend just started a fresh WS closure (initial attach OR any
+          // reconnect — container restart, transient WS drop, whatever).
+          // The per-WS `lineNum` counter that stamps `line` values on
+          // every frame restarted from zero. Retaining pre-attach messages
+          // (which carry their pre-attach `line` values, potentially much
+          // higher than what the fresh counter will emit) traps every
+          // post-attach frame BELOW them under our insertion-sort-by-line
+          // + 20-cap-drop policy — the cap keeps the top-20-by-line, so
+          // fresh low-line frames are silently discarded from the front
+          // on every insert. Reset here so the fresh counter has a clean
+          // sort space. Also clear errorMessage — any stale banner from
+          // a prior WS teardown is now outdated. Every other piece of
+          // state either gets re-emitted by the backend on this fresh
+          // attach (pane_state / session / context_pct / harness_tasks /
+          // aside_ready) OR is client-side interaction state we
+          // deliberately preserve (planPending / dormantRef / draft).
+          console.info(`[wire-boot] reset messages sessionId=${tmuxSession ?? 'null'} hostId=${hostId} paneKey=${paneKey}`);
+          setMessages([]);
+          setErrorMessage(null);
           break;
         }
         case "error": {

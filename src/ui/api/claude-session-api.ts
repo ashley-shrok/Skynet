@@ -267,6 +267,20 @@ export type TailErrorEvent = {
   message: string;
 };
 
+// Emitted by the WS server at the top of every fresh connection (initial
+// attach or any reconnect against a new backend closure). Signals that
+// backend state — including the per-WS `lineNum` counter driving frame
+// `line` values — has restarted from zero. Client MUST reset its
+// insertion-sort-by-line `messages` state on receipt: otherwise messages
+// retained from before this attach (which carry now-higher pre-reconnect
+// `line` values) trap post-attach frames (with fresh low `line` values
+// starting from 1) beneath them, and the 20-item cap silently drops
+// every incoming frame from the front — the user sees a frozen message
+// list even though the WS is healthy and the backend is emitting normally.
+export type WireBootEvent = {
+  type: "wire_boot";
+};
+
 // Phase 50 Plan 02 D-15 — signal-driven send-path watchdog escalation.
 // Fired by src/backend/claude-session/pv-send-watchdog.ts at T+20000ms
 // silence after a split-send arm, indicating the harness never accepted
@@ -385,6 +399,7 @@ export type ClaudeSessionServerEvent =
   | AsideReadyEvent
   | AsideDismissedEvent
   | TailErrorEvent
+  | WireBootEvent
   | ErrorEvent
   // Phase 56 (2026-08-23) — dormancy is invisible; DormantEvent still emitted
   // for internal state tracking. The former wake-result response arm was
