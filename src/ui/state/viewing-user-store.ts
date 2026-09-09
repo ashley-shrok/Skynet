@@ -47,6 +47,16 @@ import { getUserInfo } from "@/main-axios";
  */
 let cachedMxid: string | null = null;
 
+/**
+ * L2 fixup 2026-09-09: cached userId, sourced from the SAME `/users/me`
+ * response that populates `cachedMxid`. Threaded through to the relay-
+ * room pane so structured logs carry the real userId instead of the
+ * hardcoded `0` placeholder that used to pollute ops-grep. Null in the
+ * same three cases as `cachedMxid` (fetch not yet resolved, fetch failed,
+ * or backend response omitted the field).
+ */
+let cachedUserId: string | null = null;
+
 /** Listener registry for useSyncExternalStore subscribers. */
 const listeners = new Set<() => void>();
 
@@ -79,11 +89,19 @@ function ensureFetch(): void {
       // Success — cache the mxid (may be null/undefined for pre-Phase-88
       // users; coerce undefined → null so the store has a consistent shape).
       const nextMxid = info.mxid ?? null;
+      // L2 fixup 2026-09-09: also cache the userId from the SAME response.
+      // Backend guarantees `userId: string` when the fetch succeeds; we
+      // still coerce non-string / empty to null defensively.
+      const nextUserId =
+        typeof info.userId === "string" && info.userId.length > 0
+          ? info.userId
+          : null;
       fetchState = "settled";
-      if (nextMxid !== cachedMxid) {
-        cachedMxid = nextMxid;
-        notifyListeners();
-      }
+      const mxidChanged = nextMxid !== cachedMxid;
+      const userIdChanged = nextUserId !== cachedUserId;
+      if (mxidChanged) cachedMxid = nextMxid;
+      if (userIdChanged) cachedUserId = nextUserId;
+      if (mxidChanged || userIdChanged) notifyListeners();
     })
     .catch((err: unknown) => {
       // Structured warn — never JSON.stringify the raw error (PATTERNS.md § 2:
@@ -97,7 +115,7 @@ function ensureFetch(): void {
         err: errMessage,
       });
       fetchState = "settled";
-      // cachedMxid stays null. No notify — value unchanged.
+      // cachedMxid / cachedUserId stay null. No notify — value unchanged.
     });
 }
 
@@ -113,6 +131,10 @@ function subscribe(cb: () => void): () => void {
 
 function getSnapshot(): string | null {
   return cachedMxid;
+}
+
+function getUserIdSnapshot(): string | null {
+  return cachedUserId;
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -135,14 +157,30 @@ export function useViewingUserMxid(): string | null {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
+/**
+ * L2 fixup 2026-09-09: React hook returning the viewing user's userId
+ * (string from the Skynet users table), or `null` in the same three cases
+ * as `useViewingUserMxid` (fetch pending, fetch failed, backend omitted
+ * the field). Sourced from the SAME `/users/me` response — combining
+ * both hooks costs zero extra network round-trips.
+ *
+ * Used by RelayRoomPane so its structured logs carry the real userId
+ * instead of the previous hardcoded `0` placeholder that polluted
+ * ops-grep across every log line the pane emits.
+ */
+export function useViewingUserId(): string | null {
+  return useSyncExternalStore(subscribe, getUserIdSnapshot, getUserIdSnapshot);
+}
+
 // ─── Test hooks (not part of the public API) ─────────────────────────────────
 
 /**
  * TEST ONLY — reset the module-scoped store so each test starts from a clean
- * slate (no cached mxid, no in-flight fetch). NOT a public API.
+ * slate (no cached mxid/userId, no in-flight fetch). NOT a public API.
  */
 export function __resetViewingUserStoreForTests(): void {
   cachedMxid = null;
+  cachedUserId = null;
   fetchState = "idle";
   listeners.clear();
 }

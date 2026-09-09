@@ -88,23 +88,51 @@ export const RelayRoomSessionPane = forwardRef<
   }, []);
 
   // useImperativeHandle: expose the IdentityPaneHandle-shaped surface as
-  // no-ops. See file header for WHY each is a no-op. Kept as an inline
-  // object literal (no factory helper) so a future reader can grep for
-  // any method name and immediately land on the no-op site.
+  // no-ops. See file header for WHY each is a no-op.
+  //
+  // L4 fixup 2026-09-09: every no-op now emits a structured console.warn
+  // when invoked so a stray call from a polymorphic tab.terminalRef
+  // consumer surfaces in the frontend logs instead of being silently
+  // swallowed. Payload carries the operation slug + tabId + roomId so
+  // ops-grep can identify which pane received the wayward call. Functional
+  // shape preserved — every method still returns synchronously as a
+  // benign no-op; the log-warn is observability, not a functional gate.
   useImperativeHandle(
     ref,
-    () => ({
-      togglePrettyMode: () => {},
-      toggleMessageQueue: () => {},
-      disconnect: () => {},
-      reconnect: () => {},
-      fit: () => {},
-      sendInput: () => {},
-      notifyResize: () => {},
-      refresh: () => {},
-      openFileManager: () => {},
-    }),
-    [],
+    () => {
+      // Small helper so every no-op method emits the same structured
+      // payload without repeating the boilerplate 9 times below.
+      const warnNoop = (operation: string, extra: object = {}): void => {
+        // eslint-disable-next-line no-console
+        console.warn({
+          operation,
+          tabId,
+          roomId,
+          ...extra,
+        });
+      };
+      return {
+        togglePrettyMode: () =>
+          warnNoop("relay_room_pane_noop_togglePrettyMode"),
+        toggleMessageQueue: () =>
+          warnNoop("relay_room_pane_noop_toggleMessageQueue"),
+        disconnect: () => warnNoop("relay_room_pane_noop_disconnect"),
+        reconnect: () => warnNoop("relay_room_pane_noop_reconnect"),
+        fit: () => warnNoop("relay_room_pane_noop_fit"),
+        sendInput: (data: string, messageQueueItemId?: string) =>
+          warnNoop("relay_room_pane_noop_sendInput", {
+            // Length of the payload only — NEVER log the payload text
+            // (privacy discipline: could contain typed message content).
+            dataLen: typeof data === "string" ? data.length : 0,
+            hasMessageQueueItemId: typeof messageQueueItemId === "string",
+          }),
+        notifyResize: () => warnNoop("relay_room_pane_noop_notifyResize"),
+        refresh: () => warnNoop("relay_room_pane_noop_refresh"),
+        openFileManager: () =>
+          warnNoop("relay_room_pane_noop_openFileManager"),
+      };
+    },
+    [tabId, roomId],
   );
 
   // Pane geometry mirrors IdentitySessionPane.tsx L222 verbatim so the

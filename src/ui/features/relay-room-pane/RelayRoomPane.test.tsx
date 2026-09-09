@@ -26,9 +26,11 @@ vi.mock("@/main-axios", async (importOriginal) => {
   };
 });
 
-// Mock useViewingUserMxid so tests can drive the W#8 hook value directly.
+// Mock useViewingUserMxid + useViewingUserId (L2 fixup 2026-09-09 —
+// pane now reads both) so tests can drive the W#8 hook values directly.
 vi.mock("@/state/viewing-user-store", () => ({
   useViewingUserMxid: vi.fn(),
+  useViewingUserId: vi.fn(() => "test-user-id"),
 }));
 
 // Mock identities-store so IdentityBadge / IdentityBadgeRow renders don't

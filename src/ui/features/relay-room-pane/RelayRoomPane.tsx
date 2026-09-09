@@ -35,7 +35,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { authApi } from "@/main-axios";
-import { useViewingUserMxid } from "@/state/viewing-user-store";
+import {
+  useViewingUserMxid,
+  useViewingUserId,
+} from "@/state/viewing-user-store";
 import { ComposeBoxShell } from "@/components/ComposeBoxShell";
 import { IdentityBadgeRow } from "./IdentityBadgeRow";
 import { RelayMessageList } from "./RelayMessageList";
@@ -99,6 +102,14 @@ export function RelayRoomPane({
 }: RelayRoomPaneProps) {
   // W#8: viewingUserMxid comes from the hook, NOT a prop.
   const viewingUserMxid = useViewingUserMxid();
+  // L2 fixup 2026-09-09: viewingUserId sourced from the same store as the
+  // mxid (single /users/me fetch across the app). Threaded into the hook
+  // for structured logs so every log line the pane emits carries the real
+  // userId instead of the old hardcoded `0` placeholder that polluted
+  // ops-grep. Null while the initial fetch is in flight — the hook logs
+  // it as `null` verbatim, which is still distinguishable from the
+  // pre-fix `0` and much easier to filter.
+  const viewingUserId = useViewingUserId();
 
   // Plan 06 Task 1: WS-derived state. The hook fully owns the lifecycle;
   // this pane consumes the return value. Fallback empty string on
@@ -107,7 +118,7 @@ export function RelayRoomPane({
   // for an empty string, which is safe (worst case: outbound bubbles show
   // as inbound momentarily; on next re-render the discrimination corrects).
   const stream = useRelayRoomStream({
-    userId: 0, // TODO: thread real userId once viewing-user-store carries it.
+    userId: viewingUserId,
     roomId,
     viewingUserMxid: viewingUserMxid ?? "",
     isVisible,

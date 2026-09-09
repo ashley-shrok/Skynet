@@ -29,6 +29,7 @@ vi.mock("@/main-axios", async (importOriginal) => {
 import { getUserInfo } from "@/main-axios";
 import {
   useViewingUserMxid,
+  useViewingUserId,
   __resetViewingUserStoreForTests,
 } from "./viewing-user-store";
 
@@ -195,6 +196,75 @@ describe("viewing-user-store (Phase 90 Plan 05 Task 1 — W#8)", () => {
       expect(mockedGetUserInfo).toHaveBeenCalledTimes(1);
     });
     // Even after settle, value stays null (nothing to cache).
+    expect(result.current).toBe(null);
+  });
+
+  // ==========================================================================
+  // L2 FIXUP TESTS (2026-09-09) — useViewingUserId parallel to useViewingUserMxid
+  // ==========================================================================
+
+  it("L2-fixup: useViewingUserId returns null on initial mount, then the userId after fetch resolves", async () => {
+    mockedGetUserInfo.mockResolvedValueOnce({
+      userId: "user-uuid-42",
+      username: "ashley",
+      is_admin: false,
+      is_oidc: false,
+      totp_enabled: false,
+      data_unlocked: true,
+      mxid: "@ashley:matrix.example.com",
+    });
+    const { result } = renderHook(() => useViewingUserId());
+    await waitFor(() => {
+      expect(result.current).toBe("user-uuid-42");
+    });
+  });
+
+  it("L2-fixup: useViewingUserId and useViewingUserMxid share the SAME /users/me fetch — single round-trip", async () => {
+    mockedGetUserInfo.mockResolvedValueOnce({
+      userId: "user-uuid-99",
+      username: "ashley",
+      is_admin: false,
+      is_oidc: false,
+      totp_enabled: false,
+      data_unlocked: true,
+      mxid: "@ashley:matrix.example.com",
+    });
+    const { result: rId } = renderHook(() => useViewingUserId());
+    const { result: rMxid } = renderHook(() => useViewingUserMxid());
+    await waitFor(() => {
+      expect(rId.current).toBe("user-uuid-99");
+      expect(rMxid.current).toBe("@ashley:matrix.example.com");
+    });
+    // Both hooks resolved from a single fetch.
+    expect(mockedGetUserInfo).toHaveBeenCalledTimes(1);
+  });
+
+  it("L2-fixup: fetch failure leaves userId null (mirrors the mxid null-on-failure discipline)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockedGetUserInfo.mockRejectedValueOnce(new Error("boom"));
+    const { result } = renderHook(() => useViewingUserId());
+    await waitFor(() => {
+      expect(warnSpy).toHaveBeenCalled();
+    });
+    expect(result.current).toBe(null);
+    warnSpy.mockRestore();
+  });
+
+  it("L2-fixup: non-string userId coerces to null (defensive against pre-Phase-90 cached responses)", async () => {
+    mockedGetUserInfo.mockResolvedValueOnce({
+      userId: 42 as unknown as string, // numeric legacy shape
+      username: "ashley",
+      is_admin: false,
+      is_oidc: false,
+      totp_enabled: false,
+      data_unlocked: true,
+      mxid: "@ashley:matrix.example.com",
+    });
+    const { result } = renderHook(() => useViewingUserId());
+    await waitFor(() => {
+      expect(mockedGetUserInfo).toHaveBeenCalledTimes(1);
+    });
+    // Non-string coerces to null — the store guarantees `string | null`.
     expect(result.current).toBe(null);
   });
 });

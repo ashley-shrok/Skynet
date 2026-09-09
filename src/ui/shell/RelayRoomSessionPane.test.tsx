@@ -227,4 +227,77 @@ describe("RelayRoomSessionPane", () => {
     expect(pane!.getAttribute("data-room-title")).toBe("Threaded room");
     expect(pane!.getAttribute("data-visible")).toBe("false");
   });
+
+  // ==========================================================================
+  // L4 FIXUP TESTS (2026-09-09) — no-op handle invocations emit log-warn
+  // ==========================================================================
+
+  it("L4-fixup: invoking any no-op handle method emits a structured console.warn carrying operation + tabId + roomId", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const ref = createRef<RelayRoomPaneHandle>();
+    render(
+      <RelayRoomSessionPane
+        ref={ref}
+        tab={makeTab({ id: "tab-l4" })}
+        roomId="!l4:matrix.example"
+        roomTitle="L4 room"
+        isVisible={true}
+      />,
+    );
+    // Invoke every method — each must emit a warn.
+    ref.current!.togglePrettyMode();
+    ref.current!.toggleMessageQueue();
+    ref.current!.disconnect();
+    ref.current!.reconnect();
+    ref.current!.fit();
+    ref.current!.sendInput("hello");
+    ref.current!.notifyResize();
+    ref.current!.refresh();
+    ref.current!.openFileManager();
+
+    expect(warnSpy).toHaveBeenCalledTimes(9);
+    // Every payload is a structured object with operation + tabId + roomId.
+    for (const call of warnSpy.mock.calls) {
+      const payload = call[0] as {
+        operation: string;
+        tabId: string;
+        roomId: string;
+      };
+      expect(typeof payload).toBe("object");
+      expect(payload.operation).toMatch(/^relay_room_pane_noop_/);
+      expect(payload.tabId).toBe("tab-l4");
+      expect(payload.roomId).toBe("!l4:matrix.example");
+    }
+    warnSpy.mockRestore();
+  });
+
+  it("L4-fixup: sendInput no-op carries dataLen (payload length only, NOT the payload text)", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const ref = createRef<RelayRoomPaneHandle>();
+    render(
+      <RelayRoomSessionPane
+        ref={ref}
+        tab={makeTab({ id: "tab-l4b" })}
+        roomId="!l4b:matrix.example"
+        roomTitle="L4b room"
+        isVisible={true}
+      />,
+    );
+    const sensitivePayload = "secret typed message content";
+    ref.current!.sendInput(sensitivePayload, "mq-1");
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const payload = warnSpy.mock.calls[0]![0] as {
+      operation: string;
+      dataLen: number;
+      hasMessageQueueItemId: boolean;
+    };
+    expect(payload.operation).toBe("relay_room_pane_noop_sendInput");
+    expect(payload.dataLen).toBe(sensitivePayload.length);
+    expect(payload.hasMessageQueueItemId).toBe(true);
+    // Privacy discipline — NEVER log the payload text itself.
+    const serialized = JSON.stringify(warnSpy.mock.calls[0]);
+    expect(serialized).not.toContain(sensitivePayload);
+    warnSpy.mockRestore();
+  });
 });

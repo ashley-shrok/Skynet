@@ -96,7 +96,18 @@ export interface PendingSend {
 }
 
 export interface UseRelayRoomStreamOpts {
-  userId: number;
+  /**
+   * The viewing user's Skynet userId for structured logging.
+   *
+   * L2 fixup 2026-09-09: widened from `number` to `number | string | null`.
+   * The original `number` shape was a hangover from an assumed autoincrement
+   * schema; the actual Skynet users.id column is a string (UUID). Callers
+   * source this via `useViewingUserId()` from viewing-user-store which
+   * returns `string | null` (null while the initial `/users/me` fetch is
+   * in flight). The value flows to log fields only — never used for
+   * comparison, routing, or protocol payload.
+   */
+  userId: number | string | null;
   roomId: string;
   viewingUserMxid: string;
   isVisible: boolean;
