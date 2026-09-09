@@ -39,18 +39,14 @@ const manualChunkGroups: Record<string, string[]> = {
     "@xterm/xterm",
     "react-xtermjs",
   ],
-  codemirror: [
-    "@uiw/react-codemirror",
-    "@codemirror/view",
-    "@codemirror/state",
-    "@codemirror/language",
-    "@codemirror/commands",
-    "@codemirror/search",
-    "@codemirror/autocomplete",
-    "@codemirror/theme-one-dark",
-    "@uiw/codemirror-extensions-langs",
-    "@uiw/codemirror-theme-github",
-  ],
+  // codemirror intentionally NOT split into its own manualChunk (POC 2026-09-08).
+  // Rolldown eagerly module-preloads every named manualChunk from the entry
+  // HTML — so making `codemirror` a named chunk here would preload ~120 KB
+  // gzipped on cold-shell even though its ONLY consumer (SSHAuthDialog via
+  // Terminal.tsx) is now `React.lazy`. Letting it fall through to the default
+  // (bundle into whichever lazy chunk imports it — SSHAuthDialog) keeps
+  // codemirror out of the preload manifest and defers the fetch to when the
+  // dialog actually opens.
   "remote-desktop-vendor": ["guacamole-common-js"],
   "graph-vendor": ["cytoscape", "react-cytoscapejs"],
   "file-preview-vendor": [

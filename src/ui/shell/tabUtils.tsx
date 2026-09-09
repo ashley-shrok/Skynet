@@ -1,4 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
+import { lazy, Suspense } from "react";
 import {
   LayoutDashboard,
   Monitor,
@@ -7,17 +8,26 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { CommandHistoryProvider } from "@/features/terminal/command-history/CommandHistoryContext";
-import { Terminal as TerminalFeature } from "@/features/terminal/Terminal";
+// Lazy-loaded heavy pane wrappers (POC 2026-09-08). Cold-shell for users
+// who don't immediately open a terminal / RDP tab no longer pays the
+// terminal-vendor (376 KB), remote-desktop-vendor (70 KB), Terminal (103 KB),
+// and GuacamoleApp (10 KB) uncompressed cost. Each chunk lazy-fetches on
+// first render of its matching case in renderTabContent.
+const TerminalFeature = lazy(() =>
+  import("@/features/terminal/Terminal").then((m) => ({ default: m.Terminal })),
+);
+const IdentitySessionPane = lazy(() =>
+  import("@/shell/IdentitySessionPane").then((m) => ({ default: m.IdentitySessionPane })),
+);
+const GuacamoleApp = lazy(() => import("@/features/guacamole/GuacamoleApp"));
 import type {
   TerminalHandle,
   TerminalHostConfig,
 } from "@/features/terminal/Terminal";
-import GuacamoleApp from "@/features/guacamole/GuacamoleApp";
 import { PrettyLandingCard } from "@/features/pretty-view/PrettyLandingCard";
 import type { Tab, TabType, Host } from "@/types/ui-types";
 import type { SSHHost } from "@/types";
 import { useTabsSafe } from "@/shell/TabContext";
-import { IdentitySessionPane } from "@/shell/IdentitySessionPane";
 import { useIdentities } from "@/state/identities-store";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 
@@ -112,7 +122,8 @@ function TerminalTabContent({
   const { previewTerminalTheme } = useTabsSafe();
   return (
     <CommandHistoryProvider>
-      <TerminalFeature
+      <Suspense fallback={<EmptyState icon={TerminalSquare} messageKey="terminal.noHostSelected" />}>
+        <TerminalFeature
         ref={tab.terminalRef as React.Ref<TerminalHandle>}
         hostConfig={
           {
@@ -136,7 +147,8 @@ function TerminalTabContent({
           onTmuxSessionMissing?.(tab.instanceId, sessionName)
         }
         previewTheme={previewTerminalTheme}
-      />
+        />
+      </Suspense>
     </CommandHistoryProvider>
   );
 }
@@ -190,17 +202,19 @@ function TerminalOrIdentitySessionPane({
 
   if (isIdentityPane) {
     return (
-      <IdentitySessionPane
-        tab={tab}
-        host={host}
-        label={label}
-        isVisible={isVisible}
-        attach={attach}
-        ref={tab.terminalRef as React.Ref<TerminalHandle>}
-        onCloseTab={onCloseTab}
-        onTmuxSessionChange={onTmuxSessionChange}
-        onTmuxSessionMissing={onTmuxSessionMissing}
-      />
+      <Suspense fallback={<EmptyState icon={TerminalSquare} messageKey="terminal.noHostSelected" />}>
+        <IdentitySessionPane
+          tab={tab}
+          host={host}
+          label={label}
+          isVisible={isVisible}
+          attach={attach}
+          ref={tab.terminalRef as React.Ref<TerminalHandle>}
+          onCloseTab={onCloseTab}
+          onTmuxSessionChange={onTmuxSessionChange}
+          onTmuxSessionMissing={onTmuxSessionMissing}
+        />
+      </Suspense>
     );
   }
 
@@ -285,13 +299,15 @@ export function renderTabContent(
           <EmptyState icon={Monitor} messageKey="guacamole.noHostSelected" />
         );
       return (
-        <GuacamoleApp
-          hostId={host.id}
-          tabId={tab.id}
-          protocol={tab.type as "rdp" | "vnc" | "telnet"}
-          isVisible={isVisible}
-          onClose={() => onCloseTab?.(tab.id)}
-        />
+        <Suspense fallback={<EmptyState icon={Monitor} messageKey="guacamole.noHostSelected" />}>
+          <GuacamoleApp
+            hostId={host.id}
+            tabId={tab.id}
+            protocol={tab.type as "rdp" | "vnc" | "telnet"}
+            isVisible={isVisible}
+            onClose={() => onCloseTab?.(tab.id)}
+          />
+        </Suspense>
       );
   }
 }

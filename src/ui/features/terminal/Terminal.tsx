@@ -7,6 +7,8 @@ import {
   forwardRef,
   useCallback,
   useMemo,
+  lazy,
+  Suspense,
 } from "react";
 import { useXTerm } from "react-xtermjs";
 import { FitAddon } from "@xterm/addon-fit";
@@ -29,7 +31,12 @@ import {
   getServerConfig,
 } from "@/main-axios.ts";
 import { TOTPDialog } from "@/ssh/dialogs/TOTPDialog.tsx";
-import { SSHAuthDialog } from "@/ssh/dialogs/SSHAuthDialog.tsx";
+// Lazy-loaded: SSHAuthDialog pulls @uiw/react-codemirror + @codemirror/*
+// (388 KB uncompressed). Deferring to first-open saves that from cold-shell
+// for every user; the dialog is manually invoked on SSH auth failure only.
+const SSHAuthDialog = lazy(() =>
+  import("@/ssh/dialogs/SSHAuthDialog.tsx").then((m) => ({ default: m.SSHAuthDialog })),
+);
 import { PassphraseDialog } from "@/ssh/dialogs/PassphraseDialog.tsx";
 import { WarpgateDialog } from "@/ssh/dialogs/WarpgateDialog.tsx";
 import { OPKSSHDialog } from "@/ssh/dialogs/OPKSSHDialog.tsx";
@@ -3376,19 +3383,23 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
           backgroundColor={backgroundColor}
         />
 
-        <SSHAuthDialog
-          isOpen={showAuthDialog}
-          reason={authDialogReason}
-          onSubmit={handleAuthDialogSubmit}
-          onCancel={handleAuthDialogCancel}
-          hostInfo={{
-            ip: hostConfig.ip,
-            port: hostConfig.port,
-            username: hostConfig.username,
-            name: hostConfig.name,
-          }}
-          backgroundColor={backgroundColor}
-        />
+        {showAuthDialog && (
+          <Suspense fallback={null}>
+            <SSHAuthDialog
+              isOpen={showAuthDialog}
+              reason={authDialogReason}
+              onSubmit={handleAuthDialogSubmit}
+              onCancel={handleAuthDialogCancel}
+              hostInfo={{
+                ip: hostConfig.ip,
+                port: hostConfig.port,
+                username: hostConfig.username,
+                name: hostConfig.name,
+              }}
+              backgroundColor={backgroundColor}
+            />
+          </Suspense>
+        )}
 
         <PassphraseDialog
           isOpen={showPassphraseDialog}
