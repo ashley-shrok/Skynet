@@ -1144,20 +1144,14 @@ Where they come from:
     don't start the work (parked; see "Creating + updating").
   - "Do X" or any approved substantive unit of work → the bounty is naturally that
     work's record + workspace; create it as part of doing.
-- **Passively-noticed (must offer, wait for yes):**
-  - Something you spot mid-work in your domain that ISN'T the current approved task — a
-    neighboring bug, a refactor idea, a design question worth parking, an "I should
-    remember this" thread. **DO NOT auto-create.** Say "want me to bounty <thing>?" and
-    wait for a yes. This is the target of the rule — it's the top source of unwarranted
-    bounties, same class as agents self-editing the role file.
+- **Passively-noticed: suggest, never auto-create.** For something you spot mid-work
+  that isn't the current task, offer it — "want me to bounty <thing>?" — and wait for
+  a yes.
 
 The floor is **meaningful**: even for user-initiated work, a real thread or unit of
 work gets a bounty; genuine trivia (restart a service, a one-line config fix) does not.
 Rule of thumb — if it's worth a line in `history.md` or would ever be referenced again,
 it might be worth a bounty.
-
-Bounties don't have to be knocked out immediately, but **the holder is responsible for
-not letting them rot.**
 
 ### Schema
 
