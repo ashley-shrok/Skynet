@@ -63,6 +63,7 @@
  */
 
 import * as fs from "node:fs/promises";
+import type { Dirent } from "node:fs";
 import * as path from "node:path";
 
 import { POLLY_VOICE_IDS } from "./polly-voice-catalog.js";
@@ -139,9 +140,9 @@ async function walkAndMigrate(
 ): Promise<{ scanned: number; changed: number }> {
   let scanned = 0;
   let changed = 0;
-  const entries = await fs
+  const entries: Dirent[] = await fs
     .readdir(root, { withFileTypes: true })
-    .catch(() => [] as Awaited<ReturnType<typeof fs.readdir>>);
+    .catch(() => []);
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const subdir = path.join(root, entry.name);
