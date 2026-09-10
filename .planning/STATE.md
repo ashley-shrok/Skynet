@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-10T01:16:14.086Z"
+last_updated: "2026-09-10T01:43:35.269Z"
 last_activity: 2026-09-10
 progress:
   total_phases: 95
-  completed_phases: 82
+  completed_phases: 83
   total_plans: 397
-  completed_plans: 387
-  percent: 86
+  completed_plans: 389
+  percent: 87
 ---
 
 # Project State
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 89 — COMPLETE
-Plan: 3 of 6
+Plan: 5 of 6
 Status: Ready to execute
 
 Last activity: 2026-09-10
@@ -217,7 +217,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 98%
+Progress: [██████████] 99%
 Progress: [██████████] 100%
 
 ## Performance Metrics
@@ -370,6 +370,8 @@ Progress: [██████████] 100%
 | Phase 85 P07 | 45 | 1 tasks | 1 files |
 | Phase 88 P03 | 28 min | 5 tasks | 5 files |
 | Phase 95 P03 | 35 | 2 tasks | 17 files |
+| Phase 95 P04 | 40m | 3 tasks | 6 files |
+| Phase 95 P05 | 20m | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -595,6 +597,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Local MIME_TO_EXT/EXT_TO_MIME maps in user-avatar-storage.ts cover only png/jpeg/webp — no cross-file coupling to identity system
 - [Phase ?]: Phase 88 Plan 88-03 (Wave 3 test rewrites) complete: 89/89 tests passing across 5 test files (was 29 failing). Three new lock-tests added (T1/T2/T3) for admin-gate + non-admin backend substitution wire contract. 8 tests with pre-existing Phase-86 drift folded in as Rule-3 blocking-issue cleanup per Wave 2 SUMMARY unblock contract.
 - [Phase ?]: G7: Ink Plan Mode split-send lesson captured verbatim in 95-03-SUMMARY.md before PlanPendingBubble.tsx deletion
+- [Phase ?]: SSH-topology locked as Option 3 (per-WS) for Phase 95 Part C: each WS runs its own sweep exec per tick, 4x exec reduction per WS per tick, zero new coordination surface
 
 ### Pending Todos
 
@@ -923,8 +926,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-10T01:16:13.988Z
-Stopped at: Completed Phase 95 Plan 03 (95-03-PLAN.md)
+Last session: 2026-09-10T01:43:35.174Z
+Stopped at: Checkpoint:human-verify at 95-05 Task 3 (Ashley UAT gate)
 Last session: 2026-09-08T03:58:11.814Z
 Stopped at: Phase 86 context gathered (renumbered from Phase 85 via rescue-rebase 3a708637)
 Last session: 2026-09-06T12:17:07.176Z
@@ -936,4 +939,4 @@ Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 3
 Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
-Resume file: None
+Resume file: .planning/phases/95-pv-context-pct-batch-sweep-drop-capture-pane-phase-92-sibling/95-05-PLAN.md
