@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-last_updated: "2026-09-10T07:47:17.420Z"
-last_activity: 2026-09-10
+last_updated: "2026-09-10T14:28:54.455Z"
+last_activity: "2026-09-10 — Phase 101 route-all-outbound-ssh-work-through-a-per-host-semaphore-re CODE-COMPLETE (tina). 16 atomic commits on `feat/tab-title-from-tmux`. Wave 1: `ef4d52a6` (registry module + `makeSemaphore` lifted from starter.ts + `__resetHostSemaphoreRegistryForTests` test hook) + `16c104df` (5-case unit test suite: same-instance, distinct-instance, key normalization `1===\"1\"`, FIFO under contention, error-path slot release) + `65d1e93b` (SUMMARY). Wave 2: `77ede0ab` (starter.ts migration — fleet-status L608 + L658 both branches + substrate lazy-init L900 all switched to `getHostSemaphore(host.id)`; `substrateHostSemaphores` Map + SIGTERM `.clear()` retired since registry owns lifetime). Wave 3 (parallel, file-disjoint): 101-03 = `cbffba57` identity-clone + `f67d93dc` roles-create + `80bb65a8` global-files-read-write (GET + POST handlers); 101-04 = `d891ac8a` relay-pointer + `46ddc845` skill-catalog + `9369afea` claude-session-server (new `acquireTailSlot(hostId)` helper wraps 3 tailSessionFile call sites; session-file-tail.ts untouched per plan) + `b1e077f6` (Rule 1 auto-fix: cast `conn` to `ssh2.Client` in dormant-branch tailSessionFile wrapper — build-error resolution, no behavior change); 101-05 = `dd019919` server-stats::collectMetrics widget-fanout wrap (D-05 correction — widgets/ tree byte-identical) + `4acaf293` file-manager::openDedicatedTransferSession resolver wrap (D-06 — host-transfer.ts's 10 caller sites covered transitively, host-transfer.ts stays untouched) + `2a8c831d` file-manager-session::execChannel wrap when session.hostId is set. Wave 4: `7f80e58a` (`scripts/ci/check-ssh-semaphore-coverage.sh` 179-line grep guard with 18-entry allow-list covering 3 structural exceptions + 2 docker sessions + 13 known-covered producer files; negative test confirmed guard exits 1 on new uncovered producer) + `ed55e151` (`verify:ssh-cap` script in package.json, wired into main test/verify path). Final sweep: `verify:ssh-cap` exit 0, `npm run type-check` exit 0, all Phase 101-touched vitest test files green (registry: 5/5, identity-clone: 28/28, roles-create: 20/20, global-files: 8/8, claude-session-server: 273/273, others: pass). Two pre-existing AWS SDK TS2307 errors in `voice/polly-adapter.ts` + `voice/transcribe-adapter.ts` from Phase 98 present in `npm run build:backend` — these resolve at Docker build via container's `@aws-sdk/*` packages, are not new regressions, and are documented in Phase 98 SUMMARY. Aggregate policy delivered: Skynet's total in-flight SSH work against any single host now capped at 8 slots via shared per-hostId `Map<string, HostSemaphore>` regardless of which producer initiates or which SSH connection carries the work — prevents both `MaxSessions=10` (per-connection channel cap) AND `MaxStartups=10:30:100` (per-connection auth-stage cap) sshd defaults. Ashley 2026-09-10 verbatim policy fully honored. **Bundles for ship** with already-committed diagnostic slice `quick-260910-8dp` (event-loop lag sampler + per-auth-request timing middleware, HEAD `9c60cdaa` pre-rebase / current HEAD `ed55e151` after 16 Phase 101 commits). HEAD LOCAL — NOT pushed / NOT built / NOT deployed — held at push boundary per greenlight-at-push rule. Ship-gate on greenlight: `git pull --rebase origin feat/tab-title-from-tmux` (origin has advanced during my work — taylor P97 UAT batches 1-5 + tabitha P98 STT hotfix), then full-suite `npx vitest run` + `npx playwright test tests/e2e/smoke.spec.ts --project=chromium` (with `SKYNET_TEST_CREDS`), then coord-post BEFORE, then push → docker build → force-recreate → HTTPS 200 + docker logs verify → coord-post AFTER. Post-deploy SLICE 2 of `auth-slow-requests-on-pwa-boot` bounty: harvest console-forward for `[event_loop_lag_sample]` + `[auth_req_timing]` from Ashley's next PWA boot; correlate with slow-auth warnings; narrow root cause (event-loop starvation vs handler-slow vs browser queue). Closes bounty `outbound-ssh-exec-semaphore-coverage-gaps`. Campaign framing per Ashley 2026-09-10: multi-session until PWA-boot fires zero AUTH slow-request warnings for 3 consecutive boots. Prior activity:"
 progress:
-  total_phases: 99
-  completed_phases: 86
-  total_plans: 424
-  completed_plans: 412
-  percent: 87
+  total_phases: 102
+  completed_phases: 88
+  total_plans: 428
+  completed_plans: 422
+  percent: 86
 ---
 
 # Project State
@@ -951,9 +951,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-10T07:03:07.512Z
+Last session: 2026-09-10T14:28:54.394Z
 Last session: 2026-09-10T07:47:17.370Z
-Stopped at: Checkpoint:human-verify at 95-05 Task 3 (Ashley UAT gate)
+Stopped at: Phase 104 context gathered
 Last session: 2026-09-08T03:58:11.814Z
 Stopped at: Phase 86 context gathered (renumbered from Phase 85 via rescue-rebase 3a708637)
 Last session: 2026-09-06T12:17:07.176Z
@@ -965,6 +965,6 @@ Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 3
 Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
-Resume file: None
+Resume file: .planning/phases/104-repo-stats-display-trapped-work-indicator-on-conv-list-ident/104-CONTEXT.md
 
 - Phase 102 added: Host-picker ownership filter (tina, 2026-09-10)
