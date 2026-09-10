@@ -98,14 +98,24 @@ registerHostInternalRoutes(router);
  * /host/db/host:
  *   post:
  *     summary: Create SSH host
- *     description: Creates a new SSH host configuration.
+ *     description: >
+ *       Creates a new SSH host configuration.
+ *       Optional body field `targetUserId` (string, admin-only): when set by an admin,
+ *       the host row is inserted with hosts.userId = targetUserId instead of the caller's
+ *       userId. Non-admin callers that supply targetUserId receive 403. Admin callers that
+ *       supply targetUserId along with inline sensitive credentials (password, key,
+ *       keyPassword, rdpPassword, vncPassword, telnetPassword, sudoPassword) receive 400
+ *       — cross-user writes with inline creds are blocked because encryption requires the
+ *       target's data key; use credentialId instead.
  *     tags:
  *       - SSH
  *     responses:
  *       200:
  *         description: Host created successfully.
  *       400:
- *         description: Invalid SSH data.
+ *         description: Invalid SSH data or cross-user write with inline sensitive credentials.
+ *       403:
+ *         description: Non-admin attempted to set targetUserId.
  *       500:
  *         description: Failed to save SSH data.
  */
@@ -215,6 +225,9 @@ router.post(
       // operator flips true per identity-hosting host that should receive
       // freshest bundled substrate bytes. Falsy on input = 0 stored.
       runsFleetSubstrate,
+      // Admin-only: when set, insert the host with hosts.userId = targetUserId.
+      // Non-admins supplying this field receive 403. Admin + inline sensitive creds → 400.
+      targetUserId,
     } = hostData;
     databaseLogger.info("[host-db] create-host-start", {
       operation: "host_create",
@@ -256,8 +269,42 @@ router.post(
       runsFleetSubstrate !== undefined
         ? !!runsFleetSubstrate
         : effectiveConnectionType === "ssh";
+
+    // Admin-only targetUserId gate — must come AFTER basic validation but BEFORE sshDataObj.
+    // D-08 guard fires after this block so ordering of 400/403 errors stays predictable.
+    let effectiveUserId = userId;
+    if (targetUserId && typeof targetUserId === "string" && targetUserId !== userId) {
+      const isAdminForCreate = await callerIsAdmin(userId);
+      if (!isAdminForCreate) {
+        sshLogger.warn("[host-db] host-create-target-user-rejected-not-admin", {
+          operation: "host_create_target_user_rejected_not_admin",
+          userId,
+          attemptedTargetUserId: targetUserId,
+        });
+        return res.status(403).json({ error: "Only admin users can set targetUserId" });
+      }
+      // Sensitive-field block: admin cross-user writes with inline creds would require
+      // the target's data key which Skynet only holds when the target is logged in.
+      // Block at the API boundary to avoid a runtime encryption failure.
+      const sensitiveFieldsPresent = [
+        password, key, keyPassword, rdpPassword, vncPassword, telnetPassword, sudoPassword,
+      ].filter((v) => v !== null && v !== undefined && v !== "");
+      if (sensitiveFieldsPresent.length > 0) {
+        sshLogger.warn("[host-db] host-create-target-user-rejected-sensitive-fields", {
+          operation: "host_create_target_user_rejected_sensitive_fields",
+          userId,
+          fieldsPresent: ["password", "key", "keyPassword", "rdpPassword", "vncPassword", "telnetPassword", "sudoPassword"]
+            .filter((_, i) => sensitiveFieldsPresent[i] !== undefined),
+        });
+        return res.status(400).json({
+          error: "Cross-user writes cannot include inline sensitive credentials — use credentialId instead",
+        });
+      }
+      effectiveUserId = targetUserId;
+    }
+
     const sshDataObj: Record<string, unknown> = {
-      userId: userId,
+      userId: effectiveUserId,
       connectionType: effectiveConnectionType,
       name: effectiveName,
       folder: folder || null,
@@ -414,12 +461,35 @@ router.post(
     }
 
     try {
-      const result = await SimpleDBOps.insert(
-        hosts,
-        "ssh_data",
-        sshDataObj,
-        userId,
-      );
+      let result;
+      try {
+        result = await SimpleDBOps.insert(
+          hosts,
+          "ssh_data",
+          sshDataObj,
+          effectiveUserId,
+        );
+      } catch (insertErr) {
+        // DataCrypto.validateUserAccess throws when the target user is not logged in
+        // (no data key cached server-side). Surface as a 400 so admin gets actionable feedback.
+        if (
+          insertErr instanceof Error &&
+          (insertErr.message.includes("not logged in") ||
+            insertErr.message.includes("No data key") ||
+            insertErr.message.includes("User data key not found") ||
+            insertErr.message.includes("Data key not available"))
+        ) {
+          sshLogger.warn("[host-db] host-create-target-user-not-logged-in", {
+            operation: "host_create_target_user_not_logged_in",
+            userId,
+            effectiveUserId,
+          });
+          return res.status(400).json({
+            error: "Target user not logged in — Skynet cannot encrypt on their behalf. Ask them to log in first.",
+          });
+        }
+        throw insertErr;
+      }
 
       if (!result) {
         sshLogger.warn("[host-db] create-host-no-result", {
@@ -443,6 +513,15 @@ router.post(
         hostId: createdHost.id as number,
         name,
       });
+
+      if (effectiveUserId !== userId) {
+        databaseLogger.info("[host-db] host-create-admin-cross-user", {
+          operation: "host_create_admin_cross_user",
+          callerUserId: userId,
+          effectiveUserId,
+          hostId: createdHost.id as number,
+        });
+      }
 
       res.json(resolvedHost);
       notifyStatsHostUpdated(
@@ -695,7 +774,14 @@ router.post(
  * /host/db/host/{id}:
  *   put:
  *     summary: Update SSH host
- *     description: Updates an existing SSH host configuration.
+ *     description: >
+ *       Updates an existing SSH host configuration.
+ *       Optional body field `targetUserId` (string, admin-only): when set by an admin,
+ *       the host row's userId is re-assigned to targetUserId. Admin callers can also update
+ *       rows they do not own (bypassing the "only owner" 403) when no inline sensitive
+ *       credentials are in the body. Non-admin callers that supply targetUserId receive 403.
+ *       Admin callers that supply targetUserId with inline sensitive credentials receive 400
+ *       — use credentialId instead.
  *     tags:
  *       - SSH
  *     parameters:
@@ -708,9 +794,9 @@ router.post(
  *       200:
  *         description: Host updated successfully.
  *       400:
- *         description: Invalid SSH data.
+ *         description: Invalid SSH data or cross-user write with inline sensitive credentials.
  *       403:
- *         description: Access denied.
+ *         description: Access denied or non-admin attempted to set targetUserId.
  *       404:
  *         description: Host not found.
  *       500:
@@ -827,6 +913,9 @@ router.put(
       // operator flips true per identity-hosting host that should receive
       // freshest bundled substrate bytes. Falsy on input = 0 stored.
       runsFleetSubstrate,
+      // Admin-only: when set, re-assign the host row's userId to targetUserId.
+      // Admin can also update rows they do not own when targetUserId is absent.
+      targetUserId,
     } = hostData;
     databaseLogger.info("[host-db] update-host-start", {
       operation: "host_update",
@@ -1010,6 +1099,38 @@ router.put(
     if (telnetPassword !== undefined)
       sshDataObj.telnetPassword = telnetPassword || null;
 
+    // Admin-only targetUserId gate — must come BEFORE permissionManager.canAccessHost.
+    // Read isAdmin once here and reuse below to avoid a second DB round-trip.
+    const isAdminForUpdate = await callerIsAdmin(userId);
+    let effectiveUpdateUserId = userId;
+
+    if (targetUserId && typeof targetUserId === "string" && targetUserId !== userId) {
+      if (!isAdminForUpdate) {
+        sshLogger.warn("[host-db] host-update-target-user-rejected-not-admin", {
+          operation: "host_update_target_user_rejected_not_admin",
+          userId,
+          hostId: parseInt(hostId),
+          attemptedTargetUserId: targetUserId,
+        });
+        return res.status(403).json({ error: "Only admin users can set targetUserId" });
+      }
+      // Sensitive-field block for cross-user writes: requires target's data key.
+      const sensitiveFieldsPresent = [
+        password, key, keyPassword, rdpPassword, vncPassword, telnetPassword, sudoPassword,
+      ].filter((v) => v !== null && v !== undefined && v !== "");
+      if (sensitiveFieldsPresent.length > 0) {
+        sshLogger.warn("[host-db] host-update-target-user-rejected-sensitive-fields", {
+          operation: "host_update_target_user_rejected_sensitive_fields",
+          userId,
+          hostId: parseInt(hostId),
+        });
+        return res.status(400).json({
+          error: "Cross-user writes cannot include inline sensitive credentials — use credentialId instead",
+        });
+      }
+      effectiveUpdateUserId = targetUserId;
+    }
+
     try {
       const accessInfo = await permissionManager.canAccessHost(
         userId,
@@ -1017,7 +1138,8 @@ router.put(
         "write",
       );
 
-      if (!accessInfo.hasAccess) {
+      // Admin bypasses the "no access" gate entirely (they can update any host).
+      if (!accessInfo.hasAccess && !isAdminForUpdate) {
         sshLogger.warn("[host-db] update-host-unauthorized", {
           operation: "host_update",
           hostId: parseInt(hostId),
@@ -1026,7 +1148,8 @@ router.put(
         return res.status(403).json({ error: "Access denied" });
       }
 
-      if (!accessInfo.isOwner) {
+      // Admin bypasses the "only owner can modify" gate.
+      if (!accessInfo.isOwner && !isAdminForUpdate) {
         sshLogger.warn("[host-db] update-host-view-only-rejected", {
           operation: "host_update",
           hostId: parseInt(hostId),
@@ -1062,8 +1185,10 @@ router.put(
 
       const ownerId = hostRecord[0].userId;
 
+      // Admin bypasses the credential-change and authType-change owner restrictions.
       if (
         !accessInfo.isOwner &&
+        !isAdminForUpdate &&
         sshDataObj.credentialId !== undefined &&
         sshDataObj.credentialId !== hostRecord[0].credentialId
       ) {
@@ -1074,6 +1199,7 @@ router.put(
 
       if (
         !accessInfo.isOwner &&
+        !isAdminForUpdate &&
         sshDataObj.authType !== undefined &&
         sshDataObj.authType !== hostRecord[0].authType
       ) {
@@ -1106,13 +1232,56 @@ router.put(
         });
       }
 
-      await SimpleDBOps.update(
-        hosts,
-        "ssh_data",
-        eq(hosts.id, Number(hostId)),
-        sshDataObj,
-        ownerId,
-      );
+      // Admin re-assignment: when admin provides targetUserId (→ effectiveUpdateUserId),
+      // update the row's userId column so ownership is transferred.
+      // Only set this when admin AND effectiveUpdateUserId differs from current ownerId.
+      if (isAdminForUpdate && effectiveUpdateUserId !== userId) {
+        sshDataObj.userId = effectiveUpdateUserId;
+      }
+
+      // Use ownerId (existing row owner) for the encrypt/decrypt key in SimpleDBOps.update
+      // so that fields already encrypted under ownerId are re-encrypted correctly.
+      // effectiveUpdateUserId is captured in sshDataObj.userId above for the DB column.
+      const encryptKeyUserId = effectiveUpdateUserId !== userId ? effectiveUpdateUserId : ownerId;
+
+      try {
+        await SimpleDBOps.update(
+          hosts,
+          "ssh_data",
+          eq(hosts.id, Number(hostId)),
+          sshDataObj,
+          encryptKeyUserId,
+        );
+      } catch (updateErr) {
+        // DataCrypto.validateUserAccess throws when the target user is not logged in.
+        if (
+          updateErr instanceof Error &&
+          (updateErr.message.includes("not logged in") ||
+            updateErr.message.includes("No data key") ||
+            updateErr.message.includes("User data key not found") ||
+            updateErr.message.includes("Data key not available"))
+        ) {
+          sshLogger.warn("[host-db] host-update-target-user-not-logged-in", {
+            operation: "host_update_target_user_not_logged_in",
+            userId,
+            effectiveUpdateUserId,
+            hostId: parseInt(hostId),
+          });
+          return res.status(400).json({
+            error: "Target user not logged in — Skynet cannot encrypt on their behalf. Ask them to log in first.",
+          });
+        }
+        throw updateErr;
+      }
+
+      if (isAdminForUpdate && effectiveUpdateUserId !== userId) {
+        databaseLogger.info("[host-db] host-update-admin-cross-user", {
+          operation: "host_update_admin_cross_user",
+          callerUserId: userId,
+          effectiveUserId: effectiveUpdateUserId,
+          hostId: parseInt(hostId),
+        });
+      }
 
       const updatedHosts = await SimpleDBOps.select(
         db
