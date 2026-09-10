@@ -76,3 +76,55 @@ Two lanes, one philosophy — the client speaks the same shape it already speaks
 **Exploration artifacts to reference during discuss-phase and plan-phase:** `~/.claude/roles/box-maintainer/bounties/more-versatile-stt-tts-support/` holds the validation samples Ashley signed off on (real assistant messages fed to the voice-out service, real voice clips fed to the voice-in service, and the actual outputs). Plan-phase should read those to anchor the "real behavior over synthetic samples" philosophy.
 
 **Coordination with Aither Infra:** Iris authored the narrow exploratory-scoped policy already attached to Ashley's host. When shipping is imminent, ping her to re-scope from exploratory-name to a production name (she asked for that ping explicitly). Stacy on the Aither box picks up the new code via the standard cross-tree flow and follows the deploy doc on her side for her instance's cloud role.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-10
+**Vehicle used:** GSD phase (Phase 98, 10 plans across 5 waves; two orchestrator-side inline fixes between waves — `fix(98-05)` Dirent type narrowing + `fix(98-07-followon)` roles-create validator swap)
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · Voice-in and voice-out end-to-end swapped to the two chosen external providers; local-rig integration paths removed cleanly.
+- **Shape: voice-in lane** — present · Client contract unchanged (multipart blob upload); backend opens streaming session, pushes recording as a burst, returns transcript.
+- **Shape: voice-out lane** — present · Backend orchestrator wraps single-call synth AND chunk-and-stitch for long text; client player unchanged in behavior.
+- **Shape: voice catalog** — present · Fixed 7-voice known set inlined; no runtime fetch.
+- **Shape: per-identity voice binding** — present · Hard-reset migration wired at backend boot; walks both identity and role frontmatter trees; explicit quote-strip line in place.
+- **Shape: provider access per instance** — present · Ambient host-role credential chain (no static keys stored); operator-attaches-policy is the on/off switch.
+- **Philosophy: client contract invariant** — present · Provider-agnostic client contract preserved; provider translation lives entirely on backend.
+- **Philosophy: one provider, one tier, no ceremony** — present · No user-facing engine toggle, no per-identity engine pick.
+- **Philosophy: one route through the backend** — present · Uniform backend orchestrator handles N=1 typical and N>1 long as the same code path.
+- **Philosophy: real behavior over synthetic samples** — present · Exploration artifacts referenced in canonical refs; provider validated on real distribution during /open before commit.
+- **Philosophy: operator controls the cost gate** — present · Policy-absence = feature-dark; no in-app spend surfaces.
+- **Prior context: streaming ownership moves to backend** — present · Chunk boundaries owned by backend; client player consumes chunks unchanged.
+- **Prior context: cross-instance uniform code** — present · Same code ships to both instances; per-instance operator config lives in the deploy doc.
+- **What would make it wrong: client-side path knows provider** — guarded · Client-facing contract has no provider-specific branch.
+- **What would make it wrong: chunk-and-stitch audible pauses** — cannot-verify (not readable) · Pipeline DESIGNED to keep audio continuous (sentence-boundary split, prefetch chunk N+1 while chunk N streams); actual perceived continuity is a run-time question that belongs to agent UAT, not /close.
+- **What would make it wrong: migration silently mangles values** — guarded · Migration wraps everything in try/catch, never throws; boot-time one-shot idempotent; quote-strip guard load-bearing.
+- **What would make it wrong: no operator off-switch** — guarded · Not-attaching-the-policy is the off-switch; explicitly named in the deploy doc.
+- **What would make it wrong: deploy doc leaves operators guessing** — guarded · Doc is self-contained (204 lines), lists all four required policy actions inline, includes a verification command, and covers both t1000 and T800 sides.
+- **What would make it wrong: TTFB noticeably slower** — cannot-verify (not readable) · Chosen provider validated at ~few-hundred-ms during exploration; run-time behavior belongs to agent UAT.
+- **Scope edges: In-scope items** — all present · Voice-in swap, voice-out swap with streaming preserved, catalog reshape, hard-reset migration, validator update, deploy-time doc, clean removal of old integration paths.
+- **Scope edges: Out-of-scope items honored** — present · No provider-selection UI/config/dispatch; no non-English voices; no cost dashboards / per-user quotas / spend caps; no in-app engine toggle; no changes to voice-record button or compose-box mic UI or cross-message interrupt behavior; no bidirectional voice-conversational features.
+- **Scope edges: Deferred item (sample-preview) not implemented** — present · The pre-existing sample-preview button in the voice picker predates Phase 98 (patch #223 from Phase 20 per the reviewer's git-blame check); it is legacy code, not a Phase-98 addition.
+
+### Additions (in the result, not in the shape)
+
+None. The reviewer scanned the material for behaviors or features not in the shape and found none. The sample-preview button in the voice picker (which sits in the shape's "Deferred, not tempting-but-no" section) is pre-existing legacy code from Phase 20, not a Phase-98 addition — inclusion was a byproduct of inlining the catalog into the same file, not a new feature.
+
+### Follow-ups
+
+- Ping Iris pre-ship to re-scope her `PollyTranscribeExploratory` policy name on `termix-ssm-role` to a production name — deferred (already recorded in the shape's Vehicle notes + in the deploy doc's ship-motion checklist + in Plan 98-09 SUMMARY; not a shape divergence).
+- Behavioral verification of chunk-and-stitch continuity + TTFB perception — deferred to agent UAT (/build step 5), which happens post-deploy against the running container.
+
+### Notes
+
+Two orchestrator-side inline fixes landed between waves and are worth naming as process observations, not shape divergences:
+- `fix(98-05)`: Dirent type narrowing on readdir catch fallback — executor's `tsc --noEmit` ran on the frontend config which doesn't compile backend files; the post-wave-2 gate on the backend config caught it. Fleet-rule learning applied.
+- `fix(98-07-followon)`: `roles-create.ts` validator swap — Plan 98-07 tightened the identity validator but the parallel `ROLE_VOICE_RE` on the role-create route was out-of-plan-scope; executor flagged it as deferred. Would have surfaced post-ship as "new roles with Polly voice IDs get 400-rejected." Fixed inline before Wave 4.
+
+Both fixes preserved the shape's client-contract-invariant + clean-cutover philosophy. Neither was a divergence from the shape itself — both were plan-scope misses caught at the wave-boundary orchestrator gate.
+
+The reviewer's return was a prose-formatted summary rather than the strict JSON contract the /close skill asks for, but the substantive review is complete and unambiguous. Every facet the reviewer walked was named; every out-of-scope commitment was explicitly checked against the material; no divergences requiring user adjudication were found.
