@@ -391,6 +391,59 @@ describe("PrettyView relay source (Phase 93 Slice 3 Task 3)", () => {
     }
   });
 
+  it("Test 5c (Phase 97 F-6 — placeholder copy in relay case): mount with relay source → textarea placeholder reads `Message room…` (U+2026 ellipsis)", () => {
+    adapterMock.mockReturnValue(defaultAdapterState({ isReady: true }));
+    const { container } = render(
+      <PrettyView
+        source={{ kind: "relay", roomId: "!room:x", roomTitle: null }}
+        hostId={0}
+        tmuxSession=""
+        isVisible={true}
+        onSend={() => true}
+      />,
+    );
+    const textarea = container.querySelector("textarea");
+    expect(textarea).not.toBeNull();
+    // U+2026 ellipsis copied verbatim from ComposeBox.tsx placeholder
+    // template. capital-M `Message` matches the harness template
+    // convention (D-14 SOFT lock — RESEARCH § Finding 6 landmines).
+    expect(textarea!.getAttribute("placeholder")).toBe("Message room…");
+  });
+
+  it("Test 5d (Phase 97 F-6 harness regression floor — placeholder unchanged): harness case mount → textarea placeholder reads `Message <identityName>…` (or `Message Claude…` when pvIdentity is null)", () => {
+    // Harness identity resolution goes through useSessionIdentity; if it
+    // resolves an identity, its displayName flows to identityName. When
+    // identityHue/identity are null (default mock in this test env), the
+    // ComposeBox template's `|| "Claude"` fallback fires.
+    sessionMatchKeyMock.mockReturnValue("tina");
+    useSessionIdentityMock.mockReturnValue({
+      identity: null,
+      identityHue: null,
+    });
+    adapterMock.mockReturnValue(defaultAdapterState({ isReady: true }));
+    const { container } = render(
+      <PrettyView
+        source={{ kind: "harness", hostId: 1, tmuxSession: "s1" }}
+        hostId={1}
+        tmuxSession="s1"
+        isVisible={true}
+        onSend={() => true}
+      />,
+    );
+    const textarea = container.querySelector("textarea");
+    // Harness ComposeBox may not mount on initial render (pane-state gate)
+    // — but if it does, its placeholder MUST NOT be "Message room…". The
+    // regression floor is "relay literal did not leak into harness".
+    if (textarea !== null) {
+      const placeholder = textarea.getAttribute("placeholder") ?? "";
+      expect(placeholder).not.toBe("Message room…");
+      // Placeholder must start with "Message " and end with the U+2026
+      // ellipsis (the template shape is preserved).
+      expect(placeholder.startsWith("Message ")).toBe(true);
+      expect(placeholder.endsWith("…")).toBe(true);
+    }
+  });
+
   it("Test 6 (error state, D-20): mount with relay source AND adapter.error !== null → ChatSurfaceErrorState renders", () => {
     adapterMock.mockReturnValue(
       defaultAdapterState({

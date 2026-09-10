@@ -4181,7 +4181,15 @@ export function PrettyView({
           isIdle={isIdleDerived}
           hostId={hostId}
           tmuxSession={tmuxSession}
-          identityName={pvIdentity?.displayName}
+          // Phase 97 Finding 6 (D-14): in the relay case, pvIdentity is
+          // undefined (no fleet identity for a room), so the placeholder
+          // at ComposeBox.tsx:2750 would fall back to `Message Claude…`.
+          // Case-branch the identityName prop so relay renders
+          // `Message room…` — matches the harness template's capital-M
+          // convention (RESEARCH § Finding 6 landmine, D-14 SOFT lock).
+          // Discipline mirrored from adjacent case-branched props at this
+          // ComposeBox mount site (onOptimisticSend, canSend, mode).
+          identityName={source.kind === "relay" ? "room" : pvIdentity?.displayName}
           onGoodToGo={jumpToBottom}
           onInterrupt={onInterrupt}
           // Phase 05 upload wiring — all sourced from the local
