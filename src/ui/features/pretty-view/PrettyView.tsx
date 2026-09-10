@@ -32,7 +32,6 @@ import { RelayOutboundBubble } from "./RelayOutboundBubble";
 import { RelayInboundBubble } from "./RelayInboundBubble";
 import { MalformedBubble } from "./MalformedBubble";
 import { WipBubble } from "./WipBubble";
-import { PlanPendingBubble } from "./PlanPendingBubble";
 import { AsideBubble } from "./AsideBubble";
 import { SessionHoldingOverlay } from "./SessionHoldingOverlay";
 import { PrettyViewLoadingOverlay } from "./PrettyViewLoadingOverlay";
@@ -199,7 +198,7 @@ export const PENDING_SEND_TIMEOUT_MS_DORMANT = 220_000;
 //      tolerance; INTO-at-bottom on jump-clicked, send-fired, or user-input
 //      inside tolerance. Programmatic writes NEVER transition mode. Symmetric
 //      event handling: new messages, WIP indicator appear/disappear, accessory
-//      bubbles (WipBubble / WaitingBubble / PlanPendingBubble / AsideBubble)
+//      bubbles (WipBubble / WaitingBubble / AsideBubble)
 //      appear/disappear, window resize, pane-count / split-layout change —
 //      all one event class ('content-changed' or 'container-resized') consumed
 //      uniformly by the reducer. Chase writes are instant (no smooth-scroll),
@@ -779,34 +778,6 @@ export function PrettyView({
   const [backgroundedShells, setBackgroundedShells] = useState<
     BackgroundedShell[]
   >([]);
-  // Currently-pending ExitPlanMode prompt from the parent JSONL
-  // (patch #63). Backend emits `pending: {...}` when Claude is
-  // waiting on the user's "1"/"2" Plan Mode reply, and `pending:
-  // null` when the tool_result closes the pair.
-  //
-  // Phase 24: presence detection still authoritative for bubble mount/
-  // unmount, but the bubble now RENDERS the plan file contents (fetched
-  // async by the backend via SFTP side-channel per Plan 03) plus
-  // [Approve] + [Feedback] buttons. Approve fires raw_keystrokes with
-  // "1\r"; Feedback Submit fires raw_keystrokes with "3<text>\r". Both
-  // bypass ComposeBox's split-send because Ink Plan Mode does not
-  // recognize split-send as a keystroke selection (patch #67 retraction
-  // lesson — verified by Ashley 2026-07-18 on Amelia's pane).
-  //
-  // Shape widened from `{planFilePath: string}` to
-  // `{planFilePath|null, planContent|null, contentError|null}` to match
-  // Plan 03's widened PlanPendingEvent wire type — see claude-session-
-  // api.ts. When planFilePath is null the bubble skips the middle
-  // section entirely (buttons still work); when planContent is null
-  // AND contentError is null the bubble shows "Loading plan…" italic;
-  // when contentError is non-null the bubble shows the error dim.
-  const [planPending, setPlanPending] = useState<
-    {
-      planFilePath: string | null;
-      planContent: string | null;
-      contentError: string | null;
-    } | null
-  >(null);
   // Phase 14 (plain-language-translation-asides) Wave 3: currently-
   // displayed plain-language aside for this session. `null` = no aside;
   // `string` = aside text extracted by the backend from the tmux BTW
@@ -1194,45 +1165,13 @@ export function PrettyView({
     setLoadOlderError(null);
   }, [oldestLoadedLine]);
 
-  // Phase 24: plan-mode replies use a NEW WS frame `raw_keystrokes` that
-  // writes bytes to the PTY in one shot (no split-send). The split-send
-  // ComposeBox uses is NOT recognized by Ink Plan Mode (patch #67 lesson).
-  // Backend calls `tmux send-keys -l` (literal) so \r, 1, 3 are treated
-  // as bytes, not tmux key-names. Trust-boundary: backend ignores any
-  // client-supplied hostId/tmuxSession — uses connection-captured state
-  // (T-14-02-01 pattern) — so we send bytes only.
-  //
-  // Both handlers mirror handleAsideDismiss's swallow-on-error shape:
-  // best-effort dispatch, no retry, WS may be mid-close.
-  const handlePlanApprove = useCallback(() => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    try {
-      ws.send(JSON.stringify({ type: "raw_keystrokes", bytes: "1\r" }));
-    } catch {
-      /* swallow — best-effort; ws may be mid-close */
-    }
-  }, []);
-
-  const handlePlanFeedback = useCallback((feedback: string) => {
-    const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    try {
-      ws.send(
-        JSON.stringify({ type: "raw_keystrokes", bytes: `3${feedback}\r` }),
-      );
-    } catch {
-      /* swallow — best-effort; ws may be mid-close */
-    }
-  }, []);
-
   // Phase 35 — outbound-write callbacks registered with Terminal.tsx via the
   // ref-forwarding surface (onRegisterSendInput / onRegisterSendInterrupt props).
   // Callers in Terminal.tsx (handleInjectedTurnReady, onSend, onInterrupt,
   // MessageQueueDrawer.onSend) read pvSendInputRef.current / pvSendInterruptRef.current
   // at call time and invoke these closures. Both close over wsRef (a stable React
   // ref); .current is read at call time — not captured — so deps:[] is correct
-  // (same posture as handleWake / handlePlanApprove above).
+  // (same posture as handleWake above).
 
   // sendInput: sends {type:"input", data, [messageQueueItemId]} on PrettyView's
   // own claude-session WS. Returns true on successful send, false on guard-trip
@@ -2042,11 +1981,6 @@ export function PrettyView({
       setHarnessTasks([]);
       setBackgroundedAgents([]);
       setBackgroundedShells([]);
-      // Phase 34 Plan 06: hasBgWork feeder RETIRED here.
-      // The fleet-status channel is now the sole source for the composite
-      // working signal. The fresh-pane reset is unnecessary — the
-      // fleet-status WS snapshot repopulates the store for this key.
-      setPlanPending(null);
       // Phase 30 (PS30-04): reset paneState on cold-mount (fresh pane needs
       // to re-resolve). Fresh pane clears its own paneState state slot so
       // the trivial state machine short-circuits to `resolving` per truth-
@@ -2293,7 +2227,6 @@ export function PrettyView({
             // fleet-status frame reconciles.
             setBackgroundedAgents([]);
             setBackgroundedShells([]);
-            setPlanPending(null);
             clearAsideState();
             clearAllPendingSends("session-rotation");
           }
@@ -2659,10 +2592,6 @@ export function PrettyView({
           setBackgroundedShells(parsed.shells);
           break;
         }
-        case "plan_pending": {
-          setPlanPending(parsed.pending);
-          break;
-        }
         case "aside_ready": {
           // Phase 14 Wave 3: backend extracted a /btw answer from the
           // tmux BTW overlay (Wave 2's server-authoritative extraction
@@ -2722,7 +2651,7 @@ export function PrettyView({
           // "same_file_recovery") funneled through
           // transitionFromHoldingToActiveSameFile (see Plan 30-01 § L2260).
           // This handler is now a no-op — the message stream / contextPct /
-          // harnessTasks / backgroundedAgents / plan_pending / asideText
+          // harnessTasks / backgroundedAgents / asideText
           // preservation semantic (surgical vs. session_changed heavy reset)
           // is unchanged because THIS handler never touched them either.
           break;
@@ -2762,9 +2691,6 @@ export function PrettyView({
           // fleet-status frame reconciles.
           setBackgroundedAgents([]);
           setBackgroundedShells([]);
-          // Phase 34 Plan 06: hasBgWork feeder RETIRED on session_changed.
-          // Fleet-status channel owns the working signal now; no manual clear needed.
-          setPlanPending(null);
           setStatus("streaming");
           // Phase 14 followup: full aside-surface reset — a recycled
           // session can't carry a live BTW overlay from the OLD session,
@@ -2814,7 +2740,7 @@ export function PrettyView({
           // state either gets re-emitted by the backend on this fresh
           // attach (pane_state / session / context_pct / harness_tasks /
           // aside_ready) OR is client-side interaction state we
-          // deliberately preserve (planPending / dormantRef / draft).
+          // deliberately preserve (dormantRef / draft).
           console.info(`[wire-boot] reset messages sessionId=${tmuxSession ?? 'null'} hostId=${hostId} paneKey=${paneKey}`);
           setMessages([]);
           setErrorMessage(null);
@@ -3115,7 +3041,7 @@ export function PrettyView({
   //     below owns the reopen path exclusively.
   //
   // STATE PRESERVATION: messages/contextPct/harnessTasks/backgroundedAgents/
-  // backgroundedShells/planPending/asideText/isHolding are NOT touched — they
+  // backgroundedShells/asideText/isHolding are NOT touched — they
   // survive the close and are immediately visible on re-show. appendDedup
   // absorbs any tail-replay dupes from the fresh tail on reopen (same as reconnect).
   //
@@ -3876,9 +3802,10 @@ export function PrettyView({
               hook (post-ship diag). `data-event-id` carries the same per-message
               identity witness so downstream diagnostics can still correlate
               DOM nodes with their source frames. Accessory siblings
-              (WipBubble / WaitingBubble / PlanPendingBubble / AsideBubble;
-              the former dormant-overlay sibling was deleted in Phase 56
-              Plan 03) remain immediately below the .map output, in-flow
+              (WipBubble / WaitingBubble / AsideBubble;
+              the former dormant-overlay and PlanPendingBubble siblings were
+              deleted in Phase 56 Plan 03 and Phase 95 Part B respectively)
+              remain immediately below the .map output, in-flow
               inside the same outer scroll container — same structural
               layout invariant established by Phase 27 Plan 27-02 Step B. */}
           {effectiveMessages.map((m) => (
@@ -3970,26 +3897,17 @@ export function PrettyView({
               framing collapses: accessories are simply in-flow siblings of the
               per-message [data-pv-bubble] children. No position:sticky, no
               position:absolute, no overlay — per ASIDE-05. Order matches the
-              pre-Phase-43 rendering (WipBubble → WaitingBubble → PlanPendingBubble
-              → AsideBubble → jump-to-bottom pill; the former dormant-overlay
-              sibling that used to sit between PlanPendingBubble and AsideBubble
-              was deleted in Phase 56 Plan 03). */}
+              pre-Phase-43 rendering (WipBubble → WaitingBubble → AsideBubble
+              → jump-to-bottom pill; the former dormant-overlay sibling and the
+              PlanPendingBubble sibling were both deleted — Phase 56 Plan 03
+              and Phase 95 Part B respectively). */}
           {isWorking && <WipBubble />}
           {/* Phase 34 Plan 06: WaitingBubble — harness permission/dialog waiting state.
               Mounts when the fleet-status channel reports status='waiting' for this
-              session's (hostId, tmuxSession) key. Sibling of WipBubble + PlanPendingBubble
-              in the in-flow message-list column. Presence-only — no interactive controls
+              session's (hostId, tmuxSession) key. Sibling of WipBubble in the
+              in-flow message-list column. Presence-only — no interactive controls
               (Ashley must switch to terminal to answer). See WaitingBubble.tsx header. */}
           {waitingFor !== null && <WaitingBubble reason={waitingFor} />}
-          {planPending && (
-            <PlanPendingBubble
-              planFilePath={planPending.planFilePath}
-              planContent={planPending.planContent}
-              contentError={planPending.contentError}
-              onApprove={handlePlanApprove}
-              onFeedback={handlePlanFeedback}
-            />
-          )}
           {/* Phase 56 (2026-08-23): former dormant-overlay mount site DELETED.
               Dormancy is now invisible — PrettyView on a dormant pane renders
               identically to PrettyView on an awake-idle pane. Backend still
@@ -4221,18 +4139,6 @@ export function PrettyView({
           // quick 260905-d79: updated to effectiveRecycling — same source as
           // isHolding and overlay mount gate per "one source for all three sites".
           recycleActive={effectiveRecycling}
-          // Phase 24: same disable treatment as recycleActive but for
-          // the plan-mode approval-prompt window. When the WS
-          // plan_pending state is non-null (the [Approve]/[Feedback]
-          // bubble is up), ComposeBox greys out every WS-side-effect
-          // control (Send stays as Send but disabled=true; reset,
-          // ThumbsUp, Recap, Queue all disabled) while the textarea
-          // stays typeable so Ashley can pre-draft feedback. Kept
-          // INDEPENDENT of recycleActive per CONTEXT § "Do NOT
-          // collapse" — Send-button behavior differs across the
-          // three disable modes (asideActive morphs; recycle + plan
-          // keep Send as Send).
-          planPendingActive={planPending !== null}
           // Phase 30: reconnectingActive derives from `status === "error"
           // || renderedState === "error"`. status="error" covers the
           // transient reconnect window (WS onclose fired, retry ladder
