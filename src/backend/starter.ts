@@ -99,28 +99,14 @@ export function maybeInstallStopHook(
 //     or transform them. The channel adapter's outer try/catch → null
 //     remains the SOLE null-conversion point in the exec pipeline.
 //   - No timing / no timeouts. Pure counting semaphore with a FIFO queue.
+//
+// D-02 (Phase 101 Plan 01): makeSemaphore moved to host-semaphore-registry.ts.
+// Imported here so existing call sites in this file continue to compile
+// byte-identically. Re-exported so starter.test.ts can still import it
+// directly. Plan 101-02 will migrate these call sites to getHostSemaphore().
 // ---------------------------------------------------------------------------
-export function makeSemaphore(limit: number): {
-  run<T>(fn: () => Promise<T>): Promise<T>;
-} {
-  let active = 0;
-  const waiters: Array<() => void> = [];
-  return {
-    async run<T>(fn: () => Promise<T>): Promise<T> {
-      if (active >= limit) {
-        await new Promise<void>((resolve) => waiters.push(resolve));
-      }
-      active++;
-      try {
-        return await fn();
-      } finally {
-        active--;
-        const next = waiters.shift();
-        if (next) next();
-      }
-    },
-  };
-}
+export { makeSemaphore } from "./ssh/host-semaphore-registry.js";
+import { makeSemaphore } from "./ssh/host-semaphore-registry.js";
 
 // ---------------------------------------------------------------------------
 // Phase 72 Plan 05 — projection helper for the `runs_fleet_substrate` opt-in
