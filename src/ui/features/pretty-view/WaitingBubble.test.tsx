@@ -42,7 +42,7 @@ describe("WaitingBubble — accessibility attributes", () => {
 // ─── Test 3 ───────────────────────────────────────────────────────────────────
 
 describe("WaitingBubble — assistant-aligned outer container", () => {
-  it("outer container div has justify-start class (matches PlanPendingBubble alignment)", () => {
+  it("outer container div has justify-start class (assistant-aligned, same slot as WipBubble)", () => {
     const { container } = render(<WaitingBubble reason="worker request" />);
     // The outer wrapper is the first child of the container.
     const outer = container.firstElementChild as HTMLElement;

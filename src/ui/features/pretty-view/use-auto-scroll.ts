@@ -338,7 +338,7 @@ export function useAutoScroll(paneKey: string): UseAutoScrollResult {
 
     // ── MutationObserver — one instance on scroll container children ───────
     // Observes childList+subtree so new messages, WipBubble, WaitingBubble,
-    // PlanPendingBubble, AsideBubble mounts/unmounts all fire content-changed.
+    // AsideBubble mounts/unmounts all fire content-changed.
     // One MO per scroll container (observer count gate enforced).
     const mo = new MutationObserver(() => {
       dispatch({ kind: "content-changed" });

@@ -22,7 +22,7 @@
  *   Test 4 — accessory bubbles render as siblings of the message list:
  *            WipBubble mounts inside the outer scroll container as a sibling
  *            of the message-list wrapper (post-Phase-27 layout invariant
- *            preserved). PlanPendingBubble is exercised the same way.
+ *            preserved). WaitingBubble uses the same structural slot.
  *   Test 5 — all five wire-frame bubble types render: message / image /
  *            relay_outbound / relay_inbound / malformed_line each land inside
  *            their own `[data-pv-bubble]` wrapper with the correct bubble
@@ -450,7 +450,7 @@ describe("PrettyView plain-DOM render — Phase 43 Plan 43-07a", () => {
   });
 
   it("Test 4: accessory bubble WipBubble mounts as a sibling of the message-list container inside the outer scroll container", async () => {
-    // Post-Phase-27 layout invariant: WipBubble / PlanPendingBubble /
+    // Post-Phase-27 layout invariant: WipBubble / WaitingBubble /
     // AsideBubble live as in-flow siblings of the message-list container
     // (not children of the map). Under the virtualizer they were siblings
     // of the sized virtualizer container; under the plain-DOM path they

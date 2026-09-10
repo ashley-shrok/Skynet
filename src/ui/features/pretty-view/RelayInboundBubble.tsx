@@ -15,7 +15,7 @@ import { detectFilePointer } from "./relay-pointer-detect";
 //
 // Coloring uses the standard pretty-view hue-tinted bubble recipe (same
 // gradient/border/shadow shape as ChatMessage assistant bubbles,
-// PlanPendingBubble, ImageBubble, DormancyOverlay) — but driven by the
+// ImageBubble, DormancyOverlay) — but driven by the
 // SENDER's resolved colorHue rather than the pane's --pv-id-hue, so each
 // inbound bubble reads as "identity X speaking as themselves" instead of
 // being mistakable for the pane's own agent. Multi-user chat convention:

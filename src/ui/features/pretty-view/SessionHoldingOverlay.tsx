@@ -26,7 +26,7 @@
 //     is a UX affordance ("wait, this is unavailable"), not a security
 //     boundary (see threat model T-260719-5ym-02).
 //   * A centered glass card sits inside the scrim, mirroring
-//     `PlanPendingBubble` / `WipBubble` treatment but with slightly
+//     `WipBubble` treatment but with slightly
 //     more prominent padding (px-4 py-3 vs. px-3 py-2, gap-3 vs. gap-2)
 //     since it is the sole focal element on the surface.
 //   * `animate-in fade-in duration-150` (tw-animate-css, already
@@ -137,7 +137,7 @@ export function SessionHoldingOverlay({
     >
       <div
         className={cn(
-          // Centered glass card — mirrors PlanPendingBubble aesthetic
+          // Centered glass card — mirrors WipBubble aesthetic
           // with slightly more presence (px-4 py-3 vs. px-3 py-2,
           // gap-3 vs. gap-2) since it is the surface's sole focal
           // element while the overlay is up.

@@ -2922,7 +2922,7 @@ export function AppShell({
                   const inPane =
                     hasSplit && findLeaf(splitTree, tab.id) !== null;
                   // Plan 06-02: `isVisible` signal for every mounted pane
-                  // (consumed by PrettyView's WipBubble, PlanPendingBubble,
+                  // (consumed by PrettyView's WipBubble, WaitingBubble,
                   // MessageQueueDrawer, SessionHoldingOverlay via Terminal.tsx
                   // isVisible prop pathway) now derives from
                   // effectiveSelectedTabId — same semantics as before

@@ -92,7 +92,7 @@ export function PrettyViewLoadingOverlay(): JSX.Element {
         className={cn(
           // Centered glass card — mirrors SessionHoldingOverlay's neutral
           // variant verbatim: px-4 py-3 gap-3 for slightly more presence
-          // than PlanPendingBubble. Single row (spinner + text), NO
+          // than WipBubble. Single row (spinner + text), NO
           // flex-col (contrast with DormancyOverlay which has the wake-
           // button + elapsed-hint stacked underneath).
           "rounded-[var(--radius-pv-bubble)] px-4 py-3",

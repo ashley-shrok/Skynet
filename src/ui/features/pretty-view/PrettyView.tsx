@@ -3803,8 +3803,8 @@ export function PrettyView({
               identity witness so downstream diagnostics can still correlate
               DOM nodes with their source frames. Accessory siblings
               (WipBubble / WaitingBubble / AsideBubble;
-              the former dormant-overlay and PlanPendingBubble siblings were
-              deleted in Phase 56 Plan 03 and Phase 95 Part B respectively)
+              former overlay and bubble siblings were retired in
+              Phase 56 Plan 03 and Phase 95 Part B respectively)
               remain immediately below the .map output, in-flow
               inside the same outer scroll container — same structural
               layout invariant established by Phase 27 Plan 27-02 Step B. */}
@@ -3898,9 +3898,8 @@ export function PrettyView({
               per-message [data-pv-bubble] children. No position:sticky, no
               position:absolute, no overlay — per ASIDE-05. Order matches the
               pre-Phase-43 rendering (WipBubble → WaitingBubble → AsideBubble
-              → jump-to-bottom pill; the former dormant-overlay sibling and the
-              PlanPendingBubble sibling were both deleted — Phase 56 Plan 03
-              and Phase 95 Part B respectively). */}
+              → jump-to-bottom pill; former overlay and bubble siblings
+              were retired — Phase 56 Plan 03 and Phase 95 Part B). */}
           {isWorking && <WipBubble />}
           {/* Phase 34 Plan 06: WaitingBubble — harness permission/dialog waiting state.
               Mounts when the fleet-status channel reports status='waiting' for this

@@ -218,8 +218,8 @@ export function AgentBadgeWithMeter({
           }
         >
           {/* Reset button — VERBATIM shrink of ComposeBox.tsx L2353-2382,
-              with disable gate simplified (no aside/recycle/plan-pending
-              awareness — the relay pane has no compose textarea). */}
+              with disable gate simplified (no aside/recycle awareness —
+              the relay pane has no compose textarea). */}
           <button
             type="button"
             onClick={handleReset}

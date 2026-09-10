@@ -3393,7 +3393,7 @@ function QueuedRow(props: QueuedRowProps) {
     asideActive: asideActive ?? false,
     // Quick 260814-1hz [Rule 1 auto-fix, parity with primary]: hook now
     // lives on the slot MicButton, so slotSendDisabled (which gates on
-    // slot text emptiness / recycle / plan-pending / etc.) no longer
+    // slot text emptiness / recycle / etc.) no longer
     // applies to the hold-record gesture. Retain showSlotTranscribingSend
     // so a fresh press cannot arm while STT is in-flight from a prior
     // send. voice.state !== "idle" guard inside the hook handles double-arm.
@@ -3517,7 +3517,7 @@ function QueuedRow(props: QueuedRowProps) {
             // Shift+Enter falls through to the browser default (newline
             // insertion). Gated on `slotSendDisabled` — the same predicate
             // that disables the slot Send button — so transcribing / empty
-            // text / slotArmed / recycle / plan-pending / reconnecting all
+            // text / slotArmed / recycle / reconnecting all
             // no-op via one source of truth.
             if (e.key !== "Enter" || e.shiftKey) return;
             e.preventDefault();
@@ -3607,7 +3607,7 @@ function QueuedRow(props: QueuedRowProps) {
             handleOpenFilePicker(`queued:${slot.id}`).
             2026-08-06 (composebox-queued-recycle-disable-inverted): mirrors
             the primary attach's disable expression (canSend + asideActive
-            only). Recycle/plan-pending do NOT disable attach — same rule
+            only). Recycle does NOT disable attach — same rule
             as primary: attach stages locally, no WS side-effect, safe to
             prep during the recycle/approval window so the fire that lands
             after the window can carry attachments. */}

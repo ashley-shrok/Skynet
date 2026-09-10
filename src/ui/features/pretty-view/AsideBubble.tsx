@@ -3,7 +3,7 @@
 // pretty-view bubble type at the bottom of the message stream.
 //
 // Mounted by PrettyView.tsx as a sibling of ChatMessage / ImageBubble /
-// PlanPendingBubble / WipBubble when the backend delivers a
+// WipBubble when the backend delivers a
 // `{type:"aside_ready", text: "..."}` WS frame. The extraction pipeline
 // runs upstream: the frontend arms via `{type:"aside_arm"}` on the
 // isIdle:false→true transition (Wave 3 emitter — PrettyView.tsx), the

@@ -2,8 +2,8 @@
  * Phase 14 (plain-language-translation-asides) Wave 3 Task 1 — AsideBubble
  * component render tests.
  *
- * AsideBubble is a new pretty-view sibling of ChatMessage / ImageBubble /
- * PlanPendingBubble / WipBubble. Rendered by PrettyView at the bottom of
+ * AsideBubble is a pretty-view sibling of ChatMessage / ImageBubble /
+ * WipBubble. Rendered by PrettyView at the bottom of
  * the message stream when the backend delivers a `{type:"aside_ready",
  * text: "..."}` WS frame (Wave 2's server-authoritative extraction).
  *
