@@ -125,6 +125,7 @@ import { startHarnessOnIdentity } from "./identity-harness-start.js";
 // Null / absent voice on the clone body is legal (clone omits the `voice:`
 // frontmatter line and the identity inherits from its role).
 import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -478,6 +479,7 @@ router.post(
     // -----------------------------------------------------------------------
     let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
     try {
+      await getHostSemaphore(hostId).run(async () => {
       try {
         conn = await connectOneShot(
           host as unknown as Parameters<typeof connectOneShot>[0],
@@ -816,7 +818,7 @@ router.post(
         });
         res.status(201).json(publicIdentity(newName, hostId, {}, sourceRole));
       }
-      return;
+      }); // end getHostSemaphore(hostId).run(...)
     } finally {
       if (conn) {
         try {
