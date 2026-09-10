@@ -2275,6 +2275,7 @@ Plans:
 **Plans:** 1/6 plans executed
 
 Plans:
+
 - [x] 101-01-PLAN.md — Wave 1: registry module + 5-case unit test suite (same-instance, distinct-instance, key normalization, FIFO under contention, error-path slot release)
 - [ ] 101-02-PLAN.md — Wave 2 (deps 101-01): migrate starter.ts fleet-status (both branches) + substrate to shared registry; drop substrateHostSemaphores map + SIGTERM .clear() line
 - [ ] 101-03-PLAN.md — Wave 3 (deps 101-01): wrap identity-clone.ts, roles-create.ts, global-files-read-write.ts (both GET + POST handlers) SSH motions
@@ -2290,17 +2291,46 @@ Plans:
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (run /gsd-plan-phase 102 to break down)
 
 ### Phase 103: Passthrough URLs — serve URL scheme (phase 2 of 2)
 
-**Goal:** [To be planned]
+**Goal:** Deliver the serve URL scheme end-to-end: wildcard-TLS subdomain `<host>-<port>.serve.term.<skynet-domain>` reverse-proxies HTTP + WebSocket through an SSH tunnel to agent-controlled ports. Full defense-in-depth stack: widened JWT cookie, allowlist-strip proxy forward, CI cookie-egress test, runtime header sampler, CORS + WS Origin rejects, CSRF audit, per-user-per-host edge auth, Skynet-styled interstitials, D-11 URL grammar. id-skill rewrite teaches agents the active/passive framing (serve URL vs file URL). Ships as single atomic deploy per D-24.
 **Requirements**: TBD
 **Depends on:** Phase 102
-**Plans:** 0 plans
-
+**Plans:** 11 plans
 Plans:
-- [ ] TBD (run /gsd-plan-phase 103 to break down)
+**Wave 1**
+
+- [ ] 103-01-PLAN.md — Custom Caddy image (route53 DNS-01 plugin) + Caddyfile wildcard/redirect snippets + docker-compose wiring
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 103-02-PLAN.md — Auth foundation: widen JWT cookie via SKYNET_COOKIE_DOMAIN, reject *.serve.term.* in CORS, host-add validation for -\d+ collision
+- [ ] 103-03a-PLAN.md — Serve URL data contracts: types.ts + tunnel-cache.ts (SSH pool reuse) + interstitial.ts (Skynet-styled per-failure HTML + writeInterstitial helper)
+- [ ] 103-06-PLAN.md — WebSocket Origin-header rejection guard on all 5 WSS entry points (D-08)
+- [ ] 103-07-PLAN.md — Frontend serve URL regex sibling + backend mirror-rule docblock (D-29)
+- [ ] 103-09-PLAN.md — id-skill "Sending files to the user" rewrite with active/passive framing + serve URL sub-section (D-25/26/27/28)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 103-03b-PLAN.md — Serve URL proxy behavior: http-proxy-middleware install (post-legitimacy-gate) + proxy-factory (allowlist-strip + permessage-deflate fix) + header-audit sampler
+- [ ] 103-08-PLAN.md — Comprehensive CSRF audit (4-shard sub-tasks merged) + multipart-origin-guard applied (D-09/D-10)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 103-04-PLAN.md — CI integration test enforcing D-05 cookie-egress across 6 transports x 3 header classes
+- [ ] 103-05-PLAN.md — Subdomain dispatch middleware + serveUrlHandler + database.ts mount (BEFORE bodyParser per http-proxy-middleware v4 streaming semantics)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 103-10-PLAN.md — End-to-end UAT on t1000 (python -m http.server + sibling image origin-isolation proof per CONTEXT.md Specifics L147)
+
+**Cross-cutting constraints:**
+
+- TypeScript compiles cleanly: `npx tsc --noEmit` exits 0
+- Scoped tests pass: `npx vitest run src/backend/serve-url/` exits 0 (0 failures — expect no test files yet; adds are OK)
 
 ### Phase 104: Repo stats display — trapped-work indicator on conv-list + identity badge
 
