@@ -104,8 +104,10 @@ describe("AppShell.tsx — relay URL round-trip wiring (Phase 97 Plan 05)", () =
   it("Test 3b: splitTree resolver fallback walk matches on sessionKind === 'relay-room' && relayRoomId === spec.roomId", () => {
     // BLOCKER-1 regression floor: the fallback walk (when the spec-key map
     // misses) must match relay tabs by roomId identity, not by host lookup.
+    // Regex is whitespace-tolerant because Prettier may wrap the &&
+    // conjunction across two lines.
     expect(appShellSrc).toMatch(
-      /t\.sessionKind === "relay-room" && t\.relayRoomId === spec\.roomId/,
+      /t\.sessionKind === "relay-room"\s+&&\s+t\.relayRoomId === spec\.roomId/,
     );
   });
 

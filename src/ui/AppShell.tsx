@@ -919,6 +919,12 @@ export function AppShell({
         // (patch #1) — it's what actually persists across reattaches.
         // Fall back to any explicit target the tab was opened with.
         targetTmuxSession: tmuxSessionNames[t.id] ?? t.targetTmuxSession,
+        // Phase 97 Plan 05 (Finding 7): relay-room tabs surface via
+        // sessionKind + relayRoomId; specForTab's relay branch emits
+        // `relay:<roomId>`. URL is keyed on roomId alone — title landing
+        // later must NOT trigger a URL rewrite (see D-15/D-16 landmine).
+        sessionKind: t.sessionKind,
+        relayRoomId: t.relayRoomId,
       });
       if (!spec) continue;
       if (t.id === activeTabId) activeIndex = tabSpecs.length;
@@ -946,6 +952,11 @@ export function AppShell({
         type: t.type,
         host: t.host,
         targetTmuxSession: t.targetTmuxSession ?? tmuxSessionNames[t.id],
+        // Phase 97 Plan 05 (Finding 7): relay leaf inside a split tree
+        // round-trips via sessionKind + relayRoomId (same shape as the
+        // top-level URL-sync loop above).
+        sessionKind: t.sessionKind,
+        relayRoomId: t.relayRoomId,
       });
     });
     writeWorkspaceToUrl(
@@ -1254,6 +1265,49 @@ export function AppShell({
         const pendingTabSpecsForResolver: TabSpec[] = pending?.tabs ?? [];
         if (pending) {
           for (const spec of pending.tabs) {
+            // Phase 97 Plan 05 (Finding 7): relay-room tabs restore via
+            // openTab(null, "terminal", ...) matching the onRelayRoomRowClick
+            // shape at AppShell.tsx:2169-2176. This branch MUST come before
+            // any spec.host access — TabSpec is a discriminated union
+            // (Task 1); the relay variant has host?: never.
+            if (spec.protocol === "relay") {
+              // Idempotency: reuse an already-restored relay-room tab if one
+              // with the same roomId exists.
+              const match = restoredTabs.find(
+                (t) =>
+                  t.sessionKind === "relay-room" &&
+                  t.relayRoomId === spec.roomId,
+              );
+              if (match) {
+                openedIds.push(match.id);
+              } else {
+                // Structured log for URL-restore forensics. Room ID is
+                // masked to localpart-before-colon to avoid leaking the full
+                // share-sensitive address (Phase 93 Landmine 6 discipline;
+                // defense-in-depth for T-97-05-03).
+                const localpart =
+                  spec.roomId.split(":")[0]?.replace(/^!/, "").slice(0, 12) ??
+                  "unknown";
+                // eslint-disable-next-line no-console
+                console.info({
+                  operation: "relay_room_url_restore",
+                  roomIdLocalpart: localpart,
+                  hasMatch: false,
+                });
+                const newId = openTab(null, "terminal", undefined, {
+                  sessionKind: "relay-room",
+                  relayRoomId: spec.roomId,
+                  // useRelayAdapter fills in the title via the session frame.
+                  relayRoomTitle: null,
+                  // Loading placeholder — the tab label updates once the
+                  // room title lands from the session frame.
+                  label: spec.roomId,
+                  allowCreateTmux: false,
+                });
+                if (newId) openedIds.push(newId);
+              }
+              continue; // skip the host-required logic below
+            }
             const wantType: TabType =
               spec.protocol === "tmux"
                 ? "terminal"
@@ -1342,6 +1396,19 @@ export function AppShell({
           {
             let openedIdx = 0;
             for (const spec of pending.tabs) {
+              // Phase 97 Plan 05 (Finding 7) BLOCKER-1: relay branch MUST
+              // come before any spec.host access — TabSpec's discriminated
+              // union types host as never on the relay variant, and the
+              // runtime value is undefined. Prior to this branch the loop
+              // called `spec.host.toLowerCase()` and built a bogus
+              // `"relay:undefined:"` key that masked the bug.
+              if (spec.protocol === "relay") {
+                const key = `relay:${spec.roomId}`;
+                const id = openedIds[openedIdx];
+                if (id) specToTabId.set(key, id);
+                openedIdx += 1;
+                continue;
+              }
               const wantType: TabType =
                 spec.protocol === "tmux"
                   ? "terminal"
@@ -1366,6 +1433,26 @@ export function AppShell({
             }
           }
           const resolver = (spec: TabSpec): string | null => {
+            // Phase 97 Plan 05 (Finding 7) BLOCKER-1: relay branch first —
+            // matches on roomId identity (both the map key and the fallback
+            // walk). The unpatched form threw TypeError on spec.host.toLowerCase()
+            // and produced a bogus fallback host-id comparison.
+            if (spec.protocol === "relay") {
+              const key = `relay:${spec.roomId}`;
+              const hit = specToTabId.get(key);
+              if (hit) return hit;
+              // Fallback: walk restoredTabs + closure tabs looking for a
+              // relay-room tab with the same roomId.
+              for (const t of [...restoredTabs, ...tabs]) {
+                if (
+                  t.sessionKind === "relay-room" &&
+                  t.relayRoomId === spec.roomId
+                ) {
+                  return t.id;
+                }
+              }
+              return null;
+            }
             const key = `${spec.protocol}:${spec.host}:${spec.session ?? ""}`;
             const hit = specToTabId.get(key);
             if (hit) return hit;
