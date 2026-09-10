@@ -78,7 +78,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("runSweepForHost", () => {
-  it("Test 1: all-match sweep on full 22-entry catalog — 0 changes, 0 failures, 0 writes", async () => {
+  it("Test 1: all-match sweep on full 23-entry catalog — 0 changes, 0 failures, 0 writes", async () => {
     const bundledBytes = Buffer.from("matching-bundle-content");
     // For every catalog entry, read returns __READ_OK__ with the same bytes
     // as the bundled reader. The decision layer skips them all.
@@ -95,7 +95,7 @@ describe("runSweepForHost", () => {
 
     expect(logSweepResult).toHaveBeenCalledTimes(1);
     const call = (logSweepResult as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(call.itemsChecked).toBe(22);
+    expect(call.itemsChecked).toBe(23);
     expect(call.itemsChanged).toBe(0);
     expect(call.itemsFailed).toBe(0);
     expect(logItemChanged).not.toHaveBeenCalled();

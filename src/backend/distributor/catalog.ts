@@ -44,12 +44,13 @@
  *     - 7 rows for the single-file skills (backlog, bounty,
  *       claude-code-harness-auth, next-bounty, promote-to-coordinator,
  *       queue, role)
- *     - 8 rows for helper scripts under scripts/
+ *     - 9 rows for helper scripts under scripts/
  *       (role-file-watch is the fourth ambient monitor, sibling of
  *       wakeup-scheduler + context-watch; fleet-status-sweep is the
- *       Phase 92 batch sweep for the fleet-status poller)
+ *       Phase 92 batch sweep for the fleet-status poller;
+ *       pv-context-pct-sweep is the Phase 95 batch sweep for the PV context-pct poller)
  *     - 1 row for user-onboarding/agent-supervisor.service
- *   Total = 22.
+ *   Total = 23.
  */
 
 /**
@@ -90,10 +91,11 @@ export interface CatalogEntry {
 }
 
 /**
- * The 22-row hand-maintained catalog. Ordered skills-side first, then
+ * The 23-row hand-maintained catalog. Ordered skills-side first, then
  * scripts-side, then user-onboarding/ files, then Phase 92 additions
- * (fleet-status-sweep). Within skills, multi-file skills (id, agent-relay)
- * appear before single-file skills for reviewability.
+ * (fleet-status-sweep), then Phase 95 additions (pv-context-pct-sweep).
+ * Within skills, multi-file skills (id, agent-relay) appear before single-file
+ * skills for reviewability.
  */
 export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
   // --- id skill (4 rows: SKILL.md + 3 companion prompts) ---
@@ -182,7 +184,7 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     restartHook: null,
   },
 
-  // --- helper scripts (7 rows, all under ~/.local/bin/) ---
+  // --- helper scripts (8 rows prior to Phase 95 addition, 9 total — all under ~/.local/bin/) ---
   // agent-supervisor is the sole entry with a restart hook: bytes must be
   // re-executed for the daemon to run the new version, and its unit is
   // KillMode=process so `systemctl --user restart agent-supervisor` does not
@@ -250,6 +252,17 @@ export const FLEET_SUBSTRATE_CATALOG: readonly CatalogEntry[] = [
     slug: "fleet-status-sweep",
     bundledPath: "/app/fleet-substrate/scripts/fleet-status-sweep.py",
     installPath: "~/.local/bin/fleet-status-sweep",
+    restartHook: null,
+  },
+
+  // --- pv-context-pct-sweep (1 row: python batch sweep for PrettyView context-pct — Phase 95) ---
+  // On-demand batch sweep invoked by claude-session-server.ts contextPctTimer per WS per 3s tick.
+  // Collapses up to 4 tail -c execs per identity per tick down to 1 exec per WS per tick.
+  // No restart hook — short-lived on-demand script; new bytes are picked up on next invocation.
+  {
+    slug: "pv-context-pct-sweep",
+    bundledPath: "/app/fleet-substrate/scripts/pv-context-pct-sweep.py",
+    installPath: "~/.local/bin/pv-context-pct-sweep",
     restartHook: null,
   },
 ] as const;
