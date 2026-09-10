@@ -69,10 +69,23 @@ export function validateReturnUrl(returnParam: string | null, parentDomain: stri
   // No embedded credentials — defeats https://term.gigaashley.click:9999@evil.com/.
   if (parsed.username !== "" || parsed.password !== "") return null;
 
-  // Hostname check with leading-dot suffix rule.
-  const host = parsed.hostname.toLowerCase();
-  const parent = parentDomain.toLowerCase();
-  if (host !== parent && !host.endsWith("." + parent)) return null;
+  // Hostname check with leading-dot suffix rule + FQDN trailing-dot normalization.
+  // URL.hostname preserves trailing dots on FQDN inputs ("term.gigaashley.click."),
+  // so strip them here to keep the comparison canonical (M-01 code-review fix).
+  const host = parsed.hostname.toLowerCase().replace(/\.+$/, "");
+  const parent = parentDomain.toLowerCase().replace(/\.+$/, "");
+
+  // IPv4-parent guard (M-02): if parent looks like an IPv4 literal, only allow
+  // an EXACT match — IPs have no DNS subdomain semantics, so the leading-dot
+  // suffix rule would spuriously accept "1.192.168.1.1" for parent "192.168.1.1".
+  // Not exploitable externally (parent set from server config), but defends
+  // against a dev/staging misconfig.
+  const isIPv4Parent = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(parent);
+  if (isIPv4Parent) {
+    if (host !== parent) return null;
+  } else {
+    if (host !== parent && !host.endsWith("." + parent)) return null;
+  }
 
   // All checks passed — return the normalized URL string.
   return parsed.href;

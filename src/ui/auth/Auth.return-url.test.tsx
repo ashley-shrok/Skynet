@@ -223,6 +223,9 @@ describe("Behavioral: mount-time redirect (B1-B3)", () => {
     expect(window.location.assign).toHaveBeenCalledWith(
       "https://foo-8899.serve.term.gigaashley.click/"
     );
+    // L-02 code-review: fulfill the test name's "form not initially rendered" guarantee.
+    // The redirect fires synchronously in the mount effect, so no login form should be visible.
+    expect(screen.queryByPlaceholderText(/username/i)).toBeNull();
   });
 
   it("B2 already-authed + invalid cross-domain return= → assign NOT called, console.warn IS called", async () => {

@@ -288,27 +288,35 @@ void fetchBrandingConfig();
 // skip both the SPA boot and the spinner — the browser navigates immediately.
 // The destination (a serve URL) will re-auth via JWT cookie and 302 back to /login
 // if the session is stale. Trust boundary is the subdomain-dispatch backend, not here.
-(function tryMainReturnUrlRedirect() {
+//
+// H-01 fix (code-review): returns TRUE when a redirect was fired so the caller can
+// suppress createRoot(). Bare IIFE `return` only exits the IIFE — the outer module
+// continued to createRoot, causing App to mount + getUserInfo() fetch + Auth's own
+// mount effect to fire a duplicate window.location.assign() before the navigation
+// completed. Gate createRoot on this return value now.
+function tryMainReturnUrlRedirect(): boolean {
   const stored = getStoredAuth();
-  if (!stored?.loggedIn) return;
+  if (!stored?.loggedIn) return false;
   const raw = parseReturnFromSearch(window.location.search);
   const validated = validateReturnUrl(raw, window.location.hostname);
   if (validated) {
     window.location.assign(validated);
-    return; // Do not call createRoot — browser is navigating away
+    return true;
   }
-  // If raw is present but invalid, log the rejection (consistent with Auth.tsx behavior)
   if (raw !== null && validated === null) {
     console.warn("[auth] rejecting invalid return url", { returnParam: raw, parentDomain: window.location.hostname });
   }
-})();
+  return false;
+}
 
-prepareClientCacheVersion().finally(() => {
-  createRoot(document.getElementById("root")!).render(
-    <StrictMode>
-      <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
-        <RootApp />
-      </ThemeProvider>
-    </StrictMode>,
-  );
-});
+if (!tryMainReturnUrlRedirect()) {
+  prepareClientCacheVersion().finally(() => {
+    createRoot(document.getElementById("root")!).render(
+      <StrictMode>
+        <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
+          <RootApp />
+        </ThemeProvider>
+      </StrictMode>,
+    );
+  });
+}
