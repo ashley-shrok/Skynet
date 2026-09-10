@@ -34,6 +34,7 @@
 import os from "os";
 import path from "path";
 import fs from "fs/promises";
+import { spawnSync } from "child_process";
 import type { Client as SSHClientType } from "ssh2";
 type SFTPWrapper = import("ssh2").SFTPWrapper;
 import yaml from "js-yaml";
@@ -4143,4 +4144,246 @@ export async function readIdentityBountyCounts(
     pinnedCount: (parsed as Record<string, unknown>).pinnedCount as number,
     needsDeskCount: (parsed as Record<string, unknown>).needsDeskCount as number,
   };
+}
+
+// ---------------------------------------------------------------------------
+// 11. readIdentityTrappedWork — Phase 104 Plan 01 (D-01/D-02/D-06/D-09)
+// ---------------------------------------------------------------------------
+//
+// Per-identity binary "hasTrappedWork" answer for the trapped-work indicator
+// (Phase 104). Sibling of readIdentityBountyCounts above, but with three
+// deliberate divergences from that function's structure:
+//
+//   1. D-02 workspace path: hard-coded ~/fleet/identities/<identityKey>/workspace/
+//      (Shape 3 substrate migration path). NO env-var override; NO "skynet/"
+//      subdir; NO configurability. Pre-migration identities that don't have
+//      workspace/ silently return {hasTrappedWork:false}.
+//
+//   2. D-06 silent-fail: workspace/ absent OR empty → {hasTrappedWork:false}.
+//      No error, no fallback path, no probe of alternative locations.
+//
+//   3. D-09 skip role lookup: trapped-work is workspace-scoped, not role-scoped.
+//      Do NOT call resolveRoleForIdentity — the workspace path has no role
+//      indirection. Saves one SSH round-trip per probe (research Pitfall #6).
+//
+// Detection semantics (D-01, all "any of" — short-circuit on first hit):
+//   Eligible project: git repo with at least one remote configured.
+//   Eligible trapped state:
+//     - Dirty tracked files (staged or unstaged) — untracked files ignored.
+//     - Local commits not reachable from any remote (git rev-list --branches
+//       --not --remotes --count > 0). Handles local-only branches with no
+//       upstream correctly.
+//     - Stashes on the reflog.
+//   Ignored: untracked files (loose scratch), repos without a remote (personal
+//   scratch), nested repos (only outermost is probed).
+//
+// LOCAL branch walks the filesystem via fs/promises + spawnSync("git", ...).
+// REMOTE branch runs a python3 -c '...' script over SSH that walks the
+// remote workspace and shells out to `git` per-repo with a 5s per-subprocess
+// timeout and a global try/except to swallow poisoned-repo failures. Script
+// short-circuits on first trapped state (print + sys.exit(0)).
+
+/** Depth of the workspace/ walk (D-01). Repos at depth 1-MAX_DEPTH are probed;
+ *  deeper trees are not. 3 covers workspace/<repo>/.git and
+ *  workspace/<category>/<repo>/.git without pathological fan-out. */
+const TRAPPED_WORK_MAX_DEPTH = 3;
+
+/** Workspace path prefix (D-02). Hard-coded, NOT env-configurable. */
+const WORKSPACE_PATH_PREFIX = "fleet/identities";
+
+/** Run a git command in `repoDir`, capturing stdout. Returns "" on any error
+ *  (mirrors the "swallow per-repo failures" invariant at L4096 for bounties). */
+function safeGitStdout(args: string[], repoDir: string): string {
+  try {
+    const r = spawnSync("git", ["-C", repoDir, ...args], {
+      encoding: "utf-8",
+      timeout: 5000,
+    });
+    if (r.status !== 0) return "";
+    return r.stdout ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** True if this repo has any "trapped work" per D-01 eligibility rules. */
+function repoHasTrappedWork(repoDir: string): boolean {
+  // Eligibility: repo MUST have at least one remote configured, else it's
+  // personal scratch and ignored (D-01).
+  const remotes = safeGitStdout(["remote"], repoDir).trim();
+  if (remotes === "") return false;
+
+  // Dirty tracked files (any line whose 2nd char is NOT '?' — '?' means untracked).
+  const status = safeGitStdout(["status", "--porcelain=v1"], repoDir);
+  for (const line of status.split("\n")) {
+    if (line.length < 2) continue;
+    if (line[1] !== "?") return true;
+  }
+
+  // Local commits not on any remote (handles local-only branches).
+  const localOnly = safeGitStdout(
+    ["rev-list", "--branches", "--not", "--remotes", "--count"],
+    repoDir,
+  ).trim();
+  const n = Number(localOnly);
+  if (Number.isFinite(n) && n > 0) return true;
+
+  // Stash on reflog.
+  const stash = safeGitStdout(["stash", "list"], repoDir).trim();
+  if (stash !== "") return true;
+
+  return false;
+}
+
+/** Depth-bounded walker that emits outermost .git-containing repo dirs.
+ *  Once a .git dir is found in `dir`, we DO NOT descend into `dir` — matches
+ *  D-01 "only outermost repo is probed" rule (nested/vendored repos ignored).
+ *  Symlinks are skipped to prevent loops. */
+async function walkForRepos(dir: string, depth: number, out: string[]): Promise<void> {
+  if (depth > TRAPPED_WORK_MAX_DEPTH) return;
+  let entries: string[];
+  try {
+    entries = await fs.readdir(dir);
+  } catch {
+    return;
+  }
+  // Check if this dir itself is a repo (has a .git subdir OR gitfile).
+  if (entries.includes(".git")) {
+    try {
+      const st = await fs.lstat(path.join(dir, ".git"));
+      if (st.isDirectory()) {
+        out.push(dir);
+        return; // outermost-only — do NOT descend
+      }
+      // A .git that's a file (gitlink for worktrees/submodules) or malformed:
+      // fall through to the "no repo here, keep walking" path. If it's a
+      // gitfile pointing at a valid worktree, the actual repo lives elsewhere;
+      // we don't chase gitlinks (they're either submodules or worktrees, both
+      // out of scope per D-01 outermost-only). Malformed .git files are simply
+      // ignored — the sibling dirs still get walked.
+    } catch {
+      // lstat failed — treat as no repo, keep walking siblings.
+    }
+  }
+  // Descend into subdirs (skip symlinks to prevent loops).
+  for (const e of entries) {
+    const p = path.join(dir, e);
+    let st: Awaited<ReturnType<typeof fs.lstat>>;
+    try {
+      st = await fs.lstat(p);
+    } catch {
+      continue;
+    }
+    if (st.isSymbolicLink()) continue;
+    if (!st.isDirectory()) continue;
+    if (e === ".git") continue; // never descend into a .git internals dir
+    await walkForRepos(p, depth + 1, out);
+  }
+}
+
+/**
+ * Per-identity binary "hasTrappedWork" answer. See file-top comment block
+ * (section 11) for full semantics — D-01 eligibility rules, D-02 workspace
+ * path, D-06 silent-fail, D-09 skip-role-lookup.
+ *
+ * Mirror source: readIdentityBountyCounts at L4052 (structural skeleton only —
+ * this function deliberately DOES NOT call resolveRoleForIdentity, and DOES NOT
+ * read from ROLES_HOST_DIR; the workspace path has no role indirection).
+ */
+export async function readIdentityTrappedWork(
+  conn: SSHClientType | null,
+  identityKey: string,
+): Promise<{ hasTrappedWork: boolean }> {
+  // Validation guard — reuse the same regex the bounty-counts reader uses
+  // (defense-in-depth against shell interpolation, path traversal).
+  if (!IDENTITY_KEY_RE.test(identityKey)) {
+    throw new Error("invalid identityKey");
+  }
+
+  if (conn === null) {
+    // LOCAL branch — walk os.homedir()/fleet/identities/<key>/workspace/.
+    // D-06: silent-fail on absent workspace (returns false without throwing).
+    const wsRoot = path.join(
+      os.homedir(),
+      WORKSPACE_PATH_PREFIX,
+      identityKey,
+      "workspace",
+    );
+    const repos: string[] = [];
+    await walkForRepos(wsRoot, 0, repos);
+    for (const repo of repos) {
+      if (repoHasTrappedWork(repo)) return { hasTrappedWork: true };
+    }
+    return { hasTrappedWork: false };
+  }
+
+  // REMOTE branch — one round-trip; python3 emits a single JSON line.
+  // The identityKey is validated above; the remote path interpolation is
+  // safe because the regex forbids shell-special characters (see L4102-4124
+  // for the mirror comment about direct-interpolation-inside-double-quotes).
+  const script =
+    "import os, sys, subprocess, json\n" +
+    "root = os.path.expanduser(sys.argv[1])\n" +
+    "MAX_DEPTH = 3\n" +
+    "if not os.path.isdir(root):\n" +
+    '    print(json.dumps({"hasTrappedWork": False})); sys.exit(0)\n' +
+    "found = []\n" +
+    "def walk(p, d):\n" +
+    "    if d > MAX_DEPTH: return\n" +
+    "    try: es = os.listdir(p)\n" +
+    "    except Exception: return\n" +
+    '    if ".git" in es:\n' +
+    "        try:\n" +
+    '            gp = os.path.join(p, ".git")\n' +
+    "            if os.path.isdir(gp) and not os.path.islink(gp):\n" +
+    "                found.append(p); return\n" +
+    "        except Exception: pass\n" +
+    "    for e in es:\n" +
+    '        if e == ".git": continue\n' +
+    "        q = os.path.join(p, e)\n" +
+    "        try:\n" +
+    "            if os.path.islink(q): continue\n" +
+    "            if not os.path.isdir(q): continue\n" +
+    "        except Exception: continue\n" +
+    "        walk(q, d + 1)\n" +
+    "walk(root, 0)\n" +
+    "def sh(args, cwd):\n" +
+    "    try:\n" +
+    "        r = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=5)\n" +
+    "        if r.returncode != 0: return ''\n" +
+    "        return r.stdout or ''\n" +
+    "    except Exception: return ''\n" +
+    "for repo in found:\n" +
+    "    try:\n" +
+    '        if not sh(["git", "remote"], repo).strip(): continue\n' +
+    '        status = sh(["git", "status", "--porcelain=v1"], repo)\n' +
+    "        if any(len(l) >= 2 and l[1] != '?' for l in status.split('\\n')):\n" +
+    '            print(json.dumps({"hasTrappedWork": True})); sys.exit(0)\n' +
+    "        try:\n" +
+    '            n = int((sh(["git", "rev-list", "--branches", "--not", "--remotes", "--count"], repo).strip() or "0"))\n' +
+    "        except ValueError: n = 0\n" +
+    "        if n > 0:\n" +
+    '            print(json.dumps({"hasTrappedWork": True})); sys.exit(0)\n' +
+    '        if sh(["git", "stash", "list"], repo).strip():\n' +
+    '            print(json.dumps({"hasTrappedWork": True})); sys.exit(0)\n' +
+    "    except Exception: pass\n" +
+    'print(json.dumps({"hasTrappedWork": False}))\n';
+  const cmd =
+    `python3 -c ${shellEscape(script)} ` +
+    `"$HOME/${WORKSPACE_PATH_PREFIX}/${identityKey}/workspace"`;
+  const stdout = await execWithTimeout(conn, cmd);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout.trim());
+  } catch {
+    throw new Error(`remote trapped-work returned malformed payload: ${stdout}`);
+  }
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    typeof (parsed as Record<string, unknown>).hasTrappedWork !== "boolean"
+  ) {
+    throw new Error(`remote trapped-work returned malformed payload: ${stdout}`);
+  }
+  return { hasTrappedWork: (parsed as { hasTrappedWork: boolean }).hasTrappedWork };
 }
