@@ -2013,9 +2013,15 @@ describe("PrettyView — relay-source optimistic bubbles (Phase 93 Slice 5)", ()
       '[data-testid="relay-outbound-header"]',
     )!;
     expect(outboundHeader.textContent).toContain("!room:x");
-    // Bubble aria-expanded defaults to false (collapsed) — this is the D-21
-    // shape-preservation of Slice D's RelayOutboundBubble contract.
-    expect(outboundHeader.getAttribute("aria-expanded")).toBe("false");
+    // Phase 97 UAT follow-up (2026-09-10) — in relay-source PrettyView
+    // (this test's mountRelay), bubbles render un-collapsed AND non-
+    // collapsible: header is a plain <div>, no aria-expanded (contrast
+    // with Slice D's original harness contract where aria-expanded="false"
+    // reflected the collapsed-by-default toggle). Regression floor: in
+    // harness PrettyView (task-notification path) aria-expanded="false"
+    // still holds — see RelayOutboundBubble.test.tsx.
+    expect(outboundHeader.tagName).toBe("DIV");
+    expect(outboundHeader.getAttribute("aria-expanded")).toBeNull();
   });
 
   it("Test 3 (Slice 6 post-close fix — D-14 timeout is adapter-owned in relay mode): 20s advance does NOT flip a local pending bubble because no local pending is seeded in relay", async () => {
