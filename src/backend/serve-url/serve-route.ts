@@ -42,7 +42,8 @@ import { tunnelCache } from "./tunnel-cache.js";
 import { getOrCreateProxyForTarget } from "./proxy-factory.js";
 import { renderInterstitial, writeInterstitial } from "./interstitial.js";
 import { sshLogger } from "../utils/logger.js";
-import type { ServeTarget, ErrorClass } from "./types.js";
+import { classifyTunnelError } from "./error-classifier.js";
+import type { ServeTarget } from "./types.js";
 
 /* ------------------------------------------------------------------------ */
 /*  Module-load fail-loud env check (W4 / D-23)                              */
@@ -66,59 +67,6 @@ const PRIMARY_DOMAIN = (() => {
 type ServeRouteRequest = Request & {
   serveTarget?: ServeTarget;
 };
-
-/**
- * Structural shape used for error classification. Node's net + ssh2 errors
- * carry `code` (strings like ECONNREFUSED) and/or `level` (ssh2's
- * client-authentication / protocol / etc.). We probe these without
- * requiring an Error subtype hierarchy.
- */
-type ClassifiableError = {
-  code?: string;
-  level?: string;
-  name?: string;
-};
-
-/* ------------------------------------------------------------------------ */
-/*  Error classification                                                     */
-/* ------------------------------------------------------------------------ */
-
-/**
- * Classify a tunnel-open error into one of the four non-auth D-14 failure
- * classes. Discriminates via structured fields ONLY (code / level / name);
- * never touches the Error body text or stack traces so classification
- * cannot become an info-leak channel.
- *
- * Categories:
- *  - ECONNREFUSED               → port_not_listening (agent's port isn't
- *                                 accepting connections; SSH tunnel opened
- *                                 but forwardOut got refused at target).
- *  - ETIMEDOUT / EHOSTUNREACH / → host_unreachable (network flap, target
- *    ENETUNREACH                  reboot, DNS, or the SSH connect never
- *                                 completed).
- *  - ssh2 client-authentication → ssh_failure (auth mismatch — bad key,
- *    or SSH_* code family or        wrong username, sshd rejected).
- *    ssh2 ClientError name
- *  - Anything else              → ssh_failure (default catchall — the
- *                                 tunnel machinery itself hiccuped; safer
- *                                 to surface as an SSH-level failure than
- *                                 pretend the target is offline).
- */
-function classifyTunnelError(err: unknown): ErrorClass {
-  const e = (err ?? {}) as ClassifiableError;
-  const code = typeof e.code === "string" ? e.code : "";
-  const level = typeof e.level === "string" ? e.level : "";
-  const name = typeof e.name === "string" ? e.name : "";
-
-  if (code === "ECONNREFUSED") return "port_not_listening";
-  if (code === "ETIMEDOUT" || code === "EHOSTUNREACH" || code === "ENETUNREACH") {
-    return "host_unreachable";
-  }
-  if (level === "client-authentication") return "ssh_failure";
-  if (code.startsWith("SSH_")) return "ssh_failure";
-  if (name === "ClientError") return "ssh_failure";
-  return "ssh_failure";
-}
 
 /* ------------------------------------------------------------------------ */
 /*  Handler                                                                 */

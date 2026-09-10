@@ -56,6 +56,7 @@
  */
 
 import type * as http from "node:http";
+import type { Request, Response } from "express";
 import {
   createProxyMiddleware,
   type RequestHandler,
@@ -63,6 +64,26 @@ import {
 import { emitHeaderAudit } from "./header-audit-sampler.js";
 import { HEADER_ALLOWLIST } from "./types.js";
 import type { ServeTarget } from "./types.js";
+import { renderInterstitial, writeInterstitial } from "./interstitial.js";
+import { classifyTunnelError } from "./error-classifier.js";
+import { sshLogger } from "../utils/logger.js";
+
+/**
+ * D-23 primary domain — matches serve-route.ts's module-load check. Read
+ * once at module init; if serve-route.ts loaded successfully so did we,
+ * but re-check here to keep proxy-factory self-contained (fail loud if
+ * ever loaded standalone in tests without the env).
+ */
+const PRIMARY_DOMAIN = (() => {
+  const value = process.env.SKYNET_COOKIE_DOMAIN;
+  if (!value) {
+    throw new Error(
+      "serve-url proxy-factory: SKYNET_COOKIE_DOMAIN env var is required " +
+        "(per D-23; no hardcoded fallback — fail-loud per W4)",
+    );
+  }
+  return value;
+})();
 
 /* ------------------------------------------------------------------------ */
 /*  Allowlist set for O(1) membership check                                 */
@@ -202,6 +223,39 @@ export function getOrCreateProxyForTarget(
         // making our outbound offer explicit rather than absent.
         proxyReq.setHeader("sec-websocket-extensions", "");
         emitHeaderAudit(target, "ws", proxyReq);
+      },
+      // Proxy-time errors (ECONNREFUSED when the target port stops
+      // listening between tunnel-open and request; ETIMEDOUT on network
+      // flap mid-request; ssh2 ClientError if the tunnel itself dies).
+      // Without this handler, http-proxy-middleware sends its default
+      // plain-text "Error occurred while trying to proxy: <url>" body —
+      // which is what a UAT surfaced 2026-09-10 when the target http.server
+      // was killed. Classify with the shared D-14 taxonomy and render
+      // the Skynet-styled interstitial (Try Again anchor, no auto-refresh
+      // per D-06).
+      error: (err, req, res) => {
+        const errorClass = classifyTunnelError(err);
+        sshLogger.warn("serve-url proxy: proxy-time-error", {
+          operation: "serve_url_proxy",
+          target: `${target.hostname}:${target.port}`,
+          errorClass,
+        });
+        // http-proxy-middleware's error handler receives a Node-level
+        // res that isn't guaranteed to be an Express Response. In our
+        // mount configuration it IS the same object Express handed to
+        // us, so writeInterstitial works. Guard anyway: if res was
+        // already destroyed (client disconnected mid-error), bail.
+        const expressRes = res as Response;
+        if (!expressRes || (expressRes as unknown as { writableEnded?: boolean }).writableEnded) {
+          return;
+        }
+        const expressReq = req as Request;
+        const hostHeader = expressReq.headers.host ?? "";
+        const originalUrl = hostHeader
+          ? `https://${hostHeader}${expressReq.originalUrl ?? ""}`
+          : (expressReq.originalUrl ?? "");
+        const result = renderInterstitial(errorClass, target, originalUrl, PRIMARY_DOMAIN);
+        writeInterstitial(expressRes, result);
       },
     },
   });
