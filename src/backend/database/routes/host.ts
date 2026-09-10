@@ -251,6 +251,25 @@ router.post(
       return res.status(400).json({ error: "Invalid SSH data" });
     }
 
+    // Phase 103 D-12: hostname cannot end -<digits> to avoid ambiguity with
+    // serve URL grammar <host>-<port>.serve.term.<domain> (split on the last
+    // dash of the leftmost label per D-11). CREATE path only — PUT is
+    // untouched per PATTERNS.md host-record-trap warning.
+    if (typeof name === "string" && /-\d+$/.test(name)) {
+      sshLogger.warn(
+        "[host-db] host-name-collision-with-serve-url-grammar",
+        {
+          operation: "host_create",
+          userId,
+          name,
+        },
+      );
+      return res.status(400).json({
+        error:
+          "Hostname cannot end in -<number> (reserved for serve URL grammar)",
+      });
+    }
+
     const effectiveConnectionType = connectionType || "ssh";
     const effectiveAuthType =
       authType ||
