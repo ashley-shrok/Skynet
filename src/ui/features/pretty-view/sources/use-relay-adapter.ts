@@ -497,15 +497,16 @@ export function useRelayAdapter(
               setPendingSends((prev) =>
                 prev.filter((p) => p.mqid !== echoedTxnId),
               );
-              // Phase 97 UAT follow-up (2026-09-10): also dedup by event_id
-              // in case a live_event with the same event_id already landed
-              // via history_batch (defensive; correlation branch normally
-              // covers the sender's own path).
-              setHistory((prev) =>
-                prev.some((h) => h.event_id === evt.event_id)
-                  ? prev
-                  : [...prev, evt],
-              );
+              // Phase 97 UAT follow-up 2 (2026-09-10): the correlation
+              // branch appends UNCONDITIONALLY. The earlier UAT batch #4
+              // added a dedup guard here too, but that caused the sender's
+              // own echo to disappear — if the send's real event_id
+              // somehow matched anything in history (or a duplicate
+              // live_event delivery fired), the optimistic pending got
+              // removed but the real event was skipped too, leaving no
+              // visible bubble. The non-correlated branch below still
+              // dedups (defense against history_batch overlap).
+              setHistory((prev) => [...prev, evt]);
               break;
             }
           }
@@ -678,6 +679,14 @@ export function useRelayAdapter(
         ts: p.sentAt,
       });
     }
+    // Phase 97 UAT follow-up 2 (2026-09-10): sort chronologically by ts
+    // (ascending — oldest first, newest last, standard chat convention).
+    // history_batch may deliver events newest-first depending on the
+    // Matrix server's pagination direction; without this sort the pane
+    // renders reversed. Defensive against server order regardless of
+    // which direction the server used. Pending sends carry client
+    // sentAt (Date.now) as ts so they naturally land at the newest end.
+    out.sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [history, pendingSends]);
