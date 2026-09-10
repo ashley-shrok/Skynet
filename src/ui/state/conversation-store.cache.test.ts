@@ -177,4 +177,108 @@ describe("FleetSession localStorage cache (quick-260805-tub)", () => {
     original(CACHE_KEY, JSON.stringify([SAMPLE_B]));
     expect(readFleetSessionsCache()).toEqual([SAMPLE_B]);
   });
+
+  // quick-260910-jqx: regression tests for the kind-aware validator fix.
+  // Before the fix, isFleetSession strictly required harness-shape fields
+  // (hostId/hostName/sessionName/created) on EVERY entry — so backend-shaped
+  // relay-room rows (kind:"relay-room", id, roomId, roomTitle, lastActivityAt,
+  // createdAt, updatedAt per sessions.ts:592-601 — no harness fields) were
+  // silently filtered out on read. Ashley saw a ~10s wait for relay rooms
+  // to appear on every cold-boot despite the cache being warm. These four
+  // cases pin the fixed behavior: relay round-trip, mixed round-trip,
+  // legacy-harness backward-compat, and malformed-relay rejection.
+  it("quick-260910-jqx: relay-row round-trip preserves kind/roomId/roomTitle", () => {
+    // Actual production shape from sessions.ts:592-601 — NO harness fields.
+    // Cast via `as unknown as FleetSession` because the TS type still lists
+    // harness fields as required (unchanged by this fix); runtime shape is
+    // what the cache round-trip actually deals with, and the write/read
+    // path already tolerates the missing fields (JSON.stringify drops
+    // `undefined` on serialize; validator no longer requires them on the
+    // relay branch after the fix).
+    const relayRow = {
+      kind: "relay-room",
+      roomId: "!room:matrix.example",
+      roomTitle: "Working session",
+      lastMessageAt: null,
+      aiTitle: null,
+    } as unknown as FleetSession;
+
+    writeFleetSessionsCache([relayRow]);
+    const got = readFleetSessionsCache();
+
+    expect(got).toHaveLength(1);
+    expect(got[0].kind).toBe("relay-room");
+    expect(got[0].roomId).toBe("!room:matrix.example");
+    expect(got[0].roomTitle).toBe("Working session");
+  });
+
+  it("quick-260910-jqx: mixed cache round-trip — harness + relay both survive", () => {
+    // Real steady-state: sidebar cache holds a mix of harness rows (from
+    // /sessions/list tmux hosts) and relay-room rows (Matrix rooms from
+    // the same endpoint). Both kinds must survive the validator together.
+    const relayRow = {
+      kind: "relay-room",
+      roomId: "!room:matrix.example",
+      roomTitle: "Working session",
+      lastMessageAt: null,
+      aiTitle: null,
+    } as unknown as FleetSession;
+
+    writeFleetSessionsCache([SAMPLE_A, relayRow]);
+    const got = readFleetSessionsCache();
+
+    expect(got).toHaveLength(2);
+    expect(got.filter((s) => s.kind === "harness")).toHaveLength(1);
+    expect(got.filter((s) => s.kind === "relay-room")).toHaveLength(1);
+  });
+
+  it("quick-260910-jqx: legacy harness row with no `kind` field still validates (backward-compat)", () => {
+    // Phase 90 doctrine (see readFleetSessionsCache comment at conversation-
+    // store.ts:1322-1329): `kind === undefined` is a load-bearing signal that
+    // the row predates the Phase-90 wire extension; consumers treat undefined
+    // as "harness". After the v3 → v4 cache bump this is largely theoretical
+    // for the localStorage path (v3 keys are discarded), but the validator
+    // must still route undefined-kind rows through the harness branch so a
+    // v4-key entry that somehow lands without a kind field (rehydrate edge
+    // case, upstream shape drift) doesn't get silently dropped.
+    const legacyHarnessRow = {
+      hostId: 42,
+      hostName: "legacy-box",
+      sessionName: "legacy-session",
+      created: 1_700_000_500,
+      role: "box-maintainer",
+      // NO `kind` field — this is the whole point of the test.
+    };
+    localStorage.setItem(CACHE_KEY, JSON.stringify([legacyHarnessRow]));
+
+    const got = readFleetSessionsCache();
+
+    expect(got).toHaveLength(1);
+    expect(got[0].hostName).toBe("legacy-box");
+    expect(got[0].kind).toBeUndefined();
+  });
+
+  it("quick-260910-jqx: malformed relay row (missing roomId) is filtered out", () => {
+    // The relay branch of the kind-aware validator tightens roomId from
+    // "undefined-or-string" (Phase 90 harness-branch rule) to "required
+    // non-empty string". A corrupt relay entry with kind:"relay-room" but
+    // no roomId — or a non-string roomId, or an empty-string roomId — must
+    // be filtered out. Seed alongside a valid harness row to prove the
+    // filter is per-item (not whole-cache reject).
+    const malformedRelayRow = {
+      kind: "relay-room",
+      // roomId absent — corrupt entry.
+      roomTitle: "Should not survive",
+    };
+    localStorage.setItem(
+      CACHE_KEY,
+      JSON.stringify([malformedRelayRow, SAMPLE_A]),
+    );
+
+    const got = readFleetSessionsCache();
+
+    expect(got).toHaveLength(1);
+    expect(got[0].kind).toBe("harness");
+    expect(got[0].hostName).toBe(SAMPLE_A.hostName);
+  });
 });
