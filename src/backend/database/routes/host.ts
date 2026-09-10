@@ -462,33 +462,41 @@ router.post(
 
     try {
       let result;
-      try {
-        result = await SimpleDBOps.insert(
-          hosts,
-          "ssh_data",
-          sshDataObj,
-          effectiveUserId,
-        );
-      } catch (insertErr) {
-        // DataCrypto.validateUserAccess throws when the target user is not logged in
-        // (no data key cached server-side). Surface as a 400 so admin gets actionable feedback.
-        if (
-          insertErr instanceof Error &&
-          (insertErr.message.includes("not logged in") ||
-            insertErr.message.includes("No data key") ||
-            insertErr.message.includes("User data key not found") ||
-            insertErr.message.includes("Data key not available"))
-        ) {
-          sshLogger.warn("[host-db] host-create-target-user-not-logged-in", {
-            operation: "host_create_target_user_not_logged_in",
-            userId,
+      if (effectiveUserId !== userId) {
+        // Admin cross-user path: cleartext-at-rest metadata only.
+        // The sensitive-field-block guard above already rejected inline creds.
+        // insertNonSensitive skips DataCrypto.validateUserAccess (target's data key not needed).
+        const inserted = await SimpleDBOps.insertNonSensitive(hosts, "ssh_data", sshDataObj);
+        result = inserted[0];
+      } else {
+        try {
+          result = await SimpleDBOps.insert(
+            hosts,
+            "ssh_data",
+            sshDataObj,
             effectiveUserId,
-          });
-          return res.status(400).json({
-            error: "Target user not logged in — Skynet cannot encrypt on their behalf. Ask them to log in first.",
-          });
+          );
+        } catch (insertErr) {
+          // DataCrypto.validateUserAccess throws when the target user is not logged in
+          // (no data key cached server-side). Surface as a 400 so admin gets actionable feedback.
+          if (
+            insertErr instanceof Error &&
+            (insertErr.message.includes("not logged in") ||
+              insertErr.message.includes("No data key") ||
+              insertErr.message.includes("User data key not found") ||
+              insertErr.message.includes("Data key not available"))
+          ) {
+            sshLogger.warn("[host-db] host-create-target-user-not-logged-in", {
+              operation: "host_create_target_user_not_logged_in",
+              userId,
+              effectiveUserId,
+            });
+            return res.status(400).json({
+              error: "Target user not logged in — Skynet cannot encrypt on their behalf. Ask them to log in first.",
+            });
+          }
+          throw insertErr;
         }
-        throw insertErr;
       }
 
       if (!result) {
@@ -1244,34 +1252,46 @@ router.put(
       // effectiveUpdateUserId is captured in sshDataObj.userId above for the DB column.
       const encryptKeyUserId = effectiveUpdateUserId !== userId ? effectiveUpdateUserId : ownerId;
 
-      try {
-        await SimpleDBOps.update(
+      if (isAdminForUpdate && effectiveUpdateUserId !== userId) {
+        // Admin cross-user path: skip target-user data key validation.
+        // The sensitive-field-block guard above already rejected inline creds.
+        await SimpleDBOps.updateNonSensitive(
           hosts,
           "ssh_data",
           eq(hosts.id, Number(hostId)),
           sshDataObj,
-          encryptKeyUserId,
         );
-      } catch (updateErr) {
-        // DataCrypto.validateUserAccess throws when the target user is not logged in.
-        if (
-          updateErr instanceof Error &&
-          (updateErr.message.includes("not logged in") ||
-            updateErr.message.includes("No data key") ||
-            updateErr.message.includes("User data key not found") ||
-            updateErr.message.includes("Data key not available"))
-        ) {
-          sshLogger.warn("[host-db] host-update-target-user-not-logged-in", {
-            operation: "host_update_target_user_not_logged_in",
-            userId,
-            effectiveUpdateUserId,
-            hostId: parseInt(hostId),
-          });
-          return res.status(400).json({
-            error: "Target user not logged in — Skynet cannot encrypt on their behalf. Ask them to log in first.",
-          });
+      } else {
+        try {
+          await SimpleDBOps.update(
+            hosts,
+            "ssh_data",
+            eq(hosts.id, Number(hostId)),
+            sshDataObj,
+            encryptKeyUserId,
+          );
+        } catch (updateErr) {
+          // DataCrypto.validateUserAccess throws when the target user is not logged in.
+          // This branch is only reachable for same-user writes; cross-user uses updateNonSensitive.
+          if (
+            updateErr instanceof Error &&
+            (updateErr.message.includes("not logged in") ||
+              updateErr.message.includes("No data key") ||
+              updateErr.message.includes("User data key not found") ||
+              updateErr.message.includes("Data key not available"))
+          ) {
+            sshLogger.warn("[host-db] host-update-target-user-not-logged-in", {
+              operation: "host_update_target_user_not_logged_in",
+              userId,
+              effectiveUpdateUserId,
+              hostId: parseInt(hostId),
+            });
+            return res.status(400).json({
+              error: "Target user not logged in — Skynet cannot encrypt on their behalf. Ask them to log in first.",
+            });
+          }
+          throw updateErr;
         }
-        throw updateErr;
       }
 
       if (isAdminForUpdate && effectiveUpdateUserId !== userId) {

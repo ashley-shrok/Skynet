@@ -47,6 +47,8 @@ vi.mock("../../utils/simple-db-ops.js", () => ({
     insert: vi.fn(async () => ({ id: 999, userId: "user-1", ip: "1.1.1.1", port: 22 })),
     update: vi.fn(async () => {}),
     select: vi.fn(async () => [{ id: 999, userId: "user-1", ip: "1.1.1.1", port: 22, credentialId: null, authType: "password", connectionType: "ssh", name: "test-host", runsFleetSubstrate: false }]),
+    updateNonSensitive: vi.fn(async () => [{ id: 999, userId: "other-user", ip: "1.1.1.1", port: 22, credentialId: 42, authType: "credential", connectionType: "ssh", name: "test-host", runsFleetSubstrate: true }]),
+    insertNonSensitive: vi.fn(async () => [{ id: 999, userId: "other-user", ip: "1.1.1.1", port: 22, credentialId: 42, authType: "credential", connectionType: "ssh", name: "test-host", runsFleetSubstrate: false }]),
   },
 }));
 
@@ -301,6 +303,28 @@ beforeEach(async () => {
     authType: "password",
   });
   (SimpleDBOps.update as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+  (SimpleDBOps.updateNonSensitive as ReturnType<typeof vi.fn>).mockResolvedValue([{
+    id: 999,
+    userId: "other-user",
+    ip: "1.1.1.1",
+    port: 22,
+    name: "test-host",
+    connectionType: "ssh",
+    runsFleetSubstrate: true,
+    credentialId: 42,
+    authType: "credential",
+  }]);
+  (SimpleDBOps.insertNonSensitive as ReturnType<typeof vi.fn>).mockResolvedValue([{
+    id: 999,
+    userId: "other-user",
+    ip: "1.1.1.1",
+    port: 22,
+    name: "test-host",
+    connectionType: "ssh",
+    runsFleetSubstrate: false,
+    credentialId: 42,
+    authType: "credential",
+  }]);
   (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([
     {
       id: 999,
@@ -1028,7 +1052,11 @@ describe("Admin cross-user extensions (A1-A6)", () => {
     expect(SimpleDBOps.insert).not.toHaveBeenCalled();
   });
 
-  it("A4: Admin POST with targetUserId + credentialId, no inline creds → 200, insert called with effectiveUserId=other-user", async () => {
+  it("A4: Admin POST with targetUserId + credentialId, no inline creds → 200, insertNonSensitive called (updated by 260910-67z: cross-user now routes through insertNonSensitive)", async () => {
+    // NOTE: 260910-67z changed the admin cross-user POST path to use insertNonSensitive
+    // instead of insert, so target-user data key is no longer required. This test
+    // was updated to match the new contract while preserving the intent (admin cross-user
+    // create succeeds and owns the row under the target user).
     const { db } = await import("../../database/db/index.js");
     const usersChain = {
       from: vi.fn().mockReturnThis(),
@@ -1036,18 +1064,6 @@ describe("Admin cross-user extensions (A1-A6)", () => {
       limit: vi.fn(() => Promise.resolve([{ isAdmin: true }])),
     };
     (db.select as ReturnType<typeof vi.fn>).mockReturnValueOnce(usersChain);
-
-    (SimpleDBOps.insert as ReturnType<typeof vi.fn>).mockResolvedValue({
-      id: 999,
-      userId: "other-user",
-      ip: "1.1.1.1",
-      port: 22,
-      name: "test-host",
-      connectionType: "ssh",
-      runsFleetSubstrate: false,
-      credentialId: 42,
-      authType: "credential",
-    });
 
     const req = makePostReq({
       ip: "1.1.1.1",
@@ -1062,11 +1078,13 @@ describe("Admin cross-user extensions (A1-A6)", () => {
     await postHandler!(req, res);
 
     expect(res._status).toBe(200);
-    // SimpleDBOps.insert should be called with the 4th arg = "other-user" (effectiveUserId)
-    expect(SimpleDBOps.insert).toHaveBeenCalled();
-    const insertArgs = (SimpleDBOps.insert as ReturnType<typeof vi.fn>).mock.calls[0];
-    // 4th arg is the userId passed to SimpleDBOps.insert
-    expect(insertArgs[3]).toBe("other-user");
+    // Admin cross-user POST now routes through insertNonSensitive (260910-67z)
+    expect(SimpleDBOps.insertNonSensitive).toHaveBeenCalled();
+    const insertArgs = (SimpleDBOps.insertNonSensitive as ReturnType<typeof vi.fn>).mock.calls[0];
+    // 3rd arg is the data object passed to insertNonSensitive — must have userId="other-user"
+    expect((insertArgs[2] as Record<string, unknown>).userId).toBe("other-user");
+    // Same-user insert path must NOT be called
+    expect(SimpleDBOps.insert).not.toHaveBeenCalled();
   });
 
   it("A5: Non-admin PUT with body.targetUserId → 403, SimpleDBOps.update NOT called", async () => {
@@ -1165,5 +1183,174 @@ describe("Admin cross-user extensions (A1-A6)", () => {
     // Should succeed (admin bypasses the isOwner:false 403)
     expect(res._status).toBe(200);
     expect(SimpleDBOps.update).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Admin cross-user WRITE extensions (A7-A10) — quick 260910-67z
+// ---------------------------------------------------------------------------
+
+describe("Admin cross-user WRITE extensions (A7-A10) — quick 260910-67z", () => {
+  it("A7: admin cross-user PUT with only non-sensitive fields → 200, updateNonSensitive called once, update NOT called", async () => {
+    await mockDbSelectForAdmin(true, "other-user");
+
+    // Select for the updated host after PUT
+    (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        id: 1,
+        userId: "other-user",
+        ip: "1.1.1.1",
+        port: 22,
+        name: "fleet-host",
+        connectionType: "ssh",
+        runsFleetSubstrate: true,
+        credentialId: 42,
+        authType: "credential",
+      },
+    ]);
+
+    const req = makePutReq("1", {
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: true,
+      credentialId: 42,
+      authType: "credential",
+      targetUserId: "other-user",
+      // no password, key, keyPassword, rdpPassword, vncPassword, telnetPassword, sudoPassword
+    }, ADMIN_ID);
+    const res = makeMockRes();
+
+    await putHandler!(req, res);
+
+    expect(res._status).toBe(200);
+    expect(SimpleDBOps.updateNonSensitive).toHaveBeenCalledTimes(1);
+    expect(SimpleDBOps.update).not.toHaveBeenCalled();
+  });
+
+  it("A8: admin cross-user POST with only non-sensitive fields → 200, insertNonSensitive called once with userId=other-user, insert NOT called", async () => {
+    const { db } = await import("../../database/db/index.js");
+    const usersChain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn(() => Promise.resolve([{ isAdmin: true }])),
+      limit: vi.fn(() => Promise.resolve([{ isAdmin: true }])),
+    };
+    (db.select as ReturnType<typeof vi.fn>).mockReturnValueOnce(usersChain);
+
+    const req = makePostReq({
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: false,
+      credentialId: 42,
+      targetUserId: "other-user",
+      // no inline sensitive creds
+    }, ADMIN_ID);
+    const res = makeMockRes();
+
+    await postHandler!(req, res);
+
+    expect(res._status).toBe(200);
+    expect(SimpleDBOps.insertNonSensitive).toHaveBeenCalledTimes(1);
+    // Verify the 3rd arg (data object) has userId="other-user"
+    const insertArgs = (SimpleDBOps.insertNonSensitive as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(insertArgs[1]).toBe("ssh_data");
+    expect((insertArgs[2] as Record<string, unknown>).userId).toBe("other-user");
+    expect(SimpleDBOps.insert).not.toHaveBeenCalled();
+  });
+
+  it("A9: admin same-user PUT (isAdmin:true, no targetUserId, isOwner:true) still routes through SimpleDBOps.update, updateNonSensitive NOT called", async () => {
+    const { db } = await import("../../database/db/index.js");
+    // isAdmin lookup → true
+    const usersChain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn(() => Promise.resolve([{ isAdmin: true }])),
+      limit: vi.fn(() => Promise.resolve([{ isAdmin: true }])),
+    };
+    // host record lookup — owned by ADMIN_ID (same-user scenario)
+    const hostsChain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      limit: vi.fn(() =>
+        Promise.resolve([
+          {
+            userId: ADMIN_ID,
+            credentialId: 42,
+            authType: "credential",
+            runsFleetSubstrate: false,
+          },
+        ]),
+      ),
+    };
+    (db.select as ReturnType<typeof vi.fn>)
+      .mockReturnValueOnce(usersChain)
+      .mockReturnValue(hostsChain);
+
+    (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        id: 1,
+        userId: ADMIN_ID,
+        ip: "1.1.1.1",
+        port: 22,
+        name: "admin-host",
+        connectionType: "ssh",
+        runsFleetSubstrate: false,
+        credentialId: 42,
+        authType: "credential",
+      },
+    ]);
+
+    const req = makePutReq("1", {
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: false,
+      credentialId: 42,
+      // No targetUserId — admin updating their own row
+    }, ADMIN_ID);
+    const res = makeMockRes();
+
+    await putHandler!(req, res);
+
+    expect(res._status).toBe(200);
+    expect(SimpleDBOps.update).toHaveBeenCalledTimes(1);
+    expect(SimpleDBOps.updateNonSensitive).not.toHaveBeenCalled();
+  });
+
+  it("A10: admin cross-user PUT succeeds even when target user data key not cached (DataCrypto.getUserDataKey returns null) → 200, updateNonSensitive called", async () => {
+    await mockDbSelectForAdmin(true, "other-user");
+
+    // Simulate target user not logged in — getUserDataKey returns null
+    const { DataCrypto } = await import("../../utils/data-crypto.js");
+    (DataCrypto.getUserDataKey as ReturnType<typeof vi.fn>).mockReturnValue(null);
+
+    (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        id: 1,
+        userId: "other-user",
+        ip: "1.1.1.1",
+        port: 22,
+        name: "fleet-host",
+        connectionType: "ssh",
+        runsFleetSubstrate: true,
+        credentialId: 42,
+        authType: "credential",
+      },
+    ]);
+
+    const req = makePutReq("1", {
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: true,
+      credentialId: 42,
+      authType: "credential",
+      targetUserId: "other-user",
+    }, ADMIN_ID);
+    const res = makeMockRes();
+
+    await putHandler!(req, res);
+
+    // updateNonSensitive skips validateUserAccess so target not logged in doesn't matter
+    expect(res._status).toBe(200);
+    expect(SimpleDBOps.updateNonSensitive).toHaveBeenCalled();
+    expect(res._status).not.toBe(400);
+    expect(res._status).not.toBe(403);
   });
 });
