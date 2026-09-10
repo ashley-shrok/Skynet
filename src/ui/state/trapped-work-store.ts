@@ -88,9 +88,8 @@ export function useTrappedWork(
 
 /**
  * Subscribe to the FULL trapped-work map. Composite key format matches
- * compositeKey() above: `${identityKey}:${hostId ?? "local"}`. Exported for
- * symmetry with useAllBountyCounts even though this phase has no direct
- * consumer (kept for future panel-level filter helpers).
+ * compositeKey() above: `${identityKey}:${hostId ?? "local"}`. No direct
+ * consumer this phase (kept for future panel-level filter helpers).
  */
 export function useAllTrappedWork(): ReadonlyMap<
   string,

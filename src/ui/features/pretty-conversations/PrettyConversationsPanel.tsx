@@ -114,13 +114,9 @@ import {
 // (backend-authoritative via Plan 53-01 + Plan 53-02).
 import { useSessionQueuePending } from "@/state/session-queue-pending-store";
 import { useIdentities } from "@/state/identities-store";
-import {
-  bountyCountsCompositeKey,
-  startBountyCountPoller,
-  useAllBountyCounts,
-} from "@/state/bounty-counts-store";
-// Phase 104 Plan 02: separate import so Plan 03's bounty-counts delete pass
-// is clean (single line to remove, no shared import block to untangle).
+// Phase 104 Plan 02: trapped-work poller. Plan 03 retired the sibling
+// bounty-count wire; the trapped-work poller is the sole per-identity
+// polling loop mounted here.
 import { startTrappedWorkPoller } from "@/state/trapped-work-store";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/popover";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
@@ -504,21 +500,13 @@ export function PrettyConversationsPanel({
     };
   }, [fleetSessionsLoaded]);
 
-  // Quick 260727-tb1: bounty-count poller mount. getTargets walks the CURRENT
-  // union of activeSet + pinned + grouped rows (via refs bumped on every
-  // render — the poller must NOT close over a mount-time snapshot), filters
-  // to rows whose sessionMatchKey resolves to a known identity, and returns
-  // the deduped {identityKey, hostId} list. startBountyCountPoller fires an
-  // initial fetch, sets a 60s setInterval, and adds a window.focus listener
-  // that fires an extra refresh. The returned stop-fn is invoked on unmount.
-  // Non-identity rows are filtered here so useBountyCount inside those rows
-  // stays subscribed to `undefined` (short-circuit path). Dedup by composite
-  // key protects the batch from a single identity appearing across multiple
-  // panel sections (e.g. in both pinned AND active-set).
   // Phase 42 UAT amendment 2026-08-17: `activeSetRowsRef` retired alongside
   // the Tier 1 active-set render tier — the store's snapshot.activeSet is now
-  // always an empty array, so the ref-and-iterate in the bounty-count poller
-  // getTargets closure below was a trivially-empty no-op.
+  // always an empty array, so the ref-and-iterate in the (now-retired) bounty-
+  // count poller getTargets closure was a trivially-empty no-op.
+  //
+  // Phase 104 Plan 03: bounty-count poller mount retired alongside the wire.
+  // The trapped-work poller below is now the sole per-identity polling loop.
   const pinnedRowsRef = useRef(pinned);
   // Phase 41 Plan 01: refs for the new three-zone shape. `middleRef` replaces
   // `groupedRef`; `rdpGroupRef` is new. Both stay bumped on every render.
@@ -530,45 +518,11 @@ export function PrettyConversationsPanel({
   rdpGroupRef.current = rdpGroup;
   identitiesByKeyRef.current = identitiesByKey;
 
-  useEffect(() => {
-    const getTargets = () => {
-      const idsSeen = new Set<string>();
-      const targets: Array<{ identityKey: string; hostId: number | null }> = [];
-      const collect = (row: ConversationRowShape) => {
-        const matchKey = sessionMatchKey(row.targetTmuxSession);
-        if (!matchKey) return;
-        const ident = identitiesByKeyRef.current.get(matchKey);
-        if (!ident) return;
-        const hostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
-        const hostId = Number.isFinite(hostIdNum) ? hostIdNum : null;
-        const composite = `${ident.identityKey}:${hostId ?? "local"}`;
-        if (idsSeen.has(composite)) return;
-        idsSeen.add(composite);
-        targets.push({ identityKey: ident.identityKey, hostId });
-      };
-      for (const row of pinnedRowsRef.current) collect(row);
-      // Phase 41 Plan 01: walk `middle` (flat array) + `rdpGroup.rows` (via
-      // the nullable rdpGroup) — replaces the retired grouped[].flatMap pass.
-      // RDP rows have no identity resolution (rdpHostRow rows never match a
-      // session identity), so the collect() call inside is a cheap no-op for
-      // them, but included for shape completeness.
-      for (const row of middleRef.current) collect(row);
-      if (rdpGroupRef.current !== null) {
-        for (const row of rdpGroupRef.current.rows) collect(row);
-      }
-      return targets;
-    };
-    const stop = startBountyCountPoller(getTargets, 60_000);
-    return stop;
-  }, []);
-
   // Phase 104 Plan 02: trapped-work poller mount (D-08 cadence: 60_000 ms +
-  // window.focus refresh). Same getTargets shape as the bounty-count poller
-  // above — walks pinned + middle + rdpGroup, resolves identities via the
-  // identitiesByKeyRef, dedupes by composite key. Per Pitfall #5 in
-  // RESEARCH.md, this MUST cover dormant identities (the whole rescue-
-  // oriented signal breaks if we gate on activeSet). Plan 03 removes the
-  // bounty-count poller above; this trapped-work poller stays.
+  // window.focus refresh). getTargets walks pinned + middle + rdpGroup,
+  // resolves identities via the identitiesByKeyRef, dedupes by composite key.
+  // Per Pitfall #5 in RESEARCH.md, this MUST cover dormant identities (the
+  // whole rescue-oriented signal breaks if we gate on activeSet).
   useEffect(() => {
     const getTargets = () => {
       const idsSeen = new Set<string>();
@@ -596,18 +550,8 @@ export function PrettyConversationsPanel({
     return stop;
   }, []);
 
-  // Quick 260727-tb1: identity:bounty-priority-updated piggyback (Key design
-  // decision #5). The actual invalidateIdentity(identityKey, hostId) call is
-  // wired at src/ui/features/pretty-view/IdentityModal.tsx inside the
-  // sendIdentityMutation success path for the "identity:update-bounty-priority"
-  // request — that's where the response arrives and where identityKey +
-  // hostId are already in scope. Placing the wiring in the panel would
-  // require inventing a shared identity:* WS subscription bus (none exists
-  // — every identity:* request today is one-shot per WebSocket, closed
-  // after receipt). The modal path is functionally equivalent for the
-  // user story ("Ashley reprioritizes → badge refreshes immediately")
-  // and avoids the architectural expansion. Search invalidateIdentity /
-  // identity:bounty-priority-updated to find the wire site.
+  // Quick 260727-tb1 identity:bounty-priority-updated piggyback comment
+  // RETIRED in Phase 104 Plan 03 alongside the bounty-count wire deletion.
 
   // Local state: NewSessionDialog open/closed toggle (opened by pencil).
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
@@ -744,26 +688,16 @@ export function PrettyConversationsPanel({
     };
   }, [menuOpen]);
 
-  // Phase 26 D-02: two independent bounty-count filter toggles (header funnel
-  // button → popover). Local state only — NOT persisted (Ashley 2026-07-28:
-  // "no remembering filter state"). Each fresh panel mount starts with both
-  // toggles off. filterPopoverOpen controls the Popover controlled binding
-  // required for Test 30 Escape-closes semantics.
-  const [pinnedOnly, setPinnedOnly] = useState(false);
-  const [needsDeskOnly, setNeedsDeskOnly] = useState(false);
+  // Phase 26 D-02 / Phase 104 Plan 03 D-11: the pinned + needs-desk bounty-
+  // count filter toggles are RETIRED alongside the bounty-count wire. The
+  // Ready filter (Phase 52) survives — it has an independent data source
+  // (session-working-store). Local state only — NOT persisted (Ashley
+  // 2026-07-28: "no remembering filter state"). filterPopoverOpen controls
+  // the Popover controlled binding required for Test 30 Escape-closes
+  // semantics.
   const [readyOnly, setReadyOnly] = useState(false);
   const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
-  // Phase 52 Plan 02 — Ready extends the anyFilterOn derivation so the
-  // .pv-filter-dot indicator lights when the Ready toggle is on. Order
-  // matches the V2 snippet's menu order (Ready leftmost).
-  const anyFilterOn = readyOnly || pinnedOnly || needsDeskOnly;
-
-  // Patch #167: subscribes to the full bounty-counts map so the filter
-  // re-runs when the 60s poller lands a new count OR when the IdentityModal
-  // fires invalidateIdentity() post-priority-change. Same store the row-level
-  // badge subscribes to via useBountyCounts — this is a whole-map read that
-  // powers the panel-level filter helper below.
-  const bountyCounts = useAllBountyCounts();
+  const anyFilterOn = readyOnly;
 
   // Phase 52 Plan 03 — per-row (isWorking, isDormant) map for the Ready predicate.
   // Built via useSyncExternalStore over the working-store snapshot so the panel
@@ -829,46 +763,34 @@ export function PrettyConversationsPanel({
     () => new Map<string, { isWorking: boolean; isDormant: boolean }>(),
   );
 
-  // Phase 26 D-02: AND-intersection filter helper. "Does this row satisfy ALL
-  // active filter predicates?" Formula per CONTEXT.md §specifics:
-  //   matchesFilterForRow(row) = (!readyOnly || (rowState defined && !isWorking && !isDormant))
-  //                             && (!pinnedOnly || pair.pinnedCount > 0)
-  //                             && (!needsDeskOnly || pair.needsDeskCount > 0)
-  // Rows with no resolvable identity or no count pair → false (filtered out
-  // when any toggle is on). Wrapped in useMemo so the helper identity is
-  // stable across renders that don't change identitiesByKey, bountyCounts,
-  // pinnedOnly, needsDeskOnly, readyOnly, or rowSessionStates.
+  // Phase 26 D-02 / Phase 52 Plan 03 / Phase 104 Plan 03 D-11:
+  // Ready-predicate-only filter helper. "Is this row Ready?"
+  //   matchesFilterForRow(row) = !readyOnly || (rowState defined && !isWorking && !isDormant)
+  // Rows with no resolvable identity → false (filtered out when the toggle is
+  // on). Wrapped in useMemo so the helper identity is stable across renders
+  // that don't change identitiesByKey, readyOnly, or rowSessionStates.
   //
-  // Phase 26 D-06 (as amended by Phase 42 UAT amendment 2026-08-17): the
-  // symmetric active-set exemption was scoped to the retired Tier 1 render
-  // tier. With that tier gone, active-and-pinned rows now flow through the
-  // pinned filter and active-and-not-pinned rows flow through the middle
-  // filter — the exemption is moot.
+  // Phase 104 Plan 03: the pinned + needs-desk filter branches (and their
+  // store dependencies) were retired alongside their data source. Only the
+  // Ready predicate remains.
   const matchesFilterForRow = useMemo(() => {
     return (row: ConversationRowShape): boolean => {
       const matchKey = sessionMatchKey(row.targetTmuxSession);
       if (!matchKey) return false;
       const ident = identitiesByKey.get(matchKey);
       if (!ident) return false;
-      const hostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
-      const hostId = Number.isFinite(hostIdNum) ? hostIdNum : null;
-      const key = bountyCountsCompositeKey(ident.identityKey, hostId);
-      const pair = bountyCounts.get(key);
-      const pinnedOk = !pinnedOnly || (pair !== undefined && pair.pinnedCount > 0);
-      const needsDeskOk = !needsDeskOnly || (pair !== undefined && pair.needsDeskCount > 0);
       // Phase 52 Plan 03 — Ready predicate: !isWorking && !isDormant per CONTEXT.md § decisions § Filter semantic.
       // Row's session state is looked up from the pre-computed rowSessionStates map keyed by matchKey.
       // FAIL-CLOSED default (plan-checker W-3 fix, 2026-08-20): a row absent from rowSessionStates
       // (no working-store publish for this key) is treated as NOT ready. Plan 01's source B publishes
       // dormant frames for identities that have no live PID, so an undefined rowState now genuinely
       // represents "no wire signal at all" — which the Ready filter conservatively treats as
-      // "not confirmed ready" and hides. This also correctly handles the dormant case: dormant
-      // identities have rowState defined with dormant=true, so the second-clause AND short-circuits.
+      // "not confirmed ready" and hides.
       const rowState = rowSessionStates.get(matchKey);
       const readyOk = !readyOnly || (rowState !== undefined && !rowState.isWorking && !rowState.isDormant);
-      return readyOk && pinnedOk && needsDeskOk;
+      return readyOk;
     };
-  }, [identitiesByKey, bountyCounts, pinnedOnly, needsDeskOnly, readyOnly, rowSessionStates]);
+  }, [identitiesByKey, readyOnly, rowSessionStates]);
 
   // Phase 26 D-02 (as amended by Phase 41 Plan 01, Phase 42 UAT amendment
   // 2026-08-17): apply the AND-intersect filter to each render collection when
@@ -1689,11 +1611,13 @@ export function PrettyConversationsPanel({
                   width: "auto",
                 }}
               >
-                {/* Phase 52 Plan 02: three menuitemcheckbox buttons — Ready, Pinned, Needs desk.
-                    Order matches the V2 snippet (Ready leftmost). Chrome (background gradient,
-                    border, radius, blur, drop shadow, color, width, padding) is on the
-                    PopoverContent inline style above. Item hover/active flash comes from
-                    .pv-filter-menu-item CSS rules. Checkbox affordance from .pv-filter-check. */}
+                {/* Phase 52 Plan 02 / Phase 104 Plan 03 D-11: Ready menuitemcheckbox.
+                    Was Ready + Pinned + Needs desk pre-Plan-03; the two bounty-scoped
+                    toggles retired alongside the bounty-count wire. Chrome (background
+                    gradient, border, radius, blur, drop shadow, color, width, padding)
+                    is on the PopoverContent inline style above. Item hover/active flash
+                    comes from .pv-filter-menu-item CSS rules. Checkbox affordance from
+                    .pv-filter-check. */}
                 <button
                   type="button"
                   role="menuitemcheckbox"
@@ -1708,36 +1632,6 @@ export function PrettyConversationsPanel({
                     </svg>
                   </span>
                   <span>Ready</span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitemcheckbox"
-                  aria-checked={pinnedOnly ? "true" : "false"}
-                  data-testid="pv-filter-toggle-pinned"
-                  className="pv-filter-menu-item"
-                  onClick={(e) => { e.preventDefault(); setPinnedOnly((v) => !v); }}
-                >
-                  <span className="pv-filter-check" data-checked={pinnedOnly ? "true" : "false"} aria-hidden="true">
-                    <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M3.5 8.5 L7 12 L13 5" />
-                    </svg>
-                  </span>
-                  <span>Pinned</span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitemcheckbox"
-                  aria-checked={needsDeskOnly ? "true" : "false"}
-                  data-testid="pv-filter-toggle-needs-desk"
-                  className="pv-filter-menu-item"
-                  onClick={(e) => { e.preventDefault(); setNeedsDeskOnly((v) => !v); }}
-                >
-                  <span className="pv-filter-check" data-checked={needsDeskOnly ? "true" : "false"} aria-hidden="true">
-                    <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M3.5 8.5 L7 12 L13 5" />
-                    </svg>
-                  </span>
-                  <span>Needs desk</span>
                 </button>
               </PopoverContent>
             </Popover>

@@ -1806,8 +1806,8 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 26 Plan 03 bounty-badge visibility tests — RETIRED in Phase 104 Plan 03
-// alongside the bounty-count wire (useBountyCounts + PrettyBountyCountBadge).
+// Phase 26 Plan 03 badge-visibility tests — RETIRED in Phase 104 Plan 03
+// alongside the wire deletion.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────

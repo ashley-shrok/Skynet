@@ -9,7 +9,7 @@
 //   - vi.mock connectOneShot + resolveHostById so we can steer LOCAL vs
 //     REMOTE routing without a real ssh2 pair.
 //   - Drive the handlers via the exported __handleIdentityGet/UpdateRoleFileForTests
-//     seams (byte-shape mirror of __handleIdentityCountBountiesForTests).
+//     seams.
 //   - Assert on the outbound wire messages captured by the wsStub.send spy.
 //
 // Test map (tests 10-15 per plan Task 2 <behavior>):

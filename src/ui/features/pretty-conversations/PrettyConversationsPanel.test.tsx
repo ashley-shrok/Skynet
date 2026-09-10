@@ -69,9 +69,7 @@ vi.mock("@/state/identities-store", () => ({
   }),
 }));
 
-// Phase 104 Plan 03: patch #167 bounty-counts-store mock RETIRED alongside
-// the bounty-count wire deletion. Any tests that consumed mockBountyCounts
-// have been updated to seed no bounty state.
+// Phase 104 Plan 03: patch #167 mock retired alongside its wire deletion.
 
 // Phase 104 Plan 02 — trapped-work-store (inert stub — panel mounts poller)
 vi.mock("@/state/trapped-work-store", () => ({
@@ -1882,6 +1880,7 @@ describe("PrettyConversationsPanel: bounty-count filter popover (Phase 26)", () 
     const btn = getByTestId("pv-filter-toggles");
     expect(btn.getAttribute("data-active")).toBe("false");
     expect(container.querySelector(".pv-filter-dot")).toBeNull();
+  });
 
   it("Test 30: popover closes on Escape keydown", () => {
     setSnapshot({ activeSet: [], pinned: [], grouped: [] });
@@ -3663,18 +3662,15 @@ describe("PrettyConversationsPanel: Phase 52 — filter popover restyle + Ready 
 
   // ── P50-2: Menu-item count + order ───────────────────────────────────────
 
-  it("P50-2 — popover renders 3 menuitemcheckbox buttons in Ready → Pinned → Needs desk order", () => {
+  it("P50-2 — popover renders exactly 1 menuitemcheckbox button (Ready) — pinned + needs-desk toggles retired in Phase 104 Plan 03 (D-11)", () => {
     setSnapshot({ activeSet: [], pinned: [], middle: [], rdpGroup: null });
     const { getByTestId } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
     fireEvent.click(getByTestId("pv-filter-toggles"));
     const items = screen.getAllByRole("menuitemcheckbox");
-    expect(items).toHaveLength(3);
-    // Order: Ready first, Pinned second, Needs desk third.
+    expect(items).toHaveLength(1);
     expect(items[0].textContent).toContain("Ready");
-    expect(items[1].textContent).toContain("Pinned");
-    expect(items[2].textContent).toContain("Needs desk");
   });
 
   // ── P50-3: Leading outlined-square check affordance with inline SVG ───────

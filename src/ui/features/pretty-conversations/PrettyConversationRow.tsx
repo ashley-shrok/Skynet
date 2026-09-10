@@ -1296,8 +1296,8 @@ export function PrettyConversationRow({
         )}
         {/* Phase 48 Plan 05 — the right-column meta wrapper RETIRED entirely.
             Retired symbols and their replacements:
-              - PrettyBountyCountBadge invocation → Phase 104 Plan 03 retired
-                the badges entirely (bounty-count wire deletion).
+              - The pre-Phase-48 badges → Phase 104 Plan 03 retired those
+                entirely (per-identity indicator wire deletion).
               - The pre-Phase-48 ready-dot span (with its inline display-block
                 hack) plus the 4-input `isWorkingFalse + notRecycling +
                 noQueuePending` JSX render gate → replaced by the CSS-painted

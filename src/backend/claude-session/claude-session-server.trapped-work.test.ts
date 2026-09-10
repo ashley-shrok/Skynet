@@ -1,11 +1,7 @@
 // ─── identity:probe-trapped-work WS handler — batched fan-out (Phase 104 Plan 01) ─
 //
-// Byte-shape mirror of claude-session-server.count-bounties.test.ts — same
-// mocking strategy, same describe/it structure, same drive-through-test-seam
-// approach. Only differences: response type tag "identity:trapped-work",
-// results field name "results" (not "counts"), per-result carries
-// hasTrappedWork:boolean (not pinnedCount/needsDeskCount), delegates to
-// readIdentityTrappedWork (not readIdentityBountyCounts).
+// Response type tag "identity:trapped-work", results field name "results",
+// per-result carries hasTrappedWork:boolean, delegates to readIdentityTrappedWork.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
@@ -265,7 +261,5 @@ describe("identity:probe-trapped-work handler — batched per-target fan-out", (
 
     expect(sent).toHaveLength(1);
     expect(sent[0].type).toBe("identity:trapped-work");
-    // Sanity: NOT the bounty-counts wire type.
-    expect(sent[0].type).not.toBe("identity:bounty-counts");
   });
 });
