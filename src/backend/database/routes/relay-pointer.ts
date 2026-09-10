@@ -22,6 +22,7 @@ import { sshLogger } from "../../utils/logger.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -80,56 +81,60 @@ export async function readRelayPointerFile(
     throw Object.assign(new Error("unauthorized_host"), { code: "UNAUTHORIZED_HOST" });
   }
 
-  // Step 2: open SSH connection (one-shot, same cast as sessions.ts:71)
-  const conn = await connectOneShot(
-    resolved as unknown as Parameters<typeof connectOneShot>[0],
-    RELAY_POINTER_TIMEOUT_MS,
-  );
+  // Step 2–5: SSH motion under per-host semaphore (Phase 101 D-03: full motion).
+  // resolveHostById (DB call above) stays OUTSIDE the wrap; the slot is held
+  // from connectOneShot through conn.end() so no SSH work escapes the cap.
+  return getHostSemaphore(hostId).run(async () => {
+    const conn = await connectOneShot(
+      resolved as unknown as Parameters<typeof connectOneShot>[0],
+      RELAY_POINTER_TIMEOUT_MS,
+    );
 
-  try {
-    // Step 3: bounded remote read with exit-status sentinel.
-    // CRITICAL: uses `head -c` NOT bare `cat` — T-17-02-03 fleet-availability protection.
-    // The character class in WHITELIST_REGEX guarantees `path` contains no shell metacharacters,
-    // so direct interpolation inside double-quotes is safe (T-17-02-07 rationale).
-    const output = await Promise.race([
-      execCommand(
-        conn,
-        `head -c ${MAX_POINTER_SIZE_BYTES + 1} "${path}" 2>/dev/null; echo "__RELAY_EXIT_$?"`,
-      ),
-      new Promise<string>((_, reject) =>
-        setTimeout(
-          () => reject(new Error("relay-pointer timeout")),
-          RELAY_POINTER_TIMEOUT_MS,
-        ),
-      ),
-    ]);
-
-    // Sentinel checks: execCommand trims stdout, so no trailing \n on the sentinel.
-    // endsWith("__RELAY_EXIT_1") = head returned ENOENT (file missing).
-    // endsWith("__RELAY_EXIT_2") = permission denied — treat as not-reachable (T-17-02-08).
-    if (output.endsWith("__RELAY_EXIT_1") || output.endsWith("__RELAY_EXIT_2")) {
-      throw Object.assign(new Error("file_not_found"), { code: "FILE_NOT_FOUND" });
-    }
-
-    // Strip the sentinel line from the body.
-    // \n?__RELAY_EXIT_0$ is tolerant: handles both trimmed form (current execCommand behavior)
-    // and untrimmed form (defense-in-depth for future execCommand changes). T-17-02-08.
-    const body = output.replace(/\n?__RELAY_EXIT_0$/, "");
-
-    // Oversize detection: if head read exactly cap+1 bytes it truncated (file was larger).
-    // Compare stripped body length against cap+1 to detect truncation. T-17-02-03.
-    if (body.length === MAX_POINTER_SIZE_BYTES + 1) {
-      throw Object.assign(new Error("file_too_large"), { code: "FILE_TOO_LARGE" });
-    }
-
-    return body;
-  } finally {
     try {
-      conn.end();
-    } catch {
-      /* ignore */
+      // Step 3: bounded remote read with exit-status sentinel.
+      // CRITICAL: uses `head -c` NOT bare `cat` — T-17-02-03 fleet-availability protection.
+      // The character class in WHITELIST_REGEX guarantees `path` contains no shell metacharacters,
+      // so direct interpolation inside double-quotes is safe (T-17-02-07 rationale).
+      const output = await Promise.race([
+        execCommand(
+          conn,
+          `head -c ${MAX_POINTER_SIZE_BYTES + 1} "${path}" 2>/dev/null; echo "__RELAY_EXIT_$?"`,
+        ),
+        new Promise<string>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("relay-pointer timeout")),
+            RELAY_POINTER_TIMEOUT_MS,
+          ),
+        ),
+      ]);
+
+      // Sentinel checks: execCommand trims stdout, so no trailing \n on the sentinel.
+      // endsWith("__RELAY_EXIT_1") = head returned ENOENT (file missing).
+      // endsWith("__RELAY_EXIT_2") = permission denied — treat as not-reachable (T-17-02-08).
+      if (output.endsWith("__RELAY_EXIT_1") || output.endsWith("__RELAY_EXIT_2")) {
+        throw Object.assign(new Error("file_not_found"), { code: "FILE_NOT_FOUND" });
+      }
+
+      // Strip the sentinel line from the body.
+      // \n?__RELAY_EXIT_0$ is tolerant: handles both trimmed form (current execCommand behavior)
+      // and untrimmed form (defense-in-depth for future execCommand changes). T-17-02-08.
+      const body = output.replace(/\n?__RELAY_EXIT_0$/, "");
+
+      // Oversize detection: if head read exactly cap+1 bytes it truncated (file was larger).
+      // Compare stripped body length against cap+1 to detect truncation. T-17-02-03.
+      if (body.length === MAX_POINTER_SIZE_BYTES + 1) {
+        throw Object.assign(new Error("file_too_large"), { code: "FILE_TOO_LARGE" });
+      }
+
+      return body;
+    } finally {
+      try {
+        conn.end();
+      } catch {
+        /* ignore */
+      }
     }
-  }
+  });
 }
 
 /**
