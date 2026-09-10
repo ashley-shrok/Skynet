@@ -658,7 +658,7 @@ export function PrettyView({
   // IdentitySessionPane's inline construction), so the effect fired every
   // render — while error !== null, this re-emitted the same log proportional
   // to render count. Same anti-pattern the Slice-6 pass fixed elsewhere.
-  // Deps are now `[source.kind, source.roomId-when-relay, error]` — all
+  // Deps are now `[source.kind, roomId-when-relay, error]` — all
   // primitives, so Object.is dep-comparison actually stabilises.
   useEffect(() => {
     if (chatSurfaceAdapter.error === null) return;
