@@ -2252,7 +2252,7 @@ Plans:
 **Goal:** Longer voice recordings (>=10s) transcribe in a fraction of the wall time by dispatching parallel Amazon Transcribe streaming sessions on silence-aware audio chunks and stitching results via word-timestamp overlap dedup. Backend-only refactor. /voice/transcribe endpoint contract, response shape, disk-bank write, and slash-command transform all preserved byte-for-byte. Short clips (<10s) still take the single-stream path (D-05).
 **Requirements**: D-01..D-14 (see 100-CONTEXT.md — this is a refactor phase; decision IDs act as requirements)
 **Depends on:** Phase 98
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 Plans:
 **Wave 1**
 
@@ -2265,4 +2265,4 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 100-04-PLAN.md — Wave 3 (deps: 100-03): wire fast-path gate in voice.ts handleTranscribe (CHUNKED_THRESHOLD_BYTES=80_000 branch to transcribeBufferChunked for long clips) + extend voice.test.ts with routing / chunked-path AccessDenied / chunked-path failure tests; preserves D-12 response shape, D-13 slash-transform, D-14 disk-bank write
+- [x] 100-04-PLAN.md — Wave 3 (deps: 100-03): wire fast-path gate in voice.ts handleTranscribe (CHUNKED_THRESHOLD_BYTES=80_000 branch to transcribeBufferChunked for long clips) + extend voice.test.ts with routing / chunked-path AccessDenied / chunked-path failure tests; preserves D-12 response shape, D-13 slash-transform, D-14 disk-bank write
