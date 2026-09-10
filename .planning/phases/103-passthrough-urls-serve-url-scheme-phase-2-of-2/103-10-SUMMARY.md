@@ -287,7 +287,67 @@ If Check N failed, capture at minimum:
 
 ## Deviations from Plan
 
-None — plan executed exactly as written. Executor wrote skeleton, committed, returned checkpoint. UAT execution deferred to post-deploy per plan design.
+Executor step: none — skeleton written and committed as designed.
+
+**UAT execution (2026-09-10, post-deploy on t1000):**
+- **Target host**: used `thenasty-8899.serve.term.gigaashley.click` instead of `t1000-8899` because this box is registered in Skynet's host DB under the name `Skynet` (id=6), NOT `t1000`. Using thenasty had the added value of proving cross-host reverse-proxy (SSH tunnel to a genuinely-remote box), not self-loopback. Future UAT runs should either register a `t1000` alias or continue with a remote target.
+- **http.server location**: moved from t1000 to thenasty for the same reason.
+
+---
+
+## Live UAT transcript (executed 2026-09-10 by tabitha + Ashley)
+
+**Setup:**
+- HEAD deployed: `139467d0` initial, then iterative fix commits `840a9fe1` (backend TS), `34ab44c8` (Caddyfile snippet), `500763d3` (on.error interstitial), `e6e33f54` (ECONNRESET classification).
+- Deploy-time prereqs surfaced live and fixed (see § UAT-discovered gaps below).
+- Cert issuer: Let's Encrypt Production (via DNS-01 route53). Wildcard `*.serve.term.gigaashley.click` obtained clean.
+- Ashley used her existing signed-in browser session. Cookie migration required deleting the `jwt` cookie once (pre-widen cookie was host-scoped) and re-logging in.
+
+**CHECK 1 — Positive load: PASS**
+- After cookie re-login, `https://thenasty-8899.serve.term.gigaashley.click/` rendered the UAT page from thenasty's python http.server. Sibling image.png loaded as a 1x1 red pixel dot (correct — Ashley confirmed).
+
+**CHECK 2 — Origin isolation: PASS**
+- Sibling `<img src="image.png">` resolved to the same subdomain (curl verified: `content-type: image/png`, `server: SimpleHTTP/0.6 Python/3.12.3` — proving the fetch reached the target http.server via SSH tunnel, not primary Skynet).
+
+**CHECK 3 — Auth wall: PASS**
+- Ashley's incognito window hit the URL → redirected to `https://term.gigaashley.click/login?return=...`. D-14 auth_missing flow verified.
+
+**CHECK 4 — Port-not-listening interstitial: PASS**
+- Killed thenasty:8899, Ashley refreshed. Skynet-styled interstitial rendered with heading "port not responding", body "Port 8899 of thenasty isn't responding. The agent may have stopped whatever was serving there.", Try Again link, "skynet serve URL" footer. Backend log confirmed `errorClass:port_not_listening, errCode:ECONNRESET`.
+
+**Sign-off:**
+
+```
+Verified end-to-end by tabitha + Ashley on 2026-09-10 18:08 UTC. All 4 checks passed
+after 3 UAT-discovered gap fixes (see below). Phase 103 (passthrough-urls serve URL
+scheme, phase 2 of 2) is shipped and verified.
+```
+
+---
+
+## UAT-discovered gaps (fixed in-flight)
+
+**GAP 1 — Deploy-time prereqs missing from ship runbook** (fixed at deploy, capture in box-map or ship runbook for next time):
+- `SKYNET_COOKIE_DOMAIN=term.gigaashley.click` must be added to `/opt/skynet/skynet.env` BEFORE first `up -d` — otherwise Skynet crash-loops with fail-loud D-23 throw. Backend module-load throw is correct fail-loud; ship runbook needed to prompt.
+- `sudo HOME=/home/ubuntu docker compose ...` — the `${HOME}/.aws/config` bind mount in docker-compose.yml expands `$HOME` at parse time; under plain `sudo` (no `-E`) HOME=/root, mount target doesn't exist, docker auto-creates an empty directory at `/root/.aws/config`, caddy's route53 plugin fails to load AWS SDK config.
+- DNS A records for `*.serve.term.gigaashley.click` + `serve.term.gigaashley.click` didn't exist pre-deploy. Added via caddy AWS profile (Route53 write scope was broad enough — verified working end-to-end).
+- Bare `serve.term.gigaashley.click` block was missing `tls { dns route53 }` clause; Caddy attempted HTTP-01 and got NXDOMAIN + rate-limited. Fixed the Caddyfile snippet to include DNS-01 on both wildcard and bare.
+
+**GAP 2 — nginx short-circuits static-asset requests on serve subdomain** (real Phase 103 bug, fixed at `34ab44c8`):
+- Skynet's nginx-https.conf L121-129 has `location ~* \.(js|css|png|jpg|...)$` that serves static assets from `/app/html` and returns nginx 404 for anything not present. On the serve subdomain, this short-circuits ALL image/js/css asset requests BEFORE Skynet's serve-url dispatch middleware fires — meaning `<img src="image.png">` and every JS/CSS import in an agent's served page would 404.
+- Concrete UAT symptom: `/image.png` returned nginx 404 with `content-type: text/html`, never reached Express dispatch or the SSH tunnel.
+- Fix: on the serve wildcard block only, `reverse_proxy skynet:30001` (Express direct) instead of `skynet:8080` (nginx). Safe because none of nginx's routing logic (SPA index, favicon aliases, static asset caching) applies on the serve subdomain — every request must flow through dispatch.
+
+**GAP 3 — Plan 03b proxy-factory missing on.error handler** (real Phase 103 bug, fixed at `500763d3` + `e6e33f54`):
+- `createProxyMiddleware` config had `on: { proxyReq, proxyReqWs }` but no `error` handler. When the SSH tunnel was up but the target port stopped listening between tunnel-open and proxy-time, http-proxy-middleware fell back to its default plain-text "Error occurred while trying to proxy: <url>" body — NOT the Skynet-styled `port_not_listening` interstitial that D-06 promises.
+- Fix: extracted `classifyTunnelError` to shared `error-classifier.ts` and wired `on.error` in proxy-factory to classify → renderInterstitial → writeInterstitial. Also added ECONNRESET → port_not_listening classification (ssh2 forwardOut CHANNEL_OPEN_FAILURE surfaces as ECONNRESET on the local socket, not ECONNREFUSED).
+
+**GAP 4 — Login-return not honored** (not fixed; new follow-up bounty opened):
+- When an authed user hits a serve URL, dispatch returns 302 to `/login?return=<url>`. Skynet's `/login` frontend does not consume the `return=` param — if the user is already authed on the primary domain, they land on the main app instead of bouncing back to the serve URL. Discovered when Ashley's pre-widen cookie was host-scoped and the serve URL fired the interstitial redirect. Bounty: `serve-url-login-return-honor`.
+
+## Orchestrator UAT completion note
+
+Executor's skeleton write (below) completed as originally scoped. UAT execution transcript above was captured during the orchestrator's post-deploy session with Ashley on 2026-09-10.
 
 ## Executor scope statement
 
