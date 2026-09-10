@@ -432,11 +432,19 @@ export function useRelayAdapter(
       } catch {
         // ws may be mid-close
       }
+      // Phase 97 code-review Fix 3: read the viewing user id from
+      // viewingUserMxidRef.current at emit time (not from the closure-captured
+      // `viewingUserId` above). This effect's deps are
+      // `[source?.roomId ?? null, isVisible, retryKey]` — viewingUserMxid is
+      // NOT in that list, so a mid-session viewing-user change would leave
+      // the WS-open log carrying a stale id. The actual WS behavior already
+      // reads viewingUserMxidRef correctly (see L476); this fix is log-quality
+      // only, keeping the forensic tape honest.
       // eslint-disable-next-line no-console
       console.info({
         operation: "relay_room_ws_open",
         roomId: roomIdRef.current,
-        userId: viewingUserId,
+        userId: viewingUserMxidRef.current,
       });
     };
 
