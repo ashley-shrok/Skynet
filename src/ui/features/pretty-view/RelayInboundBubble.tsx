@@ -64,6 +64,14 @@ export type RelayInboundBubbleProps = Pick<
    * happened. Optional at the type level so existing tests that don't care
    * about the timestamp keep compiling; PrettyView always passes it. */
   ts?: number;
+  /** Phase 97 UAT follow-up (2026-09-10): in relay-source PrettyView
+   * (`source.kind === "relay"` — chatting IN a matrix room via Skynet),
+   * bubbles render fully un-collapsed AND non-collapsible. In harness
+   * PrettyView (task-notification-triggered relay bubbles), the default
+   * collapsed-with-toggle behavior is preserved. When true, initial
+   * state starts expanded and the header renders as a plain non-clickable
+   * <div> (no toggle chevron). */
+  alwaysExpanded?: boolean;
 };
 
 export function RelayInboundBubble({
@@ -72,10 +80,11 @@ export function RelayInboundBubble({
   body,
   ts,
   hostId,
+  alwaysExpanded = false,
 }: RelayInboundBubbleProps) {
   const { byKey } = useIdentities();
   const { colorHue, displayName } = resolveMxidToIdentity(sender, byKey);
-  const [collapsed, setCollapsed] = useState(true);
+  const [collapsed, setCollapsed] = useState(!alwaysExpanded);
 
   // Avatar-dot colour: resolved identity hue or neutral grey fallback.
   // Number() coercion guards against a stray type change (T-17-03-05).
@@ -151,34 +160,56 @@ export function RelayInboundBubble({
           "text-[#e8e4d8]",
         )}
       >
-        {/* Header: avatar-dot + resolved displayName + room — collapse toggle button */}
-        <button
-          type="button"
-          data-testid="relay-inbound-header"
-          aria-expanded={!collapsed}
-          aria-label={collapsed ? "Expand message" : "Collapse message"}
-          onClick={() => setCollapsed((v) => !v)}
-          className={cn(
-            "flex items-center gap-1 text-xs mb-1",
-            "text-[rgba(232,_228,_216,_0.6)]",
-            "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
-            "w-full text-left cursor-pointer bg-transparent border-0 p-0",
-          )}
-        >
-          {/* Avatar-dot: coloured circle whose hue follows the resolved identity.
-              data-testid allows tests to find the element; data-avatar-color
-              carries the raw hsl()/colour string so tests can assert on the
-              exact value without jsdom's rgb() normalisation. */}
-          <span
-            data-testid="relay-inbound-avatar-dot"
-            data-avatar-color={avatarColor}
-            aria-hidden="true"
-            className="inline-block w-2 h-2 rounded-full flex-shrink-0"
-            style={{ color: avatarColor, backgroundColor: avatarColor }}
-          />
-          {displayName} · {room}
-          {" "}<span aria-hidden="true">{collapsed ? "▶" : "▼"}</span>
-        </button>
+        {/* Header: avatar-dot + resolved displayName + room. In default mode
+            renders as a toggle button; when alwaysExpanded (relay-source view)
+            renders as a plain non-clickable <div> with no chevron. */}
+        {alwaysExpanded ? (
+          <div
+            data-testid="relay-inbound-header"
+            className={cn(
+              "flex items-center gap-1 text-xs mb-1",
+              "text-[rgba(232,_228,_216,_0.6)]",
+              "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
+            )}
+          >
+            <span
+              data-testid="relay-inbound-avatar-dot"
+              data-avatar-color={avatarColor}
+              aria-hidden="true"
+              className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+              style={{ color: avatarColor, backgroundColor: avatarColor }}
+            />
+            {displayName} · {room}
+          </div>
+        ) : (
+          <button
+            type="button"
+            data-testid="relay-inbound-header"
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "Expand message" : "Collapse message"}
+            onClick={() => setCollapsed((v) => !v)}
+            className={cn(
+              "flex items-center gap-1 text-xs mb-1",
+              "text-[rgba(232,_228,_216,_0.6)]",
+              "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
+              "w-full text-left cursor-pointer bg-transparent border-0 p-0",
+            )}
+          >
+            {/* Avatar-dot: coloured circle whose hue follows the resolved identity.
+                data-testid allows tests to find the element; data-avatar-color
+                carries the raw hsl()/colour string so tests can assert on the
+                exact value without jsdom's rgb() normalisation. */}
+            <span
+              data-testid="relay-inbound-avatar-dot"
+              data-avatar-color={avatarColor}
+              aria-hidden="true"
+              className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+              style={{ color: avatarColor, backgroundColor: avatarColor }}
+            />
+            {displayName} · {room}
+            {" "}<span aria-hidden="true">{collapsed ? "▶" : "▼"}</span>
+          </button>
+        )}
 
         {/* Body + Footer — conditionally rendered when not collapsed */}
         {!collapsed && (

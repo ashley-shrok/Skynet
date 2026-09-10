@@ -78,6 +78,7 @@ import {
   useActiveSet,
   readFleetSessionsCache,
   writeFleetSessionsCache,
+  useRelayRoomTitles,
 } from "@/state/conversation-store";
 import { getSessionList, killTmuxSession } from "@/api/sessions-api";
 import {
@@ -675,6 +676,44 @@ export function AppShell({
     });
   }, [activeTabId, tabs, tmuxSessionNames, identitiesByKey, activeTmuxFromStore, brandingConfig.appName]);
 
+  // Phase 97 UAT follow-up (2026-09-10) — relay-room title backfill sync.
+  //
+  // A URL-restore opens a relay-room tab with `label = spec.roomId` (raw
+  // `!xxx:server`) because the friendly title isn't known at restore time
+  // (the fleet session list arrives later). Once the fleet list lands with
+  // `roomTitle`, this effect syncs the friendly title back into the tab's
+  // `label` + `relayRoomTitle` so:
+  //   - the conv-list item re-derives (rowFromTab reads `tab.label`)
+  //   - the Chrome tab title re-derives (document.title effect above reads
+  //     `activeTab?.label`).
+  //
+  // Runs on every relayRoomTitles change (only publishes new reference when
+  // the derived roomId→roomTitle content actually changes — see
+  // getRelayRoomTitlesSnapshot in conversation-store). Idempotent: if every
+  // tab's label already matches, setTabs sees no changes and returns the
+  // same array reference (Object.is stability preserves downstream deps).
+  useEffect(() => {
+    if (relayRoomTitles.size === 0) return;
+    setTabs((prev) => {
+      let changed = false;
+      const next = prev.map((t) => {
+        if (t.sessionKind !== "relay-room" || !t.relayRoomId) return t;
+        const fleetTitle = relayRoomTitles.get(t.relayRoomId);
+        if (!fleetTitle) return t;
+        // Update if the current label is stale (still shows raw roomId or
+        // relayRoomTitle is null). Comparing to relayRoomId catches the
+        // URL-restore-stub case; comparing to fleetTitle catches later
+        // rename-in-fleet propagation.
+        if (t.label === fleetTitle && t.relayRoomTitle === fleetTitle) {
+          return t;
+        }
+        changed = true;
+        return { ...t, label: fleetTitle, relayRoomTitle: fleetTitle };
+      });
+      return changed ? next : prev;
+    });
+  }, [relayRoomTitles]);
+
   // ─── Conversation-store sync (Plan 06-02) ────────────────────────────────
   // The conversation-store is a pure DERIVATION of AppShell's tab state; it
   // is fed via effects that fire on `tabs` and `realHostTree` changes. The
@@ -817,6 +856,11 @@ export function AppShell({
 
   const selectedConversationId = useSelectedConversationId();
   const activeSet = useActiveSet();
+  // Phase 97 UAT follow-up (2026-09-10): fleet-derived roomId → roomTitle
+  // map. Consumed by the sync effect below to backfill relay-room tabs
+  // that were opened via URL-restore before the fleet session list arrived
+  // with the friendly title.
+  const relayRoomTitles = useRelayRoomTitles();
 
   // The "effective active-inline" id is whatever drives the currently-visible
   // conversation view. For session-type tabs (those the conversation-store
@@ -2826,16 +2870,27 @@ export function AppShell({
                 const rect = e.currentTarget.getBoundingClientRect();
                 const edge = computeNearestEdge(rect, e.clientX, e.clientY);
                 const activeTab = tabs.find((t) => t.id === activeTabId);
+                // Phase 97 F-2 UAT follow-up (2026-09-10): relay-room tabs
+                // are valid split targets too. Previously this gate only
+                // recognized harness sessions (terminal + tmux-identity
+                // mapping), so dropping a harness session onto an open
+                // relay pane's edge fell through to the `return droppedLeaf`
+                // path (replace-with-single-leaf) instead of the intended
+                // split branch at line ~2856. Relay tabs carry
+                // `sessionKind === "relay-room"` (Phase 90 discriminator)
+                // and have no tmux session, so accept the sessionKind
+                // marker directly.
                 const activeIsSession =
                   activeTab != null &&
-                  activeTab.type === "terminal" &&
-                  activeTab.targetTmuxSession != null &&
-                  identitiesByKey.has(
-                    activeTab.targetTmuxSession.toLowerCase(),
-                  );
+                  (activeTab.sessionKind === "relay-room" ||
+                    (activeTab.type === "terminal" &&
+                      activeTab.targetTmuxSession != null &&
+                      identitiesByKey.has(
+                        activeTab.targetTmuxSession.toLowerCase(),
+                      )));
                 // eslint-disable-next-line no-console
                 console.info(
-                  `[pv-split-drop] outer edge=${edge} activeTabId=${activeTabId} activeIsSession=${activeIsSession} activeTabType=${activeTab?.type ?? "(none)"} activeTargetTmuxSession=${activeTab?.targetTmuxSession ?? "(none)"} clientX=${Math.round(e.clientX)} clientY=${Math.round(e.clientY)}`,
+                  `[pv-split-drop] outer edge=${edge} activeTabId=${activeTabId} activeIsSession=${activeIsSession} activeSessionKind=${activeTab?.sessionKind ?? "(none)"} activeTabType=${activeTab?.type ?? "(none)"} activeTargetTmuxSession=${activeTab?.targetTmuxSession ?? "(none)"} clientX=${Math.round(e.clientX)} clientY=${Math.round(e.clientY)}`,
                 );
                 setSplitTree(() => {
                   const droppedLeaf = {

@@ -38,6 +38,13 @@ export type RelayOutboundBubbleProps = Pick<
    * happened. Optional at the type level so existing tests that don't care
    * about the timestamp keep compiling; PrettyView always passes it. */
   ts?: number;
+  /** Phase 97 UAT follow-up (2026-09-10): in relay-source PrettyView
+   * (chatting IN a matrix room via Skynet), bubbles render fully
+   * un-collapsed AND non-collapsible. Harness (task-notification path)
+   * preserves the default collapsed-with-toggle behavior. When true,
+   * initial state starts expanded and the header renders as a plain
+   * non-clickable <div>. */
+  alwaysExpanded?: boolean;
 };
 
 export function RelayOutboundBubble({
@@ -45,9 +52,11 @@ export function RelayOutboundBubble({
   rawCommand,
   body,
   ts,
+  alwaysExpanded = false,
 }: RelayOutboundBubbleProps) {
   // Outer collapse state — default collapsed. Body + footer hidden until expanded.
-  const [collapsed, setCollapsed] = useState(true);
+  // Phase 97 UAT follow-up: when alwaysExpanded, starts expanded and never collapses.
+  const [collapsed, setCollapsed] = useState(!alwaysExpanded);
   // Toggle state for expand-to-see-raw — default collapsed when body is present.
   // Ignored (raw always shown) in the body === null fallback branch.
   // Lives INSIDE the body branch, so it naturally resets to false on each outer
@@ -80,23 +89,38 @@ export function RelayOutboundBubble({
           "text-[#fbf5e8]",
         )}
       >
-        {/* Header: relay send direction + room — collapse toggle button */}
-        <button
-          type="button"
-          data-testid="relay-outbound-header"
-          aria-expanded={!collapsed}
-          aria-label={collapsed ? "Expand message" : "Collapse message"}
-          onClick={() => setCollapsed((v) => { if (v) setRawExpanded(false); return !v; })}
-          className={cn(
-            "text-xs mb-1",
-            "text-[rgba(220,_225,_245,_0.6)]",
-            "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
-            "w-full text-left cursor-pointer bg-transparent border-0 p-0",
-          )}
-        >
-          ▸ relay send → {room ?? "unknown room"}
-          {" "}<span aria-hidden="true">{collapsed ? "▶" : "▼"}</span>
-        </button>
+        {/* Header: relay send direction + room. In default mode renders as
+            a toggle button; when alwaysExpanded (relay-source view) renders
+            as a plain non-clickable <div> with no chevron. */}
+        {alwaysExpanded ? (
+          <div
+            data-testid="relay-outbound-header"
+            className={cn(
+              "text-xs mb-1",
+              "text-[rgba(220,_225,_245,_0.6)]",
+              "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
+            )}
+          >
+            ▸ relay send → {room ?? "unknown room"}
+          </div>
+        ) : (
+          <button
+            type="button"
+            data-testid="relay-outbound-header"
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "Expand message" : "Collapse message"}
+            onClick={() => setCollapsed((v) => { if (v) setRawExpanded(false); return !v; })}
+            className={cn(
+              "text-xs mb-1",
+              "text-[rgba(220,_225,_245,_0.6)]",
+              "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
+              "w-full text-left cursor-pointer bg-transparent border-0 p-0",
+            )}
+          >
+            ▸ relay send → {room ?? "unknown room"}
+            {" "}<span aria-hidden="true">{collapsed ? "▶" : "▼"}</span>
+          </button>
+        )}
 
         {/* Body + Footer — conditionally rendered when not collapsed */}
         {!collapsed && (

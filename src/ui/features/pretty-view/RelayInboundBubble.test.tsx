@@ -367,4 +367,51 @@ describe("RelayInboundBubble", () => {
     expect(bubble).not.toHaveClass("px-[12px]");
     expect(bubble).not.toHaveClass("py-[7px]");
   });
+
+  // Phase 97 UAT follow-up (2026-09-10) — relay-source view renders bubbles
+  // un-collapsed AND non-collapsible (differ from harness's collapsed-by-
+  // default). Contract: alwaysExpanded=true starts expanded, header is a
+  // plain <div> (not a <button>), no chevron, body is visible from mount.
+  it("alwaysExpanded=true: body visible on mount, header is plain <div> (no button), no chevron", () => {
+    render(
+      <RelayInboundBubble
+        room="!roomAlias:server.tld"
+        sender="@tina:matrix.example.com"
+        body="Nelly says hello"
+        hostId={1}
+        alwaysExpanded={true}
+      />,
+    );
+
+    // Body visible immediately — no expand click needed.
+    expect(screen.getByTestId("relay-inbound-body")).toBeInTheDocument();
+    expect(screen.getByText("Nelly says hello")).toBeInTheDocument();
+
+    // Header is a <div>, not a <button>, so no click affordance.
+    const header = screen.getByTestId("relay-inbound-header");
+    expect(header.tagName).toBe("DIV");
+    expect(header.getAttribute("aria-expanded")).toBeNull();
+
+    // Padding uses the roomy (expanded) values.
+    const bubble = screen.getByTestId("relay-inbound-bubble");
+    expect(bubble).toHaveClass("px-[18px]");
+    expect(bubble).toHaveClass("py-[14px]");
+  });
+
+  it("alwaysExpanded=false (default) preserves the toggle behavior — regression floor", () => {
+    // Explicit default guard: pre-Phase-97-UAT behavior is unchanged when
+    // the new prop is absent (harness's task-notification path).
+    render(
+      <RelayInboundBubble
+        room="!roomAlias:server.tld"
+        sender="@tina:matrix.example.com"
+        body="Nelly says hello"
+        hostId={1}
+      />,
+    );
+    const header = screen.getByTestId("relay-inbound-header");
+    expect(header.tagName).toBe("BUTTON");
+    expect(header.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByTestId("relay-inbound-body")).toBeNull();
+  });
 });

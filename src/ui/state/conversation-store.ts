@@ -1724,6 +1724,60 @@ export function useActiveSet(): ReadonlySet<string> {
   );
 }
 
+// ─── Phase 97 UAT follow-up (2026-09-10): relay-room title snapshot ──────────
+//
+// A URL-restore for a relay room opens the tab with `label = spec.roomId`
+// (raw `!xxx:server`) because the friendly title isn't known yet. When the
+// fleet session list arrives later with `roomTitle`, we need to sync that
+// back into the tab so the conv-list item + browser tab title re-derive.
+//
+// This snapshot exposes a Map<roomId, roomTitle> that AppShell subscribes to
+// via a sync effect (there's no name-store per-room; fleet sessions are the
+// canonical source). Returns a NEW Map instance only when the derived
+// content changes — Object.is stability across no-ops via a cached ref
+// (mirrors the pinnedIds pattern).
+let cachedRelayRoomTitlesRef: ReadonlyMap<string, string> = new Map();
+let cachedRelayRoomTitlesFleetRef: FleetSession[] | null = null;
+function getRelayRoomTitlesSnapshot(): ReadonlyMap<string, string> {
+  if (state.fleetSessions === cachedRelayRoomTitlesFleetRef) {
+    return cachedRelayRoomTitlesRef;
+  }
+  const next = new Map<string, string>();
+  for (const session of state.fleetSessions) {
+    if (
+      session.kind === "relay-room" &&
+      session.roomId !== undefined &&
+      typeof session.roomTitle === "string" &&
+      session.roomTitle.length > 0
+    ) {
+      next.set(session.roomId, session.roomTitle);
+    }
+  }
+  // Object.is stability: only publish a new reference when the derived
+  // content actually differs. Same-content-same-reference means the sync
+  // effect in AppShell doesn't re-run needlessly on unrelated fleet
+  // updates.
+  if (
+    cachedRelayRoomTitlesRef.size === next.size &&
+    Array.from(next.entries()).every(
+      ([k, v]) => cachedRelayRoomTitlesRef.get(k) === v,
+    )
+  ) {
+    cachedRelayRoomTitlesFleetRef = state.fleetSessions;
+    return cachedRelayRoomTitlesRef;
+  }
+  cachedRelayRoomTitlesRef = next;
+  cachedRelayRoomTitlesFleetRef = state.fleetSessions;
+  return cachedRelayRoomTitlesRef;
+}
+export function useRelayRoomTitles(): ReadonlyMap<string, string> {
+  return useSyncExternalStore(
+    subscribe,
+    getRelayRoomTitlesSnapshot,
+    getRelayRoomTitlesSnapshot,
+  );
+}
+
 // ─── Phase 66 Plan 05 — cross-store accessors for identities-store enrichment ─
 // The identities-store's fetchOnce needs to construct an identityHosts map
 // (identityKey → hostId) from the fleet-sessions snapshot before it calls

@@ -866,6 +866,16 @@ export function ComposeBox({
   // server receives a consistent snapshot.
   const flushDirty = useCallback(async () => {
     if (dirtyBodyRef.current === null && dirtyQueueSlotsRef.current === null) return;
+    // Phase 97 UAT follow-up (2026-09-10): relay-source panes have no
+    // hostId + no tmuxSession, so a PUT to /compose-drafts would 400 with
+    // "hostId is required". Skip the persist attempt in relay mode; clear
+    // the dirty flags so we don't accumulate. (Relay-source drafts, if
+    // needed, would use a separate storage key — separate design.)
+    if (mode === "relay") {
+      dirtyBodyRef.current = null;
+      dirtyQueueSlotsRef.current = null;
+      return;
+    }
     const body = dirtyBodyRef.current ?? latestBodyRef.current;
     const slots = dirtyQueueSlotsRef.current ?? latestQueueSlotsRef.current;
     dirtyBodyRef.current = null;
@@ -896,7 +906,7 @@ export function ComposeBox({
       dirtyBodyRef.current = latestBody;
       dirtyQueueSlotsRef.current = latestSlots;
     }
-  }, [hostId, tmuxSessionKey]);
+  }, [hostId, tmuxSessionKey, mode]);
 
   const scheduleAutosave = useCallback(
     (nextBody: string, nextSlots?: Array<{ id: string; text: string }>) => {
@@ -944,6 +954,16 @@ export function ComposeBox({
     dirtyQueueSlotsRef.current = null;
     latestBodyRef.current = "";
     latestQueueSlotsRef.current = [];
+
+    // Phase 97 UAT follow-up (2026-09-10): relay-source panes have no
+    // hostId + no tmuxSession, so a compose-drafts fetch always 400s with
+    // "hostId is required" and pollutes the console tape. Skip the fetch
+    // in relay mode — relay-source panes don't have per-tmux draft
+    // persistence today (if that becomes a requirement, it'd be a
+    // separate design with its own storage key, not this endpoint).
+    if (mode === "relay") {
+      return;
+    }
 
     getComposeDraft(hostId, tmuxSessionKey)
       .then((data) => {
@@ -1032,7 +1052,12 @@ export function ComposeBox({
     // those effects, flushing any dirty state under the OLD key.
     return () => {
       cancelled = true;
-      if (dirtyBodyRef.current !== null || dirtyQueueSlotsRef.current !== null) {
+      // Phase 97 UAT follow-up: skip keepalive in relay mode — the
+      // endpoint requires hostId which is 0 for relay panes.
+      if (
+        mode !== "relay" &&
+        (dirtyBodyRef.current !== null || dirtyQueueSlotsRef.current !== null)
+      ) {
         flushComposeDraftKeepalive(
           hostId,
           tmuxSessionKey,
@@ -1044,7 +1069,10 @@ export function ComposeBox({
       }
       clearDebounce();
     };
-  }, [hostId, tmuxSessionKey, clearDebounce, scheduleAutosave]);
+    // Phase 97 UAT follow-up: `mode` added so the effect re-runs when a
+    // pane switches between harness / relay — the relay early-return
+    // above must re-evaluate on mode change.
+  }, [hostId, tmuxSessionKey, clearDebounce, scheduleAutosave, mode]);
 
   // pagehide + visibilitychange keepalive flush. Fires only when there's
   // a dirty body or queueSlots pending — idle panes cost zero unload-time bandwidth.
@@ -1052,6 +1080,10 @@ export function ComposeBox({
   // payload alongside body.
   useEffect(() => {
     const onPageHide = () => {
+      // Phase 97 UAT follow-up: skip keepalive in relay mode — the
+      // endpoint requires hostId which is 0 for relay panes. Same
+      // rationale as the load-on-mount + flushDirty early-returns.
+      if (mode === "relay") return;
       if (dirtyBodyRef.current !== null || dirtyQueueSlotsRef.current !== null) {
         flushComposeDraftKeepalive(
           hostId,
@@ -1072,7 +1104,7 @@ export function ComposeBox({
       window.removeEventListener("pagehide", onPageHide);
       document.removeEventListener("visibilitychange", onVisChange);
     };
-  }, [hostId, tmuxSessionKey]);
+  }, [hostId, tmuxSessionKey, mode]);
 
   // 10s retry loop. Debounced saves that fail re-queue into
   // dirtyBodyRef / dirtyQueueSlotsRef with no pending timer; without this
