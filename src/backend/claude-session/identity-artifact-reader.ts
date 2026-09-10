@@ -4121,16 +4121,31 @@ async function walkForRepos(dir: string, depth: number, out: string[]): Promise<
   if (entries.includes(".git")) {
     try {
       const st = await fs.lstat(path.join(dir, ".git"));
-      if (st.isDirectory()) {
+      // Accept BOTH a .git directory (normal repo) AND a .git file (git
+      // worktree gitlink). A worktree is a legitimate primary checkout
+      // and git commands (status/rev-list/stash) work in it exactly as
+      // in a normal repo — so it belongs in the detector's coverage.
+      //
+      // D-01's outermost-only rule is preserved: once we detect ANY .git
+      // marker at this level we push + return WITHOUT descending, so
+      // submodules or nested repos inside a parent-repo tree are never
+      // reached (the parent repo's .git got detected first). Submodules
+      // in a WORKTREE parent are similarly covered — parent worktree's
+      // .git file detects, walker returns, submodule .git files never
+      // visited.
+      //
+      // Symlinks to a .git dir/file are rejected here (lstat returns the
+      // link itself, not target) to avoid loops. Malformed .git files
+      // that lstat can inspect but git can't parse fall through to git
+      // command failure and are silently ignored downstream.
+      // Phase 104 code-review finding #6.
+      if (
+        (st.isDirectory() || st.isFile()) &&
+        !st.isSymbolicLink()
+      ) {
         out.push(dir);
         return; // outermost-only — do NOT descend
       }
-      // A .git that's a file (gitlink for worktrees/submodules) or malformed:
-      // fall through to the "no repo here, keep walking" path. If it's a
-      // gitfile pointing at a valid worktree, the actual repo lives elsewhere;
-      // we don't chase gitlinks (they're either submodules or worktrees, both
-      // out of scope per D-01 outermost-only). Malformed .git files are simply
-      // ignored — the sibling dirs still get walked.
     } catch {
       // lstat failed — treat as no repo, keep walking siblings.
     }
@@ -4204,7 +4219,10 @@ export async function readIdentityTrappedWork(
     '    if ".git" in es:\n' +
     "        try:\n" +
     '            gp = os.path.join(p, ".git")\n' +
-    "            if os.path.isdir(gp) and not os.path.islink(gp):\n" +
+    "            # Accept .git as dir (normal repo) OR file (worktree gitlink)\n" +
+    "            # per Phase 104 code-review finding #6. Reject symlinks to\n" +
+    "            # avoid loops. D-01 outermost-only preserved via early return.\n" +
+    "            if (os.path.isdir(gp) or os.path.isfile(gp)) and not os.path.islink(gp):\n" +
     "                found.append(p); return\n" +
     "        except Exception: pass\n" +
     "    for e in es:\n" +
