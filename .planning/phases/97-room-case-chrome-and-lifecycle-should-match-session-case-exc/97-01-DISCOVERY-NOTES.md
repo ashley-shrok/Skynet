@@ -136,3 +136,21 @@ Proceed to Plan 06 pending Ashley's Task 4 confirmation of Reproduction A (predi
 - **Did NOT run a live browser reproduction.** No headless-browser / playwright is in scope for this executor per fleet directive. The reproduction steps are for Ashley at Task 4.
 - **Did NOT propose a MultiBadgeAnchor `tabId` change.** That's Plan 06's territory (per plan 97-01's file-disjoint scope statement); Plan 01 only instruments and gap-tightens.
 - **Did NOT remove the `[pv-split-drop-diag]` logs.** The plan says removal disposition is out of scope for Plan 01 — the logs stay in place through Task 4 so Ashley's live reproduction has the instrument to read.
+
+---
+
+## Resolution (2026-09-10)
+
+**Verdict:** **A — case-branch fill-in only. Plan 06 SHIPS as planned.**
+
+**Approved by:** Ashley (thumbs up on the orchestrator's Task 4 checkpoint report; resume signal verbatim `"approved verdict a"`).
+
+**Basis for approval:** The static-analysis evidence assembled above was accepted as authoritative for Verdict A without a live-browser reproduction cycle. The evidence is unambiguous:
+
+- `IdentityBadge.tsx:82` gates `isDragSource = !!tabId && !isMobile`. When `tabId` is `undefined`, `isDragSource` is `false`, `draggable={isDragSource}` is `false`, and the browser will not fire `dragstart` on the badge element. This is native-DOM contract, not a hypothesis.
+- `MultiBadgeAnchor.tsx:129` and `MultiBadgeAnchor.tsx:164` both mount `<IdentityBadge identityKey={identityKey} />` with **no** `tabId` prop. Result: every relay-case badge cell receives `tabId={undefined}` → `isDragSource=false` → drag source contract silently disabled. This is the F-2 root cause for problem (a) (drag-source ask, per D-05).
+- No structural corruption is evident under code review for Reproduction B. H1 (window-level `dragend` leak) has clean attach/detach pairing at `SplitView.tsx:558` + `L563` inside a well-formed effect. H3 (badge onDragStart timer leak) is ruled out downstream of Reproduction A — no dragstart, no timer state. H2/H4/H5 all inspect clean. Ashley's UAT observation ("full page reload clears it") is compatible with PrettyView-local stale state (see PrettyView.tsx L1744 dragCounter per RESEARCH) rather than a shared drag-registry corruption that would show up in static analysis.
+
+**Live-browser verification:** **DEFERRED to phase-end deploy** (standard fleet pattern — no deploy happens mid-phase; Task 1–3 commits are not live in Ashley's environment). This is not blocking. If Ashley's post-deploy live reproduction contradicts the Verdict A prediction (e.g., Reproduction B fails after the room open/close cycle), the `[pv-split-drop-diag]` instrumentation added by Task 1 gives us a forensic tape to walk H1/H2/H4/H5 at that point, and the escalation path is Verdict B (open a follow-up phase for F-2 structural reshape via `/open`). The static evidence is strong enough to proceed with Plan 06 in the meantime.
+
+**Next:** Plan 06 SHIPS. Plan 06 threads `tabId` through `MultiBadgeAnchor` per PATTERNS.md § Finding 2 — passing the anchor's `tabId` prop into both the `HumanBadgeCell` mount at `MultiBadgeAnchor.tsx:129` and the `AgentBadgeCell` mount at `MultiBadgeAnchor.tsx:164`, mirroring the harness case's pattern at `PrettyView.tsx:3539-3555`. No SplitView changes required beyond the diagnostic logs that already landed at commit `8094adbc`. Removal disposition for the `[pv-split-drop-diag]` logs remains TBD by orchestrator (they may stay as ambient forensic instrumentation post-ship per RESEARCH § Finding 2 landmines).
