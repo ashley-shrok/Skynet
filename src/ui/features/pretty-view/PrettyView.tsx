@@ -651,6 +651,15 @@ export function PrettyView({
   // error itself (never raw event body). Reset-log-suppress: when the error
   // clears (transitions back to null), no log fires — that's a recovery, not
   // an incident.
+  //
+  // Phase 97 code-review Fix 1: dep array is PRIMITIVES ONLY. Previously we
+  // had `[source, chatSurfaceAdapter.error]`, but `source` is a fresh object
+  // literal on every render (from `sourceProp ?? {...}` above OR from
+  // IdentitySessionPane's inline construction), so the effect fired every
+  // render — while error !== null, this re-emitted the same log proportional
+  // to render count. Same anti-pattern the Slice-6 pass fixed elsewhere.
+  // Deps are now `[source.kind, source.roomId-when-relay, error]` — all
+  // primitives, so Object.is dep-comparison actually stabilises.
   useEffect(() => {
     if (chatSurfaceAdapter.error === null) return;
     // eslint-disable-next-line no-console
@@ -664,7 +673,11 @@ export function PrettyView({
       // later would violate the test's per-line grep.
       roomId: source.kind === "relay" ? source.roomId : null,
     });
-  }, [source, chatSurfaceAdapter.error]);
+  }, [
+    source.kind,
+    source.kind === "relay" ? source.roomId : null,
+    chatSurfaceAdapter.error,
+  ]);
   // Phase 93 Slice 2 (D-01/D-03): viewing user's mxid + fleet-identity-hosts
   // map. Both are read unconditionally here (Rules of Hooks) — the relay case
   // consumes them via MultiBadgeAnchor; the harness case ignores them. Slice
