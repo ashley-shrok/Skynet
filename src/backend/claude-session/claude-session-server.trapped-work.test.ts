@@ -21,9 +21,17 @@ vi.mock("./identity-artifact-reader.js", async (importOriginal) => {
   };
 });
 
+// Mock the per-host semaphore registry so tests can assert acquisition without
+// depending on the real counting-semaphore state.
+const semRun = vi.fn(async <T>(fn: () => Promise<T>): Promise<T> => fn());
+vi.mock("../ssh/host-semaphore-registry.js", () => ({
+  getHostSemaphore: vi.fn(() => ({ run: semRun })),
+}));
+
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
 import { readIdentityTrappedWork } from "./identity-artifact-reader.js";
+import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
 import { __handleIdentityProbeTrappedWorkForTests } from "./claude-session-server.js";
 
 type TrappedMsg = {
@@ -53,6 +61,8 @@ beforeEach(() => {
   vi.mocked(connectOneShot).mockReset();
   vi.mocked(resolveHostById).mockReset();
   vi.mocked(readIdentityTrappedWork).mockReset();
+  vi.mocked(getHostSemaphore).mockClear();
+  semRun.mockClear();
 });
 
 afterEach(() => {
@@ -261,5 +271,69 @@ describe("identity:probe-trapped-work handler — batched per-target fan-out", (
 
     expect(sent).toHaveLength(1);
     expect(sent[0].type).toBe("identity:trapped-work");
+  });
+
+  // Test 9 — semaphore acquisition (Phase 104 /close follow-up)
+  // Every remote host-group MUST go through getHostSemaphore(hostId).run(...)
+  // so concurrent probes cannot push the target's ssh2 connection past
+  // MaxSessions=10. Improves on the retired handleIdentityCountBounties
+  // pattern which bypassed the semaphore.
+  it("remote group acquires per-host semaphore before opening SSH connection", async () => {
+    vi.mocked(resolveHostById).mockResolvedValue({
+      ip: "10.0.0.1",
+      port: 22,
+      username: "u",
+      authType: "password",
+      password: "p",
+    } as unknown as Awaited<ReturnType<typeof resolveHostById>>);
+    vi.mocked(connectOneShot).mockResolvedValue(
+      makeFakeConn("conn-42") as unknown as Awaited<ReturnType<typeof connectOneShot>>,
+    );
+    vi.mocked(readIdentityTrappedWork).mockResolvedValue({ hasTrappedWork: false });
+
+    await __handleIdentityProbeTrappedWorkForTests(
+      wsStub as unknown as import("ws").WebSocket,
+      {
+        type: "identity:probe-trapped-work",
+        targets: [
+          { identityKey: "tina", hostId: 42 },
+          { identityKey: "tabitha", hostId: 42 },
+          { identityKey: "george", hostId: 99 },
+        ],
+      },
+      /* userId */ 1,
+    );
+
+    // Semaphore acquired for EACH unique remote hostId (42 + 99 = 2 acquisitions)
+    expect(getHostSemaphore).toHaveBeenCalledTimes(2);
+    expect(getHostSemaphore).toHaveBeenCalledWith(42);
+    expect(getHostSemaphore).toHaveBeenCalledWith(99);
+    // .run() invoked once per unique hostId — the connectOneShot + probe block
+    // ran INSIDE the semaphore, not around it.
+    expect(semRun).toHaveBeenCalledTimes(2);
+    // Sanity check the response still arrived correctly
+    expect(sent).toHaveLength(1);
+    expect(sent[0].results).toHaveLength(3);
+  });
+
+  // Test 10 — local-only batch does NOT acquire the semaphore
+  // (local group runs no SSH exec, so no MaxSessions pressure to gate).
+  it("local-only batch does NOT acquire host semaphore (no SSH exec to gate)", async () => {
+    vi.mocked(readIdentityTrappedWork).mockResolvedValue({ hasTrappedWork: false });
+
+    await __handleIdentityProbeTrappedWorkForTests(
+      wsStub as unknown as import("ws").WebSocket,
+      {
+        type: "identity:probe-trapped-work",
+        targets: [
+          { identityKey: "tina", hostId: null },
+          { identityKey: "tabitha", hostId: null },
+        ],
+      },
+      /* userId */ 1,
+    );
+
+    expect(getHostSemaphore).not.toHaveBeenCalled();
+    expect(semRun).not.toHaveBeenCalled();
   });
 });

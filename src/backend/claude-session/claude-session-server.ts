@@ -1267,8 +1267,14 @@ export async function handleIdentityProbeTrappedWork(
       );
     } else {
       const hostIdNum = groupKey as number;
+      // Semaphore wrap (Phase 104 /close follow-up, bounty
+      // outbound-ssh-exec-semaphore-coverage-gaps): every SSH exec against a
+      // managed host must go through getHostSemaphore(hostId).run(...) so
+      // concurrent probes cannot push the target's ssh2 connection past
+      // MaxSessions=10. Improves on the retired handleIdentityCountBounties
+      // pattern, which did NOT acquire the semaphore.
       groupPromises.push(
-        (async () => {
+        getHostSemaphore(hostIdNum).run(async () => {
           let conn: SSHClientType | null = null;
           try {
             const resolved = await resolveHostById(hostIdNum, userId!);
@@ -1320,7 +1326,7 @@ export async function handleIdentityProbeTrappedWork(
               }
             }
           }
-        })(),
+        }),
       );
     }
   }
