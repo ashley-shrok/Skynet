@@ -2,16 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
-stopped_at: Phase 89 context gathered
-last_updated: "2026-09-08T19:57:05.011Z"
-last_activity: 2026-09-08 -- Phase 89 marked complete
+status: executing
+last_updated: "2026-09-10T01:16:14.086Z"
+last_activity: 2026-09-10
 progress:
-  total_phases: 88
-  completed_phases: 74
-  total_plans: 341
-  completed_plans: 341
-  percent: 84
+  total_phases: 95
+  completed_phases: 82
+  total_plans: 397
+  completed_plans: 387
+  percent: 86
 ---
 
 # Project State
@@ -26,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 ## Current Position
 
 Phase: 89 — COMPLETE
-Plan: 1 of 6
-Status: Phase 89 complete
+Plan: 3 of 6
+Status: Ready to execute
 
-Last activity: 2026-09-10 — Completed quick task 260910-0h6: credentials-persist — route 4 raw `db.update(...)` sites in `src/backend/database/routes/credentials.ts` (lines 647/779/799/986) through `SimpleDBOps.update(...)` so writes fire `DatabaseSaveTrigger.triggerSave` and persist to disk. Root cause of the 2026-09-09T23:19 UTC regression where Taylor's Phase 93 container restart wiped my prior session's fleet-substrate credential migration (workstation/thenasty/ZoeyBattlestation host rows came back throwing `Unsupported authType: key` because the RAM-only apply-to-host write never persisted). SimpleDBOps.update wraps triggerSave + also runs the ssh_credentials system-key dual-encryption branch that raw drizzle skipped — sites 3+4 (`sshCredentials.usageCount` bump and folder rename) fix two bugs at once. Two atomic commits on `feat/tab-title-from-tmux`: `22bfb934` (Task 1 — 4 site swaps, final counts SimpleDBOps.update=5, db.update=0) + `b72bc577` (Task 2 — new `credentials.test.ts` regression tests spying on `DatabaseSaveTrigger.triggerSave` for all 4 endpoints, 4/4 pass, tsc clean). Scoped verify `npx vitest run src/backend/database/routes/credentials.test.ts` = 4/4 pass exit 0; `npx tsc --noEmit` exit 0. Bounded scope respected: `src/backend/utils/simple-db-ops.ts` untouched, `db.delete(hostAccess)` L661 / `db.delete(sshCredentials)` L685 / `db.insert(sshCredentialUsage)` L792 all untouched, no other route files modified, no new deps. HEAD `b72bc577` LOCAL, NOT pushed / NOT built / NOT deployed — held at push boundary per greenlight-at-push rule. Related bounties: `credentials-routes-raw-drizzle-updates-not-persisting` (closes with post-fix re-migration of fleetHostIds 21/22/23), `skynet-in-memory-db-wider-audit` (wider anti-pattern audit stays open — this quick was bounded). SUMMARY at `.planning/quick/260910-0h6-credentials-persist/260910-0h6-SUMMARY.md`. Prior activity:
+Last activity: 2026-09-10
 Last activity (prior): 2026-09-09 — Completed quick task 260909-e9w: distributor writes `~/.claude/skynet-hostname` (single-line file containing Skynet's canonical `host.name` per box) on every sweep; id skill file-URL recipe reads that file instead of `$(hostname)`. Fixes agent-to-user file share failing with `unknown_host` when OS `hostname` (e.g. `ip-172-31-243-143` on AWS EC2) doesn't match Skynet's registered host record name (this box registered as `name='Skynet'` id=6, tailscale name is `t1000`). Two atomic commits on `feat/tab-title-from-tmux`: `daa75fe0` (backend Step 5 mirror of skynet-parent + hn-1..hn-8 tests + 11 pre-existing sp-* handler-map extensions) + `4d0b0dc4` (id skill recipe update). Scoped verify 32/32 pass, `npm run build:backend` exit 0. HEAD `4d0b0dc4` LOCAL — NOT pushed / NOT built / NOT deployed, held at push boundary per greenlight-at-push rule. Closes bounty `agent-file-url-hostname-mismatch`. SUMMARY at `.planning/quick/260909-e9w-distributor-writes-skynet-hostname-file-/260909-e9w-SUMMARY.md`. Prior activity:
 Last activity (prior): 2026-09-09 — Completed quick task 260909-cdi: composebox-buttons-and-queue-tab-redesign — three-motion UX pass on the compose box aux-row bundled atomically. (1) Recap payload swap `/explain the current situation` → `/explain what has gone on since my last message` (every other Recap attribute unchanged per shape's ⚠ regression guard); (2) aux-row trim 4 → 3 buttons — ListPlus queue button retired from L2465-2485 alongside its comment block, `ListPlus` dropped from the lucide-react import, stale aux-group descriptive comment corrected to reflect the new three-button state; (3) new `QueuePlusTab` pebble-notch affordance (`<button type="button" aria-label="Queue a message">` with a `<Plus className="size-3" strokeWidth={1.5} />` glyph) declared at ComposeBox.tsx L3099, absolute-positioned `top-[-12px] left-1/2 -translate-x-1/2 z-10 w-10 h-[22px] rounded-full` with a `--color-pv-base` → `--color-pv-base-mid` vertical gradient fill and a 4%-opacity hairline border (variant 1 from the tasting at `~/.claude/roles/box-maintainer/bounties/composebox-buttons-and-queue-tab-redesign/tasting/tasting.html`). Placement rule (from shape): tab rides the topmost textarea's top edge — renders on the primary wrapper when `queueSlots.length === 0`, on the first `QueuedRow` (index 0) when slots exist, never both. Hoisting logic split: primary wrapper gates on `queueSlots.length === 0`, `QueuedRow` gates on new `isTopmostInStack` prop (queueSlots.map at parent switched `map((slot) => ...)` → `map((slot, index) => ...)`). Wiring (load-bearing behavior change): clicking the tab PREPENDS an empty slot at index 0 via `setQueueSlots((prev) => [{ id: makeSlotId(), text: "" }, ...prev])` — inverts the old append-at-end pattern; locality is the win (clicking a plus on top of a stack should add to the top of the stack). Test hooks: `data-testid="compose-primary-wrapper"` on primary wrapper for unambiguous parent-surface assertions; `[data-slot-id]` on QueuedRow was already present. Interface additions: `QueuedRowProps` gained `isTopmostInStack: boolean` + `onAddSlotAtTop: () => void`. **Test matrix** — 4 new behavioral tests in `ComposeBox.queue-plus-tab.test.tsx` (Test A tab-on-primary-wrapper, Test B tab-on-first-slot topmost-tracking, Test C prepend-not-append after two clicks, Test D recap payload assertion) + `ComposeBox.send-funnel.test.tsx` Test 4 payload literals updated. RED gate confirmed 5 failures pre-implementation (all 4 new plus-tab tests + send-funnel Test 4). GREEN gate scoped `npx vitest run 'src/ui/features/pretty-view/ComposeBox.'` → **13 test files, 167 tests, all pass**. All 7 grep spot-checks pass with expected counts (0 `ListPlus className`, 0 old recap payload, 1 new recap payload, 1 `aria-label="Queue a message"`, 1 `data-testid`, 6 `isTopmostInStack` references, 0 append-pattern). **Scope-boundary Rule 3 auto-fix** (in-scope, `ComposeBox.test.tsx` L783-798): QS 3 test captured `plusBtn = getByRole(...)` once and reused it across two clicks — worked with the old stable aux-row button but broke against QueuePlusTab which re-parents between primary/first-slot wrappers between clicks. Fixed by re-querying on each click; landed in the same atomic commit. Single atomic commit `8f87f722` on `feat/tab-title-from-tmux` (4 files, +290/-48). HEAD LOCAL — NOT pushed / NOT built / NOT deployed. Deploy DEFERRED to the UX-pass campaign ship gate per bounty 6/8 discipline; ships batched with 7/8 at Ashley's greenlight. SUMMARY at `.planning/quick/260909-cdi-composebox-buttons-and-queue-tab-redesig/260909-cdi-SUMMARY.md`. Prior activity:
 Last activity (prior): 2026-09-08 -- Phase 89 marked complete
@@ -218,7 +217,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 100%
+Progress: [██████████] 98%
 Progress: [██████████] 100%
 
 ## Performance Metrics
@@ -370,6 +369,7 @@ Progress: [██████████] 100%
 | Phase 85-user-avatars-baseline-backend-support P05 | 20 | 3 tasks | 4 files |
 | Phase 85 P07 | 45 | 1 tasks | 1 files |
 | Phase 88 P03 | 28 min | 5 tasks | 5 files |
+| Phase 95 P03 | 35 | 2 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -594,6 +594,7 @@ Recent decisions affecting current work:
 - [Phase ?]: avatar_path column: nullable text on users table, genuinely NULL (not empty-string sentinel), stored as filename pointer under DATA_DIR/user-avatars/ (D-04/D-05/D-06)
 - [Phase ?]: Local MIME_TO_EXT/EXT_TO_MIME maps in user-avatar-storage.ts cover only png/jpeg/webp — no cross-file coupling to identity system
 - [Phase ?]: Phase 88 Plan 88-03 (Wave 3 test rewrites) complete: 89/89 tests passing across 5 test files (was 29 failing). Three new lock-tests added (T1/T2/T3) for admin-gate + non-admin backend substitution wire contract. 8 tests with pre-existing Phase-86 drift folded in as Rule-3 blocking-issue cleanup per Wave 2 SUMMARY unblock contract.
+- [Phase ?]: G7: Ink Plan Mode split-send lesson captured verbatim in 95-03-SUMMARY.md before PlanPendingBubble.tsx deletion
 
 ### Pending Todos
 
@@ -922,8 +923,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-08T17:56:12.080Z
-Stopped at: Phase 89 context gathered
+Last session: 2026-09-10T01:16:13.988Z
+Stopped at: Completed Phase 95 Plan 03 (95-03-PLAN.md)
 Last session: 2026-09-08T03:58:11.814Z
 Stopped at: Phase 86 context gathered (renumbered from Phase 85 via rescue-rebase 3a708637)
 Last session: 2026-09-06T12:17:07.176Z
@@ -935,4 +936,4 @@ Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 3
 Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
-Resume file: .planning/phases/89-identity-modal-drop-history-handoff-tabs-add-runbooks-tab-ed/89-CONTEXT.md
+Resume file: None
