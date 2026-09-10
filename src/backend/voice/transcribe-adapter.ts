@@ -79,6 +79,7 @@ import {
   TranscribeStreamingClient,
   StartStreamTranscriptionCommand,
   type AudioStream,
+  type Item,
   type LanguageCode,
   type MediaEncoding,
 } from "@aws-sdk/client-transcribe-streaming";
@@ -170,4 +171,88 @@ export async function transcribeBuffer(
     }
   }
   return finalTranscripts.join(" ");
+}
+
+/**
+ * The Items-enriched result returned by `transcribeBufferWithItems`.
+ *
+ * `items` timestamps are STREAM-RELATIVE (each chunk's own session starts at 0).
+ * Consumers (transcribe-orchestrator.ts) must add the chunk's `startOffsetSec`
+ * to every item's StartTime / EndTime before cross-chunk comparison (D-11,
+ * Pitfall 1 from 100-RESEARCH.md).
+ *
+ * @see transcribeBufferWithItems
+ */
+export interface TranscribeChunkResult {
+  transcript: string;
+  /** Word-level items from AWS Transcribe's `Alternative.Items`. Stream-relative timestamps. */
+  items: Item[];
+}
+
+/**
+ * Transcribe an audio buffer via Amazon Transcribe streaming, returning
+ * the concatenated FINAL transcripts AND the word-level `Items` array
+ * (word-timestamp objects) for the chunked parallel STT path (Phase 100).
+ *
+ * This is a SIBLING export to `transcribeBuffer`. It mirrors `transcribeBuffer`'s
+ * stream-loop exactly, adding an `items` accumulator alongside the transcript
+ * accumulator.
+ *
+ * WHY a parallel function instead of modifying `transcribeBuffer` (Pitfall 8,
+ * 100-RESEARCH.md):
+ *   - `transcribeBuffer`'s `Promise<string>` return type is load-bearing for 24
+ *     existing tests and the fast-path caller in `voice.ts`. Widening it to
+ *     `Promise<TranscribeChunkResult>` would break all of those callsites.
+ *   - Introducing a parallel function with the widened return type keeps
+ *     `transcribeBuffer` fully intact while giving the orchestrator what it needs.
+ *
+ * Design decisions preserved verbatim from `transcribeBuffer`:
+ *   - Pitfall 3 (IsPartial filter): partial results are SKIPPED — same guard.
+ *   - Module-level `client` singleton REUSED (D-10): no second TranscribeStreamingClient
+ *     is constructed; this function calls `client.send(cmd)` on the same singleton.
+ *   - Same `audioChunkGenerator` helper, same `StartStreamTranscriptionCommand` shape.
+ *
+ * @param audioBuffer - Post-transcode FLAC audio bytes (Phase 100 chunked path always uses FLAC).
+ * @param mediaEncoding - Encoding of the audio buffer. Defaults to `"flac"`.
+ * @param sampleRateHz - Sample rate of the audio. Defaults to `16000`.
+ * @returns `{transcript, items}` — transcript is the joined final text; items is
+ *   the word-level timestamp array (chunk-relative; see D-11).
+ * @throws If Transcribe's response has no `TranscriptResultStream`.
+ * @throws Raw SDK error unchanged for all other failures.
+ */
+export async function transcribeBufferWithItems(
+  audioBuffer: Buffer,
+  mediaEncoding: "flac" | "ogg-opus" | "pcm" = "flac",
+  sampleRateHz: number = 16000,
+): Promise<TranscribeChunkResult> {
+  const cmd = new StartStreamTranscriptionCommand({
+    LanguageCode: "en-US" as LanguageCode,
+    MediaSampleRateHertz: sampleRateHz,
+    MediaEncoding: mediaEncoding as MediaEncoding,
+    AudioStream: audioChunkGenerator(audioBuffer),
+  });
+
+  const response = await client.send(cmd);
+  if (!response.TranscriptResultStream) {
+    throw new Error("Transcribe returned no TranscriptResultStream");
+  }
+
+  const transcripts: string[] = [];
+  const items: Item[] = [];
+
+  for await (const event of response.TranscriptResultStream) {
+    const results = event.TranscriptEvent?.Transcript?.Results;
+    if (!results) continue;
+    for (const result of results) {
+      // CRITICAL (Pitfall 3): same IsPartial guard as transcribeBuffer —
+      // only accumulate finals. Partial items are also dropped.
+      if (result.IsPartial) continue;
+      for (const alt of result.Alternatives ?? []) {
+        if (alt.Transcript) transcripts.push(alt.Transcript);
+        if (alt.Items) items.push(...alt.Items); // collect word-level timestamps
+      }
+    }
+  }
+
+  return { transcript: transcripts.join(" "), items };
 }

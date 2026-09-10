@@ -3893,6 +3893,18 @@ export function PrettyView({
                   ts={m.ts}
                   hostId={hostId}
                   alwaysExpanded={source.kind === "relay"}
+                  // Phase 97 UAT batch #6 (2026-09-10): thread eventId +
+                  // autoplay + long-press props so left-side relay bubbles
+                  // in relay-source view get the same speak affordance as
+                  // ChatMessage's assistant bubbles. All four already in
+                  // scope here — same wiring as the ChatMessage render
+                  // site immediately below. Props are optional on
+                  // RelayInboundBubble so the harness-view (alwaysExpanded=
+                  // false) path stays byte-for-byte unchanged.
+                  eventId={m.eventId}
+                  autoplayArmed={autoplayArmed}
+                  autoplayTargetEventId={autoplayTargetEventId}
+                  onLongPressSpeak={handleLongPressSpeak}
                 />
               ) : m.type === "malformed_line" ? (
                 <MalformedBubble bytes={m.bytes} ts={m.ts} />
@@ -3907,6 +3919,15 @@ export function PrettyView({
                   autoplayTargetEventId={autoplayTargetEventId}
                   onLongPressSpeak={handleLongPressSpeak}
                   onOpenEditor={handleOpenEditor}
+                  // Phase 97 UAT follow-up 4 (2026-09-10): relay-source
+                  // adapter injects optimistic bubbles into `messages`
+                  // with pendingState="sending" (or "failed"). Harness
+                  // path leaves pendingState undefined on confirmed
+                  // MessageEvents; harness pending sends still render via
+                  // the separate pendingSends.map below. Threaded here so
+                  // relay-source optimistic bubbles show the spinner
+                  // consistently with the harness pending pattern.
+                  pendingState={m.pendingState ?? null}
                 />
               )}
             </div>

@@ -8,9 +8,16 @@ import { parseInjectedUserTurn } from "@/api/pretty-view-upload-protocol";
 import { AttachmentChipStrip } from "./AttachmentChipStrip";
 import { CopyableBlock } from "./CopyableBlock";
 import { postSpeakStream } from "@/api/voice-api";
-import { createWebAudioStreamPlayer, type WebAudioStreamPlayer } from "./webAudioStreamPlayer";
+import { createWebAudioStreamPlayer } from "./webAudioStreamPlayer";
 import { useEditableFileEligibility } from "./use-editable-file-eligibility";
 import { EditableFileAffordance } from "./EditableFileAffordance";
+import {
+  getCurrentPlayer,
+  setCurrentPlayer,
+  getCurrentOwner,
+  setCurrentOwner,
+  clearCurrentPlayer,
+} from "./speak-singleton";
 
 // Patch #237 (Phase 19): singleton now tracks a WebAudioStreamPlayer instance.
 // The player encapsulates the AudioContext, scheduled AudioBufferSourceNodes,
@@ -18,8 +25,12 @@ import { EditableFileAffordance } from "./EditableFileAffordance";
 // Cross-bubble Stop / new-bubble-preempt semantics preserved: starting on
 // bubble A while bubble B plays stops B first; clicking Stop on the playing
 // bubble stops it; unmount cleanup stops if this bubble owns the singleton.
-let currentPlayer: WebAudioStreamPlayer | null = null;
-let currentOwner: symbol | null = null;
+//
+// Phase 97 UAT batch #6 (2026-09-10): the singleton pair now lives in
+// ./speak-singleton.ts so RelayInboundBubble can share the SAME pair —
+// tapping speak on either component preempts the other. Access via the
+// getCurrentPlayer / setCurrentPlayer / getCurrentOwner / setCurrentOwner /
+// clearCurrentPlayer helpers imported above.
 
 // Presentational chat bubble for one conversational message.
 //
@@ -121,12 +132,11 @@ export function ChatMessage({
   // pending long-press timer.
   useEffect(() => {
     return () => {
-      if (currentOwner === bubbleIdRef.current) {
+      if (getCurrentOwner() === bubbleIdRef.current) {
         const owner = bubbleIdRef.current;
         console.info(`[tts] stop-current owner=${owner.toString()} trigger=unmount`);
-        currentPlayer?.stop();
-        currentPlayer = null;
-        currentOwner = null;
+        getCurrentPlayer()?.stop();
+        clearCurrentPlayer();
       }
       if (longPressTimerRef.current != null) {
         window.clearTimeout(longPressTimerRef.current);
@@ -143,12 +153,12 @@ export function ChatMessage({
   async function startSpeak(trigger: "user-click" | "autoplay" | "long-press" = "user-click") {
     // If another bubble is playing (or loading, or paused), stop it first
     // (cross-bubble preempt). This is also the only cancel-from-paused path.
-    if (currentPlayer) {
-      const prevOwner = currentOwner;
+    const preemptTarget = getCurrentPlayer();
+    if (preemptTarget) {
+      const prevOwner = getCurrentOwner();
       console.info(`[tts] stop-current owner=${prevOwner?.toString() ?? "null"} trigger=new-bubble`);
-      currentPlayer.stop();
-      currentPlayer = null;
-      currentOwner = null;
+      preemptTarget.stop();
+      clearCurrentPlayer();
     }
 
     setSpeakState("loading");
@@ -164,10 +174,9 @@ export function ChatMessage({
         // a race where a NEW speak-click already replaced the singleton
         // (setSpeakState on the OLD bubble would flash "idle" briefly and
         // race the new bubble's "loading" render).
-        if (currentOwner === owner) {
+        if (getCurrentOwner() === owner) {
           console.info(`[tts] media-ended owner=${owner.toString()}`);
-          currentPlayer = null;
-          currentOwner = null;
+          clearCurrentPlayer();
           setSpeakState("idle");
         }
       },
@@ -179,9 +188,8 @@ export function ChatMessage({
         const errName = err instanceof Error ? err.name : "unknown";
         const errMessage = err instanceof Error ? err.message : String(err);
         console.error(`[tts] player-error owner=${owner.toString()} errName="${errName}" errMessage="${errMessage}"`);
-        if (currentOwner === owner) {
-          currentPlayer = null;
-          currentOwner = null;
+        if (getCurrentOwner() === owner) {
+          clearCurrentPlayer();
           setSpeakState("idle");
         }
       },
@@ -204,8 +212,8 @@ export function ChatMessage({
 
     // Install the singleton BEFORE the fetch so a same-tick preempt from
     // another bubble sees a non-null currentPlayer and can stop us cleanly.
-    currentPlayer = player;
-    currentOwner = owner;
+    setCurrentPlayer(player);
+    setCurrentOwner(owner);
 
     try {
       // Fetch stage — D-02 instrumentation.
@@ -213,8 +221,8 @@ export function ChatMessage({
       const response = await postSpeakStream(text, identityVoice ?? undefined);
       // Race check: if another bubble preempted us during the fetch,
       // currentOwner has changed. Bail out before scheduling any audio.
-      if (currentOwner !== owner) {
-        console.warn(`[tts] preempt-during-fetch owner=${owner.toString()} newOwner=${currentOwner?.toString() ?? "null"}`);
+      if (getCurrentOwner() !== owner) {
+        console.warn(`[tts] preempt-during-fetch owner=${owner.toString()} newOwner=${getCurrentOwner()?.toString() ?? "null"}`);
         return;
       }
       console.info(`[tts] fetch-resolved status=${response.status} ok=${response.ok} owner=${owner.toString()}`);
@@ -258,9 +266,8 @@ export function ChatMessage({
       const errName = err instanceof Error ? err.name : "unknown";
       const errMessage = err instanceof Error ? err.message : String(err);
       console.error(`[tts] fetch-error owner=${owner.toString()} errName="${errName}" errMessage="${errMessage}"`);
-      if (currentOwner === owner) {
-        currentPlayer = null;
-        currentOwner = null;
+      if (getCurrentOwner() === owner) {
+        clearCurrentPlayer();
         setSpeakState("idle");
       }
     }
@@ -272,8 +279,8 @@ export function ChatMessage({
     // Same-bubble click while playing: pause. AudioContext.suspend() freezes
     // the context clock — already-scheduled sources and any that arrive from
     // the read loop during the pause naturally queue up until resume.
-    if (speakState === "playing" && currentOwner === bubbleIdRef.current) {
-      void currentPlayer?.pause();
+    if (speakState === "playing" && getCurrentOwner() === bubbleIdRef.current) {
+      void getCurrentPlayer()?.pause();
       setSpeakState("paused");
       return;
     }
@@ -281,8 +288,8 @@ export function ChatMessage({
     // Same-bubble click while paused: resume. If the browser killed the
     // AudioContext under us (long background suspension), the player fires
     // onError → the handler below flips speakState back to idle.
-    if (speakState === "paused" && currentOwner === bubbleIdRef.current) {
-      void currentPlayer?.resume();
+    if (speakState === "paused" && getCurrentOwner() === bubbleIdRef.current) {
+      void getCurrentPlayer()?.resume();
       setSpeakState("playing");
       return;
     }

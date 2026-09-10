@@ -68,16 +68,27 @@
 
 import { spawn } from "node:child_process";
 
+// Silence-removal filter tuning for webmToFlac. Only silences ≥ MIN_SEC below
+// THRESHOLD_DB get trimmed, and each trim leaves PAD_SEC of padding so
+// Transcribe still sees a pause cue for punctuation. Exported so bench/tune
+// work can vary them without hunting the argv.
+export const SILENCE_TRIM_MIN_SEC = 1.0;
+export const SILENCE_TRIM_PAD_SEC = 0.3;
+export const SILENCE_TRIM_THRESHOLD_DB = -40;
+const SILENCE_FILTER = `silenceremove=stop_periods=-1:stop_duration=${SILENCE_TRIM_MIN_SEC}:stop_threshold=${SILENCE_TRIM_THRESHOLD_DB}dB:stop_silence=${SILENCE_TRIM_PAD_SEC}`;
+
 /**
  * Shared subprocess wrapper. Spawns ffmpeg with the given args, pipes
- * `webmBuffer` to stdin, collects stdout chunks, resolves the concatenated
+ * `inputBuffer` to stdin, collects stdout chunks, resolves the concatenated
  * Buffer on exit code 0, and rejects on non-zero exit or spawn error.
  *
- * Kept private (not exported) so callers reach for the semantically-named
- * `webmToOggOpus` / `webmToFlac` wrappers instead of an untyped argv slot
- * that could accidentally accept user-controlled args (threat T-98-04-04).
+ * Exported for reuse by audio-chunker.ts (Phase 100) — sliceFlac delegates
+ * to this helper rather than duplicating the spawn/pipe body. The argv-safety
+ * constraint from T-98-04-04 still applies: every caller (webmToOggOpus,
+ * webmToFlac, sliceFlac) passes ONLY hardcoded literal strings and
+ * numeric-formatted values; user data flows through stdin only.
  */
-function runFfmpeg(webmBuffer: Buffer, args: readonly string[]): Promise<Buffer> {
+export function runFfmpeg(inputBuffer: Buffer, args: readonly string[]): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const ff = spawn("ffmpeg", args as string[], {
       stdio: ["pipe", "pipe", "pipe"],
@@ -98,7 +109,19 @@ function runFfmpeg(webmBuffer: Buffer, args: readonly string[]): Promise<Buffer>
       }
     });
 
-    ff.stdin.end(webmBuffer);
+    // Swallow EPIPE on stdin — ffmpeg may exit early after reading enough input
+    // (e.g. `-ss X -t Y` slicing an early section of a large buffer; ffprobe
+    // header-only reads). The write of the remaining bytes then errors with
+    // EPIPE. That's expected and harmless — the `close` handler above uses the
+    // real exit code as the truth. Without this handler, EPIPE bubbles up as an
+    // "Unhandled error event" and crashes the process. Any non-EPIPE stdin
+    // error still rejects the promise so the caller can surface it.
+    ff.stdin.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EPIPE") return;
+      reject(err);
+    });
+
+    ff.stdin.end(inputBuffer);
   });
 }
 
@@ -148,6 +171,8 @@ export function webmToFlac(webmBuffer: Buffer): Promise<Buffer> {
   return runFfmpeg(webmBuffer, [
     "-i",
     "pipe:0",
+    "-af",
+    SILENCE_FILTER,
     "-ar",
     "16000",
     "-ac",

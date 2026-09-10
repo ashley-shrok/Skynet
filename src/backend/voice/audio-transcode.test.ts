@@ -31,8 +31,12 @@ import { EventEmitter } from "node:events";
  * shape for the transcode wrapper: stdin.end(buf), stdout/stderr data
  * events, and the top-level 'close' + 'error' events.
  */
+class FakeStdin extends EventEmitter {
+  end = vi.fn();
+}
+
 class FakeChildProcess extends EventEmitter {
-  stdin = { end: vi.fn() };
+  stdin = new FakeStdin();
   stdout = new EventEmitter();
   stderr = new EventEmitter();
 }
@@ -44,7 +48,13 @@ vi.mock("node:child_process", () => ({
 }));
 
 // Import AFTER vi.mock so the transcode module picks up the mocked spawn.
-const { webmToOggOpus, webmToFlac } = await import("./audio-transcode.js");
+const {
+  webmToOggOpus,
+  webmToFlac,
+  SILENCE_TRIM_MIN_SEC,
+  SILENCE_TRIM_PAD_SEC,
+  SILENCE_TRIM_THRESHOLD_DB,
+} = await import("./audio-transcode.js");
 
 describe("audio-transcode.webmToOggOpus — success path", () => {
   let fake: FakeChildProcess;
@@ -143,6 +153,8 @@ describe("audio-transcode.webmToFlac — fallback full-transcode path", () => {
     expect(args).toEqual([
       "-i",
       "pipe:0",
+      "-af",
+      `silenceremove=stop_periods=-1:stop_duration=${SILENCE_TRIM_MIN_SEC}:stop_threshold=${SILENCE_TRIM_THRESHOLD_DB}dB:stop_silence=${SILENCE_TRIM_PAD_SEC}`,
       "-ar",
       "16000",
       "-ac",
@@ -151,6 +163,22 @@ describe("audio-transcode.webmToFlac — fallback full-transcode path", () => {
       "flac",
       "pipe:1",
     ]);
+  });
+
+  it("embeds the silence-trim tuning constants in the -af filter chain", async () => {
+    const promise = webmToFlac(Buffer.from([0]));
+    fake.stdout.emit("data", Buffer.from([0xff]));
+    fake.emit("close", 0);
+    await promise;
+
+    const [, args] = spawnMock.mock.calls[0];
+    const afIdx = (args as string[]).indexOf("-af");
+    expect(afIdx).toBeGreaterThanOrEqual(0);
+    const filter = (args as string[])[afIdx + 1];
+    expect(filter).toContain(`stop_duration=${SILENCE_TRIM_MIN_SEC}`);
+    expect(filter).toContain(`stop_silence=${SILENCE_TRIM_PAD_SEC}`);
+    expect(filter).toContain(`stop_threshold=${SILENCE_TRIM_THRESHOLD_DB}dB`);
+    expect(filter).toContain("stop_periods=-1");
   });
 
   it("resolves to Buffer.concat(stdout chunks) on close code 0", async () => {

@@ -2173,14 +2173,17 @@ Plans:
 - [ ] 92-05-PLAN.md — Wave 4 (depends 92-04): 4 new vitest cases in ssh-poll-orchestrator.test.ts (exec-count collapse under batch, exec-count parity under legacy fallback, presence-probe cache lifetime, null-exec re-probe recovery, schema-mismatch connection-lifetime latch) + makeSweepJsonl fixture helper + strict batch-vs-legacy publishedStates parity assertion + pre-ship UAT checkpoint against t1000 (Channel open failure spam gone, SFTP file-fetch 20/20, frontend indicators correct)
 
 ### Phase 93: Relay rooms use the chat surface — one surface, two data sources (rescue-rebased from local Phase 92 slot after tina P92 fleet-status-batch-sweep collision 2026-09-09)
+
 **Goal**: Fold Slice D's standalone relay-room pane into the harness chat surface (PrettyView) so relay rooms render through the SAME surface a harness session does, differing only in a discriminated-union `source` prop and its case-selected adapter hook. Delete `src/ui/features/relay-room-pane/` + `src/ui/shell/RelayRoomSessionPane.tsx` entirely. Extend PrettyView's existing upper-right badge anchor to accept N badges growing leftward. Hide compose-box ambient chrome (attach + upper row) when `source.kind === "relay"`. Reverses Slice D's D-01/02/03. Regression floor: harness case looks and behaves EXACTLY as today.
 **Depends on**: Phase 90 (Slice D shipped the standalone pane this phase retires)
 **Plans**:
+
 - [x] 93-01-PLAN.md — Wave 1 (no deps): type foundation + `ChatSurfaceSource` discriminated union + unified `useChatSurfaceAdapter(source, isVisible)` hook + inert `useHarnessAdapter` shim + stubbed `useRelayAdapter` + PrettyView `source` prop + `IdentitySessionPane` restructure — **SHIPPED (Slice 1 committed, cherry-picked into rescue-rebase)**
 - [ ] 93-02-PLAN.md — Wave 2 (depends 93-01): multi-badge extension — port `AgentBadgeWithAppendage` → `AgentBadgeWithMeter`, new `MultiBadgeAnchor` with loading-vs-empty discrimination, PrettyView badge-anchor case-branch
 - [ ] 93-03-PLAN.md — Wave 3 (depends 93-02): relay adapter (move-as-blob port of `use-relay-room-stream` → `use-relay-adapter`) + `ChatSurfaceErrorState` + ComposeBox monolithic mode-hide + case-selected `onSend` + `effectiveMessages` alias with grep-enumerate discipline
 - [ ] 93-04-PLAN.md — Wave 4 (depends 93-03): dispatcher rewire (both `tabUtils.tsx:204` + `:314` early-return retirement) + delete standalone tree (17 files)
 - [ ] 93-05-PLAN.md — Wave 5 (depends 93-04): comment sweep (5 external ref sites, grep-enumerate-first) + optimistic-bubble parity test at composed level
+
 ### Phase 95: PV context-pct batch sweep — drop tmux capture-pane, one exec per host per tick (Phase 92 sibling)
 
 **Goal:** Sibling to Phase 92 for the second wasteful-exec pattern hitting the same Skynet-host SSH connection. Drop `tmux capture-pane` from the per-tick context-pct loop entirely (JSONL is authoritative for pct; migrate isPlanPending/parsePlanFilePath to a filesystem check). Batch-coalesce the per-identity `tail -c` execs (currently up to 4 per identity per 3s per open PrettyView WebSocket) into ONE distributor-shipped Python sweep script per host per tick emitting versioned JSONL for all subscribed identities. Caller rewire in `claude-session-server.ts` mirrors the Phase 92 shape (presence probe cache per-SSH-channel-lifetime, null-exec re-probe, schema-mismatch latch, legacy per-tail path preserved as backward-compat fallback for mid-rollout). Slot 95 explicitly per phase-collision auto-resolve rule (Taylor claimed 93 for relay-rooms refactor, Tanya claimed 94 for id-skill-revamp Shape 2).
@@ -2189,12 +2192,12 @@ Plans:
 **Plans:** 5/5 plans complete
 
 Plans:
+
 - [x] 95-01-PLAN.md — Wave 1 (Part A source-side kill, hard-dependency blocking Wave 2): extend src/backend/fleet-status/remote-hook-install.ts with readAndMergePermissionDeny helper + wire two permissions.deny merges (EnterPlanMode + ExitPlanMode canonical tool names) alongside existing six-hook merge plan in installStopHook; 10 new tests P1–P10 covering the three settings.json shapes + idempotency + defensive-shape recovery; new plan_mode_deny_applied structured log op for fleet-inventory grep; MEDIUM-confidence decision #1 (installStopHook cadence) resolved in SUMMARY — one-shot per host per SSH-client-lifecycle guarded by hookInstallAttempted Set, cleared on channel close / releaseSshChannel / onLastUnsubscriber; container restart is reliable rollout trigger; Ashley UAT gate (6 checks — plan_mode_deny_applied fired per peer, grep settings.json per peer, existing entries preserved, existing hooks intact, zero tool_use of plan-mode tools in fresh JSONLs, startup-warning sanity) MUST close with all-pass before Wave 2 starts
 - [x] 95-02-PLAN.md — Wave 2 (Part B backend deletion, depends 95-01 UAT closure): delete three whole source modules (plan-pending-parser.ts, plan-file-fetch.ts, context-pct-parser.ts) + three co-located test files; surgical deletion of 95-hit-sites in claude-session-server.ts (imports L38/L49/L50, WS-frame docblock L163–L164, declarations block L4311–L4366, teardown resets L4509–L4519 + L5353–L5359, JSONL-scanner emit block L4796–L4897, raw_keystrokes handler L7046–L7098, closure-state docblock L7407–L7417, contextPctTimer capture-pane + plan-pending block L7580–L7793 — preserving aside subsystem capture-pane at L7982+/L8013+ per G8 scope); L7620+ context_pct emit simplified per RESEARCH §4f (null pct now emits, no if-guard); update comment-only refs in pretty-view-fetch-host-file.ts + matrix-admin-narrow.ts per G5+G6; frontend suite red at plan close (expected — Plan 03 closes it)
 - [x] 95-03-PLAN.md — Wave 2 (Part B frontend deletion, depends 95-02): delete PlanPendingBubble.tsx + ComposeBox.plan-pending-disable.test.tsx whole; PrettyView.tsx 15 sites (import L35, state L632–L659, three setPlanPending resets, plan_pending case handler L2491–L2494, conditional render L3751–L3756, planPendingActive prop-drill L3972–L3982, 6 comment edits); ComposeBox.tsx 14 planPendingActive sites (prop docblock + destructure + 8 OR-in guards + prop-drill + duplicate cluster L3219+); claude-session-api.ts wire-type deletions (PlanPendingEvent + raw_keystrokes); 9 comment-only sibling edits (PrettyViewLoadingOverlay/RelayInboundBubble/AsideBubble/SessionHoldingOverlay/WaitingBubble docblock rewrite/use-auto-scroll/AgentBadgeWithAppendage/AppShell); RESEARCH G7 Ink Plan Mode split-send lesson preserved verbatim in SUMMARY.md before file rm
 - [x] 95-04-PLAN.md — Wave 3 (Part C substrate, depends 95-03): new src/backend/claude-session/pv-sweep-schema.ts (single-tier v1 schema — line_kind identity + identity + schema_version=1 + context_pct + jsonl_path; lenient parseSweepJsonl never throws; PV_SWEEP_SCHEMA_VERSION constant) + pv-sweep-schema.test.ts (8 tests including wire-contract grep-guard); new substrate/scripts/pv-context-pct-sweep.py (Python 3 stdlib-only, --identities argv, ports readContextPctFromJsonl TAIL_EXPANSION_STEPS + reverseScanForAssistantUsageSum + discover-identity-session-file.ts predicate server-side, exits 0 always, execute bit committed); distributor catalog row (bundledPath /app/fleet-substrate/scripts/pv-context-pct-sweep.py → installPath ~/.local/bin/pv-context-pct-sweep, restartHook null) + catalog.test.ts Test 1 22→23 + Test 6 scriptRows 8→9 + run-sweep.test.ts count bump; MEDIUM-confidence decision #2 (SSH-topology) LOCKED as Option 3 per-WS in Plan objective + SUMMARY — rationale: claude-session-server has no per-host shared SSH connection (each WS uses connectOneShot; RESEARCH G1), Option 1 (per-host coordinator) requires new connection-pool subsystem = scope creep, Option 3 delivers 4x per-WS collapse with zero new plumbing, Ashley owns override
 - [x] 95-05-PLAN.md — Wave 3 (Part C caller rewire + close, depends 95-04): rewire contextPctTimer in claude-session-server.ts with computeContextPctBatch + computeContextPctLegacy helpers; add per-WS closure state sweepScriptPresent + sweepSchemaMismatch; presence probe (test -x ~/.local/bin/pv-context-pct-sweep) once per SSH-channel lifetime; sweep exec (~/.local/bin/pv-context-pct-sweep --identities <session>) with G6 belt-and-suspenders safe-char guard; null-exec forces re-probe next tick; schema-mismatch latches for channel lifetime; both dispatch branches emit context_pct (null passthrough); new structured log ops pv_context_pct_sweep_probe + pv_context_pct_batch_fallback; 6 regression tests in new claude-session-server.pv-sweep.test.ts (batch dispatch exec-count, legacy fallback, probe caching, null-exec recovery, schema-mismatch latch, strict batch-vs-legacy parity on emitted pct); Ashley UAT gate (7 checks — sweep script installed per peer, sweep-probe log fired per WS, zero tail -c 10000/50000/200000/512000 on Skynet host under 5-tab PV load, batch_fallback ops rare, SFTP curl 20/20, cross-check UI pct vs sweep script pct within 1%, frontend regression sanity) MUST close with all-pass before Phase 95 completes (completed 2026-09-10)
-
 
 ### Phase 97: Room-case chrome and lifecycle should match session-case except where deliberately case-branched — Phase 93 UAT polish arc
 
@@ -2204,6 +2207,7 @@ Plans:
 **Plans:** 6/6 plans complete
 
 Plans:
+
 - [x] 97-01-drag-drop-discovery-plus-badge-gap-PLAN.md — F-2 discovery + split-out gate + F-4 badge gap tighten (Wave 1)
 - [x] 97-02-loading-veil-signal-PLAN.md — F-1 adapter isMessagesLoaded + PrettyView relay veil-arm effect (Wave 1)
 - [x] 97-03-composebox-reflow-plus-placeholder-PLAN.md — F-3 ghost gutter + QueuePlusTab headroom + F-6 placeholder (Wave 2, after 97-02 on PrettyView)
@@ -2242,6 +2246,26 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 98-10-PLAN.md — Wave 5 (deps 98-06, 98-08): Final Chatterbox kill — move getMatrixHomeserverBase from media-endpoints.ts to new src/backend/matrix/matrix-config.ts; rewire bridge-config-writer.ts import; delete src/backend/config/media-endpoints.ts + media-endpoints.test.ts; grep-sweep verifies zero residual Chatterbox references in live code
+
+### Phase 100: STT chunked parallel streaming — split incoming voice audio into ~8s overlapping chunks and dispatch parallel AWS Transcribe streaming sessions, stitch results via word-timestamp dedup. Backend-only refactor of handleTranscribe in src/backend/database/routes/voice.ts. Preserves /voice/transcribe endpoint contract exactly (same multipart WebM in, same {text} JSON out, slash-command transform preserved). Targets 5-10x speedup vs the current single-stream real-time floor (empirical benchmark 2026-09-10: 3s clip returns in 0.8s, 8s in 3.6s, 15s in 8.8s, 30s in 17.8s; so 4 parallel 8s chunks target ~3.5s wall for 30s audio vs 18s today). Follow-up to Phase 98 more-versatile-stt-tts-support. Bounty: stt-chunked-parallel-streaming.
+
+**Goal:** Longer voice recordings (>=10s) transcribe in a fraction of the wall time by dispatching parallel Amazon Transcribe streaming sessions on silence-aware audio chunks and stitching results via word-timestamp overlap dedup. Backend-only refactor. /voice/transcribe endpoint contract, response shape, disk-bank write, and slash-command transform all preserved byte-for-byte. Short clips (<10s) still take the single-stream path (D-05).
+**Requirements**: D-01..D-14 (see 100-CONTEXT.md — this is a refactor phase; decision IDs act as requirements)
+**Depends on:** Phase 98
+**Plans:** 4/4 plans complete
+Plans:
+**Wave 1**
+
+- [x] 100-01-PLAN.md — Wave 1 (deps: none): semaphore.ts (5-line factory + tests) + audio-chunker.ts (sliceFlac, scanSilenceGaps, probeDuration, parseSilenceGaps, computeChunkBoundaries + tests) + export runFfmpeg from audio-transcode.ts for shared use
+- [x] 100-02-PLAN.md — Wave 1 (deps: none): word-stitcher.ts (stitchChunks + longestCommonRun pure functions) + word-stitcher.test.ts covering normal overlap, zero-match fallback, empty-Items fallback, gap-marker passthrough
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 100-03-PLAN.md — Wave 2 (deps: 100-01, 100-02): extend transcribe-adapter.ts with transcribeBufferWithItems export (Items-collecting sibling to transcribeBuffer) + create transcribe-orchestrator.ts (transcribeBufferChunked entry point with module-level N=5 semaphore, per-chunk retry, [...] gap marker, AccessDenied propagation, structured logs)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [x] 100-04-PLAN.md — Wave 3 (deps: 100-03): wire fast-path gate in voice.ts handleTranscribe (CHUNKED_THRESHOLD_BYTES=80_000 branch to transcribeBufferChunked for long clips) + extend voice.test.ts with routing / chunked-path AccessDenied / chunked-path failure tests; preserves D-12 response shape, D-13 slash-transform, D-14 disk-bank write
 
 ### Phase 101: route all outbound SSH work through a per-host semaphore registry
 

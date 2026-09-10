@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { transcribeBuffer } from "./transcribe-adapter.js";
 
 /**
  * Phase 98 plan 04 — transcribe-adapter REAL-AWS integration test.
@@ -24,8 +23,18 @@ import { transcribeBuffer } from "./transcribe-adapter.js";
  * (16kHz mono FLAC — matches the transcodeForTranscribe fallback shape
  * that Plan 06 will produce via webmToFlac).
  *
+ * ⚠ The adapter under test is loaded via DYNAMIC IMPORT inside the test
+ * body, NOT via a top-level `import` statement. Reason: transcribe-adapter.js
+ * transitively imports `@aws-sdk/client-transcribe-streaming`, which is only
+ * present in trees that have run `npm install` since Phase 98's chore commit.
+ * A top-level import fires at module-load time regardless of describe.skipIf,
+ * so trees rebased without `npm install` fail to LOAD this test file at all
+ * (taylor flagged this 2026-09-10 during her ship). Dynamic import defers
+ * the load to when shouldRun && clipExists is true, so the AWS SDK is only
+ * required in the environment that actually runs the test.
+ *
  * Prerequisite for local runs on t1000:
- *   - `termix-ssm-role/PollyTranscribeExploratory` attached to the instance.
+ *   - `termix-ssm-role/SkynetPollyTranscribeAccess` attached to the instance.
  *   - Bounty samples present at the path above.
  *   - `AWS_INTEGRATION_TESTS=1 npx vitest run \
  *      src/backend/voice/transcribe-adapter.integration.test.ts`
@@ -49,6 +58,7 @@ describe.skipIf(!shouldRun || !clipExists)(
   "transcribe-adapter integration (real AWS Transcribe streaming, env-gated)",
   () => {
     it("transcribeBuffer on shortest bounty FLAC clip returns a non-empty transcript", async () => {
+      const { transcribeBuffer } = await import("./transcribe-adapter.js");
       const audioBuffer = fs.readFileSync(clipPath);
       const transcript = await transcribeBuffer(audioBuffer, "flac", 16000);
       expect(transcript.length).toBeGreaterThan(0);

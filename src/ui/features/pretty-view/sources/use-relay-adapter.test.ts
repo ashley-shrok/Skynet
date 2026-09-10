@@ -234,12 +234,28 @@ describe("useRelayAdapter (Phase 93 Slice 3)", () => {
     act(() => {
       instances[0].simulateFrame({ type: "live_event", event: echoedEvent });
     });
-    // The echoed self-event is in messages (as relay_outbound per the mapper).
+    // Phase 97 UAT follow-up 4 (2026-09-10): mapper now emits self
+    // messages as `type:"message", role:"user"` so ChatMessage renders
+    // them as blue right-aligned user bubbles (was `relay_outbound`
+    // rendering the ▸-headered hue-tinted RelayOutboundBubble, which is
+    // a HARNESS-only artifact for detected Bash-relay-send tool-use).
     expect(result.current.messages).toHaveLength(1);
-    expect(result.current.messages[0].type).toBe("relay_outbound");
+    const echoed = result.current.messages[0];
+    expect(echoed.type).toBe("message");
+    if (echoed.type === "message") {
+      expect(echoed.role).toBe("user");
+      expect(echoed.content).toBe("hi from me");
+    }
   });
 
-  it("Test 6: send_ack settles pending; no orphan bubble", async () => {
+  it("Test 6: send_ack settles pending and promotes to history entry (self-echo synth)", async () => {
+    // Phase 97 UAT follow-up 3 (2026-09-10) — contract change: send_ack
+    // now BOTH settles the pending AND synthesizes a history entry so
+    // the sender sees their own message even if a corresponding
+    // live_event is never delivered to their own WS (some Matrix
+    // homeserver configs echo only to OTHER participants). Pre-change
+    // behavior expected `messages` to stay empty here; UAT surfaced that
+    // this was wrong — Ashley never saw her own sent messages.
     const { result } = renderHook(() => useRelayAdapter(RELAY_SOURCE, true));
     act(() => {
       instances[0].simulateOpen();
@@ -254,9 +270,54 @@ describe("useRelayAdapter (Phase 93 Slice 3)", () => {
         eventId: "$server-eventid",
       });
     });
-    // send_ack removes the pending; messages stays empty (echo will arrive
-    // separately via live_event — not simulated in this test).
-    expect(result.current.messages).toEqual([]);
+    // send_ack removes the pending AND synthesizes a real history entry
+    // using the eventId the server returned. Body content preserved;
+    // eventId is the SERVER-supplied one (not the mqid). Type is
+    // "message" role "user" (Phase 97 UAT follow-up 4 — see mapper).
+    expect(result.current.messages).toHaveLength(1);
+    const msg = result.current.messages[0];
+    expect(msg.type).toBe("message");
+    expect(msg.eventId).toBe("$server-eventid");
+    if (msg.type === "message") {
+      expect(msg.role).toBe("user");
+      expect(msg.content).toBe("test");
+    }
+  });
+
+  it("Test 6b: subsequent live_event with same event_id is de-duped against the send_ack synth", async () => {
+    // Regression floor: if the homeserver DOES also deliver a live_event
+    // for the sender's own send (some setups do), the non-correlated
+    // dedup branch prevents a second copy from being appended.
+    const { result } = renderHook(() => useRelayAdapter(RELAY_SOURCE, true));
+    act(() => {
+      instances[0].simulateOpen();
+    });
+    await act(async () => {
+      await result.current.sendMessage("test", "relay-optim-xyz");
+    });
+    act(() => {
+      instances[0].simulateFrame({
+        type: "send_ack",
+        txnId: "relay-optim-xyz",
+        eventId: "$server-eventid",
+      });
+    });
+    // Then the WS also fires a live_event with the same event_id.
+    act(() => {
+      instances[0].simulateFrame({
+        type: "live_event",
+        event: {
+          event_id: "$server-eventid",
+          type: "m.room.message",
+          sender: RELAY_SOURCE.viewingUserMxid,
+          origin_server_ts: Date.now(),
+          content: { msgtype: "m.text", body: "test" },
+          unsigned: { transaction_id: "relay-optim-xyz" },
+        },
+      });
+    });
+    // Still exactly one entry — dedup caught the second delivery.
+    expect(result.current.messages).toHaveLength(1);
   });
 
   it("Test 7: send_error path — send_error frame propagates through pending FIFO (no exception)", async () => {

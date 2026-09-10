@@ -15,6 +15,7 @@ import { fetchSkillCatalog, DEFAULT_SKILL_CATALOG_TIMEOUT_MS } from "../../voice
 // kernels from Plan 02.
 import { synthesizeToPcm } from "../../voice/polly-adapter.js";
 import { transcribeBuffer } from "../../voice/transcribe-adapter.js";
+import { transcribeBufferChunked } from "../../voice/transcribe-orchestrator.js";
 import { webmToFlac } from "../../voice/audio-transcode.js";
 import { splitIntoSentences, packChunks } from "../../voice/chunk-and-stitch.js";
 import { buildRiffHeader } from "../../voice/riff-header-builder.js";
@@ -36,6 +37,11 @@ import { isAwsAccessDenied } from "../../voice/aws-errors.js";
 export const DEFAULT_VOICE = "Joanna";
 export const SPEAK_TEXT_MAX = 25000;
 export const SAMPLE_PHRASE = "Hi, this is your voice.";
+// D-05/D-06 fast-path threshold. ~10 s of clean-speech FLAC at 16 kHz mono (see 100-RESEARCH.md
+// § Section 4 for the byte-proxy rationale — chosen over ffprobe to avoid a ~10 ms spawn on
+// every request; conservative upper bound at 80 KB catches any clip that could reasonably
+// benefit from parallel dispatch).
+export const CHUNKED_THRESHOLD_BYTES = 80_000;
 
 // --- Express router ---
 const router = express.Router();
@@ -134,16 +140,24 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
     //     switches accordingly.
     const transcodeResult = await transcodeForTranscribe(file.buffer, ext);
 
-    // (c) Push the buffer through Amazon Transcribe streaming.
-    const transcript = await transcribeBuffer(
-      transcodeResult.buffer,
-      transcodeResult.mediaEncoding,
-      transcodeResult.sampleRateHz,
-    );
+    // (c) Dispatch to chunked orchestrator for long clips; single-stream for short.
+    // D-05: below-threshold clips take the existing single-stream path unchanged.
+    // D-06: byte-proxy avoids ffprobe overhead on every request.
+    const transcript =
+      transcodeResult.buffer.length >= CHUNKED_THRESHOLD_BYTES
+        ? await transcribeBufferChunked(
+            transcodeResult.buffer,
+            transcodeResult.sampleRateHz,
+          )
+        : await transcribeBuffer(
+            transcodeResult.buffer,
+            transcodeResult.mediaEncoding,
+            transcodeResult.sampleRateHz,
+          );
 
     databaseLogger.info(
-      `[voice-server] transcribe-ok textLen=${transcript.length} mediaEncoding=${transcodeResult.mediaEncoding}`,
-      { operation: "voice_transcribe" },
+      `[voice-server] transcribe-ok textLen=${transcript.length} mediaEncoding=${transcodeResult.mediaEncoding} path=${transcodeResult.buffer.length >= CHUNKED_THRESHOLD_BYTES ? "chunked" : "single"}`,
+      { operation: "voice_transcribe", path: transcodeResult.buffer.length >= CHUNKED_THRESHOLD_BYTES ? "chunked" : "single" },
     );
 
     // --- Phase 34: server-side slash-command transform (PRESERVED VERBATIM) ---

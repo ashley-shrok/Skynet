@@ -163,11 +163,18 @@ function matrixEventToStreamEvent(
 
   const isSelf = event.sender === viewingUserMxid;
   if (isSelf) {
+    // Phase 97 UAT follow-up 4 (2026-09-10): render the sender's own
+    // messages as normal user ChatMessage bubbles (blue, right-aligned)
+    // instead of RelayOutboundBubble (hue-tinted, left-aligned, with a
+    // ▸ "relay send" header + expandable raw-command area). RelayOutbound
+    // Bubble is HARNESS-only — it's what the backend surfaces when it
+    // detects a Bash tool-use turn that curls a matrix send (Phase 17
+    // Plan 03). In relay-source view, the sender's own text messages
+    // deserve the normal chat treatment.
     return {
-      type: "relay_outbound",
-      room: roomId,
-      rawCommand: "",
-      body,
+      type: "message",
+      role: "user",
+      content: body,
       eventId: event.event_id,
       ts: event.origin_server_ts,
     };
@@ -497,22 +504,74 @@ export function useRelayAdapter(
               setPendingSends((prev) =>
                 prev.filter((p) => p.mqid !== echoedTxnId),
               );
+              // Phase 97 UAT follow-up 2 (2026-09-10): the correlation
+              // branch appends UNCONDITIONALLY. The earlier UAT batch #4
+              // added a dedup guard here too, but that caused the sender's
+              // own echo to disappear — if the send's real event_id
+              // somehow matched anything in history (or a duplicate
+              // live_event delivery fired), the optimistic pending got
+              // removed but the real event was skipped too, leaving no
+              // visible bubble. The non-correlated branch below still
+              // dedups (defense against history_batch overlap).
               setHistory((prev) => [...prev, evt]);
               break;
             }
           }
-          // Non-correlated live event — append.
-          setHistory((prev) => [...prev, evt]);
+          // Non-correlated live event — append IF NOT ALREADY in history.
+          // Phase 97 UAT follow-up (2026-09-10): fix "4 bubbles for 2
+          // messages" hydration bug. On a fresh WS subscribe, the server
+          // emits `history_batch` with recent events, then may also emit
+          // those same events as `live_event` (buffered-from-before-connect
+          // pattern). Without this de-dup, both feeders write to `history`
+          // and every message renders twice. Client-side de-dup is
+          // defensive even if the server closes the overlap — WS reconnect
+          // + StrictMode double-mount can create the same overlap in
+          // production.
+          setHistory((prev) =>
+            prev.some((h) => h.event_id === evt.event_id)
+              ? prev
+              : [...prev, evt],
+          );
           break;
         }
         case "send_ack": {
-          const { txnId } = parsed;
+          const { txnId, eventId } = parsed;
           const pending = pendingSendsRef.current.find(
             (p) => p.mqid === txnId,
           );
           if (pending) {
             if (pending.timer !== null) clearTimeout(pending.timer);
             setPendingSends((prev) => prev.filter((p) => p.mqid !== txnId));
+            // Phase 97 UAT follow-up 3 (2026-09-10): promote the pending
+            // into a real history entry using the eventId the server
+            // returned. Without this the sender's own message vanishes
+            // when the pending is cleared (send_ack fires but a
+            // corresponding live_event may never be delivered to the
+            // sender's own WS — some Matrix homeserver configs echo only
+            // to OTHER participants). The synthesized event carries the
+            // sender's mxid + the pending's body content so it renders
+            // identically to how the recipient sees it. If a live_event
+            // for this event_id later arrives, the non-correlated branch's
+            // dedup guard prevents a second copy from being appended.
+            const viewingMxid = viewingUserMxidRef.current;
+            if (viewingMxid !== null) {
+              const synth: MatrixEvent = {
+                event_id: eventId,
+                type: "m.room.message",
+                sender: viewingMxid,
+                origin_server_ts: pending.sentAt,
+                content: {
+                  msgtype: "m.text",
+                  body: pending.content,
+                },
+                unsigned: { transaction_id: txnId },
+              };
+              setHistory((prev) =>
+                prev.some((h) => h.event_id === eventId)
+                  ? prev
+                  : [...prev, synth],
+              );
+            }
           }
           // eslint-disable-next-line no-console
           console.info({
@@ -629,9 +688,50 @@ export function useRelayAdapter(
       );
       if (mapped !== null) out.push(mapped);
     }
+    // Phase 97 UAT follow-up (2026-09-10): append optimistic bubbles for
+    // pending sends that haven't been echoed back yet. Slice 5 left this
+    // deferred (comment at the bottom of the file said "Optimistic-bubble
+    // rendering could be added in a later slice if needed"); UAT surfaced
+    // that without this, the sender sees no bubble at all until the
+    // server echoes their own send back over the WS — a several-second
+    // gap where the compose box empties but the pane stays visually
+    // unchanged. Pending entries are inserted in the send-time order they
+    // arrived (pendingSends is append-only until echo/failure).
+    //
+    // Correlation semantics: when a live_event with matching mqid lands,
+    // the switch case atomically removes the pending AND appends the real
+    // event — no double-render window because both setState calls batch.
+    // If the pending times out or fails, its `state` flips to "failed"
+    // but it stays in pendingSends so the failure bubble persists (D-14).
+    for (const p of pendingSends) {
+      out.push({
+        type: "message",
+        role: "user",
+        content: p.content,
+        // Use mqid as the eventId — stable React key, and doesn't collide
+        // with the real event's eventId once it arrives (echo path removes
+        // this pending BEFORE the real event enters history).
+        eventId: p.mqid,
+        ts: p.sentAt,
+        // Phase 97 UAT follow-up 4 (2026-09-10): mark the optimistic
+        // bubble as pending so ChatMessage renders the sending spinner
+        // (state === "sending") or failed styling (state === "failed").
+        // The threaded prop is consumed at PrettyView's ChatMessage
+        // render site.
+        pendingState: p.state === "failed" ? "failed" : "sending",
+      });
+    }
+    // Phase 97 UAT follow-up 2 (2026-09-10): sort chronologically by ts
+    // (ascending — oldest first, newest last, standard chat convention).
+    // history_batch may deliver events newest-first depending on the
+    // Matrix server's pagination direction; without this sort the pane
+    // renders reversed. Defensive against server order regardless of
+    // which direction the server used. Pending sends carry client
+    // sentAt (Date.now) as ts so they naturally land at the newest end.
+    out.sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [history]);
+  }, [history, pendingSends]);
 
   // Memoize the returned object so consumers checking reference equality
   // (React.memo, useCallback deps that include the adapter object) don't see
@@ -672,12 +772,10 @@ export function useRelayAdapter(
     return IDLE_STATE;
   }
 
-  // Suppress lint: pendingSends is observed by the hook internally (timers
-  // fire against setPendingSends via flipToFailed) even though the returned
-  // shape doesn't expose it. Optimistic-bubble rendering could be added in a
-  // later slice if needed; for now the pending-send FIFO exists purely for
-  // the Pitfall 4 correlation + timeout lifecycle.
-  void pendingSends;
+  // Phase 97 UAT follow-up (2026-09-10): pendingSends now feeds the
+  // `messages` useMemo above as optimistic bubbles, so it's a real
+  // observed dependency of the returned shape — no more `void`
+  // suppression needed.
 
   return memoizedActiveState;
 }
