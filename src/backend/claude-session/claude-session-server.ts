@@ -102,6 +102,7 @@ import {
   type WakeupSpec,
 } from "./identity-artifact-reader.js";
 import { ROLE_NAME_PATTERN } from "../database/routes/identity-birth-orchestrator.js";
+import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
 
 /**
  * Live Claude-session WebSocket server on port 30011.
@@ -1054,6 +1055,27 @@ const activeViewers = new Map<string, Set<import("ws").WebSocket>>();
 // house-style grouping with other polling-interval constants like
 // HARNESS_TASKS_INTERVAL_MS.
 const ASIDE_POLL_INTERVAL_MS = 300;
+
+/**
+ * Long-lived slot for `tailSessionFile` — released on stop() or onError.
+ * session-file-tail.ts itself has no hostId, so we hold the slot here at
+ * the caller site (Phase 101 D-06-adjacent).
+ *
+ * Shape: fire-and-forget `getHostSemaphore(hostId).run(...)` whose inner
+ * Promise resolves only when `release()` is called. The semaphore counts
+ * this as one active slot for the full tail lifetime.
+ *
+ * IDEMPOTENT RELEASE: calling `release()` from both `stop()` and `onError`
+ * is safe — resolving an already-resolved Promise is a no-op (the Promise
+ * state IS the idempotency guard; no manual boolean needed).
+ */
+function acquireTailSlot(hostId: number | string): { release: () => void } {
+  let releaser: () => void = () => {};
+  void getHostSemaphore(hostId).run(
+    () => new Promise<void>((resolve) => { releaser = resolve; }),
+  );
+  return { release: () => releaser() };
+}
 
 // sessionKey — build the `${hostId}::${tmuxSession}` composite key used
 // as the activeViewers Map's index. Delimiter `::` avoids collision with
@@ -5285,7 +5307,17 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // "prev-ID [dedup]/[frame-emit] lines" → "new-ID [tail-lifecycle]
       // action=start reason=transition" → "new-ID [dedup]/[frame-emit] lines".
       tailInstanceId = randomBytes(4).toString("hex");
-      tailHandle = tailSessionFile(sshConn, newSessionFile, onLine, onError);
+      // Phase 101 D-03: acquire long-lived slot before opening the tail.
+      // Released on stop() or onError — both paths are idempotent (D-06-adjacent).
+      const tailSlot1 = acquireTailSlot(currentHostId!);
+      tailHandle = tailSessionFile(
+        sshConn,
+        newSessionFile,
+        onLine,
+        (err) => { tailSlot1.release(); onError(err); },
+      );
+      const origStop1 = tailHandle.stop;
+      tailHandle.stop = () => { tailSlot1.release(); origStop1.call(tailHandle); };
       sshLogger.info(
         `[tail-lifecycle] tail=${tailInstanceId} action=start sessionFile=${newSessionFile} reason=transition`,
         {
@@ -7932,7 +7964,17 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // body. Behavior byte-preserved for this steady-state site.
     startDiscoveryRepollTimer(activeTmuxSession);
 
-    tailHandle = tailSessionFile(sshConn!, sessionFile, onLine, onError);
+    // Phase 101 D-03: acquire long-lived slot before opening the tail.
+    // Released on stop() or onError — both paths are idempotent (D-06-adjacent).
+    const tailSlot2 = acquireTailSlot(currentHostId!);
+    tailHandle = tailSessionFile(
+      sshConn!,
+      sessionFile,
+      onLine,
+      (err) => { tailSlot2.release(); onError(err); },
+    );
+    const origStop2 = tailHandle.stop;
+    tailHandle.stop = () => { tailSlot2.release(); origStop2.call(tailHandle); };
     }; // end of startActiveSessionFlow
 
     // Phase 55 Plan 03: cache-hit / batched-fresh shim.
@@ -8315,13 +8357,25 @@ wss.on("connection", async (ws: WebSocket, req) => {
               // context (userId, sessionId, hostId, tmuxSession) is
               // enriched here at the production boundary so the seam
               // itself stays free of connection-scoped state.
+              // Phase 101 D-03: wrap deps.tailSessionFile so the dormant tail
+              // holds a long-lived semaphore slot for its full lifetime.
+              // Slot released on handle.stop() or onError — idempotent (D-06-adjacent).
+              const dormantTailSlot = acquireTailSlot(hostId);
               await __applyDormantBranchTailOpenForTests(
                 {
                   conn,
                   sshConn: sshConn!,
                   tmuxSession,
                   discoverIdentitySessionFile,
-                  tailSessionFile,
+                  tailSessionFile: (c, file, line, errCb) => {
+                    const handle = tailSessionFile(c, file, line, (err) => {
+                      dormantTailSlot.release();
+                      errCb(err);
+                    });
+                    const origDormantStop = handle.stop;
+                    handle.stop = () => { dormantTailSlot.release(); origDormantStop.call(handle); };
+                    return handle;
+                  },
                   onLine,
                   onError,
                   wsSend: (data) => {
