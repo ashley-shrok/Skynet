@@ -55,10 +55,10 @@ completed: 2026-09-10
 
 ## Performance
 
-- **Duration:** ~12 min (Task 1 only; Task 2 human-verify checkpoint pending Ashley's tone/wording review)
+- **Duration:** ~12 min
 - **Started:** 2026-09-10T~current
-- **Completed:** 2026-09-10 (Task 1 rewrite + commit)
-- **Tasks:** 1/2 complete (Task 2 = checkpoint:human-verify pending)
+- **Completed:** 2026-09-10 (Task 1 rewrite + commit; Task 2 greenlit on trust — see below)
+- **Tasks:** 2/2 complete
 - **Files modified:** 1
 
 ## Accomplishments
@@ -80,9 +80,7 @@ completed: 2026-09-10
 Each task was committed atomically:
 
 1. **Task 1: Rewrite 'Sending files to the user' section with active/passive framing + serve URL sub-section** — `f0c23b47` (docs)
-2. **Task 2: Ashley reviews the rewritten section for tone + framing accuracy** — PENDING (human-verify checkpoint, `blocking-human` gate; awaits Ashley greenlight)
-
-**Plan metadata:** (deferred until Task 2 resolves)
+2. **Task 2: Ashley reviews the rewritten section for tone + framing accuracy** — greenlit on trust 2026-09-10, deferring visual/tone review to end-of-phase UAT. Verbatim: *"We will test things properly after we get all through the work."* No revisions requested.
 
 ## Files Created/Modified
 
@@ -133,17 +131,13 @@ Rule-of-thumb sentence present verbatim per D-26: *"Do you need something runnin
 
 None during Task 1 execution.
 
-## Pending — Task 2 human-verify checkpoint
+## Task 2 human-verify checkpoint — resolved
 
-Task 2 is a `checkpoint:human-verify` with `gate="blocking-human"` — Ashley reviews the rewritten section for tone + framing accuracy end-to-end. Verification criteria from the plan:
+Ashley greenlit on trust 2026-09-10 without a line-by-line read-through, explicitly deferring the tone/framing/wording review to end-of-phase UAT (Plan 10 covers the technical end-to-end verification; a separate `serve-and-file-url-visual-affordances` follow-up shape will do the visual/tone tasting session on both file and serve URLs together).
 
-1. Active/passive rule is the FIRST thing an agent reads (it is — it sits directly under the section intro).
-2. File URL and serve URL sub-sections feel PARALLEL (same rhythm, same recipe shape, same rules-that-matter list — they do).
-3. Serve URL bash recipe produces a well-formed URL string when copy-pasted (verifiable on t1000 with e.g. a mocked listener on 3020 + `printf` output).
-4. Tone matches the rest of the id-skill: warm, specific, not-lecturing (Ashley's judgment call).
-5. Ashley approves or requests specific corrections.
+Automated verification (see § Verification above) covers the structural correctness: correct sub-section order, correct grammar in the serve URL example, zero old tailnet HTTP-server recipe residue, zero auto-serve heuristics. Ashley's post-ship review will cover subjective tone.
 
-Orchestrator will present the rewritten section content to Ashley for greenlight. On "approved" → plan closes and I update this SUMMARY with the final metadata commit. On "revise: …" → I address the corrections, re-commit, re-checkpoint.
+If she comes back with revision requests after end-of-phase UAT, they land as a follow-up `docs(103-09-followup): revise ...` commit rather than a plan-09 re-checkpoint.
 
 ## Self-Check: PASSED
 
@@ -159,4 +153,4 @@ Orchestrator will present the rewritten section content to Ashley for greenlight
 ---
 *Phase: 103-passthrough-urls-serve-url-scheme-phase-2-of-2*
 *Plan: 09*
-*Completed (Task 1): 2026-09-10 — Task 2 checkpoint pending Ashley greenlight*
+*Completed: 2026-09-10 — Task 1 shipped + Task 2 greenlit on trust*
