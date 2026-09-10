@@ -57,6 +57,17 @@ export type MessageEvent = {
    * oldestLoadedLine bootstrap).
    */
   line?: number;
+  /**
+   * Phase 97 UAT follow-up (2026-09-10): optional pending-state marker
+   * for relay-source optimistic bubbles. Populated ONLY by
+   * useRelayAdapter when a pending send lands in the messages stream
+   * before its send_ack (or when a failed pending stays visible). Absent
+   * on all confirmed messages. Harness path renders pending sends via a
+   * separate PrettyView.pendingSends.map — this field is a relay-source
+   * concern only; ChatMessage already accepts a `pendingState` prop with
+   * the same semantics, so PrettyView threads this field through unchanged.
+   */
+  pendingState?: "sending" | "failed" | null;
 };
 
 // Patch #86: WS-inline base64 image payload. `data` is raw base64 — the

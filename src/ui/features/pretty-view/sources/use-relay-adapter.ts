@@ -163,11 +163,18 @@ function matrixEventToStreamEvent(
 
   const isSelf = event.sender === viewingUserMxid;
   if (isSelf) {
+    // Phase 97 UAT follow-up 4 (2026-09-10): render the sender's own
+    // messages as normal user ChatMessage bubbles (blue, right-aligned)
+    // instead of RelayOutboundBubble (hue-tinted, left-aligned, with a
+    // ▸ "relay send" header + expandable raw-command area). RelayOutbound
+    // Bubble is HARNESS-only — it's what the backend surfaces when it
+    // detects a Bash tool-use turn that curls a matrix send (Phase 17
+    // Plan 03). In relay-source view, the sender's own text messages
+    // deserve the normal chat treatment.
     return {
-      type: "relay_outbound",
-      room: roomId,
-      rawCommand: "",
-      body,
+      type: "message",
+      role: "user",
+      content: body,
       eventId: event.event_id,
       ts: event.origin_server_ts,
     };
@@ -698,15 +705,20 @@ export function useRelayAdapter(
     // but it stays in pendingSends so the failure bubble persists (D-14).
     for (const p of pendingSends) {
       out.push({
-        type: "relay_outbound",
-        room: roomIdRef.current,
-        rawCommand: "",
-        body: p.content,
+        type: "message",
+        role: "user",
+        content: p.content,
         // Use mqid as the eventId — stable React key, and doesn't collide
         // with the real event's eventId once it arrives (echo path removes
         // this pending BEFORE the real event enters history).
         eventId: p.mqid,
         ts: p.sentAt,
+        // Phase 97 UAT follow-up 4 (2026-09-10): mark the optimistic
+        // bubble as pending so ChatMessage renders the sending spinner
+        // (state === "sending") or failed styling (state === "failed").
+        // The threaded prop is consumed at PrettyView's ChatMessage
+        // render site.
+        pendingState: p.state === "failed" ? "failed" : "sending",
       });
     }
     // Phase 97 UAT follow-up 2 (2026-09-10): sort chronologically by ts

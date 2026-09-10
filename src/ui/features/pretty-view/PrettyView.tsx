@@ -3907,6 +3907,15 @@ export function PrettyView({
                   autoplayTargetEventId={autoplayTargetEventId}
                   onLongPressSpeak={handleLongPressSpeak}
                   onOpenEditor={handleOpenEditor}
+                  // Phase 97 UAT follow-up 4 (2026-09-10): relay-source
+                  // adapter injects optimistic bubbles into `messages`
+                  // with pendingState="sending" (or "failed"). Harness
+                  // path leaves pendingState undefined on confirmed
+                  // MessageEvents; harness pending sends still render via
+                  // the separate pendingSends.map below. Threaded here so
+                  // relay-source optimistic bubbles show the spinner
+                  // consistently with the harness pending pattern.
+                  pendingState={m.pendingState ?? null}
                 />
               )}
             </div>

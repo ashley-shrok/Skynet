@@ -234,9 +234,18 @@ describe("useRelayAdapter (Phase 93 Slice 3)", () => {
     act(() => {
       instances[0].simulateFrame({ type: "live_event", event: echoedEvent });
     });
-    // The echoed self-event is in messages (as relay_outbound per the mapper).
+    // Phase 97 UAT follow-up 4 (2026-09-10): mapper now emits self
+    // messages as `type:"message", role:"user"` so ChatMessage renders
+    // them as blue right-aligned user bubbles (was `relay_outbound`
+    // rendering the ▸-headered hue-tinted RelayOutboundBubble, which is
+    // a HARNESS-only artifact for detected Bash-relay-send tool-use).
     expect(result.current.messages).toHaveLength(1);
-    expect(result.current.messages[0].type).toBe("relay_outbound");
+    const echoed = result.current.messages[0];
+    expect(echoed.type).toBe("message");
+    if (echoed.type === "message") {
+      expect(echoed.role).toBe("user");
+      expect(echoed.content).toBe("hi from me");
+    }
   });
 
   it("Test 6: send_ack settles pending and promotes to history entry (self-echo synth)", async () => {
@@ -261,15 +270,17 @@ describe("useRelayAdapter (Phase 93 Slice 3)", () => {
         eventId: "$server-eventid",
       });
     });
-    // send_ack removes the pending AND synthesizes a real relay_outbound
-    // entry using the eventId the server returned. Body content
-    // preserved; eventId is the SERVER-supplied one (not the mqid).
+    // send_ack removes the pending AND synthesizes a real history entry
+    // using the eventId the server returned. Body content preserved;
+    // eventId is the SERVER-supplied one (not the mqid). Type is
+    // "message" role "user" (Phase 97 UAT follow-up 4 — see mapper).
     expect(result.current.messages).toHaveLength(1);
     const msg = result.current.messages[0];
-    expect(msg.type).toBe("relay_outbound");
+    expect(msg.type).toBe("message");
     expect(msg.eventId).toBe("$server-eventid");
-    if (msg.type === "relay_outbound") {
-      expect(msg.body).toBe("test");
+    if (msg.type === "message") {
+      expect(msg.role).toBe("user");
+      expect(msg.content).toBe("test");
     }
   });
 
