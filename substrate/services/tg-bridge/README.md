@@ -19,7 +19,7 @@ Phase 79 Plan 05 — Telegram <-> Matrix bridge, deployed as a Docker Compose se
 `/state/` is the shared named Docker volume `tg-bridge-state` (see `docker/docker-compose.yml` Plan 06). Both `skynet` and `tg-bridge` containers mount it at the same path.
 
 Skynet writes:
-- `/state/config.env` — MATRIX_ROOT + STT_URL (Plan 04 startup + on config change)
+- `/state/config.env` — MATRIX_ROOT + SKYNET_BASE + SKYNET_BRIDGE_TOKEN (Plan 04 startup + on config change; Phase 98 Plan 08 dropped the old direct-to-Chatterbox `STT_URL` write and swapped it for a bridge-scoped Bearer JWT that authenticates bridge → Skynet's `/voice/transcribe` — the bridge now routes voice-note STT through Skynet's backend and stays provider-agnostic per D-Telegram-bridge-STT locked 2026-09-10)
 - `/state/registry.json` — agent+humans structure (Plan 04 on every activate/disconnect via `rewriteRegistryFromCurrentState`; also on startup one-shot)
 - `/state/{humanName}.token` — Matrix tokens minted via admin loginAsUser
 - `/state/{identityKey}.bottoken` — Telegram bot tokens (Plan 04 `bot-token-file-writer`, blocker B-1 fix)
@@ -37,7 +37,7 @@ Healthy first-boot log tail (from `docker logs tg-bridge --tail 20`):
 - `[tg-bridge] waiting for /state/config.env (attempt 1/60)` — appears once at boot if Skynet hasn't yet written config
 - `[tg-bridge] waiting for /state/config.env (attempt 10/60)` — appears IF wait extends past 50s; every-10-attempts milestone log
 - `[tg-bridge] /state/config.env present — sourcing config` — appears once config arrives
-- `[tg-bridge] config sourced: MATRIX_ROOT=... STT_URL=...` — sanity echo of resolved values
+- `[tg-bridge] config sourced: MATRIX_ROOT=... SKYNET_BASE=...` — sanity echo of resolved values (SKYNET_BRIDGE_TOKEN is intentionally NOT echoed — Bearer credential; STRIDE T-98-08-02)
 - `[tg-bridge] starting main loop — spawning pollers + sync loops + reload watcher`
 - `[tg-bridge] registry.json changed — re-exec` — appears each time Skynet writes registry.json (activate/disconnect)
 

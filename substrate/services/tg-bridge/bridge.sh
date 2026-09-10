@@ -2,8 +2,15 @@
 # Phase 79 Plan 05 — Telegram <-> Matrix bridge, Docker-Compose-service edition.
 # Deployed as the tg-bridge service in docker-compose.yml (Plan 06).
 # Reads config from /state/config.env (written by Skynet at boot, Plan 04):
-#   MATRIX_ROOT — Matrix homeserver base URL
-#   STT_URL     — Speech-to-text endpoint (self-hosted Whisper for voice notes)
+#   MATRIX_ROOT         — Matrix homeserver base URL
+#   SKYNET_BASE         — Base URL for Skynet backend (routes voice-note STT
+#                         through Skynet's /voice/transcribe — Skynet then
+#                         handles the provider translation, currently AWS
+#                         Transcribe). Per D-Telegram-bridge-STT locked
+#                         2026-09-10: the bridge stays provider-agnostic.
+#   SKYNET_BRIDGE_TOKEN — Bearer token for authenticating to Skynet's
+#                         /voice/transcribe endpoint (bridge-scoped JWT
+#                         minted at bridge-config-writer time).
 # Reads registry from /state/registry.json (written by Skynet, Plan 04).
 # Reads per-human tokens from /state/${h}.token (minted by Skynet via
 # matrix-admin-client.loginAsUser, Plan 04). On any Matrix 401, writes
@@ -72,16 +79,18 @@ echo "[tg-bridge] $CONFIG_FILE present — sourcing config"
 # shellcheck source=/dev/null
 . "$CONFIG_FILE"
 
-if [ -z "${MATRIX_ROOT:-}" ] || [ -z "${STT_URL:-}" ]; then
-  echo "[tg-bridge] FATAL: MATRIX_ROOT or STT_URL missing from $CONFIG_FILE"
+if [ -z "${MATRIX_ROOT:-}" ] || [ -z "${SKYNET_BASE:-}" ] || [ -z "${SKYNET_BRIDGE_TOKEN:-}" ]; then
+  echo "[tg-bridge] FATAL: MATRIX_ROOT / SKYNET_BASE / SKYNET_BRIDGE_TOKEN missing from $CONFIG_FILE"
   exit 1
 fi
 
 ROOT="$MATRIX_ROOT"
 BASE="$ROOT/_matrix/client/v3"
-STT="$STT_URL"
 
-echo "[tg-bridge] config sourced: MATRIX_ROOT=$ROOT STT_URL=$STT"
+# Deliberately DO NOT echo SKYNET_BRIDGE_TOKEN — it is a long-lived Bearer
+# credential (STRIDE T-98-08-02); leaking it to bridge stdout would land it
+# in `docker logs tg-bridge` output for the token's whole 30-day lifetime.
+echo "[tg-bridge] config sourced: MATRIX_ROOT=$ROOT SKYNET_BASE=$SKYNET_BASE"
 
 # ---- log helper (preserved from Nina's script) --------------------------------
 log(){ printf '%s %s\n' "$(date +%H:%M:%S)" "$1" >> "$LOG_FILE"; }
@@ -222,7 +231,17 @@ tg_voice_to_mx(){
   if ! tg_download "$tok" "$fid" "$dest"; then
     log "TG->MX[$name/$human]: voice fetch FAILED"; mx_send_text "$human" "$room" "🎤 [$hd sent a voice message — I couldn't fetch it]"; rm -f "$dest"; return
   fi
-  text=$(curl -s --max-time 90 -X POST "$STT" -F "file=@$dest;type=audio/ogg" -F "model=large-v3" | jq -r '.text // empty')
+  # Phase 98 Plan 08 — POST to Skynet's /voice/transcribe (Bearer-auth'd
+  # via bridge-scoped JWT) instead of Chatterbox directly. Skynet performs
+  # the transcode + provider translation server-side; bridge stays
+  # provider-agnostic. Timeout bumped 90→120s: Skynet adds ffmpeg transcode
+  # + AWS Transcribe streaming latency on top of what Chatterbox did in one
+  # hop. `-F model=large-v3` field dropped — that was a Chatterbox-specific
+  # parameter the AWS-backed /voice/transcribe endpoint doesn't consume.
+  text=$(curl -s --max-time 120 -X POST "$SKYNET_BASE/voice/transcribe" \
+    -H "Authorization: Bearer $SKYNET_BRIDGE_TOKEN" \
+    -F "file=@$dest;type=audio/ogg" \
+    | jq -r '.text // empty')
   text=$(printf '%s' "$text" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
   rm -f "$dest"
   if [ -n "$text" ]; then
