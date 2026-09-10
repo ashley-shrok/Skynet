@@ -469,12 +469,12 @@ describe("POST /identities/clone", () => {
   it("Test 8: Phase 68 — happy path with avatarCandidateId — 201 with Phase 68 publicIdentity shape (disk re-read cosmetics)", async () => {
     // Set up the disk re-read mock for "tina-2" with avatar frontmatter
     (readIdentityFile as Mock).mockResolvedValue({
-      markdown: "---\nrole: box-maintainer\ndisplayName: Tina-2\ntitle: Cloned Op\nvoice: Nathan.wav\navatar: tina-2.png\n---\n\n# tina-2\n",
+      markdown: "---\nrole: box-maintainer\ndisplayName: Tina-2\ntitle: Cloned Op\nvoice: Matthew\navatar: tina-2.png\n---\n\n# tina-2\n",
     });
     (extractCosmeticsFromFrontmatter as Mock).mockReturnValue({
       displayName: "Tina-2",
       title: "Cloned Op",
-      voice: "Nathan.wav",
+      voice: "Matthew",
       avatar: "tina-2.png",
     });
     (extractRoleFromMarkdown as Mock).mockReturnValue("box-maintainer");
@@ -487,7 +487,7 @@ describe("POST /identities/clone", () => {
         hostId: 5,
         newName: "tina-2",
         title: "Cloned Op",
-        voice: "Nathan.wav",
+        voice: "Matthew",
         avatarCandidateId: "cand-abc",
         path: "~",
       }),
@@ -515,7 +515,7 @@ describe("POST /identities/clone", () => {
     expect(body.identityKey).toBe("tina-2");
     expect(body.displayName).toBe("Tina-2");
     expect(body.title).toBe("Cloned Op");
-    expect(body.voice).toBe("Nathan.wav");
+    expect(body.voice).toBe("Matthew");
     expect(body.colorHue).toBeNull();
     expect(body.avatarMime).toBe("");
     expect(body.avatarEtag).toBe("");
@@ -553,7 +553,7 @@ describe("POST /identities/clone", () => {
     expect(stubBody).toMatch(/^---\nrole: box-maintainer\n/);
     expect(stubBody).toContain("displayName: Tina-2"); // capitalized newName
     expect(stubBody).toContain("title: Cloned Op"); // user-supplied title
-    expect(stubBody).toContain("voice: Nathan.wav"); // user-supplied voice
+    expect(stubBody).toContain("voice: Matthew"); // user-supplied voice
     expect(stubBody).toContain("avatar: tina-2.png"); // ext from candidate mime
     // colorHue is absent when the request body omits it (Test 8 doesn't send)
     expect(stubBody).not.toContain("colorHue:");
