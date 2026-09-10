@@ -233,14 +233,17 @@ function httpPost(
   });
 }
 
-// Valid request body — Phase 22 SRIC-02 adds required `role` field
+// Valid request body — Phase 22 SRIC-02 adds required `role` field.
+// Phase 98 Plan 07: `voice` swapped from the legacy Chatterbox filename shape
+// to a valid Polly generative voice ID ("Joanna") so the tightened whitelist
+// validator in identity-birth.ts accepts it.
 const VALID_BODY = {
   hostId: 7,
   name: "testkey",
   title: "Test Identity",
   path: "/workspace/testkey",
   colorHue: 210,
-  voice: "Elena.wav",
+  voice: "Joanna",
   avatarCandidateId: "cand-abc",
   role: "box-maintainer",
 };

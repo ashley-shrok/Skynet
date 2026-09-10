@@ -143,7 +143,7 @@ function makeOpts(overrides: Partial<BirthOptions> = {}): BirthOptions {
     title: "Test Identity",
     path: "/workspace/willow",
     colorHue: 210,
-    voice: "Elena.wav",
+    voice: "Joanna",
     avatarCandidateId: "cand-abc",
     role: "skynet-maintainer",
     ...overrides,

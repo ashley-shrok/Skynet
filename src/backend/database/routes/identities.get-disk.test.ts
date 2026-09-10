@@ -327,12 +327,12 @@ afterEach(() => new Promise<void>((resolve) => server.close(() => resolve())));
 
 describe("publicIdentity — Phase 68 shape (no id/createdAt/updatedAt)", () => {
   it("PUB-1: emits identityKey, displayName, title, colorHue, voice, avatarMime, avatarUrl, avatarEtag, coordinator, role", () => {
-    const out = publicIdentity("tina", 1, { displayName: "Tina", title: "Dev", colorHue: 220, voice: "Elena.wav", avatarMime: "image/png", avatarEtag: "abc", coordinator: true }, "box-maintainer");
+    const out = publicIdentity("tina", 1, { displayName: "Tina", title: "Dev", colorHue: 220, voice: "Joanna", avatarMime: "image/png", avatarEtag: "abc", coordinator: true }, "box-maintainer");
     expect(out).toHaveProperty("identityKey", "tina");
     expect(out).toHaveProperty("displayName", "Tina");
     expect(out).toHaveProperty("title", "Dev");
     expect(out).toHaveProperty("colorHue", 220);
-    expect(out).toHaveProperty("voice", "Elena.wav");
+    expect(out).toHaveProperty("voice", "Joanna");
     expect(out).toHaveProperty("avatarMime", "image/png");
     expect(out).toHaveProperty("avatarUrl", "/identities/tina/avatar?hostId=1");
     expect(out).toHaveProperty("avatarEtag", "abc");

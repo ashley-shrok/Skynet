@@ -163,7 +163,7 @@ function makeOpts(overrides: Partial<BirthOptions> = {}): BirthOptions {
     title: "Test Identity",
     path: "/workspace/testkey",
     colorHue: 210,
-    voice: "Elena.wav",
+    voice: "Joanna",
     avatarCandidateId: "cand-abc",
     role: "box-maintainer",
     ...overrides,
@@ -558,7 +558,7 @@ it("Test 20: full cosmetics present → frontmatter emits role/displayName/title
     role: "box-maintainer",
     title: "Test Identity",
     colorHue: 210,
-    voice: "Elena.wav",
+    voice: "Joanna",
   });
 
   const { emit } = collectEvents();
@@ -579,7 +579,7 @@ it("Test 20: full cosmetics present → frontmatter emits role/displayName/title
   expect(parsed.displayName).toBe("Testkey");
   expect(parsed.title).toBe("Test Identity");
   expect(parsed.colorHue).toBe(210);
-  expect(parsed.voice).toBe("Elena.wav");
+  expect(parsed.voice).toBe("Joanna");
   expect(parsed.avatar).toBe("testkey.png"); // default candidate mime = image/png
 
   // Canonical ordering — role must be first (post-Phase-A byte-shape parity)

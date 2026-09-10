@@ -179,7 +179,7 @@ function makeOpts(overrides: Partial<BirthOptions> = {}): BirthOptions {
     title: "Test Identity",
     path: "/workspace/testkey",
     colorHue: 210,
-    voice: "Elena.wav",
+    voice: "Joanna",
     avatarCandidateId: "cand-abc",
     // Phase 22 SRIC-02: role is required
     role: "box-maintainer",
@@ -367,7 +367,7 @@ it("Test 3: Phase 68 — getCandidateForBirth called; no DB createIdentityRecord
     name: "testkey",
     title: "Test Title",
     colorHue: 210,
-    voice: "Elena.wav",
+    voice: "Joanna",
     avatarCandidateId: "cand-xyz",
   });
 

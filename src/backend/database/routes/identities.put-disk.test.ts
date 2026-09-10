@@ -457,7 +457,7 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
         displayName: "Newname",
         title: "New Title",
         colorHue: 180,
-        voice: "Elena.wav",
+        voice: "Joanna",
       },
     });
 
@@ -477,7 +477,7 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
     expect(fm.displayName).toBe("Newname");
     expect(fm.title).toBe("New Title");
     expect(fm.colorHue).toBe(180);
-    expect(fm.voice).toBe("Elena.wav");
+    expect(fm.voice).toBe("Joanna");
 
     // Phase 68-02: no row bump — DB update NOT called at all.
     expect(dbState.lastUpdateSetKeys).toBeNull();
