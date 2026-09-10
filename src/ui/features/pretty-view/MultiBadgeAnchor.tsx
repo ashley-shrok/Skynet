@@ -8,8 +8,13 @@
 // ## Layout (D-01)
 //
 // Root container is `absolute top-4 right-5 z-[101] flex flex-row-reverse
-// items-start gap-2` — parity with the harness single-badge position at
-// PrettyView.tsx:3349-3366. `flex-row-reverse` means the FIRST DOM child
+// items-start gap-1` — position-parity with the harness single-badge anchor
+// at PrettyView.tsx:3349-3366 (harness has no inner gap because it renders
+// a single badge). Inner gap was `gap-2` at Slice 2 ship-time; halved to
+// `gap-1` in Phase 97 Plan 01 (F-4 / D-11) — the harness OUTER-instrument
+// `gap-2` reads too wide when applied as an INNER gap between multi-badge
+// cells; halved for tighter grouping. `flex-row-reverse` means the FIRST
+// DOM child
 // is RIGHTMOST visually; badges grow LEFTWARD from the harness anchor
 // point. To achieve "humans-first" visual ordering (humans nearest the
 // harness anchor, agents further left), agents map FIRST in JSX (rightmost
@@ -190,7 +195,7 @@ function AgentBadgeCell({
  * the D-01 anchor from mount, regardless of adapter readiness.
  */
 const ROOT_ANCHOR_CLASS =
-  "absolute top-4 right-5 z-[101] flex flex-row-reverse items-start gap-2";
+  "absolute top-4 right-5 z-[101] flex flex-row-reverse items-start gap-1";
 
 export function MultiBadgeAnchor({
   participants,
