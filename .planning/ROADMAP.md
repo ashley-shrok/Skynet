@@ -2248,10 +2248,10 @@ Plans:
 **Goal:** Consolidate every hostId-bearing SSH producer (fleet-status, substrate, 3 routes, 3 short/long-lived callers, 3 session-managed producers) onto a single shared `Map<hostId, Semaphore>` registry capped at 8 in-flight ssh2 exec channels per host — preserving the wilma-incident MaxSessions=10 fix (bounty b31a5c8e) while eliminating the "two independent 8-caps per host" bug between fleet-status and substrate. Enforced by a CI grep guard so future producers cannot bypass the cap.
 **Requirements**: SSH-CAP-REG, SSH-CAP-STARTER, SSH-CAP-ROUTES-A, SSH-CAP-PRODUCERS-B, SSH-CAP-PRODUCERS-C, SSH-CAP-CI-GUARD
 **Depends on:** Phase 98
-**Plans:** 6 plans
+**Plans:** 1/6 plans executed
 
 Plans:
-- [ ] 101-01-PLAN.md — Wave 1: registry module + 5-case unit test suite (same-instance, distinct-instance, key normalization, FIFO under contention, error-path slot release)
+- [x] 101-01-PLAN.md — Wave 1: registry module + 5-case unit test suite (same-instance, distinct-instance, key normalization, FIFO under contention, error-path slot release)
 - [ ] 101-02-PLAN.md — Wave 2 (deps 101-01): migrate starter.ts fleet-status (both branches) + substrate to shared registry; drop substrateHostSemaphores map + SIGTERM .clear() line
 - [ ] 101-03-PLAN.md — Wave 3 (deps 101-01): wrap identity-clone.ts, roles-create.ts, global-files-read-write.ts (both GET + POST handlers) SSH motions
 - [ ] 101-04-PLAN.md — Wave 3 (deps 101-01): wrap relay-pointer.ts + skill-catalog.ts; add acquireTailSlot() helper + wrap 3 tailSessionFile call sites in claude-session-server.ts (session-file-tail.ts untouched)
