@@ -3893,6 +3893,18 @@ export function PrettyView({
                   ts={m.ts}
                   hostId={hostId}
                   alwaysExpanded={source.kind === "relay"}
+                  // Phase 97 UAT batch #6 (2026-09-10): thread eventId +
+                  // autoplay + long-press props so left-side relay bubbles
+                  // in relay-source view get the same speak affordance as
+                  // ChatMessage's assistant bubbles. All four already in
+                  // scope here — same wiring as the ChatMessage render
+                  // site immediately below. Props are optional on
+                  // RelayInboundBubble so the harness-view (alwaysExpanded=
+                  // false) path stays byte-for-byte unchanged.
+                  eventId={m.eventId}
+                  autoplayArmed={autoplayArmed}
+                  autoplayTargetEventId={autoplayTargetEventId}
+                  onLongPressSpeak={handleLongPressSpeak}
                 />
               ) : m.type === "malformed_line" ? (
                 <MalformedBubble bytes={m.bytes} ts={m.ts} />

@@ -1,9 +1,19 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { Volume2, Loader2, Pause, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { RelayInboundEvent } from "@/api/claude-session-api";
 import { useIdentities } from "@/state/identities-store";
 import { resolveMxidToIdentity } from "./relay-mxid-resolve";
 import { detectFilePointer } from "./relay-pointer-detect";
+import { postSpeakStream } from "@/api/voice-api";
+import { createWebAudioStreamPlayer } from "./webAudioStreamPlayer";
+import {
+  getCurrentPlayer,
+  setCurrentPlayer,
+  getCurrentOwner,
+  setCurrentOwner,
+  clearCurrentPlayer,
+} from "./speak-singleton";
 
 // Phase 17 Plan 03 — RelayInboundBubble
 //
@@ -43,6 +53,22 @@ import { detectFilePointer } from "./relay-pointer-detect";
 //   T-17-03-05: colorHue coerced via Number() guard in inline style.
 //   T-17-03-06: hostId originates from PrettyView prop (pane tab-context);
 //               authoritative gate is backend's resolveHostById (plan 17-02).
+//
+// Phase 97 UAT batch #6 (2026-09-10) — chat-native strip for relay-source:
+//   When `alwaysExpanded={true}` (PrettyView source.kind === "relay" — user
+//   chatting IN a matrix room via Skynet, not the task-notification harness):
+//     - Header strips the ` · <room>` suffix — the room is already the pane
+//       context, no need to repeat.
+//     - Header brightens from rgba(232,228,216,0.6) → #e8e4d8 (matches body
+//       text color) so the sender name reads as chat-scale prominence.
+//     - Footer "via recv.sh" is dropped — implicit for the whole pane.
+//     - Bubble padding widens right side to `pr-[42px]` reserving space for
+//       the speak button (mirroring ChatMessage assistant's gutter).
+//     - Speak button (Volume2/Loader2/Pause/Play) renders bottom-right,
+//       long-press-on-bubble arms autoplay via onLongPressSpeak(eventId).
+//     - Speak singleton is shared with ChatMessage via ./speak-singleton.ts,
+//       so tapping speak on either component preempts the other.
+//   The `alwaysExpanded=false` (harness) branch is BYTE-FOR-BYTE UNCHANGED.
 
 type FetchState =
   | { kind: "idle" }
@@ -72,6 +98,22 @@ export type RelayInboundBubbleProps = Pick<
    * state starts expanded and the header renders as a plain non-clickable
    * <div> (no toggle chevron). */
   alwaysExpanded?: boolean;
+  /** Phase 97 UAT batch #6 (2026-09-10): matrix event id — used as the
+   * autoplay-target discriminator and as the argument to `onLongPressSpeak`
+   * when long-press arms autoplay. Only meaningful when
+   * `alwaysExpanded={true}` (relay-source view). */
+  eventId?: string;
+  /** Phase 97 UAT batch #6 (2026-09-10): mirrors ChatMessage — when true, the
+   * speak button gets the identity-hue tint (visual hint that a long-press
+   * has armed autoplay for arriving messages). */
+  autoplayArmed?: boolean;
+  /** Phase 97 UAT batch #6 (2026-09-10): mirrors ChatMessage — when this
+   * bubble's `eventId` matches, autoplay fires. */
+  autoplayTargetEventId?: string | null;
+  /** Phase 97 UAT batch #6 (2026-09-10): mirrors ChatMessage — long-press
+   * arms autoplay in the PrettyView parent. Called with the bubble's
+   * eventId on long-press fire. */
+  onLongPressSpeak?: (eventId: string) => void;
 };
 
 export function RelayInboundBubble({
@@ -81,9 +123,14 @@ export function RelayInboundBubble({
   ts,
   hostId,
   alwaysExpanded = false,
+  eventId,
+  autoplayArmed = false,
+  autoplayTargetEventId = null,
+  onLongPressSpeak,
 }: RelayInboundBubbleProps) {
   const { byKey } = useIdentities();
-  const { colorHue, displayName } = resolveMxidToIdentity(sender, byKey);
+  const { colorHue, displayName, identity } = resolveMxidToIdentity(sender, byKey);
+  const identityVoice: string | undefined = identity?.voice ?? undefined;
   const [collapsed, setCollapsed] = useState(!alwaysExpanded);
 
   // Avatar-dot colour: resolved identity hue or neutral grey fallback.
@@ -136,20 +183,269 @@ export function RelayInboundBubble({
       });
   }, [pointer?.pointerPath, hostId, collapsed]);
 
+  // ─── Speak apparatus — mirror of ChatMessage's, gated on alwaysExpanded ───
+  //
+  // Phase 97 UAT batch #6 (2026-09-10). The refs/state are declared
+  // unconditionally (Rules of Hooks); the render-side gating on
+  // `alwaysExpanded` ensures the button + bubble-root pointer handlers only
+  // wire up in relay-source view. In harness view the state machine sits
+  // dormant — no interaction paths reach it.
+  const bubbleIdRef = useRef(Symbol("relay-speak-bubble"));
+  const [speakState, setSpeakState] = useState<"idle" | "loading" | "playing" | "paused">("idle");
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Long-press detection refs
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressFiredRef = useRef<boolean>(false);
+  const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  // Autoplay dedup ref — stores the last eventId we already fired autoplay for,
+  // preventing double-fire if React re-renders while the effect is settling.
+  const autoplayLastFiredRef = useRef<string | null>(null);
+
+  // Cleanup: stop player on unmount if this bubble owns it; also clear any
+  // pending long-press timer.
+  useEffect(() => {
+    return () => {
+      if (getCurrentOwner() === bubbleIdRef.current) {
+        const owner = bubbleIdRef.current;
+        console.info(`[tts] stop-current owner=relay:${owner.toString()} trigger=unmount`);
+        getCurrentPlayer()?.stop();
+        clearCurrentPlayer();
+      }
+      if (longPressTimerRef.current != null) {
+        window.clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // startSpeak: extracted fresh-play path (cross-bubble preempt + loading +
+  // fetch + play). Called by:
+  //   - onSpeakClick (fresh-play branch)
+  //   - long-press handler (single-gesture-single-action)
+  //   - autoplay effect (newly-arrived relay-inbound message while armed)
+  async function startSpeak(trigger: "user-click" | "autoplay" | "long-press" = "user-click") {
+    // If another bubble is playing (or loading, or paused), stop it first
+    // (cross-bubble preempt). This is also the only cancel-from-paused path.
+    const preemptTarget = getCurrentPlayer();
+    if (preemptTarget) {
+      const prevOwner = getCurrentOwner();
+      console.info(`[tts] stop-current owner=${prevOwner?.toString() ?? "null"} trigger=new-bubble`);
+      preemptTarget.stop();
+      clearCurrentPlayer();
+    }
+
+    setSpeakState("loading");
+    const owner = bubbleIdRef.current;
+
+    // Speak-start — entry log for every TTS invocation.
+    const text = containerRef.current?.innerText ?? body;
+    console.info(`[tts] speak-start owner=relay:${owner.toString()} textLen=${text.length} voice="${identityVoice ?? "default"}" trigger=${trigger}`);
+
+    const player = createWebAudioStreamPlayer({
+      onEnded: () => {
+        // Only clear if this bubble still owns the singleton — guard against
+        // a race where a NEW speak-click already replaced the singleton.
+        if (getCurrentOwner() === owner) {
+          console.info(`[tts] media-ended owner=relay:${owner.toString()}`);
+          clearCurrentPlayer();
+          setSpeakState("idle");
+        }
+      },
+      onError: (err) => {
+        const errName = err instanceof Error ? err.name : "unknown";
+        const errMessage = err instanceof Error ? err.message : String(err);
+        console.error(`[tts] player-error owner=relay:${owner.toString()} errName="${errName}" errMessage="${errMessage}"`);
+        if (getCurrentOwner() === owner) {
+          clearCurrentPlayer();
+          setSpeakState("idle");
+        }
+      },
+      onPlaying: () => {
+        console.info(`[tts] media-playing owner=relay:${owner.toString()}`);
+      },
+      onCanPlay: () => {
+        console.info(`[tts] media-canplay owner=relay:${owner.toString()}`);
+      },
+      onPause: () => {
+        console.info(`[tts] media-pause owner=relay:${owner.toString()}`);
+      },
+      onStalled: () => {
+        console.warn(`[tts] media-stalled owner=relay:${owner.toString()}`);
+      },
+      onSuspend: () => {
+        console.warn(`[tts] media-suspend owner=relay:${owner.toString()}`);
+      },
+    });
+
+    // Install the singleton BEFORE the fetch so a same-tick preempt from
+    // another bubble sees a non-null currentPlayer and can stop us cleanly.
+    setCurrentPlayer(player);
+    setCurrentOwner(owner);
+
+    try {
+      console.info(`[tts] fetch-start owner=relay:${owner.toString()} url=/voice/speak-stream textLen=${text.length}`);
+      const response = await postSpeakStream(text, identityVoice ?? undefined);
+      if (getCurrentOwner() !== owner) {
+        console.warn(`[tts] preempt-during-fetch owner=relay:${owner.toString()} newOwner=${getCurrentOwner()?.toString() ?? "null"}`);
+        return;
+      }
+      console.info(`[tts] fetch-resolved status=${response.status} ok=${response.ok} owner=relay:${owner.toString()}`);
+      if (!response.ok) {
+        console.error(`[tts] fetch-error owner=relay:${owner.toString()} status=${response.status} statusText="${response.statusText}"`);
+        throw new Error(`postSpeakStream returned ${response.status}`);
+      }
+      setSpeakState("playing");
+      console.info(`[tts] decode-init owner=relay:${owner.toString()} contextState=n/a`);
+      console.info(`[tts] play-attempt owner=relay:${owner.toString()} src=stream`);
+      void player.play(response).then(() => {
+        console.info(`[tts] play-attempt owner=relay:${owner.toString()} result=success`);
+      }).catch((err: unknown) => {
+        const errName =
+          err instanceof Error
+            ? err.name
+            : (err != null && typeof (err as Record<string, unknown>).name === "string"
+                ? (err as { name: string }).name
+                : "unknown");
+        const errMessage =
+          err instanceof Error
+            ? err.message
+            : (err != null && typeof (err as Record<string, unknown>).message === "string"
+                ? (err as { message: string }).message
+                : String(err));
+        if (errName === "NotAllowedError") {
+          console.warn(`[tts] play-attempt owner=relay:${owner.toString()} result=blocked errName="NotAllowedError" errMessage="${errMessage}"`);
+        } else {
+          console.error(`[tts] play-attempt owner=relay:${owner.toString()} result=error errName="${errName}" errMessage="${errMessage}"`);
+        }
+      });
+    } catch (err) {
+      const errName = err instanceof Error ? err.name : "unknown";
+      const errMessage = err instanceof Error ? err.message : String(err);
+      console.error(`[tts] fetch-error owner=relay:${owner.toString()} errName="${errName}" errMessage="${errMessage}"`);
+      if (getCurrentOwner() === owner) {
+        clearCurrentPlayer();
+        setSpeakState("idle");
+      }
+    }
+  }
+
+  async function onSpeakClick(e: React.MouseEvent) {
+    e.stopPropagation();
+
+    if (speakState === "playing" && getCurrentOwner() === bubbleIdRef.current) {
+      void getCurrentPlayer()?.pause();
+      setSpeakState("paused");
+      return;
+    }
+
+    if (speakState === "paused" && getCurrentOwner() === bubbleIdRef.current) {
+      void getCurrentPlayer()?.resume();
+      setSpeakState("playing");
+      return;
+    }
+
+    void startSpeak("user-click");
+  }
+
+  // Autoplay effect: fires startSpeak() when a new target arrives that matches
+  // this bubble's eventId. Uses autoplayLastFiredRef to prevent double-fire on
+  // re-renders while the effect is settling. Only fires in relay-source view
+  // (alwaysExpanded=true) — harness view has no speak apparatus.
+  useEffect(() => {
+    if (
+      alwaysExpanded &&
+      autoplayTargetEventId != null &&
+      eventId != null &&
+      autoplayTargetEventId === eventId &&
+      autoplayLastFiredRef.current !== eventId
+    ) {
+      autoplayLastFiredRef.current = eventId;
+      console.info(`[tts] autoplay-fired eventId=${eventId} armed=${autoplayTargetEventId != null} owner=relay`);
+      void startSpeak("autoplay");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoplayTargetEventId, eventId, alwaysExpanded]);
+
   return (
     <div className="flex justify-start" data-testid="relay-inbound-wrap">
       <div
+        ref={containerRef}
         title={ts !== undefined ? new Date(ts).toLocaleString() : undefined}
         data-testid="relay-inbound-bubble"
         data-bubble-hue={bubbleHue}
-        style={bubbleStyle}
+        style={{ ...bubbleStyle, position: "relative" }}
+        // Long-press-on-bubble handlers — only meaningful in relay-source
+        // view (`alwaysExpanded=true`). Short-circuit early in the pointerDown
+        // handler if the pointer target is inside the speak button so the
+        // button's own long-press handlers stay the single source of truth
+        // for button-anchored long-press.
+        onPointerDown={
+          alwaysExpanded
+            ? (e) => {
+                if ((e.target as HTMLElement)?.closest(".pv-speak-btn")) return;
+                longPressFiredRef.current = false;
+                pointerStartRef.current = { x: e.clientX, y: e.clientY };
+                if (longPressTimerRef.current != null) {
+                  window.clearTimeout(longPressTimerRef.current);
+                }
+                longPressTimerRef.current = window.setTimeout(() => {
+                  longPressFiredRef.current = true;
+                  longPressTimerRef.current = null;
+                  if (onLongPressSpeak && eventId) onLongPressSpeak(eventId);
+                  void startSpeak("long-press");
+                }, 500);
+              }
+            : undefined
+        }
+        onPointerMove={
+          alwaysExpanded
+            ? (e) => {
+                const start = pointerStartRef.current;
+                if (!start || longPressTimerRef.current == null) return;
+                const dx = e.clientX - start.x;
+                const dy = e.clientY - start.y;
+                if (Math.hypot(dx, dy) > 10) {
+                  window.clearTimeout(longPressTimerRef.current);
+                  longPressTimerRef.current = null;
+                }
+              }
+            : undefined
+        }
+        onPointerCancel={
+          alwaysExpanded
+            ? () => {
+                if (longPressTimerRef.current != null) {
+                  window.clearTimeout(longPressTimerRef.current);
+                  longPressTimerRef.current = null;
+                }
+              }
+            : undefined
+        }
+        onPointerUp={
+          alwaysExpanded
+            ? () => {
+                if (longPressTimerRef.current != null) {
+                  window.clearTimeout(longPressTimerRef.current);
+                  longPressTimerRef.current = null;
+                }
+              }
+            : undefined
+        }
         className={cn(
           // Bubble sizing + shape — mirrors ChatMessage outer div pattern.
           "max-w-[85%] [overflow-wrap:anywhere] text-sm leading-relaxed",
           "rounded-[var(--radius-pv-bubble)]",
-          // Padding: tight (matches ChatMessage assistant pill) when collapsed;
-          // roomy when expanded so the message body has breathing room.
-          collapsed ? "px-[12px] py-[7px]" : "px-[18px] py-[14px]",
+          // Padding — Phase 97 UAT batch #6: relay-source view widens right
+          // padding to reserve the speak-button gutter (mirroring
+          // ChatMessage assistant's pr-[42px]); harness view keeps its
+          // pre-existing collapsed-vs-expanded pad split byte-for-byte.
+          alwaysExpanded
+            ? "pl-[18px] pr-[42px] py-[14px]"
+            : collapsed
+              ? "px-[12px] py-[7px]"
+              : "px-[18px] py-[14px]",
           // Glass depth treatment (kept from phase 17 — reads distinct from
           // ChatMessage's shadow-based bubble while colour-matching it).
           "backdrop-blur-xl saturate-150",
@@ -160,15 +456,21 @@ export function RelayInboundBubble({
           "text-[#e8e4d8]",
         )}
       >
-        {/* Header: avatar-dot + resolved displayName + room. In default mode
-            renders as a toggle button; when alwaysExpanded (relay-source view)
-            renders as a plain non-clickable <div> with no chevron. */}
+        {/* Header: avatar-dot + resolved displayName + room (harness) or
+            avatar-dot + displayName only (relay-source, Phase 97 UAT batch #6).
+            In default (harness) mode renders as a toggle button; when
+            alwaysExpanded (relay-source view) renders as a plain non-clickable
+            <div> with no chevron. */}
         {alwaysExpanded ? (
           <div
             data-testid="relay-inbound-header"
             className={cn(
               "flex items-center gap-1 text-xs mb-1",
-              "text-[rgba(232,_228,_216,_0.6)]",
+              // Phase 97 UAT batch #6: brighten header to match body text.
+              // The 60%-alpha treatment reads as "meta" (recv.sh tell); in
+              // relay-source view the header IS the primary "who's talking"
+              // affordance, so it earns full body-text prominence.
+              "text-[#e8e4d8]",
               "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
             )}
           >
@@ -179,7 +481,9 @@ export function RelayInboundBubble({
               className="inline-block w-2 h-2 rounded-full flex-shrink-0"
               style={{ color: avatarColor, backgroundColor: avatarColor }}
             />
-            {displayName} · {room}
+            {/* Phase 97 UAT batch #6: room stripped — the room IS the pane
+                context in relay-source view; no need to repeat. */}
+            {displayName}
           </div>
         ) : (
           <button
@@ -240,16 +544,116 @@ export function RelayInboundBubble({
               <div className="whitespace-pre-wrap">{body}</div>
             )}
 
-            {/* Footer — "via recv.sh" attribution matching prototype byte-shape */}
-            <div
-              className={cn(
-                "text-[10px] text-right mt-1",
-                "text-[rgba(232,_228,_216,_0.35)]",
-              )}
-            >
-              via recv.sh
-            </div>
+            {/* Footer — "via recv.sh" attribution. Phase 97 UAT batch #6
+                (2026-09-10): rendered ONLY in harness view; relay-source
+                view drops the footer because the pane context already
+                communicates the mechanism. */}
+            {!alwaysExpanded && (
+              <div
+                className={cn(
+                  "text-[10px] text-right mt-1",
+                  "text-[rgba(232,_228,_216,_0.35)]",
+                )}
+              >
+                via recv.sh
+              </div>
+            )}
           </div>
+        )}
+
+        {/* Speak button — Phase 97 UAT batch #6 (2026-09-10). Rendered only
+            when alwaysExpanded=true (relay-source view). Copy-verbatim from
+            ChatMessage's assistant speak button apparatus, wired against the
+            same singleton so cross-component preempt works. */}
+        {alwaysExpanded && (
+          <button
+            type="button"
+            onPointerDown={(e) => {
+              longPressFiredRef.current = false;
+              pointerStartRef.current = { x: e.clientX, y: e.clientY };
+              if (longPressTimerRef.current != null) {
+                window.clearTimeout(longPressTimerRef.current);
+              }
+              longPressTimerRef.current = window.setTimeout(() => {
+                longPressFiredRef.current = true;
+                longPressTimerRef.current = null;
+                if (eventId && onLongPressSpeak) onLongPressSpeak(eventId);
+                void startSpeak("long-press");
+              }, 500);
+            }}
+            onPointerMove={(e) => {
+              const start = pointerStartRef.current;
+              if (!start || longPressTimerRef.current == null) return;
+              const dx = e.clientX - start.x;
+              const dy = e.clientY - start.y;
+              if (Math.hypot(dx, dy) > 10) {
+                window.clearTimeout(longPressTimerRef.current);
+                longPressTimerRef.current = null;
+              }
+            }}
+            onPointerCancel={() => {
+              if (longPressTimerRef.current != null) {
+                window.clearTimeout(longPressTimerRef.current);
+                longPressTimerRef.current = null;
+              }
+            }}
+            onPointerUp={() => {
+              // Clear the pending timer if it hasn't fired yet — this is a tap.
+              // Do NOT clear longPressFiredRef here — the subsequent onClick
+              // needs to read it.
+              if (longPressTimerRef.current != null) {
+                window.clearTimeout(longPressTimerRef.current);
+                longPressTimerRef.current = null;
+              }
+            }}
+            onClick={(e) => {
+              // Suppress the tap-driven click if a long-press already fired.
+              if (longPressFiredRef.current) {
+                longPressFiredRef.current = false;
+                e.stopPropagation();
+                return;
+              }
+              void onSpeakClick(e);
+            }}
+            aria-label={
+              speakState === "playing"
+                ? "Pause speaking"
+                : speakState === "paused"
+                  ? "Resume speaking"
+                  : "Speak message"
+            }
+            style={{
+              position: "absolute",
+              right: 6,
+              bottom: 6,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: autoplayArmed
+                ? "hsla(var(--pv-id-hue),60%,70%,0.28)"
+                : "rgba(0,0,0,0.28)",
+              borderWidth: 1,
+              borderStyle: "solid",
+              borderColor: autoplayArmed
+                ? "hsla(var(--pv-id-hue),70%,70%,0.35)"
+                : "rgba(255,255,255,0.10)",
+              color: "rgba(255,220,170,0.72)",
+              opacity: 0.62,
+              cursor: "pointer",
+              transition: "opacity 120ms, background 120ms, transform 80ms",
+            }}
+            className="pv-speak-btn hover:!opacity-100 hover:!bg-[rgba(0,0,0,0.42)] focus-visible:!opacity-100 active:scale-[0.92] [@media(hover:none)]:!opacity-[0.72]"
+          >
+            {speakState === "loading" ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : speakState === "playing" ? (
+              <Pause size={16} />
+            ) : speakState === "paused" ? (
+              <Play size={16} />
+            ) : (
+              <Volume2 size={16} />
+            )}
+          </button>
         )}
       </div>
     </div>
