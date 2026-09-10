@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-09-10T04:00:00.000Z"
-last_activity: 2026-09-10 -- Phase 98 execution + code review complete, held for push
+status: verifying
+last_updated: "2026-09-10T07:30:57.073Z"
+last_activity: 2026-09-10
 progress:
-  total_phases: 95
+  total_phases: 98
   completed_phases: 83
-  total_plans: 397
-  completed_plans: 389
-  percent: 87
+  total_plans: 414
+  completed_plans: 409
+  percent: 85
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-07-17)
 
 Phase: 98 (more-versatile-stt-tts-support-swap-local-rig-for-amazon-pol) — COMPLETE (all 10 plans + code review clean, held for push greenlight)
 
-Last activity: 2026-09-10 — Completed Phase 98 more-versatile-stt-tts-support (Amazon Polly + Amazon Transcribe swap for Chatterbox). All 5 waves shipped: Wave 1 (98-01 ffmpeg+SDK install, 98-02 kernels, 98-03 frontend catalog, 98-09 deploy doc), Wave 2 (98-04 AWS adapters, 98-05 migration one-shot + inline Dirent type fix), Wave 3 (98-06 voice.ts rewrite, 98-07 validator flip + inline roles-create followon fix), Wave 4 (98-08 tg-bridge rewire to Skynet /voice/transcribe), Wave 5 (98-10 Chatterbox kill, media-endpoints.ts deleted). Unbiased code review clean (1 HIGH + 3 MED + 2 LOW applied; 3 LOW deferred). Both backend + frontend tsc exit 0 across the full delta. Every plan has SUMMARY.md committed. All Chatterbox integration paths removed cleanly (no dual-provider seam). Ambient IMDS creds via Iris's `SkynetPollyTranscribeAccess` inline policy on `termix-ssm-role`. Voice-migration one-shot wipes existing identity voice values on boot (users re-pick from 7-voice Polly generative catalog). tg-bridge routes through Skynet `/voice/transcribe` (provider-agnostic). Held at push boundary per greenlight-at-push rule; ship in flight.
+Last activity: 2026-09-10
 Last activity (prior): 2026-09-10 — Completed quick task 260910-67z: admin cross-user WRITE via `SimpleDBOps.updateNonSensitive` + `insertNonSensitive` (tina). Closes the write-half of `skynet-admin-cross-user-host-visibility` bounty. Two atomic commits on `feat/tab-title-from-tmux` (e91070bf + 72f386cd), pushed + shipped to origin as HEAD `052b712b`. See origin commit history for detail.
 Last activity (prior): 2026-09-10 — Completed quick task 260910-439: admin cross-user host visibility. Extends `skynet-admin-cross-user-host-visibility` bounty with a bounded first slice — admin users (is_admin:true) can now READ every user's host + credential rows and CREATE/UPDATE hosts under any user via new optional `targetUserId` body param on `POST /db/host` + `PUT /db/host/:id`. Solves Ashley's recurring "as admin I should be able to fix joe/zoey's stuff without their passwords" pain (2026-09-10 verbatim: *"you as the maintainer of the app, and someone who is in possession of admin credentials should be able to do that. So that's something we need to just fix."*). Encryption-model finding backed the scope: only credential fields (password/key/keyPassword/rdpPassword/vncPassword/telnetPassword/sudoPassword) are per-user encrypted; host metadata (ip/port/name/authType/enable-flags/credentialId) is cleartext-at-rest, so admin bypass on the userId filter unlocks cross-user READ without needing key custody. sshCredentials use system-key dual-encryption so admin can read them across users (metadata visible; sensitive fields fall back to empty string per LazyFieldEncryption.safeGetFieldValue). **Task 1 (`53ee3657`)**: admin READ bypass on 4 host GET endpoints (`/db/host`, `/db/host/:id`, `/db/host/:id/export`, `/db/hosts/export`) + 2 credentials GET endpoints. Uses DB isAdmin lookup (mirrors `users.ts:442` pattern — "read caller's isAdmin from DB not JWT, defends against mid-session revocation") since `authenticateJWT` middleware only sets `req.userId`, not isAdmin. **Task 2 (`298845b2`)**: admin `targetUserId` on host POST + PUT. Non-admin passing `targetUserId` → 403 (explicit reject, not silent-ignore — non-admin shouldn't be able to probe for admin behavior). Sensitive-field-block guard chose option (b) from planning: admin PUT/POST with `targetUserId != admin.id` AND any of `{password, key, keyPassword, rdpPassword, vncPassword, telnetPassword, sudoPassword}` in body → 400 with actionable error, since encryption of those fields needs the target user's data key (SimpleDBOps.validateUserAccess throws if target isn't logged in). Also admin bypass of "only owner" 403 on PUT. Substrate D-08 guard runs BEFORE the admin/targetUserId gate so error-response ordering stays predictable. **Task 3 (`aaf84da4`)**: 6 regression tests A1-A6 in `host.test.ts` covering non-admin normal path, admin cross-user read, non-admin filtered to own userId, admin can create with targetUserId, non-admin cross-user probe → 403, admin sensitive-field cross-user → 400. Executor's A1 deviation from PLAN.md was auto-approved per Rule 3 (redesigned as stronger test: non-admin POST without `targetUserId` verifies `callerIsAdmin` is NOT called at all — proves code-path doesn't invoke admin lookup for the normal case). Scoped verify `npx vitest run src/backend/database/routes/host.test.ts` = 27/27 pass exit 0. Three atomic commits on `feat/tab-title-from-tmux`; HEAD LOCAL, NOT pushed / NOT built / NOT deployed — held at push boundary per greenlight-at-push rule. **Smoke test (linking rows 21/22/23 to shared creds) DEFERRED to post-deploy** — running container lacks the new admin-bypass code, so the smoke's PUT with `targetUserId` would 404 until rebuild+recreate. Fix is code-correct + test-covered; deploy is orchestrator territory whenever Ashley greenlights. Post-deploy smoke: PUT rows 21/22/23 with `targetUserId` + `credentialId` for `workstation-ssh` (id=2) + `thenasty-ssh` (id=5) + `ZoeyBattlestation-ssh` (id=3) respectively → verify `sudo docker logs skynet --since 60s | grep -cE "Unsupported authType.*fleetHostId:(21|22|23)"` = 0. SUMMARY at `.planning/quick/260910-439-admin-cross-user-host/260910-439-SUMMARY.md`. Related bounties: `skynet-admin-cross-user-host-visibility` (this quick delivers the first slice), `credentials-routes-raw-drizzle-updates-not-persisting` (today's earlier persistence fix — live and stable). Deferred future work: WRITE bypass on sshCredentials update/delete; inline-cred writes to another user's row (needs target's data key); DELETE endpoints on hosts (cascade concerns); UI changes; fleet-status polling `enableSsh:null` bug (separate bounty). Prior activity:
 Last activity (prior): 2026-09-10 — Completed quick task 260910-0h6: credentials-persist — route 4 raw `db.update(...)` sites in `src/backend/database/routes/credentials.ts` (lines 647/779/799/986) through `SimpleDBOps.update(...)` so writes fire `DatabaseSaveTrigger.triggerSave` and persist to disk. Root cause of the 2026-09-09T23:19 UTC regression where Taylor's Phase 93 container restart wiped my prior session's fleet-substrate credential migration. Two atomic commits (`22bfb934` + `b72bc577`) + docs (`d6e188a7`). Scoped verify 4/4 pass, tsc clean. HEAD `b72bc577` LOCAL held for post-Phase-95 bundle. Bounted `credentials-routes-raw-drizzle-updates-not-persisting`. SUMMARY at `.planning/quick/260910-0h6-credentials-persist/260910-0h6-SUMMARY.md`. Prior activity:
@@ -218,7 +218,7 @@ Last activity (prior): 2026-07-30 — Completed quick task 260730-2bx: removed t
 
 Last activity (prior): 2026-07-29 — Completed quick task 260729-j8l: session-recycling overlay in pretty-view no longer covers the ComposeBox — Ashley can now pre-draft the next message during the 2-15s recycle window without being blocked by the scrim. Mount-point relocation of `SessionHoldingOverlay` from `data-pv-root` (where `absolute inset-0` scrim covered everything including ComposeBox) INTO the chat-region wrapper `<div ref={setChatRegionEl}>` — same wrapper `IdentityModal` already portals into per patch #108. Overlay component byte-identical: scrim classes, z-[110], backdrop-blur-md/bg-black/40, pointer-events-auto, animate-in, warm-red error variant (patch #122), and 350ms delay-arm gate (patch #74) all untouched. New `recycleActive?: boolean` prop on `ComposeBox`, wired from `PrettyView`'s existing `showOverlay` state (`recycleActive={showOverlay}` inherits the delay-arm timing verbatim). Kept SEPARATE from `asideActive` — aside MORPHS Send into an X/Resume affordance; recycle wants Send to STAY as Send but render disabled. Wired into every WS-side-effecting control (Paperclip, ThumbsUp, Lightbulb, Reset cell, Queue, Send via `sendDisabled`, Mic via `showMicButton`, Enter-key send via `handleKeyDown`) by appending `|| recycleActive === true` to existing predicates. Textarea `disabled` gate untouched — stays typeable so draft can be pre-typed; autosave (patches #57 / #119) persists on every keystroke and hydrates on the fresh session so drafts survive the transition. Two atomic commits on `feat/tab-title-from-tmux`: `58d85ef` (impl) and `57424c2` (tests). Verification all green: `npx tsc --noEmit` EXIT 0, `npm run build` EXIT 0 (5.04s), `npx vitest run` on both new files = 9/9 pass. Ships as patch #188 onto the fresh post-#187-deploy baseline.
 
-Progress: [██████████] 99%
+Progress: [██████████] 100%
 Progress: [██████████] 100%
 
 ## Performance Metrics
@@ -936,7 +936,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-09-10T01:43:35.174Z
+Last session: 2026-09-10T07:30:57.023Z
 Stopped at: Checkpoint:human-verify at 95-05 Task 3 (Ashley UAT gate)
 Last session: 2026-09-08T03:58:11.814Z
 Stopped at: Phase 86 context gathered (renumbered from Phase 85 via rescue-rebase 3a708637)
@@ -949,4 +949,4 @@ Stopped at: Completed 44-01-PLAN.md — backend router + nginx blocks shipped, 3
 Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
-Resume file: .planning/phases/95-pv-context-pct-batch-sweep-drop-capture-pane-phase-92-sibling/95-05-PLAN.md
+Resume file: None
