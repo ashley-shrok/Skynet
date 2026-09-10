@@ -1,4 +1,5 @@
 import type { Client as SSHClient } from "ssh2";
+import { getHostSemaphore } from "./host-semaphore-registry.js";
 
 // Serializes SSH channel open requests so only one channel negotiation is
 // in-flight at a time per session. Once the channel is established the slot
@@ -175,18 +176,31 @@ export function execChannel(
     stream: import("ssh2").ClientChannel,
   ) => void,
 ): void {
-  session.channelOpener
-    .run(
-      () =>
-        new Promise<import("ssh2").ClientChannel>((resolve, reject) => {
-          session.client.exec(command, (err, stream) => {
-            if (err) return reject(err);
-            resolve(stream);
-          });
-        }),
-    )
-    .then(
-      (stream) => callback(undefined, stream),
-      (err: Error) => callback(err, undefined as never),
-    );
+  const channelPromise =
+    session.hostId != null
+      ? getHostSemaphore(session.hostId).run(() =>
+          session.channelOpener.run(
+            () =>
+              new Promise<import("ssh2").ClientChannel>((resolve, reject) => {
+                session.client.exec(command, (err, stream) => {
+                  if (err) return reject(err);
+                  resolve(stream);
+                });
+              }),
+          ),
+        )
+      : session.channelOpener.run(
+          () =>
+            new Promise<import("ssh2").ClientChannel>((resolve, reject) => {
+              session.client.exec(command, (err, stream) => {
+                if (err) return reject(err);
+                resolve(stream);
+              });
+            }),
+        );
+
+  channelPromise.then(
+    (stream) => callback(undefined, stream),
+    (err: Error) => callback(err, undefined as never),
+  );
 }
