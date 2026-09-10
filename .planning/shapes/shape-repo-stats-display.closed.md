@@ -135,3 +135,55 @@ The work fits comfortably in one phase — one shipping unit with meaningful bac
 - The existing on-avatar bounty-badge machinery being retired here lives in `src/ui/features/pretty-conversations/PrettyBountyCountBadge.tsx` and the corresponding CSS rules in `pretty-conversations.css` under the `.pv-avatar .pv-bounty-badge-wrap` selectors. Removing this cleanly is a scope motion, not a side effect.
 
 **Executor scope stops at code + commit + local scoped tests green.** Per fleet directive: the deploy motion (rebase / coord post / push / build / recreate / verify) is orchestrator-only after the executor returns. No "ship" task at executor scope. Full-suite tests run at the deploy gate, not before push.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-10
+**Vehicle used:** single GSD phase (Phase 104), three plan waves — backend detector, frontend indicator, retire bounty-count wire; separate dedicated WS wire (identity:probe-trapped-work → identity:trapped-work) on a 60s + window.focus poller with per-host connection-limit gate, rather than piggybacking literally on the fleet-status channel
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · per-identity binary indicator that lights when there's unshipped local work, wired end-to-end from workspace walk through WS probe through indicator render
+- **Shape — the detector** — present · walks fleet/identities/<key>/workspace/ to depth 3, per-project eligibility + trapped-state probe, aggregates to one hasTrappedWork boolean; silent-fail when workspace absent or empty
+- **Shape — the indicator** — present · GitPullRequestDraft warm-amber pilled disc, bottom-right avatar corner on both the conv-list row and the chat-header identity badge; renders only on strict hasTrappedWork===true; no click behavior; tooltip on hover
+- **Philosophy — rescue-oriented, not productivity** — present · no nag copy, no counts, no per-project detail, no notifications; single quiet presence signal
+- **Philosophy — intent-based, not comprehensive** — present · eligibility gates on remote-configured repos only; untracked files ignored; remote-less repos ignored; nested repos ignored (outermost-only)
+- **Philosophy — zero-cost for non-participants** — present · detector returns hasTrappedWork:false when workspace absent; component gates on strict ===true so undefined and false both render nothing; self-hiding holds at data layer
+- **Philosophy — consistency across the two surfaces** — present · same icon, same bottom-right corner, same tooltip copy, same warm-amber palette on both PrettyConversationRow avatar and IdentityBadge avatar
+- **Philosophy — always shown active or dormant** — present · poller's getTargets walks pinned + middle + rdpGroup rows without gating on activeSet; dormant identities remain covered
+- **Prior context — remove the two role-count avatar badges (conv-list only)** — present · PrettyBountyCountBadge.tsx deleted; .pv-avatar .pv-bounty-badge-wrap CSS rules retired; bounty-count wire retired end-to-end (Plan 03 T1/T2/T3)
+- **Prior context — no removal needed on IdentityBadge** — present · IdentityBadge only receives the addition; no prior badges removed there
+- **Prior context — silent gap for pre-convention identities** — present · hard-coded fleet/identities/<key>/workspace/ path, no env override, no fallback probing; pre-convention identities silently return hasTrappedWork:false
+- **What would make it wrong: firing on an identity with no code work** — present · detector returns false for absent/empty workspace; component gates on ===true; test coverage confirms undefined and false both render nothing
+- **What would make it wrong: rendering role-scoped state instead of per-identity** — present · detector keyed by identityKey + workspace path; store keyed by composite (identityKey, hostId); no role-file lookup path (D-09)
+- **What would make it wrong: drift into productivity-tracker territory** — present · no counts anywhere in the payload, store, or DOM; no per-project detail; no drill-down affordance; tooltip is orientation copy, not stats
+- **What would make it wrong: divergent visuals across surfaces** — present · same GitPullRequestDraft icon, same bottom-right pilled disc, same hsla(35, 65%, 55%, 0.85) amber, same tooltip copy on both surfaces
+- **What would make it wrong: detection cost creeping into interactive path** — present · detection runs on 60s poll + window.focus refresh through a one-shot WS request that closes after response; component reads from local store; render never waits on a probe; per-host connection-limit gate now guards remote fan-out
+- **Scope edges — IN items all present** — present · backend detector, badge removal, indicator on both surfaces, tests for detection + both frontends, hover tooltip all shipped
+- **Scope edges — OUT items respected** — present · no additional identity surfaces touched, no drill-down UI, no counts anywhere, git-only, no nag/reminder/notification copy, no migration of pre-convention identities, no history tracking
+- **Scope edges — Tempting-but-no respected** — present · single-tone icon (no uncommitted-vs-unpushed distinction), no path override for pre-convention identities, no count in tooltip
+- **Detection semantics — eligibility rules** — present · remote-configured repos only; dirty tracked files, local-only commits (rev-list --branches --not --remotes --count), and stashes all count; untracked ignored; nested repos ignored (outermost-only walker halts descent on .git); no-remote repos ignored
+- **Visual decisions — tasted specifics** — present · GitPullRequestDraft from lucide, bottom-right pilled disc on both surfaces, warm-amber hsla(35, 65%, 55%, 0.85) with drop-shadow glow ~40%, cream #f0ebe0 icon fill, tooltip "Has local work not yet pushed to any remote", no click behavior
+- **Vehicle notes — single phase** — present · single Phase 104 with three plan waves; backend + frontend shipped together
+- **Vehicle notes — detection runs where the workspace lives** — drifted · endorsed-as-drift by user: shape's fleet-status-bundle language was based on a misidentification of the analog subsystem (fleet-status runs at 2s cadence, wrong workload shape for a per-repo git scan); shipped as a sibling wire on its own channel with its own timer, preserving the non-blocking/cached/poll-lagged spirit
+- **Vehicle notes — aesthetic fidelity to pretty-view tokens** — present · no new palette variables introduced; amber value reuses the pretty-view warm fallback hue; icon fill reuses the retired bounty-badge cream; Inter font continuity
+- **Vehicle notes — tests cover detection + both surfaces** — present · backend covers no-repos/clean/dirty/local-only/stash/remote-less/nested/depth-boundary/malformed-.git; frontend covers indicator-absent-undefined, indicator-absent-false, indicator-present-true, tooltip copy, aria-hidden, both surfaces render consistently
+
+### Additions (in the result, not in the shape)
+
+- Per-host connection-limit gate wrapping the remote-group's connection-open + fan-out + close block in the trapped-work WS handler — an improvement over the retired sibling pattern that was missing the gate; tests added asserting gate is acquired per unique remote host and NOT acquired for the local-only path — endorsed-as-drift
+
+### Follow-ups
+
+None.
+
+### Notes
+
+Shape's test-plan mentioned "existing green ready-for-attention dot unchanged" as a coexistence check — the codebase no longer has that green dot; it was retired in Phase 48 and replaced by a spinner keyed on the same 4 inputs. Not a Phase 104 miss; a fact about the codebase the shape author didn't have at open time. Worth carrying forward that the ready-signal on conv-list rows is now spinner-based, not dot-based.
+
+Two speculative store exports (useAllTrappedWork + trappedWorkCompositeKey) were included initially as byte-shape mirrors of the retired bounty-count pattern; trimmed inline during this review at the user's endorsement, with the composite-key helper surviving as module-internal.
+
+The vehicle note about piggybacking on fleet-status turned out to be based on a misidentification of the analog subsystem — worth remembering for future shape-authoring that vehicle-note technical hints can be shape-author speculation, and executors are right to correct them at discuss-phase when research contradicts them.
