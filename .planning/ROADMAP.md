@@ -2245,10 +2245,13 @@ Plans:
 
 ### Phase 100: STT chunked parallel streaming — split incoming voice audio into ~8s overlapping chunks and dispatch parallel AWS Transcribe streaming sessions, stitch results via word-timestamp dedup. Backend-only refactor of handleTranscribe in src/backend/database/routes/voice.ts. Preserves /voice/transcribe endpoint contract exactly (same multipart WebM in, same {text} JSON out, slash-command transform preserved). Targets 5-10x speedup vs the current single-stream real-time floor (empirical benchmark 2026-09-10: 3s clip returns in 0.8s, 8s in 3.6s, 15s in 8.8s, 30s in 17.8s; so 4 parallel 8s chunks target ~3.5s wall for 30s audio vs 18s today). Follow-up to Phase 98 more-versatile-stt-tts-support. Bounty: stt-chunked-parallel-streaming.
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Longer voice recordings (>=10s) transcribe in a fraction of the wall time by dispatching parallel Amazon Transcribe streaming sessions on silence-aware audio chunks and stitching results via word-timestamp overlap dedup. Backend-only refactor. /voice/transcribe endpoint contract, response shape, disk-bank write, and slash-command transform all preserved byte-for-byte. Short clips (<10s) still take the single-stream path (D-05).
+**Requirements**: D-01..D-14 (see 100-CONTEXT.md — this is a refactor phase; decision IDs act as requirements)
 **Depends on:** Phase 98
-**Plans:** 0 plans
+**Plans:** 4 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 99 to break down)
+- [ ] 100-01-PLAN.md — Wave 1 (deps: none): semaphore.ts (5-line factory + tests) + audio-chunker.ts (sliceFlac, scanSilenceGaps, probeDuration, parseSilenceGaps, computeChunkBoundaries + tests) + export runFfmpeg from audio-transcode.ts for shared use
+- [ ] 100-02-PLAN.md — Wave 1 (deps: none): word-stitcher.ts (stitchChunks + longestCommonRun pure functions) + word-stitcher.test.ts covering normal overlap, zero-match fallback, empty-Items fallback, gap-marker passthrough
+- [ ] 100-03-PLAN.md — Wave 2 (deps: 100-01, 100-02): extend transcribe-adapter.ts with transcribeBufferWithItems export (Items-collecting sibling to transcribeBuffer) + create transcribe-orchestrator.ts (transcribeBufferChunked entry point with module-level N=5 semaphore, per-chunk retry, [...] gap marker, AccessDenied propagation, structured logs)
+- [ ] 100-04-PLAN.md — Wave 3 (deps: 100-03): wire fast-path gate in voice.ts handleTranscribe (CHUNKED_THRESHOLD_BYTES=80_000 branch to transcribeBufferChunked for long clips) + extend voice.test.ts with routing / chunked-path AccessDenied / chunked-path failure tests; preserves D-12 response shape, D-13 slash-transform, D-14 disk-bank write
