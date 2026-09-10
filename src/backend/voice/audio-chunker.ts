@@ -146,59 +146,73 @@ export function scanSilenceGaps(
 // ---------------------------------------------------------------------------
 
 /**
- * Probes the duration of a FLAC buffer via ffprobe.
+ * Probes the duration of a FLAC buffer.
+ *
+ * Uses `ffmpeg -f null -` (not `ffprobe -show_entries format=duration`)
+ * because the FLAC produced by `webmToFlac` writes to a pipe: FLAC's
+ * `total_samples` field in the STREAMINFO block can only be filled in via
+ * a seek-back after encoding is done, which is impossible on a stdout
+ * pipe. That leaves `total_samples: 0` in the header, and ffprobe correctly
+ * reports Duration: N/A. ffmpeg -f null - reads the whole audio stream and
+ * emits `time=HH:MM:SS.mm` progress lines in stderr — the LAST such line
+ * reflects the total duration. We parse that.
  *
  * Argv contains ONLY literal strings; user data flows through stdin only.
  * (T-98-04-04 inherited constraint.)
  *
- * @param flacBuf - Full FLAC audio bytes.
+ * @param flacBuf - Full FLAC audio bytes (any FLAC — pipe-produced or file-produced).
  * @returns Duration in seconds as a float.
- * @throws When ffprobe exits non-zero, or when stdout is not a parseable float.
+ * @throws When ffmpeg exits non-zero, or when no time= line was emitted (malformed input).
  */
 export function probeDuration(flacBuf: Buffer): Promise<number> {
   return new Promise((resolve, reject) => {
     const ff = spawn(
-      "ffprobe",
+      "ffmpeg",
       [
         "-f",
         "flac",
         "-i",
         "pipe:0",
-        "-v",
-        "quiet",
-        "-show_entries",
-        "format=duration",
-        "-of",
-        "default=noprint_wrappers=1:nokey=1",
+        "-f",
+        "null",
+        "-",
       ],
       { stdio: ["pipe", "pipe", "pipe"] },
     );
 
-    const outChunks: Buffer[] = [];
     const errChunks: Buffer[] = [];
 
-    ff.stdout.on("data", (c: Buffer) => outChunks.push(c));
     ff.stderr.on("data", (c: Buffer) => errChunks.push(c));
     ff.on("error", (err) => reject(err));
     ff.on("close", (code: number | null) => {
+      const stderrText = Buffer.concat(errChunks).toString();
       if (code !== 0) {
-        const stderrText = Buffer.concat(errChunks).toString();
-        reject(new Error(`ffprobe exited ${code}: ${stderrText}`));
+        reject(new Error(`ffmpeg exited ${code}: ${stderrText}`));
         return;
       }
-      const raw = Buffer.concat(outChunks).toString().trim();
-      const duration = parseFloat(raw);
+      // Find the LAST `time=HH:MM:SS.mm` in stderr (ffmpeg progress lines).
+      // ffmpeg emits multiple progress lines as it processes; the last one
+      // is the final duration.
+      const matches = stderrText.matchAll(/time=(\d+):(\d+):(\d+\.\d+)/g);
+      let last: RegExpMatchArray | null = null;
+      for (const m of matches) last = m;
+      if (!last) {
+        reject(new Error(`ffmpeg emitted no time= progress line: ${stderrText}`));
+        return;
+      }
+      const [, hh, mm, ss] = last;
+      const duration = parseInt(hh, 10) * 3600 + parseInt(mm, 10) * 60 + parseFloat(ss);
       if (!Number.isFinite(duration)) {
-        reject(new Error(`ffprobe returned non-numeric duration: "${raw}"`));
+        reject(new Error(`ffmpeg time= parsed to non-numeric duration: "${last[0]}"`));
         return;
       }
       resolve(duration);
     });
 
-    // Swallow EPIPE on stdin — ffprobe reads FLAC headers (~100 bytes) and
-    // exits before consuming the rest of the buffer. See runFfmpeg docstring
-    // in audio-transcode.ts for full rationale. Without this handler, EPIPE
-    // bubbles as an uncaught error event and crashes the Node process.
+    // Swallow EPIPE on stdin — defensive; ffmpeg -f null - consumes the whole
+    // input so EPIPE is unlikely here, but keep the handler consistent with
+    // scanSilenceGaps + runFfmpeg to avoid unhandled-error-event crashes if
+    // ffmpeg exits early on malformed input.
     ff.stdin.on("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "EPIPE") return;
       reject(err);

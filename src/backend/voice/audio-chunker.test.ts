@@ -165,40 +165,50 @@ describe("audio-chunker.probeDuration", () => {
     spawnMock.mockReturnValueOnce(fake);
   });
 
-  it("Test 1: spawns ffprobe with exact argv and parses stdout float", async () => {
+  it("Test 1: spawns ffmpeg -f null - and parses the LAST time= line from stderr", async () => {
     const buf = Buffer.from([0xc]);
     const promise = probeDuration(buf);
 
-    fake.stdout.emit("data", Buffer.from("8.000000\n"));
+    // Simulate ffmpeg progress + summary — the last time= wins.
+    fake.stderr.emit(
+      "data",
+      Buffer.from(
+        "size=N/A time=00:00:00.07 bitrate=N/A speed= 362x    " +
+          "size=N/A time=00:00:28.20 bitrate=N/A speed= 381x    \n" +
+          "video:0kB audio:881kB muxing overhead: unknown\n",
+      ),
+    );
     fake.emit("close", 0);
     const result = await promise;
 
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const [bin, args] = spawnMock.mock.calls[0] as [string, string[]];
-    expect(bin).toBe("ffprobe");
-    expect(args).toEqual([
-      "-f",
-      "flac",
-      "-i",
-      "pipe:0",
-      "-v",
-      "quiet",
-      "-show_entries",
-      "format=duration",
-      "-of",
-      "default=noprint_wrappers=1:nokey=1",
-    ]);
-    expect(result).toBe(8);
+    expect(bin).toBe("ffmpeg");
+    expect(args).toEqual(["-f", "flac", "-i", "pipe:0", "-f", "null", "-"]);
+    // 00:00:28.20 → 28.20 seconds
+    expect(result).toBeCloseTo(28.2, 3);
   });
 
-  it("Test 2: rejects when stdout is not a parseable float", async () => {
+  it("Test 2: parses HH:MM:SS.mm correctly for multi-minute audio", async () => {
     const buf = Buffer.from([0xc]);
     const promise = probeDuration(buf);
 
-    fake.stdout.emit("data", Buffer.from("N/A\n"));
+    fake.stderr.emit("data", Buffer.from("time=00:01:10.36 bitrate=N/A\n"));
+    fake.emit("close", 0);
+    const result = await promise;
+
+    // 1 minute 10.36 seconds = 70.36 seconds
+    expect(result).toBeCloseTo(70.36, 3);
+  });
+
+  it("Test 3: rejects when no time= line was emitted (malformed input)", async () => {
+    const buf = Buffer.from([0xc]);
+    const promise = probeDuration(buf);
+
+    fake.stderr.emit("data", Buffer.from("Invalid data found when processing input\n"));
     fake.emit("close", 0);
 
-    await expect(promise).rejects.toThrow(/non-numeric/);
+    await expect(promise).rejects.toThrow(/no time= progress line/);
   });
 });
 
