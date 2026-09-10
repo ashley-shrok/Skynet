@@ -15,7 +15,8 @@
  *
  * NOT tested here (dropped or covered elsewhere):
  *   - `handleListVoices` — deleted entirely per D-Claude's-discretion 2026-09-10.
- *   - Chatterbox-URL forwarding — dead; media-endpoints.ts imports are gone.
+ *   - Chatterbox-URL forwarding — dead; the old shared-constants module (Phase
+ *     79 Plan 02) was deleted in Phase 98 Plan 10 alongside all its imports.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";

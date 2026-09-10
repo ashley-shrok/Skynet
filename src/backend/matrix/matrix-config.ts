@@ -2,13 +2,13 @@
  * Phase 98 Plan 10 — matrix-config.
  *
  * Houses `getMatrixHomeserverBase`, the single non-STT/non-TTS export that
- * used to live in `src/backend/config/media-endpoints.ts`. Moved here as
- * part of D-Kill-list (Phase 98 clean cutover) so `media-endpoints.ts`
- * can be deleted outright.
+ * used to live in the old shared-constants module under `src/backend/config/`.
+ * Moved here as part of D-Kill-list (Phase 98 clean cutover) so the old
+ * module can be deleted outright.
  *
  * Why the move:
- *   media-endpoints.ts was a Phase 79-Plan-02 shared-constant module for the
- *   old Chatterbox tailnet URLs (`http://100.80.122.111:8000` / `:8001`) that
+ *   The old config module was a Phase 79-Plan-02 shared-constant home for
+ *   the Chatterbox tailnet URLs (STT / TTS / streaming-TTS / voices) that
  *   Skynet's STT/TTS proxy and the tg-bridge both referenced. Phase 98
  *   replaced Chatterbox with AWS Polly + Amazon Transcribe (clean cutover,
  *   no dual-provider seam). Once the URL constants were unused, the file
@@ -21,11 +21,11 @@
  *   to write into `/state/config.env` for the tg-bridge container.
  *
  * Behavior:
- *   Byte-for-byte carry-over of the old media-endpoints.ts function body.
- *   Same dynamic-import pattern to avoid the static-import cycle
- *   (matrix-admin-creds-store transitively loads the database layer at
- *   module-load; keeping the dep lazy means importing this file has zero
- *   side effects and does not touch the DB).
+ *   Byte-for-byte carry-over of the old function body. Same dynamic-import
+ *   pattern to avoid the static-import cycle (matrix-admin-creds-store
+ *   transitively loads the database layer at module-load; keeping the dep
+ *   lazy means importing this file has zero side effects and does not
+ *   touch the DB).
  */
 
 /**

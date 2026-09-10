@@ -1,7 +1,7 @@
 /**
  * Phase 98 Plan 10 Task 1 — matrix-config unit tests.
  *
- * Ported from `src/backend/config/media-endpoints.test.ts`
+ * Ported from the old shared-constants test file under `src/backend/config/`
  * (getMatrixHomeserverBase-specific cases). The STT_URL / TTS_URL /
  * TTS_STREAM_URL / VOICES_URL constant cases from the old test file
  * are INTENTIONALLY NOT ported — those exports were the Chatterbox

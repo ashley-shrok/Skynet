@@ -8,10 +8,11 @@ import { databaseLogger } from "../../utils/logger.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { WAKE_WORD_REGEX, applyServerSlashTransform } from "../../voice/slashCommandTransform.js";
 import { fetchSkillCatalog, DEFAULT_SKILL_CATALOG_TIMEOUT_MS } from "../../voice/skill-catalog.js";
-// Phase 98 Plan 06 — AWS-backed voice routes. media-endpoints.ts is deleted
-// alongside this rewrite; the Chatterbox tailnet endpoints are dead. All
-// provider translation moves onto the backend behind the AWS SDK v3 adapters
-// from Plan 04 + the pure kernels from Plan 02.
+// Phase 98 Plan 06 — AWS-backed voice routes. The legacy Chatterbox tailnet
+// URL constants (formerly under src/backend/config/) are deleted alongside
+// this rewrite; those endpoints are dead. All provider translation moves
+// onto the backend behind the AWS SDK v3 adapters from Plan 04 + the pure
+// kernels from Plan 02.
 import { synthesizeToPcm } from "../../voice/polly-adapter.js";
 import { transcribeBuffer } from "../../voice/transcribe-adapter.js";
 import { webmToOggOpus, webmToFlac } from "../../voice/audio-transcode.js";
