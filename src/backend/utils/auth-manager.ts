@@ -710,21 +710,35 @@ class AuthManager {
     req: RequestWithHeaders,
     maxAge: number = 24 * 60 * 60 * 1000,
   ) {
+    // Phase 103 D-02: widen JWT session cookie to Domain=<SKYNET_COOKIE_DOMAIN>
+    // (e.g. "term.gigaashley.click") so the cookie reaches *.term.<domain>
+    // subdomains (including *.serve.term.<domain>). Env-driven per D-23
+    // (t1000 sets its own value; T800 sets its own value independently).
+    // When unset (dev / tests / unconfigured), omit `domain` for
+    // backwards-compatibility with today's behavior.
+    const skynetDomain = process.env.SKYNET_COOKIE_DOMAIN;
     return {
       httpOnly: true,
       secure: req.secure || req.headers["x-forwarded-proto"] === "https",
       sameSite: "lax" as const,
       maxAge: maxAge,
       path: "/",
+      ...(skynetDomain ? { domain: skynetDomain } : {}),
     };
   }
 
   getClearCookieOptions(req: RequestWithHeaders) {
+    // Phase 103 D-02: mirror the domain-widening in getSecureCookieOptions
+    // above — otherwise clearing the cookie leaves the widened-domain
+    // instance in place (a stale wider-scope cookie the browser would
+    // still send back on subsequent requests).
+    const skynetDomain = process.env.SKYNET_COOKIE_DOMAIN;
     return {
       httpOnly: true,
       secure: req.secure || req.headers["x-forwarded-proto"] === "https",
       sameSite: "lax" as const,
       path: "/",
+      ...(skynetDomain ? { domain: skynetDomain } : {}),
     };
   }
 
