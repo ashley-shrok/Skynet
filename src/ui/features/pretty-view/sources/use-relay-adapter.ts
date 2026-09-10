@@ -528,13 +528,43 @@ export function useRelayAdapter(
           break;
         }
         case "send_ack": {
-          const { txnId } = parsed;
+          const { txnId, eventId } = parsed;
           const pending = pendingSendsRef.current.find(
             (p) => p.mqid === txnId,
           );
           if (pending) {
             if (pending.timer !== null) clearTimeout(pending.timer);
             setPendingSends((prev) => prev.filter((p) => p.mqid !== txnId));
+            // Phase 97 UAT follow-up 3 (2026-09-10): promote the pending
+            // into a real history entry using the eventId the server
+            // returned. Without this the sender's own message vanishes
+            // when the pending is cleared (send_ack fires but a
+            // corresponding live_event may never be delivered to the
+            // sender's own WS — some Matrix homeserver configs echo only
+            // to OTHER participants). The synthesized event carries the
+            // sender's mxid + the pending's body content so it renders
+            // identically to how the recipient sees it. If a live_event
+            // for this event_id later arrives, the non-correlated branch's
+            // dedup guard prevents a second copy from being appended.
+            const viewingMxid = viewingUserMxidRef.current;
+            if (viewingMxid !== null) {
+              const synth: MatrixEvent = {
+                event_id: eventId,
+                type: "m.room.message",
+                sender: viewingMxid,
+                origin_server_ts: pending.sentAt,
+                content: {
+                  msgtype: "m.text",
+                  body: pending.content,
+                },
+                unsigned: { transaction_id: txnId },
+              };
+              setHistory((prev) =>
+                prev.some((h) => h.event_id === eventId)
+                  ? prev
+                  : [...prev, synth],
+              );
+            }
           }
           // eslint-disable-next-line no-console
           console.info({
