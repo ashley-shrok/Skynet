@@ -1435,8 +1435,17 @@ router.get(
       });
       return res.status(400).json({ error: "Invalid userId" });
     }
+    // Phase 102: opt-in `?ownedOnly=true` restricts results to hosts the
+    // requester owns (hosts.userId === userId), bypassing both admin
+    // cross-user visibility AND shared-credential access. Every UI surface
+    // that presents a picker or sidebar of hosts should pass this so on
+    // multi-user instances (T800 with 100 users) the picker doesn't surface
+    // every other user's hosts. Default (param omitted) preserves the
+    // existing behavior verbatim so no non-picker consumer regresses.
+    const ownedOnly = req.query.ownedOnly === "true";
     try {
       const isAdmin = await callerIsAdmin(userId);
+      const treatAsAdmin = isAdmin && !ownedOnly;
       const now = new Date().toISOString();
 
       const userRoleIds = await db
@@ -1539,27 +1548,29 @@ router.get(
           ),
         )
         .where(
-          isAdmin
-            ? undefined
-            : or(
-                eq(hosts.userId, userId),
-                and(
-                  eq(hostAccess.userId, userId),
-                  or(isNull(hostAccess.expiresAt), gte(hostAccess.expiresAt, now)),
+          ownedOnly
+            ? eq(hosts.userId, userId)
+            : treatAsAdmin
+              ? undefined
+              : or(
+                  eq(hosts.userId, userId),
+                  and(
+                    eq(hostAccess.userId, userId),
+                    or(isNull(hostAccess.expiresAt), gte(hostAccess.expiresAt, now)),
+                  ),
+                  roleIds.length > 0
+                    ? and(
+                        inArray(hostAccess.roleId, roleIds),
+                        or(
+                          isNull(hostAccess.expiresAt),
+                          gte(hostAccess.expiresAt, now),
+                        ),
+                      )
+                    : sql`false`,
                 ),
-                roleIds.length > 0
-                  ? and(
-                      inArray(hostAccess.roleId, roleIds),
-                      or(
-                        isNull(hostAccess.expiresAt),
-                        gte(hostAccess.expiresAt, now),
-                      ),
-                    )
-                  : sql`false`,
-              ),
         );
 
-      if (isAdmin) {
+      if (treatAsAdmin) {
         databaseLogger.info("[host-db] admin-cross-user-read-hosts", {
           operation: "admin_cross_user_read",
           table: "hosts",
@@ -1572,9 +1583,11 @@ router.get(
       // will decrypt with admin's data key; sensitive fields on other users' rows
       // will fall through LazyFieldEncryption's empty-string fallback — that is
       // acceptable: admin's use case is linking rows to shared credentials, not
-      // viewing other users' inline passwords).
-      const ownHosts = isAdmin ? rawData : rawData.filter((row) => row.userId === userId);
-      const sharedHosts = isAdmin ? [] : rawData.filter((row) => row.userId !== userId);
+      // viewing other users' inline passwords). Under ownedOnly the WHERE
+      // already restricts rawData to own rows, so this split degenerates to
+      // ownHosts=rawData, sharedHosts=[] naturally.
+      const ownHosts = treatAsAdmin ? rawData : rawData.filter((row) => row.userId === userId);
+      const sharedHosts = treatAsAdmin ? [] : rawData.filter((row) => row.userId !== userId);
 
       const decryptedOwnHosts: Record<string, unknown>[] = [];
       const userDataKey = DataCrypto.getUserDataKey(userId);
