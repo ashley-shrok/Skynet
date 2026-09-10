@@ -1,0 +1,65 @@
+# Phase 103 D-19, D-20, D-21, D-22 — Caddyfile additions for the serve URL
+# wildcard subdomain (*.serve.term.gigaashley.click).
+#
+# DEPLOY-TIME ARTIFACT (D-24 single-deploy motion): Ashley appends this
+# snippet to /opt/skynet/Caddyfile during the Phase 103 ship. NOT loaded
+# automatically — the deployed Caddyfile lives on-host, not in-repo, so
+# this snippet exists here for the human-verified append step.
+#
+# HSTS: mirror the exact `header Strict-Transport-Security ...` (or
+# equivalent header directive) from the existing term.gigaashley.click
+# site block in /opt/skynet/Caddyfile when appending this snippet. Per
+# D-22, Phase 103 does NOT diverge from the primary domain's HSTS
+# posture; both subdomain families ship the same policy.
+#
+# TLS issuer: intentionally NO explicit ACME-CA pin — per D-21, Caddy's
+# default issuer chain (Let's Encrypt production preferred, ZeroSSL
+# automatic fallback) is what we want. Pinning to one issuer would lose
+# the fallback.
+#
+# Cross-account Route 53 access: relies on the AWS_PROFILE=caddy env +
+# ~/.aws/config bind mount configured in docker/docker-compose.yml
+# (Task 2). No credentials appear in this Caddyfile.
+
+# -----------------------------------------------------------------------
+# D-01, D-19 — wildcard site: <hostname>-<port>.serve.term.gigaashley.click
+# -----------------------------------------------------------------------
+# Wildcard subdomain fronting Skynet's backend on port 8080. Caddy
+# terminates TLS via Route 53 DNS-01 challenges, then reverse-proxies to
+# skynet:8080 with the full requested subdomain in the
+# X-Skynet-Serve-Subdomain header. Skynet's backend parses <hostname>-<port>
+# from that header and dispatches to the matching per-target SSH tunnel.
+#
+# header_up overwrites any client-supplied X-Skynet-Serve-Subdomain header
+# (threat T-103-01 mitigate: Caddy is the sole authority on this header
+# value; upstream can trust it).
+#
+# 5m timeouts (response_header_timeout + read_timeout) accommodate
+# long-lived WebSocket + Server-Sent Events streams that agents host
+# behind serve URLs (Vite HMR, jupyter, RSC streams, etc.). Per R&D
+# findings-summary L99-100 verified with POC 6.
+
+*.serve.term.gigaashley.click {
+    tls {
+        dns route53
+    }
+    reverse_proxy skynet:8080 {
+        header_up X-Skynet-Serve-Subdomain {host}
+        transport http {
+            response_header_timeout 5m
+            read_timeout 5m
+        }
+    }
+}
+
+# -----------------------------------------------------------------------
+# D-20 — bare serve.term.gigaashley.click redirect
+# -----------------------------------------------------------------------
+# The bare subdomain (no <hostname>-<port> prefix) is not a legitimate
+# serve URL. Redirect any hits to the primary Skynet UI so users who
+# accidentally paste or type just "serve.term.gigaashley.click" land
+# somewhere useful instead of a 404 or default Caddy welcome page.
+
+serve.term.gigaashley.click {
+    redir https://term.gigaashley.click{uri} permanent
+}
