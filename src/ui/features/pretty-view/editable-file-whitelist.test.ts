@@ -22,6 +22,7 @@
 import { describe, it, expect } from "vitest";
 import {
   SKYNET_FILE_URL_RE_CLIENT,
+  SKYNET_SERVE_URL_RE_CLIENT,
   TAILNET_URL_RE_CLIENT,
   stripTrailingPunct,
 } from "./editable-file-whitelist";
@@ -103,5 +104,116 @@ describe("SKYNET_FILE_URL_RE_CLIENT — file-URL client regex (Phase 75 D-01)", 
     const fileUrl =
       "https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md";
     expect(fileUrl.match(TAILNET_URL_RE_CLIENT)).toBeNull();
+  });
+});
+
+describe("SKYNET_SERVE_URL_RE_CLIENT — serve-URL client regex (Phase 103 D-29)", () => {
+  it("matches basic serve URL (host + port + no path)", () => {
+    SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
+    const url = "https://t1000-3020.serve.term.gigaashley.click";
+    const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
+    expect(matches).not.toBeNull();
+    expect(matches!.length).toBeGreaterThanOrEqual(1);
+    expect(matches).toContain(url);
+  });
+
+  it("matches serve URL with path", () => {
+    SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
+    const url =
+      "https://t1000-3020.serve.term.gigaashley.click/foo/bar";
+    const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
+    expect(matches).not.toBeNull();
+    expect(matches!.length).toBeGreaterThanOrEqual(1);
+    expect(matches).toContain(url);
+  });
+
+  it("matches serve URL with different hostname + port (thenasty-8080)", () => {
+    SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
+    const url = "https://thenasty-8080.serve.term.gigaashley.click";
+    const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
+    expect(matches).not.toBeNull();
+    expect(matches!.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("matches serve URL with mixed-case hostname (D-13 case preservation)", () => {
+    SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
+    const url = "https://GIGAASHLEYPC-3000.serve.term.gigaashley.click";
+    const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
+    expect(matches).not.toBeNull();
+    expect(matches!.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("rejects URL without a digit port (foo-bar has no numeric suffix)", () => {
+    SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
+    const url = "https://foo-bar.serve.term.gigaashley.click";
+    const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
+    expect(matches).toBeNull();
+  });
+
+  it("rejects a file URL (belongs to SKYNET_FILE_URL_RE_CLIENT)", () => {
+    SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
+    const url = "https://term.gigaashley.click/file/host/path";
+    const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
+    expect(matches).toBeNull();
+  });
+
+  it("rejects a tailnet URL (belongs to TAILNET_URL_RE_CLIENT)", () => {
+    SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
+    const url = "http://100.64.1.2:3000/";
+    const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
+    expect(matches).toBeNull();
+  });
+
+  it("rejects an arbitrary web URL", () => {
+    SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
+    const url = "https://example.com/path";
+    const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
+    expect(matches).toBeNull();
+  });
+
+  it("rejects http:// scheme (serve URLs are HTTPS-only)", () => {
+    SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
+    const url = "http://t1000-3020.serve.term.gigaashley.click";
+    const matches = url.match(SKYNET_SERVE_URL_RE_CLIENT);
+    expect(matches).toBeNull();
+  });
+
+  it("uses the /g flag (mirror-rule with siblings, required for .match() extraction)", () => {
+    expect(SKYNET_SERVE_URL_RE_CLIENT.flags.includes("g")).toBe(true);
+  });
+});
+
+describe("non-overlap invariants — three sibling URL regexes are disjoint", () => {
+  // Fresh non-global regexes for dispatch-style .test() checks — mirrors the
+  // dispatch pattern in use-editable-file-eligibility.ts (FILE_URL_DISPATCH_RE)
+  // so that /g state cannot contaminate the invariant assertion.
+  const SERVE_RE_NO_G =
+    /^https:\/\/[a-zA-Z0-9._-]+-\d{1,5}\.serve\.term\.[a-zA-Z0-9.-]+(?::\d{1,5})?(?:\/[^\s)?#]*)?$/;
+  const FILE_RE_NO_G =
+    /^https:\/\/[a-zA-Z0-9.-]+(?::\d{1,5})?\/file\/[a-zA-Z0-9._-]+\/[^\s)?#]+$/;
+  const TAILNET_RE_NO_G =
+    /^http:\/\/100\.(?:6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\.\d{1,3}\.\d{1,3}:\d{1,5}\/[^\s)]+$/;
+
+  it("serve URL does NOT match SKYNET_FILE_URL_RE_CLIENT (fresh regex)", () => {
+    const serveUrl = "https://t1000-3020.serve.term.gigaashley.click/app";
+    expect(FILE_RE_NO_G.test(serveUrl)).toBe(false);
+    // Also verify with the /g regex via .match() (stateless per MDN).
+    SKYNET_FILE_URL_RE_CLIENT.lastIndex = 0;
+    expect(serveUrl.match(SKYNET_FILE_URL_RE_CLIENT)).toBeNull();
+  });
+
+  it("serve URL does NOT match TAILNET_URL_RE_CLIENT (fresh regex)", () => {
+    const serveUrl = "https://t1000-3020.serve.term.gigaashley.click/app";
+    expect(TAILNET_RE_NO_G.test(serveUrl)).toBe(false);
+    TAILNET_URL_RE_CLIENT.lastIndex = 0;
+    expect(serveUrl.match(TAILNET_URL_RE_CLIENT)).toBeNull();
+  });
+
+  it("file URL does NOT match SKYNET_SERVE_URL_RE_CLIENT (reciprocal)", () => {
+    const fileUrl =
+      "https://term.gigaashley.click/file/thenasty/home/ubuntu/note.md";
+    expect(SERVE_RE_NO_G.test(fileUrl)).toBe(false);
+    SKYNET_SERVE_URL_RE_CLIENT.lastIndex = 0;
+    expect(fileUrl.match(SKYNET_SERVE_URL_RE_CLIENT)).toBeNull();
   });
 });
