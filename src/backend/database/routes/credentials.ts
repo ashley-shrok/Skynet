@@ -643,18 +643,13 @@ router.delete(
         );
 
       if (hostsUsingCredential.length > 0) {
-        await db
-          .update(hosts)
-          .set({
-            credentialId: null,
-            password: null,
-            key: null,
-            keyPassword: null,
-            authType: "password",
-          })
-          .where(
-            and(eq(hosts.credentialId, parseInt(id)), eq(hosts.userId, userId)),
-          );
+        await SimpleDBOps.update(
+          hosts,
+          "ssh_data",
+          and(eq(hosts.credentialId, parseInt(id)), eq(hosts.userId, userId)),
+          { credentialId: null, password: null, key: null, keyPassword: null, authType: "password" },
+          userId,
+        );
 
         for (const host of hostsUsingCredential) {
           const revokedShares = await db
@@ -775,9 +770,11 @@ router.post(
 
       const credential = credentials[0];
 
-      await db
-        .update(hosts)
-        .set({
+      await SimpleDBOps.update(
+        hosts,
+        "ssh_data",
+        and(eq(hosts.id, parseInt(hostId)), eq(hosts.userId, userId)),
+        {
           credentialId: parseInt(credentialId),
           username: (credential.username as string) || "",
           authType: credential.authType as string,
@@ -786,8 +783,9 @@ router.post(
           keyPassword: null,
           keyType: null,
           updatedAt: new Date().toISOString(),
-        })
-        .where(and(eq(hosts.id, parseInt(hostId)), eq(hosts.userId, userId)));
+        },
+        userId,
+      );
 
       await db.insert(sshCredentialUsage).values({
         credentialId: parseInt(credentialId),
@@ -795,15 +793,17 @@ router.post(
         userId,
       });
 
-      await db
-        .update(sshCredentials)
-        .set({
-          usageCount: sql`${sshCredentials.usageCount}
-                + 1`,
+      await SimpleDBOps.update(
+        sshCredentials,
+        "ssh_credentials",
+        eq(sshCredentials.id, parseInt(credentialId)),
+        {
+          usageCount: sql`${sshCredentials.usageCount} + 1`,
           lastUsed: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
-        })
-        .where(eq(sshCredentials.id, parseInt(credentialId)));
+        },
+        userId,
+      );
       res.json({ message: "Credential applied to host successfully" });
     } catch (err) {
       authLogger.error("Failed to apply credential to host", err);
@@ -982,15 +982,13 @@ router.put(
     }
 
     try {
-      await db
-        .update(sshCredentials)
-        .set({ folder: newName })
-        .where(
-          and(
-            eq(sshCredentials.userId, userId),
-            eq(sshCredentials.folder, oldName),
-          ),
-        );
+      await SimpleDBOps.update(
+        sshCredentials,
+        "ssh_credentials",
+        and(eq(sshCredentials.userId, userId), eq(sshCredentials.folder, oldName)),
+        { folder: newName },
+        userId,
+      );
 
       res.json({ success: true, message: "Folder renamed successfully" });
     } catch (error) {
