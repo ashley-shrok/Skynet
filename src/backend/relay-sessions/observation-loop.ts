@@ -52,6 +52,39 @@ import type { ActiveRelayRoomSession } from "./relay-room-sessions-store.js";
 export const OBSERVATION_TICK_INTERVAL_MS = 10_000;
 
 /**
+ * Fixup quick-260910-hgs (2026-09-10). Bounds ONLY the boot-time first-tick
+ * spread window (used inside `start()` below), NOT the steady-state 10s
+ * cadence. Kept as a separate knob from `OBSERVATION_TICK_INTERVAL_MS`
+ * because the two constants answer different questions:
+ *
+ * - `OBSERVATION_TICK_INTERVAL_MS` = "how often do we re-check a user?"
+ *   (per-user cadence budget; drives the D-06 success interval and the
+ *   per-tick ±20% success-jitter multiplier at scheduleNext(ok=true)).
+ * - `INITIAL_TICK_JITTER_MS`       = "how snappy does cold-load feel?"
+ *   (bounds the first-tick spread for a fleet booting in lock-step).
+ *
+ * Reusing the 10s cadence for the boot spread window (the original
+ * Fixup M-2 shape) is what produced Ashley's ~20s worst-case cold-load
+ * for sidebar relay rooms: first-tick delay of up to 10s, then up to
+ * another ~10s of scan-tick + admin-API latency before the room row
+ * materialized in the sidebar. 500ms tightens that worst-case to well
+ * under 1s (bounded by INITIAL_TICK_JITTER_MS + SCHEDULER_SCAN_INTERVAL_MS
+ * = 500ms + 1s = 1.5s) while preserving the existing thundering-herd
+ * defense.
+ *
+ * Thundering-herd math anchored to Ashley's fleet size (~100 concurrent
+ * boot users): a 500ms spread window yields a peak of ~200 users/sec of
+ * admin-API fan-in against Synapse. That is well within a single Synapse
+ * homeserver's healthy concurrency budget (Synapse admin routes handle
+ * thousands of req/sec on modest hardware), and it keeps the cold-load
+ * latency imperceptible instead of "did the app hang?". Scale upward if
+ * the fleet grows past ~1000 concurrent boot users (peak fan-in ~2000/s
+ * starts to warrant a wider window); scale downward is unnecessary — the
+ * 500ms floor is already at the edge of human perceptibility.
+ */
+export const INITIAL_TICK_JITTER_MS = 500;
+
+/**
  * D-06 backoff ladder for consecutive failures. Index 0 = first backoff
  * (10s), index 4 = capped max (300s = 5 min). backoffIndex clamps at
  * ladder.length - 1. On any success the scheduler resets backoffIndex to 0
@@ -708,14 +741,19 @@ export function createObservationLoop(
     perUserState.clear();
     const now = Date.now();
     for (const { userId, userMxid } of users) {
-      // Fixup M-2 (2026-09-08). Thundering-herd defense: spread each user's
-      // FIRST tick uniformly across [now, now + TICK_INTERVAL_MS). Without
-      // this, `nextRunAt: now` fires every user on the first scan pass,
-      // meaning N parallel admin-API calls to Synapse at boot for a fleet
-      // of N users. Skipped when jitter is disabled (tests want
-      // deterministic firing on the first scan tick).
+      // Fixup M-2 (2026-09-08), tightened by quick-260910-hgs (2026-09-10).
+      // Thundering-herd defense: spread each user's FIRST tick uniformly
+      // across [now, now + INITIAL_TICK_JITTER_MS). Without this,
+      // `nextRunAt: now` fires every user on the first scan pass, meaning
+      // N parallel admin-API calls to Synapse at boot for a fleet of N
+      // users. Window is 500ms (INITIAL_TICK_JITTER_MS), not 10s
+      // (OBSERVATION_TICK_INTERVAL_MS) — the two knobs are separate; see
+      // the INITIAL_TICK_JITTER_MS docblock above for the rationale
+      // (Ashley cold-load fix + fleet-size thundering-herd math).
+      // Skipped when jitter is disabled (tests want deterministic firing
+      // on the first scan tick).
       const initialDelayMs = jitterEnabled
-        ? Math.floor(rng() * OBSERVATION_TICK_INTERVAL_MS)
+        ? Math.floor(rng() * INITIAL_TICK_JITTER_MS)
         : 0;
       perUserState.set(userId, {
         userMxid,
