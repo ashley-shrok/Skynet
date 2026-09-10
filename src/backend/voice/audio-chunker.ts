@@ -131,6 +131,12 @@ export function scanSilenceGaps(
       }
     });
 
+    // Swallow EPIPE on stdin — see runFfmpeg docstring in audio-transcode.ts.
+    ff.stdin.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EPIPE") return;
+      reject(err);
+    });
+
     ff.stdin.end(flacBuf);
   });
 }
@@ -187,6 +193,15 @@ export function probeDuration(flacBuf: Buffer): Promise<number> {
         return;
       }
       resolve(duration);
+    });
+
+    // Swallow EPIPE on stdin — ffprobe reads FLAC headers (~100 bytes) and
+    // exits before consuming the rest of the buffer. See runFfmpeg docstring
+    // in audio-transcode.ts for full rationale. Without this handler, EPIPE
+    // bubbles as an uncaught error event and crashes the Node process.
+    ff.stdin.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EPIPE") return;
+      reject(err);
     });
 
     ff.stdin.end(flacBuf);

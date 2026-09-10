@@ -31,8 +31,12 @@ import { EventEmitter } from "node:events";
  * shape for the transcode wrapper: stdin.end(buf), stdout/stderr data
  * events, and the top-level 'close' + 'error' events.
  */
+class FakeStdin extends EventEmitter {
+  end = vi.fn();
+}
+
 class FakeChildProcess extends EventEmitter {
-  stdin = { end: vi.fn() };
+  stdin = new FakeStdin();
   stdout = new EventEmitter();
   stderr = new EventEmitter();
 }

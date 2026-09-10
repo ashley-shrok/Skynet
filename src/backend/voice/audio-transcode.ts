@@ -100,6 +100,18 @@ export function runFfmpeg(inputBuffer: Buffer, args: readonly string[]): Promise
       }
     });
 
+    // Swallow EPIPE on stdin — ffmpeg may exit early after reading enough input
+    // (e.g. `-ss X -t Y` slicing an early section of a large buffer; ffprobe
+    // header-only reads). The write of the remaining bytes then errors with
+    // EPIPE. That's expected and harmless — the `close` handler above uses the
+    // real exit code as the truth. Without this handler, EPIPE bubbles up as an
+    // "Unhandled error event" and crashes the process. Any non-EPIPE stdin
+    // error still rejects the promise so the caller can surface it.
+    ff.stdin.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EPIPE") return;
+      reject(err);
+    });
+
     ff.stdin.end(inputBuffer);
   });
 }

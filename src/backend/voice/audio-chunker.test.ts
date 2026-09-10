@@ -24,8 +24,12 @@ import { EventEmitter } from "node:events";
  * Fake child_process object mirroring the FakeChildProcess pattern from
  * audio-transcode.test.ts (lines 34-38).
  */
+class FakeStdin extends EventEmitter {
+  end = vi.fn();
+}
+
 class FakeChildProcess extends EventEmitter {
-  stdin = { end: vi.fn() };
+  stdin = new FakeStdin();
   stdout = new EventEmitter();
   stderr = new EventEmitter();
 }
