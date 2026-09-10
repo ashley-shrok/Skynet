@@ -35,7 +35,6 @@ import {
   createPaneStateEmitter,
   type PaneStateEmitter,
 } from "./pane-state-emitter.js";
-import { parseContextPct } from "./context-pct-parser.js";
 import { readContextPctFromJsonl } from "./context-pct-from-jsonl.js";
 // Phase 90 Plan 00 (Wave 0, 2026-09-08 — D-10 delivery mechanism, Ashley 2026-09-08
 // D-03 waiver): dual-write every `context_pct` emission into the fleet-status
@@ -46,8 +45,6 @@ import { readContextPctFromJsonl } from "./context-pct-from-jsonl.js";
 // transition — nothing else consumes them after Task 2, but the safety
 // net stays until the transition is fully validated.
 import { setContextPct } from "../fleet-status/contextpct-store.js";
-import { isPlanPending, parsePlanFilePath } from "./plan-pending-parser.js";
-import { fetchPlanFile } from "../ssh/plan-file-fetch.js";
 import { execCommand } from "../ssh/tmux-helper.js";
 import {
   handleUploadStart,
@@ -160,8 +157,6 @@ import { ROLE_NAME_PATTERN } from "../database/routes/identity-birth-orchestrato
  *     { type: "harness_tasks", tasks }                           // Claude Code /queue + TaskCreate items — read from ~/.claude/tasks/<sid>/*.json
  *     { type: "backgrounded_agents", agents }                    // currently-running Agent{run_in_background:true} subagents — derived from JSONL tool_use/tool_result correlation (patch #61)
  *     { type: "backgrounded_shells", shells }                    // currently-running Bash{run_in_background:true} shells — derived from JSONL tool_use / task-notification correlation (patch #68)
- *     { type: "plan_pending", pending }                          // pending = { planFilePath: string|null, planContent: string|null, contentError: string|null } | null (Phase 24 widened; presence via pane-scrape quick 260802-rps + parent-JSONL fallback patch #63; planContent fetched async via SFTP side-channel Phase 24 Plan 02)
- *     // (client -> server, Phase 24) { type: "raw_keystrokes", bytes: string } — one-shot PTY write via `tmux send-keys -l`, NO split-send. Used by PlanPendingBubble Approve ("1\r") + Feedback ("3<text>\r"). Split-send (patch #44) is NOT recognized by Ink Plan Mode as a keystroke selection.
  *     // Phase 56 (2026-08-23) — invisible dormancy. The wake WS message
  *     // (client -> server) and its wake_result response are DELETED. The
  *     // dormant frame stays on the wire for internal state tracking
@@ -4163,7 +4158,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // closure on WS close — no explicit teardown step needed as long as
   // these bindings live inside the same per-connection closure scope.
   let dormantInFlight = false;
-  let dormantLastEmitted: boolean | null = null;       // change-only emit guard, mirrors planPendingLastSerialized = "null"
+  let dormantLastEmitted: boolean | null = null;       // change-only emit guard
   let isIdentityShapedCached: boolean | null = null;  // null = not yet probed; true = identity pane; false = skip dormancy forever
   let identityShapeProbeInFlight = false;
   // quick 260808-dmz — dormant-poll loop (inactive-branch fix).
@@ -4308,62 +4303,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // (one Promise per input) in exchange for a single serialization guarantee
   // that holds regardless of what the send-path is doing internally.
   let inputChain: Promise<void> = Promise.resolve();
-  // Plan-pending tracking (patch #63): parent-JSONL scan for
-  // ExitPlanMode tool_use blocks (Claude asking Ashley to accept /
-  // keep-planning in Plan Mode), paired against subsequent
-  // tool_result blocks by tool_use_id. Emit on serialized-change
-  // only. `pendingPlansLastSerialized` is initialized to "null" (not
-  // "") so a JSONL with no unmatched ExitPlanMode produces net-zero
-  // emits after the initial `tail -F -n +1` replay — the emit shape
-  // when pending is null is `{ type: "plan_pending", pending: null }`
-  // and JSON.stringify(null) === "null", so matching the initial
-  // sentinel to "null" suppresses the spurious first empty emit.
-  const pendingPlans = new Map<
-    string,
-    { planFilePath: string; ts: number }
-  >();
-  let pendingPlansLastSerialized = "null";
-  // Plan-pending PANE-SCRAPE sentinel (quick 260802-rps). Independent of
-  // `pendingPlansLastSerialized` (which gates the legacy patch #63 JSONL
-  // scan below) because the two signal sources have different resolution
-  // timing under Claude Code 2.1.150 — the pane transitions to pending
-  // instantly when the Ink prompt opens, while the JSONL only shows the
-  // ExitPlanMode tool_use after the user resolves. Both emit onto the
-  // same `{type:"plan_pending", pending}` WS frame; whichever transitions
-  // first wins on the frontend (see PlanPendingBubble.tsx). Same "null"
-  // initial sentinel as `pendingPlansLastSerialized` — matches
-  // JSON.stringify(null) so an initial `pending:null` scrape does not
-  // fire a spurious first emit.
-  let planPendingLastSerialized = "null";
-  // Phase 24 Plan 03: plan-content cache — keyed by planFilePath, cleared
-  // when the pending window closes (isPlanPending returns false). When the
-  // SAME slug reappears immediately (edge: feedback → regenerate same
-  // name), we refetch because we cleared on the intermediate close.
-  // `planPendingFetchInFlightForPath` ensures at most one in-flight SFTP
-  // fetch per (pending-window, planFilePath) pair (T-24-03-02). Both are
-  // cleared alongside `planPendingLastSerialized = "null"` on teardown
-  // (~L1121) and on session_changed clean-slate (~L1805).
-  const planPendingContentByPath: Map<
-    string,
-    { content: string | null; error: string | null }
-  > = new Map();
-  const planPendingFetchInFlightForPath: Set<string> = new Set();
-  // Phase 24 CR-01 fix: per-pending-window token. Bumped at EVERY cache-clear
-  // site (transition-to-closed, teardownPane, session_changed clean-slate).
-  // Captured at fetch kickoff; late-arriving `.then()`/`.catch()` callbacks
-  // compare `fetchToken !== planPendingWindowToken` and drop the result
-  // silently if the window they were dispatched for is no longer current.
-  //
-  // Why this is necessary: the pre-fix guard only checked
-  // `planPendingLastSerialized === "null"` (i.e. pending fully closed). If
-  // the pending window transitioned from PlanA → PlanB (different slug, OR
-  // same slug regenerated after Feedback) WITHOUT an intervening null-tick
-  // that the fetch outlived, that guard is false and a stale PlanA fetch
-  // could overwrite PlanB's cache + emit stale content. The token-compare
-  // covers BOTH the fully-closed case AND the window-transition case with
-  // a single monotonic counter — no need to separately compare planFilePath
-  // against the current pane state.
-  let planPendingWindowToken = 0;
   let stopped = false;
 
   // Phase 3 session-changeover state machine. Per D-30 (two-layer detection):
@@ -4506,17 +4445,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
       }
     }
     harnessTasksLastSerialized = null;
-    pendingPlans.clear();
-    pendingPlansLastSerialized = "null";
-    planPendingLastSerialized = "null";
-    // Phase 24 Plan 03: invalidate the fetched plan-content cache and drop
-    // any in-flight fetch trackers. Late arrivals from a pre-teardown fetch
-    // are short-circuited by the per-window token compare in .then()/.catch()
-    // (CR-01 fix — token bump on every cache-clear invalidates in-flight
-    // closures regardless of what planPendingLastSerialized currently holds).
-    planPendingContentByPath.clear();
-    planPendingFetchInFlightForPath.clear();
-    planPendingWindowToken += 1;
     backgroundedAgents.clear();
     backgroundedAgentsLastSerialized = "[]";
     // Phase 51 Plan 01: clear the pendingAgentAdmission scratch map alongside
@@ -4791,108 +4719,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
         if (idMatch && statusMatch) {
           backgroundedAgents.delete(idMatch[1]);
           backgroundedShells.delete(idMatch[1]);
-        }
-      }
-      // ── DEPRECATED FOR PENDING-WINDOW DETECTION (quick 260802-rps) ─────
-      // Claude Code 2.1.150's `ExitPlanModeV2Tool` BUFFERS the tool_use in
-      // Ink UI memory and only flushes it to the parent JSONL when the user
-      // resolves the plan-approval prompt (approve or reject). Live
-      // confirmation on Moxie's workstation 2026-08-02: 57-minute gap
-      // between the model calling ExitPlanMode and the JSONL write, which
-      // landed at the exact moment Ashley approved. As a result THIS SCAN
-      // IS EFFECTIVELY DEAD CODE for pending-window detection — during the
-      // entire pending window the JSONL has zero signal.
-      //
-      // The authoritative live signal is now the pane-scrape via
-      // `isPlanPending` wired into the context-pct setInterval (see
-      // ~line 3106). This scan is RETAINED as belt-and-suspenders for two
-      // remaining edges: (1) the resolution edge — after V2 flushes both
-      // the tool_use and the matching tool_result on user resolution, this
-      // scan will re-emit `pending: null` (harmless coalesce with the
-      // pane-scrape's own null-emit); (2) backward-compat for any older
-      // Claude Code sessions still writing ExitPlanMode eagerly (v1 tool
-      // behavior). Do NOT delete without confirming both edges are
-      // covered by the pane-scrape.
-      // ────────────────────────────────────────────────────────────────
-      // Plan-pending scan (patch #63). Reuses `obj` + `content` from the
-      // patch-#61 backgrounded-agents scan above; do NOT re-parse.
-      //   - assistant turn whose content[] contains a tool_use block with
-      //     name === "ExitPlanMode" → pending; keyed by tool_use.id.
-      //   - user turn whose content[] contains a tool_result with matching
-      //     tool_use_id → cleared. (The patch-#61 branch already iterates
-      //     tool_result blocks for its Agent correlation; adding one more
-      //     `pendingPlans.delete(id)` call in the same loop is the cheap
-      //     option, but for readability we do a fresh iteration here — the
-      //     line volume is low enough that it does not matter.)
-      if (obj?.type === "assistant" && Array.isArray(content)) {
-        for (const block of content as unknown[]) {
-          const b = block as {
-            type?: string;
-            name?: string;
-            id?: string;
-            input?: { planFilePath?: unknown };
-          };
-          if (
-            b?.type === "tool_use" &&
-            b?.name === "ExitPlanMode" &&
-            typeof b?.id === "string"
-          ) {
-            pendingPlans.set(b.id, {
-              planFilePath:
-                typeof b.input?.planFilePath === "string"
-                  ? b.input.planFilePath
-                  : "",
-              ts:
-                typeof obj.timestamp === "string"
-                  ? Date.parse(obj.timestamp) || Date.now()
-                  : Date.now(),
-            });
-          }
-        }
-      } else if (obj?.type === "user" && Array.isArray(content)) {
-        for (const block of content as unknown[]) {
-          const b = block as { type?: string; tool_use_id?: string };
-          if (
-            b?.type === "tool_result" &&
-            typeof b?.tool_use_id === "string"
-          ) {
-            pendingPlans.delete(b.tool_use_id);
-          }
-        }
-      }
-      // Only one ExitPlanMode can be pending at a time in practice (Claude
-      // Code's Ink UI serializes Plan Mode prompts), so taking any entry
-      // (via `.values().next()`) is correct. If somehow more than one
-      // survives, we still emit a stable answer — whichever entry the map
-      // returns first — until one is closed.
-      const pendingIter = pendingPlans.values().next();
-      // Phase 24 Plan 03: widen the JSONL-scan emit shape to match the
-      // pane-scrape emit (`{planFilePath, planContent, contentError}` or
-      // null). JSONL is a resolution-edge fallback per patch #63 docblock;
-      // do NOT trigger an SFTP fetch here — the pane-scrape at ~L3355 is
-      // the authoritative live signal that owns the fetch trigger. Content
-      // will always be null on this path; the frontend renders "Loading
-      // plan…" until (in the unlikely event a JSONL-first pending appears)
-      // the pane-scrape catches up on its next tick.
-      const currentPending = pendingIter.done
-        ? null
-        : {
-            planFilePath: pendingIter.value.planFilePath || null,
-            planContent: null,
-            contentError: null,
-          };
-      const planSerialized = JSON.stringify(currentPending);
-      if (planSerialized !== pendingPlansLastSerialized) {
-        pendingPlansLastSerialized = planSerialized;
-        try {
-          ws.send(
-            JSON.stringify({
-              type: "plan_pending",
-              pending: currentPending,
-            }),
-          );
-        } catch {
-          /* ws may be mid-close */
         }
       }
       const agents = Array.from(backgroundedAgents.values()).sort(
@@ -5235,7 +5061,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // flip changeoverState back to active, reset holdingTicks, emit
   // session_holding_cleared. The frontend handler clears only isHolding +
   // holdingTimeoutError and does NOT touch messages / contextPct / harnessTasks
-  // / backgroundedAgents / plan_pending / asideText — false-alarm recovery
+  // / backgroundedAgents / asideText — false-alarm recovery
   // must not discard the conversation the user is looking at.
   //
   // Idempotency: if changeoverState is not "holding", this is a no-op. Guards
@@ -5348,15 +5174,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
     pendingAgentAdmission.clear();
     backgroundedShells.clear();
     backgroundedShellsLastSerialized = "[]";
-    pendingPlans.clear();
-    pendingPlansLastSerialized = "null";
-    planPendingLastSerialized = "null";
-    // Phase 24 Plan 03: clean-slate the plan-content cache on session recycle.
-    // CR-01 fix: bump the window token so any in-flight fetch dispatched
-    // against the OLD session's pending window drops its result silently.
-    planPendingContentByPath.clear();
-    planPendingFetchInFlightForPath.clear();
-    planPendingWindowToken += 1;
     // quick 260808-ohn: reset Layer 1 tail-state on session recycle so the
     // new tail's -n +1 replay converges on clean bookkeeping.
     layer1 = { mostRecentUserTurnIsIdReset: null };
@@ -7043,60 +6860,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
 
-    // Phase 24 Plan 03: raw_keystrokes — one-shot PTY write for plan-mode
-    // Approve ("1\r") + Feedback ("3<text>\r"). Deliberately NOT the
-    // ComposeBox split-send path (patch #44's body+\r-with-60ms-gap) — Ink
-    // Plan Mode does NOT recognize split-send as a keystroke selection
-    // (PlanPendingBubble.tsx L14-21 lesson; verified by Ashley 2026-07-18).
-    // `tmux send-keys -l` (literal flag) prevents a leading `1`, `3`, or
-    // `\r` inside the payload from being interpreted as a tmux key-name.
-    //
-    // Trust boundary (mirrors aside_dismissed T-14-02-01): the send target
-    // is derived from the connection's captured currentTmuxSession (set on
-    // connectToPane discovery success). We IGNORE any client-supplied
-    // hostId/tmuxSession in the payload — a client cannot spoof a raw
-    // keystroke into a pane it doesn't own.
-    if (msg.type === "raw_keystrokes") {
-      if (!sshConn || !currentTmuxSession) return;
-      const bytes = String((msg as { bytes?: unknown }).bytes ?? "");
-      if (bytes.length === 0) return;
-      // WR-03 fix: cap the payload size before it hits `tmux send-keys -l`.
-      // A misbehaving/buggy client (or forced payload) with a multi-megabyte
-      // feedback string would otherwise flow straight to a single-argv shell
-      // command that guaranteed-fails at POSIX ARG_MAX, wasting a channel
-      // open + a serialize pass. 16KB is comfortably above any legitimate
-      // plan-approval feedback (Claude Code's own input is smaller).
-      const MAX_RAW_KEYSTROKES_BYTES = 16 * 1024;
-      if (bytes.length > MAX_RAW_KEYSTROKES_BYTES) {
-        sshLogger.warn("raw_keystrokes rejected: payload too large", {
-          operation: "raw_keystrokes_reject_size",
-          hostId: currentHostId,
-          tmuxSession: currentTmuxSession,
-          bytesLength: bytes.length,
-          maxBytes: MAX_RAW_KEYSTROKES_BYTES,
-        });
-        return;
-      }
-      try {
-        await execCommand(
-          sshConn,
-          `tmux send-keys -l -t ${shellQuote(currentTmuxSession)} ${shellQuote(bytes)}`,
-        );
-      } catch (err) {
-        // Log but do not throw — the bubble stays mounted and the user can
-        // retry via the pane keyboard directly. Fail-quietly here matches
-        // the injectBtw / dismissBtw posture (they also log-and-swallow).
-        sshLogger.warn("raw_keystrokes send failed", {
-          operation: "raw_keystrokes_send_error",
-          hostId: currentHostId,
-          tmuxSession: currentTmuxSession,
-          bytesLength: bytes.length,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-      return;
-    }
-
     // Phase 47 Plan 03 Hunk D: load-more button — client asks for a
     // bounded slice of older JSONL lines. Placed here (alongside
     // raw_keystrokes) because both are pane-scoped WS requests that
@@ -7411,10 +7174,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // Captures closure state: ws, sshConn, sshLogger, userId, sessionId,
     // tailHandle, contextPctTimer, contextPctInFlight, dormantInFlight,
     // dormantLastEmitted, isIdentityShapedCached, identityShapeProbeInFlight,
-    // planPendingContentByPath, pendingPlans, pendingPlansLastSerialized,
-    // planPendingLastSerialized, planPendingWindowToken,
-    // planPendingFetchInFlightForPath, backgroundedAgents,
-    // backgroundedAgentsLastSerialized, backgroundedShells,
+    // backgroundedAgents, backgroundedAgentsLastSerialized, backgroundedShells,
     // backgroundedShellsLastSerialized, changeoverState, currentSessionFile,
     // sessionIdFromFile, hasSeenExit, holdingTicks, discoveryRepollInFlight,
     // currentHostId, currentTmuxSession, stopped.
@@ -7531,46 +7291,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
       .pop()!
       .replace(/\.jsonl$/, "");
 
-    // Context-% poller: scrape Claude Code's status-line percentage every
-    // ~3s via `tmux capture-pane -p -t <session>` over a fresh exec channel
-    // on the same SSH connection. ssh2 multiplexes channels so this runs
-    // alongside the JSONL tail without blocking it. On miss we DON'T emit;
-    // the client holds its last known value rather than blank out. Recipe
-    // cribbed from nelly's context-watch.py (2026-07-18).
-    //
-    // Three-part hardening:
-    //   * BOTTOM 8 LINES (patch #56): only look at the footer region so
-    //     transcript quotes of "context) NN%" elsewhere in the pane can't
-    //     win. N=8: footer=5 lines (2 separator + prompt + status +
-    //     bypass/permissions) plus a 3-line buffer for footer variations
-    //     (weekly-limit warnings, narrow-terminal wrap).
-    //   * PER-LINE + RIGHTMOST-% anchored on `context)` (patch #59): for
-    //     each line containing the label, take the RIGHTMOST NN% on that
-    //     line. Claude Code's real context % renders far-right, so a
-    //     custom statusline (opengsd's milestone bar was the observed
-    //     case) that injects a NN% between `context)` and the real % on
-    //     the SAME line can't win. Mirrors nelly's source-side hardening
-    //     in context-watch.py. Last matching line across the 8-line slice
-    //     wins (multi-line last-wins semantic preserved).
-    //   * BAR-ANCHORED regex (patch #187 / quick 260729-ig7): the `%`
-    //     must be immediately preceded (with optional whitespace) by a
-    //     Claude Code meter glyph (`[█▉▊▋▌▍▎▏░]\s*NN%`). Closes the
-    //     false-positive where a weekly-limit warning appended to the
-    //     same line ("... 29% ┃ youve used 95% of your weekly limit")
-    //     caused rightmost-wins to return 95 instead of 29. Rightmost
-    //     still wins for the patch #59 milestone-bar case because both
-    //     meters are bar-anchored.
-    //   * FALLBACK: bar-glyph pattern (░/█ chars unique to the visual
-    //     context bar) with the same per-line rightmost-% rule, for hosts
-    //     where "(1M context)" is absent but the visual bar remains.
-    //
-    // Scan logic lives in ./context-pct-parser.ts for testability; this
-    // callback just delegates to parseContextPct(output).
+    // Context-% poller: reads the context percentage from the JSONL every
+    // ~3s (authoritative, pane-width-independent). JSONL is the sole source
+    // of truth for context_pct post-Phase-95 Part B — the tmux capture-pane
+    // scrape fallback and plan-pending detection are removed. On a fresh
+    // session with no assistant turn yet, pct is null and the frontend
+    // renders a loading placeholder (accepted UX tradeoff per CONTEXT.md
+    // § Verification and RESEARCH §3g + G4). Recipe cribbed from
+    // nelly's context-watch.py (2026-07-18); JSONL path from Phase 90.
     const CONTEXT_PCT_INTERVAL_MS = 3000;
-    // Single-quote wrap for the session name. Tmux session names are
-    // validated by the frontend to a tmux-safe subset (alphanumeric,
-    // dash, underscore), so single-quote escape is sufficient.
-    const captureCmd = `tmux capture-pane -p -t '${activeTmuxSession}'`;
     contextPctTimer = setInterval(() => {
       if (stopped || ws.readyState !== WebSocket.OPEN) return;
       if (!sshConn) return;
@@ -7582,10 +7311,6 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // matches how other closure-scoped fields are consulted inside
       // this callback.
       const sessionFileSnapshot = currentSessionFile;
-      // TODO(post-260808-11l): once JSONL is confirmed stable in prod,
-      // the capture-pane call could be skipped in the pct-only path when
-      // plan-pending is disabled. Deferred — keep behavior symmetric
-      // while validating the swap.
       (async () => {
         try {
           // PRIMARY: JSONL read (authoritative, pane-width-independent).
@@ -7599,203 +7324,26 @@ wss.on("connection", async (ws: WebSocket, req) => {
               sessionFileSnapshot,
             );
           }
-          // Get pane output once — needed for parseContextPct fallback
-          // AND for isPlanPending / parsePlanFilePath below (they still
-          // key off the pane's overlay text, not the JSONL).
-          let output = "";
-          try {
-            output = await execCommand(connSnapshot, captureCmd);
-          } catch {
-            // Silent — scrape failure is nice-to-have, not load-bearing.
-            // pct stays whatever the JSONL path produced; plan-pending
-            // simply sees "" and reports null.
-          }
-          // FALLBACK: only invoke the scrape parser if JSONL yielded no
-          // value (no sessionFile resolved yet, or fresh session with
-          // no assistant turn). context-pct-parser.ts is preserved as
-          // the fallback path per quick-260808-11l.
-          if (pct === null && output !== "") {
-            pct = parseContextPct(output);
-          }
-          if (stopped || ws.readyState !== WebSocket.OPEN) return;
-          if (pct !== null) {
-            // Phase 90 Plan 00 (Wave 0, D-10 delivery mechanism): dual-write
-            // into the fleet-status shared map so PrettyView (post D-03
-            // mechanical waiver) and the future Plan 06 relay-pane badge
-            // appendage both read contextPct from the same source of truth.
-            // activeHostId + activeTmuxSession are pinned in the enclosing
-            // closure via startActiveSessionFlow (see L6976-6977). WS
-            // emission BELOW preserved for backwards compat.
-            setContextPct(activeHostId, activeTmuxSession, pct);
+          // Phase 90 Plan 00 (Wave 0, D-10 delivery mechanism): dual-write
+          // into the fleet-status shared map so PrettyView (post D-03
+          // mechanical waiver) and the future Plan 06 relay-pane badge
+          // appendage both read contextPct from the same source of truth.
+          // activeHostId + activeTmuxSession are pinned in the enclosing
+          // closure via startActiveSessionFlow. WS emission BELOW preserved
+          // for backwards compat. Phase 95 Part B: null pct also emits
+          // (no guard) — frontend renders loading placeholder.
+          setContextPct(activeHostId, activeTmuxSession, pct);
+          if (!stopped && ws.readyState === WebSocket.OPEN) {
             try {
               ws.send(JSON.stringify({ type: "context_pct", pct }));
             } catch {
               /* ws may be mid-close */
             }
           }
-          // Plan-pending PANE-SCRAPE (quick 260802-rps; extended Phase 24
-          // Plan 03). Reuses the same `output` capture-pane payload that
-          // just fed parseContextPct above — no additional SSH round-trip.
-          //
-          // Phase 24 extended shape: `{planFilePath, planContent, contentError}`
-          // (or null when the prompt is absent). The IMMEDIATE emit carries
-          // presence + planFilePath only; planContent is populated by an
-          // async SFTP fetch that fires once per (pending-window, planFilePath)
-          // pair and re-emits with the same de-dup guard.
-          //
-          // De-dup guard preserved verbatim: `JSON.stringify(currentPending)`
-          // vs `planPendingLastSerialized`. On the transition-to-closed edge
-          // (isPending false + we previously had cached content or an
-          // in-flight fetch), we invalidate the caches — the same slug
-          // reappearing after a close is treated as a fresh window and
-          // refetched (per CONTEXT § "cache keyed by pending window").
-          const isPending = isPlanPending(output);
-          const planFilePath = isPending ? parsePlanFilePath(output) : null;
-
-          // Transition-to-closed: clear the per-window content cache and
-          // any in-flight tracker. Late-arriving fetches short-circuit via
-          // the per-window token compare in .then()/.catch() (CR-01 fix).
-          if (
-            !isPending &&
-            (planPendingContentByPath.size > 0 ||
-              planPendingFetchInFlightForPath.size > 0)
-          ) {
-            planPendingContentByPath.clear();
-            planPendingFetchInFlightForPath.clear();
-            planPendingWindowToken += 1;
-          }
-
-          // CR-01 fix: window-transition invalidation. If the pane is still
-          // pending but the planFilePath differs from what any in-flight
-          // fetch was dispatched for, we need to invalidate the prior
-          // window's token too — otherwise a PlanA → PlanB slug swap (or a
-          // same-slug regenerate that never went through a null tick) lets
-          // a stale PlanA fetch write into what the UI has now moved on
-          // from. We detect this by: pane is pending + we have EITHER
-          // in-flight fetches for paths that don't match the current path,
-          // OR cached content for paths that don't match. In either case,
-          // clear caches for stale paths and bump the token so the stale
-          // fetches drop silently on arrival.
-          if (
-            isPending &&
-            planFilePath &&
-            (Array.from(planPendingContentByPath.keys()).some(
-              (p) => p !== planFilePath,
-            ) ||
-              Array.from(planPendingFetchInFlightForPath).some(
-                (p) => p !== planFilePath,
-              ))
-          ) {
-            planPendingContentByPath.clear();
-            planPendingFetchInFlightForPath.clear();
-            planPendingWindowToken += 1;
-          }
-
-          const cached = planFilePath
-            ? planPendingContentByPath.get(planFilePath)
-            : null;
-          const currentPending = isPending
-            ? {
-                planFilePath,
-                planContent: cached?.content ?? null,
-                contentError: cached?.error ?? null,
-              }
-            : null;
-          const pendingSerialized = JSON.stringify(currentPending);
-          if (pendingSerialized !== planPendingLastSerialized) {
-            planPendingLastSerialized = pendingSerialized;
-            try {
-              ws.send(
-                JSON.stringify({
-                  type: "plan_pending",
-                  pending: currentPending,
-                }),
-              );
-            } catch {
-              /* ws may be mid-close */
-            }
-          }
-
-          // Kick off async SFTP fetch once per (pending-window, planFilePath)
-          // pair. Guards: pane must actually be pending; parser must have
-          // yielded a path; sshConn must still be bound; we don't already
-          // have a cached result; and no fetch is already in flight.
-          if (
-            isPending &&
-            planFilePath &&
-            sshConn &&
-            !planPendingContentByPath.has(planFilePath) &&
-            !planPendingFetchInFlightForPath.has(planFilePath)
-          ) {
-            planPendingFetchInFlightForPath.add(planFilePath);
-            const targetPath = planFilePath; // capture for the async closure
-            const activeSshConn = sshConn; // narrow non-null for the closure
-            // CR-01 fix: capture the current window token at fetch-dispatch
-            // time. Any cache-clear site (transition-to-closed, teardown,
-            // session_changed, slug-swap-during-pending) bumps
-            // planPendingWindowToken; a mismatch in .then()/.catch() means
-            // this fetch was dispatched for a window that no longer exists,
-            // and its result must be discarded rather than written into a
-            // future window's cache (which would flip-flop the UI or make
-            // it stick on a stale plan).
-            const fetchToken = planPendingWindowToken;
-            void fetchPlanFile(activeSshConn, targetPath)
-              .then((result) => {
-                planPendingFetchInFlightForPath.delete(targetPath);
-                // CR-01 fix: per-window token guard. Drops the result
-                // silently if the pending window this fetch was dispatched
-                // for is no longer current (closed OR transitioned to a
-                // different slug). Replaces the pre-fix
-                // `planPendingLastSerialized === "null"` guard, which only
-                // caught the fully-closed case.
-                if (fetchToken !== planPendingWindowToken) return;
-                const cacheEntry =
-                  "content" in result
-                    ? { content: result.content, error: null }
-                    : { content: null, error: result.error };
-                planPendingContentByPath.set(targetPath, cacheEntry);
-                // Re-emit with populated planContent OR contentError. De-dup
-                // guard reused so back-to-back identical emits collapse.
-                const nextPending = {
-                  planFilePath: targetPath,
-                  planContent: cacheEntry.content,
-                  contentError: cacheEntry.error,
-                };
-                const nextSerialized = JSON.stringify(nextPending);
-                if (nextSerialized !== planPendingLastSerialized) {
-                  planPendingLastSerialized = nextSerialized;
-                  try {
-                    ws.send(
-                      JSON.stringify({
-                        type: "plan_pending",
-                        pending: nextPending,
-                      }),
-                    );
-                  } catch {
-                    /* ws may be mid-close */
-                  }
-                }
-              })
-              .catch((err) => {
-                planPendingFetchInFlightForPath.delete(targetPath);
-                // CR-01 fix: same per-window token guard on the error path —
-                // if the window is stale we must not cache the error either
-                // (would poison the new window's slot if the slug matches).
-                if (fetchToken !== planPendingWindowToken) return;
-                // Cache the error so subsequent ticks don't re-fire the
-                // fetch until the pending window closes and re-opens.
-                const message =
-                  err instanceof Error ? err.message : String(err);
-                planPendingContentByPath.set(targetPath, {
-                  content: null,
-                  error: message,
-                });
-              });
-          }
 
           // quick 260808-cd6 — dormancy stat check (two-tier: identity-shape probe
           // on first tick, dormant sentinel stat on subsequent ticks).
-          // Runs AFTER the plan_pending block, BEFORE the finally.
+          // Runs AFTER the context_pct emit, BEFORE the finally.
           // Uses the SAME connSnapshot + tmuxSession captured above — zero new SSH
           // connections, zero new timers. The dormantInFlight guard mirrors
           // contextPctInFlight to prevent slow-SSH pileups.
@@ -7805,7 +7353,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           if (!dormantInFlight && currentTmuxSession !== null && !stopped && ws.readyState === WebSocket.OPEN) {
             // Use the escapedName for single-quote shell wrapping. tmuxSession is
             // already validated to alphanumeric/dash/underscore by the frontend
-            // (same rule as captureCmd at line ~3441 above). Per T-cd6-02: the
+            // (same frontend-validated tmux-safe subset rule as the context-pct timer). Per T-cd6-02: the
             // single-quote wrap prevents any $(…) or backtick injection.
             const escapedName = currentTmuxSession;
             // Build a per-connection state box pointing at the closure-scoped lets.
