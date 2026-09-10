@@ -2199,9 +2199,14 @@ Plans:
 ### Phase 97: Room-case chrome and lifecycle should match session-case except where deliberately case-branched — Phase 93 UAT polish arc
 
 **Goal:** Room case of the two-source chat surface (relay rooms) should feel identical to session case (harness sessions) except in the specific places we've deliberately case-branched — no accidental inheritance. Address the 7 findings from Ashley's UAT walkthrough of the shipped Phase 93: (1) loading veil never dismisses in room case, (2) drag-and-drop split placement broken both directions + appears to corrupt shared state, (3) compose box vertical fit (input too short + ghost attach-padding gutter + top-edge affordance clipped), (4) participant-indicator gap too wide, (5) meter chrome floats — replace with pull-out drawer that peeks from behind the pill (variant A picked in tasting), (6) compose placeholder should say "message room", (7) URL persistence miss for currently-open room using opaque stable identifier. Shape file at `.planning/shapes/shape-phase-93-uat-polish-arc.md`. Slot 97 explicitly per phase-collision auto-resolve rule (tanya rescue-rebased her id-skill-revamp Shape 2 → Phase 96 during my tasting turn; ceding 96 to her earlier claim).
-**Requirements**: N/A (UAT-polish arc; no user-facing feature IDs)
+**Requirements**: N/A (UAT-polish arc; no user-facing feature IDs — 7 findings F-1..F-7 tracked via CONTEXT decisions D-01..D-18)
 **Depends on:** Phase 93 (the shipped phase this UAT-polishes)
-**Plans:** 0 plans
+**Plans:** 6 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 97 to break down)
+- [ ] 97-01-drag-drop-discovery-plus-badge-gap-PLAN.md — F-2 discovery + split-out gate + F-4 badge gap tighten (Wave 1)
+- [ ] 97-02-loading-veil-signal-PLAN.md — F-1 adapter isMessagesLoaded + PrettyView relay veil-arm effect (Wave 1)
+- [ ] 97-03-composebox-reflow-plus-placeholder-PLAN.md — F-3 ghost gutter + QueuePlusTab headroom + F-6 placeholder (Wave 2, after 97-02 on PrettyView)
+- [ ] 97-04-meter-drawer-chrome-PLAN.md — F-5 Variant A drawer wrap around meter appendage (Wave 2)
+- [ ] 97-05-url-persistence-PLAN.md — F-7 relay: URL protocol grammar + AppShell URL-sync + tab-restore (Wave 1)
+- [ ] 97-06-drag-source-tabid-threading-PLAN.md — F-2 fix (thread tabId through MultiBadgeAnchor + AgentBadgeWithMeter + PrettyView) — CONDITIONAL on Plan 01 Verdict A (Wave 3)
