@@ -44,8 +44,18 @@ vi.mock("@/state/identities-store", () => ({
   })),
 }));
 
+// Phase 104 Plan 02 — per-test override handle for useTrappedWork.
+// Default is undefined (pre-fetch / D-06 start-absent).
+let currentBadgeTrappedWork: { hasTrappedWork: boolean } | undefined =
+  undefined;
+
+vi.mock("@/state/trapped-work-store", () => ({
+  useTrappedWork: vi.fn(() => currentBadgeTrappedWork),
+}));
+
 // Late import — after the mock is registered.
 import { IdentityBadge } from "./IdentityBadge";
+import { useTrappedWork } from "@/state/trapped-work-store";
 
 describe("IdentityBadge — single-variant + onLongPress (quick 260806-lzd)", () => {
   beforeEach(() => {
@@ -511,5 +521,123 @@ describe("IdentityBadge — Phase 67 coordinator watermark", () => {
       expect(root).toBeTruthy();
       fireEvent.contextMenu(root); // must not throw
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 104 Plan 02 — trapped-work indicator on IdentityBadge (D-05 same-visual
+// consistency across the two identity surfaces).
+// ─────────────────────────────────────────────────────────────────────────────
+// The BADGE-TRAP-* tests defend the D-05 same-visual invariant across the two
+// identity surfaces + D-06 start-absent + D-07 tooltip copy + Pattern 4 hostId
+// reactivation (Phase 68 made hostId a no-op for avatar-URL construction;
+// Phase 104 reactivates it for the store lookup). Coordinator watermark
+// coexistence is asserted so the two overlays never collide.
+
+describe("IdentityBadge — Phase 104 trapped-work indicator", () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+    // Reset the trapped-work override so each test starts pre-fetch.
+    currentBadgeTrappedWork = undefined;
+    // Reset the useTrappedWork mock's call log so BADGE-TRAP-6 can inspect
+    // mock.calls without prior-test leakage.
+    vi.mocked(useTrappedWork).mockClear();
+    // Baseline identities-store fixture (non-coordinator).
+    vi.mocked(useIdentities).mockReturnValue({
+      identities: [FIXTURE],
+      byKey: new Map([["tina", FIXTURE]]),
+      loaded: true,
+      refresh: vi.fn(),
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("BADGE-TRAP-1: hasTrappedWork:true renders data-testid=pv-trapped-work-indicator inside the badge root", () => {
+    currentBadgeTrappedWork = { hasTrappedWork: true };
+    render(<IdentityBadge identityKey="tina" onClick={vi.fn()} />);
+    const root = screen.getByTestId("identity-badge-root");
+    const indicator = root.querySelector(
+      '[data-testid="pv-trapped-work-indicator"]',
+    );
+    expect(indicator).not.toBeNull();
+  });
+
+  it("BADGE-TRAP-2: undefined OR {hasTrappedWork:false} renders NO indicator", () => {
+    // Case A — undefined (pre-fetch).
+    currentBadgeTrappedWork = undefined;
+    const { unmount } = render(
+      <IdentityBadge identityKey="tina" onClick={vi.fn()} />,
+    );
+    expect(screen.queryByTestId("pv-trapped-work-indicator")).toBeNull();
+    unmount();
+
+    // Case B — {hasTrappedWork:false}.
+    currentBadgeTrappedWork = { hasTrappedWork: false };
+    render(<IdentityBadge identityKey="tina" onClick={vi.fn()} />);
+    expect(screen.queryByTestId("pv-trapped-work-indicator")).toBeNull();
+  });
+
+  it("BADGE-TRAP-3: tooltip title=\"Has local work not yet pushed to any remote\" (D-07) and icon aria-hidden=true", () => {
+    currentBadgeTrappedWork = { hasTrappedWork: true };
+    render(<IdentityBadge identityKey="tina" onClick={vi.fn()} />);
+    const indicator = screen.getByTestId("pv-trapped-work-indicator");
+    expect(indicator.getAttribute("title")).toBe(
+      "Has local work not yet pushed to any remote",
+    );
+    const svg = indicator.querySelector("svg");
+    expect(svg).not.toBeNull();
+    expect(svg!.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("BADGE-TRAP-4: coordinator=true + hasTrappedWork:true → BOTH coordinator-watermark AND pv-trapped-work-indicator render", () => {
+    const coordFixture = { ...FIXTURE, coordinator: true };
+    vi.mocked(useIdentities).mockReturnValue({
+      identities: [coordFixture],
+      byKey: new Map([["tina", coordFixture]]),
+      loaded: true,
+      refresh: vi.fn(),
+    });
+    currentBadgeTrappedWork = { hasTrappedWork: true };
+    render(<IdentityBadge identityKey="tina" onClick={vi.fn()} />);
+    expect(screen.getByTestId("coordinator-watermark")).not.toBeNull();
+    expect(screen.getByTestId("pv-trapped-work-indicator")).not.toBeNull();
+  });
+
+  it("BADGE-TRAP-5: identityKey=null → no indicator (early-return short-circuit before the render)", () => {
+    // The badge component early-returns `null` when identity is not found.
+    // useTrappedWork itself short-circuits on null identityKey — but the
+    // render never gets past `if (!identity) return null` anyway when
+    // identityKey is null, so the indicator element is absent regardless.
+    currentBadgeTrappedWork = { hasTrappedWork: true };
+    // Render with identityKey=null — badge returns null; nothing is rendered.
+    const { container } = render(
+      <IdentityBadge identityKey={null} onClick={vi.fn()} />,
+    );
+    expect(
+      container.querySelector('[data-testid="pv-trapped-work-indicator"]'),
+    ).toBeNull();
+  });
+
+  it("BADGE-TRAP-6 (hostId threading — Pattern 4 reactivation): useTrappedWork receives (identityKey, hostId) from props, not (identityKey, null)", () => {
+    currentBadgeTrappedWork = { hasTrappedWork: true };
+    render(
+      <IdentityBadge identityKey="tina" hostId={42} onClick={vi.fn()} />,
+    );
+    // Verify the hook was called with the hostId prop threaded through.
+    // Filter to calls that carry the identityKey (there may be prior calls
+    // from other renders in the same test suite; we're asserting on
+    // "at least one call has (tina, 42)" for robustness against re-render).
+    const calls = vi.mocked(useTrappedWork).mock.calls;
+    const found = calls.some(
+      (c) => c[0] === "tina" && c[1] === 42,
+    );
+    expect(found).toBe(true);
+    // Explicitly assert it did NOT get called with (tina, null) for this render.
+    const nullCalls = calls.filter(
+      (c) => c[0] === "tina" && c[1] === null,
+    );
+    expect(nullCalls.length).toBe(0);
   });
 });

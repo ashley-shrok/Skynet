@@ -1,12 +1,20 @@
 import { useEffect, useRef } from "react";
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent } from "react";
+import { GitPullRequestDraft } from "lucide-react";
 import { useIdentities } from "@/state/identities-store";
 import { useIsMobile } from "@/hooks/use-mobile";
 // Phase 68 Plan 04: avatarUrlWithHost deleted — backend bakes hostId into identity.avatarUrl.
+// Phase 104 Plan 02: the `hostId` prop below is REACTIVATED for the trapped-
+// work store lookup (superseding the Phase 68 "no longer used" note). Existing
+// call sites already thread it (IdentitySessionPane.tsx L291,410,445); no prop
+// signature change needed.
 import {
   getCoordinatorWatermarkStyle,
   COORDINATOR_WATERMARK_HUE_FALLBACK,
 } from "@/features/pretty-view/coordinator-watermark";
+// Phase 104 Plan 02: per-identity trapped-work indicator (D-05 same visual
+// across both surfaces — conv-list row + this pretty-view header badge).
+import { useTrappedWork } from "@/state/trapped-work-store";
 
 export interface IdentityBadgeProps {
   identityKey: string | null;
@@ -103,6 +111,13 @@ export function IdentityBadge({
 
   if (!identity) return null;
 
+  // Phase 104 Plan 02 (D-05, D-06, D-07): per-identity trapped-work snapshot.
+  // hostId prop is reactivated here (Pattern 4 in RESEARCH.md — Phase 68 made
+  // it a no-op for avatar-URL construction, Phase 104 puts it to work for the
+  // store lookup). Undefined pre-fetch AND {hasTrappedWork:false} both render
+  // nothing — the JSX below gates on strict `=== true`.
+  const trappedWork = useTrappedWork(identityKey, hostId ?? null);
+
   // Identity hue drives border + inset rim + outer glow. NULL colorHue
   // falls back to hue 35 (warm amber, matches PrettyView's neutral
   // --pv-id-hue fallback). Font stack Inter for name/title.
@@ -153,6 +168,45 @@ export function IdentityBadge({
             "badge",
           )}
         />
+      )}
+      {/* Phase 104 Plan 02 — trapped-work indicator (D-05 same visual as the
+          conv-list row's indicator, D-06 start-absent, D-07 tooltip copy).
+          Positioning math: the pill is padding 8px 18px 8px 8px around a 56px
+          avatar. Placing the 18px indicator at the avatar's bottom-right
+          corner means top/left = 8px (avatar origin) + 56px - ~14px overhang.
+          pointer-events: none so the pill's click/hover/focus + long-press
+          machinery is never fought. Both z-index: 2 (coordinator watermark is
+          z-index: 0) so this stays above. Coordinator watermark + this
+          indicator are non-overlapping semantic layers (identity role vs
+          repo state) — coexistence is safe. */}
+      {trappedWork?.hasTrappedWork === true && (
+        <span
+          aria-hidden="true"
+          data-testid="pv-trapped-work-indicator"
+          title="Has local work not yet pushed to any remote"
+          style={{
+            position: "absolute",
+            left: "calc(8px + 56px - 14px)",
+            top: "calc(8px + 56px - 14px)",
+            width: 18,
+            height: 18,
+            borderRadius: 999,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "hsla(35, 65%, 55%, 0.85)",
+            boxShadow: "0 0 12px hsla(35, 65%, 55%, 0.4)",
+            zIndex: 2,
+            pointerEvents: "none",
+          }}
+        >
+          <GitPullRequestDraft
+            width={12}
+            height={12}
+            color="#f0ebe0"
+            aria-hidden="true"
+          />
+        </span>
       )}
       {/* Phase 67 /close 2026-09-01 follow-up (M4): explicit z-index: 1 on
           the avatar img + name/title stack pins them above the coordinator
