@@ -303,6 +303,16 @@ const Pane = memo(function Pane({
       e.stopPropagation();
       const rect = el.getBoundingClientRect();
       const zone = computeEdgeZone(rect, e.clientX, e.clientY);
+      // Phase 97 Plan 01 Task 1: temporary diagnostic emit (suffix "-diag" to
+      // distinguish from the production preview/drop logs) for F-2 drag-drop
+      // discovery. Mirrors the pv-split-preview template-string convention at
+      // L356-360. MAY stay as ambient forensic instrumentation post-ship per
+      // RESEARCH § Finding 2 landmines. Do NOT JSON.stringify the DOM Event
+      // (Phase 93 Landmine 6).
+      // eslint-disable-next-line no-console
+      console.info(
+        `[pv-split-drop-diag] phase=dragover pane path=${JSON.stringify(path)} zone=${zone} clientX=${Math.round(e.clientX)} clientY=${Math.round(e.clientY)}`,
+      );
       // Phase 64 /close finding (Addition 3): suppress coral on
       // center-zone self-drop. The shape's contract is "coral appears →
       // release always performs the corresponding action." A self-drop
@@ -413,6 +423,23 @@ const Pane = memo(function Pane({
       prevZoneRef.current = null;
       const rect = el.getBoundingClientRect();
       const zone = computeEdgeZone(rect, e.clientX, e.clientY);
+      // Phase 97 Plan 01 Task 1: temporary diagnostic emit (suffix "-diag" to
+      // distinguish from the production preview/drop logs) at the top of the
+      // drop handler, BEFORE any dispatch. Mirrors the pv-split-preview /
+      // pv-split-drop template-string convention. Reads the three payload
+      // kinds ONCE for the log; downstream branches re-read via their own
+      // getData calls (pre-existing pattern preserved). Do NOT JSON.stringify
+      // the DOM Event (Phase 93 Landmine 6). Do NOT log payload bodies — only
+      // lengths (defense-in-depth per V8).
+      const diagSourceTabId = e.dataTransfer?.getData("text/plain") ?? "";
+      const diagBadgeJsonLen =
+        (e.dataTransfer?.getData("application/x-skynet-badge") ?? "").length;
+      const diagRowJsonLen =
+        (e.dataTransfer?.getData("application/x-skynet-row") ?? "").length;
+      // eslint-disable-next-line no-console
+      console.info(
+        `[pv-split-drop-diag] phase=drop pane path=${JSON.stringify(path)} tabIdSource=${diagSourceTabId} hasBadgePayload=${diagBadgeJsonLen > 0} hasRowPayload=${diagRowJsonLen > 0}`,
+      );
       // Phase 64 Plan 02: center-zone dispatch. Was a silent short-circuit
       // through Phase 57 ("center dead zone"); now the drop is routed to
       // one of two handlers based on the drag source's MIME:
