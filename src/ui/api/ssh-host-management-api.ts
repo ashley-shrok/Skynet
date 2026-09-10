@@ -6,9 +6,20 @@ import type { ServerStatus, SSHHostWithStatus } from "@/main-axios";
 // SSH HOST MANAGEMENT
 // ============================================================================
 
-export async function getSSHHosts(): Promise<SSHHostWithStatus[]> {
+// Phase 102: `ownedOnly` defaults to true — every UI surface that consumes the
+// host list (sidebar, roles/global-files/skills-editor/create-role/new-session
+// pickers, command palette, full-screen wrapper, server-status poller) wants
+// only the caller's own hosts. On multi-user Skynet instances (T800 with 100+
+// users) surfacing every host the caller has any access to via shared
+// credentials or admin visibility swamps the UI. Callers that genuinely need
+// the full cross-user list can pass `false` explicitly.
+export async function getSSHHosts(
+  ownedOnly: boolean = true,
+): Promise<SSHHostWithStatus[]> {
   try {
-    const hostsResponse = await sshHostApi.get("/db/host");
+    const hostsResponse = await sshHostApi.get(
+      ownedOnly ? "/db/host?ownedOnly=true" : "/db/host",
+    );
     const hosts: SSHHost[] = Array.isArray(hostsResponse.data)
       ? hostsResponse.data
       : [];
