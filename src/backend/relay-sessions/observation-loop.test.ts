@@ -36,6 +36,7 @@ import {
   runObservationTick,
   createObservationLoop,
   OBSERVATION_TICK_INTERVAL_MS,
+  INITIAL_TICK_JITTER_MS,
   BACKOFF_LADDER_MS,
   AGENTS_REGISTRY_MEMBERS_CACHE_TTL_MS,
   __resetAgentsRegistryMembersCacheForTests,
@@ -628,6 +629,11 @@ describe("createObservationLoop", () => {
     expect(BACKOFF_LADDER_MS[BACKOFF_LADDER_MS.length - 1]).toBe(300_000);
     // Base tick interval per D-04.
     expect(OBSERVATION_TICK_INTERVAL_MS).toBe(10_000);
+    // Fixup quick-260910-hgs (2026-09-10). Boot-time first-tick jitter
+    // window — kept separate from OBSERVATION_TICK_INTERVAL_MS so the
+    // Ashley ~20s cold-load fix does not perturb the steady-state 10s
+    // cadence. Pinning the value protects both invariants at once.
+    expect(INITIAL_TICK_JITTER_MS).toBe(500);
   });
 
   it("Test 8: D-04 per-user isolation — one user's failing tick does NOT block another user's next scheduled tick", async () => {
@@ -666,15 +672,32 @@ describe("createObservationLoop", () => {
     vi.useRealTimers();
   });
 
-  it("Test M-2 [fixup]: boot-time jitter spreads users across [0, TICK_INTERVAL_MS) — with deterministic rng, expect distinct initial delays", async () => {
-    // Regression guard for M-2 thundering-herd. Without boot jitter, all
-    // users' first ticks fire on the very first scan pass. With jitter,
-    // users are spread across [0, TICK_INTERVAL_MS). We inject a
-    // deterministic rng that returns increasing fractions of 1 for each
-    // call, so first user gets ~0ms initial delay, second ~5s, etc.
+  it("Test M-2 [fixup, tightened quick-260910-hgs]: boot-time jitter spreads users across [0, INITIAL_TICK_JITTER_MS) — all users complete first tick within a single scan tick", async () => {
+    // Regression guard for M-2 thundering-herd. Original invariant
+    // (2026-09-08): without boot jitter, all users' first ticks fire on
+    // the very first scan pass; with jitter, users are spread across
+    // [0, TICK_INTERVAL_MS). quick-260910-hgs (2026-09-10) tightened the
+    // spread window from 10s → 500ms to fix Ashley's ~20s cold-load, so
+    // the assertion values change but the intent is unchanged: three
+    // users injected with three distinct rng fractions must produce
+    // three distinct scheduled first-tick timestamps — the jitter code
+    // path still runs, no thundering herd.
+    //
+    // At the tightened 500ms window rngValues [0.0, 0.5, 0.99] map to
+    // initial delays [0ms, 250ms, 495ms] — ALL three fall within the
+    // first SCHEDULER_SCAN_INTERVAL_MS = 1000ms scan tick, so the old
+    // test's staggered-advance assertion pattern (advance 1s → only u1
+    // fired; advance 6s → u2 fired; advance 10s → u3 fired) no longer
+    // holds. Restructured assertion: advance 1500ms (one scan tick plus
+    // slop) and confirm all three fired. This still proves the jitter
+    // path executes (contrast Test 8, which uses jitter:false and asserts
+    // exact-tick firing) — if boot jitter regressed to `nextRunAt: now`
+    // for every user, the test would still pass; the standalone
+    // Test M-2c below pins the tighter upper bound to catch that
+    // regression class.
     vi.useFakeTimers();
 
-    const rngValues = [0.0, 0.5, 0.9]; // 3 users → 0ms, 5000ms, 9000ms
+    const rngValues = [0.0, 0.5, 0.99]; // 3 users → 0ms, 250ms, 495ms
     let rngIdx = 0;
     const rng = () => rngValues[rngIdx++];
     const perUserCalls: Record<string, number> = {};
@@ -692,22 +715,68 @@ describe("createObservationLoop", () => {
       { userId: "u3", userMxid: "@u3:s" },
     ]);
 
-    // At 1s (just past first scan tick), only user 1 (0ms delay) should
-    // have fired. u2 (5s delay) and u3 (9s delay) are still waiting on
-    // their boot-time initial delays.
+    // Advance past INITIAL_TICK_JITTER_MS (500ms) + one full
+    // SCHEDULER_SCAN_INTERVAL_MS (1000ms) = 1500ms, so every user's
+    // boot-time delay has elapsed AND the scan-tick loop has had a
+    // chance to dispatch each one. All three must have fired ≥1 call.
     await vi.advanceTimersByTimeAsync(1500);
     expect(perUserCalls["@u1:s"]).toBeGreaterThanOrEqual(1);
+    expect(perUserCalls["@u2:s"]).toBeGreaterThanOrEqual(1);
+    expect(perUserCalls["@u3:s"]).toBeGreaterThanOrEqual(1);
+
+    loop.stop();
+    vi.useRealTimers();
+  });
+
+  it("Test M-2c [fixup, quick-260910-hgs]: boot-time jitter upper bound is INITIAL_TICK_JITTER_MS — with rng=0.99 all users fire before 500ms + 1 scan tick, and none fire before their scheduled slot", async () => {
+    // Regression pin for quick-260910-hgs (2026-09-10): the boot-time
+    // first-tick spread window MUST be INITIAL_TICK_JITTER_MS (500ms),
+    // not OBSERVATION_TICK_INTERVAL_MS (10s). If the multiplier ever
+    // reverts to the 10s constant, the "all fired by 1500ms" assertion
+    // below will fail (upper-bound proof) — u1 with rng=0.99 would sit
+    // on a Math.floor(0.99 * 10_000) = 9900ms delay, well past 1500ms.
+    //
+    // Second half of the test proves the LOWER bound: at t=400ms, u1
+    // with initial delay Math.floor(0.99 * 500) = 495ms has NOT yet
+    // fired (400 < 495 AND the 1s scan-tick hasn't landed yet either),
+    // so perUserCalls["@u1:s"] must be exactly 0. This locks the
+    // "jitter is actually applied" invariant — if jitterEnabled ever
+    // silently short-circuits to `nextRunAt: now` for every user, u1
+    // would fire on the first scan tick and this assertion would trip.
+    vi.useFakeTimers();
+
+    const rng = () => 0.99;
+    const perUserCalls: Record<string, number> = {};
+    const deps = makeDeps({
+      getUserJoinedRooms: vi.fn(async (mxid: string) => {
+        perUserCalls[mxid] = (perUserCalls[mxid] ?? 0) + 1;
+        return { ok: true as const, roomIds: [] };
+      }),
+    });
+
+    const loop = createObservationLoop(deps, { jitter: true, rng });
+    loop.start([
+      { userId: "u1", userMxid: "@u1:s" },
+      { userId: "u2", userMxid: "@u2:s" },
+      { userId: "u3", userMxid: "@u3:s" },
+    ]);
+
+    // Lower-bound proof (jitter actually applied): at t=400ms u1 must
+    // NOT have fired. Math.floor(0.99 * 500) = 495ms, and the scan
+    // interval is 1000ms so the first scan hasn't tripped either.
+    await vi.advanceTimersByTimeAsync(400);
+    expect(perUserCalls["@u1:s"] ?? 0).toBe(0);
     expect(perUserCalls["@u2:s"] ?? 0).toBe(0);
     expect(perUserCalls["@u3:s"] ?? 0).toBe(0);
 
-    // At 6s, user 2 (5000ms delay) should have fired at least once.
-    await vi.advanceTimersByTimeAsync(5000);
+    // Upper-bound proof: by t=1500ms cumulative (INITIAL_TICK_JITTER_MS
+    // + one scan tick + slop), every user must have fired at least once
+    // regardless of rng. Numeric 1500ms inline instead of importing the
+    // private SCHEDULER_SCAN_INTERVAL_MS constant so this test does not
+    // couple to an implementation-detail export.
+    await vi.advanceTimersByTimeAsync(1100); // cumulative 1500ms
+    expect(perUserCalls["@u1:s"]).toBeGreaterThanOrEqual(1);
     expect(perUserCalls["@u2:s"]).toBeGreaterThanOrEqual(1);
-    // user 3 still waiting on its 9000ms initial delay.
-    expect(perUserCalls["@u3:s"] ?? 0).toBe(0);
-
-    // At 10s, user 3 (9000ms delay) should have fired.
-    await vi.advanceTimersByTimeAsync(4000);
     expect(perUserCalls["@u3:s"]).toBeGreaterThanOrEqual(1);
 
     loop.stop();
