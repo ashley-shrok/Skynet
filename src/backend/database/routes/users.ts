@@ -50,6 +50,29 @@ const authManager = AuthManager.getInstance();
 
 const router = express.Router();
 
+// Router-level timing middleware — SLICE 1 of auth-slow-requests-on-pwa-boot bounty.
+// Runs for EVERY /users/* request (including unauthenticated paths like
+// /users/registration-allowed and OIDC callback routes) — all are useful signal.
+// Closure-captures startTimeNs so we never need to stash it on req.
+// Uses authLogger (AUTH category) since the timing data is primarily for auth
+// latency attribution.
+router.use((req, res, next) => {
+  const startTimeNs = process.hrtime.bigint();
+  res.on("finish", () => {
+    const durationMs = Number((process.hrtime.bigint() - startTimeNs) / 1_000_000n);
+    const userId = (req as AuthenticatedRequest).userId ?? null;
+    authLogger.info("Auth request timing", {
+      operation: "auth_req_timing",
+      method: req.method,
+      path: req.path,
+      durationMs,
+      status: res.statusCode,
+      userId,
+    });
+  });
+  next();
+});
+
 /**
  * Derive a human-friendly displayname from a Skynet username (D-11).
  * For simple usernames: title-case the whole string.
