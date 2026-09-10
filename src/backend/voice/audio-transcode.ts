@@ -70,14 +70,16 @@ import { spawn } from "node:child_process";
 
 /**
  * Shared subprocess wrapper. Spawns ffmpeg with the given args, pipes
- * `webmBuffer` to stdin, collects stdout chunks, resolves the concatenated
+ * `inputBuffer` to stdin, collects stdout chunks, resolves the concatenated
  * Buffer on exit code 0, and rejects on non-zero exit or spawn error.
  *
- * Kept private (not exported) so callers reach for the semantically-named
- * `webmToOggOpus` / `webmToFlac` wrappers instead of an untyped argv slot
- * that could accidentally accept user-controlled args (threat T-98-04-04).
+ * Exported for reuse by audio-chunker.ts (Phase 100) — sliceFlac delegates
+ * to this helper rather than duplicating the spawn/pipe body. The argv-safety
+ * constraint from T-98-04-04 still applies: every caller (webmToOggOpus,
+ * webmToFlac, sliceFlac) passes ONLY hardcoded literal strings and
+ * numeric-formatted values; user data flows through stdin only.
  */
-function runFfmpeg(webmBuffer: Buffer, args: readonly string[]): Promise<Buffer> {
+export function runFfmpeg(inputBuffer: Buffer, args: readonly string[]): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const ff = spawn("ffmpeg", args as string[], {
       stdio: ["pipe", "pipe", "pipe"],
@@ -98,7 +100,7 @@ function runFfmpeg(webmBuffer: Buffer, args: readonly string[]): Promise<Buffer>
       }
     });
 
-    ff.stdin.end(webmBuffer);
+    ff.stdin.end(inputBuffer);
   });
 }
 
