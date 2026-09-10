@@ -676,44 +676,6 @@ export function AppShell({
     });
   }, [activeTabId, tabs, tmuxSessionNames, identitiesByKey, activeTmuxFromStore, brandingConfig.appName]);
 
-  // Phase 97 UAT follow-up (2026-09-10) — relay-room title backfill sync.
-  //
-  // A URL-restore opens a relay-room tab with `label = spec.roomId` (raw
-  // `!xxx:server`) because the friendly title isn't known at restore time
-  // (the fleet session list arrives later). Once the fleet list lands with
-  // `roomTitle`, this effect syncs the friendly title back into the tab's
-  // `label` + `relayRoomTitle` so:
-  //   - the conv-list item re-derives (rowFromTab reads `tab.label`)
-  //   - the Chrome tab title re-derives (document.title effect above reads
-  //     `activeTab?.label`).
-  //
-  // Runs on every relayRoomTitles change (only publishes new reference when
-  // the derived roomId→roomTitle content actually changes — see
-  // getRelayRoomTitlesSnapshot in conversation-store). Idempotent: if every
-  // tab's label already matches, setTabs sees no changes and returns the
-  // same array reference (Object.is stability preserves downstream deps).
-  useEffect(() => {
-    if (relayRoomTitles.size === 0) return;
-    setTabs((prev) => {
-      let changed = false;
-      const next = prev.map((t) => {
-        if (t.sessionKind !== "relay-room" || !t.relayRoomId) return t;
-        const fleetTitle = relayRoomTitles.get(t.relayRoomId);
-        if (!fleetTitle) return t;
-        // Update if the current label is stale (still shows raw roomId or
-        // relayRoomTitle is null). Comparing to relayRoomId catches the
-        // URL-restore-stub case; comparing to fleetTitle catches later
-        // rename-in-fleet propagation.
-        if (t.label === fleetTitle && t.relayRoomTitle === fleetTitle) {
-          return t;
-        }
-        changed = true;
-        return { ...t, label: fleetTitle, relayRoomTitle: fleetTitle };
-      });
-      return changed ? next : prev;
-    });
-  }, [relayRoomTitles]);
-
   // ─── Conversation-store sync (Plan 06-02) ────────────────────────────────
   // The conversation-store is a pure DERIVATION of AppShell's tab state; it
   // is fed via effects that fire on `tabs` and `realHostTree` changes. The
@@ -861,6 +823,53 @@ export function AppShell({
   // that were opened via URL-restore before the fleet session list arrived
   // with the friendly title.
   const relayRoomTitles = useRelayRoomTitles();
+
+  // Phase 97 UAT follow-up (2026-09-10) — relay-room title backfill sync.
+  //
+  // A URL-restore opens a relay-room tab with `label = spec.roomId` (raw
+  // `!xxx:server`) because the friendly title isn't known at restore time
+  // (the fleet session list arrives later). Once the fleet list lands with
+  // `roomTitle`, this effect syncs the friendly title back into the tab's
+  // `label` + `relayRoomTitle` so:
+  //   - the conv-list item re-derives (rowFromTab reads `tab.label`)
+  //   - the Chrome tab title re-derives (document.title effect earlier
+  //     reads `activeTab?.label`).
+  //
+  // Runs on every relayRoomTitles change (only publishes a new reference
+  // when the derived roomId→roomTitle content actually changes — see
+  // getRelayRoomTitlesSnapshot in conversation-store). Idempotent: if
+  // every tab's label already matches, setTabs sees no changes and
+  // returns the same array reference (Object.is stability preserves
+  // downstream deps).
+  //
+  // ⚠️ Placement: this useEffect MUST sit AFTER the `const relayRoomTitles
+  // = useRelayRoomTitles()` declaration above. The dep array
+  // `[relayRoomTitles]` is evaluated at the useEffect call site during
+  // render — placing the useEffect before the const declaration would
+  // hit a TDZ ReferenceError at first render (fleet regression 2026-09-10:
+  // exactly this happened; app failed to boot with "Cannot access 'He'
+  // before initialization" in minified AppShell).
+  useEffect(() => {
+    if (relayRoomTitles.size === 0) return;
+    setTabs((prev) => {
+      let changed = false;
+      const next = prev.map((t) => {
+        if (t.sessionKind !== "relay-room" || !t.relayRoomId) return t;
+        const fleetTitle = relayRoomTitles.get(t.relayRoomId);
+        if (!fleetTitle) return t;
+        // Update if the current label is stale (still shows raw roomId or
+        // relayRoomTitle is null). Comparing to relayRoomId catches the
+        // URL-restore-stub case; comparing to fleetTitle catches later
+        // rename-in-fleet propagation.
+        if (t.label === fleetTitle && t.relayRoomTitle === fleetTitle) {
+          return t;
+        }
+        changed = true;
+        return { ...t, label: fleetTitle, relayRoomTitle: fleetTitle };
+      });
+      return changed ? next : prev;
+    });
+  }, [relayRoomTitles]);
 
   // The "effective active-inline" id is whatever drives the currently-visible
   // conversation view. For session-type tabs (those the conversation-store
