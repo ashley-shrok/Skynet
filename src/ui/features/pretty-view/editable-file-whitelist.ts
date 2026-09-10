@@ -144,6 +144,57 @@ export const SKYNET_FILE_URL_RE_CLIENT =
   /https:\/\/[a-zA-Z0-9.-]+(?::\d{1,5})?\/file\/[a-zA-Z0-9._-]+\/[^\s)?#]+/g;
 
 /**
+ * Phase 103 D-29 URL shape: <hostname>-<port>.serve.term.<domain>[/path]
+ * Example: https://t1000-3020.serve.term.gigaashley.click/foo/bar
+ *
+ * Grammar (locked in Phase 103 D-01 + D-11 + D-12):
+ *   - scheme:      https:// only (Caddy edge terminates TLS; agents on the
+ *                  serve subdomain always speak HTTPS to the user's browser).
+ *   - hostname:    [a-zA-Z0-9._-]+ — matches hosts.name for the fleet's
+ *                  simple-name convention (D-13 case preserved on the wire;
+ *                  backend does LOWER() at lookup time). D-12 enforces at
+ *                  registration that hostnames MUST NOT end in `-\d+`, so
+ *                  the LAST-DASH split in D-11 is unambiguous.
+ *   - literal:     - (last dash of the leftmost DNS label per D-11)
+ *   - port:        \d{1,5} — the agent's port on the target host.
+ *   - literal:     .serve.term.
+ *   - domain:      [a-zA-Z0-9.-]+ — any DNS-legal parent domain (currently
+ *                  gigaashley.click; T800 will have its own per D-23).
+ *   - opt port:    (?::\d{1,5})? — rare on serve URLs (Caddy terminates on
+ *                  443) but included for symmetry with SKYNET_FILE_URL_RE_CLIENT.
+ *   - opt path:    (?:\/[^\s)?#]*)? — same terminator style as the sibling
+ *                  regexes above (stops at whitespace, closing paren, query
+ *                  start, or fragment start).
+ *
+ * The /g flag is INTENTIONAL: consumers scan message bodies for MULTIPLE
+ * matches per message. When using `.match()`, no state reset is needed
+ * (each call is stateless).
+ *
+ * ⚠️ Same /g gotcha as TAILNET_URL_RE_CLIENT (L89-91) and
+ * SKYNET_FILE_URL_RE_CLIENT (L125-131): NEVER call `.test()` on this regex —
+ * it mutates `.lastIndex` and returns alternating true/false. For dispatch
+ * decisions, use a fresh non-global regex. See PATTERNS.md
+ * §editable-file-whitelist.ts (L444) for the mirror-rule reference.
+ *
+ * D-29 RENDERING NOTE: serve URLs are NOT threaded through the edit-file
+ * eligibility byte-sniff loop in `use-editable-file-eligibility.ts`. Per
+ * D-29 they render as PLAIN clickable links via ReactMarkdown's default
+ * <a> handling (no pencil affordance, no preview card — those are the
+ * deferred visual-affordance bounty per D-30).
+ *
+ * MIRROR-RULE bookkeeping (Phase 40 D-02): the backend twin at
+ * src/backend/utils/editable-file-whitelist.ts does NOT re-export this
+ * regex — the backend validates serve URLs via the subdomain-dispatch
+ * middleware's own parse logic per D-11 (split on last dash of leftmost
+ * DNS label; right side must be all digits). Same rationale as
+ * TAILNET_URL_RE_CLIENT and SKYNET_FILE_URL_RE_CLIENT being client-only.
+ * The backend twin's docblock carries a PHASE 103 mirror-rule paragraph
+ * to preserve the paper trail.
+ */
+export const SKYNET_SERVE_URL_RE_CLIENT =
+  /https:\/\/[a-zA-Z0-9._-]+-\d{1,5}\.serve\.term\.[a-zA-Z0-9.-]+(?::\d{1,5})?(?:\/[^\s)?#]*)?/g;
+
+/**
  * Strip trailing prose punctuation from an extracted URL (rev-3 2026-08-14
  * code-review H2). GFM autolink literals trim `.,;:!?` from the end of a URL
  * when rendering an `<a>` (so `see http://100.64.0.1:8000/notes.md.` renders
