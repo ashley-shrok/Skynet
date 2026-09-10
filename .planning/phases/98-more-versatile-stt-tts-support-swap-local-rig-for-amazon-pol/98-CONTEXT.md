@@ -63,6 +63,22 @@ Move Skynet's voice-in (mic recording → transcript) and voice-out (assistant m
 
 - **The server-side "slash `<skill-name>`" transform in the STT path (currently at `src/backend/voice/slashCommandTransform.ts:181–276`) carries over unchanged.** It's a Skynet-specific quirk that runs on the transcript regardless of provider. New Transcribe adapter returns text → same transform runs on it → returned to client. No behavior change.
 
+### Telegram bridge STT (locked 2026-09-10)
+
+- **The Telegram bridge uses whatever STT Skynet's frontend is configured with — i.e., routes through Skynet's `/voice/transcribe` endpoint.** Ashley 2026-09-10 verbatim: *"the telegram bridge is supposed to use whatever STT that Skynet is configured with for STT on the front end."* This keeps the bridge provider-agnostic — it doesn't know or care that AWS is behind it.
+- **Concrete impact:** `substrate/services/tg-bridge/bridge.sh:225` (the `tg_voice_to_mx` STT path) stops POSTing to `$STT_URL` (Chatterbox direct) and instead POSTs its transcode-output to Skynet's `/voice/transcribe` endpoint. `bridge-config-writer.ts` stops writing `STT_URL` to `/state/config.env`; it starts writing whatever the bridge needs to reach Skynet (a Skynet base URL + service-account credential — planner picks the auth shape, likely a bridge-scoped API token issued at bridge-config write time OR a shared secret env-var the bridge and Skynet both know).
+- **Provider transparency preserved.** The bridge cannot tell whether Skynet is running its own local STT or hitting AWS. Future provider swaps don't touch the bridge.
+
+### Claude's-discretion decisions taken during research phase
+
+Recorded here since these were flagged as "planner picks" in CONTEXT and locked by tabitha 2026-09-10 based on researcher's recommendation, without needing Ashley bounce-back:
+
+- **Migration trigger: startup one-shot idempotent** (runs when Skynet backend boots, walks identity+role frontmatter, clears any voice value matching the old regex, no-ops on already-clean state). Recommended by researcher over `docker exec` step — zero-touch for operators, retries automatically on next restart if it flakes.
+- **`/voice/voices` endpoint: DROP entirely; inline the 7-voice const in `VoicePicker.tsx`.** The endpoint's only remaining purpose would be to return a hardcoded list; that's cheaper as a frontend const.
+- **AWS region: hardcode `us-east-1`** in the adapter code (not env-var-driven). Generative Polly isn't in all regions; hardcoding removes an operator failure mode. Both instances' AWS accounts have `us-east-1` generative available. If a future region-switch becomes needed, one-line change.
+
+Ashley can override any of these at plan-review time by saying so.
+
 ### Kill list
 
 Delete these files/config outright (clean cutover, no dual-provider seam):
