@@ -101,12 +101,14 @@ export function maybeInstallStopHook(
 //   - No timing / no timeouts. Pure counting semaphore with a FIFO queue.
 //
 // D-02 (Phase 101 Plan 01): makeSemaphore moved to host-semaphore-registry.ts.
-// Imported here so existing call sites in this file continue to compile
-// byte-identically. Re-exported so starter.test.ts can still import it
-// directly. Plan 101-02 will migrate these call sites to getHostSemaphore().
+// Re-exported so starter.test.ts can still import it directly.
+// D-04 (Phase 101 Plan 02): fleet-status + substrate call sites migrated to
+// getHostSemaphore() — both producers running on the same hostId now share ONE
+// 8-slot pool (Bounty b31a5c8e Phase 101). makeSemaphore no longer called
+// locally; import retained as re-export for downstream test consumers.
 // ---------------------------------------------------------------------------
 export { makeSemaphore } from "./ssh/host-semaphore-registry.js";
-import { makeSemaphore } from "./ssh/host-semaphore-registry.js";
+import { getHostSemaphore } from "./ssh/host-semaphore-registry.js";
 
 // ---------------------------------------------------------------------------
 // Phase 72 Plan 05 — projection helper for the `runs_fleet_substrate` opt-in
@@ -599,9 +601,11 @@ if (process.env.VITEST !== "true") {
           if (existing) {
             // Health-check: try a simple command
             try {
-              // Bounty b31a5c8e: per-connection SSH exec throttle. Cap at
-              // 8 in flight to stay under OpenSSH default MaxSessions=10.
-              const sem = makeSemaphore(8);
+              // Bounty b31a5c8e (Phase 101): per-host semaphore now shared via
+              // registry — fleet-status + substrate + route producers running on
+              // the same host now share a single 8-slot pool. Wilma-incident
+              // MaxSessions=10 citation: cap at 8 leaves 2 channels of headroom.
+              const sem = getHostSemaphore(host.id);
               const channel = {
                 exec: async (command: string): Promise<string | null> => {
                   try {
@@ -647,9 +651,11 @@ if (process.env.VITEST !== "true") {
           client.on("close", () => hostClients.delete(host.id));
           client.on("error", () => hostClients.delete(host.id));
 
-          // Bounty b31a5c8e: per-connection SSH exec throttle. Cap at 8
-          // in flight to stay under OpenSSH default MaxSessions=10.
-          const sem = makeSemaphore(8);
+          // Bounty b31a5c8e (Phase 101): per-host semaphore now shared via
+          // registry — fleet-status + substrate + route producers running on
+          // the same host now share a single 8-slot pool. Wilma-incident
+          // MaxSessions=10 citation: cap at 8 leaves 2 channels of headroom.
+          const sem = getHostSemaphore(host.id);
           const channelAdapter: SshChannel = {
             exec: async (command: string): Promise<string | null> => {
               try {
@@ -863,13 +869,12 @@ if (process.env.VITEST !== "true") {
       // so the two lifecycles do not contaminate each other.
       const substrateHostClients = new Map<string, import("ssh2").Client>();
 
-      // Per-host semaphore Map — lazy-created per host on first acquire.
-      // makeSemaphore(8) matches the wilma-incident MaxSessions=10 fix
-      // (fleet-status uses the same cap at starter.ts:520).
-      const substrateHostSemaphores = new Map<
-        string,
-        ReturnType<typeof makeSemaphore>
-      >();
+      // Bounty b31a5c8e (Phase 101, D-04): substrate semaphore now shared via
+      // the module-scope registry (host-semaphore-registry.ts). The former
+      // substrateHostSemaphores Map is removed — fleet-status + substrate
+      // producers running on the same hostId now share ONE 8-slot pool.
+      // Wilma-incident MaxSessions=10 citation: cap at 8 leaves 2 channels
+      // of headroom per connection.
 
       async function substrateAcquireChannel(host: {
         id: string;
@@ -891,12 +896,11 @@ if (process.env.VITEST !== "true") {
             client.on("error", () => substrateHostClients.delete(host.id));
           }
 
-          // Lazy-init semaphore: one per host, capped at 8 in-flight execs.
-          let sem = substrateHostSemaphores.get(host.id);
-          if (!sem) {
-            sem = makeSemaphore(8);
-            substrateHostSemaphores.set(host.id, sem);
-          }
+          // Shared registry semaphore — same instance as fleet-status on this
+          // hostId (Bounty b31a5c8e Phase 101 D-04). getHostSemaphore is
+          // idempotent: first call creates the 8-slot pool; subsequent calls
+          // return the same instance.
+          const sem = getHostSemaphore(host.id);
 
           const capturedClient = client;
           const capturedSem = sem;
@@ -1002,7 +1006,9 @@ if (process.env.VITEST !== "true") {
           }
         }
         substrateHostClients.clear();
-        substrateHostSemaphores.clear();
+        // substrateHostSemaphores.clear() removed (Phase 101 Plan 02, D-04):
+        // semaphores now live in the shared registry; registry lifecycle is
+        // process-scoped and does not need SIGTERM cleanup.
       });
     }
 
