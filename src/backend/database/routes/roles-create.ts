@@ -105,6 +105,7 @@ import {
 import { ROLE_NAME_PATTERN } from "./identity-birth-orchestrator.js";
 import { sshLogger } from "../../utils/logger.js";
 import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -438,6 +439,7 @@ router.post(
     // -----------------------------------------------------------------------
     let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
     try {
+      await getHostSemaphore(hostId).run(async () => {
       try {
         conn = await connectOneShot(
           host as unknown as Parameters<typeof connectOneShot>[0],
@@ -597,7 +599,7 @@ router.post(
       //     the persisted frontmatter (empty {} when none supplied).
       // ---------------------------------------------------------------------
       res.status(201).json({ name, description, cosmetics });
-      return;
+      }); // end getHostSemaphore(hostId).run(...)
     } finally {
       if (conn) {
         try {
