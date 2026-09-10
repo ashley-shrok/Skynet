@@ -15,6 +15,21 @@ services:
     image: skynet-patched:local
     container_name: skynet
     restart: unless-stopped
+    # Build block added 2026-09-10 (bounty compose-tg-bridge-buildpath-cleanup)
+    # so `docker compose build` from a maintainer's worktree rebuilds both
+    # skynet-patched:local AND tg-bridge:local in one command. Previously
+    # skynet was built out-of-band with `docker build -t skynet-patched:local
+    # -f docker/Dockerfile .` and only tg-bridge lived in the compose file's
+    # build set — a mental-model gap that caused Phase 98's tg-bridge to
+    # ship half-way (silent-deaf incident 2026-09-10). Context `..` resolves
+    # to the repo root from docker/docker-compose.yml; matches the historical
+    # standalone command. SKYNET_BUILD_SHA is set by the ship runbook so the
+    # commit sha lands as an OCI label on the built image (drift-detection).
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      labels:
+        org.skynet.commit: "${SKYNET_BUILD_SHA:-}"
     expose:
       - "8080"
     volumes:
@@ -99,6 +114,9 @@ services:
     build:
       context: ../substrate/services/tg-bridge
       dockerfile: Dockerfile.tg-bridge
+      # SKYNET_BUILD_SHA: see skynet service build block above (2026-09-10).
+      labels:
+        org.skynet.commit: "${SKYNET_BUILD_SHA:-}"
     image: tg-bridge:local
     container_name: tg-bridge
     restart: always
