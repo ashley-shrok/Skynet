@@ -632,4 +632,49 @@ describe("useRelayAdapter (Phase 93 Slice 3)", () => {
     expect(flat).not.toContain("secret body");
     infoSpy.mockRestore();
   });
+
+  // ─── Test 24: WS-closed send → immediate failed bubble in messages ──────
+  // Regression pin for the silent-message-loss failure mode Ashley flagged
+  // during Phase 93 UAT. If the WS closes (network drop, tab returned from
+  // background) and the user sends before it reconnects, sendMessage must:
+  //   1. Return false (caller can decide to retry).
+  //   2. Seed a pending entry with state:"failed" that surfaces in
+  //      adapter.messages with pendingState:"failed", so PrettyView renders
+  //      it as the saturated-red bubble (ChatMessage L429-436). Without
+  //      this, the message is silently lost — no visual feedback.
+  // The fail-immediately branch lives in use-relay-adapter.ts sendMessage
+  // at the `ws === null || ws.readyState !== WebSocket.OPEN` check.
+  it("Test 24 (WS-closed regression pin): sendMessage on a closed WS returns false AND surfaces the pending as pendingState:'failed' in adapter.messages", async () => {
+    const { result } = renderHook(() => useRelayAdapter(RELAY_SOURCE, true));
+    act(() => {
+      instances[0].simulateOpen();
+    });
+    // Simulate network drop — WS closes mid-session.
+    act(() => {
+      instances[0].simulateClose(1006);
+    });
+    expect(instances[0].readyState).toBe(3); // CLOSED
+
+    let sendOk = true;
+    await act(async () => {
+      sendOk = await result.current.sendMessage(
+        "message during offline",
+        "relay-optim-offline",
+      );
+    });
+    // Fail-immediately: sendMessage resolves false.
+    expect(sendOk).toBe(false);
+    // The pending surfaces in adapter.messages as a user bubble with
+    // pendingState:"failed" — this is what drives the red bubble render.
+    const failedMessages = result.current.messages.filter(
+      (m) => m.type === "message" && m.pendingState === "failed",
+    );
+    expect(failedMessages).toHaveLength(1);
+    const failed = failedMessages[0];
+    if (failed.type === "message") {
+      expect(failed.role).toBe("user");
+      expect(failed.content).toBe("message during offline");
+      expect(failed.eventId).toBe("relay-optim-offline");
+    }
+  });
 });
