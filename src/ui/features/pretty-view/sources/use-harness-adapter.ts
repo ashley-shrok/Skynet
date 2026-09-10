@@ -29,6 +29,13 @@ const INERT_STATE: ChatSurfaceAdapterState = {
   sendMessage: async () => false,
   error: null,
   isReady: true,
+  // Phase 97 Finding 1: the harness case's veil is driven off pane-state
+  // (renderedState === "resolving"), NOT this field. Setting `true` here
+  // is the "no-op" default — the harness veil consumer gates on
+  // source.kind === "harness" and never reads this field. Keeping it
+  // `true` (rather than `undefined`) codifies "adapter reports
+  // messages-loaded" for the inert shim.
+  isMessagesLoaded: true,
 };
 
 export function useHarnessAdapter(

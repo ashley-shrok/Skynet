@@ -125,6 +125,12 @@ const IDLE_STATE: ChatSurfaceAdapterState = {
   sendMessage: async () => false,
   error: null,
   isReady: false,
+  // Phase 97 Finding 1: "no source connected yet" state — false is the
+  // correct default (the veil consumer sees this as "not yet loaded" and
+  // shows the scrim). In practice `source.kind === "relay"` gates the
+  // peer veil-arm effect in PrettyView, so this idle-state field is
+  // defensive.
+  isMessagesLoaded: false,
   hasOlder: false,
   loadOlderStatus: "idle",
   loadOlderError: null,
@@ -205,6 +211,21 @@ export function useRelayAdapter(
   // Warning 2 — isReady flips true on the FIRST `session` frame (earliest
   // reliable "backend is authoritative" signal; see header JSDoc).
   const [isReady, setIsReady] = useState<boolean>(false);
+  // Phase 97 Finding 1 — isMessagesLoaded flips true on the FIRST
+  // `history_batch` frame (the "backend has read the room's history"
+  // signal). Distinct from isReady: `session` (isReady=true) fires on
+  // WS-auth pass, before any actual message-loading work. The veil
+  // dismiss signal must be history_batch, not session, so an empty
+  // room's veil dismisses on frame arrival regardless of events.length.
+  //
+  // Rules-of-hooks discipline (Phase 93 Landmine 5): this useState MUST
+  // live ABOVE the `if (source === null) return IDLE_STATE;` early-return
+  // below. It also has no matching reset site — `setIsReady(false)` is
+  // never called elsewhere in this hook (state persists across the
+  // reconnect-ladder retryKey re-run; the closing frame comes via the
+  // next `history_batch` on the fresh WS). Mirror that discipline —
+  // do NOT add a defensive reset that would flash the veil on reconnect.
+  const [isMessagesLoaded, setIsMessagesLoaded] = useState<boolean>(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const pendingSendsRef = useRef<PendingSend[]>([]);
@@ -443,6 +464,12 @@ export function useRelayAdapter(
           // Belt-and-suspenders: history_batch also flips isReady=true (in
           // case a session frame is somehow missed — defensive).
           setIsReady(true);
+          // Phase 97 Finding 1: flip isMessagesLoaded=true on the FRAME
+          // arrival — unconditional on `parsed.events.length`. Empty
+          // rooms MUST dismiss the veil (a room with zero messages
+          // still fires history_batch with events:[]), so the signal
+          // is the frame itself, not events.length > 0.
+          setIsMessagesLoaded(true);
           break;
         case "live_event": {
           const evt = parsed.event;
@@ -608,6 +635,10 @@ export function useRelayAdapter(
     sendMessage,
     error,
     isReady,
+    // Phase 97 Finding 1: added to BOTH the returned object AND the deps
+    // array below (Phase 93 Landmine 4 — every returned field must be in
+    // deps). Consumed by PrettyView's relay-case veil-arm effect.
+    isMessagesLoaded,
     hasOlder,
     loadOlderStatus,
     loadOlderError,
@@ -618,6 +649,7 @@ export function useRelayAdapter(
     sendMessage,
     error,
     isReady,
+    isMessagesLoaded,
     hasOlder,
     loadOlderStatus,
     loadOlderError,

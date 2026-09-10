@@ -70,6 +70,17 @@ export interface ChatSurfaceAdapterState {
   sendMessage: (body: string, mqid: string) => Promise<boolean>;
   error: string | null;
   isReady: boolean;
+  /**
+   * Phase 97 Finding 1: flips true on the first `history_batch` frame
+   * (relay adapter) or defaults to true for the harness inert shim.
+   * PrettyView's loading-veil arm reads this in the relay case as the
+   * "backend has responded with historical messages" signal. `isReady`
+   * flips earlier (on `session` frame — WS-auth pass) and is NOT the
+   * right signal for the veil per Phase 97 Finding 1 landmines
+   * (session alone would dismiss too early; messages.length > 0 would
+   * never dismiss an empty room — the FRAME arrival is the signal).
+   */
+  isMessagesLoaded?: boolean;
   // Optional pagination fields — Slice 3's relay adapter populates them; the
   // harness shim leaves them undefined.
   hasOlder?: boolean;

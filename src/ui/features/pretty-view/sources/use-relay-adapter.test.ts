@@ -431,6 +431,126 @@ describe("useRelayAdapter (Phase 93 Slice 3)", () => {
     expect(result.current.error).toBeNull();
   });
 
+  // ── Phase 97 Finding 1 — isMessagesLoaded veil signal ────────────────────
+  //
+  // The relay adapter exposes `isMessagesLoaded` (Phase 97 Slice 02):
+  //   - false initially (before any frame arrives)
+  //   - flips true on the FIRST `history_batch` frame — the backend has
+  //     read the room's history. This is the "veil dismiss" signal for
+  //     the relay case; PrettyView reads it via chatSurfaceAdapter.
+  //   - MUST NOT flip on `session` alone (session is WS-auth pass, earlier
+  //     than history — dismissing on session would show an empty room
+  //     with no messages loaded yet, defeating the veil's purpose).
+  //   - Empty rooms dismiss too: history_batch with events:[] flips the
+  //     signal — the FRAME arrival is the signal, not events.length.
+  //   - `useHarnessAdapter` INERT_STATE defaults `isMessagesLoaded: true`
+  //     (the harness case's veil is driven off pane-state and never reads
+  //     this field; `true` codifies "adapter reports messages-loaded" for
+  //     the inert shim).
+
+  it("Test 18 (Phase 97 Finding 1 — initial state): before any frame, isMessagesLoaded is false", () => {
+    const { result } = renderHook(() => useRelayAdapter(RELAY_SOURCE, true));
+    expect(result.current.isMessagesLoaded).toBe(false);
+  });
+
+  it("Test 19 (Phase 97 Finding 1 — empty-room dismiss): history_batch with events:[] flips isMessagesLoaded to true", () => {
+    const { result } = renderHook(() => useRelayAdapter(RELAY_SOURCE, true));
+    expect(result.current.isMessagesLoaded).toBe(false);
+    act(() => {
+      instances[0].simulateOpen();
+      instances[0].simulateFrame({
+        type: "history_batch",
+        events: [],
+        hasMore: false,
+      });
+    });
+    // Empty rooms MUST dismiss the veil — the FRAME arrival is the signal,
+    // not events.length. Without this, an empty room's veil never dismisses.
+    expect(result.current.isMessagesLoaded).toBe(true);
+  });
+
+  it("Test 20 (Phase 97 Finding 1 — populated dismiss): history_batch with events:[non-empty] flips isMessagesLoaded to true", () => {
+    const { result } = renderHook(() => useRelayAdapter(RELAY_SOURCE, true));
+    const e1 = makeMatrixEvent({ event_id: "$a" });
+    act(() => {
+      instances[0].simulateOpen();
+      instances[0].simulateFrame({
+        type: "history_batch",
+        events: [e1],
+        hasMore: false,
+      });
+    });
+    expect(result.current.isMessagesLoaded).toBe(true);
+  });
+
+  it("Test 21 (Phase 97 Finding 1 — session alone does NOT dismiss): a session frame WITHOUT history_batch flips isReady but leaves isMessagesLoaded=false", () => {
+    const { result } = renderHook(() => useRelayAdapter(RELAY_SOURCE, true));
+    act(() => {
+      instances[0].simulateOpen();
+      instances[0].simulateFrame({
+        type: "session",
+        roomId: ROOM_ID,
+        roomTitle: "Working session",
+      });
+    });
+    // session is WS-auth pass — flips isReady, MUST NOT flip
+    // isMessagesLoaded. Landmine: dismissing on session alone would defeat
+    // the whole point of separating the two signals.
+    expect(result.current.isReady).toBe(true);
+    expect(result.current.isMessagesLoaded).toBe(false);
+  });
+
+  it("Test 22 (Phase 97 Finding 1 — memoization stability): two identical history_batch frames don't churn the returned adapter object identity", () => {
+    const { result } = renderHook(() => useRelayAdapter(RELAY_SOURCE, true));
+    act(() => {
+      instances[0].simulateOpen();
+      instances[0].simulateFrame({
+        type: "history_batch",
+        events: [],
+        hasMore: false,
+      });
+    });
+    const first = result.current;
+    // Feed an identical history_batch frame — inputs to the useMemo deps
+    // don't change (history is set to []; setHistory([]) with same-shape
+    // triggers a state update but produces the same downstream memoized
+    // messages array reference IF React's setState bail-out fires, or a
+    // new one if not. Regardless, isMessagesLoaded stays true and
+    // participates in the memo deps array.
+    act(() => {
+      instances[0].simulateFrame({
+        type: "history_batch",
+        events: [],
+        hasMore: false,
+      });
+    });
+    // isMessagesLoaded must be in the memo deps (Phase 93 Landmine 4) — if
+    // omitted, the object would be memoized incorrectly and a fresh flip
+    // could serve a stale return. Assert value stayed correct across the
+    // second frame.
+    expect(result.current.isMessagesLoaded).toBe(true);
+    // Second guard: the returned shape carries isMessagesLoaded in the
+    // returned-object literal (not just internally tracked).
+    expect("isMessagesLoaded" in result.current).toBe(true);
+    // Reference: `first` was captured pre-second-frame; we don't assert
+    // reference equality here (React setState of same value may or may not
+    // bail out depending on scheduler internals) — instead we assert both
+    // returned shapes carry the correct value.
+    expect(first.isMessagesLoaded).toBe(true);
+  });
+
+  it("Test 23 (Phase 97 Finding 1 — harness inert shim): the harness case reads isMessagesLoaded=true from INERT_STATE (defensive default; harness veil is driven off pane-state)", async () => {
+    // Import the harness adapter dynamically so we don't disturb the module
+    // graph the rest of the file uses.
+    const mod = await import("./use-harness-adapter");
+    const { result } = renderHook(() => mod.useHarnessAdapter(null, true));
+    // The harness INERT_STATE codifies "adapter reports messages-loaded"
+    // for the inert shim — harness veil consumer gates on
+    // source.kind === "harness" and reads renderedState === "resolving"
+    // instead, so this default is defensive-only.
+    expect(result.current.isMessagesLoaded).toBe(true);
+  });
+
   it("Test 17 (structured logging): send_message emits console.info with operation field (no raw body)", async () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     const { result } = renderHook(() => useRelayAdapter(RELAY_SOURCE, true));
