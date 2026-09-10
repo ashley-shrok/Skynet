@@ -13,7 +13,7 @@ import { EventEmitter } from "node:events";
  *   1. webmToOggOpus spawns ffmpeg with the exact remux arg list
  *      (`-i pipe:0 -c:a copy -f ogg pipe:1`).
  *   2. webmToFlac spawns ffmpeg with the exact full-transcode fallback
- *      arg list (`-i pipe:0 -ar 16000 -ac 1 -f flac pipe:1`).
+ *      arg list (`-i pipe:0 -ar 48000 -ac 1 -f flac pipe:1`).
  *   3. Both feed the input buffer to stdin via `.end(buf)`.
  *   4. Both resolve to `Buffer.concat(stdout chunks)` on close code 0.
  *   5. Both reject on non-zero close code with an error including stderr text.
@@ -156,7 +156,7 @@ describe("audio-transcode.webmToFlac — fallback full-transcode path", () => {
       "-af",
       `silenceremove=stop_periods=-1:stop_duration=${SILENCE_TRIM_MIN_SEC}:stop_threshold=${SILENCE_TRIM_THRESHOLD_DB}dB:stop_silence=${SILENCE_TRIM_PAD_SEC}`,
       "-ar",
-      "16000",
+      "48000",
       "-ac",
       "1",
       "-f",

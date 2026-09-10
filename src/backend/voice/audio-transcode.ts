@@ -40,13 +40,13 @@
  *   MediaRecorder already produced Opus. This is the happy path — the
  *   caller SHOULD prefer this and fall back only when it errors.
  *
- * - **`webmToFlac` re-encodes to 16 kHz mono FLAC.** This is the
+ * - **`webmToFlac` re-encodes to 48 kHz mono FLAC.** This is the
  *   fallback for edge cases where the Ogg-Opus remux fails. Notable
  *   case per 98-RESEARCH.md § Pattern 5: Chrome sometimes produces
  *   multi-channel (stereo) Opus, and Transcribe's Ogg-Opus mode expects
  *   mono at 16 kHz — the remux preserves multi-channel, causing
- *   `BadRequestException`. Full FLAC transcode with `-ar 16000 -ac 1`
- *   flattens to mono @ 16 kHz, which Transcribe always accepts. Slower
+ *   `BadRequestException`. Full FLAC transcode with `-ar 48000 -ac 1`
+ *   flattens to mono @ 48 kHz, which Transcribe always accepts. Slower
  *   (~50-200 ms) but bulletproof — validated against the bounty's
  *   sample clips via `transcribe-flac.py`.
  *
@@ -152,7 +152,7 @@ export function webmToOggOpus(webmBuffer: Buffer): Promise<Buffer> {
 }
 
 /**
- * Full-transcode fallback: re-encode a WebM/Opus buffer as 16 kHz mono
+ * Full-transcode fallback: re-encode a WebM/Opus buffer as 48 kHz mono
  * FLAC.
  *
  * Slower (~50-200 ms) than `webmToOggOpus` because it decodes + re-
@@ -161,8 +161,12 @@ export function webmToOggOpus(webmBuffer: Buffer): Promise<Buffer> {
  * `webmToOggOpus` first and fall back to this only when the remux
  * throws — see the fallback pair example in the module docblock.
  *
+ * Sample rate matches the browser MediaRecorder's native 48 kHz to
+ * preserve consonant-band phonetic detail Transcribe uses for
+ * disambiguation — down-sampling to 16 kHz was throwing that away.
+ *
  * @param webmBuffer - Raw WebM/Opus bytes as received from `MediaRecorder`.
- * @returns FLAC bytes at 16 kHz mono, suitable for `transcribeBuffer(_, "flac", 16000)`.
+ * @returns FLAC bytes at 48 kHz mono, suitable for `transcribeBuffer(_, "flac", 48000)`.
  * @throws With ffmpeg's stderr output on non-zero exit.
  * @throws With the spawn error (e.g., ENOENT when ffmpeg is missing from
  *   the container — see the Pitfall 7 note in the module docblock).
@@ -174,7 +178,7 @@ export function webmToFlac(webmBuffer: Buffer): Promise<Buffer> {
     "-af",
     SILENCE_FILTER,
     "-ar",
-    "16000",
+    "48000",
     "-ac",
     "1",
     "-f",

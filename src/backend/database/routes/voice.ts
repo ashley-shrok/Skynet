@@ -71,7 +71,7 @@ function extFromMimetype(mimetype: string): string {
 /**
  * Bridge the raw multipart audio bytes into a Transcribe-accepted format.
  *
- * Default path (WebM/Opus from MediaRecorder): full-transcode to 16 kHz mono
+ * Default path (WebM/Opus from MediaRecorder): full-transcode to 48 kHz mono
  * FLAC via `webmToFlac`. Adds ~50-200 ms vs the `-c:a copy` remux but is
  * bulletproof against Chrome MediaRecorder's intermittent multi-channel
  * Opus output, which produces bytes that ffprobe reads fine but Amazon
@@ -79,6 +79,12 @@ function extFromMimetype(mimetype: string): string {
  * (observed in prod 2026-09-10 on ~50% of clips). The extra ~150 ms is
  * negligible next to Transcribe streaming's own ~audio-duration latency
  * floor.
+ *
+ * Sample rate is 48 kHz, matching MediaRecorder's native rate — the
+ * earlier 16 kHz downsample was throwing away high-frequency phonetic
+ * detail Transcribe's foundation model uses for consonant disambiguation
+ * (bounty auth-slow-requests-on-pwa-boot close-out surfaced adjacent
+ * accuracy work; separate close-out 2026-09-10).
  *
  * Passes through Ogg/FLAC uploads unchanged.
  *
@@ -95,9 +101,10 @@ async function transcodeForTranscribe(
     return { buffer: buf, mediaEncoding: "ogg-opus", sampleRateHz: 48000 };
   }
   // Default assumption: browser MediaRecorder WebM/Opus. Full-transcode to
-  // FLAC 16 kHz mono — see docblock for why we don't use the fast remux.
+  // FLAC 48 kHz mono — see docblock for why we don't use the fast remux,
+  // and why we preserve 48 kHz instead of downsampling to 16 kHz.
   const flacBuf = await webmToFlac(buf);
-  return { buffer: flacBuf, mediaEncoding: "flac", sampleRateHz: 16000 };
+  return { buffer: flacBuf, mediaEncoding: "flac", sampleRateHz: 48000 };
 }
 
 // --- Core handler (exported for direct testing without Express harness) ---

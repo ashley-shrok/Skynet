@@ -312,7 +312,7 @@ describe("handleTranscribe (AWS Transcribe streaming)", () => {
     expect(vi.mocked(webmToFlac)).toHaveBeenCalledTimes(1);
     const cmdArgs = startStreamCmdCtor.mock.calls[0]?.[0];
     expect(cmdArgs.MediaEncoding).toBe("flac");
-    expect(cmdArgs.MediaSampleRateHertz).toBe(16000);
+    expect(cmdArgs.MediaSampleRateHertz).toBe(48000);
   });
 
   it("returns 400 when req.file is missing", async () => {
@@ -798,9 +798,9 @@ describe("handleTranscribe — Phase 100 chunked path routing", () => {
 
     expect(res._status).toBe(200);
     expect((res._body as { text: string }).text).toBe("chunked transcript from parallel path");
-    // Chunked path was called with the FLAC buffer AND sampleRateHz=16000.
+    // Chunked path was called with the FLAC buffer AND sampleRateHz=48000.
     expect(vi.mocked(transcribeBufferChunked)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(transcribeBufferChunked)).toHaveBeenCalledWith(longFlac, 16000);
+    expect(vi.mocked(transcribeBufferChunked)).toHaveBeenCalledWith(longFlac, 48000);
     // Single-stream path must NOT have been called.
     expect(transcribeSendMock).not.toHaveBeenCalled();
   });
