@@ -235,10 +235,14 @@ export function getOrCreateProxyForTarget(
       // per D-06).
       error: (err, req, res) => {
         const errorClass = classifyTunnelError(err);
+        const e = (err ?? {}) as { code?: string; name?: string; level?: string };
         sshLogger.warn("serve-url proxy: proxy-time-error", {
           operation: "serve_url_proxy",
           target: `${target.hostname}:${target.port}`,
           errorClass,
+          errCode: typeof e.code === "string" ? e.code : "",
+          errName: typeof e.name === "string" ? e.name : "",
+          errLevel: typeof e.level === "string" ? e.level : "",
         });
         // http-proxy-middleware's error handler receives a Node-level
         // res that isn't guaranteed to be an Express Response. In our

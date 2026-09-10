@@ -34,6 +34,14 @@ export function classifyTunnelError(err: unknown): ErrorClass {
   const name = typeof e.name === "string" ? e.name : "";
 
   if (code === "ECONNREFUSED") return "port_not_listening";
+  // ECONNRESET on the proxy-time path is almost always the SSH tunnel's
+  // forward-out getting CHANNEL_OPEN_FAILURE (reason: CONNECT_FAILED) from
+  // the target's sshd — target port refused the connection. Bucket into
+  // port_not_listening; the tunnel-open path never sees ECONNRESET (its
+  // failures land on the specific SSH-* / connect-time codes above).
+  // Discovered 2026-09-10 UAT — killed http.server on thenasty:8899 while
+  // the SSH tunnel was already up; the proxy hit ECONNRESET.
+  if (code === "ECONNRESET") return "port_not_listening";
   if (code === "ETIMEDOUT" || code === "EHOSTUNREACH" || code === "ENETUNREACH") {
     return "host_unreachable";
   }
