@@ -36,6 +36,7 @@ import {
   type PaneStateEmitter,
 } from "./pane-state-emitter.js";
 import { readContextPctFromJsonl } from "./context-pct-from-jsonl.js";
+import { parseSweepJsonl } from "./pv-sweep-schema.js";
 // Phase 90 Plan 00 (Wave 0, 2026-09-08 — D-10 delivery mechanism, Ashley 2026-09-08
 // D-03 waiver): dual-write every `context_pct` emission into the fleet-status
 // shared map so PrettyView (post D-03 mechanical waiver swap) and the future
@@ -1101,6 +1102,34 @@ function broadcastAsideDismissed(key: string): void {
 // WebSocketServer.
 export const __asideStateForTests = asideState;
 export const __activeViewersForTests = activeViewers;
+
+// Phase 95 Part C — per-WS pv-context-pct-sweep seam registry.
+// Maps each WebSocket to the closure-scoped helper object exposed by
+// startActiveSessionFlow for the regression test suite. Tests retrieve
+// the seam from this registry, drive tick logic via the helpers, and
+// inspect sweepScriptPresent / sweepSchemaMismatch via the get/set accessors.
+// Automatically keyed by WebSocket identity — cleared when the WS closes.
+export interface __PvSweepSeamForTests {
+  computeContextPctLegacy: (
+    connSnapshot: SSHClientType,
+    sessionFileSnapshot: string | null,
+  ) => Promise<number | null>;
+  computeContextPctBatch: (
+    connSnapshot: SSHClientType,
+    tmuxSessionSnapshot: string,
+  ) => Promise<
+    | { ok: true; pct: number | null }
+    | { ok: false; reason: "null-exec" | "schema-mismatch" | "identity-missing" }
+  >;
+  getSweepScriptPresent: () => boolean | null;
+  setSweepScriptPresent: (v: boolean | null) => void;
+  getSweepSchemaMismatch: () => boolean;
+  setSweepSchemaMismatch: (v: boolean) => void;
+}
+export const __pvSweepSeamRegistry = new Map<
+  import("ws").WebSocket,
+  __PvSweepSeamForTests
+>();
 export const __sessionKeyForTests = sessionKey;
 export const __broadcastAsideDismissedForTests = broadcastAsideDismissed;
 
@@ -4177,6 +4206,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
   // that piggybacks on the context-pct tick. Mirrors dormantInFlight —
   // prevents slow-SSH pileups if a probe takes longer than the 3s tick.
   let sentinelInFlight = false;
+  // Phase 95 Part C — per-WS closure state for the pv-context-pct-sweep
+  // batch dispatch. sweepScriptPresent is `null` before the first probe;
+  // becomes true/false after probe. Cleared naturally on WS close (whole
+  // closure regenerates). sweepSchemaMismatch latches true on the first
+  // schema-mismatched sweep response and stays latched — the caller falls
+  // back to legacy for the remainder of the WS lifetime rather than
+  // re-attempting a schema the peer's script version doesn't support.
+  let sweepScriptPresent: boolean | null = null;
+  let sweepSchemaMismatch = false;
   // quick 260808-fgf — Nelly's .resume-complete freshness contract.
   // Set to Date.now() when the wake handler successfully SSH-execs rm -f .dormant.
   // Read by the dormant-poll seam via a getter accessor. Null means natural resume
@@ -7291,6 +7329,76 @@ wss.on("connection", async (ws: WebSocket, req) => {
       .pop()!
       .replace(/\.jsonl$/, "");
 
+    // Phase 95 Part C — batch-first context_pct helpers.
+    //
+    // computeContextPctLegacy: extracted from the pre-Phase-95-Part-C inline
+    // readContextPctFromJsonl callsite. Preserved verbatim as the fallback path
+    // for boxes mid-rollout (pv-context-pct-sweep not yet distributed) and for
+    // the schema-mismatch latch. Test seam: __applyPvContextPctBatchTickForTests
+    // exposes this so regression tests can exercise the fallback without a live
+    // SSH connection.
+    async function computeContextPctLegacy(
+      connSnapshot: SSHClientType,
+      sessionFileSnapshot: string | null,
+    ): Promise<number | null> {
+      if (!sessionFileSnapshot) return null;
+      return readContextPctFromJsonl(connSnapshot, sessionFileSnapshot);
+    }
+
+    // computeContextPctBatch: dispatch the pv-context-pct-sweep script on the
+    // managed box and parse the JSONL result.
+    //
+    // Returns:
+    //   { ok: true; pct }                   — sweep succeeded, pct is the result.
+    //   { ok: false; reason: "null-exec" }  — exec returned null (SSH transient);
+    //                                         caller should re-probe next tick.
+    //   { ok: false; reason: "schema-mismatch" } — JSONL had schema_version !== 1;
+    //                                         caller should latch and stop trying.
+    //   { ok: false; reason: "identity-missing" } — safe-char guard failed or
+    //                                         identity not in sweep output.
+    async function computeContextPctBatch(
+      connSnapshot: SSHClientType,
+      tmuxSessionSnapshot: string,
+    ): Promise<
+      | { ok: true; pct: number | null }
+      | { ok: false; reason: "null-exec" | "schema-mismatch" | "identity-missing" }
+    > {
+      // G6 belt-and-suspenders safe-char guard — mirrors pv-context-pct-sweep.py's
+      // server-side SAFE_NAME_RE and the plan's belt-and-suspenders note.
+      if (!/^[a-zA-Z0-9_-]+$/.test(tmuxSessionSnapshot)) {
+        return { ok: false, reason: "identity-missing" };
+      }
+      const sweepCmd = `~/.local/bin/pv-context-pct-sweep --identities ${tmuxSessionSnapshot} 2>/dev/null`;
+      const raw = await execCommand(connSnapshot, sweepCmd);
+      if (raw === null || raw === undefined) return { ok: false, reason: "null-exec" };
+      const parsed = parseSweepJsonl(raw);
+      if (parsed.schemaMismatch) return { ok: false, reason: "schema-mismatch" };
+      const line = parsed.lines.find((l) => l.identity === tmuxSessionSnapshot);
+      if (!line) return { ok: false, reason: "identity-missing" };
+      return { ok: true, pct: line.context_pct };
+    }
+
+    // Export the two helpers under a test-seam symbol so
+    // claude-session-server.pv-sweep.test.ts can drive them without a live SSH
+    // connection. The symbol is in module scope — see the export at the bottom
+    // of this closure.
+    //
+    // NOTE: The seam is set OUTSIDE the setInterval callback so the test can
+    // capture the helper references once at flow-start time. Each call to
+    // startActiveSessionFlow re-closes over sweepScriptPresent/sweepSchemaMismatch,
+    // so the test harness must use the seam's invoke() method (not import the
+    // closure vars directly) to drive tick behaviour.
+    const __pvSweepSeam = {
+      computeContextPctLegacy,
+      computeContextPctBatch,
+      getSweepScriptPresent: () => sweepScriptPresent,
+      setSweepScriptPresent: (v: boolean | null) => { sweepScriptPresent = v; },
+      getSweepSchemaMismatch: () => sweepSchemaMismatch,
+      setSweepSchemaMismatch: (v: boolean) => { sweepSchemaMismatch = v; },
+    };
+    // Expose on the module-level seam registry so tests can retrieve it.
+    __pvSweepSeamRegistry.set(ws, __pvSweepSeam);
+
     // Context-% poller: reads the context percentage from the JSONL every
     // ~3s (authoritative, pane-width-independent). JSONL is the sole source
     // of truth for context_pct post-Phase-95 Part B — the tmux capture-pane
@@ -7299,6 +7407,14 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // renders a loading placeholder (accepted UX tradeoff per CONTEXT.md
     // § Verification and RESEARCH §3g + G4). Recipe cribbed from
     // nelly's context-watch.py (2026-07-18); JSONL path from Phase 90.
+    //
+    // Phase 95 Part C: batch-first dispatch using the pv-context-pct-sweep
+    // script (distributor-shipped to ~/.local/bin/pv-context-pct-sweep).
+    // Presence probe fires once per SSH-channel lifetime (sweepScriptPresent
+    // is null initially, cached after first probe, reset to null on null-exec
+    // for transient-recovery re-probe next tick). Schema-mismatch latches
+    // sweepSchemaMismatch=true for the WS lifetime — falls back to legacy
+    // without re-probing. Option 3 (per-WS) topology locked in Plan 04.
     const CONTEXT_PCT_INTERVAL_MS = 3000;
     contextPctTimer = setInterval(() => {
       if (stopped || ws.readyState !== WebSocket.OPEN) return;
@@ -7311,19 +7427,50 @@ wss.on("connection", async (ws: WebSocket, req) => {
       // matches how other closure-scoped fields are consulted inside
       // this callback.
       const sessionFileSnapshot = currentSessionFile;
+      const tmuxSessionSnapshot = activeTmuxSession;
       (async () => {
         try {
-          // PRIMARY: JSONL read (authoritative, pane-width-independent).
-          // See ./context-pct-from-jsonl.ts docblock for the WHY / the
-          // 16.5% autocompact normalization mirror / the ±1 rounding
-          // note. Returns null on any error — helper never throws.
-          let pct: number | null = null;
-          if (sessionFileSnapshot) {
-            pct = await readContextPctFromJsonl(
+          // Presence probe on first tick per SSH-channel lifetime.
+          // After probe, sweepScriptPresent is true/false and cached for the
+          // WS lifetime. Null-exec recovery resets it to null → re-probe next tick.
+          if (sweepScriptPresent === null) {
+            const probeRaw = await execCommand(
               connSnapshot,
-              sessionFileSnapshot,
+              "test -x ~/.local/bin/pv-context-pct-sweep 2>/dev/null && echo yes || echo no",
             );
+            sweepScriptPresent = probeRaw !== null && probeRaw !== undefined && probeRaw.trim() === "yes";
+            sshLogger.info("PV context-pct sweep-script presence probed", {
+              operation: "pv_context_pct_sweep_probe",
+              present: sweepScriptPresent,
+              identity: tmuxSessionSnapshot,
+            });
           }
+
+          let pct: number | null = null;
+
+          // Batch-first dispatch.
+          if (sweepScriptPresent && !sweepSchemaMismatch) {
+            const result = await computeContextPctBatch(connSnapshot, tmuxSessionSnapshot);
+            if (result.ok) {
+              pct = result.pct;
+            } else {
+              sshLogger.warn("PV context-pct batch fell back to legacy", {
+                operation: "pv_context_pct_batch_fallback",
+                reason: result.reason,
+                identity: tmuxSessionSnapshot,
+              });
+              // Null-exec: force re-probe next tick (transient recovery).
+              if (result.reason === "null-exec") sweepScriptPresent = null;
+              // Schema-mismatch: latch for connection lifetime (no more batch attempts).
+              if (result.reason === "schema-mismatch") sweepSchemaMismatch = true;
+              // This-tick fallback to legacy path.
+              pct = await computeContextPctLegacy(connSnapshot, sessionFileSnapshot);
+            }
+          } else {
+            // Legacy path (script absent OR schema-mismatch latched).
+            pct = await computeContextPctLegacy(connSnapshot, sessionFileSnapshot);
+          }
+
           // Phase 90 Plan 00 (Wave 0, D-10 delivery mechanism): dual-write
           // into the fleet-status shared map so PrettyView (post D-03
           // mechanical waiver) and the future Plan 06 relay-pane badge
