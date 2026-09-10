@@ -521,7 +521,7 @@ export async function getUserJoinedRooms(
 }
 
 // ---------------------------------------------------------------------------
-// getRoomLatestEventTs — GET /_synapse/admin/v1/rooms/{roomId}/messages?dir=b&limit=1
+// getRoomLatestEventTs — GET /_synapse/admin/v1/rooms/{roomId}/messages?dir=b&limit=1&filter={...}
 // ---------------------------------------------------------------------------
 //
 // Phase 89-03 Task 1 (D-05 same-tick augmentation). Each observation-loop
@@ -530,6 +530,12 @@ export async function getUserJoinedRooms(
 // room with no events yet returns { ok: true, ts: null } — the caller
 // (observation loop) skips the refreshRelayRoomLastActivity call in that
 // case.
+//
+// Phase 97 UAT batch #8 (2026-09-10): filters to `m.room.message` events
+// only; state events (member/name/topic changes) are excluded from the
+// timestamp. Pre-fix, state-event churn on otherwise-dead rooms inflated
+// `last_activity_at`, making the sidebar promote quiet rooms just because a
+// member joined/left or the topic changed.
 
 export type GetRoomLatestEventTsOk = AdminOk<{ ts: number | null }>;
 
@@ -550,7 +556,11 @@ export async function getRoomLatestEventTs(
     return { ok: false, status: 500, error: ERR_CREDS_MISSING };
   }
 
-  const url = `${creds.homeserverBase}/_synapse/admin/v1/rooms/${encodeURIComponent(roomId)}/messages?dir=b&limit=1`;
+  // Phase 97 UAT batch #8 (2026-09-10): scope to `m.room.message` events so
+  // state-event churn (member joins/leaves, name/topic changes) doesn't
+  // inflate last_activity_at on rooms with no actual chat activity.
+  const filter = JSON.stringify({ types: ["m.room.message"] });
+  const url = `${creds.homeserverBase}/_synapse/admin/v1/rooms/${encodeURIComponent(roomId)}/messages?dir=b&limit=1&filter=${encodeURIComponent(filter)}`;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);

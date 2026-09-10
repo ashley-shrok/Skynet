@@ -1034,9 +1034,19 @@ describe("getRoomLatestEventTs", () => {
     }
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const url = fetchMock.mock.calls[0][0] as string;
-    expect(url).toBe(
-      `${HAPPY_CREDS.homeserverBase}/_synapse/admin/v1/rooms/${encodeURIComponent("!r1:server")}/messages?dir=b&limit=1`,
+    // Phase 97 UAT batch #8 (2026-09-10): URL must include an encoded
+    // `filter={"types":["m.room.message"]}` query param so state-event churn
+    // (member joins/leaves, name/topic changes) doesn't inflate
+    // last_activity_at on otherwise-dead rooms. Regression pin: without the
+    // filter param, the URL equals the pre-fix shape.
+    const expectedFilter = encodeURIComponent(
+      JSON.stringify({ types: ["m.room.message"] }),
     );
+    expect(url).toBe(
+      `${HAPPY_CREDS.homeserverBase}/_synapse/admin/v1/rooms/${encodeURIComponent("!r1:server")}/messages?dir=b&limit=1&filter=${expectedFilter}`,
+    );
+    expect(url).toContain("filter=");
+    expect(url).toContain(expectedFilter);
     const opts = fetchMock.mock.calls[0][1] as RequestInit;
     expect(opts.method).toBe("GET");
     const headers = opts.headers as Record<string, string>;

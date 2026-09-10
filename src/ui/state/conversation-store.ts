@@ -483,7 +483,23 @@ function rowFromTab(tab: Tab, sessionRoleByKey: Map<string, string | null>): Con
   // is what makes the selection border render (selectedId === tab.id after
   // the click-open flow).
   if (tab.sessionKind === "relay-room" && tab.relayRoomId) {
-    const lastMessageAt = resolveLastMessageAt(tab.id, undefined, null);
+    // Phase 97 UAT batch #8 (2026-09-10): tab-derived relay-room rows must
+    // carry the fleet-session lastActivityAt so click-open doesn't sink the
+    // row to the bottom of the middle tier. Pre-click, the row is
+    // fleet-synthetic and carries `lastMessageAt` from wire's `lastActivityAt`
+    // (see fleetSyntheticRows loop, ~L725). Post-click, openTabs-entry-wins
+    // dedup skips the synthetic branch, and the tab-derived row is used
+    // instead. Prior to this fix, the tab branch only consulted the test-only
+    // injection map + working-store cache (which returns null for
+    // host===undefined), so lastMessageAt collapsed to null and the null-to-
+    // bottom rule in compareByRecencyDesc jumped the row to the bottom.
+    // Fix: mirror the synthetic branch's lookup by finding the fleet session
+    // that matches this relayRoomId.
+    const matchingSession = state.fleetSessions.find(
+      (s) => s.kind === "relay-room" && s.roomId === tab.relayRoomId,
+    );
+    const fleetLastActivityAt = matchingSession?.lastActivityAt;
+    const injectedLastMessageAt = resolveLastMessageAt(tab.id, undefined, null);
     return {
       id: tab.id,
       type: tab.type,
@@ -493,7 +509,11 @@ function rowFromTab(tab: Tab, sessionRoleByKey: Map<string, string | null>): Con
       kind: "relay-room",
       roomId: tab.relayRoomId,
       roomTitle: tab.relayRoomTitle ?? null,
-      ...(lastMessageAt !== null ? { lastMessageAt } : {}),
+      ...(fleetLastActivityAt !== undefined && fleetLastActivityAt !== null
+        ? { lastMessageAt: new Date(fleetLastActivityAt).getTime() }
+        : injectedLastMessageAt !== null
+          ? { lastMessageAt: injectedLastMessageAt }
+          : { lastMessageAt: null }),
     };
   }
   // Role lookup: prefer fleet-authoritative session.role (resolved on the identity's home box

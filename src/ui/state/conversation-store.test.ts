@@ -3418,3 +3418,158 @@ describe("conversation-store (Phase 90 Plan 01): FleetSession kind + relay-room 
     expect(round.roomTitle).toBe("Kitten Fanciers");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 97 UAT batch #8 (2026-09-10) — rowFromTab for relay-room tabs must
+// carry the fleet-session lastActivityAt onto the row so click-open doesn't
+// sink the row to the bottom of the middle tier.
+//
+// Regression context: pre-click, a relay-room row is fleet-synthetic and
+// carries `lastMessageAt = new Date(session.lastActivityAt).getTime()` from
+// the wire. On click, an openTab is created (sessionKind: "relay-room",
+// relayRoomId: <room>). openTabs-entry-wins dedup skips the synthetic branch
+// on the next snapshot, and rowFromTab takes over. Prior to the fix,
+// rowFromTab only consulted the test-only injection map + working-store
+// cache (which returns null for host===undefined), so lastMessageAt
+// collapsed to null and the null-to-bottom rule in compareByRecencyDesc
+// jumped the row to the bottom of the middle tier — the "jumps to end on
+// click" visual regression Ashley hit in UAT.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("conversation-store (Phase 97 UAT batch #8): rowFromTab pulls lastActivityAt from matching fleet session for relay-room tabs", () => {
+  it("Fix C – Test 1: relay-room tab-derived row carries lastMessageAt from matching fleet-session.lastActivityAt (kills click-jump-to-end regression)", () => {
+    // Set up a fleet session with a relay-room row that carries a wire-side
+    // lastActivityAt. This is the state right after the fleet-status WS
+    // publishes the room's activity timestamp.
+    const iso = "2026-09-01T00:00:00.000Z";
+    const roomId = "!X:server";
+    act(() => {
+      updateFleetSessions([
+        {
+          // Relay-room fleet sessions use hostId: 0 / empty host + session
+          // names per the FleetSession relay-room shape (see synthetic-row
+          // loop in computeSnapshot at ~L710).
+          hostId: 0,
+          hostName: "",
+          sessionName: "",
+          created: 1_700_000_000,
+          role: null,
+          kind: "relay-room",
+          id: "fleet-relay::X",
+          roomId,
+          roomTitle: "Room X",
+          lastActivityAt: iso,
+        },
+      ]);
+    });
+
+    // Now inject the openTab for that same relay-room. This mirrors the
+    // click-open flow: AppShell's onRelayRoomRowClick → openTab(null,
+    // "terminal", undefined, { sessionKind: "relay-room", relayRoomId }).
+    // The tab id "tab-X" and its row.id are what handleRowSelect keys on for
+    // selection border rendering.
+    const relayTab: Tab = {
+      id: "tab-X",
+      instanceId: "tab-X",
+      type: "terminal",
+      label: "Room X",
+      host: undefined,
+      openedAt: 0,
+      targetTmuxSession: null,
+      sessionKind: "relay-room",
+      relayRoomId: roomId,
+      relayRoomTitle: "Room X",
+    };
+    act(() => updateOpenTabs([relayTab]));
+
+    const snap = __getSnapshotForTest();
+
+    // Locate the tab-derived relay-room row (its id === tab.id === "tab-X"
+    // per the rowFromTab contract). openTabs-entry-wins dedup should have
+    // suppressed the fleet-synthetic row for the same roomId, leaving
+    // exactly one row for this room.
+    const relayRow = snap.middle.find((r) => r.id === "tab-X");
+    expect(relayRow).toBeDefined();
+    if (!relayRow) return; // narrow
+
+    // Regression pin: without Fix C, lastMessageAt is undefined (rowFromTab
+    // was omitting the field entirely because resolveLastMessageAt returned
+    // null for host===undefined). With Fix C, it equals the ms value of the
+    // matching fleet session's lastActivityAt ISO.
+    const expectedMs = new Date(iso).getTime();
+    expect(relayRow.lastMessageAt).toBe(expectedMs);
+  });
+
+  it("Fix C – Test 2: relay-room tab with NO matching fleet session (yet) falls back to lastMessageAt: null (no crash, no bogus timestamp)", () => {
+    // Guard the null-safe fallback path. If the fleet-status WS hasn't
+    // published a matching relay-room session (network race, or a tab
+    // restored from URL before fleet data lands), rowFromTab must not throw
+    // and must not synthesize a timestamp from thin air.
+    act(() => updateFleetSessions([])); // no relay-room fleet sessions
+
+    const relayTab: Tab = {
+      id: "tab-Y",
+      instanceId: "tab-Y",
+      type: "terminal",
+      label: "Room Y",
+      host: undefined,
+      openedAt: 0,
+      targetTmuxSession: null,
+      sessionKind: "relay-room",
+      relayRoomId: "!Y:server",
+      relayRoomTitle: "Room Y",
+    };
+    act(() => updateOpenTabs([relayTab]));
+
+    const snap = __getSnapshotForTest();
+    const relayRow = snap.middle.find((r) => r.id === "tab-Y");
+    expect(relayRow).toBeDefined();
+    if (!relayRow) return;
+    // Fallback: null (not undefined-omitted, not a bogus number).
+    expect(relayRow.lastMessageAt).toBeNull();
+  });
+
+  it("Fix C – Test 3: relay-room tab with matching fleet-session.lastActivityAt=null still falls back to null (defensive path)", () => {
+    // The wire may publish a relay-room session with lastActivityAt=null
+    // (brand-new room, no events yet). The fix must NOT try
+    // `new Date(null).getTime()` — that returns 0, which would render as
+    // 1970-01-01 in the sidebar and float the row to the wrong tier.
+    const roomId = "!Z:server";
+    act(() => {
+      updateFleetSessions([
+        {
+          hostId: 0,
+          hostName: "",
+          sessionName: "",
+          created: 1_700_000_000,
+          role: null,
+          kind: "relay-room",
+          id: "fleet-relay::Z",
+          roomId,
+          roomTitle: "Room Z",
+          lastActivityAt: null,
+        },
+      ]);
+    });
+
+    const relayTab: Tab = {
+      id: "tab-Z",
+      instanceId: "tab-Z",
+      type: "terminal",
+      label: "Room Z",
+      host: undefined,
+      openedAt: 0,
+      targetTmuxSession: null,
+      sessionKind: "relay-room",
+      relayRoomId: roomId,
+      relayRoomTitle: "Room Z",
+    };
+    act(() => updateOpenTabs([relayTab]));
+
+    const snap = __getSnapshotForTest();
+    const relayRow = snap.middle.find((r) => r.id === "tab-Z");
+    expect(relayRow).toBeDefined();
+    if (!relayRow) return;
+    expect(relayRow.lastMessageAt).toBeNull();
+  });
+});
