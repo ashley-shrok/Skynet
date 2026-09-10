@@ -80,14 +80,6 @@ vi.mock("@/state/identities-store", async (importOriginal) => {
   };
 });
 
-vi.mock("@/state/bounty-counts-store", async (importOriginal) => {
-  const orig = await importOriginal() as Record<string, unknown>;
-  return {
-    ...orig,
-    invalidateIdentity: vi.fn().mockResolvedValue(undefined),
-  };
-});
-
 // Phase 98 Plan 03: VoicePicker no longer fetches a voice catalog. Only
 // postSpeak (sample button) is imported.
 vi.mock("@/api/voice-api", () => ({

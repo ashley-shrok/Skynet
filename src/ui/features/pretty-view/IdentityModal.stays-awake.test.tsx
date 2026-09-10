@@ -78,14 +78,6 @@ vi.mock("@/state/identities-store", async (importOriginal) => {
   };
 });
 
-vi.mock("@/state/bounty-counts-store", async (importOriginal) => {
-  const orig = await importOriginal() as Record<string, unknown>;
-  return {
-    ...orig,
-    invalidateIdentity: vi.fn().mockResolvedValue(undefined),
-  };
-});
-
 vi.mock("@/api/voice-api", () => ({
   postSpeak: vi.fn(async () => new Blob([new Uint8Array([1, 2, 3])], { type: "audio/wav" })),
   SAMPLE_PHRASE: "Hi, this is your voice.",

@@ -2,8 +2,11 @@
 // Phase 48 Plan 05 (v14 locked shape, Ashley 2026-08-19) — biggest surface
 // change since Phase 41 Plan 01. Retired vs pre-Phase-48:
 //   * `.pv-meta` right column — element removed from the row entirely; the
-//     right-column grid slot is gone. Bounty badge relocated to avatar corners
-//     (Pin bottom-left, Monitor bottom-right); ready-dot deleted outright.
+//     right-column grid slot is gone. Bounty badges were relocated to avatar
+//     corners (Pin + Monitor); ready-dot deleted outright. Phase 104 Plan 03
+//     later retired the two bounty-count badges themselves alongside the
+//     bounty-count wire; the trapped-work indicator (Phase 104 Plan 02) is now
+//     the sole avatar-corner affordance.
 //   * The pre-Phase-48 ready-dot span (with its inline display-block hack)
 //     plus the 4-input `isWorking-false + !isRecycling + !hasQueuePending`
 //     JSX render gate — the "come look" cue is now INVERTED: idle rows have
@@ -26,11 +29,10 @@
 //     aiTitle is truthy; `<span className="pv-ai-title pv-ai-title--placeholder">
 //     …</span>` when aiTitle is null. Muted italic ellipsis anchors row height
 //     regardless of ai-title presence.
-//   * `.pv-avatar` gets Pin (bottom-left) + Monitor (bottom-right) badge
-//     corners via VERBATIM JSX duplication of PrettyBountyCountBadge.tsx's
-//     two-wrap shape (chosen over the component-call route so each wrap can be
-//     absolute-positioned independently). PrettyBountyCountBadge.tsx itself is
-//     UNTOUCHED per 48-CONTEXT.md § Badge relocation V12 style reuse.
+//   * `.pv-avatar` originally gained Pin + Monitor bounty-count badge corners
+//     in Phase 48 Plan 05 (retired in Phase 104 Plan 03 alongside the
+//     bounty-count wire). The current avatar-corner affordance is the
+//     Phase 104 Plan 02 trapped-work indicator.
 //   * `showSpinnerOn` JS-computed boolean (Ashley 2026-08-20 post-UAT
 //     tightening of 2026-08-19 verbatim): the spinner mirrors the ready-dot
 //     scope — it is a SCOPED-TO-ACTIVE-SET signal, ON when the row is in
@@ -130,28 +132,19 @@ import {
   type MouseEvent,
   type TouchEvent,
 } from "react";
-import { Pin, Monitor, GitPullRequestDraft } from "lucide-react";
+import { Pin, GitPullRequestDraft } from "lucide-react";
 
 import { tabIcon } from "@/shell/tabUtils";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { useIdentities } from "@/state/identities-store";
 // Phase 68 Plan 04: avatarUrlWithHost DELETED — backend bakes hostId into identity.avatarUrl.
-import { useBountyCounts } from "@/state/bounty-counts-store";
 // Phase 104 Plan 02: per-identity trapped-work indicator (D-05, D-06, D-07).
-// Additive alongside the bounty-count wire; Plan 03 retires bounty-counts.
 import { useTrappedWork } from "@/state/trapped-work-store";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { cn } from "@/lib/utils";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
 import { specForTab, encodeWorkspaceSpec } from "@/lib/tab-url";
 
-// Phase 48 Plan 05: PrettyBountyCountBadge is no longer instantiated by this
-// component (badge wraps now render as inline JSX inside `.pv-avatar` to
-// enable independent absolute-corner positioning — see the avatar render
-// block below). PrettyBountyCountBadge.tsx itself is UNTOUCHED verbatim per
-// 48-CONTEXT.md § Badge relocation V12 style reuse; it remains available for
-// any future consumer that wants the pre-Phase-48 flex-row layout of the two
-// wraps as a single component call.
 import {
   PrettyConversationContextMenu,
   type PrettyContextMenuItem,
@@ -327,20 +320,10 @@ export function PrettyConversationRow({
   const hue: number | null = identity?.colorHue ?? null;
   const isRdp = row.rdpHostRow === true;
 
-  // Phase 26 Plan 03 / Phase 48 Plan 05: per-row bounty counts pair feeding
-  // the two avatar-corner badge wraps (Pin bottom-left, Monitor bottom-right).
-  // useBountyCounts(null, ...) short-circuits to undefined (identityKey null
-  // means no identity resolved — no subscription cost for non-identity rows).
   // Host.id is a string in the fork's ui-types; we convert with parseInt
-  // (same shape AppShell uses at openTab hostId derivation). Result is
-  // undefined until the panel's poller lands a refresh; the badge component
-  // renders null for undefined pair OR both-zero (Key design decision #7).
-  // The pair is always published atomically — both halves land together.
+  // (same shape AppShell uses at openTab hostId derivation). Kept because
+  // useTrappedWork below consumes it.
   const rowHostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
-  const bountyCounts = useBountyCounts(
-    identity?.identityKey ?? null,
-    Number.isFinite(rowHostIdNum) ? rowHostIdNum : null,
-  );
 
   // Phase 104 Plan 02 (D-05, D-06, D-07): per-identity trapped-work snapshot.
   // Hook short-circuits to undefined when identityKey is null. Both undefined
@@ -1182,33 +1165,13 @@ export function PrettyConversationRow({
           />
         )}
         {/* Avatar disc — identity avatar OR initial letter OR tabIcon fallback.
-            Phase 48 Plan 05: `.pv-avatar` is now the positioning host for the
-            Pin + Monitor bounty-count badges (relocated from the retired
-            retired right-column meta wrapper to absolute corners of the avatar — Pin
-            bottom-left, Monitor bottom-right). The V12 notification-badge
-            style (patch #468) is reused VERBATIM per 48-CONTEXT.md § Badge
-            relocation V12 style reuse: PrettyBountyCountBadge.tsx is UNTOUCHED
-            and its `.pv-bounty-badge-wrap` / `.pv-bounty-badge-icon` /
-            `.pv-bounty-badge-num` class values + child structure are preserved
-            verbatim. However, the component's outer `.pv-bounty-badge` flex
-            container groups the two wraps in a single row — inconvenient for
-            absolute-positioning them independently at avatar corners — so
-            here we DUPLICATE the wrap JSX inline (Pin + count-pill; Monitor +
-            count-pill) so each wrap can be a direct child of `.pv-avatar` and
-            CSS at `.pv-avatar .pv-bounty-badge-wrap[data-testid=...] {
-            position: absolute; bottom: -4px; left|right: -8px; }` can pin
-            each corner independently. Keep the two shapes in sync manually
-            with PrettyBountyCountBadge.tsx (~L44-68). Alternative refactor
-            (extract sub-component) rejected for Phase 48 scope — the badge
-            component is verbatim-locked per patch #468 preservation contract.
-            Zero-count branches match PrettyBountyCountBadge.tsx exactly:
-            each wrap renders iff its count > 0; the unfetched-pair case
-            (both undefined) also renders no wraps, matching the badge
-            component's null-return contract. */}
+            Phase 104 Plan 03: `.pv-avatar` now hosts ONLY the trapped-work
+            indicator (Plan 02). The prior Pin + Monitor bounty-count badges
+            were retired alongside the bounty-count wire in this plan. */}
         <div className="pv-avatar" data-testid="pcrow-avatar">
           {identity ? (
             // Phase 66 Plan 05: hostId threading — Plan 03's GET /:id/avatar
-            // requires hostId query param. `rowHostIdNum` (~L330) is
+            // requires hostId query param. `rowHostIdNum` above is
             // parseInt(row.host.id, 10) when row.host is present; NaN when
             // absent. If NaN we can't fetch the avatar (backend 400s) so
             // fall back to the initial-letter placeholder rather than
@@ -1233,45 +1196,13 @@ export function PrettyConversationRow({
               {tabIcon(row.type)}
             </span>
           )}
-          {/* Phase 48 Plan 05 — Pin count badge (bottom-left of avatar).
-              Renders iff pinnedCount > 0 (unfetched pair OR zero count → no
-              wrap). Verbatim JSX shape from PrettyBountyCountBadge.tsx L50-58. */}
-          {bountyCounts?.pinnedCount !== undefined &&
-            bountyCounts.pinnedCount > 0 && (
-              <span
-                className="pv-bounty-badge-wrap"
-                data-testid="pv-bounty-badge-pinned"
-              >
-                <Pin className="pv-bounty-badge-icon" aria-hidden="true" />
-                <span className="pv-bounty-badge-num">
-                  {bountyCounts.pinnedCount}
-                </span>
-              </span>
-            )}
-          {/* Phase 48 Plan 05 — Monitor count badge (bottom-right of avatar).
-              Renders iff needsDeskCount > 0. Verbatim JSX shape from
-              PrettyBountyCountBadge.tsx L59-67. */}
-          {bountyCounts?.needsDeskCount !== undefined &&
-            bountyCounts.needsDeskCount > 0 && (
-              <span
-                className="pv-bounty-badge-wrap"
-                data-testid="pv-bounty-badge-needs-desk"
-              >
-                <Monitor className="pv-bounty-badge-icon" aria-hidden="true" />
-                <span className="pv-bounty-badge-num">
-                  {bountyCounts.needsDeskCount}
-                </span>
-              </span>
-            )}
           {/* Phase 104 Plan 02 — trapped-work indicator (D-05, D-06, D-07).
               Bottom-right corner of the avatar in a warm-amber pilled disc.
               Gates on strict `=== true` — pre-fetch (undefined) AND
               hasTrappedWork:false both render nothing (D-06 start-absent +
               silent-for-non-participants). Icon: GitPullRequestDraft from
               lucide-react. Tooltip copy VERBATIM per D-07. No click behavior
-              (hover-only affordance per D-05). Distinct CSS class from
-              .pv-bounty-badge-wrap so Plan 03's bounty-wire deletion cannot
-              accidentally strip this indicator's positioning. */}
+              (hover-only affordance per D-05). */}
           {trappedWork?.hasTrappedWork === true && (
             <span
               className="pv-trapped-work-indicator"
@@ -1365,8 +1296,8 @@ export function PrettyConversationRow({
         )}
         {/* Phase 48 Plan 05 — the right-column meta wrapper RETIRED entirely.
             Retired symbols and their replacements:
-              - PrettyBountyCountBadge invocation → replaced by direct-JSX
-                duplication of the two wraps inside `.pv-avatar` above.
+              - PrettyBountyCountBadge invocation → Phase 104 Plan 03 retired
+                the badges entirely (bounty-count wire deletion).
               - The pre-Phase-48 ready-dot span (with its inline display-block
                 hack) plus the 4-input `isWorkingFalse + notRecycling +
                 noQueuePending` JSX render gate → replaced by the CSS-painted

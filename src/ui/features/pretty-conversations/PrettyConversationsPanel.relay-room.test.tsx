@@ -62,16 +62,6 @@ vi.mock("@/state/identities-store", () => ({
   }),
 }));
 
-let mockBountyCounts: ReadonlyMap<string, { pinnedCount: number; needsDeskCount: number }> = new Map();
-
-vi.mock("@/state/bounty-counts-store", () => ({
-  useBountyCounts: () => undefined,
-  useAllBountyCounts: () => mockBountyCounts,
-  bountyCountsCompositeKey: (identityKey: string, hostId: number | null) =>
-    `${identityKey}:${hostId ?? "local"}`,
-  startBountyCountPoller: () => () => {},
-}));
-
 // Phase 104 Plan 02 — trapped-work-store (inert stub — panel mounts poller)
 vi.mock("@/state/trapped-work-store", () => ({
   useTrappedWork: () => undefined,
@@ -265,7 +255,6 @@ beforeEach(() => {
   setSnapshot({});
   mockActiveSet = new Set();
   mockFleetSessionsLoaded = false;
-  mockBountyCounts = new Map();
 });
 
 afterEach(() => {

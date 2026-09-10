@@ -1051,49 +1051,6 @@ export type IdentityBountyDeletedEvent = {
   error?: string;
 };
 
-// ─── Quick 260727-tb1 / Phase 26: batched bounty counts (pinned + needs-desk) ─
-//
-// Piggybacks on the patch #92 identity-artifact reader to power the per-row
-// bounty badge in pretty-conversations. ONE WS request carrying every visible
-// identity's (identityKey, hostId), ONE response with per-target counts.
-// Response uses Promise.allSettled server-side so one dead SSH host cannot
-// block the batch — dead-host entries carry {pinnedCount: 0, needsDeskCount: 0, error: string}
-// while other targets still return live counts.
-//
-// Phase 26 widening: per-target results carry BOTH pinnedCount and needsDeskCount
-// from the same single fs walk (no double backend IO).
-//
-//   client -> server:
-//     { type: "identity:count-bounties", targets: [{identityKey, hostId}, ...] }
-//
-//   server -> client:
-//     { type: "identity:bounty-counts", counts: [{identityKey, hostId, pinnedCount, needsDeskCount, error?}, ...] }
-//
-// hostId=null means "read from skynet-ec2 local bind-mount" (patch #92 D-4).
-
-export type BountyCountTarget = {
-  identityKey: string;
-  hostId: number | null;
-};
-
-export type IdentityCountBountiesPayload = {
-  type: "identity:count-bounties";
-  targets: BountyCountTarget[];
-};
-
-export type BountyCountResult = {
-  identityKey: string;
-  hostId: number | null;
-  pinnedCount: number;
-  needsDeskCount: number;
-  error?: string;
-};
-
-export type IdentityBountyCountsEvent = {
-  type: "identity:bounty-counts";
-  counts: BountyCountResult[];
-};
-
 /**
  * Phase 47 (load-more button) — server → client response event.
  *
@@ -1156,69 +1113,9 @@ export type FetchOlderRangeBatchEvent = {
   error?: string;
 };
 
-/**
- * Fire a one-shot batched bounty count request. Opens its own WS, sends one
- * identity:count-bounties frame on open, resolves on the first matching
- * identity:bounty-counts response, then closes the socket. Follows the same
- * one-shot request/response pattern IdentityModal uses for
- * identity:list-bounties.
- *
- * Phase 26: per-target results carry BOTH pinnedCount and needsDeskCount —
- * the server computes both on a single fs walk (single-walk invariant).
- *
- * Rejects on onerror / onclose-before-response with "Connection failed" so
- * callers can distinguish transport failures from per-target errors (the
- * latter surface in individual counts[i].error fields).
- */
-export function countIdentityBounties(
-  targets: BountyCountTarget[],
-): Promise<IdentityBountyCountsEvent> {
-  return new Promise((resolve, reject) => {
-    let responded = false;
-    const sock = openClaudeSessionSocket();
-    sock.onopen = () => {
-      const payload: IdentityCountBountiesPayload = {
-        type: "identity:count-bounties",
-        targets,
-      };
-      try {
-        sock.send(JSON.stringify(payload));
-      } catch {
-        /* ws may be mid-close */
-      }
-    };
-    sock.onmessage = (event: MessageEvent<string>) => {
-      if (responded) return;
-      try {
-        const raw = JSON.parse(event.data) as { type?: string };
-        if (raw.type !== "identity:bounty-counts") return; // ignore unrelated frames
-        responded = true;
-        resolve(raw as IdentityBountyCountsEvent);
-        try {
-          sock.close();
-        } catch {
-          /* ignore */
-        }
-      } catch {
-        /* ignore parse errors — wait for a valid frame */
-      }
-    };
-    const handleFail = () => {
-      if (responded) return;
-      responded = true;
-      reject(new Error("Connection failed"));
-    };
-    sock.onerror = handleFail;
-    sock.onclose = () => {
-      if (!responded) handleFail();
-    };
-  });
-}
-
 // ─── Phase 104 Plan 02: batched trapped-work probe (D-03 wire mirror) ────────
 //
-// Byte-shape mirror of the bounty-counts wire above (L1054-1216). Single
-// one-shot request/response: client opens WS, sends one
+// Single one-shot request/response: client opens WS, sends one
 // identity:probe-trapped-work frame carrying every visible identity's
 // (identityKey, hostId), the server replies with one identity:trapped-work
 // frame carrying per-target {hasTrappedWork} booleans (or an error field per
@@ -1229,8 +1126,7 @@ export function countIdentityBounties(
 // {hasTrappedWork: false, error: string} while other targets still return
 // their live boolean. The per-target error preserves shape uniformity so the
 // frontend store can preserve the last-known snapshot for a failing target
-// rather than clobber to false (matches the bounty-counts per-target error
-// behavior).
+// rather than clobber to false.
 //
 // D-06 start-absent semantics on the frontend: the store returns `undefined`
 // pre-fetch; both `undefined` and `{hasTrappedWork: false}` render nothing
@@ -1269,8 +1165,7 @@ export type IdentityTrappedWorkEvent = {
 /**
  * Fire a one-shot batched trapped-work probe. Opens its own WS, sends one
  * identity:probe-trapped-work frame on open, resolves on the first matching
- * identity:trapped-work response, then closes the socket. Byte-shape mirror
- * of countIdentityBounties above (Phase 104 D-03).
+ * identity:trapped-work response, then closes the socket (Phase 104 D-03).
  *
  * Rejects on onerror / onclose-before-response with "Connection failed" so
  * callers can distinguish transport failures from per-target errors (the
@@ -1326,7 +1221,7 @@ export function probeIdentityTrappedWork(
  * on roleName (NOT identityKey). Byte-shape mirror of the identity-keyed
  * updateRoleFile helper inlined in IdentityModal (L1000+) — same
  * openClaudeSessionSocket + send-on-open + resolve-on-matching-response +
- * close-after-response pattern countIdentityBounties uses above.
+ * close-after-response pattern probeIdentityTrappedWork uses above.
  *
  * The role modal (Plan 90-04) has no identity context, so this helper is the
  * clean save path for role-file cosmetic edits. Resolves with `{markdown}` on

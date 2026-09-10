@@ -87,14 +87,6 @@ vi.mock("@/state/identities-store", async (importOriginal) => {
   };
 });
 
-vi.mock("@/state/bounty-counts-store", async (importOriginal) => {
-  const orig = (await importOriginal()) as Record<string, unknown>;
-  return {
-    ...orig,
-    invalidateIdentity: vi.fn().mockResolvedValue(undefined),
-  };
-});
-
 // Phase 98 Plan 03: VoicePicker inlines POLLY_VOICES — no runtime fetch.
 // Only postSpeak is called by the sample button.
 vi.mock("@/api/voice-api", () => ({

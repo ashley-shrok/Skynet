@@ -69,28 +69,9 @@ vi.mock("@/state/identities-store", () => ({
   }),
 }));
 
-// Patch #167: mock bounty-counts-store so filter tests can seed a
-// (composite-key → count) map without touching the real WS-backed poller.
-// - useAllBountyCounts() reads mockBountyCounts (mutable per-test).
-// - startBountyCountPoller returns a no-op stop-fn.
-// - bountyCountsCompositeKey mirrors the store's real format so panel-side
-//   key construction stays in sync with the mock.
-// Existing tests didn't mock this module and worked because the real
-// poller short-circuits on empty targets (identitiesByKey was empty). With
-// the mock in place, all tests share this deterministic shape.
-let mockBountyCounts: ReadonlyMap<string, { pinnedCount: number; needsDeskCount: number }> = new Map();
-
-vi.mock("@/state/bounty-counts-store", () => ({
-  useBountyCounts: (identityKey: string | null, hostId: number | null) => {
-    if (identityKey === null) return undefined;
-    const key = `${identityKey}:${hostId ?? "local"}`;
-    return mockBountyCounts.get(key);
-  },
-  useAllBountyCounts: () => mockBountyCounts,
-  bountyCountsCompositeKey: (identityKey: string, hostId: number | null) =>
-    `${identityKey}:${hostId ?? "local"}`,
-  startBountyCountPoller: () => () => {},
-}));
+// Phase 104 Plan 03: patch #167 bounty-counts-store mock RETIRED alongside
+// the bounty-count wire deletion. Any tests that consumed mockBountyCounts
+// have been updated to seed no bounty state.
 
 // Phase 104 Plan 02 — trapped-work-store (inert stub — panel mounts poller)
 vi.mock("@/state/trapped-work-store", () => ({
@@ -476,11 +457,9 @@ beforeEach(async () => {
   vi.mocked(getPinnedIds).mockResolvedValue([]);
   // quick-260731-tgg: re-arm getHiddenIds default.
   vi.mocked(getHiddenIds).mockResolvedValue([]);
-  // Patch #167: reset identities + bounty counts mocks to empty defaults so
-  // pre-#167 tests observe the unfiltered baseline. Filter tests populate
-  // both explicitly before render.
+  // Patch #167: reset identities mock. Phase 104 Plan 03: mockBountyCounts
+  // retired with the bounty-count wire.
   mockIdentitiesByKey = new Map();
-  mockBountyCounts = new Map<string, { pinnedCount: number; needsDeskCount: number }>();
   // Phase 47 Plan 04: reset the ai-title mock map to empty so pre-Phase-47
   // tests observe the null-default subtitle path (matches pre-plan behavior;
   // aiTitle prop threads null through to PrettyConversationRow, which does
@@ -1879,284 +1858,30 @@ describe("PrettyConversationsPanel: bounty-count filter popover (Phase 26)", () 
     expect(queryByTestId("pv-filter-toggles-popover")).toBeNull();
   });
 
-  it("Test 24: clicking the button opens the popover; all three buttons unchecked; button still data-active=false + no dot", () => {
+  it("Test 24: clicking the button opens the popover; Ready toggle unchecked; button still data-active=false + no dot", () => {
     // Phase 52 Plan 02 adaptation: shadcn Checkbox data-state="unchecked" replaced by
     // role="menuitemcheckbox" aria-checked="false" on the new button elements.
+    // Phase 104 Plan 03: pinned + needs-desk toggles retired alongside the
+    // bounty-count wire; only Ready survives (D-11).
     setSnapshot({ activeSet: [], pinned: [], grouped: [] });
     const { container, getByTestId, queryByTestId } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
+    queryByTestId; // silence lint — kept for signature parity
     // Open the popover.
     fireEvent.click(getByTestId("pv-filter-toggles"));
     // Popover is now in DOM (via portal — use screen queries).
     expect(screen.queryByTestId("pv-filter-toggles-popover")).toBeTruthy();
-    // All three menu-item buttons present, all aria-checked=false.
+    // Ready menu-item button present, aria-checked=false.
     const readyBtn = screen.getByTestId("pv-filter-toggle-ready");
-    const pinnedBtn = screen.getByTestId("pv-filter-toggle-pinned");
-    const deskBtn = screen.getByTestId("pv-filter-toggle-needs-desk");
     expect(readyBtn.getAttribute("aria-checked")).toBe("false");
-    expect(pinnedBtn.getAttribute("aria-checked")).toBe("false");
-    expect(deskBtn.getAttribute("aria-checked")).toBe("false");
+    // The retired pinned + needs-desk toggles must NOT render.
+    expect(screen.queryByTestId("pv-filter-toggle-pinned")).toBeNull();
+    expect(screen.queryByTestId("pv-filter-toggle-needs-desk")).toBeNull();
     // Button still inactive — opening popover doesn't flip any toggle.
     const btn = getByTestId("pv-filter-toggles");
     expect(btn.getAttribute("data-active")).toBe("false");
     expect(container.querySelector(".pv-filter-dot")).toBeNull();
-  });
-
-  it("Test 25: filter=pinned-only shows rows with pinnedCount>0; dot appears; nelly-row hidden", () => {
-    // tina has pinnedCount=3, needsDeskCount=0; nelly has pinnedCount=0, needsDeskCount=2.
-    const host1 = makeHost("1", "hostA");
-    mockIdentitiesByKey = new Map([
-      ["tina-session", { identityKey: "tina" }],
-      ["nelly-session", { identityKey: "nelly" }],
-    ]);
-    mockBountyCounts = new Map([
-      ["tina:1", { pinnedCount: 3, needsDeskCount: 0 }],
-      ["nelly:1", { pinnedCount: 0, needsDeskCount: 2 }],
-    ]);
-    setSnapshot({
-      activeSet: [],
-      pinned: [],
-      grouped: [
-        {
-          hostId: "1",
-          hostName: "hostA",
-          rows: [
-            makeConversationRow({ id: "tina-row", targetTmuxSession: "tina-session", host: host1 }),
-            makeConversationRow({ id: "nelly-row", targetTmuxSession: "nelly-session", host: host1 }),
-          ],
-        },
-      ],
-    });
-    const { container, getByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    // Filter off: both rows visible.
-    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeTruthy();
-    expect(container.querySelector('[data-conversation-id="nelly-row"]')).toBeTruthy();
-    // Open popover then click pinned checkbox.
-    fireEvent.click(getByTestId("pv-filter-toggles"));
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-pinned"));
-    // Pinned filter on: tina-row visible (pinnedCount=3), nelly-row filtered out (pinnedCount=0).
-    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeTruthy();
-    expect(container.querySelector('[data-conversation-id="nelly-row"]')).toBeFalsy();
-    // Button now active; dot present.
-    expect(getByTestId("pv-filter-toggles").getAttribute("data-active")).toBe("true");
-    expect(container.querySelector(".pv-filter-dot")).toBeTruthy();
-  });
-
-  it("Test 25b: filter=needs-desk-only shows rows with needsDeskCount>0; tina-row hidden", () => {
-    // Same fixture: tina(pinned=3, desk=0), nelly(pinned=0, desk=2).
-    const host1 = makeHost("1", "hostA");
-    mockIdentitiesByKey = new Map([
-      ["tina-session", { identityKey: "tina" }],
-      ["nelly-session", { identityKey: "nelly" }],
-    ]);
-    mockBountyCounts = new Map([
-      ["tina:1", { pinnedCount: 3, needsDeskCount: 0 }],
-      ["nelly:1", { pinnedCount: 0, needsDeskCount: 2 }],
-    ]);
-    setSnapshot({
-      activeSet: [],
-      pinned: [],
-      grouped: [
-        {
-          hostId: "1",
-          hostName: "hostA",
-          rows: [
-            makeConversationRow({ id: "tina-row", targetTmuxSession: "tina-session", host: host1 }),
-            makeConversationRow({ id: "nelly-row", targetTmuxSession: "nelly-session", host: host1 }),
-          ],
-        },
-      ],
-    });
-    const { container, getByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    // Open popover then click needs-desk checkbox only (leave pinned unchecked).
-    fireEvent.click(getByTestId("pv-filter-toggles"));
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-needs-desk"));
-    // Needs-desk filter: nelly-row visible (needsDeskCount=2), tina-row filtered out (needsDeskCount=0).
-    expect(container.querySelector('[data-conversation-id="nelly-row"]')).toBeTruthy();
-    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeFalsy();
-  });
-
-  it("Test 26: filter=BOTH on (AND intersection); only row with BOTH counts>0 survives", () => {
-    // A: pinned=3, desk=1 (survives both); B: pinned=3, desk=0 (fails desk);
-    // C: pinned=0, desk=1 (fails pinned); D: pinned=0, desk=0 (fails both).
-    const host1 = makeHost("1", "hostA");
-    mockIdentitiesByKey = new Map([
-      ["a-session", { identityKey: "a" }],
-      ["b-session", { identityKey: "b" }],
-      ["c-session", { identityKey: "c" }],
-      ["d-session", { identityKey: "d" }],
-    ]);
-    mockBountyCounts = new Map([
-      ["a:1", { pinnedCount: 3, needsDeskCount: 1 }],
-      ["b:1", { pinnedCount: 3, needsDeskCount: 0 }],
-      ["c:1", { pinnedCount: 0, needsDeskCount: 1 }],
-      ["d:1", { pinnedCount: 0, needsDeskCount: 0 }],
-    ]);
-    setSnapshot({
-      activeSet: [],
-      pinned: [],
-      grouped: [
-        {
-          hostId: "1",
-          hostName: "hostA",
-          rows: [
-            makeConversationRow({ id: "row-a", targetTmuxSession: "a-session", host: host1 }),
-            makeConversationRow({ id: "row-b", targetTmuxSession: "b-session", host: host1 }),
-            makeConversationRow({ id: "row-c", targetTmuxSession: "c-session", host: host1 }),
-            makeConversationRow({ id: "row-d", targetTmuxSession: "d-session", host: host1 }),
-          ],
-        },
-      ],
-    });
-    const { container, getByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    // Open popover; click both checkboxes.
-    fireEvent.click(getByTestId("pv-filter-toggles"));
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-pinned"));
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-needs-desk"));
-    // AND intersection: only A survives; B, C, D are filtered out.
-    expect(container.querySelector('[data-conversation-id="row-a"]')).toBeTruthy();
-    expect(container.querySelector('[data-conversation-id="row-b"]')).toBeFalsy();
-    expect(container.querySelector('[data-conversation-id="row-c"]')).toBeFalsy();
-    expect(container.querySelector('[data-conversation-id="row-d"]')).toBeFalsy();
-  });
-
-  it("Test 27: filter=on with no matching rows renders no rows (empty-state card retired 2026-08-02)", () => {
-    // One row with pinned=0, desk=0. Pinned toggle on → row filtered out.
-    const host1 = makeHost("1", "hostA");
-    mockIdentitiesByKey = new Map([["nelly-session", { identityKey: "nelly" }]]);
-    mockBountyCounts = new Map([["nelly:1", { pinnedCount: 0, needsDeskCount: 0 }]]);
-    setSnapshot({
-      activeSet: [],
-      pinned: [],
-      grouped: [
-        {
-          hostId: "1",
-          hostName: "hostA",
-          rows: [
-            makeConversationRow({ id: "nelly-row", targetTmuxSession: "nelly-session", host: host1 }),
-          ],
-        },
-      ],
-    });
-    const { container, getByTestId, queryByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    expect(container.querySelector('[data-conversation-id="nelly-row"]')).toBeTruthy();
-    // Open popover; click pinned checkbox.
-    fireEvent.click(getByTestId("pv-filter-toggles"));
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-pinned"));
-    // Filter on with 0 matches: no rows render, no empty-state card.
-    expect(container.querySelector('[data-conversation-id="nelly-row"]')).toBeFalsy();
-    expect(queryByTestId("pretty-conversations-empty")).toBeNull();
-  });
-
-  it("Test 27b (Phase 41 Plan 01 REWRITE): filter=on drops non-matching middle rows; matching rows still render", () => {
-    // Pre-Phase-41 this test asserted per-host divider chip drop-when-empty
-    // behavior. Phase 41 retired per-host divider chips entirely (the middle
-    // zone is FLAT), so this test now asserts the equivalent post-Phase-41
-    // contract: middle rows that don't match the filter are dropped from
-    // the DOM; matching middle rows continue to render.
-    const hostA = makeHost("1", "hostA");
-    const hostB = makeHost("2", "hostB");
-    mockIdentitiesByKey = new Map([
-      ["tina-session", { identityKey: "tina" }],
-      ["nelly-session", { identityKey: "nelly" }],
-    ]);
-    mockBountyCounts = new Map([
-      ["tina:2", { pinnedCount: 3, needsDeskCount: 1 }],
-      ["nelly:1", { pinnedCount: 0, needsDeskCount: 0 }],
-    ]);
-    setSnapshot({
-      activeSet: [],
-      pinned: [],
-      middle: [
-        makeConversationRow({ id: "nelly-row", targetTmuxSession: "nelly-session", host: hostA }),
-        makeConversationRow({ id: "tina-row", targetTmuxSession: "tina-session", host: hostB }),
-      ],
-    });
-    const { container, getByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    fireEvent.click(getByTestId("pv-filter-toggles"));
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-pinned"));
-    // Nelly (pinned=0) drops out of the filtered middle; tina (pinned=3) stays.
-    expect(container.querySelector('[data-conversation-id="nelly-row"]')).toBeFalsy();
-    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeTruthy();
-    // Ashley lock (Phase 41 Plan 01): NO host-divider chips render, ever.
-    expect(container.querySelectorAll('[data-testid="host-divider"]').length).toBe(0);
-  });
-
-  it("Test 28 (rewritten Phase 42 UAT amendment 2026-08-17): D-06 active-set exemption RETIRED — active-set rows now flow through pinned/middle filters like any other row", () => {
-    // Phase 26 D-06 symmetric exemption was scoped to the retired Tier 1
-    // active-set render tier. With that tier gone (Phase 42 UAT amendment
-    // 2026-08-17, Ashley verbatim: "sessions are still showing above the
-    // pinned area when they are active in the current instance of the
-    // client. That shouldn't happen."), the exemption is moot — active-and-
-    // pinned rows flow through the pinned bounty-count filter and active-
-    // and-not-pinned rows flow through the middle bounty-count filter.
-    //
-    // Contract: seed a middle row (nelly-active — active in useActiveSet but
-    // not pinned) with counts (pinned=0, desk=0). With both bounty toggles
-    // ON, nelly-active is filtered out — no more exemption. tina-middle with
-    // (pinned=3, desk=1) survives the AND filter.
-    const host1 = makeHost("1", "hostA");
-    mockIdentitiesByKey = new Map([
-      ["nelly-session", { identityKey: "nelly" }],
-      ["tina-session", { identityKey: "tina" }],
-    ]);
-    mockBountyCounts = new Map([
-      ["nelly:1", { pinnedCount: 0, needsDeskCount: 0 }],
-      ["tina:1", { pinnedCount: 3, needsDeskCount: 1 }],
-    ]);
-    setSnapshot({
-      activeSet: [],
-      pinned: [],
-      middle: [
-        makeConversationRow({ id: "nelly-active", targetTmuxSession: "nelly-session", host: host1 }),
-        makeConversationRow({ id: "tina-middle", targetTmuxSession: "tina-session", host: host1 }),
-      ],
-    });
-    // Mark nelly-active as in the useActiveSet — the row's inActiveSet prop
-    // is true, but that no longer confers exemption from bounty-count filters.
-    mockActiveSet = new Set<string>(["nelly-active"]);
-
-    const { container, getByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    // Open popover; click both checkboxes.
-    fireEvent.click(getByTestId("pv-filter-toggles"));
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-pinned"));
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-needs-desk"));
-
-    // D-06 retired: nelly-active (in useActiveSet, but pinned=0/desk=0) is
-    // filtered out of the middle just like any other row.
-    expect(container.querySelector('[data-conversation-id="nelly-active"]')).toBeFalsy();
-    // tina-middle with (pinned=3, desk=1) survives the AND filter.
-    expect(container.querySelector('[data-conversation-id="tina-middle"]')).toBeTruthy();
-  });
-
-  it("Test 29: small dot disappears when both toggles are turned back off", () => {
-    setSnapshot({ activeSet: [], pinned: [], grouped: [] });
-    const { container, getByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    // Turn both toggles on.
-    fireEvent.click(getByTestId("pv-filter-toggles"));
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-pinned"));
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-needs-desk"));
-    expect(container.querySelector(".pv-filter-dot")).toBeTruthy();
-    // Turn both back off.
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-pinned"));
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-needs-desk"));
-    expect(container.querySelector(".pv-filter-dot")).toBeNull();
-  });
 
   it("Test 30: popover closes on Escape keydown", () => {
     setSnapshot({ activeSet: [], pinned: [], grouped: [] });
@@ -4106,41 +3831,8 @@ describe("PrettyConversationsPanel: Phase 52 — filter popover restyle + Ready 
     expect(container.querySelector('[data-conversation-id="rdp-row"]')).toBeTruthy();
   });
 
-  // ── P50-9: AND-intersection: Ready + Pinned reject a row satisfying only Ready
-
-  it("P50-9 — AND-intersection: Ready-on + Pinned-on rejects a row that passes Ready but has pinnedCount=0", () => {
-    // tina-session: idle + not-dormant + rowState-defined (passes Ready),
-    // but pinnedCount=0 (fails Pinned). After enabling both filters, the row
-    // must be hidden because the AND-intersection fails on the Pinned axis.
-    const host1 = makeHost("1", "hostA");
-    mockIdentitiesByKey = new Map([["tina-session", { identityKey: "tina" }]]);
-    mockBountyCounts = new Map([["tina:1", { pinnedCount: 0, needsDeskCount: 0 }]]);
-    setSnapshot({
-      activeSet: [],
-      pinned: [],
-      middle: [
-        makeConversationRow({ id: "tina-row", targetTmuxSession: "tina-session", host: host1 }),
-      ],
-      rdpGroup: null,
-    });
-    // Seed: tina is READY (idle + not-dormant + wire signal present → passes Ready).
-    mockWorkingSnapshot.set("tina-session", { isWorking: false, lastMessageAt: null, aiTitle: null, dormant: false, recycling: false });
-    const { container, getByTestId } = render(
-      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
-    );
-    // Pre-filter: row is present.
-    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeTruthy();
-    // Open popover.
-    fireEvent.click(getByTestId("pv-filter-toggles"));
-    // Enable Ready only: row passes (Ready predicate met; Pinned not yet on).
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-ready"));
-    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeTruthy();
-    // Now also enable Pinned: AND-intersection fails (pinnedCount=0).
-    fireEvent.click(screen.getByTestId("pv-filter-toggle-pinned"));
-    expect(container.querySelector('[data-conversation-id="tina-row"]')).toBeNull();
-    // Filter dot is present throughout (any filter on → anyFilterOn=true).
-    expect(container.querySelector(".pv-filter-dot")).toBeTruthy();
-  });
+  // P50-9 (AND-intersection Ready + Pinned) — RETIRED in Phase 104 Plan 03
+  // alongside the bounty-count wire (the Pinned toggle is gone).
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

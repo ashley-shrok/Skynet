@@ -38,14 +38,6 @@ vi.mock("@/state/identities-store", () => ({
   }),
 }));
 
-vi.mock("@/state/bounty-counts-store", () => ({
-  useBountyCounts: () => undefined,
-  useAllBountyCounts: () => new Map(),
-  bountyCountsCompositeKey: (identityKey: string, hostId: number | null) =>
-    `${identityKey}:${hostId ?? "local"}`,
-  startBountyCountPoller: () => () => {},
-}));
-
 // Phase 104 Plan 02 — trapped-work-store (inert stub — panel mounts poller)
 vi.mock("@/state/trapped-work-store", () => ({
   useTrappedWork: () => undefined,

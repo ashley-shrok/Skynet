@@ -116,17 +116,6 @@ vi.mock("@/hooks/use-is-touch-device", () => ({
   useIsTouchDevice: () => currentIsTouchDevice,
 }));
 
-// Per-test override handle for useBountyCounts. Tests set
-// `currentBountyCounts` to control the pair returned by the mocked hook.
-// Default is undefined (pre-fetch / no pair landed).
-let currentBountyCounts:
-  | { pinnedCount: number; needsDeskCount: number }
-  | undefined = undefined;
-
-vi.mock("@/state/bounty-counts-store", () => ({
-  useBountyCounts: () => currentBountyCounts,
-}));
-
 // Phase 104 Plan 02 — per-test override handle for useTrappedWork.
 // Default is undefined (pre-fetch / D-06 start-absent).
 let currentTrappedWork: { hasTrappedWork: boolean } | undefined = undefined;
@@ -208,7 +197,6 @@ function makeIdentity(hue: number, name = "nelly"): Identity {
 beforeEach(() => {
   vi.clearAllMocks();
   currentIdentity = null;
-  currentBountyCounts = undefined;
   currentTrappedWork = undefined; // Phase 104 Plan 02 — default: pre-fetch
   currentIsTouchDevice = false; // quick-260821-suv default: fine-pointer desktop
 });
@@ -1818,125 +1806,9 @@ describe("PrettyConversationRow: Open-in-new-window context-menu item (quick-260
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tests A-F — [Phase 26 Plan 03] Bounty badge visibility — useBountyCounts
-//             pair consumption (widened from Plan 26-02 singular hook)
+// Phase 26 Plan 03 bounty-badge visibility tests — RETIRED in Phase 104 Plan 03
+// alongside the bounty-count wire (useBountyCounts + PrettyBountyCountBadge).
 // ─────────────────────────────────────────────────────────────────────────────
-// PrettyConversationRow now consumes useBountyCounts (plural) returning the
-// {pinnedCount, needsDeskCount} pair (undefined when no fetch has landed or
-// when the row has no identity). The badge shows the combined pin·desk pill
-// per the 4-case rendering rule (see PrettyBountyCountBadge.tsx).
-//
-// currentBountyCounts is reset to undefined in beforeEach; each test overrides
-// it to the relevant pair shape. currentIdentity is set for identity rows
-// (session match drives the useBountyCounts call site in the row).
-
-describe("PrettyConversationRow: bounty badge visibility — useBountyCounts pair (Phase 26 Plan 03)", () => {
-  it("Test A: identity row + pinnedCount=3, needsDeskCount=0 → only pin wrap renders with count 3", () => {
-    currentIdentity = makeIdentity(210, "nelly");
-    currentBountyCounts = { pinnedCount: 3, needsDeskCount: 0 };
-    render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="desktop"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-        inActiveSet={true}
-      />,
-    );
-    expect(screen.getByTestId("pv-bounty-badge-pinned").textContent).toBe("3");
-    expect(screen.queryByTestId("pv-bounty-badge-needs-desk")).toBeNull();
-  });
-
-  it("Test B: identity row + pinnedCount=0, needsDeskCount=1 → only desk wrap renders with count 1", () => {
-    currentIdentity = makeIdentity(210, "nelly");
-    currentBountyCounts = { pinnedCount: 0, needsDeskCount: 1 };
-    render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="desktop"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-        inActiveSet={true}
-      />,
-    );
-    expect(screen.queryByTestId("pv-bounty-badge-pinned")).toBeNull();
-    expect(screen.getByTestId("pv-bounty-badge-needs-desk").textContent).toBe("1");
-  });
-
-  it("Test C: identity row + pinnedCount=3, needsDeskCount=1 → both wraps render with their counts", () => {
-    currentIdentity = makeIdentity(210, "nelly");
-    currentBountyCounts = { pinnedCount: 3, needsDeskCount: 1 };
-    render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="desktop"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-        inActiveSet={true}
-      />,
-    );
-    expect(screen.getByTestId("pv-bounty-badge-pinned").textContent).toBe("3");
-    expect(screen.getByTestId("pv-bounty-badge-needs-desk").textContent).toBe("1");
-  });
-
-  it("Test D: identity row + pinnedCount=0, needsDeskCount=0 → no badge (null)", () => {
-    currentIdentity = makeIdentity(210, "nelly");
-    currentBountyCounts = { pinnedCount: 0, needsDeskCount: 0 };
-    render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="desktop"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-        inActiveSet={true}
-      />,
-    );
-    expect(screen.queryByTestId("pv-bounty-badge")).toBeNull();
-  });
-
-  it("Test E: no-identity row (sessionMatchKey → null) → no badge regardless of mock", () => {
-    // currentIdentity is null (reset in beforeEach) — identity doesn't resolve.
-    // useBountyCounts short-circuits to undefined when identityKey is null.
-    currentBountyCounts = undefined; // explicit — hook returns undefined
-    render(
-      <PrettyConversationRow
-        row={makeRow({ targetTmuxSession: null })}
-        selected={false}
-        pinned={false}
-        variant="desktop"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-        inActiveSet={false}
-      />,
-    );
-    expect(screen.queryByTestId("pv-bounty-badge")).toBeNull();
-  });
-
-  it("Test F: pre-fetch state — hook returns undefined → no badge", () => {
-    currentIdentity = makeIdentity(210, "nelly");
-    currentBountyCounts = undefined; // pre-fetch, pair hasn't landed yet
-    render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="desktop"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-        inActiveSet={true}
-      />,
-    );
-    expect(screen.queryByTestId("pv-bounty-badge")).toBeNull();
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TS1-TS7 — Mobile swipe-to-act composite (quick-260808-fkg)
@@ -3064,45 +2936,8 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
     expect(container.querySelector(".pv-meta")).toBeNull();
   });
 
-  it("Test P47-08: Pin badge wrap renders INSIDE `.pv-avatar` when pinnedCount > 0 (avatar bottom-left corner marker)", () => {
-    currentIdentity = makeIdentity(210, "tanya");
-    currentBountyCounts = { pinnedCount: 3, needsDeskCount: 0 };
-    const { container } = render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="desktop"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-      />,
-    );
-    const pinWrap = container.querySelector(
-      '.pv-avatar [data-testid="pv-bounty-badge-pinned"]',
-    );
-    expect(pinWrap).not.toBeNull();
-    expect(pinWrap!.textContent).toBe("3");
-  });
-
-  it("Test P47-09: Monitor badge wrap renders INSIDE `.pv-avatar` when needsDeskCount > 0 (avatar bottom-right corner marker)", () => {
-    currentIdentity = makeIdentity(210, "tanya");
-    currentBountyCounts = { pinnedCount: 0, needsDeskCount: 2 };
-    const { container } = render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="desktop"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-      />,
-    );
-    const deskWrap = container.querySelector(
-      '.pv-avatar [data-testid="pv-bounty-badge-needs-desk"]',
-    );
-    expect(deskWrap).not.toBeNull();
-    expect(deskWrap!.textContent).toBe("2");
-  });
+  // Tests P47-08 and P47-09 (Pin + Monitor bounty-badge renders inside
+  // .pv-avatar) — RETIRED in Phase 104 Plan 03 alongside the bounty-count wire.
 
   it("Test P47-10: row emits both `.working` AND `.active-set` classes when inActiveSet+isWorking=true (pre-Phase-48 className composition invariant preserved by Task 1)", () => {
     currentIdentity = makeIdentity(210, "tanya");
@@ -3155,55 +2990,8 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
     expect(body.className).not.toContain("recycling");
   });
 
-  it("Test P47-12: both badge wraps render when pinnedCount > 0 AND needsDeskCount > 0 (both counts positive)", () => {
-    currentIdentity = makeIdentity(210, "tanya");
-    currentBountyCounts = { pinnedCount: 3, needsDeskCount: 2 };
-    const { container } = render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="desktop"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-      />,
-    );
-    expect(
-      container.querySelector(
-        '.pv-avatar [data-testid="pv-bounty-badge-pinned"]',
-      ),
-    ).not.toBeNull();
-    expect(
-      container.querySelector(
-        '.pv-avatar [data-testid="pv-bounty-badge-needs-desk"]',
-      ),
-    ).not.toBeNull();
-  });
-
-  it("Test P47-13: neither badge wrap renders when both pinnedCount === 0 AND needsDeskCount === 0 (PrettyBountyCountBadge's zero-null contract preserved through the relocation)", () => {
-    currentIdentity = makeIdentity(210, "tanya");
-    currentBountyCounts = { pinnedCount: 0, needsDeskCount: 0 };
-    const { container } = render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="desktop"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-      />,
-    );
-    expect(
-      container.querySelector(
-        '.pv-avatar [data-testid="pv-bounty-badge-pinned"]',
-      ),
-    ).toBeNull();
-    expect(
-      container.querySelector(
-        '.pv-avatar [data-testid="pv-bounty-badge-needs-desk"]',
-      ),
-    ).toBeNull();
-  });
+  // Tests P47-12 and P47-13 (both badge wraps render / neither renders — zero-null
+  // contract) — RETIRED in Phase 104 Plan 03 alongside the bounty-count wire.
 
   it("Test P47-14 (LOAD-BEARING): inActiveSet=true + isWorking=false + hasQueuePending=true → row HAS `spinner-on` class (queue-pending trips the spinner even when the row would otherwise satisfy the pre-Phase-48 ready condition)", () => {
     // Ashley's 4-input gate: `!(true && true && true && false)` =
@@ -3732,28 +3520,7 @@ describe("PrettyConversationRow: trapped-work indicator visibility (Phase 104 Pl
     expect(screen.queryByTestId("pv-trapped-work-indicator")).toBeNull();
   });
 
-  it("Row Test 8 (coexistence with bounty badges — Wave 1 A/B): all three affordances render simultaneously", () => {
-    // This test is DELETED in Plan 03 alongside the bounty-badge retirement.
-    // For Wave 1 it verifies the trapped-work indicator lands in a distinct
-    // slot so it can visually coexist with the pre-existing bounty badges.
-    currentIdentity = makeIdentity(210, "nelly");
-    currentBountyCounts = { pinnedCount: 3, needsDeskCount: 1 };
-    currentTrappedWork = { hasTrappedWork: true };
-    render(
-      <PrettyConversationRow
-        row={makeRow()}
-        selected={false}
-        pinned={false}
-        variant="desktop"
-        onSelect={vi.fn()}
-        onTogglePin={vi.fn()}
-        inActiveSet={true}
-      />,
-    );
-    expect(screen.getByTestId("pv-bounty-badge-pinned").textContent).toBe("3");
-    expect(screen.getByTestId("pv-bounty-badge-needs-desk").textContent).toBe(
-      "1",
-    );
-    expect(screen.queryByTestId("pv-trapped-work-indicator")).not.toBeNull();
-  });
+  // Row Test 8 (coexistence with bounty badges — Wave 1 A/B) — RETIRED in
+  // Phase 104 Plan 03 alongside the bounty-count wire. The trapped-work
+  // indicator is now the sole avatar-corner affordance.
 });

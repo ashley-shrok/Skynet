@@ -130,17 +130,6 @@ vi.mock("@/state/viewing-user-store", () => ({
   useViewingUserId: vi.fn(() => "u-alice"),
 }));
 
-// ─── bounty-counts-store (inert stub — panel uses it; flow tests don't care) ──
-
-vi.mock("@/state/bounty-counts-store", () => ({
-  useBountyCounts: () => undefined,
-  useAllBountyCounts: () =>
-    new Map<string, { pinnedCount: number; needsDeskCount: number }>(),
-  bountyCountsCompositeKey: (identityKey: string, hostId: number | null) =>
-    `${identityKey}:${hostId ?? "local"}`,
-  startBountyCountPoller: () => () => {},
-}));
-
 // ─── Phase 104 Plan 02 — trapped-work-store (inert stub — panel mounts poller) ─
 vi.mock("@/state/trapped-work-store", () => ({
   useTrappedWork: () => undefined,

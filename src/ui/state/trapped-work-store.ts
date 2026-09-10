@@ -2,12 +2,11 @@
 //
 // Module-scoped store powering the per-identity trapped-work indicator on
 // the two identity surfaces (D-05): conversation-list row's avatar-corner
-// and pretty-view header IdentityBadge's avatar-corner. Byte-shape mirror
-// of src/ui/state/bounty-counts-store.ts — same useSyncExternalStore module
-// pattern (roll-your-own; no zustand/jotai/redux), same composite-key
-// format, same 60s+focus poller shape. Differs only in the value type
-// stored (a boolean-carrying object instead of a count-pair) and the
-// underlying api function.
+// and pretty-view header IdentityBadge's avatar-corner. useSyncExternalStore
+// module pattern (roll-your-own; no zustand/jotai/redux). Composite-key
+// format and 60s+focus poller shape are inherited from Phase 26's prior
+// wire (Phase 104 Plan 03 retired that wire; the trapped-work store keeps
+// the pattern).
 //
 // Semantics:
 //   - Internal state: Map<compositeKey, {hasTrappedWork: boolean}> where

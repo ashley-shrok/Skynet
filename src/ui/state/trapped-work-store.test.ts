@@ -1,8 +1,7 @@
 // ─── trapped-work-store — Vitest coverage (Phase 104 Plan 02) ────────────────
 //
-// Byte-shape mirror of bounty-counts-store.test.ts. Exercises the module-scoped
-// useSyncExternalStore store that backs the per-identity trapped-work
-// indicator. The store owns:
+// Exercises the module-scoped useSyncExternalStore store that backs the
+// per-identity trapped-work indicator. The store owns:
 //   - useTrappedWork(identityKey, hostId) selector (undefined pre-fetch,
 //     returns {hasTrappedWork} post-fetch)
 //   - useAllTrappedWork() full-map selector

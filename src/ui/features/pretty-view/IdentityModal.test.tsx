@@ -14,7 +14,6 @@
  *     returning a stable empty shape.
  *   - @/api/claude-session-api: openClaudeSessionSocket returns a no-op stub
  *     WS so the modal's 5 parallel WS open effects don't error.
- *   - @/state/bounty-counts-store: invalidateIdentity as no-op vi.fn().
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -84,14 +83,6 @@ vi.mock("@/state/identities-store", async (importOriginal) => {
       loaded: true,
       refresh: vi.fn(),
     })),
-  };
-});
-
-vi.mock("@/state/bounty-counts-store", async (importOriginal) => {
-  const orig = await importOriginal() as Record<string, unknown>;
-  return {
-    ...orig,
-    invalidateIdentity: vi.fn().mockResolvedValue(undefined),
   };
 });
 

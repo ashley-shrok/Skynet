@@ -89,15 +89,6 @@ vi.mock("@/features/terminal/session-hue", () => ({
     name ? name.toLowerCase() : null,
 }));
 
-vi.mock("@/state/bounty-counts-store", () => ({
-  useBountyCounts: () => undefined,
-  useAllBountyCounts: () => new Map(),
-  bountyCountsCompositeKey: (identityKey: string, hostId: number | null) =>
-    `${identityKey}:${hostId ?? "local"}`,
-  startBountyCountPoller: () => () => {},
-  invalidateIdentity: vi.fn().mockResolvedValue(undefined),
-}));
-
 // Phase 104 Plan 02 — trapped-work-store (inert stub — panel mounts poller)
 vi.mock("@/state/trapped-work-store", () => ({
   useTrappedWork: () => undefined,
