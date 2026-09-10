@@ -2299,7 +2299,7 @@ Plans:
 **Goal:** Deliver the serve URL scheme end-to-end: wildcard-TLS subdomain `<host>-<port>.serve.term.<skynet-domain>` reverse-proxies HTTP + WebSocket through an SSH tunnel to agent-controlled ports. Full defense-in-depth stack: widened JWT cookie, allowlist-strip proxy forward, CI cookie-egress test, runtime header sampler, CORS + WS Origin rejects, CSRF audit, per-user-per-host edge auth, Skynet-styled interstitials, D-11 URL grammar. id-skill rewrite teaches agents the active/passive framing (serve URL vs file URL). Ships as single atomic deploy per D-24.
 **Requirements**: TBD
 **Depends on:** Phase 102
-**Plans:** 8/11 plans executed
+**Plans:** 10/11 plans executed
 Plans:
 **Wave 1**
 
@@ -2320,8 +2320,8 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 103-04-PLAN.md — CI integration test enforcing D-05 cookie-egress across 6 transports x 3 header classes
-- [ ] 103-05-PLAN.md — Subdomain dispatch middleware + serveUrlHandler + database.ts mount (BEFORE bodyParser per http-proxy-middleware v4 streaming semantics)
+- [x] 103-04-PLAN.md — CI integration test enforcing D-05 cookie-egress across 6 transports x 3 header classes
+- [x] 103-05-PLAN.md — Subdomain dispatch middleware + serveUrlHandler + database.ts mount (BEFORE bodyParser per http-proxy-middleware v4 streaming semantics)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
