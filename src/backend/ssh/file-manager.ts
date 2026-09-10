@@ -44,6 +44,7 @@ import { registerFileListingRoutes } from "./file-manager-list-routes.js";
 import { registerFileOperationRoutes } from "./file-manager-operation-routes.js";
 import { registerFileDownloadRoutes } from "./file-manager-download-routes.js";
 import { registerFileActionRoutes } from "./file-manager-action-routes.js";
+import { getHostSemaphore } from "./host-semaphore-registry.js";
 
 const app = express();
 
@@ -376,26 +377,28 @@ async function openDedicatedTransferSession(
     username: host.username,
   });
 
-  await new Promise<void>((resolve, reject) => {
-    const connectTimeout = setTimeout(() => {
-      client.end();
-      reject(new Error("Transfer SSH connection timed out"));
-    }, 60000);
+  await getHostSemaphore(hostId).run(async () => {
+    await new Promise<void>((resolve, reject) => {
+      const connectTimeout = setTimeout(() => {
+        client.end();
+        reject(new Error("Transfer SSH connection timed out"));
+      }, 60000);
 
-    const fail = (err: Error) => {
-      clearTimeout(connectTimeout);
-      reject(err);
-    };
+      const fail = (err: Error) => {
+        clearTimeout(connectTimeout);
+        reject(err);
+      };
 
-    client.once("ready", () => {
-      clearTimeout(connectTimeout);
-      resolve();
+      client.once("ready", () => {
+        clearTimeout(connectTimeout);
+        resolve();
+      });
+      client.once("error", fail);
+
+      void startDedicatedTransferConnect(client, config, host, userId).catch(
+        fail,
+      );
     });
-    client.once("error", fail);
-
-    void startDedicatedTransferConnect(client, config, host, userId).catch(
-      fail,
-    );
   });
 
   const session: SSHSession = {
