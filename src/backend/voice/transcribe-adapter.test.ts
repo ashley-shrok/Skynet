@@ -44,7 +44,10 @@ vi.mock("@aws-sdk/client-transcribe-streaming", () => {
 });
 
 // Import AFTER vi.mock so the adapter picks up the mocked SDK.
-const { transcribeBuffer } = await import("./transcribe-adapter.js");
+// Phase 100: also destructure transcribeBufferWithItems (new parallel export).
+const { transcribeBuffer, transcribeBufferWithItems } = await import(
+  "./transcribe-adapter.js"
+);
 
 /**
  * Build a fake async-iterable TranscriptResultStream that the SDK response
@@ -178,5 +181,134 @@ describe("transcribe-adapter — error paths", () => {
     await expect(
       transcribeBuffer(Buffer.from([0]), "ogg-opus", 16000),
     ).rejects.toBe(sdkErr);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 100 helpers and tests for transcribeBufferWithItems
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a fake async-iterable TranscriptResultStream that supports Items.
+ * Each result entry may include an optional `items` array in its Alternative.
+ */
+function fakeTranscriptStreamWithItems(
+  results: Array<{ IsPartial: boolean; transcript: string; items?: unknown[] }>,
+): AsyncIterable<unknown> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for (const r of results) {
+        yield {
+          TranscriptEvent: {
+            Transcript: {
+              Results: [
+                {
+                  IsPartial: r.IsPartial,
+                  Alternatives: [
+                    {
+                      Transcript: r.transcript,
+                      ...(r.items !== undefined ? { Items: r.items } : {}),
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        };
+      }
+    },
+  };
+}
+
+describe("transcribe-adapter — transcribeBufferWithItems (Phase 100)", () => {
+  beforeEach(() => {
+    startStreamCmdCtor.mockClear();
+    sendMock.mockReset();
+  });
+
+  it("Test 1: returns transcript and Items from a final result", async () => {
+    const fakeItems = [
+      { Type: "pronunciation", Content: "hello", StartTime: 0, EndTime: 0.5 },
+      { Type: "pronunciation", Content: "world", StartTime: 0.5, EndTime: 1.0 },
+    ];
+    sendMock.mockResolvedValueOnce({
+      TranscriptResultStream: fakeTranscriptStreamWithItems([
+        { IsPartial: false, transcript: "hello world", items: fakeItems },
+      ]),
+    });
+    const result = await transcribeBufferWithItems(Buffer.from([0]), "flac", 16000);
+    expect(result.transcript).toBe("hello world");
+    expect(result.items).toHaveLength(2);
+    expect(result.items[0].Content).toBe("hello");
+    expect(result.items[0].StartTime).toBe(0);
+    expect(result.items[0].EndTime).toBe(0.5);
+    expect(result.items[1].Content).toBe("world");
+    expect(result.items[1].StartTime).toBe(0.5);
+    expect(result.items[1].EndTime).toBe(1.0);
+  });
+
+  it("Test 2: IsPartial filter preserved — partial items are dropped, only final items kept", async () => {
+    const partialItems = [
+      { Type: "pronunciation", Content: "hel", StartTime: 0, EndTime: 0.3 },
+    ];
+    const finalItems = [
+      { Type: "pronunciation", Content: "hello", StartTime: 0, EndTime: 0.5 },
+      { Type: "pronunciation", Content: "world", StartTime: 0.5, EndTime: 1.0 },
+    ];
+    sendMock.mockResolvedValueOnce({
+      TranscriptResultStream: fakeTranscriptStreamWithItems([
+        { IsPartial: true, transcript: "hel", items: partialItems },
+        { IsPartial: false, transcript: "hello world", items: finalItems },
+      ]),
+    });
+    const result = await transcribeBufferWithItems(Buffer.from([0]), "flac", 16000);
+    expect(result.transcript).toBe("hello world");
+    // Only the final result's items are kept; the partial's items are dropped
+    expect(result.items).toHaveLength(2);
+    expect(result.items[0].Content).toBe("hello");
+    expect(result.items[1].Content).toBe("world");
+  });
+
+  it("Test 3: empty Items array — no crash, empty items preserved", async () => {
+    sendMock.mockResolvedValueOnce({
+      TranscriptResultStream: fakeTranscriptStreamWithItems([
+        { IsPartial: false, transcript: "hmm", items: [] },
+      ]),
+    });
+    const result = await transcribeBufferWithItems(Buffer.from([0]), "flac", 16000);
+    expect(result.transcript).toBe("hmm");
+    expect(result.items).toEqual([]);
+  });
+
+  it("Test 4: missing Items field — defensive alt.Items ?? [] guard, no crash", async () => {
+    sendMock.mockResolvedValueOnce({
+      TranscriptResultStream: fakeTranscriptStreamWithItems([
+        { IsPartial: false, transcript: "hmm" }, // no items property
+      ]),
+    });
+    const result = await transcribeBufferWithItems(Buffer.from([0]), "flac", 16000);
+    expect(result.transcript).toBe("hmm");
+    expect(result.items).toEqual([]);
+  });
+
+  it("Test 5: missing TranscriptResultStream — same throw as transcribeBuffer", async () => {
+    sendMock.mockResolvedValueOnce({ TranscriptResultStream: undefined });
+    await expect(
+      transcribeBufferWithItems(Buffer.from([0]), "flac", 16000),
+    ).rejects.toThrow("Transcribe returned no TranscriptResultStream");
+  });
+
+  it("Test 6: singleton reuse — ctor count stays at 1 after transcribeBufferWithItems is used", async () => {
+    // The existing test asserts count is 1 at module load. Calling transcribeBufferWithItems
+    // must NOT construct another client. After this test, count must still be 1.
+    sendMock.mockResolvedValueOnce({
+      TranscriptResultStream: fakeTranscriptStreamWithItems([
+        { IsPartial: false, transcript: "ok", items: [] },
+      ]),
+    });
+    await transcribeBufferWithItems(Buffer.from([0]), "flac", 16000);
+    // The module-level client singleton is constructed exactly once (at import);
+    // transcribeBufferWithItems reuses it — no second constructor call.
+    expect(transcribeClientCtor.mock.calls.length).toBe(1);
   });
 });
