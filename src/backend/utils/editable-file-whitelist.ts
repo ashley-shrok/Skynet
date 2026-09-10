@@ -25,6 +25,19 @@
  *   DATA (EDITABLE_EXTENSIONS + EDITABLE_BASENAMES + classifyByExtension)
  *   remains mirrored in lockstep as before.
  *
+ *   PHASE 103 D-29 MIRROR-RULE UPDATE (2026-09-10): the frontend twin has
+ *   gained a THIRD URL regex `SKYNET_SERVE_URL_RE_CLIENT` (sibling to
+ *   `TAILNET_URL_RE_CLIENT` and `SKYNET_FILE_URL_RE_CLIENT`) matching the
+ *   serve URL shape `https://<hostname>-<port>.serve.term.<domain>[/path]`.
+ *   This backend twin does NOT re-export that regex — the backend validates
+ *   serve URLs via the subdomain-dispatch middleware's own parse logic per
+ *   D-11 (split on last dash of leftmost DNS label; right side must be all
+ *   digits). Same rationale as `TAILNET_URL_RE_CLIENT` and
+ *   `SKYNET_FILE_URL_RE_CLIENT` being client-only. The whitelist DATA
+ *   (`EDITABLE_EXTENSIONS`, `EDITABLE_BASENAMES`, `classifyByExtension`)
+ *   remains mirrored in lockstep as before — Phase 103 does NOT change the
+ *   whitelist data itself.
+ *
  * Contract (D-02):
  *   Wholesale-accept files whose extension is in EDITABLE_EXTENSIONS, OR whose
  *   filename is in EDITABLE_BASENAMES. This is the FIRST-PASS check; extensionless
