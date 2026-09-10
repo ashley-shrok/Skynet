@@ -2294,10 +2294,12 @@ Plans:
 
 ### Phase 104: Repo stats display — trapped-work indicator on conv-list + identity badge
 
-**Goal:** [To be planned]
-**Requirements**: TBD
-**Depends on:** Phase 102
-**Plans:** 0 plans
+**Goal:** A per-identity avatar-corner indicator (git-pull-request-draft icon, warm amber) lights up on both the pretty-conversations list row AND the pretty-view header IdentityBadge whenever that identity has unshipped local git work (dirty tracked files, local-only commits, or stashes) in any eligible repo under `~/fleet/identities/<name>/workspace/` on her home box; absent otherwise. The retiring role-scoped pinned + needs-desk bounty-count badges + their whole wire (backend detector fn, WS handler + route, frontend api + store + badge component + panel filter helpers + two filter menu items) go with it — full domain retirement, not merely unwiring. Silent-fail for pre-migration identities is the accepted cost; deploy waits for Shape 3 (Phase 96) to ship.
+**Requirements**: D-01, D-02, D-03, D-04, D-05, D-06, D-07, D-08, D-09, D-10, D-11
+**Depends on:** Phase 102 (unblocked for plan+execute; deploy blocked on Shape 3 ship per D-10)
+**Plans:** 3 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 104 to break down)
+- [ ] 104-01-PLAN.md — Wave 1 (parallel): Backend detector — new readIdentityTrappedWork(conn, identityKey) mirroring readIdentityBountyCounts + handleIdentityProbeTrappedWork WS handler + identity:probe-trapped-work route + tests (D-01, D-02, D-03, D-06, D-09)
+- [ ] 104-02-PLAN.md — Wave 1 (parallel, file-disjoint from 104-01): Frontend api + store + row indicator + badge indicator + CSS + poller mount + tests (D-03, D-05, D-06, D-07, D-08)
+- [ ] 104-03-PLAN.md — Wave 2 (deps 104-01 + 104-02): Full deletion pass — retire readIdentityBountyCounts + handleIdentityCountBounties + countIdentityBounties + bounty-counts-store + PrettyBountyCountBadge + panel bounty helpers + pinned/needs-desk filter menu items + all tests + all CSS bounty rules (D-04, D-11)
