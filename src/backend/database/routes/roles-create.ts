@@ -104,6 +104,7 @@ import {
 } from "../../claude-session/identity-artifact-reader.js";
 import { ROLE_NAME_PATTERN } from "./identity-birth-orchestrator.js";
 import { sshLogger } from "../../utils/logger.js";
+import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -128,10 +129,9 @@ const MAX_NAME_LENGTH = 64;
  *  128 chars is generous for a subtitle line (D-CTX-86-surface-1). */
 const MAX_TITLE_LENGTH = 128;
 
-/** Voice regex — mirrors IDENTITY_VOICE_RE in identities.ts L51 verbatim.
- *  Enforces "Capitalized voice name + .wav" (e.g. `Kate.wav`, `Antoni.wav`).
- *  Cross-referenced from Plan 86-02 acceptance criteria. */
-const ROLE_VOICE_RE = /^[A-Z][A-Za-z]+\.wav$/;
+/** Voice validation: mirrors identities.ts's Polly-whitelist swap from Phase
+ *  98 Plan 07. Accepts only the 7 Polly generative en-US voice IDs; the
+ *  Elena.wav-style Chatterbox names are gone. Isolated call-site below. */
 
 /** Multer upload config — mirrors identities.ts L36-49 exactly (same 2 MB cap,
  *  same mimetype whitelist, same in-memory storage). Kept in sync with the
@@ -393,11 +393,14 @@ router.post(
     if (rawCosmetics.voice !== undefined) {
       if (
         typeof rawCosmetics.voice !== "string" ||
-        !ROLE_VOICE_RE.test(rawCosmetics.voice)
+        !isValidPollyVoice(rawCosmetics.voice)
       ) {
         res
           .status(400)
-          .json({ error: "voice must match [A-Z][A-Za-z]+\\.wav" });
+          .json({
+            error:
+              "voice must be one of the 7 supported Amazon Polly generative en-US voice IDs",
+          });
         return;
       }
       cosmetics.voice = rawCosmetics.voice;

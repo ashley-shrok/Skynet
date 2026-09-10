@@ -444,7 +444,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
         name: "box-maintainer",
         description: "x",
         hostId: 5,
-        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Kate.wav" },
+        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Joanna" },
       },
     }));
 
@@ -452,7 +452,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
     expect(res.body).toEqual({
       name: "box-maintainer",
       description: "x",
-      cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Kate.wav" },
+      cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Joanna" },
     });
 
     expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
@@ -462,7 +462,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
     // Contains all three keys and no avatar (since none supplied)
     expect(stubBody).toMatch(/title:\s*Box maintainer/);
     expect(stubBody).toMatch(/colorHue:\s*190/);
-    expect(stubBody).toMatch(/voice:\s*Kate\.wav/);
+    expect(stubBody).toMatch(/voice:\s*Joanna/);
     expect(stubBody).not.toMatch(/^avatar:/m);
     // Followed by closing `---\n` and the standard body
     expect(stubBody).toMatch(/---\n\n# box-maintainer\n\n## Role\n\nx\n/);
@@ -478,7 +478,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
         name: "box-maintainer",
         description: "x",
         hostId: 5,
-        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Kate.wav" },
+        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Joanna" },
       },
       file: {
         filename: "role-avatar.webp",
@@ -496,7 +496,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
       cosmetics: {
         title: "Box maintainer",
         colorHue: 190,
-        voice: "Kate.wav",
+        voice: "Joanna",
         avatar: "box-maintainer.webp",
       },
     });
@@ -562,7 +562,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
       name: "box-maintainer",
       description: "x",
       hostId: 5,
-      cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Kate.wav" },
+      cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Joanna" },
     }));
 
     expect(res.status).toBe(415);
@@ -583,7 +583,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
         name: "box-maintainer",
         description: "x",
         hostId: 5,
-        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Kate.wav" },
+        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Joanna" },
       },
       file: {
         filename: "big.webp",
@@ -603,7 +603,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
         name: "box-maintainer",
         description: "x",
         hostId: 5,
-        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Kate.wav" },
+        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Joanna" },
       },
       file: {
         filename: "img.gif",
@@ -626,7 +626,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
         name: "box-maintainer",
         description: "A role that owns t1000",
         hostId: 5,
-        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Kate.wav" },
+        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Joanna" },
       },
       file: {
         filename: "picked.png",
@@ -642,7 +642,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
       cosmetics: {
         title: "Box maintainer",
         colorHue: 190,
-        voice: "Kate.wav",
+        voice: "Joanna",
         avatar: "box-maintainer.png",
       },
     });
@@ -651,7 +651,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
     const stubBody = (writeMarkdownFileAtomic as Mock).mock.calls[0][2] as string;
     expect(stubBody).toMatch(/title:\s*Box maintainer/);
     expect(stubBody).toMatch(/colorHue:\s*190/);
-    expect(stubBody).toMatch(/voice:\s*Kate\.wav/);
+    expect(stubBody).toMatch(/voice:\s*Joanna/);
     expect(stubBody).toMatch(/avatar:\s*box-maintainer\.png/);
 
     // Inline SFTP write landed at role folder with correct ext.
@@ -668,7 +668,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
         name: "box-maintainer",
         description: desc,
         hostId: 5,
-        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Kate.wav" },
+        cosmetics: { title: "Box maintainer", colorHue: 190, voice: "Joanna" },
       },
     }));
     expect(res.status).toBe(201);

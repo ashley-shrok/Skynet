@@ -4,11 +4,12 @@ Items discovered during Phase 98 plan execution that are out of scope for the cu
 
 ## From Plan 98-07 (2026-09-10)
 
-### roles-create.ts still carries the old regex
+### ~~roles-create.ts still carries the old regex~~ — CLOSED 2026-09-10 (fix landed inline mid-Wave-3 by tabitha)
 
 - **File:** `src/backend/database/routes/roles-create.ts:134`
 - **Issue:** `const ROLE_VOICE_RE = /^[A-Z][A-Za-z]+\.wav$/;` explicitly mirrors the now-deleted IDENTITY_VOICE_RE. Rejects Polly voice IDs on POST /roles cosmetics.voice.
-- **Why deferred:** Not in Plan 98-07's `files_modified` list. Plan 98-05's migration walks the role tree, so pre-existing role frontmatter voice values are wiped by the time HTTP accepts traffic — a fresh POST /roles with a Polly voice value would 400-reject, but this is a rare path (roles created less frequently than identities edited).
+- **Resolution:** Fix landed inline mid-Wave-3 orchestration — see fix commit prefixed `fix(98-07-followon)`. Import isValidPollyVoice, delete ROLE_VOICE_RE, swap call-site, sweep Kate.wav test fixtures → Joanna to match Plan 07's Elena.wav → Joanna pattern. 20/20 roles-create tests pass.
+- **Original why-deferred:** Not in Plan 98-07's `files_modified` list. Plan 98-05's migration walks the role tree, so pre-existing role frontmatter voice values are wiped by the time HTTP accepts traffic — a fresh POST /roles with a Polly voice value would 400-reject, but this is a rare path (roles created less frequently than identities edited).
 - **Follow-up scope:** Single-file swap — delete ROLE_VOICE_RE, import isValidPollyVoice from `../../voice/polly-voice-catalog.js`, swap the call-site at L396, update the error message to match the identities.ts / identity-birth.ts / identity-clone.ts shape.
 
 ### Cosmetic `Elena.wav` fixtures scattered across the codebase
