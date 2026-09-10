@@ -289,26 +289,79 @@ describe("resolveHostByName — cross-user isolation invariants", () => {
     expect(result?.authType).toBe("password");
   });
 
-  it("Test 5: cross-user isolation — the query filters by BOTH name AND userId", async () => {
-    // Even if the fixture bucket were populated with a foreign-user host, the
-    // real DB would filter it out. Here we assert that the mocked `eq()` was
-    // called for both `name` AND `userId` — the load-bearing invariant per
-    // RESEARCH Pitfall 7. This is a structural check that survives any
-    // implementation detail change in the credential-resolution tail.
+  it("Test 5: cross-user isolation — the query filters by userId eq AND a case-insensitive name predicate", async () => {
+    // Load-bearing invariant per RESEARCH Pitfall 7: userId equality MUST be
+    // present so a foreign-user host with the same friendly name is filtered
+    // out. Name predicate is via drizzle `sql\`LOWER(${hosts.name}) = ...\``
+    // (2026-09-10 D-13 fix — plain `eq` was case-sensitive under SQLite and
+    // broke serve URLs to mixed-case hosts like "Skynet"). This test pins
+    // both halves: userId still uses eq; name goes through the sql tagged
+    // template.
     setHostFixtures([]);
 
     const drizzle = await import("drizzle-orm");
+    // Reset eq call count so we only see this test's calls.
+    (drizzle.eq as unknown as { mockClear: () => void }).mockClear();
+    (drizzle.sql as unknown as { mockClear: () => void }).mockClear();
+
     await resolveHostByName("thenasty", "user-A");
 
     const eqCalls = (drizzle.eq as unknown as { mock: { calls: unknown[][] } })
       .mock.calls;
-    const columns = eqCalls.map((call) => (call[0] as { __col?: string })?.__col);
-    // `resolveHostByName` MUST call eq(hosts.name, name) AND eq(hosts.userId, userId).
-    expect(columns).toContain("name");
-    expect(columns).toContain("userId");
+    const eqColumns = eqCalls.map((call) => (call[0] as { __col?: string })?.__col);
+    expect(eqColumns).toContain("userId");
+    // Name predicate is no longer via eq — must go through sql.
+    expect(eqColumns).not.toContain("name");
+    // sql tagged template MUST have been called (LOWER(...) = ... predicate).
+    const sqlCalls = (drizzle.sql as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls;
+    expect(sqlCalls.length).toBeGreaterThan(0);
   });
 
   it("Test 6: resolveHostById still exists and is callable (existing helper unchanged)", () => {
     expect(typeof resolveHostById).toBe("function");
+  });
+
+  it("Test 7: D-13 case-insensitive match — 'skynet' input lowercases and passes through sql template", async () => {
+    // Serve URL dispatch pre-lowercases the URL hostname (D-13), but the DB
+    // may store the display case ("Skynet"). The resolver's LOWER(...) sql
+    // template makes this match. Concrete regression pin: passing "skynet"
+    // must result in the sql template call receiving "skynet" as one of
+    // its interpolated values (the .toLowerCase() call inside the resolver
+    // is idempotent on already-lowercase input).
+    setHostFixtures([]);
+
+    const drizzle = await import("drizzle-orm");
+    (drizzle.sql as unknown as { mockClear: () => void }).mockClear();
+
+    await resolveHostByName("skynet", "user-A");
+
+    const sqlCalls = (drizzle.sql as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls;
+    // First call to sql should include "skynet" among its interpolated values.
+    // The tagged template invocation shape is: sql(stringsArray, ...values).
+    const anyCallHasSkynet = sqlCalls.some((call) =>
+      call.slice(1).includes("skynet"),
+    );
+    expect(anyCallHasSkynet).toBe(true);
+  });
+
+  it("Test 8: D-13 case-insensitive match — 'SKYNET' input also lowercases before hitting sql", async () => {
+    setHostFixtures([]);
+
+    const drizzle = await import("drizzle-orm");
+    (drizzle.sql as unknown as { mockClear: () => void }).mockClear();
+
+    await resolveHostByName("SKYNET", "user-A");
+
+    const sqlCalls = (drizzle.sql as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls;
+    // Resolver must .toLowerCase() the input before passing to the sql
+    // template — the LOWER(hosts.name) = ? predicate needs a lowercase RHS
+    // for a valid case-insensitive match under BINARY collation.
+    const anyCallHasLowercased = sqlCalls.some((call) =>
+      call.slice(1).includes("skynet"),
+    );
+    expect(anyCallHasLowercased).toBe(true);
   });
 });

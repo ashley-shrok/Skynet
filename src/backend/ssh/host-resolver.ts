@@ -1,6 +1,6 @@
 import { getDb } from "../database/db/index.js";
 import { hosts, sshCredentials } from "../database/db/schema.js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { SimpleDBOps } from "../utils/simple-db-ops.js";
 import { logger } from "../utils/logger.js";
 import type { SSHHost } from "../../types/index.js";
@@ -376,11 +376,22 @@ export async function resolveHostByName(
 ): Promise<SSHHost | null> {
   const db = getDb();
 
+  // D-13 case-insensitive match: dispatch lowercases the URL hostname
+  // (subdomain-dispatch.ts L364) but the DB stores the display case (e.g.
+  // "Skynet" for the fleet's t1000 box). Plain `eq(hosts.name, name)` is
+  // case-sensitive under SQLite's default BINARY collation, which broke the
+  // D-13 promise ("display case preserved on the returned host row") — every
+  // serve URL to a mixed-case host returned unknown_host + host_unreachable
+  // interstitial. Discovered 2026-09-10 when tina served a prototype from
+  // `Skynet-8891.serve.term.gigaashley.click` and Ashley hit the interstitial.
+  // Fix: LOWER(hosts.name) = name so the WHERE matches regardless of stored
+  // case. Cross-user isolation invariant (§ Pitfall 7) is preserved by the
+  // unchanged userId equality.
   const hostResults = await SimpleDBOps.select(
     db
       .select()
       .from(hosts)
-      .where(and(eq(hosts.name, name), eq(hosts.userId, userId))),
+      .where(and(sql`LOWER(${hosts.name}) = ${name.toLowerCase()}`, eq(hosts.userId, userId))),
     "ssh_data",
     userId,
   );
