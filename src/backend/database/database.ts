@@ -3,6 +3,8 @@ import http from "http";
 import bodyParser from "body-parser";
 import multer from "multer";
 import cookieParser from "cookie-parser";
+import { createSubdomainDispatchMiddleware } from "../serve-url/subdomain-dispatch.js";
+import { serveUrlHandler } from "../serve-url/serve-route.js";
 import userRoutes from "./routes/users.js";
 import hostRoutes from "./routes/host.js";
 import alertRoutes from "./routes/alerts.js";
@@ -281,10 +283,19 @@ async function fetchGitHubAPI<T>(
   }
 }
 
+// Phase 103 D-24 mount order: cookieParser + subdomain-dispatch + serveUrlHandler
+// MUST run BEFORE express.json/bodyParser/bodyParser.raw. http-proxy-middleware v4
+// streams the raw request body to the upstream target, so any middleware that
+// consumes the request stream (bodyParser.*) upstream of the proxy truncates
+// POST bodies to zero bytes. cookieParser runs first because it reads
+// req.headers.cookie (header-only, no body consumption) and subdomain-dispatch
+// needs req.cookies to run the JWT check for *.serve.term.<domain> traffic.
+app.use(cookieParser());
+app.use(createSubdomainDispatchMiddleware());
+app.use(serveUrlHandler);
 app.use(bodyParser.json({ limit: "1gb" }));
 app.use(bodyParser.urlencoded({ limit: "1gb", extended: true }));
 app.use(bodyParser.raw({ limit: "5gb", type: "application/octet-stream" }));
-app.use(cookieParser());
 app.use((_req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
   next();

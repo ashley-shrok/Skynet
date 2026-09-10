@@ -18,8 +18,8 @@
  * FAIL-LOUD env enforcement (W4 + D-23):
  *
  * Module-load reads `process.env.SKYNET_COOKIE_DOMAIN`. If unset, THROWS.
- * NO hardcoded 'term.gigaashley.click' fallback — t1000 sets its own,
- * T800 sets its own. Same source-of-truth as subdomain-dispatch.ts —
+ * NO hardcoded primary-domain fallback — t1000 sets its own value, T800
+ * sets its own value. Same source-of-truth as subdomain-dispatch.ts —
  * kept as a duplicate module-load throw here (rather than routing through
  * a shared config module) because both files independently need to fail
  * loud, and a shared helper would just add indirection.

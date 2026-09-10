@@ -34,8 +34,8 @@
  *
  * `createSubdomainDispatchMiddleware()` reads `process.env.SKYNET_COOKIE_DOMAIN`
  * at the top of the factory body. If unset, THROWS. NO hardcoded
- * `term.gigaashley.click` fallback — t1000 sets its own value, T800 sets its
- * own value, and any future customer VM sets its own value. If the env is
+ * hardcoded-primary-domain fallback — t1000 sets its own value, T800 sets
+ * its own value, and any future customer VM sets its own value. If the env is
  * missing at boot, Skynet MUST refuse to boot cleanly (better than silently
  * accepting all traffic under a wrong domain and misrouting cookies /
  * misdirecting auth_missing redirects).
@@ -247,14 +247,14 @@ async function runAuthMiddleware(
 /**
  * Build the subdomain-dispatch Express middleware. THROWS at factory
  * invocation if SKYNET_COOKIE_DOMAIN is unset (fail-loud per W4/D-23 —
- * no silent-wrong hardcoded 'term.gigaashley.click' fallback).
+ * no silent-wrong hardcoded primary-domain fallback).
  */
 export function createSubdomainDispatchMiddleware() {
   const primaryDomain = process.env.SKYNET_COOKIE_DOMAIN;
   if (!primaryDomain) {
     throw new Error(
       "serve-url subdomain-dispatch: SKYNET_COOKIE_DOMAIN env var is required " +
-        "(per D-23; t1000 sets term.gigaashley.click, T800 sets its own value)",
+        "(per D-23; each Skynet host sets its own value; no hardcoded fallback)",
     );
   }
 
