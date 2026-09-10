@@ -135,7 +135,11 @@ describe("tab-url — relay: protocol grammar widening (Phase 97 Plan 05)", () =
       protocol: "relay",
       roomId: "!abcdef:matrix.example.com",
     });
-    expect(out).toBe("relay:%21abcdef%3Amatrix.example.com");
+    // encodeURIComponent leaves `!` and `.` unencoded per RFC 3986; it DOES
+    // encode `:` as `%3A`. The exact wire form is `relay:!abcdef%3Amatrix.example.com`.
+    // The invariant that matters is round-trip through parseTabParam (Test 8 +
+    // Test 10c cover that end-to-end for Matrix-legal chars).
+    expect(out).toBe("relay:!abcdef%3Amatrix.example.com");
   });
 
   it("Test 4: specForTab({type:'terminal', sessionKind:'relay-room', relayRoomId}) returns relay spec", () => {

@@ -40,11 +40,28 @@ import type { TabType } from "@/types/ui-types";
 
 const STORAGE_KEY = "skynet_pending_tab";
 
-export interface TabSpec {
-  protocol: "tmux" | "terminal" | "rdp" | "vnc" | "telnet";
-  host: string;
-  session?: string;
-}
+// Phase 97 Plan 05 (Finding 7): TabSpec is a discriminated union — the harness
+// variant carries `host: string` (unchanged from the original interface); the
+// relay variant carries an opaque Matrix `roomId: string` and NO host. The
+// `host?: never` / `session?: never` / `roomId?: never` markers force TS to
+// narrow exhaustively — consumers that read `spec.host` must first guard
+// against the relay variant (either `if (spec.protocol === "relay") ...` or
+// `if (spec.protocol === "relay") continue;` early-out). See D-15/D-16 and
+// 97-RESEARCH.md § Finding 7 for the rationale (opaque Matrix room ID as URL
+// identifier; URL shape mirrors the harness case's protocol-prefix pattern).
+export type TabSpec =
+  | {
+      protocol: "tmux" | "terminal" | "rdp" | "vnc" | "telnet";
+      host: string;
+      session?: string;
+      roomId?: never;
+    }
+  | {
+      protocol: "relay";
+      roomId: string;
+      host?: never;
+      session?: never;
+    };
 
 // Full workspace state carried in the URL: an ordered list of tab specs,
 // optional active-index, optional one-shot `only` marker, and (phase 6)
@@ -76,6 +93,7 @@ const PROTOCOLS: TabSpec["protocol"][] = [
   "rdp",
   "vnc",
   "telnet",
+  "relay",
 ];
 
 export function parseTabParam(raw: string | null): TabSpec | null {
@@ -85,6 +103,18 @@ export function parseTabParam(raw: string | null): TabSpec | null {
   const protocol = raw.slice(0, idx1) as TabSpec["protocol"];
   if (!PROTOCOLS.includes(protocol)) return null;
   const rest = raw.slice(idx1 + 1);
+  // Phase 97 Plan 05 (Finding 7): relay variant — opaque Matrix room ID.
+  // Branch BEFORE the host-required paths below because relay tabs have no
+  // fleet host (the room lives on the Matrix relay). See D-15/D-16.
+  if (protocol === "relay") {
+    const roomId = decodeURIComponent(rest);
+    if (!roomId) return null;
+    // Defense-in-depth: reject grossly oversized roomIds. Browser URL fragment
+    // has a ~2000-char practical limit; realistic Matrix roomIds are ~40.
+    // See 97-RESEARCH.md § Security Domain (T-97-05-02 mitigation).
+    if (roomId.length > 512) return null;
+    return { protocol: "relay", roomId };
+  }
   if (protocol === "tmux") {
     const idx2 = rest.indexOf(":");
     if (idx2 === -1) return null;
@@ -99,6 +129,12 @@ export function parseTabParam(raw: string | null): TabSpec | null {
 }
 
 export function encodeTabSpec(spec: TabSpec): string {
+  // Phase 97 Plan 05 (Finding 7): relay variant emits `relay:<encoded roomId>`.
+  // Branch first so TS narrows `spec.host` to `string` in the else branch (the
+  // discriminated union carries `host?: never` on the relay variant).
+  if (spec.protocol === "relay") {
+    return `relay:${encodeURIComponent(spec.roomId)}`;
+  }
   const parts = [spec.protocol, encodeURIComponent(spec.host)];
   if (spec.protocol === "tmux" && spec.session) {
     parts.push(encodeURIComponent(spec.session));
@@ -137,11 +173,24 @@ export function encodeWorkspaceSpec(ws: WorkspaceSpec): string {
 
 // Derive the wire spec from a Tab-shaped input. Returns null for tabs that
 // aren't URL-addressable (dashboard, singletons without a host).
+//
+// Phase 97 Plan 05 (Finding 7): input widened with optional `sessionKind` +
+// `relayRoomId` fields so relay-room tabs (which have NO fleet host — the room
+// lives on the Matrix relay) route through the relay branch BEFORE the
+// host-required check below. See D-15/D-16.
 export function specForTab(input: {
   type: TabType;
   host?: { name?: string; id?: string };
   targetTmuxSession?: string | null;
+  sessionKind?: "harness" | "relay-room";
+  relayRoomId?: string;
 }): TabSpec | null {
+  // Phase 97 Plan 05: relay-room tabs surface via sessionKind + relayRoomId.
+  // MUST come before the host-required check — relay tabs have no host.
+  if (input.sessionKind === "relay-room") {
+    if (!input.relayRoomId) return null;
+    return { protocol: "relay", roomId: input.relayRoomId };
+  }
   if (!input.host?.name) return null;
   const host = input.host.name;
   if (input.type === "terminal") {
