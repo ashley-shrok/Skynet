@@ -28,6 +28,13 @@ import {
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
+// Phase 98 Plan 07: replaces the legacy filename regex (`/^[A-Z][A-Za-z]+\.wav$/`)
+// with a hard whitelist of the 7 supported Amazon Polly generative voice IDs.
+// Plan 98-05's boot-time migration wipes any legacy `.wav` values BEFORE Skynet
+// accepts HTTP traffic, so this validator can be strict from first request
+// without rejecting operators' existing frontmatter. See polly-voice-catalog.ts
+// for the seven-entry catalog + guard.
+import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -48,7 +55,11 @@ const upload = multer({
   },
 });
 
-const IDENTITY_VOICE_RE = /^[A-Z][A-Za-z]+\.wav$/;
+// Phase 98 Plan 07: the legacy voice-shape regex constant (formerly matching
+// `/^[A-Z][A-Za-z]+\.wav$/`) is deleted here — voice-value validation now goes
+// through `isValidPollyVoice` imported above from `polly-voice-catalog.ts`.
+// The whitelist enforces the 7-Polly-voice-IDs contract; any old-shape `Foo.wav`
+// value fails validation.
 
 // Phase 86 code-review fix: match roles-create.ts MAX_TITLE_LENGTH so the two
 // authoring surfaces (POST /roles at create, PUT /identities/:key at override)
@@ -479,11 +490,11 @@ router.put(
     if (
       meta.voice !== undefined &&
       meta.voice !== null &&
-      (typeof meta.voice !== "string" || !IDENTITY_VOICE_RE.test(meta.voice))
+      !isValidPollyVoice(meta.voice)
     ) {
       return res
         .status(400)
-        .json({ error: "voice must match [A-Z][A-Za-z]+\\.wav" });
+        .json({ error: "voice must be one of the supported Polly voice IDs" });
     }
 
     // Route via isLocalHostId (module-load parsed IDENTITIES_LOCAL_HOST_IDS
