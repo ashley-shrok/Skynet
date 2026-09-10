@@ -3,20 +3,15 @@
  *
  * Covers:
  *   - Startup sequence order: ensureRegistryRoomsExist → enumerateUsers
- *     → createObservationLoop.start (Test 1). Auto-backfill is
- *     DELIBERATELY OMITTED — D-12 backfill is MANUAL per instance-deployer
- *     (Ashley 2026-09-08 post-verifier clarification, matching Phase 88
- *     D-02 precedent). Test 1 asserts runRegistryRoomsBackfill is NOT
- *     called at boot.
+ *     → createObservationLoop.start (Test 1). There is no in-process
+ *     backfill path — pre-existing accounts are handled by a manual SSH
+ *     dance if ever needed; D-11 mint hooks cover all new accounts.
  *   - ensureRegistryRoomsExist creds-missing → warn + no loop start (Test 2).
  *   - Zero users with mxid → info log, empty-list scheduler.start (Test 3).
  *
  * Mocking strategy: vi.mock the three collaborators (registry-rooms,
  * observation-loop, database/db/index) at the module level so we control
- * every downstream call. No real DB, no HTTP. The
- * registry-rooms-backfill mock is retained (rather than deleted) so any
- * regression that re-introduces the auto-call is caught by Test 1's
- * "not.toHaveBeenCalled" assertion.
+ * every downstream call. No real DB, no HTTP.
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -46,7 +41,6 @@ vi.mock("../utils/logger.js", () => ({
 // need vi.hoisted for shared mock handles that the factories reference.
 const hoisted = vi.hoisted(() => ({
   mockEnsureRegistryRoomsExist: vi.fn(),
-  mockRunRegistryRoomsBackfill: vi.fn(),
   mockLoopStart: vi.fn(),
   mockLoopStop: vi.fn(),
   mockCreateObservationLoop: vi.fn(),
@@ -59,7 +53,6 @@ hoisted.mockCreateObservationLoop.mockImplementation(() => ({
 
 const {
   mockEnsureRegistryRoomsExist,
-  mockRunRegistryRoomsBackfill,
   mockLoopStart,
   mockLoopStop,
   mockCreateObservationLoop,
@@ -69,10 +62,6 @@ const {
 vi.mock("./registry-rooms.js", () => ({
   ensureRegistryRoomsExist: hoisted.mockEnsureRegistryRoomsExist,
   getAgentsRegistryRoomId: vi.fn(async () => null),
-}));
-
-vi.mock("./registry-rooms-backfill.js", () => ({
-  runRegistryRoomsBackfill: hoisted.mockRunRegistryRoomsBackfill,
 }));
 
 vi.mock("./observation-loop.js", () => ({
@@ -121,7 +110,6 @@ import { startObservationLoopOnBoot } from "./observation-loop-starter.js";
 
 beforeEach(() => {
   mockEnsureRegistryRoomsExist.mockReset();
-  mockRunRegistryRoomsBackfill.mockReset();
   mockLoopStart.mockReset();
   mockLoopStop.mockReset();
   mockCreateObservationLoop.mockClear();
@@ -132,13 +120,6 @@ beforeEach(() => {
     ok: true,
     agentsRoomId: "!agents:s",
     humansRoomId: "!humans:s",
-  });
-  mockRunRegistryRoomsBackfill.mockResolvedValue({
-    ok: true,
-    agentsAttempted: 0,
-    humansAttempted: 2,
-    agentsFailed: 0,
-    humansFailed: 0,
   });
   mockPreparedAll.mockReturnValue([
     { userId: "user-a", userMxid: "@ashley:s" },
@@ -151,14 +132,10 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("startObservationLoopOnBoot", () => {
-  it("Test 1: happy path — ensure → enumerate → loop.start called in order; auto-backfill NOT called (D-12 is manual per instance-deployer)", async () => {
+  it("Test 1: happy path — ensure → enumerate → loop.start called in order", async () => {
     const result = await startObservationLoopOnBoot();
 
     expect(mockEnsureRegistryRoomsExist).toHaveBeenCalledTimes(1);
-    // D-12 backfill is MANUAL — see module docblock. Regression guard: if a
-    // future edit accidentally re-wires runRegistryRoomsBackfill into the
-    // boot sequence, this assertion fires.
-    expect(mockRunRegistryRoomsBackfill).not.toHaveBeenCalled();
     expect(mockCreateObservationLoop).toHaveBeenCalledTimes(1);
     expect(mockLoopStart).toHaveBeenCalledTimes(1);
     expect(mockLoopStart).toHaveBeenCalledWith([
@@ -185,7 +162,6 @@ describe("startObservationLoopOnBoot", () => {
 
     const result = await startObservationLoopOnBoot();
 
-    expect(mockRunRegistryRoomsBackfill).not.toHaveBeenCalled();
     expect(mockLoopStart).not.toHaveBeenCalled();
     expect(result.ok).toBe(false);
     if (!result.ok) {

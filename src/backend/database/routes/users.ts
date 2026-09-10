@@ -42,8 +42,8 @@ import { assertAdminErr } from "../../matrix/matrix-admin-narrow.js";
 import { buildHumanMxid, generateHumanRelayPassword, extractServerName } from "../../matrix/username-to-mxid.js";
 import { getMatrixAdminCreds } from "../../matrix/matrix-admin-creds-store.js";
 // Phase 89-02 Task 3: post-mint humans-registry-room join hook (D-11).
-// Best-effort per D-12 — a failed join does NOT fail the create; backfill
-// is the safety net.
+// Best-effort — a failed join does NOT fail the create; there is no
+// in-process backfill safety net (backfill is fully manual, SSH-based).
 import { joinHumanToHumansRegistry } from "../../relay-sessions/registry-rooms.js";
 
 const authManager = AuthManager.getInstance();
@@ -361,15 +361,13 @@ router.post("/create", userAvatarUpload.single("avatar"), async (req, res) => {
       });
     }
 
-    // Phase 89 D-11 hook. Best-effort per D-12 (REFINED 2026-09-08 post-
-    // verifier — backfill is MANUAL per instance-deployer, NOT automatic).
-    // A failed join does NOT fail the create — the observation loop's
-    // classification for this human will fall back to 'unknown foreign
-    // account' until the instance-deployer runs the manual backfill (see
-    // phase 89-02 SUMMARY § Manual backfill runbook) or a follow-up mint
-    // corrects it. Hook fires AFTER the INSERT transaction commits (so the
-    // row exists even if the join fails) and BEFORE the forceSave (so the
-    // RAM state is fully in place before flushing).
+    // Phase 89 D-11 hook. Best-effort: a failed join does NOT fail the
+    // create — the observation loop's classification for this human will
+    // fall back to 'unknown foreign account'. Backfill of pre-existing
+    // users is FULLY MANUAL (SSH-based dance if ever needed) — there is
+    // no in-process backfill path. Hook fires AFTER the INSERT
+    // transaction commits (so the row exists even if the join fails)
+    // and BEFORE forceSave (so RAM state is fully in place before flush).
     try {
       const joinResult = await joinHumanToHumansRegistry(mintedMxid);
       if (joinResult.ok === false) {

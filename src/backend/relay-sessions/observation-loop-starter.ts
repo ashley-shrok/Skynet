@@ -20,23 +20,16 @@
  *      Plan 02 (registry-rooms), and Task 1 (matrix-admin-client
  *      primitives). Kick off the per-user scheduler via createObservationLoop.
  *
- * ## D-12 backfill is MANUAL per instance-deployer — NOT auto-invoked here
+ * ## Backfill is fully manual (SSH-based dance if ever needed)
  *
- * Ashley 2026-09-08 (post-verifier clarification): "there's not supposed to
- * be automatic backfill anyways. Like I said, that would be a manual step
- * for whoever deploys this stuff over here on this instance and for Stacy
- * on her instance." Matches the Phase 88 D-02 precedent (existing users
- * hand-migrated by the maintainer of each Skynet instance).
- *
- * Consequence: this starter DOES NOT call `runRegistryRoomsBackfill`. The
- * function is still exported from `registry-rooms-backfill.ts` as a
- * manual-invocation utility — the instance-deployer runs it once after
- * deploy (see the phase's SUMMARY.md § Manual backfill runbook for how).
- * Between deploy and manual-backfill-run, pre-existing agents/humans are
- * NOT in the registry rooms and the classifier's D-09 fallthrough
- * conservatively materializes their two-party DMs — same trust model as
- * Phase 88's "existing users get hand-migrated" pattern. The D-11 mint
- * hooks (Phase 89-02) cover ALL new accounts from now on automatically.
+ * Per Ashley 2026-09-10: there is no in-process backfill path. If pre-
+ * existing users/agents ever need to be added to the registry rooms, the
+ * instance-deployer does it manually via SSH — no HTTP endpoint, no
+ * importable utility. The D-11 mint hooks (registry-rooms.ts) cover ALL
+ * new accounts from create onward. Between deploy and any manual
+ * backfill, pre-existing accounts are NOT in the registry rooms and the
+ * classifier's D-09 fallthrough conservatively materializes their
+ * two-party DMs.
  *
  * ## Best-effort per D-07
  *
@@ -60,12 +53,6 @@ import {
   ensureRegistryRoomsExist,
   getAgentsRegistryRoomId,
 } from "./registry-rooms.js";
-// D-12 backfill is MANUAL per instance-deployer (Ashley 2026-09-08 post-verifier
-// clarification, matching Phase 88 D-02 precedent). The runRegistryRoomsBackfill
-// function is kept as a manual-invocation utility exported from
-// ./registry-rooms-backfill.js — the deployer runs it once after deploy per the
-// phase's SUMMARY.md § Manual backfill runbook. It is intentionally NOT imported
-// here to prevent accidental auto-invocation.
 import {
   createObservationLoop,
   type ObservationLoopScheduler,
@@ -126,8 +113,9 @@ export async function startObservationLoopOnBoot(): Promise<StartObservationLoop
     return { ok: false, reason: ensured.reason };
   }
 
-  // (Auto-backfill DELIBERATELY OMITTED — D-12 backfill is manual per
-  // instance-deployer; see module docblock.)
+  // (No in-process backfill step — see module docblock; if pre-existing
+  // accounts ever need adding, the instance-deployer does it manually via
+  // SSH.)
 
   // Step 2: enumerate users with a populated mxid. Phase 88 D-06 guarantees
   // every user has mxid populated at create time, but defensively filter
