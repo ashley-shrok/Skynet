@@ -630,4 +630,39 @@ describe("GET /roles?hostId=<n>", () => {
     // Sorted alphabetically
     expect(body.map((r) => r.name)).toEqual(["another-good", "good-role"]);
   });
+
+  it("Test 11: batched cat emits a newline after every cat so predecessor files without trailing newlines don't swallow the next marker", async () => {
+    // Regression guard: if a role file on disk ends without a newline, the
+    // NEXT role's ===ROLE:X=== echo concatenates to that byte, and the split
+    // regex in step 7 (which requires marker at start-of-line via /m) drops
+    // the following role's block. The catCmd shape is the fix — each cat is
+    // followed by an explicit `echo ""` that guarantees a newline break
+    // before the next marker.
+    let batchedCatCmd = "";
+    (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
+      if (cmd.includes("ls ")) return "role-a\nrole-b\nrole-c";
+      batchedCatCmd = cmd;
+      return [
+        "===ROLE:role-a===",
+        "## Role",
+        "A.",
+        "===ROLE:role-b===",
+        "## Role",
+        "B.",
+        "===ROLE:role-c===",
+        "## Role",
+        "C.",
+      ].join("\n");
+    });
+    await httpRequest(server, { method: "GET", path: "/roles?hostId=7" });
+
+    // Every role's cat MUST be followed by `echo ""` (or equivalent newline emit)
+    // before the next role's marker echo. 3 roles → 3 `echo ""` occurrences.
+    const echoBlankMatches = batchedCatCmd.match(/echo\s+["']{2}/g) ?? [];
+    expect(echoBlankMatches.length).toBeGreaterThanOrEqual(3);
+
+    // Structural check: no `&&` chain between echo-marker and cat that would
+    // let a cat failure suppress the trailing newline echo.
+    expect(batchedCatCmd).not.toMatch(/cat\s+"\$HOME[^"]*"\s+2>\/dev\/null\s+\|\|\s+true/);
+  });
 });

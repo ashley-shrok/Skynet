@@ -180,10 +180,18 @@ router.get(
       // 6. Batched cat with ===ROLE:<n>=== delimiters (single SSH round-trip).
       //    Role names are pre-validated by ROLE_NAME_PATTERN so shell
       //    interpolation is safe (kebab-case has no shell-special chars).
+      //
+      //    The trailing `echo ""` after each cat is load-bearing: role files
+      //    on disk are not guaranteed to end with a newline, and without this
+      //    padding the NEXT role's `===ROLE:X===` marker concatenates to the
+      //    previous file's last byte. The split regex in step 7 requires the
+      //    marker at start-of-line (`/m` flag anchors `^` per-line), so a
+      //    missing-newline predecessor silently drops the next role's block
+      //    and returns {name, description:"", <no cosmetics>} for it.
       const catCmd = validRoles
         .map(
           (r) =>
-            `echo "===ROLE:${r}===" && cat "$HOME/.claude/roles/${r}/${r}.md" 2>/dev/null || true`,
+            `echo "===ROLE:${r}==="; cat "$HOME/.claude/roles/${r}/${r}.md" 2>/dev/null; echo ""`,
         )
         .join(" ; ");
 
