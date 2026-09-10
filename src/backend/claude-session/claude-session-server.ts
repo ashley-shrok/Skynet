@@ -7451,18 +7451,27 @@ wss.on("connection", async (ws: WebSocket, req) => {
           // Batch-first dispatch.
           if (sweepScriptPresent && !sweepSchemaMismatch) {
             const result = await computeContextPctBatch(connSnapshot, tmuxSessionSnapshot);
-            if (result.ok) {
+            if (result.ok === true) {
               pct = result.pct;
             } else {
+              // Extract the failure narrow explicitly — tsconfig.node.json's
+              // non-strict mode doesn't always discriminate `ok: true | false`
+              // literals in an else-branch (mirrors Tanya's 92-04 fix pattern
+              // at b86f7066). Assigning to a typed local before use makes the
+              // narrow explicit.
+              const failure: {
+                ok: false;
+                reason: "null-exec" | "schema-mismatch" | "identity-missing";
+              } = result;
               sshLogger.warn("PV context-pct batch fell back to legacy", {
                 operation: "pv_context_pct_batch_fallback",
-                reason: result.reason,
+                reason: failure.reason,
                 identity: tmuxSessionSnapshot,
               });
               // Null-exec: force re-probe next tick (transient recovery).
-              if (result.reason === "null-exec") sweepScriptPresent = null;
+              if (failure.reason === "null-exec") sweepScriptPresent = null;
               // Schema-mismatch: latch for connection lifetime (no more batch attempts).
-              if (result.reason === "schema-mismatch") sweepSchemaMismatch = true;
+              if (failure.reason === "schema-mismatch") sweepSchemaMismatch = true;
               // This-tick fallback to legacy path.
               pct = await computeContextPctLegacy(connSnapshot, sessionFileSnapshot);
             }
