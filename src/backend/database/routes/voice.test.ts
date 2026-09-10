@@ -67,10 +67,9 @@ vi.mock("@aws-sdk/client-transcribe-streaming", () => {
   return { TranscribeStreamingClient, StartStreamTranscriptionCommand };
 });
 
-// audio-transcode mocks — stub webmToOggOpus / webmToFlac so tests exercise
-// the fallback wiring in handleTranscribe without spawning real ffmpeg.
+// audio-transcode mock — stub webmToFlac so tests exercise the transcode
+// plumbing in handleTranscribe without spawning real ffmpeg.
 vi.mock("../../voice/audio-transcode.js", () => ({
-  webmToOggOpus: vi.fn(async (buf: Buffer) => buf),
   webmToFlac: vi.fn(async (buf: Buffer) => buf),
 }));
 
@@ -114,7 +113,7 @@ import {
   SPEAK_TEXT_MAX,
 } from "./voice.js";
 import { fetchSkillCatalog } from "../../voice/skill-catalog.js";
-import { webmToOggOpus, webmToFlac } from "../../voice/audio-transcode.js";
+import { webmToFlac } from "../../voice/audio-transcode.js";
 import fs from "node:fs";
 
 // -----------------------------------------------------------------------------
@@ -269,9 +268,7 @@ beforeEach(() => {
   transcribeSendMock.mockReset();
   synthesizeSpeechCmdCtor.mockClear();
   startStreamCmdCtor.mockClear();
-  vi.mocked(webmToOggOpus).mockReset();
   vi.mocked(webmToFlac).mockReset();
-  vi.mocked(webmToOggOpus).mockImplementation(async (buf: Buffer) => buf);
   vi.mocked(webmToFlac).mockImplementation(async (buf: Buffer) => buf);
   vi.mocked(fetchSkillCatalog).mockReset();
 });
@@ -285,7 +282,7 @@ afterEach(() => {
 // =============================================================================
 
 describe("handleTranscribe (AWS Transcribe streaming)", () => {
-  it("returns 200 with {text} from Transcribe when webm arrives (ogg-opus happy path)", async () => {
+  it("returns 200 with {text} from Transcribe when webm arrives (flac default path)", async () => {
     const audioBytes = Buffer.from("fake webm bytes");
     const req = makeReq({ buffer: audioBytes, mimetype: "audio/webm", size: audioBytes.length });
     const res = makeRes();
@@ -303,12 +300,10 @@ describe("handleTranscribe (AWS Transcribe streaming)", () => {
 
     expect(res._status).toBe(200);
     expect((res._body as { text: string }).text).toBe("hello world");
-    // webmToOggOpus happy path was taken:
-    expect(vi.mocked(webmToOggOpus)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(webmToFlac)).not.toHaveBeenCalled();
-    // Transcribe MediaEncoding is "ogg-opus":
+    expect(vi.mocked(webmToFlac)).toHaveBeenCalledTimes(1);
     const cmdArgs = startStreamCmdCtor.mock.calls[0]?.[0];
-    expect(cmdArgs.MediaEncoding).toBe("ogg-opus");
+    expect(cmdArgs.MediaEncoding).toBe("flac");
+    expect(cmdArgs.MediaSampleRateHertz).toBe(16000);
   });
 
   it("returns 400 when req.file is missing", async () => {
@@ -356,46 +351,17 @@ describe("handleTranscribe (AWS Transcribe streaming)", () => {
     expect(Buffer.isBuffer(writtenData)).toBe(true);
     expect(writtenData.equals(audioBytes)).toBe(true);
 
-    // Call-ordering: mkdir was invoked BEFORE webmToOggOpus (bank-write kicks off first).
+    // Call-ordering: mkdir was invoked BEFORE webmToFlac (bank-write kicks off first).
     const mkdirOrder = vi.mocked(fs.promises.mkdir).mock.invocationCallOrder[0];
-    const transcodeOrder = vi.mocked(webmToOggOpus).mock.invocationCallOrder[0];
+    const transcodeOrder = vi.mocked(webmToFlac).mock.invocationCallOrder[0];
     expect(mkdirOrder).toBeLessThan(transcodeOrder);
   });
 
-  it("falls back to webmToFlac when webmToOggOpus throws, and Transcribe is called with 'flac' encoding", async () => {
+  it("returns 502 when webmToFlac throws", async () => {
     const audioBytes = Buffer.from("raw webm");
     const req = makeReq({ buffer: audioBytes, mimetype: "audio/webm", size: audioBytes.length });
     const res = makeRes();
 
-    vi.mocked(webmToOggOpus).mockRejectedValueOnce(new Error("simulated remux failure"));
-    vi.mocked(webmToFlac).mockResolvedValueOnce(Buffer.from("flac-bytes"));
-    transcribeSendMock.mockResolvedValueOnce({
-      TranscriptResultStream: fakeTranscriptStream([
-        { IsPartial: false, transcript: "fallback transcript" },
-      ]),
-    });
-
-    await handleTranscribe(
-      req as unknown as import("express").Request,
-      res as unknown as import("express").Response,
-    );
-
-    expect(vi.mocked(webmToOggOpus)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(webmToFlac)).toHaveBeenCalledTimes(1);
-    // The FLAC buffer is what got transcoded — verify it flows into the same request cycle
-    const cmdArgs = startStreamCmdCtor.mock.calls[0]?.[0];
-    expect(cmdArgs.MediaEncoding).toBe("flac");
-    expect(cmdArgs.MediaSampleRateHertz).toBe(16000);
-    expect(res._status).toBe(200);
-    expect((res._body as { text: string }).text).toBe("fallback transcript");
-  });
-
-  it("returns 502 when BOTH webmToOggOpus AND webmToFlac throw", async () => {
-    const audioBytes = Buffer.from("raw webm");
-    const req = makeReq({ buffer: audioBytes, mimetype: "audio/webm", size: audioBytes.length });
-    const res = makeRes();
-
-    vi.mocked(webmToOggOpus).mockRejectedValueOnce(new Error("ogg remux failed"));
     vi.mocked(webmToFlac).mockRejectedValueOnce(new Error("flac transcode failed"));
 
     await handleTranscribe(

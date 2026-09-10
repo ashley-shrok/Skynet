@@ -15,7 +15,7 @@ import { fetchSkillCatalog, DEFAULT_SKILL_CATALOG_TIMEOUT_MS } from "../../voice
 // kernels from Plan 02.
 import { synthesizeToPcm } from "../../voice/polly-adapter.js";
 import { transcribeBuffer } from "../../voice/transcribe-adapter.js";
-import { webmToOggOpus, webmToFlac } from "../../voice/audio-transcode.js";
+import { webmToFlac } from "../../voice/audio-transcode.js";
 import { splitIntoSentences, packChunks } from "../../voice/chunk-and-stitch.js";
 import { buildRiffHeader } from "../../voice/riff-header-builder.js";
 import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
@@ -63,13 +63,18 @@ function extFromMimetype(mimetype: string): string {
 /**
  * Bridge the raw multipart audio bytes into a Transcribe-accepted format.
  *
- * Happy path (WebM/Opus from MediaRecorder): remux to Ogg/Opus via
- * `webmToOggOpus` (fast — `-c:a copy`, few ms). On failure (e.g. Chrome's
- * multi-channel edge case), fall back to `webmToFlac` (full re-encode to
- * 16 kHz mono FLAC, ~50-200 ms) and switch MediaEncoding to "flac". Passes
- * through Ogg/FLAC uploads unchanged.
+ * Default path (WebM/Opus from MediaRecorder): full-transcode to 16 kHz mono
+ * FLAC via `webmToFlac`. Adds ~50-200 ms vs the `-c:a copy` remux but is
+ * bulletproof against Chrome MediaRecorder's intermittent multi-channel
+ * Opus output, which produces bytes that ffprobe reads fine but Amazon
+ * Transcribe rejects with `BadRequestException: The data is corrupted`
+ * (observed in prod 2026-09-10 on ~50% of clips). The extra ~150 ms is
+ * negligible next to Transcribe streaming's own ~audio-duration latency
+ * floor.
  *
- * @throws when BOTH webmToOggOpus AND webmToFlac fail (caller returns 502).
+ * Passes through Ogg/FLAC uploads unchanged.
+ *
+ * @throws when webmToFlac fails (caller returns 502).
  */
 async function transcodeForTranscribe(
   buf: Buffer,
@@ -81,20 +86,10 @@ async function transcodeForTranscribe(
   if (ext === "ogg") {
     return { buffer: buf, mediaEncoding: "ogg-opus", sampleRateHz: 48000 };
   }
-  // Default assumption: browser MediaRecorder WebM/Opus. Try fast remux first.
-  try {
-    const oggBuf = await webmToOggOpus(buf);
-    return { buffer: oggBuf, mediaEncoding: "ogg-opus", sampleRateHz: 48000 };
-  } catch (err: unknown) {
-    databaseLogger.warn(
-      `[voice-server] transcode-remux-failed-falling-back-flac error=${err instanceof Error ? err.message : String(err)}`,
-      { operation: "voice_transcode_remux_failed_fallback_flac" },
-    );
-    // Fallback: full-transcode to 16 kHz mono FLAC. If THIS also throws, let
-    // it propagate up — handleTranscribe's outer catch will return 502.
-    const flacBuf = await webmToFlac(buf);
-    return { buffer: flacBuf, mediaEncoding: "flac", sampleRateHz: 16000 };
-  }
+  // Default assumption: browser MediaRecorder WebM/Opus. Full-transcode to
+  // FLAC 16 kHz mono — see docblock for why we don't use the fast remux.
+  const flacBuf = await webmToFlac(buf);
+  return { buffer: flacBuf, mediaEncoding: "flac", sampleRateHz: 16000 };
 }
 
 // --- Core handler (exported for direct testing without Express harness) ---
