@@ -123,4 +123,55 @@ describe("ComposeBox mode-hide (Phase 93 Slice 3 Task 2)", () => {
     // Class lists match (Row 1 outer wrapper identical between default + harness).
     expect(defaultRow1!.className).toBe(harnessRow1!.className);
   });
+
+  // Phase 97 Finding 3 reflow — three assertions covering the ghost gutter
+  // removal + the invisible Row 1 spacer skeleton + the harness regression
+  // floor.
+
+  it("Test 6 (Phase 97 F-3 Step 1 — relay has NO pl-11 gutter): mode=relay + showPaperclip=true → textarea does NOT carry the pl-11 class", () => {
+    const { container } = render(
+      <ComposeBox {...baseProps({ mode: "relay", showPaperclip: true })} />,
+    );
+    const textarea = container.querySelector("textarea");
+    expect(textarea).not.toBeNull();
+    // Ghost gutter is gone — the 44px left padding reserved for a Paperclip
+    // that no longer renders in relay mode.
+    expect(textarea!.classList.contains("pl-11")).toBe(false);
+  });
+
+  it("Test 7 (Phase 97 F-3 Step 2 — relay has invisible Row 1 spacer): mode=relay → data-testid=\"compose-row-1-relay-spacer\" element exists (aria-hidden)", () => {
+    const { container } = render(
+      <ComposeBox {...baseProps({ mode: "relay" })} />,
+    );
+    const spacer = container.querySelector(
+      '[data-testid="compose-row-1-relay-spacer"]',
+    );
+    expect(spacer).not.toBeNull();
+    // Invisible-to-a11y contract.
+    expect(spacer!.getAttribute("aria-hidden")).toBe("true");
+    // Byte-identical vertical envelope to Row 1's outer wrapper: mb-[3px]
+    // + min-h-8 on desktop (isTouchDevice default false in the test env
+    // because useIsTouchDevice is unmocked and jsdom is non-coarse-pointer).
+    expect(spacer!.className).toContain("mb-[3px]");
+    // Either min-h-8 (desktop) or min-h-[44px] (touch) — the class is a
+    // superset assertion.
+    expect(
+      spacer!.className.includes("min-h-8") ||
+        spacer!.className.includes("min-h-[44px]"),
+    ).toBe(true);
+  });
+
+  it("Test 8 (Phase 97 F-3 harness regression floor): mode=harness + showPaperclip=true → textarea HAS pl-11 AND spacer does NOT exist", () => {
+    const { container } = render(
+      <ComposeBox {...baseProps({ mode: "harness", showPaperclip: true })} />,
+    );
+    const textarea = container.querySelector("textarea");
+    expect(textarea).not.toBeNull();
+    // Harness path unchanged — pl-11 gutter remains for the visible Paperclip.
+    expect(textarea!.classList.contains("pl-11")).toBe(true);
+    // No spacer in the harness case — Row 1 itself is present.
+    expect(
+      container.querySelector('[data-testid="compose-row-1-relay-spacer"]'),
+    ).toBeNull();
+  });
 });

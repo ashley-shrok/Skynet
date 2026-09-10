@@ -2672,6 +2672,29 @@ export function ComposeBox({
           ))}
         </div>
       )}
+      {/* Phase 97 Finding 3 Step 2: relay-mode invisible Row 1 skeleton.
+          When Row 1 is hidden monolithically at L2334 (Phase 93 D-11),
+          the vertical envelope above Row 2 disappears — QueuePlusTab's
+          absolute `-top-N` offset (see L3167-3210) then clips against
+          the ComposeBox outer container edge because there's no
+          headroom above the primary wrapper (L2695). This peer sibling
+          reserves byte-identical vertical geometry to the Row 1 outer
+          envelope (same `mb-[3px]`, same `min-h-[44px]` / `min-h-8`
+          conditional on isTouchDevice) so the pebble rides with the
+          same headroom it has in harness mode. `aria-hidden="true"`
+          keeps it out of the a11y tree — it's pure visual scaffolding.
+          Option B from RESEARCH § Finding 3 (preserves geometry
+          byte-for-byte; cleaner than a `pt-N` on the wrapper). */}
+      {mode === "relay" && (
+        <div
+          data-testid="compose-row-1-relay-spacer"
+          aria-hidden="true"
+          className={cn(
+            "mb-[3px]",
+            isTouchDevice ? "min-h-[44px]" : "min-h-8",
+          )}
+        />
+      )}
       {/* Row 2 — compose bar: textarea (flex-1, auto-grows 1→6 rows) +
           Send button. items-end so Send pins to the textarea bottom edge
           as the textarea grows. VISUAL-08 HARD LOCK on Send's amber
@@ -2825,7 +2848,13 @@ export function ComposeBox({
             // Textarea so text doesn't underlap the icon at absolute
             // left-1 bottom-0.5). Quick 260731-ulo: bumped 40px→44px
             // (pl-10→pl-11) per Ashley for a few more px of clearance.
-            showPaperclip && "pl-11",
+            // Phase 97 Finding 3 Step 1: extend the gate with
+            // `mode !== "relay"` — the Paperclip button itself is hidden
+            // in relay mode at L2908 alongside Row 1 (D-11), so the
+            // reserved 44px left gutter would otherwise persist as a
+            // ghost gutter. Same idiom as L2334 (Row 1 gate) and L2908
+            // (Paperclip gate).
+            showPaperclip && mode !== "relay" && "pl-11",
             "placeholder:text-[var(--color-pv-fg-dim)]",
             "shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),_0_1px_0_rgba(220,225,245,0.04)]",
             "transition-[box-shadow,border-color] duration-200",
