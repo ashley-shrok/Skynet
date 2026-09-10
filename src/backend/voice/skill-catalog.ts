@@ -53,6 +53,7 @@ import { execCommand } from "../ssh/tmux-helper.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
 import { sshLogger } from "../utils/logger.js";
 import type { Client as SSHClient } from "ssh2";
+import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
 
 /**
  * Generous 10s deadline on the SSH round-trip (connect + exec bounded by a
@@ -122,69 +123,103 @@ export async function fetchSkillCatalog(
     { operation: "skill_catalog_fetch_start", hostId },
   );
 
-  // Declare conn OUTSIDE the try so the finally block can null-check
-  // before calling `.end()`. Same shape as sessions.ts:72-140 uses
-  // (though there `conn` is inside a per-host closure — same lifecycle).
-  let conn: SSHClient | null = null;
-
+  // Step 1: resolve host + credentials OUTSIDE the semaphore wrap — this is
+  // a DB call (no SSH channel used). Short-circuit BEFORE acquiring the slot
+  // if the host doesn't exist for this user. This intentionally does NOT
+  // distinguish "host id typo" from "user does not own this host" — both
+  // yield the same silent passthrough at the STT route. Invariant #1 says
+  // this function NEVER throws — any resolver error is swallowed here.
+  let resolved: Awaited<ReturnType<typeof resolveHostById>>;
   try {
-    // Step 1: resolve host + credentials INSIDE the fail-open try so a
-    // DB fault or credential-manager throw is swallowed the same as any
-    // downstream SSH failure. Invariant #1 says this function NEVER
-    // throws — that has to hold even if the resolver blows up.
-    // If the host doesn't exist for this user (or credential resolution
-    // silently returned null), short-circuit BEFORE any SSH work. This
-    // intentionally does NOT distinguish "host id typo" from "user does
-    // not own this host" — both yield the same silent passthrough at
-    // the STT route.
-    const resolved = await resolveHostById(hostId, userId);
-    if (!resolved) {
-      sshLogger.warn("[skill-catalog] no-host hostId=" + hostId, {
-        operation: "skill_catalog_no_host",
+    resolved = await resolveHostById(hostId, userId);
+  } catch (err) {
+    // Treat resolver throws the same as null-return (fail-open, invariant #1).
+    sshLogger.warn(
+      "[skill-catalog] ssh-error hostId=" +
+        hostId +
+        " error=" +
+        (err instanceof Error ? err.message : String(err)),
+      {
+        operation: "skill_catalog_ssh_error",
         hostId,
-        userId,
-      });
-      return new Set<string>();
-    }
-
-    // Step 3a: open a one-shot SSH connection. connectOneShot enforces
-    // BOTH its internal connect timeout AND readyTimeout as `timeoutMs`;
-    // the outer Promise.race in step 3b is a defense-in-depth cap in case
-    // the exec channel itself hangs after the connect resolved.
-    conn = await connectOneShot(
-      resolved as unknown as Parameters<typeof connectOneShot>[0],
-      timeoutMs,
+        error: err instanceof Error ? err.message : String(err),
+      },
     );
+    return new Set<string>();
+  }
+  if (!resolved) {
+    sshLogger.warn("[skill-catalog] no-host hostId=" + hostId, {
+      operation: "skill_catalog_no_host",
+      hostId,
+      userId,
+    });
+    return new Set<string>();
+  }
 
-    // Step 3b: run `ls` with an outer deadline that bounds connect+exec
-    // together at `timeoutMs`. This mirrors sessions.ts:77-88 verbatim.
-    // The `throw new Error(...)` inside the setTimeout callback is
-    // swallowed by the outer try/catch — it never surfaces to the caller.
-    const output = await Promise.race([
-      execCommand(conn, LS_SKILLS_COMMAND),
-      new Promise<string>((_, reject) =>
-        setTimeout(
-          () => reject(new Error("skill-catalog fetch timeout")),
+  // Steps 3–5: SSH motion under per-host semaphore (Phase 101 D-03: full
+  // motion). resolveHostById (DB call above) stays OUTSIDE the wrap; the
+  // slot is held from connectOneShot through conn.end() so no SSH channel
+  // escapes the cap. FAIL-OPEN: any error inside the run() callback is
+  // swallowed into an empty Set by the outer catch — invariant #1 preserved.
+  try {
+    return await getHostSemaphore(hostId).run(async () => {
+      // Declare conn inside the wrap so the finally is always co-located.
+      // Same lifecycle shape as sessions.ts:72-140.
+      let conn: SSHClient | null = null;
+      try {
+        // Step 3a: open a one-shot SSH connection. connectOneShot enforces
+        // BOTH its internal connect timeout AND readyTimeout as `timeoutMs`;
+        // the outer Promise.race in step 3b is a defense-in-depth cap in case
+        // the exec channel itself hangs after the connect resolved.
+        conn = await connectOneShot(
+          resolved as unknown as Parameters<typeof connectOneShot>[0],
           timeoutMs,
-        ),
-      ),
-    ]);
+        );
 
-    // Step 4: parse. `output` is trimmed by execCommand already, but each
-    // line still needs its own trim (`ls -1` shouldn't emit padding but
-    // we're defensive). Filter to kebab-case per KEBAB_CASE_REGEX.
-    const names = output
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-      .filter((line) => KEBAB_CASE_REGEX.test(line));
+        // Step 3b: run `ls` with an outer deadline that bounds connect+exec
+        // together at `timeoutMs`. This mirrors sessions.ts:77-88 verbatim.
+        // The `throw new Error(...)` inside the setTimeout callback is
+        // swallowed by the outer try/catch — it never surfaces to the caller.
+        const output = await Promise.race([
+          execCommand(conn, LS_SKILLS_COMMAND),
+          new Promise<string>((_, reject) =>
+            setTimeout(
+              () => reject(new Error("skill-catalog fetch timeout")),
+              timeoutMs,
+            ),
+          ),
+        ]);
 
-    const result = new Set<string>(names);
-    sshLogger.info(
-      "[skill-catalog] fetch-ok hostId=" + hostId + " count=" + result.size,
-      { operation: "skill_catalog_fetch_ok", hostId, count: result.size },
-    );
-    return result;
+        // Step 4: parse. `output` is trimmed by execCommand already, but each
+        // line still needs its own trim (`ls -1` shouldn't emit padding but
+        // we're defensive). Filter to kebab-case per KEBAB_CASE_REGEX.
+        const names = output
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0)
+          .filter((line) => KEBAB_CASE_REGEX.test(line));
+
+        const result = new Set<string>(names);
+        sshLogger.info(
+          "[skill-catalog] fetch-ok hostId=" + hostId + " count=" + result.size,
+          { operation: "skill_catalog_fetch_ok", hostId, count: result.size },
+        );
+        return result;
+      } finally {
+        // Step 5: ALWAYS close the connection, even when exec threw. Wrap in
+        // try/catch to swallow conn.end() errors (a broken pipe on a
+        // never-fully-opened connection can throw here). Mirror
+        // sessions.ts:134-140 shape. Slot is released by the semaphore's own
+        // try/finally AFTER this finally block completes — conn is gone first.
+        if (conn) {
+          try {
+            conn.end();
+          } catch {
+            /* ignore — cleanup best-effort */
+          }
+        }
+      }
+    });
   } catch (err) {
     // FAIL-OPEN catch: swallow every SSH-integration failure into an empty
     // Set. This includes: connectOneShot reject (connect refused, auth fail,
@@ -203,17 +238,5 @@ export async function fetchSkillCatalog(
       },
     );
     return new Set<string>();
-  } finally {
-    // Step 5: ALWAYS close the connection, even when exec threw. Wrap in
-    // try/catch to swallow conn.end() errors (a broken pipe on a
-    // never-fully-opened connection can throw here). Mirror
-    // sessions.ts:134-140 shape.
-    if (conn) {
-      try {
-        conn.end();
-      } catch {
-        /* ignore — cleanup best-effort */
-      }
-    }
   }
 }
