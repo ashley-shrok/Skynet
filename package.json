@@ -41,6 +41,8 @@
     "build:mac-dev": "npm run build && npm run electron:rebuild && npm run electron:patch-builder && electron-builder --mac dir --publish=never"
   },
   "dependencies": {
+    "@aws-sdk/client-polly": "^3.1129.0",
+    "@aws-sdk/client-transcribe-streaming": "^3.1129.0",
     "@fontsource-variable/inter": "^5.2.8",
     "@tailwindcss/typography": "^0.5.20",
     "axios": "^1.15.2",
