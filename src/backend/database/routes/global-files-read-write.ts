@@ -52,6 +52,7 @@ import {
   loadGlobalFilesConfig,
   getFilesForHost,
 } from "./global-files-config-loader.js";
+import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -176,6 +177,7 @@ router.post(
     // -----------------------------------------------------------------------
     let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
     try {
+      await getHostSemaphore(hostId).run(async () => {
       try {
         conn = await connectOneShot(
           host as unknown as Parameters<typeof connectOneShot>[0],
@@ -244,6 +246,7 @@ router.post(
         mtime: Number.isFinite(mtime) ? mtime : 0,
         size: Number.isFinite(size) ? size : 0,
       });
+      }); // end getHostSemaphore(hostId).run(...) — read handler
     } catch (err) {
       sshLogger.error("global-files-read: unexpected error", {
         operation: "global_files_read_error",
@@ -367,6 +370,7 @@ router.put(
     // -----------------------------------------------------------------------
     let conn: Awaited<ReturnType<typeof connectOneShot>> | null = null;
     try {
+      await getHostSemaphore(hostId).run(async () => {
       try {
         conn = await connectOneShot(
           host as unknown as Parameters<typeof connectOneShot>[0],
@@ -479,6 +483,7 @@ router.put(
       const newMtime = parseInt(newMtimeStr, 10) || 0;
 
       res.json({ mtime: newMtime });
+      }); // end getHostSemaphore(hostId).run(...)
     } catch (err) {
       sshLogger.error("global-files-write: unexpected error", {
         operation: "global_files_write_error",
