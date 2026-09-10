@@ -1,4 +1,4 @@
-# Phase 97: More versatile STT/TTS support — swap local rig for Amazon Polly + Amazon Transcribe — Context
+# Phase 98: More versatile STT/TTS support — swap local rig for Amazon Polly + Amazon Transcribe — Context
 
 **Gathered:** 2026-09-10
 **Status:** Ready for planning
@@ -173,7 +173,7 @@ Ships as part of this phase. Location: TBD by planner (`docs/deploy/aws-voice-se
 <specifics>
 ## Specific Ideas
 
-- **Adapt existing Phase 92 / Phase 95 patterns.** Both were "swap a self-managed local mechanism for a cleaner abstraction with a distributor rollout"; Phase 97 has similar shape (swap a self-hosted rig for cloud, with an in-repo deploy doc). Reuse test structures where they fit.
+- **Adapt existing Phase 92 / Phase 95 patterns.** Both were "swap a self-managed local mechanism for a cleaner abstraction with a distributor rollout"; Phase 98 has similar shape (swap a self-hosted rig for cloud, with an in-repo deploy doc). Reuse test structures where they fit.
 - **Cost budget for build phase: ~$20-30 max.** Iris quoted "pocket change" for exploratory ($1-5); build phase testing chunk-and-stitch on long text + integration tests hitting real AWS could plausibly hit $20-30. Flag if it drifts higher; nothing structural stops runaway if tests loop.
 - **Test discipline (fleet rule):** scoped tests during dev (`npx vitest run --related <changed-files>`); full-suite ONLY as the first step of ship motion after Ashley's greenlight. See role file § Test discipline. AWS-touching tests should be tagged so they can be skipped in offline / no-cred environments.
 - **Deploy is orchestrator-owned.** Phase's "done" state is: code + tests green + deploy-doc written + UAT checkpoint prepared. Push + build + `--force-recreate` = orchestrator, not executor.

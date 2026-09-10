@@ -2210,3 +2210,13 @@ Plans:
 - [x] 97-04-meter-drawer-chrome-PLAN.md — F-5 Variant A drawer wrap around meter appendage (Wave 2)
 - [x] 97-05-url-persistence-PLAN.md — F-7 relay: URL protocol grammar + AppShell URL-sync + tab-restore (Wave 1)
 - [x] 97-06-drag-source-tabid-threading-PLAN.md — F-2 fix (thread tabId through MultiBadgeAnchor + AgentBadgeWithMeter + PrettyView) — CONDITIONAL on Plan 01 Verdict A (Wave 3)
+
+### Phase 98: More versatile STT/TTS support — swap local rig for Amazon Polly + Amazon Transcribe
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** none (independent)
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 98 to break down)
