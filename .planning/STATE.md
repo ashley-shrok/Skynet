@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-09-10T15:17:26.847Z"
-last_activity: 2026-09-10 -- Phase 103 planning complete
+last_updated: "2026-09-10T15:20:40.457Z"
+last_activity: 2026-09-10 -- Phase 103 execution started
 progress:
   total_phases: 101
   completed_phases: 85
@@ -20,13 +20,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-17)
 
 **Core value:** Ashley never loses access to her fleet — every change preserves reliable browser SSH+RDP, features are added around that hard constraint
-**Current focus:** Phase 98 — more-versatile-stt-tts-support-swap-local-rig-for-amazon-pol
+**Current focus:** Phase 103 — passthrough-urls-serve-url-scheme-phase-2-of-2
 
 ## Current Position
 
-Phase: 101 (route-all-outbound-ssh-work-through-a-per-host-semaphore-re) — CODE-COMPLETE (all 6 plans executed, 16 atomic commits, held for push greenlight)
+Phase: 103 (passthrough-urls-serve-url-scheme-phase-2-of-2) — EXECUTING
+Plan: 1 of 11
 
-Last activity: 2026-09-10 -- Phase 103 planning complete
+Last activity: 2026-09-10 -- Phase 103 execution started
 Last activity (prior): 2026-09-10 — Completed Phase 98 more-versatile-stt-tts-support (Amazon Polly + Amazon Transcribe swap for Chatterbox). All 5 waves shipped: Wave 1 (98-01 ffmpeg+SDK install, 98-02 kernels, 98-03 frontend catalog, 98-09 deploy doc), Wave 2 (98-04 AWS adapters, 98-05 migration one-shot + inline Dirent type fix), Wave 3 (98-06 voice.ts rewrite, 98-07 validator flip + inline roles-create followon fix), Wave 4 (98-08 tg-bridge rewire to Skynet /voice/transcribe), Wave 5 (98-10 Chatterbox kill, media-endpoints.ts deleted). Unbiased code review clean (1 HIGH + 3 MED + 2 LOW applied; 3 LOW deferred). Both backend + frontend tsc exit 0 across the full delta. Every plan has SUMMARY.md committed. All Chatterbox integration paths removed cleanly (no dual-provider seam). Ambient IMDS creds via Iris's `SkynetPollyTranscribeAccess` inline policy on `termix-ssm-role`. Voice-migration one-shot wipes existing identity voice values on boot (users re-pick from 7-voice Polly generative catalog). tg-bridge routes through Skynet `/voice/transcribe` (provider-agnostic). Held at push boundary per greenlight-at-push rule; ship in flight.
 Last activity: 2026-09-10
 Last activity (prior): 2026-09-10 — Completed quick task 260910-67z: admin cross-user WRITE via `SimpleDBOps.updateNonSensitive` + `insertNonSensitive` (tina). Closes the write-half of `skynet-admin-cross-user-host-visibility` bounty. Two atomic commits on `feat/tab-title-from-tmux` (e91070bf + 72f386cd), pushed + shipped to origin as HEAD `052b712b`. See origin commit history for detail.
@@ -88,7 +89,7 @@ Last activity: 2026-08-18 — Shipped inline patch #462 (needs_desk toggle in bo
 
 Phase: 44 (frontend-skill-editing-editor-surface-for-skill-folders-on-a) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Executing Phase 103
 
 Last activity: 2026-08-19
 

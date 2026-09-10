@@ -2299,19 +2299,19 @@ Plans:
 **Goal:** Deliver the serve URL scheme end-to-end: wildcard-TLS subdomain `<host>-<port>.serve.term.<skynet-domain>` reverse-proxies HTTP + WebSocket through an SSH tunnel to agent-controlled ports. Full defense-in-depth stack: widened JWT cookie, allowlist-strip proxy forward, CI cookie-egress test, runtime header sampler, CORS + WS Origin rejects, CSRF audit, per-user-per-host edge auth, Skynet-styled interstitials, D-11 URL grammar. id-skill rewrite teaches agents the active/passive framing (serve URL vs file URL). Ships as single atomic deploy per D-24.
 **Requirements**: TBD
 **Depends on:** Phase 102
-**Plans:** 11 plans
+**Plans:** 6/11 plans executed
 Plans:
 **Wave 1**
 
-- [ ] 103-01-PLAN.md — Custom Caddy image (route53 DNS-01 plugin) + Caddyfile wildcard/redirect snippets + docker-compose wiring
+- [x] 103-01-PLAN.md — Custom Caddy image (route53 DNS-01 plugin) + Caddyfile wildcard/redirect snippets + docker-compose wiring
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 103-02-PLAN.md — Auth foundation: widen JWT cookie via SKYNET_COOKIE_DOMAIN, reject *.serve.term.* in CORS, host-add validation for -\d+ collision
-- [ ] 103-03a-PLAN.md — Serve URL data contracts: types.ts + tunnel-cache.ts (SSH pool reuse) + interstitial.ts (Skynet-styled per-failure HTML + writeInterstitial helper)
-- [ ] 103-06-PLAN.md — WebSocket Origin-header rejection guard on all 5 WSS entry points (D-08)
-- [ ] 103-07-PLAN.md — Frontend serve URL regex sibling + backend mirror-rule docblock (D-29)
-- [ ] 103-09-PLAN.md — id-skill "Sending files to the user" rewrite with active/passive framing + serve URL sub-section (D-25/26/27/28)
+- [x] 103-02-PLAN.md — Auth foundation: widen JWT cookie via SKYNET_COOKIE_DOMAIN, reject *.serve.term.* in CORS, host-add validation for -\d+ collision
+- [x] 103-03a-PLAN.md — Serve URL data contracts: types.ts + tunnel-cache.ts (SSH pool reuse) + interstitial.ts (Skynet-styled per-failure HTML + writeInterstitial helper)
+- [x] 103-06-PLAN.md — WebSocket Origin-header rejection guard on all 5 WSS entry points (D-08)
+- [x] 103-07-PLAN.md — Frontend serve URL regex sibling + backend mirror-rule docblock (D-29)
+- [x] 103-09-PLAN.md — id-skill "Sending files to the user" rewrite with active/passive framing + serve URL sub-section (D-25/26/27/28)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
