@@ -284,6 +284,24 @@ if (process.env.VITEST !== "true") {
         });
       });
 
+    // Phase 98 — one-shot voice-value migration.
+    // Walks ~/.claude/identities/*/*.md and ~/.claude/roles/*/*.md and
+    // clears any voice: frontmatter value matching the old Chatterbox
+    // regex /^[A-Z][A-Za-z]+\.wav$/ (per D-Per-identity-voice-binding
+    // hard reset). Idempotent — no-ops after the first successful run
+    // (identity/role files with already-conformant Polly voice IDs are
+    // fast-skipped). Fire-and-forget: ensureVoiceValuesMigrated NEVER
+    // throws (its own try/catch barrier); the .catch() here is defensive
+    // against the dynamic import itself failing to resolve.
+    void import("./voice/voice-migration.js")
+      .then((m) => m.ensureVoiceValuesMigrated())
+      .catch((err) => {
+        systemLogger.warn("ensureVoiceValuesMigrated failed at startup", {
+          operation: "voice_migration_startup_failed",
+          error: err instanceof Error ? err.message : "unknown",
+        });
+      });
+
     // Phase 79 Plan 08 — start the 30s reconcile-dead-tokens loop.
     // Reactive-to-401s only (RESEARCH § Q6 — admin-minted tokens don't
     // TTL-expire). Fire-and-forget: startReconcileLoop returns a timer
