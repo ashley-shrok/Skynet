@@ -255,6 +255,88 @@ export async function resolveHostById(
           host.username = cred.username;
         }
         host.authType = host.key ? "key" : host.password ? "password" : "none";
+      } else {
+        // Cross-user shared credential fallback (2026-09-10, Ashley: "shared means
+        // shared"). The row-owner's user-DEK path returned nothing — either
+        // because the cred exists under a different user (admin-set via the
+        // cross-user PUT from quick 260910-67z) or because ownerId's key can't
+        // decrypt it. Mirror the substrate branch above: read the cred row raw
+        // (no userId filter — the reference from an already-authorized host row
+        // IS the authorization), decrypt via the system CSKEK. sshCredentials
+        // dual-encrypt sensitive fields under both userId's data key AND the
+        // system key on insert/update per SimpleDBOps L128-140, so systemPassword
+        // / systemKey / systemKeyPassword are always populated on fresh rows.
+        try {
+          const rawRows = await db
+            .select()
+            .from(sshCredentials)
+            .where(eq(sshCredentials.id, host.credentialId as number))
+            .limit(1);
+          if (rawRows.length > 0) {
+            const cred = rawRows[0] as Record<string, unknown>;
+            const CSKEK =
+              await SystemCrypto.getInstance().getCredentialSharingKey();
+            const credIdStr = String(cred.id);
+            const decryptedPassword = cred.systemPassword
+              ? FieldCrypto.decryptField(
+                  cred.systemPassword as string,
+                  CSKEK,
+                  credIdStr,
+                  "password",
+                )
+              : null;
+            const decryptedKey = cred.systemKey
+              ? FieldCrypto.decryptField(
+                  cred.systemKey as string,
+                  CSKEK,
+                  credIdStr,
+                  "key",
+                )
+              : null;
+            const decryptedKeyPassword = cred.systemKeyPassword
+              ? FieldCrypto.decryptField(
+                  cred.systemKeyPassword as string,
+                  CSKEK,
+                  credIdStr,
+                  "key_password",
+                )
+              : null;
+            host.password = decryptedPassword;
+            host.key = decryptedKey;
+            host.keyPassword = decryptedKeyPassword;
+            host.keyType = cred.keyType;
+            (host as Record<string, unknown>).certPublicKey =
+              cred.certPublicKey || null;
+            if (!host.overrideCredentialUsername) {
+              host.username = cred.username;
+            }
+            host.authType = host.key
+              ? "key"
+              : host.password
+                ? "password"
+                : "none";
+            sshLogger.info(
+              "Cross-user shared credential resolved via CSKEK fallback",
+              {
+                operation: "host_resolver_cskek_fallback",
+                hostId,
+                credentialId: host.credentialId,
+                credOwnerUserId: cred.userId,
+                rowOwnerUserId: ownerId,
+              },
+            );
+          }
+        } catch (e) {
+          sshLogger.warn(
+            "Cross-user CSKEK fallback failed for host credential",
+            {
+              operation: "host_resolver_cskek_fallback_failed",
+              hostId,
+              credentialId: host.credentialId,
+              error: e instanceof Error ? e.message : "Unknown",
+            },
+          );
+        }
       }
     } catch (e) {
       sshLogger.warn("Failed to resolve credential for host", {
