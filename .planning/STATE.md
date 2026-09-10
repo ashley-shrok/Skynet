@@ -951,3 +951,5 @@ Last session: 2026-08-19T04:32:15.375Z
 Last session: 2026-08-19T04:50:04.409Z
 Stopped at: Completed 44-02-PLAN.md — frontend surface shipped (SkillsEditorModal + SkillFileTab + DeleteConfirmDialog + skills-api), 18 component tests green, full-suite exit 0
 Resume file: None
+
+- Phase 102 added: Host-picker ownership filter (tina, 2026-09-10)

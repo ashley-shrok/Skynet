@@ -2257,3 +2257,13 @@ Plans:
 - [ ] 101-04-PLAN.md — Wave 3 (deps 101-01): wrap relay-pointer.ts + skill-catalog.ts; add acquireTailSlot() helper + wrap 3 tailSessionFile call sites in claude-session-server.ts (session-file-tail.ts untouched)
 - [ ] 101-05-PLAN.md — Wave 3 (deps 101-01): wrap server-stats.ts collectMetrics widget fanout (D-05 correction); wrap file-manager.ts openDedicatedTransferSession (D-06 covers host-transfer.ts's 10 caller sites for free); wrap file-manager-session.ts execChannel when session.hostId is set
 - [ ] 101-06-PLAN.md — Wave 4 (deps 101-02..101-05): scripts/ci/check-ssh-semaphore-coverage.sh CI grep guard + package.json verify:ssh-cap script + final phase sweep (verify:ssh-cap + type-check + test + build:backend all green)
+
+### Phase 102: Host-picker ownership filter — add ?ownedOnly=true param to GET /host/db/host that restricts results to hosts where userId matches the requester; wire 6 host-list consumers (RolesListModal, GlobalFilesModal, SkillsEditorModal, CreateRoleDialog, NewSessionDialog, AppShell sidebar) to pass ownedOnly=true. Motivation: multi-user Skynet instances (T800 with 100 users) currently show every host requester has access to via shared credentials or admin visibility, swamping UI. Backend filter keeps wire payload small. Endpoint default unchanged (opt-in flag) so nothing else regresses. Bounty: host-picker-ownership-filter.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 101
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 102 to break down)
