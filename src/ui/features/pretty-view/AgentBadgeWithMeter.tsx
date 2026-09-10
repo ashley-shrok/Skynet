@@ -93,6 +93,13 @@ export interface AgentBadgeWithMeterProps {
    * partner AND the Wave 0 useSessionContextPct hook argument.
    */
   tmuxSessionName: string;
+  /**
+   * Phase 97 Finding 2: enclosing tab's tabId — drag-source pass-through to
+   * inner IdentityBadge. Undefined → the inner badge is not a drag source
+   * (parity with pre-Phase-97 behavior). D-18 preserved: no onClick is
+   * supplied by this component; only drag-source is enabled by tabId.
+   */
+  tabId?: string;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -102,6 +109,7 @@ export function AgentBadgeWithMeter({
   mxid: _mxid,
   hostId,
   tmuxSessionName,
+  tabId,
 }: AgentBadgeWithMeterProps) {
   // D-10 correctness invariant — READ SIDE ───────────────────────────────────
   // Key EXACT format `${hostId}:${tmuxSessionName}` — same shape PrettyView
@@ -182,8 +190,12 @@ export function AgentBadgeWithMeter({
   return (
     <div className="relative flex flex-col items-center gap-1">
       {/* IdentityBadge — D-08 reuse, plain badge (no modification to the
-          primitive, matches HumanBadgeCell approach from Plan 05). */}
-      <IdentityBadge identityKey={identityKey} />
+          primitive, matches HumanBadgeCell approach from Plan 05).
+          Phase 97 Finding 2: tabId threaded through so the badge becomes a
+          drag SOURCE carrying the room tab's tabId (D-05). Undefined tabId
+          leaves isDragSource=false at IdentityBadge.tsx:82 — pre-plan
+          parity. D-18 preserved: no onClick supplied. */}
+      <IdentityBadge identityKey={identityKey} tabId={tabId} />
       {/* Phase 97 Finding 5: drawer wrapper — Variant A "simple slotted"
           per meter-tasting.html L164-177. margin-top: -8px tucks the drawer's
           top edge behind the pill's bottom; padding-top: 10px keeps the meter

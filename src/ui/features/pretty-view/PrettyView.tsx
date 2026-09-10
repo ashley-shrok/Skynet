@@ -3528,6 +3528,7 @@ export function PrettyView({
           viewingUserMxid={viewingUserMxid ?? ""}
           fleetIdentityHosts={fleetIdentityHosts}
           isReady={chatSurfaceAdapter.isReady}
+          tabId={tabId}
         />
       )}
       {identityBadgeMenu !== null &&

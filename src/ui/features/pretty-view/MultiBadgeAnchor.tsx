@@ -96,6 +96,17 @@ export interface MultiBadgeAnchorProps {
   isReady: boolean;
   /** Optional wrapper class override. */
   className?: string;
+  /**
+   * Phase 97 Finding 2: the enclosing relay tab's tabId. Threaded to every
+   * per-participant IdentityBadge child so each badge becomes a drag SOURCE
+   * carrying the ROOM tab's tabId (dragging any badge drags the whole room
+   * tab, per D-05). Undefined → badges are not drag-sourceable (parity with
+   * pre-Phase-97 behavior). D-18 preserved: onClick is separately
+   * not-supplied by MultiBadgeAnchor, so click remains inert; only
+   * drag-source is enabled by tabId presence. The isMobile gate at
+   * IdentityBadge.tsx:82 still applies (mobile stays non-draggable).
+   */
+  tabId?: string;
 }
 
 /**
@@ -117,7 +128,13 @@ function extractLocalpart(mxid: string): string {
  * the page (IdentityBadge.tsx:110 bakes `absolute top-4 right-5 z-[101]`
  * into its own rootClassName).
  */
-function HumanBadgeCell({ human }: { human: HumanParticipant }) {
+function HumanBadgeCell({
+  human,
+  tabId,
+}: {
+  human: HumanParticipant;
+  tabId?: string;
+}) {
   const { byKey } = useIdentities();
   const resolution = resolveMxidToIdentity(human.mxid, byKey);
   const identityKey =
@@ -131,7 +148,7 @@ function HumanBadgeCell({ human }: { human: HumanParticipant }) {
       data-mxid={human.mxid}
       className="relative shrink-0 h-[72px] w-[220px] flex flex-col items-stretch"
     >
-      <IdentityBadge identityKey={identityKey} />
+      <IdentityBadge identityKey={identityKey} tabId={tabId} />
     </div>
   );
 }
@@ -145,9 +162,11 @@ function HumanBadgeCell({ human }: { human: HumanParticipant }) {
 function AgentBadgeCell({
   agent,
   fleetIdentityHosts,
+  tabId,
 }: {
   agent: AgentParticipant;
   fleetIdentityHosts: Record<string, number>;
+  tabId?: string;
 }) {
   const identityKey = agent.identityKey;
   const hostId = fleetIdentityHosts[identityKey];
@@ -166,7 +185,7 @@ function AgentBadgeCell({
         data-mxid={agent.mxid}
         className="relative shrink-0 h-[72px] w-[220px] flex flex-col items-stretch"
       >
-        <IdentityBadge identityKey={identityKey} />
+        <IdentityBadge identityKey={identityKey} tabId={tabId} />
       </div>
     );
   }
@@ -184,6 +203,7 @@ function AgentBadgeCell({
         // One-identity-one-tmux-session convention: the identityKey IS the
         // tmux session name (lowercased) that the fleet publishes.
         tmuxSessionName={identityKey}
+        tabId={tabId}
       />
     </div>
   );
@@ -203,6 +223,7 @@ export function MultiBadgeAnchor({
   fleetIdentityHosts,
   isReady,
   className,
+  tabId,
 }: MultiBadgeAnchorProps) {
   // D-03 self-exclusion filter for humans + humans-alphabetical sort.
   const humansOther = participants.humans
@@ -260,10 +281,11 @@ export function MultiBadgeAnchor({
           key={a.mxid}
           agent={a}
           fleetIdentityHosts={fleetIdentityHosts}
+          tabId={tabId}
         />
       ))}
       {humansOther.map((h) => (
-        <HumanBadgeCell key={h.mxid} human={h} />
+        <HumanBadgeCell key={h.mxid} human={h} tabId={tabId} />
       ))}
     </div>
   );
