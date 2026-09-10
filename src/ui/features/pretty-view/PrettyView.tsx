@@ -1938,7 +1938,16 @@ export function PrettyView({
   // slow resolves still see the spinner, just after the paint-delay expires.
   // Cleanup fires immediately when renderedState leaves "resolving", so the
   // spinner unmounts instantly on the settle event.
+  //
+  // Phase 97 Finding 1 — case-gate on source.kind === "harness". Both
+  // `paneState` and `wsTransportState` (the inputs to `renderedState`) are
+  // harness-adapter concepts and never fire for a relay mount, so this
+  // effect must be a no-op for relay. The relay case's peer veil-arm
+  // effect below dismisses on `chatSurfaceAdapter.isMessagesLoaded=true`
+  // instead. Adding the guard here is a NULL change for existing harness
+  // mounts (source.kind === "harness" in every harness call site).
   useEffect(() => {
+    if (source.kind !== "harness") return;
     if (renderedState !== "resolving") {
       setShowResolvingSpinner(false);
       return;
@@ -1949,7 +1958,28 @@ export function PrettyView({
     return () => {
       clearTimeout(t);
     };
-  }, [renderedState]);
+  }, [source.kind, renderedState]);
+
+  // Phase 97 Finding 1: relay-case peer veil-arm.
+  // Mirrors the harness veil's 400ms delay-arm treatment (flash-suppression
+  // on fast WS reconnect). Dismisses when the relay adapter reports the
+  // first history_batch frame has landed (isMessagesLoaded=true), matching
+  // the harness pane_state:active signal semantics. Empty rooms dismiss
+  // because history_batch fires regardless of events.length — the FRAME
+  // is the signal, not the array cardinality (per Phase 97 D-03 + D-04).
+  useEffect(() => {
+    if (source.kind !== "relay") return;
+    if (chatSurfaceAdapter.isMessagesLoaded === true) {
+      setShowResolvingSpinner(false);
+      return;
+    }
+    const t = setTimeout(() => {
+      setShowResolvingSpinner(true);
+    }, 400);
+    return () => {
+      clearTimeout(t);
+    };
+  }, [source.kind, chatSurfaceAdapter.isMessagesLoaded]);
 
   useEffect(() => {
     // Phase 92 Slice 1 (D-09): harness ingestion runs only when source is
