@@ -174,8 +174,8 @@ Cleanly. Not left as unused code.
 ### Locked decisions from discuss-phase
 
 - **Tooltip copy** (hover, desktop): **"Has local work not yet pushed to any remote"**. Direct answer to "what does this icon mean" for a first-time viewer. No git-jargon that requires prior knowledge; readable to Skynet users who've never used git.
-- **First-load behavior**: **Indicator starts absent, populates when the SSH probe for that identity returns.** No loading spinner, no held-render. For identities with no trapped work (silent-fail case, the majority), the indicator stays absent forever with no visible transition. For identities with trapped work, indicator appears once probe data arrives (sub-second cached, up to ~30s cold). Load-window ambiguity accepted as a small cost vs. the visual complexity of a loading affordance on every row.
-- **Poll cadence**: **Match the existing fleet-status / claude-session cadence (~30s).** Piggybacks on existing timing infrastructure; no new poller. Lag is imperceptible for a rescue-oriented glance-level indicator. Manual-refresh-on-git-hook was considered and deferred as a later optimization.
+- **First-load behavior**: **Indicator starts absent, populates when the SSH probe for that identity returns.** No loading spinner, no held-render. For identities with no trapped work (silent-fail case, the majority), the indicator stays absent forever with no visible transition. For identities with trapped work, indicator appears once probe data arrives (sub-second cached, up to ~60s cold). Load-window ambiguity accepted as a small cost vs. the visual complexity of a loading affordance on every row.
+- **Poll cadence**: **Match the existing bounty-counts poller cadence (60s + window.focus refresh trigger).** Piggybacks on existing timing infrastructure; no new poller. Lag is imperceptible for a rescue-oriented glance-level indicator. Manual-refresh-on-git-hook was considered and deferred as a later optimization.
 
 ### Canonical refs
 
@@ -200,9 +200,30 @@ Cleanly. Not left as unused code.
 
 ### Deferred ideas (out of this phase — noted for possible future work)
 
-- Manual-refresh-on-git-hook: trigger a probe from a git-command hook so the indicator updates near-immediately after a local commit/push instead of waiting for the next poll interval. Not needed for the rescue-oriented glance-level use case; add later if the ~30s lag ever feels wrong.
+- Manual-refresh-on-git-hook: trigger a probe from a git-command hook so the indicator updates near-immediately after a local commit/push instead of waiting for the next poll interval. Not needed for the rescue-oriented glance-level use case; add later if the 60s lag ever feels wrong.
 - Loading-state affordance during first probe: if the "start absent, appear when probe completes" behavior turns out to feel wrong in real use (probably won't), add a small loading placeholder in the corner during the first probe window.
 - Support for non-git version control (hg/svn/jj): explicitly out of scope per shape; add later if fleet ever hosts a non-git repo.
 - Additional identity surfaces beyond conv-list + pretty-view header: the identity modal header, expanded identity views, etc. — explicitly out of scope per shape; add later if the signal proves valuable enough that other surfaces feel bare without it.
 - Migration of pre-convention identity workspaces to the new standardized layout: unrelated concern with its own timeline; the indicator's silent-fail on pre-convention identities is accepted.
+
+
+---
+
+## Post-research corrections (2026-09-10, later)
+
+### Workspace path — corrected to `~/fleet/identities/<name>/workspace/`
+
+Research + a DM roundtrip with tanya (peer identity working on the Shape 3 substrate migration) resolved the workspace-path question. Corrections to what the shape file above assumed:
+
+- **Corrected canonical path**: `~/fleet/identities/<name>/workspace/`. The shape file's assumed prefix `~/.claude/identities/…` is superseded by Shape 3, which relocates identity dirs to `~/fleet/identities/…`. Hard-code the corrected path.
+- **Verified in code** (per tanya's inventory): `identity-birth-orchestrator.ts` creates the folder at every new identity birth; `substrate/skills/id/SKILL.md` documents it as an identity-folder sibling (D-04); `substrate/scripts/agent-supervisor.sh` cd's into it when launching if it exists; `substrate/skills/agent-relay/SKILL.md` references paths under it.
+- **Silent-fail semantics for pre-migration identities**: matches the shape's original call. Pre-migration identities have existing workdirs at existing per-box locations (e.g., `~/skynet-<name>/` on t1000, `~/PBMInvoices-<name>/` on workstation) and do NOT get their workdirs relocated. Detector treats "workspace/ absent OR empty" as "no trapped work detected" and skips silently — that's the right semantics, no error, no fallback path.
+
+### Shape 3 order dependency — deploy AFTER Shape 3 ships
+
+**Planning + execute of Phase 104 is unblocked and can proceed now.** But the **deploy** motion (git push through docker compose up) MUST wait until Shape 3 has landed on production. Otherwise Phase 104's detector points at `~/fleet/identities/…` paths that don't yet exist on the running system, and the feature silent-fails for every identity (worse than the intended silent-fail-for-pre-migration behavior — this would be silent-fail-for-everyone). Per fleet deploy-window rule, the push is gated by an Ashley greenlight per-push anyway; the greenlight is legitimate only after Shape 3 is live.
+
+Depends on: **Shape 3 ship** (Phase 96 substrate migration). Coord with tanya (holds that work) before Phase 104's push.
+
+### Poll cadence — final correction to 60s + window.focus (already applied above; noting here for the DECISIONS-INDEX audit trail)
 
