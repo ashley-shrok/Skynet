@@ -138,7 +138,7 @@ async function runAuthMiddleware(
     req: Request,
     res: Response,
     next: NextFunction,
-  ) => void | Promise<void>,
+  ) => void | Response | Promise<void | Response>,
 ): Promise<{ ok: true } | { ok: false; status: number }> {
   return new Promise<{ ok: true } | { ok: false; status: number }>((resolve) => {
     let interceptedStatus: number | undefined;
