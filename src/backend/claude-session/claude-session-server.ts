@@ -71,6 +71,7 @@ import {
   readIdentityHandoff,
   readIdentityBounties,
   readIdentityBountyCounts,
+  readIdentityTrappedWork,
   readRoleFile,
   readRoleFileByName,
   readRoleBountiesByName,
@@ -113,6 +114,7 @@ import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
  *     { type: "connectToPane", hostId: number, tmuxSession: string }
  *     { type: "identity:list-bounties", identityKey: string, hostId?: number }    // patch #87/#92: fetch identity bounties; hostId routes to pane's box (omit = local bind-mount)
  *     { type: "identity:count-bounties", targets: Array<{ identityKey: string; hostId: number | null }> } // quick 260727-tb1 / Phase 26: batched bounty counter (pinned + needs-desk) for the per-row badge (one WS request per poll)
+ *     { type: "identity:probe-trapped-work", targets: Array<{ identityKey: string; hostId: number | null }> } // Phase 104 Plan 01: batched per-identity trapped-work probe (~/fleet/identities/<key>/workspace/ walk) for the trapped-work indicator; byte-shape mirror of identity:count-bounties
  *     // patch #17g/#92: identity artifact fetches (one-shot; no pane needed):
  *     { type: "identity:get-identity-file", identityKey: string, hostId?: number } // patch #17g/#92: fetch <key>.md
  *     { type: "identity:get-role-file", identityKey: string, hostId?: number }     // Phase 22 SRIC-06: fetch ~/.claude/roles/<role>/<role>.md via backend two-step (identity file → role: frontmatter → role artifact)
@@ -174,6 +176,7 @@ import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
  *     { type: "error", message, code? }                          // fatal for this pane
  *     { type: "identity:bounties", bounties, archivedBounties, error? } // patch #87: response to identity:list-bounties (one-shot; WS closed by client after receipt)
  *     { type: "identity:bounty-counts", counts: Array<{ identityKey, hostId, pinnedCount, needsDeskCount, error? }> } // quick 260727-tb1 / Phase 26: response to identity:count-bounties (one-shot; WS closed by client after receipt)
+ *     { type: "identity:trapped-work", results: Array<{ identityKey, hostId, hasTrappedWork, error? }> } // Phase 104 Plan 01: response to identity:probe-trapped-work (one-shot; WS closed by client after receipt)
  *     // patch #17g: identity artifact responses (one-shot; WS closed by client after receipt):
  *     { type: "identity:identity-file", markdown: string, error?: string } // patch #17g: response to identity:get-identity-file
  *     { type: "identity:role-file", markdown: string, error?: string }      // Phase 22 SRIC-06: response to identity:get-role-file
@@ -1345,6 +1348,189 @@ export async function handleIdentityCountBounties(
 // than spinning up a WebSocketServer + ssh2 pair. Aliased to underscore so
 // production consumers stay clear of the internal handler.
 export const __handleIdentityCountBountiesForTests = handleIdentityCountBounties;
+
+// ---------------------------------------------------------------------------
+// Phase 104 Plan 01: identity:probe-trapped-work handler + test seam
+// ---------------------------------------------------------------------------
+//
+// Byte-shape mirror of handleIdentityCountBounties above. Divergences:
+//   - Response type tag: "identity:trapped-work" (not "identity:bounty-counts")
+//   - Results field name: "results" (not "counts")
+//   - Per-result shape: {hasTrappedWork:boolean} (not pinnedCount+needsDeskCount)
+//   - Delegates to readIdentityTrappedWork (workspace-scoped, D-09 no role lookup)
+//
+// Wire shape:
+//   in:  { type: "identity:probe-trapped-work", targets: [{identityKey, hostId}, ...] }
+//   out: { type: "identity:trapped-work", results:  [{identityKey, hostId, hasTrappedWork, error?}, ...] }
+//
+// Same batching semantics as bounty-counts:
+//   - hostId=null OR in IDENTITIES_LOCAL_HOST_IDS → local (bind-mount) branch.
+//   - Otherwise: group by hostId, connectOneShot ONCE per hostId group,
+//     run every identity in the group through that single conn, close in
+//     try/finally.
+//   - Per-target Promise.allSettled so one dead SSH host doesn't block the batch.
+//   - Rejected reads → {hasTrappedWork:false, error:string}. Zero-with-error
+//     keeps the wire shape uniform for the frontend consumer (Plan 02).
+
+type TrappedWorkTarget = { identityKey: string; hostId: number | null };
+type TrappedWorkResult = {
+  identityKey: string;
+  hostId: number | null;
+  hasTrappedWork: boolean;
+  error?: string;
+};
+
+async function readOneTrappedWorkTarget(
+  conn: SSHClientType | null,
+  identityKey: string,
+): Promise<{ hasTrappedWork: boolean }> {
+  // The reader itself validates identityKey; forwarding invalid keys is fine
+  // — the rejection lands in the per-target error field via allSettled.
+  return readIdentityTrappedWork(conn, identityKey);
+}
+
+export async function handleIdentityProbeTrappedWork(
+  ws: WebSocket,
+  msg: unknown,
+  userId: string | undefined,
+): Promise<void> {
+  const rawTargets = (msg as { targets?: unknown }).targets;
+  const targets: TrappedWorkTarget[] = Array.isArray(rawTargets)
+    ? rawTargets
+        .filter((t): t is Record<string, unknown> => typeof t === "object" && t !== null)
+        .map((t) => {
+          const key = typeof t.identityKey === "string" ? t.identityKey : "";
+          const hostIdRaw = t.hostId;
+          const hostId =
+            typeof hostIdRaw === "number" &&
+            Number.isFinite(hostIdRaw) &&
+            hostIdRaw > 0
+              ? hostIdRaw
+              : null;
+          return { identityKey: key, hostId };
+        })
+    : [];
+
+  if (targets.length === 0) {
+    try {
+      ws.send(JSON.stringify({ type: "identity:trapped-work", results: [] }));
+    } catch (err) {
+      databaseLogger.warn(`[ws-server] send-failed msgType=identity:trapped-work err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" });
+    }
+    return;
+  }
+
+  // Group targets by "routing key": hostId=null / local hosts → "local";
+  // otherwise the numeric hostId. Each group opens one conn (or zero for
+  // the local group) and reads all its identities through the same conn.
+  const groups = new Map<string | number, TrappedWorkTarget[]>();
+  for (const t of targets) {
+    const useLocal = t.hostId === null || isLocalHostId(t.hostId);
+    const groupKey: string | number = useLocal ? "local" : t.hostId!;
+    const bucket = groups.get(groupKey);
+    if (bucket) bucket.push(t);
+    else groups.set(groupKey, [t]);
+  }
+
+  const groupPromises: Array<Promise<TrappedWorkResult[]>> = [];
+  for (const [groupKey, bucket] of groups) {
+    if (groupKey === "local") {
+      groupPromises.push(
+        (async () => {
+          const settled = await Promise.allSettled(
+            bucket.map((t) => readOneTrappedWorkTarget(null, t.identityKey)),
+          );
+          return settled.map((s, i) => {
+            const t = bucket[i];
+            if (s.status === "fulfilled") {
+              return {
+                identityKey: t.identityKey,
+                hostId: t.hostId,
+                hasTrappedWork: s.value.hasTrappedWork,
+              };
+            }
+            return {
+              identityKey: t.identityKey,
+              hostId: t.hostId,
+              hasTrappedWork: false,
+              error: String((s.reason as Error)?.message ?? s.reason),
+            };
+          });
+        })(),
+      );
+    } else {
+      const hostIdNum = groupKey as number;
+      groupPromises.push(
+        (async () => {
+          let conn: SSHClientType | null = null;
+          try {
+            const resolved = await resolveHostById(hostIdNum, userId!);
+            if (!resolved) {
+              return bucket.map((t) => ({
+                identityKey: t.identityKey,
+                hostId: t.hostId,
+                hasTrappedWork: false,
+                error: "host not found",
+              }));
+            }
+            conn = await connectOneShot(
+              resolved as unknown as Parameters<typeof connectOneShot>[0],
+              5000,
+            );
+            const settled = await Promise.allSettled(
+              bucket.map((t) => readOneTrappedWorkTarget(conn, t.identityKey)),
+            );
+            return settled.map((s, i) => {
+              const t = bucket[i];
+              if (s.status === "fulfilled") {
+                return {
+                  identityKey: t.identityKey,
+                  hostId: t.hostId,
+                  hasTrappedWork: s.value.hasTrappedWork,
+                };
+              }
+              return {
+                identityKey: t.identityKey,
+                hostId: t.hostId,
+                hasTrappedWork: false,
+                error: String((s.reason as Error)?.message ?? s.reason),
+              };
+            });
+          } catch (err) {
+            const msgStr = err instanceof Error ? err.message : String(err);
+            return bucket.map((t) => ({
+              identityKey: t.identityKey,
+              hostId: t.hostId,
+              hasTrappedWork: false,
+              error: msgStr,
+            }));
+          } finally {
+            if (conn) {
+              try {
+                conn.end();
+              } catch (err) {
+                databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" });
+              }
+            }
+          }
+        })(),
+      );
+    }
+  }
+
+  const groupResults = await Promise.all(groupPromises);
+  const results: TrappedWorkResult[] = groupResults.flat();
+
+  try {
+    ws.send(JSON.stringify({ type: "identity:trapped-work", results }));
+  } catch {
+    /* ws may be mid-close */
+  }
+}
+
+// Test seam — Phase 104 Plan 01. Vitest drives the handler directly rather
+// than spinning up a WebSocketServer + ssh2 pair. Alias mirrors L1347.
+export const __handleIdentityProbeTrappedWorkForTests = handleIdentityProbeTrappedWork;
 
 // ─── Phase 22 SRIC-06 / Plan 22-06: identity:get-role-file WS handler ──────────
 //
@@ -5713,6 +5899,15 @@ wss.on("connection", async (ws: WebSocket, req) => {
     //      the wire shape uniform.
     if (msg.type === "identity:count-bounties") {
       await handleIdentityCountBounties(ws, msg, userId);
+      return;
+    }
+
+    // Phase 104 Plan 01: identity:probe-trapped-work — batched fan-out of
+    // per-identity binary "hasTrappedWork" probes. Byte-shape mirror of
+    // identity:count-bounties above. See handleIdentityProbeTrappedWork
+    // JSDoc for wire shape + batching semantics.
+    if (msg.type === "identity:probe-trapped-work") {
+      await handleIdentityProbeTrappedWork(ws, msg, userId);
       return;
     }
 
