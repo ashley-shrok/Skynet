@@ -27,6 +27,11 @@ import {
   writeAvatarSiblingFile,
 } from "../../claude-session/identity-artifact-reader.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
+// Phase 98 Plan 07: whitelist voice-value validation on identity birth. Same
+// contract as identities.ts's PUT handler — any voice value that isn't one of
+// the 7 supported Polly voice IDs is 400-rejected. Null/absent are legal
+// (identity is born voiceless; owner picks in the identity modal later).
+import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
 import {
   birthIdentity,
   runRelayMintAndWrite,
@@ -175,6 +180,17 @@ router.post(
 
     if (voice !== null && voice !== undefined && typeof voice !== "string") {
       res.status(400).json({ error: "voice must be a string or null" });
+      return;
+    }
+    // Phase 98 Plan 07: tighten voice validation to the Polly whitelist.
+    // A present-and-string voice value must match one of the 7 supported
+    // Polly voice IDs (isValidPollyVoice). Null / absent voice remains legal
+    // — a newborn identity without a voice frontmatter key inherits its
+    // role's voice at read time (Plan 86-01 merge in publicIdentity).
+    if (voice !== null && voice !== undefined && !isValidPollyVoice(voice)) {
+      res
+        .status(400)
+        .json({ error: "voice must be one of the supported Polly voice IDs" });
       return;
     }
 
