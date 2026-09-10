@@ -104,3 +104,53 @@ Ancillary observations from the discussion, held as context:
 - The just-shipped phase's own planning artifacts are in the repo's phase directory for the "relay rooms use the chat surface" phase — consult them for the current case-branch discipline the arc is extending.
 - The philosophy "no accidental inheritance" is load-bearing; if a fix introduces a divergence not deliberately case-branched, the reviewer at close time should call it out.
 - Split-dispatcher is a diagnosis-first item — the plan phase should include a discovery task before sizing.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-10
+**Vehicle used:** GSD phase (Phase 97: 6 plans across 3 waves, discovery-first on F-2, executed and verified 2026-09-10)
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · seven UAT findings all landed as case-branches inside the two-source chat surface; no architectural reshape
+- **Shape: Loading veil never dismisses (blocker)** — present · adapter contract carries isMessagesLoaded, relay adapter flips it on history_batch frame, PrettyView has a relay-case peer veil-arm effect mirroring harness's 400ms delay-arm; harness effect is case-gated to preserve regression floor
+- **Shape: Drag-and-drop split placement (blocker)** — present · tabId threaded through MultiBadgeAnchor into both HumanBadgeCell and AgentBadgeCell (including through AgentBadgeWithMeter) so relay-case badges become drag sources; F-2 resolved as Verdict A (case-branch fill-in) with Ashley-approved static-analysis basis, live-browser confirmation deferred to phase-end deploy, forensic instrumentation retained to catch the shared-state-corruption symptom if it reappears
+- **Shape: Compose box vertical fit (polish)** — present · pl-11 ghost gutter gated by mode !== 'relay' (reflow, not zeroing); invisible aria-hidden Row 1 spacer restores byte-identical vertical envelope (mb-[3px] + min-h-[44px]/min-h-8 conditional on touch device) so QueuePlusTab pebble has its headroom
+- **Shape: Participant-indicator inner gap tightened (polish)** — present · ROOT_ANCHOR_CLASS in MultiBadgeAnchor changed gap-2 → gap-1; single-token change, all other position tokens preserved
+- **Shape: Meter chrome (polish, tasting-locked)** — present · data-drawer wrapper with -mt-2 (tuck 8px behind pill's bottom), pt-[10px] (breathing room), zIndex 1 (pill's drop-shadow lands on drawer); meter well's rounded-md replaced with rounded-b-md + border-t-0 (invisible tuck edge); matches Variant A prototype byte-for-byte
+- **Shape: Compose placeholder addresses wrong recipient (polish)** — present · PrettyView case-branches identityName='room' for relay; renders 'Message room…' with capital-M per harness template convention (Ashley endorsed the ship-cap version — lowercase in shape was casual shorthand)
+- **Shape: URL persistence (lifecycle miss)** — present · TabSpec widened to discriminated union with relay variant (opaque roomId, host?: never); parse/encode/specForTab all branched; AppShell URL-sync passes sessionKind + relayRoomId; both top-level open loop AND splitTree resolver key-builder + closure branch on relay:<roomId>; 512-char defensive cap; localpart-masked structured log for URL-restore forensics
+- **Philosophy: no accidental inheritance** — present · every new case-branch keyed on source.kind === 'relay' or mode === 'relay'; harness call sites byte-untouched; regression floor tests green
+- **Philosophy: meter drawer treatment stays the simple slotted variant** — present · Variant A prototype tuck/border/radius/z-index geometry mirrored byte-for-byte; no hue-tinting drift
+- **Prior context: URL identifier is the room's opaque stable id** — present · encodeURIComponent(roomId) into relay:<encoded> — rename-stable, unambiguous, readability explicitly a non-concern
+- **Prior context: veil signal is 'messages haven't arrived yet' in both cases** — present · chose history_batch (message-load frame) over session (WS-auth frame) so empty rooms still dismiss on frame arrival, not on events.length
+- **Prior context: drag-drop diagnostic hypothesis (corruption may be real, not just failing accepts)** — present · H1-H5 hypotheses walked in discovery notes; H3 ruled out; H1/H2/H4/H5 all inspect clean; Verdict A approved by Ashley — corruption not evidenced under static analysis, live-browser gate deferred to deploy with forensic tape shipped
+- **What would make it wrong: room case looks/feels different in un-case-branched places** — present · all new branches gated on the source.kind / mode discriminator; harness IdentityBadge mount at PrettyView L3575 byte-untouched (its pre-existing tabId={tabId} was the mirror this arc copied for relay)
+- **What would make it wrong: veil dismisses on wrong signal** — present · signal is history_batch frame arrival (not session frame — too early; not events.length — never for empty rooms); 400ms delay-arm mirrors harness path
+- **What would make it wrong: drag-drop fix works for reported cases but leaves state corruption** — present · Verdict A explicitly addressed the corruption hypothesis (H1-H5 walked); Ashley approved the static basis; forensic instrumentation retained to close the loop at deploy; escalation path to Verdict B named if reproduction contradicts
+- **What would make it wrong: URL identifier ambiguous or doesn't survive rename** — present · opaque Matrix room ID is rename-stable and unambiguous across similarly-named rooms by construction
+- **What would make it wrong: meter drawer doesn't read as peeking from behind the pill** — present · zIndex 1 on drawer + implicit stacking on pill puts pill in front; -mt-2 tuck + rounded-b-md + border-t-0 render the peek geometry; matches prototype
+- **What would make it wrong: compose fixes address symptoms, underlying divergence stays** — present · invisible Row 1 spacer preserves vertical envelope byte-for-byte (not a pt-N fine-tune), so future changes to Row 1 in the harness case parallel through the spacer's geometry naturally
+- **What would make it wrong: room case ends up case-branched where philosophy said parity** — present · no aesthetic-freedom branches; each new case-branch traces to a specific finding + D-XX decision with inline JSDoc
+- **Scope edges: in-arc items shipped** — present · all seven in-scope items landed
+- **Scope edges: out-of-arc items untouched** — present · conversation-list row appearance, room-list latency, two-source architecture, session-case chrome — all untouched; regression floor preserved at code level
+- **Scope edges: deferred split-out on drag-drop** — present · discovery-first sequencing produced Verdict A (fill-in, not reshape); the six other findings would have shipped regardless per shape, but F-2 stayed in-phase
+- **Scope edges: tempting-but-no negatives** — present · no participant-indicator layout reshape beyond the gap tighten; no meter redesign beyond the drawer; no room-case-specific compose affordance replacing the hidden attach; no broader two-source refactor
+
+### Additions (in the result, not in the shape)
+
+- Placeholder shipped with capital-M 'Message room…' (matching harness template convention) rather than the shape's verbatim lowercase 'message room' — endorsed-as-drift
+- Ambient forensic [pv-split-drop-diag] structured console emits at native dragover and drop inside SplitView, kept after F-2 resolved as fill-in — logs stayed in shipped code as lifecycle-boundary instrumentation for post-deploy F-2 confirmation — endorsed-as-drift
+
+### Follow-ups
+
+- Live-browser confirmation of F-1 veil dismissal on both empty and populated rooms, F-2 drag-drop round-trip (including the plain-session-split-after-room-open reproduction that Verdict A predicts will pass), F-3/F-4/F-5 visual parity checks, F-6 placeholder read, F-7 Chrome window-restore round-trip, and D-01 harness regression floor visual pass — all routed to phase-end deploy per standard fleet pattern — deferred
+- If live-browser F-2 reproduction contradicts Verdict A (plain-session split still breaks after a room has been opened), escalate to Verdict B: split F-2 out into its own follow-up phase and use the shipped [pv-split-drop-diag] tape to pinpoint H1/H2/H4/H5 — deferred
+- Room list-item appearance in the conversation list looks identical to a plain terminal session with no identity — adjacent thread, out of scope for this arc but worth its own bounty — bounty
+
+### Notes
+
+Both divergences from the shape were case-branched thoughtfully rather than accidentally: the capital-M placeholder ships aligned with an existing template pattern the harness case uses, and the ambient drag-drop diagnostic emits ship as lifecycle-boundary logging (fleet standing directive) that will catch the exact symptom the shape flagged as the F-2 corruption hypothesis if it reappears at deploy. The philosophy 'every case-branch is deliberate' held: nothing quietly diverged, and where the material stepped beyond the shape's letter, the reasoning is legible in the material itself (verifier's WARNING-5 for capitalization; discovery notes' explicit 'may stay as ambient forensic instrumentation' for the diag logs). Also worth carrying forward: the discovery-first sequencing on F-2 (Verdict A/B decision node in the plan) is a strong pattern for future arcs where a shape names a blocker whose structural shape is uncertain — it lets the sizing/split-out call land on evidence rather than guess.
