@@ -2213,10 +2213,19 @@ Plans:
 
 ### Phase 98: More versatile STT/TTS support — swap local rig for Amazon Polly + Amazon Transcribe
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Move Skynet's voice-in and voice-out off the self-hosted Chatterbox rig on Ashley's PC (100.80.122.111:8000/:8001) and onto external cloud providers — Amazon Polly (generative engine, 7-voice en-US catalog) for voice-out and Amazon Transcribe streaming for voice-in. Client contract stays invariant; all translation lives on the backend. Voice catalog reshapes to a fixed 7-voice const; per-identity voice bindings hard-reset via startup migration; validator flips to whitelist. Ambient-instance-identity via IMDS (no static keys). Ships uniformly to both t1000 (Ashley) and T800 (Stacy) with an in-repo deploy-time doc (docs/deploy/aws-voice-setup.md) for per-instance policy attach. Clean cutover: `src/backend/config/media-endpoints.ts` and Chatterbox proxy handlers deleted; tg-bridge rewired to POST voice notes through Skynet's `/voice/transcribe` (bridge-scoped JWT). Off-switch is policy-absence (AccessDenied → 503 dark, no cascade).
+**Requirements**: Provider-choice, Backend-owned-orchestration, Voice-catalog, Per-identity-voice-binding, Provider-access, Slash-command-transform-preserved, Telegram-bridge-STT, Kill-list, Deploy-time-doc, Verification-bar (captured in CONTEXT.md `<decisions>`; per-plan requirement IDs P98-STT-01..04, P98-TTS-01..04, P98-CAT-01, P98-MIG-01/02, P98-OFF-01, P98-DOC-01, P98-KILL-01)
 **Depends on:** none (independent)
-**Plans:** 0 plans
+**Plans:** 10 plans across 5 waves
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 98 to break down)
+- [ ] 98-01-PLAN.md — Wave 1: Dockerfile ffmpeg + AWS SDK v3 install (client-polly + client-transcribe-streaming) + package-legitimacy human-verify checkpoint (ship-blocker per RESEARCH Pitfall 7)
+- [ ] 98-02-PLAN.md — Wave 1: Pure kernels — polly-voice-catalog.ts (7-voice const + isValidPollyVoice whitelist) + chunk-and-stitch.ts (sentence-splitter + 2900-char packer for Polly 3000-billed ceiling) + riff-header-builder.ts (44-byte PCM header)
+- [ ] 98-03-PLAN.md — Wave 1: Frontend catalog reshape — VoicePicker.tsx inline POLLY_VOICES const + delete getVoices from voice-api.ts + sweep 6 test-file mock sites
+- [ ] 98-04-PLAN.md — Wave 2 (deps 98-01, 98-02): AWS adapters — polly-adapter.ts (SynthesizeSpeech, IMDS-authenticated) + transcribe-adapter.ts (StartStreamTranscription with IsPartial filter) + audio-transcode.ts (ffmpeg WebM→Ogg-Opus remux + FLAC fallback) + aws-errors.ts (isAwsAccessDenied guard) + real-AWS integration tests env-gated
+- [ ] 98-05-PLAN.md — Wave 2 (deps 98-02): voice-migration.ts startup one-shot — walks ~/.claude/identities/*/*.md + ~/.claude/roles/*/*.md, clears voice: values matching old /^[A-Z][A-Za-z]+\.wav$/ regex, idempotent, never-throws + starter.ts fire-and-forget wire
+- [ ] 98-06-PLAN.md — Wave 3 (deps 98-02, 98-04): Rewrite src/backend/database/routes/voice.ts route handlers — handleTranscribe/handleSpeak/handleSpeakStream/handleListVoices swap Chatterbox proxy for AWS adapters; preserve disk-bank ordering, slash-command transform integration, X-Accel-Buffering header, JWT middleware ordering; add AccessDenied → 503 dark path; rewrite voice.test.ts with AWS SDK v3 mocks
+- [ ] 98-07-PLAN.md — Wave 3 (deps 98-02, 98-05): Flip identity voice-value validator — identities.ts:51 IDENTITY_VOICE_RE → isValidPollyVoice whitelist; identity-birth.ts + identity-clone.ts default voice → Joanna (or null); sweep 5 test files replacing "Elena.wav" fixtures with Polly voice IDs
+- [ ] 98-08-PLAN.md — Wave 4 (deps 98-06): tg-bridge rewire (atomic per RESEARCH Pitfall 8) — bridge-service-token.ts mints bridge-scoped JWT; bridge-config-writer.ts drops STT_URL write, adds SKYNET_BASE + SKYNET_BRIDGE_TOKEN; bridge.sh routes tg_voice_to_mx STT curl to Skynet /voice/transcribe with Bearer auth; README.md config schema updated
+- [ ] 98-09-PLAN.md — Wave 4 (no code deps): Deploy-time in-repo doc — docs/deploy/aws-voice-setup.md covers policy JSON, verify command, off-switch behavior, region, cost, per-instance t1000/T800 notes, ship-motion checklist (self-contained per D-Cross-instance)
+- [ ] 98-10-PLAN.md — Wave 5 (deps 98-06, 98-08): Final Chatterbox kill — move getMatrixHomeserverBase from media-endpoints.ts to new src/backend/matrix/matrix-config.ts; rewire bridge-config-writer.ts import; delete src/backend/config/media-endpoints.ts + media-endpoints.test.ts; grep-sweep verifies zero residual Chatterbox references in live code
