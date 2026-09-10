@@ -1,8 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Volume2 } from "lucide-react";
-import { getVoices, postSpeak, SAMPLE_PHRASE } from "@/api/voice-api";
+import { postSpeak, SAMPLE_PHRASE } from "@/api/voice-api";
 
 export { SAMPLE_PHRASE };
+
+// Phase 98 Plan 03: fixed catalog inlined — no runtime fetch.
+// Mirror of src/backend/voice/polly-voice-catalog.ts POLLY_VOICES (which
+// is authored in Plan 02). Two sources of truth acceptable here (7 static
+// strings, low drift risk — see PATTERNS pitfall for polly-voice-catalog.ts).
+const POLLY_VOICES: readonly { voiceId: string; displayName: string }[] = [
+  { voiceId: "Danielle", displayName: "Danielle" },
+  { voiceId: "Joanna",   displayName: "Joanna"   },
+  { voiceId: "Ruth",     displayName: "Ruth"     },
+  { voiceId: "Salli",    displayName: "Salli"    },
+  { voiceId: "Tiffany",  displayName: "Tiffany"  },
+  { voiceId: "Matthew",  displayName: "Matthew"  },
+  { voiceId: "Stephen",  displayName: "Stephen"  },
+];
 
 export function VoicePicker({
   value,
@@ -17,18 +31,8 @@ export function VoicePicker({
   id?: string;
   ariaLabel?: string;
 }) {
-  const [voices, setVoices] = useState<{ display_name: string; filename: string }[]>([]);
   const sampleAudioRef = useRef<HTMLAudioElement | null>(null);
   const sampleUrlRef = useRef<string | null>(null);
-
-  // Fetch available voices on mount
-  useEffect(() => {
-    let cancelled = false;
-    getVoices()
-      .then((list) => { if (!cancelled) setVoices(list); })
-      .catch(() => { if (!cancelled) setVoices([]); });
-    return () => { cancelled = true; };
-  }, []);
 
   // Unmount cleanup for sample audio
   useEffect(() => {
@@ -90,9 +94,9 @@ export function VoicePicker({
         }}
       >
         <option value="" style={{ background: "#1a1c26", color: "#f0ebe0" }}>(default)</option>
-        {voices.map((v) => (
-          <option key={v.filename} value={v.filename} style={{ background: "#1a1c26", color: "#f0ebe0" }}>
-            {v.display_name}
+        {POLLY_VOICES.map((v) => (
+          <option key={v.voiceId} value={v.voiceId} style={{ background: "#1a1c26", color: "#f0ebe0" }}>
+            {v.displayName}
           </option>
         ))}
       </select>
