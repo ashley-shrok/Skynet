@@ -136,12 +136,45 @@ export function parseTabParam(raw: string | null): TabSpec | null {
   if (protocol === "tmux") {
     const idx2 = rest.indexOf(":");
     if (idx2 === -1) return null;
-    const host = decodeURIComponent(rest.slice(0, idx2));
-    const session = decodeURIComponent(rest.slice(idx2 + 1));
+    // Phase 97 code-review Fix 5 (extended via quick-260910-gqi): tmux mirror
+    // of the relay guard above. Wrap BOTH decodes in a single try/catch so a
+    // malformed percent-encoding on either the host or session slot returns
+    // null instead of throwing URIError. Same fail-safe contract as the relay
+    // branch — see lines 110-113 for rationale.
+    let host: string;
+    let session: string;
+    try {
+      host = decodeURIComponent(rest.slice(0, idx2));
+      session = decodeURIComponent(rest.slice(idx2 + 1));
+    } catch {
+      // eslint-disable-next-line no-console
+      console.info({
+        operation: "parse_tab_param_tmux_malformed_uri",
+        restLen: rest.length,
+      });
+      return null;
+    }
     if (!host || !session) return null;
     return { protocol, host, session };
   }
-  const host = decodeURIComponent(rest);
+  // Phase 97 code-review Fix 5 (extended via quick-260910-gqi): generic-host
+  // mirror of the relay guard above. Covers terminal / rdp / vnc / telnet
+  // (every non-tmux, non-relay member of PROTOCOLS). Includes `protocol` in
+  // the log payload because this branch handles four distinct protocols — a
+  // useful forensic signal that the single-protocol relay + tmux branches
+  // don't need.
+  let host: string;
+  try {
+    host = decodeURIComponent(rest);
+  } catch {
+    // eslint-disable-next-line no-console
+    console.info({
+      operation: "parse_tab_param_host_malformed_uri",
+      restLen: rest.length,
+      protocol,
+    });
+    return null;
+  }
   if (!host) return null;
   return { protocol, host };
 }
