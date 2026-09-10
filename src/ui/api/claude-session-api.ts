@@ -1215,6 +1215,112 @@ export function countIdentityBounties(
   });
 }
 
+// ─── Phase 104 Plan 02: batched trapped-work probe (D-03 wire mirror) ────────
+//
+// Byte-shape mirror of the bounty-counts wire above (L1054-1216). Single
+// one-shot request/response: client opens WS, sends one
+// identity:probe-trapped-work frame carrying every visible identity's
+// (identityKey, hostId), the server replies with one identity:trapped-work
+// frame carrying per-target {hasTrappedWork} booleans (or an error field per
+// target), and the client closes the socket.
+//
+// Wire path per D-03: the response uses Promise.allSettled server-side so one
+// dead SSH host cannot block the batch — dead-host entries carry
+// {hasTrappedWork: false, error: string} while other targets still return
+// their live boolean. The per-target error preserves shape uniformity so the
+// frontend store can preserve the last-known snapshot for a failing target
+// rather than clobber to false (matches the bounty-counts per-target error
+// behavior).
+//
+// D-06 start-absent semantics on the frontend: the store returns `undefined`
+// pre-fetch; both `undefined` and `{hasTrappedWork: false}` render nothing
+// (the indicator only appears on strict `=== true`).
+//
+//   client -> server:
+//     { type: "identity:probe-trapped-work", targets: [{identityKey, hostId}, ...] }
+//
+//   server -> client:
+//     { type: "identity:trapped-work", results: [{identityKey, hostId, hasTrappedWork, error?}, ...] }
+//
+// hostId=null means "read from skynet-ec2 local bind-mount".
+
+export type TrappedWorkTarget = {
+  identityKey: string;
+  hostId: number | null;
+};
+
+export type IdentityProbeTrappedWorkPayload = {
+  type: "identity:probe-trapped-work";
+  targets: TrappedWorkTarget[];
+};
+
+export type TrappedWorkResult = {
+  identityKey: string;
+  hostId: number | null;
+  hasTrappedWork: boolean;
+  error?: string;
+};
+
+export type IdentityTrappedWorkEvent = {
+  type: "identity:trapped-work";
+  results: TrappedWorkResult[];
+};
+
+/**
+ * Fire a one-shot batched trapped-work probe. Opens its own WS, sends one
+ * identity:probe-trapped-work frame on open, resolves on the first matching
+ * identity:trapped-work response, then closes the socket. Byte-shape mirror
+ * of countIdentityBounties above (Phase 104 D-03).
+ *
+ * Rejects on onerror / onclose-before-response with "Connection failed" so
+ * callers can distinguish transport failures from per-target errors (the
+ * latter surface in individual results[i].error fields).
+ */
+export function probeIdentityTrappedWork(
+  targets: TrappedWorkTarget[],
+): Promise<IdentityTrappedWorkEvent> {
+  return new Promise((resolve, reject) => {
+    let responded = false;
+    const sock = openClaudeSessionSocket();
+    sock.onopen = () => {
+      const payload: IdentityProbeTrappedWorkPayload = {
+        type: "identity:probe-trapped-work",
+        targets,
+      };
+      try {
+        sock.send(JSON.stringify(payload));
+      } catch {
+        /* ws may be mid-close */
+      }
+    };
+    sock.onmessage = (event: MessageEvent<string>) => {
+      if (responded) return;
+      try {
+        const raw = JSON.parse(event.data) as { type?: string };
+        if (raw.type !== "identity:trapped-work") return; // ignore unrelated frames
+        responded = true;
+        resolve(raw as IdentityTrappedWorkEvent);
+        try {
+          sock.close();
+        } catch {
+          /* ignore */
+        }
+      } catch {
+        /* ignore parse errors — wait for a valid frame */
+      }
+    };
+    const handleFail = () => {
+      if (responded) return;
+      responded = true;
+      reject(new Error("Connection failed"));
+    };
+    sock.onerror = handleFail;
+    sock.onclose = () => {
+      if (!responded) handleFail();
+    };
+  });
+}
+
 /**
  * Phase 90 Plan 90-03 (D-08.3): fire a one-shot role-file update request keyed
  * on roleName (NOT identityKey). Byte-shape mirror of the identity-keyed
