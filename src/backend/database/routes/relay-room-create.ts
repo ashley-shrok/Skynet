@@ -443,8 +443,9 @@ router.post("/create", authenticateJWT, async (req: Request, res: Response) => {
         operation: "relay_room_create_ok",
         userId,
         roomId,
-        humansCount: humanMxids.length,
-        agentsCount: agentMxids.length,
+        // Counts exclude the room creator (viewer); creator is joined separately post-create.
+        humansExclViewer: humanMxids.length,
+        agentsExclViewer: agentMxids.length,
       },
     );
 

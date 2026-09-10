@@ -592,8 +592,9 @@ export function useRelayAdapter(
           // eslint-disable-next-line no-console
           console.info({
             operation: "relay_room_participants_update",
-            humansCount: parsed.humans.length,
-            agentsCount: parsed.agents.length,
+            // Counts exclude the viewing user — backend applies D-07 self-exclusion in /participants response.
+            humansExclViewer: parsed.humans.length,
+            agentsExclViewer: parsed.agents.length,
             roomId: roomIdRef.current,
           });
           break;

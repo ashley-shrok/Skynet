@@ -222,8 +222,9 @@ router.get(
       operation: "relay_room_participants_ok",
       userId,
       roomId,
-      humansCount: humansOther.length,
-      agentsCount: classified.agents.length,
+      // Counts exclude the viewing user per D-07 (see self-exclusion block above).
+      humansExclViewer: humansOther.length,
+      agentsExclViewer: classified.agents.length,
     });
 
     return res.status(200).json({
