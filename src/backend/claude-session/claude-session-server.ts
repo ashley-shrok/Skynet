@@ -8368,7 +8368,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
                   tmuxSession,
                   discoverIdentitySessionFile,
                   tailSessionFile: (c, file, line, errCb) => {
-                    const handle = tailSessionFile(c, file, line, (err) => {
+                    const handle = tailSessionFile(c as import("ssh2").Client, file, line, (err) => {
                       dormantTailSlot.release();
                       errCb(err);
                     });
