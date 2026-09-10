@@ -2252,7 +2252,7 @@ Plans:
 **Goal:** Longer voice recordings (>=10s) transcribe in a fraction of the wall time by dispatching parallel Amazon Transcribe streaming sessions on silence-aware audio chunks and stitching results via word-timestamp overlap dedup. Backend-only refactor. /voice/transcribe endpoint contract, response shape, disk-bank write, and slash-command transform all preserved byte-for-byte. Short clips (<10s) still take the single-stream path (D-05).
 **Requirements**: D-01..D-14 (see 100-CONTEXT.md — this is a refactor phase; decision IDs act as requirements)
 **Depends on:** Phase 98
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 Plans:
 **Wave 1**
 
@@ -2261,7 +2261,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 100-03-PLAN.md — Wave 2 (deps: 100-01, 100-02): extend transcribe-adapter.ts with transcribeBufferWithItems export (Items-collecting sibling to transcribeBuffer) + create transcribe-orchestrator.ts (transcribeBufferChunked entry point with module-level N=5 semaphore, per-chunk retry, [...] gap marker, AccessDenied propagation, structured logs)
+- [x] 100-03-PLAN.md — Wave 2 (deps: 100-01, 100-02): extend transcribe-adapter.ts with transcribeBufferWithItems export (Items-collecting sibling to transcribeBuffer) + create transcribe-orchestrator.ts (transcribeBufferChunked entry point with module-level N=5 semaphore, per-chunk retry, [...] gap marker, AccessDenied propagation, structured logs)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
