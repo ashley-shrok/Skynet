@@ -70,7 +70,6 @@ import {
   readIdentityWakeups,
   readIdentityHandoff,
   readIdentityBounties,
-  readIdentityBountyCounts,
   readIdentityTrappedWork,
   readRoleFile,
   readRoleFileByName,
@@ -113,8 +112,7 @@ import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
  *   client -> server:
  *     { type: "connectToPane", hostId: number, tmuxSession: string }
  *     { type: "identity:list-bounties", identityKey: string, hostId?: number }    // patch #87/#92: fetch identity bounties; hostId routes to pane's box (omit = local bind-mount)
- *     { type: "identity:count-bounties", targets: Array<{ identityKey: string; hostId: number | null }> } // quick 260727-tb1 / Phase 26: batched bounty counter (pinned + needs-desk) for the per-row badge (one WS request per poll)
- *     { type: "identity:probe-trapped-work", targets: Array<{ identityKey: string; hostId: number | null }> } // Phase 104 Plan 01: batched per-identity trapped-work probe (~/fleet/identities/<key>/workspace/ walk) for the trapped-work indicator; byte-shape mirror of identity:count-bounties
+ *     { type: "identity:probe-trapped-work", targets: Array<{ identityKey: string; hostId: number | null }> } // Phase 104 Plan 01: batched per-identity trapped-work probe (~/fleet/identities/<key>/workspace/ walk) for the trapped-work indicator
  *     // patch #17g/#92: identity artifact fetches (one-shot; no pane needed):
  *     { type: "identity:get-identity-file", identityKey: string, hostId?: number } // patch #17g/#92: fetch <key>.md
  *     { type: "identity:get-role-file", identityKey: string, hostId?: number }     // Phase 22 SRIC-06: fetch ~/.claude/roles/<role>/<role>.md via backend two-step (identity file → role: frontmatter → role artifact)
@@ -175,7 +173,6 @@ import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
  *     { type: "tail_error", message }                            // recoverable: client may render a banner
  *     { type: "error", message, code? }                          // fatal for this pane
  *     { type: "identity:bounties", bounties, archivedBounties, error? } // patch #87: response to identity:list-bounties (one-shot; WS closed by client after receipt)
- *     { type: "identity:bounty-counts", counts: Array<{ identityKey, hostId, pinnedCount, needsDeskCount, error? }> } // quick 260727-tb1 / Phase 26: response to identity:count-bounties (one-shot; WS closed by client after receipt)
  *     { type: "identity:trapped-work", results: Array<{ identityKey, hostId, hasTrappedWork, error? }> } // Phase 104 Plan 01: response to identity:probe-trapped-work (one-shot; WS closed by client after receipt)
  *     // patch #17g: identity artifact responses (one-shot; WS closed by client after receipt):
  *     { type: "identity:identity-file", markdown: string, error?: string } // patch #17g: response to identity:get-identity-file
@@ -1158,205 +1155,15 @@ export const __pvSweepSeamRegistry = new Map<
 export const __sessionKeyForTests = sessionKey;
 export const __broadcastAsideDismissedForTests = broadcastAsideDismissed;
 
-// ---------------------------------------------------------------------------
-// Quick 260727-tb1: identity:count-bounties handler + test seam
-// ---------------------------------------------------------------------------
-//
-// The handler is extracted from the switch-dispatcher's message-router so the
-// vitest suite can drive it without a real WebSocketServer. Wire shape:
-//
-//   in:  { type: "identity:count-bounties", targets: [{identityKey, hostId}, ...] }
-//   out: { type: "identity:bounty-counts", counts:  [{identityKey, hostId, pinnedCount, needsDeskCount, error?}, ...] }
-//
-// Semantics:
-//   - hostId=null OR hostId in IDENTITIES_LOCAL_HOST_IDS → local (bind-mount) branch.
-//   - Otherwise: group targets by hostId, resolve host once, connectOneShot
-//     once per hostId, run every identity in that hostId's group through the
-//     single conn, close via try/finally.
-//   - Every per-target read is wrapped in Promise.allSettled so one dead
-//     SSH host cannot block the batch.
-//   - Rejected reads → {pinnedCount: 0, error: String(reason)}.
-
-type CountBountiesTarget = { identityKey: string; hostId: number | null };
-type CountBountiesResult = {
-  identityKey: string;
-  hostId: number | null;
-  pinnedCount: number;
-  needsDeskCount: number;
-  error?: string;
-};
-
-async function readOneTarget(
-  conn: SSHClientType | null,
-  identityKey: string,
-): Promise<{ pinnedCount: number; needsDeskCount: number }> {
-  // The reader itself validates identityKey; forwarding invalid keys is fine
-  // — the rejection lands in the per-target error field via allSettled.
-  return readIdentityBountyCounts(conn, identityKey);
-}
-
-export async function handleIdentityCountBounties(
-  ws: WebSocket,
-  msg: unknown,
-  userId: string | undefined,
-): Promise<void> {
-  const rawTargets = (msg as { targets?: unknown }).targets;
-  const targets: CountBountiesTarget[] = Array.isArray(rawTargets)
-    ? rawTargets
-        .filter((t): t is Record<string, unknown> => typeof t === "object" && t !== null)
-        .map((t) => {
-          const key = typeof t.identityKey === "string" ? t.identityKey : "";
-          const hostIdRaw = t.hostId;
-          const hostId =
-            typeof hostIdRaw === "number" &&
-            Number.isFinite(hostIdRaw) &&
-            hostIdRaw > 0
-              ? hostIdRaw
-              : null;
-          return { identityKey: key, hostId };
-        })
-    : [];
-
-  if (targets.length === 0) {
-    try {
-      ws.send(JSON.stringify({ type: "identity:bounty-counts", counts: [] }));
-    } catch (err) {
-      databaseLogger.warn(`[ws-server] send-failed msgType=identity:bounty-counts err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_send_failed" });
-    }
-    return;
-  }
-
-  // Group targets by "routing key": hostId=null / local hosts → "local";
-  // otherwise the numeric hostId. Each group opens one conn (or zero for
-  // the local group) and reads all its identities through the same conn.
-  const groups = new Map<string | number, CountBountiesTarget[]>();
-  for (const t of targets) {
-    const useLocal = t.hostId === null || isLocalHostId(t.hostId);
-    const groupKey: string | number = useLocal ? "local" : t.hostId!;
-    const bucket = groups.get(groupKey);
-    if (bucket) bucket.push(t);
-    else groups.set(groupKey, [t]);
-  }
-
-  // Fan-out: each group returns Array<CountBountiesResult>. Group-level
-  // failures (host not found, connectOneShot rejection) collapse into
-  // per-target error entries so the caller still gets a uniform response.
-  const groupPromises: Array<Promise<CountBountiesResult[]>> = [];
-  for (const [groupKey, bucket] of groups) {
-    if (groupKey === "local") {
-      groupPromises.push(
-        (async () => {
-          const settled = await Promise.allSettled(
-            bucket.map((t) => readOneTarget(null, t.identityKey)),
-          );
-          return settled.map((s, i) => {
-            const t = bucket[i];
-            if (s.status === "fulfilled") {
-              return {
-                identityKey: t.identityKey,
-                hostId: t.hostId,
-                pinnedCount: s.value.pinnedCount,
-                needsDeskCount: s.value.needsDeskCount,
-              };
-            }
-            return {
-              identityKey: t.identityKey,
-              hostId: t.hostId,
-              pinnedCount: 0,
-              needsDeskCount: 0,
-              error: String((s.reason as Error)?.message ?? s.reason),
-            };
-          });
-        })(),
-      );
-    } else {
-      const hostIdNum = groupKey as number;
-      groupPromises.push(
-        (async () => {
-          let conn: SSHClientType | null = null;
-          try {
-            const resolved = await resolveHostById(hostIdNum, userId!);
-            if (!resolved) {
-              return bucket.map((t) => ({
-                identityKey: t.identityKey,
-                hostId: t.hostId,
-                pinnedCount: 0,
-                needsDeskCount: 0,
-                error: "host not found",
-              }));
-            }
-            conn = await connectOneShot(
-              resolved as unknown as Parameters<typeof connectOneShot>[0],
-              5000,
-            );
-            const settled = await Promise.allSettled(
-              bucket.map((t) => readOneTarget(conn, t.identityKey)),
-            );
-            return settled.map((s, i) => {
-              const t = bucket[i];
-              if (s.status === "fulfilled") {
-                return {
-                  identityKey: t.identityKey,
-                  hostId: t.hostId,
-                  pinnedCount: s.value.pinnedCount,
-                  needsDeskCount: s.value.needsDeskCount,
-                };
-              }
-              return {
-                identityKey: t.identityKey,
-                hostId: t.hostId,
-                pinnedCount: 0,
-                needsDeskCount: 0,
-                error: String((s.reason as Error)?.message ?? s.reason),
-              };
-            });
-          } catch (err) {
-            // Group-level failure (resolveHostById throw or connect timeout).
-            const msgStr = err instanceof Error ? err.message : String(err);
-            return bucket.map((t) => ({
-              identityKey: t.identityKey,
-              hostId: t.hostId,
-              pinnedCount: 0,
-              needsDeskCount: 0,
-              error: msgStr,
-            }));
-          } finally {
-            if (conn) {
-              try {
-                conn.end();
-              } catch (err) {
-                databaseLogger.warn(`[ws-server] conn-end-failed err="${err instanceof Error ? err.message : String(err)}"`, { operation: "ws_conn_end_failed" });
-              }
-            }
-          }
-        })(),
-      );
-    }
-  }
-
-  const groupResults = await Promise.all(groupPromises);
-  const counts: CountBountiesResult[] = groupResults.flat();
-
-  try {
-    ws.send(JSON.stringify({ type: "identity:bounty-counts", counts }));
-  } catch {
-    /* ws may be mid-close */
-  }
-}
-
-// Test seam — quick 260727-tb1. Vitest drives the handler directly rather
-// than spinning up a WebSocketServer + ssh2 pair. Aliased to underscore so
-// production consumers stay clear of the internal handler.
-export const __handleIdentityCountBountiesForTests = handleIdentityCountBounties;
 
 // ---------------------------------------------------------------------------
 // Phase 104 Plan 01: identity:probe-trapped-work handler + test seam
 // ---------------------------------------------------------------------------
 //
-// Byte-shape mirror of handleIdentityCountBounties above. Divergences:
-//   - Response type tag: "identity:trapped-work" (not "identity:bounty-counts")
-//   - Results field name: "results" (not "counts")
-//   - Per-result shape: {hasTrappedWork:boolean} (not pinnedCount+needsDeskCount)
+// Batched fan-out shape:
+//   - Response type tag: "identity:trapped-work"
+//   - Results field name: "results"
+//   - Per-result shape: {hasTrappedWork:boolean}
 //   - Delegates to readIdentityTrappedWork (workspace-scoped, D-09 no role lookup)
 //
 // Wire shape:
@@ -1537,7 +1344,7 @@ export const __handleIdentityProbeTrappedWorkForTests = handleIdentityProbeTrapp
 // Byte-shape mirror of the identity:get-identity-file handler at L1928+ (which
 // remains inline; extracting it would break the "byte-shape mirror" audit
 // principle established in this plan). The new handlers are extracted to give
-// them the same test seam as handleIdentityCountBounties above — vitest can
+// them the same test seam as __handleIdentityProbeTrappedWorkForTests above — vitest can
 // drive them directly with mocked readRoleFile / resolveHostById / connectOneShot
 // without a full WSS bring-up.
 //
@@ -1684,7 +1491,7 @@ export async function handleIdentityUpdateRoleFile(
   }
 }
 
-// Test seams — Plan 22-06. Same pattern as __handleIdentityCountBountiesForTests
+// Test seams — Plan 22-06. Same pattern as __handleIdentityProbeTrappedWorkForTests
 // above. Vitest drives the handlers directly with mocked reader/writer helpers.
 export const __handleIdentityGetRoleFileForTests = handleIdentityGetRoleFile;
 export const __handleIdentityUpdateRoleFileForTests = handleIdentityUpdateRoleFile;
@@ -2927,7 +2734,7 @@ export const __handleFetchOlderRangeForTests = handleFetchOlderRange;
 // .then() body by delegating to it with the closure-bound state refs.
 // Tests instantiate a plain state box + helper stubs and call it directly.
 //
-// This is the same "function seam" pattern as __handleIdentityCountBountiesForTests
+// This is the same "function seam" pattern as __handleIdentityProbeTrappedWorkForTests
 // (which also extracted per-connection handler logic so vitest can drive it
 // without a real WebSocketServer).
 
@@ -5880,31 +5687,8 @@ wss.on("connection", async (ws: WebSocket, req) => {
       return;
     }
 
-    // Quick 260727-tb1: identity:count-bounties — batched pinned bounty
-    // counter powering the per-row bounty badge in pretty-conversations.
-    // ONE WS request carrying [{identityKey, hostId}, ...]; ONE response
-    // carrying [{identityKey, hostId, pinnedCount, error?}, ...].
-    //
-    // Design decisions the tests lock in:
-    //   1. Targets are grouped by hostId. Local group (hostId=null OR in
-    //      IDENTITIES_LOCAL_HOST_IDS) reads via the bind-mount branch —
-    //      no SSH connection needed.
-    //   2. Each non-local hostId opens EXACTLY ONE SshConnection via
-    //      connectOneShot; every identity in that hostId's group is read
-    //      through that single conn; conn.end() runs in try/finally.
-    //   3. Every per-target read is wrapped in Promise.allSettled — one
-    //      slow or dead SSH host does not block the batch.
-    //   4. Rejected reads surface as {pinnedCount:0, error:string};
-    //      successful reads omit the error field. Zero-with-error keeps
-    //      the wire shape uniform.
-    if (msg.type === "identity:count-bounties") {
-      await handleIdentityCountBounties(ws, msg, userId);
-      return;
-    }
-
     // Phase 104 Plan 01: identity:probe-trapped-work — batched fan-out of
-    // per-identity binary "hasTrappedWork" probes. Byte-shape mirror of
-    // identity:count-bounties above. See handleIdentityProbeTrappedWork
+    // per-identity binary "hasTrappedWork" probes. See handleIdentityProbeTrappedWork
     // JSDoc for wire shape + batching semantics.
     if (msg.type === "identity:probe-trapped-work") {
       await handleIdentityProbeTrappedWork(ws, msg, userId);

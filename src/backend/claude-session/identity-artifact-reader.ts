@@ -4018,141 +4018,11 @@ export async function deleteIdentityBounty(
 }
 
 // ---------------------------------------------------------------------------
-// 10. readIdentityBountyCounts — counts of non-archived pinned + needs-desk bounties
-// ---------------------------------------------------------------------------
-//
-// Phase 26 widening of the quick 260727-tb1 counter. Returns both
-// {pinnedCount, needsDeskCount} from a SINGLE fs walk — no second readdir
-// pass. Used by the per-row bounty badge in pretty-conversations (renders
-// the combined `pin·desk` pill) and by the filter popover (AND-intersect on
-// either predicate).
-//
-// Schema note (patch #168): `pinned` is now an independent boolean field
-// orthogonal to the lifecycle `status` field. Every previously-pinned bounty
-// is now `status:"in_progress" + pinned:true` after Nelly's fleet-wide
-// migration. The counter reads `parsed.pinned === true` — NOT
-// `parsed.status === "pinned"` (that value no longer exists in the enum).
-//
-// Schema note (Phase 26, 2026-08-06): `needs_desk` is an independent boolean
-// field orthogonal to both `status` and `pinned`. Absent means false, same
-// optional-boolean-absent-means-false shape as `pinned`. The counter reads
-// `parsed.needs_desk === true`. A single bounty can have both `pinned:true`
-// AND `needs_desk:true` — it increments BOTH counters on the same pass
-// (single-walk invariant: exactly one fs.readdir per call).
-//
-// Local branch: fs.readdir the bounties dir ONCE, skip "archive", read each
-// entry's bounty.json, accumulate pinnedCount and needsDeskCount in the same
-// loop. Per-file parse errors are swallowed as "counted in neither" — a
-// single poisoned file must not fail the whole count.
-//
-// Remote branch: python3 script over SSH — emits a single JSON line
-// {"pinnedCount":P,"needsDeskCount":D} so both counters travel in one
-// stdout read. python3 is universally present on identity boxes (the wakeup
-// scheduler itself is python3).
-
-export async function readIdentityBountyCounts(
-  conn: SSHClientType | null,
-  identityKey: string,
-): Promise<{ pinnedCount: number; needsDeskCount: number }> {
-  // Validation guard — reuse the same regex readIdentityBounties uses via
-  // the server-side IDENTITY_KEY_RE. Path traversal is the concrete threat.
-  if (!IDENTITY_KEY_RE.test(identityKey)) {
-    throw new Error("invalid identityKey");
-  }
-
-  // Phase 22 SRIC-01: two-step — bounties live at ~/.claude/roles/<role>/bounties/
-  // post fleet migration; the row-badge counter must count from there or every
-  // per-row bounty badge would show 0 (the identity folder is empty post-migration).
-  const role = await resolveRoleForIdentity(conn, identityKey);
-
-  if (conn === null) {
-    // LOCAL branch — single-walk invariant: exactly ONE await fs.readdir.
-    const root = getLocalRolesRoot();
-    const baseDir = path.join(root, role, "bounties");
-
-    let entries: string[];
-    try {
-      entries = (await fs.readdir(baseDir)).filter((e) => e !== "archive");
-    } catch (err: unknown) {
-      if (
-        typeof err === "object" &&
-        err !== null &&
-        (err as NodeJS.ErrnoException).code === "ENOENT"
-      ) {
-        return { pinnedCount: 0, needsDeskCount: 0 };
-      }
-      throw err;
-    }
-
-    let pinnedCount = 0;
-    let needsDeskCount = 0;
-    for (const entry of entries) {
-      const filePath = path.join(baseDir, entry, "bounty.json");
-      try {
-        const raw = await fs.readFile(filePath, "utf-8");
-        const parsed = JSON.parse(raw) as Record<string, unknown>;
-        if (parsed.pinned === true) pinnedCount += 1;
-        if (parsed.needs_desk === true) needsDeskCount += 1;
-      } catch {
-        // Per-file parse/read error → counted in neither (do NOT throw).
-      }
-    }
-    return { pinnedCount, needsDeskCount };
-  }
-
-  // REMOTE branch — one round-trip; python3 emits a single JSON line to stdout.
-  // The identityKey is validated above; the remote path interpolation is
-  // safe because the regex forbids shell-special characters.
-  const script =
-    "import os,json,sys\n" +
-    "r=os.path.expanduser(sys.argv[1])\n" +
-    "p=0; d=0\n" +
-    "try:\n" +
-    "  ents=os.listdir(r)\n" +
-    "except FileNotFoundError:\n" +
-    '  print(json.dumps({"pinnedCount":0,"needsDeskCount":0})); sys.exit(0)\n' +
-    "for e in ents:\n" +
-    '  if e=="archive": continue\n' +
-    '  fp=os.path.join(r,e,"bounty.json")\n' +
-    "  try:\n" +
-    "    with open(fp) as f: j=json.load(f)\n" +
-    '    if j.get("pinned") is True: p+=1\n' +
-    '    if j.get("needs_desk") is True: d+=1\n' +
-    "  except Exception: pass\n" +
-    'print(json.dumps({"pinnedCount":p,"needsDeskCount":d}))\n';
-  const cmd =
-    `python3 -c ${shellEscape(script)} ` +
-    `"$HOME/.claude/roles/${role}/bounties"`;
-  const stdout = await execWithTimeout(conn, cmd);
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stdout.trim());
-  } catch {
-    throw new Error(`remote bounty counts returned malformed payload: ${stdout}`);
-  }
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    !Number.isFinite((parsed as Record<string, unknown>).pinnedCount as number) ||
-    ((parsed as Record<string, unknown>).pinnedCount as number) < 0 ||
-    !Number.isFinite((parsed as Record<string, unknown>).needsDeskCount as number) ||
-    ((parsed as Record<string, unknown>).needsDeskCount as number) < 0
-  ) {
-    throw new Error(`remote bounty counts returned malformed payload: ${stdout}`);
-  }
-  return {
-    pinnedCount: (parsed as Record<string, unknown>).pinnedCount as number,
-    needsDeskCount: (parsed as Record<string, unknown>).needsDeskCount as number,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // 11. readIdentityTrappedWork — Phase 104 Plan 01 (D-01/D-02/D-06/D-09)
 // ---------------------------------------------------------------------------
 //
 // Per-identity binary "hasTrappedWork" answer for the trapped-work indicator
-// (Phase 104). Sibling of readIdentityBountyCounts above, but with three
-// deliberate divergences from that function's structure:
+// (Phase 104). Structural notes:
 //
 //   1. D-02 workspace path: hard-coded ~/fleet/identities/<identityKey>/workspace/
 //      (Shape 3 substrate migration path). NO env-var override; NO "skynet/"
@@ -4286,9 +4156,8 @@ async function walkForRepos(dir: string, depth: number, out: string[]): Promise<
  * (section 11) for full semantics — D-01 eligibility rules, D-02 workspace
  * path, D-06 silent-fail, D-09 skip-role-lookup.
  *
- * Mirror source: readIdentityBountyCounts at L4052 (structural skeleton only —
- * this function deliberately DOES NOT call resolveRoleForIdentity, and DOES NOT
- * read from ROLES_HOST_DIR; the workspace path has no role indirection).
+ * This function deliberately DOES NOT call resolveRoleForIdentity, and DOES NOT
+ * read from ROLES_HOST_DIR; the workspace path has no role indirection.
  */
 export async function readIdentityTrappedWork(
   conn: SSHClientType | null,
