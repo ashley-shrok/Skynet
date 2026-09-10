@@ -53,6 +53,7 @@
 // AgentBadgeWithMeter whose badge is inert (reset button is separately
 // clickable). No IdentityModal, no navigation.
 
+import { useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { IdentityBadge } from "@/features/terminal/IdentityBadge";
 import { useIdentities } from "@/state/identities-store";
@@ -170,14 +171,24 @@ function AgentBadgeCell({
 }) {
   const identityKey = agent.identityKey;
   const hostId = fleetIdentityHosts[identityKey];
-  if (hostId === undefined) {
-    // Defensive edge case — agent identity known but no live fleet mapping.
-    // Log structurally so we can grep post-ship if this happens in the wild.
+  // Phase 97 code-review Fix 2: log the no-host-mapping condition from a
+  // useEffect gated on primitives so a re-render of the parent (e.g., a
+  // participants frame update or any upstream state change) does NOT re-fire
+  // the same warning. Same anti-pattern the Slice-6 pass fixed elsewhere —
+  // any log inside a render body is proportional to render count. Fires on
+  // transition into (or through) the no-mapping state; stays quiet otherwise.
+  useEffect(() => {
+    if (hostId !== undefined) return;
     // eslint-disable-next-line no-console
     console.warn({
       operation: "agent_badge_no_host_mapping",
       identityKey,
     });
+  }, [identityKey, hostId]);
+  if (hostId === undefined) {
+    // Defensive edge case — agent identity known but no live fleet mapping.
+    // Graceful degradation: render the plain badge without appendage. The
+    // structured warn above fires from a useEffect so re-renders don't spam.
     return (
       <div
         data-testid="relay-room-participant"
