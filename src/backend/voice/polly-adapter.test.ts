@@ -34,12 +34,19 @@ const { pollyClientCtor, synthesizeSpeechCmdCtor, sendMock } = vi.hoisted(() => 
   };
 });
 
-vi.mock("@aws-sdk/client-polly", () => ({
-  PollyClient: pollyClientCtor.mockImplementation(() => ({ send: sendMock })),
-  SynthesizeSpeechCommand: synthesizeSpeechCmdCtor.mockImplementation((input: unknown) => ({
-    input,
-  })),
-}));
+vi.mock("@aws-sdk/client-polly", () => {
+  // Use function-based ctors (not arrow) so `new` works. The vi.fn spies
+  // observe every construction call for assertion purposes.
+  function PollyClient(this: unknown, cfg: unknown) {
+    pollyClientCtor(cfg);
+    (this as { send: unknown }).send = sendMock;
+  }
+  function SynthesizeSpeechCommand(this: unknown, input: unknown) {
+    synthesizeSpeechCmdCtor(input);
+    (this as { input: unknown }).input = input;
+  }
+  return { PollyClient, SynthesizeSpeechCommand };
+});
 
 // Import AFTER vi.mock so the adapter picks up the mocked SDK.
 const { synthesizeToPcm } = await import("./polly-adapter.js");
