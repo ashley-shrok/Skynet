@@ -497,12 +497,33 @@ export function useRelayAdapter(
               setPendingSends((prev) =>
                 prev.filter((p) => p.mqid !== echoedTxnId),
               );
-              setHistory((prev) => [...prev, evt]);
+              // Phase 97 UAT follow-up (2026-09-10): also dedup by event_id
+              // in case a live_event with the same event_id already landed
+              // via history_batch (defensive; correlation branch normally
+              // covers the sender's own path).
+              setHistory((prev) =>
+                prev.some((h) => h.event_id === evt.event_id)
+                  ? prev
+                  : [...prev, evt],
+              );
               break;
             }
           }
-          // Non-correlated live event — append.
-          setHistory((prev) => [...prev, evt]);
+          // Non-correlated live event — append IF NOT ALREADY in history.
+          // Phase 97 UAT follow-up (2026-09-10): fix "4 bubbles for 2
+          // messages" hydration bug. On a fresh WS subscribe, the server
+          // emits `history_batch` with recent events, then may also emit
+          // those same events as `live_event` (buffered-from-before-connect
+          // pattern). Without this de-dup, both feeders write to `history`
+          // and every message renders twice. Client-side de-dup is
+          // defensive even if the server closes the overlap — WS reconnect
+          // + StrictMode double-mount can create the same overlap in
+          // production.
+          setHistory((prev) =>
+            prev.some((h) => h.event_id === evt.event_id)
+              ? prev
+              : [...prev, evt],
+          );
           break;
         }
         case "send_ack": {
@@ -629,9 +650,37 @@ export function useRelayAdapter(
       );
       if (mapped !== null) out.push(mapped);
     }
+    // Phase 97 UAT follow-up (2026-09-10): append optimistic bubbles for
+    // pending sends that haven't been echoed back yet. Slice 5 left this
+    // deferred (comment at the bottom of the file said "Optimistic-bubble
+    // rendering could be added in a later slice if needed"); UAT surfaced
+    // that without this, the sender sees no bubble at all until the
+    // server echoes their own send back over the WS — a several-second
+    // gap where the compose box empties but the pane stays visually
+    // unchanged. Pending entries are inserted in the send-time order they
+    // arrived (pendingSends is append-only until echo/failure).
+    //
+    // Correlation semantics: when a live_event with matching mqid lands,
+    // the switch case atomically removes the pending AND appends the real
+    // event — no double-render window because both setState calls batch.
+    // If the pending times out or fails, its `state` flips to "failed"
+    // but it stays in pendingSends so the failure bubble persists (D-14).
+    for (const p of pendingSends) {
+      out.push({
+        type: "relay_outbound",
+        room: roomIdRef.current,
+        rawCommand: "",
+        body: p.content,
+        // Use mqid as the eventId — stable React key, and doesn't collide
+        // with the real event's eventId once it arrives (echo path removes
+        // this pending BEFORE the real event enters history).
+        eventId: p.mqid,
+        ts: p.sentAt,
+      });
+    }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [history]);
+  }, [history, pendingSends]);
 
   // Memoize the returned object so consumers checking reference equality
   // (React.memo, useCallback deps that include the adapter object) don't see
@@ -672,12 +721,10 @@ export function useRelayAdapter(
     return IDLE_STATE;
   }
 
-  // Suppress lint: pendingSends is observed by the hook internally (timers
-  // fire against setPendingSends via flipToFailed) even though the returned
-  // shape doesn't expose it. Optimistic-bubble rendering could be added in a
-  // later slice if needed; for now the pending-send FIFO exists purely for
-  // the Pitfall 4 correlation + timeout lifecycle.
-  void pendingSends;
+  // Phase 97 UAT follow-up (2026-09-10): pendingSends now feeds the
+  // `messages` useMemo above as optimistic bubbles, so it's a real
+  // observed dependency of the returned shape — no more `void`
+  // suppression needed.
 
   return memoizedActiveState;
 }
