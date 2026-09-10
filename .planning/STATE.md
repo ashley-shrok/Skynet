@@ -610,6 +610,8 @@ None yet. Every deploy behind mandatory 15-min deadman rollback per fork DEPLOY 
 
 ### Roadmap Evolution
 
+- 2026-09-10: Phase 100 added (tabitha) — STT chunked parallel streaming. Follow-up to Phase 98: split incoming voice audio into ~8s overlapping chunks, dispatch parallel AWS Transcribe streaming sessions, stitch results via word-timestamp dedup. Backend-only refactor of `handleTranscribe`; `/voice/transcribe` endpoint contract unchanged (frontend untouched). Empirically-motivated: benchmark 2026-09-10 showed short Transcribe streams return faster-than-realtime (3s→0.8s, 8s→3.6s) while long streams throttle to ~1.7× realtime (15s→8.8s, 30s→17.8s). Chunking targets 5-10× speedup vs the current single-stream floor (30s clip → ~3.5s wall). Rescue-rebased 99 → 100 after tanya's coord-room claim on Phase 99 (spawn-request-watcher, event `$r2RqsbNkMnxZqPK49dRIzdzaxZXgcihOKnXTCX8Yhno`) per tiebreak-2. Vehicle: single GSD phase.
+
 - 2026-09-10: Phase 97 added (taylor). Room-case chrome and lifecycle should match session-case except where deliberately case-branched — Phase 93 UAT polish arc. Full detail in origin's tree.
 
 - 2026-09-10: Phase 98 added (tabitha) — More versatile STT/TTS support, swap self-hosted local rig for Amazon Polly (generative-engine TTS) + Amazon Transcribe (streaming STT). Shape locked at `.planning/shapes/shape-more-versatile-stt-tts-support.md` via /open. AWS exploration validated on real distribution (30 Polly synths + 5 Transcribe runs), Ashley greenlit generative-engine after A/B against her local rig, spend $1.14. Rescue-rebased 96 → 97 preemptively (tanya P96 in flight) then 97 → 98 after taylor P97 phase-93-uat-polish collision (her planning commit fe588e32 predated mine per tiebreak-3). Vehicle: single GSD phase.

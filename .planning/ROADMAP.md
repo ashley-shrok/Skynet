@@ -2242,3 +2242,13 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 98-10-PLAN.md — Wave 5 (deps 98-06, 98-08): Final Chatterbox kill — move getMatrixHomeserverBase from media-endpoints.ts to new src/backend/matrix/matrix-config.ts; rewire bridge-config-writer.ts import; delete src/backend/config/media-endpoints.ts + media-endpoints.test.ts; grep-sweep verifies zero residual Chatterbox references in live code
+
+### Phase 100: STT chunked parallel streaming — split incoming voice audio into ~8s overlapping chunks and dispatch parallel AWS Transcribe streaming sessions, stitch results via word-timestamp dedup. Backend-only refactor of handleTranscribe in src/backend/database/routes/voice.ts. Preserves /voice/transcribe endpoint contract exactly (same multipart WebM in, same {text} JSON out, slash-command transform preserved). Targets 5-10x speedup vs the current single-stream real-time floor (empirical benchmark 2026-09-10: 3s clip returns in 0.8s, 8s in 3.6s, 15s in 8.8s, 30s in 17.8s; so 4 parallel 8s chunks target ~3.5s wall for 30s audio vs 18s today). Follow-up to Phase 98 more-versatile-stt-tts-support. Bounty: stt-chunked-parallel-streaming.
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 98
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 99 to break down)
