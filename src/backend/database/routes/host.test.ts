@@ -14,6 +14,7 @@
  * Test groups:
  *   P1-P6: POST /host/db/host guard and happy-path
  *   U1-U5: PUT /host/db/host/:id guard and happy-path
+ *   A1-A6: Admin cross-user read + write + non-admin regression + sensitive-field-block guard (260910-439)
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -899,5 +900,270 @@ describe("PUT /db/host/:id — on-update flag-flip + credentialId-change sweep t
 
     expect(res._status).toBe(200);
     expect(sweepFn).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Admin cross-user extensions (A1-A6) — Quick 260910-439
+// ---------------------------------------------------------------------------
+
+const ADMIN_ID = "admin-user-1";
+const NON_ADMIN_ID = "user-1";
+
+/**
+ * Set up db.select so the first call (callerIsAdmin users lookup) returns an isAdmin row
+ * for the given userId, and the second call (PUT host record lookup) returns the normal host row.
+ *
+ * callerIsAdmin: db.select().from(users).where(...) — no .limit() — awaited directly.
+ * PUT host lookup: db.select().from(hosts).where(...).limit(1) — uses .limit().
+ *
+ * Strategy: use mockReturnValueOnce for the first db.select() call to return a chain
+ * where .from().where() resolves to the users array (thenable), then fall back to the
+ * default chain (which has .limit() returning the host row) for subsequent calls.
+ */
+async function mockDbSelectForAdmin(isAdmin: boolean, hostOwnerUserId = "other-user") {
+  const { db } = await import("../../database/db/index.js");
+
+  // Chain for the isAdmin lookup: .from().where() must be awaitable as an array.
+  const usersChain = {
+    from: vi.fn().mockReturnThis(),
+    where: vi.fn(() => Promise.resolve([{ isAdmin }])),
+    limit: vi.fn(() => Promise.resolve([{ isAdmin }])),
+  };
+
+  // Chain for the host record lookup (PUT handler reads runsFleetSubstrate etc.).
+  const hostsChain = {
+    from: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
+    limit: vi.fn(() =>
+      Promise.resolve([
+        {
+          userId: hostOwnerUserId,
+          credentialId: 42,
+          authType: "credential",
+          runsFleetSubstrate: true,
+        },
+      ]),
+    ),
+  };
+
+  // First call → users lookup (callerIsAdmin); second call → host record (PUT handler).
+  (db.select as ReturnType<typeof vi.fn>)
+    .mockReturnValueOnce(usersChain)
+    .mockReturnValue(hostsChain);
+}
+
+describe("Admin cross-user extensions (A1-A6)", () => {
+  it("A1: Non-admin POST without targetUserId — proceeds normally, callerIsAdmin not invoked", async () => {
+    // Regression: when body has no targetUserId, the admin gate condition does not fire and
+    // callerIsAdmin is never called. Normal POST succeeds without touching the isAdmin path.
+    // The default beforeEach db.select mock is used (no db override needed here).
+    const req = makePostReq({
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: false,
+      credentialId: 42,
+    }, NON_ADMIN_ID);
+    const res = makeMockRes();
+
+    await postHandler!(req, res);
+
+    expect(res._status).toBe(200);
+    expect(SimpleDBOps.insert).toHaveBeenCalled();
+    // db.select should NOT have been called (no callerIsAdmin invocation needed)
+    const { db } = await import("../../database/db/index.js");
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it("A2: Non-admin POST with body.targetUserId → 403, SimpleDBOps.insert NOT called", async () => {
+    const { db } = await import("../../database/db/index.js");
+    const usersChain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn(() => Promise.resolve([{ isAdmin: false }])),
+      limit: vi.fn(() => Promise.resolve([{ isAdmin: false }])),
+    };
+    (db.select as ReturnType<typeof vi.fn>).mockReturnValueOnce(usersChain);
+
+    const req = makePostReq({
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: false,
+      credentialId: 42,
+      targetUserId: "other-user",
+    }, NON_ADMIN_ID);
+    const res = makeMockRes();
+
+    await postHandler!(req, res);
+
+    expect(res._status).toBe(403);
+    expect((res._body as { error: string }).error).toContain("Only admin users can set targetUserId");
+    expect(SimpleDBOps.insert).not.toHaveBeenCalled();
+  });
+
+  it("A3: Admin POST with body.targetUserId + body.password (inline sensitive cred) → 400, insert NOT called", async () => {
+    const { db } = await import("../../database/db/index.js");
+    const usersChain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn(() => Promise.resolve([{ isAdmin: true }])),
+      limit: vi.fn(() => Promise.resolve([{ isAdmin: true }])),
+    };
+    (db.select as ReturnType<typeof vi.fn>).mockReturnValueOnce(usersChain);
+
+    const req = makePostReq({
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: false,
+      credentialId: 42,
+      targetUserId: "other-user",
+      password: "super-secret",
+    }, ADMIN_ID);
+    const res = makeMockRes();
+
+    await postHandler!(req, res);
+
+    expect(res._status).toBe(400);
+    expect((res._body as { error: string }).error).toContain(
+      "Cross-user writes cannot include inline sensitive credentials",
+    );
+    expect(SimpleDBOps.insert).not.toHaveBeenCalled();
+  });
+
+  it("A4: Admin POST with targetUserId + credentialId, no inline creds → 200, insert called with effectiveUserId=other-user", async () => {
+    const { db } = await import("../../database/db/index.js");
+    const usersChain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn(() => Promise.resolve([{ isAdmin: true }])),
+      limit: vi.fn(() => Promise.resolve([{ isAdmin: true }])),
+    };
+    (db.select as ReturnType<typeof vi.fn>).mockReturnValueOnce(usersChain);
+
+    (SimpleDBOps.insert as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 999,
+      userId: "other-user",
+      ip: "1.1.1.1",
+      port: 22,
+      name: "test-host",
+      connectionType: "ssh",
+      runsFleetSubstrate: false,
+      credentialId: 42,
+      authType: "credential",
+    });
+
+    const req = makePostReq({
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: false,
+      credentialId: 42,
+      targetUserId: "other-user",
+      // no inline sensitive creds
+    }, ADMIN_ID);
+    const res = makeMockRes();
+
+    await postHandler!(req, res);
+
+    expect(res._status).toBe(200);
+    // SimpleDBOps.insert should be called with the 4th arg = "other-user" (effectiveUserId)
+    expect(SimpleDBOps.insert).toHaveBeenCalled();
+    const insertArgs = (SimpleDBOps.insert as ReturnType<typeof vi.fn>).mock.calls[0];
+    // 4th arg is the userId passed to SimpleDBOps.insert
+    expect(insertArgs[3]).toBe("other-user");
+  });
+
+  it("A5: Non-admin PUT with body.targetUserId → 403, SimpleDBOps.update NOT called", async () => {
+    const { db } = await import("../../database/db/index.js");
+    // First call: isAdmin lookup → false for non-admin.
+    const usersChain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn(() => Promise.resolve([{ isAdmin: false }])),
+      limit: vi.fn(() => Promise.resolve([{ isAdmin: false }])),
+    };
+    // Second call: canAccessHost host record (this won't be reached because the gate fires first).
+    const hostsChain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      limit: vi.fn(() => Promise.resolve([{ userId: "user-1", credentialId: 42, authType: "credential", runsFleetSubstrate: false }])),
+    };
+    (db.select as ReturnType<typeof vi.fn>)
+      .mockReturnValueOnce(usersChain)
+      .mockReturnValue(hostsChain);
+
+    const req = makePutReq("1", {
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: false,
+      credentialId: 42,
+      targetUserId: "other-user",
+    }, NON_ADMIN_ID);
+    const res = makeMockRes();
+
+    await putHandler!(req, res);
+
+    expect(res._status).toBe(403);
+    expect((res._body as { error: string }).error).toContain("Only admin users can set targetUserId");
+    expect(SimpleDBOps.update).not.toHaveBeenCalled();
+  });
+
+  it("A6: Admin PUT on a row where host owner != admin, no targetUserId, no inline creds → 200, update called, isOwner:false bypassed", async () => {
+    // The permissionManager returns isOwner:false (admin doesn't own the row).
+    // The handler should bypass the 403 and proceed.
+    const { PermissionManager } = await import("../../utils/permission-manager.js");
+    (PermissionManager.getInstance as ReturnType<typeof vi.fn>).mockReturnValue({
+      canAccessHost: vi.fn(async () => ({ hasAccess: true, isOwner: false })),
+    });
+
+    const { db } = await import("../../database/db/index.js");
+    // First call: callerIsAdmin → true for admin.
+    const usersChain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn(() => Promise.resolve([{ isAdmin: true }])),
+      limit: vi.fn(() => Promise.resolve([{ isAdmin: true }])),
+    };
+    // Second call: host record lookup (returns row owned by "other-user").
+    const hostsChain = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      limit: vi.fn(() =>
+        Promise.resolve([
+          {
+            userId: "other-user",
+            credentialId: 42,
+            authType: "credential",
+            runsFleetSubstrate: false,
+          },
+        ]),
+      ),
+    };
+    (db.select as ReturnType<typeof vi.fn>)
+      .mockReturnValueOnce(usersChain)
+      .mockReturnValue(hostsChain);
+
+    (SimpleDBOps.select as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        id: 1,
+        userId: "other-user",
+        ip: "1.1.1.1",
+        port: 22,
+        name: "other-host",
+        connectionType: "ssh",
+        runsFleetSubstrate: false,
+        credentialId: 42,
+        authType: "credential",
+      },
+    ]);
+
+    const req = makePutReq("1", {
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: false,
+      credentialId: 42,
+      // No targetUserId — admin is just updating a row they don't own
+    }, ADMIN_ID);
+    const res = makeMockRes();
+
+    await putHandler!(req, res);
+
+    // Should succeed (admin bypasses the isOwner:false 403)
+    expect(res._status).toBe(200);
+    expect(SimpleDBOps.update).toHaveBeenCalled();
   });
 });
