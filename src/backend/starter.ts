@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import { promises as fs } from "fs";
 import { readFileSync } from "fs";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 import path from "path";
 import { fileURLToPath } from "url";
 import { AutoSSLSetup } from "./utils/auto-ssl-setup.js";
@@ -187,6 +188,32 @@ if (process.env.VITEST !== "true") {
       nodeEnv: process.env.NODE_ENV || "production",
       port: process.env.PORT || 4090,
     });
+
+    // Event-loop lag sampler — SLICE 1 of auth-slow-requests-on-pwa-boot bounty.
+    // Belt-and-suspenders inner VITEST gate: the outer if (process.env.VITEST !==
+    // "true") at L167 already prevents this IIFE from running during tests, but
+    // the extra guard here documents intent at the sampler site itself.
+    if (process.env.VITEST !== "true") {
+      const eventLoopHistogram = monitorEventLoopDelay({ resolution: 20 });
+      eventLoopHistogram.enable();
+      const eventLoopSampleInterval = setInterval(() => {
+        const p50Ms = Math.round((eventLoopHistogram.percentile(50) / 1_000_000) * 10) / 10;
+        const p99Ms = Math.round((eventLoopHistogram.percentile(99) / 1_000_000) * 10) / 10;
+        const maxMs = Math.round((eventLoopHistogram.max / 1_000_000) * 10) / 10;
+        systemLogger.info("Event loop lag sample", {
+          operation: "event_loop_lag_sample",
+          p50Ms,
+          p99Ms,
+          maxMs,
+        });
+        eventLoopHistogram.reset();
+      }, 1000);
+      eventLoopSampleInterval.unref();
+      process.once("SIGTERM", () => {
+        clearInterval(eventLoopSampleInterval);
+        eventLoopHistogram.disable();
+      });
+    }
 
     let version = "unknown";
 
