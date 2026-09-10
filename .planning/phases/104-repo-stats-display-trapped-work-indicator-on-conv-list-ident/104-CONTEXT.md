@@ -144,3 +144,65 @@ The work fits comfortably in one phase — one shipping unit with meaningful bac
 - The existing on-avatar bounty-badge machinery being retired here lives in `src/ui/features/pretty-conversations/PrettyBountyCountBadge.tsx` and the corresponding CSS rules in `pretty-conversations.css` under the `.pv-avatar .pv-bounty-badge-wrap` selectors. Removing this cleanly is a scope motion, not a side effect.
 
 **Executor scope stops at code + commit + local scoped tests green.** Per fleet directive: the deploy motion (rebase / coord post / push / build / recreate / verify) is orchestrator-only after the executor returns. No "ship" task at executor scope. Full-suite tests run at the deploy gate, not before push.
+
+---
+
+## Discuss-phase additions (2026-09-10)
+
+The shape file above locked most user-vision decisions. Discuss-phase surfaced three residual gray areas + one codebase-scouting correction.
+
+### Correction to Vehicle Notes — "fleet-status SSH bundle" is the wrong subsystem
+
+The shape file's Vehicle Notes said detection "piggybacks on the existing SSH-based fleet-status bundle." Correction after scouting: the actual analog pattern is **claude-session-server**, not fleet-status. The existing bounty-count wire path lives at:
+
+- **Detection function**: `src/backend/claude-session/identity-artifact-reader.ts:4020+` — `readIdentityBountyCounts(conn, identityKey)` — single SSH exec, walks bounties dir on peer box, returns `{pinnedCount, needsDeskCount}`
+- **API endpoint wiring**: `src/backend/claude-session/claude-session-server.ts:1192` — calls `readIdentityBountyCounts` and surfaces to the frontend
+- **Test pattern**: `identity-artifact-reader.count-bounties.test.ts` + `claude-session-server.count-bounties.test.ts`
+
+The new detector mirrors this shape as a sibling function (`readIdentityTrappedWork` or similar), returning `{hasTrappedWork: boolean}` per identity. Same subsystem, same wire mechanic, new function.
+
+### Scope motion clarification — `readIdentityBountyCounts` deletion
+
+Because the two badges being removed (bounty count + needs-desk count) are the ONLY consumers of `readIdentityBountyCounts`, the function itself is deletion-scope (not just its frontend consumption). Executor should delete:
+- The `readIdentityBountyCounts` function in `identity-artifact-reader.ts`
+- Its export + wiring in `claude-session-server.ts`
+- The two `.count-bounties.test.ts` files
+- Any related types
+
+Cleanly. Not left as unused code.
+
+### Locked decisions from discuss-phase
+
+- **Tooltip copy** (hover, desktop): **"Has local work not yet pushed to any remote"**. Direct answer to "what does this icon mean" for a first-time viewer. No git-jargon that requires prior knowledge; readable to Skynet users who've never used git.
+- **First-load behavior**: **Indicator starts absent, populates when the SSH probe for that identity returns.** No loading spinner, no held-render. For identities with no trapped work (silent-fail case, the majority), the indicator stays absent forever with no visible transition. For identities with trapped work, indicator appears once probe data arrives (sub-second cached, up to ~30s cold). Load-window ambiguity accepted as a small cost vs. the visual complexity of a loading affordance on every row.
+- **Poll cadence**: **Match the existing fleet-status / claude-session cadence (~30s).** Piggybacks on existing timing infrastructure; no new poller. Lag is imperceptible for a rescue-oriented glance-level indicator. Manual-refresh-on-git-hook was considered and deferred as a later optimization.
+
+### Canonical refs
+
+- `.planning/shapes/shape-repo-stats-display.md` — the /open shape file (this CONTEXT.md's parent)
+- `.planning/ROADMAP.md` § Phase 104 — the phase's roadmap entry
+- `src/backend/claude-session/identity-artifact-reader.ts` — sibling `readIdentityBountyCounts` pattern to mirror + delete
+- `src/backend/claude-session/claude-session-server.ts` — API endpoint wiring pattern
+- `src/backend/claude-session/identity-artifact-reader.count-bounties.test.ts` + `claude-session-server.count-bounties.test.ts` — test pattern to mirror + delete
+- `src/ui/features/pretty-conversations/PrettyConversationRow.tsx` — conv-list row (indicator addition site + existing badge removal site)
+- `src/ui/features/pretty-conversations/PrettyBountyCountBadge.tsx` — the badge component being retired
+- `src/ui/features/pretty-conversations/pretty-conversations.css:482+` (`.pv-row`, `.pv-avatar`, `.pv-bounty-badge-wrap`) — row + avatar CSS + badge positioning rules to modify/remove
+- `src/ui/features/terminal/IdentityBadge.tsx` — pretty-view header identity badge (indicator addition site)
+- `src/ui/index.css:143-159` — pretty-view palette tokens (`--color-pv-*`) — build indicator against these, don't add new palette values
+- `~/.claude/roles/box-maintainer/bounties/repo-stats-display/tasting/index.html` — the served HTML mockup that produced the tasted visual decisions (icon = git-pull-request-draft, placement = avatar corner both surfaces). Preserved for reference, not shipped.
+
+### Code_context — reusable assets and integration points
+
+- **Detection pattern to mirror**: `readIdentityBountyCounts` — read once for structure (single SSH exec, in-band aggregation, JSON return shape), then mirror as `readIdentityTrappedWork`
+- **Deletion targets alongside addition**: bounty-count read fn + endpoint wiring + tests + frontend badge component + CSS avatar-corner badge rules
+- **Existing lucide-react icon library**: already imported throughout `pretty-conversations/` and `terminal/` — the git-pull-request-draft icon adds to the existing dependency, no new library
+- **Avatar-corner absolute-positioning slots**: already established via `.pv-avatar .pv-bounty-badge-wrap[data-testid="pv-bounty-badge-pinned"]` (bl) and `[data-testid="pv-bounty-badge-needs-desk"]` (br) at `pretty-conversations.css:662-675` — new indicator claims the br slot after removals
+
+### Deferred ideas (out of this phase — noted for possible future work)
+
+- Manual-refresh-on-git-hook: trigger a probe from a git-command hook so the indicator updates near-immediately after a local commit/push instead of waiting for the next poll interval. Not needed for the rescue-oriented glance-level use case; add later if the ~30s lag ever feels wrong.
+- Loading-state affordance during first probe: if the "start absent, appear when probe completes" behavior turns out to feel wrong in real use (probably won't), add a small loading placeholder in the corner during the first probe window.
+- Support for non-git version control (hg/svn/jj): explicitly out of scope per shape; add later if fleet ever hosts a non-git repo.
+- Additional identity surfaces beyond conv-list + pretty-view header: the identity modal header, expanded identity views, etc. — explicitly out of scope per shape; add later if the signal proves valuable enough that other surfaces feel bare without it.
+- Migration of pre-convention identity workspaces to the new standardized layout: unrelated concern with its own timeline; the indicator's silent-fail on pre-convention identities is accepted.
+
