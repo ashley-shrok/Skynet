@@ -127,6 +127,14 @@ vi.mock("@/state/bounty-counts-store", () => ({
   useBountyCounts: () => currentBountyCounts,
 }));
 
+// Phase 104 Plan 02 — per-test override handle for useTrappedWork.
+// Default is undefined (pre-fetch / D-06 start-absent).
+let currentTrappedWork: { hasTrappedWork: boolean } | undefined = undefined;
+
+vi.mock("@/state/trapped-work-store", () => ({
+  useTrappedWork: () => currentTrappedWork,
+}));
+
 // tabIcon is a real dep — no need to mock. tabUtils.tsx does pull in a wide
 // dependency graph via renderTabContent, but for tabIcon-only usage the graph
 // is tree-shaken irrelevant during test runs.
@@ -201,6 +209,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   currentIdentity = null;
   currentBountyCounts = undefined;
+  currentTrappedWork = undefined; // Phase 104 Plan 02 — default: pre-fetch
   currentIsTouchDevice = false; // quick-260821-suv default: fine-pointer desktop
 });
 
@@ -3572,5 +3581,179 @@ describe("PrettyConversationRow: Phase 67 coordinator watermark", () => {
     expect(
       container.querySelector('[data-testid="coordinator-watermark"]'),
     ).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 104 Plan 02 — Trapped-work indicator visibility on avatar corner
+// ─────────────────────────────────────────────────────────────────────────────
+// The trapped-work indicator (data-testid="pv-trapped-work-indicator") renders
+// inside .pv-avatar when useTrappedWork returns {hasTrappedWork:true}, and is
+// absent when the hook returns undefined (pre-fetch / D-06 start-absent) or
+// {hasTrappedWork:false} (probe returned no trapped work). currentTrappedWork
+// is reset to undefined in beforeEach; each test sets it to the relevant shape.
+
+describe("PrettyConversationRow: trapped-work indicator visibility (Phase 104 Plan 02)", () => {
+  it("Row Test 1 (indicator absent — undefined): mock useTrappedWork returns undefined → no indicator in DOM", () => {
+    currentIdentity = makeIdentity(210, "nelly");
+    currentTrappedWork = undefined;
+    render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+      />,
+    );
+    expect(screen.queryByTestId("pv-trapped-work-indicator")).toBeNull();
+  });
+
+  it("Row Test 2 (indicator absent — false): mock returns {hasTrappedWork:false} → no indicator in DOM", () => {
+    currentIdentity = makeIdentity(210, "nelly");
+    currentTrappedWork = { hasTrappedWork: false };
+    render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+      />,
+    );
+    expect(screen.queryByTestId("pv-trapped-work-indicator")).toBeNull();
+  });
+
+  it("Row Test 3 (indicator present — true): mock returns {hasTrappedWork:true} → indicator exists inside .pv-avatar", () => {
+    currentIdentity = makeIdentity(210, "nelly");
+    currentTrappedWork = { hasTrappedWork: true };
+    const { container } = render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+      />,
+    );
+    const indicator = screen.queryByTestId("pv-trapped-work-indicator");
+    expect(indicator).not.toBeNull();
+    // It must be a direct descendant of the .pv-avatar container.
+    const avatar = container.querySelector('[data-testid="pcrow-avatar"]');
+    expect(avatar).not.toBeNull();
+    expect(avatar!.contains(indicator!)).toBe(true);
+  });
+
+  it("Row Test 4 (tooltip attribute): indicator has title=\"Has local work not yet pushed to any remote\" (D-07 exact copy)", () => {
+    currentIdentity = makeIdentity(210, "nelly");
+    currentTrappedWork = { hasTrappedWork: true };
+    render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+      />,
+    );
+    const indicator = screen.getByTestId("pv-trapped-work-indicator");
+    expect(indicator.getAttribute("title")).toBe(
+      "Has local work not yet pushed to any remote",
+    );
+  });
+
+  it("Row Test 5 (icon has aria-hidden): the SVG icon inside the indicator has aria-hidden=\"true\"", () => {
+    currentIdentity = makeIdentity(210, "nelly");
+    currentTrappedWork = { hasTrappedWork: true };
+    render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+      />,
+    );
+    const indicator = screen.getByTestId("pv-trapped-work-indicator");
+    const svg = indicator.querySelector("svg");
+    expect(svg).not.toBeNull();
+    expect(svg!.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("Row Test 6 (icon is GitPullRequestDraft): the inner SVG carries lucide's git-pull-request-draft class", () => {
+    currentIdentity = makeIdentity(210, "nelly");
+    currentTrappedWork = { hasTrappedWork: true };
+    render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+      />,
+    );
+    const indicator = screen.getByTestId("pv-trapped-work-indicator");
+    const svg = indicator.querySelector("svg");
+    expect(svg).not.toBeNull();
+    // lucide-react renders each icon with a class like `lucide-<kebab-name>`;
+    // GitPullRequestDraft → `lucide-git-pull-request-draft`.
+    const cls = svg!.getAttribute("class") ?? "";
+    expect(cls).toContain("lucide-git-pull-request-draft");
+    // Sanity: the pv-trapped-work-icon class is also applied.
+    expect(cls).toContain("pv-trapped-work-icon");
+  });
+
+  it("Row Test 7 (non-identity row): row with no identity (matchKey null) → no indicator (useTrappedWork short-circuits)", () => {
+    // currentIdentity is null (reset in beforeEach) — no identity resolves.
+    currentTrappedWork = undefined; // hook returns undefined for null identityKey
+    render(
+      <PrettyConversationRow
+        row={makeRow({ targetTmuxSession: null })}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={false}
+      />,
+    );
+    expect(screen.queryByTestId("pv-trapped-work-indicator")).toBeNull();
+  });
+
+  it("Row Test 8 (coexistence with bounty badges — Wave 1 A/B): all three affordances render simultaneously", () => {
+    // This test is DELETED in Plan 03 alongside the bounty-badge retirement.
+    // For Wave 1 it verifies the trapped-work indicator lands in a distinct
+    // slot so it can visually coexist with the pre-existing bounty badges.
+    currentIdentity = makeIdentity(210, "nelly");
+    currentBountyCounts = { pinnedCount: 3, needsDeskCount: 1 };
+    currentTrappedWork = { hasTrappedWork: true };
+    render(
+      <PrettyConversationRow
+        row={makeRow()}
+        selected={false}
+        pinned={false}
+        variant="desktop"
+        onSelect={vi.fn()}
+        onTogglePin={vi.fn()}
+        inActiveSet={true}
+      />,
+    );
+    expect(screen.getByTestId("pv-bounty-badge-pinned").textContent).toBe("3");
+    expect(screen.getByTestId("pv-bounty-badge-needs-desk").textContent).toBe(
+      "1",
+    );
+    expect(screen.queryByTestId("pv-trapped-work-indicator")).not.toBeNull();
   });
 });

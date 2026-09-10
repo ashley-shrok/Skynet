@@ -674,6 +674,43 @@
   right: -8px;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   PHASE 104 PLAN 02 — TRAPPED-WORK INDICATOR (avatar bottom-right corner)
+   ═══════════════════════════════════════════════════════════════════════════
+   Per-identity rescue-oriented indicator: warm-amber pilled disc anchored to
+   the avatar's bottom-right corner. Renders only when useTrappedWork returns
+   {hasTrappedWork:true}. Distinct selector from .pv-bounty-badge-wrap so
+   Plan 03's bounty-wire deletion cannot accidentally strip this indicator's
+   positioning.
+
+   Palette per D-05 constraint (build against existing --color-pv-* tokens):
+     - Amber value hsla(35, 65%, 55%, 0.85) matches the pretty-view warm
+       fallback hue (IdentityBadge.tsx L109 fallback + pretty-conversations
+       .pv-row.rdp inset). No new palette variables introduced.
+     - Icon fill #f0ebe0 (cream) matches .pv-bounty-badge-num background —
+       same off-white the badge-num pill uses. */
+.pv-avatar .pv-trapped-work-indicator {
+  position: absolute;
+  bottom: -4px;
+  right: -8px;
+  z-index: 2;
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: hsla(35, 65%, 55%, 0.85);
+  box-shadow: 0 0 12px hsla(35, 65%, 55%, 0.4);
+}
+
+.pv-avatar .pv-trapped-work-indicator .pv-trapped-work-icon {
+  width: 12px;
+  height: 12px;
+  color: #f0ebe0;
+}
+
 /* Patch #142 Fix 3 — RDP Monitor icon size in avatar.
    tabIcon() returns lucide icons with hard-coded className="size-3.5" (14px);
    the mock expects 18x18 inside the 40px disc. Scoped to .pv-avatar so
@@ -1409,6 +1446,20 @@
     padding: 0 6px;
     font-size: 13px;
     line-height: 18px;
+  }
+
+  /* Phase 104 Plan 02 — trapped-work indicator mobile bump. Scales to ~28px
+     to match the em-scaled rows on mobile (patch #165 html=24px), parity with
+     the bounty-badge mobile bump above. */
+  .pv-avatar .pv-trapped-work-indicator {
+    width: 28px;
+    height: 28px;
+    bottom: -6px;
+    right: -10px;
+  }
+  .pv-avatar .pv-trapped-work-indicator .pv-trapped-work-icon {
+    width: 18px;
+    height: 18px;
   }
 
   /* Patch #270 — bump 5h + weekly usage-meter bar height on mobile per Ashley

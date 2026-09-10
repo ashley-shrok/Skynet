@@ -130,13 +130,16 @@ import {
   type MouseEvent,
   type TouchEvent,
 } from "react";
-import { Pin, Monitor } from "lucide-react";
+import { Pin, Monitor, GitPullRequestDraft } from "lucide-react";
 
 import { tabIcon } from "@/shell/tabUtils";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { useIdentities } from "@/state/identities-store";
 // Phase 68 Plan 04: avatarUrlWithHost DELETED — backend bakes hostId into identity.avatarUrl.
 import { useBountyCounts } from "@/state/bounty-counts-store";
+// Phase 104 Plan 02: per-identity trapped-work indicator (D-05, D-06, D-07).
+// Additive alongside the bounty-count wire; Plan 03 retires bounty-counts.
+import { useTrappedWork } from "@/state/trapped-work-store";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 import { cn } from "@/lib/utils";
 import type { ConversationRow as ConversationRowShape } from "@/state/conversation-store";
@@ -335,6 +338,15 @@ export function PrettyConversationRow({
   // The pair is always published atomically — both halves land together.
   const rowHostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
   const bountyCounts = useBountyCounts(
+    identity?.identityKey ?? null,
+    Number.isFinite(rowHostIdNum) ? rowHostIdNum : null,
+  );
+
+  // Phase 104 Plan 02 (D-05, D-06, D-07): per-identity trapped-work snapshot.
+  // Hook short-circuits to undefined when identityKey is null. Both undefined
+  // (pre-fetch / non-identity row) AND {hasTrappedWork:false} render nothing
+  // — the indicator gates on strict `=== true` at the JSX site below.
+  const trappedWork = useTrappedWork(
     identity?.identityKey ?? null,
     Number.isFinite(rowHostIdNum) ? rowHostIdNum : null,
   );
@@ -1251,6 +1263,27 @@ export function PrettyConversationRow({
                 </span>
               </span>
             )}
+          {/* Phase 104 Plan 02 — trapped-work indicator (D-05, D-06, D-07).
+              Bottom-right corner of the avatar in a warm-amber pilled disc.
+              Gates on strict `=== true` — pre-fetch (undefined) AND
+              hasTrappedWork:false both render nothing (D-06 start-absent +
+              silent-for-non-participants). Icon: GitPullRequestDraft from
+              lucide-react. Tooltip copy VERBATIM per D-07. No click behavior
+              (hover-only affordance per D-05). Distinct CSS class from
+              .pv-bounty-badge-wrap so Plan 03's bounty-wire deletion cannot
+              accidentally strip this indicator's positioning. */}
+          {trappedWork?.hasTrappedWork === true && (
+            <span
+              className="pv-trapped-work-indicator"
+              data-testid="pv-trapped-work-indicator"
+              title="Has local work not yet pushed to any remote"
+            >
+              <GitPullRequestDraft
+                className="pv-trapped-work-icon"
+                aria-hidden="true"
+              />
+            </span>
+          )}
         </div>
 
         {/* Body: title line + subtitle line.

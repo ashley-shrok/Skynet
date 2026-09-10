@@ -119,6 +119,9 @@ import {
   startBountyCountPoller,
   useAllBountyCounts,
 } from "@/state/bounty-counts-store";
+// Phase 104 Plan 02: separate import so Plan 03's bounty-counts delete pass
+// is clean (single line to remove, no shared import block to untangle).
+import { startTrappedWorkPoller } from "@/state/trapped-work-store";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/popover";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { NewSessionDialog, type NewSessionOnCreateOpts } from "@/sidebar/NewSessionDialog";
@@ -556,6 +559,40 @@ export function PrettyConversationsPanel({
       return targets;
     };
     const stop = startBountyCountPoller(getTargets, 60_000);
+    return stop;
+  }, []);
+
+  // Phase 104 Plan 02: trapped-work poller mount (D-08 cadence: 60_000 ms +
+  // window.focus refresh). Same getTargets shape as the bounty-count poller
+  // above — walks pinned + middle + rdpGroup, resolves identities via the
+  // identitiesByKeyRef, dedupes by composite key. Per Pitfall #5 in
+  // RESEARCH.md, this MUST cover dormant identities (the whole rescue-
+  // oriented signal breaks if we gate on activeSet). Plan 03 removes the
+  // bounty-count poller above; this trapped-work poller stays.
+  useEffect(() => {
+    const getTargets = () => {
+      const idsSeen = new Set<string>();
+      const targets: Array<{ identityKey: string; hostId: number | null }> = [];
+      const collect = (row: ConversationRowShape) => {
+        const matchKey = sessionMatchKey(row.targetTmuxSession);
+        if (!matchKey) return;
+        const ident = identitiesByKeyRef.current.get(matchKey);
+        if (!ident) return;
+        const hostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
+        const hostId = Number.isFinite(hostIdNum) ? hostIdNum : null;
+        const composite = `${ident.identityKey}:${hostId ?? "local"}`;
+        if (idsSeen.has(composite)) return;
+        idsSeen.add(composite);
+        targets.push({ identityKey: ident.identityKey, hostId });
+      };
+      for (const row of pinnedRowsRef.current) collect(row);
+      for (const row of middleRef.current) collect(row);
+      if (rdpGroupRef.current !== null) {
+        for (const row of rdpGroupRef.current.rows) collect(row);
+      }
+      return targets;
+    };
+    const stop = startTrappedWorkPoller(getTargets, 60_000);
     return stop;
   }, []);
 

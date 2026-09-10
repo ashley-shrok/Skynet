@@ -73,6 +73,11 @@ vi.mock("@/state/bounty-counts-store", () => ({
   useBountyCounts: () => undefined,
 }));
 
+// Phase 104 Plan 02 — trapped-work-store (inert stub — row imports the hook)
+vi.mock("@/state/trapped-work-store", () => ({
+  useTrappedWork: () => undefined,
+}));
+
 import { PrettyConversationRow } from "./PrettyConversationRow";
 
 // ─── Fixture helpers (mirror PrettyConversationRow.test.tsx) ─────────────────
