@@ -8,37 +8,33 @@ import { databaseLogger } from "../../utils/logger.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { WAKE_WORD_REGEX, applyServerSlashTransform } from "../../voice/slashCommandTransform.js";
 import { fetchSkillCatalog, DEFAULT_SKILL_CATALOG_TIMEOUT_MS } from "../../voice/skill-catalog.js";
-// Phase 79 Plan 02 (D-03): STT/TTS endpoint URLs live in a shared TS module
-// so the tg-bridge (Plan 04) reads the same values Skynet does. See
-// src/backend/config/media-endpoints.ts for the byte-identical originals.
-import { STT_URL, TTS_URL, TTS_STREAM_URL, VOICES_URL } from "../../config/media-endpoints.js";
+// Phase 98 Plan 06 — AWS-backed voice routes. media-endpoints.ts is deleted
+// alongside this rewrite; the Chatterbox tailnet endpoints are dead. All
+// provider translation moves onto the backend behind the AWS SDK v3 adapters
+// from Plan 04 + the pure kernels from Plan 02.
+import { synthesizeToPcm } from "../../voice/polly-adapter.js";
+import { transcribeBuffer } from "../../voice/transcribe-adapter.js";
+import { webmToOggOpus, webmToFlac } from "../../voice/audio-transcode.js";
+import { splitIntoSentences, packChunks } from "../../voice/chunk-and-stitch.js";
+import { buildRiffHeader } from "../../voice/riff-header-builder.js";
+import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
+import { isAwsAccessDenied } from "../../voice/aws-errors.js";
 
-// Patch #155: POST /voice/transcribe — authenticated reverse-proxy to tailnet
-// faster-whisper STT service on GigaAshleyPC.
+// Phase 98 Plan 06 (D-Claude's-discretion 2026-09-10):
+//   - Voice-catalog route DROPPED (frontend inlines POLLY_VOICES per Plan 03).
+//   - Its handler DELETED (dead code after route drop).
+//   - The old .wav-filename regex DELETED (validation moves to isValidPollyVoice).
 //
-// The production ComposeBox runs on the public internet and cannot reach the
-// tailnet STT directly. This route acts as the authenticated reverse-proxy hop:
-//   browser → nginx → this handler → STT (tailnet) → transcript JSON → client
-//
-// Security posture (per threat model T-16-*):
+// Security posture preserved from prior era (T-16-* + new T-98-06-*):
 //   T-16-01: multer 25 MB fileSize cap prevents memory exhaustion
-//   T-16-02: AbortController 30s timeout prevents hung threads
-//   T-16-03: non-2xx responses return a fixed {error, status} shape — no STT body leak
-//   T-16-04: authenticateJWT is wired BEFORE multer — unauthenticated = 401 before parse
-//   T-16-05: client multipart is parsed by multer into req.file.buffer, then a FRESH
-//             FormData is constructed for the STT request — no content-type smuggling
-
-// --- Locked STT endpoint (Nelly-verified live, 2026-07-27) ---
-// --- Patch #223: TTS endpoints (Chatterbox on tailnet) ---
-// --- Patch #237: Streaming TTS endpoint (Chatterbox /tts, not /v1/audio/speech) ---
-// Phase 79 Plan 02 (D-03): the four constants above (STT_URL, TTS_URL,
-// TTS_STREAM_URL, VOICES_URL) moved to src/backend/config/media-endpoints.ts
-// so the tg-bridge Docker service reads the same values. Values themselves
-// are unchanged (byte-for-byte).
-export const DEFAULT_VOICE = "Elena.wav";
+//   T-16-04: authenticateJWT wired BEFORE multer — unauthenticated = 401 before parse
+//   T-98-06-03: AWS errors are NEVER surfaced to clients; fixed {error, status} shapes only
+//   T-98-06-04: AccessDenied (policy detached) → 503 + info-level log (no error spam)
+//   T-98-06-05: isValidPollyVoice whitelist gate before any Polly call
+//   T-98-06-10: handleSpeak RIFF dataSize == pcmBuf.length (byte-accurate; strict WAV parsers)
+export const DEFAULT_VOICE = "Joanna";
 export const SPEAK_TEXT_MAX = 25000;
 export const SAMPLE_PHRASE = "Hi, this is your voice.";
-const VOICE_FILENAME_RE = /^[A-Z][A-Za-z]+\.wav$/;
 
 // --- Express router ---
 const router = express.Router();
@@ -58,8 +54,46 @@ function extFromMimetype(mimetype: string): string {
   if (mimetype.includes("mp4") || mimetype.includes("m4a")) return "mp4";
   if (mimetype.includes("wav")) return "wav";
   if (mimetype.includes("ogg")) return "ogg";
+  if (mimetype.includes("flac")) return "flac";
   if (mimetype.includes("mp3") || mimetype.includes("mpeg")) return "mp3";
   return "bin";
+}
+
+/**
+ * Bridge the raw multipart audio bytes into a Transcribe-accepted format.
+ *
+ * Happy path (WebM/Opus from MediaRecorder): remux to Ogg/Opus via
+ * `webmToOggOpus` (fast — `-c:a copy`, few ms). On failure (e.g. Chrome's
+ * multi-channel edge case), fall back to `webmToFlac` (full re-encode to
+ * 16 kHz mono FLAC, ~50-200 ms) and switch MediaEncoding to "flac". Passes
+ * through Ogg/FLAC uploads unchanged.
+ *
+ * @throws when BOTH webmToOggOpus AND webmToFlac fail (caller returns 502).
+ */
+async function transcodeForTranscribe(
+  buf: Buffer,
+  ext: string,
+): Promise<{ buffer: Buffer; mediaEncoding: "flac" | "ogg-opus"; sampleRateHz: number }> {
+  if (ext === "flac") {
+    return { buffer: buf, mediaEncoding: "flac", sampleRateHz: 16000 };
+  }
+  if (ext === "ogg") {
+    return { buffer: buf, mediaEncoding: "ogg-opus", sampleRateHz: 48000 };
+  }
+  // Default assumption: browser MediaRecorder WebM/Opus. Try fast remux first.
+  try {
+    const oggBuf = await webmToOggOpus(buf);
+    return { buffer: oggBuf, mediaEncoding: "ogg-opus", sampleRateHz: 48000 };
+  } catch (err: unknown) {
+    databaseLogger.warn(
+      `[voice-server] transcode-remux-failed-falling-back-flac error=${err instanceof Error ? err.message : String(err)}`,
+      { operation: "voice_transcode_remux_failed_fallback_flac" },
+    );
+    // Fallback: full-transcode to 16 kHz mono FLAC. If THIS also throws, let
+    // it propagate up — handleTranscribe's outer catch will return 502.
+    const flacBuf = await webmToFlac(buf);
+    return { buffer: flacBuf, mediaEncoding: "flac", sampleRateHz: 16000 };
+  }
 }
 
 // --- Core handler (exported for direct testing without Express harness) ---
@@ -74,9 +108,11 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
   const ext = extFromMimetype(file.mimetype);
 
   // --- Disk-bank: fire-and-forget write of incoming audio buffer to container FS ---
+  // MUST run BEFORE any transcode (Pitfall 6): Ashley's post-hoc reference folder
+  // stays populated with the ORIGINAL .webm bytes (not the transcoded .ogg / .flac).
   // Addresses Ashley 2026-08-14 3.87 MB clip incident: multer is memory-only so once
-  // a 504 returned the audio was GC'd. Banking to disk before the STT fetch ensures
-  // raw bytes are recoverable even if the upstream round-trip fails.
+  // a 504 returned the audio was GC'd. Banking to disk before the transcribe attempt
+  // ensures raw bytes are recoverable even if the AWS round-trip fails.
   const authReq = req as AuthenticatedRequest;
   const userId = authReq.userId;
   const dir = process.env.STT_RECORDINGS_DIR ?? "/app/stt-recordings";
@@ -91,58 +127,32 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
 
   databaseLogger.info(`[voice-server] transcribe-req byteSize=${file.size} mimetype=${file.mimetype}`, { operation: "voice_transcribe" });
 
-  // (b) Build a fresh FormData for the STT request
-  // multer parsed the incoming multipart into file.buffer; we re-construct
-  // a new multipart to send to STT — no client Content-Type header reaches STT.
-  const formData = new FormData();
-  // Copy the Buffer into a fresh ArrayBuffer so TypeScript's BlobPart constraint
-  // is satisfied — Buffer.buffer is ArrayBufferLike (includes SharedArrayBuffer),
-  // but Blob only accepts ArrayBuffer explicitly.
-  const arrayBuf: ArrayBuffer = file.buffer.buffer.slice(
-    file.buffer.byteOffset,
-    file.buffer.byteOffset + file.buffer.byteLength,
-  ) as ArrayBuffer;
-  const blob = new Blob([arrayBuf], { type: file.mimetype });
-  formData.append("file", blob, `clip.${ext}`);
-
-  // (c) AbortController: T-16-02 mitigation — 120-second STT timeout
-  // Bumped from 30s to 120s to support long dictations to the tailnet large-v3 CUDA GPU
-  // STT (Ashley 2026-08-14 3.87 MB clip incident where the original 30s cap fired first).
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 120_000);
-
   try {
-    // (d) Forward to tailnet STT
-    const response = await fetch(STT_URL, {
-      method: "POST",
-      body: formData,
-      signal: controller.signal,
-    });
+    // (b) Transcode raw bytes to a Transcribe-accepted format. WebM → try Ogg-Opus
+    //     remux; on failure, fall back to FLAC full-transcode. MediaEncoding
+    //     switches accordingly.
+    const transcodeResult = await transcodeForTranscribe(file.buffer, ext);
 
-    // (e) Clear timeout on completion
-    clearTimeout(timeoutId);
+    // (c) Push the buffer through Amazon Transcribe streaming.
+    const transcript = await transcribeBuffer(
+      transcodeResult.buffer,
+      transcodeResult.mediaEncoding,
+      transcodeResult.sampleRateHz,
+    );
 
-    // (f) Non-2xx: return fixed error shape — T-16-03 (no STT body leak)
-    if (!response.ok) {
-      return res.status(response.status).json({
-        error: "STT non-2xx",
-        status: response.status,
-      });
-    }
+    databaseLogger.info(
+      `[voice-server] transcribe-ok textLen=${transcript.length} mediaEncoding=${transcodeResult.mediaEncoding}`,
+      { operation: "voice_transcribe" },
+    );
 
-    // (g) 2xx: forward STT JSON verbatim
-    const sttJson = await response.json() as unknown;
-    const textLen = (sttJson as { text?: string } | null)?.text?.length ?? 0;
-    databaseLogger.info(`[voice-server] transcribe-ok status=${response.status} textLen=${textLen}`, { operation: "voice_transcribe" });
-
-    // --- Phase 34 (patch #TBD): server-side slash-command transform ---
+    // --- Phase 34: server-side slash-command transform (PRESERVED VERBATIM) ---
     // If the transcript starts with the "slash <content>" wake-word AND the
     // client provided a hostId form field, SSH-fetch the target box's user-wide
     // skill catalog (~/.claude/skills/*) and apply a greedy longest-prefix
     // matcher. Fail-open on any error (return raw transcript). See 34-CONTEXT.md.
     let transformedText: string | undefined;
     try {
-      const rawText = (sttJson as { text?: string } | null)?.text;
+      const rawText = transcript;
       const hostIdRaw = typeof req.body?.hostId === "string" ? req.body.hostId : undefined;
       const hostId = hostIdRaw !== undefined ? parseInt(hostIdRaw, 10) : NaN;
       if (
@@ -152,8 +162,6 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
         hostId > 0 &&
         WAKE_WORD_REGEX.test(rawText)
       ) {
-        const authReq = req as AuthenticatedRequest;
-        const userId = authReq.userId;
         const catalog = await fetchSkillCatalog(hostId, userId, DEFAULT_SKILL_CATALOG_TIMEOUT_MS);
         const result = applyServerSlashTransform(rawText, catalog);
         if (result.matched) {
@@ -174,36 +182,35 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
       );
     }
 
-    // If transform matched, splice the transformed text into the response envelope
-    // (preserve any other fields Whisper returned). Otherwise return the raw json.
     if (transformedText !== undefined) {
-      return res.status(200).json({ ...(sttJson as object), text: transformedText });
+      return res.status(200).json({ text: transformedText });
     }
-    return res.status(200).json(sttJson);
+    return res.status(200).json({ text: transcript });
   } catch (err: unknown) {
-    clearTimeout(timeoutId);
-
-    // (h) AbortError → 504 timeout
-    if (
-      err instanceof DOMException && err.name === "AbortError"
-    ) {
-      databaseLogger.error(`[voice-server] transcribe-timeout`, err, {
-        operation: "voice_transcribe_timeout",
-      });
-      return res.status(504).json({ error: "STT timeout", status: 504 });
+    // (d) AccessDenied → policy detached → structured 503 (T-98-06-04 / P98-OFF-01)
+    if (isAwsAccessDenied(err)) {
+      databaseLogger.info(
+        `[voice-server] transcribe-access-denied — policy not attached`,
+        { operation: "voice_transcribe_access_denied" },
+      );
+      return res.status(503).json({ error: "voice STT unavailable", status: 503 });
     }
 
-    // Anything else → 502 proxy error
-    databaseLogger.error(`[voice-server] transcribe-proxy-error`, err, {
-      operation: "voice_transcribe_proxy",
+    // (e) Anything else → 502 (transcode failure, AWS network error, no result stream, ...)
+    databaseLogger.error(`[voice-server] transcribe-error`, err instanceof Error ? err : new Error(String(err)), {
+      operation: "voice_transcribe_error",
     });
-    return res.status(502).json({ error: "STT proxy error", status: 502 });
+    return res.status(502).json({ error: "STT error", status: 502 });
   }
 }
 
-// --- Patch #223: handleSpeak — POST /voice/speak reverse-proxy to Chatterbox TTS ---
+// --- handleSpeak — POST /voice/speak (non-streaming) ---
+// Single Polly SynthesizeSpeech call. Collects the full PCM buffer BEFORE
+// writing the RIFF header so `dataSize` in the header is byte-accurate
+// (T-98-06-10 — strict WAV parsers like HTMLAudioElement reject the
+// 0xFFFFFFFF streaming sentinel).
 export async function handleSpeak(req: Request, res: Response): Promise<Response> {
-  // (a) Validate body.text: must be a non-empty string within SPEAK_TEXT_MAX
+  // (a) Validate body.text
   if (!req.body || typeof req.body.text !== "string" || req.body.text.length === 0) {
     return res.status(400).json({ error: "body.text is required and must be a non-empty string" });
   }
@@ -211,85 +218,81 @@ export async function handleSpeak(req: Request, res: Response): Promise<Response
     return res.status(400).json({ error: `body.text exceeds maximum length of ${SPEAK_TEXT_MAX}` });
   }
 
-  // (b) Validate body.voice if provided
+  // (b) Validate body.voice (whitelist against Polly generative-supported voices)
   if (req.body.voice !== undefined) {
-    if (typeof req.body.voice !== "string" || !VOICE_FILENAME_RE.test(req.body.voice)) {
-      return res.status(400).json({ error: "body.voice must match [A-Z][A-Za-z]+\\.wav" });
+    if (typeof req.body.voice !== "string" || !isValidPollyVoice(req.body.voice)) {
+      return res.status(400).json({ error: "body.voice must be one of the supported Polly voice IDs" });
     }
   }
 
-  databaseLogger.info(`[voice-server] speak-req textLen=${(req.body.text as string).length} voice="${req.body.voice ?? DEFAULT_VOICE}"`, { operation: "voice_speak" });
+  const voiceId = (req.body.voice as string | undefined) ?? DEFAULT_VOICE;
+  const text = req.body.text as string;
 
-  // (c) AbortController: 300-second (5 min) TTS timeout — 10x handleTranscribe's 30s cap.
-  // TTS synthesis time scales with input length, and SPEAK_TEXT_MAX = 25000 chars can
-  // take minutes at Chatterbox's rate; a shorter cap trips before real long-message
-  // requests finish and surfaces as a "connection lost" toast on the client
-  // (dbHealthMonitor.isBackendUnreachable matches the 504 "TTS timeout" via its
-  // "timeout" substring rule, then fires database-connection-degraded → AppShell toast).
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 300_000);
+  databaseLogger.info(
+    `[voice-server] speak-req textLen=${text.length} voice="${voiceId}"`,
+    { operation: "voice_speak" },
+  );
 
   try {
-    // (d) Forward to tailnet Chatterbox TTS
-    const response = await fetch(TTS_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "tts-1",
-        input: req.body.text,
-        voice: req.body.voice ?? DEFAULT_VOICE,
-      }),
-      signal: controller.signal,
+    // (c) Fire Polly synth. Adapter returns a Node Readable of raw PCM bytes.
+    const pollyStream = await synthesizeToPcm(text, voiceId);
+
+    // (d) Collect the ENTIRE PCM stream so we know pcmBuf.length before writing
+    //     the RIFF header (non-streaming handler serves a self-contained WAV).
+    const pcmChunks: Buffer[] = [];
+    for await (const chunk of pollyStream) {
+      pcmChunks.push(chunk as Buffer);
+    }
+    const pcmBuf = Buffer.concat(pcmChunks);
+    const dataSize = pcmBuf.length;
+
+    // (e) Build the RIFF header with byte-accurate dataSize (T-98-06-10 mitigation)
+    const header = buildRiffHeader({
+      channels: 1,
+      sampleRate: 16000,
+      bitDepth: 16,
+      dataSize,
     });
 
-    // (e) Clear timeout
-    clearTimeout(timeoutId);
+    databaseLogger.info(
+      `[voice-server] speak-ok pcmSize=${dataSize} totalSize=${header.length + dataSize}`,
+      { operation: "voice_speak" },
+    );
 
-    // (f) Non-2xx: return fixed error shape — no upstream body leak (T-16-03 analog)
-    if (!response.ok) {
-      return res.status(response.status).json({
-        error: "TTS non-2xx",
-        status: response.status,
-      });
-    }
-
-    // (g) 2xx: pipe wav bytes back
-    const buf = Buffer.from(await response.arrayBuffer());
-    databaseLogger.info(`[voice-server] speak-ok status=${response.status} byteSize=${buf.length}`, { operation: "voice_speak" });
-    res.status(200).set("Content-Type", "audio/wav");
-    res.end(buf);
+    res.status(200);
+    res.setHeader("Content-Type", "audio/wav");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.setHeader("Content-Length", String(header.length + dataSize));
+    res.write(header);
+    res.end(pcmBuf);
     return res;
   } catch (err: unknown) {
-    clearTimeout(timeoutId);
-
-    // (h) AbortError → 504 timeout
-    if (err instanceof DOMException && err.name === "AbortError") {
-      databaseLogger.error(`[voice-server] speak-timeout`, err, {
-        operation: "voice_speak_timeout",
-      });
-      return res.status(504).json({ error: "TTS timeout", status: 504 });
+    // AccessDenied → 503 (P98-OFF-01)
+    if (isAwsAccessDenied(err)) {
+      databaseLogger.info(
+        `[voice-server] speak-access-denied — policy not attached`,
+        { operation: "voice_speak_access_denied" },
+      );
+      return res.status(503).json({ error: "voice TTS unavailable", status: 503 });
     }
 
-    databaseLogger.error(`[voice-server] speak-proxy-error`, err, {
-      operation: "voice_speak_proxy",
+    databaseLogger.error(`[voice-server] speak-error`, err instanceof Error ? err : new Error(String(err)), {
+      operation: "voice_speak_error",
     });
-    return res.status(502).json({ error: "TTS proxy error", status: 502 });
+    return res.status(502).json({ error: "TTS error", status: 502 });
   }
 }
 
-// --- Patch #237: handleSpeakStream — POST /voice/speak-stream reverse-proxy to Chatterbox /tts ---
-// Mirrors handleSpeak structure but replaces arrayBuffer+end with Readable.fromWeb().pipe(res)
-// so chunks stream to the browser as Chatterbox synthesizes them (no server-side buffering).
-//
-// Non-negotiable (19-CONTEXT.md § Backend route shape):
-//   - Pipe-through ONLY: await response.arrayBuffer()/.text()/.blob() are FORBIDDEN here.
-//   - Response headers: Content-Type: audio/wav + X-Accel-Buffering: no (set before pipe starts).
-//   - Upstream URL: TTS_STREAM_URL (Chatterbox /tts on tailnet, see
-//     src/backend/config/media-endpoints.ts) — NOT TTS_URL.
-//   - T-19-04 (T-16-03 analog): non-2xx → fixed error shape, upstream body NOT forwarded.
-//   - T-19-05: AbortController 300s timeout (same cap as handleSpeak).
+// --- handleSpeakStream — POST /voice/speak-stream (streaming, chunk-and-stitch) ---
+// Splits long text into ≤2900-char chunks (packChunks), fires one Polly synth
+// per chunk with prefetch of chunk N+1 while chunk N streams (concurrency cap 2
+// per Pitfall 5 mitigation), pipes each chunk's PCM Readable to `res` in order.
+// The RIFF header is written ONCE at start with the 0xFFFFFFFF streaming
+// sentinel (total size unknown at header-write time — this IS the case the
+// sentinel exists for; the client-side riffPcmDecode ignores dataSize on
+// streaming input).
 export async function handleSpeakStream(req: Request, res: Response): Promise<void> {
-  // (a) Validate body.text: must be a non-empty string within SPEAK_TEXT_MAX
+  // (a) Validate body.text
   if (!req.body || typeof req.body.text !== "string" || req.body.text.length === 0) {
     res.status(400).json({ error: "body.text is required and must be a non-empty string" });
     return;
@@ -299,132 +302,111 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
     return;
   }
 
-  // (b) Validate body.voice if provided
+  // (b) Validate body.voice
   if (req.body.voice !== undefined) {
-    if (typeof req.body.voice !== "string" || !VOICE_FILENAME_RE.test(req.body.voice)) {
-      res.status(400).json({ error: "body.voice must match [A-Z][A-Za-z]+\\.wav" });
+    if (typeof req.body.voice !== "string" || !isValidPollyVoice(req.body.voice)) {
+      res.status(400).json({ error: "body.voice must be one of the supported Polly voice IDs" });
       return;
     }
   }
 
-  databaseLogger.info(`[voice-server] speak-stream-req textLen=${(req.body.text as string).length} voice="${req.body.voice ?? DEFAULT_VOICE}"`, { operation: "voice_speak_stream" });
+  const voiceId = (req.body.voice as string | undefined) ?? DEFAULT_VOICE;
+  const text = req.body.text as string;
 
-  // (c) AbortController: 300-second (5 min) TTS timeout — same cap as handleSpeak (patch #232 lesson).
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 300_000);
+  databaseLogger.info(
+    `[voice-server] speak-stream-req textLen=${text.length} voice="${voiceId}"`,
+    { operation: "voice_speak_stream" },
+  );
+
+  // Track whether we've already flushed the response headers + first bytes.
+  // Once true, we cannot send a new status code — mid-stream errors trigger
+  // res.destroy() instead of res.status(503).
+  let headersFlushed = false;
 
   try {
-    // (d) Forward to tailnet Chatterbox streaming /tts endpoint
-    const response = await fetch(TTS_STREAM_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: req.body.text,
-        voice_mode: "predefined",
-        predefined_voice_id: req.body.voice ?? DEFAULT_VOICE,
-        stream: true,
-        split_text: true,
-        chunk_size: 80,
-      }),
-      signal: controller.signal,
-    });
+    // (c) Split + pack into ≤CHUNK_MAX_CHARS chunks
+    const chunks = packChunks(splitIntoSentences(text));
 
-    // (e) Clear timeout
-    clearTimeout(timeoutId);
-
-    // (f) Non-2xx: return fixed error shape — T-19-04 / T-16-03 analog (no upstream body leak)
-    if (!response.ok) {
-      res.status(response.status).json({
-        error: "TTS stream non-2xx",
-        status: response.status,
-      });
+    if (chunks.length === 0) {
+      // Defensive: SPEAK_TEXT_MAX + non-empty-text validation should prevent this,
+      // but if we ever end up with zero chunks, return a 400.
+      res.status(400).json({ error: "body.text produced zero synthesizable chunks" });
       return;
     }
 
-    // (g) 2xx: pipe WAV bytes through without buffering
-    // Guard against a missing body (should not occur on real Chatterbox but defensively checked)
-    if (!response.body) {
-      throw new Error("Chatterbox response body is null — cannot pipe stream");
+    // (d) Fire first Polly call; then loop with prefetch of N+1 while N streams.
+    let currentPromise: Promise<import("node:stream").Readable> = synthesizeToPcm(chunks[0], voiceId);
+
+    for (let i = 0; i < chunks.length; i++) {
+      const currentStream = await currentPromise;
+
+      // Kick off prefetch of chunk i+1 (if any) BEFORE we start piping chunk i.
+      // Concurrency cap 2 (chunk N + prefetch N+1) per Pitfall 5.
+      const nextPromise: Promise<import("node:stream").Readable> | null =
+        i + 1 < chunks.length ? synthesizeToPcm(chunks[i + 1], voiceId) : null;
+
+      // On the first chunk, flush headers + RIFF header BEFORE any PCM bytes.
+      if (i === 0) {
+        res.status(200);
+        res.setHeader("Content-Type", "audio/wav");
+        res.setHeader("X-Accel-Buffering", "no");
+        // Streaming sentinel: total PCM byte count is unknown at header-write time.
+        // riffPcmDecode.ts ignores dataSize on streaming input.
+        res.write(buildRiffHeader({ channels: 1, sampleRate: 16000, bitDepth: 16 }));
+        headersFlushed = true;
+      }
+
+      // Pipe this chunk's PCM Readable to res (do NOT end res yet).
+      await new Promise<void>((resolve, reject) => {
+        currentStream.on("end", resolve);
+        currentStream.on("error", reject);
+        currentStream.pipe(res, { end: false });
+      });
+
+      // Advance to the prefetched next chunk (or null on the last iteration).
+      if (nextPromise !== null) {
+        currentPromise = nextPromise;
+      }
     }
 
-    // Set response headers BEFORE the pipe starts so they are flushed with the first chunk.
-    res.status(200);
-    res.setHeader("Content-Type", "audio/wav");
-    res.setHeader("X-Accel-Buffering", "no");
+    databaseLogger.info(
+      `[voice-server] speak-stream-ok chunks=${chunks.length}`,
+      { operation: "voice_speak_stream" },
+    );
 
-    databaseLogger.info(`[voice-server] speak-stream-ok status=${response.status}`, { operation: "voice_speak_stream" });
-
-    // Bridge WHATWG ReadableStream → Node.js Writable and pipe to res.
-    // DO NOT await response.arrayBuffer()/.text()/.blob() — pipe-through only.
-    const { Readable } = await import("node:stream");
-    Readable.fromWeb(response.body as import("node:stream/web").ReadableStream).pipe(res);
-    // The pipe is fire-and-forget: Readable drives res.write(chunk) and res.end() as chunks
-    // arrive from Chatterbox. We return here; the pipe lifecycle outlives this function.
-    return;
+    res.end();
   } catch (err: unknown) {
-    clearTimeout(timeoutId);
-
-    // (h) AbortError → 504 timeout
-    if (err instanceof DOMException && err.name === "AbortError") {
-      databaseLogger.error(`[voice-server] speak-stream-timeout`, err, {
-        operation: "voice_speak_stream_timeout",
-      });
-      res.status(504).json({ error: "TTS stream timeout", status: 504 });
+    // AccessDenied → 503 (if we can still send status) OR destroy() (if bytes flushed).
+    if (isAwsAccessDenied(err)) {
+      databaseLogger.info(
+        `[voice-server] speak-stream-access-denied — policy not attached headersFlushed=${headersFlushed}`,
+        { operation: "voice_speak_stream_access_denied", headersFlushed },
+      );
+      if (!headersFlushed) {
+        res.status(503).json({ error: "voice TTS unavailable", status: 503 });
+      } else {
+        res.destroy();
+      }
       return;
     }
 
-    // Anything else → 502 proxy error
-    databaseLogger.error(`[voice-server] speak-stream-proxy-error`, err, {
-      operation: "voice_speak_stream_proxy",
-    });
-    res.status(502).json({ error: "TTS stream proxy error", status: 502 });
-    return;
-  }
-}
-
-// --- Patch #223: handleListVoices — GET /voice/voices ---
-export async function handleListVoices(req: Request, res: Response): Promise<Response> {
-  void req;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30_000);
-
-  try {
-    const response = await fetch(VOICES_URL, {
-      method: "GET",
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      return res.status(response.status).json({
-        error: "voices non-2xx",
-        status: response.status,
-      });
+    databaseLogger.error(
+      `[voice-server] speak-stream-error`,
+      err instanceof Error ? err : new Error(String(err)),
+      { operation: "voice_speak_stream_error", headersFlushed },
+    );
+    if (!headersFlushed) {
+      res.status(502).json({ error: "TTS stream error", status: 502 });
+    } else {
+      res.destroy();
     }
-
-    const data = await response.json() as unknown;
-    return res.status(200).json(data);
-  } catch (err: unknown) {
-    clearTimeout(timeoutId);
-
-    if (err instanceof DOMException && err.name === "AbortError") {
-      databaseLogger.error(`[voice-server] list-voices-timeout`, err, {
-        operation: "voice_list_voices_timeout",
-      });
-      return res.status(504).json({ error: "voices timeout", status: 504 });
-    }
-
-    databaseLogger.error(`[voice-server] list-voices-proxy-error`, err, {
-      operation: "voice_list_voices_proxy",
-    });
-    return res.status(502).json({ error: "voices proxy error", status: 502 });
   }
 }
 
 // --- Route: POST /transcribe ---
 // Middleware chain: authenticateJWT (401 if unauth) → upload.single("file") (parses multipart)
-// → handleTranscribe (forwards to STT, returns transcript)
+// → handleTranscribe (transcode + Transcribe streaming, returns transcript)
+// T-16-04 invariant: authenticateJWT BEFORE multer — unauthenticated = 401 before parse.
 router.post(
   "/transcribe",
   // Phase 34: multer.single("file") parses non-file multipart fields into req.body
@@ -448,7 +430,7 @@ router.post(
   },
 );
 
-// --- Route: POST /speak-stream (Patch #237) ---
+// --- Route: POST /speak-stream ---
 // Middleware chain: authenticateJWT (401 if unauth) → express.json (body parse) → handleSpeakStream
 // T-19-01: authenticateJWT BEFORE express.json — body is never parsed if JWT is invalid.
 router.post(
@@ -460,13 +442,7 @@ router.post(
   },
 );
 
-// --- Route: GET /voices ---
-router.get(
-  "/voices",
-  authenticateJWT,
-  (req: Request, res: Response) => {
-    void handleListVoices(req, res);
-  },
-);
+// GET /voices route DELETED (D-Claude's-discretion 2026-09-10) — frontend
+// inlines the 7-voice const via VoicePicker.tsx (Plan 03). No backend round-trip.
 
 export default router;
