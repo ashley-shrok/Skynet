@@ -2291,3 +2291,13 @@ Plans:
 
 Plans:
 - [ ] TBD (run /gsd-plan-phase 102 to break down)
+
+### Phase 104: Repo stats display — trapped-work indicator on conv-list + identity badge
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 102
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 104 to break down)
