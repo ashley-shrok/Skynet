@@ -1232,14 +1232,45 @@ const FLEET_CACHE_KEY = "skynet:convo-fleet-cache:v4";
 function isFleetSession(x: unknown): x is FleetSession {
   if (!x || typeof x !== "object") return false;
   const r = x as Record<string, unknown>;
+  // Phase 90 Plan 01: accept undefined OR the two known kind literals.
+  // Reject other strings defensively — a corrupt entry with kind="banana"
+  // could route a row through the wrong pane orchestrator downstream.
+  // quick-260910-jqx: this discriminator check is HOISTED above the
+  // harness-shape gate so we know which branch to take before validating
+  // shape. The kind-literal filter itself is unchanged from Phase 90 Plan 01.
   if (
-    typeof r.hostId !== "number" ||
-    typeof r.hostName !== "string" ||
-    typeof r.sessionName !== "string" ||
-    typeof r.created !== "number" ||
-    !(r.role === null || typeof r.role === "string")
+    r.kind !== undefined &&
+    r.kind !== "harness" &&
+    r.kind !== "relay-room"
   ) {
     return false;
+  }
+  // quick-260910-jqx: kind-aware validator — relay-room rows lack
+  // hostId/hostName/sessionName/created (backend emits
+  // {kind:'relay-room', id, roomId, roomTitle, lastActivityAt,
+  // createdAt, updatedAt}; see sessions.ts:592-601). Require a non-empty
+  // roomId on the relay branch; keep the strict harness-shape gate for
+  // kind==='harness' and kind===undefined (backward-compat: legacy v3-shape
+  // rows have no kind field and must continue to route as harness — Phase 90
+  // doctrine, see readFleetSessionsCache comment at lines 1322-1329). Before
+  // this fix every relay-row cache entry was silently filtered on read,
+  // forcing Ashley's ~10s /sessions/list wait before relay rooms painted.
+  if (r.kind === "relay-room") {
+    if (typeof r.roomId !== "string" || r.roomId.length === 0) {
+      return false;
+    }
+  } else {
+    // Harness / legacy (kind === "harness" OR kind === undefined) branch —
+    // preserve the pre-existing strict harness-shape check verbatim.
+    if (
+      typeof r.hostId !== "number" ||
+      typeof r.hostName !== "string" ||
+      typeof r.sessionName !== "string" ||
+      typeof r.created !== "number" ||
+      !(r.role === null || typeof r.role === "string")
+    ) {
+      return false;
+    }
   }
   // Phase 44 Plan 04: accept undefined, null, or number for lastMessageAt.
   // Reject other types defensively so a corrupt cache entry never seeds the
@@ -1263,19 +1294,11 @@ function isFleetSession(x: unknown): x is FleetSession {
   ) {
     return false;
   }
-  // Phase 90 Plan 01: accept undefined OR the two known kind literals.
-  // Reject other strings defensively — a corrupt entry with kind="banana"
-  // could route a row through the wrong pane orchestrator downstream.
-  if (
-    r.kind !== undefined &&
-    r.kind !== "harness" &&
-    r.kind !== "relay-room"
-  ) {
-    return false;
-  }
   // Phase 90 Plan 01: accept undefined or string for roomId. Reject other
   // types — roomId is a Matrix opaque identifier, always a string when
-  // present. A non-string value would poison the tab-open handler.
+  // present. A non-string value would poison the tab-open handler. The
+  // relay branch above already tightened this to required-non-empty; this
+  // check still catches a harness row with a bogus non-string roomId.
   if (r.roomId !== undefined && typeof r.roomId !== "string") {
     return false;
   }
