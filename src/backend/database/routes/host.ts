@@ -17,6 +17,7 @@ import {
   hostAccess,
   userRoles,
   sessionRecordings,
+  users,
 } from "../db/schema.js";
 import { eq, and, or, isNull, gte, sql, inArray, desc } from "drizzle-orm";
 import type { Request, Response } from "express";
@@ -80,6 +81,15 @@ const authManager = AuthManager.getInstance();
 const permissionManager = PermissionManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
 const requireDataAccess = authManager.createDataAccessMiddleware();
+
+/**
+ * Read caller's isAdmin from DB (not JWT) — defends against mid-session revocation.
+ * Mirrors the users.ts:442 pattern exactly.
+ */
+async function callerIsAdmin(userId: string): Promise<boolean> {
+  const rows = await db.select().from(users).where(eq(users.id, userId));
+  return !!(rows[0]?.isAdmin);
+}
 
 registerHostInternalRoutes(router);
 
@@ -1237,6 +1247,7 @@ router.get(
       return res.status(400).json({ error: "Invalid userId" });
     }
     try {
+      const isAdmin = await callerIsAdmin(userId);
       const now = new Date().toISOString();
 
       const userRoleIds = await db
@@ -1339,26 +1350,42 @@ router.get(
           ),
         )
         .where(
-          or(
-            eq(hosts.userId, userId),
-            and(
-              eq(hostAccess.userId, userId),
-              or(isNull(hostAccess.expiresAt), gte(hostAccess.expiresAt, now)),
-            ),
-            roleIds.length > 0
-              ? and(
-                  inArray(hostAccess.roleId, roleIds),
-                  or(
-                    isNull(hostAccess.expiresAt),
-                    gte(hostAccess.expiresAt, now),
-                  ),
-                )
-              : sql`false`,
-          ),
+          isAdmin
+            ? undefined
+            : or(
+                eq(hosts.userId, userId),
+                and(
+                  eq(hostAccess.userId, userId),
+                  or(isNull(hostAccess.expiresAt), gte(hostAccess.expiresAt, now)),
+                ),
+                roleIds.length > 0
+                  ? and(
+                      inArray(hostAccess.roleId, roleIds),
+                      or(
+                        isNull(hostAccess.expiresAt),
+                        gte(hostAccess.expiresAt, now),
+                      ),
+                    )
+                  : sql`false`,
+              ),
         );
 
-      const ownHosts = rawData.filter((row) => row.userId === userId);
-      const sharedHosts = rawData.filter((row) => row.userId !== userId);
+      if (isAdmin) {
+        databaseLogger.info("[host-db] admin-cross-user-read-hosts", {
+          operation: "admin_cross_user_read",
+          table: "hosts",
+          callerUserId: userId,
+          rowCount: rawData.length,
+        });
+      }
+
+      // For admin: treat ALL rows as "own" for the decryption loop (foreign rows
+      // will decrypt with admin's data key; sensitive fields on other users' rows
+      // will fall through LazyFieldEncryption's empty-string fallback — that is
+      // acceptable: admin's use case is linking rows to shared credentials, not
+      // viewing other users' inline passwords).
+      const ownHosts = isAdmin ? rawData : rawData.filter((row) => row.userId === userId);
+      const sharedHosts = isAdmin ? [] : rawData.filter((row) => row.userId !== userId);
 
       const decryptedOwnHosts: Record<string, unknown>[] = [];
       const userDataKey = DataCrypto.getUserDataKey(userId);
@@ -1456,11 +1483,16 @@ router.get(
       return res.status(400).json({ error: "Invalid userId or hostId" });
     }
     try {
+      const isAdmin = await callerIsAdmin(userId);
       const data = await SimpleDBOps.select(
         db
           .select()
           .from(hosts)
-          .where(and(eq(hosts.id, Number(hostId)), eq(hosts.userId, userId))),
+          .where(
+            isAdmin
+              ? eq(hosts.id, Number(hostId))
+              : and(eq(hosts.id, Number(hostId)), eq(hosts.userId, userId)),
+          ),
         "ssh_data",
         userId,
       );
@@ -1472,6 +1504,15 @@ router.get(
           userId,
         });
         return res.status(404).json({ error: "Host not found" });
+      }
+
+      if (isAdmin && data[0].userId !== userId) {
+        databaseLogger.info("[host-db] admin-cross-user-read-host-by-id", {
+          operation: "admin_cross_user_read",
+          table: "hosts",
+          callerUserId: userId,
+          hostId: parseInt(hostId),
+        });
       }
 
       const host = data[0];
@@ -1598,17 +1639,31 @@ router.get(
     }
 
     try {
+      const isAdmin = await callerIsAdmin(userId);
       const hostResults = await SimpleDBOps.select(
         db
           .select()
           .from(hosts)
-          .where(and(eq(hosts.id, Number(hostId)), eq(hosts.userId, userId))),
+          .where(
+            isAdmin
+              ? eq(hosts.id, Number(hostId))
+              : and(eq(hosts.id, Number(hostId)), eq(hosts.userId, userId)),
+          ),
         "ssh_data",
         userId,
       );
 
       if (hostResults.length === 0) {
         return res.status(404).json({ error: "Host not found" });
+      }
+
+      if (isAdmin && hostResults[0].userId !== userId) {
+        databaseLogger.info("[host-db] admin-cross-user-read-host-export", {
+          operation: "admin_cross_user_read",
+          table: "hosts",
+          callerUserId: userId,
+          hostId: parseInt(hostId),
+        });
       }
 
       const host = hostResults[0];
@@ -1773,8 +1828,18 @@ router.get(
     }
 
     try {
+      const isAdmin = await callerIsAdmin(userId);
+      if (isAdmin) {
+        databaseLogger.info("[host-db] admin-cross-user-read-hosts-export", {
+          operation: "admin_cross_user_read",
+          table: "hosts",
+          callerUserId: userId,
+        });
+      }
       const allHosts = await SimpleDBOps.select(
-        db.select().from(hosts).where(eq(hosts.userId, userId)),
+        isAdmin
+          ? db.select().from(hosts)
+          : db.select().from(hosts).where(eq(hosts.userId, userId)),
         "ssh_data",
         userId,
       );

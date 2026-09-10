@@ -6,6 +6,7 @@ import {
   sshCredentialUsage,
   hosts,
   hostAccess,
+  users,
 } from "../db/schema.js";
 import { eq, and, desc, sql } from "drizzle-orm";
 import type { Request, Response } from "express";
@@ -20,6 +21,15 @@ const router = express.Router();
 
 function isNonEmptyString(val: unknown): val is string {
   return typeof val === "string" && val.trim().length > 0;
+}
+
+/**
+ * Read caller's isAdmin from DB (not JWT) — defends against mid-session revocation.
+ * Mirrors the users.ts:442 pattern exactly.
+ */
+async function callerIsAdmin(userId: string): Promise<boolean> {
+  const rows = await db.select().from(users).where(eq(users.id, userId));
+  return !!(rows[0]?.isAdmin);
 }
 
 const authManager = AuthManager.getInstance();
@@ -244,12 +254,29 @@ router.get(
     }
 
     try {
+      const isAdmin = await callerIsAdmin(userId);
+      // Admin cross-user READ: when isAdmin, drop the userId filter so admin sees
+      // all users' credentials. Sensitive fields on foreign rows will fall through
+      // LazyFieldEncryption's empty-string fallback (line 148, lazy-field-encryption.ts)
+      // because SimpleDBOps.select uses the caller's data key, not the row owner's key.
+      // sshCredentials also uses SystemCrypto sharing-key encryption (data-crypto.ts:477)
+      // but the select path doesn't use that route — so admin gets metadata, not raw secrets.
+      // Admin's use case is knowing that a shared cred *exists* and linking hosts to it.
+      if (isAdmin) {
+        authLogger.info("admin-cross-user-read-credentials", {
+          operation: "admin_cross_user_read",
+          table: "ssh_credentials",
+          callerUserId: userId,
+        });
+      }
       const credentials = await SimpleDBOps.select(
-        db
-          .select()
-          .from(sshCredentials)
-          .where(eq(sshCredentials.userId, userId))
-          .orderBy(desc(sshCredentials.updatedAt)),
+        isAdmin
+          ? db.select().from(sshCredentials).orderBy(desc(sshCredentials.updatedAt))
+          : db
+              .select()
+              .from(sshCredentials)
+              .where(eq(sshCredentials.userId, userId))
+              .orderBy(desc(sshCredentials.updatedAt)),
         "ssh_credentials",
         userId,
       );
@@ -352,15 +379,29 @@ router.get(
     }
 
     try {
+      const isAdmin = await callerIsAdmin(userId);
+      // Admin cross-user READ: when isAdmin, drop the userId filter so admin can
+      // fetch another user's credential row by ID. See GET / comment above for the
+      // data-key / empty-string-fallback note on cross-user sensitive fields.
+      if (isAdmin) {
+        authLogger.info("admin-cross-user-read-credential-by-id", {
+          operation: "admin_cross_user_read",
+          table: "ssh_credentials",
+          callerUserId: userId,
+          credentialId: id,
+        });
+      }
       const credentials = await SimpleDBOps.select(
         db
           .select()
           .from(sshCredentials)
           .where(
-            and(
-              eq(sshCredentials.id, parseInt(id)),
-              eq(sshCredentials.userId, userId),
-            ),
+            isAdmin
+              ? eq(sshCredentials.id, parseInt(id))
+              : and(
+                  eq(sshCredentials.id, parseInt(id)),
+                  eq(sshCredentials.userId, userId),
+                ),
           ),
         "ssh_credentials",
         userId,
