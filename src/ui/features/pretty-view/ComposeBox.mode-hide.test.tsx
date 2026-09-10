@@ -149,16 +149,16 @@ describe("ComposeBox mode-hide (Phase 93 Slice 3 Task 2)", () => {
     expect(spacer).not.toBeNull();
     // Invisible-to-a11y contract.
     expect(spacer!.getAttribute("aria-hidden")).toBe("true");
-    // Byte-identical vertical envelope to Row 1's outer wrapper: mb-[3px]
-    // + min-h-8 on desktop (isTouchDevice default false in the test env
-    // because useIsTouchDevice is unmocked and jsdom is non-coarse-pointer).
+    // Phase 97 UAT follow-up (2026-09-10): spacer height locked to 3px
+    // uniformly (touch branch dropped — this is a visual spacer, not a
+    // touch target). Ashley live-tuned to 3px via console snippet;
+    // QueuePlusTab pebble at absolute top-[-12px] only needs a few px of
+    // clear headroom above the compose outer edge.
     expect(spacer!.className).toContain("mb-[3px]");
-    // Either min-h-8 (desktop) or min-h-[44px] (touch) — the class is a
-    // superset assertion.
-    expect(
-      spacer!.className.includes("min-h-8") ||
-        spacer!.className.includes("min-h-[44px]"),
-    ).toBe(true);
+    expect(spacer!.className).toContain("min-h-[3px]");
+    // Neither of the pre-UAT-follow-up envelopes remain (regression floor).
+    expect(spacer!.className).not.toContain("min-h-8");
+    expect(spacer!.className).not.toContain("min-h-[44px]");
   });
 
   it("Test 8 (Phase 97 F-3 harness regression floor): mode=harness + showPaperclip=true → textarea HAS pl-11 AND spacer does NOT exist", () => {
@@ -173,5 +173,28 @@ describe("ComposeBox mode-hide (Phase 93 Slice 3 Task 2)", () => {
     expect(
       container.querySelector('[data-testid="compose-row-1-relay-spacer"]'),
     ).toBeNull();
+  });
+
+  it("Test 9 (Phase 97 UAT follow-up — mode-conditional textarea rest height): mode=relay → textarea has min-h-[44px]!; mode=harness → does NOT", () => {
+    // Relay case: textarea gets the 44px rest bump (Row 1 vertical envelope
+    // is gone in relay so the 32px default reads as too short).
+    const relay = render(
+      <ComposeBox {...baseProps({ mode: "relay" })} />,
+    );
+    const relayTextarea = relay.container.querySelector("textarea");
+    expect(relayTextarea).not.toBeNull();
+    expect(relayTextarea!.className).toContain("min-h-[44px]!");
+    relay.unmount();
+
+    // Harness case: textarea stays at min-h-8! (Row 1 buttons provide
+    // surrounding vertical envelope; harness compose region already
+    // reads correctly).
+    const harness = render(
+      <ComposeBox {...baseProps({ mode: "harness" })} />,
+    );
+    const harnessTextarea = harness.container.querySelector("textarea");
+    expect(harnessTextarea).not.toBeNull();
+    expect(harnessTextarea!.className).toContain("min-h-8!");
+    expect(harnessTextarea!.className).not.toContain("min-h-[44px]!");
   });
 });

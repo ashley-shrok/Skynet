@@ -2689,10 +2689,15 @@ export function ComposeBox({
         <div
           data-testid="compose-row-1-relay-spacer"
           aria-hidden="true"
-          className={cn(
-            "mb-[3px]",
-            isTouchDevice ? "min-h-[44px]" : "min-h-8",
-          )}
+          // Phase 97 Finding 3 UAT follow-up (2026-09-10): initial ship
+          // used the same min-h envelope as Row 1 (`min-h-[44px]` on touch
+          // / `min-h-8` on desktop) — that overshot by ~3x since the
+          // QueuePlusTab pebble is `absolute top-[-12px]` and only needs a
+          // few px of clear headroom to visually seat above the compose
+          // outer edge. Ashley live-tuned to 3px via console snippet; the
+          // touch branch is dropped (this is a visual spacer, not a touch
+          // target — the pebble has its own touch-friendly size).
+          className={cn("mb-[3px] min-h-[3px]")}
         />
       )}
       {/* Row 2 — compose bar: textarea (flex-1, auto-grows 1→6 rows) +
@@ -2805,6 +2810,15 @@ export function ComposeBox({
             // `min-h-8` at 0-1-0 loses without `!`). One-line rest;
             // auto-grow to 6 rows still works via the useLayoutEffect above (patch #135).
             "min-h-8!",
+            // Phase 97 UAT follow-up (2026-09-10): in relay mode, Row 1's
+            // vertical envelope is gone (spacer replaces it at 3px), so
+            // the compose region is compact and the 32px textarea reads
+            // as too short. Bumped to 44px at rest for relay mode only
+            // per Ashley's live-tuned value. Harness untouched (never
+            // felt short — Row 1 buttons provide surrounding vertical
+            // envelope). tailwind-merge dedupes min-h-* to keep the
+            // later class → relay branch wins in relay mode.
+            mode === "relay" && "min-h-[44px]!",
             // `!` (Tailwind v4 important suffix) is required on the bg
             // arbitrary class: the shadcn `Textarea` wrapper's base
             // className carries `dark:bg-input/30` (see

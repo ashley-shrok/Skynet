@@ -147,7 +147,7 @@ function HumanBadgeCell({
       data-testid="relay-room-participant"
       data-role="human"
       data-mxid={human.mxid}
-      className="relative shrink-0 h-[72px] w-[220px] flex flex-col items-stretch"
+      className={CELL_BASE_CLASS}
     >
       <IdentityBadge identityKey={identityKey} tabId={tabId} />
     </div>
@@ -194,7 +194,7 @@ function AgentBadgeCell({
         data-testid="relay-room-participant"
         data-role="agent"
         data-mxid={agent.mxid}
-        className="relative shrink-0 h-[72px] w-[220px] flex flex-col items-stretch"
+        className={CELL_BASE_CLASS}
       >
         <IdentityBadge identityKey={identityKey} tabId={tabId} />
       </div>
@@ -205,7 +205,7 @@ function AgentBadgeCell({
       data-testid="relay-room-participant"
       data-role="agent"
       data-mxid={agent.mxid}
-      className="relative shrink-0 h-[92px] w-[220px] flex flex-col items-stretch"
+      className={CELL_BASE_CLASS}
     >
       <AgentBadgeWithMeter
         identityKey={identityKey}
@@ -225,8 +225,30 @@ function AgentBadgeCell({
  * and the ready-with-participants branch so the position class parks at
  * the D-01 anchor from mount, regardless of adapter readiness.
  */
+// Phase 97 Finding 4 UAT follow-up (2026-09-10): gap-1 (4px) was
+// perceptually invisible because each cell wrapper was hard-coded 220px
+// wide with the badge absolute-positioned to right-5 — the LARGE empty
+// space to the left of each badge (~60px per cell) dominated any
+// inter-cell gap. Cells shrunk to content below AND gap bumped to 13px
+// per Ashley's live-snippet tasting.
 const ROOT_ANCHOR_CLASS =
-  "absolute top-4 right-5 z-[101] flex flex-row-reverse items-start gap-1";
+  "absolute top-4 right-5 z-[101] flex flex-row-reverse items-start gap-[13px]";
+
+// Phase 97 Finding 4/5 UAT follow-up (2026-09-10): the participant cell
+// wrappers were `h-[N] w-[220px]` with `IdentityBadge` absolute-positioned
+// to `top-4 right-5` inside them — badge only occupied ~140px on the right
+// of a 220px cell, leaving ~60px of empty space per cell to its left
+// (F-4 perceived-gap root cause) AND the meter drawer (centered in the
+// 220px cell via items-center in AgentBadgeWithMeter) sat ~20px LEFT of
+// the badge's center (F-5 "meter up and to the left" root cause).
+// Fix: shrink cell to content (drop fixed w/h) + un-absolute the badge
+// inside the cell (arbitrary variants target IdentityBadge's
+// `.pv-identity-breathe` root class, resetting position/top/right/z-index
+// so the badge participates in its parent's flex-col flow).
+const CELL_BASE_CLASS =
+  "relative shrink-0 flex flex-col items-center " +
+  "[&_.pv-identity-breathe]:static [&_.pv-identity-breathe]:top-auto " +
+  "[&_.pv-identity-breathe]:right-auto [&_.pv-identity-breathe]:z-auto";
 
 export function MultiBadgeAnchor({
   participants,
