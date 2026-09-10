@@ -454,6 +454,91 @@ describe("POST /db/host — credentialId guard (P1-P6)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Phase 103-02 D-12: hostname collision with serve URL grammar
+//
+// POST /db/host must reject any hostname ending in -<digits> because the
+// serve URL grammar `<host>-<port>.serve.term.<domain>` splits on the last
+// dash of the leftmost label. A hostname like "foo-42" would collide with
+// a serve URL for host "foo" on port 42. Enforce at registration so the
+// ambiguity never enters the DB.
+//
+// Negative assertions on the accept cases use "does NOT contain the D-12
+// error substring" rather than a full 200 assertion — those cases may still
+// fail for other reasons unrelated to name (e.g. credentialId guard). What
+// matters here is the D-12 check specifically does not fire.
+// ---------------------------------------------------------------------------
+
+describe("POST /db/host — D-12 hostname-collision-with-serve-url-grammar", () => {
+  const D12_ERR = "reserved for serve URL grammar";
+
+  it("rejects hostname ending -<digits> with 400", async () => {
+    const req = makePostReq({
+      name: "foo-42",
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: false,
+      password: "x",
+    });
+    const res = makeMockRes();
+
+    await postHandler!(req, res);
+
+    expect(res._status).toBe(400);
+    expect((res._body as { error: string }).error).toContain(D12_ERR);
+    expect(SimpleDBOps.insert).not.toHaveBeenCalled();
+  });
+
+  it("accepts hostname with non-terminal digit (aither-cloud2)", async () => {
+    const req = makePostReq({
+      name: "aither-cloud2",
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: false,
+      password: "x",
+    });
+    const res = makeMockRes();
+
+    await postHandler!(req, res);
+
+    // May still be 200 or fail for unrelated reasons — assert D-12 did NOT fire
+    const body = res._body as { error?: string } | null;
+    expect(body?.error ?? "").not.toContain(D12_ERR);
+  });
+
+  it("accepts hostname without dash (t800)", async () => {
+    const req = makePostReq({
+      name: "t800",
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: false,
+      password: "x",
+    });
+    const res = makeMockRes();
+
+    await postHandler!(req, res);
+
+    const body = res._body as { error?: string } | null;
+    expect(body?.error ?? "").not.toContain(D12_ERR);
+  });
+
+  it("accepts hostname with dash and non-digit suffix (foo-bar)", async () => {
+    const req = makePostReq({
+      name: "foo-bar",
+      ip: "1.1.1.1",
+      port: 22,
+      runsFleetSubstrate: false,
+      password: "x",
+    });
+    const res = makeMockRes();
+
+    await postHandler!(req, res);
+
+    const body = res._body as { error?: string } | null;
+    expect(body?.error ?? "").not.toContain(D12_ERR);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // PUT /host/db/host/:id tests — U1-U5
 // ---------------------------------------------------------------------------
 
