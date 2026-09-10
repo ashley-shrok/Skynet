@@ -2252,12 +2252,12 @@ Plans:
 **Goal:** Longer voice recordings (>=10s) transcribe in a fraction of the wall time by dispatching parallel Amazon Transcribe streaming sessions on silence-aware audio chunks and stitching results via word-timestamp overlap dedup. Backend-only refactor. /voice/transcribe endpoint contract, response shape, disk-bank write, and slash-command transform all preserved byte-for-byte. Short clips (<10s) still take the single-stream path (D-05).
 **Requirements**: D-01..D-14 (see 100-CONTEXT.md — this is a refactor phase; decision IDs act as requirements)
 **Depends on:** Phase 98
-**Plans:** 1/4 plans executed
+**Plans:** 2/4 plans executed
 Plans:
 **Wave 1**
 
 - [x] 100-01-PLAN.md — Wave 1 (deps: none): semaphore.ts (5-line factory + tests) + audio-chunker.ts (sliceFlac, scanSilenceGaps, probeDuration, parseSilenceGaps, computeChunkBoundaries + tests) + export runFfmpeg from audio-transcode.ts for shared use
-- [ ] 100-02-PLAN.md — Wave 1 (deps: none): word-stitcher.ts (stitchChunks + longestCommonRun pure functions) + word-stitcher.test.ts covering normal overlap, zero-match fallback, empty-Items fallback, gap-marker passthrough
+- [x] 100-02-PLAN.md — Wave 1 (deps: none): word-stitcher.ts (stitchChunks + longestCommonRun pure functions) + word-stitcher.test.ts covering normal overlap, zero-match fallback, empty-Items fallback, gap-marker passthrough
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
