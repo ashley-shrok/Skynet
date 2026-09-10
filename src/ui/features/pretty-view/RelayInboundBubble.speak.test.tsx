@@ -229,8 +229,16 @@ describe("RelayInboundBubble speak apparatus (Phase 97 UAT batch #6)", () => {
     await waitFor(() => {
       expect(mockedPostSpeakStream).toHaveBeenCalled();
     });
-    // Second positional argument should be "sarah".
+    // First positional argument (spoken text) is the message body ONLY —
+    // NOT the sender display name from the header. Regression pin: a prior
+    // version read innerText from the outer bubble container, which
+    // included the header text (dot + displayName) and would have spoken
+    // "Tina Hello Tina" in a real browser. JSDOM does not implement
+    // innerText so the earlier tests silently passed via the ?? fallback.
     const call = mockedPostSpeakStream.mock.calls[0];
+    expect(call[0]).toBe("Hello Tina");
+    expect(call[0]).not.toMatch(/^Tina/);
+    // Second positional argument should be "sarah".
     expect(call[1]).toBe("sarah");
   });
 

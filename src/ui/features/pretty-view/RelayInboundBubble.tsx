@@ -239,8 +239,13 @@ export function RelayInboundBubble({
     setSpeakState("loading");
     const owner = bubbleIdRef.current;
 
-    // Speak-start — entry log for every TTS invocation.
-    const text = containerRef.current?.innerText ?? body;
+    // Speak-start — read `body` directly, NOT containerRef.innerText. The
+    // bubble container wraps both header (dot + displayName) AND body, so
+    // innerText would include the sender name and TTS would speak
+    // "Tina hello world" instead of "hello world" in a real browser. JSDOM
+    // does not implement innerText so tests hit the fallback and never
+    // surfaced this. Body is plain matrix message text — the correct source.
+    const text = body;
     console.info(`[tts] speak-start owner=relay:${owner.toString()} textLen=${text.length} voice="${identityVoice ?? "default"}" trigger=${trigger}`);
 
     const player = createWebAudioStreamPlayer({
@@ -375,7 +380,11 @@ export function RelayInboundBubble({
         title={ts !== undefined ? new Date(ts).toLocaleString() : undefined}
         data-testid="relay-inbound-bubble"
         data-bubble-hue={bubbleHue}
-        style={{ ...bubbleStyle, position: "relative" }}
+        // position: relative only in relay-source view — required for the
+        // absolutely-positioned speak button anchor. Harness view keeps its
+        // original static positioning so its rendering stays byte-for-byte
+        // unchanged.
+        style={alwaysExpanded ? { ...bubbleStyle, position: "relative" } : bubbleStyle}
         // Long-press-on-bubble handlers — only meaningful in relay-source
         // view (`alwaysExpanded=true`). Short-circuit early in the pointerDown
         // handler if the pointer target is inside the speak button so the
