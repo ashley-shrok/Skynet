@@ -154,7 +154,10 @@ export async function writeBridgeConfigEnv(): Promise<
   const target = configEnvPath();
   const tmp = `${target}.tmp`;
   try {
-    await fs.promises.writeFile(tmp, body, { mode: 0o644 });
+    // 0600: config.env carries SKYNET_BRIDGE_TOKEN, a 30-day service JWT
+    // with /voice/* access (see bridge-service-token.ts). Match the 0600
+    // convention sibling secret files (per-human .token files at line 18).
+    await fs.promises.writeFile(tmp, body, { mode: 0o600 });
     await fs.promises.rename(tmp, target);
   } catch (err) {
     await fs.promises.unlink(tmp).catch(() => {

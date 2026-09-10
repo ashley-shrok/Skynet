@@ -3,7 +3,7 @@ import express from "express";
 import multer from "multer";
 import fs from "node:fs";
 import path from "node:path";
-import type { Request, Response } from "express";
+import type { Request, Response, NextFunction } from "express";
 import { databaseLogger } from "../../utils/logger.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { WAKE_WORD_REGEX, applyServerSlashTransform } from "../../voice/slashCommandTransform.js";
@@ -118,7 +118,12 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
   const userId = authReq.userId;
   const dir = process.env.STT_RECORDINGS_DIR ?? "/app/stt-recordings";
   const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
-  const filename = `${timestamp}-${userId ?? "anon"}-${file.size}.${ext}`;
+  // Random tail prevents silent overwrite on concurrent same-user same-size
+  // uploads within the whole-second timestamp bucket. The disk-bank exists
+  // to preserve raw audio when Transcribe fails — losing a clip to filename
+  // collision defeats that guarantee.
+  const rand = Math.random().toString(36).slice(2, 8);
+  const filename = `${timestamp}-${userId ?? "anon"}-${file.size}-${rand}.${ext}`;
   const fullPath = path.join(dir, filename);
   databaseLogger.info(`[voice-server] transcribe-bank-write filename=${filename}`, { operation: "voice_transcribe_bank_write", filename });
   void fs.promises.mkdir(dir, { recursive: true }).then(() => fs.promises.writeFile(fullPath, file.buffer)).catch((err: unknown) => {
@@ -345,6 +350,13 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
       // Concurrency cap 2 (chunk N + prefetch N+1) per Pitfall 5.
       const nextPromise: Promise<import("node:stream").Readable> | null =
         i + 1 < chunks.length ? synthesizeToPcm(chunks[i + 1], voiceId) : null;
+      // Attach a no-op catch immediately so a rejection here (before the
+      // await on the next iteration) doesn't surface as an unhandled
+      // rejection — starter.ts's unhandledRejection handler calls
+      // process.exit(1), which would kill the container mid-stream and
+      // drop every other connected client. The rejection is still
+      // re-thrown when the next iteration's `await currentPromise` runs.
+      if (nextPromise) nextPromise.catch(() => {});
 
       // On the first chunk, flush headers + RIFF header BEFORE any PCM bytes.
       if (i === 0) {
@@ -421,10 +433,28 @@ router.post(
   },
 );
 
+// Reject bridge service tokens on /speak endpoints. The tg-bridge JWT is
+// minted with userId="tg-bridge-service" and legitimately only needs
+// /voice/transcribe. Scoping the token at the route layer (not the JWT
+// verify layer) means a leaked bridge JWT gets 403 on TTS surfaces rather
+// than the AWS-Polly-billing-burn a leaked wildcard would enable. User
+// tokens carry real DB userIds and pass through unchanged.
+function rejectBridgeServiceOnSpeak(req: Request, res: Response, next: NextFunction) {
+  const authReq = req as AuthenticatedRequest;
+  if (authReq.userId === "tg-bridge-service") {
+    res.status(403).json({
+      error: "voice: bridge service tokens are not authorized for /speak endpoints",
+    });
+    return;
+  }
+  next();
+}
+
 // --- Route: POST /speak ---
 router.post(
   "/speak",
   authenticateJWT,
+  rejectBridgeServiceOnSpeak,
   express.json({ limit: "64kb" }),
   (req: Request, res: Response) => {
     void handleSpeak(req, res);
@@ -432,11 +462,13 @@ router.post(
 );
 
 // --- Route: POST /speak-stream ---
-// Middleware chain: authenticateJWT (401 if unauth) → express.json (body parse) → handleSpeakStream
+// Middleware chain: authenticateJWT (401 if unauth) → rejectBridgeServiceOnSpeak
+// (403 if bridge token) → express.json (body parse) → handleSpeakStream
 // T-19-01: authenticateJWT BEFORE express.json — body is never parsed if JWT is invalid.
 router.post(
   "/speak-stream",
   authenticateJWT,
+  rejectBridgeServiceOnSpeak,
   express.json({ limit: "64kb" }),
   (req: Request, res: Response) => {
     void handleSpeakStream(req, res);

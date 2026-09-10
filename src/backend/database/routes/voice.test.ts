@@ -347,8 +347,10 @@ describe("handleTranscribe (AWS Transcribe streaming)", () => {
     expect(vi.mocked(fs.promises.writeFile)).toHaveBeenCalledTimes(1);
     const call = vi.mocked(fs.promises.writeFile).mock.calls[0];
     const writtenPath = call[0] as string;
-    // filename shape preserved (timestamp-userId-size.ext):
-    expect(writtenPath).toMatch(/^.*\/\d{8}T\d{6}Z-(anon|\d+)-\d+\.webm$/);
+    // filename shape (timestamp-userId-size-rand.ext): rand tail prevents
+    // silent overwrite on concurrent same-user same-size uploads (M3 fix
+    // from Phase 98 unbiased code review).
+    expect(writtenPath).toMatch(/^.*\/\d{8}T\d{6}Z-(anon|\d+)-\d+-[a-z0-9]{1,6}\.webm$/);
     // Bank-written bytes ARE the RAW multipart bytes, not the transcoded output:
     const writtenData = call[1] as Buffer;
     expect(Buffer.isBuffer(writtenData)).toBe(true);

@@ -149,7 +149,19 @@ export function packChunks(sentences: string[]): string[] {
         const separator = sub ? " " : "";
         if ((sub + separator + w).length > CHUNK_MAX_CHARS) {
           if (sub) chunks.push(sub);
-          sub = w;
+          // Defensive: a single word longer than CHUNK_MAX_CHARS would
+          // violate the invariant if pushed whole. Hard-slice into cap-
+          // sized pieces. Preserves the "every output chunk <= CHUNK_MAX
+          // _CHARS" contract even for pathological input (e.g. base64
+          // blob glued into a message).
+          if (w.length > CHUNK_MAX_CHARS) {
+            for (let off = 0; off < w.length; off += CHUNK_MAX_CHARS) {
+              chunks.push(w.slice(off, off + CHUNK_MAX_CHARS));
+            }
+            sub = "";
+          } else {
+            sub = w;
+          }
         } else {
           sub = sub + separator + w;
         }

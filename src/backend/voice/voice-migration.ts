@@ -119,8 +119,18 @@ async function migrateFrontmatterFile(
   const newFm = fmText.replace(/^voice:\s*.+\n?/m, "");
   const newContent = content.replace(fmMatch[0], `---\n${newFm}\n---`);
   const tmpPath = filePath + ".tmp";
-  await fs.writeFile(tmpPath, newContent, "utf8");
-  await fs.rename(tmpPath, filePath);
+  try {
+    await fs.writeFile(tmpPath, newContent, "utf8");
+    await fs.rename(tmpPath, filePath);
+  } catch (err) {
+    // If rename fails (cross-device, permission, etc.), the .tmp file is
+    // left orphan next to the source. Mirrors bridge-config-writer.ts's
+    // failure-branch unlink. Best-effort — never throws.
+    await fs.unlink(tmpPath).catch(() => {
+      /* swallow cleanup */
+    });
+    throw err;
+  }
   return { changed: true };
 }
 
