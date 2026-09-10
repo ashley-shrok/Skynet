@@ -4,7 +4,8 @@
  * `if (!r.ok) { ... r.status, r.error }` should narrow `r` to its error
  * variant on `SomethingOk | AdminErr` (and other ok-discriminated) unions,
  * but TS 6.0.3 lost the narrowing. See `compose-drafts.ts:254` /
- * `plan-file-fetch.ts:297` for the inline-cast precedent.
+ * `src/backend/database/routes/pretty-view-fetch-host-file.ts` for the inline-cast
+ * + SFTP-wrapper precedent (Phase 95 Part B retired the prior SFTP side-channel module).
  *
  * These are zero-cost `asserts` predicates callers invoke inside the `!r.ok`
  * branch to re-narrow `r` to its error variant. Three names for

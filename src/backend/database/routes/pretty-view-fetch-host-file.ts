@@ -113,11 +113,10 @@ const authenticateJWT = authManager.createAuthMiddleware();
 const permissionManager = PermissionManager.getInstance();
 
 /* ------------------------------------------------------------------------ */
-/*  SFTP promise wrappers (mirrors plan-file-fetch.ts L122-163 verbatim)    */
-/*                                                                          */
-/*  Copied locally rather than exported from plan-file-fetch.ts because     */
-/*  the plan-file-fetch SftpLike type is module-private. Behaviour is       */
-/*  identical.                                                              */
+/*  SFTP promise wrappers (self-contained here — this file is now the       */
+/*  canonical SFTP-wrapper precedent in the codebase; the SFTP              */
+/*  side-channel that previously served plan-file fetches was retired in    */
+/*  Phase 95 Part B alongside plan-mode deprecation).                       */
 /* ------------------------------------------------------------------------ */
 
 /** Minimal SFTP shape (duck-typed) — matches ssh2's SFTPWrapper for the
@@ -243,7 +242,7 @@ async function fetchHostFileBytes(
   const ctrl = new AbortController();
   const timer = setTimeout(() => {
     // Trigger an AbortError-shaped rejection in the SFTP callback path via
-    // the same abort signal Promise.race pattern used in plan-file-fetch.ts.
+    // the same abort signal Promise.race pattern used in this file's own SFTP wrappers above.
     ctrl.abort();
   }, SFTP_READ_TIMEOUT_MS);
 
