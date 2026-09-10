@@ -106,8 +106,26 @@ export function parseTabParam(raw: string | null): TabSpec | null {
   // Phase 97 Plan 05 (Finding 7): relay variant — opaque Matrix room ID.
   // Branch BEFORE the host-required paths below because relay tabs have no
   // fleet host (the room lives on the Matrix relay). See D-15/D-16.
+  //
+  // Phase 97 code-review Fix 5: wrap decodeURIComponent in try/catch. Malformed
+  // percent-encoding (e.g., a stray '%' with no hex pair, or '%ZZ') throws
+  // URIError, which would crash tab restoration. The function's contract for
+  // other malformed inputs is 'return null'; matching that contract here.
   if (protocol === "relay") {
-    const roomId = decodeURIComponent(rest);
+    let roomId: string;
+    try {
+      roomId = decodeURIComponent(rest);
+    } catch {
+      // URIError — malformed percent-encoding. Fail-safe: drop the tab. We
+      // don't log the raw payload (would echo user input into ops logs);
+      // the length is the only forensic signal that's safe to emit.
+      // eslint-disable-next-line no-console
+      console.info({
+        operation: "parse_tab_param_relay_malformed_uri",
+        restLen: rest.length,
+      });
+      return null;
+    }
     if (!roomId) return null;
     // Defense-in-depth: reject grossly oversized roomIds. Browser URL fragment
     // has a ~2000-char practical limit; realistic Matrix roomIds are ~40.

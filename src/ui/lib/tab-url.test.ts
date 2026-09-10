@@ -226,4 +226,16 @@ describe("tab-url — relay: protocol grammar widening (Phase 97 Plan 05)", () =
     const decoded = parseTabParam(encoded);
     expect(decoded).toEqual({ protocol: "relay", roomId: pathological });
   });
+
+  it("Test 11 (malformed URI encoding): parseTabParam('relay:%ZZ') returns null (URIError → fail-safe)", () => {
+    // Phase 97 code-review Fix 5: decodeURIComponent throws URIError on
+    // malformed percent-encoding. The parser must catch and return null
+    // (matches the function's malformed-input contract), NOT propagate the
+    // throw and crash tab restoration.
+    expect(parseTabParam("relay:%ZZ")).toBeNull();
+    // Stray '%' with no hex pair at all.
+    expect(parseTabParam("relay:%")).toBeNull();
+    // '%' followed by only one hex digit.
+    expect(parseTabParam("relay:%2")).toBeNull();
+  });
 });
