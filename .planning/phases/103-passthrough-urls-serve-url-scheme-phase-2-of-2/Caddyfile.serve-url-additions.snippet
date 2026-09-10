@@ -43,7 +43,18 @@
     tls {
         dns route53
     }
-    reverse_proxy skynet:8080 {
+    # Direct to Skynet Express on 30001, bypassing nginx on skynet:8080.
+    # Reason: nginx-https.conf L121-129 has a `location ~* \.(js|css|png|...)$`
+    # block that serves static assets from /app/html and returns nginx 404
+    # for anything not present — which short-circuits ALL image/js/css asset
+    # requests on the serve subdomain BEFORE dispatch middleware can fire.
+    # Bypassing nginx is safe on the serve subdomain because none of nginx's
+    # routing logic (SPA index, favicon aliases, static assets) applies —
+    # every request must flow through Skynet's serve-url dispatch to reach
+    # the SSH tunnel. Discovered 2026-09-10 in-UAT when a sibling image.png
+    # rendered broken (nginx returned 404 for /image.png). Applies only to
+    # the wildcard block; other Caddy site blocks continue to hit skynet:8080.
+    reverse_proxy skynet:30001 {
         header_up X-Skynet-Serve-Subdomain {host}
         transport http {
             response_header_timeout 5m
