@@ -14,6 +14,7 @@ import { sshLogger, authLogger } from "../utils/logger.js";
 import { SimpleDBOps } from "../utils/simple-db-ops.js";
 import { AuthManager } from "../utils/auth-manager.js";
 import { UserCrypto } from "../utils/user-crypto.js";
+import { rejectServeSubdomain } from "../utils/ws-origin-guard.js";
 import {
   createSocks5Connection,
   type SOCKS5Config,
@@ -118,6 +119,21 @@ const userConnections = new Map<string, Set<WebSocket>>();
 
 const wss = new WebSocketServer({
   port: 30002,
+  // Phase 103 D-08: reject WS upgrades from *.serve.term.<domain> origins at
+  // the handshake layer — WS doesn't do CORS preflight, so this is the WS
+  // complement to Plan 02's cors-config.ts reject. No WS ever opens for a
+  // rejected origin; existing JWT gate below still applies to accepted ones.
+  verifyClient: (info, done) => {
+    if (rejectServeSubdomain(info.req)) {
+      sshLogger.warn("ws-origin-guard: rejected serve subdomain", {
+        operation: "ws_origin_guard_reject",
+        origin: info.req.headers.origin,
+        wss: "terminal",
+      });
+      return done(false, 403, "Serve subdomain origin not permitted");
+    }
+    return done(true);
+  },
 });
 
 wss.on("connection", async (ws: WebSocket, req) => {

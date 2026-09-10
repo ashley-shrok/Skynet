@@ -30,6 +30,7 @@ import { DataCrypto } from "../utils/data-crypto.js";
 import { createSocks5Connection } from "../utils/socks5-helper.js";
 import { AuthManager } from "../utils/auth-manager.js";
 import { PermissionManager } from "../utils/permission-manager.js";
+import { rejectServeSubdomain } from "../utils/ws-origin-guard.js";
 import { withConnection } from "./ssh-connection-pool.js";
 import {
   applyAuthOptions,
@@ -2347,6 +2348,19 @@ const server = createServer(app);
 const c2sRelayWss = new WebSocketServer({
   server,
   path: "/ssh/tunnel/c2s/stream",
+  // Phase 103 D-08: reject WS upgrades from *.serve.term.<domain> origins at
+  // the handshake layer — WS complement to Plan 02's CORS reject.
+  verifyClient: (info, done) => {
+    if (rejectServeSubdomain(info.req)) {
+      tunnelLogger.warn("ws-origin-guard: rejected serve subdomain", {
+        operation: "ws_origin_guard_reject",
+        origin: info.req.headers.origin,
+        wss: "tunnel",
+      });
+      return done(false, 403, "Serve subdomain origin not permitted");
+    }
+    return done(true);
+  },
 });
 
 c2sRelayWss.on("connection", (ws, req) => {

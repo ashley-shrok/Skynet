@@ -19,6 +19,7 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { IncomingMessage } from "node:http";
 import { systemLogger } from "../utils/logger.js";
+import { rejectServeSubdomain } from "../utils/ws-origin-guard.js";
 import {
   WatcherInboundFrame,
   FrontendInboundFrame,
@@ -85,7 +86,22 @@ export function startFleetStatusServer(
   const port = opts.port ?? 30012;
 
   // Use path: undefined so we can dispatch manually per req.url
-  const wss = new WebSocketServer({ port });
+  const wss = new WebSocketServer({
+    port,
+    // Phase 103 D-08: reject WS upgrades from *.serve.term.<domain> origins
+    // at the handshake layer — WS complement to Plan 02's CORS reject.
+    verifyClient: (info, done) => {
+      if (rejectServeSubdomain(info.req)) {
+        systemLogger.warn("ws-origin-guard: rejected serve subdomain", {
+          operation: "ws_origin_guard_reject",
+          origin: info.req.headers.origin,
+          wss: "fleet-status",
+        });
+        return done(false, 403, "Serve subdomain origin not permitted");
+      }
+      return done(true);
+    },
+  });
 
   wss.on("connection", async (ws: WebSocket, req: IncomingMessage) => {
     const reqUrl = req.url ?? "";

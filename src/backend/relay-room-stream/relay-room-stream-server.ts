@@ -70,6 +70,7 @@ import { WebSocketServer, WebSocket, type RawData } from "ws";
 import type { IncomingMessage } from "http";
 import { AuthManager } from "../utils/auth-manager.js";
 import { databaseLogger } from "../utils/logger.js";
+import { rejectServeSubdomain } from "../utils/ws-origin-guard.js";
 import { db } from "../database/db/index.js";
 import { users } from "../database/db/schema.js";
 import { eq } from "drizzle-orm";
@@ -1169,7 +1170,22 @@ function startWebSocketServer(): void {
   // of one-time users can't grow the map indefinitely.
   startRateLimiterSweep();
 
-  const wss = new WebSocketServer({ port: RELAY_ROOM_STREAM_PORT });
+  const wss = new WebSocketServer({
+    port: RELAY_ROOM_STREAM_PORT,
+    // Phase 103 D-08: reject WS upgrades from *.serve.term.<domain> origins
+    // at the handshake layer — WS complement to Plan 02's CORS reject.
+    verifyClient: (info, done) => {
+      if (rejectServeSubdomain(info.req)) {
+        databaseLogger.warn("ws-origin-guard: rejected serve subdomain", {
+          operation: "ws_origin_guard_reject",
+          origin: info.req.headers.origin,
+          wss: "relay-room-stream",
+        });
+        return done(false, 403, "Serve subdomain origin not permitted");
+      }
+      return done(true);
+    },
+  });
 
   wss.on("connection", async (ws: WebSocket, req: IncomingMessage) => {
     // ─── JWT auth on upgrade ───────────────────────────────────────────

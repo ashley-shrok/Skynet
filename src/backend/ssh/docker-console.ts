@@ -7,6 +7,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "../database/db/index.js";
 import { SimpleDBOps } from "../utils/simple-db-ops.js";
 import { systemLogger } from "../utils/logger.js";
+import { rejectServeSubdomain } from "../utils/ws-origin-guard.js";
 import type { SSHHost } from "../../types/index.js";
 
 const sshLogger = systemLogger;
@@ -25,6 +26,19 @@ const activeSessions = new Map<string, SSHSession>();
 const wss = new WebSocketServer({
   host: "0.0.0.0",
   port: 30009,
+  // Phase 103 D-08: reject WS upgrades from *.serve.term.<domain> origins at
+  // the handshake layer — WS complement to Plan 02's CORS reject.
+  verifyClient: (info, done) => {
+    if (rejectServeSubdomain(info.req)) {
+      sshLogger.warn("ws-origin-guard: rejected serve subdomain", {
+        operation: "ws_origin_guard_reject",
+        origin: info.req.headers.origin,
+        wss: "docker-console",
+      });
+      return done(false, 403, "Serve subdomain origin not permitted");
+    }
+    return done(true);
+  },
 });
 
 async function detectShell(
