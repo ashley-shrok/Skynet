@@ -106,3 +106,120 @@ describe("tab-url — WorkspaceSpec.splitTree widening (Phase 56 Plan 02)", () =
     expect(back!.splitTree).toBeUndefined();
   });
 });
+
+// ─── Phase 97 Plan 05 — relay: protocol grammar widening ─────────────────────
+// Extends TabSpec to a discriminated union with a `relay` variant carrying an
+// opaque Matrix room ID. See:
+//   .planning/phases/97-.../97-05-url-persistence-PLAN.md § Task 1 <behavior>
+//
+// The relay variant is additive: existing tmux:/terminal:/rdp:/vnc:/telnet:
+// tests remain the regression floor (proved by Tests 6 + 7 + 9 below).
+
+import { parseTabParam, encodeTabSpec, specForTab } from "./tab-url";
+
+describe("tab-url — relay: protocol grammar widening (Phase 97 Plan 05)", () => {
+  it("Test 1: parseTabParam('relay:%21abcdef%3Amatrix.example.com') returns {protocol: 'relay', roomId}", () => {
+    const spec = parseTabParam("relay:%21abcdef%3Amatrix.example.com");
+    expect(spec).toEqual({
+      protocol: "relay",
+      roomId: "!abcdef:matrix.example.com",
+    });
+  });
+
+  it("Test 2: parseTabParam('relay:') returns null (empty roomId → invalid)", () => {
+    expect(parseTabParam("relay:")).toBeNull();
+  });
+
+  it("Test 3: encodeTabSpec({protocol: 'relay', roomId}) returns 'relay:<encoded>'", () => {
+    const out = encodeTabSpec({
+      protocol: "relay",
+      roomId: "!abcdef:matrix.example.com",
+    });
+    expect(out).toBe("relay:%21abcdef%3Amatrix.example.com");
+  });
+
+  it("Test 4: specForTab({type:'terminal', sessionKind:'relay-room', relayRoomId}) returns relay spec", () => {
+    const spec = specForTab({
+      type: "terminal",
+      host: undefined,
+      sessionKind: "relay-room",
+      relayRoomId: "!abc:example.com",
+    });
+    expect(spec).toEqual({
+      protocol: "relay",
+      roomId: "!abc:example.com",
+    });
+  });
+
+  it("Test 5: specForTab({sessionKind:'relay-room'}) with no relayRoomId returns null (defensive)", () => {
+    const spec = specForTab({
+      type: "terminal",
+      host: undefined,
+      sessionKind: "relay-room",
+    });
+    expect(spec).toBeNull();
+  });
+
+  it("Test 6 (regression): parseTabParam('tmux:foo.host:mysession') still returns tmux spec", () => {
+    const spec = parseTabParam("tmux:foo.host:mysession");
+    expect(spec).toEqual({
+      protocol: "tmux",
+      host: "foo.host",
+      session: "mysession",
+    });
+  });
+
+  it("Test 7 (regression): encodeTabSpec({protocol:'terminal', host:'foo.host'}) still returns 'terminal:foo.host'", () => {
+    const out = encodeTabSpec({ protocol: "terminal", host: "foo.host" });
+    expect(out).toBe("terminal:foo.host");
+  });
+
+  it("Test 8 (round-trip): parseTabParam(encodeTabSpec({relay, roomId})) matches input", () => {
+    const original = {
+      protocol: "relay" as const,
+      roomId: "!abc:example.com",
+    };
+    const encoded = encodeTabSpec(original);
+    const decoded = parseTabParam(encoded);
+    expect(decoded).toEqual(original);
+  });
+
+  it("Test 9 (backward compat): legacy multi-tab URL parses without error", () => {
+    // A legacy fragment with two tab= entries; verify parseTabParam handles
+    // each individually without the relay: extension breaking existing
+    // patterns.
+    expect(parseTabParam("tmux:foo:bar")).toEqual({
+      protocol: "tmux",
+      host: "foo",
+      session: "bar",
+    });
+    expect(parseTabParam("terminal:baz")).toEqual({
+      protocol: "terminal",
+      host: "baz",
+    });
+  });
+
+  it("Test 10 (over-cap defense): parseTabParam('relay:' + 600 chars) returns null (roomId > 512 rejected)", () => {
+    const oversized = "relay:" + "a".repeat(600);
+    expect(parseTabParam(oversized)).toBeNull();
+  });
+
+  it("Test 10b (at-cap): parseTabParam('relay:' + 512 chars) parses (boundary check)", () => {
+    // 512 chars is at the cap and should still parse. 513 fails.
+    const at512 = "relay:" + "a".repeat(512);
+    const spec = parseTabParam(at512);
+    expect(spec).not.toBeNull();
+    expect(spec!.protocol).toBe("relay");
+  });
+
+  it("Test 10c (round-trip Matrix-legal chars): !, :, ., @, # survive encode/decode", () => {
+    // A pathological roomId containing every Matrix-legal special char.
+    const pathological = "!room.name@server:matrix.example.com#alias";
+    const encoded = encodeTabSpec({
+      protocol: "relay",
+      roomId: pathological,
+    });
+    const decoded = parseTabParam(encoded);
+    expect(decoded).toEqual({ protocol: "relay", roomId: pathological });
+  });
+});
