@@ -364,6 +364,20 @@ export function isCurrentAuthInvalidationError(error: unknown): boolean {
 // Maximum total attempts (1 initial + 2 retries) for the retry interceptor.
 const MAX_ATTEMPTS = 3;
 
+// Suppress "🐌 Slow request" warnings when tab visibility was hidden at any point
+// during the request — performance.now() ticks real time even while the browser
+// throttles the tab's JS event loop, so a backgrounded PWA reports 8-18s waits
+// that are pure JS-scheduler delay, not real slowness. See close-out of bounty
+// auth-slow-requests-on-pwa-boot (2026-09-10).
+let lastVisibilityHiddenAt = -Infinity;
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      lastVisibilityHiddenAt = performance.now();
+    }
+  });
+}
+
 export function createApiInstance(
   baseURL: string,
   serviceName: string = "API",
@@ -478,7 +492,11 @@ export function createApiInstance(
         );
       }
 
-      if (responseTime > 3000) {
+      const tabWasHiddenDuringRequest =
+        (startTime !== undefined && lastVisibilityHiddenAt >= startTime) ||
+        (typeof document !== "undefined" &&
+          document.visibilityState === "hidden");
+      if (responseTime > 3000 && !tabWasHiddenDuringRequest) {
         logger.warn(`🐌 Slow request: ${responseTime}ms`, context);
       }
 
