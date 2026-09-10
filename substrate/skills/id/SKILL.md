@@ -842,18 +842,39 @@ up.
 
 ## Sending files to the user
 
-When the user asks for a file — a diff, an artifact, a log, a screenshot, a built
-output — the canonical way is to cite it as a **Skynet passthrough file URL** that
-Skynet renders with a pencil affordance in her chat view. Click → modal → view /
-edit → save-attaches-to-her-next-message. Two flavors, pick by size:
+When the user asks for something she needs to see, read, download, or interact
+with — a diff, an artifact, a log, a screenshot, a running dev server, a jupyter
+notebook, a built webpage — Skynet gives you TWO URL schemes to make it reachable
+over the same HTTPS surface she's already on. Pick by the **active vs passive**
+rule below; each URL renders naturally in her chat and inherits her existing
+per-user-per-host access grants.
 
-**Small text (< ~5 KB)** — a short diff, a config snippet, a stack trace, a JSON
-blob — just paste it inline in a code block. Faster than any URL round-trip and
-she can copy from the chat directly.
+### Active vs passive — which URL to construct
 
-**Anything larger, or binary** — cite the file as a **Markdown-formatted Skynet
-file URL** so it's clickable in her chat (and openable in the editable-file
-modal Skynet renders around it). Grammar:
+- **Active** = something RUNNING on the other end that she needs to interact with
+  live. A dev server, a jupyter kernel, a WS stream, a static server hosting a
+  multi-file page. → **serve URL**
+- **Passive** = bytes on disk she wants to read, download, or edit. A doc, a
+  screenshot, a log, a config file, a downloadable binary, a single HTML
+  snapshot. → **file URL**
+
+Rule of thumb: **"Do you need something running on the other end for the user to
+have the right experience?"** Yes → serve URL. No → file URL.
+
+Never rewrite one flavor into the other. If you handed her a file URL, it stays
+a file URL; if a serve URL, it stays a serve URL. The URL you wrote is the URL
+she clicks — no Skynet-side rewriting behind your back. (Same "agents aren't
+lied to" rule as the rest of this skill.)
+
+### File URL — passive bytes on disk
+
+Cite the file as a **Markdown-formatted Skynet file URL** so it's clickable in
+her chat (and openable in the editable-file modal Skynet renders around it). If
+the payload is trivially small (< ~5 KB — a short diff, a config snippet, a
+stack trace, a JSON blob) skip the URL and paste it inline in a code block
+instead; she can copy from the chat directly with no round-trip.
+
+Grammar:
 
     <skynet-parent>/file/<hostname>/<absolute-path>
 
@@ -919,17 +940,108 @@ original path is never touched by Skynet.
   surfacing the failure lets her fix the underlying problem instead of
   debugging a broken URL.
 
-**Why we replaced the old tailnet HTTP-server recipe.** Serving files off the
-tailnet IP over plain HTTP had three chronic pain points: (1) Chrome flagged
-every download as "insecure file" because the tailnet has no cert path on
-Ashley's plan; (2) the tailnet-only reach meant customer VMs and any box off
-the tailnet (T800 today, future customer boxes tomorrow) simply couldn't be
-served this way; and (3) every share saddled you with agent-side server
-lifecycle burden — a backgrounded process to kill, `mktemp -d` staging dirs to
-clean up, port juggling, PID tracking, self-`pkill` traps. The Skynet
-passthrough URL scheme is the ONE and ONLY documented way to share files now:
-HTTPS end-to-end, works from anywhere Skynet reaches, and no agent-side
-process to babysit.
+### Serve URL — active content, live proxy
+
+When you've got something running on a port on this box — a dev server, a
+jupyter, a WS stream, an ad-hoc static server hosting a multi-file page — hand
+her a **Skynet serve URL** that reverse-proxies through to it. Skynet doesn't
+care what's on the other side; it just proxies HTTP + WebSocket traffic through
+an SSH tunnel to whatever port you tell it.
+
+Grammar:
+
+    https://<hostname>-<port>.serve.<term-parent>
+
+Where `<term-parent>` is derived from `~/.claude/skynet-parent`: strip the
+protocol, then the serve URL constructs as `<hostname>-<port>.serve.<the-rest>`.
+Concrete example (with the parent-Skynet at `https://term.gigaashley.click`,
+this box named `t1000`, and a dev server on port 3020):
+
+    https://t1000-3020.serve.term.gigaashley.click
+
+Construct one like so:
+
+    SKYNET=$(cat ~/.claude/skynet-parent 2>/dev/null)
+    if [ -z "$SKYNET" ]; then
+      echo "I can't share a live serve URL right now — my parent-Skynet config is missing." \
+           "Ask the box-maintainer role to check the distributor sweep." >&2
+      exit 1
+    fi
+    HOST=$(cat ~/.claude/skynet-hostname 2>/dev/null)
+    if [ -z "$HOST" ]; then
+      echo "I can't share a live serve URL right now — my Skynet hostname config is missing." \
+           "Ask the box-maintainer role to check the distributor sweep." >&2
+      exit 1
+    fi
+    PORT=3020                            # the port your live thing is listening on
+    # Strip https:// and split into first label + rest to insert the serve subdomain
+    PARENT=${SKYNET#https://}
+    FIRST_LABEL=${PARENT%%.*}            # e.g. "term"
+    REST=${PARENT#*.}                    # e.g. "gigaashley.click"
+    printf '[%s live](https://%s-%d.serve.%s.%s)\n' "$HOST" "$HOST" "$PORT" "$FIRST_LABEL" "$REST"
+
+**Round-trip semantics — Skynet is a passthrough only.** Any HTTP method + body
++ WebSocket upgrade flows through unchanged. Skynet strips your session cookie
+and auth headers before forwarding — the running thing on the other end sees a
+plain request from Skynet's edge, not from a specific authenticated user (auth
+is enforced at Skynet's edge, not passed to your app). Modern frontends (Vite,
+Next.js, anything with absolute-path assets) work naturally because every
+`<hostname>-<port>` combination presents as its own web origin under the
+wildcard cert.
+
+**Rules that matter — bake them in every time:**
+
+- **Use the hostname the distributor wrote to `~/.claude/skynet-hostname`, not
+  an IP and not `$(hostname)`.** Same rule as the file URL — this box's DB
+  record uses that exact string; anything else 404s at the interstitial.
+- **The port must be listening BEFORE you cite the URL.** If you cite
+  `t1000-3020.serve.term.gigaashley.click` and nothing is on 3020, she sees a
+  Skynet-styled "port 3020 of t1000 isn't responding" interstitial. Polite, but
+  still — don't cite dead URLs. Confirm the port is up (e.g. `ss -ltn | grep
+  :3020`) before you hand her the link.
+- **The port must be a plain integer in the range 1-65535.** Not a name, not a
+  range. If your thing binds to a random port on startup, capture the port
+  first and then construct the URL.
+- **Hostname can't end in `-<digits>`.** The URL parse rule splits on the last
+  dash of the leftmost label to separate hostname from port. Registration
+  already blocks names like `foo-42` — the current fleet all passes. If the
+  distributor ever writes a name ending in `-\d+` to your box, that's a bug —
+  surface it.
+- **Missing `~/.claude/skynet-parent` OR missing `~/.claude/skynet-hostname` =
+  surface a clean user-facing error**, never guess and never fall back. Same
+  rule as file URLs; the exact wording is in the recipe above.
+- **No workaround if the serve URL is broken.** If the serve infrastructure is
+  down and the URL doesn't work, tell her and stop. Do NOT stand up a local
+  HTTP server on the tailnet as a fallback — you'd be handing her a URL Chrome
+  flags as insecure and that only works from tailnet-attached browsers, which
+  is a worse UX than the interstitial. That whole recipe is gone (see below).
+
+**What she actually sees when she clicks a serve URL.** Her browser opens
+`https://<hostname>-<port>.serve.<term-parent>` under Skynet's HTTPS cert.
+Skynet checks her session + per-user-per-host access, opens (or reuses) an SSH
+tunnel to the port on your box, and reverse-proxies HTTP + WebSocket bytes.
+Everything her browser needs — absolute-path assets, cookies, service workers —
+resolves against that same subdomain, so the app on the other end behaves the
+way it would if she visited it directly.
+
+### Why we replaced the old tailnet HTTP-server recipe (both URL schemes)
+
+Both URL schemes replace the old "stand up an HTTP server on a tailnet IP and
+hand the user a link" recipe. That recipe had three chronic pain points:
+(1) Chrome flagged every download as "insecure file" because the tailnet has no
+cert path on Ashley's plan — she had to right-click "save as" and confirm "keep"
+in the downloads tray every single time; (2) the tailnet-only reach meant
+customer VMs and any box off the tailnet (T800 today, future customer boxes
+tomorrow) simply couldn't be served this way; and (3) every share saddled you
+with agent-side server lifecycle burden — a backgrounded process to kill,
+`mktemp -d` staging dirs to clean up, port juggling, PID tracking, self-`pkill`
+traps that had to steer clear of matching their own command line. Both Skynet
+passthrough URL schemes (file + serve) are HTTPS end-to-end under Skynet's cert,
+work from anywhere Skynet reaches, and drop the agent-side server-lifecycle
+burden: the file URL is a fetch Skynet makes from your box over its existing
+SSH machinery, and the serve URL is a reverse-proxy to a port you'd already
+have listening anyway — you own the process lifecycle exactly as long as you'd
+own it regardless, with no extra HTTP server on top.
 
 ---
 
