@@ -200,8 +200,16 @@ class SimpleDBOps {
     where: unknown,
     data: Partial<T>,
   ): Promise<T[]> {
-    for (const key of Object.keys(data)) {
-      if (SENSITIVE_FIELDS_BY_TABLE[tableName]?.has(key)) {
+    for (const [key, value] of Object.entries(data)) {
+      // Only trip on non-null, non-empty values — null/undefined/empty-string
+      // sensitive fields are "clear this field" writes, which don't need
+      // encryption (no secret to encrypt), and are safe to accept here.
+      if (
+        SENSITIVE_FIELDS_BY_TABLE[tableName]?.has(key) &&
+        value !== null &&
+        value !== undefined &&
+        value !== ""
+      ) {
         throw new Error(
           `updateNonSensitive called with sensitive field: ${key} — use SimpleDBOps.update instead`,
         );
@@ -232,8 +240,15 @@ class SimpleDBOps {
     tableName: TableName,
     data: T,
   ): Promise<T[]> {
-    for (const key of Object.keys(data)) {
-      if (SENSITIVE_FIELDS_BY_TABLE[tableName]?.has(key)) {
+    for (const [key, value] of Object.entries(data)) {
+      // Only trip on non-null, non-empty values — null/undefined/empty-string
+      // sensitive fields are "not being set" and don't need encryption.
+      if (
+        SENSITIVE_FIELDS_BY_TABLE[tableName]?.has(key) &&
+        value !== null &&
+        value !== undefined &&
+        value !== ""
+      ) {
         throw new Error(
           `insertNonSensitive called with sensitive field: ${key} — use SimpleDBOps.insert instead`,
         );
