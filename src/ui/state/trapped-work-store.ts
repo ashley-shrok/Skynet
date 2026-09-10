@@ -87,34 +87,6 @@ export function useTrappedWork(
 }
 
 /**
- * Subscribe to the FULL trapped-work map. Composite key format matches
- * compositeKey() above: `${identityKey}:${hostId ?? "local"}`. No direct
- * consumer this phase (kept for future panel-level filter helpers).
- */
-export function useAllTrappedWork(): ReadonlyMap<
-  string,
-  { hasTrappedWork: boolean }
-> {
-  const getSnapshot = (): ReadonlyMap<
-    string,
-    { hasTrappedWork: boolean }
-  > => state.counts;
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-}
-
-/**
- * Format the (identityKey, hostId) composite key exactly as the store stores
- * it. Exported so panel-level helpers can look up entries without
- * re-implementing the key format (and drifting out of sync with the store).
- */
-export function trappedWorkCompositeKey(
-  identityKey: string,
-  hostId: number | null,
-): string {
-  return compositeKey(identityKey, hostId);
-}
-
-/**
  * Fire ONE identity:probe-trapped-work WS request carrying all targets.
  * Applies successful {hasTrappedWork} values to the internal map and
  * notifies subscribers.

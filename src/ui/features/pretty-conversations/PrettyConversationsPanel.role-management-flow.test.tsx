@@ -92,9 +92,6 @@ vi.mock("@/features/terminal/session-hue", () => ({
 // Phase 104 Plan 02 — trapped-work-store (inert stub — panel mounts poller)
 vi.mock("@/state/trapped-work-store", () => ({
   useTrappedWork: () => undefined,
-  useAllTrappedWork: () => new Map(),
-  trappedWorkCompositeKey: (identityKey: string, hostId: number | null) =>
-    `${identityKey}:${hostId ?? "local"}`,
   startTrappedWorkPoller: () => () => {},
 }));
 

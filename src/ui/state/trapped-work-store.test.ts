@@ -4,7 +4,6 @@
 // per-identity trapped-work indicator. The store owns:
 //   - useTrappedWork(identityKey, hostId) selector (undefined pre-fetch,
 //     returns {hasTrappedWork} post-fetch)
-//   - useAllTrappedWork() full-map selector
 //   - refreshTrappedWork(targets) one-shot fetch that applies to the map
 //   - startTrappedWorkPoller(getTargets, intervalMs) with 60s + window.focus
 //
@@ -22,8 +21,6 @@ vi.mock("@/api/claude-session-api", () => ({
 import { probeIdentityTrappedWork } from "@/api/claude-session-api";
 import {
   useTrappedWork,
-  useAllTrappedWork,
-  trappedWorkCompositeKey,
   refreshTrappedWork,
   startTrappedWorkPoller,
   __resetTrappedWorkForTest,
@@ -297,38 +294,3 @@ describe("transport-error resilience", () => {
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Store Test 10 — useAllTrappedWork returns ReadonlyMap
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("useAllTrappedWork returns ReadonlyMap of composite-keyed snapshots", () => {
-  it("Store Test 10: returns the full ReadonlyMap snapshot; keys use composite-key format ${identityKey}:${hostId ?? 'local'}", async () => {
-    vi.mocked(probeIdentityTrappedWork).mockResolvedValue(
-      response([
-        ["alice", null, true],
-        ["bob", 7, false],
-      ]),
-    );
-
-    await act(async () => {
-      await refreshTrappedWork([
-        { identityKey: "alice", hostId: null },
-        { identityKey: "bob", hostId: 7 },
-      ]);
-    });
-
-    const { result, rerender } = renderHook(() => useAllTrappedWork());
-    rerender();
-
-    expect(result.current.size).toBe(2);
-    expect(
-      result.current.get(trappedWorkCompositeKey("alice", null)),
-    ).toEqual({ hasTrappedWork: true });
-    expect(result.current.get(trappedWorkCompositeKey("bob", 7))).toEqual({
-      hasTrappedWork: false,
-    });
-    // Explicit composite-key format assertion.
-    expect(trappedWorkCompositeKey("alice", null)).toBe("alice:local");
-    expect(trappedWorkCompositeKey("bob", 7)).toBe("bob:7");
-  });
-});
