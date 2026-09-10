@@ -52,6 +52,7 @@ import {
   pollingBackoff,
   requestQueue,
 } from "./server-stats-state.js";
+import { getHostSemaphore } from "./host-semaphore-registry.js";
 
 const authManager = AuthManager.getInstance();
 const permissionManager = PermissionManager.getInstance();
@@ -1292,6 +1293,7 @@ async function collectMetrics(host: SSHHostWithCredentials): Promise<{
       : never;
   }
 
+  return getHostSemaphore(host.id).run(async () => {
   return requestQueue.queueRequest(host.id, async () => {
     const sessionKey = getSessionKey(host.id, host.userId!);
     const existingSession = metricsSessions[sessionKey];
@@ -1423,6 +1425,7 @@ async function collectMetrics(host: SSHHostWithCredentials): Promise<{
       }
       throw error;
     }
+  });
   });
 }
 
