@@ -37,7 +37,7 @@
  * exception.
  */
 import fs from "node:fs";
-import { getMatrixHomeserverBase } from "../config/media-endpoints.js";
+import { getMatrixHomeserverBase } from "../matrix/matrix-config.js";
 import { mintBridgeServiceToken } from "./bridge-service-token.js";
 import { configEnvPath } from "./shared-volume.js";
 import { listTelegramBotTokens } from "./tokens-store.js";

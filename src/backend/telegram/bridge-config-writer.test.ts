@@ -29,10 +29,10 @@ import os from "node:os";
 
 // --- Mock all downstream dependencies. -----------------------------
 
-// Phase 98 Plan 08: STT_URL is no longer imported by bridge-config-writer.
-// Only getMatrixHomeserverBase remains from media-endpoints (until Plan 10
-// deletes the file entirely and moves the helper).
-vi.mock("../config/media-endpoints.js", () => ({
+// Phase 98 Plan 10: getMatrixHomeserverBase now lives at matrix-config.ts
+// (moved as part of D-Kill-list; the old config module was deleted). STT_URL
+// is no longer imported anywhere (Plan 08 dropped the last consumer).
+vi.mock("../matrix/matrix-config.js", () => ({
   getMatrixHomeserverBase: vi.fn(),
 }));
 
@@ -113,7 +113,7 @@ beforeEach(async () => {
 
   // Reset all mock call histories so per-test assertions like
   // toHaveBeenCalledOnce() are not polluted by previous tests.
-  const mep = await import("../config/media-endpoints.js");
+  const mep = await import("../matrix/matrix-config.js");
   vi.mocked(mep.getMatrixHomeserverBase).mockReset();
   // Phase 98 Plan 08 — bridge-service-token stub. Default: successful mint.
   // Individual tests override for the failure path.
@@ -187,7 +187,7 @@ async function stubUsersQuery(
 describe("bridge-config-writer.writeBridgeConfigEnv", () => {
   it("happy path — writes MATRIX_ROOT + SKYNET_BASE + SKYNET_BRIDGE_TOKEN (STT_URL is NOT written)", async () => {
     const { getMatrixHomeserverBase } = await import(
-      "../config/media-endpoints.js"
+      "../matrix/matrix-config.js"
     );
     vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
       "http://100.113.23.63:8008",
@@ -216,7 +216,7 @@ describe("bridge-config-writer.writeBridgeConfigEnv", () => {
 
   it("returns {ok:false} without writing when mintBridgeServiceToken fails", async () => {
     const { getMatrixHomeserverBase } = await import(
-      "../config/media-endpoints.js"
+      "../matrix/matrix-config.js"
     );
     vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
       "http://100.113.23.63:8008",
@@ -247,7 +247,7 @@ describe("bridge-config-writer.writeBridgeConfigEnv", () => {
 
   it("no admin creds — returns ok:false, does not write disk", async () => {
     const { getMatrixHomeserverBase } = await import(
-      "../config/media-endpoints.js"
+      "../matrix/matrix-config.js"
     );
     vi.mocked(getMatrixHomeserverBase).mockResolvedValue(null);
 
@@ -264,7 +264,7 @@ describe("bridge-config-writer.writeBridgeConfigEnv", () => {
 
   it("rejects unsafe chars (# or newline) in the URL", async () => {
     const { getMatrixHomeserverBase } = await import(
-      "../config/media-endpoints.js"
+      "../matrix/matrix-config.js"
     );
     vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
       "http://foo\nbar:8008",
@@ -285,7 +285,7 @@ describe("bridge-config-writer.writeBridgeConfigEnv", () => {
 describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
   it("orchestrates the full pipeline: list → users → syncBotFiles → mintTokens → buildRegistry → writeRegistry", async () => {
     const { getMatrixHomeserverBase } = await import(
-      "../config/media-endpoints.js"
+      "../matrix/matrix-config.js"
     );
     vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
       "http://100.113.23.63:8008",
@@ -358,7 +358,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
 
   it("re-callable (blocker B-2): back-to-back calls both succeed with clean shape", async () => {
     const { getMatrixHomeserverBase } = await import(
-      "../config/media-endpoints.js"
+      "../matrix/matrix-config.js"
     );
     vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
       "http://100.113.23.63:8008",
@@ -394,7 +394,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
 
   it("does NOT throw on internal exception; returns {ok:false, error}", async () => {
     const { getMatrixHomeserverBase } = await import(
-      "../config/media-endpoints.js"
+      "../matrix/matrix-config.js"
     );
     vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
       "http://100.113.23.63:8008",
@@ -423,7 +423,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     // MX→TG routing scans events by sender mxid; a wrong-namespace mxid
     // silently drops every outbound message.
     const { getMatrixHomeserverBase } = await import(
-      "../config/media-endpoints.js"
+      "../matrix/matrix-config.js"
     );
     // Deliberately IP-based URL — the OLD code would produce
     // `@tina:100.113.23.63`, which is what the fix eliminates.
@@ -493,7 +493,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
 
   it("mxid derivation: skips agent when admin creds is null (no way to build a safe mxid)", async () => {
     const { getMatrixHomeserverBase } = await import(
-      "../config/media-endpoints.js"
+      "../matrix/matrix-config.js"
     );
     vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
       "http://100.113.23.63:8008",
@@ -562,7 +562,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
 
   it("BCW-M1: computes (agent, human) pairs from rows, calls getSharedDMRoom per pair, threads Map into buildRegistryFromRows", async () => {
     const { getMatrixHomeserverBase } = await import(
-      "../config/media-endpoints.js"
+      "../matrix/matrix-config.js"
     );
     vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
       "http://100.113.23.63:8008",
@@ -678,7 +678,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
 
   it("BCW-M2: getSharedDMRoom returns null for one pair — map has explicit null; rewrite still succeeds", async () => {
     const { getMatrixHomeserverBase } = await import(
-      "../config/media-endpoints.js"
+      "../matrix/matrix-config.js"
     );
     vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
       "http://100.113.23.63:8008",
@@ -776,7 +776,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
 
   it("BCW-M3: getSharedDMRoom throws for a pair — pair collapses to null, other pairs unaffected, warn logged, no propagation", async () => {
     const { getMatrixHomeserverBase } = await import(
-      "../config/media-endpoints.js"
+      "../matrix/matrix-config.js"
     );
     vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
       "http://100.113.23.63:8008",
@@ -883,7 +883,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
 
   it("BCW-M4: no rows → getSharedDMRoom NOT called; buildRegistryFromRows receives an empty Map as 4th arg", async () => {
     const { getMatrixHomeserverBase } = await import(
-      "../config/media-endpoints.js"
+      "../matrix/matrix-config.js"
     );
     vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
       "http://100.113.23.63:8008",
@@ -927,7 +927,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
 
   it("tolerates single mintAndWriteHumanToken failure (best-effort loop)", async () => {
     const { getMatrixHomeserverBase } = await import(
-      "../config/media-endpoints.js"
+      "../matrix/matrix-config.js"
     );
     vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
       "http://100.113.23.63:8008",
@@ -986,7 +986,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
 describe("bridge-config-writer.ensureBridgeConfigWritten", () => {
   it("calls writeBridgeConfigEnv then rewriteRegistryFromCurrentState when config succeeds", async () => {
     const { getMatrixHomeserverBase } = await import(
-      "../config/media-endpoints.js"
+      "../matrix/matrix-config.js"
     );
     vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
       "http://100.113.23.63:8008",
@@ -1026,7 +1026,7 @@ describe("bridge-config-writer.ensureBridgeConfigWritten", () => {
 
   it("skips registry rewrite when config write fails (no admin creds)", async () => {
     const { getMatrixHomeserverBase } = await import(
-      "../config/media-endpoints.js"
+      "../matrix/matrix-config.js"
     );
     vi.mocked(getMatrixHomeserverBase).mockResolvedValue(null);
 
@@ -1047,7 +1047,7 @@ describe("bridge-config-writer.ensureBridgeConfigWritten", () => {
 
   it("never throws even when everything fails (fire-and-forget-safe)", async () => {
     const { getMatrixHomeserverBase } = await import(
-      "../config/media-endpoints.js"
+      "../matrix/matrix-config.js"
     );
     vi.mocked(getMatrixHomeserverBase).mockRejectedValue(
       new Error("simulated boom"),
