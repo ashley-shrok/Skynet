@@ -238,4 +238,50 @@ describe("tab-url — relay: protocol grammar widening (Phase 97 Plan 05)", () =
     // '%' followed by only one hex digit.
     expect(parseTabParam("relay:%2")).toBeNull();
   });
+
+  // ── Quick 260910-gqi: extend Phase 97 code-review Fix 5 URIError guard to
+  // the two remaining parseTabParam branches (tmux + generic-host). Same
+  // fail-safe contract as Test 11: malformed percent-encoding → null, never
+  // throw. Tests 11b/11c cover tmux host + session slots; Tests 11d-11g
+  // cover the generic-host branch across every protocol it handles
+  // (terminal/rdp/vnc/telnet). Additive-only — the relay branch (Test 11)
+  // is untouched.
+
+  it("Test 11b (tmux host slot malformed URI): parseTabParam('tmux:%ZZ:session') returns null", () => {
+    // Malformed percent-encoding in the tmux host component. `decodeURIComponent`
+    // currently throws URIError before the `!host || !session` guard runs; the
+    // fix wraps both decodes in try/catch and returns null on the URIError path.
+    expect(parseTabParam("tmux:%ZZ:session")).toBeNull();
+    expect(parseTabParam("tmux:%:session")).toBeNull();
+    expect(parseTabParam("tmux:%2:session")).toBeNull();
+  });
+
+  it("Test 11c (tmux session slot malformed URI): parseTabParam('tmux:host:%ZZ') returns null", () => {
+    // Same fail-safe path as 11b, but the malformed encoding is on the session
+    // side of the second colon. Same try/catch covers both decodes.
+    expect(parseTabParam("tmux:host:%ZZ")).toBeNull();
+    expect(parseTabParam("tmux:host:%")).toBeNull();
+    expect(parseTabParam("tmux:host:%2")).toBeNull();
+  });
+
+  it("Test 11d (generic-host branch — terminal): parseTabParam('terminal:%ZZ') returns null", () => {
+    // Generic-host branch (all non-tmux, non-relay protocols) decodes the
+    // whole `rest` as the host. Malformed percent-encoding → URIError →
+    // null (never throw). Mirrors Test 11 for the terminal protocol.
+    expect(parseTabParam("terminal:%ZZ")).toBeNull();
+    expect(parseTabParam("terminal:%")).toBeNull();
+    expect(parseTabParam("terminal:%2")).toBeNull();
+  });
+
+  it("Test 11e (generic-host branch — rdp): parseTabParam('rdp:%ZZ') returns null", () => {
+    expect(parseTabParam("rdp:%ZZ")).toBeNull();
+  });
+
+  it("Test 11f (generic-host branch — vnc): parseTabParam('vnc:%ZZ') returns null", () => {
+    expect(parseTabParam("vnc:%ZZ")).toBeNull();
+  });
+
+  it("Test 11g (generic-host branch — telnet): parseTabParam('telnet:%ZZ') returns null", () => {
+    expect(parseTabParam("telnet:%ZZ")).toBeNull();
+  });
 });
