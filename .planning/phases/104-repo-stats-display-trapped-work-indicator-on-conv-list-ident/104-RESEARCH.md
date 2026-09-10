@@ -826,3 +826,42 @@ None.
 
 **Research date:** 2026-09-10
 **Valid until:** 2026-10-10 (30-day window; the target codebase's patterns are stable, but this window covers any incidental drift in the mirrored bounty-count wire before Phase 104 executes)
+
+---
+
+## RESOLUTION — Assumption A2 resolved (2026-09-10, post-research)
+
+**Assumption A2** (workspace subdir path) was flagged HIGH-uncertainty in the research above. It has now been resolved via a DM roundtrip with peer identity `tanya` (author of the Shape 3 substrate migration work).
+
+### Correct answer — supersedes A2 + related runtime-state guidance
+
+- **Canonical path**: `~/fleet/identities/<name>/workspace/` — **NOT** `~/.claude/identities/<name>/skynet/`.
+- **Prefix correction**: Shape 3 (Phase 96) relocates identity dirs from `~/.claude/identities/` to `~/fleet/identities/`. The research's inspection of `~/.claude/identities/<key>/skynet/` was empirically accurate but interpreted the wrong way — that `skynet/` folder holds the per-identity second-Matrix-account relay state for the aithercloud homeserver (see tina's identity file), NOT source code.
+- **Verified in code** (per tanya, files to consult before planning):
+  - `identity-birth-orchestrator.ts` — creates `~/fleet/identities/<name>/workspace/` at every new identity birth (`mkdir -p .../workspace`)
+  - `substrate/skills/id/SKILL.md` — documents `workspace/` as an identity-folder sibling (D-04)
+  - `substrate/scripts/agent-supervisor.sh` — cd's into `workspace/` when launching if it exists, else falls back to `$HOME`
+  - `substrate/skills/agent-relay/SKILL.md` — references paths under `~/fleet/identities/<name>/workspace/`
+- **Subdir name**: `workspace/`, NOT `skynet/`. Single fixed subdir, not configurable, not a list.
+- **Silent-fail semantics for pre-migration identities**: shape file's original call stands. Pre-migration identities keep existing workdirs at existing per-box locations (e.g., `~/skynet-<name>/` on t1000, `~/PBMInvoices-<name>/` on workstation) and do NOT get their workdirs relocated. Detector treats `workspace/` absent OR empty as "no trapped work" and skips silently — no fallback path, no override, no bandage.
+- **Order dependency**: Phase 104 plan+execute unblocked. **Deploy must land AFTER Shape 3 ships** so `~/fleet/identities/…` paths exist on the running system. Coord with tanya on order.
+
+### Planner directives — supersede prior research recommendations where they conflict
+
+1. **Hard-code `~/fleet/identities/<name>/workspace/`** as the WORKSPACE_ROOT constant. Do NOT hard-code `skynet/`. Do NOT introduce `IDENTITY_WORKSPACE_SUBDIR` env-var override (shape rejects overrides).
+2. **Delete the "Pitfall 1" concern about local smoke-testing** — that pitfall assumed the wrong path. Once the path is correct, local smoke-testing works as expected against `os.mkdtemp` fixtures per the standard test pattern.
+3. **Retain the Pitfall about NOT calling `resolveRoleForIdentity`** — that pitfall is independently valid (trapped-work is workspace-scoped, not role-scoped); saves one SSH round-trip per probe.
+4. **Depth-limit MAX_DEPTH=3** stands as sane default (Assumption A6 unchanged).
+5. **Runtime state inventory + all diagrams that show `~/.claude/identities/…/skynet/`** should be MENTALLY REPLACED with `~/fleet/identities/…/workspace/` — do not fix all instances in this addendum; the planner reads this resolution note first and applies it globally to its interpretation of the research.
+
+### Open Questions status
+
+| # | Question | Status |
+|---|----------|--------|
+| 1 | `useAllBountyCounts` panel-level pinned-filter helper — retire or replace? | Still open — planner should decide and check with plan-checker |
+| 2 | Store name (`trapped-work-store.ts` YAGNI vs generic `identity-signals-store.ts`) | Still open — planner decides |
+| 3 | Workspace subdir — hard-code `skynet/`, `workspace/`, or env override? | **RESOLVED**: hard-code `~/fleet/identities/<name>/workspace/`. See Correct Answer above. |
+| 4 | Depth limit — 3 sufficient? | Still open — sane default, executor can tune |
+| 5 | Deletion ordering — atomic single commit vs domain-split commits? | Still open — planner decides |
+| 6 | IdentityBadge coordinator-watermark stacking at pill scale | Still open — aesthetic verification during execute |
+
