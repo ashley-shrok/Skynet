@@ -69,6 +69,20 @@ import {
 //     - Speak singleton is shared with ChatMessage via ./speak-singleton.ts,
 //       so tapping speak on either component preempts the other.
 //   The `alwaysExpanded=false` (harness) branch is BYTE-FOR-BYTE UNCHANGED.
+//
+// Phase 97 UAT batch #7 (2026-09-10) — harness-view parity + tighter expanded
+// padding. The chat-native strip (room-strip, name-brightening, no footer)
+// now applies UNIVERSALLY — both relay-source and harness views. Differences
+// between the two:
+//   - Harness view remains COLLAPSIBLE (header is <button> with chevron);
+//     relay-source view stays non-collapsible (header is plain <div>).
+//   - Speak button visibility now gates on `!collapsed`, not `alwaysExpanded`:
+//     harness-view users get the speak button once they tap-to-expand.
+//   - Expanded padding tightened to `pl-[12px] pr-[42px] py-[7px]` in BOTH
+//     views — matches ChatMessage assistant padding exactly.
+//   - Bubble-root long-press pointer handlers REMOVED. The speak button's own
+//     internal handlers own long-press-arms-autoplay (mirrors ChatMessage
+//     pattern). Batch #6's bubble-root wiring was redundant.
 
 type FetchState =
   | { kind: "idle" }
@@ -183,13 +197,15 @@ export function RelayInboundBubble({
       });
   }, [pointer?.pointerPath, hostId, collapsed]);
 
-  // ─── Speak apparatus — mirror of ChatMessage's, gated on alwaysExpanded ───
+  // ─── Speak apparatus — mirror of ChatMessage's, gated on !collapsed ───
   //
   // Phase 97 UAT batch #6 (2026-09-10). The refs/state are declared
-  // unconditionally (Rules of Hooks); the render-side gating on
-  // `alwaysExpanded` ensures the button + bubble-root pointer handlers only
-  // wire up in relay-source view. In harness view the state machine sits
-  // dormant — no interaction paths reach it.
+  // unconditionally (Rules of Hooks); the render-side gating on `!collapsed`
+  // ensures the button wires up whenever the bubble is expanded (both views).
+  // Phase 97 UAT batch #7 (2026-09-10): the bubble-root long-press pointer
+  // handlers were removed — the speak button's own internal handlers own
+  // long-press-arms-autoplay (mirroring ChatMessage's pattern). The refs
+  // below are used exclusively by the speak-button internal handlers.
   const bubbleIdRef = useRef(Symbol("relay-speak-bubble"));
   const [speakState, setSpeakState] = useState<"idle" | "loading" | "playing" | "paused">("idle");
   const containerRef = useRef<HTMLDivElement>(null);
@@ -380,81 +396,25 @@ export function RelayInboundBubble({
         title={ts !== undefined ? new Date(ts).toLocaleString() : undefined}
         data-testid="relay-inbound-bubble"
         data-bubble-hue={bubbleHue}
-        // position: relative only in relay-source view — required for the
-        // absolutely-positioned speak button anchor. Harness view keeps its
-        // original static positioning so its rendering stays byte-for-byte
-        // unchanged.
-        style={alwaysExpanded ? { ...bubbleStyle, position: "relative" } : bubbleStyle}
-        // Long-press-on-bubble handlers — only meaningful in relay-source
-        // view (`alwaysExpanded=true`). Short-circuit early in the pointerDown
-        // handler if the pointer target is inside the speak button so the
-        // button's own long-press handlers stay the single source of truth
-        // for button-anchored long-press.
-        onPointerDown={
-          alwaysExpanded
-            ? (e) => {
-                if ((e.target as HTMLElement)?.closest(".pv-speak-btn")) return;
-                longPressFiredRef.current = false;
-                pointerStartRef.current = { x: e.clientX, y: e.clientY };
-                if (longPressTimerRef.current != null) {
-                  window.clearTimeout(longPressTimerRef.current);
-                }
-                longPressTimerRef.current = window.setTimeout(() => {
-                  longPressFiredRef.current = true;
-                  longPressTimerRef.current = null;
-                  if (onLongPressSpeak && eventId) onLongPressSpeak(eventId);
-                  void startSpeak("long-press");
-                }, 500);
-              }
-            : undefined
-        }
-        onPointerMove={
-          alwaysExpanded
-            ? (e) => {
-                const start = pointerStartRef.current;
-                if (!start || longPressTimerRef.current == null) return;
-                const dx = e.clientX - start.x;
-                const dy = e.clientY - start.y;
-                if (Math.hypot(dx, dy) > 10) {
-                  window.clearTimeout(longPressTimerRef.current);
-                  longPressTimerRef.current = null;
-                }
-              }
-            : undefined
-        }
-        onPointerCancel={
-          alwaysExpanded
-            ? () => {
-                if (longPressTimerRef.current != null) {
-                  window.clearTimeout(longPressTimerRef.current);
-                  longPressTimerRef.current = null;
-                }
-              }
-            : undefined
-        }
-        onPointerUp={
-          alwaysExpanded
-            ? () => {
-                if (longPressTimerRef.current != null) {
-                  window.clearTimeout(longPressTimerRef.current);
-                  longPressTimerRef.current = null;
-                }
-              }
-            : undefined
-        }
+        // position: relative only when the speak button is present
+        // (i.e. `!collapsed`). Both views need it whenever the button
+        // renders. When collapsed, the button is absent and static
+        // positioning is fine.
+        style={!collapsed ? { ...bubbleStyle, position: "relative" } : bubbleStyle}
         className={cn(
           // Bubble sizing + shape — mirrors ChatMessage outer div pattern.
           "max-w-[85%] [overflow-wrap:anywhere] text-sm leading-relaxed",
           "rounded-[var(--radius-pv-bubble)]",
-          // Padding — Phase 97 UAT batch #6: relay-source view widens right
-          // padding to reserve the speak-button gutter (mirroring
-          // ChatMessage assistant's pr-[42px]); harness view keeps its
-          // pre-existing collapsed-vs-expanded pad split byte-for-byte.
-          alwaysExpanded
-            ? "pl-[18px] pr-[42px] py-[14px]"
-            : collapsed
-              ? "px-[12px] py-[7px]"
-              : "px-[18px] py-[14px]",
+          // Padding — Phase 97 UAT batch #7: expanded padding aligned to
+          // ChatMessage assistant `pl-[12px] pr-[42px] py-[7px]` (tighter
+          // than batch #6's roomy 18/14 values). Collapsed padding
+          // unchanged — the pill-scale shorthand from quick-260830-e6i.
+          // Note the padding value now only depends on `collapsed`, not on
+          // `alwaysExpanded`; the speak-button gutter (`pr-[42px]`) is
+          // present in both views when expanded.
+          collapsed
+            ? "px-[12px] py-[7px]"
+            : "pl-[12px] pr-[42px] py-[7px]",
           // Glass depth treatment (kept from phase 17 — reads distinct from
           // ChatMessage's shadow-based bubble while colour-matching it).
           "backdrop-blur-xl saturate-150",
@@ -503,7 +463,11 @@ export function RelayInboundBubble({
             onClick={() => setCollapsed((v) => !v)}
             className={cn(
               "flex items-center gap-1 text-xs mb-1",
-              "text-[rgba(232,_228,_216,_0.6)]",
+              // Phase 97 UAT batch #7 (2026-09-10): brighten to
+              // body-text prominence in harness view too — the sender
+              // name is the primary "who's talking" affordance in both
+              // views. Chevron stays as the collapsibility affordance.
+              "text-[#e8e4d8]",
               "font-[JetBrains_Mono_Variable,ui-monospace,monospace]",
               "w-full text-left cursor-pointer bg-transparent border-0 p-0",
             )}
@@ -519,7 +483,10 @@ export function RelayInboundBubble({
               className="inline-block w-2 h-2 rounded-full flex-shrink-0"
               style={{ color: avatarColor, backgroundColor: avatarColor }}
             />
-            {displayName} · {room}
+            {/* Phase 97 UAT batch #7: room stripped from harness header
+                too — the pane context communicates the room. Chevron
+                remains as the collapsibility affordance. */}
+            {displayName}
             {" "}<span aria-hidden="true">{collapsed ? "▶" : "▼"}</span>
           </button>
         )}
@@ -553,28 +520,20 @@ export function RelayInboundBubble({
               <div className="whitespace-pre-wrap">{body}</div>
             )}
 
-            {/* Footer — "via recv.sh" attribution. Phase 97 UAT batch #6
-                (2026-09-10): rendered ONLY in harness view; relay-source
-                view drops the footer because the pane context already
-                communicates the mechanism. */}
-            {!alwaysExpanded && (
-              <div
-                className={cn(
-                  "text-[10px] text-right mt-1",
-                  "text-[rgba(232,_228,_216,_0.35)]",
-                )}
-              >
-                via recv.sh
-              </div>
-            )}
+            {/* Phase 97 UAT batch #7 (2026-09-10): "via recv.sh" footer
+                removed entirely. It never renders in any view/state. */}
           </div>
         )}
 
-        {/* Speak button — Phase 97 UAT batch #6 (2026-09-10). Rendered only
-            when alwaysExpanded=true (relay-source view). Copy-verbatim from
-            ChatMessage's assistant speak button apparatus, wired against the
-            same singleton so cross-component preempt works. */}
-        {alwaysExpanded && (
+        {/* Speak button — Phase 97 UAT batch #6 (2026-09-10). Copy-verbatim
+            from ChatMessage's assistant speak button apparatus, wired against
+            the same singleton so cross-component preempt works.
+            Phase 97 UAT batch #7 (2026-09-10): visibility gated on `!collapsed`,
+            not on `alwaysExpanded`. In relay-source view `alwaysExpanded=true`
+            forces `collapsed=false` at mount so the button always shows. In
+            harness view the button hides until the user taps the header
+            chevron to expand. */}
+        {!collapsed && (
           <button
             type="button"
             onPointerDown={(e) => {

@@ -271,10 +271,50 @@ describe("RelayInboundBubble speak apparatus (Phase 97 UAT batch #6)", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Truth 6 — long-press-on-bubble.
+  // Truth 6 — long-press-arms-autoplay lives on the speak button (not the
+  // bubble body). Phase 97 UAT batch #7 (2026-09-10): the bubble-root
+  // pointer-handler wiring introduced in batch #6 was removed — it duplicated
+  // the button's own internal handlers and diverged from ChatMessage's
+  // pattern. Only button-anchored long-press remains.
   // ---------------------------------------------------------------------------
 
-  it("Truth 6 — long-press on bubble root fires onLongPressSpeak(eventId) and starts speak; tap-click is suppressed", async () => {
+  it("Truth 6 — long-press on speak button fires onLongPressSpeak(eventId) and starts speak", async () => {
+    vi.useFakeTimers();
+
+    const onLongPressSpeak = vi.fn();
+
+    render(
+      <RelayInboundBubble
+        room="!roomAlias:server.tld"
+        sender="@tina:matrix.example.com"
+        body="Long-press-on-button"
+        hostId={1}
+        alwaysExpanded={true}
+        eventId="evt-xyz"
+        onLongPressSpeak={onLongPressSpeak}
+      />,
+    );
+
+    const speakBtn = screen.getByLabelText(/speak message/i);
+    // Long-press ON the speak button — the button's own handler owns the
+    // gesture (mirrors ChatMessage's pattern; batch #7 removed the redundant
+    // bubble-root wiring).
+    fireEvent.pointerDown(speakBtn, { clientX: 0, clientY: 0 });
+    vi.advanceTimersByTime(500);
+    fireEvent.pointerUp(speakBtn);
+
+    // Long-press fires onLongPressSpeak with the bubble's eventId.
+    expect(onLongPressSpeak).toHaveBeenCalledWith("evt-xyz");
+
+    await vi.runAllTimersAsync();
+
+    // Speak fires exactly once (button's timer).
+    expect(mockedPostSpeakStream).toHaveBeenCalledTimes(1);
+
+    vi.useRealTimers();
+  });
+
+  it("Truth 6 (batch #7) — pointerDown on bubble root does NOT fire onLongPressSpeak (bubble-root handler removed)", async () => {
     vi.useFakeTimers();
 
     const onLongPressSpeak = vi.fn();
@@ -293,59 +333,19 @@ describe("RelayInboundBubble speak apparatus (Phase 97 UAT batch #6)", () => {
 
     const bubble = screen.getByTestId("relay-inbound-bubble");
 
-    // Simulate a pointer-down, advance the 500ms long-press timer, then
-    // pointer-up + click. The click MUST be suppressed by longPressFiredRef.
+    // pointerDown on bubble root — no long-press timer arms because the
+    // bubble-root handlers were removed in batch #7.
     fireEvent.pointerDown(bubble, { clientX: 0, clientY: 0 });
     vi.advanceTimersByTime(500);
     fireEvent.pointerUp(bubble);
-    fireEvent.click(bubble);
 
-    // onLongPressSpeak called with eventId.
-    expect(onLongPressSpeak).toHaveBeenCalledWith("evt-abc");
-
-    // Flush any pending microtasks from startSpeak.
-    await vi.runAllTimersAsync();
-
-    // postSpeakStream called exactly once (long-press fired speak;
-    // subsequent click was suppressed by longPressFiredRef).
-    expect(mockedPostSpeakStream).toHaveBeenCalledTimes(1);
-
-    vi.useRealTimers();
-  });
-
-  it("Truth 6 (safety) — long-press on speak-button interior does NOT double-fire startSpeak via bubble root", async () => {
-    vi.useFakeTimers();
-
-    const onLongPressSpeak = vi.fn();
-
-    render(
-      <RelayInboundBubble
-        room="!roomAlias:server.tld"
-        sender="@tina:matrix.example.com"
-        body="Long-press-on-button"
-        hostId={1}
-        alwaysExpanded={true}
-        eventId="evt-xyz"
-        onLongPressSpeak={onLongPressSpeak}
-      />,
-    );
-
-    const speakBtn = screen.getByLabelText(/speak message/i);
-    // Bubble the pointerDown event from the button — bubble-root handler
-    // should short-circuit via `.closest(".pv-speak-btn")` and let the
-    // button's own long-press handler own the gesture.
-    fireEvent.pointerDown(speakBtn, { clientX: 0, clientY: 0 });
-    vi.advanceTimersByTime(500);
-    fireEvent.pointerUp(speakBtn);
-
-    // Long-press on button STILL fires onLongPressSpeak (via the button's own
-    // handler which is a copy of the same code path).
-    expect(onLongPressSpeak).toHaveBeenCalledWith("evt-xyz");
+    // onLongPressSpeak NOT called — no bubble-root wiring exists anymore.
+    expect(onLongPressSpeak).not.toHaveBeenCalled();
 
     await vi.runAllTimersAsync();
 
-    // Speak fires exactly once (the button's timer, not the bubble-root's).
-    expect(mockedPostSpeakStream).toHaveBeenCalledTimes(1);
+    // No speak fired either.
+    expect(mockedPostSpeakStream).not.toHaveBeenCalled();
 
     vi.useRealTimers();
   });

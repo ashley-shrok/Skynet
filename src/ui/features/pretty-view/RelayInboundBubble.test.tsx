@@ -271,7 +271,7 @@ describe("RelayInboundBubble", () => {
   });
 
   // C1-C4: Collapse-by-default tests (quick 260829-qb9)
-  it("C1: renders collapsed on mount — header visible, body NOT in DOM, footer NOT in DOM", () => {
+  it("C1: renders collapsed on mount — header visible with displayName only (no room, no footer), body NOT in DOM", () => {
     render(
       <RelayInboundBubble
         room="!roomAlias:server.tld"
@@ -282,14 +282,22 @@ describe("RelayInboundBubble", () => {
     );
 
     // Header must be visible
-    expect(screen.getByTestId("relay-inbound-header")).toBeTruthy();
-    // displayName · room text visible
-    expect(screen.getByText(/@tina:matrix\.example\.com/)).toBeTruthy();
+    const header = screen.getByTestId("relay-inbound-header");
+    expect(header).toBeTruthy();
+    // displayName (mxid fallback) visible in header
+    expect(header.textContent).toContain("@tina:matrix.example.com");
+    // Phase 97 UAT batch #7: room stripped from harness header too.
+    expect(header.textContent).not.toContain("!roomAlias:server.tld");
+    expect(header.textContent).not.toContain(" · ");
+    // Chevron still present as collapsibility affordance.
+    expect(header.textContent).toContain("▶");
 
     // Body wrapper must NOT be in DOM
     expect(screen.queryByTestId("relay-inbound-body")).toBeNull();
-    // Footer text must NOT be in DOM
+    // Phase 97 UAT batch #7: footer removed universally.
     expect(screen.queryByText(/via recv\.sh/)).toBeNull();
+    // Speak button not present when collapsed.
+    expect(screen.queryByLabelText(/speak message/i)).toBeNull();
   });
 
   it("C2: aria-expanded='false' on header button when collapsed", () => {
@@ -306,7 +314,7 @@ describe("RelayInboundBubble", () => {
     expect(header.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("C3: click header → body renders and footer appears; aria-expanded='true'", () => {
+  it("C3: click header → body renders, speak button appears, footer stays absent; aria-expanded='true'", () => {
     render(
       <RelayInboundBubble
         room="!roomAlias:server.tld"
@@ -316,14 +324,20 @@ describe("RelayInboundBubble", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId("relay-inbound-header"));
+    const header = screen.getByTestId("relay-inbound-header");
+    fireEvent.click(header);
 
     expect(screen.getByText(/Nelly says hello/)).toBeTruthy();
-    expect(screen.getByText(/via recv\.sh/)).toBeTruthy();
-    expect(screen.getByTestId("relay-inbound-header").getAttribute("aria-expanded")).toBe("true");
+    // Phase 97 UAT batch #7: footer removed universally.
+    expect(screen.queryByText(/via recv\.sh/)).toBeNull();
+    // Speak button appears once expanded (batch #7: gated on !collapsed).
+    expect(screen.getByLabelText(/speak message/i)).toBeInTheDocument();
+    // Chevron flipped to ▼.
+    expect(header.textContent).toContain("▼");
+    expect(header.getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("C4: second click re-collapses — body + footer gone; aria-expanded='false'", () => {
+  it("C4: second click re-collapses — body + speak button gone; aria-expanded='false'", () => {
     render(
       <RelayInboundBubble
         room="!roomAlias:server.tld"
@@ -338,12 +352,17 @@ describe("RelayInboundBubble", () => {
     fireEvent.click(header); // collapse again
 
     expect(screen.queryByTestId("relay-inbound-body")).toBeNull();
+    // Footer never renders in any state after batch #7.
     expect(screen.queryByText(/via recv\.sh/)).toBeNull();
+    // Speak button also gone when re-collapsed.
+    expect(screen.queryByLabelText(/speak message/i)).toBeNull();
     expect(header.getAttribute("aria-expanded")).toBe("false");
   });
 
   // quick-260830-e6i Part B: shrink collapsed padding to match ChatMessage pill.
-  it("C5: collapsed bubble uses tight padding (12/7); expanded bubble uses roomy padding (18/14)", () => {
+  // Phase 97 UAT batch #7 (2026-09-10): expanded padding tightened to
+  // `pl-[12px] pr-[42px] py-[7px]` — matches ChatMessage assistant exactly.
+  it("C5: collapsed bubble uses tight padding (12/7); expanded bubble uses ChatMessage-parity pl-[12px] pr-[42px] py-[7px]", () => {
     render(
       <RelayInboundBubble
         room="!roomAlias:server.tld"
@@ -353,19 +372,21 @@ describe("RelayInboundBubble", () => {
       />,
     );
 
-    // Collapsed by default — tight padding.
+    // Collapsed by default — tight symmetric padding.
     const bubble = screen.getByTestId("relay-inbound-bubble");
     expect(bubble).toHaveClass("px-[12px]");
     expect(bubble).toHaveClass("py-[7px]");
+    expect(bubble).not.toHaveClass("pl-[12px]");
+    expect(bubble).not.toHaveClass("pr-[42px]");
+
+    // Expand — ChatMessage-parity split padding (speak-button gutter).
+    fireEvent.click(screen.getByTestId("relay-inbound-header"));
+    expect(bubble).toHaveClass("pl-[12px]");
+    expect(bubble).toHaveClass("pr-[42px]");
+    expect(bubble).toHaveClass("py-[7px]");
+    expect(bubble).not.toHaveClass("px-[12px]");
     expect(bubble).not.toHaveClass("px-[18px]");
     expect(bubble).not.toHaveClass("py-[14px]");
-
-    // Expand — roomy padding.
-    fireEvent.click(screen.getByTestId("relay-inbound-header"));
-    expect(bubble).toHaveClass("px-[18px]");
-    expect(bubble).toHaveClass("py-[14px]");
-    expect(bubble).not.toHaveClass("px-[12px]");
-    expect(bubble).not.toHaveClass("py-[7px]");
   });
 
   // Phase 97 UAT follow-up (2026-09-10) — relay-source view renders bubbles
@@ -392,14 +413,15 @@ describe("RelayInboundBubble", () => {
     expect(header.tagName).toBe("DIV");
     expect(header.getAttribute("aria-expanded")).toBeNull();
 
-    // Padding uses the Phase-97-UAT-batch-6 relay-source values —
-    // pl-[18px] + pr-[42px] (speak-button gutter) + py-[14px]. Batch #6
-    // superseded the initial roomy-expanded px-[18px] token for the
-    // alwaysExpanded=true branch.
+    // Phase 97 UAT batch #7 (2026-09-10): expanded padding tightened to
+    // `pl-[12px] pr-[42px] py-[7px]` — matches ChatMessage assistant
+    // exactly. Batch #6's roomy 18/14 values superseded.
     const bubble = screen.getByTestId("relay-inbound-bubble");
-    expect(bubble).toHaveClass("pl-[18px]");
+    expect(bubble).toHaveClass("pl-[12px]");
     expect(bubble).toHaveClass("pr-[42px]");
-    expect(bubble).toHaveClass("py-[14px]");
+    expect(bubble).toHaveClass("py-[7px]");
+    expect(bubble).not.toHaveClass("pl-[18px]");
+    expect(bubble).not.toHaveClass("py-[14px]");
   });
 
   it("alwaysExpanded=false (default) preserves the toggle behavior — regression floor", () => {
@@ -481,7 +503,7 @@ describe("RelayInboundBubble", () => {
     expect(screen.queryByText(/via recv\.sh/)).toBeNull();
   });
 
-  it("Truth 4 — alwaysExpanded=true bubble padding is pl-[18px] pr-[42px] py-[14px] (speak-gutter widened)", () => {
+  it("Truth 4 (batch #7) — alwaysExpanded=true bubble padding is pl-[12px] pr-[42px] py-[7px] (ChatMessage-parity)", () => {
     render(
       <RelayInboundBubble
         room="!roomAlias:server.tld"
@@ -493,15 +515,35 @@ describe("RelayInboundBubble", () => {
     );
 
     const bubble = screen.getByTestId("relay-inbound-bubble");
-    expect(bubble).toHaveClass("pl-[18px]");
+    expect(bubble).toHaveClass("pl-[12px]");
     expect(bubble).toHaveClass("pr-[42px]");
-    expect(bubble).toHaveClass("py-[14px]");
-    // Must NOT carry the harness-view expanded px-[18px] shorthand
-    // (which would double-set left+right to 18px, collapsing the button gutter).
+    expect(bubble).toHaveClass("py-[7px]");
+    // Must NOT carry the batch-#6 roomy padding or the harness-view
+    // expanded px-[18px] shorthand.
+    expect(bubble).not.toHaveClass("pl-[18px]");
+    expect(bubble).not.toHaveClass("py-[14px]");
     expect(bubble).not.toHaveClass("px-[18px]");
+    // Must NOT carry the collapsed shorthand either.
+    expect(bubble).not.toHaveClass("px-[12px]");
   });
 
-  it("Truth 7 — alwaysExpanded=false regression floor (harness): ' · <room>' header, footer, px-[18px] py-[14px] when expanded, NO speak button", () => {
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase 97 UAT batch #7 (2026-09-10) — harness-view parity.
+  // Truth 7 rewritten: harness view IS now changing. Header strips room,
+  // brightens to body-text, no footer, speak button appears once expanded.
+  // Collapsibility affordance (chevron + <button> header) remains — that's
+  // the only difference from relay-source view.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it("Truth 7 (batch #7) — alwaysExpanded=false collapsed: dot + displayName + ▶ header, NO room, NO body, NO footer, NO speak button", () => {
+    const tina = makeIdentity("tina", "Tina", 45);
+    mockedUseIdentities.mockReturnValue({
+      identities: [tina],
+      byKey: new Map([["tina", tina]]),
+      loaded: true,
+      refresh: vi.fn(),
+    });
+
     render(
       <RelayInboundBubble
         room="!roomAlias:server.tld"
@@ -511,27 +553,94 @@ describe("RelayInboundBubble", () => {
       />,
     );
 
-    // Expand the harness-view bubble so the body + footer + expanded-padding
-    // become observable.
+    const header = screen.getByTestId("relay-inbound-header");
+    // Header is <button> (collapsibility affordance preserved).
+    expect(header.tagName).toBe("BUTTON");
+    // Header shows resolved displayName + right-pointing chevron.
+    expect(header.textContent).toContain("Tina");
+    expect(header.textContent).toContain("▶");
+    // No room string, no " · " separator.
+    expect(header.textContent).not.toContain("!roomAlias:server.tld");
+    expect(header.textContent).not.toContain(" · ");
+    // Avatar-dot present.
+    expect(screen.getByTestId("relay-inbound-avatar-dot")).toBeInTheDocument();
+
+    // No body, no footer, no speak button in initial collapsed state.
+    expect(screen.queryByTestId("relay-inbound-body")).toBeNull();
+    expect(screen.queryByText(/via recv\.sh/)).toBeNull();
+    expect(screen.queryByLabelText(/speak message/i)).toBeNull();
+  });
+
+  it("Truth 7 (batch #7) — alwaysExpanded=false after expand: dot + displayName + ▼ header, body visible, speak button visible, NO footer", () => {
+    const tina = makeIdentity("tina", "Tina", 45);
+    mockedUseIdentities.mockReturnValue({
+      identities: [tina],
+      byKey: new Map([["tina", tina]]),
+      loaded: true,
+      refresh: vi.fn(),
+    });
+
+    render(
+      <RelayInboundBubble
+        room="!roomAlias:server.tld"
+        sender="@tina:matrix.example.com"
+        body="hello harness"
+        hostId={1}
+      />,
+    );
+
+    // Expand.
     fireEvent.click(screen.getByTestId("relay-inbound-header"));
 
-    // Header STILL shows "displayName · room" — the raw mxid is the
-    // fallback displayName here, so we expect the mxid+separator+room text.
     const header = screen.getByTestId("relay-inbound-header");
-    expect(header.textContent).toContain("!roomAlias:server.tld");
-    expect(header.textContent).toContain(" · ");
+    // Header still <button>; chevron flipped to ▼.
+    expect(header.tagName).toBe("BUTTON");
+    expect(header.textContent).toContain("Tina");
+    expect(header.textContent).toContain("▼");
+    // Still no room string.
+    expect(header.textContent).not.toContain("!roomAlias:server.tld");
+    expect(header.textContent).not.toContain(" · ");
 
-    // Footer STILL renders.
-    expect(screen.getByText(/via recv\.sh/)).toBeInTheDocument();
+    // Body visible; footer NEVER renders.
+    expect(screen.getByTestId("relay-inbound-body")).toBeInTheDocument();
+    expect(screen.getByText(/hello harness/)).toBeInTheDocument();
+    expect(screen.queryByText(/via recv\.sh/)).toBeNull();
 
-    // Padding stays the pre-existing px-[18px] py-[14px] shorthand.
-    const bubble = screen.getByTestId("relay-inbound-bubble");
-    expect(bubble).toHaveClass("px-[18px]");
-    expect(bubble).toHaveClass("py-[14px]");
-    // Speak-button gutter must NOT be present in the harness branch.
-    expect(bubble).not.toHaveClass("pr-[42px]");
+    // Speak button visible once expanded (batch #7: gate is `!collapsed`).
+    expect(screen.getByLabelText(/speak message/i)).toBeInTheDocument();
+  });
 
-    // NO speak button in the harness branch.
-    expect(screen.queryByLabelText(/speak message/i)).toBeNull();
+  it("Truth 7 (batch #7) — harness header uses #e8e4d8 (body-text brightness), NOT the 60%-alpha token", () => {
+    render(
+      <RelayInboundBubble
+        room="!roomAlias:server.tld"
+        sender="@tina:matrix.example.com"
+        body="hello"
+        hostId={1}
+      />,
+    );
+
+    const header = screen.getByTestId("relay-inbound-header");
+    expect(header.className).toContain("text-[#e8e4d8]");
+    expect(header.className).not.toContain("text-[rgba(232,_228,_216,_0.6)]");
+  });
+
+  it("Truth 7 (batch #7) — 'via recv.sh' is nowhere in the DOM in any state (harness view)", () => {
+    render(
+      <RelayInboundBubble
+        room="!roomAlias:server.tld"
+        sender="@tina:matrix.example.com"
+        body="hello"
+        hostId={1}
+      />,
+    );
+    // Collapsed.
+    expect(screen.queryByText(/via recv\.sh/)).toBeNull();
+    // Expanded.
+    fireEvent.click(screen.getByTestId("relay-inbound-header"));
+    expect(screen.queryByText(/via recv\.sh/)).toBeNull();
+    // Re-collapsed.
+    fireEvent.click(screen.getByTestId("relay-inbound-header"));
+    expect(screen.queryByText(/via recv\.sh/)).toBeNull();
   });
 });
