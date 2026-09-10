@@ -76,6 +76,7 @@ The edit-in-bubble affordance's specific flow is worth calling out because it's 
 **Deferred:**
 - Anything beyond raw HTTP+WebSocket passthrough on the serve URL (rate limits, per-URL revocation, custom headers, request-body inspection) — add if a real need surfaces after shipping
 - Skynet-side surfacing of "which files are being shared right now" as a dashboard or history — no state to display; URLs are ephemeral by nature
+- Cross-user "share my agent-built app with another user" — belongs to the future first-class **Apps** concept (persistent Skynet-managed apps, user-owned not agent-owned, own UI panel, own sharing model, split-view droppable alongside chats). Not a serve URL gap — the two are distinct primitives. See bounty `first-class-agent-apps-in-skynet` for the design arc.
 
 **Tempting but no:**
 - Skynet-side path detection that auto-surfaces any plausible-looking path from agent chatter as clickable. Would silently be inconsistent (some paths surface, some don't; some resolve, some 403 depending on user's per-host grants) and confuse both sides. The whole design turns on agents CONSTRUCTING URLs deliberately.
@@ -104,3 +105,61 @@ Both phases affect `~/skynet-tiffany/` (my working tree) — Skynet backend + fr
 Ship discipline as normal: coord room announces, source pulled and rebased before push, full test suite green as deploy gate. Both phases are backend + frontend work — normal Skynet build + force-recreate deploy motion.
 
 Handoff: this shape file is at `.planning/shapes/shape-skynet-passthrough-urls.md`. R&D findings live in bounty `skynet-passthrough-urls-rd`. Both phases reference this shape; `/close skynet-passthrough-urls` at the end of phase 2 verifies the built result against this agreement. If R&D or phase 1 discovers something that changes the shape, come back to this file and update it before proceeding — the shape governs.
+
+## Phase 2 locked decisions — from `/open` discussion 2026-09-10 (tabitha + Ashley)
+
+Post-R&D `/open` session on 2026-09-10 pressure-tested and locked the following Phase 2 design decisions. These are LOCKED and seed the CONTEXT.md for Phase 2's `/gsd:discuss-phase`.
+
+### Q1 — Auth model
+
+- URL nesting: `<host>-<port>.serve.term.<skynet-domain>` (one label deeper than the primary domain, NOT directly under the registrable domain).
+- Widen Skynet's JWT session cookie to `Domain=term.<skynet-domain>` — precisely one label deeper, NOT the whole registrable domain. Covers `term.<skynet-domain>` + all `*.term.<skynet-domain>` subdomains and stops there. Siblings on the registrable domain (e.g. `files.gigaashley.click`) are untouched.
+- Serve-subdomain proxy validates JWT + per-user-per-host permission at the edge.
+- **Allowlist-strip** at the proxy before forwarding to upstream — everything is denied by default, only a small explicit set of headers passes (Host, Connection, Upgrade, `Sec-WebSocket-*`, Content-Type, Content-Length, method + body). NO cookies, NO `Authorization`, NO `X-Skynet-*`.
+- **CI integration test**: echo-server upstream, assert no `Cookie:` header (esp. `skynet_session=`) reaches upstream on any code path — GET, POST, WebSocket upgrade, SSE, streaming, uploads, redirects, everything. Belt.
+- **Runtime header-fingerprint sampler** alerts on any header anomaly hitting upstream. Suspenders.
+- Primary domain (`term.<skynet-domain>`) refuses `Access-Control-Allow-Origin` for serve subdomains. Any state-changing endpoint requiring CORS preflight (JSON POST, PUT, DELETE, custom header) is blocked from cross-origin CSRF by the browser's preflight layer.
+- **CSRF audit of every state-changing endpoint on `term.<domain>`** is Phase 2 work, not a follow-up. Any endpoint that accepts form-encoded POST or has GET-with-side-effects becomes a CSRF vector once the cookie widens — add CSRF tokens or convert to preflight-triggering shapes.
+- WebSocket endpoints on `term.<domain>` need explicit `Origin`-header checks that reject `*.serve.term.<domain>` (WS doesn't do CORS preflight).
+
+### Q2 — URL parse rules
+
+- Grammar: `<host>-<port>.serve.term.<skynet-domain>`. Split on the LAST dash of the leftmost DNS label; right side must be all-digits (the port); everything left is the hostname.
+- **Registration constraint**: no hostname may end in `-\d+`. Enforced at host-add time. Current fleet hosts (thenasty, workstation, ashley-beelink, aither-cloud, aither-cloud2, aither-sftp, t1000, t800, GIGAASHLEYPC, ZoeyBattlestation) all pass the constraint.
+- Case: keep display case in DB, lowercase for lookup (`LOWER(hostname) = LOWER($input)`) — no schema migration needed for existing mixed-case rows.
+
+### Q3 — Broken-serve UX + tunnel lifecycle
+
+- Skynet-styled interstitial rendered on the serve subdomain itself, one page per failure class: port-not-listening, host-unreachable, permission-denied, SSH-level-failure, auth-missing/expired (redirect to primary for re-auth). Plain "Try again" button; NO auto-refresh (masks legitimate outages).
+- Tunnel death (network flap, sshd restart, target reboot): transparent recovery on the next request — pool re-establishes on demand. In-flight HTTP requests fail with a proper error; in-flight WebSockets close with a meaningful close code (1011 "internal error" or similar) so client-side reconnect logic knows it's transport-level.
+- **No cache eviction built now.** Per-target proxy instances live for the container lifetime; SSH connection lifecycle already handled by the existing pool. Add eviction later only if resource pressure surfaces.
+
+### Q4 — id-skill guidance
+
+- Framing: **active vs passive.** *Active* = something running on the other end (dev server, jupyter, WS stream, static server for multi-file content) → serve URL. *Passive* = bytes on disk (a doc, screenshot, log, config, downloadable binary) → file URL. Compact decision rule in the id-skill: "Do you need something running on the other end for the user to have the right experience?"
+- The old tailnet-HTTP-server recipe is DELETED from the id-skill entirely — no dual-path (the shape's "What would make it wrong" lists tailnet-serve muscle-memory persistence as a failure mode).
+- NO auto-serve heuristics that would rewrite file URLs into serve URLs (agents-aren't-lied-to philosophy).
+
+### Q5 — Multi-tenancy resolution
+
+- Backend serve URL routing calls existing `resolveHostByName(name, userId)` from Phase 78 — **owned-only**, matches file URL precedent (Phase 78 comment: *"no shared-access branch to walk"*).
+- Grants (`hostAccess`) deliberately out of scope for name resolution. Cross-user serve URL handoff is not supported.
+- Works uniformly on t1000 (single-tenant, no collisions possible) and T800 (multi-user; each user's own hosts are their own namespace; other users' hosts are invisible via name resolution).
+- Cross-user "share my app with another user" use case is NOT a serve URL gap — it belongs to the future "Apps" concept (see Deferred section above).
+
+### Q6 — Domain layout
+
+- Wildcard cert: `*.serve.term.gigaashley.click` (single-level wildcard). Existing hosted zone `gigaashley.click` (Z00583511HTO90JKK1MV7); R&D-established cross-account AssumeRole path (Aither `termix-ssm-role` → personal `caddy-route53-gigaashley`) already covers this zone.
+- Same Caddy container as `term.gigaashley.click` and `files.gigaashley.click`; add a new site block for the wildcard. Requires custom Caddy build (two-line Dockerfile change: `caddy:2-builder` + `xcaddy build --with github.com/caddy-dns/route53`).
+- Bare `serve.term.gigaashley.click` (no host prefix) redirects to `term.gigaashley.click` — one-line redirect so typos land somewhere sensible.
+- ACME: **Let's Encrypt production** preferred (LE prod is more permissive than LE staging that R&D got tripped by on contact validation; ZeroSSL remains automatic fallback via Caddy's issuer chain).
+- HSTS: mirror whatever `term.gigaashley.click` currently sets (verify against existing Caddyfile during plan).
+- T800 (Stacy's deployment): entirely her domain + Route53 (or whatever DNS provider Aither uses) + Caddy config — no shared infra. Ships as a Stacy-briefing patch under the fleet-substrate rule; no code Phase 2 needs to write handles T800 differently.
+
+### Rollout sequence
+
+1. Build custom Caddy image with route53 plugin.
+2. Update `/opt/skynet/Caddyfile` with the wildcard block + bare-redirect block.
+3. Deploy — first request against the wildcard subdomain issues the cert via DNS-01.
+4. Test with a single subdomain (e.g. `t1000-8899.serve.term.gigaashley.click`) pointed at a `python -m http.server` on t1000 to verify HTTPS + WS + proxy stack end-to-end.
+5. Only after that verified, flip agent URL construction to use the new scheme + update id-skill.

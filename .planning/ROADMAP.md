@@ -2292,6 +2292,16 @@ Plans:
 Plans:
 - [ ] TBD (run /gsd-plan-phase 102 to break down)
 
+### Phase 103: Passthrough URLs — serve URL scheme (phase 2 of 2)
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 102
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 103 to break down)
+
 ### Phase 104: Repo stats display — trapped-work indicator on conv-list + identity badge
 
 **Goal:** A per-identity avatar-corner indicator (git-pull-request-draft icon, warm amber) lights up on both the pretty-conversations list row AND the pretty-view header IdentityBadge whenever that identity has unshipped local git work (dirty tracked files, local-only commits, or stashes) in any eligible repo under `~/fleet/identities/<name>/workspace/` on her home box; absent otherwise. The retiring role-scoped pinned + needs-desk bounty-count badges + their whole wire (backend detector fn, WS handler + route, frontend api + store + badge component + panel filter helpers + two filter menu items) go with it — full domain retirement, not merely unwiring. Silent-fail for pre-migration identities is the accepted cost; deploy waits for Shape 3 (Phase 96) to ship.
