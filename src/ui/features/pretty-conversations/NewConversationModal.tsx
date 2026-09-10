@@ -5,8 +5,8 @@
 // close paths — patch #111f discipline from GlobalFilesModal.tsx).
 //
 // Mobile/desktop parity: `absolute inset-4` fills the viewport on mobile;
-// `md:max-w-[560px] md:left-1/2 md:-translate-x-1/2 md:right-auto md:inset-y-8`
-// centers at 560px on desktop.
+// on desktop the modal is capped at 560×720 and centered via
+// `md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2`.
 //
 // Data sources (T-91-FE-02 tenant scoping):
 //   - Humans: getUsersListBasic() (JWT-scoped, widened with mxid by Plan 00)
@@ -238,9 +238,11 @@ export function NewConversationModal({
         />
         {/*
          * Content — mobile: absolute inset-4 (fills viewport minus 16px margin).
-         * Desktop: md:max-w-[560px] md:left-1/2 md:-translate-x-1/2 md:right-auto
-         * md:inset-y-8 centers at 560px. CSS-only breakpoint — no dual component
-         * tree. Shape §Mobile-vs-Desktop.
+         * Desktop: centered at 560×720 max via left/top-1/2 + -translate-x/y-1/2.
+         * The prior anchored-both-vertical-edges pattern (see git log for the
+         * Phase 91 initial ship) produced a super-narrow full-height modal on
+         * 4K viewports — bounty new-conversation-modal-narrow-on-wide-viewport.
+         * CSS-only breakpoint — no dual component tree. Shape §Mobile-vs-Desktop.
          */}
         <DialogPrimitive.Content
           onInteractOutside={(e) => {
@@ -251,8 +253,8 @@ export function NewConversationModal({
           className={cn(
             "absolute inset-4 z-[120] outline-none",
             "flex flex-col overflow-hidden rounded-[24px]",
-            // Desktop refinement — centers at 560px max-width (Test 18).
-            "md:max-w-[560px] md:left-1/2 md:-translate-x-1/2 md:right-auto md:inset-y-8",
+            // Desktop refinement — centers at 560×720 max (Tests 18 + 19).
+            "md:max-w-[560px] md:max-h-[720px] md:left-1/2 md:top-1/2 md:right-auto md:bottom-auto md:-translate-x-1/2 md:-translate-y-1/2",
             "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 duration-100",
             "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           )}
