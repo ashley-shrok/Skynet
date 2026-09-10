@@ -7,6 +7,8 @@ import * as path from "node:path";
 import yaml from "js-yaml";
 import type { Request, Response } from "express";
 import { databaseLogger } from "../../utils/logger.js";
+// Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
+import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import {
   readIdentityFile,
@@ -420,6 +422,8 @@ router.post("/", authenticateJWT, (_req: Request, res: Response) => {
 // writeMarkdownFileAtomic + writeAvatarSiblingFile from Phase 66 Plan 66-01 Track 1).
 router.put(
   "/:identityKey",
+  // Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
+  multipartOriginGuard,
   authenticateJWT,
   upload.single("avatar"),
   async (req: Request, res: Response) => {

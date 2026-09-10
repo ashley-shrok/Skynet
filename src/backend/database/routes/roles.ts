@@ -62,6 +62,8 @@ import { AuthManager } from "../../utils/auth-manager.js";
 import { resolveHostById } from "../../ssh/host-resolver.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { sshLogger } from "../../utils/logger.js";
+// Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
+import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
 import {
   readRoleFileByName,
   readAvatarSiblingFileByRole,
@@ -313,6 +315,8 @@ router.get(
  */
 router.post(
   "/:name/avatar",
+  // Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
+  multipartOriginGuard,
   authenticateJWT,
   // multer must run BEFORE we validate roleName/hostId? NO — the plan requires
   // roleName + hostId gates to fire BEFORE any body-parse. We wrap multer in

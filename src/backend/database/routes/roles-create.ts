@@ -104,6 +104,8 @@ import {
 } from "../../claude-session/identity-artifact-reader.js";
 import { ROLE_NAME_PATTERN } from "./identity-birth-orchestrator.js";
 import { sshLogger } from "../../utils/logger.js";
+// Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
+import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
 import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
 import { getHostSemaphore } from "../../ssh/host-semaphore-registry.js";
 
@@ -274,6 +276,8 @@ async function sftpWriteFileInline(
  */
 router.post(
   "/",
+  // Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
+  multipartOriginGuard,
   authenticateJWT,
   // Content-Type gate — LOUD 415 on non-multipart (per T-86-02-03). Runs
   // BEFORE multer so a JSON caller doesn't get a confusing multer-boundary

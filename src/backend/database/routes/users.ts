@@ -8,6 +8,8 @@ import bcrypt from "bcryptjs";
 import { nanoid } from "nanoid";
 import type { Request, Response, NextFunction } from "express";
 import { authLogger } from "../../utils/logger.js";
+// Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
+import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { DataCrypto } from "../../utils/data-crypto.js";
 import {
@@ -129,7 +131,8 @@ const requireAdmin = authManager.createAdminMiddleware();
  *       500:
  *         description: Failed to create user.
  */
-router.post("/create", userAvatarUpload.single("avatar"), async (req, res) => {
+// Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
+router.post("/create", multipartOriginGuard, userAvatarUpload.single("avatar"), async (req, res) => {
   try {
     const row = db.$client
       .prepare("SELECT value FROM settings WHERE key = 'allow_registration'")
@@ -500,7 +503,8 @@ async function assertOwnOrAdminForAvatarChange(
 // Ordering: new-file-then-row-UPDATE-then-old-file-unlink per RESEARCH.md § 5.
 // Rollback: if UPDATE fails, new file is unlinked (if different name from old).
 // ---------------------------------------------------------------------------
-router.put("/:id/avatar", authenticateJWT, assertOwnOrAdminForAvatarChange, userAvatarUpload.single("avatar"), async (req, res) => {
+// Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
+router.put("/:id/avatar", multipartOriginGuard, authenticateJWT, assertOwnOrAdminForAvatarChange, userAvatarUpload.single("avatar"), async (req, res) => {
     const userId = (req as AuthenticatedRequest).userId;
     const targetUserId = String(req.params.id);
 

@@ -15,16 +15,16 @@
 | Total distinct route mounts (all methods, all files) | **186** |
 | State-changing routes | 129 |
 | Read-only (`state_changing=no`) routes | 57 |
-| Preflight-triggering state-changing routes | 119 |
-| **Non-preflight state-changing routes (multipart)** | **10** |
+| Preflight-triggering state-changing routes | 120 |
+| **Non-preflight state-changing routes (multipart)** | **9** |
 | Middleware / error-handler mounts (n/a) | 19 |
-| Multipart remediations applied | **10** |
+| Multipart remediations applied | **9** |
 
 **Remediation strategy applied:**
 
-- **Preflight-triggering state-changing routes (119)** — covered by Plan 02 `cors-config.ts` `SERVE_SUBDOMAIN_RE` reject at CORS preflight layer. No additional per-route work needed. Every JSON POST/PUT/PATCH, every DELETE, every route with `express.json()` middleware falls under this class.
+- **Preflight-triggering state-changing routes (120)** — covered by Plan 02 `cors-config.ts` `SERVE_SUBDOMAIN_RE` reject at CORS preflight layer. No additional per-route work needed. Every JSON POST/PUT/PATCH, every DELETE, every route with `express.json()` middleware falls under this class.
 - **Read-only routes (57)** — CSRF-inapplicable. GET/HEAD requests are CORS-simple and can be issued cross-origin, but the response is not readable cross-origin from `*.serve.term.<domain>` (browser blocks response). Nothing to forge; nothing to exfiltrate.
-- **Non-preflight state-changing routes (10)** — all are multipart/form-data (multer `upload.single`). CORS-simple content-type means no preflight; the widened JWT cookie flows. **Remediated in Task 2 via `multipart-origin-guard.ts` applied per-endpoint** — see `## Multipart remediations` below.
+- **Non-preflight state-changing routes (9)** — all are multipart/form-data (multer `upload.single`). CORS-simple content-type means no preflight; the widened JWT cookie flows. **Remediated in Task 2 via `multipart-origin-guard.ts` applied per-endpoint** — see `## Multipart remediations` below.
 - **GET-with-side-effects (2 identified)** — OIDC callback flows in `host-opkssh-routes.ts:552` and `users.ts:1121`. Both are non-CSRF-exploitable because OAuth state param gates the flow (attacker cannot forge state token). Also `users.ts:1028` OIDC authorize (issues state param) is analogous. Documented in `## Notes / edge cases`; no code change.
 
 ## Files audited
@@ -94,7 +94,7 @@ All 65 files under `src/backend/database/routes/*.ts` (excluding `*.test.ts` / `
 | GET /host/opkssh-callback | host-opkssh-routes.ts:552 | yes (writes OPKSSH token to disk, DB update) | no (GET — OIDC callback flow gated by OAuth state param, not CSRF-exploitable) | none-needed |
 | USE /host/* (opkssh-html mount) | host-opkssh-routes.ts:723 | n/a (middleware mount) | n/a | n/a |
 | POST /host/db/host | host.ts:122 | yes (INSERT host + SSH key) | no (multer upload.single("key") = multipart/form-data) | added-origin-check ✓ |
-| POST /host/quick-connect | host.ts:681 | yes (transient host register + connect) | no (multer upload.single("key") = multipart/form-data) | added-origin-check ✓ |
+| POST /host/quick-connect | host.ts:681 | yes (transient host register + connect) | yes (JSON body via app-level bodyParser.json; no multer middleware in chain — verified L681-698 reads req.body.ip/port/username directly) | none-needed |
 | PUT /host/db/host/:id | host.ts:832 | yes (UPDATE host + optional SSH key) | no (multer upload.single("key") — multipart branch used when Content-Type header includes multipart/form-data; JSON branch preflights) | added-origin-check ✓ |
 | GET /host/db/host | host.ts:1444 | no (list hosts) | no | none-needed |
 | GET /host/db/host/:id | host.ts:1688 | no (read host) | no | none-needed |
@@ -310,17 +310,22 @@ The following endpoints were identified during Task 1a–1d as CORS-simple multi
 | # | Endpoint | File:line | Applied |
 |---|----------|-----------|---------|
 | 1 | POST /host/db/host | host.ts:122 | ✓ |
-| 2 | POST /host/quick-connect | host.ts:681 | ✓ |
-| 3 | PUT /host/db/host/:id | host.ts:832 | ✓ |
-| 4 | POST /identities/avatar/candidate/manual | identity-avatar-batch.ts:424 | ✓ |
-| 5 | POST /users/create | users.ts:132 | ✓ |
-| 6 | PUT /users/:id/avatar | users.ts:505 | ✓ |
-| 7 | PUT /identities/:identityKey | identities.ts:421 | ✓ |
-| 8 | POST /roles/ | roles-create.ts:275 | ✓ |
-| 9 | POST /roles/:name/avatar | roles.ts:314 | ✓ |
-| 10 | POST /voice/transcribe | voice.ts:432 | ✓ |
+| 2 | PUT /host/db/host/:id | host.ts:832 | ✓ |
+| 3 | POST /identities/avatar/candidate/manual | identity-avatar-batch.ts:424 | ✓ |
+| 4 | POST /users/create | users.ts:132 | ✓ |
+| 5 | PUT /users/:id/avatar | users.ts:505 | ✓ |
+| 6 | PUT /identities/:identityKey | identities.ts:421 | ✓ |
+| 7 | POST /roles/ | roles-create.ts:275 | ✓ |
+| 8 | POST /roles/:name/avatar | roles.ts:314 | ✓ |
+| 9 | POST /voice/transcribe | voice.ts:432 | ✓ |
 
-**Total multipart endpoints remediated: 10 across 8 files.**
+**Total multipart endpoints remediated: 9 across 7 files.**
+
+_Correction from initial audit:_ POST `/host/quick-connect` (host.ts:681) was
+originally listed as multipart but on re-read of the handler it accepts JSON
+body only (`req.body.ip`, `req.body.port`, etc.) — no multer middleware in the
+chain. Reclassified as preflight-triggering JSON; `none-needed` remediation.
+Row corrected above in the `## Audit table` section too.
 
 ## Notes / edge cases
 

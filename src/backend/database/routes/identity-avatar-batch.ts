@@ -32,6 +32,8 @@ import multer from "multer";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { AuthManager } from "../../utils/auth-manager.js";
+// Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
+import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
 import { loadBrandingConfig } from "../../branding/branding-config-loader.js";
 import type { AuthenticatedRequest } from "../../../types/index.js";
 
@@ -423,6 +425,8 @@ const manualUpload = multer({
 
 router.post(
   "/candidate/manual",
+  // Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
+  multipartOriginGuard,
   authenticateJWT,
   manualUpload.single("avatar"),
   (req: Request, res: Response): void => {

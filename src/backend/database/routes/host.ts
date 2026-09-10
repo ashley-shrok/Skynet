@@ -24,6 +24,8 @@ import type { Request, Response } from "express";
 import axios from "axios";
 import multer from "multer";
 import { sshLogger, databaseLogger, systemLogger } from "../../utils/logger.js";
+// Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
+import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
 import { getSubstrateOrchestrator } from "../../distributor/substrate-orchestrator-singleton.js";
 import { SimpleDBOps } from "../../utils/simple-db-ops.js";
 import { AuthManager } from "../../utils/auth-manager.js";
@@ -121,6 +123,8 @@ registerHostInternalRoutes(router);
  */
 router.post(
   "/db/host",
+  // Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
+  multipartOriginGuard,
   authenticateJWT,
   requireDataAccess,
   upload.single("key"),
@@ -831,6 +835,8 @@ router.post(
  */
 router.put(
   "/db/host/:id",
+  // Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
+  multipartOriginGuard,
   authenticateJWT,
   requireDataAccess,
   upload.single("key"),

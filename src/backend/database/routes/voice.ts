@@ -5,6 +5,8 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Request, Response, NextFunction } from "express";
 import { databaseLogger } from "../../utils/logger.js";
+// Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
+import { multipartOriginGuard } from "../../utils/multipart-origin-guard.js";
 import { AuthManager } from "../../utils/auth-manager.js";
 import { WAKE_WORD_REGEX, applyServerSlashTransform } from "../../voice/slashCommandTransform.js";
 import { fetchSkillCatalog, DEFAULT_SKILL_CATALOG_TIMEOUT_MS } from "../../voice/skill-catalog.js";
@@ -431,6 +433,8 @@ export async function handleSpeakStream(req: Request, res: Response): Promise<vo
 // T-16-04 invariant: authenticateJWT BEFORE multer — unauthenticated = 401 before parse.
 router.post(
   "/transcribe",
+  // Phase 103 D-10: multipart-origin-guard — CORS-simple content types don't preflight
+  multipartOriginGuard,
   // Phase 34: multer.single("file") parses non-file multipart fields into req.body
   // (hostId, tmuxSession). handleTranscribe reads these to gate slash-transform.
   authenticateJWT,
