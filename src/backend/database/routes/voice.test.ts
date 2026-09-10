@@ -73,6 +73,12 @@ vi.mock("../../voice/audio-transcode.js", () => ({
   webmToFlac: vi.fn(async (buf: Buffer) => buf),
 }));
 
+// Phase 100 Plan 04: mock transcribe-orchestrator so tests can verify
+// chunked-path routing without spawning real ffmpeg / Transcribe streams.
+vi.mock("../../voice/transcribe-orchestrator.js", () => ({
+  transcribeBufferChunked: vi.fn(),
+}));
+
 // Skill-catalog fetcher stub — same reason as before (avoid SSH round-trip).
 vi.mock("../../voice/skill-catalog.js", () => ({
   fetchSkillCatalog: vi.fn(),
@@ -111,9 +117,11 @@ import {
   handleSpeakStream,
   DEFAULT_VOICE,
   SPEAK_TEXT_MAX,
+  CHUNKED_THRESHOLD_BYTES,
 } from "./voice.js";
 import { fetchSkillCatalog } from "../../voice/skill-catalog.js";
 import { webmToFlac } from "../../voice/audio-transcode.js";
+import { transcribeBufferChunked } from "../../voice/transcribe-orchestrator.js";
 import fs from "node:fs";
 
 // -----------------------------------------------------------------------------
@@ -271,6 +279,7 @@ beforeEach(() => {
   vi.mocked(webmToFlac).mockReset();
   vi.mocked(webmToFlac).mockImplementation(async (buf: Buffer) => buf);
   vi.mocked(fetchSkillCatalog).mockReset();
+  vi.mocked(transcribeBufferChunked).mockReset();
 });
 
 afterEach(() => {
@@ -735,5 +744,161 @@ describe("handleSpeakStream (AWS Polly, streaming with chunk-and-stitch)", () =>
     const cmdArgs = synthesizeSpeechCmdCtor.mock.calls[0]?.[0];
     expect(cmdArgs.VoiceId).toBe(DEFAULT_VOICE);
     expect(DEFAULT_VOICE).not.toMatch(/\.wav$/);
+  });
+});
+
+// =============================================================================
+// handleTranscribe — Phase 100 Plan 04: fast-path gate + chunked-path routing
+// =============================================================================
+
+describe("handleTranscribe — Phase 100 chunked path routing", () => {
+  // T1: Short clips (below threshold) still use the single-stream path (D-05).
+  it("T1 (D-05 fast-path): short clip below threshold calls single-stream transcribeBuffer, NOT chunked", async () => {
+    // CHUNKED_THRESHOLD_BYTES = 80_000; use a buffer well below that.
+    const shortFlac = Buffer.alloc(10_000, 0);
+    // webmToFlac pass-through: the returned buffer is what voice.ts sees.
+    vi.mocked(webmToFlac).mockResolvedValueOnce(shortFlac);
+
+    const req = makeReq({ buffer: Buffer.from("webm bytes"), mimetype: "audio/webm", size: 10 });
+    const res = makeRes();
+
+    transcribeSendMock.mockResolvedValueOnce({
+      TranscriptResultStream: fakeTranscriptStream([
+        { IsPartial: false, transcript: "hello world" },
+      ]),
+    });
+
+    await handleTranscribe(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(200);
+    expect((res._body as { text: string }).text).toBe("hello world");
+    // Single-stream path fired.
+    expect(transcribeSendMock).toHaveBeenCalledTimes(1);
+    // Chunked path must NOT have been called.
+    expect(vi.mocked(transcribeBufferChunked)).not.toHaveBeenCalled();
+  });
+
+  // T2: Long clips (at/above threshold) route to the chunked orchestrator (D-06).
+  it("T2 (D-06 chunked routing): long clip at/above threshold calls transcribeBufferChunked, NOT single-stream", async () => {
+    const longFlac = Buffer.alloc(100_000, 0); // above 80_000 threshold
+    vi.mocked(webmToFlac).mockResolvedValueOnce(longFlac);
+
+    const req = makeReq({ buffer: Buffer.from("webm bytes"), mimetype: "audio/webm", size: 10 });
+    const res = makeRes();
+
+    vi.mocked(transcribeBufferChunked).mockResolvedValueOnce("chunked transcript from parallel path");
+
+    await handleTranscribe(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(200);
+    expect((res._body as { text: string }).text).toBe("chunked transcript from parallel path");
+    // Chunked path was called with the FLAC buffer AND sampleRateHz=16000.
+    expect(vi.mocked(transcribeBufferChunked)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(transcribeBufferChunked)).toHaveBeenCalledWith(longFlac, 16000);
+    // Single-stream path must NOT have been called.
+    expect(transcribeSendMock).not.toHaveBeenCalled();
+  });
+
+  // T3: AccessDenied from the chunked path → 503 via the existing catch block (D-12).
+  it("T3 (chunked AccessDenied → 503): transcribeBufferChunked AccessDenied returns 503 with fixed shape", async () => {
+    const longFlac = Buffer.alloc(100_000, 0);
+    vi.mocked(webmToFlac).mockResolvedValueOnce(longFlac);
+
+    const req = makeReq({ buffer: Buffer.from("webm bytes"), mimetype: "audio/webm", size: 10 });
+    const res = makeRes();
+
+    vi.mocked(transcribeBufferChunked).mockRejectedValueOnce(makeAccessDeniedError());
+
+    await handleTranscribe(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(503);
+    const body = res._body as { error: string; status: number };
+    expect(body.error).toBe("voice STT unavailable");
+    expect(body.status).toBe(503);
+  });
+
+  // T4: Generic failure from the chunked path → 502 via the existing catch block (D-12).
+  it("T4 (chunked generic error → 502): transcribeBufferChunked network error returns 502 with fixed shape", async () => {
+    const longFlac = Buffer.alloc(100_000, 0);
+    vi.mocked(webmToFlac).mockResolvedValueOnce(longFlac);
+
+    const req = makeReq({ buffer: Buffer.from("webm bytes"), mimetype: "audio/webm", size: 10 });
+    const res = makeRes();
+
+    vi.mocked(transcribeBufferChunked).mockRejectedValueOnce(new Error("network timeout"));
+
+    await handleTranscribe(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(502);
+    const body = res._body as { error: string; status: number };
+    expect(body.error).toBe("STT error");
+    expect(body.status).toBe(502);
+  });
+
+  // T5: D-13 slash-transform still fires on chunked-path output.
+  it("T5 (D-13 preservation): slash-transform fires on chunked-path transcript", async () => {
+    const longFlac = Buffer.alloc(100_000, 0);
+    vi.mocked(webmToFlac).mockResolvedValueOnce(longFlac);
+
+    const req = makeReq(
+      { buffer: Buffer.from("webm bytes"), mimetype: "audio/webm", size: 10 },
+      { hostId: "42" },
+    );
+    (req as unknown as { userId: string }).userId = "user-1";
+    const res = makeRes();
+
+    vi.mocked(transcribeBufferChunked).mockResolvedValueOnce("slash gsd status");
+    vi.mocked(fetchSkillCatalog).mockResolvedValue(new Set(["gsd", "bounty"]));
+
+    await handleTranscribe(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    expect(res._status).toBe(200);
+    // The slash-transform should have converted "slash gsd status" → "/gsd status".
+    expect((res._body as { text: string }).text).toBe("/gsd status");
+    expect(vi.mocked(fetchSkillCatalog)).toHaveBeenCalledWith(42, "user-1", 10_000);
+  });
+
+  // T6: D-14 disk-bank write still fires for the chunked path (write ordering preserved).
+  it("T6 (D-14 preservation): disk-bank write fires for chunked-path requests (mkdir + writeFile called)", async () => {
+    const longFlac = Buffer.alloc(100_000, 0);
+    vi.mocked(webmToFlac).mockResolvedValueOnce(longFlac);
+
+    const req = makeReq({ buffer: Buffer.from("webm bytes"), mimetype: "audio/webm", size: 10 });
+    const res = makeRes();
+
+    vi.mocked(transcribeBufferChunked).mockResolvedValueOnce("chunked result");
+
+    await handleTranscribe(
+      req as unknown as import("express").Request,
+      res as unknown as import("express").Response,
+    );
+
+    // Settle fire-and-forget microtasks.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Both disk-bank ops must have been called.
+    expect(vi.mocked(fs.promises.mkdir)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(fs.promises.writeFile)).toHaveBeenCalledTimes(1);
+
+    // mkdir must have been called BEFORE transcribeBufferChunked (D-14 ordering).
+    const mkdirOrder = vi.mocked(fs.promises.mkdir).mock.invocationCallOrder[0];
+    const chunkedOrder = vi.mocked(transcribeBufferChunked).mock.invocationCallOrder[0];
+    expect(mkdirOrder).toBeLessThan(chunkedOrder);
   });
 });
