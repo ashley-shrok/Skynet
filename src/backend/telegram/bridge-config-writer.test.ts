@@ -1,12 +1,18 @@
 /**
  * Phase 79 Plan 04 Task 2 — bridge-config-writer unit tests.
+ * Phase 98 Plan 08 — updated body-content assertions: STT_URL write removed;
+ * SKYNET_BASE + SKYNET_BRIDGE_TOKEN writes added (per D-Telegram-bridge-STT
+ * locked 2026-09-10). All other rewrite-registry cases carry over verbatim.
  *
  * Covers PLAN.md § Task 2 <behavior>:
- *   - writeBridgeConfigEnv happy path: writes MATRIX_ROOT + STT_URL to
- *     /state/config.env with the header comment.
+ *   - writeBridgeConfigEnv happy path: writes MATRIX_ROOT + SKYNET_BASE +
+ *     SKYNET_BRIDGE_TOKEN to /state/config.env with the Phase 98 header
+ *     comment. STT_URL is NEVER written.
  *   - writeBridgeConfigEnv when getMatrixHomeserverBase returns null:
  *     does NOT write, returns {ok:false, reason:"no matrix admin creds ingested"}.
  *   - writeBridgeConfigEnv unsafe-chars guard: rejects '#' and '\n' in URL.
+ *   - writeBridgeConfigEnv when mintBridgeServiceToken returns {ok:false}:
+ *     does NOT write, returns {ok:false, reason:"token mint failed: ..."}.
  *   - rewriteRegistryFromCurrentState orchestration: calls listTelegramBotTokens,
  *     users query, syncAllBotTokenFiles, mintAndWriteHumanToken, buildRegistryFromRows,
  *     writeRegistry.
@@ -23,9 +29,18 @@ import os from "node:os";
 
 // --- Mock all downstream dependencies. -----------------------------
 
+// Phase 98 Plan 08: STT_URL is no longer imported by bridge-config-writer.
+// Only getMatrixHomeserverBase remains from media-endpoints (until Plan 10
+// deletes the file entirely and moves the helper).
 vi.mock("../config/media-endpoints.js", () => ({
-  STT_URL: "http://100.80.122.111:8000/v1/audio/transcriptions",
   getMatrixHomeserverBase: vi.fn(),
+}));
+
+// Phase 98 Plan 08: bridge JWT minted at config-write time and injected as
+// SKYNET_BRIDGE_TOKEN into config.env. Stubbed here so tests don't touch
+// the real JWT secret.
+vi.mock("./bridge-service-token.js", () => ({
+  mintBridgeServiceToken: vi.fn(),
 }));
 
 vi.mock("../matrix/matrix-admin-creds-store.js", () => ({
@@ -100,6 +115,14 @@ beforeEach(async () => {
   // toHaveBeenCalledOnce() are not polluted by previous tests.
   const mep = await import("../config/media-endpoints.js");
   vi.mocked(mep.getMatrixHomeserverBase).mockReset();
+  // Phase 98 Plan 08 — bridge-service-token stub. Default: successful mint.
+  // Individual tests override for the failure path.
+  const bst = await import("./bridge-service-token.js");
+  vi.mocked(bst.mintBridgeServiceToken).mockReset();
+  vi.mocked(bst.mintBridgeServiceToken).mockResolvedValue({
+    ok: true,
+    token: "test-bridge-jwt-abc.def.ghi",
+  });
   const mac = await import("../matrix/matrix-admin-creds-store.js");
   vi.mocked(mac.getMatrixAdminCreds).mockReset();
   // Default: admin creds present, canonical server_name. Individual tests
@@ -162,7 +185,7 @@ async function stubUsersQuery(
 // --- Tests ---------------------------------------------------------
 
 describe("bridge-config-writer.writeBridgeConfigEnv", () => {
-  it("happy path — writes MATRIX_ROOT + STT_URL to /state/config.env", async () => {
+  it("happy path — writes MATRIX_ROOT + SKYNET_BASE + SKYNET_BRIDGE_TOKEN (STT_URL is NOT written)", async () => {
     const { getMatrixHomeserverBase } = await import(
       "../config/media-endpoints.js"
     );
@@ -180,12 +203,46 @@ describe("bridge-config-writer.writeBridgeConfigEnv", () => {
     expect(fs.existsSync(envFile)).toBe(true);
     const contents = fs.readFileSync(envFile, "utf8");
     expect(contents).toContain("MATRIX_ROOT=http://100.113.23.63:8008");
-    expect(contents).toContain(
-      "STT_URL=http://100.80.122.111:8000/v1/audio/transcriptions",
-    );
-    expect(contents).toContain("Phase 79 Plan 04");
+    // Phase 98 Plan 08 — new Skynet-base + bridge-token pair.
+    expect(contents).toContain("SKYNET_BASE=");
+    expect(contents).toContain("SKYNET_BRIDGE_TOKEN=test-bridge-jwt-abc.def.ghi");
+    expect(contents).toContain("Phase 98");
+    // The old STT_URL write is GONE — bridge no longer POSTs to Chatterbox
+    // (per D-Telegram-bridge-STT locked 2026-09-10).
+    expect(contents).not.toContain("STT_URL");
     // .tmp cleaned up
     expect(fs.existsSync(`${envFile}.tmp`)).toBe(false);
+  });
+
+  it("returns {ok:false} without writing when mintBridgeServiceToken fails", async () => {
+    const { getMatrixHomeserverBase } = await import(
+      "../config/media-endpoints.js"
+    );
+    vi.mocked(getMatrixHomeserverBase).mockResolvedValue(
+      "http://100.113.23.63:8008",
+    );
+
+    const { mintBridgeServiceToken } = await import(
+      "./bridge-service-token.js"
+    );
+    vi.mocked(mintBridgeServiceToken).mockResolvedValue({
+      ok: false,
+      reason: "simulated crypto failure",
+    });
+
+    const { writeBridgeConfigEnv } = await import(
+      "./bridge-config-writer.js"
+    );
+    const result = await writeBridgeConfigEnv();
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toMatch(/token mint failed/i);
+      expect(result.reason).toMatch(/simulated crypto failure/);
+    }
+    // Nothing on disk — atomic invariant preserved.
+    expect(fs.existsSync(path.join(tempDir, "config.env"))).toBe(false);
+    expect(fs.existsSync(path.join(tempDir, "config.env.tmp"))).toBe(false);
   });
 
   it("no admin creds — returns ok:false, does not write disk", async () => {

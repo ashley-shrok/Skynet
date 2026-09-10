@@ -1,11 +1,19 @@
 // Phase 79 Plan 04 — bridge-config-writer
 /**
  * Phase 79 Plan 04 Task 2 — bridge-config-writer.
+ * Phase 98 Plan 08 — the old Chatterbox-direct STT-URL write is dropped;
+ * SKYNET_BASE + SKYNET_BRIDGE_TOKEN added (per D-Telegram-bridge-STT locked
+ * 2026-09-10). The bridge no longer POSTs voice notes directly to Chatterbox
+ * on the tailnet — it now POSTs to $SKYNET_BASE/voice/transcribe with a
+ * bridge-scoped Bearer JWT, and Skynet handles the provider translation
+ * (AWS Transcribe today, whatever tomorrow). This keeps the bridge
+ * provider-agnostic.
  *
  * Orchestrates the substrate-side writes that make the tg-bridge Docker
  * service functional:
- *   1. `/state/config.env` — MATRIX_ROOT + STT_URL (bash-source-safe),
- *      read by the bridge at startup so nothing is hardcoded.
+ *   1. `/state/config.env` — MATRIX_ROOT + SKYNET_BASE + SKYNET_BRIDGE_TOKEN
+ *      (bash-source-safe), read by the bridge at startup so nothing is
+ *      hardcoded.
  *   2. `/state/<identityKey>.bottoken` — one per row, plaintext bot token,
  *      0600. Nina's live convention, preserved verbatim in Phase B per
  *      blocker B-1.
@@ -29,10 +37,8 @@
  * exception.
  */
 import fs from "node:fs";
-import {
-  STT_URL,
-  getMatrixHomeserverBase,
-} from "../config/media-endpoints.js";
+import { getMatrixHomeserverBase } from "../config/media-endpoints.js";
+import { mintBridgeServiceToken } from "./bridge-service-token.js";
 import { configEnvPath } from "./shared-volume.js";
 import { listTelegramBotTokens } from "./tokens-store.js";
 import { syncAllBotTokenFiles } from "./bot-token-file-writer.js";
@@ -71,6 +77,19 @@ export function serverNameFromMxid(mxid: string): string | null {
   return mxid.slice(colon + 1);
 }
 
+/**
+ * Skynet's internal-network base URL as seen by the tg-bridge Docker service.
+ *
+ * The tg-bridge container is joined to `skynet-net` alongside the `skynet`
+ * service (docker-compose service name resolves via Docker's embedded DNS),
+ * and Skynet listens internally on port 8080 (`expose: ["8080"]` +
+ * `PORT: "8080"` env from docker-compose.yml). No env-var override is
+ * exposed here because the bridge and Skynet are always co-deployed via
+ * docker-compose — the internal-network topology is invariant. If a
+ * future era decouples them, this becomes an env-var read.
+ */
+const SKYNET_INTERNAL_BASE = "http://skynet:8080";
+
 export async function writeBridgeConfigEnv(): Promise<
   { ok: true } | { ok: false; reason: string }
 > {
@@ -83,30 +102,54 @@ export async function writeBridgeConfigEnv(): Promise<
     return { ok: false, reason: "no matrix admin creds ingested" };
   }
 
+  // Phase 98 Plan 08 — mint a bridge-scoped JWT (per D-Telegram-bridge-STT
+  // locked 2026-09-10). The token authenticates bridge → Skynet POSTs to
+  // /voice/transcribe via authenticateJWT middleware on the same verify
+  // path user JWTs traverse.
+  const mintResult = await mintBridgeServiceToken();
+  if (mintResult.ok === false) {
+    databaseLogger.warn(
+      "bridge config not written — bridge service token mint failed",
+      {
+        operation: "bridge_config_write_skipped",
+        reason: mintResult.reason,
+      },
+    );
+    return {
+      ok: false,
+      reason: `token mint failed: ${mintResult.reason}`,
+    };
+  }
+  const bridgeToken = mintResult.token;
+
   // Bash-source safety: refuse anything that could break the shell parse
-  // or embed a comment marker. STT_URL is a compile-time constant so this
-  // check is defensive only; homeserverBase comes from user-ingested
-  // creds and is the realistic attack surface.
+  // or embed a comment marker. homeserverBase comes from user-ingested
+  // creds; SKYNET_INTERNAL_BASE is a compile-time constant (defensive
+  // check only); bridgeToken is a JWT (dot-separated base64url segments,
+  // no `#` or `\n` under normal encoding — defensive check only).
   if (
     homeserverBase.includes("#") ||
     homeserverBase.includes("\n") ||
-    STT_URL.includes("#") ||
-    STT_URL.includes("\n")
+    SKYNET_INTERNAL_BASE.includes("#") ||
+    SKYNET_INTERNAL_BASE.includes("\n") ||
+    bridgeToken.includes("#") ||
+    bridgeToken.includes("\n")
   ) {
     databaseLogger.error(
-      "bridge config refused — URL contains unsafe chars",
+      "bridge config refused — URL or token contains unsafe chars",
       undefined,
       {
         operation: "bridge_config_write_unsafe",
       },
     );
-    return { ok: false, reason: "unsafe chars in URL" };
+    return { ok: false, reason: "unsafe chars in URL or token" };
   }
 
   const body =
-    `# Written by Skynet at boot — Phase 79 Plan 04. Do not edit by hand.\n` +
+    `# Written by Skynet at boot — Phase 98. Do not edit by hand.\n` +
     `MATRIX_ROOT=${homeserverBase}\n` +
-    `STT_URL=${STT_URL}\n`;
+    `SKYNET_BASE=${SKYNET_INTERNAL_BASE}\n` +
+    `SKYNET_BRIDGE_TOKEN=${bridgeToken}\n`;
 
   const target = configEnvPath();
   const tmp = `${target}.tmp`;
