@@ -21,6 +21,7 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
+    "verify:ssh-cap": "bash scripts/ci/check-ssh-semaphore-coverage.sh",
     "dev": "vite",
     "build": "vite build && tsc -p tsconfig.node.json && node -e \"require('fs').copyFileSync('src/backend/package.json','dist/backend/package.json')\"",
     "build:backend": "tsc -p tsconfig.node.json && node -e \"require('fs').copyFileSync('src/backend/package.json','dist/backend/package.json')\"",
