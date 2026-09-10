@@ -1,9 +1,13 @@
 /**
  * Patch #223: IdentityModal voice picker + sample button tests.
  *
+ * Phase 98 Plan 03 rewrite: VoicePicker inlines POLLY_VOICES const — no
+ * runtime voice-catalog fetch. Tests updated to assert on the 7 static Polly
+ * voice IDs and use "Joanna" / "Ruth" where Elena.wav / Marcus.wav were used.
+ *
  * Tests cover:
- * 1. getVoices() called once on modal open, populates <select>
- * 2. <select> value reflects identity.voice on mount (null→"(default)", set→filename)
+ * 1. VoicePicker shows 7 Polly options + default synchronously on modal open
+ * 2. <select> value reflects identity.voice on mount (null→"(default)", set→voiceId)
  * 3. changing dropdown updates local state without immediately calling updateIdentity
  * 4. sample button calls postSpeak(SAMPLE_PHRASE, voice) -- omit voice when default
  * 5. Save with changed voice calls updateIdentity with voice in meta
@@ -84,12 +88,10 @@ vi.mock("@/state/bounty-counts-store", async (importOriginal) => {
   };
 });
 
+// Phase 98 Plan 03: VoicePicker no longer fetches a voice catalog. Only
+// postSpeak (sample button) is imported.
 vi.mock("@/api/voice-api", () => ({
   postSpeak: vi.fn(async () => new Blob([new Uint8Array([1, 2, 3])], { type: "audio/wav" })),
-  getVoices: vi.fn(async () => [
-    { display_name: "Elena", filename: "Elena.wav" },
-    { display_name: "Marcus", filename: "Marcus.wav" },
-  ]),
   SAMPLE_PHRASE: "Hi, this is your voice.",
 }));
 
@@ -102,13 +104,12 @@ vi.mock("@/api/runbooks-api", () => ({
 // ── Late imports ─────────────────────────────────────────────────────────────
 import { updateIdentity } from "@/api/identities-api";
 import { IdentityModal } from "./IdentityModal";
-import { postSpeak, getVoices } from "@/api/voice-api";
+import { postSpeak } from "@/api/voice-api";
 // Phase 90 Plan 90-06 (D-09): modal-scope-store retired. Reset helper is a
 // no-op for compatibility with the remaining test body.
 const __resetModalScopeForTest = (): void => { /* retired */ };
 
 const mockedUpdateIdentity = vi.mocked(updateIdentity);
-const mockedGetVoices = vi.mocked(getVoices);
 const mockedPostSpeak = vi.mocked(postSpeak);
 
 // ── Audio + URL globals ──────────────────────────────────────────────────────
@@ -172,27 +173,23 @@ describe("IdentityModal voice picker (patch #223)", () => {
     vi.restoreAllMocks();
   });
 
-  it("Test 1: getVoices() called exactly once on open; select has Elena + Marcus options (plus default)", async () => {
+  it("Test 1: VoicePicker shows 7 Polly options + default on open (Phase 98 inlined const)", async () => {
     renderModal();
 
     // Patch #277: reveal the edit block via pencil toggle.
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
-    // Rule 1 fix: increased timeout from default 5000ms to 15000ms — this
-    // async await can be slow under heavy CI load (full-suite parallel run
-    // exhausts CPU budget, causing the waitFor polling loop to overshoot
-    // the default window). The logic is correct; the flake is purely timing.
-    await waitFor(() => {
-      expect(mockedGetVoices).toHaveBeenCalledTimes(1);
-    }, { timeout: 15000 });
-
-    // Wait for options to populate
+    // Phase 98 Plan 03: options render synchronously from POLLY_VOICES const.
+    // Wait only for the picker to mount (edit block is revealed async).
     await waitFor(() => {
       const select = screen.getByRole("combobox") as HTMLSelectElement;
       const options = Array.from(select.options).map((o) => o.value);
       expect(options).toContain("");
-      expect(options).toContain("Elena.wav");
-      expect(options).toContain("Marcus.wav");
+      expect(options).toContain("Joanna");
+      expect(options).toContain("Ruth");
+      expect(options).toContain("Matthew");
+      // 7 Polly voices + 1 default = 8 total
+      expect(options).toHaveLength(8);
     }, { timeout: 15000 });
   }, 20000);
 
@@ -208,15 +205,15 @@ describe("IdentityModal voice picker (patch #223)", () => {
     });
   });
 
-  it("Test 2b: identity.voice === 'Elena.wav' → select value is 'Elena.wav'", async () => {
-    renderModal({ voice: "Elena.wav" });
+  it("Test 2b: identity.voice === 'Joanna' → select value is 'Joanna'", async () => {
+    renderModal({ voice: "Joanna" });
 
     // Patch #277: reveal the edit block via pencil toggle.
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
     await waitFor(() => {
       const select = screen.getByRole("combobox") as HTMLSelectElement;
-      expect(select.value).toBe("Elena.wav");
+      expect(select.value).toBe("Joanna");
     });
   });
 
@@ -226,16 +223,16 @@ describe("IdentityModal voice picker (patch #223)", () => {
     // Patch #277: reveal the edit block via pencil toggle.
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
-    // Wait for voices to load
+    // Wait for the picker to mount (options are inline, render sync).
     await waitFor(() => {
       const select = screen.getByRole("combobox") as HTMLSelectElement;
       expect(Array.from(select.options).length).toBeGreaterThan(1);
     });
 
     const select = screen.getByRole("combobox") as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "Elena.wav" } });
+    fireEvent.change(select, { target: { value: "Joanna" } });
 
-    expect(select.value).toBe("Elena.wav");
+    expect(select.value).toBe("Joanna");
     expect(mockedUpdateIdentity).not.toHaveBeenCalled();
   });
 
@@ -245,15 +242,15 @@ describe("IdentityModal voice picker (patch #223)", () => {
     // Patch #277: reveal the edit block via pencil toggle.
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
-    // Wait for voices to load
+    // Wait for the picker to mount.
     await waitFor(() => {
       const select = screen.getByRole("combobox") as HTMLSelectElement;
       expect(Array.from(select.options).length).toBeGreaterThan(1);
     });
 
-    // Select Elena.wav
+    // Select Joanna
     const select = screen.getByRole("combobox") as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "Elena.wav" } });
+    fireEvent.change(select, { target: { value: "Joanna" } });
 
     // Click sample button
     const sampleBtn = screen.getByLabelText("Sample voice");
@@ -263,7 +260,7 @@ describe("IdentityModal voice picker (patch #223)", () => {
       expect(mockedPostSpeak).toHaveBeenCalled();
       const [phrase, voice] = mockedPostSpeak.mock.calls[0];
       expect(phrase).toBe("Hi, this is your voice.");
-      expect(voice).toBe("Elena.wav");
+      expect(voice).toBe("Joanna");
     });
   });
 
@@ -286,7 +283,7 @@ describe("IdentityModal voice picker (patch #223)", () => {
   });
 
   it("Test 5: Save with changed voice calls updateIdentity with voice in meta", async () => {
-    const updatedIdentity: Identity = { ...BASE_IDENTITY, voice: "Elena.wav" };
+    const updatedIdentity: Identity = { ...BASE_IDENTITY, voice: "Joanna" };
     mockedUpdateIdentity.mockResolvedValue(updatedIdentity);
 
     renderModal({ voice: null });
@@ -294,15 +291,15 @@ describe("IdentityModal voice picker (patch #223)", () => {
     // Patch #277: reveal the edit block via pencil toggle.
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
-    // Wait for voices to load
+    // Wait for the picker to mount.
     await waitFor(() => {
       const select = screen.getByRole("combobox") as HTMLSelectElement;
       expect(Array.from(select.options).length).toBeGreaterThan(1);
     });
 
-    // Change to Elena.wav
+    // Change to Joanna
     const select = screen.getByRole("combobox") as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "Elena.wav" } });
+    fireEvent.change(select, { target: { value: "Joanna" } });
 
     // Save button should be enabled
     const saveBtn = screen.getByRole("button", { name: /Save/i });
@@ -315,19 +312,19 @@ describe("IdentityModal voice picker (patch #223)", () => {
     });
 
     const [, calledMeta] = mockedUpdateIdentity.mock.calls[0];
-    expect((calledMeta as Record<string, unknown>).voice).toBe("Elena.wav");
+    expect((calledMeta as Record<string, unknown>).voice).toBe("Joanna");
   });
 
   it("Test 6: Save with dropdown reset to '(default)' calls updateIdentity with voice: null", async () => {
     const updatedIdentity: Identity = { ...BASE_IDENTITY, voice: null };
     mockedUpdateIdentity.mockResolvedValue(updatedIdentity);
 
-    renderModal({ voice: "Elena.wav" });
+    renderModal({ voice: "Joanna" });
 
     // Patch #277: reveal the edit block via pencil toggle.
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
 
-    // Wait for voices to load
+    // Wait for the picker to mount.
     await waitFor(() => {
       const select = screen.getByRole("combobox") as HTMLSelectElement;
       expect(Array.from(select.options).length).toBeGreaterThan(1);

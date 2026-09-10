@@ -66,7 +66,6 @@ vi.mock("@/api/claude-session-api", async (importOriginal) => {
 
 vi.mock("@/api/voice-api", () => ({
   SAMPLE_PHRASE: "Hi, this is your voice.",
-  getVoices: vi.fn().mockResolvedValue([]),
   postSpeak: vi.fn().mockResolvedValue(new Blob(["stub"], { type: "audio/mp3" })),
 }));
 
@@ -192,7 +191,10 @@ describe("RoleModal — Phase 90 Plan 90-04 Task 3", () => {
   it("Test E: no identity chip — header has no identity name", () => {
     renderModal();
     // Header displays role's displayName; no identity name anywhere.
-    expect(document.body.textContent).not.toMatch(/tabitha|tina|tiffany|tanya|taylor/i);
+    // Phase 98 Plan 03: "tiffany" removed from the identity-name regex —
+    // it's now a legitimate Polly voice ID rendered in VoicePicker options,
+    // so matching it would produce a false positive here.
+    expect(document.body.textContent).not.toMatch(/tabitha|tina|tanya|taylor/i);
     // displayName IS present.
     expect(screen.getByText("Box Maintainer")).toBeTruthy();
   });

@@ -38,7 +38,6 @@ vi.mock("@/api/voice-api", () => ({
     return new Response(stream, { status: 200 });
   }),
   postSpeak: vi.fn(async () => new Blob([new Uint8Array([1, 2, 3])], { type: "audio/wav" })),
-  getVoices: vi.fn(async () => []),
   SAMPLE_PHRASE: "Hi, this is your voice.",
 }));
 

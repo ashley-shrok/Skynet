@@ -95,12 +95,10 @@ vi.mock("@/state/bounty-counts-store", async (importOriginal) => {
   };
 });
 
+// Phase 98 Plan 03: VoicePicker inlines POLLY_VOICES — no runtime fetch.
+// Only postSpeak is called by the sample button.
 vi.mock("@/api/voice-api", () => ({
   postSpeak: vi.fn(async () => new Blob([new Uint8Array([1, 2, 3])], { type: "audio/wav" })),
-  getVoices: vi.fn(async () => [
-    { display_name: "Elena", filename: "Elena.wav" },
-    { display_name: "Marcus", filename: "Marcus.wav" },
-  ]),
   SAMPLE_PHRASE: "Hi, this is your voice.",
 }));
 
@@ -150,7 +148,7 @@ const BASE_IDENTITY: Identity = {
   roleDefaults: {
     title: "Box maintainer",
     colorHue: 216,
-    voice: "Marcus.wav",
+    voice: "Matthew",
     avatar: "box-maintainer.webp",
   },
 };
@@ -227,7 +225,7 @@ describe("IdentityModal inherit-vs-override affordances (Phase 86 Plan 86-05)", 
   it("Test 3: identity.title=null + roleDefaults.title=undefined → Title empty, no 'Inherited' marker (defensive backstop)", async () => {
     renderModal({
       title: null,
-      roleDefaults: { colorHue: 216, voice: "Marcus.wav", avatar: "box-maintainer.webp" },
+      roleDefaults: { colorHue: 216, voice: "Matthew", avatar: "box-maintainer.webp" },
     });
 
     fireEvent.click(screen.getByRole("button", { name: /edit agent/i }));
@@ -367,11 +365,11 @@ describe("IdentityModal inherit-vs-override affordances (Phase 86 Plan 86-05)", 
     // sample-play button plays the currently-displayed voice.
     await waitFor(() => {
       const voiceSelect = screen.getByLabelText(/^Voice/i) as HTMLSelectElement;
-      expect(voiceSelect.value).toBe("Marcus.wav");
+      expect(voiceSelect.value).toBe("Matthew");
     });
 
     // Inherited marker for voice.
-    const voiceInherited = screen.getAllByLabelText(/Inherited from role: Marcus\.wav/i);
+    const voiceInherited = screen.getAllByLabelText(/Inherited from role: Matthew/i);
     expect(voiceInherited.length).toBeGreaterThanOrEqual(1);
   });
 

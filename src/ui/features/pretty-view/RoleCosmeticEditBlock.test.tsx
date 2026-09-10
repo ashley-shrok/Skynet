@@ -26,13 +26,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
-// Mock the voice-api so VoicePicker's useEffect fetch doesn't fire in-test.
+// Mock the voice-api. Phase 98 Plan 03: VoicePicker no longer fetches a
+// runtime catalog — POLLY_VOICES is inlined in VoicePicker.tsx. Only
+// postSpeak is called (by the sample button).
 vi.mock("@/api/voice-api", () => ({
   SAMPLE_PHRASE: "Hi, this is your voice.",
-  getVoices: vi.fn().mockResolvedValue([
-    { display_name: "Alloy", filename: "alloy" },
-    { display_name: "Echo", filename: "echo" },
-  ]),
   postSpeak: vi.fn().mockResolvedValue(new Blob(["stub"], { type: "audio/mp3" })),
 }));
 
@@ -135,34 +133,41 @@ describe("RoleCosmeticEditBlock — Phase 90 Plan 90-04 (no inherit/override)", 
     );
   });
 
-  it("Test D: voice pick — VoicePicker onChange fires onDraftChange({voice})", async () => {
-    const { getVoices } = await import("@/api/voice-api");
+  it("Test D: voice pick — VoicePicker onChange fires onDraftChange({voice})", () => {
     const onDraftChange = vi.fn();
     render(
       <RoleCosmeticEditBlock
         roleName="box-maintainer"
         hostId={3}
-        initial={{ title: "Skynet", colorHue: 320, voice: "alloy" }}
+        initial={{ title: "Skynet", colorHue: 320, voice: "Joanna" }}
         onDraftChange={onDraftChange}
         saving={false}
       />,
     );
 
-    // Wait for the VoicePicker to populate its <option>s from getVoices()
-    // (the useEffect fetch resolves on next microtask).
-    await vi.waitFor(() => {
-      expect(getVoices).toHaveBeenCalled();
-      const opt = document.querySelector(
-        '#role-voice-picker option[value="echo"]',
-      );
-      if (!opt) throw new Error("echo option not yet populated");
-    });
-
+    // Phase 98 Plan 03: VoicePicker inlines POLLY_VOICES — 7 options + default
+    // render synchronously on mount. No await, no mock, no runtime fetch.
     const voiceSelect = document.getElementById("role-voice-picker") as HTMLSelectElement;
-    fireEvent.change(voiceSelect, { target: { value: "echo" } });
+    const optionValues = Array.from(voiceSelect.options).map((o) => o.value);
+    expect(optionValues).toEqual(
+      expect.arrayContaining([
+        "",
+        "Danielle",
+        "Joanna",
+        "Ruth",
+        "Salli",
+        "Tiffany",
+        "Matthew",
+        "Stephen",
+      ]),
+    );
+    // 7 Polly voices + 1 default fallback = 8 options total
+    expect(voiceSelect.options).toHaveLength(8);
+
+    fireEvent.change(voiceSelect, { target: { value: "Ruth" } });
 
     expect(onDraftChange).toHaveBeenCalledWith(
-      expect.objectContaining({ voice: "echo" }),
+      expect.objectContaining({ voice: "Ruth" }),
     );
   });
 

@@ -57,9 +57,6 @@ vi.mock("@/api/identities-api", async (importOriginal) => {
 // self-contained (identity registry + voice + session-hue).
 vi.mock("@/api/voice-api", () => ({
   SAMPLE_PHRASE: "Hi.",
-  getVoices: vi.fn().mockResolvedValue([
-    { display_name: "Elena", filename: "Elena.wav" },
-  ]),
   postSpeak: vi.fn().mockResolvedValue(new Blob(["a"], { type: "audio/mpeg" })),
   postSpeakStream: vi.fn(),
 }));

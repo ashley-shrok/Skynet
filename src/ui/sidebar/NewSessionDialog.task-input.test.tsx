@@ -49,9 +49,6 @@ vi.mock("@/api/identities-api", async (importOriginal) => {
 // Sibling mocks so this file is self-contained (identity registry + voice + hue).
 vi.mock("@/api/voice-api", () => ({
   SAMPLE_PHRASE: "Hi.",
-  getVoices: vi.fn().mockResolvedValue([
-    { display_name: "Elena", filename: "Elena.wav" },
-  ]),
   postSpeak: vi.fn().mockResolvedValue(new Blob(["a"], { type: "audio/mpeg" })),
   postSpeakStream: vi.fn(),
 }));

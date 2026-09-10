@@ -95,9 +95,10 @@ vi.mock("@/api/identities-api", async (importOriginal) => {
 
 // Phase 86 (Plan 86-06): mock the cosmetic pickers as passthrough components
 // so tests can drive their onChange from a deterministic button click without
-// pulling in voice-api / getVoices / audio playback. Both mocks expose the
-// value prop as data-testid + a "set-<name>" button that calls onChange with
-// a fixed value. Tests populate these fields by clicking those buttons.
+// pulling in voice-api / audio playback. Both mocks expose the value prop as
+// data-testid + a "set-<name>" button that calls onChange with a fixed value.
+// Tests populate these fields by clicking those buttons. (Phase 98 Plan 03:
+// runtime voice-catalog fetch retired — VoicePicker inlines POLLY_VOICES const.)
 vi.mock("@/features/pretty-view/pickers/ColorPicker", () => ({
   ColorPicker: (props: {
     value: number;

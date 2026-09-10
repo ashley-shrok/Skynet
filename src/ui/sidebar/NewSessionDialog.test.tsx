@@ -117,9 +117,6 @@ async function* createMockStream(events: Array<{type: string; n?: number; phase?
 // accidental real-fetch on Test 10's render tree.
 vi.mock("@/api/voice-api", () => ({
   SAMPLE_PHRASE: "Hi, this is your voice.",
-  getVoices: vi.fn().mockResolvedValue([
-    { display_name: "Elena", filename: "Elena.wav" },
-  ]),
   postSpeak: vi.fn().mockResolvedValue(new Blob(["audio"], { type: "audio/mpeg" })),
   postSpeakStream: vi.fn(),
 }));

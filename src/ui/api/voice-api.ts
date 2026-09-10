@@ -50,11 +50,3 @@ export async function postSpeakStream(
   });
 }
 
-export async function getVoices(): Promise<{ display_name: string; filename: string }[]> {
-  try {
-    const response = await authApi.get("/voice/voices");
-    return response.data as { display_name: string; filename: string }[];
-  } catch (error) {
-    handleApiError(error, "list voices");
-  }
-}
