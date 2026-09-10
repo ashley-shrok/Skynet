@@ -68,6 +68,15 @@
 
 import { spawn } from "node:child_process";
 
+// Silence-removal filter tuning for webmToFlac. Only silences ≥ MIN_SEC below
+// THRESHOLD_DB get trimmed, and each trim leaves PAD_SEC of padding so
+// Transcribe still sees a pause cue for punctuation. Exported so bench/tune
+// work can vary them without hunting the argv.
+export const SILENCE_TRIM_MIN_SEC = 1.0;
+export const SILENCE_TRIM_PAD_SEC = 0.3;
+export const SILENCE_TRIM_THRESHOLD_DB = -40;
+const SILENCE_FILTER = `silenceremove=stop_periods=-1:stop_duration=${SILENCE_TRIM_MIN_SEC}:stop_threshold=${SILENCE_TRIM_THRESHOLD_DB}dB:stop_silence=${SILENCE_TRIM_PAD_SEC}`;
+
 /**
  * Shared subprocess wrapper. Spawns ffmpeg with the given args, pipes
  * `inputBuffer` to stdin, collects stdout chunks, resolves the concatenated
@@ -162,6 +171,8 @@ export function webmToFlac(webmBuffer: Buffer): Promise<Buffer> {
   return runFfmpeg(webmBuffer, [
     "-i",
     "pipe:0",
+    "-af",
+    SILENCE_FILTER,
     "-ar",
     "16000",
     "-ac",
