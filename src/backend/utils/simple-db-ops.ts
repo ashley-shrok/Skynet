@@ -10,6 +10,21 @@ type TableName =
   | "recent_activity"
   | "socks5_proxy_presets";
 
+// Authoritative sensitive-field set per table — mirrors LazyFieldEncryption.getSensitiveFieldsForTable()
+// at src/backend/utils/lazy-field-encryption.ts:301-327. Keep in sync manually — no import
+// to avoid a utils/utils circular-dependency shape.
+const SENSITIVE_FIELDS_BY_TABLE: Record<TableName, ReadonlySet<string>> = {
+  users: new Set(["totpSecret", "totpBackupCodes"]),
+  ssh_data: new Set([
+    "password", "key", "keyPassword", "sudoPassword",
+    "autostartPassword", "autostartKey", "autostartKeyPassword",
+    "socks5Password", "rdpPassword", "vncPassword", "telnetPassword",
+  ]),
+  ssh_credentials: new Set(["password", "key", "keyPassword", "privateKey", "publicKey"]),
+  recent_activity: new Set(),
+  socks5_proxy_presets: new Set(),
+};
+
 class SimpleDBOps {
   static async insert<T extends Record<string, unknown>>(
     table: SQLiteTable,
@@ -170,6 +185,69 @@ class SimpleDBOps {
     DatabaseSaveTrigger.triggerSave(`delete_${tableName}`);
 
     return result;
+  }
+
+  /**
+   * Update non-sensitive (cleartext-at-rest) fields for a row without requiring the target
+   * user's data key. Intended for admin cross-user writes only — must be gated by
+   * callerIsAdmin at the call site. The sensitive-field guard below is defense-in-depth.
+   *
+   * @throws if any key in `data` is in SENSITIVE_FIELDS_BY_TABLE[tableName]
+   */
+  static async updateNonSensitive<T extends Record<string, unknown>>(
+    table: SQLiteTable,
+    tableName: TableName,
+    where: unknown,
+    data: Partial<T>,
+  ): Promise<T[]> {
+    for (const key of Object.keys(data)) {
+      if (SENSITIVE_FIELDS_BY_TABLE[tableName]?.has(key)) {
+        throw new Error(
+          `updateNonSensitive called with sensitive field: ${key} — use SimpleDBOps.update instead`,
+        );
+      }
+    }
+
+    const result = await getDb()
+      .update(table)
+      .set(data)
+      .where(where as SQL | undefined)
+      .returning();
+
+    DatabaseSaveTrigger.triggerSave(`update_nonsensitive_${tableName}`);
+
+    return result as T[];
+  }
+
+  /**
+   * Insert non-sensitive (cleartext-at-rest) fields for a new row without requiring the
+   * target user's data key. Intended for admin cross-user writes only — must be gated by
+   * callerIsAdmin at the call site. Returns an array (raw .returning() shape); caller
+   * should index with [0] or .at(0) for a single row.
+   *
+   * @throws if any key in `data` is in SENSITIVE_FIELDS_BY_TABLE[tableName]
+   */
+  static async insertNonSensitive<T extends Record<string, unknown>>(
+    table: SQLiteTable,
+    tableName: TableName,
+    data: T,
+  ): Promise<T[]> {
+    for (const key of Object.keys(data)) {
+      if (SENSITIVE_FIELDS_BY_TABLE[tableName]?.has(key)) {
+        throw new Error(
+          `insertNonSensitive called with sensitive field: ${key} — use SimpleDBOps.insert instead`,
+        );
+      }
+    }
+
+    const result = await getDb()
+      .insert(table)
+      .values(data)
+      .returning();
+
+    DatabaseSaveTrigger.triggerSave(`insert_nonsensitive_${tableName}`);
+
+    return result as T[];
   }
 
   static async healthCheck(userId: string): Promise<boolean> {
