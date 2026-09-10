@@ -295,4 +295,50 @@ describe("AgentBadgeWithMeter (Phase 93 Slice 2 Task 1 — byte-preserving port)
     // shrunk value expected — 6rem (vs pane-wide 12rem per PATTERNS.md § meter well)
     expect(style).toMatch(/--meter-width:\s*6rem/);
   });
+
+  // ─── Phase 97 Finding 5: drawer chrome regression gates ──────────────────
+  //
+  // The appendage div is now wrapped by a `data-drawer="true"` container per
+  // Variant A of meter-tasting.html (margin-top: -8px tuck, z-index: 1 behind
+  // pill, padding-top: 10px above meter body). The meter-well's corner + border
+  // tokens are adjusted: `rounded-b-md` (bottom corners only) + `border-t-0`
+  // (no top border) — the tuck edge reads invisible.
+
+  it("Test 14 (Phase 97 F-5): drawer wrapper (data-drawer='true') wraps the appendage div and carries the tuck geometry (-mt-2 + pt-[10px] + zIndex:1)", () => {
+    render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
+    const drawer = document.querySelector("[data-drawer='true']");
+    expect(drawer).not.toBeNull();
+    const drawerClass = drawer!.getAttribute("class") ?? "";
+    // Tailwind tokens matching prototype meter-tasting.html:164-168.
+    expect(drawerClass).toMatch(/-mt-2/);
+    expect(drawerClass).toMatch(/pt-\[10px\]/);
+    // Inline style carries zIndex: 1 (behind pill's implicit stacking).
+    const drawerStyle = drawer!.getAttribute("style") ?? "";
+    expect(drawerStyle).toMatch(/z-index:\s*1/);
+    // Drawer must be the parent of the appendage div.
+    const appendage = drawer!.querySelector("[data-appendage='true']");
+    expect(appendage).not.toBeNull();
+  });
+
+  it("Test 15 (Phase 97 F-5): meter-well corners squared at top + rounded at bottom + no top border (`rounded-b-md` + `border-t-0`; no `rounded-md` or `rounded-t-md`)", () => {
+    render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
+    const meter = screen.getByRole("meter");
+    const meterClass = meter.getAttribute("class") ?? "";
+    expect(meterClass).toMatch(/\brounded-b-md\b/);
+    expect(meterClass).toMatch(/\bborder-t-0\b/);
+    // Full-round or top-rounded tokens must NOT be present — the meter-well
+    // must read as tucked-under-a-pill, not free-floating.
+    expect(meterClass).not.toMatch(/\brounded-md\b/);
+    expect(meterClass).not.toMatch(/\brounded-t-md\b/);
+  });
+
+  it("Test 16 (Phase 97 F-5): appendage className no longer carries the old `mt-1` (spacer role replaced by drawer's `-mt-2` + `pt-[10px]` geometry)", () => {
+    render(<AgentBadgeWithMeter {...DEFAULT_PROPS} />);
+    const appendage = document.querySelector("[data-appendage='true']");
+    expect(appendage).not.toBeNull();
+    const appendageClass = appendage!.getAttribute("class") ?? "";
+    // The 4px `mt-1` spacer that used to sit between the pill and the
+    // appendage is REMOVED — the drawer's -mt-2 + pt-[10px] replaces it.
+    expect(appendageClass).not.toMatch(/\bmt-1\b/);
+  });
 });

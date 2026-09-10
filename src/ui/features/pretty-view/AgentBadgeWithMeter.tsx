@@ -184,112 +184,131 @@ export function AgentBadgeWithMeter({
       {/* IdentityBadge — D-08 reuse, plain badge (no modification to the
           primitive, matches HumanBadgeCell approach from Plan 05). */}
       <IdentityBadge identityKey={identityKey} />
-      {/* Appendage container — data-appendage='true' is the D-09 discriminator
-          the row-cell tests use to tell agent cells from human cells. */}
+      {/* Phase 97 Finding 5: drawer wrapper — Variant A "simple slotted"
+          per meter-tasting.html L164-177. margin-top: -8px tucks the drawer's
+          top edge behind the pill's bottom; padding-top: 10px keeps the meter
+          body away from the tucked edge; z-index: 1 sits behind the pill's
+          implicit stacking so the pill's drop-shadow lands on the drawer.
+          The former `mt-1` (4px spacer) on the appendage is REMOVED — its
+          role is replaced by the drawer's -mt-2 + pt-[10px] geometry. */}
       <div
-        data-appendage="true"
-        data-role="agent-appendage"
-        className="mt-1 flex flex-row items-stretch gap-0"
+        data-drawer="true"
+        className="relative -mt-2 pt-[10px]"
+        style={{ zIndex: 1 }}
       >
-        {/* Meter well — VERBATIM shrink of ComposeBox.tsx L2335-2482.
-            --meter-width overridden to 6rem per PATTERNS.md recommendation.
-            SEG_COUNT stays at 12 for visual parity. */}
+        {/* Appendage container — data-appendage='true' is the D-09 discriminator
+            the row-cell tests use to tell agent cells from human cells. */}
         <div
-          className={cn(
-            "self-stretch rounded-md flex flex-row p-[2px]",
-            "bg-[rgba(10,12,20,0.6)] border border-[rgba(220,225,245,0.1)]",
-            "shadow-[inset_0_2px_6px_rgba(0,0,0,0.55),_0_1px_0_rgba(220,225,245,0.05)]",
-          )}
-          style={
-            {
-              "--seg-count": SEG_COUNT,
-              "--meter-width": METER_WIDTH_SHRUNK,
-              width: "var(--meter-width)",
-              height: "18px",
-            } as CSSProperties
-          }
-          role="meter"
-          aria-label="Context window"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={contextPct ?? undefined}
-          title={
-            contextPct != null ? `Context ${contextPct}%` : "Context (unknown)"
-          }
+          data-appendage="true"
+          data-role="agent-appendage"
+          className="flex flex-row items-stretch gap-0"
         >
-          {/* Reset button — VERBATIM shrink of ComposeBox.tsx L2353-2382,
-              with disable gate simplified (no aside/recycle awareness —
-              the relay pane has no compose textarea). */}
-          <button
-            type="button"
-            onClick={handleReset}
-            disabled={resetInFlight}
-            aria-label="Reset context window"
-            title="Reset context window"
+          {/* Meter well — VERBATIM shrink of ComposeBox.tsx L2335-2482.
+              --meter-width overridden to 6rem per PATTERNS.md recommendation.
+              SEG_COUNT stays at 12 for visual parity.
+              Phase 97 Finding 5: corner + border tokens adjusted for the
+              drawer look — `rounded-md` replaced by `rounded-b-md` (bottom
+              corners only), `border-t-0` added (no top border — tuck edge
+              is invisible). */}
+          <div
             className={cn(
-              "h-full w-4 rounded-[2px] border-0 flex items-center justify-center p-0 cursor-pointer",
-              "transition-[background,box-shadow,color] duration-[180ms]",
-              "disabled:opacity-40 disabled:cursor-not-allowed",
-              "bg-[hsla(155,35%,20%,0.5)]",
-              "shadow-[inset_0_0_3px_rgba(0,0,0,0.4)]",
-              "text-[rgba(220,255,235,0.55)]",
-              !isDrainingLike &&
-                "hover:bg-[linear-gradient(90deg,hsla(155,45%,52%,1),hsla(155,45%,42%,1))]",
-              !isDrainingLike &&
-                "hover:shadow-[0_0_8px_hsla(155,45%,45%,0.6),_inset_0_0_3px_rgba(220,255,235,0.4)]",
-              !isDrainingLike && "hover:text-[#f0f8f4]",
+              "self-stretch rounded-b-md flex flex-row p-[2px]",
+              "bg-[rgba(10,12,20,0.6)] border border-t-0 border-[rgba(220,225,245,0.1)]",
+              "shadow-[inset_0_2px_6px_rgba(0,0,0,0.55),_0_1px_0_rgba(220,225,245,0.05)]",
             )}
+            style={
+              {
+                "--seg-count": SEG_COUNT,
+                "--meter-width": METER_WIDTH_SHRUNK,
+                width: "var(--meter-width)",
+                height: "18px",
+              } as CSSProperties
+            }
+            role="meter"
+            aria-label="Context window"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={contextPct ?? undefined}
+            title={
+              contextPct != null
+                ? `Context ${contextPct}%`
+                : "Context (unknown)"
+            }
           >
-            <RotateCcw className="size-3" />
-          </button>
-          <div className="w-px mx-[2px] h-full bg-[rgba(220,225,245,0.09)] shadow-[0_1px_0_rgba(0,0,0,0.55)]" />
-          {/* Segment strip — VERBATIM shrink of ComposeBox.tsx L2400-2482. */}
-          <div className="flex flex-row gap-[1px] min-w-[50px] flex-1 h-full">
-            {Array.from({ length: SEG_COUNT }, (_, i) => {
-              // Recycling gate → every segment unlit (isHolding analog).
-              const isLit =
-                typeof contextPct === "number" &&
-                i < litCount &&
-                !isDrainingLike;
-              let background: string;
-              let boxShadow: string;
-              if (isLit) {
-                background =
-                  band === "red"
-                    ? litRedBg
-                    : band === "amber"
-                      ? litAmberBg
-                      : litGreenBg;
-                boxShadow =
-                  band === "red"
-                    ? litRedShadow
-                    : band === "amber"
-                      ? litAmberShadow
-                      : litGreenShadow;
-              } else {
-                background = dimNeutralBg;
-                boxShadow = "none";
-              }
-              return (
-                <div
-                  key={i}
-                  data-seg
-                  data-lit={isLit ? "true" : "false"}
-                  data-band={isLit ? band : "neutral"}
-                  className="rounded-[1.5px] transition-[background,box-shadow] duration-[220ms] ease-out"
-                  style={{
-                    // Same explicit-calc-per-segment idiom as
-                    // ComposeBox.tsx L2472 (scaled to the shrunk 1px gap).
-                    width: `calc((100% - ${(SEG_COUNT - 1) * 1}px) / ${SEG_COUNT})`,
-                    height: "100%",
-                    flex: "0 0 auto",
-                    transitionDelay: `${(SEG_COUNT - 1 - i) * 35}ms`,
-                    background,
-                    boxShadow,
-                  }}
-                />
-              );
-            })}
+            {/* Reset button — VERBATIM shrink of ComposeBox.tsx L2353-2382,
+                with disable gate simplified (no aside/recycle awareness —
+                the relay pane has no compose textarea). */}
+            <button
+              type="button"
+              onClick={handleReset}
+              disabled={resetInFlight}
+              aria-label="Reset context window"
+              title="Reset context window"
+              className={cn(
+                "h-full w-4 rounded-[2px] border-0 flex items-center justify-center p-0 cursor-pointer",
+                "transition-[background,box-shadow,color] duration-[180ms]",
+                "disabled:opacity-40 disabled:cursor-not-allowed",
+                "bg-[hsla(155,35%,20%,0.5)]",
+                "shadow-[inset_0_0_3px_rgba(0,0,0,0.4)]",
+                "text-[rgba(220,255,235,0.55)]",
+                !isDrainingLike &&
+                  "hover:bg-[linear-gradient(90deg,hsla(155,45%,52%,1),hsla(155,45%,42%,1))]",
+                !isDrainingLike &&
+                  "hover:shadow-[0_0_8px_hsla(155,45%,45%,0.6),_inset_0_0_3px_rgba(220,255,235,0.4)]",
+                !isDrainingLike && "hover:text-[#f0f8f4]",
+              )}
+            >
+              <RotateCcw className="size-3" />
+            </button>
+            <div className="w-px mx-[2px] h-full bg-[rgba(220,225,245,0.09)] shadow-[0_1px_0_rgba(0,0,0,0.55)]" />
+            {/* Segment strip — VERBATIM shrink of ComposeBox.tsx L2400-2482. */}
+            <div className="flex flex-row gap-[1px] min-w-[50px] flex-1 h-full">
+              {Array.from({ length: SEG_COUNT }, (_, i) => {
+                // Recycling gate → every segment unlit (isHolding analog).
+                const isLit =
+                  typeof contextPct === "number" &&
+                  i < litCount &&
+                  !isDrainingLike;
+                let background: string;
+                let boxShadow: string;
+                if (isLit) {
+                  background =
+                    band === "red"
+                      ? litRedBg
+                      : band === "amber"
+                        ? litAmberBg
+                        : litGreenBg;
+                  boxShadow =
+                    band === "red"
+                      ? litRedShadow
+                      : band === "amber"
+                        ? litAmberShadow
+                        : litGreenShadow;
+                } else {
+                  background = dimNeutralBg;
+                  boxShadow = "none";
+                }
+                return (
+                  <div
+                    key={i}
+                    data-seg
+                    data-lit={isLit ? "true" : "false"}
+                    data-band={isLit ? band : "neutral"}
+                    className="rounded-[1.5px] transition-[background,box-shadow] duration-[220ms] ease-out"
+                    style={{
+                      // Same explicit-calc-per-segment idiom as
+                      // ComposeBox.tsx L2472 (scaled to the shrunk 1px gap).
+                      width: `calc((100% - ${(SEG_COUNT - 1) * 1}px) / ${SEG_COUNT})`,
+                      height: "100%",
+                      flex: "0 0 auto",
+                      transitionDelay: `${(SEG_COUNT - 1 - i) * 35}ms`,
+                      background,
+                      boxShadow,
+                    }}
+                  />
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
