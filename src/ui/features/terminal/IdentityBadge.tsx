@@ -109,14 +109,22 @@ export function IdentityBadge({
     };
   }, []);
 
-  if (!identity) return null;
-
   // Phase 104 Plan 02 (D-05, D-06, D-07): per-identity trapped-work snapshot.
   // hostId prop is reactivated here (Pattern 4 in RESEARCH.md — Phase 68 made
   // it a no-op for avatar-URL construction, Phase 104 puts it to work for the
   // store lookup). Undefined pre-fetch AND {hasTrappedWork:false} both render
   // nothing — the JSX below gates on strict `=== true`.
+  //
+  // ⚠️ Called BEFORE the `if (!identity) return null` early return below —
+  // React's Rules of Hooks require every hook to be called on every render
+  // in a stable order. Calling this after the early return would fire on
+  // some renders but not others (whenever identity resolves late from the
+  // store), producing "Rendered more/fewer hooks than during the previous
+  // render" errors. Hook handles identityKey=null gracefully (returns
+  // undefined). Phase 104 code-review finding #1.
   const trappedWork = useTrappedWork(identityKey, hostId ?? null);
+
+  if (!identity) return null;
 
   // Identity hue drives border + inset rim + outer glow. NULL colorHue
   // falls back to hue 35 (warm amber, matches PrettyView's neutral
@@ -174,11 +182,15 @@ export function IdentityBadge({
           Positioning math: the pill is padding 8px 18px 8px 8px around a 56px
           avatar. Placing the 18px indicator at the avatar's bottom-right
           corner means top/left = 8px (avatar origin) + 56px - ~14px overhang.
-          pointer-events: none so the pill's click/hover/focus + long-press
-          machinery is never fought. Both z-index: 2 (coordinator watermark is
-          z-index: 0) so this stays above. Coordinator watermark + this
-          indicator are non-overlapping semantic layers (identity role vs
-          repo state) — coexistence is safe. */}
+          Both z-index: 2 (coordinator watermark is z-index: 0) so this stays
+          above. Coordinator watermark + this indicator are non-overlapping
+          semantic layers (identity role vs repo state) — coexistence is safe.
+          pointerEvents defaults to auto: the browser needs mouseover to
+          dispatch on this span so the native `title` attribute tooltip can
+          fire (D-07). Setting pointerEvents: "none" would silently break the
+          tooltip. Pill-level click/long-press still fire because DOM events
+          bubble from the indicator through the pill; the indicator has no
+          onClick to compete. Phase 104 code-review finding #2. */}
       {trappedWork?.hasTrappedWork === true && (
         <span
           aria-hidden="true"
@@ -197,7 +209,6 @@ export function IdentityBadge({
             background: "hsla(35, 65%, 55%, 0.85)",
             boxShadow: "0 0 12px hsla(35, 65%, 55%, 0.4)",
             zIndex: 2,
-            pointerEvents: "none",
           }}
         >
           <GitPullRequestDraft

@@ -329,9 +329,14 @@ export function PrettyConversationRow({
   // Hook short-circuits to undefined when identityKey is null. Both undefined
   // (pre-fetch / non-identity row) AND {hasTrappedWork:false} render nothing
   // — the indicator gates on strict `=== true` at the JSX site below.
+  //
+  // Phase 104 code-review finding #3: hostIdNum > 0 matches the WS handler's
+  // coercion (claude-session-server.ts:1211-1216). Any non-positive hostId
+  // (0 or negative) routes as local; without this gate, the row keys the
+  // store on `${...}:0` but the response echoes hostId=null → lookup misses.
   const trappedWork = useTrappedWork(
     identity?.identityKey ?? null,
-    Number.isFinite(rowHostIdNum) ? rowHostIdNum : null,
+    Number.isFinite(rowHostIdNum) && rowHostIdNum > 0 ? rowHostIdNum : null,
   );
 
   // Phase 41 Plan 01 (Ashley 2026-08-14): the pre-Phase-41 amb-recession

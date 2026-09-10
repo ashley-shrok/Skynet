@@ -663,7 +663,12 @@
   bottom: -4px;
   right: -8px;
   z-index: 2;
-  pointer-events: none;
+  /* pointer-events: auto (default) — required so the browser dispatches
+     mouseover for the native `title` attribute tooltip. `pointer-events:
+     none` would prevent the tooltip from ever firing (D-07 hover tooltip
+     is a stated shape feature). Row-level click still bubbles from any
+     child unless stopped; the indicator has no onClick, so hits pass
+     through to the row cleanly. Phase 104 code-review finding #2. */
   display: inline-flex;
   align-items: center;
   justify-content: center;

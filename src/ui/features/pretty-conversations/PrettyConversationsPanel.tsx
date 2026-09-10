@@ -532,8 +532,16 @@ export function PrettyConversationsPanel({
         if (!matchKey) return;
         const ident = identitiesByKeyRef.current.get(matchKey);
         if (!ident) return;
+        // Phase 104 code-review finding #3: match the WS handler's coercion.
+        // Server side (claude-session-server.ts:1211-1216) treats hostIdRaw > 0
+        // as remote, everything else as local (null). If we let 0 or negative
+        // slip through here as-is, our composite-key uses `${...}:0` but the
+        // response echoes hostId=null → row lookup misses. hostIds come from
+        // SQLite auto-increment starting at 1, so 0 is effectively "not a
+        // valid hostId" and should route local. Client + server now agree.
         const hostIdNum = row.host ? parseInt(row.host.id, 10) : NaN;
-        const hostId = Number.isFinite(hostIdNum) ? hostIdNum : null;
+        const hostId =
+          Number.isFinite(hostIdNum) && hostIdNum > 0 ? hostIdNum : null;
         const composite = `${ident.identityKey}:${hostId ?? "local"}`;
         if (idsSeen.has(composite)) return;
         idsSeen.add(composite);
