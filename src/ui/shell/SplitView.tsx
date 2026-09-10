@@ -429,8 +429,17 @@ const Pane = memo(function Pane({
       // pv-split-drop template-string convention. Reads the three payload
       // kinds ONCE for the log; downstream branches re-read via their own
       // getData calls (pre-existing pattern preserved). Do NOT JSON.stringify
-      // the DOM Event (Phase 93 Landmine 6). Do NOT log payload bodies — only
-      // lengths (defense-in-depth per V8).
+      // the DOM Event (Phase 93 Landmine 6). Do NOT log payload bodies —
+      // ONLY LENGTHS (defense-in-depth per V8).
+      //
+      // Phase 97 code-review Fix 4: tightened to strict length-only for the
+      // text/plain payload as well. Was `tabIdSource=${diagSourceTabId}`
+      // which emitted the payload body. Currently safe because upstream
+      // guards the text/plain to a Skynet tab UUID, but the diag's own
+      // comment claims "only lengths, no payload bodies" — the tabIdSource
+      // emit contradicted that. If the MIME shape ever widens, this would
+      // start emitting user text. Now `tabIdSourceLen=<n>` matches the
+      // badge/row payload treatment.
       const diagSourceTabId = e.dataTransfer?.getData("text/plain") ?? "";
       const diagBadgeJsonLen =
         (e.dataTransfer?.getData("application/x-skynet-badge") ?? "").length;
@@ -438,7 +447,7 @@ const Pane = memo(function Pane({
         (e.dataTransfer?.getData("application/x-skynet-row") ?? "").length;
       // eslint-disable-next-line no-console
       console.info(
-        `[pv-split-drop-diag] phase=drop pane path=${JSON.stringify(path)} tabIdSource=${diagSourceTabId} hasBadgePayload=${diagBadgeJsonLen > 0} hasRowPayload=${diagRowJsonLen > 0}`,
+        `[pv-split-drop-diag] phase=drop pane path=${JSON.stringify(path)} tabIdSourceLen=${diagSourceTabId.length} hasBadgePayload=${diagBadgeJsonLen > 0} hasRowPayload=${diagRowJsonLen > 0}`,
       );
       // Phase 64 Plan 02: center-zone dispatch. Was a silent short-circuit
       // through Phase 57 ("center dead zone"); now the drop is routed to
