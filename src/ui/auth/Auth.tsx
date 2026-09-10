@@ -42,6 +42,7 @@ import {
   removeSilentSigninFromSearch,
   shouldTriggerSilentSignin,
 } from "./silent-signin";
+import { validateReturnUrl, parseReturnFromSearch } from "./return-url";
 // Phase 70 Plan 04: login header lockup (icon + wordmark, L1131-1142) now
 // sourced from brandingConfig (Plan 70-03) so operator-provided assets
 // unify with the conversation-list header per D-08's "same icon+wordmark"
@@ -110,6 +111,27 @@ function storeAuth(username: string) {
     STORAGE_KEY,
     JSON.stringify({ loggedIn: true, username }),
   );
+}
+
+/**
+ * 260910-pf4: Attempt a validated return-URL redirect.
+ * Uses window.location.hostname as parentDomain (guaranteed === SKYNET_COOKIE_DOMAIN
+ * because /login is served on the primary domain per Phase 103 D-14).
+ * Returns true if a redirect was initiated (caller should return early).
+ */
+function tryReturnUrlRedirect(): boolean {
+  const parent = window.location.hostname;
+  const raw = parseReturnFromSearch(window.location.search);
+  const validated = validateReturnUrl(raw, parent);
+  if (raw !== null && validated === null) {
+    console.warn("[auth] rejecting invalid return url", { returnParam: raw, parentDomain: parent });
+    return false;
+  }
+  if (validated !== null) {
+    window.location.assign(validated);
+    return true;
+  }
+  return false;
 }
 
 type AuthView = "login" | "register" | "reset" | "totp" | "external";
@@ -279,6 +301,16 @@ export function Auth({ onLogin }: AuthProps) {
     }
   }, [rememberMe]);
 
+  // 260910-pf4: already-authed + valid return= → redirect immediately before form renders.
+  // Fires BEFORE the registration/OIDC/setup useEffects so expensive fetches are skipped.
+  // Trusts getStoredAuth() (localStorage) for the redirect-decision; destination re-auths
+  // via JWT cookie — no privilege escalation risk even if localStorage is forged (worst
+  // case: a 302 back to /login on stale session). Do NOT block on getUserInfo() here.
+  useEffect(() => {
+    if (getStoredAuth()?.loggedIn) tryReturnUrlRedirect();
+    // Note: no cleanup — window.location.assign navigates away; unmount is intentional.
+  }, []);
+
   useEffect(() => {
     getRegistrationAllowed()
       .then((res) => setRegistrationAllowed(res.allowed))
@@ -414,6 +446,8 @@ export function Auth({ onLogin }: AuthProps) {
             meRes.userId || undefined,
             !!meRes.is_admin,
           );
+          // 260910-pf4: redirect to validated return URL if present
+          if (tryReturnUrlRedirect()) return;
           window.history.replaceState(
             {},
             document.title,
@@ -521,6 +555,8 @@ export function Auth({ onLogin }: AuthProps) {
         meRes.userId || undefined,
         !!meRes.is_admin,
       );
+      // 260910-pf4: redirect to validated return URL if present
+      if (tryReturnUrlRedirect()) return;
     } catch (err: unknown) {
       const error = err as {
         message?: string;
@@ -567,6 +603,8 @@ export function Auth({ onLogin }: AuthProps) {
         meRes.userId || undefined,
         !!meRes.is_admin,
       );
+      // 260910-pf4: redirect to validated return URL if present
+      if (tryReturnUrlRedirect()) return;
     } catch (err: unknown) {
       const error = err as {
         message?: string;
@@ -621,6 +659,8 @@ export function Auth({ onLogin }: AuthProps) {
         res.userId || undefined,
         !!res.is_admin,
       );
+      // 260910-pf4: redirect to validated return URL if present
+      if (tryReturnUrlRedirect()) return;
     } catch (err: unknown) {
       const error = err as {
         message?: string;

@@ -9,6 +9,7 @@ import "./ui/i18n/i18n";
 import { isElectron } from "@/lib/electron";
 import { Toaster } from "@/components/sonner";
 import { Auth, getStoredAuth, clearStoredAuth } from "@/auth/Auth";
+import { validateReturnUrl, parseReturnFromSearch } from "@/auth/return-url";
 import { getUserInfo, getCurrentToken, appReadyPromise } from "@/main-axios";
 import { applyAccentColor, applyFontSize } from "@/lib/theme";
 import type { FontSizeId } from "@/types/ui-types";
@@ -279,6 +280,28 @@ function RootApp() {
 // parallel with prepareClientCacheVersion(); createRoot render is NOT
 // gated on the branding promise.
 void fetchBrandingConfig();
+
+// 260910-pf4 (GAP 4): Short-circuit render if user is already-authed AND a valid
+// same-parent-domain return URL is present. This handles the edge case where
+// main.tsx's App component would otherwise enter the "verifying" → getUserInfo()
+// loop before Auth.tsx even mounts. By redirecting here (before createRoot), we
+// skip both the SPA boot and the spinner — the browser navigates immediately.
+// The destination (a serve URL) will re-auth via JWT cookie and 302 back to /login
+// if the session is stale. Trust boundary is the subdomain-dispatch backend, not here.
+(function tryMainReturnUrlRedirect() {
+  const stored = getStoredAuth();
+  if (!stored?.loggedIn) return;
+  const raw = parseReturnFromSearch(window.location.search);
+  const validated = validateReturnUrl(raw, window.location.hostname);
+  if (validated) {
+    window.location.assign(validated);
+    return; // Do not call createRoot — browser is navigating away
+  }
+  // If raw is present but invalid, log the rejection (consistent with Auth.tsx behavior)
+  if (raw !== null && validated === null) {
+    console.warn("[auth] rejecting invalid return url", { returnParam: raw, parentDomain: window.location.hostname });
+  }
+})();
 
 prepareClientCacheVersion().finally(() => {
   createRoot(document.getElementById("root")!).render(
