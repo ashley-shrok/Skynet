@@ -156,6 +156,13 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
       token: "syt_mock_access_token_test",
       access_token: "syt_mock_access_token_test",
     }),
+    // Phase 106 Plan 106-03 (D-05/D-06): wait-for-supervisor sensor. Default
+    // returns a non-null jsonl path on the FIRST call so the wait-poll exits
+    // immediately with success — the frontmatter tests care about the Step
+    // 2.5 identity-file body, not the wait-block cadence.
+    discoverIdentitySessionFile: vi
+      .fn()
+      .mockResolvedValue("/mock/session.jsonl"),
     ...overrides,
   } as BirthDeps;
 }
@@ -345,10 +352,11 @@ it("Test 13: Step 2.5 execs mkdir wakeups + touch handoff.md via execCommand", a
 }, 30_000);
 
 // ---------------------------------------------------------------------------
-// Test 14: no new SSE event types — Step 2.5 is silent inside Step 2's flow
+// Test 14: SSE event types — Phase 106 wire (steps 1/2 + steps 6/7/8; harness
+// steps 3/4/5 retired per D-01..D-03).
 // ---------------------------------------------------------------------------
 
-it("Test 14: SSE event types — steps 1..5 pre-Phase-77 + steps 6..8 Phase-77 relay-mint additions", async () => {
+it("Test 14: SSE event types — only steps 1/2/6/7/8 on the wire (Phase 106)", async () => {
   const deps = makeDeps();
   const opts = makeOpts();
   const { events, emit } = collectEvents();
@@ -356,48 +364,27 @@ it("Test 14: SSE event types — steps 1..5 pre-Phase-77 + steps 6..8 Phase-77 r
   await vi.runAllTimersAsync();
   await birthPromise;
 
-  // Phase 77 (Plan 04) extended the orchestrator to emit step:6, step:7,
-  // step:8 in addition to the original step:1..5. This assertion allows
-  // both the pre-Phase-77 steps and the Phase-77 relay-mint additions;
-  // no other step numbers may leak.
+  // Phase 106 (D-01..D-03): the harness bootstrap steps (3/4/5) are retired
+  // from birth — agent-supervisor.sh handles that lifecycle on its 15s tick.
+  // Only steps 1, 2, 6, 7, 8 remain on the wire; step:6/7/8 stay for D-12
+  // log-forensic breadcrumb parity.
   const stepEvents = events.filter((e) => e.type === "step");
   for (const e of stepEvents) {
-    expect([1, 2, 3, 4, 5, 6, 7, 8]).toContain(e.n);
+    expect([1, 2, 6, 7, 8]).toContain(e.n);
   }
-  // 8 steps × 2 phases (started+completed) = 16 step events + 1 ended = 17 events
-  expect(events.length).toBe(17);
+  // 5 steps × 2 phases (started+completed) = 10 step events + 1 ended = 11 events
+  expect(events.length).toBe(11);
   const endedEvent = events.find((e) => e.type === "ended");
   expect(endedEvent).toBeDefined();
   expect((endedEvent as { ok: boolean }).ok).toBe(true);
 }, 30_000);
 
 // ---------------------------------------------------------------------------
-// Test 15: Step 5's /id <name> send-keys still fires unchanged
+// Test 15: RETIRED (Phase 106 D-02) — Step 5's `/id <name>` send-keys is no
+// longer dispatched by the birth orchestrator. The identity's tmux session
+// (and the `/id <name>` first-turn) is handled by agent-supervisor.sh on
+// its 15s reconcile tick once Skynet has written the identity folder tree.
 // ---------------------------------------------------------------------------
-
-it("Test 15: Step 5's /id <name> send-keys still fires (unchanged; id skill will take load-existing branch)", async () => {
-  const allCmds: string[] = [];
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    allCmds.push(cmd as string);
-    if ((cmd as string).trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    return Promise.resolve("");
-  });
-
-  const deps = makeDeps();
-  const opts = makeOpts({ name: "testkey", role: "box-maintainer" });
-
-  const { emit } = collectEvents();
-  const birthPromise = birthIdentity(opts, emit, deps);
-  await vi.runAllTimersAsync();
-  await birthPromise;
-
-  const idCmd = allCmds.find(
-    (c) => c.includes("send-keys") && c.includes("/id testkey"),
-  );
-  expect(idCmd).toBeDefined();
-}, 30_000);
 
 // ---------------------------------------------------------------------------
 // Test 17: identity file body includes the required minimal template shape
@@ -430,17 +417,20 @@ it("Test 17: identity file body has ---\\nrole: <role>\\n---, seed comment, and 
 }, 30_000);
 
 // ---------------------------------------------------------------------------
-// CALL ORDER integration test (Test 16 in original spec, minus relay register):
-//   Phase 68: no DB record create — avatar candidate check (Step 1 precheck)
-//   → SSH connect → on-disk collision probe → tmux new-session exec (Step 2)
-//   → writeMarkdownFileAtomic (Step 2.5 pre-write)
-//   → mkdir + touch execs (Step 2.5)
-//   → hasTrustDialogAccepted write exec (Step 3)
-//   → tmux send-keys Enter train (Step 4)
-//   → /id name send-keys (Step 5)
+// CALL ORDER integration test (Test 16 — Phase 106 rewrite):
+//   Phase 106 shape:
+//     Step 1: on-disk collision probe (SSH exec)
+//     Step 2: mkdir -p <path> on target host (NO tmux new-session — retired D-01)
+//     Step 2.5: mkdir wakeups + touch handoff.md; then writeMarkdownFileAtomic
+//               of identity .md; then writeAvatarSiblingFile
+//     Steps 6/7/8: Matrix admin mint + relay.json write (unchanged from Phase 75)
+//     Wait for supervisor: discoverIdentitySessionFile poll (new in Phase 106)
+//
+//   Retired: Step 3 trust-flag write, Step 4 Enter train, Step 5 /id name
+//   send-keys — agent-supervisor.sh handles all of that.
 // ---------------------------------------------------------------------------
 
-it("Test 16: call ordering — avatar candidate → tmux new-session → writeMarkdownFileAtomic → mkdir/touch → hasTrustDialogAccepted → Enter train → /id name", async () => {
+it("Test 16: call ordering (Phase 106) — path-mkdir → wakeups-mkdir + touch handoff → writeMarkdownFileAtomic; no tmux new-session, no trust-flag, no /id send-keys", async () => {
   const executionLog: string[] = [];
 
   const writeAtomic = vi.fn().mockImplementation(async () => {
@@ -452,25 +442,32 @@ it("Test 16: call ordering — avatar candidate → tmux new-session → writeMa
     if (s.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
     }
-    if (s.includes("mkdir") && s.includes("tmux new-session")) {
+    // Retired paths — kept as bookkeeping so a regression that resurrects
+    // them gets flagged by the "must not be present" assertions below.
+    if (s.includes("tmux new-session")) {
       executionLog.push("tmux-new-session");
-    } else if (s.includes("mkdir -p") && s.includes("wakeups")) {
-      // Implementations may combine mkdir+touch into one exec — record both
-      // in that case so the ordering assertions still work.
-      executionLog.push("mkdir-wakeups");
-      if (s.includes("touch") && s.includes("handoff.md")) {
-        executionLog.push("touch-handoff");
-      }
-    } else if (s.includes("touch") && s.includes("handoff.md")) {
-      executionLog.push("touch-handoff");
     } else if (s.includes("hasTrustDialogAccepted")) {
       executionLog.push("trust-flag");
     } else if (s.includes("dangerously-skip-permissions")) {
       executionLog.push("claude-launch");
     } else if (s.includes("send-keys") && s.includes("/id testkey")) {
       executionLog.push("id-name-sendkeys");
-    } else if (s.includes("send-keys") && s.endsWith(" Enter")) {
-      executionLog.push("enter");
+    }
+
+    // Live paths under Phase 106.
+    if (s.startsWith("mkdir -p ") && !s.includes("wakeups")) {
+      // Step 2's bare mkdir -p on the target path (was combined with tmux
+      // before Phase 106 D-01).
+      executionLog.push("path-mkdir");
+    } else if (s.includes("mkdir -p") && s.includes("wakeups")) {
+      // Step 2.5's identity-tree mkdir (wakeups + workspace + touch handoff
+      // combined in a single exec).
+      executionLog.push("wakeups-mkdir");
+      if (s.includes("touch") && s.includes("handoff.md")) {
+        executionLog.push("touch-handoff");
+      }
+    } else if (s.includes("touch") && s.includes("handoff.md")) {
+      executionLog.push("touch-handoff");
     }
     return Promise.resolve("");
   });
@@ -485,29 +482,28 @@ it("Test 16: call ordering — avatar candidate → tmux new-session → writeMa
   await vi.runAllTimersAsync();
   await birthPromise;
 
-  // Verify the ordering
   const idx = (name: string) => executionLog.indexOf(name);
 
-  const tmuxIdx = idx("tmux-new-session");
-  const writeIdx = idx("writeMarkdownFileAtomic");
-  const mkdirIdx = idx("mkdir-wakeups");
+  const pathMkdirIdx = idx("path-mkdir");
+  const wakeupsIdx = idx("wakeups-mkdir");
   const touchIdx = idx("touch-handoff");
-  const trustIdx = idx("trust-flag");
-  const idIdx = idx("id-name-sendkeys");
+  const writeIdx = idx("writeMarkdownFileAtomic");
 
-  // Phase 68: tmux new-session happens first (no DB createIdentityRecord before)
-  expect(tmuxIdx).toBeGreaterThanOrEqual(0);
-  // writeMarkdownFileAtomic must be AFTER tmux new-session
-  expect(writeIdx).toBeGreaterThan(tmuxIdx);
-  // mkdir + touch also part of Step 2.5 — both must be after tmux new-session
-  expect(mkdirIdx).toBeGreaterThan(tmuxIdx);
-  expect(touchIdx).toBeGreaterThan(tmuxIdx);
-  // Step 3 (trust-flag) must be after Step 2.5's writes
-  expect(trustIdx).toBeGreaterThan(writeIdx);
-  expect(trustIdx).toBeGreaterThan(mkdirIdx);
-  expect(trustIdx).toBeGreaterThan(touchIdx);
-  // Step 5 (/id name) must be last
-  expect(idIdx).toBeGreaterThan(trustIdx);
+  // Step 2's bare mkdir must fire (target path creation, sole survivor of
+  // the tmux retirement).
+  expect(pathMkdirIdx).toBeGreaterThanOrEqual(0);
+  // Step 2.5's wakeups mkdir + touch handoff fire after the bare mkdir.
+  expect(wakeupsIdx).toBeGreaterThan(pathMkdirIdx);
+  expect(touchIdx).toBeGreaterThan(pathMkdirIdx);
+  // writeMarkdownFileAtomic (Step 2.5) fires after the wakeups mkdir + touch.
+  expect(writeIdx).toBeGreaterThan(wakeupsIdx);
+  expect(writeIdx).toBeGreaterThan(touchIdx);
+
+  // Phase 106 retired paths: NONE of these should have fired.
+  expect(idx("tmux-new-session")).toBe(-1);
+  expect(idx("trust-flag")).toBe(-1);
+  expect(idx("claude-launch")).toBe(-1);
+  expect(idx("id-name-sendkeys")).toBe(-1);
 }, 30_000);
 
 // ---------------------------------------------------------------------------
@@ -532,11 +528,13 @@ it("Test: writeMarkdownFileAtomic throws → step:2:failed, later steps skipped"
   const endedEvent = events.find((e) => e.type === "ended");
   expect((endedEvent as { ok: boolean; failedStep?: number }).failedStep).toBe(2);
 
-  // No Step 3, 4, 5 events emitted after failure
-  const step3Started = events.find(
-    (e) => e.type === "step" && e.n === 3 && e.phase === "started",
+  // Phase 106: no Step 6/7/8 events emitted after Step 2 failure (harness
+  // steps 3/4/5 are retired per D-01..D-03, so this assertion now guards
+  // the mint sequence being skipped on Step 2 failure).
+  const step6Started = events.find(
+    (e) => e.type === "step" && (e as { n: number }).n === 6 && (e as { phase: string }).phase === "started",
   );
-  expect(step3Started).toBeUndefined();
+  expect(step6Started).toBeUndefined();
 }, 30_000);
 
 // ---------------------------------------------------------------------------
@@ -718,7 +716,7 @@ it("Test 23: mime → ext derivation covers webp + jpeg (jpg)", async () => {
 // containing <key>.md + wakeups/ + handoff.md even though avatar write failed;
 // re-birth is the recovery path (not a rollback we build).
 
-it("Test 24a: writeAvatarSiblingFile throws → step:2:failed, Steps 3/4/5 never fired", async () => {
+it("Test 24a: writeAvatarSiblingFile throws → step:2:failed, mint sequence (6/7/8) never fired", async () => {
   const writeAvatar = vi.fn().mockRejectedValue(new Error("SFTP write failed"));
   const deps = makeDeps({ writeAvatarSiblingFile: writeAvatar });
   const opts = makeOpts();
@@ -737,11 +735,13 @@ it("Test 24a: writeAvatarSiblingFile throws → step:2:failed, Steps 3/4/5 never
   expect((endedEvent as { ok: boolean; failedStep?: number }).ok).toBe(false);
   expect((endedEvent as { ok: boolean; failedStep?: number }).failedStep).toBe(2);
 
-  // No Steps 3/4/5 after failure
-  const step3Started = events.find(
-    (e) => e.type === "step" && e.n === 3 && e.phase === "started",
+  // Phase 106: harness steps 3/4/5 are retired. The relevant "later steps
+  // don't fire on Step 2 failure" guard now targets the mint sequence
+  // (Steps 6/7/8) — those must not start when Step 2 threw.
+  const step6Started = events.find(
+    (e) => e.type === "step" && (e as { n: number }).n === 6 && (e as { phase: string }).phase === "started",
   );
-  expect(step3Started).toBeUndefined();
+  expect(step6Started).toBeUndefined();
 }, 30_000);
 
 // ---------------------------------------------------------------------------

@@ -40,6 +40,16 @@ vi.mock("./identity-birth-orchestrator.js", () => ({
   ROLE_NAME_PATTERN: /^[a-z0-9-]+$/,
   // Phase 80 review fix (H3) — stricter regex for poolPicked=true role validation
   ROLE_NAME_RE: /^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$/,
+  // Phase 106 Plan 106-01 (D-11 wire parity): the birth route's outer-catch
+  // calls sanitizeError(err) when the orchestrator throws unexpectedly, so
+  // it can widen the safety-net ended:false emit with a `reason` string.
+  // The mock must expose it as a real function or the outer-catch itself
+  // throws (calling undefined) and Test 4's SSE `ended` frame never lands
+  // on the wire. This closes a pre-existing gap surfaced by Plan 106-03.
+  sanitizeError: (err: unknown): string => {
+    if (!(err instanceof Error)) return "Unknown error";
+    return err.message.slice(0, 200);
+  },
 }));
 
 // Mock SSH dependencies
@@ -438,6 +448,12 @@ it("Test 5: orchestrator called with body opts + userId + all required dep keys"
   // Phase 80 Plan 80-03b: matrixCountUsersMatching dep for Step 6 MXID
   // ordinal derivation — wired from plan 80-02's countUsersMatching export.
   expect(typeof d.matrixCountUsersMatching).toBe("function");
+  // Phase 106 Plan 106-03 (D-05/D-06): discoverIdentitySessionFile dep for
+  // the wait-for-supervisor poll — wired from claude-session/discover-identity-
+  // session-file.js. The orchestrator's wait-block calls this dep every 2s
+  // (WAIT_FOR_SUPERVISOR_POLL_MS) until it returns non-null or the 120s
+  // (WAIT_FOR_SUPERVISOR_TIMEOUT_MS) ceiling is hit.
+  expect(typeof d.discoverIdentitySessionFile).toBe("function");
 });
 
 // ---------------------------------------------------------------------------
@@ -815,5 +831,128 @@ it(
     const parsed = JSON.parse(result.body);
     expect(parsed.error).toMatch(/avatarCandidateId/i);
     expect(mockBirthIdentity).not.toHaveBeenCalled();
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Phase 106 Plan 106-03 (D-10 / D-11): SSE stream-shape test for the widened
+// ended event contract — failure emits carry a `reason?: string` field so
+// backend log-forensics can distinguish Skynet-side step failures from
+// supervisor-wait timeouts. The frontend ignores `reason` and always shows
+// the same generic alert (D-17); the field exists for backend log/debug
+// surfaces only. Wire-parity across BOTH the orchestrator's step failures
+// AND the two SSE routes' outer-catch safety-net emits (POST /-route and
+// POST /retry/:key-route) is proven by Plan 106-01's Task 2 edits.
+// ---------------------------------------------------------------------------
+
+it(
+  "Test 106-03 wire: SSE 'ended' event on a Step 6 failure carries the widened `reason` field (D-11)",
+  async () => {
+    // Provoke a Step-6-like failure inside the mocked orchestrator by emitting
+    // a step:6:failed + ended{ok:false, failedStep:6, reason:'admin_mint_failed'}
+    // sequence. The route just relays orchestrator emits to the SSE frame; we
+    // are asserting that the wire faithfully propagates the new `reason`
+    // field to the SSE consumer without dropping or mangling it.
+    mockBirthIdentity.mockImplementation(
+      async (
+        _opts: unknown,
+        emit: (e: unknown) => void,
+        _deps: unknown,
+      ) => {
+        emit({ type: "step", n: 1, phase: "started" });
+        emit({ type: "step", n: 1, phase: "completed" });
+        emit({ type: "step", n: 2, phase: "started" });
+        emit({ type: "step", n: 2, phase: "completed" });
+        emit({ type: "step", n: 6, phase: "started" });
+        emit({
+          type: "step",
+          n: 6,
+          phase: "failed",
+          reason: "admin_mint_failed",
+        });
+        emit({
+          type: "ended",
+          ok: false,
+          failedStep: 6,
+          reason: "admin_mint_failed",
+        });
+      },
+    );
+
+    const result = await httpPost(port, "/identities/birth", VALID_BODY, {
+      Accept: "text/event-stream",
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.headers["content-type"]).toContain("text/event-stream");
+
+    // Extract SSE frames and find the terminal `ended` frame.
+    const frames = result.body
+      .split("\n\n")
+      .filter((f) => f.trim().length > 0);
+
+    const endedFrame = frames.find((f) => f.includes('"type":"ended"'));
+    expect(endedFrame).toBeDefined();
+    const dataLine = endedFrame!
+      .split("\n")
+      .find((l) => l.startsWith("data:"))!;
+    const parsed = JSON.parse(dataLine.slice("data:".length).trim());
+
+    // Wire assertions: the new reason field survives the SSE trip end-to-end,
+    // failedStep is preserved (unchanged since Phase 75), and ok:false.
+    expect(parsed.type).toBe("ended");
+    expect(parsed.ok).toBe(false);
+    expect(parsed.failedStep).toBe(6);
+    expect(parsed.reason).toBe("admin_mint_failed");
+  },
+);
+
+it(
+  "Test 106-03 wire: SSE 'ended' event on a wait-for-supervisor timeout carries reason:'supervisor_wait_timeout' with NO failedStep (D-11 forensics)",
+  async () => {
+    // The wait-poll timeout path (Phase 106 orchestrator, after Step 8 mint
+    // completes) emits ended{ok:false, reason:'supervisor_wait_timeout'} —
+    // no failedStep, because this isn't a step failure (all steps 1/2/6/7/8
+    // succeeded; the supervisor just never brought the identity alive).
+    mockBirthIdentity.mockImplementation(
+      async (
+        _opts: unknown,
+        emit: (e: unknown) => void,
+        _deps: unknown,
+      ) => {
+        emit({ type: "step", n: 1, phase: "started" });
+        emit({ type: "step", n: 1, phase: "completed" });
+        emit({ type: "step", n: 8, phase: "started" });
+        emit({ type: "step", n: 8, phase: "completed" });
+        emit({
+          type: "ended",
+          ok: false,
+          reason: "supervisor_wait_timeout",
+        });
+      },
+    );
+
+    const result = await httpPost(port, "/identities/birth", VALID_BODY, {
+      Accept: "text/event-stream",
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.headers["content-type"]).toContain("text/event-stream");
+
+    const frames = result.body
+      .split("\n\n")
+      .filter((f) => f.trim().length > 0);
+    const endedFrame = frames.find((f) => f.includes('"type":"ended"'));
+    expect(endedFrame).toBeDefined();
+    const dataLine = endedFrame!
+      .split("\n")
+      .find((l) => l.startsWith("data:"))!;
+    const parsed = JSON.parse(dataLine.slice("data:".length).trim());
+
+    expect(parsed.type).toBe("ended");
+    expect(parsed.ok).toBe(false);
+    expect(parsed.reason).toBe("supervisor_wait_timeout");
+    // Timeout is NOT attributed to any single step — failedStep must be absent.
+    expect(parsed.failedStep).toBeUndefined();
   },
 );

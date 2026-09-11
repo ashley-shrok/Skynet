@@ -135,6 +135,13 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
         access_token: "syt_mock_access_token_test",
       }),
     ),
+    // Phase 106 Plan 106-03 (D-05/D-06): wait-for-supervisor sensor. Default
+    // returns a non-null jsonl path on the FIRST call so the wait-poll exits
+    // immediately with success — the mxid-derivation tests care about Step 6
+    // MXID composition, not the wait-block cadence.
+    discoverIdentitySessionFile: vi
+      .fn()
+      .mockResolvedValue("/mock/session.jsonl"),
     ...overrides,
   } as BirthDeps;
 }
