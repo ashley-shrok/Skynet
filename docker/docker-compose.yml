@@ -111,6 +111,12 @@ services:
     environment:
       - SYNAPSE_SERVER_NAME=${SYNAPSE_SERVER_NAME:-matrix.local}
       - SYNAPSE_REPORT_STATS=${SYNAPSE_REPORT_STATS:-no}
+    # Tailnet-exposure gate. Default 127.0.0.1 = internal-only (Caddy reverse-
+    # proxies via the `matrix` network alias, external clients hit Caddy).
+    # Fleets that want peer boxes' relay receivers to reach Synapse directly
+    # over the tailnet set SYNAPSE_HOST_BIND to the tailnet IP in skynet.env.
+    ports:
+      - "${SYNAPSE_HOST_BIND:-127.0.0.1}:8008:8008"
     volumes:
       - synapse-data:/data
     networks:

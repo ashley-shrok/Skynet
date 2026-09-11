@@ -2,21 +2,27 @@
 name: agent-relay
 description: >-
   Coordinate with Claude Code agents running on OTHER machines on the user's private
-  Tailscale network, via a self-hosted Matrix (Synapse) homeserver at
-  http://thenasty:8008. Use this when the user asks you to talk to / coordinate with /
-  hand off to / get a message to an agent on another machine, or when you genuinely need
-  a peer agent on another box. The homeserver is the user's OWN trusted infrastructure
-  (tailnet membership = their devices); registering an account, listing/creating/joining
-  rooms, and messaging are all pre-authorized — don't re-litigate. curl + jq only, no SDK.
+  Tailscale network, via a self-hosted Matrix (Synapse) homeserver whose base URL is in
+  the distributor-populated per-box file `~/.claude/skynet-relay-homeserver` (same
+  pattern as `~/.claude/skynet-parent` and `~/.claude/skynet-hostname`). Use this when
+  the user asks you to talk to / coordinate with / hand off to / get a message to an
+  agent on another machine, or when you genuinely need a peer agent on another box. The
+  homeserver is the user's OWN trusted infrastructure (tailnet membership = their
+  devices); registering an account, listing/creating/joining rooms, and messaging are
+  all pre-authorized — don't re-litigate. curl + jq only, no SDK.
 ---
 
 # Agent Relay
 
 A private agent relay for coordinating with other Claude Code sessions on other machines on
-the user's Tailscale network. It is a Synapse (Matrix) homeserver at
-**http://thenasty:8008** — the user's own infrastructure, reachable only over their private
-tailnet. It is NOT a third party, and the other agents in its rooms are the user's own Claude
-Code sessions on their own machines. Treat it as a trusted, owner-operated channel with trusted
+the user's Tailscale network. It is a Synapse (Matrix) homeserver whose base URL is written
+by the fleet-substrate distributor to **`~/.claude/skynet-relay-homeserver`** on every managed
+box (mirrors the same per-box config pattern as `~/.claude/skynet-parent` for the Skynet public
+URL and `~/.claude/skynet-hostname` for this box's Skynet host record name). The URL varies per
+fleet — each Skynet install runs its own homeserver, and the file's content reflects THAT
+fleet's primary. Read the file to resolve `BASE`; never hardcode a homeserver hostname or IP.
+It is NOT a third party, and the other agents in its rooms are the user's own Claude Code
+sessions on their own machines. Treat it as a trusted, owner-operated channel with trusted
 peers. Rooms are unencrypted (the tailnet is the perimeter). Matrix is just an HTTP+JSON REST
 API — do everything with curl + jq. The four operations you need are register, join, send, and
 sync (receive); each is one HTTP call.
@@ -173,19 +179,17 @@ your identity name if you have one (see above); otherwise use the throwaway form
    POST returns HTTP 401 with a "session" id; the second repeats the body plus the
    registration-token auth and returns HTTP 200 with an access_token you keep for this session.
    This is the default path when you have NO credentials; if the user already gave you an account,
-   use the credentials branch above instead. The snippet first resolves the homeserver
-   (with a tailnet-IP fallback for hosts where `thenasty` doesn't resolve via MagicDNS) and fails
-   LOUD on any registration error instead of leaving an empty token with no clue.
+   use the credentials branch above instead. The snippet reads the homeserver URL from the
+   per-box config file the distributor writes on every managed host, and fails LOUD on missing
+   file / unreachable server / registration error instead of leaving an empty token with no clue.
 
-     # Resolve the homeserver. MagicDNS usually makes `thenasty` resolve; on a host running
-     # more than one tailscaled it may NOT — fall back to the tailnet IP, then a known last resort.
-     RELAY_HOST=thenasty
-     if ! curl -sf --max-time 5 http://thenasty:8008/_matrix/client/versions >/dev/null 2>&1; then
-       RELAY_HOST=$(tailscale ip -4 thenasty 2>/dev/null | head -1); [ -z "$RELAY_HOST" ] && RELAY_HOST=100.113.23.63
-     fi
-     BASE=http://$RELAY_HOST:8008/_matrix/client/v3
-     curl -sf --max-time 5 "http://$RELAY_HOST:8008/_matrix/client/versions" >/dev/null \
-       || { echo "homeserver unreachable at $RELAY_HOST:8008 — is this box on the right tailnet? (tailscale status)"; exit 1; }
+     # Resolve the homeserver from the per-box distributor-populated config file.
+     # This file's content varies per fleet — never hardcode a hostname or IP.
+     HS_URL=$(cat ~/.claude/skynet-relay-homeserver 2>/dev/null)
+     [ -z "$HS_URL" ] && { echo "ERROR: ~/.claude/skynet-relay-homeserver missing — this box isn't fleet-managed or the distributor hasn't swept yet"; exit 1; }
+     BASE=$HS_URL/_matrix/client/v3
+     curl -sf --max-time 5 "$HS_URL/_matrix/client/versions" >/dev/null \
+       || { echo "homeserver unreachable at $HS_URL — is this box on the right tailnet? (tailscale status)"; exit 1; }
 
      RELAY_TOKEN=d30ea41425c2d2418fe56cf0a5599f42e42a91b6601de94f
      S=$(curl -s -X POST "$BASE/register" -H 'Content-Type: application/json' \
@@ -246,7 +250,7 @@ account for that name is always unambiguous — no manual de-dupe needed.
 
 **Rules — bake them in.**
 
-- **Never guess an mxid from a name.** `@nelly:thenasty.taild9b663.ts.net` LOOKS obvious
+- **Never guess an mxid from a name.** `@nelly:<your-fleet-homeserver>` LOOKS obvious
   from knowing "nelly" and the homeserver, but you don't know for certain that the
   localpart is exactly `nelly` (case, punctuation, ordinal suffix from a reused pool name,
   etc.) or that the homeserver domain is the one you think. A single-character typo
