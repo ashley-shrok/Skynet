@@ -15,7 +15,7 @@ requires:
     provides: ssh-poll-orchestrator source-swap pattern + __scanTailForNewestMessageAtForTests test-only export convention (mirrored here for the sessions.ts byte-parallel copy)
   - phase: 43
     plan: 01
-    provides: byte-parallel isAshleyRealUserTurn + scanTailForNewestMessageAt copies in sessions.ts (D-08 discipline; both stay defined after this swap)
+    provides: byte-parallel isRealUserTurn + scanTailForNewestMessageAt copies in sessions.ts (D-08 discipline; both stay defined after this swap)
   - phase: 47
     plan: 02
     provides: scanTailForLatestAiTitle in sessions.ts (co-tenant on the tail buffer; stays called by the aiTitleBlock after the D-07 swap)
@@ -67,7 +67,7 @@ completed: 2026-09-07
 
 # Phase 85 Plan 05: /sessions/list lastMessageAt source swap Summary
 
-**Per-row `TmuxSessionRow.lastMessageAt` derivation in `/sessions/list` swapped from `scanTailForNewestMessageAt(tailRaw)` (JSONL tail scan on Ashley's-real-user-turn predicate) to `getIdentityLastSend(row.sessionName)` (Phase 85-02 identity-name-keyed send-log store). This is the initial-seed path AppShell reads on page-load to feed `seedSessionLastMessageAt` in the frontend working store — sibling swap to Plan 85-04's WS-live orchestrator frame. Both sources of truth now converge from the moment the page paints (no ~2s flicker window on first load). The byte-parallel copies of `scanTailForNewestMessageAt` + `isAshleyRealUserTurn` STAY DEFINED per D-08 discipline, with regression coverage preserved via a new `__scanTailForNewestMessageAtForTests` test-only export mirroring the Phase 85-04 convention on ssh-poll-orchestrator. `scanTailForLatestAiTitle` continues to consume the same tail buffer as the sole tail consumer in the new `aiTitleBlock` (Phase 47 axis unchanged).**
+**Per-row `TmuxSessionRow.lastMessageAt` derivation in `/sessions/list` swapped from `scanTailForNewestMessageAt(tailRaw)` (JSONL tail scan on Ashley's-real-user-turn predicate) to `getIdentityLastSend(row.sessionName)` (Phase 85-02 identity-name-keyed send-log store). This is the initial-seed path AppShell reads on page-load to feed `seedSessionLastMessageAt` in the frontend working store — sibling swap to Plan 85-04's WS-live orchestrator frame. Both sources of truth now converge from the moment the page paints (no ~2s flicker window on first load). The byte-parallel copies of `scanTailForNewestMessageAt` + `isRealUserTurn` STAY DEFINED per D-08 discipline, with regression coverage preserved via a new `__scanTailForNewestMessageAtForTests` test-only export mirroring the Phase 85-04 convention on ssh-poll-orchestrator. `scanTailForLatestAiTitle` continues to consume the same tail buffer as the sole tail consumer in the new `aiTitleBlock` (Phase 47 axis unchanged).**
 
 ## Performance
 
@@ -88,7 +88,7 @@ completed: 2026-09-07
   - `sendLogLookupBlock` (NEW) — awaits `getIdentityLastSend(row.sessionName)`, wraps in try/catch, sets `row.lastMessageAt` on success, leaves null on throw. INDEPENDENT of the SSH pathway.
   - `aiTitleBlock` (renamed from `recencySignalsBlock`, narrowed) — JSONL tail scan for the ai-title axis only. Return shape narrowed to `{ aiTitle: string | null }`; the `lastMessageAt` field is REMOVED from the inner IIFE. Catch block no longer touches `row.lastMessageAt` (it's already set by the sendLogLookupBlock).
 - **Retired `scanTailForNewestMessageAt(tailRaw)` call** from the inner IIFE. `scanTailForLatestAiTitle(tailRaw)` stays as the sole tail consumer in this block (aiTitle axis unchanged per D-08).
-- **D-08 preservation docblock** added above the `scanTailForNewestMessageAt` function definition (L148) noting the byte-parallel copy contract with ssh-poll-orchestrator + the fact that `isAshleyRealUserTurn` is treated the same way.
+- **D-08 preservation docblock** added above the `scanTailForNewestMessageAt` function definition (L148) noting the byte-parallel copy contract with ssh-poll-orchestrator + the fact that `isRealUserTurn` is treated the same way.
 - **`__scanTailForNewestMessageAtForTests` test-only export** (17 lines) mirroring the Phase 85-04 convention on ssh-poll-orchestrator.ts. Preserves byte-level regression coverage of the retired scanner without going through the route observable.
 
 ### Test suite (Task 2)
@@ -118,7 +118,7 @@ Six pre-existing tests failed after the Task 1 swap because they asserted `row.l
 | `scanTailForNewestMessageAt(tailRaw)` in sessions.ts | 0 | 0 | ✓ (call retired) |
 | `^function scanTailForNewestMessageAt` in sessions.ts | 1 | 1 | ✓ (definition preserved per D-08) |
 | `scanTailForLatestAiTitle(tailRaw)` in sessions.ts | 1 | 1 | ✓ (aiTitle unchanged) |
-| `^function isAshleyRealUserTurn` in sessions.ts | 1 | 1 | ✓ (definition preserved per D-08) |
+| `^function isRealUserTurn` in sessions.ts | 1 | 1 | ✓ (definition preserved per D-08) |
 | `__scanTailForNewestMessageAtForTests` in sessions.ts | 1 (export) + 1 (definition) | 2 | ✓ (test-only export added) |
 | `Phase 85` in sessions.test.ts | >= 1 | 11 | ✓ |
 
@@ -218,7 +218,7 @@ None. The swap is purely an in-process source-of-truth swap for an existing wire
 - `grep -c "getIdentityLastSend" src/backend/database/routes/sessions.ts` = 4 ✓ (>= 2 required — import + call + 2 log-op refs)
 - `grep -c "scanTailForNewestMessageAt(tailRaw)" src/backend/database/routes/sessions.ts` = 0 ✓ (== 0 required — call removed)
 - `grep -c "^function scanTailForNewestMessageAt" src/backend/database/routes/sessions.ts` = 1 ✓ (== 1 required — definition preserved per D-08)
-- `grep -c "^function isAshleyRealUserTurn" src/backend/database/routes/sessions.ts` = 1 ✓ (== 1 required — definition preserved per D-08)
+- `grep -c "^function isRealUserTurn" src/backend/database/routes/sessions.ts` = 1 ✓ (== 1 required — definition preserved per D-08)
 - `grep -c "scanTailForLatestAiTitle(tailRaw)" src/backend/database/routes/sessions.ts` = 1 ✓ (== 1 required — aiTitle scan preserved)
 - `grep -c "__scanTailForNewestMessageAtForTests" src/backend/database/routes/sessions.ts` = 2 ✓ (test-only export added; definition + name in docblock)
 - `grep -c "Phase 85" src/backend/database/routes/sessions.test.ts` = 11 ✓ (>= 1 required per Task 2 done-block)

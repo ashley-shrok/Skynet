@@ -40,13 +40,13 @@ tech-stack:
 key-files:
   created: []
   modified:
-    - src/backend/fleet-status/ssh-poll-orchestrator.ts (+43 lines / -70 lines) — new getIdentityLastSend import (7 lines with header comment); hoisted store lookup block ABOVE the tail-discovery conditional (25 lines); tail-consumer block collapsed (scanTailForNewestMessageAt call + three-branch stale-tick logic + threshold trip all removed); scanTailForLatestAiTitle stays as sole tail consumer; D-08 preservation comments above isAshleyRealUserTurn (:432) + scanTailForNewestMessageAt (:531); test-only export __scanTailForNewestMessageAtForTests (12 lines).
+    - src/backend/fleet-status/ssh-poll-orchestrator.ts (+43 lines / -70 lines) — new getIdentityLastSend import (7 lines with header comment); hoisted store lookup block ABOVE the tail-discovery conditional (25 lines); tail-consumer block collapsed (scanTailForNewestMessageAt call + three-branch stale-tick logic + threshold trip all removed); scanTailForLatestAiTitle stays as sole tail consumer; D-08 preservation comments above isRealUserTurn (:432) + scanTailForNewestMessageAt (:531); test-only export __scanTailForNewestMessageAtForTests (12 lines).
     - src/backend/fleet-status/ssh-poll-orchestrator.test.ts (+310 lines / -83 lines) — new vi.mock for identity-send-log-store (11 lines); new imported getIdentityLastSend for spies; scanSingleLine/scanMultiLine helpers rewritten to call __scanTailForNewestMessageAtForTests directly (13 tests decoupled from orchestrator loop); Test D + Test F similarly rewritten; Test H rewritten to reflect new source-A behavior (7 ticks → 1 discovery call, not 2); Phase 47 Test 3 corroborating lastMessageAt assertion dropped; new "Phase 85 lastMessageAt source swap — send-log store" describe block with 6 tests (85-04-01 through 85-04-06).
 
 key-decisions:
   - "Retire the stale-tail rediscovery counter FROM the source-A lastMessageAt axis only — do NOT delete the STALE_TAIL_REDISCOVERY_THRESHOLD constant, the PidCacheEntry.staleTailTickCount field, or the counter mechanics in cache-write paths (L1840/1868). All three stay because source B pollDormantOnlyIdentities (~L1051) uses the same constant + counter shape for Layer 1 recycling rediscovery. The plan's grep-gated conditional `delete IF only used here` fired NEGATIVE — respected the guard."
   - "Add __scanTailForNewestMessageAtForTests test-only export (following the file's __matchesIdentityFirstTurnForTests convention) rather than making the predicate public or leaving the test-scope observable coupled to the retired orchestrator axis. This gives the sessions.ts byte-parallel copy contract a byte-level regression harness that survives the D-07 swap unchanged."
-  - "Rewrite the isAshleyRealUserTurn predicate-matrix helpers (scanSingleLine, scanMultiLine) to call the test-only export directly instead of driving the full orchestrator loop and observing published state. Same test bodies, same predicate coverage, no orchestrator plumbing per test. Decouples 11 test cases from the retired axis."
+  - "Rewrite the isRealUserTurn predicate-matrix helpers (scanSingleLine, scanMultiLine) to call the test-only export directly instead of driving the full orchestrator loop and observing published state. Same test bodies, same predicate coverage, no orchestrator plumbing per test. Decouples 11 test cases from the retired axis."
   - "Rewrite Phase 44 Plan 02 Test H (rediscovery-on-stale-tail threshold) to assert exactly 1 discovery call across 7 ticks (was: 2 calls, threshold trip on tick 6). The counter no longer increments from source A, so no rediscovery trip on the lastMessageAt axis. Preserved the tail-fires-every-tick assertion (aiTitle scanner still consumes the buffer)."
   - "Drop the corroborating `expect(published.state.lastMessageAt).toBe(1000)` assertion from Phase 47 Plan 02 Test 3 — that test's primary purpose was aiTitle=null which still passes. The corroboration line was orthogonal to the aiTitle contract and belonged to the retired axis."
   - "Log level for the per-tick store lookup is `debug` (not `info`) — the log fires per-PID per-2s-tick per-host, which is chatty. `debug` keeps it out of default log output but available for post-deploy forensic tailing per the plan's verification block."
@@ -64,7 +64,7 @@ completed: 2026-09-07
 
 # Phase 85 Plan 04: SSH-poll-orchestrator lastMessageAt source swap Summary
 
-**Per-tick `SessionState.lastMessageAt` derivation in `ssh-poll-orchestrator.processPid` swapped from `scanTailForNewestMessageAt(tailRaw)` (JSONL tail scan on Ashley's-real-user-turn predicate) to `getIdentityLastSend(tmuxSession)` (Phase 85-02 identity-name-keyed send-log store). Wire shape, fingerprint composition, and every non-lastMessageAt axis are unchanged (D-07). The transcript-scan pipeline (scanTailForNewestMessageAt + isAshleyRealUserTurn) stays defined for the D-08 byte-parallel copy in `src/backend/database/routes/sessions.ts`, and `scanTailForLatestAiTitle` continues to consume the same tail buffer as sole in-source-A tail consumer. Once Plan 85-06 fires the frontend stamp on send, sending to Ivy will make Ivy rise in the middle zone within one fleet-status poll tick.**
+**Per-tick `SessionState.lastMessageAt` derivation in `ssh-poll-orchestrator.processPid` swapped from `scanTailForNewestMessageAt(tailRaw)` (JSONL tail scan on Ashley's-real-user-turn predicate) to `getIdentityLastSend(tmuxSession)` (Phase 85-02 identity-name-keyed send-log store). Wire shape, fingerprint composition, and every non-lastMessageAt axis are unchanged (D-07). The transcript-scan pipeline (scanTailForNewestMessageAt + isRealUserTurn) stays defined for the D-08 byte-parallel copy in `src/backend/database/routes/sessions.ts`, and `scanTailForLatestAiTitle` continues to consume the same tail buffer as sole in-source-A tail consumer. Once Plan 85-06 fires the frontend stamp on send, sending to Ivy will make Ivy rise in the middle zone within one fleet-status poll tick.**
 
 ## Performance
 
@@ -83,7 +83,7 @@ completed: 2026-09-07
 - **Hoisted store lookup** ABOVE the `if (jsonlPath !== null)` block. Guards on `tmuxSession !== null` (identity name unknown → keep cached), wraps the call in try/catch (belt-and-suspenders on the hot per-tick path; the store module itself is fail-open per Phase 85-02 contract). Emits `systemLogger.debug` per-tick per-session with `operation="fleet_status_last_message_at_from_store"` for post-deploy forensic tailing.
 - **Retired `scanTailForNewestMessageAt(tailRaw)`** call from inside the tail-scan block. `scanTailForLatestAiTitle(tailRaw)` stays as the sole tail consumer in source A now (aiTitle axis unchanged per D-08).
 - **Retired the three-branch stale-tail counter logic** from the lastMessageAt axis (the send-log store never rotates in the JSONL-rotation sense — it's a durable single-row-per-identity table). Counter mechanics + `STALE_TAIL_REDISCOVERY_THRESHOLD` constant + `PidCacheEntry.staleTailTickCount` field ALL stay because source B (`pollDormantOnlyIdentities` at ~L1051) still uses them for its Layer 1 recycling rediscovery contract — grep-gated retention per the plan's `delete IF only used here` guard, which fired NEGATIVE.
-- **D-08 preservation comments** added above `isAshleyRealUserTurn` (:432) and `scanTailForNewestMessageAt` (:531) noting the sessions.ts byte-parallel copy dependency + the `scanTailForLayer1RecyclingSignal` in-file caller.
+- **D-08 preservation comments** added above `isRealUserTurn` (:432) and `scanTailForNewestMessageAt` (:531) noting the sessions.ts byte-parallel copy dependency + the `scanTailForLayer1RecyclingSignal` in-file caller.
 - **`__scanTailForNewestMessageAtForTests` test-only export** (12 lines) so the predicate-matrix regression suite continues to guard the retired scanner's shape at the byte level.
 
 ### Test suite (Task 2)
@@ -98,7 +98,7 @@ completed: 2026-09-07
   - **85-04-06** — tail is EMPTY, store populated with 8000 → published `lastMessageAt: 8000`. Proves the retired scanner is NOT consulted for lastMessageAt anymore; tail exec still fires for aiTitle.
 - **Test regression handling** (Rule 3 auto-fix, inline with Task 1's swap):
   - Phase 41 Plan 03 Test D + Test F rewritten to call `__scanTailForNewestMessageAtForTests` directly.
-  - `isAshleyRealUserTurn` predicate-matrix suite (11 tests): `scanSingleLine` + `scanMultiLine` helpers retargeted to the test-only export.
+  - `isRealUserTurn` predicate-matrix suite (11 tests): `scanSingleLine` + `scanMultiLine` helpers retargeted to the test-only export.
   - Phase 44 Plan 02 Test H rewritten to assert new source-A behavior (7 ticks → 1 discovery call, not 2 — counter retired from lastMessageAt axis).
   - Phase 47 Plan 02 Test 3 corroborating `lastMessageAt=1000` assertion dropped; aiTitle=null primary assertion stays.
 
@@ -111,8 +111,8 @@ completed: 2026-09-07
 | Three-branch stale-tick increment logic on lastMessageAt axis | inline at former L1636-1650 | Only source A lastMessageAt axis — the specific increment/no-history/stale logic | **RETIRED** | Store never rotates in the JSONL sense; increment path has no meaning post-swap |
 | `STALE_TAIL_REDISCOVERY_THRESHOLD` trip → `jsonlPath = null` (former L1656-1659) | inline | Only source A lastMessageAt axis | **RETIRED** | Counter no longer increments from this axis → threshold never trips → branch is dead code |
 | `scanTailForNewestMessageAt(tailRaw)` call in-file | grep `scanTailForNewestMessageAt(tailRaw)` | 0 post-swap | **RETIRED** (call) | Sole consumer for lastMessageAt axis; aiTitle uses `scanTailForLatestAiTitle` |
-| `scanTailForNewestMessageAt` function definition | grep `^function scanTailForNewestMessageAt` | sessions.ts byte-parallel copy (D-08), in-file `scanTailForLayer1RecyclingSignal` calls `isAshleyRealUserTurn` (not this function directly, but relies on the parallel-copy discipline) | **KEPT** | D-08 contract with sessions.ts |
-| `isAshleyRealUserTurn` function definition | grep `^function isAshleyRealUserTurn` | in-file `scanTailForLayer1RecyclingSignal` at :631 + sessions.ts byte-parallel copy (D-08) | **KEPT** | Two live consumers |
+| `scanTailForNewestMessageAt` function definition | grep `^function scanTailForNewestMessageAt` | sessions.ts byte-parallel copy (D-08), in-file `scanTailForLayer1RecyclingSignal` calls `isRealUserTurn` (not this function directly, but relies on the parallel-copy discipline) | **KEPT** | D-08 contract with sessions.ts |
+| `isRealUserTurn` function definition | grep `^function isRealUserTurn` | in-file `scanTailForLayer1RecyclingSignal` at :631 + sessions.ts byte-parallel copy (D-08) | **KEPT** | Two live consumers |
 | `discoverIdentityJsonlPathViaChannel` | file-scoped | source B at L1020 + source A at L1600 | **KEPT** | aiTitle axis still needs jsonlPath; discovery unchanged |
 | `scanTailForLatestAiTitle` | grep `scanTailForLatestAiTitle(tailRaw)` | source A at former L1613 | **KEPT** + still called | aiTitle axis unchanged per D-08 |
 
@@ -129,7 +129,7 @@ _TDD flow note:_ Plan authored Task 1 (module change) before Task 2 (new tests) 
 
 - `src/backend/fleet-status/ssh-poll-orchestrator.ts` (modified) — +43 lines / -70 lines net. Key edits:
   - L52-58: `getIdentityLastSend` import with D-07 header comment.
-  - L432-441 (was 418-427): D-08 preservation comment above `isAshleyRealUserTurn`.
+  - L432-441 (was 418-427): D-08 preservation comment above `isRealUserTurn`.
   - L520-528 (was 496-506): D-08 preservation comment + expanded docblock above `scanTailForNewestMessageAt`.
   - L531-543: new `__scanTailForNewestMessageAtForTests` test-only export.
   - L1611-1687 (was 1611-1691): swap block — store lookup hoisted above `if (jsonlPath !== null)`; three-branch stale-tick logic + threshold trip removed; scanTailForLatestAiTitle retained as sole tail consumer.
@@ -209,7 +209,7 @@ None. The swap is purely an in-process source-of-truth swap for an existing wire
 
 - `grep -c "getIdentityLastSend" src/backend/fleet-status/ssh-poll-orchestrator.ts` = 7 ✓ (>= 2 required — import + call + 3 in comments + 2 in log op field references)
 - `grep -cE "^(export )?function scanTailForNewestMessageAt" src/backend/fleet-status/ssh-poll-orchestrator.ts` = 1 ✓ (== 1 required — function still defined per D-08)
-- `grep -cE "^function isAshleyRealUserTurn" src/backend/fleet-status/ssh-poll-orchestrator.ts` = 1 ✓ (== 1 required — function still defined per D-08)
+- `grep -cE "^function isRealUserTurn" src/backend/fleet-status/ssh-poll-orchestrator.ts` = 1 ✓ (== 1 required — function still defined per D-08)
 - `grep -c "scanTailForNewestMessageAt(tailRaw)" src/backend/fleet-status/ssh-poll-orchestrator.ts` = 0 ✓ (== 0 required — call inside per-tick block deleted)
 - `grep -c "scanTailForLatestAiTitle(tailRaw)" src/backend/fleet-status/ssh-poll-orchestrator.ts` = 1 ✓ (== 1 required — aiTitle scan preserved)
 - `grep -c "STALE_TAIL_REDISCOVERY_THRESHOLD" src/backend/fleet-status/ssh-poll-orchestrator.ts` = 5 (KEPT per grep-gated conditional — source B still uses it)

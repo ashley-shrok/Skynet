@@ -14,7 +14,7 @@ requirements: [quick-260829-nzn]
 ---
 
 <objective>
-Tighten `isAshleyRealUserTurn` to reject three harness-injected shapes that today
+Tighten `isRealUserTurn` to reject three harness-injected shapes that today
 pass the predicate and spuriously bump `lastMessageAt`, floating agents Ashley
 hasn't messaged in days to the top of the conversation list (compareByRecencyDesc
 in `src/ui/state/conversation-store.ts:565` reads `lastMessageAt`).
@@ -51,7 +51,7 @@ regression tests in both test files.
   <name>Task 1: Add three new exclusions to both byte-parallel predicate copies + refresh docblocks</name>
   <files>src/backend/fleet-status/ssh-poll-orchestrator.ts, src/backend/database/routes/sessions.ts</files>
   <behavior>
-    Predicate `isAshleyRealUserTurn` — same identical body in BOTH files — must
+    Predicate `isRealUserTurn` — same identical body in BOTH files — must
     reject these three additional shapes while keeping every currently-passing
     shape intact:
 
@@ -76,7 +76,7 @@ regression tests in both test files.
     Every previously-dropped shape must still return `{ok: false}`.
   </behavior>
   <action>
-Update BOTH copies of `isAshleyRealUserTurn` (canonical at
+Update BOTH copies of `isRealUserTurn` (canonical at
 `src/backend/fleet-status/ssh-poll-orchestrator.ts` ~L275 and byte-parallel
 copy at `src/backend/database/routes/sessions.ts` ~L81) with three new
 exclusion gates. Insert AFTER the existing XML-wrapper check
@@ -124,12 +124,12 @@ line in sync — mention the three new drops explicitly. Do NOT rewrite the
 2026-08-23 lock paragraph; append after it.
   </action>
   <verify>
-    <automated>cd /home/ubuntu/skynet-tina &amp;&amp; diff &lt;(awk '/^function isAshleyRealUserTurn/,/^}$/' src/backend/fleet-status/ssh-poll-orchestrator.ts) &lt;(awk '/^function isAshleyRealUserTurn/,/^}$/' src/backend/database/routes/sessions.ts) &amp;&amp; echo "BYTE-PARALLEL OK"</automated>
+    <automated>cd /home/ubuntu/skynet-tina &amp;&amp; diff &lt;(awk '/^function isRealUserTurn/,/^}$/' src/backend/fleet-status/ssh-poll-orchestrator.ts) &lt;(awk '/^function isRealUserTurn/,/^}$/' src/backend/database/routes/sessions.ts) &amp;&amp; echo "BYTE-PARALLEL OK"</automated>
   </verify>
   <done>
     - Both predicate bodies produce zero-line diff (byte-parallel confirmed).
     - Both docblocks include the 2026-08-29 refinement note listing all three new exclusions.
-    - No new imports, no new helpers, no signature change on `isAshleyRealUserTurn`.
+    - No new imports, no new helpers, no signature change on `isRealUserTurn`.
     - `tsc --noEmit` (or project's typecheck) succeeds without new errors in the two edited files.
   </done>
 </task>
@@ -138,7 +138,7 @@ line in sync — mention the three new drops explicitly. Do NOT rewrite the
   <name>Task 2: Add mirrored predicate-matrix cases to both test files (Cases 8, 9, 10)</name>
   <files>src/backend/fleet-status/ssh-poll-orchestrator.test.ts, src/backend/database/routes/sessions.test.ts</files>
   <behavior>
-    Extend the existing `describe("isAshleyRealUserTurn — Ashley 2026-08-23 lock predicate matrix", …)`
+    Extend the existing `describe("isRealUserTurn — Ashley 2026-08-23 lock predicate matrix", …)`
     block in BOTH test files (ssh-poll-orchestrator.test.ts:1243 and
     sessions.test.ts:796) with three new DROP cases and two positive
     regression checks. Use the existing local `scanSingleLine` helper in each
@@ -237,15 +237,15 @@ Byte-parallel discipline final check:
 
 ```
 cd /home/ubuntu/skynet-tina && diff \
-  <(awk '/^function isAshleyRealUserTurn/,/^}$/' src/backend/fleet-status/ssh-poll-orchestrator.ts) \
-  <(awk '/^function isAshleyRealUserTurn/,/^}$/' src/backend/database/routes/sessions.ts)
+  <(awk '/^function isRealUserTurn/,/^}$/' src/backend/fleet-status/ssh-poll-orchestrator.ts) \
+  <(awk '/^function isRealUserTurn/,/^}$/' src/backend/database/routes/sessions.ts)
 ```
 
 Must produce zero output (identical predicate bodies).
 </verification>
 
 <success_criteria>
-- `isAshleyRealUserTurn` in BOTH source files rejects the three empirically-confirmed harness shapes (Ctrl-C-only content, `/exit` slash-command, resumed-injection sentinel).
+- `isRealUserTurn` in BOTH source files rejects the three empirically-confirmed harness shapes (Ctrl-C-only content, `/exit` slash-command, resumed-injection sentinel).
 - Predicate bodies are byte-parallel (zero-diff between the two functions).
 - Docblocks in BOTH source files include the 2026-08-29 refinement note.
 - Test-matrix describe blocks in BOTH test files contain Cases 8/9/10 (mirrored identically) plus positive regressions confirming real chat + real slash-commands still count.
@@ -255,5 +255,5 @@ Must produce zero output (identical predicate bodies).
 </success_criteria>
 
 <output>
-Create `.planning/quick/260829-nzn-tighten-isashleyrealuserturn-predicate-t/260829-nzn-SUMMARY.md` when done.
+Create `.planning/quick/260829-nzn-tighten-isrealuserturn-predicate-t/260829-nzn-SUMMARY.md` when done.
 </output>

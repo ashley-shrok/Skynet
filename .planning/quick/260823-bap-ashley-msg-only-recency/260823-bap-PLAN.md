@@ -24,21 +24,21 @@ must_haves:
     - "Both call sites (ssh-poll-orchestrator.ts + sessions.ts) apply the identical predicate — byte-parallel per Phase 43 scope decision."
   artifacts:
     - path: "src/backend/fleet-status/ssh-poll-orchestrator.ts"
-      provides: "isAshleyRealUserTurn(rawLine) helper + scanTailForNewestMessageAt using new predicate; MESSAGE_BEARING_KINDS deleted; 2026-08-14 docblock replaced with 2026-08-23 lock verbatim"
-      contains: "isAshleyRealUserTurn"
+      provides: "isRealUserTurn(rawLine) helper + scanTailForNewestMessageAt using new predicate; MESSAGE_BEARING_KINDS deleted; 2026-08-14 docblock replaced with 2026-08-23 lock verbatim"
+      contains: "isRealUserTurn"
     - path: "src/backend/database/routes/sessions.ts"
-      provides: "byte-parallel isAshleyRealUserTurn(rawLine) helper + scanTailForNewestMessageAt using new predicate; MESSAGE_BEARING_KINDS deleted; docblock updated to new lock"
-      contains: "isAshleyRealUserTurn"
+      provides: "byte-parallel isRealUserTurn(rawLine) helper + scanTailForNewestMessageAt using new predicate; MESSAGE_BEARING_KINDS deleted; docblock updated to new lock"
+      contains: "isRealUserTurn"
     - path: "src/backend/fleet-status/ssh-poll-orchestrator.test.ts"
       provides: "7 new predicate-matrix tests + inverted existing tests that seeded relay_inbound/relay_outbound/assistant frames"
     - path: "src/backend/database/routes/sessions.test.ts"
       provides: "same 7-case predicate matrix + any existing assertions that counted relay/assistant frames flipped"
   key_links:
     - from: "scanTailForNewestMessageAt (both sites)"
-      to: "isAshleyRealUserTurn(rawLine)"
+      to: "isRealUserTurn(rawLine)"
       via: "per-line predicate replacing MESSAGE_BEARING_KINDS.has(parsed.kind)"
-      pattern: "isAshleyRealUserTurn\\(.*rawLine|line\\)"
-    - from: "isAshleyRealUserTurn"
+      pattern: "isRealUserTurn\\(.*rawLine|line\\)"
+    - from: "isRealUserTurn"
       to: "raw JSON.parse of the JSONL line"
       via: "independent parse pattern mirroring scanTailForLatestAiTitle (option (a), NOT extending parseSessionLine)"
       pattern: "JSON\\.parse\\("
@@ -61,7 +61,7 @@ top-of-list is "the agent I most recently spoke to" — assistant activity and
 task notifications drown that signal today.
 
 Output: Both `scanTailForNewestMessageAt` implementations (fleet-status
-live-poll + dormant /sessions/list) switched to a `isAshleyRealUserTurn(rawLine)`
+live-poll + dormant /sessions/list) switched to a `isRealUserTurn(rawLine)`
 predicate. Old `MESSAGE_BEARING_KINDS` constant deleted (verified single-caller
 before delete). Docblocks updated to cite the 2026-08-23 lock verbatim.
 Byte-parallel between the two sites (43-CONTEXT.md pattern — no new shared
@@ -87,7 +87,7 @@ module). Wire schema unchanged (`SessionState.lastMessageAt: number | null`).
   <name>Task 1: Add the 7-case predicate matrix as failing tests at BOTH sites (RED)</name>
   <files>src/backend/fleet-status/ssh-poll-orchestrator.test.ts, src/backend/database/routes/sessions.test.ts</files>
   <behavior>
-    New describe block per test file — `describe("isAshleyRealUserTurn — Ashley 2026-08-23 lock predicate matrix")`. Same 7 cases per site (byte-parallel):
+    New describe block per test file — `describe("isRealUserTurn — Ashley 2026-08-23 lock predicate matrix")`. Same 7 cases per site (byte-parallel):
 
     Case 1 (KEEP — typed prose): `{"type":"user","message":{"role":"user","content":"Hello Amelia"},"timestamp":"2026-08-23T10:00:00.000Z","uuid":"u1"}` → predicate returns true; scanTailForNewestMessageAt returns Date.parse("2026-08-23T10:00:00.000Z").
     Case 2 (KEEP — slash-command invocation): user turn with plain-string content `"<command-message>id</command-message>\n<command-name>/id</command-name>\n<command-args>tina</command-args>"` → predicate true; scanTail returns that line's ts.
@@ -102,7 +102,7 @@ module). Wire schema unchanged (`SessionState.lastMessageAt: number | null`).
     Use `Date.parse(...)` (millis) — NOT hardcoded epoch numbers — so timestamps stay grep-legible on future maintenance.
 
     Both files: the predicate is not yet exported. Import it inline once implemented. For RED, either:
-      (a) declare a `const isAshleyRealUserTurn: (raw: string) => boolean` binding that references the not-yet-exported symbol (will fail at import time — acceptable RED), OR
+      (a) declare a `const isRealUserTurn: (raw: string) => boolean` binding that references the not-yet-exported symbol (will fail at import time — acceptable RED), OR
       (b) call the still-existing scanTailForNewestMessageAt with a single-line tail composed of the case's raw JSONL and assert on its return value (this is the CLEANER RED path — scanTail is the observable; the predicate is the internal seam. Prefer this shape for all 7 cases + the mixed-tail case).
 
     Path (b) preferred — makes the tests survive if the internal helper is ever renamed. Only add a direct predicate-import test IF the file already exports helper-level fixtures for similar helpers.
@@ -117,12 +117,12 @@ module). Wire schema unchanged (`SessionState.lastMessageAt: number | null`).
 </task>
 
 <task type="auto" tdd="true">
-  <name>Task 2: Add isAshleyRealUserTurn helper + swap the predicate at BOTH sites (GREEN)</name>
+  <name>Task 2: Add isRealUserTurn helper + swap the predicate at BOTH sites (GREEN)</name>
   <files>src/backend/fleet-status/ssh-poll-orchestrator.ts, src/backend/database/routes/sessions.ts</files>
   <behavior>
     After this task, all 14+ RED tests from Task 1 pass AND no pre-existing tests regress that weren't scheduled for inversion in Task 3.
 
-    Behavior of the new predicate `isAshleyRealUserTurn(rawLine: string): boolean` — verbatim from the LOCKED spec:
+    Behavior of the new predicate `isRealUserTurn(rawLine: string): boolean` — verbatim from the LOCKED spec:
 
     Returns true iff ALL:
       1. `rawLine.trim()` is non-empty AND parseable as JSON.
@@ -142,9 +142,9 @@ module). Wire schema unchanged (`SessionState.lastMessageAt: number | null`).
 
     (a) DELETE the `MESSAGE_BEARING_KINDS` set at ~L247 (verified single-caller: only `scanTailForNewestMessageAt` at ~L305 in this file; no external imports — confirmed via grep `MESSAGE_BEARING_KINDS` returns only the two file-local sites).
 
-    (b) Add new helper `isAshleyRealUserTurn(rawLine: string): boolean` immediately BEFORE `scanTailForNewestMessageAt`. Structure mirrors the independent-JSON.parse pattern of `scanTailForLatestAiTitle` in sessions.ts (option (a) per the change spec — do NOT extend parseSessionLine to expose raw content; keep parallel-copy discipline per 43-CONTEXT.md). Implementation: trim → early-return false on empty → `try { obj = JSON.parse(trimmed) } catch { return false }` → check `typeof obj === "object" && obj !== null` → check `(obj as any).type === "user"` → dig `message.content`, verify `typeof content === "string"` (return false for list/undefined) → `const t = content.trim()` → return true if `t.startsWith("<command-")` OR NOT (`t.startsWith("<") && t.endsWith(">")`).
+    (b) Add new helper `isRealUserTurn(rawLine: string): boolean` immediately BEFORE `scanTailForNewestMessageAt`. Structure mirrors the independent-JSON.parse pattern of `scanTailForLatestAiTitle` in sessions.ts (option (a) per the change spec — do NOT extend parseSessionLine to expose raw content; keep parallel-copy discipline per 43-CONTEXT.md). Implementation: trim → early-return false on empty → `try { obj = JSON.parse(trimmed) } catch { return false }` → check `typeof obj === "object" && obj !== null` → check `(obj as any).type === "user"` → dig `message.content`, verify `typeof content === "string"` (return false for list/undefined) → `const t = content.trim()` → return true if `t.startsWith("<command-")` OR NOT (`t.startsWith("<") && t.endsWith(">")`).
 
-    (c) In `scanTailForNewestMessageAt`: replace `if (!MESSAGE_BEARING_KINDS.has(parsed.kind)) continue;` with `if (!isAshleyRealUserTurn(line)) continue;`. Keep the existing `parseSessionLine(line)` call ONLY if the `ts` extraction still needs it — recheck: yes, `parsed.ts` is still the source of truth for the timestamp (parseSessionLine handles the `Date.parse(rawTs)` fallback). Rewire: call `isAshleyRealUserTurn(line)` FIRST as the cheap filter, then call `parseSessionLine(line)` and pull `ts`. If parseSessionLine returns kind:"skip" or "malformed" for a line that passed the predicate (edge case — e.g. `queue-operation` enqueue with non-user role), fall back to reading `obj.timestamp` directly via a second local JSON.parse — DO NOT trust `parsed.ts` if kind is not one that carries ts. Simplest correct shape: after the predicate passes, do `const obj = JSON.parse(line)` inside `isAshleyRealUserTurn` AND return the `ts` too — refactor helper to return `{ok: true, ts: number} | {ok: false}` so scanTail avoids a second JSON.parse. Update the helper name accordingly (still `isAshleyRealUserTurn` — the object return is the internal contract, the semantic name stays). ts extraction: `Date.parse(obj.timestamp)` when `typeof obj.timestamp === "string"`, else return `{ok: false}`.
+    (c) In `scanTailForNewestMessageAt`: replace `if (!MESSAGE_BEARING_KINDS.has(parsed.kind)) continue;` with `if (!isRealUserTurn(line)) continue;`. Keep the existing `parseSessionLine(line)` call ONLY if the `ts` extraction still needs it — recheck: yes, `parsed.ts` is still the source of truth for the timestamp (parseSessionLine handles the `Date.parse(rawTs)` fallback). Rewire: call `isRealUserTurn(line)` FIRST as the cheap filter, then call `parseSessionLine(line)` and pull `ts`. If parseSessionLine returns kind:"skip" or "malformed" for a line that passed the predicate (edge case — e.g. `queue-operation` enqueue with non-user role), fall back to reading `obj.timestamp` directly via a second local JSON.parse — DO NOT trust `parsed.ts` if kind is not one that carries ts. Simplest correct shape: after the predicate passes, do `const obj = JSON.parse(line)` inside `isRealUserTurn` AND return the `ts` too — refactor helper to return `{ok: true, ts: number} | {ok: false}` so scanTail avoids a second JSON.parse. Update the helper name accordingly (still `isRealUserTurn` — the object return is the internal contract, the semantic name stays). ts extraction: `Date.parse(obj.timestamp)` when `typeof obj.timestamp === "string"`, else return `{ok: false}`.
 
     (d) REPLACE the docblock at ~L229-246 verbatim with:
         ```
@@ -169,7 +169,7 @@ module). Wire schema unchanged (`SessionState.lastMessageAt: number | null`).
 
     (e) DELETE `MESSAGE_BEARING_KINDS` at ~L68 (single-caller verified — only scanTailForNewestMessageAt at ~L85).
 
-    (f) Add the SAME `isAshleyRealUserTurn` helper — byte-parallel with site #1. Copy-paste allowed and expected (43-CONTEXT.md "no new shared module" scope decision inherited).
+    (f) Add the SAME `isRealUserTurn` helper — byte-parallel with site #1. Copy-paste allowed and expected (43-CONTEXT.md "no new shared module" scope decision inherited).
 
     (g) Replace the predicate check in scanTailForNewestMessageAt identically to site #1.
 
@@ -184,8 +184,8 @@ module). Wire schema unchanged (`SessionState.lastMessageAt: number | null`).
   </verify>
   <done>
     `grep -rn 'MESSAGE_BEARING_KINDS' src/` returns 0.
-    `grep -c 'isAshleyRealUserTurn' src/backend/fleet-status/ssh-poll-orchestrator.ts` returns ≥ 3 (helper decl + scanTail call + docblock mention).
-    `grep -c 'isAshleyRealUserTurn' src/backend/database/routes/sessions.ts` returns ≥ 3 (same shape).
+    `grep -c 'isRealUserTurn' src/backend/fleet-status/ssh-poll-orchestrator.ts` returns ≥ 3 (helper decl + scanTail call + docblock mention).
+    `grep -c 'isRealUserTurn' src/backend/database/routes/sessions.ts` returns ≥ 3 (same shape).
     Task 1's 14+ new tests all pass.
     Commit created with `feat(quick-260823-bap): GREEN — …` message.
     Docblock at site #1 contains the exact string "Ashley 2026-08-23 lock" AND "INVERTS the 2026-08-14 lock".
@@ -238,7 +238,7 @@ Scoped test files pass end-to-end:
   npx vitest run src/backend/fleet-status/ssh-poll-orchestrator.test.ts src/backend/database/routes/sessions.test.ts
 
 Predicate is present at both sites:
-  grep -rn 'isAshleyRealUserTurn' src/backend/ | wc -l   # ≥ 6 (helper decl + scanTail call + docblock mention per site)
+  grep -rn 'isRealUserTurn' src/backend/ | wc -l   # ≥ 6 (helper decl + scanTail call + docblock mention per site)
 
 Old kind-based filter is fully gone:
   grep -rn 'MESSAGE_BEARING_KINDS' src/ | wc -l          # 0
@@ -247,16 +247,16 @@ Both docblocks cite the new lock:
   grep -c 'Ashley 2026-08-23 lock' src/backend/fleet-status/ssh-poll-orchestrator.ts   # ≥ 1
   grep -c 'Ashley 2026-08-23 lock' src/backend/database/routes/sessions.ts             # ≥ 1
 
-Byte-parallel discipline preserved (43-CONTEXT.md): the isAshleyRealUserTurn helper body at both sites is textually identical (comments allowed to differ):
-  diff <(sed -n '/function isAshleyRealUserTurn/,/^}/p' src/backend/fleet-status/ssh-poll-orchestrator.ts) \
-       <(sed -n '/function isAshleyRealUserTurn/,/^}/p' src/backend/database/routes/sessions.ts)
+Byte-parallel discipline preserved (43-CONTEXT.md): the isRealUserTurn helper body at both sites is textually identical (comments allowed to differ):
+  diff <(sed -n '/function isRealUserTurn/,/^}/p' src/backend/fleet-status/ssh-poll-orchestrator.ts) \
+       <(sed -n '/function isRealUserTurn/,/^}/p' src/backend/database/routes/sessions.ts)
   # expected empty diff (or comment-only differences)
 
 Three atomic commits on the current branch (`feat/tab-title-from-tmux`), no worktrees used.
 </verification>
 
 <success_criteria>
-- Both `scanTailForNewestMessageAt` functions use `isAshleyRealUserTurn` (raw-line, independent JSON.parse) — parseSessionLine's return kind is no longer the recency filter.
+- Both `scanTailForNewestMessageAt` functions use `isRealUserTurn` (raw-line, independent JSON.parse) — parseSessionLine's return kind is no longer the recency filter.
 - `MESSAGE_BEARING_KINDS` constant deleted from both files; zero remaining callers.
 - Docblocks at both sites cite the Ashley 2026-08-23 lock verbatim (with cross-reference to canonical copy site — line numbers grep-refreshed).
 - 7-case predicate matrix (typed prose, slash-command, task-notification, system-reminder, tool_result list, skill-body list, assistant) plus one mixed-tail integration test covered at each site — 16+ new tests total.

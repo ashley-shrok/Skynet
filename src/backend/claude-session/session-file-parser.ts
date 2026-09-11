@@ -1296,7 +1296,7 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
   // Ctrl-C kill payloads. All cheap substring/prefix checks, placed BEFORE
   // the harness_wrapper regex strip so they short-circuit first.
   //
-  // Mirrors the isAshleyRealUserTurn predicate in
+  // Mirrors the isRealUserTurn predicate in
   // src/backend/fleet-status/ssh-poll-orchestrator.ts for slash_exit,
   // resume_injection, and ctrl_c_kill. slash_id is NOT excluded there
   // (backend uses /id as an "Ashley present" signal) but IS excluded here

@@ -1315,7 +1315,7 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
     // message at ts=2000, background-task start at ts=2500.
     // Ashley 2026-08-23 lock: only the USER message at ts=1000 counts;
     // the assistant turn (ts=2000), tool_use (1500), and bg-task (2500)
-    // are all excluded by isAshleyRealUserTurn.
+    // are all excluded by isRealUserTurn.
     //
     // Phase 85 (D-07/D-08): the orchestrator's `lastMessageAt` axis retired
     // from this scanner (now reads from getIdentityLastSend). This test
@@ -1381,7 +1381,7 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
     // Probes the byte-parallel-copy contract directly via the test-only
     // export. User-side send counts — Ashley 2026-08-14 verbatim:
     // "activity counts as me sending them a message, or them sending me
-    // a message." The predicate itself (isAshleyRealUserTurn) is unchanged
+    // a message." The predicate itself (isRealUserTurn) is unchanged
     // and still owns this shape for sessions.ts.
     const jsonl = jsonlMessageLine(3000, "user", "just typed something") + "\n";
     expect(__scanTailForNewestMessageAtForTests(jsonl)).toBe(3000);
@@ -1391,7 +1391,7 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
 // ---------------------------------------------------------------------------
 // quick-260823-bap — Ashley 2026-08-23 msg-only-recency predicate matrix
 //
-// Verifies the isAshleyRealUserTurn predicate (Ashley 2026-08-23 lock):
+// Verifies the isRealUserTurn predicate (Ashley 2026-08-23 lock):
 // "only my real messages going to them" — INVERTS the 2026-08-14 lock.
 //
 // Seven cases + one mixed-tail integration case. Tested via
@@ -1399,7 +1399,7 @@ describe("Phase 41 Plan 03 — lastMessageAt derivation from JSONL tail", () => 
 // predicate helper directly, so tests survive any internal rename.
 // ---------------------------------------------------------------------------
 
-describe("isAshleyRealUserTurn — Ashley 2026-08-23 lock predicate matrix", () => {
+describe("isRealUserTurn — Ashley 2026-08-23 lock predicate matrix", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -1452,7 +1452,7 @@ describe("isAshleyRealUserTurn — Ashley 2026-08-23 lock predicate matrix", () 
   // predicate implementation itself STAYS DEFINED (D-08 — sessions.ts
   // byte-parallel copy still depends on it), so we probe it directly via
   // the test-only export __scanTailForNewestMessageAtForTests. This
-  // preserves regression coverage of isAshleyRealUserTurn's contract while
+  // preserves regression coverage of isRealUserTurn's contract while
   // decoupling it from the retired orchestrator-observed axis.
   //
   // The helpers keep their old async signature so the individual `it()`
@@ -4681,7 +4681,7 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
   // (agent-supervisor injects it before recycle), resumed-injection
   // sentinels, and control-char kill signals.
   //
-  // Fix: pre-filter the scan with `isAshleyRealUserTurn` so harness-
+  // Fix: pre-filter the scan with `isRealUserTurn` so harness-
   // synthetic user turns don't reach detectIdReset. Real user speech is
   // the only thing that flips the axis.
   //
@@ -4793,7 +4793,7 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
   it("Test inline-260830-layer1-skip-resumed: /id reset followed by resumed-injection sentinel → Layer 1 stays TRUE", async () => {
     const channel = new MockSshChannel();
     // Tail: /id reset THEN the agent-supervisor resumed-injection sentinel
-    // (a string-content user turn that isAshleyRealUserTurn's step 7 explicitly
+    // (a string-content user turn that isRealUserTurn's step 7 explicitly
     // excludes — it's supervisor-injected boilerplate, not real user speech).
     const tail =
       idResetLine(2000) + "\n" + resumedInjectionLine(2500) + "\n";

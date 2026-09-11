@@ -50,7 +50,7 @@ exit code 0. Scoped run only: `npx vitest run src/backend/claude-session/session
 
 - `~/.claude/roles/box-maintainer/skynet-patches.md` — orchestrator's job at ship time.
 - `src/backend/fleet-status/ssh-poll-orchestrator.ts` — holds the SIMILAR-BUT-DIFFERENT
-  `isAshleyRealUserTurn` predicate that intentionally does NOT skip `/id`.
+  `isRealUserTurn` predicate that intentionally does NOT skip `/id`.
 - `src/backend/database/routes/sessions.ts` — same reason as above.
 
 ## Working tree state after commit

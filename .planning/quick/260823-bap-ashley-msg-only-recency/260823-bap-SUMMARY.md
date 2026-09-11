@@ -4,9 +4,9 @@ plan: 01
 subsystem: fleet-status/recency
 tags: [predicate-inversion, lastMessageAt, tdd, ashley-lock-2026-08-23]
 decisions:
-  - "isAshleyRealUserTurn returns {ok:true, ts} | {ok:false} to avoid double JSON.parse on the keep path"
+  - "isRealUserTurn returns {ok:true, ts} | {ok:false} to avoid double JSON.parse on the keep path"
   - "parseSessionLine no longer used in scanTailForNewestMessageAt (removed import from ssh-poll-orchestrator.ts)"
-  - "Byte-parallel discipline preserved: isAshleyRealUserTurn function bodies are textually identical at both sites (diff is empty)"
+  - "Byte-parallel discipline preserved: isRealUserTurn function bodies are textually identical at both sites (diff is empty)"
 metrics:
   duration: "~25 min"
   completed: "2026-08-23"
@@ -22,7 +22,7 @@ key_files:
 
 # Phase quick-260823-bap Plan 01: Ashley 2026-08-23 msg-only-recency Predicate Summary
 
-**One-liner:** Replaced `MESSAGE_BEARING_KINDS` kind-set predicate with `isAshleyRealUserTurn` at both JSONL tail-scan sites, inverting recency signal from "message either direction" to "only Ashley's real outbound user turns."
+**One-liner:** Replaced `MESSAGE_BEARING_KINDS` kind-set predicate with `isRealUserTurn` at both JSONL tail-scan sites, inverting recency signal from "message either direction" to "only Ashley's real outbound user turns."
 
 ## Commits
 
@@ -45,7 +45,7 @@ key_files:
 ## Predicate Behavior (Ashley 2026-08-23 lock)
 
 ```
-isAshleyRealUserTurn(rawLine) → {ok: true, ts} | {ok: false}
+isRealUserTurn(rawLine) → {ok: true, ts} | {ok: false}
 
 Returns {ok:true, ts} iff ALL:
   1. rawLine.trim() non-empty AND parseable as JSON
@@ -62,7 +62,7 @@ Returns {ok:true, ts} iff ALL:
 ### MESSAGE_BEARING_KINDS deleted
 `grep -rn 'MESSAGE_BEARING_KINDS' src/` → 0 hits in production files (3 hits in test comments — expected).
 
-### isAshleyRealUserTurn present at both sites
+### isRealUserTurn present at both sites
 - `ssh-poll-orchestrator.ts`: 3 occurrences (docblock + helper decl + scanTail call)
 - `sessions.ts`: 4 occurrences (docblock + helper decl + scanTail call + comment)
 
@@ -71,7 +71,7 @@ Returns {ok:true, ts} iff ALL:
 - `sessions.ts`: 3 occurrences of "Ashley 2026-08-23 lock"
 
 ### Byte-parallel discipline
-`diff <(sed -n '/function isAshleyRealUserTurn/,/^}/p' ssh-poll-orchestrator.ts) <(sed -n '/function isAshleyRealUserTurn/,/^}/p' sessions.ts)` → empty diff (implementations identical).
+`diff <(sed -n '/function isRealUserTurn/,/^}/p' ssh-poll-orchestrator.ts) <(sed -n '/function isRealUserTurn/,/^}/p' sessions.ts)` → empty diff (implementations identical).
 
 ### Test cite Ashley 2026-08-23 lock
 - `ssh-poll-orchestrator.test.ts`: 12 occurrences
@@ -81,7 +81,7 @@ Returns {ok:true, ts} iff ALL:
 
 ### Implementation deviation: {ok, ts} return shape
 
-The plan (Task 2 step (c)) suggested refactoring the helper to return `{ok: true, ts: number} | {ok: false}` to avoid double JSON.parse. This was implemented exactly as described. The helper name remains `isAshleyRealUserTurn` per the plan's instruction ("the object return is the internal contract, the semantic name stays").
+The plan (Task 2 step (c)) suggested refactoring the helper to return `{ok: true, ts: number} | {ok: false}` to avoid double JSON.parse. This was implemented exactly as described. The helper name remains `isRealUserTurn` per the plan's instruction ("the object return is the internal contract, the semantic name stays").
 
 ### parseSessionLine import removed
 
@@ -121,8 +121,8 @@ Flagged for orchestrator ship-gate review. The two scoped files are clean (108/1
 
 ## Self-Check: PASSED
 
-- `src/backend/fleet-status/ssh-poll-orchestrator.ts` exists and contains `isAshleyRealUserTurn`: FOUND
-- `src/backend/database/routes/sessions.ts` exists and contains `isAshleyRealUserTurn`: FOUND
+- `src/backend/fleet-status/ssh-poll-orchestrator.ts` exists and contains `isRealUserTurn`: FOUND
+- `src/backend/database/routes/sessions.ts` exists and contains `isRealUserTurn`: FOUND
 - `src/backend/fleet-status/ssh-poll-orchestrator.test.ts` exists and contains new describe block: FOUND
 - `src/backend/database/routes/sessions.test.ts` exists and contains new describe block: FOUND
 - Commit `ddf49380` (RED): FOUND

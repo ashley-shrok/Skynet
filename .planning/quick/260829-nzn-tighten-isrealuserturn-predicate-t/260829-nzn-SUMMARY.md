@@ -5,7 +5,7 @@ subsystem: fleet-status/sessions
 tags: [predicate, recency, conversation-list, byte-parallel]
 dependency_graph:
   requires: []
-  provides: [isAshleyRealUserTurn-2026-08-29-refinement]
+  provides: [isRealUserTurn-2026-08-29-refinement]
   affects: [conversation-list-ordering, lastMessageAt]
 tech_stack:
   added: []
@@ -28,13 +28,13 @@ metrics:
   files_changed: 4
 ---
 
-# Phase quick-260829-nzn Plan 01: Tighten isAshleyRealUserTurn Predicate Summary
+# Phase quick-260829-nzn Plan 01: Tighten isRealUserTurn Predicate Summary
 
-**One-liner:** Three 2026-08-29 exclusion gates (Ctrl-C kill, /exit slash-command, resumed-injection sentinel) added to isAshleyRealUserTurn in both byte-parallel copies to fix spurious recency inflation on Tabitha's conversation row.
+**One-liner:** Three 2026-08-29 exclusion gates (Ctrl-C kill, /exit slash-command, resumed-injection sentinel) added to isRealUserTurn in both byte-parallel copies to fix spurious recency inflation on Tabitha's conversation row.
 
 ## What Was Built
 
-The `isAshleyRealUserTurn` predicate had three harness-injected shapes that passed all existing gates and spuriously bumped `lastMessageAt`, floating agents Ashley hadn't messaged in days to the top of the conversation list:
+The `isRealUserTurn` predicate had three harness-injected shapes that passed all existing gates and spuriously bumped `lastMessageAt`, floating agents Ashley hadn't messaged in days to the top of the conversation list:
 
 1. **Ctrl-C kill signal** (`"\x03\x03"`) — delivered by the supervisor as plain-string content; was passing the XML-wrapper gate because it is not an XML wrapper.
 2. **`/exit` slash-command** — agent-supervisor fires this before recycle; content starts with `<command-` so the existing `isCommand` check kept it alive.
@@ -63,8 +63,8 @@ Note: Both tasks landed in the same commit per byte-parallel discipline requirem
 ## Byte-Parallel Verification
 
 ```
-diff <(awk '/^function isAshleyRealUserTurn/,/^}$/' src/backend/fleet-status/ssh-poll-orchestrator.ts) \
-     <(awk '/^function isAshleyRealUserTurn/,/^}$/' src/backend/database/routes/sessions.ts)
+diff <(awk '/^function isRealUserTurn/,/^}$/' src/backend/fleet-status/ssh-poll-orchestrator.ts) \
+     <(awk '/^function isRealUserTurn/,/^}$/' src/backend/database/routes/sessions.ts)
 # → zero output (BYTE-PARALLEL OK)
 ```
 

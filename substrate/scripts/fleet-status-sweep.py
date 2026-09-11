@@ -63,11 +63,11 @@ Exec-site → emission mapping (parity with RESEARCH.md § "Current per-identity
     B2  stat identities/<name>/.recycled-at      → SweepIdentityLine.recycled_at
     B3  test -f identities/<name>/.recycle-requested → SweepIdentityLine.recycle_requested
     B4  Phase 32 discovery script                → SweepIdentityLine.jsonl_path
-    B5  tail-scan + isAshleyRealUserTurn + detectIdReset
+    B5  tail-scan + isRealUserTurn + detectIdReset
                                                  → SweepIdentityLine.layer1_recycling
 
 Ports verbatim (behavioral parity required — Plan 05 has a regression test):
-    * isAshleyRealUserTurn        — ssh-poll-orchestrator.ts L432–L472 (7 steps).
+    * isRealUserTurn        — ssh-poll-orchestrator.ts L432–L472 (7 steps).
     * scanTailForLayer1RecyclingSignal — ssh-poll-orchestrator.ts L636 (reducer).
     * detectIdReset               — claude-session/session-file-parser.ts L883.
     * __matchesIdentityFirstTurnForTests + delimiter guard
@@ -334,13 +334,13 @@ def _detect_id_reset(obj):
 
 
 # ---------------------------------------------------------------------------
-# Section — port of isAshleyRealUserTurn (ssh-poll-orchestrator.ts L432–L472).
+# Section — port of isRealUserTurn (ssh-poll-orchestrator.ts L432–L472).
 # ---------------------------------------------------------------------------
 
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1F]")
 
 
-def _is_ashley_real_user_turn(raw_line):
+def _is_real_user_turn(raw_line):
     """Return (True, ts_ms) if raw_line is a real Ashley user turn, else (False, None).
 
     Verbatim port of the 7-step predicate in ssh-poll-orchestrator.ts
@@ -443,7 +443,7 @@ def scan_tail_for_layer1_recycling_signal(tail_contents):
 
     Walks lines in order (chronological on JSONL append). For each line:
       * skip empty lines.
-      * pre-filter with isAshleyRealUserTurn (skip harness-synthetic user
+      * pre-filter with isRealUserTurn (skip harness-synthetic user
         turns per inline-260830-layer1-skip-harness-synthetic-user-turns).
       * JSON.parse and apply detectIdReset; remember the result.
 
@@ -456,7 +456,7 @@ def scan_tail_for_layer1_recycling_signal(tail_contents):
     for line in tail_contents.split("\n"):
         if line.strip() == "":
             continue
-        ok, _ts = _is_ashley_real_user_turn(line)
+        ok, _ts = _is_real_user_turn(line)
         if not ok:
             continue
         try:

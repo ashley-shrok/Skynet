@@ -528,7 +528,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
       }
       if (cmd.includes(TANYA_JSONL)) {
         // Ashley 2026-08-23 lock: tanya's tail has only an assistant message —
-        // excluded by isAshleyRealUserTurn; lastMessageAt is null.
+        // excluded by isRealUserTurn; lastMessageAt is null.
         return Promise.resolve(
           jsonlMessageLine(5000, "assistant", "hi tanya") + "\n",
         );
@@ -614,7 +614,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
     expect(rows).toHaveLength(2);
 
     // Ashley 2026-08-23 lock: tanya's tail has only an assistant message;
-    // isAshleyRealUserTurn excludes it → lastMessageAt:null.
+    // isRealUserTurn excludes it → lastMessageAt:null.
     const tanya = rows.find((r) => r.sessionName === "tanya");
     expect(tanya?.lastMessageAt).toBeNull();
 
@@ -649,7 +649,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
       }
       if (cmd.includes(TIFFANY_JSONL)) {
         // Ashley 2026-08-23 lock: tiffany's tail has only an assistant message
-        // ("sibling ok") — excluded by isAshleyRealUserTurn → lastMessageAt:null.
+        // ("sibling ok") — excluded by isRealUserTurn → lastMessageAt:null.
         return Promise.resolve(
           jsonlMessageLine(4200, "assistant", "sibling ok") + "\n",
         );
@@ -749,7 +749,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
       if (cmd.includes(TANYA_JSONL)) {
         // user_ts=1000, tool_use_ts=1500, assistant_ts=2000, bg_task_ts=2500.
         // Ashley 2026-08-23 lock: only the user turn at ts=1000 qualifies —
-        // isAshleyRealUserTurn drops the assistant turn (ts=2000), tool_use
+        // isRealUserTurn drops the assistant turn (ts=2000), tool_use
         // (kind:"skip" from parseSessionLine → dropped by predicate), and
         // background_task (type not "user" → dropped).
         const jsonl =
@@ -833,11 +833,11 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
 // as the observable) rather than the private predicate helper directly.
 // ---------------------------------------------------------------------------
 
-describe("isAshleyRealUserTurn — Ashley 2026-08-23 lock predicate matrix", () => {
+describe("isRealUserTurn — Ashley 2026-08-23 lock predicate matrix", () => {
   // Phase 85 (D-08): the /sessions/list route no longer calls
   // scanTailForNewestMessageAt on the lastMessageAt axis (source-swapped to
   // the send-log store). But the function definition + its
-  // isAshleyRealUserTurn dependency stay alive in sessions.ts per the
+  // isRealUserTurn dependency stay alive in sessions.ts per the
   // byte-parallel-copy discipline with ssh-poll-orchestrator. This
   // predicate-matrix suite asserts the retired scanner's byte-level
   // contract via the test-only export `__scanTailForNewestMessageAtForTests`

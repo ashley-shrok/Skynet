@@ -69,7 +69,7 @@ Place the block BEFORE the existing `harness_wrapper` strip (line 1279 today) â€
   - resume_injection: "Your session was just resumed by the agent-supervisor" (prefix)
   - ctrl_c_kill: content with only ASCII control chars (Ctrl-C double-tap etc)
 
-  Mirrors the isAshleyRealUserTurn predicate in ssh-poll-orchestrator.ts for
+  Mirrors the isRealUserTurn predicate in ssh-poll-orchestrator.ts for
   items 1, 4, 5. /id is NOT excluded there (used as "Ashley present" signal)
   but IS excluded here (bubble noise). goodbye_echo is deliberately narrow â€”
   other <local-command-stdout>...</local-command-stdout> blocks still render

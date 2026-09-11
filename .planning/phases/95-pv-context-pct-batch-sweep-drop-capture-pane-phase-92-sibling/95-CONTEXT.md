@@ -115,7 +115,7 @@ Same disease as pre-Phase-92 fleet-status. Same shape of fix for Part C. Reuses 
   - `92-CONTEXT.md` — locked decisions
   - `92-RESEARCH.md` — HIGH-confidence enumeration
   - `92-01-PLAN.md` — schema module pattern
-  - `92-02-PLAN.md` — Python sweep script pattern (isAshleyRealUserTurn port, safe-char guard, always exit 0)
+  - `92-02-PLAN.md` — Python sweep script pattern (isRealUserTurn port, safe-char guard, always exit 0)
   - `92-03-PLAN.md` — distributor catalog + test assertion changes
   - `92-04-PLAN.md` — caller rewire (batch-first / legacy-fallback, presence probe cache, null-exec re-probe, schema-mismatch latch)
   - `92-05-PLAN.md` — regression tests + human-verify UAT checkpoint

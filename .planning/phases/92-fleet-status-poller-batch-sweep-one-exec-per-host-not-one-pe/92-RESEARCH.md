@@ -286,11 +286,11 @@ The discovery walks `~/.claude/projects/*/` mtime-desc, greps the FIRST user-lin
 
 ### G3 — The Layer 1 recycling scan reads a JSONL tail; that's the SLOWEST part of source B
 
-`tail -c 262144` (256 KB) + `scanTailForLayer1RecyclingSignal` (client-side JS scan). Moving the scan server-side into bash/python for the sweep script needs care — the current predicate `isAshleyRealUserTurn` (ssh-poll-orchestrator.ts L432–L472) is JS-only and non-trivial (JSON parse per line, multi-step predicate on `type`, `message.content`, various string prefixes/suffixes, control-char stripping).
+`tail -c 262144` (256 KB) + `scanTailForLayer1RecyclingSignal` (client-side JS scan). Moving the scan server-side into bash/python for the sweep script needs care — the current predicate `isRealUserTurn` (ssh-poll-orchestrator.ts L432–L472) is JS-only and non-trivial (JSON parse per line, multi-step predicate on `type`, `message.content`, various string prefixes/suffixes, control-char stripping).
 
 **Options:**
 1. Sweep script emits the raw 256 KB tail; caller does the JS scan as today. **Cost:** wire size (256 KB × 15 identities = 3.75 MB per sweep, big). Rules this out.
-2. Sweep script emits just `layer1RecyclingSignal: bool | null` and hides the tail entirely on the box. **Cost:** duplicating `isAshleyRealUserTurn` in bash/python. Non-trivial but bounded (~40 lines of Python).
+2. Sweep script emits just `layer1RecyclingSignal: bool | null` and hides the tail entirely on the box. **Cost:** duplicating `isRealUserTurn` in bash/python. Non-trivial but bounded (~40 lines of Python).
 3. Sweep script emits a MUCH smaller extract (e.g. last N `type:"user"` lines from the tail, filtered) that the caller can scan with the JS predicate. **Cost:** medium wire size, still requires the caller to hold the JS predicate.
 
 **Recommendation:** Option 2 — a Python sweep script (justified per CONTEXT.md discretion: "python is acceptable if the sweep logic genuinely needs it"). Bash + `grep` + `jq` for the JSONL-scan is fragile; Python with `json` stdlib is clean and can port the predicate cleanly. This is the primary case for python-over-bash in this phase.
@@ -332,7 +332,7 @@ The `server-substrate-orchestrator.ts` startup pass runs `runSweepForHost` seria
 Order matters — start with (1) to lock schema before deciding anything else.
 
 1. `src/backend/fleet-status/ssh-poll-orchestrator.ts` L980–L1230 (`pollDormantOnlyIdentities`) AND L1236–L1951 (`processPid`) — the two functions being replaced. The plan's Task 1 (enumerate + lock schema) needs both open in a diff view.
-2. `src/backend/fleet-status/ssh-poll-orchestrator.ts` L432–L472 (`isAshleyRealUserTurn`) — the Layer 1 recycling predicate that must port server-side (G3 above).
+2. `src/backend/fleet-status/ssh-poll-orchestrator.ts` L432–L472 (`isRealUserTurn`) — the Layer 1 recycling predicate that must port server-side (G3 above).
 3. `src/backend/claude-session/discover-identity-session-file.ts` — the JSONL discovery script (referenced but not enumerated in this doc); the sweep script either inlines/adapts this or invokes it.
 4. `src/backend/distributor/catalog.ts` — catalog shape + all 21 existing rows. Add-a-row is trivial; the planner needs to specify slug + install path.
 5. `src/backend/distributor/run-sweep.ts` — the composer. Confirms new script gets shipped on next container restart with no additional wiring.

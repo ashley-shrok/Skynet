@@ -95,7 +95,7 @@ any multi-user keying of the store (Skynet single-tenant on t1000).
 - **D-08:** The transcript-scan pipeline stays alive for its other
   consumers (ai-title, isWorking, dormant, recycling, lastStopAt,
   lastStatusChangeAt, activityMtime, stoppedMtime). Only the
-  recency-derivation role retires. `isAshleyRealUserTurn`
+  recency-derivation role retires. `isRealUserTurn`
   (`ssh-poll-orchestrator.ts:418`) still runs — the tail scan just stops
   being called for `lastMessageAt`.
 
@@ -156,7 +156,7 @@ any multi-user keying of the store (Skynet single-tenant on t1000).
   `scanTailForNewestMessageAt`, the current recency derivation. D-07
   swaps this out for the store lookup.
 - `src/backend/fleet-status/ssh-poll-orchestrator.ts:418-476` —
-  `isAshleyRealUserTurn`, the "Ashley's real user turn" predicate (locked
+  `isRealUserTurn`, the "Ashley's real user turn" predicate (locked
   2026-08-23). Stays alive per D-08 for other consumers; retires from the
   lastMessageAt path.
 - `src/backend/fleet-status/ssh-poll-orchestrator.ts:769` — fingerprint

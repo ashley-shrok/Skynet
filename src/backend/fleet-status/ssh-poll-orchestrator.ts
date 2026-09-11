@@ -614,7 +614,7 @@ interface PerIdentityFetchedState {
  * scanTailForLayer1RecyclingSignal below still calls this to pre-filter real
  * user turns from harness-synthetic noise.
  */
-function isAshleyRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok: false } {
+function isRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok: false } {
   const trimmed = rawLine.trim();
   if (trimmed === "") return { ok: false };
   let obj: unknown;
@@ -697,7 +697,7 @@ const STALE_TAIL_REDISCOVERY_THRESHOLD = 5;
  * § Backend scraper mechanics — bounded parse well under 5ms on typical
  * hardware).
  *
- * Predicate: isAshleyRealUserTurn (Ashley 2026-08-23 lock). Each line is
+ * Predicate: isRealUserTurn (Ashley 2026-08-23 lock). Each line is
  * independently JSON.parsed by the predicate helper — parseSessionLine is
  * NOT used for the recency filter (it is no longer the gating function;
  * it is still called for other purposes elsewhere if needed). The predicate
@@ -715,7 +715,7 @@ const STALE_TAIL_REDISCOVERY_THRESHOLD = 5;
  */
 // Phase 85 (D-08 export): test-only export of the retired scanner so the
 // predicate-matrix suite in ssh-poll-orchestrator.test.ts can continue to
-// probe isAshleyRealUserTurn's contract at the byte level. The function is
+// probe isRealUserTurn's contract at the byte level. The function is
 // no longer called from processPid but is still THE canonical predicate
 // implementation that sessions.ts byte-parallel-copies; keeping tests on
 // this observable preserves regression coverage of the predicate.
@@ -730,7 +730,7 @@ function scanTailForNewestMessageAt(tailContents: string): number | null {
   const lines = tailContents.split("\n");
   for (const line of lines) {
     if (line.trim() === "") continue;
-    const result = isAshleyRealUserTurn(line);
+    const result = isRealUserTurn(line);
     if (!result.ok) continue;
     const { ts } = result;
     if (newest === null || ts > newest) {
@@ -824,7 +824,7 @@ function scanTailForLayer1RecyclingSignal(tailContents: string): boolean | null 
   for (const line of lines) {
     if (line.trim() === "") continue;
     // inline-260830-layer1-skip-harness-synthetic-user-turns (Ashley
-    // 2026-08-30, taylor): pre-filter with isAshleyRealUserTurn so
+    // 2026-08-30, taylor): pre-filter with isRealUserTurn so
     // harness-synthetic user turns do NOT flip lastResult back to false
     // after a real /id reset has been seen. Historical behavior: this
     // loop iterated ALL type:"user" lines and set lastResult =
@@ -845,23 +845,23 @@ function scanTailForLayer1RecyclingSignal(tailContents: string): boolean | null 
     // during the 30s window while the /id skill was running. This filter
     // restores the intended semantic ("last REAL user turn wins" —
     // matches the lastMessageAt scan at scanTailForNewestMessageAt which
-    // has always used isAshleyRealUserTurn). detectIdReset stays the
-    // final classifier; the isAshleyRealUserTurn gate just makes sure
+    // has always used isRealUserTurn). detectIdReset stays the
+    // final classifier; the isRealUserTurn gate just makes sure
     // only real user speech reaches it.
-    if (!isAshleyRealUserTurn(line).ok) continue;
+    if (!isRealUserTurn(line).ok) continue;
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(line) as Record<string, unknown>;
     } catch {
       // Malformed line — skip silently (matches existing parser tolerance).
-      // Also isAshleyRealUserTurn's own JSON.parse would have returned
+      // Also isRealUserTurn's own JSON.parse would have returned
       // { ok: false } and we'd have already continued above; this catch is
       // structural belt-and-suspenders (a race where the same line parses
       // differently between the two calls is not possible).
       continue;
     }
     // The type check inside detectIdReset (parsed.type === "user") is
-    // now redundant with isAshleyRealUserTurn's own type gate, but
+    // now redundant with isRealUserTurn's own type gate, but
     // detectIdReset is called by other consumers too (Plan 30-01
     // observation channel in claude-session-server.ts) so keeping its
     // internal check preserves defense-in-depth.

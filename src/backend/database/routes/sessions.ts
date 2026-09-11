@@ -79,7 +79,7 @@ const PER_HOST_TIMEOUT_MS = 30_000;
 // Ashley 2026-08-23 lock: "only my real messages going to them" —
 // INVERTS the 2026-08-14 lock. See quick-260823-bap plan for the full
 // predicate matrix. Canonical copy lives in
-// `src/backend/fleet-status/ssh-poll-orchestrator.ts` (isAshleyRealUserTurn
+// `src/backend/fleet-status/ssh-poll-orchestrator.ts` (isRealUserTurn
 // helper + scanTailForNewestMessageAt). This file owns the byte-parallel copy
 // for the dormant /sessions/list path. If either copy ever needs to change,
 // update BOTH sites — a cross-cutting shared module was explicitly out of
@@ -112,7 +112,7 @@ const PER_HOST_TIMEOUT_MS = 30_000;
  * - Resumed-injection sentinel: supervisor injects "Your session was just
  *   resumed by the agent-supervisor…" as a type:"user" turn in some paths.
  */
-function isAshleyRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok: false } {
+function isRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok: false } {
   const trimmed = rawLine.trim();
   if (trimmed === "") return { ok: false };
   let obj: unknown;
@@ -163,7 +163,7 @@ function isAshleyRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok:
  * `ssh-poll-orchestrator.ts`. Empty and malformed lines are silently
  * skipped — this is best-effort sampling, not a validation pass.
  *
- * Predicate: isAshleyRealUserTurn (Ashley 2026-08-23 lock). The helper
+ * Predicate: isRealUserTurn (Ashley 2026-08-23 lock). The helper
  * returns {ok, ts} so a single JSON.parse feeds both the gate and the ts
  * extraction, avoiding a second parse on the keep path.
  *
@@ -172,7 +172,7 @@ function isAshleyRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok:
  * lastMessageAt now sources from getIdentityLastSend) but STAYS DEFINED
  * as the byte-parallel copy of the ssh-poll-orchestrator export. If
  * either copy changes, update BOTH per the file's parallel-copy
- * discipline docblock above (L54-64). The `isAshleyRealUserTurn` helper
+ * discipline docblock above (L54-64). The `isRealUserTurn` helper
  * this function calls (L93) is treated the same way — kept defined for
  * the byte-parallel copy discipline even if this file has zero remaining
  * callers post-swap. Do NOT delete either symbol.
@@ -182,7 +182,7 @@ function scanTailForNewestMessageAt(tailContents: string): number | null {
   const lines = tailContents.split("\n");
   for (const line of lines) {
     if (line.trim() === "") continue;
-    const result = isAshleyRealUserTurn(line);
+    const result = isRealUserTurn(line);
     if (!result.ok) continue;
     const { ts } = result;
     if (newest === null || ts > newest) {
@@ -199,7 +199,7 @@ function scanTailForNewestMessageAt(tailContents: string): number | null {
  * `src/backend/fleet-status/ssh-poll-orchestrator.ts` (Phase 85-04). The
  * `/sessions/list` route no longer calls `scanTailForNewestMessageAt` on
  * the lastMessageAt axis (lookup swapped to the send-log store), but the
- * function definition + its `isAshleyRealUserTurn` dependency stay alive
+ * function definition + its `isRealUserTurn` dependency stay alive
  * per the D-08 parallel-copy discipline. This export lets the
  * quick-260823-bap predicate-matrix suite continue to assert the byte-level
  * shape of the retired scanner without going through the route observable.
@@ -397,7 +397,7 @@ router.get("/list", authenticateJWT, async (req: Request, res: Response) => {
             // this file (see docblock above the function definition) —
             // byte-parallel copy discipline with the ssh-poll-orchestrator
             // export. Only the CALL retires; the function + its
-            // `isAshleyRealUserTurn` dependency remain.
+            // `isRealUserTurn` dependency remain.
             await Promise.all(
               rows.map(async (row) => {
                 // Per-session role resolve (unchanged behavior).
