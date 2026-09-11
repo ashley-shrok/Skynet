@@ -58,6 +58,7 @@ import {
   IDENTITY_KEY_RE,
   isLocalHostId,
   writeMarkdownFileAtomic,
+  getLocalIdentitiesRoot,
 } from "./identity-artifact-reader.js";
 import { execCommand } from "../ssh/tmux-helper.js";
 
@@ -100,7 +101,15 @@ function shellSingleQuote(s: string): string {
  * getLocalIdentitiesRoot pattern at identity-artifact-reader.ts:217.
  */
 function localTargetPath(name: string, relPath: string): string {
-  return path.join(os.homedir(), "fleet", "identities", name, relPath);
+  // 2026-09-11: use getLocalIdentitiesRoot() so IDENTITIES_HOST_DIR env
+  // (bind-mount path inside the Skynet container, e.g. `/fleet/identities`)
+  // is honored. Prior `path.join(os.homedir(), "fleet", "identities", ...)`
+  // hardcoded the fallback and wrote to `/home/node/fleet/identities/...`
+  // inside the container — ephemeral overlay storage the supervisor on
+  // the host can't see. Symptom: Step 8's `relay.json.tmp` fs.writeFile
+  // ENOENT'd because the parent dir only existed under the (correct)
+  // bind-mounted path.
+  return path.join(getLocalIdentitiesRoot(), name, relPath);
 }
 
 /**
