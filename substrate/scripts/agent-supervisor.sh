@@ -19,13 +19,16 @@
 #   agent-supervisor.sh --once     # one reconcile pass, then exit
 #   DRY_RUN=1 agent-supervisor.sh --once   # report what it WOULD do, touch nothing
 #
-# Config file (~/.claude/agent-supervisor.conf), sourced as bash:
-#   MODE=A                         # A = supervise exactly the IDENTITIES array; B = all active identities
-#   IDENTITIES=("commander zoey")  # (MODE=A only) bash array; quotes handle spaces in names
-#   # optional knobs (defaults shown):
+# Config file (~/.claude/agent-supervisor.conf), sourced as bash (all keys optional):
 #   # CHECK_INTERVAL=30            # seconds between reconcile passes in loop mode
 #   # STAGGER_SECONDS=8            # extra gap between launches during a bring-up
 #   # SETTLE_SECONDS=6             # time budget to blind-drive past the trust prompt before sending /id
+#
+# Identity list is derived from disk on every reconcile — every subfolder of
+# $IDENTITIES_DIR (~/fleet/identities by default) whose <name>/<name>.md file
+# exists is supervised. No config-array to maintain. (The legacy MODE=A branch
+# that supervised a static IDENTITIES=(...) array was retired 2026-09-11 —
+# early-testing scaffolding, unused fleet-wide since 2026-08-06.)
 set -uo pipefail
 
 CONF="${AGENT_SUPERVISOR_CONF:-$HOME/.claude/agent-supervisor.conf}"
@@ -44,7 +47,8 @@ log() { printf '%s %s\n' "$(date '+%H:%M:%S')" "$*"; }
 declare -A LAST_RECYCLE_AT=()
 
 # ---- config ----
-MODE=""
+# IDENTITIES is derived from disk in resolve_identities() on every reconcile;
+# initialized empty here.
 IDENTITIES=()
 CHECK_INTERVAL=15
 STAGGER_SECONDS=8
@@ -58,7 +62,6 @@ MEMORY_CAP="disabled"    # 2026-08-08 fleet policy (Alice + Stacy catch): cap me
                          # "disabled", not the old 80M trap. Per-box overrides: MEMORY_CAP="auto"
                          # (historic zram-detect), MEMORY_CAP="150M" (explicit), etc.
 [ -f "$CONF" ] && . "$CONF"
-if [ -z "${MODE:-}" ]; then log "no MODE in $CONF (set MODE=A or MODE=B) — nothing to do"; exit 1; fi
 
 # ---- dormancy (2026-08-07) defaults — OFF fleet-wide, enabled per-box via $CONF: DORMANCY="on"
 # See bounty session-dormancy-pilot-beelink for the design + measurement plan.
@@ -214,19 +217,19 @@ accept_trust_for_workdir() {
 }
 
 # ---- identity list for this pass ----
+# Walks $IDENTITIES_DIR/*/ each reconcile; every folder with a matching
+# <name>/<name>.md gets supervised. Empty stubs (bare `/id` scaffolds without
+# the .md) are skipped so a partially-birthed identity doesn't get launched
+# prematurely.
 resolve_identities() {
-  if [ "$MODE" = "B" ]; then
-    IDENTITIES=()
-    local d name
-    for d in "$IDENTITIES_DIR"/*/; do
-      [ -d "$d" ] || continue
-      name="$(basename "$d")"
-      # require a real identity file (skip empty stubs like a bare `/id` scaffold)
-      [ -f "$d/$name.md" ] || continue
-      IDENTITIES+=("$name")
-    done
-  fi
-  # MODE=A: IDENTITIES comes straight from the conf array.
+  IDENTITIES=()
+  local d name
+  for d in "$IDENTITIES_DIR"/*/; do
+    [ -d "$d" ] || continue
+    name="$(basename "$d")"
+    [ -f "$d/$name.md" ] || continue
+    IDENTITIES+=("$name")
+  done
 }
 
 slug() { printf '%s' "$1" | tr ' ' '-'; }   # canonical session name: spaces -> hyphens, case preserved
@@ -398,9 +401,8 @@ retire_identity() {
 # run_archive_scan()
 #
 # The daily archive-scan branch (D-01 cadence, D-14 retire-stuck counter, D-15 silent-by-design).
-# Walks ALL identity directories under $IDENTITIES_DIR/*/ (MODE-agnostic per Open Question 1 —
-# a box that owns an identity folder is responsible for archiving it whether or not the supervisor
-# is actively supervising it in MODE=A). For each identity, applies four guards in order:
+# Walks ALL identity directories under $IDENTITIES_DIR/*/. For each identity, applies four guards
+# in order:
 #
 #   (1) require .md file exists         — an empty stub is not a retire candidate
 #   (2) skip if .pinned present         — D-03 guard (Phase 92 sentinel)
@@ -480,8 +482,8 @@ run_archive_scan() {
 # the scan to re-run on every 15s tick and starve the keep-alive loop).
 #
 # Called at the TOP of reconcile(), BEFORE resolve_identities (D-01 insertion point per
-# RESEARCH § D-01 map). The MODE-agnostic walk inside run_archive_scan() means even a
-# MODE=A box with zero supervised identities sweeps all identity folders on disk.
+# RESEARCH § D-01 map). The walk inside run_archive_scan() sweeps all identity folders on disk
+# independently of resolve_identities' own walk.
 run_archive_scan_if_due() {
   mkdir -p "$DORMANCY_STATE_DIR" 2>/dev/null         # ensure marker directory exists
   local last=0
@@ -1564,7 +1566,7 @@ reconcile() {
   sample_memory                                    # dashboard sampler — one line per cycle
   run_archive_scan_if_due                          # Phase 94: daily archive-scan branch (24h gate; fast-path no-op on most ticks)
   resolve_identities
-  if [ "${#IDENTITIES[@]}" -eq 0 ]; then log "no identities to supervise (MODE=$MODE)"; return 0; fi
+  if [ "${#IDENTITIES[@]}" -eq 0 ]; then log "no identities to supervise (no <name>/<name>.md folders under $IDENTITIES_DIR)"; return 0; fi
   local name slugname actual sentinel launched=0
   for name in "${IDENTITIES[@]}"; do
     slugname="$(slug "$name")"
@@ -1735,7 +1737,7 @@ resolve_memory_wrapper
 case "${1:-}" in
   --once) VERBOSE=1 reconcile ;;
   *)
-    log "agent-supervisor up: MODE=$MODE, interval=${CHECK_INTERVAL}s, claude=$CLAUDE"
+    log "agent-supervisor up: interval=${CHECK_INTERVAL}s, claude=$CLAUDE"
     # sweep any stale .resume-complete markers left in identity folders across a crash/reboot.
     # markers are only meaningful between drive()'s end-touch and the next drive-start / kill-start
     # rm — a fresh supervisor process starts with a clean slate. belt-and-suspenders alongside the

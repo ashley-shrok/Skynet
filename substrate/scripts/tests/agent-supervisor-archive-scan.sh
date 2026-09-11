@@ -26,7 +26,6 @@
 #                                            Points at a SEPARATE scratch dir (sibling of
 #                                            AGENT_IDENTITIES_DIR, not a subdir).
 #   AGENT_SUPERVISOR_CONF=/dev/null        — prevents loading the real conf (avoids DORMANCY=on etc)
-#   MODE=B                                 — satisfies the MODE check so source doesn't exit 1
 #   AGENT_SUPERVISOR_LIB_ONLY=1           — stops the reconcile loop (Phase 94-04 guard)
 # This set of env vars is the hermetic sourcing contract: sourcing the supervisor with
 # these variables set loads all function definitions with no side effects.
@@ -77,11 +76,11 @@ HAS_STUB_SERVER=false
 #     to the real ~/fleet/identities-archive on the host.
 #   AGENT_SUPERVISOR_LIB_ONLY=1           — Phase 94-04 guard: stops before the reconcile loop.
 #
-# NOTE: We do NOT set AGENT_SUPERVISOR_CONF=/dev/null because the supervisor resets MODE=""
-# at module scope (line ~43) and then loads MODE from CONF. With CONF=/dev/null, MODE stays
-# empty → the mode-check fires exit 1 → sourcing fails. Instead we let the real conf load
-# (it sets MODE=B on this host), which is safe because AGENT_IDENTITIES_DIR already redirects
-# IDENTITIES_DIR to the scratch dir — the only variable that matters for test isolation.
+# We let the real conf load (its DORMANCY / MEMORY_CAP settings are harmless for archive-scan
+# tests, and AGENT_IDENTITIES_DIR already redirects IDENTITIES_DIR to the scratch dir — the only
+# variable that matters for test isolation). The former MODE-check that used to force us to load
+# the real conf (so it would populate MODE=B) is gone as of 2026-09-11 — MODE was retired along
+# with the MODE=A code path.
 #
 # DORMANCY_STATE_DIR: tests set this AFTER sourcing (source respects the pre-existing export
 # via ":-" — but the real conf doesn't export it, so it defaults to the real state dir at
