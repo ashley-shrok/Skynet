@@ -810,17 +810,14 @@ describe("registry-rooms lockdown (quick 260911-n8a)", () => {
     expect(result.content.users_default).toBe(5);
   });
 
-  it("L7d (buildLockdownPowerLevelsContent unit — unrelated top-level fields pass through unchanged, e.g. `notifications`)", () => {
+  it("L7d (buildLockdownPowerLevelsContent unit — unrelated top-level fields pass through unchanged, e.g. `notifications`; `events` is NOT unrelated — see L7f/g/h for its specific lockdown handling)", () => {
     const notifications = { room: 50 };
-    const events = { "m.room.name": 50 };
     const result = buildLockdownPowerLevelsContent(HAPPY_CREDS.userId, {
       ...LOCKED_CONTENT_MIN,
       notifications,
-      events,
       users: { [HAPPY_CREDS.userId]: 100 },
     });
     expect(result.content.notifications).toEqual(notifications);
-    expect(result.content.events).toEqual(events);
   });
 
   it("L7e (assertRegistryRoomLockdown is exported & test-visible; direct invocation is a no-op on already-locked content)", async () => {
@@ -837,5 +834,65 @@ describe("registry-rooms lockdown (quick 260911-n8a)", () => {
       HAPPY_CREDS.userId,
     );
     expect(putRoomPowerLevelsSpy).not.toHaveBeenCalled();
+  });
+
+  it("L7f (buildLockdownPowerLevelsContent — events sub-object raises entries <100 and preserves entries >=100): closes the events_default-bypass gap where per-event overrides could let non-admins post", () => {
+    const { content, needsPatch } = buildLockdownPowerLevelsContent(
+      HAPPY_CREDS.userId,
+      {
+        ...LOCKED_CONTENT_MIN,
+        users: { [HAPPY_CREDS.userId]: 100 },
+        events: {
+          "m.room.message": 0,
+          "m.reaction": 50,
+          "m.room.encrypted": 100,
+          "m.custom.event": 150,
+        },
+      },
+    );
+    expect(needsPatch).toBe(true);
+    const events = content.events as Record<string, number>;
+    expect(events["m.room.message"]).toBe(100);
+    expect(events["m.reaction"]).toBe(100);
+    expect(events["m.room.encrypted"]).toBe(100);
+    expect(events["m.custom.event"]).toBe(150);
+  });
+
+  it("L7g (buildLockdownPowerLevelsContent — events sub-object already fully locked): no-op preserves entries and does not flip needsPatch", () => {
+    const { content, needsPatch } = buildLockdownPowerLevelsContent(
+      HAPPY_CREDS.userId,
+      {
+        ...LOCKED_CONTENT_MIN,
+        users: { [HAPPY_CREDS.userId]: 100 },
+        events: {
+          "m.room.message": 100,
+          "m.reaction": 200,
+        },
+      },
+    );
+    expect(needsPatch).toBe(false);
+    const events = content.events as Record<string, number>;
+    expect(events["m.room.message"]).toBe(100);
+    expect(events["m.reaction"]).toBe(200);
+  });
+
+  it("L7h (buildLockdownPowerLevelsContent — events sub-object with non-number entries): invalid entries dropped, needsPatch flipped (events_default:100 still governs the dropped event types)", () => {
+    const { content, needsPatch } = buildLockdownPowerLevelsContent(
+      HAPPY_CREDS.userId,
+      {
+        ...LOCKED_CONTENT_MIN,
+        users: { [HAPPY_CREDS.userId]: 100 },
+        events: {
+          "m.room.message": 100,
+          "m.malformed": "not-a-number",
+          "m.also.bad": null,
+        } as unknown as Record<string, number>,
+      },
+    );
+    expect(needsPatch).toBe(true);
+    const events = content.events as Record<string, number>;
+    expect(events["m.room.message"]).toBe(100);
+    expect(events["m.malformed"]).toBeUndefined();
+    expect(events["m.also.bad"]).toBeUndefined();
   });
 });

@@ -591,6 +591,36 @@ export function buildLockdownPowerLevelsContent(
   }
   target.users = targetUsers;
 
+  // events sub-object merge — per-event overrides silently undercut
+  // events_default:100. `events["m.room.message"] = 0` would leave non-admins
+  // able to send messages regardless of the top-level lockdown. Raise every
+  // numeric entry <100 to 100; preserve entries >=100 unchanged; drop
+  // non-number entries (invalid PL values that would leave the map corrupted,
+  // and events_default:100 governs anyway).
+  const existingEventsRaw =
+    existing !== null && existing.events !== undefined ? existing.events : null;
+  if (
+    existingEventsRaw !== null &&
+    typeof existingEventsRaw === "object" &&
+    !Array.isArray(existingEventsRaw)
+  ) {
+    const targetEvents: Record<string, number> = {};
+    let eventsChanged = false;
+    for (const [k, v] of Object.entries(
+      existingEventsRaw as Record<string, unknown>,
+    )) {
+      if (typeof v === "number") {
+        const raised = Math.max(v, 100);
+        targetEvents[k] = raised;
+        if (raised !== v) eventsChanged = true;
+      } else {
+        eventsChanged = true;
+      }
+    }
+    target.events = targetEvents;
+    if (eventsChanged) needsPatch = true;
+  }
+
   return { content: target, needsPatch };
 }
 
