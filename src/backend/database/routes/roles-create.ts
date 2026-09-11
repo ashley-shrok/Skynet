@@ -15,7 +15,7 @@
  *   Fields:
  *     - `data` (required): JSON blob {name, description, hostId,
  *        cosmetics?: {title?, colorHue?, voice?}}
- *     - `avatar` (optional): PNG/JPEG/WebP image file (≤ 2 MiB)
+ *     - `avatar` (optional): PNG/JPEG/WebP image file (≤ 10 MiB)
  *   → 201 { name, description, cosmetics } on success (echoes persisted
  *     cosmetic frontmatter; empty {} when none supplied)
  *   → 400 on validation failure (name/description/hostId + per-cosmetic-field
@@ -23,12 +23,12 @@
  *   → 401 without JWT
  *   → 404 when hostId does not resolve for the caller
  *   → 409 when ~/fleet/roles/<name>/ already exists on the target host
- *   → 413 on avatar exceeding 2 MiB (multer LIMIT_FILE_SIZE)
+ *   → 413 on avatar exceeding 10 MiB (multer LIMIT_FILE_SIZE)
  *   → 415 on non-multipart Content-Type OR unsupported avatar mimetype
  *   → 502 on SSH connect / exec / SFTP write failure
  *
  * Sequence:
- *   1. Multer parses multipart body (memoryStorage, 2 MB fileSize limit,
+ *   1. Multer parses multipart body (memoryStorage, 10 MB fileSize limit,
  *      png/jpeg/webp mimetype whitelist).
  *   2. Content-Type gate: reject non-multipart with LOUD 415 (see LOCKED
  *      learned preference above).
@@ -64,7 +64,7 @@
  *     and ext ∈ {webp,png,jpg} via MIME_TO_AVATAR_EXT lookup — client
  *     cannot control either half. Avatar upload goes through SFTP writeFile,
  *     not shell, so path components are never shell-interpolated regardless.
- *   T-86-02-02: DoS via oversized avatar — MITIGATE via multer 2 MB fileSize
+ *   T-86-02-02: DoS via oversized avatar — MITIGATE via multer 10 MB fileSize
  *     limit (mirrors identities.ts).
  *   T-86-02-03: silent no-op on JSON-with-cosmetics — MITIGATE via LOUD 415
  *     Content-Type gate (learned preference from canonical_refs).
@@ -136,7 +136,7 @@ const MAX_TITLE_LENGTH = 128;
  *  98 Plan 07. Accepts only the 7 Polly generative en-US voice IDs; the
  *  Elena.wav-style Chatterbox names are gone. Isolated call-site below. */
 
-/** Multer upload config — mirrors identities.ts L36-49 exactly (same 2 MB cap,
+/** Multer upload config — mirrors identities.ts L36-49 shape (10 MB cap here,
  *  same mimetype whitelist, same in-memory storage). Kept in sync with the
  *  identity endpoint per canonical_refs "same trap" note. */
 const ALLOWED_AVATAR_MIMES = new Set([
@@ -147,7 +147,15 @@ const ALLOWED_AVATAR_MIMES = new Set([
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 2 * 1024 * 1024 },
+  // 10 MiB captures modern-phone camera photos unmodified (typical 3-8 MB, up
+  // to ~15 MB for max-quality 4K rarely). In-memory buffer of 10 MB per
+  // concurrent upload is trivial; role avatars are file-siblings on disk with
+  // no scaling concern; frontend scales in CSS regardless of source size.
+  // Aligned with the "max any user would realistically choose for an image
+  // that wouldn't stress the app" bar. Nginx templates cap upstream at 11M
+  // (10 MiB + 1 MiB multipart framing headroom) per docker/nginx.conf
+  // + docker/nginx-https.conf /roles block.
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (ALLOWED_AVATAR_MIMES.has(file.mimetype)) cb(null, true);
     else cb(new Error("Avatar must be PNG, JPEG, or WebP"));
@@ -268,7 +276,7 @@ async function sftpWriteFileInline(
 /**
  * POST /
  * Content-Type: multipart/form-data
- * Fields: data (JSON blob), avatar (optional PNG/JPEG/WebP ≤ 2 MiB)
+ * Fields: data (JSON blob), avatar (optional PNG/JPEG/WebP ≤ 10 MiB)
  *
  * Provisions ~/fleet/roles/<name>/ + bounties/ + history.md + <name>.md
  * (with cosmetic frontmatter when supplied) + optional <name>.<ext> avatar
@@ -628,7 +636,7 @@ router.use(
     _next: express.NextFunction,
   ) => {
     if (err?.code === "LIMIT_FILE_SIZE") {
-      return res.status(413).json({ error: "Avatar exceeds 2 MB limit" });
+      return res.status(413).json({ error: "Avatar exceeds 10 MB limit" });
     }
     if (err?.message?.startsWith("Avatar must be")) {
       return res.status(415).json({ error: err.message });

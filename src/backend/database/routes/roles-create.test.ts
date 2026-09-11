@@ -575,9 +575,11 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
     expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
   });
 
-  it("Test 6: avatar file exceeding 2 MiB → 413 (multer LIMIT_FILE_SIZE)", async () => {
-    // 3 MiB payload — over the 2 MiB fileSize limit.
-    const oversized = Buffer.alloc(3 * 1024 * 1024, 0xaa);
+  it("Test 6: avatar file exceeding 10 MiB → 413 (multer LIMIT_FILE_SIZE)", async () => {
+    // 11 MiB payload — over the 10 MiB fileSize limit (bumped from 2 MiB
+    // 2026-09-11 after Phase-86 avatar cap was too tight for realistic
+    // camera-photo uploads).
+    const oversized = Buffer.alloc(11 * 1024 * 1024, 0xaa);
     const res = await httpPostMultipart(server, "/roles", buildMultipartBody({
       data: {
         name: "box-maintainer",
@@ -592,7 +594,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
       },
     }));
     expect(res.status).toBe(413);
-    expect((res.body as { error: string }).error).toMatch(/2 MB|2 ?MiB|limit/i);
+    expect((res.body as { error: string }).error).toMatch(/10 MB|10 ?MiB|limit/i);
     expect(writeMarkdownFileAtomic).not.toHaveBeenCalled();
   });
 
