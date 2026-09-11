@@ -76,8 +76,13 @@ vi.mock("@/features/terminal/session-hue", () => ({
   sessionMatchKey: () => null,
   useSessionIdentity: () => ({ identity: null, identityHue: null }),
 }));
+// Phase 106 Plan 106-04 (D-18): mock `refreshIdentities` so the birth+auto-
+// route chain test (Test 11 below) can assert the success chain fires the
+// D-16 identityMode:true payload on `onCreate` after the ended:ok:true event.
+const mockRefreshIdentities = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/state/identities-store", () => ({
   useIdentities: () => ({ byKey: new Map() }),
+  refreshIdentities: (...args: unknown[]) => mockRefreshIdentities(...args),
 }));
 vi.mock("@/hooks/use-is-touch-device", () => ({
   useIsTouchDevice: () => false,
@@ -568,5 +573,99 @@ describe("NewSessionDialog chain: Test 9 — initialRole ignored when user opts 
     await waitFor(() => {
       expect(screen.queryByLabelText(/^role$/i)).toBeFalsy();
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 11 (Phase 106 Plan 106-04, D-16 + D-18): birth+auto-route chain
+// still fires after the terminal `ended:ok:true` event (single-event
+// contract per D-10/D-12 — no per-step events on the wire under the new
+// sole-spawner shape).
+//
+// This test pins the chain half of the D-21 axis: given a chain-prefilled
+// modal (initialHost + initialRole) that leads into a successful birth, the
+// auto-route chain (refreshIdentities → onCreate → onClose) still fires
+// with the D-16 payload shape (identityMode: true, name preserved).
+//
+// The modal is opened with initialHost + initialRole (chain-prefill from a
+// prior CreateRoleDialog handoff — Phase 22 SRIC-05); the user fills only
+// the required name field and clicks Create. openBirthStream is mocked to
+// yield ONLY a single `{ type: "ended", ok: true, ... }` event — matching
+// Plan 106-01's new backend contract where step:1..5 events no longer exist.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("NewSessionDialog chain: Test 11 — birth+auto-route chain fires on ended:ok:true (single-event contract)", () => {
+  it("Test 11: chain-prefilled modal + successful birth (single ended:ok:true) → onCreate fires with identityMode:true + refreshIdentities called + onClose fires", async () => {
+    mockListRolesForHost.mockResolvedValue([
+      { name: "box-maintainer", description: "" },
+    ]);
+
+    // Plan 106-01's new wire contract: only the terminal `ended` event
+    // matters to the frontend. Any intermediate step:6/7/8 events are
+    // discarded (see NewSessionDialog.handleBirth's `if (evt.type ===
+    // "ended") break;` — Plan 106-02 edit 8). Yielding a single
+    // ended:ok:true event exercises the D-16 success chain without
+    // depending on any pre-Phase-106 step-event scaffolding.
+    async function* singleEndedOkStream() {
+      await Promise.resolve(); // let React flush render before terminal event
+      // Plan 106-01/106-02 single-event contract: `type: "ended", ok: true`.
+      yield { type: "ended" as const, ok: true, identityId: "alicia", sessionName: "alicia" };
+    }
+    mockOpenBirthStream.mockReturnValueOnce(singleEndedOkStream());
+
+    const onCreate = vi.fn();
+    const onClose = vi.fn();
+
+    render(
+      <NewSessionDialog
+        open
+        onClose={onClose}
+        hostTree={twoHostTree}
+        onCreate={onCreate}
+        initialHost={hostA}
+        initialRole="box-maintainer"
+      />,
+    );
+
+    // Wait for chain-prefill to settle: role dropdown appears with box-maintainer
+    await waitFor(() => {
+      const sel = screen.getByLabelText(/^role$/i) as HTMLSelectElement;
+      expect(sel.value).toBe("box-maintainer");
+    });
+
+    // Fill the required name field (only remaining gate for Create).
+    fireEvent.change(screen.getByLabelText(/^name$/i), { target: { value: "alicia" } });
+
+    // Wait for Create to become enabled, then click.
+    await waitFor(() => {
+      const createBtn = screen.getByRole("button", {
+        name: /^(open|create|creating|creating agent)/i,
+      }) as HTMLButtonElement;
+      expect(createBtn.disabled).toBe(false);
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /^(open|create|creating|creating agent)/i }),
+    );
+
+    // D-16 + D-18 chain: after the terminal ended:ok:true event, the
+    // frontend fires refreshIdentities → onCreate → onClose.
+    await waitFor(() => {
+      expect(onCreate).toHaveBeenCalledTimes(1);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    // D-18: identities store was refreshed BEFORE onCreate (so AppShell's
+    // openTab can resolve the new identity into pretty-view routing).
+    expect(mockRefreshIdentities).toHaveBeenCalled();
+
+    // D-16 payload shape preservation — AppShell.tsx:2236 onCreateSession
+    // narrows on identityMode:true; this pins the wire contract that the
+    // chain relies on.
+    expect(onCreate.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ identityMode: true, name: "alicia" }),
+    );
+
+    // Sanity: the mock stream was consumed via a single ended event; no
+    // step:3/4/5 events were required (D-10/D-12 single-ended contract).
+    expect(mockOpenBirthStream).toHaveBeenCalledTimes(1);
   });
 });
