@@ -21,6 +21,11 @@ import { AuthManager } from "../../utils/auth-manager.js";
 import { databaseLogger } from "../../utils/logger.js";
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
+// Phase 106 (D-05/D-06): the wait-for-supervisor sensor wired into the
+// birthIdentity orchestrator's `BirthDeps.discoverIdentitySessionFile`.
+// Same helper fleet-status and sessions.ts already trust for "this is a
+// live agent session, not a bare shell." Do NOT wire a parallel sensor.
+import { discoverIdentitySessionFile } from "../../claude-session/discover-identity-session-file.js";
 import {
   isLocalHostId,
   writeMarkdownFileAtomic,
@@ -38,6 +43,7 @@ import {
   ROLE_NAME_PATTERN,
   ROLE_NAME_RE,
   SSH_CONNECT_TIMEOUT_MS,
+  sanitizeError,
   type BirthEvent,
   type BirthDeps,
 } from "./identity-birth-orchestrator.js";
@@ -324,6 +330,29 @@ router.post(
     res.flushHeaders();
 
     // -----------------------------------------------------------------------
+    // Phase 106 (D-09): 30s SSE comment-frame keepalive.
+    //
+    // The birth stream holds open up to WAIT_FOR_SUPERVISOR_TIMEOUT_MS
+    // (120s in identity-birth-orchestrator.ts) during the wait-for-supervisor
+    // poll after Step 8. Intermediary idle-timeout defaults (nginx 60s, Caddy
+    // 30s per docker/nginx.conf + docker/nginx-https.conf) would kill the
+    // stream mid-wait without a periodic frame. The `:keepalive` leading-colon
+    // form is an SSE comment per spec — consumers ignore it silently, so no
+    // frontend-side handling is needed.
+    //
+    // 30s cadence sits well under both the nginx default (60s) and Caddy
+    // default (30s), giving the first keepalive frame ~two chances to fire
+    // before Caddy would close on inactivity.
+    // -----------------------------------------------------------------------
+    const keepAliveInterval = setInterval(() => {
+      try {
+        res.write(":keepalive\n\n");
+      } catch {
+        /* ignore write errors after close */
+      }
+    }, 30000);
+
+    // -----------------------------------------------------------------------
     // Emit helper — frames each event as SSE
     // -----------------------------------------------------------------------
     const emit = (e: BirthEvent): void => {
@@ -379,6 +408,13 @@ router.post(
       // ordinal for the composed base handle when opts.poolPicked === true.
       // Never invoked on the legacy path (poolPicked absent/false).
       matrixCountUsersMatching: (mxid) => matrixCountUsersMatching(mxid),
+      // Phase 106 (D-05/D-06) — wait-for-supervisor sensor. Called every
+      // WAIT_FOR_SUPERVISOR_POLL_MS from birthIdentity's wait block after
+      // Step 8's relay.json write. Same helper fleet-status and sessions.ts
+      // already trust — do NOT introduce a parallel sensor per shape file
+      // §"What would make it wrong" bullet 7.
+      discoverIdentitySessionFile: (conn, identityName) =>
+        discoverIdentitySessionFile(conn, identityName),
     };
 
     // -----------------------------------------------------------------------
@@ -419,14 +455,21 @@ router.post(
       );
     } catch (err) {
       // Unexpected throw from orchestrator (should emit ended event itself,
-      // but catch here as a safety net — emit an ended{ok:false} if not already)
+      // but catch here as a safety net — emit an ended{ok:false} if not already).
+      // Phase 106 (D-11): carry sanitized reason on the safety-net emit too,
+      // for log-forensic wire parity with the orchestrator's own outer-catch
+      // and with the retry-route's safety-net emit.
       databaseLogger.error("Identity birth orchestrator threw unexpectedly", err, {
         operation: "identity_birth",
         userId,
         name,
       });
-      emit({ type: "ended", ok: false });
+      emit({ type: "ended", ok: false, reason: sanitizeError(err) });
     } finally {
+      // Phase 106 (D-09): tear down the keepalive timer FIRST — the interval
+      // holds a ref on the event loop, and any post-close write attempt from
+      // the interval would race with `res.end()` below.
+      clearInterval(keepAliveInterval);
       // Consume the candidate to prevent re-use.
       // Phase 86 Plan 86-04: skip when no candidate was submitted — role-
       // inherited-avatar births (D-CTX-86-inherit) never touch the candidate
@@ -530,6 +573,19 @@ router.post("/retry/:key", express.json(), requireAdmin, async (req: Request, re
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders();
 
+    // Phase 106 (D-09): 30s SSE comment-frame keepalive — mirror of the POST /
+    // route's keepalive above. Retry cumulative time is under 30s in the happy
+    // case (Steps 6/7/8 + no supervisor wait), but a slow Synapse admin API
+    // round-trip could plausibly push a single step past the nginx/Caddy
+    // intermediary idle-timeout. Defense-in-depth to keep the wire warm.
+    const keepAliveInterval = setInterval(() => {
+      try {
+        res.write(":keepalive\n\n");
+      } catch {
+        /* ignore write errors after close */
+      }
+    }, 30000);
+
     const emit = (e: BirthEvent): void => {
       res.write(`event: birth\ndata: ${JSON.stringify(e)}\n\n`);
     };
@@ -596,9 +652,17 @@ router.post("/retry/:key", express.json(), requireAdmin, async (req: Request, re
         hostId,
       });
       if (!endedEmitted) {
-        emit({ type: "ended", ok: false });
+        // Phase 106 (D-11 + W-1 fix): carry the sanitized reason string on
+        // the failure ended emit so log-forensic parity holds across birth
+        // and retry paths. sanitizeError is the SAME helper the orchestrator
+        // uses on its outer-catch failure branch — reuses the 200-char cap
+        // + SSH-message-to-safe-string mapping.
+        emit({ type: "ended", ok: false, reason: sanitizeError(err) });
       }
     } finally {
+      // Phase 106 (D-09): tear down the keepalive timer FIRST — same
+      // ordering discipline as the POST / route above.
+      clearInterval(keepAliveInterval);
       if (conn) {
         try {
           (conn as unknown as { end: () => void }).end();

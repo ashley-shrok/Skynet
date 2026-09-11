@@ -403,8 +403,12 @@ function sleep(ms: number): Promise<void> {
 /**
  * Sanitize an error message for safe inclusion in SSE reason field.
  * Maps common SSH errors to safe strings. Never leaks raw stacks.
+ *
+ * Phase 106 (D-11 + W-1 fix): exported so identity-birth.ts's /retry/:key
+ * route can carry the same sanitized reason string on its failure `ended`
+ * emit — wire-parity with the orchestrator's outer-catch failure emit.
  */
-function sanitizeError(err: unknown): string {
+export function sanitizeError(err: unknown): string {
   if (!(err instanceof Error)) return "Unknown error";
   const msg = err.message;
   if (/timeout|unreachable/i.test(msg)) return "Host unreachable";
