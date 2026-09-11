@@ -74,6 +74,28 @@ services:
     networks:
       - skynet-net
 
+  # Matrix homeserver for deployments that co-locate their fleet's relay.
+  # SYNAPSE_SERVER_NAME must be set per-deployment (either at this env-var
+  # default or in /opt/skynet/skynet.env). On first startup with no
+  # homeserver.yaml in the volume, the image auto-generates config from the
+  # env vars. Skynet does NOT wire itself to this service — the relay
+  # account lives on whatever homeserver the deployment chose (external or
+  # co-located). The `matrix` network alias is load-bearing for Caddy's
+  # reverse_proxy → matrix:8008 route.
+  synapse:
+    image: ghcr.io/element-hq/synapse:latest
+    container_name: synapse
+    restart: unless-stopped
+    environment:
+      - SYNAPSE_SERVER_NAME=${SYNAPSE_SERVER_NAME:-matrix.local}
+      - SYNAPSE_REPORT_STATS=${SYNAPSE_REPORT_STATS:-no}
+    volumes:
+      - synapse-data:/data
+    networks:
+      skynet-net:
+        aliases:
+          - matrix
+
   # Custom Caddy build (adds route53 DNS-01 plugin for wildcard TLS on the
   # deployment's wildcard subdomain). Uses cross-account AssumeRole against
   # a Route 53 hosted zone via the `caddy` AWS profile. Per-deployment
@@ -91,8 +113,21 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ${SKYNET_HOST_DIR:-/opt/skynet}/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Directory bind (not single-file bind) so atomic-replace edits to
+      # Caddyfile (Write/Edit tool, `sed -i`, editor "save-as-tmp+rename")
+      # don't orphan the container's inode reference — single-file bind
+      # mounts to a specific inode at mount time, and any atomic-replace
+      # creates a new inode the container never sees. Host directory
+      # ${SKYNET_HOST_DIR}/caddy-config/ must contain a Caddyfile; unlocks
+      # hot-reload workflows (docker exec caddy caddy reload) without
+      # container recreate.
+      - ${SKYNET_HOST_DIR:-/opt/skynet}/caddy-config/:/etc/caddy/:ro
       - caddy-data:/data
+      # NOTE: this docker-managed `caddy-config` volume is separate from
+      # the host `caddy-config/` directory bound above — different names
+      # in different namespaces. This volume holds Caddy's runtime state
+      # at /config (auto-generated JSON config, TLS session state); the
+      # host bind at /etc/caddy/ holds the input Caddyfile.
       - caddy-config:/config
       # AWS SDK profile for cross-account Route 53 access.  Host
       # ~/.aws/config must contain a [profile caddy] block with the
@@ -137,6 +172,8 @@ volumes:
   caddy-data:
     driver: local
   caddy-config:
+    driver: local
+  synapse-data:
     driver: local
   # Phase 79 Plan 06 — shared state volume for tg-bridge <-> skynet handshake.
   # Contents: config.env, registry.json, <human>.token, <human>.since,
