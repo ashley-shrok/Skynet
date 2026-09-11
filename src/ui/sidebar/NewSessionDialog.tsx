@@ -25,11 +25,11 @@
 //
 // Phase 20 Plan 06: SSE birth stream consumer (IDUI-06, IDUI-07, IDUI-08).
 // When Create fires in agent mode (i.e. !shellOnly — see Phase 88 rename
-// below), opens an SSE stream against POST /identities/birth, renders the
-// 5-step BirthProgress checklist, shows per-step failure blurbs on
-// failure, closes on success + fires focus-follow via AppShell's existing
-// openTab flow. NO cancel/retry/rollback affordances per D-CONTEXT
-// non-negotiables.
+// below), opens an SSE stream against POST /identities/birth, closes on
+// success + fires focus-follow via AppShell's existing openTab flow.
+// (Phase 106 Plan 106-02 collapsed the previous per-step progress UI —
+// see block-level comment further down for the sole-spawner shape.)
+// NO cancel/retry/rollback affordances per D-CONTEXT non-negotiables.
 //
 // ─── Phase 88 (create-agent-modal-ux-pass, Plan 88-02) ─────────────────
 // Six coordinated edits on this file (paired with sibling role blurb
@@ -86,7 +86,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Search, Loader2, Check, XCircle, Circle } from "lucide-react";
+import { Search, Loader2 } from "lucide-react";
 
 import {
   Dialog,
@@ -183,122 +183,17 @@ export type NewSessionOnCreateOpts =
       identityId: string;
     };
 
-// ─── BirthProgress ─────────────────────────────────────────────────────────
-// Step labels for the 5-step birth sequence (matching CONTEXT.md §"Compound birth sequence")
-// Phase 68 Plan 04: SHAPE B chosen in 68-03. Step 1 is now an SSH-side on-disk
-// collision probe (SSH connect + folder check). Array length stays 5.
-const BIRTH_STEP_LABELS = [
-  "Check identity name is available on host",
-  "Open tmux session", // rendered with hostName at runtime
-  "Launch Claude CLI",
-  "Bootstrap dance",
-  "Send /id command",
-];
-
-// Failure blurbs verbatim from D-CONTEXT §"Failure blurbs", indexed 0-4 (step N is index N-1).
-// Slots: <host>, <name>, <path> — replaced at render time.
-// Phase 68 Plan 04: SHAPE B — blurb[0] updated for SSH-side collision probe.
-const BIRTH_STEP_BLURBS = [
-  "The identity name is already in use on this host. Pick a different name and retry.",
-  "Name available, but couldn't open a tmux session on <host>. Open the session by hand: `ssh <host> tmux new-session -d -s <name> -c <path>`.",
-  "Session is open on <host>, but the Claude CLI didn't launch. Attach with `ssh <host> tmux attach -t <name>` and start it yourself.",
-  "Session is open and Claude launched, but the bootstrap dance didn't complete. Attach with `ssh <host> tmux attach -t <name>` and press Enter a few times until the REPL responds, then run `/id <name>` yourself.",
-  "Session is at the REPL, but /id <name> didn't fire. Attach with `ssh <host> tmux attach -t <name>` and run it yourself.",
-];
-
-type StepStatus = "pending" | "in-progress" | "done" | "failed";
-
-interface BirthStepState {
-  n: 1 | 2 | 3 | 4 | 5;
-  status: StepStatus;
-  reason?: string;
-}
-
-const INITIAL_BIRTH_PROGRESS: BirthStepState[] = [
-  { n: 1, status: "pending" },
-  { n: 2, status: "pending" },
-  { n: 3, status: "pending" },
-  { n: 4, status: "pending" },
-  { n: 5, status: "pending" },
-];
-
-// BirthProgress — inline sub-component for the 5-step ticking checklist
-function BirthProgress({
-  steps,
-  failedStep,
-  hostName,
-  identityName,
-  identityPath,
-}: {
-  steps: BirthStepState[];
-  failedStep: number | null;
-  hostName: string;
-  identityName: string;
-  identityPath: string;
-}) {
-  return (
-    <div className="flex flex-col gap-2 pt-3 border-t border-[color:var(--color-pv-border-quiet)]">
-      <span className="text-[10px] font-bold uppercase tracking-widest text-[color:var(--color-pv-fg-muted)]">
-        Birth Progress
-      </span>
-      {steps.map((step, i) => {
-        const label =
-          step.n === 2
-            ? `Open tmux session on ${hostName}`
-            : BIRTH_STEP_LABELS[i];
-        return (
-          <div key={step.n} data-status={step.status} className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <span className="flex items-center shrink-0">
-                {step.status === "pending" && (
-                  <Circle className="size-3.5 text-[color:var(--color-pv-fg-dim)]" />
-                )}
-                {step.status === "in-progress" && (
-                  <Loader2 className="size-3.5 text-[color:var(--color-pv-code-fg)] animate-spin" />
-                )}
-                {step.status === "done" && (
-                  <Check className="size-3.5 text-green-500" />
-                )}
-                {step.status === "failed" && (
-                  <XCircle className="size-3.5 text-red-500" />
-                )}
-              </span>
-              <span
-                className={`text-xs ${
-                  step.status === "done"
-                    ? "text-green-500"
-                    : step.status === "failed"
-                      ? "text-red-400"
-                      : step.status === "in-progress"
-                        ? "text-[color:var(--color-pv-fg)]"
-                        : "text-[color:var(--color-pv-fg-dim)]"
-                }`}
-              >
-                {label}
-              </span>
-            </div>
-            {/* Failure blurb — only shown for the failed step */}
-            {step.status === "failed" && failedStep === step.n && (
-              <div className="ml-5 flex flex-col gap-1">
-                <p className="text-xs text-red-400">
-                  {BIRTH_STEP_BLURBS[step.n - 1]
-                    .replace(/<host>/g, hostName)
-                    .replace(/<name>/g, identityName)
-                    .replace(/<path>/g, identityPath)}
-                </p>
-                {step.reason && (
-                  <p className="text-[10px] text-[color:var(--color-pv-fg-dim)] font-mono">
-                    Debug: {step.reason}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+// ─── Phase 106 Plan 106-02 ─────────────────────────────────────────────────
+// The previous per-step birth checklist (step-labels table, per-step failure
+// blurb table, per-step state type + initial-state table, and the inline
+// sub-component that rendered the ticking list) was deleted per D-13/D-19.
+// Under the sole-spawner shape (agent-supervisor is the party that runs
+// tmux+claude, not Skynet), per-step launch beats happen on the supervisor's
+// timeline and can't be reported on the birth SSE stream — the modal collapses
+// to a single spinner-in-Create-button, and any failure (Skynet-side OR
+// supervisor-wait timeout, D-11) fires one generic
+// `window.alert("agent creation failed")` per D-17. See handleBirth below.
+// ────────────────────────────────────────────────────────────────────────────
 
 export function NewSessionDialog({
   open,
@@ -419,12 +314,13 @@ export function NewSessionDialog({
   const [rolesLoading, setRolesLoading] = useState<boolean>(false);
   const [rolesError, setRolesError] = useState<string | null>(null);
 
-  // Birth stream state (plan 06)
+  // Birth stream state — Phase 106 Plan 106-02 (D-13, D-15): the sole survivor
+  // of the previous step-checklist state. `birthing` gates form-field disable,
+  // modal close lock, and the Create-button spinner. `abortControllerRef` is
+  // still needed by the component-unmount cleanup effect below so a page
+  // navigation mid-birth cancels the SSE stream (modal close mid-birth is
+  // otherwise disabled per D-15).
   const [birthing, setBirthing] = useState(false);
-  const [birthProgress, setBirthProgress] = useState<BirthStepState[]>(
-    INITIAL_BIRTH_PROGRESS.map((s) => ({ ...s })),
-  );
-  const [birthFailedStep, setBirthFailedStep] = useState<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const flatHosts = useMemo(
@@ -451,13 +347,6 @@ export function NewSessionDialog({
       return hay.includes(q);
     });
   }, [flatHosts, search]);
-
-  // Reset birth progress helper
-  function resetBirthProgress() {
-    setBirthing(false);
-    setBirthProgress(INITIAL_BIRTH_PROGRESS.map((s) => ({ ...s })));
-    setBirthFailedStep(null);
-  }
 
   // On open: seed from chain pre-fill props if provided, else auto-select the
   // sole host when the tree has exactly one (existing Test 9 behavior).
@@ -517,8 +406,9 @@ export function NewSessionDialog({
       // Phase 22 SRIC-05: reset the host-change tracker so a subsequent
       // open with fresh chain pre-fill seed values takes effect (Test 8).
       prevHostIdRef.current = null;
-      // Reset birth state
-      resetBirthProgress();
+      // Reset birth state — Phase 106 Plan 106-02 (D-13/D-15): the only
+      // surviving birth-related state is the `birthing` boolean.
+      setBirthing(false);
     }
   }, [open, flatHosts]);
 
@@ -686,12 +576,16 @@ export function NewSessionDialog({
   // avatar via Plan 86-01's GET /:key/avatar role-folder fallback and
   // never need a per-identity avatar chosen at birth time.
 
-  // Birth stream handler — runs when Create is clicked with identity-mode ON
+  // Birth stream handler — runs when Create is clicked with identity-mode ON.
+  // Phase 106 Plan 106-02 rewrite: intermediate `step` events are discarded
+  // per D-12 (backend still emits them for log-forensic breadcrumbs but the
+  // frontend has no per-step UI to tick against under the sole-spawner shape).
+  // Only the terminal `ended` event matters. Failure of any kind — Skynet-side
+  // (ended.ok:false) OR outer catch (stream throw / network) — fires the same
+  // generic `window.alert("agent creation failed")` per D-17.
   async function handleBirth() {
     if (!selectedHost) return;
     setBirthing(true);
-    setBirthProgress(INITIAL_BIRTH_PROGRESS.map((s) => ({ ...s })));
-    setBirthFailedStep(null);
     abortControllerRef.current = new AbortController();
 
     const normalizedPath = normalizePath(path);
@@ -750,21 +644,11 @@ export function NewSessionDialog({
 
       let endedEvent: BirthEvent | null = null;
 
+      // Phase 106 Plan 106-02 (D-12): frontend discards intermediate `step`
+      // events — they exist on the wire purely as backend log-forensic
+      // breadcrumbs. Only the terminal `ended` event drives frontend state.
       for await (const evt of stream) {
-        if (evt.type === "step") {
-          setBirthProgress((prev) => {
-            const next = prev.map((s) => {
-              if (s.n === evt.n) {
-                return { ...s, status: evt.phase as StepStatus, reason: evt.reason };
-              }
-              return s;
-            });
-            return next;
-          });
-          if (evt.phase === "failed") {
-            setBirthFailedStep(evt.n);
-          }
-        } else if (evt.type === "ended") {
+        if (evt.type === "ended") {
           endedEvent = evt;
           break;
         }
@@ -779,18 +663,19 @@ export function NewSessionDialog({
         // session (no avatar, hostname sublabel, no pretty-view routing).
         // Best-effort — a fetch failure shouldn't block the tab from opening;
         // the next mount's fetchOnce still eventually catches up.
+        // Phase 106 Plan 106-02 (D-18): the refreshIdentities → onCreate order
+        // is preserved; refresh MUST fire between ended:ok consumption and
+        // onCreate firing so the just-born identity is in the store before
+        // AppShell's openTab resolves it into pretty-view routing.
         try {
           await refreshIdentities();
         } catch { /* best-effort — row will resolve on next store refresh */ }
 
-        // Success: call onCreate for focus-follow, then close modal
-        // Phase 86 Plan 86-04: cosmetic fields removed from the callback
-        // shape (see NewSessionOnCreateOpts identityMode:true variant —
-        // PUBLIC payload key unchanged from Phase 88; local `shellOnly`
-        // state variable is the renamed store).
-        // Consumers at AppShell.tsx L2040 + PrettyConversationsPanel.tsx
-        // L1945 never destructured these fields, so no downstream update
-        // required.
+        // Success (D-16): call onCreate for focus-follow, then close modal.
+        // AppShell.tsx:2236 onCreateSession handler narrows on identityMode:true
+        // and opens the tab with `allowCreateTmux: false` — attach-not-create
+        // semantics unchanged (the party that made the tmux session differs
+        // [supervisor instead of Skynet] but the frontend behavior is identical).
         onCreate({
           host: selectedHost,
           sessionName: name.toLowerCase(),
@@ -801,18 +686,22 @@ export function NewSessionDialog({
         setBirthing(false);
         onClose();
       } else {
-        // Failure: keep modal open, form fields disabled (user must close to retry)
+        // Failure — ended:ok:false (Skynet-side error OR supervisor-wait
+        // timeout, D-11). Frontend ignores the reason string per D-11 and
+        // always shows the same generic alert per D-17. Modal closes.
+        window.alert("agent creation failed");
         setBirthing(false);
+        onClose();
       }
     } catch (_e) {
-      // Stream error (fetch reject, network error, etc.) — surface as step-1 failure
-      setBirthProgress((prev) => {
-        const next = [...prev];
-        next[0] = { ...next[0], status: "failed", reason: _e instanceof Error ? _e.message : "birth failed" };
-        return next;
-      });
-      setBirthFailedStep(1);
+      // Stream error (fetch reject, network error, aborted stream, etc.) —
+      // same failure surface as ended:ok:false per D-17 (single generic alert,
+      // no distinct error class). The reason string, if any, is not surfaced;
+      // backend structured log at `identity_birth_supervisor_wait_timeout`
+      // (Plan 106-01) is the diagnosis surface.
+      window.alert("agent creation failed");
       setBirthing(false);
+      onClose();
     }
   }
 
@@ -859,14 +748,13 @@ export function NewSessionDialog({
       selectedRole !== ""
     : selectedHost !== null && nameValid && pathValid);
 
-  // Whether birth failed (show progress even after birthing completes if failed)
-  // Also show progress if any step has been started (non-pending) — keeps progress
-  // visible while stream is in-flight even before birthFailedStep is set.
-  const anyStepActive = birthProgress.some((s) => s.status !== "pending");
-  const showBirthProgress = birthing || birthFailedStep !== null || anyStepActive;
-
-  // Whether form fields should be disabled (during birthing OR after failure — user must close to reset)
-  const formDisabled = birthing || birthFailedStep !== null;
+  // Phase 106 Plan 106-02 (D-13/D-15): form fields disabled ONLY while birthing.
+  // Under the sole-spawner shape there is no failure-persist state — any birth
+  // failure fires `window.alert("agent creation failed")` and immediately closes
+  // the modal per D-17, so the previous failed-step-persist clause is gone.
+  // The previous "any step active" / "show progress" derivations are gone with
+  // the 5-step checklist (the Create button IS the spinner surface per D-14).
+  const formDisabled = birthing;
 
   const uiTitle = t("nav.newSession", { defaultValue: "New agent" });
   // Phase 84 (D-CONTEXT item 7): modal title conforms DOWN to the dropdown
@@ -913,7 +801,12 @@ export function NewSessionDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (!next) onClose();
+        // Phase 106 Plan 106-02 (D-15): modal is fully locked from Create
+        // click to birth resolution. Any close attempt (X button, Esc,
+        // backdrop click) is a no-op while `birthing === true`. Success or
+        // failure of the birth stream fires `onClose()` directly inside
+        // handleBirth after clearing the `birthing` flag.
+        if (!next && !birthing) onClose();
       }}
     >
       <DialogContent
@@ -1270,25 +1163,21 @@ export function NewSessionDialog({
             </div>
           )}
 
-          {/* Birth progress — shown during birth AND after failure */}
-          {showBirthProgress && (
-            <BirthProgress
-              steps={birthProgress}
-              failedStep={birthFailedStep}
-              hostName={selectedHost?.name ?? ""}
-              identityName={name.toLowerCase()}
-              identityPath={normalizePath(path)}
-            />
-          )}
+          {/* Phase 106 Plan 106-02 (D-13): the per-step birth checklist was
+              removed. Under the sole-spawner shape the modal shows a spinner
+              in the Create button (see DialogFooter below) instead of a
+              per-step ticking list. */}
         </div>
 
         <DialogFooter>
-          {/* Cancel button — hidden during birth (not during failure, to allow close) */}
-          {!birthing && (
-            <Button variant="ghost" onClick={onClose}>
-              {cancelLabel}
-            </Button>
-          )}
+          {/* Cancel button — Phase 106 Plan 106-02 (D-15): rendered always but
+              disabled during birthing so the button doesn't jump-vanish while
+              the Create button spins. Mirrors the form-field disabled pattern.
+              The Dialog's onOpenChange handler above is the actual close-lock
+              gate — this disabled attribute is the visual affordance side. */}
+          <Button variant="ghost" onClick={onClose} disabled={birthing}>
+            {cancelLabel}
+          </Button>
           <Button
             variant="outline"
             disabled={!canOpen}
@@ -1336,7 +1225,17 @@ export function NewSessionDialog({
               }
             }}
           >
-            {birthing ? "Creating..." : openLabel}
+            {/* Phase 106 Plan 106-02 (D-14): the Create button's text label is
+                replaced by a spinner icon while the birth stream is in-flight.
+                No more "Creating..." string — the Create button IS the spinner
+                surface. `size-4` matches the Button component's default text
+                line-height affordance (larger than the previous per-step icons
+                which used size-3.5 in a different context, now removed). */}
+            {birthing ? (
+              <Loader2 className="size-4 animate-spin" aria-label="Creating agent" />
+            ) : (
+              openLabel
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>
