@@ -7,9 +7,17 @@
 # layout) and on any host that sets SKYNET_HOST_DIR to a different root.
 #
 # Two-file reality: this file is the REPO canonical shape. On the live
-# deploy target the same file is mirrored to /opt/skynet/docker-compose.yml
-# by Plan 09's cutover step. Both files are byte-identical; SKYNET_HOST_DIR
-# is set by /opt/skynet/.env-compose (or shell env) at compose-up time.
+# deploy target this file lives in the repo and is invoked directly from
+# the repo checkout — no on-host mirror.  Runtime host-varying paths
+# (bind-mount sources, env_file) are parametrized via SKYNET_HOST_DIR
+# (default /opt/skynet) set by shell env or an .env file at the compose
+# location.  The `name:` below pins the compose project namespace to
+# `skynet` regardless of where compose is invoked from (repo checkout at
+# any path, etc.), so container names + docker-managed volumes stay
+# stable across identity trees and future path changes.
+
+name: skynet
+
 services:
   skynet:
     image: skynet-patched:local
