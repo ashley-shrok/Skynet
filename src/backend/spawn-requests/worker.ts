@@ -371,6 +371,7 @@ export const processBirth = async (item: PendingBirth, deps: WorkerDeps): Promis
     matrixLoginAsUser: (mxid, validUntilMs) =>
       matrixLoginAsUser(mxid, validUntilMs),
     matrixHomeserver: creds.homeserverBase,
+    matrixServerName: creds.serverName,
     buildRelayJsonBody: (bOpts) => buildRelayJsonBody(bOpts),
     matrixCountUsersMatching: (mxid) => matrixCountUsersMatching(mxid),
     // Phase 106 (D-05/D-06): wait-for-supervisor sensor. birthIdentity polls

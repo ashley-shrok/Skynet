@@ -218,6 +218,7 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
       .fn()
       .mockResolvedValue({ ok: true, accessToken: "syt_fake_access_token" }),
     matrixHomeserver: "http://synapse.example.com:8008",
+    matrixServerName: null,
     buildRelayJsonBody: vi.fn().mockReturnValue(
       JSON.stringify(
         {

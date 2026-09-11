@@ -114,6 +114,7 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
       writeFile: vi.fn(),
     },
     matrixHomeserver: "http://mock.homeserver.local:8008",
+    matrixServerName: null,
     matrixCreateOrUpdateUser: vi.fn().mockResolvedValue({
       ok: true,
       mxid: "@testkey:mock.homeserver.local",

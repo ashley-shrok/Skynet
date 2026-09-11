@@ -416,6 +416,7 @@ router.post(
       matrixLoginAsUser: (mxid, validUntilMs) =>
         matrixLoginAsUser(mxid, validUntilMs),
       matrixHomeserver: creds.homeserverBase,
+      matrixServerName: creds.serverName,
       buildRelayJsonBody: (opts) => buildRelayJsonBody(opts),
       // Phase 80 Plan 80-03b — countUsersMatching primitive from plan 80-02.
       // Called by deriveMxidWithOrdinal inside Step 6 to find the first unused
@@ -615,6 +616,7 @@ router.post("/retry/:key", express.json(), requireAdmin, async (req: Request, re
       | "matrixCreateOrUpdateUser"
       | "matrixLoginAsUser"
       | "matrixHomeserver"
+      | "matrixServerName"
       | "buildRelayJsonBody"
       | "writeMarkdownFileAtomic"
       | "execCommand"
@@ -627,6 +629,7 @@ router.post("/retry/:key", express.json(), requireAdmin, async (req: Request, re
       matrixLoginAsUser: (mxid, validUntilMs) =>
         matrixLoginAsUser(mxid, validUntilMs),
       matrixHomeserver: creds.homeserverBase,
+      matrixServerName: creds.serverName,
       buildRelayJsonBody: (opts) => buildRelayJsonBody(opts),
     };
 

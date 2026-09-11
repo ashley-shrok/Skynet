@@ -138,6 +138,7 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
     // The route handler enforces "creds must exist" via 503; orchestrator-layer
     // tests just need the deps to be callable and return {ok:true}.
     matrixHomeserver: "http://mock.homeserver.local:8008",
+    matrixServerName: null,
     matrixCreateOrUpdateUser: vi.fn().mockResolvedValue({
       ok: true,
       mxid: "@testkey:mock.homeserver.local",

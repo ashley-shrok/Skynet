@@ -340,6 +340,19 @@ export interface BirthDeps {
    */
   matrixHomeserver: string;
   /**
+   * 2026-09-11: Matrix server_name override, wired from
+   * matrix_admin_creds.serverName (matrix-admin-creds-store.ts). Consumed
+   * by runRelayMintAndWrite's Step 6 mxid derivation in preference to
+   * extractServerName(matrixHomeserver) when non-null. Load-bearing when
+   * homeserverBase is a URL whose host is NOT the Matrix server_name —
+   * e.g. `http://matrix:8008` (internal docker alias, host = "matrix")
+   * but synapse's real server_name is `t1000.taild9b663.ts.net`.
+   * Without this, Step 6 mints `@name:matrix` and synapse returns 400
+   * "This endpoint can only be used with local users" because mxid claims
+   * to belong to server "matrix", not the local server_name.
+   */
+  matrixServerName: string | null;
+  /**
    * Phase 75 Plan 04 — pure builder for the relay.json JSON body that Step 8
    * writes to `~/fleet/identities/<name>/relay.json` on the target host.
    * Wired to Plan 02's buildRelayJsonBody export. Emits exactly five keys
@@ -830,10 +843,25 @@ export async function runRelayMintAndWrite(
     }
   }
 
-  // Server-name suffix for the mxid — extracted from the homeserver URL so
-  // the deps only need to carry one homeserver value. NEVER a hardcoded
-  // fallback per D-OQ7 (island-model per 75-CONTEXT.md § Philosophy).
-  const serverName = extractServerName(deps.matrixHomeserver);
+  // Server-name suffix for the mxid.
+  //   1. Prefer deps.matrixServerName when non-null — this is the explicit
+  //      override from matrix_admin_creds.serverName (set via
+  //      PATCH /matrix-admin/creds/server-name). Load-bearing when
+  //      homeserverBase is a URL whose host doesn't match synapse's real
+  //      server_name (e.g. `http://matrix:8008` internal docker alias vs
+  //      `t1000.taild9b663.ts.net` actual server_name).
+  //   2. Fall back to extractServerName(deps.matrixHomeserver) — preserves
+  //      the pre-2026-09-11 behavior for deployments where the URL host IS
+  //      the server_name (the common case).
+  // NEVER a hardcoded fallback per D-OQ7 (island-model per 75-CONTEXT.md
+  // § Philosophy).
+  // Use loose `!= null` so both null (explicit no-override) AND undefined
+  // (older callers not passing the field yet) fall through to URL-host
+  // derivation. Defensive vs test doubles / older deps assemblies.
+  const serverName =
+    deps.matrixServerName != null
+      ? deps.matrixServerName
+      : extractServerName(deps.matrixHomeserver);
   // Phase 80 Plan 80-03b: mxid is now a `let` — Step 6 assigns based on the
   // poolPicked branch (derived MXID for the pool-picked path, legacy shape
   // otherwise). Steps 7 and 8 read the final value.
