@@ -80,9 +80,15 @@ vi.mock("../../relay-sessions/registry-rooms.js", () => ({
 vi.mock("node:fs/promises", () => ({
   readFile: vi.fn(),
   writeFile: vi.fn(),
+  rename: vi.fn(),
+  chmod: vi.fn(),
+  unlink: vi.fn(),
   default: {
     readFile: vi.fn(),
     writeFile: vi.fn(),
+    rename: vi.fn(),
+    chmod: vi.fn(),
+    unlink: vi.fn(),
   },
 }));
 
@@ -401,18 +407,34 @@ it("Test 1: happy path, remote host, emits steps 1/2/6/7/8 in order (Phase 106)"
 
 // ---------------------------------------------------------------------------
 // Test 2: self-birth (isLocalHostId=true) — no SSH, no discoverIdentitySessionFile
-// poll (guarded on !useLocal per Phase 106 wait-block predicate), uses local
-// exec for Step 2 only (Steps 6/7/8 + wait-poll all skipped on local branch).
+// poll (guarded on !useLocal per Phase 106 wait-block predicate). LOCAL branch
+// now runs Steps 1, 2 (via execLocal) + 6, 7, 8 (with conn=null; writeIdentityFile
+// routes to node fs). Only the wait-for-supervisor step stays skipped on LOCAL.
+// Updated 2026-09-11: LOCAL-branch coverage of 6/7/8 (fix for coord spawn-request
+// flow silently succeeding without minting/writing anything on t1000).
 // ---------------------------------------------------------------------------
 
-it("Test 2: self-birth (isLocalHostId=true), uses local exec, no SSH, skips wait-poll", async () => {
+it("Test 2: self-birth (isLocalHostId=true), uses local exec, no SSH, runs 1+2+6+7+8, skips wait-poll", async () => {
   mockIsLocalHostId.mockReturnValue(true);
 
-  const mockExecLocal = vi.fn().mockResolvedValue("");
+  // execLocal returns "" for mkdir/touch, "/home/test" for `echo $HOME` (Step 2.5
+  // resolves $HOME via this exec — empty string would fail the guard).
+  const mockExecLocal = vi.fn().mockImplementation(async (cmd: string) => {
+    if (cmd.includes("echo $HOME")) return "/home/test";
+    return "";
+  });
   const mockDiscover = vi.fn().mockResolvedValue("/mock/session.jsonl");
+  const mockCreateOrUpdate = vi
+    .fn()
+    .mockResolvedValue({ ok: true, mxid: "@test:example.com", password: "pw", status: 201 });
+  const mockLoginAsUser = vi
+    .fn()
+    .mockResolvedValue({ ok: true, accessToken: "syt_fake" });
   const deps = makeDeps({
     execLocal: mockExecLocal,
     discoverIdentitySessionFile: mockDiscover,
+    matrixCreateOrUpdateUser: mockCreateOrUpdate,
+    matrixLoginAsUser: mockLoginAsUser,
   });
   const opts = makeOpts({ hostId: 5 });
   const { events, emit } = collectEvents();
@@ -424,19 +446,34 @@ it("Test 2: self-birth (isLocalHostId=true), uses local exec, no SSH, skips wait
   // connectOneShot was NEVER called for local branch
   expect(mockConnectOneShot).not.toHaveBeenCalled();
 
-  // execLocal was called for step 2 (mkdir target path)
+  // execLocal was called for step 1 (collision probe) + step 2 (mkdir + $HOME
+  // resolve + identity-dir mkdir).
   expect(mockExecLocal).toHaveBeenCalled();
+
+  // LOCAL branch NOW runs 6/7/8 — matrix mint fires, identity file + relay.json
+  // land on disk via writeMarkdownFileAtomic(null,...) + writeIdentityFile LOCAL.
+  expect(mockCreateOrUpdate).toHaveBeenCalled();
+  expect(mockLoginAsUser).toHaveBeenCalled();
+
+  // Step 2.5 writes: deps.writeMarkdownFileAtomic + deps.writeAvatarSiblingFile
+  // are both called with conn === null on the LOCAL branch.
+  expect(deps.writeMarkdownFileAtomic).toHaveBeenCalledWith(null, expect.any(String), expect.any(String));
+  expect(deps.writeAvatarSiblingFile).toHaveBeenCalledWith(null, opts.name, expect.any(String), expect.any(Buffer));
 
   // Phase 106: local branch skips wait-poll entirely — discoverIdentitySessionFile
   // is never invoked (guarded on `!useLocal && conn`).
   expect(mockDiscover).not.toHaveBeenCalled();
 
-  // Phase 106: local branch emits only steps 1, 2 (Steps 6/7/8 skipped on local
-  // branch per L1228 predicate). 2 × 2 + 1 ended = 5 events.
-  expect(events.length).toBe(5);
+  // Ended{ok:true}
   const endedEvent = events.find((e) => e.type === "ended");
   expect(endedEvent).toBeDefined();
   expect((endedEvent as { type: "ended"; ok: boolean }).ok).toBe(true);
+
+  // Step-event set covers 1, 2, 6, 7, 8 (each started+completed) = 10 step
+  // events + 1 ended = 11.
+  const stepEvents = events.filter((e) => e.type === "step");
+  const stepNums = new Set(stepEvents.map((e) => (e as { n: number }).n));
+  expect(stepNums).toEqual(new Set([1, 2, 6, 7, 8]));
 }, 10_000);
 
 // ---------------------------------------------------------------------------
@@ -1470,16 +1507,23 @@ describe("Phase 75 Plan 04: relay-mint extensions (Steps 6, 7, 8)", () => {
     assertNoRmRfInExecCalls(mockExecCommand);
   }, 30_000);
 
-  // ---- Test D: useLocal skips 6-8 entirely ----
-  it("Test D: useLocal=true (self-birth) skips step 6/7/8 entirely — matrixCreateOrUpdateUser + matrixLoginAsUser never called", async () => {
+  // ---- Test D: useLocal RUNS 6-8 with conn=null (2026-09-11 LOCAL-branch fix) ----
+  it("Test D: useLocal=true (self-birth) RUNS step 6/7/8 — matrixCreateOrUpdateUser + matrixLoginAsUser fire, buildRelayJsonBody fires, conn=null wire preserved", async () => {
     mockIsLocalHostId.mockReturnValue(true);
 
-    const mockCreateOrUpdate = vi.fn();
-    const mockLoginAsUser = vi.fn();
-    const mockBuildRelay = vi.fn();
+    const mockCreateOrUpdate = vi
+      .fn()
+      .mockResolvedValue({ ok: true, mxid: "@self:example.com", password: "pw", status: 201 });
+    const mockLoginAsUser = vi
+      .fn()
+      .mockResolvedValue({ ok: true, accessToken: "syt_local" });
+    const mockBuildRelay = vi.fn().mockReturnValue("{\"local\":true}");
 
     const deps = makeDeps({
-      execLocal: vi.fn().mockResolvedValue(""),
+      execLocal: vi.fn().mockImplementation(async (cmd: string) => {
+        if (cmd.includes("echo $HOME")) return "/home/test";
+        return "";
+      }),
       matrixCreateOrUpdateUser: mockCreateOrUpdate,
       matrixLoginAsUser: mockLoginAsUser,
       buildRelayJsonBody: mockBuildRelay,
@@ -1491,21 +1535,24 @@ describe("Phase 75 Plan 04: relay-mint extensions (Steps 6, 7, 8)", () => {
     await vi.runAllTimersAsync();
     await birthPromise;
 
-    // Assert NO step:6/7/8 event of any phase is present
+    // Step 6/7/8 events all fire (started + completed each = 6 events).
     const phase75Events = events.filter(
       (e) => e.type === "step" && (e.n === 6 || e.n === 7 || e.n === 8),
     );
-    expect(phase75Events).toHaveLength(0);
+    expect(phase75Events).toHaveLength(6);
 
-    // Assert Phase 75 deps were NEVER called
-    expect(mockCreateOrUpdate).not.toHaveBeenCalled();
-    expect(mockLoginAsUser).not.toHaveBeenCalled();
-    expect(mockBuildRelay).not.toHaveBeenCalled();
+    // Phase 75 deps ARE called on LOCAL now.
+    expect(mockCreateOrUpdate).toHaveBeenCalledTimes(1);
+    expect(mockLoginAsUser).toHaveBeenCalledTimes(1);
+    expect(mockBuildRelay).toHaveBeenCalledTimes(1);
 
     // ended{ok:true}
     const endedEvent = events.find((e) => e.type === "ended");
     expect(endedEvent).toBeDefined();
     expect((endedEvent as { ok: boolean }).ok).toBe(true);
+
+    // connectOneShot NEVER called (LOCAL preserves no-SSH invariant).
+    expect(mockConnectOneShot).not.toHaveBeenCalled();
   }, 30_000);
 
   // ---- Test E: retry helper idempotency ----

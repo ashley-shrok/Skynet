@@ -263,26 +263,28 @@ export interface BirthDeps {
     writeFile: (p: string, content: string) => Promise<void>;
   };
   /**
-   * Phase 22 SRIC-02: SFTP tmp+rename helper for the Step 2.5 identity file
-   * pre-write. Wraps identity-artifact-reader.writeMarkdownFileAtomic so the
-   * ext_openssh_rename discipline (Pitfall 3 / #2924) is preserved.
+   * Phase 22 SRIC-02: identity file atomic tmp+rename helper for Step 2.5.
+   * Wraps identity-artifact-reader.writeMarkdownFileAtomic. The primitive
+   * routes on conn === null → LOCAL (fs tmp+rename), non-null → REMOTE
+   * (SFTP ext_openssh_rename, Pitfall 3 / #2924). Same $HOME-literal path
+   * convention either way.
    */
   writeMarkdownFileAtomic: (
-    conn: SSHClient,
+    conn: SSHClient | null,
     targetPath: string,
     contents: string,
   ) => Promise<void>;
   /**
-   * Phase 66 Plan 66-01 Track 1: SFTP binary tmp+rename helper for the
-   * Step 2.5 avatar sibling write. Wraps
-   * identity-artifact-reader.writeAvatarSiblingFile — same ext_openssh_rename
-   * atomic-overwrite discipline as writeMarkdownFileAtomic, but with a binary
-   * Buffer payload and its own log tag (identity_avatar_write). Called AFTER
-   * writeMarkdownFileAtomic in Step 2.5's remote branch; called ONCE per
-   * successful birth.
+   * Phase 66 Plan 66-01 Track 1: avatar sibling file atomic tmp+rename
+   * helper for Step 2.5. Wraps identity-artifact-reader.writeAvatarSiblingFile
+   * — routes on conn === null (LOCAL: Node fs, per identity-artifact-reader.ts
+   * L2104-L2111) vs non-null (REMOTE: SFTP ext_openssh_rename atomic-overwrite,
+   * matching writeMarkdownFileAtomic's discipline). Binary Buffer payload,
+   * own log tag (identity_avatar_write). Called AFTER writeMarkdownFileAtomic
+   * in Step 2.5; called ONCE per successful birth.
    */
   writeAvatarSiblingFile: (
-    conn: SSHClient,
+    conn: SSHClient | null,
     identityKey: string,
     ext: AvatarExt,
     bytes: Buffer,
@@ -752,9 +754,10 @@ export async function runRelayMintAndWrite(
     displayName?: string;
     /**
      * Target host record ID. Threaded into Step 8's writeIdentityFile
-     * primitive so it can pick LOCAL (isLocalHostId → bind-mount fast-path)
-     * vs REMOTE (SFTP tmp+rename) — matches the WriteIdentityFileOpts
-     * contract at claude-session/per-identity-file.ts.
+     * primitive so it can pick LOCAL (isLocalHostId → bind-mount fast-path,
+     * `conn` here is null) vs REMOTE (SFTP tmp+rename, `conn` non-null) —
+     * matches the WriteIdentityFileOpts contract at
+     * claude-session/per-identity-file.ts.
      */
     hostId: number;
     /**
@@ -778,12 +781,16 @@ export async function runRelayMintAndWrite(
   },
   emit: (e: BirthEvent) => void,
   deps: BirthDeps,
-  conn: SSHClient,
+  conn: SSHClient | null,
 ): Promise<void> {
   // Local runStep — same shape as birthIdentity's inner runStep so events emit
   // with identical framing whether we're inside birthIdentity or the retry
   // route. Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode +
   // agent-supervisor race. NO folder-cleanup in this catch, ever.
+  //
+  // conn === null → LOCAL host (isLocalHostId=true). writeIdentityFile at
+  // Step 8 routes on hostId + conn; matrix-admin primitives (Steps 6/7) do
+  // not touch conn at all.
   async function runStep(
     n: 6 | 7 | 8,
     fn: () => Promise<void>,
@@ -1171,18 +1178,18 @@ export async function birthIdentity(
       // else: birthCandidate stays null; Step 2.5 will skip the sibling
       // file write; buildIdentityFileBody will skip the `avatar:` key.
 
-      // On-disk collision probe for remote branch (SHAPE B).
+      // On-disk collision probe. LOCAL + REMOTE both route through the
+      // exec() abstraction — the SHELL probe works for either branch (the
+      // command is a plain sh -c, execLocal runs it via child_process,
+      // deps.execCommand runs it via SSH).
       // opts.name is already gated by IDENTITY_KEY_RE + TMUX_SAFE_NAME_RE so
       // it's safe to interpolate into the double-quoted path (matches the
       // same "validate-then-interpolate" pattern as identity-clone.ts:119).
-      if (!useLocal && conn) {
-        const probeOut = await deps.execCommand(
-          conn,
-          `if [ -d "$HOME/fleet/identities/${opts.name}" ]; then echo exists; else echo missing; fi`,
-        );
-        if (probeOut.trim() === "exists") {
-          throw new Error("identity already exists on this host");
-        }
+      const probeOut = await exec(
+        `if [ -d "$HOME/fleet/identities/${opts.name}" ]; then echo exists; else echo missing; fi`,
+      );
+      if (probeOut.trim() === "exists") {
+        throw new Error("identity already exists on this host");
       }
     });
 
@@ -1225,109 +1232,124 @@ export async function birthIdentity(
     await runStep(2, async () => {
       await exec(`mkdir -p ${escPath}`);
 
-      // Phase 22 SRIC-02 Step 2.5: identity file pre-write (remote branch only).
+      // Phase 22 SRIC-02 Step 2.5: identity file pre-write.
       // Phase 66 Plan 66-01 grew this to also emit full-cosmetics frontmatter
       // (displayName/title/colorHue/voice/avatar) + write the avatar sibling
       // file, so Skynet-born identities are byte-shape-indistinguishable from
       // Nelly-migrated (Phase A) ones on disk.
-      if (!useLocal && conn) {
-        // Defense in depth: HTTP handler validates opts.role, but re-check
-        // here because role is shell-interpolated below (T-22-02-01).
-        if (!opts.role || !ROLE_NAME_PATTERN.test(opts.role)) {
+      //
+      // LOCAL branch (2026-09-11): fs.writeFile tmp+rename via
+      // writeMarkdownFileAtomic(null,...) + writeAvatarSiblingFile(null,...).
+      // Both primitives take conn nullable — REMOTE passes the SSH client,
+      // LOCAL passes null. Same $HOME-prefixed path shape either way; the
+      // primitive's LOCAL branch substitutes os.homedir() (the /fleet
+      // bind-mount from docker-compose.yml maps container-HOME/fleet →
+      // host /home/ubuntu/fleet).
+      // Defense in depth: HTTP handler validates opts.role, but re-check
+      // here because role is shell-interpolated in the identity file body.
+      if (!opts.role || !ROLE_NAME_PATTERN.test(opts.role)) {
+        throw new Error(
+          `role must match ${ROLE_NAME_PATTERN}; got: ${JSON.stringify(opts.role)}`,
+        );
+      }
+
+      // Resolve $HOME via the exec() abstraction — SSH for REMOTE,
+      // child_process.exec for LOCAL. Both surface the same $HOME the
+      // downstream file writes will target.
+      const remoteHome = (await exec("echo $HOME")).trim();
+      if (!remoteHome || remoteHome.includes("\n")) {
+        throw new Error("could not resolve $HOME");
+      }
+
+      // Build the identity folder path. opts.name is already gated by
+      // IDENTITY_KEY_RE + TMUX_SAFE_NAME_RE above, so it's shell-safe.
+      const identityDir = `${remoteHome}/fleet/identities/${opts.name}`;
+      const identityFilePath = `${identityDir}/${opts.name}.md`;
+
+      // 1. Create the identity folder tree — wakeups/ + workspace/ (generic
+      //    working dir per D-04) plus touch handoff.md to satisfy id skill's
+      //    load-existing branch. Single mkdir -p + touch works both branches
+      //    (LOCAL via execLocal, REMOTE via SSH exec).
+      await exec(
+        `mkdir -p "${identityDir}/wakeups" "${identityDir}/workspace" && touch "${identityDir}/handoff.md"`,
+      );
+
+      // 2. Derive avatar ext from the candidate mime. Defense-in-depth: the
+      //    birth upload path is capped to png/jpeg/webp so an unmapped mime
+      //    should never surface here, but throw loud instead of silent-no-op
+      //    if the map ever narrows and a caller widens (T-66-01-01).
+      //
+      //    Phase 86 Plan 86-04 (D-CTX-86-inherit): when opts.avatarCandidateId
+      //    was absent from the birth request, Step 1's candidate lookup was
+      //    skipped and birthCandidate is still null — the identity inherits
+      //    the role's avatar via Plan 86-01's GET /:key/avatar role-folder
+      //    fallback. buildIdentityFileBody receives "" for avatarFilename
+      //    (absent-⇒-omit invariant), the .md is written, and
+      //    writeAvatarSiblingFile is skipped entirely.
+      let avatarExt: AvatarExt | null = null;
+      let avatarFilename = "";
+      if (birthCandidate !== null) {
+        const derivedExt = MIME_TO_AVATAR_EXT[birthCandidate.mime];
+        if (!derivedExt) {
           throw new Error(
-            `role must match ${ROLE_NAME_PATTERN}; got: ${JSON.stringify(opts.role)}`,
+            "unsupported avatar mime for on-disk write: " + birthCandidate.mime,
           );
         }
+        avatarExt = derivedExt;
+        avatarFilename = `${opts.name}.${avatarExt}`;
+      }
 
-        // Resolve $HOME on the target host — one SSH round-trip.
-        const remoteHome = (await deps.execCommand(conn, "echo $HOME")).trim();
-        if (!remoteHome || remoteHome.includes("\n")) {
-          throw new Error("could not resolve remote $HOME");
-        }
+      // 3. Compose the identity file body via the Phase 66 builder —
+      //    full cosmetics frontmatter with role-first ordering and the
+      //    absent-⇒-omit invariant for null / empty-string fields.
+      //    displayName mirrors identity-birth.ts createIdentityRecord's
+      //    capitalize(opts.name) rule (Patch #320 correct mapping).
+      const displayName =
+        opts.name.length > 0
+          ? opts.name[0].toUpperCase() + opts.name.slice(1)
+          : opts.name;
+      const identityFileBody = buildIdentityFileBody(
+        opts,
+        displayName,
+        avatarFilename,
+      );
 
-        // Build the identity folder path. opts.name is already gated by
-        // IDENTITY_KEY_RE + TMUX_SAFE_NAME_RE above, so it's shell-safe.
-        const identityDir = `${remoteHome}/fleet/identities/${opts.name}`;
-        const identityFilePath = `${identityDir}/${opts.name}.md`;
+      // 4. Write markdown atomically. REMOTE: SFTP tmp+rename via
+      //    ext_openssh_rename (Pitfall 3 / #2924). LOCAL: fs.writeFile
+      //    tmp+rename. writeMarkdownFileAtomic routes on conn === null.
+      await deps.writeMarkdownFileAtomic(conn, identityFilePath, identityFileBody);
 
-        // 1. Create the identity folder tree — wakeups/ + workspace/ (generic working dir per D-04)
-        //    plus touch handoff.md to satisfy id skill's load-existing branch.
-        //    Single mkdir -p covers both sub-parts and the parent identityDir.
-        await deps.execCommand(
-          conn,
-          `mkdir -p "${identityDir}/wakeups" "${identityDir}/workspace" && touch "${identityDir}/handoff.md"`,
-        );
-
-        // 2. Derive avatar ext from the candidate mime. Defense-in-depth: the
-        //    birth upload path is capped to png/jpeg/webp so an unmapped mime
-        //    should never surface here, but throw loud instead of silent-no-op
-        //    if the map ever narrows and a caller widens (T-66-01-01).
-        //
-        //    Phase 86 Plan 86-04 (D-CTX-86-inherit): when opts.avatarCandidateId
-        //    was absent from the birth request, Step 1's candidate lookup was
-        //    skipped and birthCandidate is still null — the identity inherits
-        //    the role's avatar via Plan 86-01's GET /:key/avatar role-folder
-        //    fallback. buildIdentityFileBody receives "" for avatarFilename
-        //    (absent-⇒-omit invariant), the .md is written, and
-        //    writeAvatarSiblingFile is skipped entirely.
-        let avatarExt: AvatarExt | null = null;
-        let avatarFilename = "";
-        if (birthCandidate !== null) {
-          const derivedExt = MIME_TO_AVATAR_EXT[birthCandidate.mime];
-          if (!derivedExt) {
-            throw new Error(
-              "unsupported avatar mime for on-disk write: " + birthCandidate.mime,
-            );
-          }
-          avatarExt = derivedExt;
-          avatarFilename = `${opts.name}.${avatarExt}`;
-        }
-
-        // 3. Compose the identity file body via the Phase 66 builder —
-        //    full cosmetics frontmatter with role-first ordering and the
-        //    absent-⇒-omit invariant for null / empty-string fields.
-        //    displayName mirrors identity-birth.ts createIdentityRecord's
-        //    capitalize(opts.name) rule (Patch #320 correct mapping).
-        const displayName =
-          opts.name.length > 0
-            ? opts.name[0].toUpperCase() + opts.name.slice(1)
-            : opts.name;
-        const identityFileBody = buildIdentityFileBody(
-          opts,
-          displayName,
-          avatarFilename,
-        );
-
-        // 4. Write markdown via SFTP tmp+rename (ext_openssh_rename per
-        //    Pitfall 3 / #2924).
-        await deps.writeMarkdownFileAtomic(conn, identityFilePath, identityFileBody);
-
-        // 5. Write avatar sibling file via SFTP tmp+rename (same
-        //    ext_openssh_rename discipline, binary payload — Phase 66
-        //    Plan 66-01 Track 1). Runs AFTER writeMarkdownFileAtomic:
-        //    graceful partial recovery — if the avatar write fails, the
-        //    .md + wakeups/ + handoff.md are still on disk (re-birth is
-        //    the recovery path, not a rollback we build). Test 24b pins
-        //    this ordering.
-        //
-        //    Phase 86 Plan 86-04 (D-CTX-86-inherit): skip the sibling write
-        //    when no candidate bytes exist (role-inherited-avatar path).
-        //    The role's avatar file at ~/fleet/roles/<role>/<file> is
-        //    served via Plan 86-01's GET /:key/avatar role-folder fallback.
-        //    avatarExt was assigned above inside the same `birthCandidate
-        //    !== null` guard, so the non-null assertion is safe here.
-        if (birthCandidate !== null) {
-          await deps.writeAvatarSiblingFile(conn, opts.name, avatarExt!, birthCandidate.bytes);
-        }
+      // 5. Write avatar sibling file (same atomic tmp+rename discipline,
+      //    binary payload — Phase 66 Plan 66-01 Track 1). Runs AFTER
+      //    writeMarkdownFileAtomic: graceful partial recovery — if the
+      //    avatar write fails, the .md + wakeups/ + handoff.md are still
+      //    on disk (re-birth is the recovery path, not a rollback we build).
+      //    Test 24b pins this ordering.
+      //
+      //    Phase 86 Plan 86-04 (D-CTX-86-inherit): skip the sibling write
+      //    when no candidate bytes exist (role-inherited-avatar path).
+      //    The role's avatar file at ~/fleet/roles/<role>/<file> is
+      //    served via Plan 86-01's GET /:key/avatar role-folder fallback.
+      //    avatarExt was assigned above inside the same `birthCandidate
+      //    !== null` guard, so the non-null assertion is safe here.
+      //
+      //    writeAvatarSiblingFile already has a LOCAL branch (conn === null
+      //    routes to Node fs — see identity-artifact-reader.ts L2104-L2111).
+      if (birthCandidate !== null) {
+        await deps.writeAvatarSiblingFile(conn, opts.name, avatarExt!, birthCandidate.bytes);
       }
     });
 
     // -----------------------------------------------------------------------
-    // Phase 75 Plan 04 — Steps 6, 7, 8 (remote branch only, D-OQ3 lock):
+    // Phase 75 Plan 04 — Steps 6, 7, 8 (D-OQ3 lock):
     // admin-mint relay account + write relay.json to target host with a real
-    // access_token. Local-branch self-birth SKIPS these entirely (mirrors the
-    // Step 2.5 pre-write skip at L523 above — Phase A UAT is remote fleet
-    // hosts only).
+    // access_token.
+    //
+    // LOCAL branch (2026-09-11): the helper accepts conn: SSHClient | null.
+    // Steps 6/7 don't touch conn (they call matrix-admin HTTP primitives),
+    // and Step 8's writeIdentityFile already routes on hostId (LOCAL:
+    // Node fs, REMOTE: SFTP) — per per-identity-file.ts. Passing conn=null
+    // here for LOCAL is the whole story.
     //
     // The helper handles all three steps' event emission and error handling.
     // Its runStep wrapper throws BirthAborted on failure which propagates
@@ -1337,7 +1359,7 @@ export async function birthIdentity(
     // agent-supervisor race. The helper does NOT delete the identity folder
     // on any Step 6/7/8 failure; this call site MUST NOT either.
     // -----------------------------------------------------------------------
-    if (!useLocal && conn) {
+    {
       const displayName =
         opts.name.length > 0
           ? opts.name[0].toUpperCase() + opts.name.slice(1)
@@ -1396,12 +1418,19 @@ export async function birthIdentity(
     //   we've given up waiting — deleting on timeout re-introduces the race
     //   the no-rollback rule was written to prevent.
     //
-    // Local branch (isLocalHostId=true): skip the wait entirely. There is
-    // no remote transcript file to poll (the exec-user's `~/.claude/projects/`
-    // is on the Skynet box itself, not a remote box); local-branch self-birth
-    // is out of Phase A UAT scope. Emit ended{ok:true} directly, matching the
-    // pattern at :1228 above where Steps 6/7/8 are also guarded on `!useLocal
-    // && conn`.
+    // Local branch (isLocalHostId=true): skip the wait entirely and emit
+    // ended{ok:true} directly. The supervisor sees the new identity folder on
+    // its next 15s reconcile tick (Steps 2 + 2.5 already wrote it in the LOCAL
+    // branch above) and brings the tmux + claude + `/id <name>` up on its
+    // own. discoverIdentitySessionFile IS callable via SSH-to-self, but for
+    // co-located spawns the caller (spawn-requests worker) doesn't need
+    // birth-time confirmation the JSONL exists — the response file lands
+    // when Steps 6/7/8 complete, the coord picks it up + DMs the new mxid,
+    // the receiver auto-joins the invite on first wake. The supervisor's
+    // 15s tick brings the identity alive shortly after. Adding a JSONL-poll
+    // wait here would require bind-mounting /home/ubuntu/.claude/projects/
+    // into the Skynet container (not currently mounted) — deferred as a
+    // future hardening pass; the current fast-exit doesn't lose information.
     // -----------------------------------------------------------------------
     if (!useLocal && conn) {
       const waitStartMs = Date.now();

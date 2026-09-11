@@ -1923,13 +1923,49 @@ export const IDMEDIT_MAX_BOUNTY_JSON_BYTES = 100_000;
  *   diagnostic naming the fix if a future refactor reverts this call site.
  */
 export async function writeMarkdownFileAtomic(
-  conn: SSHClientType,
+  conn: SSHClientType | null,
   targetPath: string,
   contents: string,
 ): Promise<void> {
   const tmpPath = targetPath + ".tmp";
   const buf = Buffer.from(contents, "utf-8");
   const bytes = buf.byteLength;
+
+  // LOCAL branch — conn === null routes to Node fs tmp+rename (mirrors
+  // writeAvatarSiblingFile's LOCAL branch structure at L2104-L2111 and
+  // per-identity-file.ts writeIdentityFile's LOCAL branch). Callers may
+  // pass a $HOME-prefixed path (matching the REMOTE $HOME-literal convention
+  // used by identity-birth Step 2.5) — substitute os.homedir() so it
+  // resolves to the container's HOME (which the /fleet bind-mount maps to
+  // the host's fleet dir on LOCAL deployments).
+  if (conn === null) {
+    const localPath = targetPath.startsWith("$HOME/")
+      ? path.join(os.homedir(), targetPath.slice("$HOME/".length))
+      : targetPath === "$HOME"
+        ? os.homedir()
+        : targetPath;
+    const localTmpPath = localPath + ".tmp";
+    try {
+      await fs.writeFile(localTmpPath, buf, { mode: 0o644 });
+      await fs.rename(localTmpPath, localPath);
+      sshLogger.info("identity-artifact-reader: identity_markdown_write (local)", {
+        operation: "identity_markdown_write",
+        targetPath: localPath,
+        bytes,
+        branch: "local",
+      });
+    } catch (err) {
+      sshLogger.error(
+        "identity-artifact-reader: identity_markdown_write (local) failed",
+        err instanceof Error ? err : new Error(String(err)),
+        { operation: "identity_markdown_write_error", targetPath: localPath, bytes, branch: "local" },
+      );
+      // Best-effort cleanup of the .tmp file — fire-and-forget
+      fs.unlink(localTmpPath).catch(() => {});
+      throw err;
+    }
+    return;
+  }
 
   // Promise-wrap conn.sftp — mirrors file-manager-session.ts getSessionSftp idiom
   // but without session caching (identity writes are one-shot per WS message).

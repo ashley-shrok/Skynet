@@ -45,6 +45,18 @@ import type { BirthEvent, BirthDeps } from "../database/routes/identity-birth-or
 // Mock systemLogger
 // ---------------------------------------------------------------------------
 
+// Partial-mock identity-artifact-reader so tests can flip isLocalHostId per
+// case (its default reads process.env.IDENTITIES_LOCAL_HOST_IDS at module-load
+// time via an IIFE — post-load env mutation has no effect). Preserve every
+// other export via importActual.
+vi.mock("../claude-session/identity-artifact-reader.js", async (importActual) => {
+  const actual = await importActual<typeof import("../claude-session/identity-artifact-reader.js")>();
+  return {
+    ...actual,
+    isLocalHostId: vi.fn().mockReturnValue(false),
+  };
+});
+
 vi.mock("../utils/logger.js", () => {
   const mockLogger = {
     info: vi.fn(),
@@ -591,6 +603,44 @@ describe("spawn-request worker", () => {
       // connectOneShot should have been called at least once by the worker
       // (for the response-file write — birthIdentity's own connect is inside the mock)
       expect(mockConnectOneShot).toHaveBeenCalled();
+    });
+
+    it("Test 21: LOCAL host (isLocalHostId=true) → writeResponseFile skips connectOneShot + resolveHostById, calls writeMarkdownFileAtomic with conn=null", async () => {
+      // 2026-09-11: LOCAL-branch fix — spawn-requests worker used to fail on
+      // co-located hosts because resolveHostById returns null for local hosts
+      // (spawn_request_response_host_not_found log), so no response file
+      // landed and the coord's watch timed out.
+      const { isLocalHostId } = await import("../claude-session/identity-artifact-reader.js");
+      (isLocalHostId as ReturnType<typeof vi.fn>).mockImplementation((hid: number) => hid === 42);
+      try {
+        const mockConnectOneShot = vi.fn();
+        const mockResolveHostById = vi.fn();
+        const mockWriteMd = vi.fn().mockResolvedValue(undefined);
+        const deps = buildTestDeps({
+          connectOneShot: mockConnectOneShot,
+          resolveHostById: mockResolveHostById,
+          writeMarkdownFileAtomic: mockWriteMd,
+        });
+        const item = makePendingBirth({ hostIdNum: 42 });
+
+        await processBirth(item, deps);
+
+        // LOCAL branch → neither SSH resolve nor connect ran for the response
+        // file write. (resolveHostById might still be called for owner lookup,
+        // but connectOneShot for the SFTP write path is skipped.)
+        expect(mockConnectOneShot).not.toHaveBeenCalled();
+
+        // Response-file write hit writeMarkdownFileAtomic with conn=null
+        // (the primitive's LOCAL branch does fs.writeFile tmp + rename).
+        expect(mockWriteMd).toHaveBeenCalled();
+        const [conn, path, body] = mockWriteMd.mock.calls[0];
+        expect(conn).toBeNull();
+        expect(path).toMatch(/fleet\/spawn-requests\/.*\.success\.json$/);
+        expect(path).toContain(item.uuid);
+        expect(JSON.parse(body as string)).toHaveProperty("name");
+      } finally {
+        (isLocalHostId as ReturnType<typeof vi.fn>).mockReset().mockReturnValue(false);
+      }
     });
   });
 });

@@ -67,18 +67,22 @@ services:
       - tg-bridge-state:/state
       # LOCAL-branch bind mount for co-located deployments (opt-in).  When
       # a deployment's own box is registered as a Skynet host AND wants
-      # identity-artifact-reader to skip SSH for that host, exposing the
-      # host's fleet dir here lets Skynet read directly from disk.
+      # identity-artifact-reader / identity-birth / spawn-request-worker to
+      # skip SSH for that host, exposing the host's fleet dir here lets
+      # Skynet read AND write directly from disk.
       # Opt-in shape: set SKYNET_FLEET_MOUNT_SRC in shell env at compose
       # invocation (typically via .env file at /opt/skynet/.env),
       # AND set IDENTITIES_LOCAL_HOST_IDS + IDENTITIES_HOST_DIR +
       # ROLES_HOST_DIR in skynet.env.  When SKYNET_FLEET_MOUNT_SRC is
       # unset (opt-out), falls back to /tmp — harmless because Skynet
-      # only reads from /fleet/* when IDENTITIES_LOCAL_HOST_IDS is set,
+      # only touches /fleet/* when IDENTITIES_LOCAL_HOST_IDS is set,
       # which activates the LOCAL branch for the listed hostIds.  Every
       # deployment that leaves the env vars unset gets the pre-existing
       # REMOTE (SSH) branch for every host, byte-identical to today.
-      - ${SKYNET_FLEET_MOUNT_SRC:-/tmp}:/fleet:ro
+      # Mounted RW (2026-09-11): LOCAL-branch identity-birth writes
+      # <name>.md / avatar / relay.json here, and spawn-request worker
+      # writes the response file here. Read-only defeats those paths.
+      - ${SKYNET_FLEET_MOUNT_SRC:-/tmp}:/fleet
     env_file:
       - ${SKYNET_HOST_DIR:-/opt/skynet}/skynet.env
     environment:

@@ -188,7 +188,26 @@ async function writeResponseFile(
   body: string,
 ): Promise<void> {
   try {
-    // Resolve host connection details via resolveHostById (requires userId for decrypt)
+    // LOCAL branch — hostId is in IDENTITIES_LOCAL_HOST_IDS. Skip
+    // resolveHostById + connectOneShot entirely (resolveHostById fails on
+    // co-located hosts anyway per the spawn_request_response_host_not_found
+    // log) and write straight to the bind-mounted /fleet dir. The $HOME
+    // convention here matches the REMOTE branch's SFTP $HOME resolution —
+    // writeMarkdownFileAtomic's LOCAL branch substitutes os.homedir().
+    if (isLocalHostId(item.hostIdNum)) {
+      const targetPath = `$HOME/fleet/spawn-requests/${item.uuid}.${kind}.json`;
+      await deps.writeMarkdownFileAtomic(null, targetPath, body);
+      systemLogger.info("spawn-request worker: response file dropped (local)", {
+        operation: "spawn_request_response_dropped",
+        uuid: item.uuid,
+        kind,
+        branch: "local",
+      });
+      return;
+    }
+
+    // REMOTE branch — resolve host connection details via resolveHostById
+    // (requires userId for decrypt).
     const hostDetails = await deps.resolveHostById(item.hostIdNum, item.userId);
     if (!hostDetails) {
       systemLogger.warn("spawn-request worker: host details not found for response write", {
