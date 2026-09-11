@@ -1687,8 +1687,25 @@ export async function getRoomPowerLevels(
     if (!response.ok) {
       return { ok: false, status: response.status, error: ERR_NON_2XX };
     }
-    const parsed = (await response.json()) as Record<string, unknown>;
-    return { ok: true, content: parsed };
+    const parsed = (await response.json()) as unknown;
+    // Type guard — the response SHOULD be a JSON object per Matrix spec, but
+    // a homeserver bug (or a proxy in the middle) could return an array or a
+    // primitive. Reject those explicitly rather than lying about the type.
+    // null is tolerated and normalized to {} — the caller's "no existing
+    // content = assume Matrix defaults" branch handles that safely.
+    if (Array.isArray(parsed) || (parsed !== null && typeof parsed !== "object")) {
+      databaseLogger.warn(
+        "matrix admin returned non-object body for power_levels GET",
+        {
+          operation: "matrix_admin_get_room_power_levels",
+          bodyType: Array.isArray(parsed) ? "array" : typeof parsed,
+        },
+      );
+      return { ok: false, status: 502, error: ERR_PROXY };
+    }
+    const content: Record<string, unknown> =
+      parsed === null ? {} : (parsed as Record<string, unknown>);
+    return { ok: true, content };
   } catch (err: unknown) {
     clearTimeout(timeoutId);
     if (err instanceof DOMException && err.name === "AbortError") {

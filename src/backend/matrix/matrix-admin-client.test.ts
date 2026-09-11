@@ -2371,6 +2371,47 @@ describe("getRoomPowerLevels (260911-n8a)", () => {
     // Regression pin: the encoded segment matches encodeURIComponent's output.
     expect(url).toContain(encodeURIComponent("!weird/room:server"));
   });
+
+  it("G6 (L5 post-ship): response body is a JSON array → { ok:false, status:502, error:'admin_api_proxy_error' }; type-lie rejected", async () => {
+    const fetchMock = vi.fn(async () =>
+      mockFetchResponse(200, [1, 2, 3] as unknown as Record<string, unknown>),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const warnSpy = vi.mocked(databaseLogger.warn);
+    warnSpy.mockClear();
+    const result = await getRoomPowerLevels("!r1:server");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(502);
+      expect(result.error).toBe("admin_api_proxy_error");
+    }
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it("G7 (L5 post-ship): response body is a JSON primitive (number) → { ok:false, status:502, error:'admin_api_proxy_error' }", async () => {
+    const fetchMock = vi.fn(async () =>
+      mockFetchResponse(200, 42 as unknown as Record<string, unknown>),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await getRoomPowerLevels("!r1:server");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(502);
+      expect(result.error).toBe("admin_api_proxy_error");
+    }
+  });
+
+  it("G8 (L5 post-ship): response body is JSON null → normalized to { ok:true, content:{} } (caller's assume-defaults branch handles empty content safely)", async () => {
+    const fetchMock = vi.fn(async () =>
+      mockFetchResponse(200, null as unknown as Record<string, unknown>),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await getRoomPowerLevels("!r1:server");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.content).toEqual({});
+    }
+  });
 });
 
 describe("putRoomPowerLevels (260911-n8a)", () => {
