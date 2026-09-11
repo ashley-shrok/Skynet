@@ -352,6 +352,20 @@ router.post(
       }
     }, 30000);
 
+    // -------------------------------------------------------------------------
+    // Phase 106 review (M1 fix): wire an AbortController to req.on("close")
+    // so a client disconnect (browser tab close, hard navigation, user's
+    // AbortController.abort()) breaks the orchestrator's up-to-120s wait
+    // block instead of pinning an SSH connection + firing wasted discovery
+    // execs against the target host. Only the wait block honors it; the mint
+    // steps (1/2/6/7/8) are seconds-scale and abort-mid-mint would leave
+    // worse partial state than letting them finish.
+    // -------------------------------------------------------------------------
+    const abortController = new AbortController();
+    req.on("close", () => {
+      abortController.abort();
+    });
+
     // -----------------------------------------------------------------------
     // Emit helper — frames each event as SSE
     // -----------------------------------------------------------------------
@@ -449,6 +463,10 @@ router.post(
           // MXID branch. true → derivation path. false → legacy branch
           // (explicit opt-out preserved as boolean, distinct from undefined).
           poolPicked: parsedPoolPicked,
+          // Phase 106 review M1 fix: thread the client-disconnect signal into
+          // the orchestrator so the wait-for-supervisor loop breaks early on
+          // browser navigation / tab close instead of pinning an SSH conn.
+          abortSignal: abortController.signal,
         },
         emit,
         deps,

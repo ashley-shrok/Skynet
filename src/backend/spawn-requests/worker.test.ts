@@ -39,7 +39,7 @@ import {
   type WorkerDeps,
 } from "./worker.js";
 import type { PendingBirth } from "./types.js";
-import type { BirthEvent } from "../database/routes/identity-birth-orchestrator.js";
+import type { BirthEvent, BirthDeps } from "../database/routes/identity-birth-orchestrator.js";
 
 // ---------------------------------------------------------------------------
 // Mock systemLogger
@@ -317,6 +317,29 @@ describe("spawn-request worker", () => {
       // Post-code-review H2: mxid field intentionally dropped from SuccessResponse
       // (see types.ts SuccessResponse doc). name is what coord dispatches on.
       expect(parsed).not.toHaveProperty("mxid");
+    });
+
+    it("Test 11a: birthDeps assembly passes discoverIdentitySessionFile function to birthIdentity (Phase 106 review M4 fix)", async () => {
+      // Guards against accidental removal of the discoverIdentitySessionFile
+      // line from worker.ts's birthDeps object. Without this line the
+      // orchestrator's wait-for-supervisor poll calls undefined() and worker
+      // births crash silently into a "birthIdentity threw unexpectedly" log.
+      // Since processBirth builds birthDeps inline, we capture the third arg
+      // passed to the mocked birthIdentity and assert its shape.
+      let capturedBirthDeps: BirthDeps | null = null;
+      const deps = buildTestDeps({
+        birthIdentity: vi.fn().mockImplementation(async (_opts, emit: (e: BirthEvent) => void, birthDeps: BirthDeps) => {
+          capturedBirthDeps = birthDeps;
+          emit({ type: "ended", ok: true, identityId: "willow", sessionName: "Willow-Coordinator" });
+        }),
+      });
+      const item = makePendingBirth();
+
+      await processBirth(item, deps);
+
+      expect(capturedBirthDeps).not.toBeNull();
+      const bd = capturedBirthDeps as unknown as BirthDeps;
+      expect(typeof bd.discoverIdentitySessionFile).toBe("function");
     });
 
     it("Test 12: failed birth (ok:false, failedStep:2) → .failure.json + {reason:'birth_failed'}", async () => {

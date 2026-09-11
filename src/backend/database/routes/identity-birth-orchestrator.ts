@@ -218,6 +218,18 @@ export interface BirthOptions {
    * true when the name field was pool-picked (plan 80-06).
    */
   poolPicked?: boolean;
+  /**
+   * Phase 106 review (M1 fix): optional AbortSignal wired from the SSE
+   * route's `req.on("close", ...)` — when the client disconnects mid-birth
+   * (tab close, browser navigation, hard refresh), the wait-for-supervisor
+   * poll checks `.aborted` before each iteration and breaks out silently
+   * (no `emit()` — the SSE stream is already dead). Prevents server-side
+   * SSH-connection pinning + wasted discovery execs during the up-to-120s
+   * wait window when the frontend gave up. Steps 1/2/6/7/8 don't consult
+   * the signal (they're seconds-scale and abort-mid-mint would leave worse
+   * partial state); only the long-running wait block honors it.
+   */
+  abortSignal?: AbortSignal;
 }
 
 export interface BirthDeps {
@@ -976,7 +988,12 @@ export async function runRelayMintAndWrite(
 // ---------------------------------------------------------------------------
 
 /**
- * Run the 5-step birth sequence and emit progress events.
+ * Run the birth sequence and emit progress events. Post-Phase-106 the steps
+ * that actually fire are 1 (collision probe + candidate check), 2 (mkdir +
+ * identity file + avatar sibling), 6 (admin-mint + login), 7 (build relay.json
+ * body), 8 (SFTP-write relay.json), then a wait-for-supervisor block that
+ * closes with an ended:ok:true (success) or ended:ok:false + reason (timeout).
+ * The retired 3/4/5 slots are documented in the file header block above.
  *
  * @param opts   Birth options from the HTTP request body + userId from JWT
  * @param emit   Callback receiving BirthEvent objects as each step runs
@@ -1075,7 +1092,9 @@ export async function birthIdentity(
   const useLocal = deps.isLocalHostId(opts.hostId);
 
   // For SSH branch: resolve the host and connect.
-  // Wrap ALL step 1-5 ops in try/finally that calls conn.end().
+  // Wrap ALL step ops (1, 2, 6, 7, 8 + wait-for-supervisor) in a single
+  // try/finally that calls conn.end() so the SSH connection is released
+  // regardless of which step failed or whether the wait timed out.
   let conn: SSHClient | null = null;
 
   // -------------------------------------------------------------------------
@@ -1097,7 +1116,7 @@ export async function birthIdentity(
   let birthCandidate: { bytes: Buffer; mime: string } | null = null;
 
   // -------------------------------------------------------------------------
-  // Steps 1-5: SSH or local (wrapped in single try/finally for conn cleanup)
+  // All step ops: SSH or local (wrapped in single try/finally for conn cleanup)
   // -------------------------------------------------------------------------
   try {
     // For remote branch, connect now (before Step 1 so the collision probe
@@ -1107,13 +1126,16 @@ export async function birthIdentity(
       try {
         conn = await deps.connectOneShot(host, SSH_CONNECT_TIMEOUT_MS);
       } catch (e) {
-        // Step 1 failure: SSH connect error before collision probe
+        // Step 1 failure: SSH connect error before collision probe.
+        // Phase 106 review (H1 fix): propagate the reason string to the
+        // `ended` event so operators reading logs see the same "Host
+        // unreachable" wire-forensic tag the step:failed breadcrumb carries.
+        // Every other failure emit in this file carries reason per D-11;
+        // this branch was silently drifting.
         emit({ type: "step", n: 1, phase: "started" });
-        const reason = /timeout|unreachable/i.test((e as Error).message ?? "")
-          ? "Host unreachable"
-          : "Host unreachable";
+        const reason = "Host unreachable";
         emit({ type: "step", n: 1, phase: "failed", reason });
-        emit({ type: "ended", ok: false, failedStep: 1 });
+        emit({ type: "ended", ok: false, failedStep: 1, reason });
         return;
       }
     }
@@ -1177,8 +1199,12 @@ export async function birthIdentity(
     // landed the supervisor's disk-scan behavior that makes this handoff
     // safe).
     // See shape file §Philosophy: one party owns tmux + agent lifecycle on
-    // every box. STEP_2_SLEEP_MS is preserved (harmless; matches Nelly-
-    // cribbed profile-sourcing intent even without a tmux launch here).
+    // every box. The STEP_2_SLEEP_MS profile-sourcing sleep is gone from
+    // this step now (Phase 106 review M2 fix): its purpose was to let a
+    // login shell source its profile before a tmux launch — that launch is
+    // retired, so the sleep was pure dead wait on every remote birth. The
+    // STEP_2_SLEEP_MS constant itself is retained (still consumed by clone's
+    // harness sequence in identity-harness-start.ts).
     //
     // Phase 22 SRIC-02 addendum (B4b(a), REVISION 2026-08-04):
     //   Step 2 also pre-writes ~/fleet/identities/<name>/<name>.md with
@@ -1198,8 +1224,6 @@ export async function birthIdentity(
     // -----------------------------------------------------------------------
     await runStep(2, async () => {
       await exec(`mkdir -p ${escPath}`);
-      // Sleep 3s: login shell needs to source its profile (Nelly §1(b))
-      await sleep(STEP_2_SLEEP_MS);
 
       // Phase 22 SRIC-02 Step 2.5: identity file pre-write (remote branch only).
       // Phase 66 Plan 66-01 grew this to also emit full-cosmetics frontmatter
@@ -1382,10 +1406,28 @@ export async function birthIdentity(
     if (!useLocal && conn) {
       const waitStartMs = Date.now();
       let discoveredPath: string | null = null;
+      let clientAborted = false;
       while (Date.now() - waitStartMs < WAIT_FOR_SUPERVISOR_TIMEOUT_MS) {
+        // Phase 106 review M1 fix: bail out if the client disconnected
+        // (browser tab closed, hard refresh, navigation). SSE stream is
+        // already dead; no emit needed. Outer finally still releases the
+        // SSH connection.
+        if (opts.abortSignal?.aborted) {
+          clientAborted = true;
+          break;
+        }
         discoveredPath = await deps.discoverIdentitySessionFile(conn, opts.name);
         if (discoveredPath !== null) break;
         await sleep(WAIT_FOR_SUPERVISOR_POLL_MS);
+      }
+      if (clientAborted) {
+        databaseLogger.warn("identity birth: client aborted during supervisor wait", {
+          operation: "identity_birth_client_aborted",
+          identityKey: opts.name,
+          hostId: opts.hostId,
+          elapsedMs: Date.now() - waitStartMs,
+        });
+        return;
       }
       if (discoveredPath === null) {
         // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode +
