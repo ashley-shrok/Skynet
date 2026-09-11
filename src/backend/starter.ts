@@ -461,7 +461,7 @@ if (process.env.VITEST !== "true") {
         "./fleet-status/ssh-poll-orchestrator.js"
       );
       const { connectOneShot } = await import("./ssh/ssh-one-shot.js");
-      const { execCommand } = await import("./ssh/tmux-helper.js");
+      const { execCommand, execCommandWithStdin } = await import("./ssh/tmux-helper.js");
       const { getDb } = await import("./database/db/index.js");
       const { hosts: hostsTable } = await import(
         "./database/db/schema.js"
@@ -609,10 +609,12 @@ if (process.env.VITEST !== "true") {
               // MaxSessions=10 citation: cap at 8 leaves 2 channels of headroom.
               const sem = getHostSemaphore(host.id);
               const channel = {
-                exec: async (command: string): Promise<string | null> => {
+                exec: async (command: string, stdinBody?: Buffer): Promise<string | null> => {
                   try {
                     return await sem.run(async () =>
-                      execCommand(existing, command),
+                      stdinBody === undefined
+                        ? execCommand(existing, command)
+                        : execCommandWithStdin(existing, command, stdinBody),
                     );
                   } catch {
                     return null;
@@ -659,9 +661,13 @@ if (process.env.VITEST !== "true") {
           // MaxSessions=10 citation: cap at 8 leaves 2 channels of headroom.
           const sem = getHostSemaphore(host.id);
           const channelAdapter: SshChannel = {
-            exec: async (command: string): Promise<string | null> => {
+            exec: async (command: string, stdinBody?: Buffer): Promise<string | null> => {
               try {
-                return await sem.run(async () => execCommand(client, command));
+                return await sem.run(async () =>
+                  stdinBody === undefined
+                    ? execCommand(client, command)
+                    : execCommandWithStdin(client, command, stdinBody),
+                );
               } catch {
                 return null;
               }
@@ -875,7 +881,7 @@ if (process.env.VITEST !== "true") {
       const { connectOneShot: connectOneShotSub } = await import(
         "./ssh/ssh-one-shot.js"
       );
-      const { execCommand: execCommandSub } = await import(
+      const { execCommand: execCommandSub, execCommandWithStdin: execCommandWithStdinSub } = await import(
         "./ssh/tmux-helper.js"
       );
       const { getDb: getDbForSubstrate } = await import(
@@ -922,10 +928,12 @@ if (process.env.VITEST !== "true") {
           const capturedClient = client;
           const capturedSem = sem;
           return {
-            exec: async (cmd: string): Promise<string | null> => {
+            exec: async (cmd: string, stdinBody?: Buffer): Promise<string | null> => {
               try {
                 return await capturedSem.run(async () =>
-                  execCommandSub(capturedClient, cmd),
+                  stdinBody === undefined
+                    ? execCommandSub(capturedClient, cmd)
+                    : execCommandWithStdinSub(capturedClient, cmd, stdinBody),
                 );
               } catch {
                 return null;

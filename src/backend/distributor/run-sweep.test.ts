@@ -55,7 +55,7 @@ function makeChannelSequenced(
   handler: (cmd: string, callIndex: number) => string | null,
 ): { channel: SshChannel; exec: ReturnType<typeof vi.fn> } {
   let idx = 0;
-  const exec = vi.fn(async (cmd: string) => handler(cmd, idx++));
+  const exec = vi.fn(async (cmd: string, _stdinBody?: Buffer) => handler(cmd, idx++));
   return { channel: { exec }, exec };
 }
 

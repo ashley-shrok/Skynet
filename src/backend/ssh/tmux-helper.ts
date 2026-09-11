@@ -54,6 +54,60 @@ export function execCommand(conn: Client, command: string): Promise<string> {
 }
 
 /**
+ * Sibling of execCommand for commands that consume a large body on stdin.
+ *
+ * The exec command string sits under Linux's per-argv-element cap
+ * (MAX_ARG_STRLEN = PAGE_SIZE * 32 = 131072 on x86_64); anything larger
+ * than ~128 KB in a single command triggers execve E2BIG at the remote
+ * shell before it even parses. Writing the body via the channel's stdin
+ * stream sidesteps that entirely: ssh2 chunks CHANNEL_DATA to 32 KB
+ * packets, and the receiving process (e.g. `base64 -d > path`) reads
+ * from its stdin — no shell parsing of the payload.
+ *
+ * Behavior mirrors execCommand: returns trimmed stdout on success,
+ * rejects on non-zero exit with empty stdout, wraps stream errors.
+ */
+export function execCommandWithStdin(
+  conn: Client,
+  command: string,
+  stdinBody: Buffer,
+): Promise<string> {
+  sshLogger.info(`[tmux-helper] exec-stdin command="${command.slice(0, 80)}" bodyLen=${stdinBody.length}`, { operation: "tmux_exec_stdin" });
+  return new Promise((resolve, reject) => {
+    conn.exec(command, (err, stream) => {
+      if (err) {
+        sshLogger.error(`[tmux-helper] exec-stdin-failed command="${command.slice(0, 80)}"`, err, { operation: "tmux_exec_stdin_failed" });
+        reject(err);
+        return;
+      }
+      let stdout = "";
+      let stderr = "";
+      stream.on("data", (data: Buffer) => {
+        stdout += data.toString("utf-8");
+      });
+      stream.stderr.on("data", (data: Buffer) => {
+        stderr += data.toString("utf-8");
+      });
+      stream.on("error", (err: Error) => {
+        sshLogger.error(`[tmux-helper] exec-stdin-failed command="${command.slice(0, 80)}"`, err, { operation: "tmux_exec_stdin_failed" });
+        reject(err);
+      });
+      stream.on("close", (code: number) => {
+        if (code !== 0 && stdout === "") {
+          sshLogger.warn(`[tmux-helper] exec-stdin-nonzero command="${command.slice(0, 80)}" code=${code} stderrLen=${stderr.length}`, { operation: "tmux_exec_stdin_nonzero" });
+          reject(
+            new Error(stderr.trim() || `Command exited with code ${code}`),
+          );
+        } else {
+          resolve(stdout.trim());
+        }
+      });
+      stream.end(stdinBody);
+    });
+  });
+}
+
+/**
  * Detect whether tmux is installed and list all existing sessions with details.
  */
 export async function detectTmux(conn: Client): Promise<TmuxDetectionResult> {

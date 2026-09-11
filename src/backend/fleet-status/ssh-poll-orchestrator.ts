@@ -83,9 +83,16 @@ import { parseRequestBody } from "../spawn-requests/parse-request-body.js";
 /**
  * Thin SSH exec wrapper — one per identity-hosting host for the life of
  * the orchestrator. Returns null on any SSH-side error (never throws).
+ *
+ * The optional `stdinBody` param routes to a stdin-writing variant so
+ * callers pushing payloads larger than Linux's MAX_ARG_STRLEN (128 KB
+ * per argv element on x86_64) can stream the body via CHANNEL_DATA
+ * rather than embedding it in the exec command string. See
+ * writeInstalledBytesWithMode in ../distributor/ssh-push.ts for the
+ * load-bearing consumer.
  */
 export interface SshChannel {
-  exec(command: string): Promise<string | null>;
+  exec(command: string, stdinBody?: Buffer): Promise<string | null>;
 }
 
 export interface OrchestratorDeps {
