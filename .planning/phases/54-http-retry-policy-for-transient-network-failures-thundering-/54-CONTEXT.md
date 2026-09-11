@@ -6,7 +6,7 @@
 
 ## What this is
 
-Ashley runs ~10 Skynet Chrome windows on one box. When Chrome crashes (or the OS
+Alice runs ~10 Skynet Chrome windows on one box. When Chrome crashes (or the OS
 kills the tab-set), she hits Chrome's Restore button. All ~10 tabs load
 simultaneously — each fires its own SPA bootstrap request storm (session-check,
 identities list, host list, sessions list, fleet-status subscribe, three WS
@@ -134,7 +134,7 @@ the industry-standard hedge; when in doubt, favor "let the user see the
 error" over "silently double the write."
 
 **Silence is not success.** Every retry attempt logs. Every give-up logs.
-When Ashley next reports a "can't connect" toast, the console-forward log
+When Alice next reports a "can't connect" toast, the console-forward log
 must show ONE line per attempt with the actual `errorCode`/`errorMessage`
 so I can distinguish "network genuinely down" from "backend behind on
 requests" from "something new is broken." Zero-log retries would rob me of
@@ -164,7 +164,7 @@ shape.
 
 ## Success criterion
 
-Ashley closes Chrome (10 Skynet tabs open), hits Restore, and sees ZERO
+Alice closes Chrome (10 Skynet tabs open), hits Restore, and sees ZERO
 "Server connection lost, recovering…" toasts on tab-restore. (Or at most
 1 sustained toast if the backend is truly down and retries exhaust — that
 IS the intended behavior of the retry policy.)

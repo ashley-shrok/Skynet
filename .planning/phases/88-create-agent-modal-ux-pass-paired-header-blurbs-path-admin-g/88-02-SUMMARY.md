@@ -189,7 +189,7 @@ No naked expressions like `if (identityMode)`, `!identityMode &&`, `identityMode
 
 ### Scoped test failure profile (expected — Plan 88-03's remit)
 
-Fleet campaign constraint (Ashley 2026-09-07) allows scoped tests only, no full suite. Ran the plan's `<verification>` scoped test-file set:
+Fleet campaign constraint (Alice 2026-09-07) allows scoped tests only, no full suite. Ran the plan's `<verification>` scoped test-file set:
 
 ```
 npx vitest run src/ui/sidebar/NewSessionDialog.test.tsx \

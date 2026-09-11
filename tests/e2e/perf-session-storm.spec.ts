@@ -2,7 +2,7 @@
  * Session-storm perf spec — open N terminal tabs simultaneously via URL-driven
  * tab restore (`#tab=terminal:<host>&tab=terminal:<host>...`) and measure the
  * shell-mount cost + long-task profile. Cross-references bounties
- * `hidden-pane-cost-mitigation-empirical-rotation` (Ashley's iPhone chugs with
+ * `hidden-pane-cost-mitigation-empirical-rotation` (Alice's iPhone chugs with
  * 4-5 active sessions) and `appshell-max-update-depth-under-session-storm`.
  */
 import { test, expect } from "@playwright/test";

@@ -74,7 +74,7 @@ must_haves:
 <objective>
 Ship patch #223 (speak-messages): a per-bubble click-to-speak affordance on assistant messages in pretty-view, wired to a new authenticated `POST /voice/speak` reverse-proxy in front of the tailnet Chatterbox TTS server, plus a per-identity voice override + tasting-sample button in the IdentityModal Identity tab.
 
-Purpose: Give Ashley a one-click "hear this bubble" affordance in every pretty-view conversation, and let each identity claim a distinct voice (with a sample button to A/B voices while editing). Backend follows the patch #155 STT-proxy pattern (auth-gate → 30s AbortController → fixed error shape → no upstream body leak). Frontend follows the patch #211 lesson (`Promise.resolve(audio.play()).catch(() => {})` — never bare `audio.play().catch`).
+Purpose: Give Alice a one-click "hear this bubble" affordance in every pretty-view conversation, and let each identity claim a distinct voice (with a sample button to A/B voices while editing). Backend follows the patch #155 STT-proxy pattern (auth-gate → 30s AbortController → fixed error shape → no upstream body leak). Frontend follows the patch #211 lesson (`Promise.resolve(audio.play()).catch(() => {})` — never bare `audio.play().catch`).
 
 Output: One backend route module extension (`/voice/speak` + `/voice/voices`), one identities schema/route extension (nullable `voice` column + PUT plumbing), one frontend voice-api client, one SpeakButton affordance in `ChatMessage.tsx` gated to `role === "assistant"`, and one voice picker + sample button in `IdentityModal.tsx`. Test coverage for all three surfaces.
 </objective>
@@ -309,7 +309,7 @@ Output: One backend route module extension (`/voice/speak` + `/voice/voices`), o
     - `npm test -- src/ui/features/pretty-view/IdentityModal.voice.test.tsx` — all 6 tests pass.
     - Full suite + grep guard: `npm test 2>&1 | tee /tmp/patch223-t3.log; grep -E "FAIL|failed|✗" /tmp/patch223-t3.log` returns no non-benign hits.
     - Commit atomically: `git commit -m "patch #223: IdentityModal voice picker + sample button"`.
-    - After commit lands, bare `git push origin feat/tab-title-from-tmux` per Ashley's fork-refinement authorization (2026-07-30). Do NOT trigger any build/deploy motion — Ashley batches deploys separately (#198→#222+ held).
+    - After commit lands, bare `git push origin feat/tab-title-from-tmux` per Alice's fork-refinement authorization (2026-07-30). Do NOT trigger any build/deploy motion — Alice batches deploys separately (#198→#222+ held).
   </action>
   <verify>
     <automated>cd /home/ubuntu/skynet && npm run build:backend &amp;&amp; npm run build &amp;&amp; npm test -- src/ui/features/pretty-view/IdentityModal.voice.test.tsx 2>&amp;1 | tee /tmp/patch223-t3.log &amp;&amp; ! grep -E "FAIL|failed|✗" /tmp/patch223-t3.log | grep -v -E "^\s*(0 failed|passed with 0 failed|✓)"</automated>
@@ -365,7 +365,7 @@ Cross-task phase-level checks — run AFTER Task 3 commits land:
    ```
    Should show (newest first): IdentityModal voice picker → frontend speak button → backend /voice/speak.
 
-7. NO deploy/build motion on skynet-ec2 (per Ashley's greenlight-only-for-code rule). Ashley batches deploys separately.
+7. NO deploy/build motion on skynet-ec2 (per Alice's greenlight-only-for-code rule). Alice batches deploys separately.
 </verification>
 
 <success_criteria>
@@ -377,7 +377,7 @@ Cross-task phase-level checks — run AFTER Task 3 commits land:
 - IdentityModal: voice dropdown seeded from getVoices() with a leading "(default)" option; current selection reflects identity.voice; sample button plays SAMPLE_PHRASE with the currently-selected voice (omit when default); Save posts voice (or null) in the multipart data field; Save disabled predicate correctly gates on voiceDraft changes.
 - Tests: voice.test.ts covers 11 backend behaviors; ChatMessage.speak.test.tsx covers 6 frontend behaviors; IdentityModal.voice.test.tsx covers 6 modal behaviors. All pass. Full suite is 0-failed AND grep-clean.
 - Both `npm run build:backend` and `npm run build` succeed.
-- Three atomic commits landed on feat/tab-title-from-tmux; bare push to origin succeeded. No worktree used (Ashley fleet rule).
+- Three atomic commits landed on feat/tab-title-from-tmux; bare push to origin succeeded. No worktree used (Alice fleet rule).
 - NO deploy/build/recreate motion on skynet-ec2 (greenlight-only-for-code-work rule).
 </success_criteria>
 

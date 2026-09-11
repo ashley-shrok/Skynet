@@ -4,7 +4,7 @@
  * Covers the six behaviors from PLAN.md § Task 1 <behavior>:
  *   Test 1: empty-state — no *.token-dead sentinels → no loginAsUser call,
  *           returns {scanned:0, minted:0, failed:0}.
- *   Test 2: happy path — ashley.token-dead exists, Ashley has mxid,
+ *   Test 2: happy path — alice.token-dead exists, Alice has mxid,
  *           mintAndWriteHumanToken ok → sentinel unlinked, counts
  *           {scanned:1, minted:1, failed:0}.
  *   Test 3: malformed sentinel filename — skipped with warn, no fs work
@@ -87,7 +87,7 @@ describe("reconcile-dead-tokens", () => {
   it("Test 1: empty state — no sentinels → {scanned:0, minted:0, failed:0}, no mint call", async () => {
     const { mintAndWriteHumanToken } = await import("./human-token-writer.js");
     mockUserRows = [
-      { name: "ashley", mxid: "@ashley:thenasty.taild9b663.ts.net" },
+      { name: "alice", mxid: "@ashley:thenasty.taild9b663.ts.net" },
     ];
 
     const { scanAndReconcileDeadTokens } = await import(
@@ -100,17 +100,17 @@ describe("reconcile-dead-tokens", () => {
     expect(mintAndWriteHumanToken).not.toHaveBeenCalled();
   });
 
-  it("Test 2: happy path — ashley.token-dead + mxid known + mint ok → sentinel unlinked, counts {1,1,0}", async () => {
+  it("Test 2: happy path — alice.token-dead + mxid known + mint ok → sentinel unlinked, counts {1,1,0}", async () => {
     const { mintAndWriteHumanToken } = await import("./human-token-writer.js");
     vi.mocked(mintAndWriteHumanToken).mockResolvedValue({ ok: true });
 
     mockUserRows = [
-      { name: "ashley", mxid: "@ashley:thenasty.taild9b663.ts.net" },
+      { name: "alice", mxid: "@ashley:thenasty.taild9b663.ts.net" },
       { name: "laura", mxid: null }, // Laura deferred per RESEARCH § A6
     ];
 
     // Materialize the sentinel.
-    const sentinelPath = path.join(tempDir, "ashley.token-dead");
+    const sentinelPath = path.join(tempDir, "alice.token-dead");
     fs.writeFileSync(sentinelPath, "");
 
     const { scanAndReconcileDeadTokens } = await import(
@@ -122,7 +122,7 @@ describe("reconcile-dead-tokens", () => {
     expect(result).toEqual({ scanned: 1, minted: 1, failed: 0 });
     expect(mintAndWriteHumanToken).toHaveBeenCalledWith(
       "@ashley:thenasty.taild9b663.ts.net",
-      "ashley",
+      "alice",
     );
     // Sentinel MUST be unlinked after a successful mint.
     expect(fs.existsSync(sentinelPath)).toBe(false);
@@ -183,10 +183,10 @@ describe("reconcile-dead-tokens", () => {
     });
 
     mockUserRows = [
-      { name: "ashley", mxid: "@ashley:thenasty.taild9b663.ts.net" },
+      { name: "alice", mxid: "@ashley:thenasty.taild9b663.ts.net" },
     ];
 
-    const sentinelPath = path.join(tempDir, "ashley.token-dead");
+    const sentinelPath = path.join(tempDir, "alice.token-dead");
     fs.writeFileSync(sentinelPath, "");
 
     const { scanAndReconcileDeadTokens } = await import(

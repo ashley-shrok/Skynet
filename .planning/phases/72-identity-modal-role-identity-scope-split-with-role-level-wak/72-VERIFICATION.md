@@ -152,7 +152,7 @@ Wave 4 shows explicit TDD RED → GREEN commit pair (47d798db test → 1a817962 
 
 ### Human Verification Required
 
-See `human_verification` in the frontmatter above. The five items ARE the walk-through spec that Ashley must run against the deployed build. This maps 1:1 to 72-04-SUMMARY.md § "Human Verify Walk-through" Steps 3-7. The `Human Verify Walk-through` artifact exists in 72-04-SUMMARY.md and is well-scoped; the actual real-browser confirmation is the pending activity, per the human-verify checkpoint gate.
+See `human_verification` in the frontmatter above. The five items ARE the walk-through spec that Alice must run against the deployed build. This maps 1:1 to 72-04-SUMMARY.md § "Human Verify Walk-through" Steps 3-7. The `Human Verify Walk-through` artifact exists in 72-04-SUMMARY.md and is well-scoped; the actual real-browser confirmation is the pending activity, per the human-verify checkpoint gate.
 
 ### Gaps Summary
 
@@ -167,7 +167,7 @@ No blocking gaps. Phase 72 delivers what the goal promised at the code level:
 - All 6 pre-existing IdentityModal test files pass unchanged after test-file surgery — no regression of bounty search, archive lazy-load, pinned-count invalidation, inline editors, or stays-awake.
 - 14 atomic commits, TDD RED→GREEN pair on Wave 4, matches CLAUDE.md commit-hygiene directive.
 
-Remaining is Ashley's real-browser walk-through (5 items in `human_verification`), which is the human-verify checkpoint that Phase 72 explicitly deferred to post-ship. Pre-existing PrettyView test failures are documented + flagged as outside Phase 72 scope.
+Remaining is Alice's real-browser walk-through (5 items in `human_verification`), which is the human-verify checkpoint that Phase 72 explicitly deferred to post-ship. Pre-existing PrettyView test failures are documented + flagged as outside Phase 72 scope.
 
 ---
 

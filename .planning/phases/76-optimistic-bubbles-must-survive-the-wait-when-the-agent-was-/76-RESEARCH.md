@@ -38,7 +38,7 @@
 
 ## Summary
 
-Phase 62 shipped a widened pending-send timer for dormant sends (`PENDING_SEND_TIMEOUT_MS_DORMANT = 220_000`) but wired it to `dormantRef.current`, which mirrors the `dormant` React state, which is set only when the backend emits `{type:"dormant", dormant:true}`. The backend emits that frame through its dormant-poll tick using an emit-on-change guard (`dormantLastEmitted`), but in the specific scenario of a WS reconnect while dormant, there is a timing race: the frontend sends `connectToPane` on reconnect, the backend runs discovery and MAY emit `{type:"dormant", dormant:true}` (through the initial `inactive-branch dormancy probe` at line 7813), but the `dormantRef.current` mirror is only updated after a React useEffect cycle. If `handleOptimisticSend` fires BEFORE that useEffect runs — e.g., Ashley types fast after WS reconnects — `dormantRef.current` is still `false` and the normal 20s branch fires.
+Phase 62 shipped a widened pending-send timer for dormant sends (`PENDING_SEND_TIMEOUT_MS_DORMANT = 220_000`) but wired it to `dormantRef.current`, which mirrors the `dormant` React state, which is set only when the backend emits `{type:"dormant", dormant:true}`. The backend emits that frame through its dormant-poll tick using an emit-on-change guard (`dormantLastEmitted`), but in the specific scenario of a WS reconnect while dormant, there is a timing race: the frontend sends `connectToPane` on reconnect, the backend runs discovery and MAY emit `{type:"dormant", dormant:true}` (through the initial `inactive-branch dormancy probe` at line 7813), but the `dormantRef.current` mirror is only updated after a React useEffect cycle. If `handleOptimisticSend` fires BEFORE that useEffect runs — e.g., Alice types fast after WS reconnects — `dormantRef.current` is still `false` and the normal 20s branch fires.
 
 Additionally, Signal B (`{type:"pane_state"}`) is emitted as part of EVERY `connectToPane` attach flow, always carries the current truthful state, and is already stored in `paneState` React state. The fix is to derive a unified authoritative dormancy boolean from BOTH signals, so that even if Signal A has not yet hydrated `dormantRef`, the `paneState === "dormant"` fact from Signal B (which always re-emits on attach) produces the correct result.
 
@@ -75,7 +75,7 @@ Additionally, Signal B (`{type:"pane_state"}`) is emitted as part of EVERY `conn
 - The initial-discovery path at line 7799 sets it to `true` directly, then calls `ws.send({type:"dormant", dormant:true})` directly — NOT through the poll-tick guard.
 - The poll-tick path at line 2440 uses `isDormant !== dormantLastEmitted` — on a fresh connection, `null !== true === true`, so the FIRST poll tick after reconnect would emit if currently dormant.
 
-**Why Signal A can still miss after reconnect:** The initial-discovery path at line 7774 only runs when `result.reason === "not_claude"`. If the discovery result has a different reason code (`exec_error`, etc.), the dormancy probe does not run, and the `{type:"dormant"}` frame is not emitted at attach time. Additionally, even when it does emit at attach time, there is a timing race: `handleOptimisticSend` reads `dormantRef.current` which is only synced to `dormant` state via a useEffect (asynchronous, runs after render). If Ashley types fast enough after WS reconnect, the frame arrives + `setDormant(true)` queues + useEffect hasn't run yet → `dormantRef.current` is still `false`.
+**Why Signal A can still miss after reconnect:** The initial-discovery path at line 7774 only runs when `result.reason === "not_claude"`. If the discovery result has a different reason code (`exec_error`, etc.), the dormancy probe does not run, and the `{type:"dormant"}` frame is not emitted at attach time. Additionally, even when it does emit at attach time, there is a timing race: `handleOptimisticSend` reads `dormantRef.current` which is only synced to `dormant` state via a useEffect (asynchronous, runs after render). If Alice types fast enough after WS reconnect, the frame arrives + `setDormant(true)` queues + useEffect hasn't run yet → `dormantRef.current` is still `false`.
 
 **Frontend receive:** `case "dormant":` at `PrettyView.tsx:2147–2156`. Calls `setDormant(parsed.dormant)`.
 
@@ -319,7 +319,7 @@ In `src/ui/features/pretty-view/ChatMessage.tsx`:
 
 ### Current visual result
 
-A bubble with a muted red border (`hsla(0, 60%, 55%, 0.4)`) and a barely-visible reddish tint (`hsla(0, 40%, 50%, 0.08)`) over the standard blue-gray gradient. Ashley confirmed this looks like "just a red border."
+A bubble with a muted red border (`hsla(0, 60%, 55%, 0.4)`) and a barely-visible reddish tint (`hsla(0, 40%, 50%, 0.08)`) over the standard blue-gray gradient. Alice confirmed this looks like "just a red border."
 
 ### D-06 target
 
@@ -415,7 +415,7 @@ The closest analog is Test 12 (WS close) combined with Test 5b (dormant arm). Te
 The key diagnostic gap after the fix: "did the authoritative source correctly read dormant from paneState (Signal B) rather than dormantRef (Signal A)?" The `arm` log currently only shows `dormant=${armedDormant}` — not WHERE that value came from.
 
 Recommended additions:
-1. In the `arm` log (line 1240), add `pane_state=${paneState ?? 'null'} dormant_signal=${dormant}` — this lets Ashley (and any post-deploy analysis) see BOTH signal values at arm time, distinguishing which one drove the authoritative result.
+1. In the `arm` log (line 1240), add `pane_state=${paneState ?? 'null'} dormant_signal=${dormant}` — this lets Alice (and any post-deploy analysis) see BOTH signal values at arm time, distinguishing which one drove the authoritative result.
 2. If option (a) is chosen, add a log in the `pane_state` handler when `setDormant` is called from it: `[diag-dormant-send] pane-state-drove-dormant state=${parsed.state} dormant_before=${dormant}` — proves the fix is activating on real deploys.
 
 These two additions make a post-deploy repro self-diagnosing: `dormant_signal=false pane_state=dormant` in the `arm` log would immediately show the old bug still firing; `dormant_signal=true pane_state=dormant` shows both signals agree; `pane-state-drove-dormant state=dormant` shows the new code path ran.

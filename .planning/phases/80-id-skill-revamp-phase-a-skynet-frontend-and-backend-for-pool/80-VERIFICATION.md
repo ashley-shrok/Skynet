@@ -165,7 +165,7 @@ Automated coverage is comprehensive at code + unit-test level. The following vis
 
 - **Visual coherence of the task pill against real identity colorHues** — glass formula tested against hue values 200 and null-fallback 35 in test file, but perceptual "does this pill visually key to the identity" is a human judgment call.
 - **Character-count sizing of the ~200-char task field against rendered pill widths at real fonts** — planner explicitly deferred pixel-exact tuning to Claude's Discretion. The 200-char cap is a soft cap; final tuning belongs to visual review.
-- **End-to-end birth flow against a live Skynet admin API** — vitest tests use mocked matrixCountUsersMatching. Real Synapse admin API response shape verified against Phase 77 primitives that already ship. A live round-trip UAT (Ashley greenlighting a pool-picked identity birth) is customary before rolling to the fleet.
+- **End-to-end birth flow against a live Skynet admin API** — vitest tests use mocked matrixCountUsersMatching. Real Synapse admin API response shape verified against Phase 77 primitives that already ship. A live round-trip UAT (Alice greenlighting a pool-picked identity birth) is customary before rolling to the fleet.
 - **Fallback rendering for existing coord-spawned identities on the conversation list** — fallback branch is byte-verbatim per grep guard, and existing 96 tests in PrettyConversationRow.test.tsx continue to pass, but visual confirmation on a live boxes is customary.
 
 These are informational, not gap-generating — the phase goal is delivered end-to-end in code.

@@ -697,7 +697,7 @@ describe("AppShell split-tree mechanism (Phase 56 Plan 02)", () => {
   // Phase 64 Plan 02 Task 2 — AppShell replaceInTree + swapInTree integration
   // tests. Exercise the new setSplitTree wrappers around Plan 64-01's
   // replaceLeaf + swapLeaves helpers end-to-end, verifying the tabs[] and
-  // portal-preservation invariants Ashley locked in CONTEXT.md.
+  // portal-preservation invariants Alice locked in CONTEXT.md.
   //
   // See:
   //   .planning/phases/64-multi-view-center-drop/64-CONTEXT.md §

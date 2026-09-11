@@ -107,12 +107,12 @@ grep -Eq 'w-\[90vw\]!|h-\[85vh\]!' src/ui/features/pretty-view/IdentityModal.tsx
 
 None — plan executed exactly as written. All D-01..D-15 honored without deviation.
 
-## Reminders for Ashley
+## Reminders for Alice
 
 1. **Stack position:** This is patch #87, stacking on top of patches #82-#86 (all unbuilt).
    The whole stack (#82-#87) deploys together in the next batch deploy.
 
-2. **skynet-patches.md entry:** Per Ashley 2026-07-17 rule — add the patch #87 entry to
+2. **skynet-patches.md entry:** Per Alice 2026-07-17 rule — add the patch #87 entry to
    skynet-patches.md at PIN TIME (after deploy green-light), NOT now. This commit is code-only.
 
 3. **Manual spot-check at deploy time:**

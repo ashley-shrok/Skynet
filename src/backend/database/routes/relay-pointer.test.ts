@@ -7,7 +7,7 @@
  * SSH primitives are mocked via vi.mock() so no real SSH connection is made.
  *
  * Coverage (13 tests):
- *   Test 1  : whitelist accept — identity-dir path shape accepted (Ashley's reproducer path)
+ *   Test 1  : whitelist accept — identity-dir path shape accepted (Alice's reproducer path)
  *   Test 2  : whitelist reject dot-dot — /home/ubuntu/fleet/identities/../../etc/passwd rejected
  *   Test 3  : whitelist reject non-identity — /etc/passwd and /home/ubuntu/other/file.txt rejected
  *   Test 4  : whitelist reject wrong suffix — identity-dir path with .sh suffix rejected
@@ -157,8 +157,8 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("GET /relay-pointer", () => {
-  it("Test 1: whitelist accept — identity-dir path shape accepted (Ashley's reproducer path)", () => {
-    // Ashley's exact reproducer path from recv.sh (fleet tree, Phase 96+) — MUST match
+  it("Test 1: whitelist accept — identity-dir path shape accepted (Alice's reproducer path)", () => {
+    // Alice's exact reproducer path from recv.sh (fleet tree, Phase 96+) — MUST match
     expect(WHITELIST_REGEX.test("/home/ubuntu/fleet/identities/molly/relay-state/messages/_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt")).toBe(true);
     // Alternate user + identity name
     expect(WHITELIST_REGEX.test("/home/thenasty/fleet/identities/tina/relay-state/messages/AbCdEf-_1234.txt")).toBe(true);

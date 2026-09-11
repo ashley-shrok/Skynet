@@ -6,9 +6,9 @@ score: 9/9 D-nnn decisions covered in code
 overrides_applied: 0
 re_verification: null
 human_verification:
-  - test: "Wake bubble now shows message history for a dormant identity pane (Ashley's original UAT)"
+  - test: "Wake bubble now shows message history for a dormant identity pane (Alice's original UAT)"
     expected: "After deploy: attach to a dormant identity pane (e.g. tanya or tiffany that hasn't been active); the wake bubble appears AND the messages array is populated with the tail of the identity's most-recent JSONL conversation. Non-empty messages are rendered in the pretty view above/around the bubble."
-    why_human: "End-to-end verification requires (a) a live deploy to term.example.com, (b) an actual dormant identity session on the box, (c) an iOS PWA/browser session so Ashley can see the message history alongside the bubble. Cannot be simulated by grep or unit tests — the integration-test coverage (CASE-DT1-DT7) proves the code path exists; only a real dormant-attach can confirm the historical stream actually flows to the browser."
+    why_human: "End-to-end verification requires (a) a live deploy to term.example.com, (b) an actual dormant identity session on the box, (c) an iOS PWA/browser session so Alice can see the message history alongside the bubble. Cannot be simulated by grep or unit tests — the integration-test coverage (CASE-DT1-DT7) proves the code path exists; only a real dormant-attach can confirm the historical stream actually flows to the browser."
   - test: "Wake handoff produces no duplicate/out-of-order messages (T-32-04 in production)"
     expected: "Attach to a dormant identity pane, then trigger a wake (send a user turn). Watch the transition: no duplicate eventId frames on the WS, no out-of-order messages in the pretty view."
     why_human: "CASE-DT4 + DT5 prove the code-level invariant (safe-close ordering + stopped-flag guard). Production observability at scale is the confirmation surface — needs a live wake event that crosses the handoff window."
@@ -19,7 +19,7 @@ human_verification:
 
 # Phase 32: Identity-first-turn session discovery + wake-bubble message history — Verification Report
 
-**Phase Goal:** Add a process-independent, disk-based helper for finding the current JSONL of a given identity, and wire it into the dormant branch so the wake bubble surfaces the tail of the conversation Ashley is deciding whether to wake — instead of an empty message list.
+**Phase Goal:** Add a process-independent, disk-based helper for finding the current JSONL of a given identity, and wire it into the dormant branch so the wake bubble surfaces the tail of the conversation Alice is deciding whether to wake — instead of an empty message list.
 
 **Verified:** 2026-08-12T21:10:00Z
 **Status:** human_needed (all automated checks pass; 3 human UAT items remain)
@@ -140,7 +140,7 @@ Requirements from plan frontmatter (`requirements: [D-01, D-02, D-03, D-04, D-05
 
 3 items need human testing (see YAML `human_verification` above for structured detail):
 
-1. **Wake bubble now shows message history for a dormant identity pane** — Ashley's original UAT complaint from 2026-08-12: *"the bubble looks good, but unfortunately, the rest of the messages that would be in that session are not showing up."* Backend code path is verified end-to-end; final confirmation requires attaching to a real dormant identity pane in the iOS PWA/browser after deploy.
+1. **Wake bubble now shows message history for a dormant identity pane** — Alice's original UAT complaint from 2026-08-12: *"the bubble looks good, but unfortunately, the rest of the messages that would be in that session are not showing up."* Backend code path is verified end-to-end; final confirmation requires attaching to a real dormant identity pane in the iOS PWA/browser after deploy.
 
 2. **Wake handoff produces no duplicate/out-of-order messages** — CASE-DT4 + DT5 prove the code-level invariant. Production confirmation requires an actual wake event across the dormant→active handoff window.
 
@@ -150,9 +150,9 @@ Requirements from plan frontmatter (`requirements: [D-01, D-02, D-03, D-04, D-05
 
 **No blockers, no gaps.** All 18 automated must-haves verified. All 9 locked D-nnn decisions have code artifacts + test coverage. Full test suite green. TypeScript clean. UI byte-untouched. Live-path (D-09) enforced by git-diff. Log-payload downgrade (T-32-05) enforced by both code (`basename()`) and test (`.not.toHaveProperty('discoveredFile')`).
 
-The 3 human-UAT items exist because the phase's user-visible outcome ("wake bubble now shows messages") cannot be simulated without (a) a live deploy, (b) a real dormant identity session on the box, and (c) an actual iOS PWA/browser session. The backend code path is verified; only the end-to-end browser render requires Ashley's eyes.
+The 3 human-UAT items exist because the phase's user-visible outcome ("wake bubble now shows messages") cannot be simulated without (a) a live deploy, (b) a real dormant identity session on the box, and (c) an actual iOS PWA/browser session. The backend code path is verified; only the end-to-end browser render requires Alice's eyes.
 
-**Orchestrator route recommendation:** proceed to deploy. After deploy verification via hash-match snippet, request Ashley UAT of the wake-bubble message-history flow.
+**Orchestrator route recommendation:** proceed to deploy. After deploy verification via hash-match snippet, request Alice UAT of the wake-bubble message-history flow.
 
 ---
 *Verified: 2026-08-12T21:10:00Z*

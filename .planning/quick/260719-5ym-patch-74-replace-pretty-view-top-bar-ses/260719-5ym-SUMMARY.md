@@ -51,7 +51,7 @@ One-liner: Replaced pretty-view's sticky top-bar `SessionHoldingBanner` with a f
 
 Patch #74 swaps the previous "session recycling — reconnecting…" sticky pill (mounted at the top of the pretty-view scroll region) for a full-surface blocking overlay that reads as SERIOUS (the surface is temporarily unavailable) rather than DECORATIVE.
 
-Ashley's live 2026-07-19 design read: the old top-bar treatment was "too subtle for how significant the state actually is." A session recycle means pretty-view is genuinely unusable for the next few seconds, and the UI should communicate that with a scrim + centered card, not a thin pill at the top edge that can be missed.
+Alice's live 2026-07-19 design read: the old top-bar treatment was "too subtle for how significant the state actually is." A session recycle means pretty-view is genuinely unusable for the next few seconds, and the UI should communicate that with a scrim + centered card, not a thin pill at the top edge that can be missed.
 
 ### Files
 
@@ -59,7 +59,7 @@ Ashley's live 2026-07-19 design read: the old top-bar treatment was "too subtle 
 - Outer div = full-surface scrim: `absolute inset-0 z-[110] flex items-center justify-center backdrop-blur-md bg-black/40 pointer-events-auto animate-in fade-in duration-150 [-webkit-backdrop-filter:blur(12px)]` with `role="status"` and `aria-label="Session recycling — pretty view temporarily unavailable"`.
 - Inner div = centered glass card mirroring `PlanPendingBubble` aesthetic (rounded-[var(--radius-pv-bubble)], backdrop-blur-xl saturate-150, linear-gradient bg, border, shadow) with slightly more prominent padding (px-4 py-3 vs. px-3 py-2, gap-3 vs. gap-2) since it's the sole focal element.
 - Content: static `RefreshCcw` glyph (`h-4 w-4 shrink-0`, `aria-hidden="true"`) + `<span>Session recycling…</span>`.
-- Top-of-file comment explains: what this is (patch #74 replacement), why the shape (Ashley's 2026-07-19 read), motion-channel guardrail (static glyph, no spinner — WipBubble owns motion per patch #72), and parent-owned visibility gating.
+- Top-of-file comment explains: what this is (patch #74 replacement), why the shape (Alice's 2026-07-19 read), motion-channel guardrail (static glyph, no spinner — WipBubble owns motion per patch #72), and parent-owned visibility gating.
 
 **Modified — `src/ui/features/pretty-view/PrettyView.tsx`**:
 - Import swap: `SessionHoldingBanner` → `SessionHoldingOverlay` (line 17).
@@ -98,7 +98,7 @@ SessionHoldingBanner.tsx deletion staged (git status: D)                       �
 
 Terminal.tsx, backend, docker, nginx, deps: UNTOUCHED. No package.json changes; no new npm dependencies.
 
-**Human-check items** (deferred to Ashley/tina eyeballs in local dev — NOT deploy-verify):
+**Human-check items** (deferred to Alice/tina eyeballs in local dev — NOT deploy-verify):
 1. Overlay appears centered over pretty-view surface, blurs+dims content, blocks clicks.
 2. No flash on instantly-cleared recycles (delay-gate works).
 3. Old sticky top banner definitely gone.
@@ -125,7 +125,7 @@ Branch: `worktree-agent-a3d07f3c50e0625f4` (will land on `feat/tab-title-from-tm
 
 ## NOT DEPLOYED
 
-Explicit reminder: this is code-landing only. `docker compose up -d --force-recreate skynet` requires a separate per-deploy green-light from Ashley (blanket pre-authorization ≠ per-deploy green-light per tina.md and CLAUDE.md's DEPLOY DISCIPLINE constraint). The 15-min deadman rollback (`/opt/skynet/.tmp-revert.sh`) is not started; production is unchanged.
+Explicit reminder: this is code-landing only. `docker compose up -d --force-recreate skynet` requires a separate per-deploy green-light from Alice (blanket pre-authorization ≠ per-deploy green-light per tina.md and CLAUDE.md's DEPLOY DISCIPLINE constraint). The 15-min deadman rollback (`/opt/skynet/.tmp-revert.sh`) is not started; production is unchanged.
 
 ## Self-Check
 

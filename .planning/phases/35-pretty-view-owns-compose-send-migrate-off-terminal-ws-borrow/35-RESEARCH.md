@@ -249,7 +249,7 @@ line 634 `case "input"`) does:
 
 History from comments in `terminal.ts`:
 - **patch #100:** original split-send, 50ms gap
-- **patch #111:** bumped to 250ms ("50ms was too tight — Ashley UAT'd... Ink stays in paste-detection past 50ms for long bodies")
+- **patch #111:** bumped to 250ms ("50ms was too tight — Alice UAT'd... Ink stays in paste-detection past 50ms for long bodies")
 - **patch #118:** switched from raw PTY CR to `tmux send-keys ... Enter` via exec channel (same 250ms delay)
 
 **The new `input` handler on the claude-session WS is tmux-only from the start** (no raw PTY
@@ -264,7 +264,7 @@ wrapper from `tmux-helper.ts`), matching `raw_keystrokes` at line 4037.
 (quick 260803-1xw). This watchdog is NOT used anywhere in `claude-session-server.ts` and is
 not imported there. The CONTEXT.md design does NOT include a watchdog for the new handler —
 the design decision is that log-and-swallow on error is sufficient. The planner should not add
-a watchdog unless Ashley asks for it.
+a watchdog unless Alice asks for it.
 
 **Corrected handler timing for the plan:**
 
@@ -454,14 +454,14 @@ if (msg.type === "wake") { ... return; }
 |---------|-------------|-------------|-----|
 | Shell quoting for tmux args | Custom escaping | `shellQuote` at line 239 of claude-session-server.ts | Already tested, POSIX-correct, both files must stay byte-identical |
 | SSH exec | Raw ssh2 callback | `execCommand` from `../ssh/tmux-helper.js` | Promisified, logged, consistent with all other handlers |
-| Split-send timing | Different delay | 250ms matching terminal.ts:842 | Empirically validated by Ashley UAT (patches #111, #118) |
+| Split-send timing | Different delay | 250ms matching terminal.ts:842 | Empirically validated by Alice UAT (patches #111, #118) |
 
 ---
 
 ## Common Pitfalls
 
 ### Pitfall 1: Using 50ms instead of 250ms in split-send
-**What goes wrong:** Messages arrive in Claude Code's composer but don't submit. Ashley's
+**What goes wrong:** Messages arrive in Claude Code's composer but don't submit. Alice's
 paste-detection symptom returns.
 **Why it happens:** CONTEXT.md's worked example shows `50ms` but this was the patch #100
 value, superseded by patch #111 (250ms) due to UAT failure.

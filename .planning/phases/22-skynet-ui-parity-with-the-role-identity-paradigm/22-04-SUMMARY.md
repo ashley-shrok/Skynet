@@ -86,7 +86,7 @@ key-files:
     - .planning/phases/22-skynet-ui-parity-with-the-role-identity-paradigm/deferred-items.md  # +24 lines: pre-existing panel test failures noted
 
 key-decisions:
-  - "REVISION SEED COMMENT (Ashley 2026-08-04 at 22-02 checkpoint, applied
+  - "REVISION SEED COMMENT (Alice 2026-08-04 at 22-02 checkpoint, applied
     HERE per same-pattern extension): The role file stub Task 1 writes now
     includes a seed comment for the first-wake agent to flesh out. Concrete
     stub body: '# <name>\\n\\n## Role\\n\\n<description>\\n\\n<!-- This role
@@ -112,7 +112,7 @@ key-decisions:
     overhead for MVP."
   - "SFTP write via writeMarkdownFileAtomic (Pitfall 3 discipline). Raw
     sftp.rename triggers SSH2_FX_FAILURE on overwrite (quick 260802-qrw;
-    Ashley UAT case). The helper uses ext_openssh_rename with POSIX atomic
+    Alice UAT case). The helper uses ext_openssh_rename with POSIX atomic
     overwrite semantics. Test 6 mocks the helper and asserts it's called
     exactly once with the expected target path + stub body — the mock guards
     against a future refactor accidentally reverting to raw sftp.rename."
@@ -157,7 +157,7 @@ patterns-established:
   - "REVISION seed comment pattern for auto-generated on-box artifacts —
     Skynet writes minimal setup, embed an HTML comment in plain English
     telling the wake-up agent to flesh out semantics on first wake, then
-    remove the comment. Ashley-locked style: no system-specific names, no
+    remove the comment. user-locked style: no system-specific names, no
     fragile section pointers. Positive+negative test assertions enforce
     the style constraints at the test layer."
   - "Optional chain-callback extension point — an optional prop with a
@@ -175,7 +175,7 @@ completed: 2026-08-04
 
 # Phase 22 Plan 22-04: SRIC-04 — Create-role surface Summary
 
-**Ashley can now click `+ New role` in the panel header to open a new-role modal (name/description/host picker/chain-checkbox CHECKED-by-default) that provisions `~/.claude/roles/<name>/` on the picked host via a new `POST /roles` route which SSHes + SFTPs the role folder + bounties/ + history.md + a seed-commented `<name>.md` stub the first-wake agent will flesh out.**
+**Alice can now click `+ New role` in the panel header to open a new-role modal (name/description/host picker/chain-checkbox CHECKED-by-default) that provisions `~/.claude/roles/<name>/` on the picked host via a new `POST /roles` route which SSHes + SFTPs the role folder + bounties/ + history.md + a seed-commented `<name>.md` stub the first-wake agent will flesh out.**
 
 ## Performance
 
@@ -245,15 +245,15 @@ _TDD gate sequence verified: RED test commit precedes GREEN feat commit for both
 
 ## Deviations from Plan
 
-### Ashley-approved plan revision (documented in the plan file as REVISION 2026-08-04 HTML comment above Task 1)
+### user-approved plan revision (documented in the plan file as REVISION 2026-08-04 HTML comment above Task 1)
 
 **1. Role file stub now includes a seed comment for the first-wake agent to flesh out**
 
-- **Approved during:** 22-02 Task 2 checkpoint (2026-08-04, Ashley), applied to 22-04 Task 1 per same-pattern extension. Plan-checker gate on this revision was baked into the RED test assertions BEFORE writing the GREEN implementation.
+- **Approved during:** 22-02 Task 2 checkpoint (2026-08-04, Alice), applied to 22-04 Task 1 per same-pattern extension. Plan-checker gate on this revision was baked into the RED test assertions BEFORE writing the GREEN implementation.
 - **Original spec:** Task 1's Test 6 stub assertion checked only for `^# box-maintainer\n\n## Role\n\nx\n$/` (bare stub, no seed).
 - **Revised spec:** Test 6 also asserts (a) 4 positive seed phrases present: `This role file was auto-generated`, `On first wake of an agent holding this role`, `flesh out the role`, `remove this comment`; (b) NO "Skynet" (case-insensitive grep fails); (c) NO `§2` / `§3` / `id skill` / `SKILL.md` (case-insensitive); (d) description verbatim under `## Role`. Implementation exports `ROLE_STUB_SEED_COMMENT` constant and interpolates it into the stub body after the description block.
 - **Impact:** +1 module-level constant, +4 test assertions in Test 6, +1 line of stub body. Zero cascading changes to other tests or routes.
-- **Rationale (Ashley, from 22-02 checkpoint):** fewer moving parts in Skynet, cleaner boundary (Skynet does file setup, agent does semantic fleshing-out on first wake), matches the identity-file seed pattern from 22-02 Task 3.
+- **Rationale (Alice, from 22-02 checkpoint):** fewer moving parts in Skynet, cleaner boundary (Skynet does file setup, agent does semantic fleshing-out on first wake), matches the identity-file seed pattern from 22-02 Task 3.
 
 ### No auto-fixed issues
 
@@ -268,7 +268,7 @@ All 11 backend tests + 10 dialog tests + 3 panel-button tests passed on first GR
 - **Action:** Appended a new section to `.planning/phases/22-.../deferred-items.md` documenting the pair. Recommended future-work fix (`/new agent|new session/i` regex, ~4-line diff) is out of SRIC-04 scope.
 - **NOT fixed:** Rule 3 boundary — pre-existing failure orthogonal to SRIC-04 scope. My new Test 21 launcher tests use `/new role/i` (correct-label regex against the actual `"New role"` aria-label), so they don't inherit the same class of bug.
 
-**Total deviations:** 1 Ashley-approved plan revision (seed comment, baked into RED test assertions before GREEN); 1 deferred-items log entry (out-of-scope pre-existing failure). Zero auto-fixed issues, zero scope creep.
+**Total deviations:** 1 user-approved plan revision (seed comment, baked into RED test assertions before GREEN); 1 deferred-items log entry (out-of-scope pre-existing failure). Zero auto-fixed issues, zero scope creep.
 
 ## Issues Encountered
 
@@ -281,10 +281,10 @@ All 11 backend tests + 10 dialog tests + 3 panel-button tests passed on first GR
 None — no new environment variables, no new npm packages, no dashboard configuration.
 
 **Post-deploy manual verification (deferred to Phase 22 UAT per ROADMAP):**
-1. Ashley clicks `+ New role` in the panel header → CreateRoleDialog opens with the chain checkbox CHECKED by default.
-2. Ashley picks a host, types a kebab-case role name + a description, clicks Create → 201 response, dialog closes.
-3. Ashley SSHs to the target host and verifies `~/.claude/roles/<name>/` exists with `bounties/` subdir, empty `history.md`, and a `<name>.md` stub containing the description under `## Role` PLUS the wake-up seed comment.
-4. Ashley clicks `+ New role` again with the same name → 409 conflict → inline "A role named `<name>` already exists on <host>" renders, dialog stays open.
+1. Alice clicks `+ New role` in the panel header → CreateRoleDialog opens with the chain checkbox CHECKED by default.
+2. Alice picks a host, types a kebab-case role name + a description, clicks Create → 201 response, dialog closes.
+3. Alice SSHs to the target host and verifies `~/.claude/roles/<name>/` exists with `bounties/` subdir, empty `history.md`, and a `<name>.md` stub containing the description under `## Role` PLUS the wake-up seed comment.
+4. Alice clicks `+ New role` again with the same name → 409 conflict → inline "A role named `<name>` already exists on <host>" renders, dialog stays open.
 5. (Phase 22-05 gate) When the checkbox is CHECKED and Plan 22-05 has landed, submitting the create-role form should open NewSessionDialog with role+host pre-filled.
 
 ## Next Phase Readiness

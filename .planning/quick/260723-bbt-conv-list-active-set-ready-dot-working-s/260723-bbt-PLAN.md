@@ -93,17 +93,17 @@ must_haves:
 ---
 
 <objective>
-Wire two new visual signals into the pretty-conversations list per Ashley's 2026-07-23 LOCKED spec (patch #137, fork ordinal after #136 which shipped the every-row bubble+badge treatment + `isWip` render slot):
+Wire two new visual signals into the pretty-conversations list per Alice's 2026-07-23 LOCKED spec (patch #137, fork ordinal after #136 which shipped the every-row bubble+badge treatment + `isWip` render slot):
 
-1. **Active-set** — sessionStorage-backed `Set<string>` of conversation ids Ashley has selected in this window session. Populated as a side-effect of `selectConversation`. Rows in the set keep the full patch #136 pretty-view bubble treatment; rows NOT in the set visually recede to the mock's ambient recession (dimmer hue rgba background, no drop shadow, no backdrop-blur, muted foreground).
+1. **Active-set** — sessionStorage-backed `Set<string>` of conversation ids Alice has selected in this window session. Populated as a side-effect of `selectConversation`. Rows in the set keep the full patch #136 pretty-view bubble treatment; rows NOT in the set visually recede to the mock's ambient recession (dimmer hue rgba background, no drop shadow, no backdrop-blur, muted foreground).
 
 2. **Ready-for-attention dot** — ONE dot, ONE meaning. Appears iff `inActiveSet(row) === true && isWorking(row) === false`. Absent = agent working, OR row is ambient, OR both. This is the click-priority signal driving her workflow. Steady (no animation) — the dot IS the affordance; a pulse would read as WIP-motion.
 
 Patch #136's `isWip` prop is RENAMED to `isWorking` (now `boolean | null`) and its render condition is INVERTED. The dead `pv-conv-wip-pulse` keyframe + its reduced-motion fallback are removed from index.css (steady dot needs neither).
 
-Purpose: Ashley's list must telegraph "what needs my attention next" at a glance. Active-set = "I have engaged with this recently." Ready-dot = "engaged AND agent is idle waiting on me." Ambient = "still open but backgrounded, quiet."
+Purpose: Alice's list must telegraph "what needs my attention next" at a glance. Active-set = "I have engaged with this recently." Ready-dot = "engaged AND agent is idle waiting on me." Ambient = "still open but backgrounded, quiet."
 
-Output: 9 files touched (2 new — session-working-store + its test; 7 modified). One atomic commit `feat(pretty-conversations): patch #137 — wire active-set + ready-for-attention dot from session-working store` on `feat/tab-title-from-tmux`. NO Co-Authored-By trailer (fork commits don't use one). NO build, NO deploy, NO skynet-patches.md write-up (per Ashley's re-emphasized 2026-07-23 guardrails).
+Output: 9 files touched (2 new — session-working-store + its test; 7 modified). One atomic commit `feat(pretty-conversations): patch #137 — wire active-set + ready-for-attention dot from session-working store` on `feat/tab-title-from-tmux`. NO Co-Authored-By trailer (fork commits don't use one). NO build, NO deploy, NO skynet-patches.md write-up (per Alice's re-emphasized 2026-07-23 guardrails).
 
 Locked planner choices (per task_spec §4/§6):
 - **Ambient recession implementation:** Choice A — conditional inline `style` object driven by `isAmbient = !inActiveSet && !isRdp`, layered via spread under `hoverOverlay`/`selectedOverlay`/`bodyTransformStyle`. Mirrors the existing `selectedOverlay` pattern verbatim; simplest; no new stylesheet section required.
@@ -256,14 +256,14 @@ export function useActiveSet(): ReadonlySet<string>;
     - On module load: read `sessionStorage.getItem("pv-conv-active-set")`; if present, `JSON.parse` → array → `new Set<string>()`. Wrap in try/catch — malformed JSON, empty string, missing key, or absent `sessionStorage` (SSR/JSDOM edge) ALL fall back to `new Set<string>()` silently. No console.warn.
     - `addToActiveSet(id: string): void` — idempotent. If `state.activeSet.has(id)` return without touching sessionStorage OR calling notify. Otherwise build a new Set (`new Set(state.activeSet)` + `.add(id)`), persist via `sessionStorage.setItem("pv-conv-active-set", JSON.stringify([...next]))` inside try/catch (silent), update `state.activeSet = next`, notify.
     - `useActiveSet(): ReadonlySet<string>` — useSyncExternalStore returning `state.activeSet`. New Set reference on every real mutation; same reference across no-ops.
-    - `selectConversation(id)` — after the stale-id guard passes and BEFORE the "no change" short-circuit at line 575, if `id !== null` call `addToActiveSet(id)`. Placement rationale: even a same-id re-selection is a legitimate signal that Ashley is "engaging" with this conversation — the active-set should record it. addToActiveSet is idempotent so a repeat call is a cheap no-op.
+    - `selectConversation(id)` — after the stale-id guard passes and BEFORE the "no change" short-circuit at line 575, if `id !== null` call `addToActiveSet(id)`. Placement rationale: even a same-id re-selection is a legitimate signal that Alice is "engaging" with this conversation — the active-set should record it. addToActiveSet is idempotent so a repeat call is a cheap no-op.
     - Do NOT export `removeFromActiveSet` — the set only grows within a session.
     - `selectConversation(null)` does NOT touch activeSet (deselect is not a positive engagement signal).
   </behavior>
   <action>
     In `src/ui/state/conversation-store.ts`:
 
-    1. Add `activeSet: Set<string>` to the `State` type (line ~115) directly under `hostsFlat` field. Include a JSDoc comment: `// Patch #137: sessionStorage-backed set of conversation ids Ashley has selected in this browser-tab session. Persisted under key "pv-conv-active-set" as a JSON array. Rehydrated on module load; grows only (no remove API); dies on tab close (sessionStorage semantics).`
+    1. Add `activeSet: Set<string>` to the `State` type (line ~115) directly under `hostsFlat` field. Include a JSDoc comment: `// Patch #137: sessionStorage-backed set of conversation ids Alice has selected in this browser-tab session. Persisted under key "pv-conv-active-set" as a JSON array. Rehydrated on module load; grows only (no remove API); dies on tab close (sessionStorage semantics).`
 
     2. Add a top-level constant near the CONVERSATION_TAB_TYPES declaration: `const ACTIVE_SET_STORAGE_KEY = "pv-conv-active-set";`.
 
@@ -429,7 +429,7 @@ export function useActiveSet(): ReadonlySet<string>;
     // to render; `null` and `true` both suppress. Panel resolves via
     // useSessionWorking(sessionWorkingKey(row)).
     isWorking?: boolean | null;
-    // Patch #137: whether this row is in Ashley's active-set (any
+    // Patch #137: whether this row is in Alice's active-set (any
     // session she has selectConversation-ed in this browser-tab
     // session). Rows in the set keep the patch #136 full-bubble
     // treatment; rows out of the set recede to the ambient values
@@ -442,7 +442,7 @@ export function useActiveSet(): ReadonlySet<string>;
 
     ```
     // Patch #137: ambient recession applies to non-RDP rows NOT in
-    // Ashley's active-set. Layered as an early override in the body-
+    // Alice's active-set. Layered as an early override in the body-
     // bubble derivation below; also drives ambient avatar + ambient
     // label branches.
     const isAmbient = !isRdp && !inActiveSet;
@@ -529,7 +529,7 @@ export function useActiveSet(): ReadonlySet<string>;
 
     ```
     {/* Patch #137 ready-dot — signals "engaged AND agent idle, ready
-        for Ashley's next input." Renders as LAST child in the
+        for Alice's next input." Renders as LAST child in the
         right-meta column (after PinAction + pin glyph) iff
         inActiveSet && isWorking === false. Steady (no animation) —
         the dot IS the affordance; a pulse would read as WIP-motion.
@@ -700,7 +700,7 @@ export function useActiveSet(): ReadonlySet<string>;
 
     Confirm existing Tests 1-12 still pass without prop-shape edits (they omit both new props and rely on defaults). Test 12 (patch #136 full-bubble) must still pass because it omits `inActiveSet` (defaults to false) — WAIT: `inActiveSet: false` means ambient per new logic, which would break Test 12's assertion of `linear-gradient(160deg, ` with 0.55/0.6 alphas. RESOLUTION: Test 12 needs one prop addition — pass `inActiveSet={true}` explicitly so it continues to assert the full-bubble treatment (which was the pre-patch-#137 default). Update Test 12's render call to include `inActiveSet={true}` and add a code comment inside the it() body: `// Patch #137: inActiveSet=true keeps the row in the full-bubble treatment; the ambient-vs-full body branch is exercised by Test 18.`
 
-    Same one-prop-addition (`inActiveSet={true}`) is needed for Test 1 (selected-row hue) — but wait, Test 1's row is `selected={true}` which layers selectedOverlay ON TOP of baseBodyStyle. If baseBodyStyle is ambient AND selected overlays, the selected border/shadow still dominate but the background stays ambient. Test 1's assertion is `linear-gradient(160deg` in the raw style — which under ambient becomes `hsla(30, 40%, 20%, 0.16)` (flat, NOT gradient). RESOLUTION: Test 1 also needs `inActiveSet={true}` added. Same one-prop-addition. Alternatively: the executor could argue selected rows should always get the full bubble regardless of inActiveSet (a defensible design choice per Ashley's spec: selected = current focus = always full treatment). This is a small planner-discretion call — LOCKED: prefer the explicit-prop route (add `inActiveSet={true}` to Test 1) because it keeps the render logic simpler (isAmbient = !inActiveSet && !isRdp, no selected-override). The panel will always pass inActiveSet={true} for a selected row (selectConversation always adds to activeSet), so this is behaviorally identical.
+    Same one-prop-addition (`inActiveSet={true}`) is needed for Test 1 (selected-row hue) — but wait, Test 1's row is `selected={true}` which layers selectedOverlay ON TOP of baseBodyStyle. If baseBodyStyle is ambient AND selected overlays, the selected border/shadow still dominate but the background stays ambient. Test 1's assertion is `linear-gradient(160deg` in the raw style — which under ambient becomes `hsla(30, 40%, 20%, 0.16)` (flat, NOT gradient). RESOLUTION: Test 1 also needs `inActiveSet={true}` added. Same one-prop-addition. Alternatively: the executor could argue selected rows should always get the full bubble regardless of inActiveSet (a defensible design choice per Alice's spec: selected = current focus = always full treatment). This is a small planner-discretion call — LOCKED: prefer the explicit-prop route (add `inActiveSet={true}` to Test 1) because it keeps the render logic simpler (isAmbient = !inActiveSet && !isRdp, no selected-override). The panel will always pass inActiveSet={true} for a selected row (selectConversation always adds to activeSet), so this is behaviorally identical.
 
     Sanity-scan all other existing tests (Tests 2-11): none of them assert body background/shadow contents — they assert data-attributes, swipe state, click behavior, avatar SVG presence. Under the new ambient default they will render ambient bodies but their assertions do not read body style keys, so they PASS unchanged.
   </action>
@@ -886,7 +886,7 @@ export function useActiveSet(): ReadonlySet<string>;
 | T-137-01 | Tampering | conversation-store `hydrateActiveSetFromStorage` reading sessionStorage `pv-conv-active-set` | mitigate | try/catch wraps JSON.parse; strict `Array.isArray(parsed)` check + per-element `typeof v === "string"` filter drops malformed entries; empty Set fallback on any failure. Values are conversation ids used only as Set membership tests + rendered as `data-conversation-id` — no eval, no innerHTML, no dangerouslySetInnerHTML anywhere. |
 | T-137-02 | Denial of Service | sessionStorage quota exceeded on addToActiveSet write | mitigate | setItem wrapped in try/catch; failure silently swallowed → state.activeSet still updates in-memory + notify still fires → UI stays functional for the current session even if persistence fails. Documented in code comment. |
 | T-137-03 | Information Disclosure | sessionStorage active-set persists conversation ids across window session | accept | Conversation ids are non-secret UI identifiers (already leak into `data-conversation-id` DOM attributes, DevTools, and browser history via URL fragments per Phase 6 `#tab=` scheme). No new PII exposure. sessionStorage per-tab isolation is the correct trust level. |
-| T-137-04 | Repudiation | User cannot remove a conversation from active-set once added | accept | Design decision per §3 — the set only grows within a session. Documented in code comment. No security implication; a "clear" gesture can be added in a future patch if Ashley asks. |
+| T-137-04 | Repudiation | User cannot remove a conversation from active-set once added | accept | Design decision per §3 — the set only grows within a session. Documented in code comment. No security implication; a "clear" gesture can be added in a future patch if Alice asks. |
 | T-137-05 | Elevation of Privilege | Cross-tab leakage of active-set state | accept | sessionStorage is per-tab by design; this is the intended trust boundary. Cross-tab isolation confirmed in §3. |
 | T-137-06 | Tampering | Rules-of-Hooks violation from calling `useSessionWorking` inside `.map()` callback | mitigate | `PrettyConversationRowLive` micro-component extracts the hook call to a stable top-level position within a per-row instance component — React reconciler keeps hook order stable across renders (standard React idiom). Verified by keeping the `key={row.id}` prop unchanged on the wrapper. |
 | T-137-SC | Tampering | npm/pip/cargo installs | mitigate | N/A — this patch adds ZERO new dependencies. `grep -c '"[a-z@]' package.json` before-vs-after must be identical. Verified in Task 4's verify block indirectly (no `npm install` command anywhere in the plan). |
@@ -935,9 +935,9 @@ Phase-level checks (all must pass before commit):
 
 <success_criteria>
 
-**Behaviorally observable in dev-server post-patch (deferred — Ashley will greenlight after batched deploy):**
+**Behaviorally observable in dev-server post-patch (deferred — Alice will greenlight after batched deploy):**
 
-1. Every conversation Ashley has clicked in the current tab-session shows the full patch #136 pretty-view bubble treatment.
+1. Every conversation Alice has clicked in the current tab-session shows the full patch #136 pretty-view bubble treatment.
 2. Every conversation she has NOT clicked in the current tab-session shows the ambient recession (dim hue rgba background, no drop shadow, no backdrop-blur, muted foreground).
 3. On any active-set row where the agent is idle (isIdle-published false), a single steady ready-dot appears in the right-meta column — hue-cream fill, hue outer glow, warm inset.
 4. On any active-set row where the agent is working (isIdle-published true), the ready-dot is absent.

@@ -41,7 +41,7 @@ body {
   background-color: var(--background);
 }
 
-/* Fleet-wide mobile tap responsiveness (2026-08-07, Ashley: "sometimes I
+/* Fleet-wide mobile tap responsiveness (2026-08-07, Alice: "sometimes I
    press things on mobile ... and they don't press so I have to touch
    them again"). iOS Safari's default `touch-action: auto` keeps a ~300ms
    double-tap-zoom arbitration window even on `user-scalable=no` pages;
@@ -136,7 +136,7 @@ input[type="radio"] {
      mock's palette (see bounties/archive/pretty-view-visual-overhaul/
      mock/index.html — cool blacks like #0a0b12, #101218, #14151a).
      Prior warm values (#14120e / #100e0b / #0a0907) drifted through
-     patches #62/#79/#81 into a yellow-leaning aesthetic Ashley flagged
+     patches #62/#79/#81 into a yellow-leaning aesthetic Alice flagged
      as off-mock 2026-07-19. Warm rims stay warm on identity-hue
      chrome (chat bubbles, send button); dark surface rims shift to
      cool-cream (220,225,245) for consistency with the cool base. */
@@ -165,7 +165,7 @@ input[type="radio"] {
     0 0 0 0.5px rgba(255, 255, 255, 0.05);
   /* Patch #82: repurposed from "quiet floating card" (drop shadow +
      inset rim) to "quiet shelf" (inset rim only). The drop-shadow was
-     the "slightly-bigger black rectangle" Ashley called out; a wall-
+     the "slightly-bigger black rectangle" Alice called out; a wall-
      to-wall shelf has nothing to float over so no drop shadow. Just
      the cool-cream 1px top rim for glass definition. */
   --shadow-pv-quiet-card: inset 0 1px 0 rgba(220, 225, 245, 0.04);
@@ -177,7 +177,7 @@ input[type="radio"] {
 
 /* Phase 14B Slice 8: `:root { light-mode }` block retired. Skynet never
  * activates the prior fork's light theme — the app boots into the `.dark` class
- * by default via ThemeProvider, and every Ashley-visible surface is a
+ * by default via ThemeProvider, and every user-visible surface is a
  * dark-mode surface. Keeping the light-mode variables around was pure
  * dead weight (35 lines, ~100 tokens). The pv aesthetic drives every
  * pretty surface directly; the `.dark` block below survives only to
@@ -270,7 +270,7 @@ input[type="radio"] {
 /* Phase 14B Slice 8: 6 non-Dracula xterm color themes retired
  * (Catppuccin Mocha, Nord, Solarized Dark, Tokyo Night, One Dark,
  * Gruvbox Dark — upstream fork carry-overs). Dracula stays because
- * it's the theme Ashley locked in for her fleet. See
+ * it's the theme Alice locked in for her fleet. See
  * .planning/phases/14A-css-purge-wave-a-deletions/14A-SUMMARY.md for
  * the CSS purge wave methodology. */
 
@@ -332,7 +332,7 @@ html {
  * to re-measure the viewport such that innerHeight, visualViewport.height,
  * and 100dvh all grow to the full physical value. AppShell's 100dvh then
  * naturally reaches the physical bottom without needing its own edit.
- * Verified live 2026-08-01 on Ashley's iPhone 16 Pro Max PWA via the
+ * Verified live 2026-08-01 on Alice's iPhone 16 Pro Max PWA via the
  * bottompad diagnostic tuner (see bounty pwa-bottom-safe-area-reclaim). */
 body {
   min-height: 100vh;
@@ -370,13 +370,13 @@ html.fs-xl {
  * mobile is correct here — mobile is a separate context, not a proportional
  * scale of desktop.
  *
- * Patch #309 (Ashley 2026-08-04): drops mobile html base 24px → 18px. The
- * 24px shipped in #163 turned out to be too big — Ashley had been counter-
+ * Patch #309 (Alice 2026-08-04): drops mobile html base 24px → 18px. The
+ * 24px shipped in #163 turned out to be too big — Alice had been counter-
  * scaling with a Safari per-domain zoom preference set 2 steps below default
  * and hadn't realized we'd been iterating design against that zoomed-out
  * view. Fresh browser + Stacey's ceo-skynet instance surfaced the gap. 18px
  * matches fs-xl and approximates Safari-2-steps-down of 24px, aligning the
- * default with what Ashley has actually been designing at. Some previously-
+ * default with what Alice has actually been designing at. Some previously-
  * shipped mobile px chrome overrides (patch #165 composebox buttons, .pv-
  * speak-btn 52px, other px tap targets) may look proportionally too large
  * against the new smaller rem base and need individual trimming — parked as
@@ -482,7 +482,7 @@ html.fs-xl {
  * by a delegated pointerdown listener in ComposeBox.tsx for a fixed 250ms
  * window regardless of tap length. Motivation: pretty-view buttons like
  * ThumbsUp ("thumbs up") produce message bubbles asynchronously — the
- * session-side accept latency is out of our control, so Ashley needs an
+ * session-side accept latency is out of our control, so Alice needs an
  * immediate local ack that her tap registered. Uses the standalone
  * `scale:` property (not `transform: scale()`) so it composes
  * independently of shadcn Button's baseline `active:translate-y-px` and

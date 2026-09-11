@@ -1,6 +1,6 @@
 # Phase 6 UAT Checklist — Telegram-like Interface
 
-Post-deploy walk-through for Ashley. Every TG-01..TG-11 requirement gets an observable check, quoted verbatim from `.planning/REQUIREMENTS.md` so you walk the exact contract. Groupings: desktop happy-path first, persistence (TG-05), mobile flow, new-session (TG-09), settings surface (TG-10), then negative-space scope-fence, then regression smoke against pre-existing patches (#25, #35, #57, #60, #100, #102). Blocking gates marked 🚨 (regression = revert immediately); nice-to-have polish unmarked or ✨.
+Post-deploy walk-through for Alice. Every TG-01..TG-11 requirement gets an observable check, quoted verbatim from `.planning/REQUIREMENTS.md` so you walk the exact contract. Groupings: desktop happy-path first, persistence (TG-05), mobile flow, new-session (TG-09), settings surface (TG-10), then negative-space scope-fence, then regression smoke against pre-existing patches (#25, #35, #57, #60, #100, #102). Blocking gates marked 🚨 (regression = revert immediately); nice-to-have polish unmarked or ✨.
 
 **Trace commits (Phase 6 code + verify artifacts):**
 
@@ -86,7 +86,7 @@ Plan 06-02 Task 2's persistence smoke test landed programmatic guards for Tests 
 
 ## Mobile flow (TG-06, TG-07) — requires touch device
 
-**Ashley:** this section requires a touch device (phone / tablet). Verify on your phone. If you don't have one handy, skip and mark N/A — the mobile-flow module has 11 Vitest cases covering the URL scheme + navigate actions in Plan 06-03, and the AppShell mobile branch is behind `useIsTouchDevice()` (patch #103) which was smoke-verified in the Phase 5 UAT.
+**Alice:** this section requires a touch device (phone / tablet). Verify on your phone. If you don't have one handy, skip and mark N/A — the mobile-flow module has 11 Vitest cases covering the URL scheme + navigate actions in Plan 06-03, and the AppShell mobile branch is behind `useIsTouchDevice()` (patch #103) which was smoke-verified in the Phase 5 UAT.
 
 > **TG-06 contract:** *"On mobile (any viewport where `useIsTouchDevice()` returns true), the list and the view are two distinct screens — never both visible at once. From the list, tapping a row navigates into that conversation, fully replacing the list view. A back button in the top-left of the view returns to the list, fully replacing the view. The back gesture also works via the browser's back button"*
 
@@ -96,7 +96,7 @@ Plan 06-02 Task 2's persistence smoke test landed programmatic guards for Tests 
 - [ ] 🚨 **TG-06 browser back gesture** From the conversation view (with `#mv=1` in URL), hit the browser back button (or phone's system back gesture). Verify: returns to the list. From the list (no `mv=1`), hit browser back again. Verify: leaves Skynet (navigates back in browser history to whatever page was before Skynet).
 - [ ] 🚨 **TG-06 URL fragment survives Chrome window-restore (mobile-view marker case)** On the phone, open a specific conversation view. Note the URL fragment (should contain `mv=1` alongside `tab=` — e.g. `#tab=terminal:hostA:sessionA&active=0&mv=1`). Close the Chrome tab. Reopen via Chrome's Recent Tabs menu (or Ctrl+Shift+T on desktop for the same test — the fragment scheme is identical). Verify: the URL survives AND Skynet reopens ON THE VIEW SCREEN for that specific conversation, not on the list. **This is patch #25's Chrome-window-restore lesson extended to the `mv=` key** (Plan 06-03) — if `mv=1` were stored in the query string (`?mv=1`), Chrome would strip it on restore; the fragment approach preserves it. If this test fails, `mv=1` did not survive; investigate before pinning.
 
-> **TG-07 contract:** *"The mobile-only bottom navigation bar (whose current entries — host manager, credentials editor, and adjacent admin surfaces — Ashley does not use) is deleted entirely as a surface. It does not appear on any mobile viewport in any state"*
+> **TG-07 contract:** *"The mobile-only bottom navigation bar (whose current entries — host manager, credentials editor, and adjacent admin surfaces — Alice does not use) is deleted entirely as a surface. It does not appear on any mobile viewport in any state"*
 
 - [ ] 🚨 **TG-07 mobile bottom nav DELETED** On the mobile viewport, verify the bottom navigation bar is GONE. NO bottom-of-screen strip with icons. The full viewport height is either LIST (with SettingsRow at the bottom of the ConversationsPanel scroller — Plan 06-03) or VIEW (with MobileViewHeader at top + conversation content filling the rest).
 - [ ] 🚨 **TG-07 no bottom nav in any state** Try every mobile viewport state: fresh load, after tapping a row (view screen), after tapping back (list screen), during split-screen if that renders on mobile, after opening SettingsRow. Verify: no bottom nav bar visible in ANY of these states.
@@ -107,7 +107,7 @@ Plan 06-02 Task 2's persistence smoke test landed programmatic guards for Tests 
 
 ## TG-09 — new-session button + host picker + auto-navigate
 
-> **TG-09 contract:** *"A visible new-session button lives on the list view (both mobile and desktop) at a position that does not compete with pinned or active rows for attention — top of the list on desktop, and a mobile-appropriate placement (top-of-list or bottom-of-screen FAB) on mobile. Pressing it brings up a host picker; Ashley picks a host, provides a session name, and the new session opens. The exact affordance shape (modal / slide-in / popover), the exact mobile position, and whether the name is mandatory-up-front vs. optional-with-tmux-title-auto-fallback are planning-phase decisions, not shape decisions"*
+> **TG-09 contract:** *"A visible new-session button lives on the list view (both mobile and desktop) at a position that does not compete with pinned or active rows for attention — top of the list on desktop, and a mobile-appropriate placement (top-of-list or bottom-of-screen FAB) on mobile. Pressing it brings up a host picker; Alice picks a host, provides a session name, and the new session opens. The exact affordance shape (modal / slide-in / popover), the exact mobile position, and whether the name is mandatory-up-front vs. optional-with-tmux-title-auto-fallback are planning-phase decisions, not shape decisions"*
 
 Plan 06-04 chose: full-width primary CTA at TOP of scroller ABOVE pins (both mobile and desktop), Radix Dialog modal picker, filterable flat host list, optional session name (empty = tmux window title auto-fill), client-side `SESSION_NAME_PATTERN /^[\w-]{0,64}$/` validation.
 
@@ -139,7 +139,7 @@ The following are surfaced from Plan 06-04's SUMMARY as the canonical UAT sequen
 
 ## TG-10 — settings surface (gear icon on desktop, SettingsRow on mobile)
 
-> **TG-10 contract:** *"The admin/settings destinations previously reachable through the mobile bottom navigation bar (host manager, credentials editor, and adjacent admin surfaces) remain reachable in the product, but from an unobtrusive settings surface — a small gear icon in the sidebar header on desktop, and a settings row somewhere in the list view on mobile that does not sit at the top competing for attention with the pinned or active rows. Ashley never uses these; the constraint is 'don't let them occupy real estate she cares about'"*
+> **TG-10 contract:** *"The admin/settings destinations previously reachable through the mobile bottom navigation bar (host manager, credentials editor, and adjacent admin surfaces) remain reachable in the product, but from an unobtrusive settings surface — a small gear icon in the sidebar header on desktop, and a settings row somewhere in the list view on mobile that does not sit at the top competing for attention with the pinned or active rows. Alice never uses these; the constraint is 'don't let them occupy real estate she cares about'"*
 
 - [ ] 🚨 **TG-10 desktop gear icon** On desktop, locate the small gear icon in the ConversationsPanel header (right side of the header row, next to the panel title). Click it. Verify: a DropdownMenu opens with routes to all 10 destinations the MobileBottomBar used to reach: Host Manager, Credentials, Connections, Quick Connect, SSH Tools, Snippets, History, Split Screen, User Profile, Admin Settings.
 - [ ] 🚨 **TG-10 desktop admin-settings admin-gated** If you're logged in as a non-admin user (or use a browser session where you can toggle roles), verify: the Admin Settings entry is HIDDEN from the dropdown for non-admin users. Admin-only entry stays gated at the menu-render level (T-06-02-04 preserved from Plan 06-02).
@@ -148,10 +148,10 @@ The following are surfaced from Plan 06-04's SUMMARY as the canonical UAT sequen
 
 ## Negative-space (scope-fence) checks
 
-Ashley MUST verify that certain things are NOT present. These catch scope creep.
+Alice MUST verify that certain things are NOT present. These catch scope creep.
 
 - [ ] 🚨 **NO activity/unread indicators anywhere** No dots, no badges, no numbers, no motion signaling "new activity" on any conversation row. Deferred-to-v2 per shape lock. If ANY appear, a plan violated the deferred-items list — surface for revision.
-- [ ] 🚨 **NO cross-conversation search** No global search bar anywhere in the list chrome. (Out entirely per shape — "I don't need it" — Ashley 2026-07-21.)
+- [ ] 🚨 **NO cross-conversation search** No global search bar anywhere in the list chrome. (Out entirely per shape — "I don't need it" — Alice 2026-07-21.)
 - [ ] 🚨 **NO folder / nested-grouping above host separators** The list has ONE grouping (by host). No folder hierarchy on top.
 - [ ] 🚨 **NO drag-to-reorder for pins** Try to drag a pinned row. Verify: nothing happens (or the drag is refused). Pin order is simple; drag reorder is out.
 - [ ] 🚨 **NO history / scrollback for ended sessions** After a session ends, verify: there is NO "recently closed" section, NO way to see what was said in that session.

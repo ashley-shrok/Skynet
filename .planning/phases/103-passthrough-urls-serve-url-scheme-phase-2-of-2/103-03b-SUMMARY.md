@@ -38,7 +38,7 @@ key-files:
 key-decisions:
   - "cacheKey format = `${hostname}:${port}::${tunnelPort}` (not just `${hostname}:${port}`) — a tunnel rebuild on a new port (D-15 transparent-recovery from tunnel-cache.ts) would otherwise leave a stale middleware pointing at a dead port; including tunnelPort forces a fresh middleware on rebuild while still coalescing for stable-tunnel case"
   - "sec-websocket-extensions setHeader('') runs AFTER stripToAllowlist rather than before — strip removes the header (it's not in allowlist), then explicit set to empty string forces upstream to see 'no extensions negotiated' vs 'no header at all' (R&D GOTCHA 1 documents the wire-verified POC 2/POC 6 shape)"
-  - "Audit's anomaly branch WILL fire on every WS upgrade with outOfAllowlist: ['sec-websocket-extensions'] — this is by design and documents at log level that the R&D GOTCHA 1 fix is engaged; Ashley's dashboard can filter this specific header from the anomaly signal, or the fire itself is the receipt that GOTCHA 1 is running"
+  - "Audit's anomaly branch WILL fire on every WS upgrade with outOfAllowlist: ['sec-websocket-extensions'] — this is by design and documents at log level that the R&D GOTCHA 1 fix is engaged; Alice's dashboard can filter this specific header from the anomaly signal, or the fire itself is the receipt that GOTCHA 1 is running"
   - "Info-leak invariant T-40-05 extended to header-audit: only header NAMES logged (proxyReq.getHeaderNames()), never VALUES — cookie/auth token/X-Skynet-* payloads stay out of logs even in the anomaly branch"
   - "ALLOWLIST_SET built once at module load (Set of the HEADER_ALLOWLIST tuple) — plan action text said `.includes()` on the tuple which is O(n); Set gives O(1) inner loop over getHeaderNames() which can be 15-30 headers per real request"
 
@@ -131,15 +131,15 @@ _Note: No STATE.md / ROADMAP.md commit produced per orchestrator instructions ("
 
 **3. [Documentation - Non-Rule] Documented that WS upgrade audit ALWAYS fires anomaly branch on sec-websocket-extensions**
 - **Found during:** Task 3 (proxy-factory.ts + header-audit-sampler.ts interaction analysis)
-- **Issue:** proxy-factory.ts explicitly setHeader('sec-websocket-extensions', '') AFTER stripToAllowlist on WS upgrade. sec-websocket-extensions is intentionally NOT in HEADER_ALLOWLIST (per types.ts docblock, deliberate for GOTCHA 1). Result: emitHeaderAudit's anomaly branch will fire on every single WS upgrade with `outOfAllowlist: ["sec-websocket-extensions"]`. Ashley's dashboard needs to know this is by design, not a strip bug.
-- **Fix:** Added explanatory comment in proxy-factory.ts's proxyReqWs hook noting the audit fires by design. Ashley's dashboard filter can suppress sec-websocket-extensions specifically from the anomaly signal, or the fire itself is the receipt that the R&D GOTCHA 1 fix is engaged.
+- **Issue:** proxy-factory.ts explicitly setHeader('sec-websocket-extensions', '') AFTER stripToAllowlist on WS upgrade. sec-websocket-extensions is intentionally NOT in HEADER_ALLOWLIST (per types.ts docblock, deliberate for GOTCHA 1). Result: emitHeaderAudit's anomaly branch will fire on every single WS upgrade with `outOfAllowlist: ["sec-websocket-extensions"]`. Alice's dashboard needs to know this is by design, not a strip bug.
+- **Fix:** Added explanatory comment in proxy-factory.ts's proxyReqWs hook noting the audit fires by design. Alice's dashboard filter can suppress sec-websocket-extensions specifically from the anomaly signal, or the fire itself is the receipt that the R&D GOTCHA 1 fix is engaged.
 - **Files modified:** `src/backend/serve-url/proxy-factory.ts` (proxyReqWs hook inline comment only — no behavior change).
-- **Not a Rule 1/2/3 deviation** — this is a documentation clarification that surfaces a designed-in log-signal pattern. Recorded here so the verifier + Ashley + Plan 04 test author know to expect this specific anomaly signal on every WS upgrade.
+- **Not a Rule 1/2/3 deviation** — this is a documentation clarification that surfaces a designed-in log-signal pattern. Recorded here so the verifier + Alice + Plan 04 test author know to expect this specific anomaly signal on every WS upgrade.
 
 ---
 
 **Total deviations:** 2 auto-fixed (1 Rule-2 performance, 1 Rule-3 correctness) + 1 documentation clarification.
-**Impact on plan:** No scope creep, no architectural change. Rule-2 fix converts O(n·m) to O(n) on the hot path (D-04 security boundary). Rule-3 fix corrects a real correctness bug that would have surfaced on the first tunnel rebuild post-ship (silent stale-port middleware ECONNREFUSED after any network flap). Documentation clarification records a designed-in interaction between proxy-factory.ts's WS hook and header-audit-sampler.ts's anomaly branch so it doesn't look like a strip regression when Ashley first sees it.
+**Impact on plan:** No scope creep, no architectural change. Rule-2 fix converts O(n·m) to O(n) on the hot path (D-04 security boundary). Rule-3 fix corrects a real correctness bug that would have surfaced on the first tunnel rebuild post-ship (silent stale-port middleware ECONNREFUSED after any network flap). Documentation clarification records a designed-in interaction between proxy-factory.ts's WS hook and header-audit-sampler.ts's anomaly branch so it doesn't look like a strip regression when Alice first sees it.
 
 ## Issues Encountered
 

@@ -151,7 +151,7 @@ Sample test output confirmed passing:
 
 ## Ship Readiness
 
-**Ready for orchestrator ship-gate** (full-suite `npx vitest run` + `docker build` + `docker compose up -d --force-recreate skynet` behind deadman + HTTPS 200 + Ashley UAT: invisible wake works, red-bubble fires on real failure).
+**Ready for orchestrator ship-gate** (full-suite `npx vitest run` + `docker build` + `docker compose up -d --force-recreate skynet` behind deadman + HTTPS 200 + Alice UAT: invisible wake works, red-bubble fires on real failure).
 
 Executor's remit ends here — code + commits + tests green + shape-conformance verified. Backend + frontend builds both exit 0. Scoped test suite (dormant-poll + pv-send-watchdog + PrettyView) = 77 pass. All 12 Phase 60 commits present (60-01 x2 code + 1 doc; 60-02 x3 code + 1 doc; 60-03 x4 code + 1 doc).
 

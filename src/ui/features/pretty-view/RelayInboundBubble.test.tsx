@@ -241,7 +241,7 @@ describe("RelayInboundBubble", () => {
     expect((bubble as HTMLElement).getAttribute("data-bubble-hue")).toBe("45");
   });
 
-  it("Test 6d: unresolved sender → bubble falls back to hue 210 (Ashley 2026-08-18: don't care about fallback)", () => {
+  it("Test 6d: unresolved sender → bubble falls back to hue 210 (Alice 2026-08-18: don't care about fallback)", () => {
     render(
       <RelayInboundBubble
         room="!roomAlias:server.tld"
@@ -257,7 +257,7 @@ describe("RelayInboundBubble", () => {
   });
 
   it("Test 6: detectFilePointer matches recv.sh preview line format with em-dash boundaries", () => {
-    // The exact reproducer string from Ashley's UAT (2026-07-28).
+    // The exact reproducer string from Alice's UAT (2026-07-28).
     // recv.sh preview line format: "[long message, N chars — full text at <path> — Read it] «...»"
     // The path is bounded by " — " (ASCII space + em-dash + ASCII space) on both sides.
     // JS \s matches the ASCII space adjacent to the em-dash, so the existing \s boundaries work.

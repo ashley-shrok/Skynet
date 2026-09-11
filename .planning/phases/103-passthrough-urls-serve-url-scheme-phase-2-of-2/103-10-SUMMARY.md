@@ -19,7 +19,7 @@ dependencies:
       provides: "Plans 01+02+03a+03b+04+05+06+07+08+09 must be deployed atomically per D-24 before this UAT runs (Caddy wildcard TLS + widened JWT cookie + subdomain dispatch + tunnel cache + proxy factory + WS origin guard + multipart guards + interstitial renderer + id-skill rewrite distributed)"
   provides:
     - "End-to-end verification transcript covering CONTEXT.md Specifics L147 (python -m http.server t1000 origin-isolation test) — realizes shape file rollout step 4"
-    - "Ashley's explicit sign-off line confirming Phase 103 shipped correctly (or documented failure transcript for orchestrator gap-closure decision)"
+    - "Alice's explicit sign-off line confirming Phase 103 shipped correctly (or documented failure transcript for orchestrator gap-closure decision)"
   affects:
     - "Phase 103 close-out — all upstream plans' contribution proven correct end-to-end against real traffic. If UAT fails, orchestrator triggers /gsd-plan-phase 103 --gaps against whichever plan owns the failing surface (dispatch=05, tunnel/proxy=03a/03b, Caddy=01, cookie=02, interstitial UX=03a)."
 
@@ -28,7 +28,7 @@ tech-stack:
   added: []  # No code changes — pure UAT documentation + human-verify checkpoint
   patterns:
     - "Post-deploy manual UAT with 4 independent check gates (positive load / origin isolation / auth wall / port-not-listening interstitial) — each check independently falsifiable"
-    - "Skeleton-then-transcript pattern — executor writes the fillable structure BEFORE presenting checkpoint; Ashley (or whoever is at t1000) fills each field from real UAT observation. NO invented verification data."
+    - "Skeleton-then-transcript pattern — executor writes the fillable structure BEFORE presenting checkpoint; Alice (or whoever is at t1000) fills each field from real UAT observation. NO invented verification data."
 
 key-files:
   created:
@@ -37,13 +37,13 @@ key-files:
 
 # Executor decisions
 decisions:
-  - "Executor wrote the SUMMARY.md skeleton with the 4-check protocol as an Ashley-runnable checklist BEFORE returning the human-verify checkpoint (per plan action step). Fillable transcript fields left blank — Ashley (or the identity at t1000 post-deploy) populates them during the actual UAT run. Do NOT invent verification data."
-  - "This plan does NOT deploy. Deploy motion (git push → docker build → docker compose up --force-recreate) is orchestrator-only per box-maintainer standing directive 'Deploy boundary at git push' + 'Subagents don't do deploys.' The UAT below runs POST-DEPLOY, after Ashley's greenlight lands and the atomic ship motion completes."
+  - "Executor wrote the SUMMARY.md skeleton with the 4-check protocol as an user-runnable checklist BEFORE returning the human-verify checkpoint (per plan action step). Fillable transcript fields left blank — Alice (or the identity at t1000 post-deploy) populates them during the actual UAT run. Do NOT invent verification data."
+  - "This plan does NOT deploy. Deploy motion (git push → docker build → docker compose up --force-recreate) is orchestrator-only per box-maintainer standing directive 'Deploy boundary at git push' + 'Subagents don't do deploys.' The UAT below runs POST-DEPLOY, after Alice's greenlight lands and the atomic ship motion completes."
   - "This plan does NOT push, ship, or run any test suite. It is a documentation + human-verify checkpoint task exclusively. The full-suite ship gate (npx vitest run + npx playwright smoke) runs as the FIRST step of the orchestrator's deploy motion — that's a separate concern from THIS plan."
 
 # Metrics
 metrics:
-  duration: "~5 min executor time (skeleton write + commit + checkpoint return); UAT itself is post-deploy and owned by Ashley + orchestrator"
+  duration: "~5 min executor time (skeleton write + commit + checkpoint return); UAT itself is post-deploy and owned by Alice + orchestrator"
   completed: 2026-09-10
 ---
 
@@ -55,13 +55,13 @@ Post-deploy manual UAT protocol proving the full serve URL stack (Caddy wildcard
 
 ## What this plan is (and is not)
 
-**IS:** A single blocking-human checkpoint task that (a) enumerates the 4-check UAT procedure as an Ashley-runnable checklist and (b) provides the durable transcript template for recording verification observations.
+**IS:** A single blocking-human checkpoint task that (a) enumerates the 4-check UAT procedure as an user-runnable checklist and (b) provides the durable transcript template for recording verification observations.
 
-**IS NOT:** Not a deploy. Not a push. Not a test-suite run. Not an executor-driven UAT. The executor of this plan wrote the skeleton below and returned a `CHECKPOINT REACHED` message. The UAT itself executes **AFTER** the orchestrator's ship motion (git push + docker build + docker compose up --force-recreate + verify), triggered by Ashley on t1000.
+**IS NOT:** Not a deploy. Not a push. Not a test-suite run. Not an executor-driven UAT. The executor of this plan wrote the skeleton below and returned a `CHECKPOINT REACHED` message. The UAT itself executes **AFTER** the orchestrator's ship motion (git push + docker build + docker compose up --force-recreate + verify), triggered by Alice on t1000.
 
 ## Preconditions (must all be true before the UAT runs)
 
-- [ ] Ashley has greenlit the atomic ship motion for Phase 103 at `git push`.
+- [ ] Alice has greenlit the atomic ship motion for Phase 103 at `git push`.
 - [ ] Orchestrator has pushed HEAD, run the full-suite ship gate (`npx vitest run` + `npx playwright test tests/e2e/smoke.spec.ts --project=chromium`), completed `docker build` + `docker compose up --force-recreate` for both `caddy` and `skynet` services.
 - [ ] `docker logs skynet` and `docker logs caddy` post-recreate show clean startup — every warn/error line understood, expected subsystem-startup lines present (Fleet-substrate orchestrator started, Fleet-substrate sweep completed, Fleet-status poll start), per standing directive "After any container restart, tail the docker logs and understand every line."
 - [ ] DNS wildcard `*.serve.term.example.com` resolves (Route 53 record propagated).
@@ -69,7 +69,7 @@ Post-deploy manual UAT protocol proving the full serve URL stack (Caddy wildcard
 
 ## UAT procedure — 4 independent check gates
 
-Ashley (or whichever box-maintainer identity is at t1000 post-deploy) executes each step in order. Fill in the transcript fields below during execution. NO invented data.
+Alice (or whichever box-maintainer identity is at t1000 post-deploy) executes each step in order. Fill in the transcript fields below during execution. NO invented data.
 
 ---
 
@@ -105,7 +105,7 @@ python3 -m http.server 8899
 
 **D. Open a FRESH browser window** (Firefox or Chrome, **incognito/private mode**) — ensures clean cookie state so the fresh-sign-in below issues a genuinely new widened JWT.
 
-**E. Sign into Skynet at `https://term.example.com`** with Ashley's admin credentials. After sign-in, open devtools → Storage → Cookies and locate `skynet_session`. **Verify the `Domain` field reads `term.example.com`** (NOT blank, NOT `.term.example.com` without the leading dot handled properly — check that the cookie will match on all `*.term.example.com` subdomains per D-02). This validates Plan 02's widened cookie shipped.
+**E. Sign into Skynet at `https://term.example.com`** with Alice's admin credentials. After sign-in, open devtools → Storage → Cookies and locate `skynet_session`. **Verify the `Domain` field reads `term.example.com`** (NOT blank, NOT `.term.example.com` without the leading dot handled properly — check that the cookie will match on all `*.term.example.com` subdomains per D-02). This validates Plan 02's widened cookie shipped.
 
 **Transcript — Setup:**
 
@@ -234,7 +234,7 @@ CHECK 4 RESULT:                            [PASS / FAIL]
 
 ## Sign-off
 
-**Ashley (or the identity at t1000) fills in ONE of the following after running all 4 checks:**
+**Alice (or the identity at t1000) fills in ONE of the following after running all 4 checks:**
 
 **IF ALL 4 CHECKS PASSED:**
 
@@ -295,30 +295,30 @@ Executor step: none — skeleton written and committed as designed.
 
 ---
 
-## Live UAT transcript (executed 2026-09-10 by tabitha + Ashley)
+## Live UAT transcript (executed 2026-09-10 by tabitha + Alice)
 
 **Setup:**
 - HEAD deployed: `139467d0` initial, then iterative fix commits `840a9fe1` (backend TS), `34ab44c8` (Caddyfile snippet), `500763d3` (on.error interstitial), `e6e33f54` (ECONNRESET classification).
 - Deploy-time prereqs surfaced live and fixed (see § UAT-discovered gaps below).
 - Cert issuer: Let's Encrypt Production (via DNS-01 route53). Wildcard `*.serve.term.example.com` obtained clean.
-- Ashley used her existing signed-in browser session. Cookie migration required deleting the `jwt` cookie once (pre-widen cookie was host-scoped) and re-logging in.
+- Alice used her existing signed-in browser session. Cookie migration required deleting the `jwt` cookie once (pre-widen cookie was host-scoped) and re-logging in.
 
 **CHECK 1 — Positive load: PASS**
-- After cookie re-login, `https://thenasty-8899.serve.term.example.com/` rendered the UAT page from thenasty's python http.server. Sibling image.png loaded as a 1x1 red pixel dot (correct — Ashley confirmed).
+- After cookie re-login, `https://thenasty-8899.serve.term.example.com/` rendered the UAT page from thenasty's python http.server. Sibling image.png loaded as a 1x1 red pixel dot (correct — Alice confirmed).
 
 **CHECK 2 — Origin isolation: PASS**
 - Sibling `<img src="image.png">` resolved to the same subdomain (curl verified: `content-type: image/png`, `server: SimpleHTTP/0.6 Python/3.12.3` — proving the fetch reached the target http.server via SSH tunnel, not primary Skynet).
 
 **CHECK 3 — Auth wall: PASS**
-- Ashley's incognito window hit the URL → redirected to `https://term.example.com/login?return=...`. D-14 auth_missing flow verified.
+- Alice's incognito window hit the URL → redirected to `https://term.example.com/login?return=...`. D-14 auth_missing flow verified.
 
 **CHECK 4 — Port-not-listening interstitial: PASS**
-- Killed thenasty:8899, Ashley refreshed. Skynet-styled interstitial rendered with heading "port not responding", body "Port 8899 of thenasty isn't responding. The agent may have stopped whatever was serving there.", Try Again link, "skynet serve URL" footer. Backend log confirmed `errorClass:port_not_listening, errCode:ECONNRESET`.
+- Killed thenasty:8899, Alice refreshed. Skynet-styled interstitial rendered with heading "port not responding", body "Port 8899 of thenasty isn't responding. The agent may have stopped whatever was serving there.", Try Again link, "skynet serve URL" footer. Backend log confirmed `errorClass:port_not_listening, errCode:ECONNRESET`.
 
 **Sign-off:**
 
 ```
-Verified end-to-end by tabitha + Ashley on 2026-09-10 18:08 UTC. All 4 checks passed
+Verified end-to-end by tabitha + Alice on 2026-09-10 18:08 UTC. All 4 checks passed
 after 3 UAT-discovered gap fixes (see below). Phase 103 (passthrough-urls serve URL
 scheme, phase 2 of 2) is shipped and verified.
 ```
@@ -343,20 +343,20 @@ scheme, phase 2 of 2) is shipped and verified.
 - Fix: extracted `classifyTunnelError` to shared `error-classifier.ts` and wired `on.error` in proxy-factory to classify → renderInterstitial → writeInterstitial. Also added ECONNRESET → port_not_listening classification (ssh2 forwardOut CHANNEL_OPEN_FAILURE surfaces as ECONNRESET on the local socket, not ECONNREFUSED).
 
 **GAP 4 — Login-return not honored** (not fixed; new follow-up bounty opened):
-- When an authed user hits a serve URL, dispatch returns 302 to `/login?return=<url>`. Skynet's `/login` frontend does not consume the `return=` param — if the user is already authed on the primary domain, they land on the main app instead of bouncing back to the serve URL. Discovered when Ashley's pre-widen cookie was host-scoped and the serve URL fired the interstitial redirect. Bounty: `serve-url-login-return-honor`.
+- When an authed user hits a serve URL, dispatch returns 302 to `/login?return=<url>`. Skynet's `/login` frontend does not consume the `return=` param — if the user is already authed on the primary domain, they land on the main app instead of bouncing back to the serve URL. Discovered when Alice's pre-widen cookie was host-scoped and the serve URL fired the interstitial redirect. Bounty: `serve-url-login-return-honor`.
 
 ## Orchestrator UAT completion note
 
-Executor's skeleton write (below) completed as originally scoped. UAT execution transcript above was captured during the orchestrator's post-deploy session with Ashley on 2026-09-10.
+Executor's skeleton write (below) completed as originally scoped. UAT execution transcript above was captured during the orchestrator's post-deploy session with Alice on 2026-09-10.
 
 ## Executor scope statement
 
 This SUMMARY.md was written by the Plan 10 executor on the main tree (`~/skynet-tabitha`), pre-deploy. The executor:
 
 1. Read Plan 10 + CONTEXT.md L145-147 + all preceding SUMMARY.md files (01-09).
-2. Wrote this skeleton SUMMARY.md with the 4-check UAT protocol enumerated as an Ashley-runnable checklist with fillable transcript fields.
+2. Wrote this skeleton SUMMARY.md with the 4-check UAT protocol enumerated as an user-runnable checklist with fillable transcript fields.
 3. Committed the skeleton atomically.
-4. Returned a `CHECKPOINT REACHED` message to the orchestrator awaiting Ashley's post-deploy UAT run.
+4. Returned a `CHECKPOINT REACHED` message to the orchestrator awaiting Alice's post-deploy UAT run.
 
 The executor did **NOT**:
 
@@ -364,7 +364,7 @@ The executor did **NOT**:
 - Attempt to deploy anything (per standing directive: subagents don't do deploys).
 - Push, build, or run tests (per Plan 10 scope: pure UAT documentation).
 
-Ashley (or the identity at t1000 post-deploy) will fill the transcript fields during the actual UAT run and either sign off with the "All 4 checks passed" line OR record the failure diagnostic + return to orchestrator for gap-closure.
+Alice (or the identity at t1000 post-deploy) will fill the transcript fields during the actual UAT run and either sign off with the "All 4 checks passed" line OR record the failure diagnostic + return to orchestrator for gap-closure.
 
 ## Self-Check: PASSED
 

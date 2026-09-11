@@ -3,7 +3,7 @@
  *
  * Tests: RELAYBUB-01 (outbound bubble render matrix).
  * Updated 2026-07-28 (UAT Bug 1 fix): extractor deleted, rawCommand is always
- * the bubble body (Option D per Ashley). extractError/showSource state removed.
+ * the bubble body (Option D per Alice). extractError/showSource state removed.
  * Updated 2026-08-18 (bounty pretty-view-outgoing-relay-render): body prop
  * added. Tests pass body: null to exercise the fallback (always-visible rawCommand)
  * path — preserving today's rendering behavior byte-for-byte in the null branch.

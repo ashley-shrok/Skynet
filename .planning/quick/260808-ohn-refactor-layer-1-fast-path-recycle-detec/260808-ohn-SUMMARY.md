@@ -35,12 +35,12 @@ Concrete edits in `claude-session-server.ts`:
 New files:
 
 - **`layer1-detect.ts`** (pure module, no I/O imports): exports `isUserTurn`, `isIdResetUserTurn`, `Layer1State`, `Layer1Action`, `applyLineToLayer1State`, plus the integration seam `__applyLayer1LineForTests` + its two supporting types.
-- **`layer1-detect.test.ts`**: 28 unit tests covering every case in the plan's `<behavior>` block — positive/negative for both predicates, all reducer transitions (arm/clear/no-op/dead-terminal), and the Ashley-bug regression guard fed line-by-line.
-- **`claude-session-server.layer1.test.ts`**: 10 integration tests through `__applyLayer1LineForTests`, covering all 8 acceptance cases from the plan (replay, arm-on-load, Ashley-bug regression guard, historical /exit guard including a 2-exit repro, holding + non-user, dead terminal, live-append arm, live-append clear).
+- **`layer1-detect.test.ts`**: 28 unit tests covering every case in the plan's `<behavior>` block — positive/negative for both predicates, all reducer transitions (arm/clear/no-op/dead-terminal), and the user-bug regression guard fed line-by-line.
+- **`claude-session-server.layer1.test.ts`**: 10 integration tests through `__applyLayer1LineForTests`, covering all 8 acceptance cases from the plan (replay, arm-on-load, user-bug regression guard, historical /exit guard including a 2-exit repro, holding + non-user, dead terminal, live-append arm, live-append clear).
 
 ## Why
 
-Ashley's bug: `SessionHoldingOverlay` flashes for a few seconds on every conversation-list revisit of any session whose JSONL contains a historical `/exit` turn (empirically 14 arm+clear pairs in ~1h on session `owGv_6oxMc7Sd5o8kzt3O`; bounty `session-holding-layer1-detect-id-reset-not-exit`).
+Alice's bug: `SessionHoldingOverlay` flashes for a few seconds on every conversation-list revisit of any session whose JSONL contains a historical `/exit` turn (empirically 14 arm+clear pairs in ~1h on session `owGv_6oxMc7Sd5o8kzt3O`; bounty `session-holding-layer1-detect-id-reset-not-exit`).
 
 Root cause: pre-refactor Layer 1 was an edge-triggered scan (`hasSeenExit` per-connection boolean + raw-line `.includes('"content":"<command-name>/exit</command-name>')`). Every WS reconnect calls `teardownPane` → `hasSeenExit` resets → the fresh `-n +1` tail replays every historical `/exit` line → the very first historical `/exit` re-fires `transitionToHolding("exit_marker")` even though no recycle is happening RIGHT NOW.
 
@@ -66,7 +66,7 @@ Bonus rationale for choosing `/id reset` over `/exit` as the signal: `/id reset`
 
 ## Ship status
 
-**NOT SHIPPED.** No `npm run build` (Vite/frontend), no docker build, no push, no deploy. Ashley greenlights ship separately per fleet convention (code work does not authorize ship). Backend `tsc -p tsconfig.node.json` was run only to satisfy the STATE.md 2026-07-27 rule that any backend touch must at minimum compile against the backend tsconfig.
+**NOT SHIPPED.** No `npm run build` (Vite/frontend), no docker build, no push, no deploy. Alice greenlights ship separately per fleet convention (code work does not authorize ship). Backend `tsc -p tsconfig.node.json` was run only to satisfy the STATE.md 2026-07-27 rule that any backend touch must at minimum compile against the backend tsconfig.
 
 ## Self-Check
 

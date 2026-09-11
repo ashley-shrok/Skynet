@@ -37,7 +37,7 @@ via the `pendingCancelRef` reset at the top of `voice.start()`.
 
 Constraint: the plan explicitly forbade touching
 `src/ui/features/pretty-view/useVoiceRecording.ts`, so this was documented
-in the test comment rather than fixed. If Ashley wants short-tap-after-
+in the test comment rather than fixed. If Alice wants short-tap-after-
 resolve to reliably re-arm on iOS Safari (rare but possible on slow
 networks), the fix is a synchronous `stateRef.current = "idle"` write
 inside `cancel()` immediately after the `setState("idle")` at

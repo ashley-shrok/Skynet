@@ -680,7 +680,7 @@ describe("ComposeBox — 260814-1hz hold-to-record gesture (primary mic button)"
   it("Test 8 (CONTEXT.md L129): iOS Safari sync-gesture invariant — getUserMedia is called SYNCHRONOUSLY within the pointerdown handler on the mic button", async () => {
     // D-16-02 iOS Safari sync-gesture invariant assertion — if this test
     // fails, the mic-permission prompt will silently die on iOS Safari and
-    // hold-to-record will not work on Ashley's iPhone. Do NOT insert an
+    // hold-to-record will not work on Alice's iPhone. Do NOT insert an
     // `await` between fireEvent.pointerDown and the expect below — the whole
     // point of this test is that the assertion is synchronous. The hook was
     // NOT touched in 260814-1hz (only its host button changed), so this

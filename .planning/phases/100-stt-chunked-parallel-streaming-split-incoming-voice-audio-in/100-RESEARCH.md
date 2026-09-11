@@ -282,7 +282,7 @@ const END_RE   = /silence_end:\s*([\d.]+)\s*\|\s*silence_duration:\s*([\d.]+)/;
 - If audio ends while still in a silence region, `silence_start` is emitted without a corresponding `silence_end`. These **unpaired trailing starts must be discarded** (the stitcher can't use an unclosed gap).
 - FLAC from `pipe:0` works — FLAC is seekable even from a pipe (confirmed: `cat test.flac | ffmpeg -f flac -i pipe:0 -af silencedetect ...` produces the same output as file input).
 
-**Threshold parameters:** `-40dB` noise floor is appropriate for clean microphone input. `-35dB` may be safer if Ashley's recordings have more ambient noise. Duration `0.2` (200 ms minimum gap) is the CONTEXT.md choice; gaps shorter than this are treated as speech.
+**Threshold parameters:** `-40dB` noise floor is appropriate for clean microphone input. `-35dB` may be safer if Alice's recordings have more ambient noise. Duration `0.2` (200 ms minimum gap) is the CONTEXT.md choice; gaps shorter than this are treated as speech.
 
 [VERIFIED: empirical test with ffmpeg 6.1.1 on container; silencedetect filter confirmed via `ffmpeg -filters | grep silencedetect`]
 

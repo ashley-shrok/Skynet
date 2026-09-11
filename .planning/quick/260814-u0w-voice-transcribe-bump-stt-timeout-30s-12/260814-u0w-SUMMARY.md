@@ -26,7 +26,7 @@ metrics:
 
 # Phase quick-260814-u0w Plan 01: Voice STT Timeout Bump + Disk-Bank Summary
 
-**One-liner:** Bumped handleTranscribe AbortController from 30s to 120s and added a fire-and-forget disk-bank of incoming audio buffers (Ashley 2026-08-14 3.87 MB lost-dictation incident fix).
+**One-liner:** Bumped handleTranscribe AbortController from 30s to 120s and added a fire-and-forget disk-bank of incoming audio buffers (Alice 2026-08-14 3.87 MB lost-dictation incident fix).
 
 ## Tasks Completed
 
@@ -46,7 +46,7 @@ Both tasks committed atomically in a single commit (same logical change).
 - `import path from "node:path";`
 
 **Timeout bumped (was line 86-88, now ~lines 105-109):**
-- Comment updated from "30-second STT timeout" to "120-second STT timeout" with citation of the Ashley 2026-08-14 3.87 MB clip incident
+- Comment updated from "30-second STT timeout" to "120-second STT timeout" with citation of the Alice 2026-08-14 3.87 MB clip incident
 - `setTimeout(() => controller.abort(), 30_000)` → `setTimeout(() => controller.abort(), 120_000)`
 
 **Disk-bank block inserted (after `const ext = extFromMimetype(...)`, before `databaseLogger.info transcribe-req`):**

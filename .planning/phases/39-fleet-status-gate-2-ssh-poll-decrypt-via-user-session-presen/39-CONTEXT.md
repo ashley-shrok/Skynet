@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-08-13
 **Status:** Ready for planning
-**Source:** Pre-authored from Gate 2 diagnosis bounty (`fleet-status-ssh-poll-decrypt-and-lazy-lifecycle`) + Ashley design decision LOCKED in-session 2026-08-13. Not run through `/gsd-discuss-phase` — design decisions already captured verbatim below.
+**Source:** Pre-authored from Gate 2 diagnosis bounty (`fleet-status-ssh-poll-decrypt-and-lazy-lifecycle`) + Alice design decision LOCKED in-session 2026-08-13. Not run through `/gsd-discuss-phase` — design decisions already captured verbatim below.
 
 <domain>
 ## Phase Boundary
@@ -39,9 +39,9 @@ Phase 39 fixes the second failure gate in Phase 34's fleet-status pipeline. Gate
   - All 10 SSH-enabled hosts store inline PEM (no `credentialId` indirection — no complicating factor).
   - TCP-to-:22 reachability: 9/10 hosts connect fine.
 
-### Path C — presence-driven lifecycle (LOCKED by Ashley 2026-08-13)
+### Path C — presence-driven lifecycle (LOCKED by Alice 2026-08-13)
 
-Ashley verbatim on the design rationale: *"nobody needs to know if something is idle or not, or anything else that's going on here, if no user is present to want to know the information."*
+Alice verbatim on the design rationale: *"nobody needs to know if something is idle or not, or anything else that's going on here, if no user is present to want to know the information."*
 
 - SSH-poll runs **only while at least one browser is connected to the fleet-status WS** (via `/fleet-status/ws`).
 - First subscriber → start the poller.
@@ -56,16 +56,16 @@ The poller reads `~/.claude/fleet-status/last-stop-payload.json` on each target 
 
 `systemLogger.warn("Fleet-status: SSH channel acquire failed", { operation: "fleet_status_host_ssh_unreachable", fleetHostId, error: err.message })` — the structured `error` field is passed but does NOT surface in `console-forward.log` (only the human-readable msg with the op tag surfaces). This is why the Gate 2 diagnosis took as long as it did. Fix the logger config or the specific fleet-status log calls so `error` (and other structured payload fields) flow through to both console-forward and `docker logs skynet`.
 
-### Ashley's principle worth surfacing to the planner
+### Alice's principle worth surfacing to the planner
 
 Bank this as a project-wide principle for consideration in future phases (not just this one): *"Boot-time / always-on background work is presence-driven, not eager. If no user is watching, don't compute. Applies to observability, polling, indicators — anything whose only consumer is a user's live view."* Phase 34 assumed the opposite ("server-authoritative state, ready the instant anyone opens a browser") and that assumption is what invented the whole background-decrypt problem being fixed here.
 
 ### Multi-user / per-user semantics
 
-Skynet on this box is single-tenant (only Ashley), but the fleet-status pipeline is user-scoped by design (per-connection auth, per-user host ownership). Consider forward-compat:
+Skynet on this box is single-tenant (only Alice), but the fleet-status pipeline is user-scoped by design (per-connection auth, per-user host ownership). Consider forward-compat:
 - If multiple different users are subscribed to fleet-status at the same time, does one poller run using the first-connected user's session, or one poller per user? Recommendation (planner should confirm shape): one *unified* poller keyed by the union of hosts across all subscribed users, with per-host decrypt using the host's own owner userId (each `hosts` row has a `userId` column). Simpler than per-user poller instances; still correct for the multi-user forward-compat case; matches Skynet's per-user host ownership model.
 - Alternative if the above adds complexity: per-user poller instance, deduplicated only if it becomes a measured hot spot.
-- Ashley has not spoken to this specifically; planner picks the cleanest shape.
+- Alice has not spoken to this specifically; planner picks the cleanest shape.
 
 ### Executor scope (fleet rule reminder)
 
@@ -134,7 +134,7 @@ Per fleet rule: NO `isolation: "worktree"` on any Agent spawn. All work happens 
 - Unit test: mock `resolveHostById` to return a decrypted host record; assert `connectOneShot` is called with a plaintext PEM key.
 - Unit test: mock the subscription registry; assert poller.start() fires on first-subscriber event; poller.stop() fires on last-unsubscriber event.
 - Integration test (if plan opts in): stub the fleet-status WS server with a mock subscription; wire the orchestrator; assert start/stop lifecycle observed.
-- No hard-fail-if-hook-missing test — the fail-open contract for missing `last-stop-payload.json` per host stays (locked by Ashley in Phase 34).
+- No hard-fail-if-hook-missing test — the fail-open contract for missing `last-stop-payload.json` per host stays (locked by Alice in Phase 34).
 
 </specifics>
 
@@ -151,4 +151,4 @@ Per fleet rule: NO `isolation: "worktree"` on any Agent spawn. All work happens 
 ---
 
 *Phase: 39-fleet-status-gate-2-ssh-poll-decrypt-via-user-session-presen*
-*Context authored 2026-08-13 from Gate 2 diagnosis bounty + Ashley Path C decision in-session*
+*Context authored 2026-08-13 from Gate 2 diagnosis bounty + Alice Path C decision in-session*

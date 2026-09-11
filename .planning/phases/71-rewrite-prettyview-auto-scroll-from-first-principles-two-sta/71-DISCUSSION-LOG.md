@@ -5,7 +5,7 @@
 
 ## Summary
 
-`/gsd:discuss-phase` was invoked with CONTEXT.md already seeded from a completed `/build` → `/open` shape session (see provenance note in `71-CONTEXT.md`). The shape file had been discussed and greenlit by Ashley in the same session; all Shape / Philosophy / Prior context / What-would-make-it-wrong / Scope edges decisions were locked at that point.
+`/gsd:discuss-phase` was invoked with CONTEXT.md already seeded from a completed `/build` → `/open` shape session (see provenance note in `71-CONTEXT.md`). The shape file had been discussed and greenlit by Alice in the same session; all Shape / Philosophy / Prior context / What-would-make-it-wrong / Scope edges decisions were locked at that point.
 
 ## Discussion outcome
 

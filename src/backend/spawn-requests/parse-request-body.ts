@@ -19,7 +19,7 @@ import { ROLE_NAME_PATTERN } from "../utils/role-name-pattern.js";
 import type { SpawnRequestBody } from "./types.js";
 
 /**
- * Maximum length for the `task` field (chars). 500 is the cap Ashley picked
+ * Maximum length for the `task` field (chars). 500 is the cap Alice picked
  * for the coord-side dispatch prompt at the coordinator-instructions.md wire.
  */
 export const TASK_MAX_LENGTH = 500;

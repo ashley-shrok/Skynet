@@ -2,7 +2,7 @@
 phase: 260723-2cg-add-a-subtle-inside-textarea-send-button
 plan: 01
 subsystem: pretty-view-composebox
-tags: [ui, visual, ashley-locked, patch-129]
+tags: [ui, visual, user-locked, patch-129]
 dependency-graph:
   requires:
     - src/ui/features/pretty-view/ComposeBox.tsx (existing handleSend at line 652)
@@ -18,7 +18,7 @@ tech-stack:
   added: []
   patterns:
     - "Bare `<button type='button'>` instead of shadcn `<Button>` — sidesteps the `!` load-bearing wrapper-specificity trap that bit patches #81 and #117"
-    - "Tailwind arbitrary-value inline styling for Ashley's console-locked color/position values"
+    - "Tailwind arbitrary-value inline styling for Alice's console-locked color/position values"
     - "Delegated routing — button onClick just calls existing handleSend(); no branching duplication"
 key-files:
   created:
@@ -38,7 +38,7 @@ metrics:
 
 # Quick Task 260723-2cg: Add Subtle Inside-Textarea Send Button (patch #129) Summary
 
-One-liner: Ashley's console-locked subtle inside-textarea Send button (bare `<button>` inside the compose textarea wrapper, absolute right-3 bottom-2.5, quiet 30%→90%→15% currentColor states) shipped as one atomic commit routing entirely through the existing handleSend() — no branching duplication.
+One-liner: Alice's console-locked subtle inside-textarea Send button (bare `<button>` inside the compose textarea wrapper, absolute right-3 bottom-2.5, quiet 30%→90%→15% currentColor states) shipped as one atomic commit routing entirely through the existing handleSend() — no branching duplication.
 
 ## What Shipped
 
@@ -49,7 +49,7 @@ One-liner: Ashley's console-locked subtle inside-textarea Send button (bare `<bu
 | `src/ui/features/pretty-view/ComposeBox.tsx` | +50/-2 | SendHorizontal import; sendDisabled derived predicate; pr-10 on Textarea; new `<button type="button">` inside the `relative flex-1 self-stretch` wrapper as sibling to Textarea and queueArmed overlay |
 | `src/ui/features/pretty-view/ComposeBox.test.tsx` | +81/-4 | 3 new tests (renders bare button inside wrapper; click sends trimmed payload + clears; disabled state Cases A & B); 3 stale-selector fixes (Test 7, Test 8, Phase 9 aux-row: `/send message/i` → `{ name: 'Send' }`); localStorage.clear() in both beforeEach blocks |
 
-**Ashley-locked visual (implemented verbatim, no "improvements"):**
+**user-locked visual (implemented verbatim, no "improvements"):**
 - Position: `absolute right-3 bottom-2.5` (12px right, 10px bottom inset)
 - Icon: SendHorizontal, `size-6` (24×24), `fill="currentColor"` — paper-plane silhouette
 - Hit target: `p-2` = 40×40 (24 + 8+8) around the icon
@@ -116,14 +116,14 @@ Both use `getByLabelText(/send 'yes'/i)` which was the ThumbsUp button's aria-la
 
 Stacks on top of #123-#128 (six commits since last push at `491d828`, now seven with this patch — 22+ commits ahead of last remote).
 
-Awaiting Ashley's morning UAT walkthrough of the batched #123-#128 stack; deploy sequence documented in `.planning/phases/10-pretty-conversations-visual-language-rework/10-UAT-CHECKLIST.md`. This patch (#129) will land in that same UAT + deploy stack — do NOT `docker build`, `docker compose up`, or `git push` without explicit Ashley greenlight per fork discipline.
+Awaiting Alice's morning UAT walkthrough of the batched #123-#128 stack; deploy sequence documented in `.planning/phases/10-pretty-conversations-visual-language-rework/10-UAT-CHECKLIST.md`. This patch (#129) will land in that same UAT + deploy stack — do NOT `docker build`, `docker compose up`, or `git push` without explicit Alice greenlight per fork discipline.
 
 ## Draft Patch #129 Entry for Tina's `skynet-patches.md`
 
 *(Paste-ready in the established Tina multi-commit-under-one-pin format, single-commit variant:)*
 
 ```markdown
-- **Patch #129 (Bounty: send-button-inside-composebox-textarea)** — Ashley's console-locked "subtle inside-textarea send button" baked into pretty-view ComposeBox. Bare `<button type="button">` (NOT shadcn Button — sidesteps the wrapper-specificity trap that needed `!` on every color class in patches #81/#117) positioned `absolute right-3 bottom-2.5` INSIDE the existing `relative flex-1 self-stretch` textarea wrapper, sibling to `<Textarea>` and the queueArmed overlay. lucide `SendHorizontal` at 24×24 with `fill="currentColor"` renders as a solid paper-plane silhouette. 40×40 hit target via `p-2`. Rest color `rgba(240,235,224,0.3)` (ChatGPT/iMessage-quiet — deliberately NOT the retired amber-Send from patch #121); hover `0.9`, disabled `0.15`. `transition-[color,transform] duration-120` + `active:scale-95` for tactile press. Textarea gets `pr-10` (40px right padding) so typed text does not slide under the icon; placed after `px-4` in the className so tailwind-merge later-wins keeps left padding at 16px. New `sendDisabled` derived predicate: `queueArmed || (canSend === false && !hasAttachments) || (text.trim() === "" && !hasAttachments)` — strict `canSend === false` (not `!canSend`) matches every other button in the file so an undefined default at read-only PrettyView call sites doesn't over-disable. `onClick` routes ENTIRELY through the existing `handleSend()` at line 652 — attachment branching, D-50 newline collapse, COMPOSE-04 clear-on-success, error handling all inherited with zero duplication. Test file gains 3 new coverage tests (renders as bare button inside wrapper; click-with-text calls onSend with trimmed payload + clears textarea; disabled state Cases A empty-text and B canSend=false), plus 3 stale-selector fixes (Test 7, Test 8, Phase 9 aux-row — `getByLabelText(/send message/i)` → `getByRole('button', { name: 'Send' })` — the retired amber-Send from patch #121 wore aria-label="Send message"; new inside-textarea Send wears aria-label="Send" exact-equal); plus `localStorage.clear()` added to both `beforeEach` blocks as a test-hygiene fix because the patch #119 compose-draft-ls mirror was silently bleeding between tests within the shared JSDOM instance. tsc clean, +147/-6 across 2 files, vitest 16/18 (2 remaining failures are the patch #124 ThumbsUp `/send 'yes'/i` aria-label residual — deferred to next test-hygiene sweep). `npm run build` succeeds in 8.87s. Deploy deferred: batched with #123-#128 pending Ashley UAT greenlight. Commit: `37986b2`.
+- **Patch #129 (Bounty: send-button-inside-composebox-textarea)** — Alice's console-locked "subtle inside-textarea send button" baked into pretty-view ComposeBox. Bare `<button type="button">` (NOT shadcn Button — sidesteps the wrapper-specificity trap that needed `!` on every color class in patches #81/#117) positioned `absolute right-3 bottom-2.5` INSIDE the existing `relative flex-1 self-stretch` textarea wrapper, sibling to `<Textarea>` and the queueArmed overlay. lucide `SendHorizontal` at 24×24 with `fill="currentColor"` renders as a solid paper-plane silhouette. 40×40 hit target via `p-2`. Rest color `rgba(240,235,224,0.3)` (ChatGPT/iMessage-quiet — deliberately NOT the retired amber-Send from patch #121); hover `0.9`, disabled `0.15`. `transition-[color,transform] duration-120` + `active:scale-95` for tactile press. Textarea gets `pr-10` (40px right padding) so typed text does not slide under the icon; placed after `px-4` in the className so tailwind-merge later-wins keeps left padding at 16px. New `sendDisabled` derived predicate: `queueArmed || (canSend === false && !hasAttachments) || (text.trim() === "" && !hasAttachments)` — strict `canSend === false` (not `!canSend`) matches every other button in the file so an undefined default at read-only PrettyView call sites doesn't over-disable. `onClick` routes ENTIRELY through the existing `handleSend()` at line 652 — attachment branching, D-50 newline collapse, COMPOSE-04 clear-on-success, error handling all inherited with zero duplication. Test file gains 3 new coverage tests (renders as bare button inside wrapper; click-with-text calls onSend with trimmed payload + clears textarea; disabled state Cases A empty-text and B canSend=false), plus 3 stale-selector fixes (Test 7, Test 8, Phase 9 aux-row — `getByLabelText(/send message/i)` → `getByRole('button', { name: 'Send' })` — the retired amber-Send from patch #121 wore aria-label="Send message"; new inside-textarea Send wears aria-label="Send" exact-equal); plus `localStorage.clear()` added to both `beforeEach` blocks as a test-hygiene fix because the patch #119 compose-draft-ls mirror was silently bleeding between tests within the shared JSDOM instance. tsc clean, +147/-6 across 2 files, vitest 16/18 (2 remaining failures are the patch #124 ThumbsUp `/send 'yes'/i` aria-label residual — deferred to next test-hygiene sweep). `npm run build` succeeds in 8.87s. Deploy deferred: batched with #123-#128 pending Alice UAT greenlight. Commit: `37986b2`.
 ```
 
 **Pin bump:** ONE HUNDRED TWENTY-EIGHT → ONE HUNDRED TWENTY-NINE (do NOT bump until AFTER deploy per Tina's established discipline).

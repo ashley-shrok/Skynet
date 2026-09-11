@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-08-28
 **Status:** Ready for planning
-**Source:** Direct-seeded from `.planning/shapes/shape-visual-session-management.md` §Vehicle Phase 3, plus Ashley's Phase 57 UAT observation (2026-08-28) that "trying to drag the identity badges to move stuff around or put the sessions back in the conversation list neither of those things seem to work" — which is Phase 58's whole point, not a Phase 57 regression. Discuss-phase skipped per `/build` convention when the shape file already captures scope + philosophy + failure modes (precedent: Phase 53, Phase 56, Phase 57).
+**Source:** Direct-seeded from `.planning/shapes/shape-visual-session-management.md` §Vehicle Phase 3, plus Alice's Phase 57 UAT observation (2026-08-28) that "trying to drag the identity badges to move stuff around or put the sessions back in the conversation list neither of those things seem to work" — which is Phase 58's whole point, not a Phase 57 regression. Discuss-phase skipped per `/build` convention when the shape file already captures scope + philosophy + failure modes (precedent: Phase 53, Phase 56, Phase 57).
 
 ## What this is
 
@@ -49,7 +49,7 @@ Phase 56 already implemented the tree machinery for badge-drag rearrange. `remov
 
 5. **`closeTab` prop plumb (Plan 58-02).** `closeTab` lives in AppShell (`:1520`) and takes a tab id. It handles the confirmation-dialog preference internally. `PrettyConversationsPanel` needs to receive it as a prop (mirror pattern for how `PrettyConversationsPanel` receives other AppShell-owned callbacks today — grep the existing props signature and add `onCloseSession(tabId: string)` alongside).
 
-6. **Structured logging discipline** (per box-maintainer standing directive Ashley 2026-08-11). New prefix `[badge-drag]` for the badge dragstart log line; `[convlist-drop]` for the conv-list drop close log line. Format: `[badge-drag] tabId=<x> hasIdentity=<bool>` on dragstart, `[convlist-drop] close tabId=<x>` on drop-close. Zone-change logs already emit from Phase 57's Pane (`[pv-split-preview]`) — no changes there.
+6. **Structured logging discipline** (per box-maintainer standing directive Alice 2026-08-11). New prefix `[badge-drag]` for the badge dragstart log line; `[convlist-drop]` for the conv-list drop close log line. Format: `[badge-drag] tabId=<x> hasIdentity=<bool>` on dragstart, `[convlist-drop] close tabId=<x>` on drop-close. Zone-change logs already emit from Phase 57's Pane (`[pv-split-preview]`) — no changes there.
 
 ## Explicitly OUT of scope this phase
 
@@ -57,8 +57,8 @@ Phase 56 already implemented the tree machinery for badge-drag rearrange. `remov
 - Any changes to the Phase 57 Pane drop-preview overlay or edge-zone hit-testing — Phase 58 badge drops go through the exact same Pane drop machinery; no new overlay per source needed.
 - Any changes to URL encoding / tree data model.
 - Any changes to the badge's existing `onClick` / `onLongPress` gesture callbacks or the `longPressFiredRef` disambiguation — those keep working because HTML5 drag fires only when the cursor crosses the drag-threshold while pointer is down, which the click + long-press paths never trigger.
-- Rearrange animation (drag-with-content-follows) — Phase 58 uses the native browser drag ghost only. If Ashley later wants a custom drag-preview showing the whole session mini-thumbnail, that's a follow-up phase.
-- Any confirm-before-close prompt specific to badge drag — reuse the existing `localStorage["confirmTabClose"]` preference respected by `closeTab` at `AppShell.tsx:1520`. If she wants badge-drag to bypass the confirm (since a deliberate drag-and-drop IS the confirmation), that's a plan-phase decision worth flagging — Ashley's rule of thumb was "the drag IS the confirmation" (shape file philosophy §3).
+- Rearrange animation (drag-with-content-follows) — Phase 58 uses the native browser drag ghost only. If Alice later wants a custom drag-preview showing the whole session mini-thumbnail, that's a follow-up phase.
+- Any confirm-before-close prompt specific to badge drag — reuse the existing `localStorage["confirmTabClose"]` preference respected by `closeTab` at `AppShell.tsx:1520`. If she wants badge-drag to bypass the confirm (since a deliberate drag-and-drop IS the confirmation), that's a plan-phase decision worth flagging — Alice's rule of thumb was "the drag IS the confirmation" (shape file philosophy §3).
 
 ## Edge cases the plan MUST cover
 
@@ -133,4 +133,4 @@ Plan 58-02 (Conv-list panel drop target + AppShell plumbing):
 
 **Parent bounty**: `bring-back-split-view` — Phase 58 is todo #2 on the parent's todo list. On ship, the bounty CLOSES (status → done, archive).
 
-**Reference prototype**: `~/.claude/roles/box-maintainer/bounties/bring-back-split-view/prototype.html` — the badge-drag interaction model demonstrated there is what Phase 58 makes real. Consult for the exact drag-close-on-list-drop mechanic Ashley validated live.
+**Reference prototype**: `~/.claude/roles/box-maintainer/bounties/bring-back-split-view/prototype.html` — the badge-drag interaction model demonstrated there is what Phase 58 makes real. Consult for the exact drag-close-on-list-drop mechanic Alice validated live.

@@ -41,7 +41,7 @@ const command = "tail -F -n +1 " + shellEscape(absolutePath);
 - `-n +1` = start at line 1 (unbounded backfill — current behavior)
 - `-n N` (no `+`) = start at N lines from the END of file, then follow (bounded initial-window)
 
-Design decision for the planner: whether `tail -F -n N` alone is sufficient (GNU tail supports it — verify against Ubuntu 22.04 default `coreutils` on Ashley's fleet) or whether we compose `tail -n N + tail -F` (see CONTEXT.md `<decisions>` § "planner may prefer `tail -n N + tail -F` composition"). The CONTEXT explicitly leaves this to the planner.
+Design decision for the planner: whether `tail -F -n N` alone is sufficient (GNU tail supports it — verify against Ubuntu 22.04 default `coreutils` on Alice's fleet) or whether we compose `tail -n N + tail -F` (see CONTEXT.md `<decisions>` § "planner may prefer `tail -n N + tail -F` composition"). The CONTEXT explicitly leaves this to the planner.
 
 **Backcompat rule (from CONTEXT.md `<decisions>`):** if the caller does not supply `N`, retain the `-n +1` default byte-for-byte so legacy callers (tests, dev tools) still see unbounded initial replay.
 

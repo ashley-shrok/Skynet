@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-09-09
 **Status:** Ready for planning
-**Source:** In-session `/build feature-mode` → `/open` shape lock 2026-09-09 (greenlit `thumbs up` same session, 4 tasting rounds on roles-list rows, 2 console-snippet iterations on the identity-modal title-line treatment). Bounty `role-management-modal-split` (pinned by Ashley 2026-09-09, item 8 in the ongoing UX-pass campaign — natural follow-up to Phase 89's identity-modal-tab-restructure and Phase 86's cosmetics-migrate-to-role). Shape file: `.planning/shapes/shape-role-management-modal-split.md`.
+**Source:** In-session `/build feature-mode` → `/open` shape lock 2026-09-09 (greenlit `thumbs up` same session, 4 tasting rounds on roles-list rows, 2 console-snippet iterations on the identity-modal title-line treatment). Bounty `role-management-modal-split` (pinned by Alice 2026-09-09, item 8 in the ongoing UX-pass campaign — natural follow-up to Phase 89's identity-modal-tab-restructure and Phase 86's cosmetics-migrate-to-role). Shape file: `.planning/shapes/shape-role-management-modal-split.md`.
 
 <domain>
 ## Phase Boundary
@@ -38,11 +38,11 @@ Three surfaces move: two are new (roles-list modal, role modal), one loses weigh
 <decisions>
 ## Implementation Decisions
 
-### D-01: Role-cosmetic-edit UI belongs in this phase (LOCKED — Ashley 2026-09-09, resolves Phase 86 deferral)
+### D-01: Role-cosmetic-edit UI belongs in this phase (LOCKED — Alice 2026-09-09, resolves Phase 86 deferral)
 
-Ashley 2026-09-07 (Phase 86 CONTEXT.md § Deferred): *"I would leave this alone [post-creation role cosmetic edit] because I actually plan on breaking out the role level stuff into its own modal later, and that would be a good opportunity to add it."*
+Alice 2026-09-07 (Phase 86 CONTEXT.md § Deferred): *"I would leave this alone [post-creation role cosmetic edit] because I actually plan on breaking out the role level stuff into its own modal later, and that would be a good opportunity to add it."*
 
-Ashley 2026-09-09 (this session, verbatim): *"we are going to do the cosmetics editing on this like it's basically just going to be the same thing that the identity modal has, except for maybe the override stuff that shows up there. So that should be a pretty one to one recreation."*
+Alice 2026-09-09 (this session, verbatim): *"we are going to do the cosmetics editing on this like it's basically just going to be the same thing that the identity modal has, except for maybe the override stuff that shows up there. So that should be a pretty one to one recreation."*
 
 **Resolution:** the role modal's role-file tab grows the same cosmetic edit block the identity modal has for cosmetics — Title text input, ColorPicker (`src/ui/features/pretty-view/pickers/ColorPicker.tsx`), VoicePicker (`src/ui/features/pretty-view/pickers/VoicePicker.tsx`), and the avatar generator flow (inline batch-generation as it lives in NewSessionDialog + IdentityModal — same batch-generate + carousel + gamma-brighten flow). **MINUS the inherit/override affordance layer** (Phase 86's `titleReverting`/`voiceReverting`/`hueReverting`/`avatarReverting` states, "inherited from role: X" ghost hints, "revert to role default" buttons) — a role IS the source of truth for its cosmetic values; there is no upward inheritance to indicate, and "revert" has no defined target.
 
@@ -50,23 +50,23 @@ Ashley 2026-09-09 (this session, verbatim): *"we are going to do the cosmetics e
 
 **Same picker components, same call shapes** — no fork, no clone, no divergence.
 
-### D-02: Roles-list modal uses the Edit-global-files host-picker pattern (LOCKED — Ashley 2026-09-09)
+### D-02: Roles-list modal uses the Edit-global-files host-picker pattern (LOCKED — Alice 2026-09-09)
 
-Ashley 2026-09-09 verbatim: *"for B, I was thinking we could actually set it up the same way as the edit global files modal, where there's a drop down to pick a host. And if you are a user that only has one host, then that just defaults to that one host that you have. So that keeps that simple."*
+Alice 2026-09-09 verbatim: *"for B, I was thinking we could actually set it up the same way as the edit global files modal, where there's a drop down to pick a host. And if you are a user that only has one host, then that just defaults to that one host that you have. So that keeps that simple."*
 
 **Resolution:** the roles-list modal receives `hostTree: HostFolder | null` + `defaultHostId: number | null` props (mirrors `GlobalFilesModal.tsx:54-56`). At the top of the modal body: host-picker dropdown. Single-host users see their only host auto-selected with the picker hidden or disabled (match Phase 84's shared "hide-host-picker-when-only-one-host" primitive — same primitive shared with create-role/create-agent modals per Phase 84 CONTEXT). Multi-host users pick from the dropdown; roles list re-fetches on picker change.
 
 **Roles list is scope-per-selected-host.** Not cross-fleet aggregate. If a user manages 3 hosts each with their own role sets, they pick one host at a time. Roles from different hosts are treated as separate entries even if their names happen to match — no dedup, no merge.
 
-### D-03: Role modal is a global modal — portals to `document.body` (LOCKED — Ashley 2026-09-09)
+### D-03: Role modal is a global modal — portals to `document.body` (LOCKED — Alice 2026-09-09)
 
-Ashley 2026-09-09 verbatim: *"the roles modal and the edit role modal have nothing to do with sessions that you have open or not. like they are sort of global modals the same way that like editing skills and edit global files modals are."*
+Alice 2026-09-09 verbatim: *"the roles modal and the edit role modal have nothing to do with sessions that you have open or not. like they are sort of global modals the same way that like editing skills and edit global files modals are."*
 
 **Resolution:** both the roles-list modal AND the role modal portal to `document.body` — full-viewport, no chat-region portal, no `container` prop threading. Match `GlobalFilesModal` and `SkillsEditorModal` chrome and portal pattern. The swap-not-stack transition from an identity modal's title-line click closes the identity modal FIRST, then opens the role modal at global viewport level (not in the chat pane the identity modal was portalled to).
 
 **Implication:** the role modal has no per-pane context. It doesn't know which chat pane triggered it (via title-line or otherwise), and doesn't try to restore anything on close. Close just dismisses.
 
-### D-04: Identity title-line clickable treatment (LOCKED — Ashley 2026-09-09, from console-snippet tasting)
+### D-04: Identity title-line clickable treatment (LOCKED — Alice 2026-09-09, from console-snippet tasting)
 
 The identity modal's title span (the small subtitle under displayName, e.g. tabitha's `"Skynet"`) gets:
 - Cursor: pointer.
@@ -83,7 +83,7 @@ The identity modal's title span (the small subtitle under displayName, e.g. tabi
 
 **Reference:** locked console snippet in `/open` transcript (this session's chat, second snippet — the pill variant from the first snippet was rejected).
 
-### D-05: Roles-list rows use `.pv-row` conversation-row treatment (LOCKED — Ashley 2026-09-09, from 4-round mock tasting)
+### D-05: Roles-list rows use `.pv-row` conversation-row treatment (LOCKED — Alice 2026-09-09, from 4-round mock tasting)
 
 **Reference:** locked mock at `~/.claude/roles/box-maintainer/bounties/role-management-modal-split/mock/index.html` Shape 1 column (served at `http://t1000:8898/index.html`).
 
@@ -103,7 +103,7 @@ Row content: 40px round `.pv-avatar`-style disc (background gradient with role's
 
 **Fallback for a role missing role-level cosmetics** (edge case only — should not occur per Phase 86's "roles can't have empty cosmetics" invariant): row renders with a neutral placeholder avatar + hue 190 (app-wide accent). Do NOT design elaborate empty states — this is a hand-broken role file, not a designed UX state.
 
-### D-06: Role modal chrome wears the role's own hue (LOCKED — Ashley 2026-09-09)
+### D-06: Role modal chrome wears the role's own hue (LOCKED — Alice 2026-09-09)
 
 The role modal's outer DialogContent applies the same hue-tinted glass gradient the identity modal applies today (`IdentityModal.tsx:1614-1621` pattern), but keyed on the ROLE's `colorHue` instead of an identity's. Same visual family:
 - `linear-gradient(160deg, hsla(hue, 45%, 25%, 0.82), hsla(hue, 40%, 15%, 0.88))`.
@@ -114,7 +114,7 @@ The role modal's outer DialogContent applies the same hue-tinted glass gradient 
 
 **Visual continuity:** the hue you see in the roles-list row is the hue you see when the role modal opens. Clicking a magenta-pink Box Maintainer row lands you in a magenta-pink role modal.
 
-### D-07: Three-dots menu after this phase (LOCKED — Ashley 2026-09-09)
+### D-07: Three-dots menu after this phase (LOCKED — Alice 2026-09-09)
 
 Panel-header three-dots menu (`PrettyConversationsPanel.tsx:2036-2064`) transitions from 4 entries to 4 entries — one swap:
 - **Before:** New agent · New role · Edit global files… · Edit skills…
@@ -164,7 +164,7 @@ The "+ New role" button lives in the roles-list modal's header (right side, near
 - `git push` IS authorized as the terminal step of this phase's execute.
 - No `docker build`. No `docker cp`. No `docker compose up --force-recreate`. No coord-room ship posts.
 - Every push runs `git pull --rebase origin feat/tab-title-from-tmux` first (multi-identity rule).
-- Peer identities (tina, tiffany, tanya, taylor) may push concurrently; rebase handles it. No coord post required for push-only sessions per Ashley 2026-09-05 rule.
+- Peer identities (tina, tiffany, tanya, taylor) may push concurrently; rebase handles it. No coord post required for push-only sessions per Alice 2026-09-05 rule.
 
 ### Claude's Discretion (planner picks the specifics)
 
@@ -306,7 +306,7 @@ Full relative paths — required reading for downstream agents:
 ### Standing fleet rules (from box-maintainer role file)
 - Multi-identity role — `git pull --rebase origin feat/tab-title-from-tmux` before every push.
 - No worktrees (do NOT spawn Agent with `isolation: "worktree"`).
-- No coord-room posts for push-only sessions (Ashley 2026-09-05).
+- No coord-room posts for push-only sessions (Alice 2026-09-05).
 - Subagents don't do deploys — this phase ships push-only, no deploy.
 - Test discipline: scoped during dev, full suite ONLY at deploy gate after explicit ship greenlight.
 - No worktrees. No streaming (Skynet has no message streaming — do not design around it).
@@ -317,9 +317,9 @@ Full relative paths — required reading for downstream agents:
 ## Deferred / Out of Scope
 
 **Deferred to a future bounty/phase:**
-- Enriching roles-list rows with state (bounty counts, identity counts, activity glances, last-touched timestamps). Directory-not-dashboard stance is deliberate; add later once the routing shape settles and Ashley wants the extra signal.
+- Enriching roles-list rows with state (bounty counts, identity counts, activity glances, last-touched timestamps). Directory-not-dashboard stance is deliberate; add later once the routing shape settles and Alice wants the extra signal.
 - Search / filter inside the roles-list modal. Small fleet doesn't warrant it; revisit if fleet grows past ~20 roles.
-- Cross-fleet role aggregation (merge roles from every managed host into one list). Kept per-selected-host per Ashley 2026-09-09 (Edit-global-files pattern).
+- Cross-fleet role aggregation (merge roles from every managed host into one list). Kept per-selected-host per Alice 2026-09-09 (Edit-global-files pattern).
 - "Recently-active" sort order in the roles-list. Alphabetical only for v1.
 - Modal-on-modal / stack behavior between the roles-list modal and the role modal. Swap-not-stack throughout per shape; upgrade to stack is a v2 if the round-trip proves annoying.
 - Restore-identity-modal-on-close when role modal was opened via identity-modal title-line jump. Role modal close just dismisses; no back-navigation.
@@ -343,20 +343,20 @@ Full relative paths — required reading for downstream agents:
 
 Phase 90 sits after Phase 89 (identity modal tab restructure, Runbooks tab added) and Phase 86 (cosmetics migrate to role). It resolves Phase 86's deferral on post-creation role cosmetic edit UI by adding that block to the new role modal's role-file tab.
 
-Campaign constraint continues (Ashley 2026-09-07):
+Campaign constraint continues (Alice 2026-09-07):
 > "the farthest you'll get amongst any of this is pushing changes to remote and running scoped tests, but we're not going to be running the full test suite we're not going to be rebuilding we're not going to be deploying until we're done."
 
 Consequences enforced in this phase:
 - Execute step runs scoped tests only.
 - Phase ends at `git push`. No `docker build`, no `docker compose up --force-recreate`, no `docker cp` fast-path, no full-suite gate.
-- No coord-room BEFORE/AFTER posts (push-only rule, Ashley 2026-09-05).
+- No coord-room BEFORE/AFTER posts (push-only rule, Alice 2026-09-05).
 - Every push runs `git pull --rebase origin feat/tab-title-from-tmux` first.
-- Ride-along ships: a peer's future `--force-recreate` may pick up my commits from origin. Ashley knows and has explicitly authorized this shape.
+- Ride-along ships: a peer's future `--force-recreate` may pick up my commits from origin. Alice knows and has explicitly authorized this shape.
 
 Post-phase items pending in the campaign string:
-- Whatever campaign items remain after Phase 90 lands (Ashley tracks the ordering; tabitha keeps the order per her delegation).
+- Whatever campaign items remain after Phase 90 lands (Alice tracks the ordering; tabitha keeps the order per her delegation).
 
-Ashley 2026-09-07 delegation (verbatim): *"after each build for this plan, you're going to reset yourself and then invoke the next build on the next bounty at the start of the next session"* and *"you're in charge of making sure that we continue with the plan and these bounties go in the right order."*
+Alice 2026-09-07 delegation (verbatim): *"after each build for this plan, you're going to reset yourself and then invoke the next build on the next bounty at the start of the next session"* and *"you're in charge of making sure that we continue with the plan and these bounties go in the right order."*
 
 </campaign_notes>
 

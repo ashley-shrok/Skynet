@@ -26,7 +26,7 @@ human_verification:
 **Phase Goal:** Desktop's landing surface renders the pretty-conversations panel + PrettyView chat surface on session load (NOT the Skynet dashboard), and the left AppRail — its file plus every reference — is deleted from AppShell so the Skynet dashboard, host manager UI, snippets manager, admin console, and any settings surfaces reachable via the AppRail become unreachable from the UI. The invisible-shell technical capability (tab plumbing, terminal renderer, RDP/VNC panes, host CRUD BACKEND API + encrypted-SQLite data layer) is untouched.
 
 **Verified:** 2026-07-23 (HEAD `a17db3f` on branch `feat/tab-title-from-tmux`)
-**Status:** human_needed (all automated gates PASS; three runtime UAT items remain for Ashley's walkthrough)
+**Status:** human_needed (all automated gates PASS; three runtime UAT items remain for Alice's walkthrough)
 **Re-verification:** No — initial verification.
 
 ## Goal Achievement
@@ -35,7 +35,7 @@ human_verification:
 
 | # | Success Criterion | Verdict | Evidence |
 |---|-------------------|---------|----------|
-| 1 | Desktop fresh page-load w/o hash-fragment renders pretty-conversations panel + PrettyView, NOT Skynet dashboard | PASS (automated) — runtime UAT deferred | `tabUtils.tsx:187-194` `case "dashboard": return <PrettyLandingCard />;`. Initial tab seed at `AppShell.tsx:175-183` uses `type: "dashboard"` (load-bearing) with `label: t("nav.conversations.title", …)`. Zero `DashboardTab` imports in tabUtils/AppShell. Ashley's post-deploy visual walk is the final gate (see human_verification #1). |
+| 1 | Desktop fresh page-load w/o hash-fragment renders pretty-conversations panel + PrettyView, NOT Skynet dashboard | PASS (automated) — runtime UAT deferred | `tabUtils.tsx:187-194` `case "dashboard": return <PrettyLandingCard />;`. Initial tab seed at `AppShell.tsx:175-183` uses `type: "dashboard"` (load-bearing) with `label: t("nav.conversations.title", …)`. Zero `DashboardTab` imports in tabUtils/AppShell. Alice's post-deploy visual walk is the final gate (see human_verification #1). |
 | 2 | AppRail file + imports gone; tsc clean; test suite green | PASS | `ls src/ui/sidebar/AppRail.tsx` → No such file (deleted commit `c386068`). `grep -rn "AppRail" src/ --include=*.ts --include=*.tsx` returns 8 hits, ALL inside `//` or `{/* */}` comments (verified line-by-line at AppShell.tsx:20,53,78,230,1081,1499 and PrettyConversationsPanel.tsx:23,118). Zero code-line hits. Build-verify §1 tsc exit 0; §2 vitest 524/526 (2 pre-existing ComposeBox baseline failures, zero net-new). |
 | 3 | No visible UI navigation path from fresh landing to Skynet dashboard/host manager/snippets/admin/settings | PASS (automated) — runtime UAT deferred | `AppShell.tsx` grep: zero `<AppRail`, zero `<SettingsRow`, zero non-comment `railView`/`handleRailClick`/`editHostInManager`/`openSingletonTab`/`profileDropdownOpen`. `sidebarPanelContent` at 1317-1361 mounts `<PrettyConversationsPanel />` unconditionally as sole child. 11 sibling `{railView === "X"}` conditionals eliminated. Hash-fragment probe outcome deferred to human_verification #1. |
 | 4 | Backend `/host/db/*` and `/identities/*` untouched; no backend route deletion | PASS | `git diff b19fc20^..HEAD -- src/backend/` returns empty. `git log --name-only HEAD~14..HEAD \| grep ^src/backend/` = 0 files. Full Phase 11 commit range (14 commits from b19fc20 to a17db3f) touches zero backend files. Build-verify §5 G17 gate confirms. |
@@ -101,9 +101,9 @@ No project-conventional `scripts/*/tests/probe-*.sh` probes exist for this phase
 |-------------|----------------|-------------|--------|----------|
 | PURGE-01 | 11-01, 11-02, 11-04 | Desktop no-hash → pretty-conversations + PrettyView | ✓ SATISFIED | tabUtils.tsx `case "dashboard"` renders `<PrettyLandingCard />`. AppShell landing tab seed labeled "Conversations". Automated evidence complete; runtime desktop UAT deferred. |
 | PURGE-02 | 11-01, 11-03, 11-04 | AppRail file deleted; zero imports; tsc clean; tests green | ✓ SATISFIED | `AppRail.tsx` gone (commit `c386068`). Zero code-line hits for `AppRail` (only comment tombstones). tsc exit 0. Test suite 524/526 baseline. |
-| PURGE-03 | 11-01, 11-03, 11-04 | No visible UI path to dashboard/host-manager/snippets/admin/settings | ✓ SATISFIED (automated) | Zero `<AppRail>` mount, zero `<SettingsRow>` mount, zero non-comment rail-view state code lines. Runtime hash-fragment probe deferred to Ashley UAT per Plan 04 checker W-4. |
+| PURGE-03 | 11-01, 11-03, 11-04 | No visible UI path to dashboard/host-manager/snippets/admin/settings | ✓ SATISFIED (automated) | Zero `<AppRail>` mount, zero `<SettingsRow>` mount, zero non-comment rail-view state code lines. Runtime hash-fragment probe deferred to Alice UAT per Plan 04 checker W-4. |
 | PURGE-04 | 11-03 | Backend `/host/db/*` + `/identities/*` untouched | ✓ SATISFIED | `git diff` over full Phase 11 commit range shows zero backend file changes. |
-| PURGE-05 | 11-02, 11-04 | RDP/VNC/Guacamole preserved; RDP-sentinel row opens Guacamole | ✓ SATISFIED (automated) | `case "rdp"` hit count = 6 (baseline unchanged). `onRdpRowClick` handler mounted intact. Live guacd click-through deferred to Ashley UAT. |
+| PURGE-05 | 11-02, 11-04 | RDP/VNC/Guacamole preserved; RDP-sentinel row opens Guacamole | ✓ SATISFIED (automated) | `case "rdp"` hit count = 6 (baseline unchanged). `onRdpRowClick` handler mounted intact. Live guacd click-through deferred to Alice UAT. |
 
 **No orphaned requirements.** REQUIREMENTS.md maps only PURGE-01..PURGE-05 to Phase 11, and every one is claimed by at least one plan's `requirements` frontmatter AND verified by shipped work.
 
@@ -139,7 +139,7 @@ Three runtime observations remain — all intrinsic to the phase goal (visual re
 
 ### Gaps Summary
 
-No gaps blocking phase closure. All 6 ROADMAP.md Success Criteria are satisfied by observable code evidence + Plan 04 build-verify log. The three human_verification items are intrinsic runtime observations — automated tests cannot observe visual composition, live guacd handshake, or PWA safe-area colors — and are explicitly documented in `11-UAT-CHECKLIST.md` for Ashley's post-deploy walkthrough per the deploy discipline.
+No gaps blocking phase closure. All 6 ROADMAP.md Success Criteria are satisfied by observable code evidence + Plan 04 build-verify log. The three human_verification items are intrinsic runtime observations — automated tests cannot observe visual composition, live guacd handshake, or PWA safe-area colors — and are explicitly documented in `11-UAT-CHECKLIST.md` for Alice's post-deploy walkthrough per the deploy discipline.
 
 ### Scope-fence Verification
 

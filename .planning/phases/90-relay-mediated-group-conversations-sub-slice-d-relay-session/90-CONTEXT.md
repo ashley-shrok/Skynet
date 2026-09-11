@@ -3,7 +3,7 @@
 **Gathered:** 2026-09-08
 **Status:** Ready for planning
 
-> **Seeded from shape file** per `/build` convention — the shape file (`.planning/shapes/shape-relay-session-pane-rendering.md`) already locked all the decisions below via a walked-one-at-a-time `/open` conversation with Ashley (2026-09-08, all greenlit `thumbs up`). This CONTEXT.md is the discuss-phase artifact that translates those decisions into a form downstream agents (researcher, planner) can act on without re-asking. Read the shape file for the fuller narrative; this file is the actionable extract.
+> **Seeded from shape file** per `/build` convention — the shape file (`.planning/shapes/shape-relay-session-pane-rendering.md`) already locked all the decisions below via a walked-one-at-a-time `/open` conversation with Alice (2026-09-08, all greenlit `thumbs up`). This CONTEXT.md is the discuss-phase artifact that translates those decisions into a form downstream agents (researcher, planner) can act on without re-asking. Read the shape file for the fuller narrative; this file is the actionable extract.
 
 <domain>
 ## Phase Boundary
@@ -21,7 +21,7 @@ Depends on: Phase 88 (slice A, human relay identities first-class — guarantees
 <decisions>
 ## Implementation Decisions
 
-All 16 decisions below were walked one-at-a-time with Ashley during the `/open` conversation for this shape (2026-09-08). Each was greenlit `thumbs up` before advancing. The shape file's `## Shape` and `## Philosophy` sections are the fuller narrative; below is the actionable extract.
+All 16 decisions below were walked one-at-a-time with Alice during the `/open` conversation for this shape (2026-09-08). Each was greenlit `thumbs up` before advancing. The shape file's `## Shape` and `## Philosophy` sections are the fuller narrative; below is the actionable extract.
 
 ### Architecture
 
@@ -55,7 +55,7 @@ All 16 decisions below were walked one-at-a-time with Ashley during the `/open` 
 
 - **D-12: Inbound bubble visual — reuse the already-shipped sender-attributed inbound bubble primitive.** The primitive shipped 2026-08-18 by tiffany (bounty `relay-inbound-bubble-sender-hue-recolor`) renders inbound-relay bubbles today in the harness pane with per-sender hue, left-alignment, and resolved-identity dot. This primitive is exactly what a group-room member's bubble needs; reuse as-is. Same visual encoding harness-pane peer-chatter bubbles use today — users who've seen the harness-pane version will recognize the group-pane version immediately.
 
-- **D-13: Outbound bubbles use the existing right-aligned "you speaking" visual style.** The viewing user's own bubbles render right-aligned in the pane FOR ASHLEY, using the same visual style pretty view uses for user-turn bubbles. Extract this bubble style as a shared primitive per D-02.b (both panes render the same-shaped user bubble in the same way).
+- **D-13: Outbound bubbles use the existing right-aligned "you speaking" visual style.** The viewing user's own bubbles render right-aligned in the pane FOR ALICE, using the same visual style pretty view uses for user-turn bubbles. Extract this bubble style as a shared primitive per D-02.b (both panes render the same-shaped user bubble in the same way).
 
 - **D-14: Message-history pagination — behavior matches pretty view 1:1.** Same initial load size when the pane opens, same scroll-back trigger (whatever UX pretty view has for loading older messages — infinite scroll on approach to top, or explicit button, whichever pretty view does today), same batch size on load-more. The plumbing underneath is entirely different (relay message-history endpoint vs. session-transcript parsing) but the OBSERVABLE behavior at the surface is identical. Concrete numbers not being locked here — the planner reads pretty view's implementation and matches.
 
@@ -75,7 +75,7 @@ All 16 decisions below were walked one-at-a-time with Ashley during the `/open` 
 
 ### Mobile
 
-- **D-20: Mobile layout intentionally deferred to v1.5.** Ship v1 with reasonable behavior (identity-badge row does something sensible in narrow viewports — horizontal scroll or wrap, whichever falls out most naturally from the primitive extractions and the existing responsive patterns in pretty view). Revisit once real rooms with real participant counts show the actual pain points. Ashley 2026-09-08 verbatim: *"for version one, if we have to figure out something different or how to handle it exactly on mobile then i feel like that's something i could come back with after this stuff is already in place rather than think i can try to perfectly plan it right now."*
+- **D-20: Mobile layout intentionally deferred to v1.5.** Ship v1 with reasonable behavior (identity-badge row does something sensible in narrow viewports — horizontal scroll or wrap, whichever falls out most naturally from the primitive extractions and the existing responsive patterns in pretty view). Revisit once real rooms with real participant counts show the actual pain points. Alice 2026-09-08 verbatim: *"for version one, if we have to figure out something different or how to handle it exactly on mobile then i feel like that's something i could come back with after this stuff is already in place rather than think i can try to perfectly plan it right now."*
 
 ### Claude's Discretion
 
@@ -97,8 +97,8 @@ All 16 decisions below were walked one-at-a-time with Ashley during the `/open` 
 - **No worktrees** (fleet rule). All work in main working tree on `feat/tab-title-from-tmux`.
 - **Push not authorized as part of phase execution.** Deploy motion is orchestrator-owned per fleet rule. Push happens at arc-close after slices C + E land and `/close relay-mediated-group-conversations` passes against the master shape.
 - **No streaming anywhere.** Skynet has no message streaming, ever — bubbles render atomically after send/receive lands. Do NOT design around streaming state, do NOT add streaming affordances (typing indicators, "streaming…" spinners, auto-expand-while-streaming behaviors).
-- **Scoped tests during dev; full suite deferred to deploy gate** (fleet rule, Ashley 2026-08-20 + 2026-09-07 refinement). Executor's own green-gate is scoped tests only (`--related <files>` or targeted `src/ui/features/<feature>/`); full suite runs at orchestrator ship-gate AFTER Ashley's explicit ship greenlight, which is deferred to arc-close.
-- **Executor doesn't ship** (fleet rule, Ashley 2026-08-08). Plans must NOT include a "ship" task at executor scope. Executor's remit stops at code + commit + scoped tests green.
+- **Scoped tests during dev; full suite deferred to deploy gate** (fleet rule, Alice 2026-08-20 + 2026-09-07 refinement). Executor's own green-gate is scoped tests only (`--related <files>` or targeted `src/ui/features/<feature>/`); full suite runs at orchestrator ship-gate AFTER Alice's explicit ship greenlight, which is deferred to arc-close.
+- **Executor doesn't ship** (fleet rule, Alice 2026-08-08). Plans must NOT include a "ship" task at executor scope. Executor's remit stops at code + commit + scoped tests green.
 - **Every backend write to a user row must be paired with `DatabaseSaveTrigger.forceSave`** (Skynet in-memory-DB invariant). NOT expected to apply in this slice — slice D is frontend-primary — but flag if any backend touch surfaces.
 
 </constraints>

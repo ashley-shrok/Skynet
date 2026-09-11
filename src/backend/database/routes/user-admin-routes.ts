@@ -255,7 +255,7 @@ export function registerUserAdminRoutes(
    *       user row to an externally-created Matrix relay account by writing
    *       the mxid to `users.mxid`. Serves both the new-user provisioning
    *       runbook (one POST per new user) and the one-shot import for the
-   *       three pre-existing hand-made accounts (Ashley, Zoe, Laura).
+   *       three pre-existing hand-made accounts (Alice, Zoe, Laura).
    *
    *       The mxid is validated against `MXID_RE` (Matrix spec-compliant:
    *       lowercase localpart, hostname-shaped server_name, 512-char cap)

@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-07-27
 **Status:** Ready for planning
-**Source:** Manual authorship by tina — prototype UAT already passed on iOS PWA (`~/.claude/identities/tina/bounties/add-voice-input/prototype.html` served at `https://example.com/tina-voice-prototype/prototype.html`). Ashley response: "holy shit that just worked 100%, in a add-to-home-screen PWA". Design pins locked in bounty; nelly-owned STT contract verified live. This CONTEXT.md replaces a discuss-phase round because the prototype IS the discussion.
+**Source:** Manual authorship by tina — prototype UAT already passed on iOS PWA (`~/.claude/identities/tina/bounties/add-voice-input/prototype.html` served at `https://example.com/tina-voice-prototype/prototype.html`). Alice response: "holy shit that just worked 100%, in a add-to-home-screen PWA". Design pins locked in bounty; nelly-owned STT contract verified live. This CONTEXT.md replaces a discuss-phase round because the prototype IS the discussion.
 
 <domain>
 ## Phase Boundary
@@ -14,8 +14,8 @@
 - No changes to the terminal / RDP / Guacamole / conversation-list / pretty-conversations surfaces.
 - No new state persistence (transcripts flow through the textarea like typed text).
 - No streaming STT (faster-whisper backend is batch-only per Nelly's contract).
-- No level meter, waveform, or recording-time counter (Ashley explicitly declined — the three-button record state IS the recording indicator).
-- No swipe-to-cancel gesture (Ashley chose a plain cancel BUTTON).
+- No level meter, waveform, or recording-time counter (Alice explicitly declined — the three-button record state IS the recording indicator).
+- No swipe-to-cancel gesture (Alice chose a plain cancel BUTTON).
 - No multi-language or model selection (server ignores the `model` param and always uses `large-v3`).
 - No audio persistence — the blob is transient; only the transcript enters the textarea.
 
@@ -30,7 +30,7 @@
 <decisions>
 ## Implementation Decisions
 
-### Locked design pins (Ashley 2026-07-27, prototype UAT)
+### Locked design pins (Alice 2026-07-27, prototype UAT)
 
 - **Mic button lives INSIDE the textarea slot** — same visual precedent as the existing send button (patch #78-adjacent). Forward-compatible with the queued `message-queue-in-pretty-view` bounty where the ComposeBox will host multiple textareas, each with its own controls.
 - **Tap-to-record swaps the mic button OUT of its slot and swaps in three action buttons** in the same slot: `cancel` | `end + append` | `end + send`. The three-button state IS the recording indicator — no separate signal element, no level meter, no timer.
@@ -53,7 +53,7 @@
 
 ### Production audio path — cannot be client-direct
 
-Ashley's phone (and any browser) reaches Skynet over the **public internet** at `term.example.com`, NOT over the tailnet. The STT service is tailnet-only. Therefore the production path MUST be `PWA → Skynet backend → tailnet STT → transcript back → client`. The Skynet backend reverse-proxies the multipart body to the STT endpoint and returns the JSON.
+Alice's phone (and any browser) reaches Skynet over the **public internet** at `term.example.com`, NOT over the tailnet. The STT service is tailnet-only. Therefore the production path MUST be `PWA → Skynet backend → tailnet STT → transcript back → client`. The Skynet backend reverse-proxies the multipart body to the STT endpoint and returns the JSON.
 
 **Do NOT try to have the client fetch the STT URL directly.** That worked in the prototype only because Nelly added a Caddy proxy on `https://example.com/stt/*` bypassing Authelia for tailnet clients — that path serves the prototype which is on the tailnet. Production Skynet users are NOT on the tailnet.
 
@@ -77,14 +77,14 @@ Ashley's phone (and any browser) reaches Skynet over the **public internet** at 
 
 - Backend tests: assert multipart passthrough (body bytes unchanged), assert STT `{text}` response is returned intact, assert 5xx errors surface as `{error, status}`. Use a mocked STT endpoint or the fork's existing HTTP client mocking pattern (planner reads existing test files to match).
 - Frontend tests: assert the button state machine (idle → recording → transcribing → idle after each action), assert `getUserMedia` is called synchronously in the tap handler (mock it — return a stubbed stream), assert the transcribe fetch is called with the recorded blob, assert append vs send actions call the right downstream handlers (append updates textarea, send calls the existing ComposeBox send).
-- iOS Safari behavior is not unit-testable — flag as a manual-verification step in the plan's verification section (Ashley already verified on her PWA in the prototype UAT).
+- iOS Safari behavior is not unit-testable — flag as a manual-verification step in the plan's verification section (Alice already verified on her PWA in the prototype UAT).
 
 ### Fleet-directive constraints
 
 - **Do NOT touch any of the dead surfaces** listed in tina's identity file: settings, AppRail, dashboard, snippets manager, host manager UI pages, admin console, file manager UI, Skynet top-level tab bar chrome, keyboard shortcut editor. Voice input is a pretty-view-INTERIOR feature; scope stays inside `src/ui/features/pretty-view/` on the frontend.
-- **Update `~/.claude/identities/tina/skynet-patches.md` in the same commits as the code** — new fleet directive from Ashley 2026-07-27: docs/catalog updates happen inline with work, never queued, never awaiting greenlight. The planner should include a task at the end of each PLAN.md to update this catalog file.
+- **Update `~/.claude/identities/tina/skynet-patches.md` in the same commits as the code** — new fleet directive from Alice 2026-07-27: docs/catalog updates happen inline with work, never queued, never awaiting greenlight. The planner should include a task at the end of each PLAN.md to update this catalog file.
 - **No `caddy reload` recommended during deploy** — Skynet only, nginx reload handled by the compose recreate.
-- **Deploy discipline** (per identity file): planner should NOT include a deploy task in the plan. Deploys are a separate Ashley-greenlit event per patch #35 rule ("every build → deploy is a new may-I moment"). Plan ends at "code + tests + commit landed."
+- **Deploy discipline** (per identity file): planner should NOT include a deploy task in the plan. Deploys are a separate user-greenlit event per patch #35 rule ("every build → deploy is a new may-I moment"). Plan ends at "code + tests + commit landed."
 </decisions>
 
 <canonical_refs>
@@ -108,7 +108,7 @@ Ashley's phone (and any browser) reaches Skynet over the **public internet** at 
 - `docker/nginx-https.conf` — add the SAME `location` block. Both files must have it or the frontend 200s with `index.html` on the endpoint and crashes on `.map`. This is a load-bearing fork gotcha from CLAUDE.md.
 
 ### Prototype reference (what UAT-passed on iOS PWA)
-- `~/.claude/identities/tina/bounties/add-voice-input/prototype.html` — 340-line self-contained HTML with the exact button state machine, MediaRecorder wiring, and fetch flow that Ashley UAT-passed. Planner should MIRROR the state machine and error-handling shape here. In particular the `startRecording` / `stopRecording` / `transcribe` functions and the `setState('idle'|'recording'|'transcribing', msg)` pattern.
+- `~/.claude/identities/tina/bounties/add-voice-input/prototype.html` — 340-line self-contained HTML with the exact button state machine, MediaRecorder wiring, and fetch flow that Alice UAT-passed. Planner should MIRROR the state machine and error-handling shape here. In particular the `startRecording` / `stopRecording` / `transcribe` functions and the `setState('idle'|'recording'|'transcribing', msg)` pattern.
 
 ### Bounty tracker (source of truth for design decisions)
 - `~/.claude/identities/tina/bounties/add-voice-input/bounty.json` — full design + collaboration history. Read the timeline for context.
@@ -167,7 +167,7 @@ The hook should encapsulate this so ComposeBox just calls `voice.start()` in its
 
 ### skynet-patches.md write-up
 
-Per Ashley's 2026-07-27 fleet directive (docs inline, never queued), the plan MUST include a task in the final wave that updates `~/.claude/identities/tina/skynet-patches.md` with the patch number and full write-up (motivation, root cause n/a, fix summary, files touched, rebase risk). The write-up should be complete before the last commit lands.
+Per Alice's 2026-07-27 fleet directive (docs inline, never queued), the plan MUST include a task in the final wave that updates `~/.claude/identities/tina/skynet-patches.md` with the patch number and full write-up (motivation, root cause n/a, fix summary, files touched, rebase risk). The write-up should be complete before the last commit lands.
 </specifics>
 
 <deferred>
@@ -178,12 +178,12 @@ Explicitly out of scope for Phase 16 — do NOT include:
 - **Streaming STT** — deferred until faster-whisper backend adds it (currently batch-only).
 - **Voice input inside the message-queue textareas** — will layer on when `message-queue-in-pretty-view` ships. The mic-inside-textarea design is forward-compatible so this drop-in should be trivial.
 - **Multi-language / model selection** — server always uses `large-v3`; no UX to pick.
-- **Waveform / level meter / recording timer** — Ashley explicitly declined.
-- **Swipe-to-cancel gesture** — Ashley chose a plain cancel BUTTON.
+- **Waveform / level meter / recording timer** — Alice explicitly declined.
+- **Swipe-to-cancel gesture** — Alice chose a plain cancel BUTTON.
 - **Audio persistence** — the blob is transient; only transcripts enter the textarea.
 - **Auto-punctuation editing UI / TTS confirmation** — user reads the transcript in the textarea and edits by hand if needed.
 - **Reconnect / retry on transcribe error** — first version surfaces the error and lets the user retry manually. Auto-retry can layer on later if flakiness is observed in real use.
-- **Deploy** — planning ends at "code + tests + commit landed." Deploy is a separate Ashley-greenlit event (patch #35 rule).
+- **Deploy** — planning ends at "code + tests + commit landed." Deploy is a separate user-greenlit event (patch #35 rule).
 - **Retiring the prototype hosting** — the prototype at `https://example.com/tina-voice-prototype/prototype.html` and the `/stt/*` Caddy proxy on example.com stay up until the integrated version is deployed and UAT-verified. That retirement is a follow-up ping to Nelly, not a plan task.
 </deferred>
 

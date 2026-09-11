@@ -535,7 +535,7 @@ describe("POST /identities/clone", () => {
     expect(execCalls.some((c) => c.includes(`mkdir`) && c.includes("tina-2"))).toBe(true);
     // touch handoff.md
     expect(execCalls.some((c) => c.includes("touch") && c.includes("handoff.md"))).toBe(true);
-    // NO relay-register per REVISION 2026-08-04 (Ashley: no SSH register from Skynet)
+    // NO relay-register per REVISION 2026-08-04 (Alice: no SSH register from Skynet)
     // Assert none of the exec commands look like a relay-register curl
     for (const cmd of execCalls) {
       expect(cmd).not.toMatch(/matrix|_matrix\/client|register|thenasty|homeserver/i);
@@ -1099,7 +1099,7 @@ describe("POST /identities/clone", () => {
     // Critically, the DB insert must NOT run when the harness fails: a
     // half-state ("identity registered but harness dead") would leave the
     // sidebar with a row whose pretty-view shows "no active Claude session"
-    // and no clean recovery path (Ashley's Rule: never leave the fleet in an
+    // and no clean recovery path (Alice's Rule: never leave the fleet in an
     // observable half-state).
     mockStartHarness.mockRejectedValueOnce(new Error("harness send-keys failed"));
 

@@ -7,11 +7,11 @@ status: in-progress
 
 # qb9 Scoping Follow-up (three parts)
 
-Three surgical follow-ups after this morning's ship (HEAD `20c8ad33`). Ashley's UAT feedback:
+Three surgical follow-ups after this morning's ship (HEAD `20c8ad33`). Alice's UAT feedback:
 
 - **Part A**: qb9's collapse-by-default was over-broad — it collapsed her local agent's ChatMessage assistant bubbles too, which she can't read without clicking. Revert ChatMessage assistant to always-expanded; keep RelayInbound + RelayOutbound collapse-by-default (those were the actual target).
 - **Part B**: The Relay collapsed bubbles are visually too big (14/18 padding) vs the ChatMessage pill it was patterned after (7/12). Shrink Relay padding when collapsed only.
-- **Part C**: r9i's `goodbye_echo` skip only catches `"<local-command-stdout>Goodbye!</local-command-stdout>"` — Ashley's exit routine emits three more variants that also need to skip: `"Catch you later!"`, `"See ya!"`, `"Bye!"`. Widen the predicate to match any of the four literal strings.
+- **Part C**: r9i's `goodbye_echo` skip only catches `"<local-command-stdout>Goodbye!</local-command-stdout>"` — Alice's exit routine emits three more variants that also need to skip: `"Catch you later!"`, `"See ya!"`, `"Bye!"`. Widen the predicate to match any of the four literal strings.
 
 ---
 
@@ -66,7 +66,7 @@ Three surgical follow-ups after this morning's ship (HEAD `20c8ad33`). Ashley's 
 
 ## Part C — widen r9i `goodbye_echo` predicate to 4 literals
 
-### The bug Ashley reported
+### The bug Alice reported
 
 `session-file-parser.ts` line 1279:
 ```ts
@@ -75,7 +75,7 @@ if (content.trim() === "<local-command-stdout>Goodbye!</local-command-stdout>") 
 }
 ```
 
-Only catches `Goodbye!`. Ashley's session-end routine also emits three other variants — all of them equally session-lifecycle noise:
+Only catches `Goodbye!`. Alice's session-end routine also emits three other variants — all of them equally session-lifecycle noise:
 - `<local-command-stdout>Catch you later!</local-command-stdout>`
 - `<local-command-stdout>See ya!</local-command-stdout>`
 - `<local-command-stdout>Bye!</local-command-stdout>`
@@ -113,7 +113,7 @@ Also update the two comment references to the "narrow to Goodbye!" language in t
 ## Constraints (apply to ALL three parts)
 
 - Working directory: `/home/ubuntu/skynet-tina`, branch `feat/tab-title-from-tmux`. Do NOT use git worktrees (fleet rule).
-- **Do NOT deploy.** Commit only. Orchestrator (Tina) handles ship motion after Ashley greenlights push.
+- **Do NOT deploy.** Commit only. Orchestrator (Tina) handles ship motion after Alice greenlights push.
 - **Do NOT touch** `~/.claude/roles/box-maintainer/skynet-patches.md`.
 - **Do NOT run full-suite `npx vitest run`** — orchestrator's ship-gate. Only scoped tests.
 - Part A + Part B are frontend-only (`src/ui/features/pretty-view/`); Part C is backend-only (`src/backend/claude-session/`) — no overlap.
@@ -132,11 +132,11 @@ Also update the two comment references to the "narrow to Goodbye!" language in t
 revert(quick-260830-e6i): un-collapse ChatMessage assistant bubbles
 
 qb9 (f49da842) collapsed all left-side agent-produced bubbles by default,
-which was over-broad — Ashley wanted only the REMOTE-source ones
+which was over-broad — Alice wanted only the REMOTE-source ones
 (RelayInboundBubble, RelayOutboundBubble from other agents) collapsed,
 not the local agent's own ChatMessage assistant replies.
 
-Ashley: "the whole point of that change was supposed to be that we
+Alice: "the whole point of that change was supposed to be that we
 collapse the relay message bubbles on the left side, and we leave
 non-relay bubbles alone."
 
@@ -154,7 +154,7 @@ RelayInboundBubble + RelayOutboundBubble collapse-by-default retained
 ```
 fix(quick-260830-e6i): shrink Relay collapsed-header padding to match ChatMessage pill
 
-Ashley's computed-styles measurement of the qb9 collapsed relay bubbles
+Alice's computed-styles measurement of the qb9 collapsed relay bubbles
 (14px top/bottom, 18px left/right) vs the pre-revert ChatMessage assistant
 pill (7px top/bottom, 12px left) — collapsed relay bubbles were visually
 too big. Shrink the outer container padding to symmetric px-[12px]/py-[7px]
@@ -170,7 +170,7 @@ when collapsed; keep the current px-[18px]/py-[14px] when expanded.
 fix(quick-260830-e6i): widen goodbye_echo predicate to 4 exit-echo variants
 
 r9i's goodbye_echo predicate (session-file-parser.ts) only skipped the
-literal "<local-command-stdout>Goodbye!</local-command-stdout>". Ashley's
+literal "<local-command-stdout>Goodbye!</local-command-stdout>". Alice's
 session-end routine emits three more that are equally session-lifecycle
 noise:
 

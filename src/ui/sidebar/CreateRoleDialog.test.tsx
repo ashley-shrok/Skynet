@@ -300,7 +300,7 @@ describe("CreateRoleDialog", () => {
     // to a two-sentence paired-vocabulary form — shared verb "adopt" pairs
     // with the sibling create-agent blurb at NewSessionDialog.tsx
     // startDescription. Exact string from 88-CONTEXT.md §Verbatim copy
-    // Role blurb (LOCKED by Ashley greenlight 2026-09-07).
+    // Role blurb (LOCKED by Alice greenlight 2026-09-07).
     expect(
       screen.getByText(
         /Roles are the expertise your agents adopt\. Every agent using this role inherits its goals, rules, and knowledge\./,

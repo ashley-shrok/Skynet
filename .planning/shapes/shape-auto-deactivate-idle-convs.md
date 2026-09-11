@@ -34,7 +34,7 @@ The user's focus is the only signal that keeps a conv alive. Agent activity does
 
 ## Prior context
 
-The deactivate action already exists as a click affordance in the conversation list. Ashley uses it manually today.
+The deactivate action already exists as a click affordance in the conversation list. Alice uses it manually today.
 
 A crucial current-state fact: activating or deactivating a conv has zero visual or positional consequence — the row stays exactly where it is in the list, no reshuffling, no fade. The only real-world effect is what the tab is holding in memory. That is what makes the silent, sweep-fired variant fine: there is nothing for the user to notice.
 

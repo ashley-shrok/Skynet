@@ -8,7 +8,7 @@ overrides_applied: 0
 
 # Phase 22: Skynet UI parity with the role/identity paradigm — Verification Report
 
-**Phase Goal:** Bring the fleet-level role/identity split (roles at `~/.claude/roles/<role>/`, identities point at them via `role:` frontmatter, bounties + history shared across identities holding the same role) into Skynet's UI. Every Skynet user surface that touches identities becomes role-aware: NewSessionDialog gets a required Role dropdown, IdentityModal gets a Role tab (first/default) plus repointed Bounties + History tabs, conversation rows get a Clone context-menu affordance, and a Create-role modal + `+ New role` launcher lets Ashley spawn fresh roles on any host without touching the shell. NO Skynet DB schema changes.
+**Phase Goal:** Bring the fleet-level role/identity split (roles at `~/.claude/roles/<role>/`, identities point at them via `role:` frontmatter, bounties + history shared across identities holding the same role) into Skynet's UI. Every Skynet user surface that touches identities becomes role-aware: NewSessionDialog gets a required Role dropdown, IdentityModal gets a Role tab (first/default) plus repointed Bounties + History tabs, conversation rows get a Clone context-menu affordance, and a Create-role modal + `+ New role` launcher lets Alice spawn fresh roles on any host without touching the shell. NO Skynet DB schema changes.
 
 **Verified:** 2026-08-04T10:20:00Z
 **Status:** PASSED
@@ -50,7 +50,7 @@ overrides_applied: 0
 
 ---
 
-## Seed-Comment Approach Compliance (Ashley's mid-flow refinement)
+## Seed-Comment Approach Compliance (Alice's mid-flow refinement)
 
 | Check | Status | Evidence |
 |-------|--------|----------|
@@ -137,7 +137,7 @@ overrides_applied: 0
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| — | — | — | — | None flagged. All seed-comment string constants pass Ashley's negative assertions (no Skynet, no §2/§3/id-skill/SKILL.md). No debt markers (TBD/FIXME/XXX) introduced by Phase 22 code. No hardcoded empty props on any new component. |
+| — | — | — | — | None flagged. All seed-comment string constants pass Alice's negative assertions (no Skynet, no §2/§3/id-skill/SKILL.md). No debt markers (TBD/FIXME/XXX) introduced by Phase 22 code. No hardcoded empty props on any new component. |
 
 ---
 
@@ -170,18 +170,18 @@ All confirmed as pre-existing via git stash + baseline re-run in each executor's
 None required for programmatic goal-backward verification. All observable truths are code-testable and all key links verified.
 
 **Manual UAT gates (deferred to Phase 22 UAT per ROADMAP, not part of gsd-verifier scope):**
-1. Ashley opens NewSessionDialog on a live fleet host → Role dropdown populates from `~/.claude/roles/` on that host.
-2. Ashley creates an identity → verifies new `~/.claude/identities/<name>/<name>.md` on target host contains `role:` frontmatter + seed comment.
-3. Ashley right-clicks a conversation row → CloneAgentDialog opens with source pre-fill; submit creates new fleet folder with source's role.
-4. Ashley clicks `+ New role` → dialog opens with chain checkbox CHECKED; submit chains to NewSessionDialog with role+host pre-filled but editable.
-5. Ashley opens IdentityModal → Role tab is FIRST + DEFAULT; edits + saves; verifies role file updated on disk via SSH cat.
+1. Alice opens NewSessionDialog on a live fleet host → Role dropdown populates from `~/.claude/roles/` on that host.
+2. Alice creates an identity → verifies new `~/.claude/identities/<name>/<name>.md` on target host contains `role:` frontmatter + seed comment.
+3. Alice right-clicks a conversation row → CloneAgentDialog opens with source pre-fill; submit creates new fleet folder with source's role.
+4. Alice clicks `+ New role` → dialog opens with chain checkbox CHECKED; submit chains to NewSessionDialog with role+host pre-filled but editable.
+5. Alice opens IdentityModal → Role tab is FIRST + DEFAULT; edits + saves; verifies role file updated on disk via SSH cat.
 6. Cross-boundary: fresh agent on first wake sees the seed comment, registers own Matrix relay account, removes the comment (Nelly-side, not testable from Skynet).
 
 ---
 
 ## Gaps Summary
 
-**Zero gaps.** All six SRIC requirements delivered end-to-end, all ten non-negotiables honored (verified against actual shipped code, not SUMMARY claims), the Ashley 2026-08-04 seed-comment mid-flow refinement is present in all three affected files with all forbidden phrases absent, TypeScript checks clean, and all 124 new tests pass across 16 test files (23 backend routes + 46 integration + 55 frontend).
+**Zero gaps.** All six SRIC requirements delivered end-to-end, all ten non-negotiables honored (verified against actual shipped code, not SUMMARY claims), the Alice 2026-08-04 seed-comment mid-flow refinement is present in all three affected files with all forbidden phrases absent, TypeScript checks clean, and all 124 new tests pass across 16 test files (23 backend routes + 46 integration + 55 frontend).
 
 The `identities` DB schema is UNCHANGED (no role/host_id columns added). Frontend API stays `(identityKey, hostId)` — role never crosses the wire. Clone endpoint is JSON-only with 415 gate; no multer imports. Both new HTTP routes (`/identities/clone`, `/roles`) have matching nginx `location` blocks in BOTH `docker/nginx.conf` AND `docker/nginx-https.conf`. `js-yaml` reused; zero new npm packages across the entire phase.
 

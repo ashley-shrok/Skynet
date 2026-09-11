@@ -7,7 +7,7 @@ import type { MalformedLineEvent } from "@/api/claude-session-api";
 // it can't parse. The observed cause is a Claude Code writer race where an
 // assistant record and a file-history-snapshot land on the same line with
 // the first cut mid-string; content is genuinely unrecoverable from disk.
-// This bubble exists so Ashley sees SOMETHING is missing rather than
+// This bubble exists so Alice sees SOMETHING is missing rather than
 // silently losing the turn — she can then check the terminal view for
 // the actual reply.
 //

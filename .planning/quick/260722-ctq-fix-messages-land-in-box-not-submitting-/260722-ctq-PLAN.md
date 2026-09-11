@@ -53,7 +53,7 @@ paste framing that Ink's compose-box reader treats as literal newline content.
 Purpose: Patches #100 (split-and-delay Enter, 50ms) and #111a (delay bump to
 250ms) both tried to give Claude Code's Ink paste-detection state machine
 enough headroom to exit paste mode before the CR arrived. Empirically that
-never fully worked — Ashley UAT hit it again during Phase 9 UAT on a message
+never fully worked — Alice UAT hit it again during Phase 9 UAT on a message
 that wasn't even flagged as [pasted]. Root cause pinned in this session: any
 CR arriving through the SAME PTY channel that just delivered body bytes is
 subject to Ink's paste-detection framing and can be absorbed as content
@@ -121,7 +121,7 @@ Concrete steps:
 4. Add a shell-quoting helper inline (do not import a new lib). A minimal `shellQuote` that wraps the target in single quotes and escapes any embedded single quotes via `'\''` is sufficient — tmux session names in this fork are constrained by SESSION_NAME_PATTERN client-side (Plan 06-04 T-06-04-01) plus tmux itself rejects most special chars, but defense-in-depth here is cheap and avoids any command-injection surface if the pattern regresses. Keep the helper local to the file (module-scope const above the WS handler).
 
 5. Update the block-comment above the branch to reflect the new mechanism. Preserve the patch #100 and #111 history lines (they're load-bearing context for anyone reading blame). Append a new paragraph documenting patch #118:
-   - Note the empirical failure of #100/#111a delay-bump strategy (Ashley 2026-07-22T07:40Z UAT — non-paste-tagged message still hung).
+   - Note the empirical failure of #100/#111a delay-bump strategy (Alice 2026-07-22T07:40Z UAT — non-paste-tagged message still hung).
    - Note the pinned root cause: CR arriving through the same PTY as the body bytes gets absorbed by Ink's paste-detection framing regardless of delay.
    - Note the fix mechanism: tmux send-keys dispatches Enter as a real keypress event outside the PTY paste framing.
    - Note the fallback: if the session isn't tmux-attached (no tmuxSessionName cached) or the send-keys exec fails, we write CR to the PTY exactly like the pre-patch path so non-tmux targets don't regress.
@@ -159,7 +159,7 @@ Two parallel updates, both required before this task is done:
 
 **A. Commit the code change to the fork branch.**
 
-1. Confirm branch: `git -C /home/ubuntu/skynet branch --show-current` — should be `feat/tab-title-from-tmux`. If not, stop and surface to Ashley; do NOT switch branches automatically (fork discipline: rebase-safety is Ashley's call).
+1. Confirm branch: `git -C /home/ubuntu/skynet branch --show-current` — should be `feat/tab-title-from-tmux`. If not, stop and surface to Alice; do NOT switch branches automatically (fork discipline: rebase-safety is Alice's call).
 
 2. Stage ONLY the modified file: `git -C /home/ubuntu/skynet add src/backend/ssh/terminal.ts`.
 
@@ -173,7 +173,7 @@ Two parallel updates, both required before this task is done:
 
 5. Verify commit landed: `git -C /home/ubuntu/skynet log --oneline -1` should show the new patch #118 commit at HEAD.
 
-6. Do NOT push. Do NOT run build-skynet.sh. Do NOT run `docker compose up`. Deploy is Ashley-gated and lives outside this quick task per fork DEPLOY DISCIPLINE.
+6. Do NOT push. Do NOT run build-skynet.sh. Do NOT run `docker compose up`. Deploy is user-gated and lives outside this quick task per fork DEPLOY DISCIPLINE.
 
 **B. Update skynet-patches.md (identity dir — outside the repo, no commit).**
 
@@ -183,7 +183,7 @@ Two parallel updates, both required before this task is done:
 
 3. Add the patch #118 entry directly after the existing patch #117 entry (which currently ends the numbered-list block near line ~8121). Match the shape of #117's entry — a numbered list item with backticked commit subject, then indented prose describing motivation / root cause / fix mechanism / files touched / rebase risk. Include:
    - Numbered list entry: `` 118. `fix(compose-submit): hybrid tmux send-keys Enter for pretty-view submit (patch #118)` ``
-   - Motivation: Ashley 2026-07-22T07:40Z UAT hit the messages-land-in-box-not-submitting bug on a non-paste-tagged message during Phase 9 UAT. Patches #100 (split-and-delay 50ms) and #111a (delay bump to 250ms) both tried to give Ink's paste-detection state machine enough headroom to exit paste mode before the CR arrived — never fully worked because CR arriving through the same PTY as body bytes is subject to the paste framing regardless of delay.
+   - Motivation: Alice 2026-07-22T07:40Z UAT hit the messages-land-in-box-not-submitting bug on a non-paste-tagged message during Phase 9 UAT. Patches #100 (split-and-delay 50ms) and #111a (delay bump to 250ms) both tried to give Ink's paste-detection state machine enough headroom to exit paste mode before the CR arrived — never fully worked because CR arriving through the same PTY as body bytes is subject to the paste framing regardless of delay.
    - Root cause: Confirmed by hybrid-path prototype 2026-07-22T09:XXZ — text delivered via bracketed-paste PTY write with trailing CR gets treated as literal newline inside the paste framing by Ink. Only path that reliably fires submit is a real keyboard event outside the paste framing.
    - Fix mechanism: In `src/backend/ssh/terminal.ts` `case "input":` `isPrettyViewSubmit` branch, keep the body PTY-write unchanged, but replace the 250ms-delayed `inputStream.write("\r")` with a `sshConn.exec("tmux send-keys -t <session> Enter", ...)` dispatched on the SAME multiplexed SSH connection. tmux delivers Enter to the target process as a real keypress event, outside any paste framing.
    - Target discovery: uses the `tmuxSessionName` already cached per-session at `tmux_attach` time (see `TerminalSession` in `terminal-session-manager.ts`). No new lifecycle, no new WS event, no new DB column.
@@ -207,7 +207,7 @@ Two parallel updates, both required before this task is done:
 - skynet-patches.md header patch-count is `ONE HUNDRED EIGHTEEN`.
 - skynet-patches.md has a numbered list entry `118.` with full per-patch write-up (motivation / root cause / fix / files touched / rebase risk / test coverage).
 - skynet-patches.md "Patch drift caveat" file list mentions `src/backend/ssh/terminal.ts` with the send-keys exec callout.
-- No push. No deploy. No build. Ashley-gated steps remain Ashley-gated.
+- No push. No deploy. No build. user-gated steps remain user-gated.
   </done>
 </task>
 
@@ -219,22 +219,22 @@ End-to-end verification of this quick task (patch #118) is:
 1. **Compile check** (Task 1 automated): `npx tsc --noEmit` produces no new errors in terminal.ts.
 2. **Commit shape check** (Task 2 automated): HEAD commit on feat/tab-title-from-tmux has subject matching patch #118 convention; diff touches exactly src/backend/ssh/terminal.ts.
 3. **Catalog update check** (Task 2 automated): skynet-patches.md has ONE HUNDRED EIGHTEEN in the header and a numbered `118.` entry in the patch list.
-4. **Post-deploy manual verification (OUT OF SCOPE for this task — Ashley-gated):**
+4. **Post-deploy manual verification (OUT OF SCOPE for this task — user-gated):**
    - Build fork: `sudo bash /opt/skynet/skynet-patches/build-skynet.sh`
    - Deploy behind deadman: standard fork deploy runbook.
    - Manual UAT: open pretty view against a Claude Code target, send 10 normal messages, verify all submit reliably (target: 10/10, matching prototype).
    - Multi-line UAT: paste a 3-line message, verify it submits as ONE message with newlines preserved.
    - Fallback UAT: point a Skynet host at a target where tmux isn't attached (or kill the tmux session), send a message, verify the INFO-level warning fires AND the message still delivers via the CR-in-PTY fallback (retaining pre-patch flakiness but no regression).
 
-This task ends at step 3. Steps 4a-4d are Ashley-gated deploy work.
+This task ends at step 3. Steps 4a-4d are user-gated deploy work.
 </verification>
 
 <success_criteria>
 - src/backend/ssh/terminal.ts hybrid path implemented + compiles clean.
 - Patch #118 commit landed at HEAD of feat/tab-title-from-tmux.
 - skynet-patches.md updated (header count + numbered entry + drift caveat file list).
-- No push, no build, no deploy — all Ashley-gated.
-- Bounty `messages-land-in-box-not-submitting` remains in_progress until Ashley UATs the deployed patch; do NOT flip its status in this task.
+- No push, no build, no deploy — all user-gated.
+- Bounty `messages-land-in-box-not-submitting` remains in_progress until Alice UATs the deployed patch; do NOT flip its status in this task.
 </success_criteria>
 
 <output>
@@ -242,5 +242,5 @@ Create `.planning/quick/260722-ctq-fix-messages-land-in-box-not-submitting-/2607
 - The exact commit SHA of patch #118.
 - A confirming grep of `send-keys` in `src/backend/ssh/terminal.ts` showing the new match count.
 - Confirmation that skynet-patches.md was updated (header + entry + drift caveat).
-- Explicit note that deploy was NOT run (Ashley-gated).
+- Explicit note that deploy was NOT run (user-gated).
 </output>

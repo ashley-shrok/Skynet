@@ -6,7 +6,7 @@
  * 11 tests locking the fetch_older + historyWindow client wiring that no longer
  * exists post-Phase-45 revert).
  *
- * Ashley's UAT 2026-08-18 moved the CAP AUTHORITY from server to client:
+ * Alice's UAT 2026-08-18 moved the CAP AUTHORITY from server to client:
  *   - Server now emits every JSONL line on connect (tail -F -n +1). No
  *     historyWindow handshake param. No fetch_older WS handler.
  *   - Client caps `messages[]` to WORKING_SET_CAP (20) via
@@ -15,7 +15,7 @@
  *     the cap) AND live-tail (post-hydration frames continue to enforce the
  *     same cap so long-lived sessions bound their memory).
  *   - No scroll-back-forever. No fetch_older UX. Older-than-cap messages are
- *     LOST from client memory once dropped. Trade-off accepted per Ashley
+ *     LOST from client memory once dropped. Trade-off accepted per Alice
  *     verbatim: "More bandwidth on cold load but zero observation-channel
  *     damage. This is the honest fix."
  *

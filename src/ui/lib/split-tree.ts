@@ -6,7 +6,7 @@
 // the retired `paneTabIds: (string | null)[]` fixed-grid data model that
 // used to live inside `SplitView.tsx`.
 //
-// LOCKED DECISION — Ashley 2026-08-28: no draggable pane dividers.
+// LOCKED DECISION — Alice 2026-08-28: no draggable pane dividers.
 //   Constant-ratio 50/50 is a rendering choice made downstream. The tree
 //   node carries NO ratio / size / weight / percent field. Every cell holds
 //   the same shape of thing (a session), so a window-manager knob would
@@ -326,7 +326,7 @@ export function collectTabIds(root: SplitNode | null): string[] {
  *  (`~/fleet/roles/box-maintainer/bounties/bring-back-split-view/
  *  prototype.html:362` — `const EDGE = 0.28`). A ~28% inner band per axis
  *  gives roughly a 44% × 44% center dead-zone rectangle (100% - 2×28%),
- *  Ashley-validated live in the reference. NOT exported: the threshold is
+ *  user-validated live in the reference. NOT exported: the threshold is
  *  a locked design decision; if a future phase needs to tune it, they
  *  modify this constant in-place rather than parameterizing callers. */
 const EDGE_ZONE_THRESHOLD = 0.28;
@@ -343,7 +343,7 @@ const EDGE_ZONE_THRESHOLD = 0.28;
  *      the contract.
  *
  *  Ports `pickZone` at `~/fleet/roles/box-maintainer/bounties/
- *  bring-back-split-view/prototype.html:361-370` verbatim (Ashley-validated
+ *  bring-back-split-view/prototype.html:361-370` verbatim (user-validated
  *  live in the reference). Algorithm:
  *    1. Normalize cursor to [0..1] per axis: `zx = (x - left) / width`.
  *    2. Compute four normalized edge-distances (`distTop = zy`, `distBottom

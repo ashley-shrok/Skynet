@@ -1,7 +1,7 @@
 /**
  * Phase 34 plan 01 — server-side "slash <skill-name> <args>" matcher (pure kernel).
  *
- * Voice-first origin: Ashley dictates via Whisper STT and doesn't want to
+ * Voice-first origin: Alice dictates via Whisper STT and doesn't want to
  * reach for the "/" key. This module is the pure kernel that lets her say
  * "slash bounty add a banana button" (or "slash gsd quick fix the bug") and
  * the STT route rewrites the wire payload to "/bounty add a banana button"

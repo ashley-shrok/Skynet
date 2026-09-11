@@ -15,7 +15,7 @@ Extends the message-queue autosave/flush/retry discipline (patches
 now persisted server-side keyed on `(userId, hostId, tmuxSession)` —
 one row per pane, tmuxSession nullable for non-tmux SSH hosts — so
 the compose textarea survives page reload, Chrome crash, tab close,
-and Wi-Fi flap mid-typing. Ashley routinely composes long multi-line
+and Wi-Fi flap mid-typing. Alice routinely composes long multi-line
 messages to Claude Code sessions across many parallel tabs; anything
 that eats a mid-typing state loses real work. The message-queue
 drawer has been battle-tested with the same state machine for months;
@@ -269,6 +269,6 @@ single body per pane instead of an array of items.
 
 This will become **patch #57** in the fork's AGENTS.md numbered-patch
 catalog. Per fork DEPLOY DISCIPLINE the AGENTS.md write-up happens at
-PIN (post-deploy, after Ashley confirms the deploy holds), not at
-commit — Ashley's deploy step is still pending and separate from
+PIN (post-deploy, after Alice confirms the deploy holds), not at
+commit — Alice's deploy step is still pending and separate from
 this commit.

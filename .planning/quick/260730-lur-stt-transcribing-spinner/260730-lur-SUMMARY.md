@@ -30,7 +30,7 @@ requirements: [260730-lur-01]
 
 ## One-liner
 
-Swap ComposeBox send-button icon from static paper-plane to spinning `Loader2` while `voice.state === "transcribing"` so Ashley gets in-button feedback that her Send-transcript tap registered during the 1-3s `/voice/transcribe` round-trip.
+Swap ComposeBox send-button icon from static paper-plane to spinning `Loader2` while `voice.state === "transcribing"` so Alice gets in-button feedback that her Send-transcript tap registered during the 1-3s `/voice/transcribe` round-trip.
 
 ## What Changed
 

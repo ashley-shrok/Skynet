@@ -16,7 +16,7 @@ Phase A (populate disk fleet-wide + adjust id skill) shipped 2026-08-31 by nadia
 - **id skill** updated in `~/vms-apps` master `f33d187` — slim-identity template grew the 5 optional cosmetic fields with a "cosmetic fields live on disk" note. Self-updating; every box picks it up on next `/id <name>`.
 - **3 orphans, all adjudicated:**
   - `alpha`, `beta` — retired from the store 2026-08-31 (they were stale test rows).
-  - `commander-zoey` — folder on ZoeyBattlestation is `commander zoey` (space, not hyphen), violates the id-skill invariant. Ashley greenlit "accept the ugly render post-Phase-B" as a scoped edge case; no rename in this phase, no fallback code.
+  - `commander-zoey` — folder on ZoeyBattlestation is `commander zoey` (space, not hyphen), violates the id-skill invariant. Alice greenlit "accept the ugly render post-Phase-B" as a scoped edge case; no rename in this phase, no fallback code.
 
 Disk is now the fleet standard for identity cosmetics. Phase B is Skynet catching up.
 
@@ -77,7 +77,7 @@ Today the PUT writes `displayName`/`title`/`colorHue`/`voice`/`avatarData`/`avat
 - **Container mutations serialize via the coord room** on the relay (matrix room `!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net`); dormancy sweep before posting (skip post if all peer identities are dormant).
 - **Scoped tests during dev; full-suite green as ship gate** — `npx vitest run --related <changed>` during work; full `npx vitest run` before docker build.
 - **In-memory SQLite gotcha** — any `db.update/insert/delete().run()` needs an accompanying `await DatabaseSaveTrigger.forceSave("<reason>")` in try/catch. Track 2 update code no longer writes to the store for cosmetics (whole point of the phase), but the migration + any surviving `identities`-table updates DO.
-- **Per-push greenlight** — every git push requires a fresh "may I?" from Ashley (deploy-window boundary). Multi-step pre-authorizations authorize the CODE motion only, never the push.
+- **Per-push greenlight** — every git push requires a fresh "may I?" from Alice (deploy-window boundary). Multi-step pre-authorizations authorize the CODE motion only, never the push.
 
 ---
 
@@ -89,7 +89,7 @@ Today the PUT writes `displayName`/`title`/`colorHue`/`voice`/`avatarData`/`avat
 
 3. **Migration ordering with running fleet.** Skynet is deployed as a single container. When Phase B ships, the migration runs at container start, then the new code goes live. Between "old container stops" and "new container ready" there's the normal deploy window. The disk is authoritative before AND after the migration; the migration just drops columns that are no longer referenced. Planner should verify no code path outside this phase reads the dropped columns.
 
-4. **What to do about `commander-zoey` in `GET /identities`.** Ashley greenlit "accept the ugly render." Concretely: the row appears with cosmetics-absent (no displayName override, no title, no colorHue, no voice, no avatar). The client renders whatever it renders for a cosmetics-less identity (likely a placeholder). Planner: verify the client actually tolerates this — if it doesn't, either fix the client OR add a minimal fallback in the endpoint (I lean fix-client if needed; the codebase already tolerates missing bounty/wakeup artifacts, so the pattern should extend).
+4. **What to do about `commander-zoey` in `GET /identities`.** Alice greenlit "accept the ugly render." Concretely: the row appears with cosmetics-absent (no displayName override, no title, no colorHue, no voice, no avatar). The client renders whatever it renders for a cosmetics-less identity (likely a placeholder). Planner: verify the client actually tolerates this — if it doesn't, either fix the client OR add a minimal fallback in the endpoint (I lean fix-client if needed; the codebase already tolerates missing bounty/wakeup artifacts, so the pattern should extend).
 
 ---
 

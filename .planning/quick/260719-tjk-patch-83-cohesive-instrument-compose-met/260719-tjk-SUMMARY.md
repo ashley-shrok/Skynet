@@ -78,7 +78,7 @@ The `/id reset` payload build, `onSend()` call, `setText("")`, `clearAfterSend()
 - No accidental file deletions (`git diff --diff-filter=D HEAD~1 HEAD` empty).
 - `RotateCcw` grep confirms exactly one JSX usage (inside the meter well reset cell at size-3.5), plus the import and one comment reference — the icon-column instance was removed cleanly.
 
-**Deferred to human-verify checkpoint (Task 2, skipped per prompt constraint):** browser eyeball for cohesive-instrument reading, drain animation, hover state, null-contextPct case. Ashley will run this after deploy.
+**Deferred to human-verify checkpoint (Task 2, skipped per prompt constraint):** browser eyeball for cohesive-instrument reading, drain animation, hover state, null-contextPct case. Alice will run this after deploy.
 
 ## Deviations from Plan
 
@@ -110,4 +110,4 @@ None. No new network endpoints, auth paths, file access patterns, or schema chan
 - Commit `a4d38eb` — FOUND in git log
 - `npx tsc --noEmit` — PASSED (exit 0)
 - Only one file modified in the commit — CONFIRMED
-- Task 2 (checkpoint:human-verify) — SKIPPED per prompt constraint (Ashley handles browser verification post-deploy)
+- Task 2 (checkpoint:human-verify) — SKIPPED per prompt constraint (Alice handles browser verification post-deploy)

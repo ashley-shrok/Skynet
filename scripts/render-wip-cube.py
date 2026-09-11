@@ -4,7 +4,7 @@ Render the WipBubble voxel-cube animation as an animated WebP.
 
 Ports the exact math from src/ui/features/pretty-view/WipBubble.tsx.
 Only diff from iter-7: ROT_X_RATE 0.7 -> 0.75, PULSE_RATE 5.5 -> 6.0
-(variant B — Ashley greenlit 2026-09-05). Yields a seamless loop at
+(variant B — Alice greenlit 2026-09-05). Yields a seamless loop at
 T = 2π seconds because all three cycles complete integer revolutions.
 
 Alpha compositing done via per-dot Image.alpha_composite so overlapping

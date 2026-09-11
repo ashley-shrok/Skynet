@@ -17,7 +17,7 @@ design_source_of_truth: ~/.claude/identities/tina/bounties/pretty-view-relay-bub
 > **Design is LOCKED via the prototype at
 > `~/.claude/identities/tina/bounties/pretty-view-relay-bubble-prototype/prototype.html`**
 > (served at http://100.99.149.8:8899/relay-bubble-prototype.html, 6/6 acceptance
-> battery passed with Ashley 2026-07-28). This UI-SPEC summarizes what the prototype
+> battery passed with Alice 2026-07-28). This UI-SPEC summarizes what the prototype
 > pins down and names the byte-shape references — the prototype's CSS/HTML/JS is the
 > port target, not a re-derivation from this spec.
 
@@ -56,7 +56,7 @@ Matrix relay send (see § Detection contract). Right-aligned like a user bubble.
                               ┌─────────────────────────────────┐
                               │ ▸ relay send → !roomAlias:server │
                               │                                 │
-                              │ Hey @ashley, the deploy is green│
+                              │ Hey @alice, the deploy is green│
                               │ across all three phases.        │
                               └─────────────────────────────────┘
                                                        via curl
@@ -167,7 +167,7 @@ that's a plan-level decision, not a UI-spec decision.
 
 ## Scope fences (what this UI-SPEC does NOT touch)
 
-Ashley's 2026-07-23 lock on pretty-view interior applies: the chat surface
+Alice's 2026-07-23 lock on pretty-view interior applies: the chat surface
 itself (`ChatMessage.tsx` user/assistant bubbles, `WipBubble`, `PlanPendingBubble`,
 `IdentityBadge`, `ComposeBox`, chat-column background, session-changeover
 banners) is **structurally done and locked**. Phase 17 ADDS a new bubble
@@ -183,7 +183,7 @@ or scope-creep into any existing bubble type.
 - Any change to `PrettyConversationsPanel` or `PrettyConversationRow` (Phase 10
   visual language stays put).
 - New settings, new preferences, new toggles for relay bubble on/off — the
-  detection is always-on, invisible when nothing matches, per Ashley's
+  detection is always-on, invisible when nothing matches, per Alice's
   no-settings rule.
 
 ---
@@ -221,6 +221,6 @@ radii, alpha values, border widths) even if the *packaging* changes idiom.
 
 ## Ownership + iteration
 
-- **Design lock**: Ashley UAT'd 6/6 in the prototype 2026-07-28. Do not re-litigate the shape.
+- **Design lock**: Alice UAT'd 6/6 in the prototype 2026-07-28. Do not re-litigate the shape.
 - **Bounty of record**: `~/.claude/identities/tina/bounties/pretty-view-relay-bubble-prototype/` — through-line remains open until this phase ships.
-- **Post-ship**: expect one round of "make it look nicer" polish after Ashley sees it in-flow (per prior pretty-view phase patterns — the ugly-but-reliable intermediate state was explicitly greenlit in the prototype bounty premise).
+- **Post-ship**: expect one round of "make it look nicer" polish after Alice sees it in-flow (per prior pretty-view phase patterns — the ugly-but-reliable intermediate state was explicitly greenlit in the prototype bounty premise).

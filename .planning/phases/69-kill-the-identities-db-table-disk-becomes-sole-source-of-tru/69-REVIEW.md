@@ -87,7 +87,7 @@ None.
 - **Effect on the motivating bug:** A disk-only identity on a host that
   has ZERO active tmux identity-sessions will not appear in the list,
   because the frontend never puts that host in identityHosts. The bug
-  Ashley cited *does* close for the common case (identity lives on a box
+  Alice cited *does* close for the common case (identity lives on a box
   that has at least one live identity-session — same box gets enumerated,
   identity is discovered by disk read). Edge case where a whole box has
   no live sessions but has disk-only identities is silently invisible.

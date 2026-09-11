@@ -53,7 +53,7 @@ commits:
 
 # Quick 260803-1xw: PV paste post-send idle-watchdog with retry Enter Summary
 
-Ashley's design shift: fix the pinned bounty
+Alice's design shift: fix the pinned bounty
 `pv-paste-to-terminal-lands-as-unsent-bracket-paste` at the outcome layer
 (detect stuck submit → retry → escalate) rather than continuing to fight Ink's
 paste-detection state machine at the byte layer (patches #100/#111/#118 kept
@@ -175,7 +175,7 @@ choices that were flagged as planner discretion:
 
 - **Locale translations.** `terminal.pasteSendFailed` is only in `en.json`;
   translated locales fall back to English via i18next. Add to translation
-  refresh cycle if/when Ashley wants the copy in her other locales.
+  refresh cycle if/when Alice wants the copy in her other locales.
 - **Deploy queue.** This joins the held queue with patches #267-#286. STOP
   point respected — no push, no `docker build`, no `docker compose up`.
 

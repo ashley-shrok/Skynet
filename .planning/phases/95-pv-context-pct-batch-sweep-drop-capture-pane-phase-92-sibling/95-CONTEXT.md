@@ -2,12 +2,12 @@
 
 **Gathered:** 2026-09-09
 **Status:** Ready for planning
-**Source:** Bounty premise (`~/.claude/roles/box-maintainer/bounties/pv-context-pct-batch-sweep-drop-capture-pane/bounty.json`). Design agreed with Ashley 2026-09-09 in-conversation, immediately after Phase 92 UAT revealed the SFTP file-fetch bug wasn't fully resolved by the fleet-status batch collapse alone.
+**Source:** Bounty premise (`~/.claude/roles/box-maintainer/bounties/pv-context-pct-batch-sweep-drop-capture-pane/bounty.json`). Design agreed with Alice 2026-09-09 in-conversation, immediately after Phase 92 UAT revealed the SFTP file-fetch bug wasn't fully resolved by the fleet-status batch collapse alone.
 
 <domain>
 ## Phase Boundary
 
-Sibling to Phase 92 for the SECOND wasteful-exec pattern hitting the shared Skynet-host SSH connection. Three-part scope (re-scoped 2026-09-09 late — Ashley chose to kill plan mode at the source rather than migrate the plan-pending detector to an FS marker):
+Sibling to Phase 92 for the SECOND wasteful-exec pattern hitting the shared Skynet-host SSH connection. Three-part scope (re-scoped 2026-09-09 late — Alice chose to kill plan mode at the source rather than migrate the plan-pending detector to an FS marker):
 
 **Part A — disable Claude Code plan mode fleet-wide via distributor.** Extend the distributor to patch each managed box's `~/.claude/settings.json` (or equivalent Claude Code settings file — researcher confirms the exact path) to add `ExitPlanModeV2Tool` + `EnterPlanModeV2Tool` (or whatever the exact tool names are — researcher confirms) to `disallowedTools`. Ships alongside the existing per-user hook install pattern in `src/backend/fleet-status/remote-hook-install.ts` or the equivalent settings-patch site. Verified 2026-09-09 fleet-side grep across 5 identities × ~150 total sessions on t1000: **zero actual plan-mode `tool_use` invocations** — plan mode is effectively unused on the fleet. Killing it does not break any existing workflow. Post-Part-A: Claude Code never enters plan mode, `ExitPlanModeV2Tool` never fires, no "plan pending" state ever, capture-pane's plan-pending detection is dead code.
 
@@ -17,7 +17,7 @@ Sibling to Phase 92 for the SECOND wasteful-exec pattern hitting the shared Skyn
    - `parseContextPct` scrape → drop; JSONL is authoritative.
    - `isPlanPending` / `parsePlanFilePath` → drop; plan mode never happens post-Part-A.
 
-Delete alongside: the `{ type: "plan_pending", pending }` WS frame emit path, the plan-content cache, the `fetchPlanFile` SFTP side-channel (`src/backend/ssh/plan-file-fetch.ts`), and the frontend `plan_pending` frame handlers. Ashley 2026-09-09 verbatim on the direction: *"tmux capture-pane shouldn't be in there. get rid of it."* — with the follow-up *"remove the plan capture and adjust whatever gets distributed by the substrate distributor to disallow use of plan mode in the first place."*
+Delete alongside: the `{ type: "plan_pending", pending }` WS frame emit path, the plan-content cache, the `fetchPlanFile` SFTP side-channel (`src/backend/ssh/plan-file-fetch.ts`), and the frontend `plan_pending` frame handlers. Alice 2026-09-09 verbatim on the direction: *"tmux capture-pane shouldn't be in there. get rid of it."* — with the follow-up *"remove the plan capture and adjust whatever gets distributed by the substrate distributor to disallow use of plan mode in the first place."*
 
 **Part C — batch-coalesce the per-identity tail execs into one exec per host per tick.** Same shape as Phase 92: distributor-shipped Python sweep script that walks all open-PV-subscribed identities on the host and emits ONE JSONL blob per identity with `context_pct` (only — no plan-pending after Parts A+B). Caller in `claude-session-server.ts` invokes ONE sweep exec per host per 3s and dispatches parsed results back to per-WebSocket downstream.
 
@@ -27,7 +27,7 @@ Trigger: 2026-09-09 Phase 92 UAT showed the fleet-status batch collapse was 100%
 
 Same disease as pre-Phase-92 fleet-status. Same shape of fix for Part C. Reuses the Phase 92 distributor pattern + presence probe pattern + backward-compat fallback pattern verbatim.
 
-**Related sibling phase (deferred):** Phase 96 (or next available slot) — unify all remaining un-semaphored SSH connections under a fleet-wide semaphore. Phase 95 addresses the specific measured pain (PV context-pct exec pressure); Phase 96 is the concept-level architectural safety net Ashley asked for during Phase 95 discussion. Kept separate: batch REDUCES work (Phase 95), semaphore SERIALIZES work (Phase 96) — different problems, different solutions.
+**Related sibling phase (deferred):** Phase 96 (or next available slot) — unify all remaining un-semaphored SSH connections under a fleet-wide semaphore. Phase 95 addresses the specific measured pain (PV context-pct exec pressure); Phase 96 is the concept-level architectural safety net Alice asked for during Phase 95 discussion. Kept separate: batch REDUCES work (Phase 95), semaphore SERIALIZES work (Phase 96) — different problems, different solutions.
 
 </domain>
 
@@ -143,7 +143,7 @@ Same disease as pre-Phase-92 fleet-status. Same shape of fix for Part C. Reuses 
 - **Reuse Phase 92 test patterns.** `ssh-poll-orchestrator.test.ts` has `MockSshChannel`, `MockRegistry`, `buildDeps`, `makeSessionJson`, etc. that the new tests can mirror.
 - **Plan-pending deletion is safer than migration.** With plan mode disallowed at the source (Part A), there is no downstream state to preserve — every plan-pending code path is dead post-Part-A.
 - **Test discipline** (fleet rule): never leave tests failing. Existing tests must remain green. New regressions must pass before commit.
-- **Deploy is orchestrator-owned** — phase's "done" state is: PR-ready, tests green, UAT checkpoint prepared for Ashley. She owns the ship motion.
+- **Deploy is orchestrator-owned** — phase's "done" state is: PR-ready, tests green, UAT checkpoint prepared for Alice. She owns the ship motion.
 
 </specifics>
 
@@ -159,4 +159,4 @@ Same disease as pre-Phase-92 fleet-status. Same shape of fix for Part C. Reuses 
 ---
 
 *Phase: 95-pv-context-pct-batch-sweep-drop-capture-pane-phase-92-sibling*
-*Context gathered: 2026-09-09 — seeded from bounty premise (design agreed in-conversation with Ashley same day, immediately after Phase 92 UAT revealed the second consumer)*
+*Context gathered: 2026-09-09 — seeded from bounty premise (design agreed in-conversation with Alice same day, immediately after Phase 92 UAT revealed the second consumer)*

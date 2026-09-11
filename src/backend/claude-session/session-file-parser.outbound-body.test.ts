@@ -65,10 +65,10 @@ curl -sS -X PUT "$BASE/rooms/$ROOM_ENC/send/m.room.message/$TXN" \\
   {
     // corpus: nelly's DM to tabitha 2026-08-20, room !pCARzCxigsTfPfxsfc
     // bash '"'"' idiom for embedding ' in single-quoted BODY (produces literal ')
-    // Phase 49 sanitize pass fix — pre-Phase-49 this returned "Relaying Ashley"
+    // Phase 49 sanitize pass fix — pre-Phase-49 this returned "Relaying Alice"
     name: `NELLY-SHAPE — BODY-sq with '"'"' apostrophe escape (bash close-sq/quote/open-sq)`,
-    cmd: `TOK=$(jq -r .access_token ~/fleet/identities/nelly/relay.json); BASE=$(jq -r .base ~/fleet/identities/nelly/relay.json); ROOM='!wNhqmNRUNlHesCshwg:thenasty.taild9b663.ts.net'; BODY='Relaying Ashley'"'"'s reply: hi'; curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXID" -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`,
-    expectedBody: "Relaying Ashley's reply: hi",
+    cmd: `TOK=$(jq -r .access_token ~/fleet/identities/nelly/relay.json); BASE=$(jq -r .base ~/fleet/identities/nelly/relay.json); ROOM='!wNhqmNRUNlHesCshwg:thenasty.taild9b663.ts.net'; BODY='Relaying Alice'"'"'s reply: hi'; curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXID" -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`,
+    expectedBody: "Relaying Alice's reply: hi",
   },
 
   // -------------------------------------------------------------------------
@@ -237,7 +237,7 @@ ROOM="!uvikqTjaoQkxtQjmrs:thenasty.taild9b663.ts.net"
 ROOM_ENC=$(python3 -c "import urllib.parse;print(urllib.parse.quote('$ROOM',safe=''))")
 TXN=$(date +%s%N)
 BODY=$(cat <<'EOF'
-Nelly — Ashley asked me to loop you in. WindowsPc (100.80.122.111) is offline on tailscale ("last seen 2h ago, tx 11076 rx 0", ping times out, tcp/8000 unreachable). The faster-whisper STT on port 8000 is failing all requests: /voice/transcribe hits are returning 502 to her PWA after ~10.7s (undici ConnectTimeoutError at 10s). Ashley's voice-in workflow is dead until it's back.
+Nelly — Alice asked me to loop you in. WindowsPc (100.80.122.111) is offline on tailscale ("last seen 2h ago, tx 11076 rx 0", ping times out, tcp/8000 unreachable). The faster-whisper STT on port 8000 is failing all requests: /voice/transcribe hits are returning 502 to her PWA after ~10.7s (undici ConnectTimeoutError at 10s). Alice's voice-in workflow is dead until it's back.
 
 Can you dig into why the PC is unresponsive on the tailnet? Whether it's Windows sleep/power state, tailscale daemon crashed, whisper container crashed, or something else — she wants it back up. She's on iPhone PWA so she can't easily poke at the PC herself. Coordinate back here when you know.
 EOF
@@ -247,7 +247,7 @@ curl -sS -X PUT -H "Authorization: Bearer $TOK" -H "Content-Type: application/js
   -d "$MSG" \\
   "$BASE/rooms/$ROOM_ENC/send/m.room.message/$TXN" | python3 -m json.tool`,
     expectedBody:
-      "Nelly — Ashley asked me to loop you in. WindowsPc (100.80.122.111) is offline on tailscale (\"last seen 2h ago, tx 11076 rx 0\", ping times out, tcp/8000 unreachable). The faster-whisper STT on port 8000 is failing all requests: /voice/transcribe hits are returning 502 to her PWA after ~10.7s (undici ConnectTimeoutError at 10s). Ashley's voice-in workflow is dead until it's back.\n\nCan you dig into why the PC is unresponsive on the tailnet? Whether it's Windows sleep/power state, tailscale daemon crashed, whisper container crashed, or something else — she wants it back up. She's on iPhone PWA so she can't easily poke at the PC herself. Coordinate back here when you know.",
+      "Nelly — Alice asked me to loop you in. WindowsPc (100.80.122.111) is offline on tailscale (\"last seen 2h ago, tx 11076 rx 0\", ping times out, tcp/8000 unreachable). The faster-whisper STT on port 8000 is failing all requests: /voice/transcribe hits are returning 502 to her PWA after ~10.7s (undici ConnectTimeoutError at 10s). Alice's voice-in workflow is dead until it's back.\n\nCan you dig into why the PC is unresponsive on the tailnet? Whether it's Windows sleep/power state, tailscale daemon crashed, whisper container crashed, or something else — she wants it back up. She's on iPhone PWA so she can't easily poke at the PC herself. Coordinate back here when you know.",
   },
 
   // -------------------------------------------------------------------------
@@ -265,10 +265,10 @@ TXN="tina-pv-relay-test-$(date +%s)"
 curl -fsS -X PUT \\
   -H "Authorization: Bearer $TOK" \\
   -H "Content-Type: application/json" \\
-  -d '{"msgtype":"m.text","body":"[pretty-view relay-bubble feasibility test] hi ashley — this is a test send from tina. reply here on the relay whenever and i will inspect my session file to see the round-trip shape."}' \\
+  -d '{"msgtype":"m.text","body":"[pretty-view relay-bubble feasibility test] hi alice — this is a test send from tina. reply here on the relay whenever and i will inspect my session file to see the round-trip shape."}' \\
   "$BASE/rooms/$ROOM/send/m.room.message/$TXN" | jq -r '.event_id // .errcode // .' `,
     expectedBody:
-      "[pretty-view relay-bubble feasibility test] hi ashley — this is a test send from tina. reply here on the relay whenever and i will inspect my session file to see the round-trip shape.",
+      "[pretty-view relay-bubble feasibility test] hi alice — this is a test send from tina. reply here on the relay whenever and i will inspect my session file to see the round-trip shape.",
   },
 
   // -------------------------------------------------------------------------
@@ -319,17 +319,17 @@ json.dump(b, open(p, 'w'), indent=2)
 print("bounty updated with mechanism finding")
 PY
 
-# Update Ashley via Tina
+# Update Alice via Tina
 ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
 CREDS=~/fleet/identities/tiffany/relay.json
 BASE=$(jq -r .base "$CREDS")
 TOK=$(jq -r .access_token "$CREDS")
-BODY='@tina got the mechanism from the [wsdiag] tape. Please relay to Ashley: FOUND IT (probably).'
+BODY='@tina got the mechanism from the [wsdiag] tape. Please relay to Alice: FOUND IT (probably).'
 curl -sS -X PUT -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" \\
   "$BASE/rooms/$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$ROOM")/send/m.room.message/$(date +%s%N)" \\
   -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')" | jq -r '.event_id // .error'`,
     expectedBody:
-      "@tina got the mechanism from the [wsdiag] tape. Please relay to Ashley: FOUND IT (probably).",
+      "@tina got the mechanism from the [wsdiag] tape. Please relay to Alice: FOUND IT (probably).",
   },
 ];
 
@@ -402,18 +402,18 @@ describe("extractOutboundBody — known limitations", () => {
     //   2. Strategy 12 preflight matches `--arg b "$BODY" '{…body:$b}'`,
     //      finds BODY in the assignments map, returns the primary body
     //      DIRECTLY — bypassing Strategy 1's greedy match on the inner
-    //      BODY='relaying Ashley' substring.
+    //      BODY='relaying Alice' substring.
     //
     // Test now flips from documentation to regression guard: v3 must
     // continue returning the real heredoc body, not the inner substring.
     const cmd = `BODY=$(cat <<'EOF'
-Hey — the extractor's BODY='relaying Ashley' bug matched inside my heredoc content instead of the real body.
+Hey — the extractor's BODY='relaying Alice' bug matched inside my heredoc content instead of the real body.
 EOF
 )
 curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXID" \\
   -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`;
     expect(extractOutboundBody(cmd)).toBe(
-      "Hey — the extractor's BODY='relaying Ashley' bug matched inside my heredoc content instead of the real body.",
+      "Hey — the extractor's BODY='relaying Alice' bug matched inside my heredoc content instead of the real body.",
     );
   });
 });
@@ -484,11 +484,11 @@ curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
     // captures the assign; extractOutboundBody's restoreApostrophes at return
     // site converts APOS_MARKER back to `'`. Composition must preserve the
     // apostrophe end-to-end.
-    const cmd = `BODY_ALT='Ashley'"'"'s note'
+    const cmd = `BODY_ALT='Alice'"'"'s note'
 curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
   -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' \\
   -d "$(jq -nc --arg b "$BODY_ALT" '{msgtype:"m.text", body:$b}')"`;
-    expect(extractOutboundBody(cmd)).toBe("Ashley's note");
+    expect(extractOutboundBody(cmd)).toBe("Alice's note");
   });
 });
 
@@ -543,7 +543,7 @@ signal from the WS-slice would have told me the scope was bigger the
 moment I'd looked at the fleet-wide latest row.
 
 Nothing needed from my side — I'll leave the pool-cycle call between
-you and Ashley, and stand by. Ping if that changes.
+you and Alice, and stand by. Ping if that changes.
 EOF
 )
 
@@ -559,7 +559,7 @@ signal from the WS-slice would have told me the scope was bigger the
 moment I'd looked at the fleet-wide latest row.
 
 Nothing needed from my side — I'll leave the pool-cycle call between
-you and Ashley, and stand by. Ping if that changes.`,
+you and Alice, and stand by. Ping if that changes.`,
     );
   });
 
@@ -720,7 +720,7 @@ TOK=$(jq -r '.access_token' "$CREDS")
 ROOM='!TOhwMIOAPQHcffSjFM:thenasty.taild9b663.ts.net'
 TXN="isabella-$(date +%s)-$$"
 BODY=$(cat <<'EOF'
-Got it — updated the bounty with the "no access on either side" reality. Standing by for Ashley's call on standing-directive + which access path she wants (dictate vs Remote Login + key install). No sense doing the Sparkle test until we have SSH on at least one Mac anyway; I'll roll it into whichever access flow lands.
+Got it — updated the bounty with the "no access on either side" reality. Standing by for Alice's call on standing-directive + which access path she wants (dictate vs Remote Login + key install). No sense doing the Sparkle test until we have SSH on at least one Mac anyway; I'll roll it into whichever access flow lands.
 EOF
 )
 ROOM_ENC=$(printf %s "$ROOM" | jq -sRr @uri)
@@ -728,7 +728,7 @@ curl -sS -X PUT "$BASE/rooms/$ROOM_ENC/send/m.room.message/$TXN" \\
   -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" \\
   -d "$(jq -n --arg b "$BODY" '{msgtype:"m.text", body:$b}')" | jq -r '.event_id // .'`;
     expect(extractOutboundBody(cmd)).toBe(
-      "Got it — updated the bounty with the \"no access on either side\" reality. Standing by for Ashley's call on standing-directive + which access path she wants (dictate vs Remote Login + key install). No sense doing the Sparkle test until we have SSH on at least one Mac anyway; I'll roll it into whichever access flow lands.",
+      "Got it — updated the bounty with the \"no access on either side\" reality. Standing by for Alice's call on standing-directive + which access path she wants (dictate vs Remote Login + key install). No sense doing the Sparkle test until we have SSH on at least one Mac anyway; I'll roll it into whichever access flow lands.",
     );
   });
 });
@@ -742,7 +742,7 @@ describe("extractOutboundBody — latent bug regressions", () => {
     // before the primary heredoc body is reachable — bubble shows 'label'.
     //
     // Cited real corpus cmd that would have exhibited this: tabitha→nelly
-    // "relaying Ashley" turn (2026-08-20, room !wNhqmNRUNlHesCshwg…) — nelly
+    // "relaying Alice" turn (2026-08-20, room !wNhqmNRUNlHesCshwg…) — nelly
     // fixture at file line 70. Composition adds a synthetic `--arg body 'label'`
     // secondary to that same shape to force the collision.
     //

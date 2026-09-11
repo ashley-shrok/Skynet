@@ -29,7 +29,7 @@ requirements_satisfied:
 
 **One-liner:** Constrained the session-recycle scrim to the chat-region wrapper so
 ComposeBox stays uncovered and typeable while every WS-side-effecting compose control
-is gated off by a new `recycleActive` prop — Ashley can now pre-draft the next
+is gated off by a new `recycleActive` prop — Alice can now pre-draft the next
 message during the 2-15s recycle window and the autosave path preserves it.
 
 ## What Changed
@@ -53,7 +53,7 @@ bubble/tasks/shells" treatment applies identically to the recycle scrim.
   line moved from just-after IdentityBadge (data-pv-root level) to be the
   first child of the chat-region wrapper. The mount-site comment rewritten
   to describe the chat-region anchor + the "leaves ComposeBox uncovered so
-  Ashley can pre-draft during recycle" rationale.
+  Alice can pre-draft during recycle" rationale.
 
 ### ComposeBox recycleActive prop (ComposeBox.tsx)
 
@@ -76,7 +76,7 @@ Wired into every WS-side-effecting control:
 | Enter-key send (handleKeyDown)  | `if (queuedText !== null) return`            | + `if (recycleActive) return`                 |
 
 **Textarea `disabled` gate untouched** — stays typeable during recycle so
-Ashley can pre-draft the next message. The autosave path (patches #57 / #119)
+Alice can pre-draft the next message. The autosave path (patches #57 / #119)
 persists the draft on every keystroke and hydrates it on the fresh session
 mount, so the draft survives the transition by the existing mechanism.
 

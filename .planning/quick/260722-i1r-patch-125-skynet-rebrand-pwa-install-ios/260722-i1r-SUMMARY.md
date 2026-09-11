@@ -3,7 +3,7 @@ phase: quick-260722-i1r
 plan: 01
 subsystem: pwa-rebrand
 tags: [pwa, rebrand, ios, skynet, patch-125, safe-area, zoom-lock, nginx]
-requires: [Ashley pre-generated icon PNGs, patch #123 branch state]
+requires: [Alice pre-generated icon PNGs, patch #123 branch state]
 provides: [PWA install experience on iOS Safari, Skynet user-visible branding]
 affects: [browser tab title, iOS home-screen shortcut, install prompt, in-UI copy, safe-area padding, zoom behavior]
 tech_stack_added: [manifest.webmanifest with application/manifest+json MIME, env(safe-area-inset-*) CSS, overscroll-behavior: none]
@@ -26,7 +26,7 @@ metrics:
 
 # Quick Task 260722-i1r: Patch #125 — Skynet Rebrand + PWA Install (iOS) + Zoom Lock Summary
 
-One-liner: Six-workstream PWA install polish for Ashley's iPhone — Skynet rebrand at head+manifest+in-UI, iOS standalone/notch-safe/zoom-locked install experience, symmetric nginx configs on both HTTP+HTTPS, safe-area CSS, all shipped as one commit awaiting Tina's batch deploy with #118–#124.
+One-liner: Six-workstream PWA install polish for Alice's iPhone — Skynet rebrand at head+manifest+in-UI, iOS standalone/notch-safe/zoom-locked install experience, symmetric nginx configs on both HTTP+HTTPS, safe-area CSS, all shipped as one commit awaiting Tina's batch deploy with #118–#124.
 
 ## Commit
 
@@ -40,7 +40,7 @@ One-liner: Six-workstream PWA install polish for Ashley's iPhone — Skynet rebr
 ### 1. index.html head rewrite (11 changes)
 
 - viewport zoom-lock (`maximum-scale=1, user-scalable=no, viewport-fit=cover`)
-- theme-color `#09090b` → `#080808` (Skynet-locked per Ashley's shape)
+- theme-color `#09090b` → `#080808` (Skynet-locked per Alice's shape)
 - added `mobile-web-app-capable` metadata (modern-spec companion)
 - retained `apple-mobile-web-app-capable="yes"` + `apple-mobile-web-app-status-bar-style="black-translucent"`
 - `apple-mobile-web-app-title` "Skynet" → "Skynet"
@@ -53,7 +53,7 @@ One-liner: Six-workstream PWA install polish for Ashley's iPhone — Skynet rebr
 
 ### 2. public/manifest.webmanifest added (new file, +14 lines)
 
-Byte-for-byte match with Ashley's spec:
+Byte-for-byte match with Alice's spec:
 ```json
 {
   "name": "Skynet",
@@ -140,7 +140,7 @@ These are internal identifiers or theme registry keys where renaming would silen
 | `src/ui/lib/terminal-themes.ts:32` | `name: "Skynet Default"` | Terminal theme registry display-name — **added to SKIP list mid-execution** (not in original pre_flight_findings; same rationale as HostEditorData theme keys — rename would silently migrate user's saved terminal-theme config key `skynet:` and break restored panes) |
 | `src/ui/dashboard/Dashboard.tsx:697,709` | `https://github.com/Skynet-SSH/…` | Upstream GitHub URLs — must reference upstream project |
 | `src/ui/lib/tab-url.ts:2,170`, `src/ui/NewSessionHostChips.tsx:16`, `src/ui/features/pretty-view/ChatMessage.tsx:27,31` | fork-history code comments | Rebase-anchor documentation |
-| `src/ui/locales/translated/*.json` (34 files) | crowdin-generated translations | Out-of-band from Ashley's English UI; crowdin regenerates post-rebase |
+| `src/ui/locales/translated/*.json` (34 files) | crowdin-generated translations | Out-of-band from Alice's English UI; crowdin regenerates post-rebase |
 
 `window.__SKYNET_BASE_PATH__` (index.html:51) — internal identifier, patch #10-era plumbing.
 
@@ -195,11 +195,11 @@ Otherwise: **plan executed exactly as written.** All 7 tasks complete, no auth g
 - No `docker build`
 - No deploy
 
-The batch (patches #118 through #125) sits behind the mandatory 15-min deadman-rollback window per fork DEPLOY DISCIPLINE. Ashley-gated release.
+The batch (patches #118 through #125) sits behind the mandatory 15-min deadman-rollback window per fork DEPLOY DISCIPLINE. user-gated release.
 
 ## Follow-up bookkeeping
 
-**skynet-patches.md entry (draft for Ashley's fork patch catalog):**
+**skynet-patches.md entry (draft for Alice's fork patch catalog):**
 
 ```markdown
 ### #125 — Skynet rebrand + PWA install (iOS) + zoom lock
@@ -209,7 +209,7 @@ The batch (patches #118 through #125) sits behind the mandatory 15-min deadman-r
 **Commit:** f5019ea
 **Branch:** feat/tab-title-from-tmux
 
-Six-work-stream PWA install polish for the Ashley-iPhone Add-to-Home-Screen moment:
+Six-work-stream PWA install polish for the user-iPhone Add-to-Home-Screen moment:
 
 1. **index.html head rewrite** — viewport zoom-lock (`maximum-scale=1, user-scalable=no, viewport-fit=cover`), theme-color `#080808` (Skynet-locked), added `mobile-web-app-capable`, `apple-mobile-web-app-title` "Skynet", 5 apple-touch-icon <link>s (180/152/120/76/60), 2 favicon <link>s (32/16 PNG), `<link rel="manifest">` → `/manifest.webmanifest`, `<title>` "Skynet"; inline scrollbar <style> and `window.__SKYNET_BASE_PATH__` internal id preserved.
 2. **public/manifest.webmanifest** (new) — name/short_name Skynet, standalone, portrait-primary, `#080808` colors, 192+512 icons.
@@ -218,7 +218,7 @@ Six-work-stream PWA install polish for the Ashley-iPhone Add-to-Home-Screen mome
 5. **Safe-area CSS + AppShell outer padding** — `body { overscroll-behavior: none; }` + `.safe-top` utility beside `.safe-bottom` in index.css; outer `<div className="flex w-screen bg-background">` extended with `paddingTop/paddingBottom: max(env(safe-area-inset-*), 0px)` inline (browser-tab mode unaffected, standalone-with-notch gets padding).
 6. **13 user-visible Skynet → Skynet renames** — 5 TSX/TS (AppShell.tsx document.title fallback, main-axios.ts server-error toast, AdminIdentitiesSection.tsx placeholder, HostEditorGuacamoleTabs.tsx two placeholders) + 8 en.json string values (source locale; translated/*.json crowdin-managed and left alone). Internal identifiers (`clearSkynetSessionStorage`, `skynet:*` events, `Skynet-Mobile` UA, `SkynetAlert`, `resolveSkynetThemeColors`, `"Skynet Dark/Light/Default"` theme registry keys, `github.com/Skynet-SSH/*` upstream URLs, fork-history code comments, `window.__SKYNET_BASE_PATH__`, package.json name field) all preserved for rebase-ability.
 
-**Ashley's iPhone use case:** Tap "Add to Home Screen" on term.example.com → launches as standalone app (no Safari chrome), Skynet whole-mesh-energized network graph icon, notch-safe padding, no pinch-zoom + no tap-into-input auto-zoom, "Skynet" everywhere she looks in the UI.
+**Alice's iPhone use case:** Tap "Add to Home Screen" on term.example.com → launches as standalone app (no Safari chrome), Skynet whole-mesh-energized network graph icon, notch-safe padding, no pinch-zoom + no tap-into-input auto-zoom, "Skynet" everywhere she looks in the UI.
 
 **tsc:** clean at edited lines (no new errors introduced; pre-existing type-debt at nearby lines is unrelated).
 **vitest:** 473/477 passing, 4 pre-existing ComposeBox failures (patch #121 Send-button residual + patch #124 "yes"→"let's go" ThumbsUp rename residual); STATE.md's "3-failure baseline" was one patch stale.

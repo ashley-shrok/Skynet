@@ -69,7 +69,7 @@ export interface MigrationResult {
 
 /**
  * Migrates existing substrate-host credentials from per-user-DEK-only to
- * CSKEK-wrapped. Should be run once by the operator (Ashley) after Phase 75
+ * CSKEK-wrapped. Should be run once by the operator (Alice) after Phase 75
  * ships, on each live instance.
  *
  * Input: array of {userId, password} for each owner of substrate hosts.

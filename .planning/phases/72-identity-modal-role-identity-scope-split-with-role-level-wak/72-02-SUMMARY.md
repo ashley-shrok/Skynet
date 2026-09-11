@@ -243,7 +243,7 @@ No existing tests regressed. No nginx / docker-compose / deploy surface touched.
 
 **IdentityModal L1905 WakeupsTab call site — stub `scope="identity"` + no-op async onCreate/onDelete.** This is INTENTIONAL and gated by the plan's Blocker #3 fix. Wave 3 (Plan 03 Task 2a) replaces the whole JSX block with real WS wiring (splits into `<TabsContent value="identity-wakeups">` + `<TabsContent value="role-wakeups">` panes, each with real create/delete callbacks). The TODO Wave 3 comment above the call site is the marker; grep for `TODO Wave 3: replace stubs with real wiring` finds it.
 
-Behavior consequence during the pre-Wave-3 interim: if Ashley opens the modal, clicks Add-wakeup, fills the form, and clicks Save, the dialog closes but nothing is written to disk (no-op onCreate). Same for delete-confirm (no-op onDelete). This is the trade-off the plan explicitly chose over @ts-expect-error to keep TypeScript clean.
+Behavior consequence during the pre-Wave-3 interim: if Alice opens the modal, clicks Add-wakeup, fills the form, and clicks Save, the dialog closes but nothing is written to disk (no-op onCreate). Same for delete-confirm (no-op onDelete). This is the trade-off the plan explicitly chose over @ts-expect-error to keep TypeScript clean.
 
 ## Self-Check: PASSED
 

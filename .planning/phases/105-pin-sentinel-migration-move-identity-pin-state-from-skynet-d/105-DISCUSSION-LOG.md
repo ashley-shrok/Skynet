@@ -7,7 +7,7 @@
 **Phase:** 92-pin-sentinel-migration
 **Areas discussed:** Read path, Wire mechanism, Write philosophy (sync vs. async), UI feel + failure UX, DB table disposition, Migration approach, Sentinel contents
 
-**Discuss mode:** Seed-from-shape (per build-skill convention). The /open pass on 2026-09-09 with Ashley grilled every gray area; discuss-phase used the resulting shape file (`.planning/shapes/shape-pin-sentinel-migration.md`) as the authoritative source rather than re-eliciting. Below is the audit reconstruction of the grill exchanges that landed the decisions in CONTEXT.md.
+**Discuss mode:** Seed-from-shape (per build-skill convention). The /open pass on 2026-09-09 with Alice grilled every gray area; discuss-phase used the resulting shape file (`.planning/shapes/shape-pin-sentinel-migration.md`) as the authoritative source rather than re-eliciting. Below is the audit reconstruction of the grill exchanges that landed the decisions in CONTEXT.md.
 
 ---
 
@@ -19,7 +19,7 @@
 | DB mirror cache | Disk stays source of truth; DB still holds pin-state boolean per identity, refreshed from disk during periodic per-host identity scan; row-render reads from mirror | |
 
 **User's choice:** Direct disk-read.
-**Notes:** Ashley thumbs-up on the argument that Phase 69 killed the DB identities table and Phase 80/86 established the disk-read-at-request-time pattern; mirror cache would reintroduce the two-sources-of-truth risk the whole move is designed to eliminate.
+**Notes:** Alice thumbs-up on the argument that Phase 69 killed the DB identities table and Phase 80/86 established the disk-read-at-request-time pattern; mirror cache would reintroduce the two-sources-of-truth risk the whole move is designed to eliminate.
 
 ---
 
@@ -33,7 +33,7 @@
 | Substrate distributor sweep | Use the periodic distributor mechanism to sync pin sentinels | |
 
 **User's choice:** Generalize the identity-birth wire.
-**Notes:** Ashley: *"Okay, then we can use it then."* Rejected alternatives: new parallel wire (duplicates auth + lifecycle + error handling), terminal channel (stateful, wrong use case), distributor sweep (scheduled sweeps ≠ transactional one-shots).
+**Notes:** Alice: *"Okay, then we can use it then."* Rejected alternatives: new parallel wire (duplicates auth + lifecycle + error handling), terminal channel (stateful, wrong use case), distributor sweep (scheduled sweeps ≠ transactional one-shots).
 
 ---
 
@@ -45,7 +45,7 @@
 | Eventually consistent | UI accepts pin action immediately, backend queues write, retries in background until it lands; UI shows "pending" state | |
 
 **User's choice:** Synchronous.
-**Notes:** Ashley verbatim: *"Yeah, synchronous. Keep it simple."* Rejected alternative would reintroduce the drift risk the shape's "what would make it wrong" explicitly closes.
+**Notes:** Alice verbatim: *"Yeah, synchronous. Keep it simple."* Rejected alternative would reintroduce the drift risk the shape's "what would make it wrong" explicitly closes.
 
 ---
 
@@ -58,7 +58,7 @@
 | Wait-then-flip with pending indicator | Spinner during wire round-trip, flips when write lands | |
 
 **User's choice:** Unchanged.
-**Notes:** Ashley verbatim: *"This isn't changing, so however it feels now is how it's going to feel after this."* This is a plumbing move, not a UX pass.
+**Notes:** Alice verbatim: *"This isn't changing, so however it feels now is how it's going to feel after this."* This is a plumbing move, not a UX pass.
 
 ---
 
@@ -70,7 +70,7 @@
 | Bespoke pin-failure treatment | Inline "couldn't reach host" note next to the row, or a dedicated toast | |
 
 **User's choice:** Reuse existing.
-**Notes:** Ashley verbatim: *"We are not complicating this, so however it would have failed already is how it will fail today, even if it's more likely now than before."*
+**Notes:** Alice verbatim: *"We are not complicating this, so however it would have failed already is how it will fail today, even if it's more likely now than before."*
 
 ---
 
@@ -82,7 +82,7 @@
 | Leave dormant | Code stops reading/writing but column stays as inert bytes | |
 
 **User's choice:** Drop.
-**Notes:** Ashley verbatim: *"Drop it."* Dormant table invites future accidental re-consultation; matches the "no shadow source of truth" invariant.
+**Notes:** Alice verbatim: *"Drop it."* Dormant table invites future accidental re-consultation; matches the "no shadow source of truth" invariant.
 
 ---
 
@@ -95,7 +95,7 @@
 | Periodic reconciliation loop | Identity-refresh scan writes missing sentinels on each cycle until all migrated | |
 
 **User's choice:** Manual per-box.
-**Notes:** Ashley verbatim: *"we're not doing anything fancy for migration if that's what your second thing that you were talking about is in reference to, you know, Skynet is not doing any migrating. That's such an easy step for you to just do manually that we're not going to get into extra pieces for that."* Manual sequencing keeps the pin-visible window closed (touch before deploy; new code finds sentinels already in place).
+**Notes:** Alice verbatim: *"we're not doing anything fancy for migration if that's what your second thing that you were talking about is in reference to, you know, Skynet is not doing any migrating. That's such an easy step for you to just do manually that we're not going to get into extra pieces for that."* Manual sequencing keeps the pin-visible window closed (touch before deploy; new code finds sentinels already in place).
 
 ---
 
@@ -107,7 +107,7 @@
 | Body encodes metadata | Pinned-at timestamp, admin identifier, priority order, etc. | |
 
 **User's choice:** Presence-only.
-**Notes:** Ashley thumbs-up on the argument that any encoded metadata reopens the drift question (two things to keep in sync per identity — file existence and its contents); any metadata that becomes desired later belongs elsewhere if it belongs anywhere.
+**Notes:** Alice thumbs-up on the argument that any encoded metadata reopens the drift question (two things to keep in sync per identity — file existence and its contents); any metadata that becomes desired later belongs elsewhere if it belongs anywhere.
 
 ---
 

@@ -1,4 +1,4 @@
-# Shape: middle-list recency, sourced from Ashley's own sends
+# Shape: middle-list recency, sourced from Alice's own sends
 
 **Opened:** 2026-09-06
 **Vehicle:** GSD phase
@@ -10,21 +10,21 @@ to." Today it answers that by reverse-engineering the answer from each
 identity's transcript on its home box, and the reverse-engineering fails often
 enough that the middle is noticeably wrong — recently-worked identities sink
 below identities that haven't been touched in weeks. This change inverts the
-approach: instead of guessing when Ashley last talked to an identity from
+approach: instead of guessing when Alice last talked to an identity from
 downstream evidence, Skynet itself records the moment whenever she sends
 something to that identity from Skynet's compose surface, and uses that stamp
 to rank the middle.
 
 ## Shape
 
-- **Skynet keeps its own record of "when did Ashley last send to this
+- **Skynet keeps its own record of "when did Alice last send to this
   identity."** The record is stored inside Skynet's own durable state so it
-  survives container restarts and every device Ashley uses (phone and
+  survives container restarts and every device Alice uses (phone and
   desktop both read from the same source of truth).
 
 - **The record is keyed on identity name.** Not on any plumbing underneath —
   not the host the identity happens to live on, not the session mechanism
-  that carries the message. Ashley cares about the identity; the key is the
+  that carries the message. Alice cares about the identity; the key is the
   identity.
 
 - **Anything sent from the compose surface counts, universally.** Every path
@@ -34,7 +34,7 @@ to rank the middle.
   rule is architectural, not a per-button allowlist. If it goes through the
   compose surface, it counts.
 
-- **Attempts count. Delivery is not required.** If Ashley hits send and the
+- **Attempts count. Delivery is not required.** If Alice hits send and the
   send actually fails because the target is unreachable, the stamp still
   fires — her intent to talk to that identity is the recency signal.
 
@@ -49,7 +49,7 @@ to rank the middle.
   It simply stops being the source of the recency ranking.
 
 - **No starting-point seeding on first ship.** When the change lands, the
-  record is empty. Identities Ashley has talked to before all start at
+  record is empty. Identities Alice has talked to before all start at
   "never" and naturally rise as she sends to them. The natural fill happens
   fast enough that no migration step is warranted.
 
@@ -60,11 +60,11 @@ to rank the middle.
 ## Philosophy
 
 The current mechanism is elaborate machinery whose central premise is "we
-don't have a first-class signal for 'Ashley talked to this agent' so we
+don't have a first-class signal for 'Alice talked to this agent' so we
 reverse-engineer it from the transcript." The transcript-based approach then
 needs a strict predicate to filter out noise (assistant activity, incoming
 relay messages, wake fires, tool results, skill injections), and every
-tightening of that predicate excludes more of the ways Ashley's real
+tightening of that predicate excludes more of the ways Alice's real
 interaction reaches an identity. The result is a fragile filter that
 increasingly says "she never talked to this identity" for interactions that
 were, in fact, her talking to that identity — just not by typing into
@@ -72,20 +72,20 @@ that identity's compose box directly.
 
 The right inversion is to record the fact at the moment it's known for
 certain, in the place where it's known for certain, rather than trying to
-recover it downstream. When Ashley presses send in Skynet, Skynet knows.
+recover it downstream. When Alice presses send in Skynet, Skynet knows.
 Record it there.
 
 This is deliberately keying on the identity — not on the transport or the
 session or the host — because the identity is the durable, meaningful thing.
-Sessions recycle, boxes reboot, transports change; the identity Ashley is
+Sessions recycle, boxes reboot, transports change; the identity Alice is
 talking to persists across all of them.
 
 What this is deliberately NOT doing:
 
 - Not trying to count message activity the identity generates (assistant
-  replies, tool output, self-chat). The signal is one-directional: Ashley
+  replies, tool output, self-chat). The signal is one-directional: Alice
   saying something to the identity, not the identity being busy.
-- Not trying to capture Ashley's phone Matrix DMs that bypass Skynet's
+- Not trying to capture Alice's phone Matrix DMs that bypass Skynet's
   compose surface. The old mechanism also didn't count those. Adding that
   path is a different piece of work.
 - Not changing the wire shape or the frontend contracts. The consumers of
@@ -102,18 +102,18 @@ What this is deliberately NOT doing:
   middle zone's ranking source.
 - The current source of the recency number is a remote scan of each
   identity's transcript on its home box — the newest transcript file only,
-  scanned for lines that pass a strict "Ashley's real user turn" filter
+  scanned for lines that pass a strict "Alice's real user turn" filter
   (locked 2026-08-23). Every time an identity recycles itself (which the
   most active ones do most often because the context-safety valve trips on
   heavy work), a fresh transcript begins with no such lines, and the
-  identity sinks to the null-to-bottom zone until Ashley types into that
+  identity sinks to the null-to-bottom zone until Alice types into that
   new transcript. Concrete case: an identity that stood up a VM yesterday,
-  recycled overnight, sits below identities Ashley hasn't touched in
+  recycled overnight, sits below identities Alice hasn't touched in
   weeks.
 - Additional loss mode: interactions routed through a coordinator, arriving
   over the fleet relay, or fired by a scheduled wake all reach the
   transcript wrapped in a shape the filter deliberately excludes. Those
-  interactions are real — Ashley is orchestrating that identity's work —
+  interactions are real — Alice is orchestrating that identity's work —
   but the recency source ignores them.
 - The frontend has a preserving cache that protects against the backend
   publishing a null after a recycle. It survives within a single browser
@@ -131,7 +131,7 @@ What this is deliberately NOT doing:
   compose surface stamps the record. A specific button being missed is a
   regression to the enumerated-allowlist trap.
 - **If the ranking waits for a backend round-trip before it visibly
-  reorders.** When Ashley hits send, she should see the row jump. Waiting
+  reorders.** When Alice hits send, she should see the row jump. Waiting
   for the next status frame before the list moves is a papercut that
   undoes the point.
 - **If the stamp is keyed on anything other than the identity name.**
@@ -141,7 +141,7 @@ What this is deliberately NOT doing:
   it lives in durable state is so a restart doesn't wipe recency; if the
   store is in-memory-only, every restart returns the middle to the same
   "everyone at null" state and the sort collapses to fallback ordering.
-- **If Ashley's two devices show different orderings.** Phone and desktop
+- **If Alice's two devices show different orderings.** Phone and desktop
   are both her; both reflect her sends. The store lives on Skynet so both
   read the same value.
 - **If the old reverse-engineering path is torn out along with its recency
@@ -160,7 +160,7 @@ What this is deliberately NOT doing:
 
 **In:**
 
-- A new durable per-identity "when did Ashley last send to this identity"
+- A new durable per-identity "when did Alice last send to this identity"
   record living inside Skynet's own persistent state, keyed on identity
   name.
 - A hook on the compose surface's universal send funnel that stamps the
@@ -168,7 +168,7 @@ What this is deliberately NOT doing:
   whether the send lands.
 - Swap the source of the middle-zone recency ranking from the current
   transcript-scan derivation to the new record.
-- Client-side responsiveness: the row moves the instant Ashley hits send,
+- Client-side responsiveness: the row moves the instant Alice hits send,
   not on the next round-trip.
 - In-process test coverage for the new record, the hook, the swap, and
   the client-side responsiveness.
@@ -182,7 +182,7 @@ What this is deliberately NOT doing:
   consumers (currently-working, dormant, ai-title, etc.).
 - Any starting-point seed of the new record — everyone starts at "never,"
   and the natural fill takes it from there.
-- Any capture of Ashley's phone Matrix DMs that bypass Skynet's compose
+- Any capture of Alice's phone Matrix DMs that bypass Skynet's compose
   surface (same limitation as today).
 - Any manual "reset this identity's recency" affordance.
 - Any change to how sessions are discovered or which rows appear in the
@@ -190,7 +190,7 @@ What this is deliberately NOT doing:
 
 **Deferred:**
 
-- Multi-user keying — Skynet on this box is single-tenant for Ashley, so
+- Multi-user keying — Skynet on this box is single-tenant for Alice, so
   the record needs no user column today. If Skynet later runs
   multi-tenant, add the user dimension then.
 - Capturing non-compose Skynet interactions if any are added later (for
@@ -227,7 +227,7 @@ Handoff to the planner:
   hook point — one hook covers every current send path and any future
   addition automatically.
 - The new store must survive container restarts (durable, not in-memory),
-  and both of Ashley's devices (phone and desktop) must read the same
+  and both of Alice's devices (phone and desktop) must read the same
   value — so it lives on the backend, not client-only.
 - Identity: this work happens under identity `tiffany`, box-maintainer of
   the Skynet EC2 (`t1000`) at `term.example.com`. The container-mutation

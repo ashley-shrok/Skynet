@@ -76,7 +76,7 @@ describe("applyServerSlashTransform — passthrough (no wake-word / no catalog h
     const result = applyServerSlashTransform(input, CATALOG);
     expect(result.matched).toBe(false);
     // Byte-identical passthrough — the whole point of the fail-open
-    // posture is that Ashley still sees her transcript when a
+    // posture is that Alice still sees her transcript when a
     // slash-invocation misses.
     expect(result.transformed).toBe(input);
     expect(result.command).toBe(null);

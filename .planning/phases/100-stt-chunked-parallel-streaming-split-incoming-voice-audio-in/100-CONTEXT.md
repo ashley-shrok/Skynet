@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-09-10
 **Status:** Ready for planning
-**Source:** Follow-up to Phase 98 more-versatile-stt-tts-support. Motivated by Ashley UAT 2026-09-10 (STT wall time ~= audio duration on Amazon Transcribe streaming, felt slow vs the old Chatterbox GPU rig). Verified via research (AWS SDK ships `apply_realtime_delay()` — the streaming API is designed for live mics, not batch upload) and validated via direct benchmark against t1000's Transcribe endpoint (3 s clip → 0.8 s wall, 8 s → 3.6 s, 15 s → 8.8 s, 30 s → 17.8 s — short streams get faster-than-realtime treatment, long streams throttle to ~1.7× real-time).
+**Source:** Follow-up to Phase 98 more-versatile-stt-tts-support. Motivated by Alice UAT 2026-09-10 (STT wall time ~= audio duration on Amazon Transcribe streaming, felt slow vs the old Chatterbox GPU rig). Verified via research (AWS SDK ships `apply_realtime_delay()` — the streaming API is designed for live mics, not batch upload) and validated via direct benchmark against t1000's Transcribe endpoint (3 s clip → 0.8 s wall, 8 s → 3.6 s, 15 s → 8.8 s, 30 s → 17.8 s — short streams get faster-than-realtime treatment, long streams throttle to ~1.7× real-time).
 
 <domain>
 ## Phase Boundary
@@ -19,10 +19,10 @@ Refactor `handleTranscribe` in `src/backend/database/routes/voice.ts` so that lo
 - `/voice/transcribe` endpoint contract — same multipart WebM in, same `{text}` JSON out, same slash-command-transform still runs on the final stitched transcript
 - Frontend: no `useVoiceRecording` changes, no compose-box changes, no new WebSocket, no progressive-transcript UI
 - Provider: still Amazon Transcribe streaming, still `us-east-1`, still IMDS creds via SDK default chain (Phase 98 locks)
-- The disk-bank write of the raw WebM (Pitfall 6 from Phase 98 — Ashley's post-hoc reference folder)
+- The disk-bank write of the raw WebM (Pitfall 6 from Phase 98 — Alice's post-hoc reference folder)
 - Chatterbox: still killed, no dual-provider seam
 
-**Scope anchor:** the visible effect for Ashley is "STT roundtrip is 5-10× faster for longer recordings." That's it. No UX-affecting change; no new features; no frontend touched.
+**Scope anchor:** the visible effect for Alice is "STT roundtrip is 5-10× faster for longer recordings." That's it. No UX-affecting change; no new features; no frontend touched.
 
 </domain>
 
@@ -31,24 +31,24 @@ Refactor `handleTranscribe` in `src/backend/database/routes/voice.ts` so that lo
 
 ### Chunking strategy
 
-- **D-01:** Silence-aware splitting via `ffmpeg silencedetect` as the primary strategy. Pre-scan the audio for silence gaps ≥ ~200 ms and split at the nearest gap to the target window boundary. Ashley 2026-09-10 chose this over fixed windows for word-boundary preservation at seams — mid-word cuts show up in transcripts as obvious junk ("we-" | "-nt to the store") and silence detection eliminates most of that class.
+- **D-01:** Silence-aware splitting via `ffmpeg silencedetect` as the primary strategy. Pre-scan the audio for silence gaps ≥ ~200 ms and split at the nearest gap to the target window boundary. Alice 2026-09-10 chose this over fixed windows for word-boundary preservation at seams — mid-word cuts show up in transcripts as obvious junk ("we-" | "-nt to the store") and silence detection eliminates most of that class.
 - **D-02:** Fixed-window fallback. If `silencedetect` returns no gaps within the target window (continuous speech), cut at fixed 8 s (with overlap — see D-04). Ensures the chunker always produces a split; degrades gracefully on rapid speech / no-pause monologues.
 - **D-03:** Target chunk size ~8 s. Rationale from benchmark: 8 s clip returns in 3.6 s single-stream (2.25× real-time on short-stream path), so parallel 8 s chunks should each return in ~3.5 s wall time regardless of total audio length. Planner may tune this within 5–10 s if evidence warrants.
 - **D-04:** Overlap 2–3 s per chunk boundary. Enough for the stitcher to find matching word runs on both sides of the seam; not so much that we blow the concurrent-stream budget on redundant transcription. Planner picks the exact value.
 
 ### Fast-path threshold for short clips
 
-- **D-05:** Clips shorter than ~10 s take the EXISTING single-stream path (current `handleTranscribe` code path — one `transcribeBuffer(flacBuf, "flac", 16000)` call, no chunking). Ashley 2026-09-10 verbatim chose this over uniform chunking. Rationale: benchmark shows 3 s → 0.8 s and 8 s → 3.6 s on single-stream already, and adding ~300 ms of orchestration tax to those makes UX worse. Chunking is only beneficial when there's actually audio to parallelize across.
+- **D-05:** Clips shorter than ~10 s take the EXISTING single-stream path (current `handleTranscribe` code path — one `transcribeBuffer(flacBuf, "flac", 16000)` call, no chunking). Alice 2026-09-10 verbatim chose this over uniform chunking. Rationale: benchmark shows 3 s → 0.8 s and 8 s → 3.6 s on single-stream already, and adding ~300 ms of orchestration tax to those makes UX worse. Chunking is only beneficial when there's actually audio to parallelize across.
 - **D-06:** Threshold value is ~10 s (planner picks exact cutoff; anywhere in 8–12 s is fine). Decision point could be audio duration (from ffprobe pre-scan) OR audio bytes as a proxy (16 kHz mono FLAC → ~32 KB/s, so ~320 KB = 10 s). Planner picks based on what's cheapest to compute.
 
 ### Failure handling on individual chunk failure
 
-- **D-07:** Retry once, then insert a marked gap. If a per-chunk Transcribe stream fails (network error, transient 5xx, timeout), retry that ONE chunk exactly once. If the retry also fails, stitch the remaining chunks into the transcript and insert a placeholder token like `[...]` at the failed chunk's position. Ashley 2026-09-10 chose this over silent-skip (dangerous — user might send an incomplete transcript unaware) and full-fail (user-hostile — losing a 3-minute rant to one transient network hiccup).
-- **D-08:** The `[...]` marker is the exact placeholder emitted; planner may negotiate the sentinel string if it collides with something reasonable-to-type verbatim, but SOMETHING visible-and-obvious must appear so Ashley can see there's a gap and choose to edit or re-record.
+- **D-07:** Retry once, then insert a marked gap. If a per-chunk Transcribe stream fails (network error, transient 5xx, timeout), retry that ONE chunk exactly once. If the retry also fails, stitch the remaining chunks into the transcript and insert a placeholder token like `[...]` at the failed chunk's position. Alice 2026-09-10 chose this over silent-skip (dangerous — user might send an incomplete transcript unaware) and full-fail (user-hostile — losing a 3-minute rant to one transient network hiccup).
+- **D-08:** The `[...]` marker is the exact placeholder emitted; planner may negotiate the sentinel string if it collides with something reasonable-to-type verbatim, but SOMETHING visible-and-obvious must appear so Alice can see there's a gap and choose to edit or re-record.
 
 ### Concurrency limit
 
-- **D-09:** Start conservative at N=5 concurrent streams. Amazon's default quota is 25 concurrent StartStreamTranscription per account per region (see canonical refs). N=5 gives us 4× current throughput (probable common-case improvement) while leaving 20 streams of headroom for future concurrent Skynet users on the same AWS account (T800/Stacy is on a separate account so doesn't compete; but if Ashley invites collaborators to her instance later, they share our 25-stream ceiling). Planner may tune upward with justification.
+- **D-09:** Start conservative at N=5 concurrent streams. Amazon's default quota is 25 concurrent StartStreamTranscription per account per region (see canonical refs). N=5 gives us 4× current throughput (probable common-case improvement) while leaving 20 streams of headroom for future concurrent Skynet users on the same AWS account (T800/Stacy is on a separate account so doesn't compete; but if Alice invites collaborators to her instance later, they share our 25-stream ceiling). Planner may tune upward with justification.
 - **D-10:** Semaphore lives in the adapter module, module-level singleton (mirrors the existing `TranscribeStreamingClient` singleton pattern from Phase 98 `transcribe-adapter.ts:93`). No per-request semaphore state; no cross-request coordination required (single Skynet process on t1000).
 
 ### Stitching algorithm
@@ -59,7 +59,7 @@ Refactor `handleTranscribe` in `src/backend/database/routes/voice.ts` so that lo
 
 - **D-12:** Response body stays exactly `{text: string, transformed?: string}` (the current shape after Phase 98 `handleTranscribe`). No new fields, no per-chunk metadata leaked to the client, no timing info. Client code must not need to change.
 - **D-13:** The existing slash-command wake-word transform still runs on the final stitched transcript. Same code path (`WAKE_WORD_REGEX.test(rawText)` → `fetchSkillCatalog` → `applyServerSlashTransform`), same behavior.
-- **D-14:** The existing disk-bank write of the raw WebM (voice.ts:129) still fires BEFORE any transcode / chunk / dispatch happens. Preserves Pitfall 6 (Ashley's post-hoc reference folder holds the original bytes even if the transcribe pipeline fails).
+- **D-14:** The existing disk-bank write of the raw WebM (voice.ts:129) still fires BEFORE any transcode / chunk / dispatch happens. Preserves Pitfall 6 (Alice's post-hoc reference folder holds the original bytes even if the transcribe pipeline fails).
 
 ### Claude's Discretion
 
@@ -99,7 +99,7 @@ Refactor `handleTranscribe` in `src/backend/database/routes/voice.ts` so that lo
 ### Benchmark evidence
 
 - `/tmp/bench.mjs` on skynet container (session-transient — reproducible by re-running with `clip-3s/8s/15s/30s.flac` inputs synthesized from an existing banked recording) — Documents the observed timing floor
-- Session transcript (Ashley + tabitha, 2026-09-10 06:30-06:35 UTC) — Empirical results table: 3 s → 0.798 s (3.75×); 8 s → 3.562 s (2.25×); 15 s → 8.797 s (1.70×); 30 s → 17.835 s (1.68×); first-event latency consistently 266–335 ms
+- Session transcript (Alice + tabitha, 2026-09-10 06:30-06:35 UTC) — Empirical results table: 3 s → 0.798 s (3.75×); 8 s → 3.562 s (2.25×); 15 s → 8.797 s (1.70×); 30 s → 17.835 s (1.68×); first-event latency consistently 266–335 ms
 
 ### Fleet operational rules (Phase 100 respects)
 
@@ -137,15 +137,15 @@ Refactor `handleTranscribe` in `src/backend/database/routes/voice.ts` so that lo
 ## Specific Ideas
 
 - **Empirical benchmark drove the design.** Not just user speculation — actual measurements against t1000's Transcribe endpoint at 06:30-06:35 UTC using the shipped `@aws-sdk/client-transcribe-streaming` in the running container. Numbers are reproducible.
-- **The `[...]` gap marker (D-08)** — Ashley chose visible gap-marking over silent-skip specifically because voice STT feeds an editable input field before send. A gap that renders as `[...]` is a clear editing signal; a silent gap is a data-loss surface.
-- **Silence-aware chunking (D-01) is the perception fix** — mid-word cuts have been a recurring frustration in every batch STT UX Ashley has used. Even 200 ms of ffmpeg overhead is worth it.
+- **The `[...]` gap marker (D-08)** — Alice chose visible gap-marking over silent-skip specifically because voice STT feeds an editable input field before send. A gap that renders as `[...]` is a clear editing signal; a silent gap is a data-loss surface.
+- **Silence-aware chunking (D-01) is the perception fix** — mid-word cuts have been a recurring frustration in every batch STT UX Alice has used. Even 200 ms of ffmpeg overhead is worth it.
 
 </specifics>
 
 <deferred>
 ## Deferred Ideas
 
-- **Browser-side WebSocket audio streaming.** Discussed with Ashley 2026-09-10 as the OTHER path to faster STT — stream audio from MediaRecorder to Skynet via WebSocket while she's still speaking; server forwards to Transcribe live; partials arrive within ~300 ms. That's a bigger refactor (client + server + progressive-transcript UI) and would touch the frontend. Phase 100 is intentionally backend-only. If perceived latency after Phase 100 still isn't good enough, this becomes a follow-up phase.
+- **Browser-side WebSocket audio streaming.** Discussed with Alice 2026-09-10 as the OTHER path to faster STT — stream audio from MediaRecorder to Skynet via WebSocket while she's still speaking; server forwards to Transcribe live; partials arrive within ~300 ms. That's a bigger refactor (client + server + progressive-transcript UI) and would touch the frontend. Phase 100 is intentionally backend-only. If perceived latency after Phase 100 still isn't good enough, this becomes a follow-up phase.
 - **Progressive transcript output (SSE or chunked HTTP response).** Currently the response is a single JSON blob; a future phase could stream partial transcripts to the client as chunks complete. Not this phase.
 - **AWS service quota increase request** (raise from 25 to 100 concurrent streams). Not needed until we hit the ceiling in practice.
 - **Multi-language support.** English-US only (inherited from Phase 98 D-Voice-catalog). Not this phase.

@@ -8,7 +8,7 @@
  * tmux teardown fire ws.close(1011) so client reconnect wakes up). Deploy
  * of the two together (2026-09-08 07:43 UTC) surfaced the latent stale-cache
  * bug: any dormant pane reconnect pinned the tail to the LAST-alive JSONL
- * instead of the latest identity JSONL. Ashley observed on Tiffany + Becky
+ * instead of the latest identity JSONL. Alice observed on Tiffany + Becky
  * within hours of the deploy.
  *
  * The fix liveness-checks the cached PID via `/proc/<pid>` existence on the

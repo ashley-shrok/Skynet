@@ -29,7 +29,7 @@ key-files:
     - src/ui/features/terminal/Terminal.tsx
     - src/ui/features/pretty-view/PrettyView.tsx
 decisions:
-  - "Long-press timer = 500ms setTimeout (per Ashley's plan brief). Any pointermove while armed cancels — deliberate press only, no hover-slide."
+  - "Long-press timer = 500ms setTimeout (per Alice's plan brief). Any pointermove while armed cancels — deliberate press only, no hover-slide."
   - "IdentityModal in terminal mode portals to document.body (container={null}). The xterm surface has no equivalent of PrettyView's chatRegionEl; app-modal z-[500] already sits above the terminal surface, so root-body portal is behaviorally correct."
   - "PrettyView.onTogglePrettyMode is OPTIONAL. When omitted (tests, standalone previews), the pretty-view badge simply doesn't wire long-press — IdentityBadge falls back to plain-click-target semantics automatically."
   - "AppShell.tsx (Ctrl+Shift+O) UNTOUCHED. Long-press flips setIsPrettyMode(v => !v) directly; Ctrl+Shift+O flips it via the imperative handle. Both hit the same state atom, no divergence risk."
@@ -108,7 +108,7 @@ None. All wiring is live; no placeholder or hardcoded-empty values were introduc
 
 ## Threat Flags
 
-None. This plan closes patch #38's hover-fade (accessibility improvement — Ashley wants the badge visible, not hidden by hover) and adds a pointer-gesture primitive with explicit unmount cleanup for the timer. No new network surface, no new auth path, no schema change. The threat model in PLAN.md's `<threat_model>` fully covers the changed surface; all `mitigate` dispositions are honored (T-260806-lzd-01 via useEffect cleanup, T-260806-lzd-03 via `longPressFiredRef` gate + Test E).
+None. This plan closes patch #38's hover-fade (accessibility improvement — Alice wants the badge visible, not hidden by hover) and adds a pointer-gesture primitive with explicit unmount cleanup for the timer. No new network surface, no new auth path, no schema change. The threat model in PLAN.md's `<threat_model>` fully covers the changed surface; all `mitigate` dispositions are honored (T-260806-lzd-01 via useEffect cleanup, T-260806-lzd-03 via `longPressFiredRef` gate + Test E).
 
 ## Constraints Honored
 

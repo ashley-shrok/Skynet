@@ -1,6 +1,6 @@
 // ─── identity-artifact-reader — REMOTE bounties tolerance for empty/missing dir
 //
-// Symptom (2026-09-01, Ashley): IdentityModal showed
+// Symptom (2026-09-01, Alice): IdentityModal showed
 // "Couldn't load bounties: Command exited with code 1" when opening the
 // bounties tab for an identity on a remote host whose role had no bounties
 // yet. Two shell-level failure modes both surfaced identically:

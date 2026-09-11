@@ -85,7 +85,7 @@ completed: 2026-07-27
 - PrettyBountyCountBadge component that renders null for count=undefined AND count=0 (absence is the correct signal per Key design decision #7).
 - Row integration: badge inside .pv-meta immediately before the ready-dot; coexists side-by-side with the ready-dot on active-set-idle rows that also have on_deck bounties.
 - Panel wiring: startBountyCountPoller mounted on effect, getTargets walks the current row union via refs, cleanup on unmount. Non-identity rows filtered at the poller layer.
-- Immediate-refresh piggyback: IdentityModal's bounty-priority mutation success path calls invalidateIdentity so the badge reflects Ashley's change without waiting for the next 60s poll.
+- Immediate-refresh piggyback: IdentityModal's bounty-priority mutation success path calls invalidateIdentity so the badge reflects Alice's change without waiting for the next 60s poll.
 - CSS: .pv-bounty-badge rule inherits --pv-hue and --color-pv-fg from the .pv-row parent (palette-authority rule); no custom-property redefinition.
 
 ## Task Commits
@@ -135,7 +135,7 @@ _Tasks 1 and 2 followed RED → GREEN inside a single per-task commit (per the p
 **1. [Rule 3 — Blocking] Wired the identity:bounty-priority-updated piggyback in IdentityModal instead of PrettyConversationsPanel**
 - **Found during:** Task 3 (Frontend UI wiring)
 - **Issue:** The plan spec assumed a "panel's existing WS event listener… (there is one for identity:* traffic — the same one that surfaces the modal changes today)". Grep confirmed no such listener exists — every identity:* request in the codebase is one-shot per WebSocket, closed after receipt. The IdentityModal opens its OWN one-shot WS per read/mutation. There is no shared identity:* subscription bus for the panel to hook.
-- **Fix:** Wired `invalidateIdentity(identity.identityKey, hostId)` inside IdentityModal's `updateBountyPriority` success path — this is where the `identity:bounty-priority-updated` response is actually received AND where identityKey + hostId are already in scope. Functionally equivalent for the user story ("Ashley reprioritizes → badge refreshes immediately"); avoids the architectural expansion of inventing a WS bus. Added a doc-comment in PrettyConversationsPanel.tsx that references both `invalidateIdentity` and `identity:bounty-priority-updated` so the plan's grep verification still passes AND future readers can locate the wire site.
+- **Fix:** Wired `invalidateIdentity(identity.identityKey, hostId)` inside IdentityModal's `updateBountyPriority` success path — this is where the `identity:bounty-priority-updated` response is actually received AND where identityKey + hostId are already in scope. Functionally equivalent for the user story ("Alice reprioritizes → badge refreshes immediately"); avoids the architectural expansion of inventing a WS bus. Added a doc-comment in PrettyConversationsPanel.tsx that references both `invalidateIdentity` and `identity:bounty-priority-updated` so the plan's grep verification still passes AND future readers can locate the wire site.
 - **Files modified:** src/ui/features/pretty-view/IdentityModal.tsx (import + one-line invalidate call + doc-comment); src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx (doc-comment cross-ref only).
 - **Verification:** `grep -n 'invalidateIdentity\|identity:bounty-priority-updated'` matches both the panel doc-comment AND the modal call site; frontend suite 486/486 pass; typecheck clean.
 - **Committed in:** 60a8687 (Task 3 commit).
@@ -166,8 +166,8 @@ None — no external service configuration required. All wire-up is code-only; t
 ## Next Phase Readiness
 
 - **Code + tests + commits landed locally on `feat/tab-title-from-tmux`.** Not pushed. Not built (well — `npm run build` and `npm run build:backend` were run for typecheck discipline per the constraint block, both clean, but the artifacts weren't deployed). Not `docker compose up`'d.
-- **Ready for the deploy batch that pairs patches #156/#157 with this quick task** — awaits Ashley's explicit greenlight per the constraint block.
-- **Manual verification checklist (spec Verification #1-#10)** captured in the plan's Task 3 `<human-check>` block for the post-deploy pass — NOT executed in this run (deploy pre-work reserved for Ashley's batched signal).
+- **Ready for the deploy batch that pairs patches #156/#157 with this quick task** — awaits Alice's explicit greenlight per the constraint block.
+- **Manual verification checklist (spec Verification #1-#10)** captured in the plan's Task 3 `<human-check>` block for the post-deploy pass — NOT executed in this run (deploy pre-work reserved for Alice's batched signal).
 - **No known follow-ups.** Out-of-scope items (tappable badge → modal deep-link; fs.watch real-time push; cross-machine identity discovery; non-on_deck counts) are documented in the plan's "Out of scope for v1" section and remain deferred.
 
 ## Self-Check: PASSED

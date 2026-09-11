@@ -10,7 +10,7 @@
  *
  * Locked design decisions (from 98-CONTEXT.md — do NOT deviate):
  *
- * - **Engine locked to `generative`** (D-Provider-choice). Ashley A/B'd
+ * - **Engine locked to `generative`** (D-Provider-choice). Alice A/B'd
  *   generative vs neural against her local rig during exploration and
  *   picked generative flat: "yeah, definitely generative, because it
  *   sounded way better." No per-identity engine toggle, no user-facing

@@ -5,13 +5,13 @@
  * Purpose
  * -------
  * Skynet's browser client cannot reliably reach `http://100.x.y.z:PORT/...`
- * URLs (the id-skill's `python3 -m http.server` pattern for handing Ashley
+ * URLs (the id-skill's `python3 -m http.server` pattern for handing Alice
  * files) because:
  *   * Skynet is served HTTPS in production -> browser blocks mixed HTTP content.
  *   * `python -m http.server` sets no CORS headers.
- *   * The tailnet IP may not be routable from Ashley's device (only Skynet is
+ *   * The tailnet IP may not be routable from Alice's device (only Skynet is
  *     guaranteed on the Tailnet).
- * The backend, being on the tailnet, proxies the fetch on Ashley's behalf.
+ * The backend, being on the tailnet, proxies the fetch on Alice's behalf.
  *
  * Response shape (single call covers both the eligibility path and the
  * editor-open re-fetch path per D-02, D-04):
@@ -49,7 +49,7 @@
  *     ACL boundary (ASVS V4) - no per-user URL allowlist is needed because
  *     the CGNAT range is inherently network-scoped.
  * T-40-05 (URL leakage in server logs):
- *   * sshLogger.info logs host+port only. Filename is OMITTED (Ashley-served
+ *   * sshLogger.info logs host+port only. Filename is OMITTED (user-served
  *     files are sensitive by definition). Error paths log error class name
  *     only - no error.message, no URL.
  *

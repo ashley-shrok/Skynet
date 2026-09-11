@@ -34,7 +34,7 @@
  * Body-then-Enter split-send via two tmux send-keys execs on a one-shot SSH
  * connection. Mirrors the primary claude-session-server pv-input path
  * (L2735-2767) — body first (`-l` literal flag), 1000ms delay, then Enter.
- * The 1000ms delay is a bracketed-paste-drain window Ashley + tina tuned in
+ * The 1000ms delay is a bracketed-paste-drain window Alice + tina tuned in
  * (patch #111 → 250ms → 1000ms 2026-08-21 by tina). Same discipline here so
  * the endpoint reset behaves byte-parallel to the WS reset.
  *
@@ -46,7 +46,7 @@
  *   - `agent_reset_dispatch_failed` — SSH connect / tmux send-keys threw.
  *
  * NEVER logs the body content (privacy — body may contain user-typed
- * context). Standard fleet-wide directive Ashley 2026-08-11 (structured
+ * context). Standard fleet-wide directive Alice 2026-08-11 (structured
  * logging at boundaries).
  *
  * ## NOT applicable

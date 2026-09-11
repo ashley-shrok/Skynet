@@ -484,7 +484,7 @@ describe("PrettyConversationRow: no identity chip", () => {
 
 describe("PrettyConversationRow: Phase 13 full-bubble class-toggle branch", () => {
   it("Test 12: unselected non-RDP active-set row does NOT carry `selected`/`ambient`/`rdp` + `--pv-hue: 210` inline", () => {
-    // Phase 41 Plan 01 (Ashley 2026-08-14) — updated: the `ambient` class is
+    // Phase 41 Plan 01 (Alice 2026-08-14) — updated: the `ambient` class is
     // now retired from the row's className toggle table entirely. The
     // `.not.toContain("ambient")` assertion below is now trivially true for
     // every row (see Test AMBIENT-RETIRED-01 for a stronger, coverage-of-
@@ -521,10 +521,10 @@ describe("PrettyConversationRow: Phase 13 full-bubble class-toggle branch", () =
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: Phase 48 Plan 05 idle-affordance retirement (was Phase 13 ready-dot render)", () => {
-  it("Test 13 (Phase 48 Plan 05 rewrite): inActiveSet+isWorking===false is the READY branch of Ashley's 4-input gate — no ready-dot in DOM AND no `spinner-on` class on row", () => {
+  it("Test 13 (Phase 48 Plan 05 rewrite): inActiveSet+isWorking===false is the READY branch of Alice's 4-input gate — no ready-dot in DOM AND no `spinner-on` class on row", () => {
     // Pre-Phase-48 this test asserted the ready-dot span was PRESENT with
     // aria-label='ready' + data-pv-conv-ready-dot='true' + .pv-ready-dot
-    // class. Phase 48 Plan 05 retires the ready-dot entirely (Ashley 2026-
+    // class. Phase 48 Plan 05 retires the ready-dot entirely (Alice 2026-
     // 08-19 verbatim: "make the spinner work on the same logic as the idle
     // indicator, except you invert it as the final step of logic there").
     // The 4-input gate `!(inActiveSet && isWorking===false && !isRecycling
@@ -567,7 +567,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 idle-affordance retirement for
     // rows at the component level. Phase 48 Plan 05 retires the ready-dot
     // entirely — the "ready-for-attention" cue is now the absence of the
     // spinner ring rather than a positive dot render. RDP + idle-in-active-
-    // set still evaluates to the READY branch of Ashley's 4-input gate
+    // set still evaluates to the READY branch of Alice's 4-input gate
     // (`!(true && true && true && true)` = `false`) → no spinner-on class.
     const { container, queryByLabelText } = render(
       <PrettyConversationRow
@@ -649,11 +649,11 @@ describe("PrettyConversationRow: Phase 13 ready-dot suppression — unknown", ()
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test 17 — Ambient (!inActiveSet) idle row never spins. Ashley 2026-08-20
+// Test 17 — Ambient (!inActiveSet) idle row never spins. Alice 2026-08-20
 //           UAT tightening scoped the spinner to active-set-only, so ambient
 //           idle rows have neither the retired ready-dot nor the spinner-on
 //           class. (Prior 2026-08-19 full-inversion shape briefly lit every
-//           ambient row and Ashley reported it as inverted.)
+//           ambient row and Alice reported it as inverted.)
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("PrettyConversationRow: ambient rows never spin (post-2026-08-20 UAT tightening)", () => {
@@ -756,7 +756,7 @@ describe("PrettyConversationRow: quick-260802-w9e ready-dot suppression — queu
   it("Test 15c-guard (Phase 48 Plan 05 rewrite): hasQueuePending default (false) preserves the READY branch — no ready-dot in DOM + no spinner-on class on row", () => {
     // Pre-Phase-48 this asserted the ready-dot rendered when hasQueuePending
     // was omitted (default false). Phase 48 Plan 05 retires the ready-dot;
-    // the READY branch of Ashley's 4-input gate now suppresses the
+    // the READY branch of Alice's 4-input gate now suppresses the
     // spinner-on class instead of rendering a positive dot. The guard's
     // spirit — "the omitted hasQueuePending prop defaults to false and does
     // NOT accidentally trip the spinner ON" — is preserved by asserting the
@@ -790,7 +790,7 @@ describe("PrettyConversationRow: quick-260802-w9e ready-dot suppression — queu
 // Test 18 (Phase 41 Plan 01 REWRITE) — Ambient recession RETIRED
 // ─────────────────────────────────────────────────────────────────────────────
 // The pre-Phase-41 Test 18 asserted that a `!inActiveSet && !isRdp` row DID
-// carry the `.ambient` class. Ashley 2026-08-14 retired that visual axis
+// carry the `.ambient` class. Alice 2026-08-14 retired that visual axis
 // entirely: no row ever carries `.ambient` now, regardless of inActiveSet
 // or isRdp inputs. The regression test below covers ALL FOUR combinations
 // of (inActiveSet, isRdp) to lock the retirement.
@@ -799,7 +799,7 @@ describe("PrettyConversationRow: Phase 41 Plan 01 ambient-recession retirement",
   it("Test AMBIENT-RETIRED-01: row NEVER carries `.ambient` class regardless of inActiveSet / isRdp inputs", () => {
     // Iterate all four combinations of (inActiveSet, isRdp). Phase 41 Plan 01:
     // NO row emits the `.ambient` class under any input combination — the
-    // toggle was retired from the className composition. Ashley lock (§Ready-
+    // toggle was retired from the className composition. Alice lock (§Ready-
     // dot uniformity + retirement of ambient recession).
     const combos: Array<{ inActiveSet: boolean; isRdp: boolean; label: string }> = [
       { inActiveSet: false, isRdp: false, label: "!inActiveSet && !isRdp" },
@@ -835,7 +835,7 @@ describe("PrettyConversationRow: Phase 41 Plan 01 ambient-recession retirement",
   });
 
   // isWorking===false on BOTH inActiveSet=true and =false yields NO spinner-on
-  // under the active-set-scoped gate (Ashley 2026-08-20 UAT tightening):
+  // under the active-set-scoped gate (Alice 2026-08-20 UAT tightening):
   //   inActiveSet=true  + isWorking===false → active-set-idle → no spinner-on
   //                                            (the ready-dot's exclusive
   //                                            branch).
@@ -844,7 +844,7 @@ describe("PrettyConversationRow: Phase 41 Plan 01 ambient-recession retirement",
   //                                            the outer `inActiveSet`
   //                                            conjunct).
   // The two branches WERE briefly asymmetric under the 2026-08-19 full-
-  // inversion shape, and Ashley reported that as "idle rows have spinners" on
+  // inversion shape, and Alice reported that as "idle rows have spinners" on
   // first UAT — this test now locks the tightened symmetry so a regression
   // back to the full-inversion shape would fail. The ready-dot is fully
   // retired in both branches (that part was unchanged by the tightening).
@@ -890,7 +890,7 @@ describe("PrettyConversationRow: Phase 41 Plan 01 ambient-recession retirement",
 // PinAction + DeactivateAction icons in .pv-meta are gone; Pin action lives
 // in the right-click context menu (unconditional on desktop non-RDP) and
 // the mobile swipe strip (untouched). Deactivate was removed from the
-// context menu 2026-08-17 (Ashley); swipe-LEFT remains the sole UI trigger.
+// context menu 2026-08-17 (Alice); swipe-LEFT remains the sole UI trigger.
 // The four tests below lock this:
 //   18c — no PinAction / no DeactivateAction in desktop .pv-meta
 //   18d — desktop contextmenu opens portal menu with Pin but NEVER Deactivate
@@ -954,7 +954,7 @@ describe("PrettyConversationRow: quick-260730-o2m context-menu default regressio
   });
 
   it("Test 18e: desktop non-RDP row NOT in active-set opens the context menu with only `Pin` (no `Deactivate`)", () => {
-    // Ashley 2026-08-17 removed the Deactivate menu item entirely — it no
+    // Alice 2026-08-17 removed the Deactivate menu item entirely — it no
     // longer renders regardless of inActiveSet. Kept as a redundant guard
     // against a regression that only manifests on the inActiveSet=false
     // branch (semantically identical to Test 18d now).
@@ -1049,7 +1049,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 aiTitle subtitle (was quick-26
     // backward compat but has no runtime effect.
     currentIdentity = {
       ...makeIdentity(45, "nelly"),
-      title: "Ashley Ops",
+      title: "Alice Ops",
     };
     const { container } = render(
       <PrettyConversationRow
@@ -1075,10 +1075,10 @@ describe("PrettyConversationRow: Phase 48 Plan 05 aiTitle subtitle (was quick-26
   });
 
   it("Test 19B (Phase 48 Plan 05 rewrite): subtitle is aiTitle regardless of identity.title value — subtitleMode has no effect on subtitle content", () => {
-    currentIdentity = makeIdentity(90, "ashley"); // makeIdentity sets title: null
+    currentIdentity = makeIdentity(90, "alice"); // makeIdentity sets title: null
     const { container } = render(
       <PrettyConversationRow
-        row={makeRow({ targetTmuxSession: "ashley" })}
+        row={makeRow({ targetTmuxSession: "alice" })}
         selected={false}
         pinned={false}
         variant="desktop"
@@ -1134,7 +1134,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 aiTitle subtitle (was quick-26
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 20 (A/B) — main-label render source: identity.displayName vs row.label
 // ─────────────────────────────────────────────────────────────────────────────
-// Ashley 2026-08-01: identity-session rows in the conversation list showed
+// Alice 2026-08-01: identity-session rows in the conversation list showed
 // their tmux sessionName (lowercase identity key) as the main label, while
 // the IdentityBadge showed the properly-cased `identity.displayName`. The
 // row now takes its main label from identity.displayName when subtitleMode
@@ -1142,10 +1142,10 @@ describe("PrettyConversationRow: Phase 48 Plan 05 aiTitle subtitle (was quick-26
 // When either condition is false, the row falls back verbatim to row.label
 // (raw terminal rows, unresolved identities, hostname-mode rows unchanged).
 
-describe("PrettyConversationRow: Phase 48 Plan 05 main label source + parenthetical suffix (was Ashley 2026-08-01 main label source; inline-260823-conv-title-suffix flipped parens to identity.title with hostname fallback)", () => {
-  it("Test 20A (inline-260823-conv-title-suffix rewrite): identity resolved WITH title → parenthetical is identity.title, NOT hostname; Ashley 2026-08-23 lock", () => {
+describe("PrettyConversationRow: Phase 48 Plan 05 main label source + parenthetical suffix (was Alice 2026-08-01 main label source; inline-260823-conv-title-suffix flipped parens to identity.title with hostname fallback)", () => {
+  it("Test 20A (inline-260823-conv-title-suffix rewrite): identity resolved WITH title → parenthetical is identity.title, NOT hostname; Alice 2026-08-23 lock", () => {
     // Pre-inline-260823 this asserted "Nelly (thenasty)" — hostname always.
-    // Ashley 2026-08-23 flipped: parens prefer identity.title over
+    // Alice 2026-08-23 flipped: parens prefer identity.title over
     // host.name. Hostname was almost never useful in the row; title carries
     // the meaningful "who is this" signal (Secretary / Athena / etc).
     currentIdentity = { ...makeIdentity(200, "Nelly"), title: "Fleet Coordinator" };
@@ -1203,10 +1203,10 @@ describe("PrettyConversationRow: Phase 48 Plan 05 main label source + parentheti
     expect(suffix!.textContent).toBe(" (thenasty)");
   });
 
-  it("Test 20C (inline-260823-conv-title-suffix): identity resolved but title=null → parens fall back to hostname (Ashley 2026-08-23 hostname-as-fallback semantic)", () => {
+  it("Test 20C (inline-260823-conv-title-suffix): identity resolved but title=null → parens fall back to hostname (Alice 2026-08-23 hostname-as-fallback semantic)", () => {
     // Locks the fallback contract: when an identity exists but has no
     // title (title=null OR empty string), the parenthetical falls back to
-    // the row.host.name rather than showing empty parens. Matches Ashley's
+    // the row.host.name rather than showing empty parens. Matches Alice's
     // "maybe the host name is a fallback" framing.
     currentIdentity = { ...makeIdentity(200, "Nelly"), title: null };
     const { container } = render(
@@ -2743,13 +2743,13 @@ describe("PrettyConversationRow: Kill menu item (quick-260810-n3a)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 48 Plan 05 (v14 locked shape, Ashley 2026-08-19)
+// Phase 48 Plan 05 (v14 locked shape, Alice 2026-08-19)
 // ─────────────────────────────────────────────────────────────────────────────
 // New tests locking the v14 shape invariants: title-line hostname parens
 // suffix; subtitle line = aiTitle (or muted italic ellipsis placeholder
 // when null); Server icon fully retired; ready-dot fully retired; .pv-meta
 // wrapper fully retired; bounty badges relocated to avatar corners; spinner-
-// on className emitted per the active-set-scoped 4-input boolean (Ashley
+// on className emitted per the active-set-scoped 4-input boolean (Alice
 // 2026-08-20 UAT tightening of 2026-08-19 verbatim):
 //
 //   showSpinnerOn = inActiveSet
@@ -2962,7 +2962,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
   });
 
   it("Test P47-11: idle-in-active-set row is the READY branch — no `.spinner-on`, no `.working`, no `.recycling` (locks the ONE combination that suppresses the spinner)", () => {
-    // Ashley's 4-input gate: `!(true && true && true && true)` = `!true`
+    // Alice's 4-input gate: `!(true && true && true && true)` = `!true`
     // = `false` → no spinner-on emission. This is the ONE and ONLY input
     // combination that suppresses the spinner. Any other combination
     // yields spinner-on = true.
@@ -2994,7 +2994,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
   // contract) — RETIRED in Phase 104 Plan 03 alongside the bounty-count wire.
 
   it("Test P47-14 (LOAD-BEARING): inActiveSet=true + isWorking=false + hasQueuePending=true → row HAS `spinner-on` class (queue-pending trips the spinner even when the row would otherwise satisfy the pre-Phase-48 ready condition)", () => {
-    // Ashley's 4-input gate: `!(true && true && true && false)` =
+    // Alice's 4-input gate: `!(true && true && true && false)` =
     // `!false` = `true` → spinner-on. Under the pre-revision CSS-only
     // gate `.pv-row.active-set:is(.working, .recycling)` this row would
     // have failed (it has neither `.working` nor `.recycling` — 2 of the
@@ -3026,7 +3026,7 @@ describe("PrettyConversationRow: Phase 48 Plan 05 v14 shape", () => {
     expect(body.className).not.toContain("recycling");
   });
 
-  it("Test P47-15 (LOAD-BEARING): inActiveSet=false + isWorking=true → row does NOT have `spinner-on` class (ambient rows never spin, Ashley 2026-08-20 UAT tightening)", () => {
+  it("Test P47-15 (LOAD-BEARING): inActiveSet=false + isWorking=true → row does NOT have `spinner-on` class (ambient rows never spin, Alice 2026-08-20 UAT tightening)", () => {
     // Active-set-scoped gate: `inActiveSet && (isWorking===true ||
     // isRecycling || hasQueuePending)` short-circuits to `false` when
     // inActiveSet=false, regardless of the inner three predicates. Ambient
@@ -3301,7 +3301,7 @@ describe("PrettyConversationRow: Phase 56 row is a drag source", () => {
     // fallback branch is <span>, no draggable attribute needed).
     currentIdentity.avatarUrl = "data:image/png;base64,iVBORw0KGgo=";
 
-    // Ashley 2026-09-01: <img> now gates on Number.isFinite(rowHostIdNum) —
+    // Alice 2026-09-01: <img> now gates on Number.isFinite(rowHostIdNum) —
     // when row.host.id is non-numeric (as in the default makeHost fixture
     // where id="hA") the render falls back to the initial-letter placeholder
     // to avoid a broken-image affordance. Provide a numeric host id so the

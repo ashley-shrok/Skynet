@@ -48,7 +48,7 @@ UX pass on the compose box, bundling three motions in ONE atomic quick:
 2. Delete the leftmost aux-row button (ListPlus "Queue a message" `<Button>` at ComposeBox.tsx:2465-2485). Aux-row afterwards contains only Interrupt, ThumbsUp, Recap.
 3. Add a new pebble-notch plus-tab affordance that visually notches into the top edge of the topmost textarea in the compose stack (primary when no slots exist; first QueuedRow when slots exist). Clicking it PREPENDS a new empty slot to `queueSlots` (index 0), inverting today's append-at-end behavior.
 
-Purpose: Locality of interaction — clicking a plus on top of a stack should feel like adding to the top. The old button-in-a-row didn't carry that gesture. Recap phrasing tweak improves how often Ashley reaches for it (her own usage found the new phrasing works better).
+Purpose: Locality of interaction — clicking a plus on top of a stack should feel like adding to the top. The old button-in-a-row didn't carry that gesture. Recap phrasing tweak improves how often Alice reaches for it (her own usage found the new phrasing works better).
 
 Output: One modified component file, three tests updated for the aria-label-preserving semantics (plus-tab is still a `<button>` with `name="Queue a message"`), and a new test file covering topmost-tracking + top-insertion + recap payload change.
 
@@ -275,7 +275,7 @@ Deploy: NOT part of this quick. Deferred to campaign ship gate (bounty 6/8 of th
 </verification>
 
 <success_criteria>
-- Ashley clicking Recap now sends `/explain what has gone on since my last message` verbatim.
+- Alice clicking Recap now sends `/explain what has gone on since my last message` verbatim.
 - The aux-row has three buttons, not four. No ListPlus icon visible in the aux-row.
 - A small pebble-notch plus-tab is visible centered on the top edge of whichever textarea is topmost in the compose stack.
 - Clicking the tab adds a new empty textarea at the TOP of the queue stack.

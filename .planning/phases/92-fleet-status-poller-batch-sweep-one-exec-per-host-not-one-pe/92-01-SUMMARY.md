@@ -129,7 +129,7 @@ type SweepStatResult =
 ## Unexpected findings
 
 - **oxc parser is unusually strict about `*/` inside JSDoc comments.** Node's regular TS toolchain would also flag this, but the oxc-based vite pipeline surfaces it as a downstream parse error rather than an obvious "comment closed early" message. Worth remembering for future doc-heavy files with shell-path examples.
-- **The parity-map test caught a real design surface.** Writing the test forced explicit enumeration of every skipped row's reason — matches Ashley's "enumerate first, code second" preference from CONTEXT.md and gives Plan 02 a durable checklist of what NOT to emit.
+- **The parity-map test caught a real design surface.** Writing the test forced explicit enumeration of every skipped row's reason — matches Alice's "enumerate first, code second" preference from CONTEXT.md and gives Plan 02 a durable checklist of what NOT to emit.
 
 ## Latitude decisions (where plan left room)
 

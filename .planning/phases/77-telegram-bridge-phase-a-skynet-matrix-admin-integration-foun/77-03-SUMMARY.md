@@ -13,7 +13,7 @@ provides:
   - POST /users/:id/mxid endpoint (admin-gated, MXID_RE-validated, previousMxid audit-logged)
   - MXID_RE module-scoped regex constant reusable if other routes ever need Matrix-id validation
   - Test scaffold for admin-gated user-scoped POST routes (bare Express + Node http.request, vi.hoisted mock refs)
-affects: [77-04, 77-05, telegram-bridge-phase-b, provisioning-runbook, Ashley/Zoe/Laura one-shot import]
+affects: [77-04, 77-05, telegram-bridge-phase-b, provisioning-runbook, Alice/Zoe/Laura one-shot import]
 
 # Tech tracking
 tech-stack:
@@ -170,16 +170,16 @@ authLogger.error("Failed to persist mxid registration to disk", <saveError>, {
 
 ## Runbook implications (per plan.md § Output item 5)
 
-**One-shot import for Ashley, Zoe, Laura at Phase-75 deploy time:**
+**One-shot import for Alice, Zoe, Laura at Phase-75 deploy time:**
 
-Each of the three hand-made human accounts (Ashley `@ashley:thenasty.taild9b663.ts.net`, Zoe `@zoe:thenasty.taild9b663.ts.net`, Laura `@laura:thenasty.taild9b663.ts.net`) gets ONE POST at deploy time:
+Each of the three hand-made human accounts (Alice `@ashley:thenasty.taild9b663.ts.net`, Zoe `@zoe:thenasty.taild9b663.ts.net`, Laura `@laura:thenasty.taild9b663.ts.net`) gets ONE POST at deploy time:
 
 ```bash
 curl -si -X POST \
   -H "Cookie: <admin-jwt-cookie>" \
   -H "Content-Type: application/json" \
   -d '{"mxid":"@ashley:thenasty.taild9b663.ts.net"}' \
-  http://localhost:30001/users/<ashley-skynet-user-id>/mxid
+  http://localhost:30001/users/<user-skynet-user-id>/mxid
 ```
 
 Expected result: `200 {"ok":true}`, and the central log records ONE line with `previousMxid: null` per user (because these three accounts have never had a mxid mapped before). Three POSTs total.
@@ -214,7 +214,7 @@ Every future human onboarding calls this endpoint as its final provisioning step
 
 - **Plan 77-04** (identity birth orchestrator extension) — no direct dependency on this endpoint, but the audit-log shape here (with `previousMxid`) is the reference pattern to mirror when the orchestrator writes similar mutation logs for agent-side account creation.
 - **Plan 77-05** (retry endpoint) — same pattern applies if that endpoint ever mutates a persisted field; capture-previous-value-then-audit is the discipline established here.
-- **Phase B — Telegram bridge substrate promotion** — can `SELECT mxid FROM users WHERE id = ?` and get a populated value for every provisioned human, because this endpoint has been called for each of Ashley/Zoe/Laura (import) and every future user (runbook).
+- **Phase B — Telegram bridge substrate promotion** — can `SELECT mxid FROM users WHERE id = ?` and get a populated value for every provisioned human, because this endpoint has been called for each of Alice/Zoe/Laura (import) and every future user (runbook).
 - **Deploy-time runbook (Wave 3)** — must add three POSTs (one per pre-existing account) to the Phase-75 deploy checklist. Suggested placement: after `docker compose up -d` succeeds, before the first Phase-B smoke test.
 
 ## Threat Flags

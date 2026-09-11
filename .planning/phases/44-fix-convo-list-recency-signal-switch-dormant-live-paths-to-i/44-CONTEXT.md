@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-08-18
 **Status:** Ready for planning
-**Source:** Authored from operator ↔ Ashley conversation 2026-08-18 (no separate /gsd:discuss-phase run — decisions locked inline before planning).
+**Source:** Authored from operator ↔ Alice conversation 2026-08-18 (no separate /gsd:discuss-phase run — decisions locked inline before planning).
 
 <domain>
 ## Phase Boundary
@@ -33,7 +33,7 @@
 - **Primary source for dormant identities**: `/sessions/list` returns `lastMessageAt` inline on each session row. Frontend consumes on fetch and seeds `session-working-store` via a new `seedSessionLastMessageAt(hostId, tmuxSession, ts)` API.
 - **Primary source for live identities**: fleet-status WS `SessionState.lastMessageAt` (already wired in Phase 41 Plan 03). Continues to flow via `publishFleetStatusSessionState` → `session-working-store` map.
 - **Reconciliation rule**: value in `session-working-store` map ONLY EVER ADVANCES. When either source writes a value, compare against the existing cached value — if the new value is > existing (or existing is null), replace; else no-op + no-notify. This is the whole reconciliation contract. No priority ordering between sources; whichever produces the freshest value wins. Codified as `advanceSessionLastMessageAt(key, ts)` (internal helper); both `seedSessionLastMessageAt` and the WS publish path funnel through it.
-- **Fetch cadence**: `/sessions/list` is fetched by AppShell on mount and on hostTree changes (existing behavior). We do NOT add a periodic re-fetch; live sessions' recency updates flow via WS as they do today, and dormant sessions' recency is bounded by "last message before dormancy" which doesn't change while dormant. If Ashley opens the UI, refetches happen naturally.
+- **Fetch cadence**: `/sessions/list` is fetched by AppShell on mount and on hostTree changes (existing behavior). We do NOT add a periodic re-fetch; live sessions' recency updates flow via WS as they do today, and dormant sessions' recency is bounded by "last message before dormancy" which doesn't change while dormant. If Alice opens the UI, refetches happen naturally.
 
 ### Server-side JSONL discovery — reuse Phase 32 mechanism
 
@@ -64,8 +64,8 @@
 
 ### Non-goals / explicitly deferred
 
-- Scroll-anchor engineering in the panel. Once the source is correct, the tier-flip churn drops sharply and the browser's default `overflow-anchor: auto` should suffice for the residual case. Revisit only if Ashley reports lingering scroll lurches after this ships.
-- Any change to the message-bearing kind filter (still `message`, `image`, `relay_outbound`, `relay_inbound`). Ashley's Phase 42 lock — "activity = message either direction, and only that" — stands.
+- Scroll-anchor engineering in the panel. Once the source is correct, the tier-flip churn drops sharply and the browser's default `overflow-anchor: auto` should suffice for the residual case. Revisit only if Alice reports lingering scroll lurches after this ships.
+- Any change to the message-bearing kind filter (still `message`, `image`, `relay_outbound`, `relay_inbound`). Alice's Phase 42 lock — "activity = message either direction, and only that" — stands.
 - Wire-protocol version bump. `lastMessageAt` already optional; source change is invisible to the wire.
 - Retirement of the `~/.claude/sessions/<pid>.json → sessionJson.cwd + sessionId` machinery in the orchestrator entirely. The PID pipeline still owns status/backgroundTasks; only the JSONL PATH DERIVATION swaps. Leaving the PID-enumeration axis in place preserves the isWorking signal quality for live sessions.
 
@@ -180,7 +180,7 @@ Test file `conversation-store.test.ts` around L2789+ has the existing Rule 1 tes
 - Virtualization of the middle zone (Phase 27 territory). Only warranted if scroll performance regressions surface after this lands.
 - Scroll-anchor explicit engineering. Same rationale — try correct-data-source first.
 - Retiring the PID-enumeration axis of the orchestrator entirely (moving fully to tmux-session-based enumeration). Meaningful architectural shift; not needed for the recency signal fix.
-- Broader message-bearing kind expansion. Ashley's lock stands.
+- Broader message-bearing kind expansion. Alice's lock stands.
 
 </deferred>
 
@@ -207,4 +207,4 @@ Test file `conversation-store.test.ts` around L2789+ has the existing Rule 1 tes
 ---
 
 *Phase: 44-fix-convo-list-recency-signal-switch-dormant-live-paths-to-i*
-*Context authored: 2026-08-18 from operator ↔ Ashley conversation (no discuss-phase run — decisions locked inline).*
+*Context authored: 2026-08-18 from operator ↔ Alice conversation (no discuss-phase run — decisions locked inline).*

@@ -30,8 +30,8 @@ files_touched:
 
 Added a **swipe-to-ACT** gesture layer to `PrettyConversationRow` on mobile (non-RDP rows only):
 
-- **Swipe RIGHT past threshold** → composite **pin + activate** (`onTogglePin` if `!pinned` + `onSelect` if `!inActiveSet`). Fires when Ashley wants to keep a session at the top of the chat list and enter it in one motion.
-- **Swipe LEFT past threshold** → composite **unpin + deactivate** (`onTogglePin` if `pinned` + `onDeactivate?()` if `inActiveSet`). Fires when Ashley is done with a session and wants to release + close the tab in one motion.
+- **Swipe RIGHT past threshold** → composite **pin + activate** (`onTogglePin` if `!pinned` + `onSelect` if `!inActiveSet`). Fires when Alice wants to keep a session at the top of the chat list and enter it in one motion.
+- **Swipe LEFT past threshold** → composite **unpin + deactivate** (`onTogglePin` if `pinned` + `onDeactivate?()` if `inActiveSet`). Fires when Alice is done with a session and wants to release + close the tab in one motion.
 - **Below threshold** → silent snap-back, no callback, no haptic.
 - **Vertical drag** → never arms; vertical scroll wins.
 - **RDP rows** → swipe machine skipped entirely (long-press context menu still works).
@@ -41,7 +41,7 @@ The gesture is swipe-to-ACT (threshold crossed → composite fires immediately �
 
 ## Why
 
-From Ashley's bounty: pinning + activating (and later unpinning + deactivating) is a two-tap sequence in the context menu today (Pin → Activate; Unpin → Deactivate). Ashley does this often enough that collapsing to a one-swipe motion per direction is a measurable UX win. Split cases (pin-without-activate, activate-without-pin) still work through the context menu at their existing one-tap cost — the context menu items were not touched.
+From Alice's bounty: pinning + activating (and later unpinning + deactivating) is a two-tap sequence in the context menu today (Pin → Activate; Unpin → Deactivate). Alice does this often enough that collapsing to a one-swipe motion per direction is a measurable UX win. Split cases (pin-without-activate, activate-without-pin) still work through the context menu at their existing one-tap cost — the context menu items were not touched.
 
 ## Files touched (implementation)
 

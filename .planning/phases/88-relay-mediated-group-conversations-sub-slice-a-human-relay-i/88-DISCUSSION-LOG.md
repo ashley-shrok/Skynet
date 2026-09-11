@@ -7,7 +7,7 @@
 **Phase:** 88-relay-mediated-group-conversations-sub-slice-a-human-relay-i
 **Areas discussed:** discovery-first vs skip, slice scope, provisioning failure mode, mxid shape, sanitizer approach, OIDC treatment, password handling, user-delete lifecycle, runtime token storage, legacy user treatment
 
-> **Note on the flow:** all substantive decisions for this phase were made during the `/open` conversation on the shape file (2026-09-08). `/gsd:discuss-phase` for phase 88 identified no additional gray areas — the shape file was thorough enough that the workflow's "skip assessment" applies. The log below captures the alternatives that were on the table during the `/open` conversation, one at a time, per Ashley's "slow and steady, one thing at a time" pacing request.
+> **Note on the flow:** all substantive decisions for this phase were made during the `/open` conversation on the shape file (2026-09-08). `/gsd:discuss-phase` for phase 88 identified no additional gray areas — the shape file was thorough enough that the workflow's "skip assessment" applies. The log below captures the alternatives that were on the table during the `/open` conversation, one at a time, per Alice's "slow and steady, one thing at a time" pacing request.
 
 ---
 
@@ -18,7 +18,7 @@
 | Run discovery pass | Have an agent audit the codebase first to establish what exists for per-user relay credentials before deciding shape | |
 | Skip discovery — already done | Codebase reading during shape conversation proved `users.mxid` is already first-class from Phase 75; the real gap is different (eager provisioning, not promotion) | ✓ |
 
-**User's choice:** Skip. Ashley agreed on the reframe once the shape of the actual gap (provisioning-at-create + backfill for legacy users) was laid out plainly.
+**User's choice:** Skip. Alice agreed on the reframe once the shape of the actual gap (provisioning-at-create + backfill for legacy users) was laid out plainly.
 **Notes:** The seed shape file's own "discovery-first" stance was written before the codebase had been read; the read (`users.mxid` column at schema.ts:40, Phase 75 comment; `matrix_admin_creds` singleton at schema.ts:698; `createOrUpdateUser` + `loginAsUser` primitives already exercised) invalidated the discovery-first premise.
 
 ---
@@ -52,11 +52,11 @@
 | Option | Description | Selected |
 |--------|-------------|----------|
 | Username-derived (`@ashley:server`) | Semantic + short; fragile if usernames ever rename (Matrix mxids are immutable on Synapse) | |
-| Opaque mxid + Matrix displayname carries semantics | Stable underlying id (e.g. `@u_<userId>:server`), rename-resilient; displayname (`Ashley`) shows in Element | |
-| Username-derived with `_human` suffix (`@ashley_human:server`), sanitized to Synapse localpart grammar | Semantically obvious, differentiates humans from agents in same namespace, accepts "no rename" as implicit invariant | ✓ |
+| Opaque mxid + Matrix displayname carries semantics | Stable underlying id (e.g. `@u_<userId>:server`), rename-resilient; displayname (`Alice`) shows in Element | |
+| Username-derived with `_human` suffix (`@alice_human:server`), sanitized to Synapse localpart grammar | Semantically obvious, differentiates humans from agents in same namespace, accepts "no rename" as implicit invariant | ✓ |
 
-**User's choice:** Username-derived with `_human` suffix. Verbatim: *"let's do '@ashley_human.taild9b663.ts.net' and username would have to be able to be converted to whatever synapse accepts for characters. on the other skynet instance, people may use their emails as usernames, so just want to call that out"*
-**Notes:** Ashley explicitly steered away from the opaque-mxid detour after being shown a concrete example. `_human` suffix invented in the same turn. Rename-fragility acknowledged as an implicit "usernames don't rename" invariant slice A relies on — noted in deferred ideas.
+**User's choice:** Username-derived with `_human` suffix. Verbatim: *"let's do '@alice_human.taild9b663.ts.net' and username would have to be able to be converted to whatever synapse accepts for characters. on the other skynet instance, people may use their emails as usernames, so just want to call that out"*
+**Notes:** Alice explicitly steered away from the opaque-mxid detour after being shown a concrete example. `_human` suffix invented in the same turn. Rename-fragility acknowledged as an implicit "usernames don't rename" invariant slice A relies on — noted in deferred ideas.
 
 ---
 
@@ -69,7 +69,7 @@
 | Trim to safe chars, append hash on collision | Pretty most of the time; order-dependent (which user signed up first) is nasty behavior | |
 
 **User's choice:** Bijective escape (`thumbs up` after Claude recommended it with explicit rejection of the other two options).
-**Notes:** Motivating case is T800 where users may sign in with corporate email addresses (Aither Health). The bijective mapping ensures `ashley@aitherhealth.com` becomes `@ashley_at_aitherhealth_dot_com_human:...` — verbose but readable and safe.
+**Notes:** Motivating case is T800 where users may sign in with corporate email addresses (Aither Health). The bijective mapping ensures `alice@example.com` becomes `@alice_at_example_dot_com_human:...` — verbose but readable and safe.
 
 ---
 
@@ -80,7 +80,7 @@
 | Wire mint-first provisioning into `registerOIDCUser` too | Cover both create paths; guarantee every user has an mxid regardless of auth mode | |
 | Defer OIDC treatment | Leave `registerOIDCUser` untouched; OIDC-authenticated users would land with mxid=null. Fine as long as nobody actually uses OIDC in either deployment | ✓ |
 
-**User's choice:** Defer. Ashley verbatim: *"I don't even know what OIDC is, and I never use it."* Confirmed after Claude verified OIDC IS wired live in code but explained it's speculative for either deployment.
+**User's choice:** Defer. Alice verbatim: *"I don't even know what OIDC is, and I never use it."* Confirmed after Claude verified OIDC IS wired live in code but explained it's speculative for either deployment.
 **Notes:** If OIDC ever goes live somewhere, slice A gets re-opened. Log-line grep will find any mxid=null users (if the invariant is violated by an OIDC signup) so it's not silent.
 
 ---
@@ -95,7 +95,7 @@
 | Passwordless / SSO on Matrix | Synapse supports it but complicated to wire | |
 
 **User's choice:** Discard. Verbatim (in response to Claude flagging the shift from schema comment): *"The only reason it says that human relay credentials are owned by the human is because for the few existing accounts that are out there already, some of them do, but that has nothing to do with how it's going to be treated normally from now forward."*
-**Notes:** Confirmed the schema comment is a legacy artifact reflecting how Ashley/Zoey/Laura got their accounts; go-forward is Skynet-mediated. Slice A also updates the schema comment as housekeeping.
+**Notes:** Confirmed the schema comment is a legacy artifact reflecting how Alice/Zoey/Laura got their accounts; go-forward is Skynet-mediated. Slice A also updates the schema comment as housekeeping.
 
 ---
 
@@ -108,7 +108,7 @@
 | Leave it alone | Skynet forgets mxid; Matrix account remains active as an orphan | |
 
 **User's choice:** Deactivate.
-**Notes:** Ashley added: *"I'm not sure that there is any path to deleting Skynet users right now."* — Claude verified two delete paths exist in code (`DELETE /users/delete-account` self-delete + `deleteUserAndRelatedData` admin+OIDC-merge helper). Both get wired for deactivation.
+**Notes:** Alice added: *"I'm not sure that there is any path to deleting Skynet users right now."* — Claude verified two delete paths exist in code (`DELETE /users/delete-account` self-delete + `deleteUserAndRelatedData` admin+OIDC-merge helper). Both get wired for deactivation.
 
 ---
 
@@ -136,7 +136,7 @@
 
 ---
 
-## Legacy users (Ashley, Zoey, Laura) — update mxids to `_human` suffix or leave alone
+## Legacy users (Alice, Zoey, Laura) — update mxids to `_human` suffix or leave alone
 
 | Option | Description | Selected |
 |--------|-------------|----------|
@@ -150,7 +150,7 @@
 
 ## Claude's Discretion
 
-The following were flagged as planner/researcher territory — not decisions Ashley needed to weigh in on:
+The following were flagged as planner/researcher territory — not decisions Alice needed to weigh in on:
 
 - Where the sanitizer helper file lives on disk.
 - Structure of the rollback path when a later create-flow step fails after mint succeeded (mirror existing avatar-unlink-plus-row-delete pattern with an added admin deactivation call).

@@ -8,7 +8,7 @@
 import { authApi } from "@/main-axios";
 
 /**
- * Fire-and-forget POST to /identity-send-log/stamp. Records that Ashley
+ * Fire-and-forget POST to /identity-send-log/stamp. Records that Alice
  * hit send toward `identityName` at `ts` (defaults to Date.now()). The
  * return value is void: callers MUST NOT await this, and error
  * propagation is fully suppressed. Any error — network, 4xx/5xx,

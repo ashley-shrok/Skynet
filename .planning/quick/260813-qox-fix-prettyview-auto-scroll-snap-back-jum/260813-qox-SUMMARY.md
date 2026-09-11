@@ -27,7 +27,7 @@ key-files:
     - src/ui/features/pretty-view/PrettyView.virtualization.test.tsx
     - .planning/phases/32-redesign-pretty-view-auto-scroll-three-case-sticky-bottom-ho/32-CONTEXT.md
 decisions:
-  - Splitting Case 2 into two effects (new-message signal keyed on messageCount + pill-only RO) is the structural fix Ashley greenlit over a narrow MEASUREMENT_DELTA_IGNORE_PX threshold-bump — it eliminates the conflation at the source rather than papering over the delta filter.
+  - Splitting Case 2 into two effects (new-message signal keyed on messageCount + pill-only RO) is the structural fix Alice greenlit over a narrow MEASUREMENT_DELTA_IGNORE_PX threshold-bump — it eliminates the conflation at the source rather than papering over the delta filter.
   - Preserved the RO + per-child + MutationObserver machinery in the pill-visibility effect (rather than dropping the RO entirely) because pill visibility must reflect ANY scrollHeight change while non-sticky — including tall-bubble re-measure while the user is scrolled up reading history.
   - New-message useEffect intentionally fires on mount (initial messageCount=0) — Case 1's paneKey effect already handles session-first-load stickying so a harmless second nudge here is acceptable and requires no guard.
   - Test 2b's manual capturedROCallbacks loop was removed (no longer needed to drive the follow) rather than kept as a no-op harmless-fire — under the new semantics the follow is driven by React commit of the messageCount dep change, and keeping the RO loop would misdirect future readers about where the primitive lives.
@@ -71,7 +71,7 @@ Two atomic commits on `feat/tab-title-from-tmux`:
   - NEW Test 2c (`tall-bubble re-measure while sticky — RO-only fire (no new message) does NOT trigger jumpToBottom`): mirrors Test 2b's fake-timer + rAF stub scaffold; bumps `geom.setScrollHeight(5800)` to simulate tall-bubble re-measure WITHOUT firing a WS frame; manually fires `capturedROCallbacks` to simulate the browser RO; asserts `geom.getScrollTop() === 5000` (NO auto-jump). This test would have FAILED against the pre-fix hook (RO would have yanked to 5800) and PASSES against the post-fix hook.
 
 - `.planning/phases/32-redesign-pretty-view-auto-scroll-three-case-sticky-bottom-ho/32-CONTEXT.md`:
-  - Append-only edit: new `## Post-ship correction (2026-08-13)` section at end of file with Symptom (Ashley quote), Root cause (RO conflated new-message vs re-measure, both failure modes explained), Structural fix (split into two effects; messageCount parameter), and "What is NOT re-litigated" (list of all LOCKED elements preserved verbatim). `git diff` confirms zero changes to L1-181 — pure additive correction.
+  - Append-only edit: new `## Post-ship correction (2026-08-13)` section at end of file with Symptom (Alice quote), Root cause (RO conflated new-message vs re-measure, both failure modes explained), Structural fix (split into two effects; messageCount parameter), and "What is NOT re-litigated" (list of all LOCKED elements preserved verbatim). `git diff` confirms zero changes to L1-181 — pure additive correction.
 
 ## Verification
 
@@ -89,7 +89,7 @@ Two atomic commits on `feat/tab-title-from-tmux`:
 
 The new Test 2c is the invariant witness for the correction:
 
-- **Pre-fix hook**: mount at scrollTop=5000, sticky=true; simulate tall-bubble re-measure by bumping scrollHeight to 5800 and firing RO callbacks; RO callback checks `stickyRef.current` (true) and `!shrunk` (5800 > 5000) → calls `jumpToBottom(scrollEl)` → scrollTop yanks to 5800 → **test FAILS** (matches Ashley's report).
+- **Pre-fix hook**: mount at scrollTop=5000, sticky=true; simulate tall-bubble re-measure by bumping scrollHeight to 5800 and firing RO callbacks; RO callback checks `stickyRef.current` (true) and `!shrunk` (5800 > 5000) → calls `jumpToBottom(scrollEl)` → scrollTop yanks to 5800 → **test FAILS** (matches Alice's report).
 - **Post-fix hook**: same setup; RO callback body is `setIsPinnedToBottom(dist <= BOTTOM_THRESHOLD)` — no `jumpToBottom` call anywhere in the RO path; new-message useEffect did not fire because messageCount is unchanged → scrollTop stays at 5000 → **test PASSES**.
 
 ## Deviations from Plan

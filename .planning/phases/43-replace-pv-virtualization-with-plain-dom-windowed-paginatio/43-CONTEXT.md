@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-08-18
 **Status:** Ready for planning
-**Source:** Design conversation between Ashley + Tina 2026-08-18 (this session) — decisions locked below. Two pre-plan backend research questions answered before context was frozen (see `<canonical_refs>` for the file evidence).
+**Source:** Design conversation between Alice + Tina 2026-08-18 (this session) — decisions locked below. Two pre-plan backend research questions answered before context was frozen (see `<canonical_refs>` for the file evidence).
 
 <domain>
 ## Phase Boundary
@@ -22,15 +22,15 @@ This phase does NOT change what a message bubble looks like, does NOT change par
 
 ### Architecture — the escape from estimate-and-correct
 
-- **Delete TanStack Virtual entirely from PrettyView.tsx.** The message list becomes a plain-DOM scroller. Messages render as normal children of a scrollable div; heights are what the browser measures. Ashley 2026-08-18 verbatim: *"I really feel like a solution where we don't virtualize but instead load as the user scrolls up would be most of what we need because we don't have to care about heights then."*
+- **Delete TanStack Virtual entirely from PrettyView.tsx.** The message list becomes a plain-DOM scroller. Messages render as normal children of a scrollable div; heights are what the browser measures. Alice 2026-08-18 verbatim: *"I really feel like a solution where we don't virtualize but instead load as the user scrolls up would be most of what we need because we don't have to care about heights then."*
 - **`overflow-anchor: auto` is load-bearing.** It's browser default; the plan MUST verify no CSS anywhere in the PrettyView tree disables it (`overflow-anchor: none`). This is what preserves visible content when older messages are prepended, when images load and grow their bubbles, and when code blocks re-layout on width changes.
 - **The virt-jitter class of bugs disappears by construction.** No estimate-then-correct. No RO firing on ambiguous signals. No scroll-adjustment writes competing with user scrolls. If the plan verifies the plain-DOM path renders correctly at the load-older prepend seam, the pattern is done.
 
 ### Working set — sizes are DESIGN DECISIONS for the planner to lock
 
-- **Initial window size `N` (last N messages loaded on connect):** planner picks with rationale. Starting point: 50. Threshold: enough to cover the visible viewport plus a few screens of scroll-back so the load-older fetch isn't triggered on trivial scrolls. Ashley did not specify a hard number — planner call.
-- **Working-set cap `M` (max messages held in DOM at once):** planner picks with rationale. Starting point: 150. Threshold: high enough that a single-session-worth of talking doesn't hit it frequently, low enough that plain-DOM cost stays bounded. Ashley did not specify a hard number — planner call.
-- **Drop policy: drop from the OLDEST end when live-append pushes past cap.** Live tail always keeps the newest messages; oldest fall off. Ashley's framing: *"they'll probably never scroll back up that far. But then on sessions where... they accumulate the whole 200 messages during that client session and in that case that would start to become a problem except they're probably not scrolling back up a lot so we just drop the old messages as they go."*
+- **Initial window size `N` (last N messages loaded on connect):** planner picks with rationale. Starting point: 50. Threshold: enough to cover the visible viewport plus a few screens of scroll-back so the load-older fetch isn't triggered on trivial scrolls. Alice did not specify a hard number — planner call.
+- **Working-set cap `M` (max messages held in DOM at once):** planner picks with rationale. Starting point: 150. Threshold: high enough that a single-session-worth of talking doesn't hit it frequently, low enough that plain-DOM cost stays bounded. Alice did not specify a hard number — planner call.
+- **Drop policy: drop from the OLDEST end when live-append pushes past cap.** Live tail always keeps the newest messages; oldest fall off. Alice's framing: *"they'll probably never scroll back up that far. But then on sessions where... they accumulate the whole 200 messages during that client session and in that case that would start to become a problem except they're probably not scrolling back up a lot so we just drop the old messages as they go."*
 - **Refetch dropped range on scroll-back:** if the user scrolls to the top of the loaded window and the window's oldest message is NOT the file's line 1, fire a fetch_older to pull the previous batch and prepend.
 - **Refetch batch size `K` (how many messages per fetch_older request):** planner picks. Reasonable default: same as N (so scroll-back feels like "load another screen"). Planner call.
 
@@ -58,11 +58,11 @@ This phase does NOT change what a message bubble looks like, does NOT change par
 - **Fetch trigger: near-top scroll.** When user scrolls within ~500px of the top of the loaded window AND older messages exist (i.e., the oldest loaded message isn't the file's first message), fire the fetch. Debounce so a fast flick-scroll doesn't fire multiple parallel fetches. Planner: pick threshold + debounce window.
 - **Fetch failure handling:** if the WS request fails or times out, log and leave the scroll where it is. Do NOT retry infinitely. User can scroll back down and up again to re-trigger. This is a rare edge case; keep it dumb.
 
-### Accepted tradeoffs (Ashley + Tina 2026-08-18)
+### Accepted tradeoffs (Alice + Tina 2026-08-18)
 
-- **Browser find-in-page (⌘F) searches loaded window only.** Same behavior as iMessage / most modern chat clients. Ashley already accepted this in Phase 27 CONTEXT.md verbatim: *"I don't really care about losing that functionality."* No in-app search sibling bounty required.
-- **Load-older adds a round-trip on scroll-back past the window.** User perceptible on slow connections. Ashley framing: *"they'll probably never scroll back up that far."* Load-older is expected to be uncommon, not routine.
-- **Refetch of dropped ranges is not free.** If the working set has cycled and the user scrolls back past everything currently loaded, we re-tail the JSONL for that range. Cheap on disk (single-digit ms typical for a few-KB range on this box), plus WS round-trip. Acceptable for the pattern Ashley described.
+- **Browser find-in-page (⌘F) searches loaded window only.** Same behavior as iMessage / most modern chat clients. Alice already accepted this in Phase 27 CONTEXT.md verbatim: *"I don't really care about losing that functionality."* No in-app search sibling bounty required.
+- **Load-older adds a round-trip on scroll-back past the window.** User perceptible on slow connections. Alice framing: *"they'll probably never scroll back up that far."* Load-older is expected to be uncommon, not routine.
+- **Refetch of dropped ranges is not free.** If the working set has cycled and the user scrolls back past everything currently loaded, we re-tail the JSONL for that range. Cheap on disk (single-digit ms typical for a few-KB range on this box), plus WS round-trip. Acceptable for the pattern Alice described.
 - **This phase does NOT solve very-long-session memory growth on the SERVER side.** The server still tails the whole JSONL for its observation channel. That's a separate concern (out of scope; JSONL files are typically <10 MB in practice; observation-channel derivations don't accumulate state proportional to line count).
 
 ### Deletion scope
@@ -88,7 +88,7 @@ This phase does NOT change what a message bubble looks like, does NOT change par
 
 ### Design conversation (authoritative — this session)
 
-- Ashley + Tina 2026-08-18 conversation locked the direction. Ashley's verbatim: *"I really feel like a solution where we don't virtualize but instead load as the user scrolls up would be most of what we need because we don't have to care about heights then. And most of the time, if you load in the last X messages, it would be enough for anything that you're doing in that session. and we could even drop old message bubbles if a session was long lived enough on the client meaning like it's easy to talk about a conversation where there are 200 back and forth messages but the user comes in on a fresh client clicks on that session and then you know we only load in a handful of recent messages, and they keep going because they'll probably never scroll back up that far. But then on sessions where, let's say it was a new conversation started on that client during that client session, and they talk to that conversation long enough where they accumulate the whole 200 messages during that client session and in that case that would start to become a problem except they're probably not scrolling back up a lot so we just drop the old messages as they go."*
+- Alice + Tina 2026-08-18 conversation locked the direction. Alice's verbatim: *"I really feel like a solution where we don't virtualize but instead load as the user scrolls up would be most of what we need because we don't have to care about heights then. And most of the time, if you load in the last X messages, it would be enough for anything that you're doing in that session. and we could even drop old message bubbles if a session was long lived enough on the client meaning like it's easy to talk about a conversation where there are 200 back and forth messages but the user comes in on a fresh client clicks on that session and then you know we only load in a handful of recent messages, and they keep going because they'll probably never scroll back up that far. But then on sessions where, let's say it was a new conversation started on that client during that client session, and they talk to that conversation long enough where they accumulate the whole 200 messages during that client session and in that case that would start to become a problem except they're probably not scrolling back up a lot so we just drop the old messages as they go."*
 - Bounty: `~/.claude/roles/box-maintainer/bounties/replace-pv-virtualization-with-windowed-pagination/bounty.json` — captures the same design + pre-plan backend research answers.
 
 ### Live backend code (must read before planning backend contract additions)
@@ -123,7 +123,7 @@ This phase does NOT change what a message bubble looks like, does NOT change par
 
 ### CSS + browser-behavior reference
 
-- `overflow-anchor` (browser default `auto`): plan-phase MUST verify no CSS in PrettyView subtree sets `overflow-anchor: none`. Widespread but not universal browser support caveat: Safari added support in 2023 (all versions since Safari 17 have it enabled by default). No fallback path needed for the fleet's target platforms (Ashley: iOS Safari PWA on modern iPhone, Chrome/Firefox on modern desktop).
+- `overflow-anchor` (browser default `auto`): plan-phase MUST verify no CSS in PrettyView subtree sets `overflow-anchor: none`. Widespread but not universal browser support caveat: Safari added support in 2023 (all versions since Safari 17 have it enabled by default). No fallback path needed for the fleet's target platforms (Alice: iOS Safari PWA on modern iPhone, Chrome/Firefox on modern desktop).
 
 </canonical_refs>
 
@@ -144,14 +144,14 @@ This phase does NOT change what a message bubble looks like, does NOT change par
 
 Explicit deferrals (worth naming so the planner doesn't get pulled in):
 
-- **In-app message search** to compensate for ⌘F on unloaded messages. Ashley already declined this in Phase 27. Not a follow-up bounty.
+- **In-app message search** to compensate for ⌘F on unloaded messages. Alice already declined this in Phase 27. Not a follow-up bounty.
 - **Server-side pagination optimization** — reading line ranges by seeking to file offsets rather than re-tailing from line 1. Present approach (sed/awk range read) is fine at fleet scales; revisit only if profiling shows it as a hotspot.
 - **Persistent scroll position across page reloads.** Currently scroll resets on cold load. Not touched in this phase; if desired later, add a per-session-key localStorage bookmark.
 - **Streaming token-by-token bubble growth.** Skynet doesn't do this today (whole assistant turns land atomically as one JSONL line). Phase 43's plain-DOM scroller would handle it fine via `overflow-anchor` if we ever added it — no code changes required.
 
 Out of scope entirely (rejected):
 
-- Keeping virtualization for very long conversations as a hybrid. Ashley wants virt gone. If plain-DOM cost ever becomes a real user-observable problem at high message counts (it won't at cap 150), we revisit — but not by re-adding virt.
+- Keeping virtualization for very long conversations as a hybrid. Alice wants virt gone. If plain-DOM cost ever becomes a real user-observable problem at high message counts (it won't at cap 150), we revisit — but not by re-adding virt.
 - Any change to the observation channel (context-%, plan-pending, backgroundedAgents/Shells, id-reset). Not this phase.
 - Any change to wire-frame shapes for existing emission types. Not this phase.
 - Any change to PrettyView bubble components. Not this phase.
@@ -192,4 +192,4 @@ Out of scope entirely (rejected):
 ---
 
 *Phase: 43-replace-pv-virtualization-with-plain-dom-windowed-paginatio*
-*Context gathered: 2026-08-18 via design conversation between Ashley + Tina; two pre-plan backend research questions answered before context freeze.*
+*Context gathered: 2026-08-18 via design conversation between Alice + Tina; two pre-plan backend research questions answered before context freeze.*

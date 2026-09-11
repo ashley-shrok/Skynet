@@ -60,10 +60,10 @@ Tasks 1 and 2 executed autonomously in worktree and committed atomically. Task 3
 - `doc` ✓ orchestrator-authored SKILL.md paragraph reads coherent, states Skynet admin role + preserves existing self-register path + notes humans stay externally-owned
 
 **Write actions (against deployed Skynet post-ship):**
-- Ashley provided admin JWT cookie via /pretty-view file upload (`113814-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.txt`)
-- User-id lookup via `GET /users/list`: `ashley = JqbJ5OmBQhQ-TGQRkHF3o`, `zoey = pcW9dfHqIw8aNU8k_Iz5A`
+- Alice provided admin JWT cookie via /pretty-view file upload (`113814-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.txt`)
+- User-id lookup via `GET /users/list`: `alice = JqbJ5OmBQhQ-TGQRkHF3o`, `zoey = pcW9dfHqIw8aNU8k_Iz5A`
 - `POST /matrix-admin/creds` ingestion → `{"ok":true, "mxid":"@skynet-admin:...", "rotation":false}`, verified via `GET /matrix-admin/creds` returning `{"present":true, "mxid":"@skynet-admin:...", "homeserverBase":"http://100.113.23.63:8008"}`
-- `POST /users/JqbJ5OmBQhQ-TGQRkHF3o/mxid` (ashley → `@ashley:thenasty.taild9b663.ts.net`) → `{"ok":true}`
+- `POST /users/JqbJ5OmBQhQ-TGQRkHF3o/mxid` (alice → `@ashley:thenasty.taild9b663.ts.net`) → `{"ok":true}`
 - `POST /users/pcW9dfHqIw8aNU8k_Iz5A/mxid` (zoey → `@zoey:thenasty.taild9b663.ts.net`) → `{"ok":true}`
 - Audit trail landed in `docker logs skynet`: `matrix_admin_creds_ingest` + 2× `mxid_register` log lines with adminId/targetUserId/mxid
 - credentials.txt shredded from bounty folder post-ingestion (creds now live only in Skynet's encrypted-secrets store)
@@ -170,7 +170,7 @@ Inserted between the opening infrastructure paragraph (ending at "each is one HT
 
 ## Task 3 — CHECKPOINT (PENDING human resolution)
 
-Task 3 is a `checkpoint:human-verify` gate that combines four read-only verifications (integration test green, Synapse reachable, matrix_admin_creds row present, doc coherent) with one WRITE action (three-user mxid import for Ashley/Zoe/Laura against production DB). Per W-4 in the plan, the operator provides per-step status rather than a single blanket approval.
+Task 3 is a `checkpoint:human-verify` gate that combines four read-only verifications (integration test green, Synapse reachable, matrix_admin_creds row present, doc coherent) with one WRITE action (three-user mxid import for Alice/Zoe/Laura against production DB). Per W-4 in the plan, the operator provides per-step status rather than a single blanket approval.
 
 **Operator actions required — see plan.md § Task 3 for the exact commands:**
 
@@ -178,7 +178,7 @@ Task 3 is a `checkpoint:human-verify` gate that combines four read-only verifica
 2. **synapse-reach** — Confirm `curl -sSf http://100.113.23.63:8008/_synapse/admin/v1/server_version` returns `{"server_version":"1.157.2"}` (or newer).
 3. **creds-present** — Confirm the singleton row: `sqlite3 <skynet.db> "SELECT id, user_id, homeserver_base FROM matrix_admin_creds"` returns one row with id=1 and user_id="@skynet-admin:...". This requires the operator to have first run the one-shot ingestion via `setMatrixAdminCreds({...})` (from `~/.claude/roles/box-maintainer/bounties/skynet-matrix-admin-integration/credentials.txt`).
 4. **doc** — Manually read `substrate/skills/agent-relay/SKILL.md` around the new paragraph and confirm it reads coherently and does not contradict the existing register-yourself docs or mention Phase B.
-5. **mxid-import (WRITE)** — Three admin-gated `POST /users/<id>/mxid` calls for Ashley, Zoe, Laura. Verify `sqlite3 skynet.db "SELECT id, username, mxid FROM users WHERE mxid IS NOT NULL"` returns three rows.
+5. **mxid-import (WRITE)** — Three admin-gated `POST /users/<id>/mxid` calls for Alice, Zoe, Laura. Verify `sqlite3 skynet.db "SELECT id, username, mxid FROM users WHERE mxid IS NOT NULL"` returns three rows.
 6. **smoke (optional)** — Manually invoke the birth endpoint against a throwaway test agent to confirm the 1-8 step sequence lands a working relay.json with mode 0600.
 
 **Resume-signal format (verbatim from plan):**
@@ -251,7 +251,7 @@ The Wave 3 human-verify checkpoint (Task 3) requires:
 1. **@skynet-admin credential ingestion** — a one-shot REPL call to `setMatrixAdminCreds({ homeserverBase, userId, accessToken, password })` populating the singleton row from values parked in `~/.claude/roles/box-maintainer/bounties/skynet-matrix-admin-integration/credentials.txt`. Without this, Task 3's "integration" and "creds-present" verifications both fail.
 2. **`INTEGRATION_TESTS=1`** environment variable set in the shell before running the integration test suite (strict equality per S-2).
 3. **Synapse reachability** — the running Skynet backend host (t1000) must be on the tailnet and able to reach `100.113.23.63:8008`.
-4. **Three admin-gated POST calls** — for the mxid-import write step (Ashley, Zoe, Laura) with the admin JWT cookie present.
+4. **Three admin-gated POST calls** — for the mxid-import write step (Alice, Zoe, Laura) with the admin JWT cookie present.
 
 ## Next Phase Readiness
 

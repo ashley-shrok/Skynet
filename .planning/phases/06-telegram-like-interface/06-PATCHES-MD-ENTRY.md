@@ -1,6 +1,6 @@
 # Phase 6 skynet-patches.md entry — DRAFT for pin time
 
-**Instructions for Ashley at pin time:**
+**Instructions for Alice at pin time:**
 
 1. Assign the patch number — likely **`NNN. = 105.`** (check via `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/skynet-patches.md | tail -3` — if an interstitial pin landed since Phase 5, bump to the next available integer).
 2. Paste the entry BELOW (from the "```105.…```" fenced block) into `~/.claude/identities/tina/skynet-patches.md` at the appropriate ordinal position (immediately after patch #104 — Phase 5 file uploads).
@@ -46,7 +46,7 @@ Plus 5 planning-artifact commits (`docs(06-01)` through `docs(06-05)`) — those
 
         * **Motivation** (from shape file). Skynet has been drifting
           toward Telegram-shape for months (pretty view, expanding
-          sidebar, mobile-bottom-nav gate). Ashley uses it like a chat
+          sidebar, mobile-bottom-nav gate). Alice uses it like a chat
           client to talk to agents on remote boxes, not like a tab
           manager. This work names the drift and completes it — deletes
           the tab strip, collapses the mental model into "conversations,"
@@ -61,7 +61,7 @@ Plus 5 planning-artifact commits (`docs(06-01)` through `docs(06-05)`) — those
           grouped}` view from AppShell's live `tabs` + `realHostTree`.
           Order below pins is the existing sidebar host-tree order (no
           new sort rule, no recency shuffle — "the way it currently
-          works is fine" — Ashley 2026-07-21). Pins are per-session;
+          works is fine" — Alice 2026-07-21). Pins are per-session;
           session-end clears pin along with the row. Single-select via
           `selectedId` with stale-pointer defense (T-06-01-01 — coerces
           to null when the id is no longer in tabs). No localStorage /
@@ -190,8 +190,8 @@ Plus 5 planning-artifact commits (`docs(06-01)` through `docs(06-05)`) — those
 
         * **What we DIDN'T do** (deferred-to-v2 per shape lock):
           - Any activity/unread signal (dots, badges, counts, motion,
-            sound) — Ashley 2026-07-21 "we can save it for version two"
-          - Cross-conversation search — Ashley "I don't need it" — OUT
+            sound) — Alice 2026-07-21 "we can save it for version two"
+          - Cross-conversation search — Alice "I don't need it" — OUT
             entirely, not v2
           - Folder / nested-grouping above host separators — OUT
           - Drag-to-reorder for pins — OUT (simple pin-toggle only)
@@ -201,11 +201,11 @@ Plus 5 planning-artifact commits (`docs(06-01)` through `docs(06-05)`) — those
             OUT (in-memory only)
           - Auto-restoring "last set of open conversations" — OUT
           - A per-session view toggle to flip pretty view to raw
-            terminal on mobile — Ashley "I don't need something on
+            terminal on mobile — Alice "I don't need something on
             mobile to access the underlying session"
           - Keyboard tab-nav refinement (Ctrl+Shift+[/] still cycles
             all tabs including singletons) — deferred to a future
-            bounty per plan-check NOTE-06; Ashley rarely uses this per
+            bounty per plan-check NOTE-06; Alice rarely uses this per
             user-profile inference
 
         * **Verify post-deploy invariants** (for future rebase smoke
@@ -341,17 +341,17 @@ Plus 5 planning-artifact commits (`docs(06-01)` through `docs(06-05)`) — those
           files reappear upstream** — `git rm` them again.
 
         * **Deploy note**: shipped behind the mandatory 15-min deadman
-          per Ashley 2026-07-03 with explicit per-deploy green light
-          per Ashley 2026-07-12 (see `deploy-runbook.md` under Tina's
+          per Alice 2026-07-03 with explicit per-deploy green light
+          per Alice 2026-07-12 (see `deploy-runbook.md` under Tina's
           identity — "DEADMAN IS MANDATORY. NO EXCEPTIONS" + "BLANKET
           PRE-AUTHORIZATION ≠ PER-DEPLOY GREEN LIGHT"). This is a
           **substantial user-visible change** — the tab strip and
           mobile bottom nav are gone; the primary navigation model
           is different from every prior fork state. The deadman +
-          narrow-`pkill` disarm-on-Ashley-engagement pattern is
+          narrow-`pkill` disarm-on-user-engagement pattern is
           especially important here. Deploy sequence in the
           canonical runbook step 1-9 (arm before container recreate,
-          disarm on Ashley's UAT green, let fire on failure). Zero
+          disarm on Alice's UAT green, let fire on failure). Zero
           new npm dependencies (`git diff --stat package.json
           package-lock.json` = empty). Zero new nginx location
           blocks (Phase 6 is frontend-only; no backend routes added).

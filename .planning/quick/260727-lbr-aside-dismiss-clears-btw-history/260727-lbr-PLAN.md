@@ -153,7 +153,7 @@ Output:
            // subsequent aside answers (the model self-references prior "please
            // explain" turns from earlier asides). Sending this key first gives every
            // new aside a clean slate. Lowercase `x` per the overlay's clear-history
-           // keybinding (Ashley 2026-07-27). If UAT reveals a different key (e.g.
+           // keybinding (Alice 2026-07-27). If UAT reveals a different key (e.g.
            // `c`, `Ctrl+L`), change this constant only — the two-keystroke shape
            // stays the same.
            export const BTW_CLEAR_HISTORY_KEY = "x";
@@ -304,7 +304,7 @@ Backend keystroke sequence change verified by:
    BOTH-STEPS rule for peer state coherence.
 3. `grep -rn "sendEscapeToBtw" src/` returns zero — the old name is fully retired.
 
-Manual UAT (post-merge, not gated by this plan): Ashley opens an aside in a Claude Code
+Manual UAT (post-merge, not gated by this plan): Alice opens an aside in a Claude Code
 pane, closes it, opens a second aside on a different topic, and confirms the second
 aside answer no longer self-references the first. If the wrong key was chosen (overlay
 did NOT clear), flip `BTW_CLEAR_HISTORY_KEY` from `"x"` to the correct key — single-line

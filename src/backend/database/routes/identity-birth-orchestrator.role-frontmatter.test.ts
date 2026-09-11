@@ -2,7 +2,7 @@
  * Phase 22 (SRIC-02) Plan 22-02 Task 3: Tests for the role: frontmatter
  * pre-write branch (Step 2.5) in identity-birth-orchestrator.
  *
- * REVISION 2026-08-04 (Ashley, during Task 2 checkpoint): B4b(a) resolution
+ * REVISION 2026-08-04 (Alice, during Task 2 checkpoint): B4b(a) resolution
  * is APPROVED but the relay-register work is SHIFTED OUT of Skynet's birth
  * orchestrator and into the fresh agent's own first-wake flow. Step 2.5
  * now writes ONLY:
@@ -291,7 +291,7 @@ it("Test 12: writeMarkdownFileAtomic invoked with target path + role: frontmatte
   //  parity invariant.)
   expect(contents).toMatch(/^---\r?\nrole: box-maintainer\r?\n/);
 
-  // Seed comment assertions — required exact phrases per Ashley's constraints:
+  // Seed comment assertions — required exact phrases per Alice's constraints:
   expect(contents).toContain("This identity has no relay account yet");
   expect(contents).toContain("On first wake");
   expect(contents).toContain("register a Matrix relay account");

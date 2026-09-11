@@ -35,7 +35,7 @@ Phase A of the id-skill-revamp build (see shape file "Vehicle notes" for the thr
 - User-facing manual archive UI (deferred as "maybe later").
 - In-UI human editability of the task field after creation (deferred; manual on-disk edit is the escape hatch).
 - Coordinator picker changes (known future problem, kept as-is).
-- Role-management UI (Ashley's separate future work).
+- Role-management UI (Alice's separate future work).
 - Renaming existing maintainer identities to pool names (no forced migration).
 - Palette-per-role or family-avatar-per-role.
 
@@ -45,7 +45,7 @@ Phase A of the id-skill-revamp build (see shape file "Vehicle notes" for the thr
 ## Implementation Decisions
 
 ### Pool storage mechanism
-- **D-01:** Vetted-pool storage is a **JSON file in the Skynet repo**, checked in at deploy time, loaded on boot. Simplest path; matches how other seeded lists live. Rejected alternatives: DB table + migration (harder to update, needs migration for every pool tweak), config value from branding-config (wrong layer — pool is universal, branding-config is per-instance aesthetic). The vetted list itself is being finalized by Ashley in parallel (~1800 candidate names → vetted subset); Phase 80 ships with **whatever vetted list is landed by ship time**. Coordination gate at ship, not at plan.
+- **D-01:** Vetted-pool storage is a **JSON file in the Skynet repo**, checked in at deploy time, loaded on boot. Simplest path; matches how other seeded lists live. Rejected alternatives: DB table + migration (harder to update, needs migration for every pool tweak), config value from branding-config (wrong layer — pool is universal, branding-config is per-instance aesthetic). The vetted list itself is being finalized by Alice in parallel (~1800 candidate names → vetted subset); Phase 80 ships with **whatever vetted list is landed by ship time**. Coordination gate at ship, not at plan.
 
 ### Task pill visual family (chat surface)
 - **D-02:** Task pill uses the **same glass treatment as the identity badge, hue-tinted from the identity's colorHue** (per-identity today, per-role post-Phase-B). Pill visually belongs to the identity badge family — feels like "this identity's current task, wearing this identity's face." Rejected alternative: neutral pv-cream typographic treatment agnostic of colorHue. Rationale: cohesion with the badge; hue tint keeps the pill visually keyed to the identity even though it sits detached in the top-bar center.
@@ -76,7 +76,7 @@ Phase A of the id-skill-revamp build (see shape file "Vehicle notes" for the thr
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Primary shape (READ FIRST)
-- `~/.claude/roles/box-maintainer/bounties/id-skill-revamp/shape-id-skill-revamp.md` — the greenlit shape produced by `/open`. Every scope decision, philosophy note, "what would make it wrong" concern, and scope-edge call in this phase traces to this document. Ashley confirmed settled 2026-09-06.
+- `~/.claude/roles/box-maintainer/bounties/id-skill-revamp/shape-id-skill-revamp.md` — the greenlit shape produced by `/open`. Every scope decision, philosophy note, "what would make it wrong" concern, and scope-edge call in this phase traces to this document. Alice confirmed settled 2026-09-06.
 
 ### Dependency phase (registration primitive)
 - `.planning/phases/77-telegram-bridge-phase-a-skynet-matrix-admin-integration-foun/77-CONTEXT.md` — the shipped Phase 77 introducing the identity-birth-orchestrator (matrixCreateOrUpdateUser + matrixLoginAsUser + relay.json write via SFTP + partial-failure retry). Phase 80 wires into this; do not duplicate.
@@ -133,10 +133,10 @@ Phase A of the id-skill-revamp build (see shape file "Vehicle notes" for the thr
 ## Specific Ideas
 
 - **Task pill hue-tint = identity's colorHue** (D-02). During Phase A colorHue is still per-identity in the frontmatter; Phase B moves it to the role. Phase A's implementation reads colorHue from wherever it currently lives; no coordination with Phase B needed — the code path is the same read.
-- **Pool name examples (illustrative, not the actual vetted list):** Willow, Cinder, Aster, Vega, Onyx, Sable, Fig — single-word, evocative, memorable. The actual pool is Ashley's vetted subset of ~1800 candidates; Phase 80 ships with whatever is landed at ship time.
+- **Pool name examples (illustrative, not the actual vetted list):** Willow, Cinder, Aster, Vega, Onyx, Sable, Fig — single-word, evocative, memorable. The actual pool is Alice's vetted subset of ~1800 candidates; Phase 80 ships with whatever is landed at ship time.
 - **Relay-account handle format:** `<PoolName>-<Role>` first use bare (e.g., `Willow-Skynet-Maintainer`), serial ordinal on reuse (`Willow-Skynet-Maintainer-2`, `-3`, ...). Casing: PascalCase for the pool name, hyphenated Role name — planner may adjust to match existing Matrix account conventions on the fleet.
 - **Task-string coord derivation** (out of Phase 80 scope, but the character-limit tuning must accommodate what coord will produce): aim for 15-20 words max, first ~6 words carrying row-scanning weight. Phase 80's character limit lands compatible with this.
-- **AI-generated conversation subtitle drops entirely** — not relocated to another position. Sketchy in that a small amount of information disappears (short summary of what the identity has been doing), but Ashley greenlit the drop; do not "quietly preserve" it in a tooltip or side panel.
+- **AI-generated conversation subtitle drops entirely** — not relocated to another position. Sketchy in that a small amount of information disappears (short summary of what the identity has been doing), but Alice greenlit the drop; do not "quietly preserve" it in a tooltip or side panel.
 
 </specifics>
 

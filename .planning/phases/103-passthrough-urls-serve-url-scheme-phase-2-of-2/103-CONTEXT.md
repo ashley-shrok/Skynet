@@ -80,7 +80,7 @@ The shape file's `## Phase 2 locked decisions` section at `.planning/shapes/shap
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Shape + R&D (LOAD-BEARING — read first)
-- `.planning/shapes/shape-skynet-passthrough-urls.md` — the two-phase shape agreed with Ashley 2026-09-05, plus the **Phase 2 locked decisions** section at end (added 2026-09-10 post-`/open`) that captures the resolved Q1-Q6 detail this CONTEXT.md summarizes. THIS SECTION IS THE PRIMARY SOURCE OF TRUTH for Phase 103 decisions.
+- `.planning/shapes/shape-skynet-passthrough-urls.md` — the two-phase shape agreed with Alice 2026-09-05, plus the **Phase 2 locked decisions** section at end (added 2026-09-10 post-`/open`) that captures the resolved Q1-Q6 detail this CONTEXT.md summarizes. THIS SECTION IS THE PRIMARY SOURCE OF TRUTH for Phase 103 decisions.
 - `~/.claude/roles/box-maintainer/bounties/archive/skynet-passthrough-urls-rd/findings-summary.md` — R&D findings (7 POCs, gotcha catalog, cross-account AssumeRole proof, real cert issuance walk-through). Read for: implementation-item breakdown at "Inputs to phase 2 plan (serve URL)"; the 5 GOTCHAs (esp. GOTCHA 1 permessage-deflate stripping); the Caddy + Route 53 build recipe; the AWS SDK profile config that Caddy container needs; the exact IAM inline policy JSON.
 - `~/.claude/roles/box-maintainer/bounties/archive/skynet-passthrough-urls-rd/poc/` — reference POC code, esp. `proxy-full-stack.mjs` (POC 6: subdomain vhost + SSH tunnel + per-target-cached proxy + extension-strip WS fix) and `caddy-r53/Dockerfile` + `caddy-r53/Caddyfile.sample`.
 
@@ -109,7 +109,7 @@ The shape file's `## Phase 2 locked decisions` section at `.planning/shapes/shap
 - `~/.claude/roles/box-maintainer/box-maintainer.md` — standing directives section. Especially:
   - **Container mutations serialize** — coord-room BEFORE + AFTER posts, dormancy check.
   - **Test discipline** — scoped during dev, full suite as first step of deploy motion (not before push).
-  - **Deploy boundary at `git push`** — commit + scoped-green ok autonomously; `git push` needs fresh per-push greenlight from Ashley.
+  - **Deploy boundary at `git push`** — commit + scoped-green ok autonomously; `git push` needs fresh per-push greenlight from Alice.
   - **Full suite ship gate** — `npx vitest run` (no scope) + `npx playwright test tests/e2e/smoke.spec.ts --project=chromium` — both exit 0.
   - **After container restart, tail docker logs and understand every line** — startup-line spot check.
 
@@ -157,13 +157,13 @@ The shape file's `## Phase 2 locked decisions` section at `.planning/shapes/shap
 
 - **First-class "Apps" concept in Skynet** — persistent, Skynet-managed apps as their own feature (not tied to specific identity), Bun/SQLite stack (per Stacy's app-stack skill), Apps panel UI, droppable into the split-view shell alongside chats, own sharing model (fork vs share instance). Cross-user "share my agent-built app with another user" belongs to THIS concept, NOT to serve URL. Whole shape file worth of design conversation eventually. Bounty `first-class-agent-apps-in-skynet` to open at end of tabitha's session 2026-09-10.
 
-- **Custom visual affordance for BOTH file URLs and serve URLs in the chat surface** — Phase 78 file URLs currently get the pencil-edit affordance (function-specific); Phase 103 serve URLs will land as plain clickable links per D-29. The CUSTOM RENDER work (icon, preview card, "live app" indicator, distinguishing Skynet-proxied URLs from random web links, whatever design lands) becomes its own shape after Ashley tastes options. Not tacked onto Phase 103. Bounty `serve-and-file-url-visual-affordances` to open at end of tabitha's session 2026-09-10.
+- **Custom visual affordance for BOTH file URLs and serve URLs in the chat surface** — Phase 78 file URLs currently get the pencil-edit affordance (function-specific); Phase 103 serve URLs will land as plain clickable links per D-29. The CUSTOM RENDER work (icon, preview card, "live app" indicator, distinguishing Skynet-proxied URLs from random web links, whatever design lands) becomes its own shape after Alice tastes options. Not tacked onto Phase 103. Bounty `serve-and-file-url-visual-affordances` to open at end of tabitha's session 2026-09-10.
 
 - **Per-URL revocation / rate-limiting / custom headers / request-body inspection on serve URLs** — deferred per shape file scope edges. Add if a real need surfaces after shipping. Not Phase 103.
 
 - **Skynet-side dashboard showing "which serve URLs are live right now"** — deferred per shape file scope edges. URLs are ephemeral by nature; no state to display.
 
-- **Per-user disambiguation UX for the (rare) case where a user owns two hosts with the same name** — Phase 103 first-match-wins with a warning-logged event (per D-17 with Ashley's Q5 discussion). If it ever bites in practice, add richer disambiguation then.
+- **Per-user disambiguation UX for the (rare) case where a user owns two hosts with the same name** — Phase 103 first-match-wins with a warning-logged event (per D-17 with Alice's Q5 discussion). If it ever bites in practice, add richer disambiguation then.
 
 None — discussion stayed within phase scope.
 

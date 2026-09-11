@@ -213,7 +213,7 @@ None. No new network endpoints, auth paths, file access patterns, or schema chan
 
 ## Bug-Fix Confirmation
 
-**UAT scenario:** Start `/id-reset` on identity X while PrettyView for identity X is NOT currently mounted (e.g., Ashley is viewing a different identity's panel and identity X's tab is closed).
+**UAT scenario:** Start `/id-reset` on identity X while PrettyView for identity X is NOT currently mounted (e.g., Alice is viewing a different identity's panel and identity X's tab is closed).
 
 **Before Phase 53 (broken):** The row spinner for identity X in the conversation list would NOT show the recycling indicator. The recycling state was only published to the client-side bridge store by PrettyView's `useEffect`, which only ran when PrettyView was mounted. An unmounted row was completely blind to its own session's recycling state.
 

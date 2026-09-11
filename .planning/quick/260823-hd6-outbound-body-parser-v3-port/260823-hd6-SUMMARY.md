@@ -35,7 +35,7 @@ decisions:
   - "One 'known limitations' test (SELF-REFERENTIAL) flipped from
      documentation-of-bug to regression-guard: v3's Strategy 12 preflight
      correctly returns the primary heredoc body instead of the inner
-     BODY='relaying Ashley' substring — v3 explicitly fixes this per plan's
+     BODY='relaying Alice' substring — v3 explicitly fixes this per plan's
      must_haves.truths."
 metrics:
   duration_seconds: 240
@@ -109,8 +109,8 @@ Corpus source: `/home/ubuntu/.claude/roles/box-maintainer/bounties/relay-outboun
 
 **1. [Rule 1 - Bug] Flipped SELF-REFERENTIAL "known limitations" test from documentation-of-bug to regression-guard**
 - **Found during:** Task 1 GREEN verification (scoped vitest run after implementation)
-- **Issue:** The pre-existing test at file line 394 pinned the OLD wrong behavior: v0's Strategy 1 (BODY-sq) matched the inner `BODY='relaying Ashley'` substring inside a cat-heredoc body and returned it instead of the primary heredoc body. This was documented as a "known limitation, deferred per Phase 49 CONTEXT.md." Under v3 this bug IS fixed by Strategy 12 preflight — one of the plan's `must_haves.truths` explicitly says "Two latent wrong-body bugs (secondary --arg captured before primary heredoc, embedded double quotes) are fixed."
-- **Fix:** Flipped the test's expected value from the inner substring `"relaying Ashley"` to the full primary heredoc body. Updated the test name from `"...(documented, not fixed by Phase 49)"` to `"...FIXED by quick-260823-hd6 (v3 port) via Strategy 12 preflight"` and rewrote the comment block explaining the fix path.
+- **Issue:** The pre-existing test at file line 394 pinned the OLD wrong behavior: v0's Strategy 1 (BODY-sq) matched the inner `BODY='relaying Alice'` substring inside a cat-heredoc body and returned it instead of the primary heredoc body. This was documented as a "known limitation, deferred per Phase 49 CONTEXT.md." Under v3 this bug IS fixed by Strategy 12 preflight — one of the plan's `must_haves.truths` explicitly says "Two latent wrong-body bugs (secondary --arg captured before primary heredoc, embedded double quotes) are fixed."
+- **Fix:** Flipped the test's expected value from the inner substring `"relaying Alice"` to the full primary heredoc body. Updated the test name from `"...(documented, not fixed by Phase 49)"` to `"...FIXED by quick-260823-hd6 (v3 port) via Strategy 12 preflight"` and rewrote the comment block explaining the fix path.
 - **Files modified:** `src/backend/claude-session/session-file-parser.outbound-body.test.ts` (SELF-REFERENTIAL test)
 - **Commit:** `a2e84b36` (GREEN implementation commit — updated test bundled with GREEN)
 - **Rationale:** This is exactly what the plan promises. The original test's own comment said "If a future phase addresses this, this test flips from documentation to regression guard." v3 IS that future phase.

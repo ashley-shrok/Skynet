@@ -39,7 +39,7 @@ must_haves:
 ---
 
 <objective>
-Two coupled UI changes in the pretty-conversations list, greenlit by Ashley:
+Two coupled UI changes in the pretty-conversations list, greenlit by Alice:
 
 1. Render a per-host divider chip above each non-RDP, non-active-set, non-pinned host group in `PrettyConversationsPanel.tsx` (mirrors the existing "Remote desktop" chip's visual treatment, using `Server` glyph instead of `Monitor`, with the group's `hostName` as the uppercase label).
 2. Inside those same host-grouped sections ONLY, swap the row sublabel from hostname → `identity.title ?? identity.displayName`, and drop the `Server` icon from that row. When no identity resolves, fall back to hostname + Server icon verbatim.
@@ -70,7 +70,7 @@ Panel context:
   - `__rdp__` sentinel: `hostId === "__rdp__"` — panel line 380, keeps its existing chip
   - Active-set group: `data-active-set-group="true"` — panel lines 324-344, cross-host, NO chip
   - Pinned group: `data-pinned-group="true"` — panel lines 355-375, cross-host, NO chip
-  - Regular host groups: panel lines 424-448, currently FLAT (comment "FLAT per Ashley/prototype lock" — that lock is INTENTIONALLY reversed by this task)
+  - Regular host groups: panel lines 424-448, currently FLAT (comment "FLAT per Alice/prototype lock" — that lock is INTENTIONALLY reversed by this task)
 
 Row context:
   - Identity resolution: `useIdentities().byKey`, keyed on `sessionMatchKey(row.targetTmuxSession)` — may return null for unresolved sessions
@@ -86,8 +86,8 @@ Row context:
   <behavior>
     Add three new test cases to `PrettyConversationRow.test.tsx` covering the new `subtitleMode` prop (default "hostname"; new value "identityTitle"). All three assertions target the row when rendered with an identity registered in the `useIdentities` mock so `identitiesByKey.get(key)` returns the shape you want.
 
-    - Test A (identityTitle + identity.title set): render row with `subtitleMode="identityTitle"` and a resolved identity having `title="Ashley Ops"` and `displayName="ashley"`. Assert the sublabel text is exactly "Ashley Ops"; assert NO `svg` corresponding to the Server icon exists inside the `.pv-host` span (query by parent tag or by lucide's rendered class marker — the existing Server render uses width=11 height=11, so `.pv-host svg[width="11"]` should return null).
-    - Test B (identityTitle + identity.title null, displayName set): render with `subtitleMode="identityTitle"` and identity `title=null`, `displayName="ashley"`. Assert sublabel text is "ashley"; assert no Server icon in `.pv-host`.
+    - Test A (identityTitle + identity.title set): render row with `subtitleMode="identityTitle"` and a resolved identity having `title="Alice Ops"` and `displayName="alice"`. Assert the sublabel text is exactly "Alice Ops"; assert NO `svg` corresponding to the Server icon exists inside the `.pv-host` span (query by parent tag or by lucide's rendered class marker — the existing Server render uses width=11 height=11, so `.pv-host svg[width="11"]` should return null).
+    - Test B (identityTitle + identity.title null, displayName set): render with `subtitleMode="identityTitle"` and identity `title=null`, `displayName="alice"`. Assert sublabel text is "alice"; assert no Server icon in `.pv-host`.
     - Test C (identityTitle + no identity resolved — safe fallback): render with `subtitleMode="identityTitle"` but a `targetTmuxSession` that will NOT match any identity in the mock (empty identitiesByKey). Assert sublabel text equals `row.host.name` (e.g. "hostA"), AND the Server icon IS present in `.pv-host` (verbatim previous behavior).
     - Existing tests that render without `subtitleMode` (default "hostname" behavior) MUST still pass unchanged — verifying backward compatibility.
 
@@ -140,7 +140,7 @@ Row context:
     - The `handleRowSelect`, `handleSwipeOpenChange`, `forceClosedFor`, or `sessionWorkingKey` helpers.
     - The empty-state block or the header block or the NewSessionDialog block.
   </behavior>
-  <action>Follow the test-first order in `<behavior>`: update Test 3 and add Tests A/B/C in `PrettyConversationsPanel.test.tsx`, run them to confirm RED, then apply the panel edits to make them GREEN. Keep the new chip's markup structurally identical to the existing RDP chip (copy-paste-modify), only swapping the glyph to Server, wiring `data-testid="host-divider"` + `data-host-id`, using `group.hostName` as label text, and applying the /85 brightness. Apply the same /85 brightness bump to the existing RDP chip in-place. Pass `subtitleMode="identityTitle"` only at the non-RDP grouped render site. Every other render site remains untouched, per Ashley's design lock.</action>
+  <action>Follow the test-first order in `<behavior>`: update Test 3 and add Tests A/B/C in `PrettyConversationsPanel.test.tsx`, run them to confirm RED, then apply the panel edits to make them GREEN. Keep the new chip's markup structurally identical to the existing RDP chip (copy-paste-modify), only swapping the glyph to Server, wiring `data-testid="host-divider"` + `data-host-id`, using `group.hostName` as label text, and applying the /85 brightness. Apply the same /85 brightness bump to the existing RDP chip in-place. Pass `subtitleMode="identityTitle"` only at the non-RDP grouped render site. Every other render site remains untouched, per Alice's design lock.</action>
   <verify>
     <automated>cd /home/ubuntu/skynet && npx vitest run src/ui/features/pretty-conversations/PrettyConversationsPanel.test.tsx</automated>
   </verify>
@@ -160,7 +160,7 @@ Row context:
 </tasks>
 
 <verification>
-Manual smoke check (optional, executor's discretion — this is a visual change; no smoke required for correctness but Ashley may want a pretty-preview screenshot before deploy):
+Manual smoke check (optional, executor's discretion — this is a visual change; no smoke required for correctness but Alice may want a pretty-preview screenshot before deploy):
 - Rebuild the frontend bundle (`cd /home/ubuntu/skynet && npm run build` or the project's equivalent) and visually confirm on a running dev server that non-RDP host groups now show the chip and the sublabels within those groups render the identity title, not the hostname.
 - Confirm the RDP chip and the active-set / pinned rows are visually unchanged apart from the brightness bump on the RDP chip.
 </verification>
@@ -175,8 +175,8 @@ Manual smoke check (optional, executor's discretion — this is a visual change;
 </success_criteria>
 
 <risk_notes>
-- **Per Tina's patch #149 lesson ("known limitation, inert ≠ inert"):** the row's fallback chain in the "identityTitle" branch MUST have the terminal keep-hostname safety net — if it's silently missing, unresolved-identity rows in host groups will ship with sublabel "" or "undefined" on Ashley's very next click. Test C in Task 1 exists specifically to guard this — do NOT skip it.
-- **Deploy discipline:** this change alone does NOT warrant an immediate deploy. Leave the deploy call to the executor/Tina after the commit lands, unless Ashley explicitly asks for an out-of-band push. If a deploy does happen, the executor's deploy notification MUST pre-warn Ashley about first-hard-refresh HTTP2_PROTOCOL_ERROR (Tina's learned pref on any container recreate).
+- **Per Tina's patch #149 lesson ("known limitation, inert ≠ inert"):** the row's fallback chain in the "identityTitle" branch MUST have the terminal keep-hostname safety net — if it's silently missing, unresolved-identity rows in host groups will ship with sublabel "" or "undefined" on Alice's very next click. Test C in Task 1 exists specifically to guard this — do NOT skip it.
+- **Deploy discipline:** this change alone does NOT warrant an immediate deploy. Leave the deploy call to the executor/Tina after the commit lands, unless Alice explicitly asks for an out-of-band push. If a deploy does happen, the executor's deploy notification MUST pre-warn Alice about first-hard-refresh HTTP2_PROTOCOL_ERROR (Tina's learned pref on any container recreate).
 - **Test 3 rewrite:** the current Test 3 asserts hostA does NOT appear outside a row. That assertion is the OLD contract and is being intentionally reversed. Do not "fix" the test to preserve the old assertion — the new contract IS the new assertion.
 </risk_notes>
 

@@ -1,10 +1,10 @@
 # Phase 14 UAT Checklist — Plain-Language Translation Asides
 
-**For:** Ashley
+**For:** Alice
 **Post-deploy validation of the aside subsystem (Phase 14 patches, bundled with queued #150 A + C).**
-**Batch context:** Phase 14 patches ship BUNDLED with the queued #150 A (pruner fleet-aware) + #150 C (URL-restore multi-tab glow) per CONTEXT.md § Phase Boundary — Ashley 2026-07-26 verbatim: "there's no point in deploying until we get it in." The three ship together in ONE deploy event on `feat/tab-title-from-tmux`. See § Post-UAT deploy runbook at the bottom.
-**Deploy anchor:** term.example.com (production) — post-deploy, once Ashley greenlights the batch.
-**Design source-of-truth:** `~/.claude/identities/tina/bounties/plain-language-translation-asides/bounty.json` (2026-07-26 design session with Ashley, full spec locked) + `~/.claude/identities/tina/bounties/plain-language-translation-asides/aside-visual-snippet.js` (DevTools recipe Ashley signed off on, defaults at 10px border + glow multiplier 1.0) + `.planning/phases/14-plain-language-translation-asides/14-CONTEXT.md` (LOCKED — no re-litigation).
+**Batch context:** Phase 14 patches ship BUNDLED with the queued #150 A (pruner fleet-aware) + #150 C (URL-restore multi-tab glow) per CONTEXT.md § Phase Boundary — Alice 2026-07-26 verbatim: "there's no point in deploying until we get it in." The three ship together in ONE deploy event on `feat/tab-title-from-tmux`. See § Post-UAT deploy runbook at the bottom.
+**Deploy anchor:** term.example.com (production) — post-deploy, once Alice greenlights the batch.
+**Design source-of-truth:** `~/.claude/identities/tina/bounties/plain-language-translation-asides/bounty.json` (2026-07-26 design session with Alice, full spec locked) + `~/.claude/identities/tina/bounties/plain-language-translation-asides/aside-visual-snippet.js` (DevTools recipe Alice signed off on, defaults at 10px border + glow multiplier 1.0) + `.planning/phases/14-plain-language-translation-asides/14-CONTEXT.md` (LOCKED — no re-litigation).
 
 **Trace commits (Phase 14 on `feat/tab-title-from-tmux`):**
 
@@ -53,7 +53,7 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone PWA). Each item h
 1. Open https://term.example.com in **Chrome on a wide desktop window** (1400px+) AND in **Skynet on your iPhone** (PWA-installed, home-screen icon).
 2. Have at least 2 running fleet-identity tmux sessions on distinct hosts (different hues to verify hue propagation) — e.g. `tina@skynet-ec2` + one other identity. Both sessions should have Claude Code running interactively.
 3. Have at least 1 **anonymous** (non-`/id`) Claude Code session running in a random tmux window on some host — this is the negative-case verification for ASIDE-02 (identity gate).
-4. Ashley Prime — open pretty-view on one fleet-identity session in a fresh Chrome tab; the tab should show the session's normal conversation stream at the bottom.
+4. Alice Prime — open pretty-view on one fleet-identity session in a fresh Chrome tab; the tab should show the session's normal conversation stream at the bottom.
 5. Have a scratchpad ready for the DevTools console verification snippets referenced in items 1 + 6 + 12 + 13 (the source-of-truth Map + WS-frame assertion snippets).
 
 ---
@@ -154,7 +154,7 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone PWA). Each item h
 
 - [ ] **On Session A, send a message + measure the time from "Claude settles at prompt" to "aside appears".** Expected: 2-6 seconds (accounting for `/btw` injection + Claude's own response time + 2×300ms poll debounce). If it consistently takes >10s → the poller cadence is off (route to Plan 14-02 § poller).
 
-### 11. Locked aesthetic — 10px border + three-layer glow (Ashley aesthetic sign-off from aside-visual-snippet.js)
+### 11. Locked aesthetic — 10px border + three-layer glow (Alice aesthetic sign-off from aside-visual-snippet.js)
 
 > **Contract:** Border 10px solid `hsla(var(--pv-id-hue), 90%, 65%, 1)` (full saturation, opaque). Three stacked outer shadows in the hue at descending alpha, ADDITIVE to the bubble's existing depth shadow + inner rim: `0 0 12px hsla(hue, 100%, 60%, 0.7)`, `0 0 32px hsla(hue, 100%, 55%, 0.5)`, `0 0 64px hsla(hue, 100%, 50%, 0.3)`.
 
@@ -176,7 +176,7 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone PWA). Each item h
 
 ### 13. External Escape via SSH also broadcasts dismiss (marker-disappearance branch)
 
-> **Contract:** If Ashley SSH-attaches to the identity's tmux and presses Escape herself, the backend poller's marker-disappearance-FIRST branch detects the overlay disappearing and calls the SAME broadcastAsideDismissed primitive (same atomic BOTH-STEPS rule). So cross-tab coherence works regardless of dismiss origin — client-initiated dismiss OR external tmux Escape both flow through the same broadcast.
+> **Contract:** If Alice SSH-attaches to the identity's tmux and presses Escape herself, the backend poller's marker-disappearance-FIRST branch detects the overlay disappearing and calls the SAME broadcastAsideDismissed primitive (same atomic BOTH-STEPS rule). So cross-tab coherence works regardless of dismiss origin — client-initiated dismiss OR external tmux Escape both flow through the same broadcast.
 
 - [ ] **Trigger an aside on Session A (both tabs open showing it).** Then SSH into the identity's box (e.g. `ssh` in a terminal, `tmux attach -t <session>`) and press Escape once. Expected: the BTW overlay in tmux closes. Within ~1 second, BOTH Tab A and Tab B's asides clear + ComposeBoxes revert. Same behavior as clicking X (Resume) in the browser. If asides stay stuck in the browser after external Escape → the poller's marker-disappearance branch isn't reaching broadcastAsideDismissed (route to Plan 14-02 § poller marker-disappearance).
 
@@ -240,14 +240,14 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone PWA). Each item h
 
 ## Sign-off
 
-| Item | Status | Ashley notes |
+| Item | Status | Alice notes |
 |------|--------|--------------|
 | 1-11 (Desktop UAT — arm loop + rendering + morph + dismiss + overlap + re-attach + aesthetic) | ⬜ | |
 | 12-13 (Cross-tab UAT — dismiss coherence + external Escape broadcast) | ⬜ | |
 | 14-19 (Mobile UAT — iPhone PWA render + morph + dismiss + cross-tab + re-attach + anonymous negative) | ⬜ | |
 | 20-24 (Cross-viewport regression) | ⬜ | |
 
-**Ashley signature:** ______________  **Date:** ______________
+**Alice signature:** ______________  **Date:** ______________
 **Deploy verdict (circle one):** GOOD (ship the bundle — Phase 14 + #150 A + #150 C together) / HOLD OFF (queue longer) / CODE-COMPLETE-PENDING-DEPLOY (approve code, deploy later) / ROLLBACK
 
 ---
@@ -286,19 +286,19 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone PWA). Each item h
 
 ### Stale-reference callout — the 15-min deadman regime is RETIRED
 
-The fork's `CLAUDE.md` (in this repo root) still contains a line under `Deploy safety` mentioning the "15-min deadman rollback timer". **This constraint was RETIRED fleet-wide on 2026-07-21.** Ashley's SSM-tmux-attach-via-SSH-over-SSM fallback (documented in `deploy-runbook.md` § "FALLBACK: tmux-attach via SSH-through-SSM") replaced the deadman's catastrophic-loss-recovery role. The fork's `CLAUDE.md` hasn't been updated yet; that update is a **SEPARATE OPEN BOUNTY** — `claude-md-15min-deadman-stale` — that will land in a future hygiene sweep. **Ignore the fork CLAUDE.md's 15-min deadman line + ignore the plan file's `<what-built>` reference to it. Use `~/.claude/identities/tina/deploy-runbook.md` as the authoritative source.**
+The fork's `CLAUDE.md` (in this repo root) still contains a line under `Deploy safety` mentioning the "15-min deadman rollback timer". **This constraint was RETIRED fleet-wide on 2026-07-21.** Alice's SSM-tmux-attach-via-SSH-over-SSM fallback (documented in `deploy-runbook.md` § "FALLBACK: tmux-attach via SSH-through-SSM") replaced the deadman's catastrophic-loss-recovery role. The fork's `CLAUDE.md` hasn't been updated yet; that update is a **SEPARATE OPEN BOUNTY** — `claude-md-15min-deadman-stale` — that will land in a future hygiene sweep. **Ignore the fork CLAUDE.md's 15-min deadman line + ignore the plan file's `<what-built>` reference to it. Use `~/.claude/identities/tina/deploy-runbook.md` as the authoritative source.**
 
 ### BUNDLED DEPLOY — Phase 14 + queued #150 A + C ships as ONE deploy event
 
-Per CONTEXT.md § Phase Boundary (Ashley 2026-07-26 verbatim: "there's no point in deploying until we get it in"), Phase 14 patches do NOT ship standalone. Deploy sequence:
+Per CONTEXT.md § Phase Boundary (Alice 2026-07-26 verbatim: "there's no point in deploying until we get it in"), Phase 14 patches do NOT ship standalone. Deploy sequence:
 
 - **Phase 14 patches** (aside subsystem — AsideBubble + PrettyView / ComposeBox / claude-session-server / claude-session-api changes, from commits `b722977` through `81d08e0`)
-- **Queued #150 A** (pruner fleet-aware — `7f63a4b`, fixes Ashley's live-hit pin-nuke; solo-deploy carveout applied at the time was moot because this bundle absorbs it)
+- **Queued #150 A** (pruner fleet-aware — `7f63a4b`, fixes Alice's live-hit pin-nuke; solo-deploy carveout applied at the time was moot because this bundle absorbs it)
 - **Queued #150 C** (URL-restore multi-tab glow — `b48023e` investigation + `162dc1c` fix)
 
 All three land in ONE `docker compose up -d --force-recreate skynet` event on `feat/tab-title-from-tmux`. The `skynet-patches.md` pin at deploy time captures all three:
 
-- Pin **#150 A** (pruner fleet-aware) — if not already pinned solo. Per quick task `260726-l1p` timeline, deploy was deferred pending Ashley greenlight; the solo-deploy carveout is now moot because #150 A ships with this bundle.
+- Pin **#150 A** (pruner fleet-aware) — if not already pinned solo. Per quick task `260726-l1p` timeline, deploy was deferred pending Alice greenlight; the solo-deploy carveout is now moot because #150 A ships with this bundle.
 - Pin **#150 C** (URL-restore multi-tab glow) — if not already pinned solo.
 - Pin **#151** (Phase 14 — Plain-Language Translation Asides) — the new patch, drafted in `14-PATCHES-MD-ENTRY.md`.
 
@@ -315,32 +315,32 @@ grep 'image:' /opt/skynet/docker-compose.yml | grep -q skynet-patched:local || \
 
 Idempotent — no-op when compose is already patched, corrects when it's been reverted.
 
-### ASHLEY PRE-WARN — first hard-refresh may white-screen
+### ALICE PRE-WARN — first hard-refresh may white-screen
 
 Per `~/.claude/identities/tina/tina.md` § learned preferences (2026-07-23):
 
 > After `docker compose up -d --force-recreate skynet`, the FIRST hard-refresh may white-screen with `net::ERR_HTTP2_PROTOCOL_ERROR` on chunk loads. **The fix is close+reopen the tab, NOT a real deploy failure.** Root cause: Caddy holds persistent upstream connections to the skynet container; when the container dies mid-fetch during recreate, the browser's existing H2 stream to Caddy sees the upstream fail and marks the stream broken client-side. Fix = close and reopen the tab (spawns a fresh H2 connection).
 
-**When the deploy actually happens, Tina PRE-WARNS Ashley in the deploy notification** that the first hard-refresh may white-screen and the fix is close+reopen. Do NOT jump to rollback on the first PROTOCOL_ERROR report.
+**When the deploy actually happens, Tina PRE-WARNS Alice in the deploy notification** that the first hard-refresh may white-screen and the fix is close+reopen. Do NOT jump to rollback on the first PROTOCOL_ERROR report.
 
-### Deploy flow (only if Ashley explicitly greenlights)
+### Deploy flow (only if Alice explicitly greenlights)
 
 Per `~/.claude/identities/tina/deploy-runbook.md` steps 1-8. Summary:
 
 1. **Apply + commit + push + build** — deploy-runbook Step 1. `git push` BEFORE build. Build script clones from GitHub; local-only commits cache-hit the frontend-builder layer. Trap that bit patches #43 + #69.
-2. **Ask Ashley for explicit go-ahead for THIS deploy window** — a distinct greenlight, not carried over from earlier code-work authorization. Every build → deploy transition is a new "may I?" moment.
+2. **Ask Alice for explicit go-ahead for THIS deploy window** — a distinct greenlight, not carried over from earlier code-work authorization. Every build → deploy transition is a new "may I?" moment.
 3. **Run the check-before-recreate one-liner** (see above).
 4. `cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`
 5. **Wait for `(healthy)`** — should be within 30s. Corroborate the patch shipped by grepping the deployed dist for the aside subsystem's signature bytes: `docker exec skynet grep -c 'AsideBubble' /app/html/assets/*.js` should return >= 1 (if 0, the frontend build layer cache-hit and stock shipped — rollback + re-push + re-build).
-6. **PRE-WARN Ashley in the deploy DM** about the first-hard-refresh white-screen risk; tell her the fix is close+reopen the tab.
-7. **Tell Ashley to walk this UAT checklist.** On her "pin it" reply: paste `.planning/phases/14-.../14-PATCHES-MD-ENTRY.md` (and #150 A + C entries if not yet pinned) into `~/.claude/identities/tina/skynet-patches.md`, bump the header count appropriately, commit the pin (`docs(patches): pin patches #150 A + #150 C + #151 — Phase 14 aside subsystem bundled with queued pruner + URL-restore fixes`).
+6. **PRE-WARN Alice in the deploy DM** about the first-hard-refresh white-screen risk; tell her the fix is close+reopen the tab.
+7. **Tell Alice to walk this UAT checklist.** On her "pin it" reply: paste `.planning/phases/14-.../14-PATCHES-MD-ENTRY.md` (and #150 A + C entries if not yet pinned) into `~/.claude/identities/tina/skynet-patches.md`, bump the header count appropriately, commit the pin (`docs(patches): pin patches #150 A + #150 C + #151 — Phase 14 aside subsystem bundled with queued pruner + URL-restore fixes`).
 8. **If broken**: manual rollback per deploy-runbook.md step 8 — `sudo sed -i 's|image: skynet-patched:local|image: ghcr.io/lukegus/skynet:latest|' /opt/skynet/docker-compose.yml && cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`. Then investigate.
 
 ---
 
 ## Bounty closeout note
 
-After Ashley's UAT signs off (mobile + desktop both viewports), the bounty at `~/.claude/identities/tina/bounties/plain-language-translation-asides/` closes. The full aside subsystem shipped as designed:
+After Alice's UAT signs off (mobile + desktop both viewports), the bounty at `~/.claude/identities/tina/bounties/plain-language-translation-asides/` closes. The full aside subsystem shipped as designed:
 
 - Backend: BTW inject via tmux send-keys + capture-pane extraction + 300ms poller + module-scope asideState Map + atomic BOTH-STEPS cross-tab broadcast + connect-time re-attach probe + connect/dispatch lifecycle
 - Frontend: AsideBubble with locked 10px + three-layer neon glow aesthetic + PrettyView isIdle-transition arm emitter (identity-gated) + WS handlers for aside_ready / aside_dismissed + handleAsideDismiss two-step callback + ComposeBox interface extension + ComposeBox body morph (Send→X, aux disabled, textarea preserved)

@@ -24,7 +24,7 @@ const authManager = AuthManager.getInstance();
 const authenticateJWT = authManager.createAuthMiddleware();
 
 // Phase 15 Plan 1 — max size cap on pinnedConversationIds array.
-// Ashley's real pin count is well under 100; 1000 is a generous ceiling that
+// Alice's real pin count is well under 100; 1000 is a generous ceiling that
 // mitigates the input-validation / DoS threat from the phase threat model
 // (T-15-06) — an attacker cannot balloon the row into a payload that slows
 // subsequent GETs / bloats the encrypted SQLite volume.
@@ -32,7 +32,7 @@ const PINNED_CONVERSATION_IDS_MAX_LENGTH = 1000;
 
 // quick-260731-tgg — max size cap on hiddenConversationIds array. Mirrors
 // PINNED_CONVERSATION_IDS_MAX_LENGTH byte-for-byte (same threat model: DoS
-// via oversized TEXT column write). Ashley's real hide count is expected to
+// via oversized TEXT column write). Alice's real hide count is expected to
 // be small; 1000 is a generous ceiling matching the pin cap.
 const HIDDEN_CONVERSATION_IDS_MAX_LENGTH = 1000;
 

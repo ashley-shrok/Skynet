@@ -21,7 +21,7 @@ must_haves:
     - "When PrettyView's WS closes with status != 'inactive' AND reconnectAttemptsRef < MAX_RECONNECT_ATTEMPTS, a fresh WS is opened after backoff"
     - "errorMessage clears on the NEXT successful ws.onopen (never before scheduling a retry — no transient empty state)"
     - "After MAX_RECONNECT_ATTEMPTS (5) consecutive closes, no further retry is scheduled and errorMessage remains 'Connection closed'"
-    - "visibilitychange:visible resets reconnectAttemptsRef to 0 and opens a fresh WS when the current WS is not OPEN and status is not 'inactive' (the direct Ashley iOS PWA repro fix)"
+    - "visibilitychange:visible resets reconnectAttemptsRef to 0 and opens a fresh WS when the current WS is not OPEN and status is not 'inactive' (the direct Alice iOS PWA repro fix)"
     - "status === 'inactive' short-circuits ALL retry paths (onclose, visibilitychange) — no reconnect, no errorMessage clear, terminal state preserved"
     - "reconnectAttemptsRef resets to 0 when hostId/tmuxSession changes (fresh pane = fresh budget) but NOT when retryKey bumps (would defeat the cap)"
     - "Cleanup fn clears any pending reconnectTimeoutRef so unmount does not fire a retry against a stale wsRef"
@@ -45,12 +45,12 @@ must_haves:
 
 <objective>
 Patch #148 — mirror Terminal.tsx's proven WebSocket auto-reconnect pattern into
-PrettyView's claude-session bridge WebSocket to fix Ashley's iOS PWA repro:
+PrettyView's claude-session bridge WebSocket to fix Alice's iOS PWA repro:
 persistent "connection closed" text after backgrounding (or after deploy
 container recreate) that requires manual pretty-view toggle to clear.
 
 Purpose: patch #147 SkynetLog telemetry proved Terminal.tsx's ssh WS reconnects
-cleanly (3 end-to-end cycles, 0 failures). The "connection closed" text Ashley
+cleanly (3 end-to-end cycles, 0 failures). The "connection closed" text Alice
 sees is PrettyView's OWN errorMessage state from its OWN separate WebSocket to
 /claude-session/websocket/. PrettyView.tsx:447-457 explicitly has "Do NOT
 auto-reopen" and only flips status to "error" + sets errorMessage. This patch
@@ -75,7 +75,7 @@ Locked design decisions (do NOT re-litigate):
 - retryKey state + useEffect re-run pattern (idiomatic React, minimal new state)
 - Reset counter on hostId/tmuxSession change, NOT on retryKey bump
 - Clear errorMessage on next ws.onopen (never on retry-schedule)
-- visibilitychange handler resets counter to 0 (Ashley iOS PWA fix)
+- visibilitychange handler resets counter to 0 (Alice iOS PWA fix)
 - No rate limiting, no exponential jitter, no persistence across reloads
 
 Explicit non-scope:
@@ -273,7 +273,7 @@ Explicit non-scope:
           pattern, the "inactive" short-circuit rationale (FALLBACK-01
           preservation + server-authoritative state), the 5-attempt cap,
           the backoff schedule, and the visibilitychange:visible reset
-          path (which is where Ashley's iOS PWA case lands).
+          path (which is where Alice's iOS PWA case lands).
 
     (d) Add a NEW useEffect (separate from the WS-setup effect) for the
         visibilitychange handler. Mirror the Terminal.tsx:344-374 shape
@@ -534,14 +534,14 @@ End-of-plan verification (after both tasks complete):
    - Subject: `feat: patch #148 — PrettyView WebSocket auto-reconnect (fixes stale "Connection closed" state after WS drop on iOS PWA background OR deploy container recreate)`
    - Body: brief mention of Terminal.tsx pattern being mirrored, the
      inactive short-circuit preservation, the visibilitychange:visible
-     fresh-budget path (Ashley iOS PWA fix), and the 5-attempt/8s cap.
+     fresh-budget path (Alice iOS PWA fix), and the 5-attempt/8s cap.
    - NO Co-Authored-By trailer (fork convention).
    - Command:
      `git add src/ui/features/pretty-view/PrettyView.tsx src/ui/features/pretty-view/PrettyView.test.tsx && git commit -m "..."`
    - NO push, NO deploy — Tina proposes deploy separately.
 
 7. **DO NOT update `~/.claude/identities/tina/skynet-patches.md`** —
-   deferred to deploy-recommendation time per Ashley's 2026-07-23
+   deferred to deploy-recommendation time per Alice's 2026-07-23
    batch-writeups-until-deploy rule.
 </verification>
 

@@ -15,7 +15,7 @@
 // Analog: AttachmentChipStrip.test.tsx (structural shape — describe/it,
 // render/screen/fireEvent, factory helper, presence + click + variant
 // tests). Twin-arc SVG discriminator (Test 5) from ComposeBox.tsx L2551-2564
-// per patch #467 / commit df4d7543 (Ashley banned the lucide spinner for the
+// per patch #467 / commit df4d7543 (Alice banned the lucide spinner for the
 // wobbling-centroid issue).
 
 import { describe, it, expect, vi } from "vitest";

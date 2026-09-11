@@ -6,7 +6,7 @@
 // WHY THIS EXISTS (root-caused by @stacy on ceo-skynet 2026-08-02, full handoff
 // at ~/pretty-view-uploads/2026-08-02/190204-TINA-HANDOFF.md):
 //
-//   Ashley's IdentityModal saves against an EXISTING identity file were
+//   Alice's IdentityModal saves against an EXISTING identity file were
 //   surfacing a generic "Error: Failure" (SFTPv3 code 4). Root cause was
 //   writeMarkdownFileAtomic calling sftp.rename(tmp, target, cb), which
 //   sends SSH_FXP_RENAME. OpenSSH's process_rename tries link(old,new)

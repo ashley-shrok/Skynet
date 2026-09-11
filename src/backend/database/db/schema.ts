@@ -37,7 +37,7 @@ export const users = sqliteTable("users", {
   // matrix-admin-client.ts) as part of POST /users/create; the mxid is
   // populated in the same INSERT that writes the user row. New-user mxids
   // follow `@<sanitized-username>_human:<server_name>` (bijective sanitizer,
-  // `_human` suffix per D-06). Legacy users (Ashley/Zoey/Laura on t1000,
+  // `_human` suffix per D-06). Legacy users (Alice/Zoey/Laura on t1000,
   // imported before slice A) have suffix-less mxids that continue to work
   // indefinitely. Nullable: OIDC users (D-12 out of scope) and legacy
   // pre-Phase-88 users may still have mxid=null. POST /users/:id/mxid
@@ -841,11 +841,11 @@ export const userPreferences = sqliteTable("user_preferences", {
     .default(sql`CURRENT_TIMESTAMP`),
 });
 
-// Phase 85 (D-01, D-02): identity_send_log — records when Ashley last sent a
+// Phase 85 (D-01, D-02): identity_send_log — records when Alice last sent a
 // message from Skynet's compose surface to this identity, keyed on identity
 // name only (Skynet single-tenant). Consumed by ssh-poll-orchestrator for the
 // middle-zone recency signal. `lastSendAt` holds unix millis (nullable never
-// at the SQL layer — a row only exists after Ashley's first send).
+// at the SQL layer — a row only exists after Alice's first send).
 export const identitySendLog = sqliteTable("identity_send_log", {
   identityName: text("identity_name").primaryKey(),
   lastSendAt: integer("last_send_at").notNull(),

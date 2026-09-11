@@ -190,7 +190,7 @@ rhythm as Shapes 1-3.
 
 Ordering constraint: Shape 5 must be code-complete before the campaign ships. The whole
 id-skill-revamp campaign (Shapes 1 through 5) ships atomically, so the atomic push
-happens once Shape 5 is verified and Ashley greenlights the whole-campaign ship. Shape 4
+happens once Shape 5 is verified and Alice greenlights the whole-campaign ship. Shape 4
 prose describes target-state that is only true once Shape 5's code lands; that mismatch
 window is the reason for atomic ship.
 
@@ -219,7 +219,7 @@ implementers can read the philosophy and scope edges before writing plans.
 - **Shape: failure response file (keyed by request-id, same folder)** — present · writeFailureFile drops $HOME/fleet/spawn-requests/<uuid>.failure.json
 - **Shape: two failure classes (malformed=descriptive, other=terse)** — present · malformedReason path writes {reason, message} with descriptive text; all other failure reasons write {reason} only with no message field
 - **Shape: coordinator deletes response file after acting** — present · coordinator-instructions.md describes deleting both success and failure files after reading them
-- **Shape: coordinator safety timeout (~few minutes, escalates same as picker failure)** — present · coordinator-instructions.md specifies ~3 minute safety timeout; on timeout escalates to Ashley via picker-failure path
+- **Shape: coordinator safety timeout (~few minutes, escalates same as picker failure)** — present · coordinator-instructions.md specifies ~3 minute safety timeout; on timeout escalates to Alice via picker-failure path
 - **Shape: scan on fast cadence (not slow push sweep)** — present · scanSpawnRequests is called inside pollOneHost, which runs on pollTimer at the 2-second default cadence
 - **Shape: tests covering observation-and-claim, queue-and-worker, success and failure drops** — present · queue.test.ts has 5 queue tests; worker.test.ts has 20 worker tests (parse, failure-mapping, end-to-end); orchestrator.test.ts has 8 sweep-integration tests
 - **What would make it wrong: two ticks observing the same file (double-observation)** — present · mv-based atomic claim inside a single shell exec ensures only one concurrent winner; the loser's mv returns non-zero and the loop continues

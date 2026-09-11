@@ -59,7 +59,7 @@ export function PrettyViewLoadingOverlay(): JSX.Element {
       className={cn(
         // Scrim geometry: absolute inset-0 inherits the chat-region wrapper's
         // box — messages / tasks / shells are covered, ComposeBox (peer
-        // sibling BELOW the wrapper) stays UNCOVERED so Ashley can pre-draft
+        // sibling BELOW the wrapper) stays UNCOVERED so Alice can pre-draft
         // the next message during the boot window (patch #275 posture).
         // z-[99] sits BELOW IdentityBadge (z-[101]) and BELOW app-modal
         // dialogs (z-[500]) — same z-band as SessionHoldingOverlay + DormancyOverlay.
@@ -77,7 +77,7 @@ export function PrettyViewLoadingOverlay(): JSX.Element {
         // rendering" class of bugs.
         "isolate [transform:translateZ(0)]",
         // pointer-events-auto: blocks clicks/taps on everything the scrim
-        // covers. This is Ashley's ask verbatim ("block everything else
+        // covers. This is Alice's ask verbatim ("block everything else
         // from being touched") — the loading window used to be a silent
         // dead zone where re-taps would double-fire; the scrim eats them.
         "pointer-events-auto",

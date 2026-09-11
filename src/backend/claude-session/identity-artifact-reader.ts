@@ -254,7 +254,7 @@ export function getLocalRolesRoot(): string {
 //
 // This helper pair (extractRoleFromMarkdown + resolveRoleForIdentity) is the
 // SINGLE source of truth for that two-step. Per D-CONTEXT §"No no-role
-// fallback branches" (LOCKED with Ashley 2026-08-04), resolveRoleForIdentity
+// fallback branches" (LOCKED with Alice 2026-08-04), resolveRoleForIdentity
 // THROWS when role is missing or fails the shell-safety gate — never returns
 // null / undefined / empty. Callers propagate the throw to the WS `error`
 // field via the existing claude-session-server.ts error-envelope pattern.
@@ -306,7 +306,7 @@ export function extractRoleFromMarkdown(markdown: string): string | null {
  * T-22-01-01 / T-22-01-02.
  *
  * Per D-CONTEXT (LOCKED 2026-08-04): "No no-role fallback branches anywhere.
- * Ashley confirmed no fleet identity lacks `role:` frontmatter post-migration.
+ * Alice confirmed no fleet identity lacks `role:` frontmatter post-migration.
  * Any plan that adds 'graceful (no role)' fallback branches or empty-state
  * handling is a plan-checker BLOCK (dead code)." A throw here is correct
  * behavior for a data-integrity violation, not a bug.
@@ -373,7 +373,7 @@ async function execWithTimeout(
 function normalizeBounty(parsed: Record<string, unknown>, fallbackId: string): unknown {
   return {
     // Patch #109: slug is the folder basename, always. bounty.json's `id`
-    // field is a UUID — useless for humans. The FOLDER name is what Ashley
+    // field is a UUID — useless for humans. The FOLDER name is what Alice
     // refers to bounties by in conversation ("close identity-modal-bounty-
     // sorting"). Frontend renders slug alongside title in BountyCard for
     // legibility + copy-paste. Slug never falls back — fallbackId is
@@ -538,7 +538,7 @@ export async function listIdentityKeysOnHost(
  *
  * Throws (via resolveRoleForIdentity) when the identity file lacks role:
  * frontmatter — no fallback per D-CONTEXT § "No no-role fallback branches"
- * (LOCKED with Ashley 2026-08-04). Returns {markdown: ""} when the role file
+ * (LOCKED with Alice 2026-08-04). Returns {markdown: ""} when the role file
  * itself is missing on disk (LOCAL ENOENT / REMOTE empty stdout via `|| true`)
  * but the identity did have valid role frontmatter — this is normal for a
  * freshly-birthed role that hasn't been edited yet.
@@ -1907,13 +1907,13 @@ export const IDMEDIT_MAX_BOUNTY_JSON_BYTES = 100_000;
  *   surfaces this as a generic `Error: Failure` with code 4 and an empty
  *   error string. Every overwrite of an existing identity file therefore
  *   fails; only first-time writes (target missing) succeed. That was the
- *   root cause of Ashley's IdentityModal "sometimes it works, sometimes
+ *   root cause of Alice's IdentityModal "sometimes it works, sometimes
  *   it doesn't" saves — all her edits are on EXISTING identity files.
  *
  *   The posix-rename@openssh.com extension (ext_openssh_rename) has POSIX
  *   rename(2) semantics: atomic overwrite of an existing target, no
  *   link()/EEXIST detour. It is advertised by every OpenSSH ≥5.1 (2008+)
- *   and is universal across Ashley's fleet — no fallback needed. Any
+ *   and is universal across Alice's fleet — no fallback needed. Any
  *   hypothetical missing-extension case surfaces as ssh2 throwing
  *   "Server does not support this extended request" synchronously, which
  *   gets caught by the try/catch below and logged with the existing shape.
@@ -2361,7 +2361,7 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
  * IDMEDIT_MAX_AVATAR_BYTES (defense-in-depth — writers cap at write-time).
  *
  * Caller policy on SSH errors: GET /identities SWALLOWS (returns row with
- * safe-default cosmetics for that identity — Ashley: "accept the ugly
+ * safe-default cosmetics for that identity — Alice: "accept the ugly
  * render"). GET /:id/avatar surfaces as 502.
  */
 export async function readAvatarSiblingFile(
@@ -3354,7 +3354,7 @@ export async function writeIdentityBountyPriority(
 // bounty.json IN PLACE — bounties/<slug>/bounty.json is edited whether the
 // new status is done/dropped or anything else. Folder-move between
 // bounties/<slug>/ and bounties/archive/<slug>/ is DELIBERATELY out of
-// scope (the id skill handles archive population on its own cadence; Ashley
+// scope (the id skill handles archive population on its own cadence; Alice
 // wants the resurrect flow — click "pinned" on a done/dropped/archived
 // bounty — to be a pure JSON patch, not a rename).
 
@@ -3797,7 +3797,7 @@ export async function writeIdentityBountyFields(
 // ---------------------------------------------------------------------------
 //
 // Quick 260727-wd0: sibling of writeIdentityBountyStatus on the archive axis.
-// Semantics locked by Ashley (see PLAN.md § Semantics):
+// Semantics locked by Alice (see PLAN.md § Semantics):
 //
 //   1. LIVE-status bounty (status ∈ {pinned, in_progress,
 //      waiting_on_someone_else}) — atomically: (a) status → "done",

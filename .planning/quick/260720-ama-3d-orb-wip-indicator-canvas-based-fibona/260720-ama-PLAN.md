@@ -45,7 +45,7 @@ must_haves:
 ---
 
 <objective>
-Replace the current `Loader2` spinner inside `WipBubble` with a canvas-rendered 3D orb — a Fibonacci-lattice sphere of 150 dots tumbling on X and Y axes with depth-modulated size and opacity. Ashley locked this design 2026-07-20 after 4 rounds of prototyping (see NOTES.md in `~/.claude/identities/tina/bounties/spirograph-wip-indicator/`).
+Replace the current `Loader2` spinner inside `WipBubble` with a canvas-rendered 3D orb — a Fibonacci-lattice sphere of 150 dots tumbling on X and Y axes with depth-modulated size and opacity. Alice locked this design 2026-07-20 after 4 rounds of prototyping (see NOTES.md in `~/.claude/identities/tina/bounties/spirograph-wip-indicator/`).
 
 Purpose: Ship the winning prototype variant as the production WIP indicator for the pretty-view.
 Output: One rewritten file — `src/ui/features/pretty-view/WipBubble.tsx` — with zero new dependencies, preserved accessibility, preserved container invariant (patch #72), preserved motion-reduce support.
@@ -108,7 +108,7 @@ Output: One rewritten file — `src/ui/features/pretty-view/WipBubble.tsx` — w
     - Leave the file's leading comments (patch #51 + patch #72 provenance, "Deliberately NOT a bubble", aria/role rationale) in place; you may append a short note that the glyph is now a Fibonacci-lattice canvas orb picked 2026-07-20 after 4 rounds of prototyping (design archive: `~/.claude/identities/tina/bounties/spirograph-wip-indicator/`).
   </behavior>
   <action>
-    Rewrite `src/ui/features/pretty-view/WipBubble.tsx` end-to-end to match the &lt;behavior&gt; block exactly. Follow the algorithm parameters from the hard_requirements block of the planning context (Fibonacci lattice, per-frame rotation, projection, depth-modulated dot size + alpha) — these are the LOCKED ship parameters Ashley approved and MUST NOT be adjusted.
+    Rewrite `src/ui/features/pretty-view/WipBubble.tsx` end-to-end to match the &lt;behavior&gt; block exactly. Follow the algorithm parameters from the hard_requirements block of the planning context (Fibonacci lattice, per-frame rotation, projection, depth-modulated dot size + alpha) — these are the LOCKED ship parameters Alice approved and MUST NOT be adjusted.
 
     Key implementation constraints (recap so the executor does not need to re-derive):
     - `N = 150` (locked, do not change)
@@ -165,7 +165,7 @@ Structural (grep-able post-edit, executor should spot-check):
 - `grep -c "cancelAnimationFrame" src/ui/features/pretty-view/WipBubble.tsx` — 1 (cleanup path).
 - `git diff --name-only` after the edit lists ONLY `src/ui/features/pretty-view/WipBubble.tsx` (nothing else — no package.json, no new files).
 
-Visual verification is DEFERRED to deploy time in Ashley's browser (per planning context). No unit test or Playwright hookup required for this quick task.
+Visual verification is DEFERRED to deploy time in Alice's browser (per planning context). No unit test or Playwright hookup required for this quick task.
 </verification>
 
 <success_criteria>
@@ -181,6 +181,6 @@ Visual verification is DEFERRED to deploy time in Ashley's browser (per planning
 Create `.planning/quick/260720-ama-3d-orb-wip-indicator-canvas-based-fibona/260720-ama-SUMMARY.md` when done, following the standard summary template. Key items to record in the summary:
 - Confirmation that only `src/ui/features/pretty-view/WipBubble.tsx` changed
 - `pnpm type-check` + `pnpm build` output tails (or "clean")
-- Brief note that visual verification is Ashley's next step at deploy time
+- Brief note that visual verification is Alice's next step at deploy time
 - Pointer back to the design archive: `~/.claude/identities/tina/bounties/spirograph-wip-indicator/NOTES.md`
 </output>

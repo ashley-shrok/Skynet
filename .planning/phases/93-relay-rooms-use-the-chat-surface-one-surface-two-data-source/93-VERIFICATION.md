@@ -164,7 +164,7 @@ Zero anti-patterns of concern.
 
 The verifier's automated checks cover code presence, wiring, tests, and typecheck. The following behaviors are appropriate for human verification when this phase reaches UAT, but are NOT gaps blocking phase acceptance:
 
-- **Visual byte-parity of harness case:** Automated tests (all 1061 pretty-view tests green) + slice-level "harness case byte-identical" assertions provide strong evidence. Ashley's daily use is the ultimate confirmation. This is an ongoing regression floor, not a phase-93 acceptance blocker.
+- **Visual byte-parity of harness case:** Automated tests (all 1061 pretty-view tests green) + slice-level "harness case byte-identical" assertions provide strong evidence. Alice's daily use is the ultimate confirmation. This is an ongoing regression floor, not a phase-93 acceptance blocker.
 - **Multi-badge visual layout for real relay rooms:** MultiBadgeAnchor.test.tsx exercises sort discipline, self-exclusion, loading/empty states in isolation. Live visual verification with a real relay room (participants growing, meter animations) is a UAT concern for the campaign, not a phase-93 acceptance gate.
 - **Optimistic bubble UX in relay case:** Automated tests cover the pipeline (Tests 1-6 in PrettyView.optimistic-bubbles.test.tsx). The Test 4 "WS-not-open at composed level" architectural gap is documented as follow-up in Slice 5 SUMMARY — not part of D-14 scope. Real-user perception of send-latency during flaky WS conditions is a UAT concern.
 - **Error state UX for room-not-found:** ChatSurfaceErrorState.test.tsx covers the V8 no-existence-oracle discipline + copy. Live verification (kick from a room, watch UX) is UAT.

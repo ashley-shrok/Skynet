@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-08-13
 **Status:** Ready for planning
-**Source:** Live design conversation with Ashley 2026-08-12/13 (captured verbatim in STATE.md § Roadmap Evolution 2026-08-13 entry + bounty `fleet-status-backend-signal/bounty.json` — treat both as source-of-truth alongside this file).
+**Source:** Live design conversation with Alice 2026-08-12/13 (captured verbatim in STATE.md § Roadmap Evolution 2026-08-13 entry + bounty `fleet-status-backend-signal/bounty.json` — treat both as source-of-truth alongside this file).
 
 <domain>
 ## Phase Boundary
@@ -15,7 +15,7 @@ Motivating regressions this phase fixes:
 1. **Dot regression**: quick-260808-b74 iter-2 closes per-pane WSes on `isVisible=false` → both feeders die → signal freezes for hidden panes → dot never appears or clears correctly. Patch #433 debounced the close to 60s but only unblocks the voice-send-then-nav-away path; the underlying "signal delivery dies when pane hidden" problem stays and the dot still freezes on longer nav-aways.
 2. **Signal-quality noise (months of accumulated user pain)**: (a) harness bottom-bar redraws (context %, usage warnings) polluting PTY-idle signal with false-positive busy; (b) sibling-tmux-session access flapping other panes' WIP via status-line refresh escape sequences. Both eliminated by construction when PTY-scraping is retired.
 
-Ashley 2026-08-12 verbatim: *"they're decent, but you know, all it takes is like a single flashing thing at the bottom of the harness … or this weird thing … whenever i have a session open and then i open or like access a different tmux session on the same box it causes some kind of movement on the other tmux panes that exist on that box and i see the work in progress indicator show up."* And: *"I'm just wondering if they can be better because, you know, I've been on this signal for months now."*
+Alice 2026-08-12 verbatim: *"they're decent, but you know, all it takes is like a single flashing thing at the bottom of the harness … or this weird thing … whenever i have a session open and then i open or like access a different tmux session on the same box it causes some kind of movement on the other tmux panes that exist on that box and i see the work in progress indicator show up."* And: *"I'm just wondering if they can be better because, you know, I've been on this signal for months now."*
 </domain>
 
 <decisions>
@@ -23,16 +23,16 @@ Ashley 2026-08-12 verbatim: *"they're decent, but you know, all it takes is like
 
 ### PIVOT 2026-08-13 (LOCKED) — no per-box daemon; watcher runs inside Skynet backend over existing SSH pool
 
-Ashley 2026-08-13, on the original plan's assumption that the watcher would run as a persistent systemd user unit on every identity-hosting box: verbatim *"we shouldn't need that, considering all boxes that Skynet has as hosts can already be SSH into."* All Wave 1 watcher subpackage code (Plan 01 as first-shipped in commits `6003221` / `62a4898` / `cb2938a`) was reverted; Plan 01 replanned to fit this new shape. Plan 04 was replanned; Plans 02, 03, 05, 06 unaffected.
+Alice 2026-08-13, on the original plan's assumption that the watcher would run as a persistent systemd user unit on every identity-hosting box: verbatim *"we shouldn't need that, considering all boxes that Skynet has as hosts can already be SSH into."* All Wave 1 watcher subpackage code (Plan 01 as first-shipped in commits `6003221` / `62a4898` / `cb2938a`) was reverted; Plan 01 replanned to fit this new shape. Plan 04 was replanned; Plans 02, 03, 05, 06 unaffected.
 
 **Locked constraints under this pivot:**
 
 - **Watcher lives in `src/backend/fleet-status/*`** — ordinary Skynet backend TypeScript modules, alongside the Plan 02 modules already shipped in commits `7f85f2f`→`a60d30c`. No standalone subpackage. No separate `package.json` / `tsconfig.json` / `vitest.config.ts`. Builds and tests with the rest of the Skynet backend.
 - **No per-box daemon.** No systemd user unit. No install script for a persistent process. No dynamic host-discovery daemon. Skynet backend already knows the identity-host list from its own DB.
-- **Delivery mechanism: 2s polling over the existing SSH pool** (poll over event-driven `inotifywait`; Ashley 2026-08-13 chose the polling path for zero-dep operation on any host with a shell). Uses whatever SSH primitives the backend already exposes for its tmux/pane plumbing. One channel per identity-hosting host, multiplexed.
+- **Delivery mechanism: 2s polling over the existing SSH pool** (poll over event-driven `inotifywait`; Alice 2026-08-13 chose the polling path for zero-dep operation on any host with a shell). Uses whatever SSH primitives the backend already exposes for its tmux/pane plumbing. One channel per identity-hosting host, multiplexed.
 - **Stop hook install is a one-time remote file drop + settings-file edit over SSH**, NOT a persistent process. Drop the hook script into a well-known location on each identity-hosting box; append one entry to that box's `~/.claude/settings.json` `hooks.Stop[0]` array. Hook writes payloads to a well-known local file on the box; Skynet polls that file over the same SSH channel it polls the session-JSON files.
 - **Scope of hook install: identity-hosting boxes only.** NOT every managed host — RDP-only endpoints (linux-beelink, WINDOWS-PC, aither Windows RDP boxes) don't run Claude Code so they need nothing.
-- **Fail-open on missing hook payload file** (Ashley 2026-08-13 verbatim: *"just make sure that it fails open if the file that the hook is supposed to generate isn't found"*). If the well-known Stop-hook payload file doesn't exist on a given host (hook never installed, freshly deleted, crashed before writing anything, or transient FS glitch), the watcher MUST NOT crash, log-spam, or mark the session as broken. Treat that host's background-task view as empty/unknown and continue relying on the session-JSON file for the main working signal. The dot may under-report background work on that host until the hook is (re-)installed, but the app stays functional. This applies to any host at any time — first-time provisioning is just the most common trigger, but the same code path also handles "hook file existed then vanished" and "hook file exists but is empty/corrupt."
+- **Fail-open on missing hook payload file** (Alice 2026-08-13 verbatim: *"just make sure that it fails open if the file that the hook is supposed to generate isn't found"*). If the well-known Stop-hook payload file doesn't exist on a given host (hook never installed, freshly deleted, crashed before writing anything, or transient FS glitch), the watcher MUST NOT crash, log-spam, or mark the session as broken. Treat that host's background-task view as empty/unknown and continue relying on the session-JSON file for the main working signal. The dot may under-report background work on that host until the hook is (re-)installed, but the app stays functional. This applies to any host at any time — first-time provisioning is just the most common trigger, but the same code path also handles "hook file existed then vanished" and "hook file exists but is empty/corrupt."
 
 **What stays from the pre-pivot design (unchanged):**
 
@@ -68,7 +68,7 @@ isWorking = main || bg
 ```
 The `waiting` state is a separate axis from `isWorking` — a session in `waiting` should NOT count as working for dot purposes; the bubble surfaces the ask instead.
 
-### Dot semantics (UNCHANGED — LOCKED by Ashley 2026-07-23; do NOT re-litigate)
+### Dot semantics (UNCHANGED — LOCKED by Alice 2026-07-23; do NOT re-litigate)
 - Dot visible ⇔ `inActiveSet(row) === true && isWorking(row) === false` (ready-for-attention).
 - Dot absent covers everything else (working, or not-in-active-set, or both).
 - ONE dot per row, ONE meaning. No separate "WIP dot", no "recessed WIP dot".
@@ -78,7 +78,7 @@ The `waiting` state is a separate axis from `isWorking` — a session in `waitin
 - New PrettyView bubble modeled on `src/ui/features/pretty-view/PlanPendingBubble.tsx`.
 - Mount site: same slot pattern as PlanPendingBubble (in-flow assistant-aligned bubble at bottom of message list).
 - Shows `waitingFor` reason string: "approve Bash" / "sandbox request" / "worker request" / "dialog open" (whatever the harness reports).
-- Semantics: "harness needs a user decision PrettyView can't render interactively" — visual affordance only, no interactive controls (Ashley must switch to a terminal pane to answer; the bubble tells her that).
+- Semantics: "harness needs a user decision PrettyView can't render interactively" — visual affordance only, no interactive controls (Alice must switch to a terminal pane to answer; the bubble tells her that).
 
 ### Existing plumbing to REUSE (do not rebuild)
 - **PID→sessionId→cwd correlation**: `src/backend/claude-session/session-file-discovery.ts` `discoverClaudeSession()` already parses `~/.claude/sessions/<claudePid>.json` at pane connect. The fleet-status watcher needs the same primitive; refactor to a reusable helper if it isn't already exported cleanly.
@@ -95,12 +95,12 @@ The `waiting` state is a separate axis from `isWorking` — a session in `waitin
 - Watcher runtime language/binary: **Claude's discretion**, informed by research subtask #4. Constraints: minimal deps (don't want to install a Node stack on every box just for this), survives box restart (systemd unit or equivalent), logs to a place we can grep later.
 - Watcher update mechanism: needs to be defined in the plan — how do we iterate on the watcher itself when we find bugs? Not a per-Skynet-deploy motion because managed boxes aren't Skynet.
 
-### Structured logging (standing directive, Ashley 2026-08-11)
+### Structured logging (standing directive, Alice 2026-08-11)
 - Every code path this phase adds MUST log at interaction/lifecycle/effect boundaries with actionable context: `hostId`, `sessionId`, `pid`, session-JSON path, hook event type, WS lifecycle transitions. Explicitly extracted fields — NEVER `JSON.stringify(event)` on DOM Event objects.
 - Log destination: `/opt/skynet/console-forward-logs/console-forward.log` for anything that runs in the Skynet container; per-box watcher logs to a discoverable location on each box.
 
 ### Fleet rules (non-negotiable)
-- **NEVER use worktrees** (Ashley 2026-07-31). `workflow.use_worktrees=false` set on this project.
+- **NEVER use worktrees** (Alice 2026-07-31). `workflow.use_worktrees=false` set on this project.
 - **Sub-agents don't do deploys**. Plans MUST NOT include ship/deploy tasks at executor scope; orchestrator (tina) picks up deploy motion after each plan's executor returns "code done, tests green".
 - **`/gsd:phase` + `/gsd:plan-phase` + `/gsd:execute-phase` is the vehicle** — not extra ceremony.
 - **Never leave tests failing**. Full-suite green (`npx vitest run` exit 0) is a precondition for any commit.
@@ -122,7 +122,7 @@ The `waiting` state is a separate axis from `isWorking` — a session in `waitin
 ### Design authority
 - `~/.claude/roles/box-maintainer/bounties/fleet-status-backend-signal/bounty.json` — source-of-truth architecture (premise field)
 - `~/.claude/roles/box-maintainer/bounties/ambient-monitor-tagging-in-id-skill/bounty.json` — companion bounty for the hard dependency
-- `.planning/STATE.md` § Roadmap Evolution 2026-08-13 entry — verbatim Ashley quotes from the design conversation + full architecture recap
+- `.planning/STATE.md` § Roadmap Evolution 2026-08-13 entry — verbatim Alice quotes from the design conversation + full architecture recap
 
 ### Current signal (to be retired)
 - `src/ui/state/session-working-store.ts` — the store, will be re-wired to consume from fleet-status channel (feeders retire; store shape may stay)
@@ -136,7 +136,7 @@ The `waiting` state is a separate axis from `isWorking` — a session in `waitin
 - `src/ui/features/pretty-view/PlanPendingBubble.tsx` — the waiting bubble follows this shape (in-flow assistant-aligned, glass treatment)
 
 ### Dot semantics (LOCKED — do not touch)
-- `~/.claude/roles/box-maintainer/box-maintainer.md` § "Skynet conversation-list dot semantics — one meaning: 'ready for your attention'" (Ashley 2026-07-23 lock)
+- `~/.claude/roles/box-maintainer/box-maintainer.md` § "Skynet conversation-list dot semantics — one meaning: 'ready for your attention'" (Alice 2026-07-23 lock)
 
 ### Fleet-wide primitives verification (already done this session)
 - Live on this box RIGHT NOW: `/home/ubuntu/.claude/sessions/*.json` — verified during design conversation, files present + updating in real time for both tina and Tiffany PIDs.
@@ -188,15 +188,15 @@ The plan-phase research subtask goes DEEPER (tactical vs strategic) — verifies
 
 - **PermissionRequest hook** (also `Notification` per pbauermeister — but `Notification` `idle_prompt` matcher is documented as broken in issue #12048; use `PermissionRequest` instead).
 
-- **Concrete waiting-bubble copy** (Ashley 2026-08-13 verbatim): *"I think we could show that the same way that we do the plan mode bubble, like message bubble … some signal that the harness is waiting on the user in a way that PrettyView can't fully make interactable, because there are times where the agent tries to execute some file deletion command and the harness brings up a permission confirm prompt even though we run in dangerously skip permissions mode. So that would be great to put in there as at least a signal that the harness is waiting on something that we don't support officially."*
+- **Concrete waiting-bubble copy** (Alice 2026-08-13 verbatim): *"I think we could show that the same way that we do the plan mode bubble, like message bubble … some signal that the harness is waiting on the user in a way that PrettyView can't fully make interactable, because there are times where the agent tries to execute some file deletion command and the harness brings up a permission confirm prompt even though we run in dangerously skip permissions mode. So that would be great to put in there as at least a signal that the harness is waiting on something that we don't support officially."*
 
-- **False-positive concrete example (Ashley 2026-08-13 verbatim)**: *"all it takes is like, you know, a single flashing thing at the bottom of the harness, like a warning that your usage is getting high, which is something that it does pretty often. Or, you know, I even have this weird thing that i don't understand where whenever i have a session open and then i open or like access a different tmux session on the same box it causes some kind of movement on the other tmux panes that exist on that box and i see the work in progress indicator show up."* — Both of these die when we retire ttyBusy.
+- **False-positive concrete example (Alice 2026-08-13 verbatim)**: *"all it takes is like, you know, a single flashing thing at the bottom of the harness, like a warning that your usage is getting high, which is something that it does pretty often. Or, you know, I even have this weird thing that i don't understand where whenever i have a session open and then i open or like access a different tmux session on the same box it causes some kind of movement on the other tmux panes that exist on that box and i see the work in progress indicator show up."* — Both of these die when we retire ttyBusy.
 </specifics>
 
 <deferred>
 ## Deferred Ideas (OUT of scope for this phase)
 
-- **Semantics change to the dot** — Ashley 2026-07-23 lock stands. We're rebuilding the delivery pipe, not the semantics.
+- **Semantics change to the dot** — Alice 2026-07-23 lock stands. We're rebuilding the delivery pipe, not the semantics.
 - **LLM classifier for hard-to-classify cases** — kept as future escape hatch only. Research already validated we don't need one; deterministic signals + tagging cover the space.
 - **Live-path migration of `session-file-discovery`'s pane-based lookup** — Phase 32 explicitly deferred this (§ "Bigger picture"). Stays deferred. This phase reuses `discoverClaudeSession()` as-is for the correlation primitive but does not migrate the live path.
 - **Migration of any per-pane WS content signals to the fleet-status channel** — this phase is scoped to the working-signal (dot + WipBubble + waiting-bubble) only. Message frames, pane_state, tail-message-history, etc. all stay on per-pane WSes.

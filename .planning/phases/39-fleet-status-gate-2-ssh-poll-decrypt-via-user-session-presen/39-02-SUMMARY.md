@@ -20,7 +20,7 @@ affects:
 tech_stack:
   added: []
   patterns:
-    - "Presence-driven background work (Ashley's principle 39-CONTEXT §Decisions: \"nobody needs to know if something is idle or not, or anything else that's going on here, if no user is present to want to know the information\")"
+    - "Presence-driven background work (Alice's principle 39-CONTEXT §Decisions: \"nobody needs to know if something is idle or not, or anything else that's going on here, if no user is present to want to know the information\")"
     - "Canonical decrypt-then-connect via resolveHostById(id, userId) → connectOneShot(host, timeout) — matches sessions.ts:70-75, identity-birth.ts, roles-create.ts, guacamole/routes.ts"
     - "Non-null assertion at safe control-flow gates (userId! at subscribe call site — the auth branch above returns 1008 if payload.userId is absent, so control never reaches the subscribe line with an undefined userId)"
     - "Type predicate filter for Promise.all null-elimination (`(h): h is {...} => h !== null`) — preserves the strict return type through null-drops from resolveHostById"
@@ -32,11 +32,11 @@ key_files:
     - src/backend/fleet-status/fleet-status-server.test.ts (new Test 8b — spies on registry.subscribe and asserts the ctx arg deep-equals { userId: "test-user" })
     - src/backend/starter.ts (fleet-status IIFE block rewired — see "What Got Built" below for the diff shape)
 decisions:
-  - "Kept the current currentSubscriberUserId single-user model over per-user pooler instances — matches Skynet's single-tenant reality on this box, plan explicitly notes multi-user is deferred (39-CONTEXT §Deferred / §Multi-user semantics). If second concurrent subscriber connects mid-poll under different user, they'll receive existing state via snapshot; poller keeps running under the FIRST subscriber's userId until BOTH disconnect. Documented as deferred in this SUMMARY §Deferred Behaviors — Ashley to revisit if multi-user is ever exercised."
+  - "Kept the current currentSubscriberUserId single-user model over per-user pooler instances — matches Skynet's single-tenant reality on this box, plan explicitly notes multi-user is deferred (39-CONTEXT §Deferred / §Multi-user semantics). If second concurrent subscriber connects mid-poll under different user, they'll receive existing state via snapshot; poller keeps running under the FIRST subscriber's userId until BOTH disconnect. Documented as deferred in this SUMMARY §Deferred Behaviors — Alice to revisit if multi-user is ever exercised."
   - "listIdentityHostingHosts null-guard emits warn (fleet_status_host_list_no_user) and returns [] rather than throwing — orchestrator's start() path swallows []-returning listIdentityHostingHosts gracefully, so a soft-fail preserves fail-open semantics (matches the existing catch-and-warn pattern for DB errors on line 253-258)."
   - "Non-null assertion `userId!` at fleet-status-server.ts:242 is safe: the auth branch at line 172-179 returns 1008 if payload.userId is absent, so control only reaches line 242 with userId as a defined string. The subscribe path is inside the ws.on('message') callback registered AFTER the auth branch, so userId is bound in closure scope at that point."
   - "The three explicit host id/name/_connDetails object shape returned from listIdentityHostingHosts uses `as unknown as Record<string, unknown>` for the _connDetails cast — matches the SSHHost surface consumed by acquireSshChannel via `connDetails as Parameters<typeof connectOneShot>[0]` (line 311). Same double-cast pattern used everywhere in this file; no new type-widening."
-  - "hostClients.end() + hostClients.clear() are inside onLastUnsubscriber ONLY (not inside orchestrator.stop()) — the orchestrator's stop() releases channel wrappers via releaseSshChannel (no-op here), but the raw ssh2 Clients in the hostClients Map are outside the orchestrator's ownership. Explicit close here fulfills Ashley's contract per 39-RESEARCH §Pitfall 3."
+  - "hostClients.end() + hostClients.clear() are inside onLastUnsubscriber ONLY (not inside orchestrator.stop()) — the orchestrator's stop() releases channel wrappers via releaseSshChannel (no-op here), but the raw ssh2 Clients in the hostClients Map are outside the orchestrator's ownership. Explicit close here fulfills Alice's contract per 39-RESEARCH §Pitfall 3."
 metrics:
   duration: "~27 minutes"
   completed_date: 2026-08-14
@@ -50,7 +50,7 @@ metrics:
 
 # Phase 39 Plan 02: Presence-Driven SSH-Poll Orchestrator + resolveHostById Decrypt Path — Summary
 
-Rewires the fleet-status SSH-poll orchestrator to Path C (Ashley LOCKED 2026-08-13, 39-CONTEXT §Decisions): the poller runs only while at least one fleet-status browser subscriber is connected, and uses that subscriber's authenticated session for per-host decrypt via the canonical `resolveHostById(hostId, userId)` path — fixing both the "always-on background work" anti-pattern AND the ciphertext-passed-to-ssh2 root-cause bug in one atomic wire-up.
+Rewires the fleet-status SSH-poll orchestrator to Path C (Alice LOCKED 2026-08-13, 39-CONTEXT §Decisions): the poller runs only while at least one fleet-status browser subscriber is connected, and uses that subscriber's authenticated session for per-host decrypt via the canonical `resolveHostById(hostId, userId)` path — fixing both the "always-on background work" anti-pattern AND the ciphertext-passed-to-ssh2 root-cause bug in one atomic wire-up.
 
 ## What Got Built
 
@@ -122,7 +122,7 @@ The plan's threat register (T-39-04 through T-39-07 plus T-39-SC) is upheld:
 
 Documented here so that a future planner sees them and can decide whether to formalize:
 
-- **Multi-user concurrent subscribers.** Current wiring: FIRST subscriber's userId is captured in `currentSubscriberUserId` and used for ALL decrypt calls until BOTH disconnect. If a second subscriber with a different userId connects while the first is still active, the poller continues to decrypt under the first user's session. On Skynet's single-tenant box (Ashley only) this is a non-issue. If multi-user is ever exercised, options include: (a) per-user poller instances (39-CONTEXT §Multi-user semantics alternative), (b) union-of-hosts poller keyed by each host's own owner userId (39-CONTEXT §Multi-user semantics recommendation), (c) unify decrypt subject to the host's owner userId directly (bypass currentSubscriberUserId — but this reintroduces the "system-key plumbing" concern Ashley explicitly rejected in Path C). No action taken.
+- **Multi-user concurrent subscribers.** Current wiring: FIRST subscriber's userId is captured in `currentSubscriberUserId` and used for ALL decrypt calls until BOTH disconnect. If a second subscriber with a different userId connects while the first is still active, the poller continues to decrypt under the first user's session. On Skynet's single-tenant box (Alice only) this is a non-issue. If multi-user is ever exercised, options include: (a) per-user poller instances (39-CONTEXT §Multi-user semantics alternative), (b) union-of-hosts poller keyed by each host's own owner userId (39-CONTEXT §Multi-user semantics recommendation), (c) unify decrypt subject to the host's owner userId directly (bypass currentSubscriberUserId — but this reintroduces the "system-key plumbing" concern Alice explicitly rejected in Path C). No action taken.
 - **Stop-hook install verification per host (Plan 04 territory).** The plan's `<domain>` explicitly names Plan 04's `stop-hook.sh` install verification as in-scope for Phase 39 overall — but that's a separate plan (39-04 if scheduled). This plan (39-02) does not touch remote-hook-install.ts.
 - **Runtime signature verification (post-deploy).** Boot log `fleet_status_awaiting_subscriber` and per-lifecycle-event `fleet_status_orchestrator_lifecycle` info logs are added — but observing them fire in production is the orchestrator's post-deploy verification job, not this executor's. Executor scope stops at test-green per fleet directive #2.
 

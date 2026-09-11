@@ -39,7 +39,7 @@ metrics:
 
 # Phase 14A: CSS Purge Wave A — Deletions Summary
 
-Skynet's post-rename cleanup: delete dead UI subtrees Ashley never uses + retire every dangling import, switch-case, and integration these deletions expose. Wave A shipped 6 atomic commits per Phase 12 precedent, deleting 68 UI files and ~15,000 LOC of dead React code, plus stripping ~24,500 LOC of dead locale strings across 35 JSON files. Total diff: 105 files, 43,533 lines deleted, 15 added.
+Skynet's post-rename cleanup: delete dead UI subtrees Alice never uses + retire every dangling import, switch-case, and integration these deletions expose. Wave A shipped 6 atomic commits per Phase 12 precedent, deleting 68 UI files and ~15,000 LOC of dead React code, plus stripping ~24,500 LOC of dead locale strings across 35 JSON files. Total diff: 105 files, 43,533 lines deleted, 15 added.
 
 ## Wave A commits
 

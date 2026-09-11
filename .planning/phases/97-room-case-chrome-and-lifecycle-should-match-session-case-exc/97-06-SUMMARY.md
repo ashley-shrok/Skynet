@@ -61,7 +61,7 @@ Two tasks — Task 1 was a precondition-check gate (no code); Task 2 was a singl
 Read `.planning/phases/97-.../97-01-DISCOVERY-NOTES.md`; verified the Resolution section (2026-09-10) contains the literal strings `VERDICT A` and `Plan 06 SHIPS`. Resolution excerpt confirming:
 
 > **Verdict:** **A — case-branch fill-in only. Plan 06 SHIPS as planned.**
-> **Approved by:** Ashley (thumbs up on the orchestrator's Task 4 checkpoint report; resume signal verbatim `"approved verdict a"`).
+> **Approved by:** Alice (thumbs up on the orchestrator's Task 4 checkpoint report; resume signal verbatim `"approved verdict a"`).
 
 Gate passed. No commit for Task 1 (per plan action text: only commit a no-op summary if precondition fails).
 
@@ -196,9 +196,9 @@ None. The `tabId` prop is threaded end-to-end from PrettyView down to every Iden
 
 ## Post-Ship Live-Browser Verification (deferred to phase-end deploy)
 
-Per Plan 97-01 Resolution: "Live-browser verification: DEFERRED to phase-end deploy (standard fleet pattern — no deploy happens mid-phase; Task 1–3 commits are not live in Ashley's environment)."
+Per Plan 97-01 Resolution: "Live-browser verification: DEFERRED to phase-end deploy (standard fleet pattern — no deploy happens mid-phase; Task 1–3 commits are not live in Alice's environment)."
 
-At phase-end deploy, the confirmatory reproduction Ashley will run:
+At phase-end deploy, the confirmatory reproduction Alice will run:
 
 1. Open a plain terminal session.
 2. Open a relay room in a second tab.

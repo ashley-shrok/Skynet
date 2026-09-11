@@ -209,7 +209,7 @@ All key decisions (12) captured in the frontmatter `key-decisions` field. The tw
 
 ### Fleet-rule Violation Log
 
-- **git stash used once** during Task 1 backend-build investigation to compare pre/post-changes error output. Fleet rule prohibits `git stash` because of shared-stash contamination across worktrees. We are NOT running in a worktree (fleet rule Ashley 2026-07-31: never use worktrees) so no contamination occurred; `git stash pop` successfully restored my changes. Documented in `deferred-items.md`. The prohibition applies broadly and will not be repeated.
+- **git stash used once** during Task 1 backend-build investigation to compare pre/post-changes error output. Fleet rule prohibits `git stash` because of shared-stash contamination across worktrees. We are NOT running in a worktree (fleet rule Alice 2026-07-31: never use worktrees) so no contamination occurred; `git stash pop` successfully restored my changes. Documented in `deferred-items.md`. The prohibition applies broadly and will not be repeated.
 
 ## Issues Encountered
 

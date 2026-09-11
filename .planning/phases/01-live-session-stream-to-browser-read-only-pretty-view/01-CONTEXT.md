@@ -46,7 +46,7 @@ Phase 2 and must not be blocked by Phase 1 architectural choices.
   Do NOT introduce a new subsystem for file discovery.
 - The **claude-code-trace** project on GitHub (delexw/claude-code-trace) has
   already done the file-format parsing, session-boundary logic, and tail
-  mechanics. Ashley is **NOT committed** to using it as a library. Read it
+  mechanics. Alice is **NOT committed** to using it as a library. Read it
   for parsing shape and boundary logic if useful; reimplement anything
   simpler to write ourselves.
 
@@ -160,7 +160,7 @@ Phase 2 and must not be blocked by Phase 1 architectural choices.
 - Every deploy runs behind the fork's mandatory 15-min deadman rollback
   timer (`/opt/skynet/.tmp-revert.sh`). This is a STANDING CONSTRAINT, not
   a phase task — the planner does not need to plan the deadman, but it
-  should assume all execution is bounded by it. Ashley's rule: NO
+  should assume all execution is bounded by it. Alice's rule: NO
   EXCEPTIONS on any deploy, even when she's at the keyboard.
 - Fork build vehicle: `sudo bash /opt/skynet/skynet-patches/build-skynet.sh`
   produces `skynet-patched:local`; deploy is

@@ -18,7 +18,7 @@ key_files:
     - src/backend/fleet-status/ssh-poll-orchestrator.test.ts
     - src/backend/database/routes/sessions.test.ts
 decisions:
-  - Prefix-anchored sentinel check (startsWith) rather than includes to avoid matching quoted mentions in real Ashley prose
+  - Prefix-anchored sentinel check (startsWith) rather than includes to avoid matching quoted mentions in real Alice prose
   - Control-char check operates on trimmed t (regular whitespace already stripped) for minimal surface
   - /exit check on raw content (not trimmed) so the substring match is reliable regardless of leading space
 metrics:
@@ -34,7 +34,7 @@ metrics:
 
 ## What Was Built
 
-The `isRealUserTurn` predicate had three harness-injected shapes that passed all existing gates and spuriously bumped `lastMessageAt`, floating agents Ashley hadn't messaged in days to the top of the conversation list:
+The `isRealUserTurn` predicate had three harness-injected shapes that passed all existing gates and spuriously bumped `lastMessageAt`, floating agents Alice hadn't messaged in days to the top of the conversation list:
 
 1. **Ctrl-C kill signal** (`"\x03\x03"`) — delivered by the supervisor as plain-string content; was passing the XML-wrapper gate because it is not an XML wrapper.
 2. **`/exit` slash-command** — agent-supervisor fires this before recycle; content starts with `<command-` so the existing `isCommand` check kept it alive.

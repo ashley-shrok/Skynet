@@ -22,7 +22,7 @@
  * - 30s stale sweep: re-probes each tracked PID's /proc/stat to catch PIDs that
  *   vanished between poll ticks (e.g. session-JSON deleted mid-tick).
  *
- * ## Fail-open on missing hook payload file (Ashley 2026-08-13 LOCKED)
+ * ## Fail-open on missing hook payload file (Alice 2026-08-13 LOCKED)
  * When the Stop-hook payload file is absent / empty / malformed / SSH-read-error:
  *   - Treat background_tasks[] as [] for that poll cycle.
  *   - Continue publishing SessionState (session-JSON status is authoritative).
@@ -63,7 +63,7 @@ import {
   type SweepPidLine,
   type SweepIdentityLine,
 } from "./sweep-schema.js";
-// Phase 85 (D-07): per-tick `lastMessageAt` derivation reads Ashley's newest
+// Phase 85 (D-07): per-tick `lastMessageAt` derivation reads Alice's newest
 // send-time timestamp from the identity-name-keyed send-log store instead of
 // scanning the JSONL tail. `scanTailForNewestMessageAt` stays defined + exported
 // for byte-parallel consumers in `src/backend/database/routes/sessions.ts`
@@ -580,7 +580,7 @@ interface PerIdentityFetchedState {
 // ---------------------------------------------------------------------------
 
 /**
- * Ashley 2026-08-23 lock: "only my real messages going to them" —
+ * Alice 2026-08-23 lock: "only my real messages going to them" —
  * INVERTS the 2026-08-14 lock. Assistant activity, incoming/outgoing
  * DMs, scheduled wakes, task notifications, skill-body injections all
  * excluded. See quick-260823-bap plan for the full predicate matrix.
@@ -597,7 +597,7 @@ interface PerIdentityFetchedState {
  * discipline preserved per 43-CONTEXT.md scope decision (canonical
  * copy in sessions.ts must stay byte-parallel).
  *
- * Ashley 2026-08-29 refinement: three additional harness-injected shapes
+ * Alice 2026-08-29 refinement: three additional harness-injected shapes
  * confirmed on Tabitha's session file now explicitly rejected:
  * - Ctrl-C kill signal: supervisor delivers "\x03\x03" as plain-string
  *   content; after trimming, stripping all ASCII control chars yields "".
@@ -639,14 +639,14 @@ function isRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok: false
   const isCommand = t.startsWith("<command-");
   if (!isCommand && isXmlWrapper) return { ok: false };
   // Step 5 (2026-08-29 refinement): drop /exit slash-command injected by agent-supervisor
-  // before recycle. Ashley's own slash-commands (/id, /build, /gsd:*) are unaffected.
+  // before recycle. Alice's own slash-commands (/id, /build, /gsd:*) are unaffected.
   if (content.includes("<command-name>/exit</command-name>")) return { ok: false };
   // Step 6 (2026-08-29 refinement): drop control-chars-only content (e.g. Ctrl-C kill
   // signal "\x03\x03"). t is already trimmed of regular whitespace; stripping ASCII
   // control chars from t and getting "" means the payload was pure control-char noise.
   if (t.replace(/[\x00-\x1F]/g, "") === "") return { ok: false };
   // Step 7 (2026-08-29 refinement): drop agent-supervisor resumed-injection sentinel.
-  // Prefix-anchored to avoid matching quoted mentions in real Ashley prose.
+  // Prefix-anchored to avoid matching quoted mentions in real Alice prose.
   if (content.startsWith("Your session was just resumed by the agent-supervisor")) return { ok: false };
   // Passed all gates — extract ts from the timestamp field.
   const rawTs = top.timestamp;
@@ -688,7 +688,7 @@ const STALE_TAIL_REDISCOVERY_THRESHOLD = 5;
 
 /**
  * Parse a JSONL blob (the raw stdout of a `tail -c 262144 <jsonl-path>` exec)
- * and return the newest Ashley-real-user-turn `ts` (unix millis) found across
+ * and return the newest user-real-user-turn `ts` (unix millis) found across
  * all lines, or null if no line qualified. Empty lines and malformed lines are
  * skipped silently — this is a best-effort sample, not a validation pass.
  *
@@ -697,7 +697,7 @@ const STALE_TAIL_REDISCOVERY_THRESHOLD = 5;
  * § Backend scraper mechanics — bounded parse well under 5ms on typical
  * hardware).
  *
- * Predicate: isRealUserTurn (Ashley 2026-08-23 lock). Each line is
+ * Predicate: isRealUserTurn (Alice 2026-08-23 lock). Each line is
  * independently JSON.parsed by the predicate helper — parseSessionLine is
  * NOT used for the recency filter (it is no longer the gating function;
  * it is still called for other purposes elsewhere if needed). The predicate
@@ -823,7 +823,7 @@ function scanTailForLayer1RecyclingSignal(tailContents: string): boolean | null 
   const lines = tailContents.split("\n");
   for (const line of lines) {
     if (line.trim() === "") continue;
-    // inline-260830-layer1-skip-harness-synthetic-user-turns (Ashley
+    // inline-260830-layer1-skip-harness-synthetic-user-turns (Alice
     // 2026-08-30, taylor): pre-filter with isRealUserTurn so
     // harness-synthetic user turns do NOT flip lastResult back to false
     // after a real /id reset has been seen. Historical behavior: this
@@ -839,7 +839,7 @@ function scanTailForLayer1RecyclingSignal(tailContents: string): boolean | null 
     //     `<command-name>/id</command-name>`),
     //   - control-char kill signals + resumed-injection sentinels,
     //   - non-command XML-wrapped strings.
-    // Ashley report 2026-08-30 (chad 20:09:07):
+    // Alice report 2026-08-30 (chad 20:09:07):
     // [fleet_status_recycling_armed] showed layer1:false, requested:true
     // — the sentinel drop was the ONLY arm axis; Layer 1 never fired
     // during the 30s window while the /id skill was running. This filter
@@ -1621,7 +1621,7 @@ export function createSshPollOrchestrator(
   //     of the three axes ever evaluate true across the sentinel-present
   //     window. Source B is identity-folder-keyed and runs unconditionally
   //     per identity per tick — the correct architectural seam. See
-  //     quick-260823-73o-PLAN.md for the full RCA + Ashley's UAT narration.
+  //     quick-260823-73o-PLAN.md for the full RCA + Alice's UAT narration.
   //
   // Per-tick pipeline (per identity):
   //   1. Parallel-stat all three sentinels (`.dormant`, `.recycled-at`,

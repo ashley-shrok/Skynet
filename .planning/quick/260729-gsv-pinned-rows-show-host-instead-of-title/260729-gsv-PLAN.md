@@ -40,7 +40,7 @@ Patch #184 (quick-260729-gsv): flip pinned conversation rows in the pretty-conve
 
 The rendering machinery already exists inside `PrettyConversationRow.tsx` (patch #149 / f9v): passing `subtitleMode="identityTitle"` swaps the sublabel branch, and the null-identity fallback path is retained as the safety net. This patch is a single-line prop addition at the pinned render site plus a two-line doc-comment correction plus one regression test.
 
-Purpose: Ashley's pinned tier should visually match the grouped tier's identity-first treatment. The Server icon + hostname sublabel duplicates information already available elsewhere in her UI — the pin glyph itself already signals the row is pinned, and the identity title/displayName carries the meaningful per-session context.
+Purpose: Alice's pinned tier should visually match the grouped tier's identity-first treatment. The Server icon + hostname sublabel duplicates information already available elsewhere in her UI — the pin glyph itself already signals the row is pinned, and the identity title/displayName carries the meaningful per-session context.
 
 Output: One commit on `feat/tab-title-from-tmux` bumping patch count to 184, with the three-file diff (panel prop wiring + row JSDoc correction + panel regression test).
 </objective>
@@ -120,7 +120,7 @@ Output: One commit on `feat/tab-title-from-tmux` bumping patch count to 184, wit
 </verification>
 
 <success_criteria>
-Pinned rows visually match the grouped block's sublabel treatment: they render `identity.title ?? identity.displayName` when identity resolves, and cleanly fall back to Server + hostname when it doesn't. The full pretty-conversations vitest folder + `tsc --noEmit` + `npm run build` all pass. Strict scope maintained: only the three files listed in `files_modified` were touched, and no adjacent behaviors regressed. A single patch-#184 commit lands on `feat/tab-title-from-tmux`, ready for Ashley's deploy greenlight.
+Pinned rows visually match the grouped block's sublabel treatment: they render `identity.title ?? identity.displayName` when identity resolves, and cleanly fall back to Server + hostname when it doesn't. The full pretty-conversations vitest folder + `tsc --noEmit` + `npm run build` all pass. Strict scope maintained: only the three files listed in `files_modified` were touched, and no adjacent behaviors regressed. A single patch-#184 commit lands on `feat/tab-title-from-tmux`, ready for Alice's deploy greenlight.
 </success_criteria>
 
 <output>

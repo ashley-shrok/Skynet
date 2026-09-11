@@ -42,7 +42,7 @@ must_haves:
 ---
 
 <objective>
-Add a small, glass-styled copy-to-clipboard button to every code block and blockquote rendered inside the pretty-view `ChatMessage` (per task-shape, this is what the shape called "MessageBubble" — the actual file is `ChatMessage.tsx`). Purpose: let Ashley one-click-copy assistant code snippets and quoted excerpts without dragging a text selection through the glass bubble.
+Add a small, glass-styled copy-to-clipboard button to every code block and blockquote rendered inside the pretty-view `ChatMessage` (per task-shape, this is what the shape called "MessageBubble" — the actual file is `ChatMessage.tsx`). Purpose: let Alice one-click-copy assistant code snippets and quoted excerpts without dragging a text selection through the glass bubble.
 
 Purpose: reduce friction on the most-repeated copy target in pretty-view (fenced code blocks and quoted excerpts). The bubble is a Ship-of-Theseus-locked surface; the button must slot into the existing glass aesthetic without disturbing prose flow or existing chip-strip / injected-turn / quick-reply behavior.
 
@@ -169,7 +169,7 @@ Output: a new `CopyableBlock` component + its unit tests, wired into `ChatMessag
 </tasks>
 
 <verification>
-Manual smoke (visual verification is out of scope for this autonomous quick task — orchestrator/Ashley can visually verify after commit):
+Manual smoke (visual verification is out of scope for this autonomous quick task — orchestrator/Alice can visually verify after commit):
 - Open pretty-view, render an assistant message that contains a fenced code block. On desktop, hover the block: the copy button fades in top-right. Click it: icon flips to a checkmark, then reverts after ~1.5s. Paste into another app — the code block text is on the clipboard.
 - Repeat for a blockquote (`> quoted text`).
 - On a touch device (or DevTools mobile-emulation with `pointer: coarse`), the button is visible without hover.

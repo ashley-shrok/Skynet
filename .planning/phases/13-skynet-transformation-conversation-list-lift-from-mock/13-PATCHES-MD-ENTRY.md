@@ -1,8 +1,8 @@
 # Patch #140 — Skynet transformation: conversation list lift-from-mock (final Ship-of-Theseus slice) — Phase 13
 
 **Paste target:** `~/.claude/identities/tina/skynet-patches.md`
-**Paste timing:** Only after Ashley greenlights the batched Phase 11 + Phase 12 + Phase 13 Ship-of-Theseus movement deploy AND UAT passes on the 26 non-negotiable items in `13-UAT-CHECKLIST.md`. Post-deadman-retirement flow per current `~/.claude/identities/tina/deploy-runbook.md` (the 15-min deadman regime was retired 2026-07-21).
-**Batch context:** Patch #140 is the FINAL Phase-13-cluster patch (patch #138 = Phase 11 first slice; #139 = Phase 12 second slice; #140 = this Phase 13 final slice). Per the fleet-standing "batch patches into meaningful deploys" rule (Ashley 2026-07-23), it does NOT ship standalone. Batches with patches #138 + #139 into a single grouped-semantic-unit deploy ("the Ship-of-Theseus movement complete") — the whole three-phase Skynet SHAPE transformation lands in ONE Ashley-verified deploy window.
+**Paste timing:** Only after Alice greenlights the batched Phase 11 + Phase 12 + Phase 13 Ship-of-Theseus movement deploy AND UAT passes on the 26 non-negotiable items in `13-UAT-CHECKLIST.md`. Post-deadman-retirement flow per current `~/.claude/identities/tina/deploy-runbook.md` (the 15-min deadman regime was retired 2026-07-21).
+**Batch context:** Patch #140 is the FINAL Phase-13-cluster patch (patch #138 = Phase 11 first slice; #139 = Phase 12 second slice; #140 = this Phase 13 final slice). Per the fleet-standing "batch patches into meaningful deploys" rule (Alice 2026-07-23), it does NOT ship standalone. Batches with patches #138 + #139 into a single grouped-semantic-unit deploy ("the Ship-of-Theseus movement complete") — the whole three-phase Skynet SHAPE transformation lands in ONE user-verified deploy window.
 
 Explicit contract line for the fork-catalog integrity gate: **patch #140 batches with patches #138 + #139 as the Ship-of-Theseus movement completion.** No Co-Authored-By trailer per fork convention (also called out at the top of this file).
 **Ordinal position on paste:** Update the count line near the top of `skynet-patches.md`. Current baseline is "ONE HUNDRED THIRTY-SEVEN numbered patches" (patches #138 + #139 not yet pinned). Bump to "ONE HUNDRED FORTY" — pin patches #138 (Phase 11) + #139 (Phase 12) + #140 (Phase 13) together at the batch-deploy moment as the Ship-of-Theseus movement completion. If patches #138 + #139 were pinned earlier as an interstitial bump, bump from whatever the current count is to "ONE HUNDRED FORTY".
@@ -19,16 +19,16 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
         mock v4; presentation-only, backend untouched)`
         (committed 2026-07-23 to `feat/tab-title-from-tmux`; deploy batched
         with patches #138 (Phase 11 first slice) + #139 (Phase 12 second slice)
-        per Ashley 2026-07-23 fleet-standing "batch patches into meaningful
-        deploys" rule; not deployed standalone unless Ashley explicitly
+        per Alice 2026-07-23 fleet-standing "batch patches into meaningful
+        deploys" rule; not deployed standalone unless Alice explicitly
         greenlights; the three-patch batch tells the "we deleted the Skynet
         client surfaces AND lifted the remaining conversation-list surface
         verbatim from the mock" story = the Ship-of-Theseus movement complete).
 
-        * **Motivating gap** (Ashley's direct call-outs, this-session 2026-07-23):
-          Ashley kept saying "get away from this skynet front end stuff" through
+        * **Motivating gap** (Alice's direct call-outs, this-session 2026-07-23):
+          Alice kept saying "get away from this skynet front end stuff" through
           Phases 11 + 12 while stripping the dead surfaces. Phase 13 is the
-          LAST slice — the surface Ashley kept calling out as "still looks
+          LAST slice — the surface Alice kept calling out as "still looks
           Skynet" after Phases 11 + 12 shipped. Verbatim quotes this session:
           - "The bar at the top that says like conversations or something that
             to me looks like it's coming out of old Skynet stuff" — the
@@ -52,7 +52,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
             (rebased from opaque-glass filled pill to `--color-pv-*`
             transparent bare-icon, matching the panel-header pencil aesthetic).
           The LOCKED mock v4 at `~/.claude/identities/tina/bounties/skynet-
-          transformation/prototype.html` (Ashley signed off 2026-07-23 07:20Z,
+          transformation/prototype.html` (Alice signed off 2026-07-23 07:20Z,
           Full-intensity + Normal density + active-set/ambient recession +
           ONE dot with ONE meaning) is the source of truth this patch lifts
           verbatim.
@@ -70,7 +70,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
           border`, `text-muted-foreground/60`, `hover:text-foreground`).
           Kept: identity resolution, `isAmbient = !isRdp && !inActiveSet`
           derivation (now feeds a class toggle instead of a style-object
-          branch), mobile swipe state machine (byte-preserved — Ashley's
+          branch), mobile swipe state machine (byte-preserved — Alice's
           iPhone swipe-reveal affordance UNCHANGED), ready-dot conditional
           render (`{inActiveSet && isWorking === false && <span
           className="pv-ready-dot" style={{display: "block"}} />}`), avatar
@@ -110,7 +110,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
           ambient` (flat `hsla(hue, 40%, 20%, 0.16)` background, 0.14 alpha
           border, minimal inset + hairline shadow, no backdrop-filter,
           muted foreground — the mock's Reduced-intensity ambient values
-          Ashley called out as needing to be lifted); `.pv-row.rdp` (neutral
+          Alice called out as needing to be lifted); `.pv-row.rdp` (neutral
           60,65,80/30,33,44 glass treatment; EXEMPT from ambient);
           `.pv-rdp-divider` (muted uppercase 10px label with flanking
           gradient rules); density variants `.pv-row--mobile` +
@@ -194,7 +194,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
           fallback. **Mobile branch (`size='mobile'`) preserved BYTE-FOR-BYTE
           in code** — only comments annotated with "UNCHANGED by Phase 13
           Plan 03". The 48x48 hue-tinted disc treatment is identical to
-          pre-Phase-13; Ashley's iPhone swipe-reveal affordance is
+          pre-Phase-13; Alice's iPhone swipe-reveal affordance is
           uncompromised.
 
         * **Fix summary — final Skynet theme-class purge** (SHAPE-03 deep).
@@ -217,7 +217,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
           (Candidate A Terminal.tsx isIdle null-start = SUSPECT; Candidate
           B sessionWorkingKey mismatch = MISMATCH DETECTED for fresh-terminal
           path; Candidates C activeSet sessionStorage + D PrettyConversationRow
-          Live Rules-of-Hooks = PASS) + Ashley's UAT observation template
+          Live Rules-of-Hooks = PASS) + Alice's UAT observation template
           (Sections 2A-2G) + exhaustive route-back matrix (Sections 3A-3F
           enumerating every UAT-outcome → follow-up-work → owner). No source
           edits during Plan 04 — Terminal.tsx and AppShell.tsx were READ-ONLY
@@ -225,7 +225,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
           B.1 fresh-terminal path key mismatch; AppShell.tsx:1400 missing
           paddingBottom for safe-area) are documented as route-backs for
           follow-up plans (13-06 or master-bounty patches per Section 3).
-          SHAPE-05 closure requires Ashley's live UAT — deferred to her post-
+          SHAPE-05 closure requires Alice's live UAT — deferred to her post-
           deploy walkthrough per `13-UAT-CHECKLIST.md` items 6 + 15.
 
         * **Preserved verbatim** (SHAPE-06 lockout — the LOAD-BEARING scope
@@ -242,7 +242,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
           features/terminal/ | wc -l` returns 0. Ship-of-Theseus rule
           preserves them for upstream Skynet rebase-ability. Backend routes
           untouched — Phase 13 is UI-only, no server changes; backend-cleanup
-          for now-orphaned routes was deferred forever per Ashley 2026-07-23
+          for now-orphaned routes was deferred forever per Alice 2026-07-23
           mid-purge discussion (kept for rebase-ability, zero user impact) —
           the phase-13-backend-routes-cleanup phase is dead. `git log
           --name-only f1c77fd..HEAD | grep "^src/backend/" | wc -l` = 0. RDP
@@ -392,9 +392,9 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
         * **Design source-of-truth** (LOCKED, no re-litigation per CONTEXT.md):
           - `~/.claude/identities/tina/bounties/skynet-transformation/`
             — the **MASTER** bounty for the entire Ship-of-Theseus movement.
-            Ashley's UAT sign-off on this patch closes it. **NO SIBLING
+            Alice's UAT sign-off on this patch closes it. **NO SIBLING
             BOUNTIES were created for Phase 13 progress or closeout** — per
-            CONTEXT.md § meta-lesson (Ashley 2026-07-23 verbatim: "I
+            CONTEXT.md § meta-lesson (Alice 2026-07-23 verbatim: "I
             fragmented the Ship-of-Theseus movement into sibling bounties
             instead of tracking it all inside the master bounty"). This
             session merged all prior fragment bounties into the master
@@ -403,7 +403,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
             forward. Phase 13 progress + closeout updates go IN the master
             bounty's timeline+todos, NOT in any sibling.
           - `~/.claude/identities/tina/bounties/skynet-transformation/
-            prototype.html` — LOCKED mock v4 (Ashley signed off 2026-07-23
+            prototype.html` — LOCKED mock v4 (Alice signed off 2026-07-23
             07:20Z). Full-intensity + Normal density + active-set/ambient
             recession + ONE dot with ONE meaning is what ships. Every
             selector, gradient, shadow, hsla stop, and alpha value in
@@ -478,7 +478,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
             - `843942e` `docs(13-04): pre-UAT diagnostic sweep + UAT
               template + route-back matrix`
             - `ee4de1e` `docs(13-04): summary — pre-UAT diagnostic pass
-              complete; blocked on Ashley live UAT`
+              complete; blocked on Alice live UAT`
           - **Plan 05 (Wave 5 — docs closeout)**: 2 commits (this draft +
             summary)
             - `[Plan-05 docs SHA — fill in after commit]` — combined
@@ -486,7 +486,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
               draft`
             - `[Plan-05 summary SHA — fill in after commit]` —
               `docs(13-05): summary — Ship-of-Theseus movement complete
-              pending Ashley UAT and deploy greenlight`
+              pending Alice UAT and deploy greenlight`
 
           Total: 14 commits for Phase 13 fork sequence (8 code commits +
           4 SUMMARY docs + 2 Plan 05 docs). Cumulative Phase 11 + Phase 12
@@ -496,7 +496,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
           at `[Plan-05 tip SHA — fill in after commit]`. NOT YET pushed,
           NOT YET deployed, image NOT YET built. Batched with patches #138
           (Phase 11 first slice) + #139 (Phase 12 second slice) into the
-          "Ship-of-Theseus movement complete" deploy per Ashley 2026-07-23
+          "Ship-of-Theseus movement complete" deploy per Alice 2026-07-23
           fleet-standing "batch patches into meaningful deploys" rule.
           Deploy sequence documented at `.planning/phases/13-skynet-
           transformation-conversation-list-lift-from-mock/13-UAT-CHECKLIST.md`
@@ -505,7 +505,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
           CLAUDE.md's stale 15-min deadman reference which is retired
           fleet-wide since 2026-07-21).
 
-        * **Master bounty closeout note**. Ashley's UAT sign-off on this
+        * **Master bounty closeout note**. Alice's UAT sign-off on this
           patch (via `13-UAT-CHECKLIST.md`) is what triggers the closure
           of `~/.claude/identities/tina/bounties/skynet-transformation/`
           — the master bounty for the entire Ship-of-Theseus movement.
@@ -521,7 +521,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #140 batches
             lifted to bare-icon-with-hue-drop-shadow + AppShell chevron
             rebased to `--color-pv-*` palette; the LOCKED mock v4 lifted
             verbatim onto the conversation-list surface
-          Ashley's next set of Skynet bounties will be NEW-FEATURE work
+          Alice's next set of Skynet bounties will be NEW-FEATURE work
           (pretty-view enhancements, message-queue improvements,
           translation asides, tool-use bubble upgrades) — not further
           Ship-of-Theseus purge. The Skynet SHAPE (Telegram-mobile-app-of-
@@ -570,15 +570,15 @@ After pasting into skynet-patches.md:
    `~/.claude/identities/tina/bounties/skynet-transformation/`. This is
    the LOAD-BEARING closeout for the entire Ship-of-Theseus movement —
    the whole three-slice narrative (Phases 11 + 12 + 13) is complete;
-   Ashley UAT-verified; deploy landed; the Skynet SHAPE (Telegram-mobile-
+   Alice UAT-verified; deploy landed; the Skynet SHAPE (Telegram-mobile-
    app-of-Skynet) is done. No SIBLING bounty exists to close (per the
    meta-lesson pinned in CONTEXT.md); the master IS the bounty.
 4. **Update `~/.claude/identities/tina/tina.md`** compact overview if
    warranted. The "Skynet direction — the app IS Telegram" section
    should be updated to reflect the movement completion — remove the
    "final unfinished piece" framing on the conversation-list surface;
-   mark the two-surfaces rule as fully-locked. If Ashley's next bounties
+   mark the two-surfaces rule as fully-locked. If Alice's next bounties
    are pretty-view feature additions (message-queue rendering, tool-use
    rendering, translation asides), tina.md's box-map may want to reflect
-   the Skynet frontend as "shape-complete-and-Ashley-loves-it" for future-
+   the Skynet frontend as "shape-complete-and-user-loves-it" for future-
    me's mental-model anchoring.

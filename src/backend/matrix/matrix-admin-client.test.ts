@@ -1519,7 +1519,7 @@ describe("sendMessageAsUser (Phase 90 Plan 03 Task 2)", () => {
       { event_id: "$evt-1:server" },
     );
     const result = await sendMessageAsUser(
-      "@ashley_human:server",
+      "@alice_human:server",
       "!room1:server",
       "hello",
       "mqid-1",
@@ -1538,7 +1538,7 @@ describe("sendMessageAsUser (Phase 90 Plan 03 Task 2)", () => {
       { event_id: "$evt-1:server" },
     );
     await sendMessageAsUser(
-      "@ashley_human:server",
+      "@alice_human:server",
       "!room1:server",
       "hello",
       "mqid-1",

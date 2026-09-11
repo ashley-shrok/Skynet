@@ -12,12 +12,12 @@ Closes pinned bounty `relay-bubbles-sides-swapped`.
 
 ## Context
 
-Ashley eyeballed the deployed pretty-view (tina's session) and confirmed the relay bubbles read inverted from the surrounding chat convention:
+Alice eyeballed the deployed pretty-view (tina's session) and confirmed the relay bubbles read inverted from the surrounding chat convention:
 
-- Regular `ChatMessage.tsx` uses `isUser ? justify-end : justify-start` — user (Ashley's compose-box input) = RIGHT, assistant (agent's own reply) = LEFT.
+- Regular `ChatMessage.tsx` uses `isUser ? justify-end : justify-start` — user (Alice's compose-box input) = RIGHT, assistant (agent's own reply) = LEFT.
 - Current relay bubbles were shipped opposite: agent's outbound Matrix-send RIGHT (blue glass), inbound Matrix-message LEFT (orange glass).
 
-Ashley wants relay bubbles to read like the rest of the chat — same "who's speaking → which side, which color" convention. Small attribution headers/footers (`▸ relay send → {room}` / `via curl`; avatar-dot + `{name} · {room}` / `via recv.sh`) STAY per Ashley's A-vs-B answer — they preserve the "this went through Matrix, not native Skynet" semantic without needing a color difference to carry that signal.
+Alice wants relay bubbles to read like the rest of the chat — same "who's speaking → which side, which color" convention. Small attribution headers/footers (`▸ relay send → {room}` / `via curl`; avatar-dot + `{name} · {room}` / `via recv.sh`) STAY per Alice's A-vs-B answer — they preserve the "this went through Matrix, not native Skynet" semantic without needing a color difference to carry that signal.
 
 Investigation confirmed (before this ship): (1) deployed bundle exactly matches source; not a stale-deploy issue. (2) Backend detection is not silently failing (23/23 relay-inbound-shaped notifications on 10 recent sessions matched INBOUND_REGEX). So this is a pure client-side visual change — no backend or dispatch work needed.
 
@@ -35,7 +35,7 @@ All under `src/ui/features/pretty-view/`:
 - Keep the header (`▸ relay send → {room}`), the mono `<pre>` command block, and the `via curl` footer.
 - Update the file header comment (line 7 "right-aligned blue glass bubble" → "left-aligned identity-hue gradient bubble") and the RELAYBUB-01 comment (line 17) accordingly.
 
-### 2. `RelayInboundBubble.tsx` (Matrix send from Ashley → blue-gray, RIGHT)
+### 2. `RelayInboundBubble.tsx` (Matrix send from Alice → blue-gray, RIGHT)
 
 - **Outer wrapper (line 107)**: `flex justify-start` → `flex justify-end`.
 - **Background** (line 122): `bg-[rgba(200,_128,_64,_0.28)]` → `bg-[linear-gradient(160deg,rgba(45,55,80,0.55),rgba(28,35,55,0.6))]` — mirrors ChatMessage.tsx:112 user gradient.
@@ -68,7 +68,7 @@ No behavior change here — WS dispatch stays the same.
 - WS dispatch in PrettyView.tsx: untouched (only comment sync).
 - Historical planning artifacts under `.planning/phases/17-*/`: not touched — they document the phase-17 shipped state; patch #200 is the forward record.
 - Shadow (`shadow-[0_8px_24px_...]` on ChatMessage): NOT added to relay bubbles — the backdrop-blur already gives depth and adding shadow would flatten them into indistinguishable-from-chat. Keeping the visual "these are relay bubbles" cue subtle.
-- No deploy — patch batches on `feat/tab-title-from-tmux` with #198+#199, waits for Ashley's ship greenlight (fleet rule).
+- No deploy — patch batches on `feat/tab-title-from-tmux` with #198+#199, waits for Alice's ship greenlight (fleet rule).
 
 ## Commits
 

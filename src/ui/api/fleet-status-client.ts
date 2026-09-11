@@ -131,7 +131,7 @@ export function createFleetStatusClient(
             url,
             stateCount: parsed.states.length,
           });
-          // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Ashley
+          // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Alice
           // 2026-09-08 D-03 waiver): publish per-session contextPct into
           // the co-located store so useSessionContextPct consumers
           // (PrettyView post-swap, future relay-pane badge appendage)
@@ -266,7 +266,7 @@ export function createFleetStatusClient(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Ashley 2026-09-08 D-03
+// Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Alice 2026-09-08 D-03
 // waiver) — per-session contextPct store + useSessionContextPct hook.
 //
 // Co-located here rather than in a peer state module because contextPct only

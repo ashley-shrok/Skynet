@@ -221,7 +221,7 @@ Research + a DM roundtrip with tanya (peer identity working on the Shape 3 subst
 
 ### Shape 3 order dependency — deploy AFTER Shape 3 ships
 
-**Planning + execute of Phase 104 is unblocked and can proceed now.** But the **deploy** motion (git push through docker compose up) MUST wait until Shape 3 has landed on production. Otherwise Phase 104's detector points at `~/fleet/identities/…` paths that don't yet exist on the running system, and the feature silent-fails for every identity (worse than the intended silent-fail-for-pre-migration behavior — this would be silent-fail-for-everyone). Per fleet deploy-window rule, the push is gated by an Ashley greenlight per-push anyway; the greenlight is legitimate only after Shape 3 is live.
+**Planning + execute of Phase 104 is unblocked and can proceed now.** But the **deploy** motion (git push through docker compose up) MUST wait until Shape 3 has landed on production. Otherwise Phase 104's detector points at `~/fleet/identities/…` paths that don't yet exist on the running system, and the feature silent-fails for every identity (worse than the intended silent-fail-for-pre-migration behavior — this would be silent-fail-for-everyone). Per fleet deploy-window rule, the push is gated by an Alice greenlight per-push anyway; the greenlight is legitimate only after Shape 3 is live.
 
 Depends on: **Shape 3 ship** (Phase 96 substrate migration). Coord with tanya (holds that work) before Phase 104's push.
 

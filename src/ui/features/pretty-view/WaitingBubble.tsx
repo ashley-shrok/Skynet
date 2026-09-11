@@ -4,13 +4,13 @@
 // decision that PrettyView cannot render interactively. Concrete
 // examples: a file-deletion permission prompt that slips past
 // dangerously-skip-permissions, a sandbox request, a worker auth
-// dialog. The harness cannot proceed until Ashley answers; this
+// dialog. The harness cannot proceed until Alice answers; this
 // bubble tells her to switch to the tmux pane.
 //
 // WHY NO INTERACTIVE CONTROLS (LOCKED — D-CTX § Waiting bubble):
 //   The "waiting" state is a modal permission prompt rendered
 //   inside the harness' Ink UI. There is no Skynet-owned WS path
-//   that can synthesise a click on an arbitrary Ink modal. Ashley
+//   that can synthesise a click on an arbitrary Ink modal. Alice
 //   MUST switch to the tmux pane (Ctrl+Shift+O) to answer.
 //   Adding buttons here would be misleading and broken —
 //   see patch #67 retraction for a historical example of this class

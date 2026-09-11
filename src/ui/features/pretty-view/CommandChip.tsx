@@ -3,7 +3,7 @@
 // + splitMarkers. Pure presentational — no state, no hover behavior, no onClick.
 //
 // Design per patch #69 Glass reskin recipe (design_locked in 260719-1mn plan):
-// color affinity lives with the USER bubble family (Ashley submits the command
+// color affinity lives with the USER bubble family (Alice submits the command
 // so the pill visually belongs to the user side) but slightly more saturated so
 // it reads as an affordance / structured piece of content rather than prose.
 // The ▸ glyph is the "invoked" affordance marker.

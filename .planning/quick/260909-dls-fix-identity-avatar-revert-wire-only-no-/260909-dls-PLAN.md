@@ -312,7 +312,7 @@ Scoped test gates per fleet directive (no full suite):
 - Shape file's done-condition satisfied: scoped put-disk.test.ts passes with the new test GREEN + RED-then-GREEN evidence in commit log + no other identities.* test regressed + IdentityModal stale comment removed + no changes outside the three named files.
 - Wearer flow: clicking Revert on the avatar field in IdentityModal → backend deletes frontmatter `avatar:` key + hard-deletes sibling file → subsequent GET /identities/:key/avatar returns the role's avatar via Phase 86 Plan 86-01 fallback (or 404 if the role also has no avatar). Affordance is end-to-end; no hand-editing required.
 - Idempotency preserved: revert on an already-role-inherited identity is a safe no-op (Test 12c).
-- Push-only ship: no docker build, no docker cp, no --force-recreate, no deploy this session. Push happens at the campaign ship gate per Ashley 2026-09-07, batched with the other 7 completed bounties.
+- Push-only ship: no docker build, no docker cp, no --force-recreate, no deploy this session. Push happens at the campaign ship gate per Alice 2026-09-07, batched with the other 7 completed bounties.
 </success_criteria>
 
 <output>

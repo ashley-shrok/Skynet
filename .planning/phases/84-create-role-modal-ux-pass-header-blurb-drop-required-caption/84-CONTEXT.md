@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-09-07
 **Status:** Ready for planning
-**Source:** In-session `/build feature-mode` → `/open` shape lock 2026-09-07 (greenlit `thumbs up` same session). Bounty `create-role-modal-ux-pass` (pinned by Ashley 2026-09-07, item 1 of 7 in the UX-pass campaign). Shape file: `.planning/shapes/shape-create-role-modal-ux-pass.md`.
+**Source:** In-session `/build feature-mode` → `/open` shape lock 2026-09-07 (greenlit `thumbs up` same session). Bounty `create-role-modal-ux-pass` (pinned by Alice 2026-09-07, item 1 of 7 in the UX-pass campaign). Shape file: `.planning/shapes/shape-create-role-modal-ux-pass.md`.
 
 <domain>
 ## Phase Boundary
@@ -62,7 +62,7 @@ Phase-scoped narrowly: only the create-role dialog changes end-to-end here; the 
 - Any user-visible string changes touch ONLY the i18n `defaultValue` in place. No new i18n keys created; no restructure of the translation vocabulary.
 - Removed strings (required-caption, checkbox label) are DELETED from source (their `t()` calls, corresponding hardcoded fallbacks, and any related aria-labels) — not just disconnected.
 
-### Test discipline (per campaign constraint — Ashley 2026-09-07)
+### Test discipline (per campaign constraint — Alice 2026-09-07)
 
 - Full suite (`npx vitest run`) does NOT run during this phase's execute step. Scoped runs only (`--related` on touched files, or targeted paths under `src/ui/sidebar/` + `src/ui/features/pretty-conversations/`).
 - `git push` IS authorized as the terminal step of this phase's execute (per campaign constraint: "farthest you'll get is pushing changes to remote and running scoped tests").
@@ -142,15 +142,15 @@ No external ADRs, specs, or PRDs cited by ROADMAP.md for this phase.
 <campaign_notes>
 ## Campaign Context (7-bounty UX-pass string)
 
-Ashley 2026-09-07 verbatim on the campaign constraint:
+Alice 2026-09-07 verbatim on the campaign constraint:
 > "the farthest you'll get amongst any of this is pushing changes to remote and running scoped tests, but we're not going to be running the full test suite we're not going to be rebuilding we're not going to be deploying until we're done."
 
 Consequences enforced in this phase:
 - Execute step runs scoped tests only (`--related <files>` or targeted paths).
 - Phase ends at push. No `docker build`, no `docker compose up`, no `docker cp`, no full-suite gate.
-- No coord-room BEFORE/AFTER posts (there is no ship; the pushes go without coord posts per Ashley 2026-09-05 push-only rule).
+- No coord-room BEFORE/AFTER posts (there is no ship; the pushes go without coord posts per Alice 2026-09-05 push-only rule).
 - Every push runs `git pull --rebase origin feat/tab-title-from-tmux` first (multi-identity rule).
-- Ride-along ships: a peer's future `--force-recreate` may pick up my commits from origin. Ashley knows and has explicitly authorized this shape.
+- Ride-along ships: a peer's future `--force-recreate` may pick up my commits from origin. Alice knows and has explicitly authorized this shape.
 
 Bounty pool for the campaign (all pinned in `~/.claude/roles/box-maintainer/bounties/`):
 1. `create-role-modal-ux-pass` ← this phase

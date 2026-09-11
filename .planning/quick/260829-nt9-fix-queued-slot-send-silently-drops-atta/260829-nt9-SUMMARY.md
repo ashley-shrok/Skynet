@@ -110,7 +110,7 @@ HEAD LOCAL on `feat/tab-title-from-tmux`. NOT pushed, NOT deployed. Bundle at sh
 - mbp (`ee88877c`)
 - n5z (`ba5c7944`)
 
-on Ashley greenlight.
+on Alice greenlight.
 
 ## Self-Check
 

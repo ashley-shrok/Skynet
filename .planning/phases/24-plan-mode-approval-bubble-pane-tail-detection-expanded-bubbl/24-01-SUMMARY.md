@@ -28,7 +28,7 @@ key-files:
     - "src/backend/claude-session/plan-pending-parser.test.ts (fixtures rewritten to pinned variant; parsePlanFilePath describe block added with 6 it-cases)"
 
 key-decisions:
-  - "Fingerprint SHAPE (bottom-slice marker AND header-anywhere) preserved verbatim; only the two anchor strings and the count of header variants changed — single-variant per Ashley's pinned-fleet lock 2026-08-04"
+  - "Fingerprint SHAPE (bottom-slice marker AND header-anywhere) preserved verbatim; only the two anchor strings and the count of header variants changed — single-variant per Alice's pinned-fleet lock 2026-08-04"
   - "parsePlanFilePath keeps parser-layer slug-charset check ([a-z0-9-]+) as a first-pass sanity filter; full path validation (traversal, backticks, quotes, absolute-outside-plans) is delegated to the SFTP-fetch caller in Plan 02 per the CONTEXT § Path validation security-boundary decision (defense-in-depth per T-24-01-01)"
   - "Regex uses the middle-dot `·` (U+00B7) verbatim from Amelia's pane 2026-08-04, with `\\s+` around it to tolerate minor Ink whitespace drift while still requiring the U+00B7 separator to be present"
   - "Docblock rewritten to describe the NEW pinned-variant strings verbatim while omitting the old strings by name (Task 1 verify grep enforces zero occurrences of the old strings in the file)"
@@ -57,7 +57,7 @@ completed: 2026-08-04
 - **Files modified:** 2
 
 ## Accomplishments
-- `isPlanPending` now actually detects the live fleet Ink plan-approval prompt (was silently returning `false` on every pane since quick 260802-rps landed 2 days ago — Ashley's own pane wouldn't have triggered PlanPendingBubble regardless of how many plans she was reviewing).
+- `isPlanPending` now actually detects the live fleet Ink plan-approval prompt (was silently returning `false` on every pane since quick 260802-rps landed 2 days ago — Alice's own pane wouldn't have triggered PlanPendingBubble regardless of how many plans she was reviewing).
 - `parsePlanFilePath` added as a second named export in the same file, extracting the tilde-relative plan-file path from the prompt footer (`ctrl-g to edit in  Vim  · ~/.claude/plans/<slug>.md`); returns `null` on missing footer, uppercase-slug, slash-in-slug, backtick-in-slug, and non-`.md` extension.
 - vitest suite expanded from 6 → 11 tests: 5 for `isPlanPending` (1 positive pinned-variant + 4 preserved negatives, with prose-quote fixture updated to paraphrase the new header) + 6 for `parsePlanFilePath` (happy path + 5 rejection cases).
 

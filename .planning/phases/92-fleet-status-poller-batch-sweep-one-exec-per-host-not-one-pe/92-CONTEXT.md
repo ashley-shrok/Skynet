@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-09-09
 **Status:** Ready for planning
-**Source:** Bounty premise (`~/.claude/roles/box-maintainer/bounties/fleet-status-poller-batch-sweep-single-exec-per-host/bounty.json`) + issue-log.md sibling. Full diagnosis + design agreed with Ashley 2026-09-09 in-conversation before this phase was opened.
+**Source:** Bounty premise (`~/.claude/roles/box-maintainer/bounties/fleet-status-poller-batch-sweep-single-exec-per-host/bounty.json`) + issue-log.md sibling. Full diagnosis + design agreed with Alice 2026-09-09 in-conversation before this phase was opened.
 
 <domain>
 ## Phase Boundary
@@ -13,7 +13,7 @@ Trigger: 2026-09-09 Tabitha attempted to share a file via the Skynet passthrough
 
 The 2026-09-02 semaphore fix (bounty `fleet-status-poller-self-limit-concurrent-exec-channels`, HEAD `e50d53f2`, cap at 8 per-connection) is in the running build and caps concurrency, but NOT total work — the ~75-90 exec channels per poll cycle just serialise into ~10 waves through the semaphore. Adding one more identity adds another wave. Semaphore is treating symptoms; the batch-coalesce is treating the disease.
 
-Ashley 2026-09-09 verbatim: *"if you're saying that the number of identities on the box is a dependency on if this problem is going to be caused or not, then that sounds like to me or I should say smells like to me that we could be doing the fleet status better to begin with to keep the eight that the semaphore allows as enough for everything."* Correct diagnosis. This phase implements it.
+Alice 2026-09-09 verbatim: *"if you're saying that the number of identities on the box is a dependency on if this problem is going to be caused or not, then that sounds like to me or I should say smells like to me that we could be doing the fleet status better to begin with to keep the eight that the semaphore allows as enough for everything."* Correct diagnosis. This phase implements it.
 
 Analogy: same transformation you use in SQL to fix N+1 point queries — replace with one join. Same idea here: replace N+1 exec-per-file with one exec-per-host that emits the batch.
 
@@ -91,7 +91,7 @@ Analogy: same transformation you use in SQL to fix N+1 point queries — replace
 - **Enumerate first, code second.** Task 1 of the plan MUST be enumeration of current per-identity exec sites and what they read. Locking that as the v1 schema before writing the script avoids scope creep and makes parity verification straightforward.
 - **Rollout order matters.** Ship the sweep script + caller change together on Skynet's own container; verify the batch pattern in prod on t1000 first; then let the distributor propagate to peer boxes on their next restarts. The backward-compat fallback covers the rollout gap.
 - **Bonus wins from the redesign** (nice-to-have, do NOT gold-plate): atomic-ish snapshot of a poll cycle, lower full-cycle latency, free identity-count scaling, file-fetch no longer competes with fleet-status.
-- **`Skynet` host (id=6) is the primary test surface.** It's what Ashley (userId `JqbJ5OmBQhQ-TGQRkHF3o`) has registered pointing at `100.99.149.8:22` (t1000's own tailnet IP), and it's the connection getting saturated. Verify against it specifically.
+- **`Skynet` host (id=6) is the primary test surface.** It's what Alice (userId `JqbJ5OmBQhQ-TGQRkHF3o`) has registered pointing at `100.99.149.8:22` (t1000's own tailnet IP), and it's the connection getting saturated. Verify against it specifically.
 
 </specifics>
 
@@ -108,4 +108,4 @@ Analogy: same transformation you use in SQL to fix N+1 point queries — replace
 ---
 
 *Phase: 92-fleet-status-poller-batch-sweep-one-exec-per-host-not-one-pe*
-*Context gathered: 2026-09-09 — seeded from bounty premise (design agreed in-conversation with Ashley same day)*
+*Context gathered: 2026-09-09 — seeded from bounty premise (design agreed in-conversation with Alice same day)*

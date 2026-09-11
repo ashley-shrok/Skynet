@@ -15,8 +15,8 @@ Every substantive shape-level decision was worked through in this session's `/bu
 
 **Alternatives considered:**
 - Container-boot fan-out sweep (all hosts at once at container start) — rejected; doesn't handle newly-added hosts naturally, and misses the "host was unreachable at boot" case.
-- Hybrid: on-container-boot sweep + hourly floor timer — rejected because the bundled bytes only change on `--force-recreate` (container restart), which itself triggers a new instance; a floor timer between recreates has nothing to catch. Ashley's observation: "if you can't get new stuff in there without building and recreating, then there's nothing to push on an interval."
-- User-driven only (fire when Ashley opens a terminal to a host) — rejected because idle hosts would never be swept.
+- Hybrid: on-container-boot sweep + hourly floor timer — rejected because the bundled bytes only change on `--force-recreate` (container restart), which itself triggers a new instance; a floor timer between recreates has nothing to catch. Alice's observation: "if you can't get new stuff in there without building and recreating, then there's nothing to push on an interval."
+- User-driven only (fire when Alice opens a terminal to a host) — rejected because idle hosts would never be swept.
 
 **Why this shape won:** Skynet already opens a persistent per-host SSH channel every 2 seconds for `fleet-status` polling (in `ssh-poll-orchestrator.ts`). Every identity-hosting host already has active reachability; piggybacking on the natural channel-acquisition event covers every case (boot, new host added, host was down and came back) without introducing new machinery. Kills the scheduling-primitive question entirely — there is no primitive.
 
@@ -25,7 +25,7 @@ Every substantive shape-level decision was worked through in this session's `/bu
 **Decided:** Two levels of log lines tagged `fleet_substrate_*`. One summary line per (host, sweep) always emitted (`fleet_substrate_sweep_result`); per-item detail lines only when the outcome is anything other than "already matched" (`fleet_substrate_item_changed`, `fleet_substrate_item_failed`).
 
 **Alternatives considered:**
-- New DB table (`substrate_sweep_events`) — rejected. Ashley's guidance: "I'm not sure that we're even going to have an admin UI. And mostly, if not all, of the investigating into things that go wrong with this will be by you guys. And so whatever shape is easiest for you to read and diagnose things is probably best." A table adds schema churn for a consumer that may not exist.
+- New DB table (`substrate_sweep_events`) — rejected. Alice's guidance: "I'm not sure that we're even going to have an admin UI. And mostly, if not all, of the investigating into things that go wrong with this will be by you guys. And so whatever shape is easiest for you to read and diagnose things is probably best." A table adds schema churn for a consumer that may not exist.
 - Log every item on every sweep (no non-current filter) — rejected. 15 items × N hosts × every container restart = 15N noise lines per restart with nothing interesting. Non-current-only detail keeps the grep story tight.
 
 **Downstream consequence noted:** Slice 3's admin UI is no longer assumed. Design slice 2 to not depend on it. If a slice-3 UI is ever built, it grep-parses (or promotes to a table then).

@@ -10,7 +10,7 @@ import {
   putComposeDraft,
 } from "@/api/compose-drafts-api";
 import { stampIdentitySendLog } from "@/api/identity-send-log-api";
-// Phase 90 Plan 00 Wave 0 Task 3 (D-03 mechanical rewire, Ashley 2026-09-08):
+// Phase 90 Plan 00 Wave 0 Task 3 (D-03 mechanical rewire, Alice 2026-09-08):
 // the reset button dispatches through the new backend `/agent-reset/:hostId/
 // :tmuxSessionName` endpoint instead of routing through the pretty-view WS
 // funnel. Same behavior end-to-end (drain-sweep + text-clear + onResetClicked
@@ -125,7 +125,7 @@ function composeDraftLsKey(
 // Patch #89 bumped 12 → 11 to fix sub-pixel rounding artifacts at ~2.5px/
 // segment in the vertical well. The horizontal orientation at 160px removes
 // that concern: 160px / 12 segments ≈ 13px/segment — no rounding hazard.
-// Ashley endorsed 12 segments in prototype review (UI-SPEC.md § Segment Count).
+// Alice endorsed 12 segments in prototype review (UI-SPEC.md § Segment Count).
 //
 // `litCount = round(contextPct / 100 * SEG_COUNT)` — segments 0..litCount-1 are
 // lit, litCount..SEG_COUNT-1 are dim. Color bands by position:
@@ -251,7 +251,7 @@ export interface ComposeBoxProps {
   // block the attempt since onSend returns false when WS is not ready.
   canSend?: boolean;
   // Patch #122: when true, force all meter well segments to their unlit
-  // state (well glow, border, and background stay intact). Ashley UX rule:
+  // state (well glow, border, and background stay intact). Alice UX rule:
   // during session recycle the meter should read as `powered but empty`,
   // not `powered and filled` — segments only re-populate when the backend
   // emits `context_pct` on the fresh session.
@@ -279,7 +279,7 @@ export interface ComposeBoxProps {
   // queued, we wait for isIdle === true to hold continuously for 3s
   // before dispatching. Combined with the backend's ~4s isIdle
   // debounce this yields ~7s effective delay from Claude's last
-  // output — locked with Ashley 2026-07-19.
+  // output — locked with Alice 2026-07-19.
   isIdle?: boolean | null;
   // ============================================================
   // Phase 05 upload wiring — all optional so existing read-only /
@@ -339,7 +339,7 @@ export interface ComposeBoxProps {
   // clears; on !outcome.ok the state is PRESERVED (textarea keeps its
   // value, chips stay on-screen) and an inline error surfaces via
   // setErrorMessage(). Mirrors the non-attachment path's Phase 50 D-20 /
-  // D-56 failure-preservation posture so Ashley never loses a compose
+  // D-56 failure-preservation posture so Alice never loses a compose
   // draft to a silent-clear on WS drop / upload_failed / timeout again.
   // quick-260829-nt9: target param widened to optional string. Primary
   // handleSend passes no target (defaults to "primary" inside
@@ -388,7 +388,7 @@ export interface ComposeBoxProps {
   // Quick 260729-j8l: session-recycle-in-flight signal from PrettyView.
   // When true, every WS-side-effecting compose control is disabled or
   // hidden (Send button, reset cell, paperclip, ThumbsUp, Recap,
-  // Queue, Mic). Textarea REMAINS typeable so Ashley can pre-draft the
+  // Queue, Mic). Textarea REMAINS typeable so Alice can pre-draft the
   // next message during the 2-15s recycle window (autosave path
   // patches #57/#119 untouched → the draft survives the recycle by the
   // existing mechanism).
@@ -414,7 +414,7 @@ export interface ComposeBoxProps {
   // Phase 24: plan-mode approval prompt is pending. When true, every WS-side-
   // effecting compose control is disabled (Send button STAYS as Send but
   // disabled=true; reset, ThumbsUp, Recap, Queue all disabled). Textarea
-  // REMAINS typeable so Ashley can pre-draft her feedback message while the
+  // REMAINS typeable so Alice can pre-draft her feedback message while the
   // plan-approval prompt is open — matches the recycleActive behavior verbatim.
   //
   // Why SEPARATE from asideActive AND recycleActive (per CONTEXT § "Do NOT
@@ -776,7 +776,7 @@ export function ComposeBox({
   // <button> was tapped for a fixed 250ms window, regardless of how long
   // the tap is held or when :active drops. Rationale: pretty-view buttons
   // like ThumbsUp ("thumbs up") produce message bubbles asynchronously —
-  // the underlying session decides when the message lands — so Ashley
+  // the underlying session decides when the message lands — so Alice
   // needs an immediate local ack that her tap registered. The `:active`
   // pseudo-class alone drops the moment the finger releases (very short
   // on mobile), so we drive the styling from a JS-added class with a
@@ -1120,7 +1120,7 @@ export function ComposeBox({
     return () => clearInterval(interval);
   }, [flushDirty]);
 
-  // Auto-focus on mount so Ashley can start typing immediately after
+  // Auto-focus on mount so Alice can start typing immediately after
   // flipping to pretty mode (COMPOSE-01 ergonomic requirement).
   useEffect(() => {
     textareaRef.current?.focus();
@@ -1139,7 +1139,7 @@ export function ComposeBox({
   }, [asideActive, hostId, tmuxSession]);
 
   // PATCH #338 DIAG (TEMPORARY): textarea-tap-coordinate-mismatch-ios-diag.
-  // Ashley reports 3 correlated iOS PWA symptoms: (a) bottom 2 of 5 lines
+  // Alice reports 3 correlated iOS PWA symptoms: (a) bottom 2 of 5 lines
   // dismiss the keyboard on tap-to-reposition, (b) cursor lands INSIDE a
   // letter on multi-line, (c) single-line ignores tap-to-reposition but
   // keeps the keyboard open. All point to a coordinate-system mismatch
@@ -1147,7 +1147,7 @@ export function ComposeBox({
   // box. Passive listeners only — NO preventDefault, NO state writes.
   // Logs go through the console-forwarder (patch #146) → durable path at
   // /opt/skynet/console-forward-logs/console-forward.log (patch #326).
-  // Revert after Ashley reproduces + we have data on the actual offset.
+  // Revert after Alice reproduces + we have data on the actual offset.
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -1274,7 +1274,7 @@ export function ComposeBox({
   // idle watchdog fires. Only ONE entry per idle event — sequential cadence
   // across N armed textareas emerges from the session cycling working→idle
   // between dispatches. D-50 Ink safety: collapse newlines to spaces before
-  // send, matching handleSend. Fail-loud on dispatch failure per Ashley
+  // send, matching handleSend. Fail-loud on dispatch failure per Alice
   // 2026-07-19 (do NOT retry silently). Source-specific cleanup on success:
   // primary → clear text + clearAfterSend(); slot → drop slot from
   // queueSlots + scheduleAutosave. useCallback is REQUIRED — the watchdog
@@ -1295,7 +1295,7 @@ export function ComposeBox({
     // attachments, route through onSendWithAttachments and await the outcome
     // before removing the slot. On failure: preserve the slot + surface error
     // (the next idle=true tick will re-arm the watchdog if the slot is still
-    // in the queue, so Ashley can retry by either re-sending or letting the
+    // in the queue, so Alice can retry by either re-sending or letting the
     // cadence re-fire). Wraps in an async IIFE — the outer useCallback returns
     // void.
     if (head.source !== "primary" && onSendWithAttachments) {
@@ -1322,7 +1322,7 @@ export function ComposeBox({
           setErrorMessage(userMessage);
           // Deliberately do NOT shift head from queue or filter slot — failure
           // preservation posture. The next idle=true cycle will re-arm the
-          // watchdog, and Ashley can intervene (clear slot or hit Send).
+          // watchdog, and Alice can intervene (clear slot or hit Send).
         })();
         return;
       }
@@ -1356,7 +1356,7 @@ export function ComposeBox({
   // trigger, matching the ergonomic contract that the queue only fires when
   // we KNOW the session went idle. Combined with the backend's ~4s isIdle
   // debounce this yields ~7s effective delay from Claude's last output.
-  // 3s idle threshold preserved from patch #84 (Ashley 2026-07-19 lock).
+  // 3s idle threshold preserved from patch #84 (Alice 2026-07-19 lock).
   // fireNextQueued() dispatches ONE head entry per firing — the session's
   // subsequent working→idle cycle re-runs this effect to fire the next.
   useEffect(() => {
@@ -1414,7 +1414,7 @@ export function ComposeBox({
   //
   // We publish `queue` (the armed-for-idle FIFO at line 358) — NOT
   // `queueSlots` (visual textareas; not all are armed for idle-send). The
-  // bounty targets Ashley's exact ask: "if a queued message is armed to
+  // bounty targets Alice's exact ask: "if a queued message is armed to
   // auto-send the moment the agent goes idle."
   //
   // Two separate effects:
@@ -1564,7 +1564,7 @@ export function ComposeBox({
         console.warn(`[compose] submit-failed hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length} path=attachment target=${slotTarget} reason=${outcome.reason} message=${outcome.message ?? ""}`);
         setErrorMessage(userMessage);
         // Deliberately DO NOT filter slot or clear chips — mirrors primary handleSend's
-        // failure-preservation posture (quick-260823-8ji). Ashley can retry.
+        // failure-preservation posture (quick-260823-8ji). Alice can retry.
       };
       void runSlotAttachmentSend();
       return;
@@ -1659,7 +1659,7 @@ export function ComposeBox({
         const userMessage = getBatchFailureUserMessage(outcome.reason);
         console.warn(`[compose] submit-failed hostId=${hostId} tmuxSession=${tmuxSession ?? "null"} bodyLen=${trimmed.length} path=attachment reason=${outcome.reason} message=${outcome.message ?? ""}`);
         setErrorMessage(userMessage);
-        // Deliberately DO NOT clear text or attachments — Ashley may want
+        // Deliberately DO NOT clear text or attachments — Alice may want
         // to retry the send with the same caption + same files (mirrors
         // the non-attachment path's Phase 50 D-20 / D-56 posture).
       };
@@ -1685,7 +1685,7 @@ export function ComposeBox({
     // Clear the composebox on BOTH dispatched=true and dispatched=false.
     // The red-bordered failed bubble in the transcript is the record of
     // the send in either case — no need to also keep the text in the
-    // textarea (Ashley 2026-09-02, reversing Phase 50 D-20 / D-56 which
+    // textarea (Alice 2026-09-02, reversing Phase 50 D-20 / D-56 which
     // preserved the draft on WS-not-open for edit-and-resend).
     setText("");
     clearAfterSend();
@@ -1754,7 +1754,7 @@ export function ComposeBox({
       if (target === "primary") {
         setText(result.glued);
         scheduleAutosave(result.glued, latestQueueSlotsRef.current);
-        // Bounty mic-available-when-composebox-disabled (quick 260731-ulo): during recycle, land transcript in textarea but skip auto-send — Ashley sends manually once the overlay clears.
+        // Bounty mic-available-when-composebox-disabled (quick 260731-ulo): during recycle, land transcript in textarea but skip auto-send — Alice sends manually once the overlay clears.
         // Phase 24: same treatment during plan-mode pending — text lands, no auto-send.
         // Reconnect window: same treatment — text lands, no auto-send while WS is between sockets.
         // quick 260808-cd6: same treatment during dormant/waking — text lands, no auto-send.
@@ -1770,7 +1770,7 @@ export function ComposeBox({
           prev.map((s) => s.id === target ? { ...s, text: result.glued } : s),
         );
         // Bounty mic-available-when-composebox-disabled (quick 260731-ulo): during recycle,
-        // text lands in slot, no dispatch, slot not removed — Ashley sends manually once overlay clears.
+        // text lands in slot, no dispatch, slot not removed — Alice sends manually once overlay clears.
         // Phase 24: same treatment during plan-mode pending — text lands in slot, no dispatch.
         // Reconnect window: same treatment — text lands in slot, no dispatch while WS is between sockets.
         // quick 260808-cd6: same treatment during dormant/waking — text lands in slot, no dispatch.
@@ -1908,7 +1908,7 @@ export function ComposeBox({
   // Payload construction + dispatch tail. Body is the raw textarea/glued
   // string; trim + collapse mirror the pre-refactor behavior exactly.
   //
-  // Phase 90 Plan 00 Wave 0 Task 3 (D-03 mechanical rewire, Ashley
+  // Phase 90 Plan 00 Wave 0 Task 3 (D-03 mechanical rewire, Alice
   // 2026-09-08): the dispatch call target changed from `funnel.send` (which
   // routed through the pretty-view WS) to `authApi.post('/agent-reset/…')`
   // (which routes through the new backend endpoint that opens a one-shot
@@ -1937,7 +1937,7 @@ export function ComposeBox({
     // LastMessageAt inside useComposeSend BEFORE onSend was called. The
     // rewire routes reset off the funnel so we call the same two primitives
     // directly here to preserve behavior for the row-recency signal on
-    // Ashley's device (D-06 optimistic-advance). Same guards as
+    // Alice's device (D-06 optimistic-advance). Same guards as
     // useComposeSend (identityName + tmuxSession must both be present).
     if (identityName != null && identityName !== "" && tmuxSession != null) {
       const stampTs = Date.now();
@@ -2010,7 +2010,7 @@ export function ComposeBox({
   // always receives the literal payload (e.g. "thumbs up"); only the bubble
   // renders the override. Recap does not use the override.
   //
-  // The persisted DRAFT is still cleared on successful dispatch: Ashley
+  // The persisted DRAFT is still cleared on successful dispatch: Alice
   // may have been composing something in the textarea, then decided to
   // fire "go ahead" instead. Textarea `text` state is untouched (the
   // user's in-progress composition stays visible) but the persisted
@@ -2019,7 +2019,7 @@ export function ComposeBox({
   function handleQuickSend(quickText: string, options?: { bubbleTextOverride?: string }) {
     // Vehicle C v2: quick-reply (thumbs-up, recap) is textarea-independent —
     // it does NOT touch the per-source queue. Armed sources persist across
-    // quick-replies so Ashley can fire a canned reply without losing any
+    // quick-replies so Alice can fire a canned reply without losing any
     // arm-idle state on the primary or queueSlots.
 
     setErrorMessage(null);
@@ -2033,14 +2033,14 @@ export function ComposeBox({
       // draft stays visible for continued editing (the quick reply
       // fires independently of composed text). But the persisted
       // draft still clears per plan spec so a reload doesn't
-      // surface stale content Ashley abandoned in favour of the
+      // surface stale content Alice abandoned in favour of the
       // canned reply.
       clearAfterSend();
     } else {
       setErrorMessage("Not connected — try again in a moment");
     }
     // Patch #313: skip re-focus on touch devices — .focus() on a textarea
-    // pops the on-screen keyboard, which is exactly what Ashley doesn't
+    // pops the on-screen keyboard, which is exactly what Alice doesn't
     // want after tapping ThumbsUp/Recap (quick-replies are meant to fire
     // WITHOUT dragging the user into text composition). Desktop keeps the
     // re-focus so a mouse click doesn't lose the caret from an in-progress
@@ -2058,7 +2058,7 @@ export function ComposeBox({
     if (isSourceArmed("primary")) return;
     // Quick 260729-j8l: during session recycle the Send button is
     // disabled (via sendDisabled below) but the textarea stays typeable
-    // so Ashley can pre-draft the next message. Swallow the Enter-send
+    // so Alice can pre-draft the next message. Swallow the Enter-send
     // path too so a bare Enter can't slip past the disabled button.
     // Phase 24: same treatment during plan-mode pending — textarea stays
     // typeable but Enter-send is swallowed.
@@ -2108,11 +2108,11 @@ export function ComposeBox({
   //   - recycle is NOT active (recycle disables all WS-side-effect actions)
   //   Quick 260802-uow bounty 1: voice.state is INTENTIONALLY not gated
   //   here — send-when-idle while recording on another textarea is a
-  //   valid workflow (Ashley).
+  //   valid workflow (Alice).
   //   Phase 56 (2026-08-23): the former dormancy-gate prop is removed
   //   everywhere in this file; this comment kept as historical trace of the
   //   arm-idle-during-waking bounty that predated the invisible-dormancy
-  //   shape (Ashley 2026-08-10 — arm-idle was pure client-state, no WS
+  //   shape (Alice 2026-08-10 — arm-idle was pure client-state, no WS
   //   touching, isIdle-gated; the invisible-dormancy shape supersedes this
   //   design decision by removing the concept of "dormant/waking" from the
   //   UI entirely).
@@ -2133,7 +2133,7 @@ export function ComposeBox({
   const showTranscribingSend = isPrimaryTranscribing;
 
   // Patch #129: inside-textarea Send button disabled predicate. Locked with
-  // Ashley 2026-07-23 (console-iterated visual). Vehicle C v2 (2026-08-01):
+  // Alice 2026-07-23 (console-iterated visual). Vehicle C v2 (2026-08-01):
   // gate on `primaryArmed` (source-scoped) instead of `queueArmed` — Send
   // lives on the primary textarea, so a slot being armed must NOT disable
   // the primary Send. Truth table:
@@ -2383,7 +2383,7 @@ export function ComposeBox({
             contextPct != null ? `Context ${contextPct}%` : "Context (unknown)"
           }
         >
-          {/* Phase 9 UAT fix (Ashley 2026-07-22): Reset cell moved BEFORE
+          {/* Phase 9 UAT fix (Alice 2026-07-22): Reset cell moved BEFORE
               segments so it renders as the LEFTMOST cell of the flex-row
               well (was rendering rightmost because 09-02 kept the original
               flex-col child order after flipping to flex-row — segments-
@@ -2431,11 +2431,11 @@ export function ComposeBox({
               as patch #89's height fix, but now on the horizontal axis
               (13px/seg at 160px/12 — no sub-pixel concern).
 
-              Phase 9 UAT fix (Ashley 2026-07-22): color mode is now
+              Phase 9 UAT fix (Alice 2026-07-22): color mode is now
               UNIFORM by current-band, not per-position. All lit segments
               wear the color of contextPct's band (green <45, amber 45-77,
               red ≥78). Unlit segments wear a neutral warm-dim. Matches
-              the prototype behavior Ashley endorsed. */}
+              the prototype behavior Alice endorsed. */}
           <div className="flex flex-row gap-[2px] min-w-[100px] flex-1 h-full">
             {Array.from({ length: SEG_COUNT }, (_, i) => {
               // Band from contextPct (was: from per-segment posPct).
@@ -2459,7 +2459,7 @@ export function ComposeBox({
                 "0 0 5px hsla(38,75%,55%,0.55), inset 0 0 2px rgba(255,240,200,0.5)";
               const litRedShadow =
                 "0 0 6px hsla(0,72%,55%,0.7), inset 0 0 2px rgba(255,220,200,0.5)";
-              // Phase 9 UAT fix (Ashley 2026-07-22): single neutral dim
+              // Phase 9 UAT fix (Alice 2026-07-22): single neutral dim
               // for all unlit segments (was per-position dim-green/amber/
               // red). Matches prototype where the well reads as ONE color
               // per moment, not three-tones-at-once.
@@ -2567,7 +2567,7 @@ export function ComposeBox({
               "cursor-pointer max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
               // Same dark blue-gray treatment as the mobile back-to-list
               // button (AppShell.tsx:1651-1654, patch #272). Hue 218 at
-              // 25% sat — "part of the scheme" per Ashley, ambient chrome
+              // 25% sat — "part of the scheme" per Alice, ambient chrome
               // that doesn't compete with blue-190 CTAs.
               "bg-[linear-gradient(160deg,hsla(218,25%,22%,0.85),hsla(218,25%,14%,0.9))]",
               "text-[color:var(--color-pv-fg)]",
@@ -2598,7 +2598,7 @@ export function ComposeBox({
               "cursor-pointer max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
               // Same dark blue-gray treatment as the mobile back-to-list
               // button (AppShell.tsx:1651-1654, patch #272). Hue 218 at
-              // 25% sat — "part of the scheme" per Ashley, ambient chrome
+              // 25% sat — "part of the scheme" per Alice, ambient chrome
               // that doesn't compete with blue-190 CTAs.
               "bg-[linear-gradient(160deg,hsla(218,25%,22%,0.85),hsla(218,25%,14%,0.9))]",
               "text-[color:var(--color-pv-fg)]",
@@ -2631,7 +2631,7 @@ export function ComposeBox({
               "cursor-pointer max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
               // Same dark blue-gray treatment as the mobile back-to-list
               // button (AppShell.tsx:1651-1654, patch #272). Hue 218 at
-              // 25% sat — "part of the scheme" per Ashley, ambient chrome
+              // 25% sat — "part of the scheme" per Alice, ambient chrome
               // that doesn't compete with blue-190 CTAs.
               "bg-[linear-gradient(160deg,hsla(218,25%,22%,0.85),hsla(218,25%,14%,0.9))]",
               "text-[color:var(--color-pv-fg)]",
@@ -2726,7 +2726,7 @@ export function ComposeBox({
           // / `min-h-8` on desktop) — that overshot by ~3x since the
           // QueuePlusTab pebble is `absolute top-[-12px]` and only needs a
           // few px of clear headroom to visually seat above the compose
-          // outer edge. Ashley live-tuned to 3px via console snippet; the
+          // outer edge. Alice live-tuned to 3px via console snippet; the
           // touch branch is dropped (this is a visual spacer, not a touch
           // target — the pebble has its own touch-friendly size).
           className={cn("mb-[3px] min-h-[3px]")}
@@ -2816,7 +2816,7 @@ export function ComposeBox({
           // identity-hue focus ring (VISUAL-03/VISUAL-07). Fill is a
           // warm-black rgba(15,10,5,0.42) — sits DEEPER than #79's
           // warm-glass surround, so the textarea reads as a well
-          // pressed INTO the shelf, not a raised patch ON it. Ashley
+          // pressed INTO the shelf, not a raised patch ON it. Alice
           // 2026-07-19: at rest the textarea should not draw
           // attention; focus IS the moment attention is wanted, so
           // brightening on focus reads correctly against the darker
@@ -2832,7 +2832,7 @@ export function ComposeBox({
           // our own hue ring wins cleanly.
           className={cn(
             "resize-none w-full h-full",
-            // Phase 9 UAT fix (Ashley 2026-07-22): shadcn Textarea base
+            // Phase 9 UAT fix (Alice 2026-07-22): shadcn Textarea base
             // className carries `min-h-[80px]` (see textarea.tsx L12) —
             // that's ~2.5 button-heights and floods any `rows={1}` prop
             // regardless of value. `min-h-8!` (32px = one icon-sm button
@@ -2846,7 +2846,7 @@ export function ComposeBox({
             // vertical envelope is gone (spacer replaces it at 3px), so
             // the compose region is compact and the 32px textarea reads
             // as too short. Bumped to 44px at rest for relay mode only
-            // per Ashley's live-tuned value. Harness untouched (never
+            // per Alice's live-tuned value. Harness untouched (never
             // felt short — Row 1 buttons provide surrounding vertical
             // envelope). tailwind-merge dedupes min-h-* to keep the
             // later class → relay branch wins in relay mode.
@@ -2893,7 +2893,7 @@ export function ComposeBox({
             // (showPaperclip=true → 44px matching left padding on the
             // Textarea so text doesn't underlap the icon at absolute
             // left-1 bottom-0.5). Quick 260731-ulo: bumped 40px→44px
-            // (pl-10→pl-11) per Ashley for a few more px of clearance.
+            // (pl-10→pl-11) per Alice for a few more px of clearance.
             // Phase 97 Finding 3 Step 1: extend the gate with
             // `mode !== "relay"` — the Paperclip button itself is hidden
             // in relay mode at L2908 alongside Row 1 (D-11), so the
@@ -2963,7 +2963,7 @@ export function ComposeBox({
           </button>
         )}
         {/* Quick 260730-vtk: Paperclip attach button moved from Row 1
-            aux group to here per Ashley 2026-07-30. Mirrors Send's
+            aux group to here per Alice 2026-07-30. Mirrors Send's
             inside-textarea pattern on the LEFT (Send is right-1
             bottom-0.5; Paperclip is left-1 bottom-0.5). Bare <button>
             not shadcn Button — same reason as Send (#129 wrapper-
@@ -2997,27 +2997,27 @@ export function ComposeBox({
             Bare <button type="button"> (NOT shadcn Button — sidesteps
             the wrapper-specificity trap that bit patches #81 and #117
             with the queue button's `!` load-bearing bg classes).
-            Position locked with Ashley 2026-07-23 (DevTools console
+            Position locked with Alice 2026-07-23 (DevTools console
             iteration): the ICON sits at right:12px bottom:10px from the
             wrapper. Because the button has p-2 (=8px) for a 40×40 hit
             target around the 24×24 icon, the button itself is offset
             right:4px bottom:2px (= right-1 bottom-0.5) so the icon
-            centers at 4+8=12, 2+8=10 — Ashley's locked values.
+            centers at 4+8=12, 2+8=10 — Alice's locked values.
             Patch #130 fix: #129 originally used lucide's SendHorizontal
             component, which is a DIFFERENT SVG path (horizontal-
             pointing plane, plus a M6 12h16 fold line, and lucide's
             default stroke="currentColor" left the plane double-outlined
-            with a stroked crease). Ashley's console-locked snippet was
+            with a stroked crease). Alice's console-locked snippet was
             an inline raw SVG with a SINGLE path — the paper plane
             pointing up-and-right — with pure fill and no stroke. Also
             in #129 the button was at right-3 bottom-2.5 without
             accounting for p-2 offset, so the icon rendered at 20/18
             instead of 12/10. Both regressions caught on 2026-07-23
             deploy UAT; #130 replaces the lucide component with the
-            raw inline SVG (verbatim from Ashley's snippet) and moves
+            raw inline SVG (verbatim from Alice's snippet) and moves
             the button to right-1 bottom-0.5 so the icon lands at 12/10
             with hit target preserved. NOT the retired amber-Send from
-            patch #121 — Ashley wants ChatGPT/iMessage-quiet here.
+            patch #121 — Alice wants ChatGPT/iMessage-quiet here.
             LEAVE the VISUAL-08 comment block above (~line 1240) ALONE.
             onClick routes ALL send behavior through the existing
             handleSend() at line ~652 (attachment branching, D-50
@@ -3030,7 +3030,7 @@ export function ComposeBox({
             in the same slot (at right-11 bottom-0.5 — one 40px hit-target width
             to the left of Send). Both are absolutely positioned against the same
             relative parent, so they coexist without collision (40px separation).
-            Ashley 260729-3y1: mic must stay tappable even when the textarea has
+            Alice 260729-3y1: mic must stay tappable even when the textarea has
             typed text or attachments staged. */}
         {showRecordingControls && micTarget === "primary" ? (
           /* Phase 16: while recording, the three-button controls OWN the slot.
@@ -3079,7 +3079,7 @@ export function ComposeBox({
                 "absolute right-1 bottom-0.5",
                 "p-2",
                 // Phase 14 Wave 4 (Task 2): identity-hue color when morphed so
-                // the X visually distinguishes from Send (Ashley 2026-07-26:
+                // the X visually distinguishes from Send (Alice 2026-07-26:
                 // "Style change to visually distinguish from send" per
                 // CONTEXT.md § ComposeBox morph). All other positional /
                 // transition classes preserved.
@@ -3101,7 +3101,7 @@ export function ComposeBox({
                     bubble above. */
                 <X className="size-6" strokeWidth={2.25} aria-hidden="true" />
               ) : (
-                /* Raw inline SVG — verbatim from Ashley's DevTools console
+                /* Raw inline SVG — verbatim from Alice's DevTools console
                     snippet 2026-07-23. Single path (paper-plane silhouette
                     pointing up-and-right), pure fill, NO stroke, NO fold
                     line. Do NOT swap for lucide's SendHorizontal — that's a
@@ -3491,7 +3491,7 @@ function QueuedRow(props: QueuedRowProps) {
   // Phase 56 (2026-08-23): the former dormancy-gate boolean prop is fully
   // deleted; this comment preserved as historical trace of the arm-idle-
   // during-waking design decision that predated the invisible-dormancy
-  // shape (Ashley 2026-08-10 — arm is pure client state, dispatch is
+  // shape (Alice 2026-08-10 — arm is pure client state, dispatch is
   // isIdle-gated). Sibling recycle/plan/reconnect gates preserved as
   // intended.
   const showSlotArmButton =
@@ -3521,7 +3521,7 @@ function QueuedRow(props: QueuedRowProps) {
       {/* Quick 260803-05i: Delete × top-left corner tab. SIBLING of the
           inner content wrapper below so it protrudes OUTSIDE the textarea
           border (via -top-2 -left-2). Task 1 introduced this at top-right;
-          Ashley moved it to top-left 2026-08-12. Task 2's extraction
+          Alice moved it to top-left 2026-08-12. Task 2's extraction
           preserves the sibling-of-inner-wrapper invariant. */}
       <button
         type="button"

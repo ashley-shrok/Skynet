@@ -114,9 +114,9 @@ New tests: L (fresh-marker → dismiss+startActiveFlow), M (stale-marker → kee
 - **Backend byte-verify**: `MARKER_FALLBACK|wakeTriggerTs` → 14; `resume-complete` → 7; `dormancy_marker_fallback` → 1
 - **Frontend byte-verify**: `This session is asleep|Waking up` in Terminal-CEeXZwdk.js → 1 (copy polish confirmed)
 
-## Ashley UAT Pending
+## Alice UAT Pending
 
-Ashley UAT is the human-verify hand-off:
+Alice UAT is the human-verify hand-off:
 
 1. Open Tiffany's PWA pane while dormant. DormancyOverlay shows.
 2. Click Wake. Overlay stays up through entire Ctrl-C train (~10s, Nelly reduced from 20s) + bracketed-paste + final Enter.

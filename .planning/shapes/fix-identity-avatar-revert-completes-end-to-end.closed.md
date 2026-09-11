@@ -63,7 +63,7 @@ after PUT-null), then GREEN.
 ## Ship policy
 
 Push-only. Batches into the UX-pass campaign ship gate with the other 7
-completed bounties per Ashley 2026-09-07. No docker build, no `docker cp`,
+completed bounties per Alice 2026-09-07. No docker build, no `docker cp`,
 no `--force-recreate`, no deploy this session.
 
 ---
@@ -82,4 +82,4 @@ no `--force-recreate`, no deploy this session.
 
 **done:** click-Revert on avatar in IdentityModal now deletes the identity's frontmatter `avatar:` key + sibling file end-to-end; wearer sees the role's avatar via existing Phase 86 fallback; idempotent no-op on identities already without an override.
 
-**Deploy policy:** push-only per campaign discipline. Awaits Ashley's push greenlight; batches with UX-pass campaign ship gate.
+**Deploy policy:** push-only per campaign discipline. Awaits Alice's push greenlight; batches with UX-pass campaign ship gate.

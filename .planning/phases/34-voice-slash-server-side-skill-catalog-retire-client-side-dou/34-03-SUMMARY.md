@@ -11,7 +11,7 @@ provides:
   - "Client hook posts hostId + tmuxSession alongside audio blob; consumes server transcript verbatim"
   - "Retirement of client-side composeIntentTransform + INTENT_REGISTRY + doubled-word regex"
 affects:
-  - "ComposeBox voice-first slash-invocation UX — Ashley says 'slash gsd status' → tmux receives '/gsd status' (was: 'bounty bounty add X' → tmux receives '/bounty add X'; new registry is unbounded, server-fetched per-invocation)"
+  - "ComposeBox voice-first slash-invocation UX — Alice says 'slash gsd status' → tmux receives '/gsd status' (was: 'bounty bounty add X' → tmux receives '/bounty add X'; new registry is unbounded, server-fetched per-invocation)"
 tech-stack:
   added: []
   patterns:
@@ -51,7 +51,7 @@ metrics:
 
 ## What Shipped (the vertical is now end-to-end)
 
-Ashley says **"slash gsd status"** into the mic in a pretty-view pane. The full path now runs:
+Alice says **"slash gsd status"** into the mic in a pretty-view pane. The full path now runs:
 
 ```
 useVoiceRecording.start()

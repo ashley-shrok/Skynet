@@ -24,8 +24,8 @@ Design is LOCKED (Path C, presence-driven lifecycle). Research maps concrete cod
 
 **Root cause (empirical):** SSH-poll's `listIdentityHostingHosts()` in `src/backend/starter.ts` (~line 232) reads `hostsTable.key`/`.password`/`.keyPassword` fields via raw `db.select({...}).from(hostsTable)`. Returns app-level ciphertext, not plaintext. Passes ciphertext to `connectOneShot`, ssh2 rejects as invalid key. Fix: use `resolveHostById(hostId, userId)` for per-host decrypt (canonical Skynet pattern).
 
-**Path C — presence-driven lifecycle (LOCKED by Ashley 2026-08-13):**
-Ashley verbatim: *"nobody needs to know if something is idle or not, or anything else that's going on here, if no user is present to want to know the information."*
+**Path C — presence-driven lifecycle (LOCKED by Alice 2026-08-13):**
+Alice verbatim: *"nobody needs to know if something is idle or not, or anything else that's going on here, if no user is present to want to know the information."*
 
 - SSH-poll runs **only while at least one browser is connected to the fleet-status WS** (via `/fleet-status/ws`).
 - First subscriber → start the poller.
@@ -42,7 +42,7 @@ Ashley verbatim: *"nobody needs to know if something is idle or not, or anything
 
 ### Claude's Discretion
 
-- **Multi-user shape** (single-user box today, but user-scoped by design). Recommendation from CONTEXT.md line 66: "one *unified* poller keyed by the union of hosts across all subscribed users, with per-host decrypt using the host's own owner userId." Ashley has not spoken to this specifically; planner picks the cleanest shape.
+- **Multi-user shape** (single-user box today, but user-scoped by design). Recommendation from CONTEXT.md line 66: "one *unified* poller keyed by the union of hosts across all subscribed users, with per-host decrypt using the host's own owner userId." Alice has not spoken to this specifically; planner picks the cleanest shape.
 - **Test shape**: Unit tests for lifecycle hooks + decrypt path. Integration test optional.
 
 ### Deferred Ideas (OUT OF SCOPE)
@@ -526,7 +526,7 @@ Verified via grep — no code path reads from `SubscriptionRegistry.getSnapshot(
 
 **However — one subtle case worth naming to the planner:**
 
-**The `identityHostCount` info log at starter.ts:349** is currently emitted at boot regardless of subscriber presence. This has been a useful boot-time signal for confirming the DB query worked. If Plan 2 moves `orchestrator.start()` behind the first-subscriber hook, this log will only fire on first subscriber. Not a bug — it's actually MORE truthful (we don't have the SSH channels open until first subscriber, so counting them at boot was misleading anyway) — but flag for planner in case Ashley expects boot-time visibility. Could add a `fleet_status_awaiting_subscriber` info log at boot as replacement.
+**The `identityHostCount` info log at starter.ts:349** is currently emitted at boot regardless of subscriber presence. This has been a useful boot-time signal for confirming the DB query worked. If Plan 2 moves `orchestrator.start()` behind the first-subscriber hook, this log will only fire on first subscriber. Not a bug — it's actually MORE truthful (we don't have the SSH channels open until first subscriber, so counting them at boot was misleading anyway) — but flag for planner in case Alice expects boot-time visibility. Could add a `fleet_status_awaiting_subscriber` info log at boot as replacement.
 
 ### One additional watch-out — WS server WITHOUT subscriber
 
@@ -999,8 +999,8 @@ Not applicable — Phase 39 is a bugfix within an existing established pattern. 
 | A2 | `hostClients` Map at starter.ts:234 is fully closure-scoped and doesn't leak refs elsewhere | Q7 landmines | Verified via grep — no other file references it |
 | A3 | No `logger.test.ts` currently asserts the exact format string of `formatMessage` | Q4 test impact | If one exists that I missed, Plan 3's generic-passthrough fix breaks it — planner should grep before finalizing shape |
 | A4 | The `onFirstSubscriber` / `onLastUnsubscriber` shape (Set of callbacks, called synchronously) is preferred over EventEmitter | Q1 recommendation | If Skynet has an existing EventEmitter convention I missed, planner may want to align — low risk, no EE convention found in fleet-status |
-| A5 | The rewired `listIdentityHostingHosts` capturing `currentSubscriberUserId` via closure is acceptable | Plan 2 shape | If multi-user semantics (multiple users concurrently subscribed) become a real requirement mid-plan, the closure needs replacement with a Map. Ashley explicitly deferred this per CONTEXT §deferred. |
-| A6 | Stop-hook install can be blind-run per host (idempotent) OR probed — CONTEXT lets planner pick | Q5 | If Ashley has a preference between blind-install vs probe-first, planner needs to check. Both work; both safe. |
+| A5 | The rewired `listIdentityHostingHosts` capturing `currentSubscriberUserId` via closure is acceptable | Plan 2 shape | If multi-user semantics (multiple users concurrently subscribed) become a real requirement mid-plan, the closure needs replacement with a Map. Alice explicitly deferred this per CONTEXT §deferred. |
+| A6 | Stop-hook install can be blind-run per host (idempotent) OR probed — CONTEXT lets planner pick | Q5 | If Alice has a preference between blind-install vs probe-first, planner needs to check. Both work; both safe. |
 
 **All 6 assumptions are LOW-risk and non-blocking for planning.** They surface options for the planner rather than gate progress.
 
@@ -1008,8 +1008,8 @@ Not applicable — Phase 39 is a bugfix within an existing established pattern. 
 
 1. **Should `installStopHook` be called on first-poll per host, or only when the poll observes the empty payload?**
    - What we know: install is idempotent; CONTEXT recommends "verify install status per host + install where missing"; the poller's fail-open path already logs `fleet_status_hook_payload_missing` on empty payload.
-   - What's unclear: Is Ashley's expectation "blind install on every host we first see" (Option A) OR "install only when we observe missing" (Option B)?
-   - Recommendation: Option A — blind install on first-successful-channel-acquire per host. It's cheap, idempotent, and doesn't require adding logic to the poll fail-open path. Planner asks Ashley during plan-check if this is contentious.
+   - What's unclear: Is Alice's expectation "blind install on every host we first see" (Option A) OR "install only when we observe missing" (Option B)?
+   - Recommendation: Option A — blind install on first-successful-channel-acquire per host. It's cheap, idempotent, and doesn't require adding logic to the poll fail-open path. Planner asks Alice during plan-check if this is contentious.
 
 2. **What should the log line say when the orchestrator boots without a subscriber?**
    - What we know: Currently `fleet_status_orchestrator_started` fires with `identityHostCount: N` at boot. After Plan 2 rewire, this log becomes misleading (channels aren't open).

@@ -17,7 +17,7 @@
 | Wide — anywhere a bug might surface | Everything above PLUS PWA/service-worker, auth, compose/draft, keyboard/tap, backend, etc. | ✓ |
 
 **User's choice:** Wide — "anywhere that can have an issue that might need to be diagnosed is fair game."
-**Notes:** Ashley 2026-08-11 verbatim: *"I would rather overdo it than underdo it, because like we talked about, it's not expensive to add the lines, nor to have them be logging during runtime."* Codified as D-01 + D-08 in CONTEXT.md.
+**Notes:** Alice 2026-08-11 verbatim: *"I would rather overdo it than underdo it, because like we talked about, it's not expensive to add the lines, nor to have them be logging during runtime."* Codified as D-01 + D-08 in CONTEXT.md.
 
 ---
 
@@ -25,10 +25,10 @@
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Structured JSON per line + canonical prefix taxonomy | Ashley delegated to me; I chose this | ✓ |
+| Structured JSON per line + canonical prefix taxonomy | Alice delegated to me; I chose this | ✓ |
 | Free-form prose-with-prefix per subsystem | Leave the current zoo of prefixes as-is | |
 
-**User's choice:** Deferred to me. Ashley 2026-08-11 verbatim: *"the conventions should be whatever makes it easiest for you to find and figure out issues, because I won't be looking at the logs, you will."*
+**User's choice:** Deferred to me. Alice 2026-08-11 verbatim: *"the conventions should be whatever makes it easiest for you to find and figure out issues, because I won't be looking at the logs, you will."*
 **Notes:** Chose structured `[subsystem] event key=value` format on top of the existing `{ts, level, tabId, msg}` envelope; canonical subsystem prefix taxonomy consolidates the current mixed zoo. Never `JSON.stringify(event)`. See D-09..D-16.
 
 ---
@@ -41,7 +41,7 @@
 | Client-side dedup (syslog-style) | "last message repeated N times" pattern; standard practice | ✓ |
 | Aggressive throttling | Rate-limit every subsystem | |
 
-**User's choice:** Dedup, syslog-style. Ashley 2026-08-11 verbatim: *"any easy way to batch lines that are the same? … there'd be some way to have the line in there once with like a counter of how many times it happened … I'm sure there are standards for this kind of thing and so we probably just follow that."*
+**User's choice:** Dedup, syslog-style. Alice 2026-08-11 verbatim: *"any easy way to batch lines that are the same? … there'd be some way to have the line in there once with like a counter of how many times it happened … I'm sure there are standards for this kind of thing and so we probably just follow that."*
 **Notes:** N=3, W=5s starting defaults; applied selectively to hot paths (visibility flap, scroll, per-render, DIAG-REPORT); per-event lines (WS close, play-attempt) stay individually logged. See D-17..D-19.
 
 ---
@@ -54,7 +54,7 @@
 | Light smoke tests for critical lines | WS close, pause-gate, TTS play-attempt only | ✓ |
 | No tests | Diagnostic-only logs, no test coverage | |
 
-**User's choice:** Light. Ashley 2026-08-11 verbatim: *"testing is potentially helpful but probably not totally necessary."*
+**User's choice:** Light. Alice 2026-08-11 verbatim: *"testing is potentially helpful but probably not totally necessary."*
 **Notes:** See D-20. Non-blocking — missing smoke test doesn't fail phase, wrong-shape one does.
 
 ---
@@ -79,7 +79,7 @@
 | (a) Instrumentation only | Phase 31 = logs only; fixes are follow-up phases | ✓ |
 | (b) Instrumentation + minimum fix | Bundle fix for the two symptom bounties into Phase 31 | |
 
-**User's choice:** (a) after I explained #6 plainly. Ashley: "let's go" confirming (a).
+**User's choice:** (a) after I explained #6 plainly. Alice: "let's go" confirming (a).
 **Notes:** Locked at D-21 + D-22. Discipline: if I notice root cause during backfill, capture as bounty; do NOT fix inline. Preserves phase-31 scope discipline; the fix phase then works from real data.
 
 ---

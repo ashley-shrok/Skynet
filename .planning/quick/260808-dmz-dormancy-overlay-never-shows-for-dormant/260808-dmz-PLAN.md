@@ -83,12 +83,12 @@ is true, and pick up the trivial diag-registry `isVisible: null` regression from
 patch #344 as a tag-along one-liner.
 
 Purpose:
-- Ashley UAT of patch #345 failed: opening Tiffany's dormant pane rendered
+- Alice UAT of patch #345 failed: opening Tiffany's dormant pane rendered
   "no active Claude session" instead of the DormancyOverlay because the backend
   short-circuited on {type:inactive, reason:not_claude} before the dormancy
   poll could ever fire. This blocks the whole dormancy affordance she greenlit.
 - The fix is what the bounty.json spells out; do NOT redesign. Implement it,
-  ship it, patch #346 in skynet-patches.md, then UAT with Ashley on Tiffany.
+  ship it, patch #346 in skynet-patches.md, then UAT with Alice on Tiffany.
 
 Output:
 - Backend inactive-branch restructured + dormant-poll loop + extracted active-flow helper
@@ -242,7 +242,7 @@ Load-bearing prior art (already in tree — do not re-explain, read directly):
 
     CHANGE 2 (tag-along diag fix — bounty TAG-ALONG §):
     Line 1212: `isVisible: null,` becomes `isVisible,` (shorthand for isVisible: isVisible).
-    The `isVisible` prop is destructured at line 189 and in scope inside the useEffect closure at line 1202. Patch #344 added the isVisible prop to PrettyView but the diag registry pretty-view snapshot was never updated; DIAG-REPORT logs currently show `isVisible: null` for every pretty-view pane. Diag-numbers-only cosmetic fix — no runtime behavior change, but Ashley's per-pane cost diag now correctly labels each pane as visible/hidden.
+    The `isVisible` prop is destructured at line 189 and in scope inside the useEffect closure at line 1202. Patch #344 added the isVisible prop to PrettyView but the diag registry pretty-view snapshot was never updated; DIAG-REPORT logs currently show `isVisible: null` for every pretty-view pane. Diag-numbers-only cosmetic fix — no runtime behavior change, but Alice's per-pane cost diag now correctly labels each pane as visible/hidden.
 
     Do NOT touch anything else in PrettyView.tsx. In particular, leave the existing DormancyOverlay mount at line 1561-1568 as-is (its independent mount gate on `dormant` is correct), and leave the live-frame auto-dismiss at line 707-722 as-is (it correctly handles the backend's {type:session} frame emitted by startActiveSessionFlow on wake).
 
@@ -278,7 +278,7 @@ Load-bearing prior art (already in tree — do not re-explain, read directly):
     Grep the built backend for the new symbols. At minimum: startActiveSessionFlow (or the extracted-helper name chosen in Task 1), dormantPollTimer, "claude_session_dormant_entered". If missing → the build didn't pick up the source; rebuild.
 
     STEP D — Ship via docker compose recreate under 15-min deadman.
-    Follow the project's standard ship protocol per CLAUDE.md §Deploy safety: `docker compose up -d --force-recreate skynet` under the 15-min deadman rollback timer. NO EXCEPTIONS per Ashley 2026-07-03. After the recreate:
+    Follow the project's standard ship protocol per CLAUDE.md §Deploy safety: `docker compose up -d --force-recreate skynet` under the 15-min deadman rollback timer. NO EXCEPTIONS per Alice 2026-07-03. After the recreate:
     - Confirm container status Up + healthy sustained (poll `docker compose ps skynet` for at least 30s past healthcheck window).
     - Confirm HTTPS 200 on term.example.com via `curl -sI https://term.example.com/ | head -5` — expect HTTP/2 200.
     - Byte-verify frontend bundle contains the two frontend changes: grep the built terminal JS for `!dormant` gate + confirm `isVisible: null` is GONE from the pretty-view snapshot (search for the diag emit shape).
@@ -308,7 +308,7 @@ Load-bearing prior art (already in tree — do not re-explain, read directly):
 
     Content must cover:
     - **Summary**: one paragraph — patch #345 shipped the overlay but the poll never fired for actually-dormant panes because it was piggybacked on the active-poll cycle which is short-circuited by the inactive-branch teardown. #346 moves the dormancy probe into the inactive branch, adds a dormant-poll loop that transitions to active flow on sentinel-disappearance via an extracted startActiveSessionFlow helper, adds a frontend belt-and-suspenders gate on the inactive fallback, and picks up a diag-registry `isVisible: null` regression from patch #344 as a tag-along.
-    - **Why**: Ashley UAT on Tiffany at 2026-08-08T09:44:25Z — DormancyOverlay never appeared; PrettyView rendered "no active Claude session" instead. Root cause: discoverClaudeSession returns inactive/not_claude for a dormant pane, backend emits the inactive frame and tears SSH down, so the piggybacked dormancy stat check never runs.
+    - **Why**: Alice UAT on Tiffany at 2026-08-08T09:44:25Z — DormancyOverlay never appeared; PrettyView rendered "no active Claude session" instead. Root cause: discoverClaudeSession returns inactive/not_claude for a dormant pane, backend emits the inactive frame and tears SSH down, so the piggybacked dormancy stat check never runs.
     - **What changed**: enumerate the four sub-artifacts — (1) extracted startActiveSessionFlow helper in claude-session-server.ts, (2) inactive-branch dormancy probe + dormant-poll loop, (3) PrettyView belt-and-suspenders `!dormant` gate on the inactive fallback, (4) PrettyView diag snapshot `isVisible: null` → `isVisible` shorthand. Include the note about keeping patch #345's active-poll `dormantInFlight` piggyback AS-IS as defensive (rationale: catches supervisor race where .dormant reappears mid-active).
     - **Verification**: test count (baseline 1580+ pass / 6 skip → ~1585+ pass / 6 skip after G-K land); `tsc --noEmit` clean; `npm run build` clean.
     - **Ship**: image sha (paste from Task 3 build output), container health-sustained timestamp, HTTPS 200 confirmation on term.example.com, byte-verified symbols in shipped bundle (startActiveSessionFlow + dormantPollTimer + `!dormant` + non-null isVisible).
@@ -331,7 +331,7 @@ Load-bearing prior art (already in tree — do not re-explain, read directly):
 </task>
 
 <task type="checkpoint:human-verify" gate="blocking">
-  <name>Task 5: Ashley UAT on Tiffany</name>
+  <name>Task 5: Alice UAT on Tiffany</name>
   <what-built>
     Backend inactive-branch dormancy probe + dormant-poll loop + extracted active-flow helper.
     Frontend belt-and-suspenders `!dormant` gate + diag `isVisible` tag-along.
@@ -340,13 +340,13 @@ Load-bearing prior art (already in tree — do not re-explain, read directly):
   </what-built>
   <how-to-verify>
     1. Confirm Tiffany's identity is currently dormant on T1000: `ssh tailnet-of-t1000 'ls ~/.claude/identities/tiffany/.dormant && tmux ls | grep tiffany'` — sentinel present, tmux session alive at bare shell prompt. (If not dormant, either wait for supervisor to reconcile OR force it: `kill <claude-pid> && touch ~/.claude/identities/tiffany/.dormant`.)
-    2. Open Ashley's PWA at term.example.com; navigate to Tiffany's pretty-view pane.
+    2. Open Alice's PWA at term.example.com; navigate to Tiffany's pretty-view pane.
     3. EXPECT: DormancyOverlay appears with "session is asleep" text + Wake button. Static moon glyph (NO spin). ComposeBox disabled (Send/Reset/ThumbsUp/Recap/QueuedRow-Send all disabled; textarea + mic + attach still usable). The old "no active Claude session" text MUST NOT appear.
     4. Tap Wake. EXPECT: overlay transitions to "waking…" state; after ~15s the "this can take up to 60s" hint appears if wake hasn't completed. Within ~60s (30s supervisor CHECK_INTERVAL + 30s claude launch + /id run), overlay auto-dismisses and ComposeBox re-enables.
     5. Confirm normal chat works after wake.
     6. Bonus: check console DIAG-REPORT log — `isVisible` for the pretty-view pane should be `true` (or `false` if hidden), NOT `null`.
   </how-to-verify>
-  <resume-signal>Ashley types "approved" or describes what she saw (which behavior differed, screenshots, console logs).</resume-signal>
+  <resume-signal>Alice types "approved" or describes what she saw (which behavior differed, screenshots, console logs).</resume-signal>
 </task>
 
 </tasks>
@@ -361,17 +361,17 @@ Load-bearing prior art (already in tree — do not re-explain, read directly):
 - Container health: `docker compose ps skynet` shows Up + healthy sustained past the healthcheck grace window; no deadman rollback fired.
 - HTTPS: `curl -sI https://term.example.com/` returns HTTP/2 200.
 - Patches doc: `### Patch #346` heading present exactly once in skynet-patches.md.
-- Ashley UAT (blocking human checkpoint): DormancyOverlay appears on Tiffany's pane, Wake round-trips, overlay auto-dismisses on live-frame resume.
+- Alice UAT (blocking human checkpoint): DormancyOverlay appears on Tiffany's pane, Wake round-trips, overlay auto-dismisses on live-frame resume.
 </verification>
 
 <success_criteria>
 - Dormant panes render the DormancyOverlay instead of "no active Claude session" (root fix of the patch #345 UAT failure).
-- Wake round-trip works from Ashley's PWA on Tiffany.
+- Wake round-trip works from Alice's PWA on Tiffany.
 - Auto-dismiss on wake completion works (live-frame auto-dismiss trips on the {type:session} frame emitted by startActiveSessionFlow).
 - No test regressions; all 1580+ baseline tests still pass + 5 new tests added.
 - Shipped under the 15-min deadman with HTTPS 200 + container health confirmed.
 - Patch #346 entry landed in skynet-patches.md following the patch #345 format template.
-- Ashley UAT signed off.
+- Alice UAT signed off.
 </success_criteria>
 
 <output>
@@ -381,6 +381,6 @@ Create `.planning/quick/260808-dmz-dormancy-overlay-never-shows-for-dormant/2608
 - Test count delta (before → after)
 - Ship metadata (image sha, container health timestamp, HTTPS 200 confirmation)
 - Patch #346 entry link/reference
-- Ashley UAT outcome
+- Alice UAT outcome
 - Standing-directive follow-up: DMing Stacy question (bundled with #344 + #345 + #346)
 </output>

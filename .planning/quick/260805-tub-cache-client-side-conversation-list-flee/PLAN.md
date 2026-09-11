@@ -11,7 +11,7 @@ created: 2026-08-05
 
 Cache the client-side conversation-list fleet snapshot to localStorage so a page refresh paints the last-known row set immediately, then reconciles when the one-shot `getSessionList()` fetch returns. Scope: row EXISTENCE only (the fields getSessionList() already returns: hostId, hostName, sessionName, created). Active/inactive state, WIP dots, pin state, and hostTree remain live-derived — do NOT persist them.
 
-Ashley 2026-08-05: fleet-shape rarely changes, no reason for a page refresh to paint an empty list for the ~200ms until the fetch lands.
+Alice 2026-08-05: fleet-shape rarely changes, no reason for a page refresh to paint an empty list for the ~200ms until the fetch lands.
 
 ## Behavior
 
@@ -55,7 +55,7 @@ The AppShell wire is a two-line change (read before fetch, write after) — veri
 - `npx tsc --noEmit` clean.
 - `npx vitest run` — full suite green (currently 1432 pass / 6 skip / 0 fail across 119 files; expect +6 tests, still 0 fail).
 - No new production dependencies.
-- Commit + push + build + recreate inline (session pattern — Ashley 2026-08-05).
+- Commit + push + build + recreate inline (session pattern — Alice 2026-08-05).
 
 ## Not folded in (deferred)
 

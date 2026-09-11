@@ -18,7 +18,7 @@ Extend the existing optimistic-bubble machinery so it covers every compose-box s
 <decisions>
 ## Implementation Decisions
 
-### Coverage rule (Ashley 2026-09-07, verbatim)
+### Coverage rule (Alice 2026-09-07, verbatim)
 - **D-01:** *"if it comes out of the compose box, it should have an optimistic bubble... anything at all in the compose box sends a message into the compose box of the harness, then it should have an optimistic bubble."* Every compose-box send trigger in scope: primary Send, queue-slot Send, cadence auto-fire, voice-submit. Non-send actions (interrupt button) remain out — they don't emit a message.
 
 ### Seed timing for attachment sends
@@ -33,7 +33,7 @@ Extend the existing optimistic-bubble machinery so it covers every compose-box s
 
 ### Failure treatment
 - **D-08:** Same red-whole-bubble treatment Phase 76 landed for text-only pending failures (D-06 from Phase 76 CONTEXT): whole bubble red, chips still visible so user sees what didn't land.
-- **D-09:** Compose is NOT repopulated on failure (Ashley 2026-09-02, reversing Phase 50 D-20/D-56). Retry means re-attach + re-type — no preservation of staged files, no retry-easier affordance. Explicitly scope-out per Ashley 2026-09-07.
+- **D-09:** Compose is NOT repopulated on failure (Alice 2026-09-02, reversing Phase 50 D-20/D-56). Retry means re-attach + re-type — no preservation of staged files, no retry-easier affordance. Explicitly scope-out per Alice 2026-09-07.
 
 ### Match-and-replace lifecycle
 - **D-10:** Same mqid + FIFO head-match mechanism as text-only pending bubbles today (`PrettyView.tsx:1885-1911`). Content-equality between pending and real bubble is NOT required — matching is by mqid via FIFO head-match on incoming user-role message frames.
@@ -135,20 +135,20 @@ Extend the existing optimistic-bubble machinery so it covers every compose-box s
 <specifics>
 ## Specific Ideas
 
-- **Ashley's verbatim rule (2026-09-07):** *"if it comes out of the compose box, it should have an optimistic bubble... anything at all in the compose box sends a message into the compose box of the harness, then it should have an optimistic bubble."* Any send trigger the compose box exposes gets a bubble; non-send actions don't.
-- **Ashley's verbatim on failure-path (2026-09-07):** *"we are not making any attempt to make that part easy or easier in this chunk of work."* No preservation of staged files, no retry-easier affordance, no auto-repopulate — the red bubble is the record.
-- **Ashley's verbatim on upload-progress-in-pending-bubble (2026-09-07):** *"I was hoping for the upload progress to not be changed from how it is now, and when they finish, that's when the optimistic bubble comes up, and so the files would have already been uploaded by then."* This locks the seed timing at upload-complete (D-02), not Send press. Compose chips' current upload-progress rendering is untouched.
+- **Alice's verbatim rule (2026-09-07):** *"if it comes out of the compose box, it should have an optimistic bubble... anything at all in the compose box sends a message into the compose box of the harness, then it should have an optimistic bubble."* Any send trigger the compose box exposes gets a bubble; non-send actions don't.
+- **Alice's verbatim on failure-path (2026-09-07):** *"we are not making any attempt to make that part easy or easier in this chunk of work."* No preservation of staged files, no retry-easier affordance, no auto-repopulate — the red bubble is the record.
+- **Alice's verbatim on upload-progress-in-pending-bubble (2026-09-07):** *"I was hoping for the upload progress to not be changed from how it is now, and when they finish, that's when the optimistic bubble comes up, and so the files would have already been uploaded by then."* This locks the seed timing at upload-complete (D-02), not Send press. Compose chips' current upload-progress rendering is untouched.
 
 </specifics>
 
 <deferred>
 ## Deferred Ideas
 
-- **Preserving staged files across a failed attachment send so retry doesn't require re-attaching.** Explicitly scoped out of this phase per Ashley 2026-09-07. Belongs in a follow-on phase if retry friction becomes a real complaint.
+- **Preserving staged files across a failed attachment send so retry doesn't require re-attaching.** Explicitly scoped out of this phase per Alice 2026-09-07. Belongs in a follow-on phase if retry friction becomes a real complaint.
 - **Upload-progress rendering inside the pending bubble** (Shape Y from the /open discussion). Rejected — compose chips carry upload progress, the pending bubble is for the after-upload window only. Not adding.
 - **Retry affordance / one-click resend for failed attachment bubbles.** Same class as the preservation deferral above.
 - **Refactoring queue-slot text sends to route through `useComposeSend` funnel** (as opposed to duplicating the seed-and-dispatch primitive inline). Either shape closes the gap; planner picks. If duplication ends up ugly, a follow-on refactor phase could consolidate.
-- **Non-send compose actions producing bubbles** (interrupt, etc.). Explicitly scoped out — Ashley's rule is "sends → bubble" only.
+- **Non-send compose actions producing bubbles** (interrupt, etc.). Explicitly scoped out — Alice's rule is "sends → bubble" only.
 
 ### Reviewed Todos (not folded)
 None.

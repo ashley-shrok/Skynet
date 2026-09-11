@@ -165,7 +165,7 @@ All three cases already have precedent in `readAndMergeHookSettings` (L339-L393)
 
 ### 2c. Per-user variability (fleet convention)
 
-**Harness user varies per box.** Ashley's box-maintainer role file line 225 (per bounty premise) records: `thenasty`, `ashley`, `zoeysephilya`, `ubuntu` — four different harness user names across the fleet. Skynet resolves this via the SSH connection's own user (each fleet peer's Skynet-registered `hosts` row carries the SSH username). The existing `remote-hook-install.ts` L478-L495 already handles this correctly via `cd ~ && pwd` — tilde expansion goes through the passwd entry independent of `$HOME`. **Part A inherits this — zero new plumbing.**
+**Harness user varies per box.** Alice's box-maintainer role file line 225 (per bounty premise) records: `thenasty`, `alice`, `zoeysephilya`, `ubuntu` — four different harness user names across the fleet. Skynet resolves this via the SSH connection's own user (each fleet peer's Skynet-registered `hosts` row carries the SSH username). The existing `remote-hook-install.ts` L478-L495 already handles this correctly via `cd ~ && pwd` — tilde expansion goes through the passwd entry independent of `$HOME`. **Part A inherits this — zero new plumbing.**
 
 ### 2d. Recommended call site for Part A
 
@@ -185,7 +185,7 @@ Requires a new sibling pure helper `readAndMergePermissionDeny(currentSettings, 
 
 **Alternative rejected: new adjacent module.** Creating `remote-permissions-install.ts` alongside `remote-hook-install.ts` would double the number of SSH round-trips per host (read settings.json → merge hooks → write; then read settings.json → merge denies → write). The existing single-read-single-merge-single-write cycle can absorb the two new entries at zero additional network cost.
 
-**Tradeoff to call out to the planner:** extending `installStopHook` couples plan-mode-deny to the fleet-status hook install. If plan-mode deny is ever wanted independently (e.g. a box that runs Claude Code but not Skynet fleet-status), the coupling means the deny doesn't ship. Ashley's current fleet convention: every managed box runs both. Coupling is fine today.
+**Tradeoff to call out to the planner:** extending `installStopHook` couples plan-mode-deny to the fleet-status hook install. If plan-mode deny is ever wanted independently (e.g. a box that runs Claude Code but not Skynet fleet-status), the coupling means the deny doesn't ship. Alice's current fleet convention: every managed box runs both. Coupling is fine today.
 
 **Rename?** `installStopHook` is already a misnomer post-Phase-62 (installs 3 scripts + 6 hook entries, not just Stop). Renaming to `installFleetSubstratePerUserBaseline` (or similar) is out of scope for Phase 95 — the starter.ts callsite (L249) is the only caller.
 
@@ -195,7 +195,7 @@ Requires a new sibling pure helper `readAndMergePermissionDeny(currentSettings, 
 
 **30s retry cadence:** the D-CTX docblock at L34 states "This module is a one-time install helper, NOT a persistent process." However — because the retry pattern in CONTEXT.md refers to the distributor's 30s sweep, and CONTEXT.md § Rollout says "same 30s retry pattern that already patches `.claude/settings.json` for fleet-status hooks," there is an implicit assumption here that the planner MUST confirm: **does `installStopHook` actually re-fire on the 30s cadence, or does it fire once at host-discovery and never again?** Reading `starter.ts` L560-L692 more deeply is required to confirm — outside the scope of this research pass but flagged for Task 1.
 
-If it's one-shot per host per Skynet lifetime, then the rollout implication for Part A is: **peer boxes get the deny-patch on the next Skynet container restart** (which is when `starter.ts` re-discovers hosts). Ashley owns the ship motion, so this is compatible with the CLAUDE.md deploy-is-orchestrator-owned rule.
+If it's one-shot per host per Skynet lifetime, then the rollout implication for Part A is: **peer boxes get the deny-patch on the next Skynet container restart** (which is when `starter.ts` re-discovers hosts). Alice owns the ship motion, so this is compatible with the CLAUDE.md deploy-is-orchestrator-owned rule.
 
 ---
 
@@ -275,7 +275,7 @@ Enumeration performed by `grep -n` at HEAD `0a8b5a6f` on branch `feat/tab-title-
 - **L7580-L7589:** existing preamble (session-file snapshot + TODO comment referring to plan-pending) → EDIT (keep `sessionFileSnapshot = currentSessionFile;` line; DELETE the TODO comment at L7585-L7588 that references plan-pending).
 - **L7602-L7612:** the `output = await execCommand(connSnapshot, captureCmd)` block → DELETE (this is the capture-pane exec being killed).
 - **L7613-L7619:** the `if (pct === null && output !== "") pct = parseContextPct(output);` fallback → DELETE.
-- **L7620-L7635:** the `context_pct` emit block → **KEEP but SIMPLIFY** — retain `setContextPct(...)` + `ws.send({type:"context_pct", pct})` (Ashley 2026-09-09 verbatim: "PRIMARY: JSONL read"); drop the `if (pct !== null)` guard so a null pct also emits (Part B decision).
+- **L7620-L7635:** the `context_pct` emit block → **KEEP but SIMPLIFY** — retain `setContextPct(...)` + `ws.send({type:"context_pct", pct})` (Alice 2026-09-09 verbatim: "PRIMARY: JSONL read"); drop the `if (pct !== null)` guard so a null pct also emits (Part B decision).
 - **L7636-L7717:** Plan-pending PANE-SCRAPE block (isPending, planFilePath, currentPending, pendingSerialized, ws.send({type:"plan_pending"})) → DELETE the entire block.
 - **L7719-L7793:** Async SFTP fetch dispatch block (`if (isPending && planFilePath && sshConn && !cached && !inFlight) { planPendingFetchInFlightForPath.add(); const targetPath = ...; fetchPlanFile(...).then(...)` → DELETE the entire block.
 - **L7796+ (dormancy stat block D1, D2, D3):** UNCHANGED. Preserve verbatim. These are sidechannels OUT of Phase 95 scope.
@@ -344,7 +344,7 @@ Enumeration performed by `grep -n` at HEAD `0a8b5a6f` on branch `feat/tab-title-
 - The frontend consumes `context_pct` via `useSessionContextPct(hostId, tmuxSession)` from the fleet-status shared map (PrettyView.tsx L600-L610). The `context_pct` WS frame is a **no-op on the frontend** post-Phase-90 D-03 waiver (PrettyView.tsx L2448-L2459 comment: "NO-OP. fleet-status is now the single source of truth").
 - `setContextPct(_, _, null)` is explicitly supported by the fleet-status contextpct-store (verified: `null is a valid stored value (dormant sentinel semantic)`).
 - `useSessionContextPct` returns `null` for both never-written and explicit-null. Frontend renders a loading placeholder.
-- **UX regression accepted 2026-09-09:** for the first ~few seconds of a fresh session (before an assistant turn writes `usage` into the JSONL), the pct is null → meter shows loading state. Today's `parseContextPct(pane)` fallback catches this case via the Ink statusline. Ashley agreed to accept this per CONTEXT.md § Verification.
+- **UX regression accepted 2026-09-09:** for the first ~few seconds of a fresh session (before an assistant turn writes `usage` into the JSONL), the pct is null → meter shows loading state. Today's `parseContextPct(pane)` fallback catches this case via the Ink statusline. Alice agreed to accept this per CONTEXT.md § Verification.
 
 ### 3h. Tests to prune (deletion, not migration)
 
@@ -433,8 +433,8 @@ If Part B ships in prod (Skynet backend deletes plan-pending code) BEFORE Part A
 
 The GSD phase execution model supports wave gates. Recommended plan shape:
 
-- **Wave 1 (Part A only):** the settings-patch code changes ship. `installStopHook` gains the two new deny entries. Regression tests for the merge helper pass. **UAT gate:** Ashley ships to prod. Distributor sweep runs on the next Skynet container restart (or 30s after restart, depending on the sweep cadence — Task 1 confirms). Verify via SSH into each peer box: `grep "EnterPlanMode\|ExitPlanMode" ~/.claude/settings.json` returns two hits. **Wave 1 done state:** every fleet peer's settings.json contains both deny entries.
-- **Wave 2 (Part B + Part C, sequentially in separate commits):** Part B deletion commits (one commit per file group: parser + fetch + frontend + tests). Part C additions (schema module, Python sweep script, catalog row, caller rewire, regression tests). **UAT gate:** Ashley verifies SFTP file-fetch reliability + container-log exec collapse.
+- **Wave 1 (Part A only):** the settings-patch code changes ship. `installStopHook` gains the two new deny entries. Regression tests for the merge helper pass. **UAT gate:** Alice ships to prod. Distributor sweep runs on the next Skynet container restart (or 30s after restart, depending on the sweep cadence — Task 1 confirms). Verify via SSH into each peer box: `grep "EnterPlanMode\|ExitPlanMode" ~/.claude/settings.json` returns two hits. **Wave 1 done state:** every fleet peer's settings.json contains both deny entries.
+- **Wave 2 (Part B + Part C, sequentially in separate commits):** Part B deletion commits (one commit per file group: parser + fetch + frontend + tests). Part C additions (schema module, Python sweep script, catalog row, caller rewire, regression tests). **UAT gate:** Alice verifies SFTP file-fetch reliability + container-log exec collapse.
 
 The wave-ordering hard-dependency lives in the plan's wave-completion criteria — Wave 2 does not start until Wave 1's UAT gate closes.
 
@@ -445,11 +445,11 @@ The wave-ordering hard-dependency lives in the plan's wave-completion criteria �
 **Blast radius mitigation the plan should include:**
 - Structured logging: at settings-patch install completion, log `plan_mode_deny_applied: {enter: true, exit: true}` per host so the container log gives operators a fleet-wide inventory of who is patched and who isn't.
 - A start-up verification script (or existing fleet-status collector — a follow-up phase, not Phase 95) that periodically confirms every peer's settings.json has both deny entries. Silent failure to patch a box could go undetected for weeks otherwise.
-- Ashley's "revert path" documented in CONTEXT.md: remove the two entries from settings.json — no Skynet code change needed to restore plan mode on a per-box basis. If Part B has already shipped, the box's Skynet UI won't detect plan mode, but the peer box's Claude Code will still allow it (usable via SSH-attach).
+- Alice's "revert path" documented in CONTEXT.md: remove the two entries from settings.json — no Skynet code change needed to restore plan mode on a per-box basis. If Part B has already shipped, the box's Skynet UI won't detect plan mode, but the peer box's Claude Code will still allow it (usable via SSH-attach).
 
 ### 5d. Can Part A land as a separate deploy commit before Part B?
 
-**Yes** — and it MUST. The plan should structure commits such that the settings-patch code is a single atomic commit (Wave 1's only shipped code), separate from every Part B deletion commit and every Part C addition commit. This gives Ashley a clean git-log-per-shipped-thing story for the atomic-per-task-commits rule in CLAUDE.md.
+**Yes** — and it MUST. The plan should structure commits such that the settings-patch code is a single atomic commit (Wave 1's only shipped code), separate from every Part B deletion commit and every Part C addition commit. This gives Alice a clean git-log-per-shipped-thing story for the atomic-per-task-commits rule in CLAUDE.md.
 
 Suggested commit shape (planner refines):
 - `feat(fleet-status): deny EnterPlanMode/ExitPlanMode via distributor settings-patch (Phase 95 Part A)` — Wave 1's single commit.
@@ -531,7 +531,7 @@ Post-Part-B, the raw_keystrokes handler at L7059-L7097 has NO client sender — 
 
 ### G4 — `parseContextPct` fresh-session UX regression
 
-Accepted by Ashley 2026-09-09. First few seconds of a fresh session show a null meter until the first assistant `usage` turn lands in JSONL. Frontend renders loading placeholder.
+Accepted by Alice 2026-09-09. First few seconds of a fresh session show a null meter until the first assistant `usage` turn lands in JSONL. Frontend renders loading placeholder.
 
 ### G5 — `pretty-view-fetch-host-file.ts` copies SFTP wrapper from `plan-file-fetch.ts`
 
@@ -543,7 +543,7 @@ Same class as G5. `matrix-admin-narrow.ts` L7 comment: "See `plan-file-fetch.ts:
 
 ### G7 — `PlanPendingBubble.tsx` docblock at L14-L21 is a CRITICAL lesson
 
-The Phase 24 lesson "Ink Plan Mode does NOT recognize split-send as a keystroke selection" is preserved in code comments across at least 6 sites. When the code deletes, the lesson goes with it. **Recommendation:** the plan MUST include a decision on where to preserve this lesson. Options: (a) move to `.planning/lessons-learned/2026-plan-mode-split-send.md` for future re-implementations; (b) accept the loss — plan mode is dead fleet-wide, the lesson is null and void. Ashley's call.
+The Phase 24 lesson "Ink Plan Mode does NOT recognize split-send as a keystroke selection" is preserved in code comments across at least 6 sites. When the code deletes, the lesson goes with it. **Recommendation:** the plan MUST include a decision on where to preserve this lesson. Options: (a) move to `.planning/lessons-learned/2026-plan-mode-split-send.md` for future re-implementations; (b) accept the loss — plan mode is dead fleet-wide, the lesson is null and void. Alice's call.
 
 ### G8 — Aside subsystem's `tmux capture-pane` at L7982 + L8013 stays
 
@@ -575,7 +575,7 @@ The permissions docs reference `Cd` deny as a use case. Sanity: `EnterPlanMode` 
 
 ### G15 — Fleet-wide search of settings.json fingerprints — deferred verification tooling
 
-CONTEXT.md § Verification includes: "Every managed box's `~/.claude/settings.json` contains `ExitPlanModeV2` in `disallowedTools`" — but the CORRECT key is `permissions.deny`, and the CORRECT name is `ExitPlanMode` (not `ExitPlanModeV2Tool`). Ashley's phrasing conflated the internal Ink implementation name (`ExitPlanModeV2Tool`) with the canonical tool name (`ExitPlanMode`). **The plan's verification task must grep for `"ExitPlanMode"` and `"EnterPlanMode"` (both as bare strings) inside `permissions.deny` arrays**, NOT `"ExitPlanModeV2"` and NOT `disallowedTools` key.
+CONTEXT.md § Verification includes: "Every managed box's `~/.claude/settings.json` contains `ExitPlanModeV2` in `disallowedTools`" — but the CORRECT key is `permissions.deny`, and the CORRECT name is `ExitPlanMode` (not `ExitPlanModeV2Tool`). Alice's phrasing conflated the internal Ink implementation name (`ExitPlanModeV2Tool`) with the canonical tool name (`ExitPlanMode`). **The plan's verification task must grep for `"ExitPlanMode"` and `"EnterPlanMode"` (both as bare strings) inside `permissions.deny` arrays**, NOT `"ExitPlanModeV2"` and NOT `disallowedTools` key.
 
 ---
 
@@ -620,7 +620,7 @@ Phase 95 installs **zero** new npm/PyPI packages. Python sweep script is stdlib-
 
 1. **Tech stack:** Node/Express + Drizzle + ssh2 + React/TypeScript. **Phase 95 compliance:** uses only existing infrastructure (`execCommand`, `connectOneShot`, `readAndMergeHookSettings` pattern). No new subsystem.
 2. **Commit hygiene:** Atomic per-task commits, no squashes. **Phase 95 compliance:** Section 5d proposes 9 atomic commits.
-3. **Blast radius:** A bad deploy loses Ashley access to her whole fleet. **Phase 95 compliance:** wave-ordering hard-dependency between Parts A and B (Section 5); backward-compat fallback in Part C; regression tests before merge; UAT gate before ship.
+3. **Blast radius:** A bad deploy loses Alice access to her whole fleet. **Phase 95 compliance:** wave-ordering hard-dependency between Parts A and B (Section 5); backward-compat fallback in Part C; regression tests before merge; UAT gate before ship.
 4. **Encryption:** No DB changes.
 5. **Access model:** No new SSH-connection classes; reuses existing Tailscale-reachable channels.
 6. **Nginx caveat:** No new backend HTTP routes.
@@ -652,8 +652,8 @@ Phase 95 installs **zero** new npm/PyPI packages. Python sweep script is stdlib-
 | A4 | ComposeBox's `planPendingActive` OR-in chain has no non-plan-pending callers — deleting the prop and all its OR-in references is safe. | 3d | Low — grep confirmed the only setter for `planPendingActive` is `planPending !== null` at PrettyView.tsx L3981; deleting that state kills every consumer. |
 | A5 | The raw_keystrokes WS handler at L7059-L7097 has zero callers other than PlanPendingBubble. | G3 | Low — grep confirmed the only sender is PlanPendingBubble's onApprove/onFeedback. Delete safely. |
 | A6 | `context-pct-parser.ts` has no callers besides claude-session-server.ts L7618. | 3a, G9 | Low — grep confirmed 4 non-test refs, all in claude-session-server. Delete safely. |
-| A7 | The Phase 95 wave-ordering hard-dependency is achievable within GSD phase execution (Wave 1 of Phase 95 ships alone; Wave 2 waits on Wave 1's UAT gate). | Section 5 | Medium — the mechanism is standard; the risk is operational discipline. The plan MUST make the wait-condition explicit and Ashley MUST enforce it. |
-| A8 | Peer boxes have similar-to-zero plan-mode usage — verified only on t1000 as of 2026-09-09. | CONTEXT.md § Locked Decisions | Medium — CONTEXT.md accepts this risk with an explicit revert path. If a peer box has heavy plan-mode usage, Part A causes an unnoticed UX regression until Ashley or that user notices and requests a per-box exception. |
+| A7 | The Phase 95 wave-ordering hard-dependency is achievable within GSD phase execution (Wave 1 of Phase 95 ships alone; Wave 2 waits on Wave 1's UAT gate). | Section 5 | Medium — the mechanism is standard; the risk is operational discipline. The plan MUST make the wait-condition explicit and Alice MUST enforce it. |
+| A8 | Peer boxes have similar-to-zero plan-mode usage — verified only on t1000 as of 2026-09-09. | CONTEXT.md § Locked Decisions | Medium — CONTEXT.md accepts this risk with an explicit revert path. If a peer box has heavy plan-mode usage, Part A causes an unnoticed UX regression until Alice or that user notices and requests a per-box exception. |
 | A9 | The `deferred_tools_delta` JSONL noise post-Part-A is harmless. | G13 | Low — verified: the tool NAMES appearing in that attachment do not mean the tool is usable. Runtime `tool_use` blocks are what count, and those are gated by `permissions.deny`. |
 | A10 | The current `~/.claude/settings.json` on the Skynet host has `permissions.deny: ["AskUserQuestion"]` and Claude Code honors it, proving the exact JSON shape works in production. | 1c | Low — read directly from `/home/ubuntu/.claude/settings.json`. |
 
@@ -663,7 +663,7 @@ Phase 95 installs **zero** new npm/PyPI packages. Python sweep script is stdlib-
 
 1. **SSH-topology decision (unchanged from pre-pivot).** Per-host coordinator (Option 1) vs. elected WS (Option 2) vs. per-WS (Option 3). Recommendation Option 1 stands.
 2. **`installStopHook` re-invocation cadence.** Is it one-shot per Skynet lifetime, or does it re-fire on the 30s distributor sweep? Read `starter.ts` L560-L692 to confirm. Affects the deploy story for Part A: container-restart-only vs. self-healing-30s.
-3. **Preserve the Phase 24 PlanPendingBubble split-send lesson?** (G7) — move to `.planning/lessons-learned/` or accept the loss. Ashley's call.
+3. **Preserve the Phase 24 PlanPendingBubble split-send lesson?** (G7) — move to `.planning/lessons-learned/` or accept the loss. Alice's call.
 4. **Sweep exec timeout** — 20s (recommended) or higher. Task 2 detail.
 5. **Sweep filename** — `pv-context-pct-sweep` (matches phase directory) or `pv-sweep` (shorter). Task 1 detail.
 6. **`readAndMergePermissionDeny` helper location** — inline in `remote-hook-install.ts` (recommended) or new module `remote-permissions-install.ts`.
@@ -721,5 +721,5 @@ No LOW-confidence sources. All findings anchored to source reads OR live docs.
 | Backward-compat mechanics (Part C) | HIGH | Verbatim reuse of Phase 92's proven pattern. |
 | Existing test patterns | HIGH | Read of `dormant-poll.test.ts`, `contextpct-dual-write.test.ts`, Phase 92 test files. |
 
-**Research date:** 2026-09-09 (re-research after Ashley's late-2026-09-09 scope pivot).
+**Research date:** 2026-09-09 (re-research after Alice's late-2026-09-09 scope pivot).
 **Valid until:** ~30 days for the code inventory; indefinite for the pattern-reference material and the `permissions.deny` schema (live-docs authority).

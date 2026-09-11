@@ -322,7 +322,7 @@ export default function SkillsEditorModal({
         // Simplest correct heuristic: pick the first file in the refetched list, or null.
         // (Preserving strict "next-right, then previous" order would require caching the
         // pre-delete list; the plan says "next-right or previous or none" but the fetched
-        // list is post-delete, so grab the first remaining file — Ashley's fast-path bias
+        // list is post-delete, so grab the first remaining file — Alice's fast-path bias
         // says any-remaining-tab is fine, and the first-tab default matches skill-load.)
         setActiveTab(entries.length > 0 ? entries[0].path : null);
       }
@@ -429,7 +429,7 @@ export default function SkillsEditorModal({
             {/* Skill picker — single <select>, disabled until host + skills ready.
                 Placeholder stays "Pick a skill…" throughout so the copy doesn't
                 flicker; the disabled affordance carries the "not yet" signal
-                (Ashley 2026-08-20 UAT of #469). Loading/error swap placeholder
+                (Alice 2026-08-20 UAT of #469). Loading/error swap placeholder
                 copy only within the enabled-eligible window, so a slow load
                 still surfaces distinct signal. */}
             <select

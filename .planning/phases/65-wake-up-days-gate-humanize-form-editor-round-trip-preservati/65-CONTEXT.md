@@ -6,7 +6,7 @@
 
 ## What this is
 
-Two symmetric bugs in the Skynet identity-modal wake-up card, discovered 2026-08-31 when Ashley noticed that Aqua@Workstation's "weekdays at 23:00" schedule renders as **"Daily at 23:00"** in the identity modal. Root cause: the wake-up scheduler (`~/.claude/identities/*/wakeups/wakeup-scheduler.py` L117-122) accepts an optional `days: [...]` day-of-week gate alongside any schedule type, but two identity-modal surfaces don't know about it:
+Two symmetric bugs in the Skynet identity-modal wake-up card, discovered 2026-08-31 when Alice noticed that Aqua@Workstation's "weekdays at 23:00" schedule renders as **"Daily at 23:00"** in the identity modal. Root cause: the wake-up scheduler (`~/.claude/identities/*/wakeups/wakeup-scheduler.py` L117-122) accepts an optional `days: [...]` day-of-week gate alongside any schedule type, but two identity-modal surfaces don't know about it:
 
 1. **DISPLAY bug** — `humanizeWakeupSchedule` at `src/backend/claude-session/identity-artifact-reader.ts:54-81` reads only `type` and `at` (and `day` for weekly). `s.days` is dropped on the floor, so a spec like `{type:"daily", at:"23:00", days:["mon","tue","wed","thu","fri"]}` renders as `"Daily at 23:00 (box-local)"` — indistinguishable from a true 7-day-a-week schedule.
 2. **ROUND-TRIP bug (data loss)** — The form editor at `src/ui/features/pretty-view/WakeupsTab.tsx` has no `days` field on its `FormSchedule` discriminated union (L47-51) and no UI affordance to input one. `hydrateFormSchedule` (L89-131) drops `s.days`; `buildSchedule` (L135-147) never emits it. So opening a weekdays-only card in edit mode and pressing **Save** — even without touching any control — silently strips the gate off the wire, turning the spec into a plain daily/weekly one.
@@ -73,7 +73,7 @@ Focus/interaction behavior for the chips: clicking toggles that day's membership
 
 ## Out of scope (explicit)
 
-- **Interval-type `days` UI.** The scheduler supports `days` on interval, but interval + day-gate is rare in practice (Ashley confirmed the use case is daily/weekly schedules that fire only on weekdays or weekends). Humanizer IS aware of `days` on interval (renders `"Weekdays every 2h"`) so if such a spec exists somewhere it still renders correctly — but the form editor does NOT surface a chip UI for it. If someone hand-edits an interval spec to add `days`, opening the card and pressing Save WILL preserve `days` (hydrate/build handle it), so round-trip fidelity holds — only the UI-driven CREATE path skips it. This matches the "leave humanizer-side aware but skip form UI" scope in the phase description.
+- **Interval-type `days` UI.** The scheduler supports `days` on interval, but interval + day-gate is rare in practice (Alice confirmed the use case is daily/weekly schedules that fire only on weekdays or weekends). Humanizer IS aware of `days` on interval (renders `"Weekdays every 2h"`) so if such a spec exists somewhere it still renders correctly — but the form editor does NOT surface a chip UI for it. If someone hand-edits an interval spec to add `days`, opening the card and pressing Save WILL preserve `days` (hydrate/build handle it), so round-trip fidelity holds — only the UI-driven CREATE path skips it. This matches the "leave humanizer-side aware but skip form UI" scope in the phase description.
 - **`days` on one_shot.** Nonsensical (spec is a single datetime); ignored on both display and form sides.
 - **Migration / backfill.** No existing specs are rewritten; `days` continues to be optional on the wire. Old specs without `days` continue to fire every day, unchanged.
 - **Scheduler changes.** `wakeup-scheduler.py` already handles `days` correctly (L117-122); this phase does NOT touch it.
@@ -133,7 +133,7 @@ Phase is done when:
 - **Backend build risk = ~zero.** Humanizer takes `unknown`, already narrows via property reads; adding one more property read + branch is additive.
 - **Frontend render-cycle risk = low.** New chip UI is stateless-mapping-over-day-list; no new hooks or effects; the existing `useMemo` on `livePreview` already recomputes on `formSchedule` change so preview stays live.
 - **Test coverage risk = low.** Both files have existing test suites; extensions follow the same patterns.
-- **The one real edge case: D-01 (weekly + days gate).** Rare in practice — Ashley confirmed the use case is daily/weekly WITHOUT weekly day-of-week (just "weekdays at X" or "weekends at X"). Handle defensively per D-01, but don't over-invest — a simple "intersect and label" implementation covers the correct cases and the malformed-spec case gets a visible "NEVER FIRES" warning rather than silent misrender.
+- **The one real edge case: D-01 (weekly + days gate).** Rare in practice — Alice confirmed the use case is daily/weekly WITHOUT weekly day-of-week (just "weekdays at X" or "weekends at X"). Handle defensively per D-01, but don't over-invest — a simple "intersect and label" implementation covers the correct cases and the malformed-spec case gets a visible "NEVER FIRES" warning rather than silent misrender.
 
 ## Deferred Ideas
 

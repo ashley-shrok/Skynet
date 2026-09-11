@@ -60,7 +60,7 @@ must_haves:
 <objective>
 Hide the pretty-conversations idle "ready-for-attention" dot on rows whose session-recycling overlay (SessionHoldingOverlay, patch #74) is currently visible on their pretty-view surface. Extend the existing row-level dot gate (`inActiveSet && isWorking === false`, patch #137) with a `!isRecycling` conjunct, sourced from a new session-recycling-store that mirrors the patch #137 session-working-store byte-for-byte in structure.
 
-Purpose: A row whose pretty-view surface is showing the "session recycling..." overlay is NOT ready for Ashley's next instruction; showing the ready-dot on such a row is a false-positive signal. Correct that.
+Purpose: A row whose pretty-view surface is showing the "session recycling..." overlay is NOT ready for Alice's next instruction; showing the ready-dot on such a row is a false-positive signal. Correct that.
 
 Output: New store module + tests + publisher wiring in PrettyView + consumer wiring in PrettyConversationsPanel + gate extension in PrettyConversationRow + new suppression test. Ships as two atomic commits.
 </objective>

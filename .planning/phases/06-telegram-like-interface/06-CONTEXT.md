@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-07-21
 **Status:** Ready for planning
-**Source:** Synthesized from shape file `.planning/shapes/shape-telegram-like-interface.md` — that file is authoritative and every philosophical / scope-edge question was locked during a `/open` discussion with Ashley on 2026-07-21 (see the shape's "What would make it wrong" and "Scope edges" sections for provenance). This CONTEXT.md restates the shape as locked planning decisions plus the concrete Skynet-fork integration points. **The shape is not to be re-litigated; the planner's job is HOW, not WHAT.**
+**Source:** Synthesized from shape file `.planning/shapes/shape-telegram-like-interface.md` — that file is authoritative and every philosophical / scope-edge question was locked during a `/open` discussion with Alice on 2026-07-21 (see the shape's "What would make it wrong" and "Scope edges" sections for provenance). This CONTEXT.md restates the shape as locked planning decisions plus the concrete Skynet-fork integration points. **The shape is not to be re-litigated; the planner's job is HOW, not WHAT.**
 
 <domain>
 ## Phase Boundary
@@ -31,7 +31,7 @@ All items below are **LOCKED** by the shape file — do NOT re-open them during 
 
 - **Flat single-select list of currently-active sessions.** No tab strip. No secondary view slot. No side-by-side. One conversation visible, ever.
 - **Grouped visually by host with separators.** The current expanding sidebar already does this — reuse the existing grouping mechanism, don't invent a new one. Whatever visual treatment the sidebar uses today for host separators stays.
-- **Order below the pins = current sidebar host-tree order.** No new sort rule, no recency-shuffle, no alphabetical override. "The way it currently works is fine" (Ashley 2026-07-21). This means RDP-at-bottom falls out naturally from where RDP hosts sit in the tree today; no explicit sort rule for RDP is needed.
+- **Order below the pins = current sidebar host-tree order.** No new sort rule, no recency-shuffle, no alphabetical override. "The way it currently works is fine" (Alice 2026-07-21). This means RDP-at-bottom falls out naturally from where RDP hosts sit in the tree today; no explicit sort rule for RDP is needed.
 - **Session-ended = row vanishes.** Same lifecycle as today's tabs — the list only ever shows live sessions. No tombstones, no "ended" indicator, no history, no scrollback for ended sessions. If a session dies, its row disappears.
 - **Pins float above host-grouped rows.** Per-session (not per-host). Pin state is session-scoped: session ends → row and pin gone together. No pin-cap, no drag-to-reorder (both explicitly out).
 - **Planner call:** The concrete visual treatment for the "pinned" section header (or lack thereof — pins may simply appear at the top without any explicit "Pinned" label if that reads cleanly), and whether the pin action is a per-row icon vs. a right-click/long-press menu, is planner's discretion. Whatever fits the existing sidebar chrome.
@@ -87,9 +87,9 @@ All items below are **LOCKED** by the shape file — do NOT re-open them during 
 
 ### Full-replacement, not additive mode (TG-11)
 
-- **Tab strip is deleted unconditionally.** No feature flag, no user-facing toggle to "restore tab view," no A/B, no config setting. Ashley wants full replacement; a version that keeps both modes is explicitly WRONG (per shape file's "What would make it wrong").
+- **Tab strip is deleted unconditionally.** No feature flag, no user-facing toggle to "restore tab view," no A/B, no config setting. Alice wants full replacement; a version that keeps both modes is explicitly WRONG (per shape file's "What would make it wrong").
 - **Currently-open tabs on ship-day are free-fire.** No migration story. Users may need to re-open sessions after the deploy; that's fine.
-- **Deploy behind the standard fork deadman** (see `deploy-runbook.md` under Tina's identity). This is a substantial user-visible change, so the deadman + narrow-`pkill` disarm-on-Ashley-engagement pattern is especially important here.
+- **Deploy behind the standard fork deadman** (see `deploy-runbook.md` under Tina's identity). This is a substantial user-visible change, so the deadman + narrow-`pkill` disarm-on-user-engagement pattern is especially important here.
 
 </decisions>
 
@@ -162,10 +162,10 @@ Concrete things the planner will need to touch or understand. These are not exha
 Items explicitly acknowledged during shape conversation but deferred to a later version.
 
 ### Deferred to v2 (worth having eventually)
-- **Any per-conversation activity/unread signal.** Dots, badges, counts, motion, sound. Ashley said "we can save it for version two" on 2026-07-21. Do NOT preemptively wire in any signal channel; do NOT leave hooks that would silently emit signals if a future flag turned them on.
+- **Any per-conversation activity/unread signal.** Dots, badges, counts, motion, sound. Alice said "we can save it for version two" on 2026-07-21. Do NOT preemptively wire in any signal channel; do NOT leave hooks that would silently emit signals if a future flag turned them on.
 
 ### Out entirely (no v2 promise)
-- **Cross-conversation search.** Ashley said "I don't need it" on 2026-07-21. Not v2, not later — out.
+- **Cross-conversation search.** Alice said "I don't need it" on 2026-07-21. Not v2, not later — out.
 - **A folder / nested-grouping concept above host separators.** Explicitly ruled out. The flat host-grouping with separators is the whole grouping story.
 - **Drag-to-reorder for pins.** Simple pin-toggle only; pin order = pin-creation order or host-tree order. No drag reorder.
 - **History / scrollback for sessions that have already ended.** Ended sessions vanish; there is no "look at what was said" after the fact.
@@ -173,7 +173,7 @@ Items explicitly acknowledged during shape conversation but deferred to a later 
 ### Tempting but explicitly not in scope
 - **Persisting the currently-selected conversation across browser refreshes.** In-memory only; refresh = clean slate.
 - **Auto-restoring the "last set of open conversations" on a fresh page load.** Would require serialization + reconnect orchestration; explicitly out.
-- **A per-session view toggle that flips pretty view to raw terminal for debugging on mobile.** Ashley: "I don't need something on mobile to access the underlying session." Desktop already has an existing keyboard shortcut for this, preserved.
+- **A per-session view toggle that flips pretty view to raw terminal for debugging on mobile.** Alice: "I don't need something on mobile to access the underlying session." Desktop already has an existing keyboard shortcut for this, preserved.
 
 </deferred>
 
@@ -184,13 +184,13 @@ Any of the following is a scope violation and must be caught in the plan-checker
 
 1. **A plan that changes behavior INSIDE a mounted pretty view / terminal / RDP pane.** Phase 6 is chrome + selection semantics only. If a plan touches `src/ui/features/pretty-view/**` for reasons other than integrating with a new pane-visibility signal from the selection layer, that plan is out of scope.
 2. **A plan that ships the new list layout AND leaves the tab strip functional as a parallel mode.** Full replacement is the shape. A parallel-mode ship is explicitly WRONG.
-3. **A plan that ships the sidebar reshape without the session-persistence contract.** Switching between conversations MUST be hide-not-unmount from the first shipped plan onward; otherwise every switch drops the WS and Ashley experiences it as worse than tabs.
+3. **A plan that ships the sidebar reshape without the session-persistence contract.** Switching between conversations MUST be hide-not-unmount from the first shipped plan onward; otherwise every switch drops the WS and Alice experiences it as worse than tabs.
 4. **A plan that keeps the mobile bottom navigation bar in any form on mobile.** Its destinations migrate to the settings surface; the bar itself is deleted as a UI element.
 5. **A plan that adds an activity/unread indicator "as a placeholder for v2."** Deferred means deferred — no placeholder chrome, no dormant signal channel, no "if flag enabled" branches.
 6. **A plan that introduces a second mobile-vs-desktop detection mechanism** (viewport width, media query, user-agent) instead of consuming `useIsTouchDevice()`.
 7. **A plan that changes the desktop sidebar collapse behavior in any way.** The thin-strip-when-collapsed mechanism is preserved verbatim.
 8. **A plan that adds history / scrollback / ended-session persistence.** Ended sessions vanish; if a plan introduces a "recently ended" section or a re-open gesture, it's out of scope.
-9. **A plan that reorders the sidebar by recency / alphabetically / any rule other than the current host-tree order.** "The way it currently works is fine" (Ashley 2026-07-21).
+9. **A plan that reorders the sidebar by recency / alphabetically / any rule other than the current host-tree order.** "The way it currently works is fine" (Alice 2026-07-21).
 10. **A plan whose deploy step does not reference `deploy-runbook.md` and the mandatory deadman.** This is a substantial user-visible change; the standard fork deploy discipline applies.
 
 </scope_fence>
@@ -198,7 +198,7 @@ Any of the following is a scope violation and must be caught in the plan-checker
 <success_criteria>
 ## Success Criteria (goal-backward)
 
-The phase is DONE when all of the following are true from Ashley's perspective on the deployed fork:
+The phase is DONE when all of the following are true from Alice's perspective on the deployed fork:
 
 1. **Sidebar shows a flat list of currently-active sessions, grouped by host with separators, pins on top.** No tab strip anywhere. Rows disappear the moment a session ends.
 2. **Clicking a sidebar row displays that conversation in the main view; only one is visible at a time.** No side-by-side, no stacked tabs.
@@ -211,7 +211,7 @@ The phase is DONE when all of the following are true from Ashley's perspective o
 9. **A session can be pinned; it floats to the top of the list above host groups. Unpinning drops it back into its host group. Session-end clears pin + row together.**
 10. **Deployed behind the fork's mandatory 15-min deadman rollback.** No exceptions.
 
-If Ashley's UAT reveals ANY of these does not hold, the phase is not done.
+If Alice's UAT reveals ANY of these does not hold, the phase is not done.
 
 </success_criteria>
 

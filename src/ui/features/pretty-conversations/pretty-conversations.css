@@ -1,5 +1,5 @@
 /* ─── pretty-conversations.css ────────────────────────────────────────────────
- * Phase 13 Plan 01 — lift-from-mock v4 (LOCKED, Ashley 2026-07-23).
+ * Phase 13 Plan 01 — lift-from-mock v4 (LOCKED, Alice 2026-07-23).
  *
  * Source of truth: ~/.claude/identities/tina/bounties/skynet-transformation/
  *   prototype.html (mock v4). Every selector, value, gradient, shadow, hsla,
@@ -14,7 +14,7 @@
  *   2. Hue custom-property rename: `--hue` → `--pv-hue`. `.pv-row` uses
  *      `--pv-hue: 216` as fallback so hue-null rows still get a defined
  *      neutral value.
- *   3. Ambient recession RETIRED in Phase 41 Plan 01 (Ashley 2026-08-14):
+ *   3. Ambient recession RETIRED in Phase 41 Plan 01 (Alice 2026-08-14):
  *      the pre-Phase-41 CSS block that scoped ambient recession under
  *      `.pv-row.ambient` (deleted below) was retired entirely — every row
  *      now carries the same visual weight. The `.ambient` class is no
@@ -142,7 +142,7 @@
 /* Patch #167 — pinned-bounty filter toggle. Base chrome mirrors .pv-pencil
  * so the two buttons share size + hover treatment; the active state
  * (data-active="true") swaps to a warm-cream tinted background + bright
- * icon color so Ashley can see at a glance that the list is filtered.
+ * icon color so Alice can see at a glance that the list is filtered.
  * Palette draws from --color-pv-fg / --color-pv-fg-muted (see palette
  * authority note in tina.md). */
 .pv-panel-header .pv-filter {
@@ -187,7 +187,7 @@
 /* Phase 26 D-03: small dot indicator on the Filter button when any toggle is on.
    Absolute-positioned in the top-right corner of the .pv-filter button; inherits
    --pv-hue from the panel-header context. Presence-of-dot is the ONLY affordance
-   change on the button — no icon variant swap (Ashley's presence-is-signal rule). */
+   change on the button — no icon variant swap (Alice's presence-is-signal rule). */
 .pv-panel-header .pv-filter {
   position: relative; /* enable absolute-positioned .pv-filter-dot child */
 }
@@ -308,7 +308,7 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   USAGE METER — single-bar fill+tick (Ashley 2026-07-29 pick, B variant from
+   USAGE METER — single-bar fill+tick (Alice 2026-07-29 pick, B variant from
    the tune-meter picker with a slight prominence bump before lock-in).
    Two rows (5h + Week). Each row: full-height warm-coral usage fill +
    thin cyan tick at the elapsed-time position. One bar, two pieces of info.
@@ -399,7 +399,7 @@
   gap: 8px;
 }
 
-/* Phase 41 Plan 02 (Ashley 2026-08-14): always-in-DOM search input mounted
+/* Phase 41 Plan 02 (Alice 2026-08-14): always-in-DOM search input mounted
    as the FIRST child inside .pv-panel-scroll. On cold-load the one-shot
    effect in PrettyConversationsPanel.tsx sets scrollTop = this container's
    offsetHeight so the input sits just above the visible area (revealed only
@@ -417,7 +417,7 @@
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--color-pv-border-quiet);
-  /* Ashley 2026-08-18: extra breathing room below the search box; combines with
+  /* Alice 2026-08-18: extra breathing room below the search box; combines with
      .pv-panel-scroll's gap: 8px for 16px effective spacing to the next child. */
   margin-bottom: 8px;
 }
@@ -598,7 +598,7 @@
    Same 4 inputs as the pre-Phase-48 ready-dot gate, `inActiveSet` preserved
    as the outer scope, three inner predicates flipped to positive-work
    polarity. Ready-dot fires on `inActiveSet && idle`; spinner fires on
-   `inActiveSet && !idle`; ambient rows silent for both. Ashley 2026-08-20
+   `inActiveSet && !idle`; ambient rows silent for both. Alice 2026-08-20
    UAT tightening of the 2026-08-19 verbatim rule after the full-inversion
    shape lit every ambient idle row.
 
@@ -722,11 +722,11 @@
   line-height: 1.25;
   white-space: nowrap;
   overflow: hidden;
-  /* Phase 48 Plan 05 (v14 locked shape, Ashley 2026-08-19): fade-truncation
+  /* Phase 48 Plan 05 (v14 locked shape, Alice 2026-08-19): fade-truncation
      via mask-image right-edge fade INSTEAD of the pre-Phase-48 ellipsis
      hard-cut. Long identity+hostname combos taper into transparency over
      the last 22px instead of terminating in "…", matching the v14 taste
-     Ashley signed off on (see ~/.claude/roles/box-maintainer/bounties/
+     Alice signed off on (see ~/.claude/roles/box-maintainer/bounties/
      convo-list-current-work-hint/v14-console-snippet.js lines 80-84). */
   text-overflow: clip;
   -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%);
@@ -749,7 +749,7 @@
    ellipsis placeholder when null). Replaces the pre-Phase-48 `.pv-host`
    sublabel entirely — hostname is now on the title line, so the Server
    glyph render path is retired (no `svg` rule on this element). Styling
-   pulled verbatim from v14-console-snippet.js lines 86-92 (Ashley's
+   pulled verbatim from v14-console-snippet.js lines 86-92 (Alice's
    locked taste): bright cream (#f0ece0), 13.5px, weight 500, text-shadow
    for contrast on hue-tinted rows, same right-edge mask fade as .pv-label. */
 .pv-body .pv-ai-title {
@@ -792,7 +792,7 @@
        CSS-painted spinner ring on `.pv-avatar::before` (see the
        `.pv-row.spinner-on .pv-avatar::before` rule above). The single class
        match is driven by the JS-computed `showSpinnerOn` boolean in
-       PrettyConversationRow.tsx (Ashley 2026-08-19 full 4-input verbatim
+       PrettyConversationRow.tsx (Alice 2026-08-19 full 4-input verbatim
        gate; 48-CONTEXT.md § Working indicator INVERSION).
    Defensive `.pv-meta { display: none; }` rule below in case any stray
    render path still emits the element — it will not paint anything, and
@@ -811,14 +811,14 @@
 /* .pv-row.working: no visual override at the row level. Phase 48 Plan 05
    moved the working affordance to `.pv-row.spinner-on .pv-avatar::before`
    (the spinner ring), keyed on the JS-computed `showSpinnerOn` boolean
-   from the full 4-input Ashley-verbatim gate — NOT on the narrower
+   from the full 4-input user-verbatim gate — NOT on the narrower
    `.working` class alone. See the spinner block near L525. */
 .pv-row.working {
   /* Reserved for downstream extension. */
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   AMBIENT RECESSION — RETIRED (Phase 41 Plan 01, Ashley 2026-08-14).
+   AMBIENT RECESSION — RETIRED (Phase 41 Plan 01, Alice 2026-08-14).
    The `.pv-row.ambient` selector block (5 rules — background, avatar, hover,
    label, host) was deleted here. Every row now carries the same visual weight
    (no more dimmed/recessed background for non-active-set rows). Position +
@@ -1059,14 +1059,14 @@
 /* Non-interactive pin indicator — persistent visual cue that a row is
    pinned. Absolute-positioned at the row's top-left corner so it reads
    as a row-level flag and doesn't compete with the pinned/needs-desk
-   bounty counters in .pv-meta (Ashley, this quick). Defense-in-depth:
+   bounty counters in .pv-meta (Alice, this quick). Defense-in-depth:
    JS render is gated on `pinned`, CSS mirrors with :not(.pinned) →
    display: none. RDP rows can't be pinned but declare defensively.
    Parent .pv-row is already position: relative (see .pv-row rule above).
    z-index puts it above .pv-avatar so it's visible when it overhangs
    the avatar disc corner.
 
-   inline-260823-pin-indicator-visibility (Ashley 2026-08-23): glyph
+   inline-260823-pin-indicator-visibility (Alice 2026-08-23): glyph
    color flipped from hue-tinted @ 0.7 to warm off-white @ 0.95 per
    palette authority (role box-maintainer.md § Palette authority —
    `#e8e4d8` is the fleet's canonical warm off-white for high-contrast
@@ -1082,7 +1082,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* Ashley 2026-08-12: circular bubble behind the pin icon so it reads
+  /* Alice 2026-08-12: circular bubble behind the pin icon so it reads
      more distinctly on the row surface. Wrapper 14→20 (~4px padding
      around the 12px icon), dark palette-base bg, very subtle cool-cream
      rim per the palette authority in role box-maintainer.md § Palette
@@ -1110,7 +1110,7 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   DEACTIVATE ACTION — quick-260727-gm3 (Ashley 2026-07-27 preview lockdown).
+   DEACTIVATE ACTION — quick-260727-gm3 (Alice 2026-07-27 preview lockdown).
    Subtle red-tinted X glyph mirroring the pin's palette-driven treatment —
    NOT a red circle background; bare icon + hue-drop-shadow, red tuned to
    hue=4 red-orange to sit adjacent to the pin's identity-hue without
@@ -1223,7 +1223,7 @@
      - Hidden rows inside expanded Hidden section: desktop hover-reveal is
        effectively inert here (section is collapsed by default; once
        expanded, the "no hover-reveal on hidden rows" edge is inert because
-       the whole row is inside a collapsed section that Ashley explicitly
+       the whole row is inside a collapsed section that Alice explicitly
        opened — the CSS guard is documented but not functional).
      - RDP safety net: HideAction is never threaded to RDP rows; this CSS guard
        is pure defense-in-depth.
@@ -1322,7 +1322,7 @@
      matching bump to the logo + title so the whole header row looks
      coherent with the pretty-row density beneath. */
   /* Shrink outer header vertical padding on mobile to match the smaller
-     48px buttons + 32px logo (Ashley 2026-08-17 follow-up to #459: the
+     48px buttons + 32px logo (Alice 2026-08-17 follow-up to #459: the
      14px top/bottom read as too much empty space around the shrunken row).
      Horizontal padding + border-bottom + gap-to-WeeklyUsageMeter unchanged. */
   .pv-panel-header {
@@ -1368,7 +1368,7 @@
     height: 18px;
   }
 
-  /* Patch #270 — bump 5h + weekly usage-meter bar height on mobile per Ashley
+  /* Patch #270 — bump 5h + weekly usage-meter bar height on mobile per Alice
      2026-08-02 verbatim: "increasing the height on the five-hour and weekly
      usage meters in the header of the conversation list on mobile ... on
      desktop, their height is decent ... on mobile, they are oddly skinny
@@ -1392,7 +1392,7 @@
      last row(s) aren't clipped by browser bottom chrome / iOS home indicator.
      Base rule at :277 gives 18px bottom for all viewports; at html=24 mobile
      a row is ~74px (2.25rem badge + 10px×2 padding), so 18px reads clipped.
-     max() takes the larger of Ashley's target (~half a row = 36px) and the
+     max() takes the larger of Alice's target (~half a row = 36px) and the
      iOS safe-area inset — safe-area wins in landscape / on devices with
      larger insets, 36px wins on typical iPhones. Desktop untouched. */
   .pv-panel-scroll {

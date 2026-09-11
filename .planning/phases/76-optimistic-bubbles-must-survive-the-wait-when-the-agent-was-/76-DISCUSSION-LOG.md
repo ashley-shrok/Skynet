@@ -8,9 +8,9 @@
 
 The /build skill explicitly directs: *"If the vehicle is a GSD phase, seed discuss-phase from the shape file. shape-<slug>.md already captures the 'why + what + constraints + scope edges' that /gsd-discuss-phase would otherwise re-elicit into CONTEXT.md. Don't re-do the discovery work /open already did."*
 
-The `/open` session (turns leading up to the shape file) already covered the full gray-area grill: what the issues are, bundle vs. sequence with the sister-bounty, what the visible-during-wait UX should be, multi-send-during-wake user model, reconnect-during-the-widened-wait behavior, whole-bubble red visual, awake-case guarantees. Each decision landed with Ashley's explicit agreement (mostly "thumbs up," some with clarifying detail).
+The `/open` session (turns leading up to the shape file) already covered the full gray-area grill: what the issues are, bundle vs. sequence with the sister-bounty, what the visible-during-wait UX should be, multi-send-during-wake user model, reconnect-during-the-widened-wait behavior, whole-bubble red visual, awake-case guarantees. Each decision landed with Alice's explicit agreement (mostly "thumbs up," some with clarifying detail).
 
-Skipping the discuss-phase interactive round preserves Ashley's stated preference — she was fatigued at the ceremony ("just open the fucking build") and had already made every visionary decision in /open. Any additional questions here would be redundant.
+Skipping the discuss-phase interactive round preserves Alice's stated preference — she was fatigued at the ceremony ("just open the fucking build") and had already made every visionary decision in /open. Any additional questions here would be redundant.
 
 ## Areas that would have been on the gray-area menu (all pre-answered in /open)
 
@@ -30,7 +30,7 @@ Every one of those either has a locked decision in CONTEXT.md or is explicitly d
 
 ## Areas left as "Claude's Discretion" (planner-facing implementation details)
 
-Ashley delegated (verbatim: *"I have no fucking idea what the right time is... just open the fucking build"*, *"do whatever you need to get there"*):
+Alice delegated (verbatim: *"I have no fucking idea what the right time is... just open the fucking build"*, *"do whatever you need to get there"*):
 
 - Exact derivation function for the authoritative dormancy source (D-02 candidates listed).
 - Test framework choice for the multi-send-during-reconnect scenario.

@@ -100,7 +100,7 @@ None. The fix is complete; both formerly-buggy callsites now flow through `isRow
 
 ## Deploy Posture
 
-NOT pushed / NOT built into a container / NOT deployed. Direct commit on `feat/tab-title-from-tmux` in the main working tree (no worktree, per fleet rule "NO git worktrees under any circumstance" — Ashley 2026-07-31, and per this quick task's constraints). Ship handshake and deploy authorization are the orchestrator's (tiffany's) call.
+NOT pushed / NOT built into a container / NOT deployed. Direct commit on `feat/tab-title-from-tmux` in the main working tree (no worktree, per fleet rule "NO git worktrees under any circumstance" — Alice 2026-07-31, and per this quick task's constraints). Ship handshake and deploy authorization are the orchestrator's (tiffany's) call.
 
 ## Self-Check: PASSED
 

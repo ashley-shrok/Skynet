@@ -26,7 +26,7 @@ export interface RegistryHumanEntry {
   mxid: string;
   chat_id: string | null;
   room: string | null; // Phase 83: populated via getSharedDMRoom lookup map (fallback null when absent/unknown).
-  token: string; // filename only (e.g. "ashley.token"), NOT contents.
+  token: string; // filename only (e.g. "alice.token"), NOT contents.
 }
 
 export interface RegistryAgentEntry {

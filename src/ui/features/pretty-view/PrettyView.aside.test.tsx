@@ -183,7 +183,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
     });
   });
 
-  // Tests 3, 4, 7, 8, 9 SKIPPED 2026-07-27 (Ashley): the automatic aside-arm
+  // Tests 3, 4, 7, 8, 9 SKIPPED 2026-07-27 (Alice): the automatic aside-arm
   // emit is disabled at the source via AUTO_ASIDE_ARM_ENABLED=false in
   // PrettyView.tsx. These tests all exercise the isIdle-transition emit
   // contract and are inert while the flag is off. Re-enable together with
@@ -296,7 +296,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
   });
 
   it("Test 6: session_changed WS frame clears displayed asideText", async () => {
-    // Phase 14 followup (Ashley 2026-07-26): a session recycle in the SAME
+    // Phase 14 followup (Alice 2026-07-26): a session recycle in the SAME
     // pane must drop any displayed aside from the OLD session — otherwise
     // stale aside UI lingers attached to a fresh session until the next
     // aside_ready arrives (or forever if none does).
@@ -321,7 +321,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
   });
 
   it.skip("Test 7: isIdle transition does NOT emit aside_arm when last user turn was /id command", async () => {
-    // Phase 14 followup (Ashley 2026-07-27): /id save, /id reset, /id <name>
+    // Phase 14 followup (Alice 2026-07-27): /id save, /id reset, /id <name>
     // don't need plain-language recaps — suppress the aside for them.
     useSessionIdentityMock.mockReturnValue({
       identity: { key: "tina", displayName: "Tina", colorHue: 200 } as unknown,
@@ -599,7 +599,7 @@ describe("PrettyView — Phase 14 Wave 3 Task 3 aside subsystem wiring", () => {
   });
 
   it.skip("Test 9: isIdle transition does NOT emit aside_arm when last user turn was harness slash-UI /id XML-wrapper form", async () => {
-    // UAT amendment E41 (Ashley 2026-07-27): Ashley's PRIMARY /id invocation
+    // UAT amendment E41 (Alice 2026-07-27): Alice's PRIMARY /id invocation
     // path is the harness slash-UI, which lands in JSONL as XML-wrapper form
     // (<command-name>/id</command-name>...) rather than raw "/id save" text.
     // Phase 14's initial suppression missed this path; extending isIdCommand

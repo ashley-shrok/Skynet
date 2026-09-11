@@ -118,4 +118,4 @@ Exit code: 0
 
 ## Deploy Status
 
-Deploy NOT run — awaiting Ashley greenlight. No `docker build`, no `docker compose up`, no `git push`. Backend build intentionally skipped (frontend-only change per plan explicit non-goal).
+Deploy NOT run — awaiting Alice greenlight. No `docker build`, no `docker compose up`, no `git push`. Backend build intentionally skipped (frontend-only change per plan explicit non-goal).

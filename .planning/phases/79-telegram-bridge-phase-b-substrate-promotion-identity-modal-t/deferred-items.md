@@ -14,6 +14,6 @@
 
 Plan 03 works around the same TS quirk in `routes.ts` by using `"error" in x ? x.error : "unknown"` guards. Plan 04 should adopt the same pattern OR the tsconfig should be tightened so proper `!x.ok` narrowing works (currently `strict: false` in tsconfig.node.json).
 
-Not blocking Plan 03 — errors are IN Plan 04's own files, do not affect this plan's tests or the build gate that Ashley requested (`docker build` will fail if these persist through Wave 3, but that's Plan 04's problem to fix).
+Not blocking Plan 03 — errors are IN Plan 04's own files, do not affect this plan's tests or the build gate that Alice requested (`docker build` will fail if these persist through Wave 3, but that's Plan 04's problem to fix).
 
 Owner: Plan 04 executor / follow-up chore(79-04) commit.

@@ -35,7 +35,7 @@ Two additions in `src/ui/features/terminal/Terminal.tsx`:
 Non-identity tabs (raw shells, unknown tmux names) stay in raw terminal
 as today — the effect early-returns before touching state.
 
-## Explicitly out of scope (per Ashley)
+## Explicitly out of scope (per Alice)
 
 - No localStorage flag (`autoActivatePrettyModeOnIdentity` or similar).
 - No `UserProfilePanel` settings switch.
@@ -54,7 +54,7 @@ as today — the effect early-returns before touching state.
 
 **Not yet deployed.** Patch #73 joins the queue on top of the pre-baked
 #70 image → deploy needs a rebuild covering patches #70 + #71 + #72 +
-#73 together. Ashley greenlights deploys per-batch per tina.md deploy
+#73 together. Alice greenlights deploys per-batch per tina.md deploy
 discipline.
 
 ## Live smoke plan (for post-deploy verification)

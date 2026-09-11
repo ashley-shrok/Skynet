@@ -1,10 +1,10 @@
 # Phase 10 UAT Checklist — Pretty-Conversations visual-language rework
 
-**For:** Ashley
+**For:** Alice
 **Post-deploy validation of patch #128 (Phase 10 — presentation-only follow-up to Phase 6/7)**
 **Batch context:** Ships behind ONE build/deploy with patches #123 through #128 stacked on `feat/tab-title-from-tmux` (paperclip decouple + ThumbsUp rename + Skynet rebrand + PWA install + safe-area polish + this).
 **Deploy anchor:** term.example.com (production) — post-deploy.
-**Design source-of-truth (locked, Ashley signed off 2026-07-22):**
+**Design source-of-truth (locked, Alice signed off 2026-07-22):**
 - Mobile: `~/.claude/identities/tina/bounties/pretty-conversations-panel-redesign/prototype.html` (v0.3)
 - Desktop: `~/.claude/identities/tina/bounties/pretty-conversations-panel-redesign/desktop.html` (v0.1)
 
@@ -54,7 +54,7 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone). Each 🚨 item 
 
 > **Contract:** The retiring shadcn-derived ConversationsPanel is GONE. New chunky Telegram-style rows load in its place. Each row shows a 40px hue-ring avatar disc + primary label (session name = identity name) + secondary line (Server-glyph + host name).
 
-- [ ] 🚨 **Fresh desktop page-load renders new rows.** Open Skynet on desktop. Wait for `/sessions/list` to resolve (~2s). Expected: the sidebar ConversationsPanel shows the NEW chunky rows — approximately **62px tall** (min-height), each with a **40px identity-hue avatar disc** (radial-gradient, with a `hsla(colorHue, 65%, 55%, 0.45)` hue-ring), primary label = the session name (= identity name per Ashley convention), and a secondary line with a **Server-glyph** + the host name. **If: rows look dense/compact like before** → the AppShell cutover regressed; the old ConversationsPanel is still mounted somewhere. Grep the compiled `dist/assets/AppShell-*.js` for `ConversationsPanel` — should ONLY appear inside `PrettyConversationsPanel` string mentions (comment-preserved history annotations from Wave 4).
+- [ ] 🚨 **Fresh desktop page-load renders new rows.** Open Skynet on desktop. Wait for `/sessions/list` to resolve (~2s). Expected: the sidebar ConversationsPanel shows the NEW chunky rows — approximately **62px tall** (min-height), each with a **40px identity-hue avatar disc** (radial-gradient, with a `hsla(colorHue, 65%, 55%, 0.45)` hue-ring), primary label = the session name (= identity name per Alice convention), and a secondary line with a **Server-glyph** + the host name. **If: rows look dense/compact like before** → the AppShell cutover regressed; the old ConversationsPanel is still mounted somewhere. Grep the compiled `dist/assets/AppShell-*.js` for `ConversationsPanel` — should ONLY appear inside `PrettyConversationsPanel` string mentions (comment-preserved history annotations from Wave 4).
 - [ ] 🚨 **No IdentityBadge chip on rows.** Look closely at any identity row. Confirm there is NO chip/badge showing the identity name in the row body. The label carries the identity presence, the avatar hue-ring reinforces it — no separate chip. **If: chip visible** → PrettyConversationRow accidentally regained the IdentityBadge import (grep confirmed zero at Wave 1 commit `55624a9`).
 
 ### 2. Selected-row treatment matches ChatMessage assistant bubble
@@ -87,17 +87,17 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone). Each 🚨 item 
 
 ### 6. Persistent top-left chevron toggle
 
-> **Contract:** A fixed 32x32 chevron button lives at `top: 8px, left: 8px, z-index: 30` in the AppShell — visible at ALL window widths (this fixes the small-window sidebar-affordance regression Ashley called out). Rotates 180° when sidebar is open vs collapsed.
+> **Contract:** A fixed 32x32 chevron button lives at `top: 8px, left: 8px, z-index: 30` in the AppShell — visible at ALL window widths (this fixes the small-window sidebar-affordance regression Alice called out). Rotates 180° when sidebar is open vs collapsed.
 
 - [ ] 🚨 **Chevron button visible top-left.** Look at the top-left corner of the app shell. Expected: a **32x32 glass-treatment chevron button** at `top: 8px, left: 8px`. Style matches desktop.html mock — subtle backdrop-blur, thin border. **If: no button** → Wave 3's persistent-toggle addition regressed; grep AppShell.tsx for `top: 8px, left: 8px`.
 - [ ] 🚨 **Click chevron collapses/expands sidebar.** Click the chevron. Expected: sidebar collapses. Chevron rotates 180° (points RIGHT when sidebar closed; points LEFT when open). Click again — sidebar expands, chevron rotates back. **If: no rotation** → the `sidebarOpen` state binding on the CSS transform regressed. **If: sidebar doesn't collapse** → the click handler isn't wired to the AppShell's sidebar-toggle state.
 
 ### 7. Small-window regression fix (THE headline bug this phase fixes)
 
-> **Contract:** At Ashley's typical narrow-window desktop size (~600-800px wide), the old thin-strip clickable-affordance would disappear when the sidebar was collapsed, leaving the sidebar unreachable. The new persistent top-left toggle stays visible at ALL widths — this is the fix.
+> **Contract:** At Alice's typical narrow-window desktop size (~600-800px wide), the old thin-strip clickable-affordance would disappear when the sidebar was collapsed, leaving the sidebar unreachable. The new persistent top-left toggle stays visible at ALL widths — this is the fix.
 
 - [ ] 🚨 **Shrink browser window to ~600px width.** Grab the window corner and drag to shrink Chrome to ~600px wide (or use DevTools "Toggle device toolbar" set to iPad Portrait 768px). Expected: the persistent top-left toggle STAYS VISIBLE at every intermediate width. **If: toggle disappears at any width** → the persistent toggle regressed to width-conditional rendering.
-- [ ] 🚨 **Collapse and re-expand at narrow width.** Click the chevron while at narrow width. Sidebar collapses. Chevron STAYS VISIBLE (this is the fix — at this width the old thin-strip was gone). Click again — sidebar expands. **This is THE headline fix Ashley called out at Phase 10 spec.**
+- [ ] 🚨 **Collapse and re-expand at narrow width.** Click the chevron while at narrow width. Sidebar collapses. Chevron STAYS VISIBLE (this is the fix — at this width the old thin-strip was gone). Click again — sidebar expands. **This is THE headline fix Alice called out at Phase 10 spec.**
 - [ ] 🚨 **No thin-strip artifact at narrow width.** With sidebar collapsed at narrow width, verify there is NO leftover thin clickable strip between the top-left toggle and the main content. The old AppShell had a strip at line 1844-1852 that was removed in Wave 3 (`65c572c`). **If: thin strip still visible** → the retirement didn't land cleanly.
 
 ---
@@ -203,14 +203,14 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone). Each 🚨 item 
 
 ## Sign-off
 
-| Item | Status | Ashley notes |
+| Item | Status | Alice notes |
 |------|--------|--------------|
 | 1-7 (Desktop non-negotiable) | ⬜ | |
 | 8-15 (Mobile non-negotiable) | ⬜ | |
 | 16-19 (Cross-viewport regression) | ⬜ | |
 | 20-22 (polish) | ⬜ | |
 
-**Ashley signature:** ______________  **Date:** ______________
+**Alice signature:** ______________  **Date:** ______________
 **Deploy verdict (circle one):** GOOD / CONDITIONALLY-GOOD (list items) / ROLLBACK
 
 ---
@@ -239,16 +239,16 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone). Each 🚨 item 
 
 ## Post-UAT deploy runbook (only if 1-19 are all green)
 
-Once Ashley greenlights, the deploy sequence for the batched #123-#128 stack (single build/deploy per current fork DEPLOY DISCIPLINE — the 15-min deadman regime was retired 2026-07-21):
+Once Alice greenlights, the deploy sequence for the batched #123-#128 stack (single build/deploy per current fork DEPLOY DISCIPLINE — the 15-min deadman regime was retired 2026-07-21):
 
 1. **Confirm the batch is on the branch.** `git log --oneline feat/tab-title-from-tmux | head -30` — verify all Phase 10 commits from Wave 1 through Wave 5 are present, plus the #123-#127 patches from the earlier batch.
 2. **Sanity grep on the compose file.** `grep -n "skynet-patched:local" /opt/skynet/docker-compose.yml` — check-before-recreate that we're pinned to the patched image tag.
-3. **Push the branch** (only after Ashley signs off): `git push origin feat/tab-title-from-tmux`.
+3. **Push the branch** (only after Alice signs off): `git push origin feat/tab-title-from-tmux`.
 4. **Build the image on the deploy host:** `sudo docker build -t skynet-patched:local ~/skynet` (from the freshly-pulled branch).
 5. **Recreate the container:** `cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`.
 6. **Wait for healthy.** `docker ps` shows skynet as `(healthy)` — typically within 30s.
 7. **Verify patch signature bytes in the container** (optional smoke): `docker exec skynet grep -c "PrettyConversationRow" /app/dist/assets/AppShell-*.js || echo "grep-fallback-check-source-mangling"`. If the identifier survived (or via a fallback: grep the panel scroller className `pretty-conversations`), the new panel shipped.
-8. **Hand back for full-flow UAT.** Ashley walks items 1-19 above on desktop AND iPhone.
+8. **Hand back for full-flow UAT.** Alice walks items 1-19 above on desktop AND iPhone.
 9. **If PASS:** paste the patches-md draft into `~/.claude/identities/tina/skynet-patches.md` (with the fill-in placeholders resolved from the build-verify log), bump the patch count, commit the pin, `/close pretty-conversations-panel-redesign`.
 10. **If any 🚨 fails:** decide by severity per the route-back table above. Prod is running the batched-patched image; no automatic rollback (deadman regime retired 2026-07-21). Manual rollback if needed via the previous-known-good image tag.
 

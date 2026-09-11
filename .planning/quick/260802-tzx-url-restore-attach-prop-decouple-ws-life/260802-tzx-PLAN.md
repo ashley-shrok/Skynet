@@ -42,7 +42,7 @@ must_haves:
 <objective>
 Decouple Skynet Terminal's WebSocket lifecycle from pane visibility by adding a new `attach: boolean` prop. Currently `isVisible` double-duties as (a) "should this pane render / fit / respond to input" AND (b) "should this pane open its WebSocket". Patch #230 enrolls URL-restored ambient tabs into activeSet so they get the glow, but their WS never opens because they aren't `effectiveSelectedTabId`. Split the concerns: keep `isVisible` for pane visibility, introduce `attach` for WS lifecycle. In AppShell, compute `shouldAttach = inPane || activeInline || isInActiveSet` and pass it through renderTabContent -> TerminalTabContent -> Terminal.
 
-Purpose: Fix bounty `url-restore-loads-only-selected-session-not-full-active-set`. Ashley's dot-semantics lock (ready-dot must mean "idle AND connected") is being violated because ambient URL-restored tabs light up their dot without an underlying WS.
+Purpose: Fix bounty `url-restore-loads-only-selected-session-not-full-active-set`. Alice's dot-semantics lock (ready-dot must mean "idle AND connected") is being violated because ambient URL-restored tabs light up their dot without an underlying WS.
 
 Output: Single atomic commit `feat(pretty-view): decouple Terminal WS lifecycle from pane visibility (attach prop)` on branch `feat/tab-title-from-tmux`. No push, no rebuild, no docker.
 </objective>
@@ -201,7 +201,7 @@ Output: Single atomic commit `feat(pretty-view): decouple Terminal WS lifecycle 
     2. `cd ~/skynet &amp;&amp; npx tsc --noEmit` — must exit 0. If not, fix locally before proceeding.
     3. `cd ~/skynet &amp;&amp; npm test` — must exit 0. If not, fix locally before proceeding.
     4. Stage explicitly by path: `git add src/ui/features/terminal/Terminal.tsx src/ui/shell/tabUtils.tsx src/ui/AppShell.tsx`; also add test files IF they were modified in Task 4 (`git add src/ui/features/terminal/Terminal.test.tsx src/ui/AppShell.test.tsx` — no-op if unchanged). Do NOT use `git add -A` or `git add .`.
-    5. Build the commit message via HEREDOC. Include the TESTING-GAP trailer paragraph verbatim from `/tmp/testing-gap.txt` if that file exists; otherwise omit that trailer. Do NOT include a Claude co-author trailer (Ashley's fleet convention — solo commits on this repo).
+    5. Build the commit message via HEREDOC. Include the TESTING-GAP trailer paragraph verbatim from `/tmp/testing-gap.txt` if that file exists; otherwise omit that trailer. Do NOT include a Claude co-author trailer (Alice's fleet convention — solo commits on this repo).
     6. `git commit -m "$(cat &lt;&lt;'EOF'
 feat(pretty-view): decouple Terminal WS lifecycle from pane visibility (attach prop)
 
@@ -212,7 +212,7 @@ with the "active-set" chrome (glow), but their WebSocket never opened
 because the WS-open effect in Terminal.tsx was gated on isVisible, which
 only becomes true for the currently-selected tab (effectiveSelectedTabId).
 Result: ambient rows lit up the ready-dot in PrettyConversationRow while
-having no live connection — violating Ashley's lock that the dot means
+having no live connection — violating Alice's lock that the dot means
 "idle AND connected."
 
 Split isVisible into two orthogonal props:

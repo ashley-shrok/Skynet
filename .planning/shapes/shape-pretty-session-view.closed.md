@@ -123,7 +123,7 @@ Close-out at the end via `/close pretty-session-view`.
 - **What would make it wrong: Ergonomic mines survive** — hit · All four named mines (copy dance, hidden paste, click-to-select, cramped un-selectable reading) verified addressed by native browser semantics.
 - **What would make it wrong: Scope creep** — hit · No tool-call indicators, no status pips, no thinking spinners, no metadata; RENDER-01 lock enforced at the parser AND commented as "defense in depth" at the renderer.
 - **What would make it wrong: Non-native chat behavior** — hit · No optimistic bubbles; Enter/Shift-Enter correct; failure surfaces inline and preserves typed text.
-- **What would make it wrong: Heavy flip** — hit · Ashley confirmed the flip feels free — fast, no state loss, no fight. xterm stays alive via display:none so tmux session persists underneath and flip-back is instant.
+- **What would make it wrong: Heavy flip** — hit · Alice confirmed the flip feels free — fast, no state loss, no fight. xterm stays alive via display:none so tmux session persists underneath and flip-back is instant.
 - **What would make it wrong: Cleverness that gets it wrong** — hit · No "Claude is waiting" auto-detect, no "your last send might have failed" heuristic — no false-positive vectors added.
 - **Scope edges (in)** — hit · Every in-scope item shipped and verified.
 - **Scope edges (out)** — hit · Nothing rejected snuck in (no tool call/result/thinking/token rendering, no cross-session browsing, no persistence of mode choice, no smart tmux-attention detection, no optimistic display, no rich paste treatment).

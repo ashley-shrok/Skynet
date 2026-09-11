@@ -77,7 +77,7 @@ Working tree: `~/skynet-tiffany`, branch `feat/tab-title-from-tmux` (standard bo
 
 Related bounty: `ai-plus-mvp-project` (feature 02 lives inside it; slice 1 also referenced this bounty).
 
-Push is NOT authorized as part of slice 2's execution. Executor motion stops at commits + scoped-tests green. Full-suite green happens at the orchestrator ship-gate before push. The push itself waits for Ashley's explicit greenlight per the standing push-boundary rule. Deploy (docker build + force-recreate + verify) is orchestrator-owned and happens after greenlight, per the standing rule that executors don't do deploys.
+Push is NOT authorized as part of slice 2's execution. Executor motion stops at commits + scoped-tests green. Full-suite green happens at the orchestrator ship-gate before push. The push itself waits for Alice's explicit greenlight per the standing push-boundary rule. Deploy (docker build + force-recreate + verify) is orchestrator-owned and happens after greenlight, per the standing rule that executors don't do deploys.
 
 Slice 2 execution must not touch anything under the bundled substrate location — the substrate is for pushing to hosts, not for Skynet to execute against itself. Any runtime code inside Skynet that reaches into the bundled path is a red flag against the philosophy.
 

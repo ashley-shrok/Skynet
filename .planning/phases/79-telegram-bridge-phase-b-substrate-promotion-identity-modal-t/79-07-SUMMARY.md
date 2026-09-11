@@ -313,7 +313,7 @@ None. No new security-relevant surface beyond what PLAN.md `<threat_model>` anti
 
 2. **`telegramHandle: "unknown"` is a stub** — see § Known stubs. Do NOT market the connected-state view as "shows your Telegram handle" until this is wired.
 
-3. **Bot token input is `type="password"`** — browser autofill won't offer to save it. This is intentional (T-79-07-01) but may surprise Ashley if she expects browser password-manager help. Not a bug.
+3. **Bot token input is `type="password"`** — browser autofill won't offer to save it. This is intentional (T-79-07-01) but may surprise Alice if she expects browser password-manager help. Not a bug.
 
 4. **The `getTelegramStatus` effect uses dynamic import** — first modal open incurs a ~50ms one-time chunk load. Subsequent identity-switches reuse the resolved module. If the chunk load fails (offline), the effect leaves `telegramState={status:"loading"}` indefinitely — a small robustness gap, but acceptable given the modal is always opened online.
 

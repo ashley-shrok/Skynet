@@ -106,7 +106,7 @@ export interface SessionState {
   // `undefined` = emitting watcher pre-dates Phase 41 Plan 03. Both are
   // treated identically by session-working-store (both cache as null) and
   // both cause the row's compareByRecencyDesc branch to sort no-history-to-top
-  // per Ashley's lock. MUST stay in lockstep with the backend schema.
+  // per Alice's lock. MUST stay in lockstep with the backend schema.
   lastMessageAt?: number | null;
   // Phase 47 Plan 01 (2026-08-20): the inline current-work hint carried
   // from the harness-produced ai-title JSONL line
@@ -186,11 +186,11 @@ export interface SessionState {
   //
   // Source: per-session marker files touched by the Plan 62-01 hook scripts,
   // installed onto managed boxes via Plan 62-02:
-  //   - `activityMtime` bumps on `UserPromptSubmit` (Ashley submitted a prompt)
+  //   - `activityMtime` bumps on `UserPromptSubmit` (Alice submitted a prompt)
   //     and `PreToolUse` (agent began invoking a tool) via activity-hook.sh.
   //   - `stoppedMtime` bumps on `Stop` (turn finished cleanly), `StopFailure`
   //     (turn ended in error), and `PermissionRequest` (agent blocked waiting on
-  //     Ashley for a permission decision — same as done from the affordance's
+  //     Alice for a permission decision — same as done from the affordance's
   //     perspective per CONTEXT.md §Philosophy) via stopped-hook.sh.
   //
   // Consumed by session-working-store's new direct-signal predicate branch

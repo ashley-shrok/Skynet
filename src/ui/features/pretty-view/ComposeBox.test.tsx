@@ -434,7 +434,7 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
   });
 
   // ============================================================
-  // Patch #129 — inside-textarea send button (Ashley-locked visual)
+  // Patch #129 — inside-textarea send button (user-locked visual)
   // ============================================================
 
   it("inside-textarea send button: renders as a bare <button> inside the textarea wrapper", () => {
@@ -493,7 +493,7 @@ describe("ComposeBox — Phase 05 upload wiring", () => {
   //   onSendWithAttachments(caption); setText(""); clearAfterSend();
   // silently clearing the compose textarea + attachment chips even when
   // the batch never reached upload_ready_to_inject (WS drop, upload_failed,
-  // timeout). Ashley hit this four times on 2026-08-23 across wanda + nelly.
+  // timeout). Alice hit this four times on 2026-08-23 across wanda + nelly.
   //
   // These tests lock the new contract: onSendWithAttachments returns a
   // Promise<BatchOutcome>; handleSend awaits it and only clears on
@@ -1184,7 +1184,7 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-left delet
       name: /delete queued message/i,
     });
     // Corner-tab positioning: -top-* + -left-* protrudes OUTSIDE the
-    // textarea's border (Ashley moved from -right-2 to -left-2 on 2026-08-12).
+    // textarea's border (Alice moved from -right-2 to -left-2 on 2026-08-12).
     expect(deleteBtn.className).toMatch(/-top-/);
     expect(deleteBtn.className).toMatch(/-left-/);
     // Delete tab must be a descendant of the slot outer container.
@@ -1402,7 +1402,7 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-left delet
     expect(screen.queryByTestId("fire-order-badge")).toBeNull();
   });
 
-  it("QB-13: 'click to cancel' literal lowercase copy is present in the armed overlay (regression guard for Ashley's exact phrase)", async () => {
+  it("QB-13: 'click to cancel' literal lowercase copy is present in the armed overlay (regression guard for Alice's exact phrase)", async () => {
     render(<ComposeBox {...baseProps()} />);
     await flushMountEffect();
     await act(async () => {
@@ -1420,7 +1420,7 @@ describe("ComposeBox — Quick B: queued-row per-slot paperclip + top-left delet
     await act(async () => {
       fireEvent.click(armButtons[0]);
     });
-    // Case-sensitive matcher — Ashley asked for the literal lowercase phrase.
+    // Case-sensitive matcher — Alice asked for the literal lowercase phrase.
     expect(screen.getByText(/click to cancel/)).toBeTruthy();
   });
 
@@ -1824,7 +1824,7 @@ describe("ComposeBox — optimistic bubble seeding (Phase 50 Plan 03 Task 2)", (
     // Same mqid across both calls (single-source per send).
     expect(firstCall.mqid).toBe(secondCall.mqid);
     // Textarea CLEARED — red bubble in transcript is the record of the send;
-    // no draft-preservation for retry (Ashley 2026-09-02).
+    // no draft-preservation for retry (Alice 2026-09-02).
     expect(textarea.value).toBe("");
   });
 

@@ -19,7 +19,7 @@ user_setup: []
 
 must_haves:
   truths:
-    - "Ashley sees a bare pencil icon (no 'Edit' text) next to eligible file links on desktop."
+    - "Alice sees a bare pencil icon (no 'Edit' text) next to eligible file links on desktop."
     - "The pencil affordance no longer flips between 'pencil icon' and the word 'Edit' during hover — because the 'Edit' text no longer exists."
     - "Message bubble text below a file link does not jitter after the affordance mounts."
     - "`npx vitest run` is green after EACH of the three commits (no red intermediate state)."
@@ -53,7 +53,7 @@ must_haves:
 ---
 
 <objective>
-Fix Phase 40 pencil-affordance flicker and message-text jitter reported by Ashley:
+Fix Phase 40 pencil-affordance flicker and message-text jitter reported by Alice:
 "pencil button kind of spazzing out and flipping between the pencil icon and the
 word edit" — with message-bubble text below jittering until scroll.
 
@@ -64,7 +64,7 @@ orchestrator; this plan is scope-execution only, no re-diagnosis.
 - BUG A: `EditableFileAffordance.tsx` renders a stray "Edit" span next to the
   pencil icon on desktop (spec violation — UI-SPEC L124 + Phase 13 SHAPE-03
   idiom + the component's own docstring all say bare-icon-only). This is what
-  Ashley literally sees flip.
+  Alice literally sees flip.
 - BUG B: `useIsTouchDevice` initializes to `undefined` and returns `!!undefined
   === false`, so every consumer renders one frame as "desktop" before the
   useEffect fires. The pencil affordance renders "Edit" text for a frame, then
@@ -78,7 +78,7 @@ orchestrator; this plan is scope-execution only, no re-diagnosis.
     every effect run with a fresh Set identity even when contents are identical
     → forces re-render → parent re-render → cascade.
 
-Purpose: eliminate Ashley-visible flicker/jitter without touching upstream
+Purpose: eliminate user-visible flicker/jitter without touching upstream
 Skynet paths, without introducing dependencies, and without leaving the vitest
 suite red at any commit boundary.
 
@@ -255,7 +255,7 @@ Hard constraints (from fleet directive + orchestrator scope):
     - No test rewrites required beyond any incidental snapshot updates (the eligibility hook already asserts "single setState per effect run" in its docstring at line 124 — that invariant is strengthened by C2, not violated).
   </behavior>
   <action>
-    Fixes BUG C (remount storm). Two coordinated fixes in one commit, since neither alone fully stops the cascade and they share the same Ashley-visible symptom.
+    Fixes BUG C (remount storm). Two coordinated fixes in one commit, since neither alone fully stops the cascade and they share the same user-visible symptom.
 
     ═══════════════════════════════════════════════════
     C1 — Memoize ReactMarkdown `components` object
@@ -310,7 +310,7 @@ Hard constraints (from fleet directive + orchestrator scope):
 
     IMPORTANT — verbatim preservation: copy the `a` override body EXACTLY as it currently exists (lines 419-460). Do NOT paraphrase, do NOT reformat, do NOT change any type assertions, do NOT drop the D-03 comment. The Phase 40 D-03 contract is locked in that body.
 
-    Note on `remarkPlugins`: the `[remarkGfm]` array literal is also a new identity per render, but a single-element frozen array of a module import is a MUCH smaller re-render trigger than a components object with function values. Not in scope for this fix. If Ashley-visible symptom persists after this commit, consider a follow-up `remarkPluginsMemo = React.useMemo(() => [remarkGfm], [])` — but do NOT include in this commit (out of scope, and would only re-run the plugin pipeline, not remount React children).
+    Note on `remarkPlugins`: the `[remarkGfm]` array literal is also a new identity per render, but a single-element frozen array of a module import is a MUCH smaller re-render trigger than a components object with function values. Not in scope for this fix. If user-visible symptom persists after this commit, consider a follow-up `remarkPluginsMemo = React.useMemo(() => [remarkGfm], [])` — but do NOT include in this commit (out of scope, and would only re-run the plugin pipeline, not remount React children).
 
     ═══════════════════════════════════════════════════
     C2 — Dedupe identical Set updates in eligibility hook
@@ -424,7 +424,7 @@ Executor completes successfully when ALL of the following are true:
 - [ ] `git diff --name-only 224b2d57..HEAD` lists only the 5 files enumerated above.
 - [ ] `git status --porcelain` empty.
 - [ ] No push, no docker build, no `docker compose up`, no `skynet-patches.md` edit performed.
-- [ ] Ashley's reproducer: pencil affordance no longer has an "Edit" text label (BUG A visible outcome), no first-render flash (BUG B), no remount cascade under normal message-arrival churn (BUG C).
+- [ ] Alice's reproducer: pencil affordance no longer has an "Edit" text label (BUG A visible outcome), no first-render flash (BUG B), no remount cascade under normal message-arrival churn (BUG C).
 
 Deploy motion (patch-entry update + docker build + tailnet deploy) is orchestrator (Tiffany) scope and is EXPLICITLY OUT of executor scope per fleet directive.
 </success_criteria>

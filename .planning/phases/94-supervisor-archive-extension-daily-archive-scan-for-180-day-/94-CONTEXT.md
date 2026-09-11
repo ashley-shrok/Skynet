@@ -40,10 +40,10 @@ Shape 2 of 4 in the id-skill-revamp multi-shape campaign. Hard-depends on Shape 
 - **D-14:** **Retire-stuck sentinel.** After 3 consecutive daily-pass failures on the same identity, drop `retire-stuck` sentinel in the identity's archived folder AND log loudly to the supervisor's operational log. Purpose: prevent silent-forever failure. The maintainer can grep for the sentinel across boxes when they want a fleet-wide view of what needs manual attention. Planner picks the counter mechanism (per-identity state file, an empty sentinel per failed attempt with mtimes for chronology, or something else that survives supervisor restarts).
 
 ### Announcement (none)
-- **D-15:** Retirement makes **no deliberate notification wire.** No `history.md` entry in the role folder. No DM to the coordinator. No ping to Ashley. No entry in a fleet events log. The move-plus-kill-plus-deactivate IS the whole event; discovery is by observation (identity is no longer in Skynet's conversation list because Skynet's periodic per-host identity refresh sees it's gone from the active tree) or by looking at the `archive/` folder. Whatever the supervisor's operational log naturally emits about its own work is diagnostic plumbing, not an announcement — do not add extra logging with the intent of "announcing." Loud logging around the retire-stuck sentinel (D-14) is a distinct case and is explicitly wanted for that path.
+- **D-15:** Retirement makes **no deliberate notification wire.** No `history.md` entry in the role folder. No DM to the coordinator. No ping to Alice. No entry in a fleet events log. The move-plus-kill-plus-deactivate IS the whole event; discovery is by observation (identity is no longer in Skynet's conversation list because Skynet's periodic per-host identity refresh sees it's gone from the active tree) or by looking at the `archive/` folder. Whatever the supervisor's operational log naturally emits about its own work is diagnostic plumbing, not an announcement — do not add extra logging with the intent of "announcing." Loud logging around the retire-stuck sentinel (D-14) is a distinct case and is explicitly wanted for that path.
 
 ### Un-archive (out of scope)
-- **D-16:** No un-archive path is built in this phase. Ashley: *"unarchiving will be a concept that we get into formally later."* The folder move is trivially reversible (`mv` back), but the matrix deactivation is permanent per Synapse (the username stays reserved; a re-registration would land under an ordinal like `<name>-2`). Formalizing un-archive is a later concept, not this phase. Do NOT build safety valves or human-confirmation delays around the retire on the theory that "we might want to undo" — the retire is what it is.
+- **D-16:** No un-archive path is built in this phase. Alice: *"unarchiving will be a concept that we get into formally later."* The folder move is trivially reversible (`mv` back), but the matrix deactivation is permanent per Synapse (the username stays reserved; a re-registration would land under an ordinal like `<name>-2`). Formalizing un-archive is a later concept, not this phase. Do NOT build safety valves or human-confirmation delays around the retire on the theory that "we might want to undo" — the retire is what it is.
 
 ### Skynet-side downstream (natural, no code)
 - **D-17:** Skynet's existing periodic per-host identity refresh scans the active identities tree on each cycle. When it finds an identity is no longer in the active tree, it naturally drops the row from the conversation list. **No push wire, no explicit "identity retired" notification** is added to Skynet in this phase. The conversation-list disappearance is a natural consequence of Skynet's existing polling; no coordination between agent-supervisor and Skynet is needed.
@@ -63,7 +63,7 @@ Shape 2 of 4 in the id-skill-revamp multi-shape campaign. Hard-depends on Shape 
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Shape file (authoritative for this phase)
-- `.planning/shapes/shape-supervisor-archive.md` — Ashley's locked shape from the /open pass 2026-09-09. All D-01..D-17 above are derived from it. Read this first.
+- `.planning/shapes/shape-supervisor-archive.md` — Alice's locked shape from the /open pass 2026-09-09. All D-01..D-17 above are derived from it. Read this first.
 
 ### Campaign context
 - `~/.claude/roles/box-maintainer/bounties/id-skill-revamp/shape-id-skill-revamp.md` — original whole-campaign shape (multi-phase). This phase is Shape 2 of 4. The archival section of the campaign shape provides the philosophical framing that this phase implements.
@@ -119,13 +119,13 @@ Shape 2 of 4 in the id-skill-revamp multi-shape campaign. Hard-depends on Shape 
 <specifics>
 ## Specific Ideas
 
-- **180-day threshold** — Ashley's number from the campaign shape, thumbs-up during Shape 2 /open pass. Not a knob exposed to configuration in this phase (planner does not add a `--threshold-days` CLI flag or environment variable).
-- **Daily cadence** — Ashley thumbs-up during /open, chosen over 6-hourly (campaign shape's placeholder), once-per-supervisor-start, and once-per-tick. Reasoning: threshold is measured in days; being off by hours or a day is invisible.
-- **Move-first ordering** — Ashley thumbs-up during /open. The campaign shape had kill → deactivate → move; this phase's shape flipped it after grill discussion of failure modes.
-- **Fully silent retirement** — Ashley 2026-09-09 verbatim: *"No announcement of any kind."*
-- **Un-archive out of scope** — Ashley 2026-09-09 verbatim: *"unarchiving will be a concept that we get into formally later."*
-- **Coord exemption** — Ashley 2026-09-09 verbatim: *"Coordinators are not expected to be no dormancy, that's just not a thing, and I think we should not archive coordinators."*
-- **Cursor mtime as freshness signal** — Ashley corrected a mid-grill misread on my part: mtime advances on every ~30s successful sync (verified against `recv.sh` line 235), not only on inbound messages. That correction is what enabled the "one signal, no supplementary heuristics needed" cleanness of the mechanism.
+- **180-day threshold** — Alice's number from the campaign shape, thumbs-up during Shape 2 /open pass. Not a knob exposed to configuration in this phase (planner does not add a `--threshold-days` CLI flag or environment variable).
+- **Daily cadence** — Alice thumbs-up during /open, chosen over 6-hourly (campaign shape's placeholder), once-per-supervisor-start, and once-per-tick. Reasoning: threshold is measured in days; being off by hours or a day is invisible.
+- **Move-first ordering** — Alice thumbs-up during /open. The campaign shape had kill → deactivate → move; this phase's shape flipped it after grill discussion of failure modes.
+- **Fully silent retirement** — Alice 2026-09-09 verbatim: *"No announcement of any kind."*
+- **Un-archive out of scope** — Alice 2026-09-09 verbatim: *"unarchiving will be a concept that we get into formally later."*
+- **Coord exemption** — Alice 2026-09-09 verbatim: *"Coordinators are not expected to be no dormancy, that's just not a thing, and I think we should not archive coordinators."*
+- **Cursor mtime as freshness signal** — Alice corrected a mid-grill misread on my part: mtime advances on every ~30s successful sync (verified against `recv.sh` line 235), not only on inbound messages. That correction is what enabled the "one signal, no supplementary heuristics needed" cleanness of the mechanism.
 
 </specifics>
 
@@ -136,7 +136,7 @@ Shape 2 of 4 in the id-skill-revamp multi-shape campaign. Hard-depends on Shape 
 - **User-facing archive UI in Skynet** — a "manage archived identities" surface. Explicitly rejected in the campaign shape ("no user-facing archive UI in this scope — the manual archive affordance is explicitly deferred as a 'maybe later' addition").
 - **Configurable threshold** — a per-role or per-identity override on the 180-day threshold. Excluded to keep the mechanism uniform; the pin + no-dormancy affordances do the "keep this alive" work.
 - **Signal heuristics beyond cursor mtime** — secondary file checks, content-based heartbeats, multi-signal composite freshness. Excluded per D-09 (trust the signal); defensive complexity for problems that haven't happened just increases surface.
-- **Announcement wire for routine retirements** — history log entry, coord DM, Ashley ping. Excluded per D-15 (silent by design); routine retirements should feel unremarkable under the task-scoped paradigm.
+- **Announcement wire for routine retirements** — history log entry, coord DM, Alice ping. Excluded per D-15 (silent by design); routine retirements should feel unremarkable under the task-scoped paradigm.
 - **Per-identity-class differentiated thresholds** — e.g. a shorter threshold for coord-spawned actors on the theory that task-scoped actors "should" retire faster. Explicitly considered and rejected in the shape's "tempting but no" section.
 - **Cross-box coordination for retirement** — a fleet-wide "this identity is being retired everywhere" broadcast. Excluded because identities are per-box; if the same pool name is used on two boxes, they're independent identities that happen to share a name.
 - **Guards against filesystem operations that reset mtimes en masse** — defensive code to detect that a backup restore or cross-filesystem move happened and defer retirement. Excluded per D-09; maintainer's problem to sequence around.

@@ -136,7 +136,7 @@ the same atomic commit; QS 3 now passes.
 **1. [Rule 3 - Blocking-issue auto-fix, in-scope] ComposeBox.test.tsx QS 3 stale button reference**
 - **Found during:** Task 2 GREEN gate (full `ComposeBox*` scoped glob).
 - **Issue:** QS 3 captured `plusBtn = getByRole(...)` once and reused it across two clicks. QueuePlusTab re-parents between the primary wrapper and the first slot when a slot is added, unmounting the first-click DOM node — so the second click fired on a detached node and no slot was added.
-- **Fix:** Re-query the "Queue a message" button on each click. In-scope per the plan's ComposeBox* glob and Ashley's "never leave tests failing" directive.
+- **Fix:** Re-query the "Queue a message" button on each click. In-scope per the plan's ComposeBox* glob and Alice's "never leave tests failing" directive.
 - **File modified:** `src/ui/features/pretty-view/ComposeBox.test.tsx` L783-798.
 - **Commit:** included in the same atomic commit 8f87f722.
 

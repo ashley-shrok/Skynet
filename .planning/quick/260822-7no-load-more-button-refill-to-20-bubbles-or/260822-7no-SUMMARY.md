@@ -49,7 +49,7 @@ key-decisions:
   - "Mid-loop reader failure surfaces as an error frame (same shape as the
     FIRST read failure at L1592) — no partial success emit."
   - "Backend uses databaseLogger.info() matching the existing [ws-server] tag
-    style; frontend uses console.info() matching Ashley's other browser-side
+    style; frontend uses console.info() matching Alice's other browser-side
     diagnostic tags (grep-able from the console-forward transport dump)."
 metrics:
   duration: ~15 min
@@ -254,7 +254,7 @@ npm run build          → green (frontend built, exit 0)
   - `src/backend/claude-session/claude-session-server.ts` (+106/-22)
   - `src/backend/claude-session/claude-session-server.fetch-older-range.test.ts` (+198/-24)
   - `src/ui/features/pretty-view/PrettyView.tsx` (+39/-0)
-- Deploy motion pending (not run by executor per fleet rule Ashley 2026-08-08).
+- Deploy motion pending (not run by executor per fleet rule Alice 2026-08-08).
 - Post-deploy verification: click load-more on Sally's session at
   `term.example.com`, filter browser devtools console for
   `[pv-load-more]` and `[fetch-older-range]`. Expected sequence:

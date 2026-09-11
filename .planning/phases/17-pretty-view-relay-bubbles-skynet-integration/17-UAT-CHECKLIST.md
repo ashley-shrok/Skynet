@@ -1,9 +1,9 @@
 # Phase 17 UAT Checklist — Pretty-View Relay Bubbles
 
-**For:** Ashley
+**For:** Alice
 **Post-deploy validation of the Phase 17 relay bubble subsystem.**
-**Deploy anchor:** term.example.com (production) — post-deploy once Ashley greenlights the batch.
-**Design source-of-truth:** `~/.claude/identities/tina/bounties/pretty-view-relay-bubble-prototype/prototype.html` (6/6 acceptance battery passed with Ashley 2026-07-28) + `.planning/phases/17-pretty-view-relay-bubbles-skynet-integration/17-UI-SPEC.md` (LOCKED).
+**Deploy anchor:** term.example.com (production) — post-deploy once Alice greenlights the batch.
+**Design source-of-truth:** `~/.claude/identities/tina/bounties/pretty-view-relay-bubble-prototype/prototype.html` (6/6 acceptance battery passed with Alice 2026-07-28) + `.planning/phases/17-pretty-view-relay-bubbles-skynet-integration/17-UI-SPEC.md` (LOCKED).
 
 **Trace commits (Phase 17 on `feat/tab-title-from-tmux`):**
 - `7251d6d` feat(17-01): relay detection (OUTBOUND 3-way conjunction + INBOUND_REGEX)
@@ -56,22 +56,22 @@ If either returns `200` with HTML: **STOP** — nginx SPA fallback is active. Ro
 ## Setup
 
 1. Open https://term.example.com in **Chrome on a desktop window** (1400px+) AND on your **iPhone PWA** (home-screen icon).
-2. Have a fleet-connected tmux session with **a real Matrix relay send ready** — either a `curl -X PUT` to a room pre-staged in history, or trigger one live (Ashley's standard `relay-send.sh` or equivalent).
+2. Have a fleet-connected tmux session with **a real Matrix relay send ready** — either a `curl -X PUT` to a room pre-staged in history, or trigger one live (Alice's standard `relay-send.sh` or equivalent).
 3. Have the **same room** open in Element on another device so you can send an inbound relay message (the "banana banana banana" test from the prototype acceptance battery).
 4. Open DevTools Network tab on the desktop — you'll check it for RELAYBUB-04 (file-pointer fetch).
-5. Have the ashley identity's `colorHue` value handy for RELAYBUB-03 (check `~/.claude/identities/ashley/identity.json` or the Skynet identity registry).
+5. Have the alice identity's `colorHue` value handy for RELAYBUB-03 (check `~/.claude/identities/alice/identity.json` or the Skynet identity registry).
 
 ---
 
 ## Item 1 — RELAYBUB-01: Outbound blue bubble
 
-**Action:** On a tina-identity pretty-view tab, trigger a real Matrix relay send (Ashley's `curl -X PUT` to a room, the same 3-way command format the prototype detects).
+**Action:** On a tina-identity pretty-view tab, trigger a real Matrix relay send (Alice's `curl -X PUT` to a room, the same 3-way command format the prototype detects).
 
 **Expected:**
 - A bubble appears RIGHT-ALIGNED in the message stream
 - Background is cool-blue glass (`rgba(64, 96, 160, 0.28)` with backdrop-filter blur)
 - Header line reads `▸ relay send → !room-alias:server` (or the room's matrix ID)
-- Body shows the extracted message text (e.g. "Hey @ashley, the deploy is green")
+- Body shows the extracted message text (e.g. "Hey @alice, the deploy is green")
 - Footer shows `via curl` below the bubble (small, dim)
 
 **Acceptable variations:**
@@ -90,7 +90,7 @@ If either returns `200` with HTML: **STOP** — nginx SPA fallback is active. Ro
 **Expected:**
 - A bubble appears LEFT-ALIGNED in the message stream
 - Background is warm-orange glass (`rgba(200, 128, 64, 0.28)` with backdrop-filter blur)
-- Header line reads `● ashley · !room-alias:server` (or the room ID — the dot is the identity avatar-dot)
+- Header line reads `● alice · !room-alias:server` (or the room ID — the dot is the identity avatar-dot)
 - Body shows "banana banana banana"
 - Footer shows `via recv.sh` below the bubble (small, dim)
 
@@ -105,9 +105,9 @@ If either returns `200` with HTML: **STOP** — nginx SPA fallback is active. Ro
 **Action:** On the inbound bubble from Item 2, look at the avatar-dot in the header line.
 
 **Expected:**
-- The avatar-dot is rendered in **ashley's identity colorHue** (warm orange/amber — whatever `colorHue` is set to in the ashley identity registry, typically in the 20-40 hsl-degree range)
+- The avatar-dot is rendered in **alice's identity colorHue** (warm orange/amber — whatever `colorHue` is set to in the alice identity registry, typically in the 20-40 hsl-degree range)
 - It is NOT the neutral grey fallback (`hsl(210, 8%, 50%)`)
-- Cross-check: if the bubble sender's mxid resolves to the ashley identity in the registry, the hue should match `hsl(colorHue, 70%, 65%)` or similar per the hue-chain convention
+- Cross-check: if the bubble sender's mxid resolves to the alice identity in the registry, the hue should match `hsl(colorHue, 70%, 65%)` or similar per the hue-chain convention
 
 **Failure → route:** 17-03 (relay-mxid-resolve.ts + RelayInboundBubble sender-hue chain)
 
@@ -117,7 +117,7 @@ If either returns `200` with HTML: **STOP** — nginx SPA fallback is active. Ro
 
 ## Item 4 — RELAYBUB-04: Long inbound file-pointer fetch
 
-**Action:** Ask Ashley to send a long message (>500 characters, or whatever the recv.sh threshold is for writing to a temp file instead of inline body) from Element. The recv.sh event body will read `body written to /tmp/relay-msg-XXXX.txt` instead of inline text.
+**Action:** Ask Alice to send a long message (>500 characters, or whatever the recv.sh threshold is for writing to a temp file instead of inline body) from Element. The recv.sh event body will read `body written to /tmp/relay-msg-XXXX.txt` instead of inline text.
 
 **Expected:**
 - Inbound bubble appears with a preview line: `📄 body written to /tmp/relay-msg-XXXX.txt`

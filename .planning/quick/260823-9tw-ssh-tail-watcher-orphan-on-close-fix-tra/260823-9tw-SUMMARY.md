@@ -80,7 +80,7 @@ Plan `<verification>` sanity greps:
 - **NO worktree:** all commits on `feat/tab-title-from-tmux` in the main tree.
 - **NO `git push`:** confirmed — orchestrator handles ship-time push.
 - **NO Docker:** none run.
-- **NO full-suite vitest:** only `session-file-tail.test.ts` and `claude-session-server.dormant-tail.test.ts` (the one file that imports the module) were run. Ashley 2026-08-20 rule respected.
+- **NO full-suite vitest:** only `session-file-tail.test.ts` and `claude-session-server.dormant-tail.test.ts` (the one file that imports the module) were run. Alice 2026-08-20 rule respected.
 - **NO `~/.claude/roles/box-maintainer/skynet-patches.md` touch:** confirmed.
 - **NO `--no-verify` / `--no-gpg-sign`:** both commits used the default hook path.
 - **Atomic commits:** RED test-only commit at `96db98c2` landed BEFORE the GREEN implementation commit at `259e37aa`.

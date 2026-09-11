@@ -7,7 +7,7 @@
 <domain>
 ## Phase Boundary
 
-Give Ashley a UI-driven way to edit configurable per-host files that live OUTSIDE
+Give Alice a UI-driven way to edit configurable per-host files that live OUTSIDE
 the roles/identities paradigm — starting with each host's `~/.claude/CLAUDE.md`
 and extensible to any file the deployment operator lists in a per-Skynet-instance
 config. Uses the same two-step SSH read/write pattern as Phase 22 SRIC-06's Role
@@ -16,7 +16,7 @@ panel-header menu consolidation: the pretty-conversations panel header has
 accumulated action buttons (New agent pencil, `+ New role`, and now the new
 Edit-global-files entry), so collapse everything except the Filter button under
 a single dropdown menu to keep the header clean. Config file lives in the Skynet
-docker volume (portable across deploys — Ashley's Skynet gets one file listed,
+docker volume (portable across deploys — Alice's Skynet gets one file listed,
 Stacy's ceo-skynet gets a different set); edited via SSH for MVP (self-hosted
 UI-edit of the config file itself is deferred).
 
@@ -37,7 +37,7 @@ UI-edit of the config file itself is deferred).
 
 **Out-of-scope (deferred):**
 - Meta-UI (editing `global-files.json` itself via the same modal, self-referentially).
-- Per-user gating (anyone with the admin cookie can read/write — matches Ashley's
+- Per-user gating (anyone with the admin cookie can read/write — matches Alice's
   "anyone could edit" decision 2026-08-04).
 - Any file editing for a Windows host that doesn't have `~/.claude/CLAUDE.md`
   (Windows hosts omitted from bootstrap, not left in with an error state).
@@ -113,7 +113,7 @@ UI-edit of the config file itself is deferred).
   new subsystem.
 - **Dual nginx location blocks** (both configs) per fleet caveat.
 - **Cookie auth.** Anyone with the admin cookie can read/write — no per-user
-  gating (matches Ashley's `anyone could edit` decision 2026-08-04).
+  gating (matches Alice's `anyone could edit` decision 2026-08-04).
 
 ### GEFM-05: `GlobalFilesModal` frontend component
 - **New modal** opened from GEFM-01's dropdown Menu.
@@ -228,7 +228,7 @@ UI-edit of the config file itself is deferred).
 
 - **Meta-UI** — editing `global-files.json` from within the same modal,
   self-referentially. Deferred by design (per GEFM-02); MVP uses SSH.
-- **Per-user gating** — anyone with the admin cookie can read/write. If Ashley
+- **Per-user gating** — anyone with the admin cookie can read/write. If Alice
   ever wants finer-grain access control (e.g. a "editor" role separate from
   "admin"), that's a future phase.
 - **Multi-file batch save** — modal saves one file at a time (per tab).
@@ -237,7 +237,7 @@ UI-edit of the config file itself is deferred).
   frontend UX to resolve the conflict is minimal for MVP (reload + retry).
   A proper 3-way diff view is future work.
 - **Windows-host support** — omitted from bootstrap (GEFM-06 explicitly).
-  If Ashley later wants to edit files on Windows hosts, that's a separate
+  If Alice later wants to edit files on Windows hosts, that's a separate
   investigation (path semantics, SSH availability, etc.).
 
 </deferred>

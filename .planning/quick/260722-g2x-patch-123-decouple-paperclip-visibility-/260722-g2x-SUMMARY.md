@@ -93,7 +93,7 @@ The scoped vitest run surfaces **3 pre-existing failures** unrelated to patch #1
 ## Non-Goals Confirmed
 
 - No `docker compose up` / container recreate — deferred to Tina's next batch deploy behind the 15-min deadman rollback
-- No live browser walk / UAT — deferred to Tina + Ashley post-deploy
+- No live browser walk / UAT — deferred to Tina + Alice post-deploy
 - No `git push` — commit stays on `feat/tab-title-from-tmux` locally
 
 ## Deployment Status

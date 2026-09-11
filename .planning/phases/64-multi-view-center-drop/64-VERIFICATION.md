@@ -96,7 +96,7 @@ Retirement of the `[pv-split-drop] center-dead-zone ignored` log line was audite
 
 ### Human Verification Required
 
-None required. All 12 load-bearing invariants are automatically verifiable from the codebase. End-to-end UAT is out of executor scope per box-maintainer role directive (Ashley 2026-08-08); orchestrator or Ashley will exercise the interaction post-deploy per Plan 64-02 `<verification>` block.
+None required. All 12 load-bearing invariants are automatically verifiable from the codebase. End-to-end UAT is out of executor scope per box-maintainer role directive (Alice 2026-08-08); orchestrator or Alice will exercise the interaction post-deploy per Plan 64-02 `<verification>` block.
 
 ### Summary
 

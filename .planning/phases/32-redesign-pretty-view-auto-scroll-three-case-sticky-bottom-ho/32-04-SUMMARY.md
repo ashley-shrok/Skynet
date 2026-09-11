@@ -13,7 +13,7 @@ dependency-graph:
     - "PrettyView.virtualization.test.tsx: 4 covered auto-scroll scenarios (Test 2 session-first-load, Test 2b incoming-at-bottom, Test 3 incoming-scrolled-up, Test 2d user-send-from-scrolled-up)"
     - "Full-suite green baseline: 152 files / 1924 passed / 6 skipped / 1 todo / 0 failures"
   affects:
-    - "Phase 32 completion — all four CONTEXT.md § Test coverage scenarios now empirically covered; Ashley's morning deploy-greenlight can proceed once the verifier signs off"
+    - "Phase 32 completion — all four CONTEXT.md § Test coverage scenarios now empirically covered; Alice's morning deploy-greenlight can proceed once the verifier signs off"
 tech-stack:
   added: []
   patterns:
@@ -27,7 +27,7 @@ key-files:
     - "src/ui/features/pretty-view/PrettyView.virtualization.test.tsx (+238 / -39 = net +199 lines; Test 2 un-skipped + adapted, Test 2b + Test 2d added, Test 3 wheel → scroll adapted)"
   deleted: []
 decisions:
-  - "Option A (integration via UI) chosen for Test 2d per plan Change 4 recommendation — drives the real handleComposeSend → scrollToBottomAndFollow wire-through end-to-end; matches ComposeBox.test.tsx Test 7 L262-269 and Test 13 L338-341 fireEvent.change + fireEvent.click patterns; verifies not just the hook but the entire Phase 32 wire-through path Ashley cares about."
+  - "Option A (integration via UI) chosen for Test 2d per plan Change 4 recommendation — drives the real handleComposeSend → scrollToBottomAndFollow wire-through end-to-end; matches ComposeBox.test.tsx Test 7 L262-269 and Test 13 L338-341 fireEvent.change + fireEvent.click patterns; verifies not just the hook but the entire Phase 32 wire-through path Alice cares about."
   - "Two-step scroll dispatch pattern (dispatch scroll at mocked bottom first to sync listener's lastScrollTop closure baseline, THEN dispatch at mocked lower position to trigger stickyRef flip) — required because the hook's programmaticRef guard prevents the paneKey rAF chain's own scrollTop writes from updating the listener's lastScrollTop, so the listener starts with lastScrollTop=0 (its at-attach reading). Discovered on first run of Test 3 which failed 5200 !== 1000 because sticky was still true when the RO fired."
   - "requestAnimationFrame stub via vi.stubGlobal (per plan Change 1's rAF-in-JSDOM caveat clause) — vitest fake-timers do NOT polyfill rAF by default. Applied to Tests 2, 2b, 3, and 2d consistently. All four tests use the same `(cb) => setTimeout(() => cb(performance.now()), 16)` shim."
   - "Kept the existing beforeEach ResizeObserver capturing stub (L246-306) and shrinkScrollContainer helper (L187-226) VERBATIM per plan action block. Zero adaptations needed to the scaffolding — everything the new tests need is already there. Only addition to file-level infra was one import (fireEvent) alongside the existing render/act/waitFor."
@@ -60,7 +60,7 @@ Per plan Change 4, two options were on the table:
 - **Option A** — locate compose textarea via `getByPlaceholderText(/message/i)`, dispatch `fireEvent.change` to type text, locate Send button via `getByRole("button", { name: "Send" })`, dispatch `fireEvent.click`. Verifies end-to-end wire-through: ComposeBox `handleSend` → prop `onSend` → PrettyView `handleComposeSend` → `scrollToBottomAndFollow`.
 - **Option B** — grab ComposeBox's `onSend` prop via a test seam and call it directly. Bypasses the UI shell but still exercises the parent handler.
 
-**Chose Option A** — matches ComposeBox.test.tsx L262-269 (Test 7) and L338-341 (Test 13) proven patterns; verifies the entire wire-through Ashley cares about (not just the hook primitive but the button → prop → handler → hook chain); no test seam needed. `aria-label="Send"` is the canonical selector per patch #129 (ComposeBox.tsx L2423).
+**Chose Option A** — matches ComposeBox.test.tsx L262-269 (Test 7) and L338-341 (Test 13) proven patterns; verifies the entire wire-through Alice cares about (not just the hook primitive but the button → prop → handler → hook chain); no test seam needed. `aria-label="Send"` is the canonical selector per patch #129 (ComposeBox.tsx L2423).
 
 ## Adaptations to test scaffolding
 
@@ -123,7 +123,7 @@ None.
 | Passed | 1921 | 1924 | +3 | +3 (1 un-skip + 2 new) |
 | Skipped | 7 | 6 | -1 | -1 (Test 2 un-skipped) |
 | Todo | 1 | 1 | 0 | 0 |
-| **Failed** | **0** | **0** | **0** | **0** (Ashley fleet rule) |
+| **Failed** | **0** | **0** | **0** | **0** (Alice fleet rule) |
 
 ## Self-Check: PASSED
 
@@ -137,9 +137,9 @@ Verified:
 
 ## Fleet compliance notes
 
-- **No worktree** used (Ashley 2026-07-31 rule). Worked in `~/skynet` on `feat/tab-title-from-tmux` main working tree. `git branch --show-current` = `feat/tab-title-from-tmux` (main working branch).
+- **No worktree** used (Alice 2026-07-31 rule). Worked in `~/skynet` on `feat/tab-title-from-tmux` main working tree. `git branch --show-current` = `feat/tab-title-from-tmux` (main working branch).
 - **Frontend-only phase**: `npx tsc --noEmit` + `npx vitest run` only. Skipped `npm run build:backend` per fleet rule.
-- **STOP at commit — no deploy motion** (Ashley 2026-07-27 rule): no `docker compose up`, no `git push`. Tina orchestrates deploys after the verifier passes — this is the FINAL wave; ship-readiness depends on the verifier green-lighting the numeric-parse gate.
+- **STOP at commit — no deploy motion** (Alice 2026-07-27 rule): no `docker compose up`, no `git push`. Tina orchestrates deploys after the verifier passes — this is the FINAL wave; ship-readiness depends on the verifier green-lighting the numeric-parse gate.
 - **Individual file staging**: `git add src/ui/features/pretty-view/PrettyView.virtualization.test.tsx` (single specific file). No `git add .` or `git add -A`.
 - **Atomic commit**: single commit for the test file changes per the orchestrator's `commit protocol` handoff message.
 
@@ -149,4 +149,4 @@ Verified:
 - The four-scenario coverage validates the Phase 32 hook + wire-through end-to-end: hook primitives (Case 1 paneKey rAF, Case 2 RO-on-outer, Case 3 scrollToBottomAndFollow) AND the PrettyView integration (handleComposeSend → scrollToBottomAndFollow via ComposeBox onSend prop).
 - Full-suite FAILED=0 satisfies the phase's ship-readiness numeric-parse gate.
 - Wave 3's `PrettyView.autoplay.test.tsx` ResizeObserver polyfill is still in place (untouched here). No fallout from Wave 4.
-- Phase 32 is complete pending verifier sign-off. Ashley's morning deploy-greenlight can proceed after that.
+- Phase 32 is complete pending verifier sign-off. Alice's morning deploy-greenlight can proceed after that.

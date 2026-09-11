@@ -22,16 +22,16 @@ const MXID_RE = /^@[a-z0-9._=/+-]{1,255}:[a-z0-9.-]{1,255}$/;
 
 describe("sanitizeUsernameToLocalpart", () => {
   it("lowercases the input", () => {
-    expect(sanitizeUsernameToLocalpart("Ashley")).toBe("ashley");
+    expect(sanitizeUsernameToLocalpart("Alice")).toBe("alice");
   });
 
   it("passes through a simple lowercase alnum username unchanged", () => {
-    expect(sanitizeUsernameToLocalpart("ashley")).toBe("ashley");
+    expect(sanitizeUsernameToLocalpart("alice")).toBe("alice");
   });
 
   it("escapes @ and . in an email-form username (T800 case)", () => {
-    expect(sanitizeUsernameToLocalpart("ashley@aitherhealth.com")).toBe(
-      "ashley_at_aitherhealth_dot_com",
+    expect(sanitizeUsernameToLocalpart("alice@example.com")).toBe(
+      "alice_at_example_dot_com",
     );
   });
 
@@ -116,24 +116,24 @@ describe("hex fallback for Matrix-illegal characters", () => {
 
 describe("buildHumanMxid (D-06)", () => {
   it("simple username → @<localpart>_human:<server>", () => {
-    expect(buildHumanMxid("ashley", "thenasty.taild9b663.ts.net")).toBe(
-      "@ashley_human:thenasty.taild9b663.ts.net",
+    expect(buildHumanMxid("alice", "thenasty.taild9b663.ts.net")).toBe(
+      "@alice_human:thenasty.taild9b663.ts.net",
     );
   });
 
   it("email username → sanitized localpart with _human suffix", () => {
     expect(
-      buildHumanMxid("ashley@aitherhealth.com", "skynet.aithercloud.com"),
-    ).toBe("@ashley_at_aitherhealth_dot_com_human:skynet.aithercloud.com");
+      buildHumanMxid("alice@example.com", "skynet.aithercloud.com"),
+    ).toBe("@alice_at_example_dot_com_human:skynet.aithercloud.com");
   });
 
   it("output satisfies MXID_RE from matrix-admin-routes.ts line 27", () => {
     expect(
-      MXID_RE.test(buildHumanMxid("ashley", "thenasty.taild9b663.ts.net")),
+      MXID_RE.test(buildHumanMxid("alice", "thenasty.taild9b663.ts.net")),
     ).toBe(true);
     expect(
       MXID_RE.test(
-        buildHumanMxid("ashley@aitherhealth.com", "skynet.aithercloud.com"),
+        buildHumanMxid("alice@example.com", "skynet.aithercloud.com"),
       ),
     ).toBe(true);
     expect(

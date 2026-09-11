@@ -1,10 +1,10 @@
 // ─── DeactivateAction ────────────────────────────────────────────────────────
 // Shared red-tinted deactivate/close button used by both the mobile swipe-
 // reveal strip and the desktop hover-reveal right column of
-// PrettyConversationRow. Renders ONLY when the row is in Ashley's active-set
+// PrettyConversationRow. Renders ONLY when the row is in Alice's active-set
 // AND non-RDP — row-level policy, this component is a dumb visual.
 //
-// quick-260727-gm3 (Ashley 2026-07-27 preview lockdown): deactivate is the
+// quick-260727-gm3 (Alice 2026-07-27 preview lockdown): deactivate is the
 // pure REVERSE of tap-ambient-to-activate — click closes the tab AND removes
 // the id from activeSet; the row recedes to ambient. Agent keeps running
 // under the hood; tapping the row again reactivates it.
@@ -21,7 +21,7 @@
 // Visual treatment mirrors PinAction's palette-driven bare-icon shape but
 // with a red-tinted hue (hue=4, red-orange), sitting adjacent to the pin's
 // identity-hue glyph without clashing. NOT a filled red pill — bare X icon
-// with a subtle red drop-shadow, per Ashley's deactivate-preview.js console
+// with a subtle red drop-shadow, per Alice's deactivate-preview.js console
 // snippet.
 //
 // Opacity / visibility is CSS-driven:

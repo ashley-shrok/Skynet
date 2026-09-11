@@ -134,7 +134,7 @@ button is always visible in the pending-start UI. Cancel wires to the
 existing `handleCancelPending` → `postTelegramDisconnect` recovery flow
 (unchanged from Phase 79 Plan 07).
 
-Rationale: Ashley's real workflow is "paste token, go answer the door,
+Rationale: Alice's real workflow is "paste token, go answer the door,
 come back in 15 minutes". A 30s timeout flipping the tab to "error" would
 be actively harmful — she'd think the flow was broken and re-paste,
 potentially generating a duplicate bot registration or hitting Telegram

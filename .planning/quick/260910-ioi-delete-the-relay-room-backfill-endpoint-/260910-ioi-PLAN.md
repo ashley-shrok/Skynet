@@ -47,7 +47,7 @@ must_haves:
 Delete the /relay-room/backfill HTTP endpoint, its `runRegistryRoomsBackfill`
 utility, and the fully-orphan `enumerate-agent-mxids` helper. Post-deletion,
 backfill of pre-existing users/agents into registry rooms is entirely manual
-(SSH-based dance, only if ever needed) per Ashley's clarification. The D-11
+(SSH-based dance, only if ever needed) per Alice's clarification. The D-11
 mint hooks in `registry-rooms.ts` stay intact so new accounts continue to
 auto-join the agents/humans registry rooms on create.
 
@@ -178,7 +178,7 @@ git tree passes the three verification gates (grep-zero, tsc, vitest).
 
       ## Backfill is fully manual (SSH-based dance if ever needed)
 
-      Per Ashley 2026-09-10: there is no in-process backfill path. If pre-
+      Per Alice 2026-09-10: there is no in-process backfill path. If pre-
       existing users/agents ever need to be added to the registry rooms, the
       instance-deployer does it manually via SSH — no HTTP endpoint, no
       importable utility. The D-11 mint hooks (registry-rooms.ts) cover ALL

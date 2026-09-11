@@ -4,7 +4,7 @@
 **Branch:** feat/tab-title-from-tmux
 **Bounty:** phase10-shadcn-strip-and-prototype-fidelity (666704b0-8f39-4f5d-a990-cae701a74717)
 **Commit:** 3d28512
-**Deploy status:** DEFERRED — Ashley bundles with prior UAT commits (558749a, 68e4f62, b749bf1, 536d224) in a single grouped deploy.
+**Deploy status:** DEFERRED — Alice bundles with prior UAT commits (558749a, 68e4f62, b749bf1, 536d224) in a single grouped deploy.
 
 ## What changed (7 files, atomic)
 
@@ -50,7 +50,7 @@
 
 ## Deploy discipline
 
-NOT deployed. NOT pushed. Ashley owns the deploy timing and bundles this with:
+NOT deployed. NOT pushed. Alice owns the deploy timing and bundles this with:
 - 558749a
 - 68e4f62
 - b749bf1
@@ -59,7 +59,7 @@ NOT deployed. NOT pushed. Ashley owns the deploy timing and bundles this with:
 
 ### iOS PWA reinstall note (LOAD-BEARING for UAT verification)
 
-iOS caches PWA manifest theme_color + background_color at install time. Ashley WILL NOT see the safe-area seam disappearance (Skynet-gray top/bottom bars instead of black) until she:
+iOS caches PWA manifest theme_color + background_color at install time. Alice WILL NOT see the safe-area seam disappearance (Skynet-gray top/bottom bars instead of black) until she:
 1. Removes the current Skynet PWA from her home screen
 2. Loads term.example.com in Safari after deploy
 3. Re-adds to Home Screen ("Share → Add to Home Screen")
@@ -69,12 +69,12 @@ Desktop UAT (Safari + Chrome browser tabs) will show the new #0a0b12 immediately
 
 ## Scope discipline notes
 
-- Bounty todo #7 ("Persistent top-left chevron stays, safe-area architecture stays post-#131") — untouched per Ashley's directive: this patch is pure REMOVAL + color rebase, no positive UI structural changes.
-- Bounty todos #1 ("side-by-side survey") — implicitly completed via prototype.html grep during planning; explicit visual diff enumeration deferred to Ashley's UAT walkthrough.
-- Bounty todo #8 ("deploy") + #9 ("patches-md #133 pin") — DEFERRED to Ashley's greenlight, tracked as follow-up in bounty timeline.
+- Bounty todo #7 ("Persistent top-left chevron stays, safe-area architecture stays post-#131") — untouched per Alice's directive: this patch is pure REMOVAL + color rebase, no positive UI structural changes.
+- Bounty todos #1 ("side-by-side survey") — implicitly completed via prototype.html grep during planning; explicit visual diff enumeration deferred to Alice's UAT walkthrough.
+- Bounty todo #8 ("deploy") + #9 ("patches-md #133 pin") — DEFERRED to Alice's greenlight, tracked as follow-up in bounty timeline.
 - Bounty todo #14 ("verify seam gone on iOS PWA") — VERIFIABLE POST-DEPLOY-POST-REINSTALL only; documented above.
 
 ## Follow-ups (not in this patch)
 
-- If Ashley later wants a Skynet settings surface, build fresh — do NOT reintroduce shadcn DropdownMenu. Radix headless primitives + custom styling per the tina.md § Learned preferences shadcn `!` important lesson (patch #81); this patch REMOVED the wrapper, not just its usage.
+- If Alice later wants a Skynet settings surface, build fresh — do NOT reintroduce shadcn DropdownMenu. Radix headless primitives + custom styling per the tina.md § Learned preferences shadcn `!` important lesson (patch #81); this patch REMOVED the wrapper, not just its usage.
 - Any future prop pruning across the fork that discovers dead onRailClick/isAdmin flows can now safely treat this panel as a reference example of "gear removed cleanly".

@@ -68,9 +68,9 @@ One-liner: DormancyOverlay + Wake button integrated with agent-supervisor DORMAN
 - Health check: HTTPS 200 on first attempt (T+1s)
 - Byte-verified: `dormantActive`, `wake_result`, `dormant` present in `/app/html/assets/Terminal-DvYiKZWH.js`
 
-## Human Verify Hand-off (Ashley UAT)
+## Human Verify Hand-off (Alice UAT)
 
-Ashley should verify by opening a PrettyView pane for a dormant identity and confirming:
+Alice should verify by opening a PrettyView pane for a dormant identity and confirming:
 1. DormancyOverlay appears (moon glyph, "session is asleep", Wake button).
 2. Send + Reset + ThumbsUp + Recap are disabled while overlay is visible; textarea and mic still work.
 3. Tapping Wake sends the wake request; overlay transitions to "waking…" with elapsed hint at 15s.

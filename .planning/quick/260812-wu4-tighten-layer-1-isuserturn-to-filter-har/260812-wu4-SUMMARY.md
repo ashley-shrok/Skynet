@@ -124,7 +124,7 @@ Two files changed: `src/backend/claude-session/layer1-detect.ts` + `src/backend/
 - NOT `docker build`ed
 - NOT deployed
 - `~/.claude/roles/box-maintainer/skynet-patches.md` untouched
-- Orchestrator awaits Ashley greenlight for deploy motion
+- Orchestrator awaits Alice greenlight for deploy motion
 
 ## Self-Check: PASSED
 

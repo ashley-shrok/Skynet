@@ -5,7 +5,7 @@
 
 ## What this is
 
-Every agent in the fleet is either an actor (does the role work) or a coordinator (routes on behalf of the role — the phone line to Ashley through Telegram, the front face of the role). Skynet today shows all identities the same way: same color, same avatar, no visual distinction between actor and coordinator. This build adds a visible marker to identities that carry the coordinator flag in their on-disk identity file, so at a glance you know which one is the coordinator versus which are actors.
+Every agent in the fleet is either an actor (does the role work) or a coordinator (routes on behalf of the role — the phone line to Alice through Telegram, the front face of the role). Skynet today shows all identities the same way: same color, same avatar, no visual distinction between actor and coordinator. This build adds a visible marker to identities that carry the coordinator flag in their on-disk identity file, so at a glance you know which one is the coordinator versus which are actors.
 
 ## Shape
 
@@ -31,7 +31,7 @@ This is a read-only reflection of on-disk state. Skynet does not become the plac
 
 ## Prior context
 
-The on-disk cosmetic pipeline that reads role, display name, title, color hue, voice, and avatar from each identity's YAML frontmatter is Phase 66's contribution — code-complete and verified but not yet shipped (Ashley paused mid-ship). This build extends that reader by exactly one more field — the coordinator flag — and adds a rendering pass for it on the three named surfaces. The reader already routes through hostId to reach the correct box's disk; this piggybacks on that routing without introducing a new mechanism.
+The on-disk cosmetic pipeline that reads role, display name, title, color hue, voice, and avatar from each identity's YAML frontmatter is Phase 66's contribution — code-complete and verified but not yet shipped (Alice paused mid-ship). This build extends that reader by exactly one more field — the coordinator flag — and adds a rendering pass for it on the three named surfaces. The reader already routes through hostId to reach the correct box's disk; this piggybacks on that routing without introducing a new mechanism.
 
 The two visible surfaces where identities render — pretty-view (chat bubbles, identity badge) and the conversation list (rows) — are already hue-driven at the chrome level. That is why the same-hue-brightened color logic integrates naturally: the watermark hue draws from the same value that already tints the row background, the badge background, the avatar disc, the border, and the glow.
 
@@ -64,17 +64,17 @@ The tasting arc that produced this shape ran five rounds and converged on: Mater
 - Any semantic swap of the icon per-identity or per-role. One icon, MdHub, applied uniformly to all coordinators.
 
 **Deferred:**
-- Mobile-specific tuning if the desktop treatment scales awkwardly on mobile. Ashley will iterate after seeing it live.
+- Mobile-specific tuning if the desktop treatment scales awkwardly on mobile. Alice will iterate after seeing it live.
 - Any additional coordinator affordances (bounty routing behaviors, sort-by-coordinator, filter-by-coordinator).
 
 **Tempting-but-no:**
-- Folding this into Phase 66 to save a ship gate. Growing Phase 66's scope would trigger re-verification and complicate the ship-pause state Ashley is deliberately holding.
+- Folding this into Phase 66 to save a ship gate. Growing Phase 66's scope would trigger re-verification and complicate the ship-pause state Alice is deliberately holding.
 - Making the coordinator flag editable "while we're in there." That's a separate build.
 - Extending the marker to also mark actors somehow (they get no marker; absence is information).
 
 ## Vehicle notes
 
-**GSD phase, stacked.** Plan and execute independently now; the work commits locally alongside the other unshipped items (Phase 66, and the smaller items sitting on the branch). When Ashley greenlights the next ship, this phase's commits go out in that same bundle. No independent ship gate for this phase.
+**GSD phase, stacked.** Plan and execute independently now; the work commits locally alongside the other unshipped items (Phase 66, and the smaller items sitting on the branch). When Alice greenlights the next ship, this phase's commits go out in that same bundle. No independent ship gate for this phase.
 
 The backend touches the same disk-cosmetic pipeline Phase 66 introduced. During implementation, read the Phase 66 code first, understand its cosmetic-reader shape, then extend it with the coordinator field as a natural extension of that pattern — not as a new mechanism. The plan should reflect that ordering.
 

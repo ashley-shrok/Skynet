@@ -161,7 +161,7 @@ function ensureFleetSubscription(): void {
 async function fetchOnce(): Promise<void> {
   ensureFleetSubscription();
   if (state.loaded || inflight) return inflight ?? Promise.resolve();
-  // 2026-09-08 (Ashley): on cold reload, fleetSessions is empty until the WS
+  // 2026-09-08 (Alice): on cold reload, fleetSessions is empty until the WS
   // fleet-status frame arrives, so buildIdentityHostsFromFleet returns {}.
   // With Phase 69's disk-fanout backend, GET /identities?identityHosts={}
   // returns []; that response flips state.loaded=true with byKey=empty,
@@ -205,7 +205,7 @@ async function fetchOnce(): Promise<void> {
 export function refreshIdentities(): Promise<void> {
   // Force a fresh fetch even if the initial fetchOnce is still inflight.
   //
-  // 2026-09-01 Ashley regression: the first fetchOnce fires from
+  // 2026-09-01 Alice regression: the first fetchOnce fires from
   // useIdentities().useEffect immediately after component mount, when
   // conversation-store's fleetSessions is still empty (WS hasn't returned
   // fleet-status yet). It runs with an empty identityHosts map and the

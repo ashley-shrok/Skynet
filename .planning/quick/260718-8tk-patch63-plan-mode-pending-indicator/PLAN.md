@@ -19,12 +19,12 @@ in-stream as the last child of the message-content wrapper (sibling to
 conversation flow because it represents a moment where Claude is asking
 for input.
 
-**Detection mechanism** (Ashley-verified against a live JSONL, 2026-07-18):
+**Detection mechanism** (user-verified against a live JSONL, 2026-07-18):
 every ExitPlanMode confirmation prompt appears as an assistant turn with
 `stop_reason: "tool_use"` and a `tool_use` content block where
 `name === "ExitPlanMode"`. The block carries an `id` (the tool_use_id) and
 inputs `plan` (markdown body) + `planFilePath`. It stays unmatched until
-Ashley replies — at which point a subsequent user turn's `content[]`
+Alice replies — at which point a subsequent user turn's `content[]`
 includes a `{type:"tool_result", tool_use_id:"toolu_..."}` block closing
 the pair. That's exactly the same shape patch #61 uses to correlate
 backgrounded Agent invocations.
@@ -43,7 +43,7 @@ per-connection closure `Map<toolUseId, {planFilePath, ts}>`, dedup-emit a
 **Frontend approach** — new file `PlanPendingBubble.tsx` mirroring the
 shape of `WipBubble.tsx`: assistant-side aligned bubble with a static
 `ClipboardList` glyph and one line of text explaining the "reply `1` /
-`2`" contract. NO plan content is displayed (Ashley's explicit ask —
+`2`" contract. NO plan content is displayed (Alice's explicit ask —
 "compact WipBubble-style indicator only"). Mounted by PrettyView as a
 sibling to WipBubble at the tail of the content wrapper; the two can
 show simultaneously (edge case, but no reason to gate them mutually).
@@ -65,7 +65,7 @@ bites — apply once, apply everywhere in the same file (patch #61 would
 adopt the same fallback).
 
 **Deploy**: do NOT deploy this patch. Joins the pending-patch batch after
-#60 (already holds #61 and #62). Deploy happens later when Ashley
+#60 (already holds #61 and #62). Deploy happens later when Alice
 green-lights the batch; the AGENTS.md write-up in `~/AGENTS.md` happens
 AT PIN time as part of that batch deploy, not now.
 </objective>
@@ -96,7 +96,7 @@ existing `backgroundedAgents*` locals patch #61 introduced.
 `let stopped = false;`). Insert this block:
 
     // Plan-pending tracking (patch #63): parent-JSONL scan for
-    // ExitPlanMode tool_use blocks (Claude asking Ashley to accept /
+    // ExitPlanMode tool_use blocks (Claude asking Alice to accept /
     // keep-planning in Plan Mode), paired against subsequent
     // tool_result blocks by tool_use_id. Emit on serialized-change
     // only. `pendingPlansLastSerialized` is initialized to "null" (not
@@ -304,7 +304,7 @@ Full contents:
     // Mounted by PrettyView.tsx as a sibling of WipBubble at the tail of
     // the content wrapper when the claude-session WebSocket reports
     // {type:"plan_pending", pending: {...}} with a non-null pending
-    // object. Unmounted when the session returns pending: null (Ashley
+    // object. Unmounted when the session returns pending: null (Alice
     // has replied "1" or "2" and Claude Code recorded the tool_result).
     //
     // The visual is intentionally compact and text-light: a
@@ -312,7 +312,7 @@ Full contents:
     // ChatMessage's assistant treatment, plus one line explaining the
     // reply contract. No plan body is shown — this is a status
     // indicator, not a preview. The planFilePath is not displayed
-    // either (Plan Mode is between Ashley and Claude Code; the pretty
+    // either (Plan Mode is between Alice and Claude Code; the pretty
     // view surfaces only THAT the prompt is open).
     //
     // Static ClipboardList (not a spinner) — the motion channel is
@@ -394,7 +394,7 @@ state hook (lines 101-103) but before the `wipActive` comment
     // waiting on the user's "1"/"2" Plan Mode reply, and `pending:
     // null` when the tool_result closes the pair. Only the presence
     // of a pending value drives the indicator — `planFilePath` is
-    // tracked but not displayed (Plan Mode is between Ashley and
+    // tracked but not displayed (Plan Mode is between Alice and
     // Claude Code; pretty view surfaces only THAT the prompt is open).
     const [planPending, setPlanPending] = useState<
       { planFilePath: string } | null
@@ -502,7 +502,7 @@ Post-execution checks:
    minification the count depends on Vite's mangler; anything ≥3 confirms
    the state machine landed).
 
-5. **Do NOT deploy.** Per Ashley's DEPLOY DISCIPLINE (tina.md):
+5. **Do NOT deploy.** Per Alice's DEPLOY DISCIPLINE (tina.md):
    deploy is a separate ask that requires explicit go-ahead. This
    patch joins the pending-batch-post-60 alongside #61 and #62;
    the batch deploy happens later with the mandatory deadman +

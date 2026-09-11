@@ -3,7 +3,7 @@
  * claude-session-server.ts (quick 260808-ohn / bounty
  * session-holding-layer1-detect-id-reset-not-exit).
  *
- * WHY THIS EXISTS (Ashley's design point 2):
+ * WHY THIS EXISTS (Alice's design point 2):
  *
  * The pre-refactor Layer 1 was an edge-triggered scan for the string
  * `<command-name>/exit</command-name>` inside a raw JSONL line. That
@@ -14,7 +14,7 @@
  *       reconnect — so every historical /exit line in the JSONL
  *       re-fires transitionToHolding("exit_marker"), flashing the
  *       SessionHoldingOverlay for a few seconds on every conversation-
- *       list revisit (Ashley empirically saw 14 arm+clear pairs in ~1h
+ *       list revisit (Alice empirically saw 14 arm+clear pairs in ~1h
  *       on a single session).
  *
  *   (b) /exit itself is not a reliable signal of "the tmux session is
@@ -133,7 +133,7 @@ export function isUserTurn(line: string): boolean {
  * True iff the line is a user turn AND its content contains BOTH the
  * `<command-name>/id</command-name>` tag AND the `<command-args>reset`
  * tag-prefix. The `<command-args>reset` check is intentionally a
- * PREFIX match (args STARTS with `reset`) so Ashley's freeform
+ * PREFIX match (args STARTS with `reset`) so Alice's freeform
  * explanations (e.g. `<command-args>reset because I want to change
  * roles</command-args>`) still fire.
  *

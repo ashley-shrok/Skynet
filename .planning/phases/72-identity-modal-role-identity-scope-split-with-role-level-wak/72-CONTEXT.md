@@ -3,9 +3,9 @@
 **Opened:** 2026-09-04
 **Vehicle:** GSD phase (discuss-phase → plan-phase → execute-phase)
 
-**Provenance:** This CONTEXT.md was seeded directly from the `/build` → `/open` shape file at `.planning/shapes/shape-identity-modal-scope-split.md` (opened + greenlit by Ashley 2026-09-04). All "What this is / Shape / Philosophy / Prior context / What-would-make-it-wrong / Scope edges" sections below are LOCKED decisions from that session — do NOT re-elicit.
+**Provenance:** This CONTEXT.md was seeded directly from the `/build` → `/open` shape file at `.planning/shapes/shape-identity-modal-scope-split.md` (opened + greenlit by Alice 2026-09-04). All "What this is / Shape / Philosophy / Prior context / What-would-make-it-wrong / Scope edges" sections below are LOCKED decisions from that session — do NOT re-elicit.
 
-The `/gsd:discuss-phase` step added: (a) canonical refs the planner needs, (b) code-context grounding for the four existing patterns this phase will mirror, and (c) a small set of implementation decisions surfaced during codebase probing that the shape file did not lock (add-wakeup UX, delete-wakeup UX, scope-switch memory storage, wire-protocol shape for role-scope CRUD, tab-label choice under each scope, race-handling for concurrent role-wakeup writes). All (c) items are LOCKED here with defaults grounded in existing patterns; Ashley can override any of them in one line before planning.
+The `/gsd:discuss-phase` step added: (a) canonical refs the planner needs, (b) code-context grounding for the four existing patterns this phase will mirror, and (c) a small set of implementation decisions surfaced during codebase probing that the shape file did not lock (add-wakeup UX, delete-wakeup UX, scope-switch memory storage, wire-protocol shape for role-scope CRUD, tab-label choice under each scope, race-handling for concurrent role-wakeup writes). All (c) items are LOCKED here with defaults grounded in existing patterns; Alice can override any of them in one line before planning.
 
 ---
 
@@ -40,7 +40,7 @@ Modal today has six tabs in the Telegram-style bottom icon-bar (patch #191). Tab
 
 Coordinator identities added later; a coordinator has no role document loaded, doesn't touch the shared work list in the normal way, has no meaningful where-we-left-off carry, and its one meaningful piece of state is the role-scoped schedules. Current modal opens on a coordinator → five of six tabs near-empty, and the tab that should carry its whole reason for existing is truthfully empty ("no scheduled wakeups") because it reads the wrong folder.
 
-Ashley pitched the reorganization in-conversation; five layout options were sketched and compared side-by-side with actor vs coordinator states. **Variant D — top scope switch — was chosen** (thumbs-up 2026-09-04, sketch HEAD `f5c8f459`).
+Alice pitched the reorganization in-conversation; five layout options were sketched and compared side-by-side with actor vs coordinator states. **Variant D — top scope switch — was chosen** (thumbs-up 2026-09-04, sketch HEAD `f5c8f459`).
 
 Design system notes carrying forward:
 - Modal's visual language is the pretty-view palette (`--color-pv-*` tokens), not general Skynet dark-mode tokens.
@@ -80,7 +80,7 @@ Design system notes carrying forward:
 - **`src/backend/claude-session/claude-session-server.ts`** — home of the `identity:list-wakeups` (L4953) and `identity:update-wakeup` (L5010) WS handlers. New role-scope handlers land here alongside them. `identity:list-bounties` (multi-identity role-scope pattern with SSH local vs remote branching) is the closest structural analog and worth referencing.
 - **`src/ui/api/claude-session-api.ts`** — wire type definitions for existing wakeup payloads (`IdentityListWakeupsPayload`, `IdentityUpdateWakeupPayload`, `IdentityWakeupsEvent`, `IdentityWakeupUpdatedEvent`) that will get role-scope siblings.
 - **`src/ui/api/identities-api.ts:22`** — the Phase 67 `coordinator: boolean` field on Identity type. Already threaded via `useIdentities()`; modal reads `identity.coordinator` to decide default scope on open. NO backend work needed for coordinator detection.
-- **`~/.claude/skills/id/SKILL.md`** § "Scheduled wake-ups" — spec format (interval / daily / weekly / one_shot), file locations (identity-scope at `~/.claude/identities/<name>/wakeups/<slug>.json`, role-scope at `~/.claude/roles/<role>/wakeups/<slug>.json`), authoring rule (agent NEVER creates a scheduled wake-up on own initiative; only per Ashley's authorization). The modal's add/edit/delete affordances DO NOT bypass this — they exist for Ashley to use, not for identities to programmatically populate; no code-side gate needed.
+- **`~/.claude/skills/id/SKILL.md`** § "Scheduled wake-ups" — spec format (interval / daily / weekly / one_shot), file locations (identity-scope at `~/.claude/identities/<name>/wakeups/<slug>.json`, role-scope at `~/.claude/roles/<role>/wakeups/<slug>.json`), authoring rule (agent NEVER creates a scheduled wake-up on own initiative; only per Alice's authorization). The modal's add/edit/delete affordances DO NOT bypass this — they exist for Alice to use, not for identities to programmatically populate; no code-side gate needed.
 
 ## Code context (existing patterns this phase mirrors)
 
@@ -155,7 +155,7 @@ Under Role view: "Role file" / "Bounties" / "History" / "Wakeups". Under Identit
 
 **Race handling for concurrent role-wakeup writes (LOCKED — decision):**
 
-Multiple identities of the same role could simultaneously write to `~/.claude/roles/<role>/wakeups/*.json` from different sessions. Match the existing bounty-write pattern: atomic write via `fs.writeFile` (which on Linux is atomic within a single file for the whole payload). Last-writer-wins semantics. No lockfile. Rationale: the write frequency for wakeup CRUD is low (Ashley-driven, not automated); the bounty pattern already accepts the same race and no incidents have surfaced; adding a lockfile is over-engineering for the actual write volume.
+Multiple identities of the same role could simultaneously write to `~/.claude/roles/<role>/wakeups/*.json` from different sessions. Match the existing bounty-write pattern: atomic write via `fs.writeFile` (which on Linux is atomic within a single file for the whole payload). Last-writer-wins semantics. No lockfile. Rationale: the write frequency for wakeup CRUD is low (user-driven, not automated); the bounty pattern already accepts the same race and no incidents have surfaced; adding a lockfile is over-engineering for the actual write volume.
 
 **Coordinator identity Identity-view behavior (LOCKED — decision):**
 
@@ -186,11 +186,11 @@ Planner may choose to piggyback on existing test files rather than add new ones 
 
 ## Deferred ideas (noted, not in scope for Phase 72)
 
-- **Global schedule dashboard** — a top-level view listing all schedules across all roles + all identities, sortable / filterable. Future phase if Ashley wants it.
+- **Global schedule dashboard** — a top-level view listing all schedules across all roles + all identities, sortable / filterable. Future phase if Alice wants it.
 - **Schedule scope conversion** — move an existing schedule from identity-scope to role-scope (or vice versa) without recreating. Simple file move, but UX needs thought. Future phase.
 - **Coordinator dispatch history tab** — a new artifact (per-coordinator log of what got routed where + when). Would be net-new backend + storage.
 - **Unified schedule editor across scopes** — a form that can create in either scope from the same UI (with a scope picker inside). Explicitly ruled out for Phase 72 per "picker-in-tab" scope edge.
-- **Role file tab under coordinator's Role view** — the current sketch shows this tab renders with an "not loaded — coordinators don't read the role file" empty state. Alternative: hide the tab for coordinators. Deferred until Ashley has seen the shipped version and can judge.
+- **Role file tab under coordinator's Role view** — the current sketch shows this tab renders with an "not loaded — coordinators don't read the role file" empty state. Alternative: hide the tab for coordinators. Deferred until Alice has seen the shipped version and can judge.
 - **Wakeup-scope conversion notification to peer identities** — none. Same rationale as bounty writes: peers pick up file changes on next scheduler poll.
 
 ---
@@ -202,6 +202,6 @@ The plan should be structured around **four waves** of work, each independent en
 1. **Backend wakeup CRUD parity** — add `identity-artifact-reader.ts` role-wakeup read (mirroring `readIdentityWakeups` + `readRoleFile` two-step), role-wakeup write / create / delete; add the 6 new WS wire types (4 role-scope + 2 identity-scope create/delete additions); test coverage per pattern. This is the widest-radius, lowest-visual-risk work — should land first.
 2. **Frontend wakeup-tab refactor** — extend `WakeupsTab.tsx` to accept a `scope: 'role' | 'identity'` prop and route its list/create/edit/delete calls to the right wire types based on scope. Add the sub-modal for create, the trash icon + confirm for delete. Test per-scope behavior. No modal-shell changes yet.
 3. **Scope switch + tab reshuffle in IdentityModal** — add the segmented control at the top of the modal body, the Zustand slice for scope memory, the coordinator-vs-actor default logic, the per-scope conditional tab list, wire the reshuffled bottom-bar. Update the 4 existing modal tests for the new default-tab logic. Add scope-switch tests.
-4. **Coordinator empty states + polish** — implement the informative empty states for coordinator Identity view (Wakeups + Handoff empty-with-caption). Visual pass against the sketch (variant D). Any Ashley UAT tweaks land here.
+4. **Coordinator empty states + polish** — implement the informative empty states for coordinator Identity view (Wakeups + Handoff empty-with-caption). Visual pass against the sketch (variant D). Any Alice UAT tweaks land here.
 
 Deploy as one atomic ship (per the box-maintainer standing directive about push-gate + coord-room-announce) after all four waves land and full suite is green.

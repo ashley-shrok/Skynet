@@ -182,7 +182,7 @@ The Step 0 grep-enumerate-first output was captured to `/tmp/93-05-sweep-hits.tx
 
 - **Found during:** Task 1 (Step 0 grep-enumerate-first enumeration).
 - **Issue:** Slice 4 explicitly preserved three comment sites in tabUtils.tsx (L30, L188, L349) that reference "RelayRoomSessionPane" as documentation of the retirement itself. Slice 4's Test 7 negative-match regex was widened to allow these as "legitimately reference the retired name." But Slice 5's acceptance grep is comment-inclusive AND targets ZERO hits — treating Slice 4's preserved comments as still-in-scope for the sweep.
-- **Fix:** Rewrote all three sites to name the retired concept ("standalone relay-room session pane", "standalone relay-room pane inline HERE") rather than the specific retired symbol name. Preserves the D-04 / D-06 Phase 93 reference markers per plan discipline (rules of engagement: "Preserve any Ashley-verbatim, Phase-XX-reference, or ticket-ID markers in the surrounding comment text").
+- **Fix:** Rewrote all three sites to name the retired concept ("standalone relay-room session pane", "standalone relay-room pane inline HERE") rather than the specific retired symbol name. Preserves the D-04 / D-06 Phase 93 reference markers per plan discipline (rules of engagement: "Preserve any user-verbatim, Phase-XX-reference, or ticket-ID markers in the surrounding comment text").
 - **Files modified:** `src/ui/shell/tabUtils.tsx` (3 sites).
 - **Commit:** `d15cba5b`.
 - **Rule alignment:** Rule 3 (blocking issue) — the plan explicitly says the retirement grep MUST return zero hits at task completion. Preserving Slice 4's exceptions would have blocked acceptance.

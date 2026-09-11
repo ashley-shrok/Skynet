@@ -23,7 +23,7 @@ created: 2026-08-18
 | Editor pane (monospace textarea + Save button + mtime conflict) | `GlobalFileTab.tsx` (whole file) | Reuse verbatim for text files |
 | Menu entry site | `PrettyConversationsPanel.tsx` L1613-1617 | Add fourth item `"Edit skills…"` right below `"Edit global files…"` |
 
-**Fast-path priority (shape file):** three selections max — menu → host → skill — then a tab click. This is Ashley's trigger; the whole UX is subordinate to it.
+**Fast-path priority (shape file):** three selections max — menu → host → skill — then a tab click. This is Alice's trigger; the whole UX is subordinate to it.
 
 ---
 
@@ -113,7 +113,7 @@ Every string below is prescriptive. Executor uses these verbatim. Tone: matter-o
 | ARIA `DialogTitle` (sr-only) | `Edit skills` |
 | Visible modal header title | `Edit skills` |
 
-**Menu-order rationale:** `Edit global files…` above, `Edit skills…` below — both live in the same section as file-editor tools. The two entries are visually indistinguishable (same font/size/color/hover); differentiation is by label only. Per Ashley's fleet UX preference, no icon, no keyboard shortcut hint, no "beta" badge.
+**Menu-order rationale:** `Edit global files…` above, `Edit skills…` below — both live in the same section as file-editor tools. The two entries are visually indistinguishable (same font/size/color/hover); differentiation is by label only. Per Alice's fleet UX preference, no icon, no keyboard shortcut hint, no "beta" badge.
 
 ### Selector labels
 
@@ -166,7 +166,7 @@ Where the editor pane would render, replace with a centered card containing:
 - **Body:** `This file isn't text and can't be edited here.` (14px regular, `#a89a80`)
 - **Layout:** vertical flex, `gap-2`, centered both axes, fills the editor-pane rectangle so height matches a loaded text file (no layout jump when switching tabs)
 
-Tab-bar treatment for non-text file tabs: **identical to text files** — same FileText icon, same label, same selected-pill treatment. Do NOT visually mark them as non-editable in the tab bar (per D-08 "appear as tabs (not hidden)"; Ashley wants zero pre-flight ceremony; the "can't edit" reveal happens on click).
+Tab-bar treatment for non-text file tabs: **identical to text files** — same FileText icon, same label, same selected-pill treatment. Do NOT visually mark them as non-editable in the tab bar (per D-08 "appear as tabs (not hidden)"; Alice wants zero pre-flight ceremony; the "can't edit" reveal happens on click).
 
 ### "New file" affordance (D-09 — Claude's Discretion; **prescribed here**)
 
@@ -179,9 +179,9 @@ Tab-bar treatment for non-text file tabs: **identical to text files** — same F
 
 ### Destructive actions
 
-Two destructive actions in this phase. Both use a **modal-in-modal confirmation** (a small centered card layered on top of the skill-editor modal, dimming it) — NOT `window.confirm` (this is user-initiated destruction of visible content and deserves a real design surface, not a native browser blocker Ashley cannot style; the mtime-conflict `window.confirm` above is inherited and different — it's an infrequent system-triggered clarification, not a user-triggered destruction).
+Two destructive actions in this phase. Both use a **modal-in-modal confirmation** (a small centered card layered on top of the skill-editor modal, dimming it) — NOT `window.confirm` (this is user-initiated destruction of visible content and deserves a real design surface, not a native browser blocker Alice cannot style; the mtime-conflict `window.confirm` above is inherited and different — it's an infrequent system-triggered clarification, not a user-triggered destruction).
 
-**Delete file (D-10, only explicit user confirmation Ashley requested):**
+**Delete file (D-10, only explicit user confirmation Alice requested):**
 
 | Element | Copy |
 |---------|------|
@@ -195,7 +195,7 @@ Two destructive actions in this phase. Both use a **modal-in-modal confirmation*
 | Error inline on failure | `Couldn't delete: {err.message}` (red text, dialog stays open) |
 | On success | Dialog closes; file removed from tab list; if it was the active tab, select the next tab to the right (or previous, or none if it was the last) |
 
-**Delete skill (D-11 — Ashley did NOT explicitly ask for a confirm here, but plain-editor philosophy + magnitude of destruction (removes folder + everything inside) warrants the same modal-in-modal shape; the philosophy anchor is "the user is trusted, editor is a fast tool, not a safety harness" — so we do NOT add extra guards like typing the skill name, but we do surface the blast radius with one click of friction):**
+**Delete skill (D-11 — Alice did NOT explicitly ask for a confirm here, but plain-editor philosophy + magnitude of destruction (removes folder + everything inside) warrants the same modal-in-modal shape; the philosophy anchor is "the user is trusted, editor is a fast tool, not a safety harness" — so we do NOT add extra guards like typing the skill name, but we do surface the blast radius with one click of friction):**
 
 | Element | Copy |
 |---------|------|

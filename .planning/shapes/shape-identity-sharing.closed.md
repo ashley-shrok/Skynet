@@ -61,7 +61,7 @@ There is also an existing per-user credential-sharing pattern in the codebase th
 
 **Out**
 - Revoke / un-share. Recipients keep their copy indefinitely. If they want to be rid of it, whatever normal "get this identity off my picker" path exists (or gets built) is the answer, not something in this feature.
-- Provenance display. No "shared by Ashley" tag on the recipient's card, no "shared with N users" tag on the source's card.
+- Provenance display. No "shared by Alice" tag on the recipient's card, no "shared with N users" tag on the source's card.
 - Multi-select. One recipient per pick; re-open the picker to hand it to another.
 - Recipient-side notification. The identity just appears next time they open their picker.
 - Sync of any kind between source and recipient after the hand-over.

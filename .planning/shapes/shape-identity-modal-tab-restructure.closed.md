@@ -5,7 +5,7 @@
 
 ## What this is
 
-The identity modal today has a tab set covering both role-scoped and identity-scoped surfaces of a loaded identity. Two of its tabs are internal plumbing (History, Handoff) that Ashley doesn't read, and both go away. In their place, a new Runbooks tab appears on the role side of the modal, reading from the role-scoped runbooks folder layout that landed in the prior session's formalization work. Clicking a runbook in that tab swaps the identity modal for a dedicated runbook-editor modal that mirrors the existing skills-editor modal — same list-picker + bottom tabs pattern, same lazy per-file read, same save mechanics — so runbooks get skills-parity editing affordances essentially for free. Closing the runbook modal returns the user to nothing (the identity modal is not restored); the swap-not-stack call is deliberate for v1 to dodge modal-on-modal interaction complexity. As part of the on-disk shape, the main runbook file is renamed from `<slug>.md` to `runbook.md`, mirroring the skills convention where the folder names the thing and the file inside it is a fixed sentinel.
+The identity modal today has a tab set covering both role-scoped and identity-scoped surfaces of a loaded identity. Two of its tabs are internal plumbing (History, Handoff) that Alice doesn't read, and both go away. In their place, a new Runbooks tab appears on the role side of the modal, reading from the role-scoped runbooks folder layout that landed in the prior session's formalization work. Clicking a runbook in that tab swaps the identity modal for a dedicated runbook-editor modal that mirrors the existing skills-editor modal — same list-picker + bottom tabs pattern, same lazy per-file read, same save mechanics — so runbooks get skills-parity editing affordances essentially for free. Closing the runbook modal returns the user to nothing (the identity modal is not restored); the swap-not-stack call is deliberate for v1 to dodge modal-on-modal interaction complexity. As part of the on-disk shape, the main runbook file is renamed from `<slug>.md` to `runbook.md`, mirroring the skills convention where the folder names the thing and the file inside it is a fixed sentinel.
 
 ## Shape
 
@@ -54,7 +54,7 @@ The identity modal today has a tab set covering both role-scoped and identity-sc
 
 **The identity modal today has its full pre-restructure tab set intact.** The prior UX-pass campaign bounty (4/8) touched runbook conceptualization but not the modal UI. Bounties 6/8 and 7/8 target other identity modal surfaces (composebox + queue tab, global files agents-may-edit); each is a separate bounty and separate phase.
 
-**The UX-pass campaign runs push-only during dev — no full builds, no `docker cp` fast-path, no deploy motion until every bounty in the campaign has landed and Ashley greenlights the ship gate.** This phase respects that: local scoped tests pass, commits push to origin, but no docker build and no container restart until the campaign-level ship greenlight fires.
+**The UX-pass campaign runs push-only during dev — no full builds, no `docker cp` fast-path, no deploy motion until every bounty in the campaign has landed and Alice greenlights the ship gate.** This phase respects that: local scoped tests pass, commits push to origin, but no docker build and no container restart until the campaign-level ship greenlight fires.
 
 ## What would make it wrong
 
@@ -92,7 +92,7 @@ The identity modal today has a tab set covering both role-scoped and identity-sc
 - Restore-identity-modal-on-close (the "back button" that reopens the identity modal at the Runbooks tab after closing the runbook editor). Not a v1 concern; if she wants it later, easy to add.
 - Runbooks tab appearing on identities whose role has no runbooks folder. Tab still renders — empty state carries the signal.
 - Cross-role runbook browsing (viewing another role's runbooks from within this identity modal). Runbooks are scoped to the loaded identity's role, full stop.
-- Deploy motion for this phase individually. It ships together with the rest of the UX-pass campaign when Ashley greenlights.
+- Deploy motion for this phase individually. It ships together with the rest of the UX-pass campaign when Alice greenlights.
 
 **Deferred (v2 or later, not this phase):**
 - Modal-on-modal upgrade if swap-not-stack proves annoying.
@@ -113,7 +113,7 @@ The identity modal today has a tab set covering both role-scoped and identity-sc
 
 **Handoff into `/gsd:discuss-phase`:** this shape file seeds CONTEXT.md. Don't re-elicit the "why + what + constraints" — it's all here. Discuss-phase focuses on refining implementation approach (probably: extract shared editor-modal helpers even at this phase? — likely no per the "tempting-but-no" note above; probably: rename ordering — do we ship the disk rename and id-skill update BEFORE the modal work so intermediate commits don't have contract drift? — worth deciding).
 
-**Ship constraint:** part of the UX-pass campaign. Commits + push + scoped tests only. No `docker build`, no `docker cp`, no `docker compose up --force-recreate`, no full-suite test run until every remaining campaign bounty lands and Ashley explicitly greenlights the ship gate.
+**Ship constraint:** part of the UX-pass campaign. Commits + push + scoped tests only. No `docker build`, no `docker cp`, no `docker compose up --force-recreate`, no full-suite test run until every remaining campaign bounty lands and Alice explicitly greenlights the ship gate.
 
 **Related bounties held open by this phase's ship gate:**
 - `identity-avatar-revert-completes-end-to-end` (Phase 86 follow-up — small backend patch)
@@ -139,7 +139,7 @@ Both should fold into a post-campaign followup phase OR into the last campaign b
 - **Shape §1: Identity modal — tab set change** — present · `NAV_SECTIONS_ROLE = [role, runbooks, bounties, role-wakeups]`; `NAV_SECTIONS_IDENTITY = [identity, identity-wakeups, telegram]`. History/Handoff data-fetch effects also removed — only comments about removal remain, no live code
 - **Shape §2: Runbooks tab body** — present · `RunbooksTab.tsx` renders bare list of runbook slugs, click-to-open, empty state "This role has no runbooks yet.", alphabetical sort, no per-row peek info
 - **Shape §3: Runbook editor modal** — present · Clone of `SkillsEditorModal` with runbook name + delete button + close in header, per-file lazy load, mtime-409 UX, add-file via `window.prompt`, bottom horizontal-scroll tab strip with FULL relative paths (verbatim `file.path`), reuses `SkillFileTab` directly
-- **Shape §4: On-disk data migration** — present · Explicitly scoped out of repo per shape's "Outside the repo" note — Ashley's manual pass post-close; no shape miss
+- **Shape §4: On-disk data migration** — present · Explicitly scoped out of repo per shape's "Outside the repo" note — Alice's manual pass post-close; no shape miss
 - **Shape §5: id-skill body update** — present · `substrate/skills/id/SKILL.md` § Storage says "The main markdown MUST be named `runbook.md`"; awareness-on-wake reflects new naming; storage path shows `runbook.md` sentinel
 - **Shape §6: Role file pointer update** — present · Explicitly scoped out of repo per shape's "Outside the repo" note; not judged as miss
 - **Shape §7: Stale-reference sweep** — present · Explicitly scoped out of repo per shape's "Outside the repo" note; not judged as miss
@@ -150,7 +150,7 @@ Both should fold into a post-campaign followup phase OR into the last campaign b
 - **Philosophy: no micro-editor on tab** — present · Row's only interaction is `onClick → onOpenRunbook`; no hover preview, no inline expand
 - **What would make it wrong: runbook editor not skills-parity** — present · Guarded — same save UX (`writeRunbookFile` with mtime), add-file via `window.prompt`, bottom tab strip with full relative paths, delete-confirm via `DeleteConfirmDialog` — all mirror skills
 - **What would make it wrong: Runbooks tab becoming a micro-editor** — present · Guarded — row is a plain button with `onClick`, no expand, no preview pane
-- **What would make it wrong: main runbook file staying as `<slug>.md`** — present · Backend reads `runbook.md` sentinel; id-skill contract updated; disk rename is Ashley's out-of-repo pass
+- **What would make it wrong: main runbook file staying as `<slug>.md`** — present · Backend reads `runbook.md` sentinel; id-skill contract updated; disk rename is Alice's out-of-repo pass
 - **What would make it wrong: id-skill body drift vs modal contract** — present · id `SKILL.md` § Storage explicitly requires `runbook.md`; matches backend path composition
 - **What would make it wrong: dead History/Handoff data-fetch machinery** — present · Wire types removed from `claude-session-api.ts` (see "History + Handoff wire types removed 2026-09-08"); no fetch effects remain in `IdentityModal`; only comments explaining the removal
 - **What would make it wrong: companion files in nested subfolders invisible** — present · Bottom tab strip renders each `file.path` verbatim (comment: "label is the FULL path relative to runbook root, e.g. `avatar-prompts/amelia.md` — verbatim `file.path`, not a basename extract"); enumerator uses `find -type f` recursive
@@ -169,4 +169,4 @@ None.
 
 ### Notes
 
-Byte-shape clone discipline is strongly documented throughout — comments reference specific line numbers in `skills-editor.ts`/`SkillsEditorModal.tsx` being mirrored. Notable structural echo: a `_structuralParity useMemo(() => null)` placeholder was retained solely to preserve import parity with skills modal, which is a curious but explicitly-noted parity artifact rather than functional behavior. The runbook editor uses a hardcoded blue hue (220) rather than the identity's hue — this matches the skills editor's posture and is called out as intentional for the swap-not-stack context ("no per-identity context in this top-level modal per D-06"). Backend gate hardening includes `ROLE_NAME_RE` + `RUNBOOK_NAME_RE` + `isSafeRelativePath` ALL firing before SSH connect, with a belt-and-suspenders `absPath` prefix assertion post-compose (defense-in-depth beyond what shape required). Test file for backend routes (1217 lines) is larger than the skills-editor test file (846 lines) — driven by role-404 case addition and 12+ SEC-labeled path-safety attack-input tests. The three actually-out-of-repo pieces (disk rename, role file pointer update, stale-reference sweep) are correctly recognized in the shape's own "Outside the repo" note as Ashley's manual pass and were properly excluded from judgment.
+Byte-shape clone discipline is strongly documented throughout — comments reference specific line numbers in `skills-editor.ts`/`SkillsEditorModal.tsx` being mirrored. Notable structural echo: a `_structuralParity useMemo(() => null)` placeholder was retained solely to preserve import parity with skills modal, which is a curious but explicitly-noted parity artifact rather than functional behavior. The runbook editor uses a hardcoded blue hue (220) rather than the identity's hue — this matches the skills editor's posture and is called out as intentional for the swap-not-stack context ("no per-identity context in this top-level modal per D-06"). Backend gate hardening includes `ROLE_NAME_RE` + `RUNBOOK_NAME_RE` + `isSafeRelativePath` ALL firing before SSH connect, with a belt-and-suspenders `absPath` prefix assertion post-compose (defense-in-depth beyond what shape required). Test file for backend routes (1217 lines) is larger than the skills-editor test file (846 lines) — driven by role-404 case addition and 12+ SEC-labeled path-safety attack-input tests. The three actually-out-of-repo pieces (disk rename, role file pointer update, stale-reference sweep) are correctly recognized in the shape's own "Outside the repo" note as Alice's manual pass and were properly excluded from judgment.

@@ -714,7 +714,7 @@ export function probeIdentityTrappedWork(
 
 | Old Approach | Current Approach | When Changed | Impact |
 |--------------|------------------|--------------|--------|
-| `.pv-meta` right-column with two count-badges + ready-dot in a row | `.pv-avatar` corner-anchored badges + spinner ring on `.pv-avatar::before` | Phase 48 Plan 05 (Ashley 2026-08-19) | This phase RESUMES the trajectory: `.pv-avatar` corners are the canonical slot for per-identity visual affordances. The trapped-work indicator inherits directly from this pattern. |
+| `.pv-meta` right-column with two count-badges + ready-dot in a row | `.pv-avatar` corner-anchored badges + spinner ring on `.pv-avatar::before` | Phase 48 Plan 05 (Alice 2026-08-19) | This phase RESUMES the trajectory: `.pv-avatar` corners are the canonical slot for per-identity visual affordances. The trapped-work indicator inherits directly from this pattern. |
 | Bounty-count showed pinned+needs-desk role-scoped counters | Bounty-count retirement — no per-row bounty visibility (users open the bounty modal instead) | Phase 104 (this phase) | Removes role-scoped smearing across identity rows. Frees both avatar corners; new indicator claims br only. |
 | Identity roster fetched via GET /identities every N seconds | Identity roster fetched once + coordinator/task overlays baked into the response; dynamic per-identity data (bounty counts, trapped work) polled via separate one-shot WS | Phase 67 (coordinator), Phase 80 (task), and Phase 26 (bounty-count polling) | Establishes the pattern this phase mirrors: static identity metadata on the REST payload, dynamic per-identity signals via lightweight WS poll stores. |
 

@@ -65,7 +65,7 @@ describe("PrettyViewLoadingOverlay — scrim class-list invariants (iOS hardenin
     expect(cls).toMatch(/(^| )absolute( |$)/);
     expect(cls).toMatch(/(^| )inset-0( |$)/);
     expect(cls).toMatch(/(^| )z-\[99\]( |$)/);
-    // Interaction blocking (Ashley's ask: block re-taps during boot)
+    // Interaction blocking (Alice's ask: block re-taps during boot)
     expect(cls).toMatch(/(^| )pointer-events-auto( |$)/);
     // Scrim visuals
     expect(cls).toMatch(/(^| )bg-black\/40( |$)/);

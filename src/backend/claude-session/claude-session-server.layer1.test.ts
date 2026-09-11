@@ -19,7 +19,7 @@
  *           final state holding.
  *   Case 3: History of only regular turns + a stray assistant line that
  *           quotes <command-args>reset. Expected: 0 arms, 0 clears
- *           (Ashley-bug regression guard).
+ *           (user-bug regression guard).
  *   Case 4: History contains a historical /exit user turn. Expected:
  *           0 arms, 0 clears (whole /exit path is gone from Layer 1).
  *   Case 5: While holding, non-user lines (assistant / tool_use /
@@ -204,7 +204,7 @@ describe("Layer 1 seam — Case 2: history ends on /id reset user turn", () => {
 
 // ── Case 3: regular user turns only + a stray assistant line quoting the tag
 
-describe("Layer 1 seam — Case 3: Ashley-bug regression guard (no /id reset anywhere)", () => {
+describe("Layer 1 seam — Case 3: user-bug regression guard (no /id reset anywhere)", () => {
   it("fires 0 arms and 0 clears; state stays 'active' throughout", () => {
     const state = makeState({ changeoverState: "active" });
     const { stubs, transitionToHolding, transitionFromHoldingToActiveSameFile } = makeHelpers(state);
@@ -250,7 +250,7 @@ describe("Layer 1 seam — Case 4: historical /exit user turn", () => {
     expect(state.changeoverState).toBe("active");
   });
 
-  it("fires 0 arms even for MULTIPLE historical /exit turns (Ashley empirically saw 14 arm+clear pairs in ~1h under the old detector)", () => {
+  it("fires 0 arms even for MULTIPLE historical /exit turns (Alice empirically saw 14 arm+clear pairs in ~1h under the old detector)", () => {
     const state = makeState({ changeoverState: "active" });
     const { stubs, transitionToHolding } = makeHelpers(state);
 
@@ -299,7 +299,7 @@ describe("Layer 1 seam — Case 5: while holding, only USER turns can clear", ()
   });
 
   it("tool_result USER turn (type:user with tool_result content) does NOT count as a user turn — it is an agent-side synthetic (2026-08-08 fix)", () => {
-    // Follow-up to the initial /id reset detector ship (patch #350): Ashley
+    // Follow-up to the initial /id reset detector ship (patch #350): Alice
     // reported that typing /id reset armed the overlay for ~1s then it went
     // away, even though the recycle was still in progress. Root cause: Claude
     // Code stores tool_result feedback with `type:"user"` and content as an

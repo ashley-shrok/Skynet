@@ -7,7 +7,7 @@ tags:
   - telegram-bridge
   - shared-source-of-truth
   - D-03
-  - ashley-locked
+  - user-locked
   - config-extraction
   - refactor
 dependencies:
@@ -29,7 +29,7 @@ key-files:
   modified:
     - src/backend/database/routes/voice.ts
 decisions:
-  - "D-03 (Ashley-locked) STT_URL + related media endpoints promoted from voice.ts inline consts to a shared TS module — closes the phase 79 ship-gate that says the bridge must read the same STT config Skynet reads."
+  - "D-03 (user-locked) STT_URL + related media endpoints promoted from voice.ts inline consts to a shared TS module — closes the phase 79 ship-gate that says the bridge must read the same STT config Skynet reads."
   - "MATRIX_HOMESERVER_BASE deferred to on-demand async resolver in this SAME module (getMatrixHomeserverBase) — NOT deferred to matrix_admin_creds. Rationale below in § Note on MATRIX_HOMESERVER_BASE."
   - "Refactor is byte-identical: no behavior change, no function signature change, all 37 pre-existing voice.test.ts tests remain green."
 metrics:
@@ -46,7 +46,7 @@ requirements:
 
 # Phase 79 Plan 02: Shared media-endpoints module — extraction of STT/TTS/VOICES URLs from voice.ts Summary
 
-One-liner: Extracted the four inline STT/TTS/VOICES URL constants from `voice.ts` into a new shared TS module (`src/backend/config/media-endpoints.ts`) plus an async `getMatrixHomeserverBase()` resolver, so both `voice.ts` (existing consumer) and the tg-bridge bridge-config-writer (Plan 04, next wave) pull their endpoints from a single source of truth — closes Ashley's D-03 ship-gate that forbids hardcoded Tailscale IPs from surviving into the bridge.
+One-liner: Extracted the four inline STT/TTS/VOICES URL constants from `voice.ts` into a new shared TS module (`src/backend/config/media-endpoints.ts`) plus an async `getMatrixHomeserverBase()` resolver, so both `voice.ts` (existing consumer) and the tg-bridge bridge-config-writer (Plan 04, next wave) pull their endpoints from a single source of truth — closes Alice's D-03 ship-gate that forbids hardcoded Tailscale IPs from surviving into the bridge.
 
 ---
 

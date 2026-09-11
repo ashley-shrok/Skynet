@@ -21,7 +21,7 @@ tech-stack:
   patterns:
     - "Backend-internal two-step (identity file → role: frontmatter → role artifact) — frontend contract stays (identityKey, hostId); the role name never crosses the wire"
     - "resolveRoleForIdentity + IDENTITY_KEY_RE defense-in-depth gate on extracted role — role is shell-interpolated into SSH exec commands, so re-validating with the same regex that guards identityKey is a hard requirement (threat T-22-01-01/02)"
-    - "No-fallback semantics: helper THROWS on missing role/frontmatter (D-CONTEXT LOCKED 2026-08-04 — Ashley: no such identities exist post-migration; graceful fallback = dead code = plan-checker BLOCK)"
+    - "No-fallback semantics: helper THROWS on missing role/frontmatter (D-CONTEXT LOCKED 2026-08-04 — Alice: no such identities exist post-migration; graceful fallback = dead code = plan-checker BLOCK)"
     - "Hoisted-slug-guard pattern: IDENTITY_SLUG_RE fires at the TOP of every bounty write helper so a bad slug can't slip past a LOCAL-branch path.join (mirrors deleteIdentityBounty's earlier pattern-drift call-out)"
 
 key-files:
@@ -103,7 +103,7 @@ _TDD gate sequence: RED test commit precedes GREEN feat commit (identity-artifac
 
 - **Reused existing js-yaml (^4.1.1)** — direct dependency at package.json:58, already used at src/backend/ssh/opkssh-auth.ts:14. Zero new packages; no legitimacy audit needed (T-22-01-SC accepted).
 - **Regex-bounded frontmatter parse** — `/^---\r?\n([\s\S]*?)\r?\n---/` bounds the js-yaml exposure and CRLF-tolerates identity files touched by Windows editors. Extraction returns null on any failure (missing block, missing role key, empty/non-string value, parse error); the caller decides fatality.
-- **THROW on missing role, never fall back** (D-CONTEXT LOCKED 2026-08-04) — matches Ashley's non-negotiable: no fleet identity lacks `role:` frontmatter post-migration; a silent empty result would hide data corruption instead of surfacing it. Tests 6, 14, 15 pin this behavior; the throw message includes the identityKey for grep-ability in ops logs.
+- **THROW on missing role, never fall back** (D-CONTEXT LOCKED 2026-08-04) — matches Alice's non-negotiable: no fleet identity lacks `role:` frontmatter post-migration; a silent empty result would hide data corruption instead of surfacing it. Tests 6, 14, 15 pin this behavior; the throw message includes the identityKey for grep-ability in ops logs.
 - **Defense-in-depth IDENTITY_KEY_RE re-validation on extracted role** — role is shell-interpolated into SSH exec commands; without the second gate a hostile role: value from a compromised identity file could inject shell code. Test 7 pins this.
 - **Local roles root env var: `ROLES_HOST_DIR`** — parallels `IDENTITIES_HOST_DIR`. Not yet set in production docker compose; when tina's box needs a role bind-mount, adding it becomes a compose-side change with no code work.
 
@@ -168,7 +168,7 @@ None — no new environment variables, no new npm packages, no dashboard configu
 
 **Wave 1 sibling (22-02 birth writes `role:` frontmatter)** does not consume this plan's helpers directly — it's additive on the write side. But its correctness gates SRIC-01's end-to-end value: without 22-02, freshly-birthed identities would fail `resolveRoleForIdentity`'s throw guard.
 
-**Manual UAT gate (deferred to Phase 22 UAT per ROADMAP):** Ashley clicking through IdentityModal → Bounties tab → seeing bounties from the role folder. Cannot be automated because it requires a real fleet identity + role folder pair on a live host.
+**Manual UAT gate (deferred to Phase 22 UAT per ROADMAP):** Alice clicking through IdentityModal → Bounties tab → seeing bounties from the role folder. Cannot be automated because it requires a real fleet identity + role folder pair on a live host.
 
 ---
 

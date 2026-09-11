@@ -132,7 +132,7 @@ None. This plan introduces zero new network surface, zero new auth paths, zero f
 - `useEditableFileEligibility` from `./use-editable-file-eligibility` — call once per rendered message, keyed on the message's stable event id + body. The returned `Set<string>` is checked inside the ReactMarkdown `<a>` component override to decide whether to render the sibling `<EditableFileAffordance>`.
 - `TAILNET_URL_RE_CLIENT` from `./editable-file-whitelist` if a synchronous URL-match check is needed anywhere outside the hook (e.g. to short-circuit rendering the affordance branch when no candidate URL is present in the message).
 
-**Whitelist maintenance:** if Ashley requests an extension addition or removal, **both** `src/ui/features/pretty-view/editable-file-whitelist.ts` **and** `src/backend/utils/editable-file-whitelist.ts` must change in the same commit. The Task 3 diff gate (`diff <(quoted strings of frontend) <(quoted strings of backend)` must remain empty) is the CI-visible protection against drift.
+**Whitelist maintenance:** if Alice requests an extension addition or removal, **both** `src/ui/features/pretty-view/editable-file-whitelist.ts` **and** `src/backend/utils/editable-file-whitelist.ts` must change in the same commit. The Task 3 diff gate (`diff <(quoted strings of frontend) <(quoted strings of backend)` must remain empty) is the CI-visible protection against drift.
 
 **Not touched by this plan (deferred to downstream plans):**
 - `ChatMessage.tsx` L395-417 `<a>` component override — Plan 40-04

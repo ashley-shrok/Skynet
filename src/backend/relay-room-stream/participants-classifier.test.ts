@@ -93,7 +93,7 @@ describe("classifyParticipants (module boundary)", () => {
   it("Test C3: table-lookup wins over `_human` suffix — pre-Phase-88 human with suffix-less mxid classifies as human", async () => {
     const suffixless = "@ashley:server";
     const deps = makeDeps(
-      new Map([[suffixless, { displayName: "Ashley", userId: "u-ash" }]]),
+      new Map([[suffixless, { displayName: "Alice", userId: "u-ash" }]]),
     );
     const result = await classifyParticipants([suffixless], deps);
     expect(result.humans.length).toBe(1);
@@ -118,12 +118,12 @@ describe("lookupHumansFromUsersTable (M4 fixup — 30s TTL cache)", () => {
 
   it("Test M4a: happy-path DB read builds mxid → {displayName, userId} map", async () => {
     dbFromMock.mockResolvedValueOnce([
-      { id: "u-1", username: "ashley", mxid: OWNER_MXID },
+      { id: "u-1", username: "alice", mxid: OWNER_MXID },
       { id: "u-2", username: "zebra", mxid: OTHER_HUMAN_MXID },
     ]);
     const map = await lookupHumansFromUsersTable();
     expect(map.size).toBe(2);
-    expect(map.get(OWNER_MXID)).toEqual({ displayName: "ashley", userId: "u-1" });
+    expect(map.get(OWNER_MXID)).toEqual({ displayName: "alice", userId: "u-1" });
     expect(map.get(OTHER_HUMAN_MXID)).toEqual({
       displayName: "zebra",
       userId: "u-2",
@@ -132,7 +132,7 @@ describe("lookupHumansFromUsersTable (M4 fixup — 30s TTL cache)", () => {
 
   it("Test M4b: rows with null/empty mxid are skipped", async () => {
     dbFromMock.mockResolvedValueOnce([
-      { id: "u-1", username: "ashley", mxid: OWNER_MXID },
+      { id: "u-1", username: "alice", mxid: OWNER_MXID },
       { id: "u-2", username: "no-mxid-yet", mxid: null },
       { id: "u-3", username: "empty-mxid", mxid: "" },
     ]);
@@ -151,7 +151,7 @@ describe("lookupHumansFromUsersTable (M4 fixup — 30s TTL cache)", () => {
 
   it("Test M4d (cache): second call within TTL returns cached result — DB read fires ONCE", async () => {
     dbFromMock.mockResolvedValueOnce([
-      { id: "u-1", username: "ashley", mxid: OWNER_MXID },
+      { id: "u-1", username: "alice", mxid: OWNER_MXID },
     ]);
     const first = await lookupHumansFromUsersTable();
     const second = await lookupHumansFromUsersTable();
@@ -164,10 +164,10 @@ describe("lookupHumansFromUsersTable (M4 fixup — 30s TTL cache)", () => {
 
   it("Test M4e (TTL expiry): cache expiry triggers a fresh DB read (30s+ elapsed)", async () => {
     dbFromMock.mockResolvedValueOnce([
-      { id: "u-1", username: "ashley", mxid: OWNER_MXID },
+      { id: "u-1", username: "alice", mxid: OWNER_MXID },
     ]);
     dbFromMock.mockResolvedValueOnce([
-      { id: "u-1", username: "ashley", mxid: OWNER_MXID },
+      { id: "u-1", username: "alice", mxid: OWNER_MXID },
       { id: "u-2", username: "new-human", mxid: OTHER_HUMAN_MXID },
     ]);
     const originalNow = Date.now;
@@ -195,7 +195,7 @@ describe("lookupHumansFromUsersTable (M4 fixup — 30s TTL cache)", () => {
     // Cache is NOT poisoned — a subsequent call should retry the DB, not
     // serve a stale empty for 30s.
     dbFromMock.mockResolvedValueOnce([
-      { id: "u-1", username: "ashley", mxid: OWNER_MXID },
+      { id: "u-1", username: "alice", mxid: OWNER_MXID },
     ]);
     const retry = await lookupHumansFromUsersTable();
     expect(retry.size).toBe(1);
@@ -204,10 +204,10 @@ describe("lookupHumansFromUsersTable (M4 fixup — 30s TTL cache)", () => {
 
   it("Test M4g (reset helper): __resetHumansLookupCacheForTests() drops cache — next call re-reads DB", async () => {
     dbFromMock.mockResolvedValueOnce([
-      { id: "u-1", username: "ashley", mxid: OWNER_MXID },
+      { id: "u-1", username: "alice", mxid: OWNER_MXID },
     ]);
     dbFromMock.mockResolvedValueOnce([
-      { id: "u-1", username: "ashley", mxid: OWNER_MXID },
+      { id: "u-1", username: "alice", mxid: OWNER_MXID },
     ]);
     await lookupHumansFromUsersTable();
     __resetHumansLookupCacheForTests();

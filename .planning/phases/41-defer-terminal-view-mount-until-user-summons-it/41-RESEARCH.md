@@ -426,7 +426,7 @@ The frontend `SessionState` mirror (`fleet-status-types.ts`) matches identically
 **Terminal's `isIdle` state is itself no longer updated by real-time WS frames as of Phase 34.** It is vestigial — initialized to `null` and never set to `true` or `false` via any active path. Terminal passes `null` to PrettyView for `isIdle` in practice.
 
 **PrettyView's `isIdle` consumers:**
-1. **Aside-arm trigger** (L1997): `if (prev === false && isIdle === true && pvIdentity != null)` — triggers `{type:"aside_arm"}` on PV WS. NOTE: aside auto-fire is currently DISABLED (L69-73 comment: "Ashley 2026-07-27: automatic aside triggering DISABLED"). The machinery exists but is not active.
+1. **Aside-arm trigger** (L1997): `if (prev === false && isIdle === true && pvIdentity != null)` — triggers `{type:"aside_arm"}` on PV WS. NOTE: aside auto-fire is currently DISABLED (L69-73 comment: "Alice 2026-07-27: automatic aside triggering DISABLED"). The machinery exists but is not active.
 2. **ComposeBox prop** (L2616): `isIdle={isIdle}` — ComposeBox uses it for idle-send queue dispatch gate.
 
 **WipBubble** — driven by `isWorking` from `session-working-store` (L785), NOT by the `isIdle` prop. This is already re-sourced and working correctly.

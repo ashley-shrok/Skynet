@@ -1,9 +1,9 @@
 # Phase 11 UAT Checklist — Skynet transformation: purge dead Skynet surfaces (first slice)
 
-**For:** Ashley
+**For:** Alice
 **Post-deploy validation of patch #138 (Phase 11 — Ship-of-Theseus first slice: landing swap + AppRail retirement + SettingsRow retirement + rail-view state-machine strip)**
-**Batch context:** Patch #138 is the FIRST Phase 11 patch. **DO NOT deploy standalone.** Batch with subsequent Phase 12+ purge patches per the fleet-standing "batch patches into meaningful deploys" rule (Ashley 2026-07-23) — see § Post-UAT deploy runbook at the bottom.
-**Deploy anchor:** term.example.com (production) — post-deploy, once Ashley greenlights the batch.
+**Batch context:** Patch #138 is the FIRST Phase 11 patch. **DO NOT deploy standalone.** Batch with subsequent Phase 12+ purge patches per the fleet-standing "batch patches into meaningful deploys" rule (Alice 2026-07-23) — see § Post-UAT deploy runbook at the bottom.
+**Deploy anchor:** term.example.com (production) — post-deploy, once Alice greenlights the batch.
 **Design source-of-truth:** `.planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-CONTEXT.md` (LOCKED — no re-litigation) + `~/.claude/identities/tina/tina.md` § Skynet direction (Ship of Theseus).
 
 **Trace commits (Phase 11 on `feat/tab-title-from-tmux`):**
@@ -24,7 +24,7 @@
 
 ## Sign-off (top-of-page so you can find it fast)
 
-- [ ] **All 🚨 items in Non-Negotiable sections (Desktop 1-10 + Mobile 11-17 + Cross-viewport 18-22) pass** → **greenlight patch #138 for the batched Phase 11+12 purge cluster deploy** OR **hold patch #138 in the batch** until the next grouped-semantic-unit is ready. Per the fleet-standing "batch patches into meaningful deploys" rule, THE DEFAULT ANSWER IS HOLD. Only greenlight standalone if there's a specific reason (Ashley wants to smoke-test the Skynet first-slice on prod before Phase 12+ lands, or something is actively broken in prod that Phase 11 fixes). Then help Tina pin patch #138: paste `.planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/skynet-patches.md` at the next ordinal position (patch #138 unless an interstitial pinned first — check via `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/skynet-patches.md | tail -3`). Bump the "ONE HUNDRED THIRTY-SEVEN numbered patches" line near the top of `skynet-patches.md` to "ONE HUNDRED THIRTY-EIGHT". Commit the pin (`docs(patches): pin patch #138 — Skynet transformation first slice`). Then `/close skynet-transformation-purge-dead-surfaces` on the Phase 11 bounty (or leave open if Phase 12+ is still ahead in the bounty's todo set).
+- [ ] **All 🚨 items in Non-Negotiable sections (Desktop 1-10 + Mobile 11-17 + Cross-viewport 18-22) pass** → **greenlight patch #138 for the batched Phase 11+12 purge cluster deploy** OR **hold patch #138 in the batch** until the next grouped-semantic-unit is ready. Per the fleet-standing "batch patches into meaningful deploys" rule, THE DEFAULT ANSWER IS HOLD. Only greenlight standalone if there's a specific reason (Alice wants to smoke-test the Skynet first-slice on prod before Phase 12+ lands, or something is actively broken in prod that Phase 11 fixes). Then help Tina pin patch #138: paste `.planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/skynet-patches.md` at the next ordinal position (patch #138 unless an interstitial pinned first — check via `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/skynet-patches.md | tail -3`). Bump the "ONE HUNDRED THIRTY-SEVEN numbered patches" line near the top of `skynet-patches.md` to "ONE HUNDRED THIRTY-EIGHT". Commit the pin (`docs(patches): pin patch #138 — Skynet transformation first slice`). Then `/close skynet-transformation-purge-dead-surfaces` on the Phase 11 bounty (or leave open if Phase 12+ is still ahead in the bounty's todo set).
 
 - [ ] **Any 🚨 item fails** → note the failing item and observed-vs-expected behavior. Decide by severity: if the failure is a visual regression only (wrong padding, minor color hue drift), mark it for a follow-up polish patch and consider the deploy conditionally-good. If the failure is functional (landing renders dashboard cards instead of PrettyLandingCard, AppRail visible, dead-surface panel renders at `#hosts` / `#admin` / `#snippets`, RDP row click doesn't open Guacamole, SettingsRow visible on mobile), route back to the specific Plan/Task via the "Failure → route-back" table.
 
@@ -39,7 +39,7 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone). Each 🚨 item 
 2. Mobile (iPhone) non-negotiable — items 11-17 (blocking)
 3. Cross-viewport regression — items 18-22 (blocking; Phase 6/7/10 behaviors that must survive)
 4. Failure → route-back table
-5. Post-UAT deploy runbook (only if everything's green AND Ashley greenlights the batch)
+5. Post-UAT deploy runbook (only if everything's green AND Alice greenlights the batch)
 
 ## Setup — one time
 
@@ -95,7 +95,7 @@ Work through top-to-bottom on BOTH viewports (desktop + iPhone). Each 🚨 item 
 
 - [ ] 🚨 **Click the pencil.** Expected: dialog opens with the filterable host list + optional session-name input + Cancel/Open buttons. Same modal as Phase 6/7/10. **If: nothing happens** → Plan 03 Task 3 (`992bee3`) accidentally broke the dialog-open state binding while dropping the settingsRowSlot prop. Grep PrettyConversationsPanel.tsx for `openNewSessionDialog` (or however Phase 10 named the state).
 
-### 8. No gear icon anywhere (Ashley's "no settings" lock)
+### 8. No gear icon anywhere (Alice's "no settings" lock)
 
 > **Contract:** CONTEXT.md § scope-fence discipline: "No settings UI anywhere. Not in this phase, not as a 'small mobile preferences pane,' not as a 'settings icon in the corner.' Zero." Every visible-UI entry point to any settings surface is gone.
 
@@ -145,7 +145,7 @@ Walk each of the four direct-hash-fragment probes below. For each: type the URL 
 
 - [ ] 🚨 **Look at the bottom of the mobile viewport.** No bottom nav bar with icons for Hosts / Snippets / Admin / etc. Only the safe-area padding from patch #126.
 
-### 15. No SettingsRow at the bottom of the pretty-conversations list (Ashley's "no settings" lock — the mobile enforcement)
+### 15. No SettingsRow at the bottom of the pretty-conversations list (Alice's "no settings" lock — the mobile enforcement)
 
 > **Contract:** Plan 03 Task 4 (`c3c84be`) deleted `src/ui/sidebar/SettingsRow.tsx`. Plan 03 Task 3 (`992bee3`) dropped the `settingsRowSlot` prop from PrettyConversationsPanel. There is no SettingsRow at the bottom of the mobile list anymore.
 
@@ -189,13 +189,13 @@ Walk each of the four direct-hash-fragment probes below. For each: type the URL 
 
 ## Sign-off
 
-| Item | Status | Ashley notes |
+| Item | Status | Alice notes |
 |------|--------|--------------|
 | 1-10 (Desktop non-negotiable) | ⬜ | |
 | 11-17 (Mobile non-negotiable) | ⬜ | |
 | 18-22 (Cross-viewport regression) | ⬜ | |
 
-**Ashley signature:** ______________  **Date:** ______________
+**Alice signature:** ______________  **Date:** ______________
 **Deploy verdict (circle one):** GOOD (batch #138 with Phase 12+) / STANDALONE-DEPLOY (against the default batching rule — explicit reason:____) / ROLLBACK
 
 ---
@@ -233,21 +233,21 @@ Walk each of the four direct-hash-fragment probes below. For each: type the URL 
 
 The fork's `CLAUDE.md` (in this repo root) still contains this line under `Deploy safety`:
 
-> "Every `docker compose up -d --force-recreate skynet` runs behind the 15-min deadman rollback timer (`/opt/skynet/.tmp-revert.sh`) — no exceptions, per Ashley 2026-07-03, even when she is at the keyboard."
+> "Every `docker compose up -d --force-recreate skynet` runs behind the 15-min deadman rollback timer (`/opt/skynet/.tmp-revert.sh`) — no exceptions, per Alice 2026-07-03, even when she is at the keyboard."
 
-**THIS CONSTRAINT WAS RETIRED FLEET-WIDE ON 2026-07-21.** Ashley's SSM-tmux-attach-via-SSH-over-SSM fallback (documented in `deploy-runbook.md` § "FALLBACK: tmux-attach via SSH-through-SSM") replaced the deadman's catastrophic-loss-recovery role. The fork's `CLAUDE.md` hasn't been updated yet; that update is a **SEPARATE OPEN BOUNTY** — `claude-md-15min-deadman-stale` — that will land in a Phase-12+ hygiene sweep. **Ignore the fork CLAUDE.md's 15-min deadman line. Use `~/.claude/identities/tina/deploy-runbook.md` as the authoritative source.**
+**THIS CONSTRAINT WAS RETIRED FLEET-WIDE ON 2026-07-21.** Alice's SSM-tmux-attach-via-SSH-over-SSM fallback (documented in `deploy-runbook.md` § "FALLBACK: tmux-attach via SSH-through-SSM") replaced the deadman's catastrophic-loss-recovery role. The fork's `CLAUDE.md` hasn't been updated yet; that update is a **SEPARATE OPEN BOUNTY** — `claude-md-15min-deadman-stale` — that will land in a Phase-12+ hygiene sweep. **Ignore the fork CLAUDE.md's 15-min deadman line. Use `~/.claude/identities/tina/deploy-runbook.md` as the authoritative source.**
 
-If Ashley asks "why aren't you arming the deadman before the recreate?" the answer is: "The deadman regime was retired 2026-07-21 per your call after patch #81's hidden-stock-shipped bug; the SSM fallback took over its role. See `~/.claude/identities/tina/deploy-runbook.md` § retired-deadman-regime for the full history."
+If Alice asks "why aren't you arming the deadman before the recreate?" the answer is: "The deadman regime was retired 2026-07-21 per your call after patch #81's hidden-stock-shipped bug; the SSM fallback took over its role. See `~/.claude/identities/tina/deploy-runbook.md` § retired-deadman-regime for the full history."
 
-### FLEET-STANDING BATCHING RULE (Ashley 2026-07-23) — patch #138 SHOULD NOT auto-deploy
+### FLEET-STANDING BATCHING RULE (Alice 2026-07-23) — patch #138 SHOULD NOT auto-deploy
 
-**"Batch patches into meaningful deploys — one patch ≠ one deploy."** Ashley called this out 2026-07-23 immediately after patch #135 landed (I keep reflexively recommending a deploy after every single fork patch, and every container recreate kills 20+ live WebSocket sessions across her open fleet). Phase 11 patches (patch #138 for the whole Phase 11 slice) **MUST NOT auto-deploy**. Batch them until:
+**"Batch patches into meaningful deploys — one patch ≠ one deploy."** Alice called this out 2026-07-23 immediately after patch #135 landed (I keep reflexively recommending a deploy after every single fork patch, and every container recreate kills 20+ live WebSocket sessions across her open fleet). Phase 11 patches (patch #138 for the whole Phase 11 slice) **MUST NOT auto-deploy**. Batch them until:
 
-- **Ashley explicitly says "deploy" for this batch,** OR
+- **Alice explicitly says "deploy" for this batch,** OR
 - **A grouped semantic unit is complete** (e.g., Phase 11 + Phase 12 landing together as "the visible-surface purge cluster" — the Phase 11 landing swap + AppRail retirement + Phase 12 dashboard/panel-file deletion + backend-route deletion together tell the "we deleted the Skynet client surfaces" story), OR
-- **Something is actively broken in production requiring an emergency patch ship** (Phase 11 doesn't fix anything broken in prod — it removes UI surfaces Ashley never uses — so this scenario does not apply).
+- **Something is actively broken in production requiring an emergency patch ship** (Phase 11 doesn't fix anything broken in prod — it removes UI surfaces Alice never uses — so this scenario does not apply).
 
-**The default answer is HOLD.** Do not treat "code-complete-clean" as "deploy-ready." Patch #138 sits in the batch queue behind whatever Phase 12+ purge patches ship next; the deploy notification to Ashley bundles all Phase 11 + Phase 12 changes into ONE UAT + ONE recreate + ONE pin.
+**The default answer is HOLD.** Do not treat "code-complete-clean" as "deploy-ready." Patch #138 sits in the batch queue behind whatever Phase 12+ purge patches ship next; the deploy notification to Alice bundles all Phase 11 + Phase 12 changes into ONE UAT + ONE recreate + ONE pin.
 
 ### CHECK-BEFORE-RECREATE ONE-LINER (from `~/.claude/identities/tina/tina.md` § learned preferences)
 
@@ -260,25 +260,25 @@ grep 'image:' /opt/skynet/docker-compose.yml | grep -q skynet-patched:local || \
 
 Idempotent — no-op when compose is already patched, corrects when it's been reverted. This one-liner is called out here because a naïve `docker compose up -d --force-recreate skynet` without this grep can silently ship stock upstream — the container reports healthy because stock IS functional, so there's no failure signal. That's the trap that bit patches #43 and #69 pre-retirement, and it stays a risk post-retirement because manual sed mistakes and any leftover pre-retirement `sleep 900` background processes could still rewrite the compose file. **Survived deadman retirement, stays in force per `~/.claude/identities/tina/tina.md` § learned preferences.**
 
-### ASHLEY PRE-WARN — first hard-refresh may white-screen
+### ALICE PRE-WARN — first hard-refresh may white-screen
 
 Per `~/.claude/identities/tina/tina.md` § learned preferences (2026-07-23, learned on the #131-#134 deploy during patch #133 write-up):
 
-> After `docker compose up -d --force-recreate skynet`, the FIRST hard-refresh may white-screen with `net::ERR_HTTP2_PROTOCOL_ERROR` on chunk loads. **The fix is close+reopen the tab, NOT a real deploy failure.** Symptom: two specific chunks (in Ashley's case `codemirror-*.js` + `file-preview-vendor-*.js`) fail with HTTP2_PROTOCOL_ERROR → white screen. Root cause: Caddy holds persistent upstream connections to the skynet container; when the container dies mid-fetch during recreate, the browser's existing H2 stream to Caddy sees the upstream fail and marks the stream broken client-side. Fix = close and reopen the tab (spawns a fresh H2 connection).
+> After `docker compose up -d --force-recreate skynet`, the FIRST hard-refresh may white-screen with `net::ERR_HTTP2_PROTOCOL_ERROR` on chunk loads. **The fix is close+reopen the tab, NOT a real deploy failure.** Symptom: two specific chunks (in Alice's case `codemirror-*.js` + `file-preview-vendor-*.js`) fail with HTTP2_PROTOCOL_ERROR → white screen. Root cause: Caddy holds persistent upstream connections to the skynet container; when the container dies mid-fetch during recreate, the browser's existing H2 stream to Caddy sees the upstream fail and marks the stream broken client-side. Fix = close and reopen the tab (spawns a fresh H2 connection).
 
-**When the deploy actually happens, PRE-WARN Ashley in the deploy notification message** that the first hard-refresh may white-screen and the fix is close+reopen. Do NOT jump to rollback on the first PROTOCOL_ERROR report. Verify chunks reachable from tailnet first (curl them from the box), then guide her through the tab-close-and-reopen.
+**When the deploy actually happens, PRE-WARN Alice in the deploy notification message** that the first hard-refresh may white-screen and the fix is close+reopen. Do NOT jump to rollback on the first PROTOCOL_ERROR report. Verify chunks reachable from tailnet first (curl them from the box), then guide her through the tab-close-and-reopen.
 
-### Deploy flow (only if Ashley explicitly greenlights an early Phase 11 standalone deploy against the default batching rule)
+### Deploy flow (only if Alice explicitly greenlights an early Phase 11 standalone deploy against the default batching rule)
 
 Per `~/.claude/identities/tina/deploy-runbook.md` steps 1-8. Summary in this order:
 
 1. **Apply + commit + push + build** — per deploy-runbook step 1. `git push` BEFORE build. The build script clones from GitHub; local-only commits cache-hit the frontend-builder layer. This is the trap that bit patches #43 and #69.
-2. **Ask Ashley for explicit go-ahead for THIS deploy window.** A distinct green light, not carried over from any earlier "go for it" that authorized the code change. Every build → deploy transition is a new "may I?" moment.
+2. **Ask Alice for explicit go-ahead for THIS deploy window.** A distinct green light, not carried over from any earlier "go for it" that authorized the code change. Every build → deploy transition is a new "may I?" moment.
 3. **Run the check-before-recreate one-liner** (see above).
 4. `cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`
 5. **Wait for `(healthy)`** — should be within 30s. Corroborate the patch shipped by grepping the deployed dist for the patch's signature bytes: `docker exec skynet grep -c 'PrettyLandingCard' /app/html/assets/*.js` should return ≥ 1 (if not, the frontend build layer cache-hit and stock shipped — rollback + re-push + re-build).
-6. **PRE-WARN Ashley in the deploy DM** about the first-hard-refresh white-screen risk; tell her the fix is close+reopen the tab.
-7. **Tell Ashley to test** by walking this checklist. On her "pin it" reply: paste `.planning/phases/11-.../11-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/skynet-patches.md`, bump the header count, commit the pin (`docs(patches): pin patch #138 — Skynet transformation first slice`).
+6. **PRE-WARN Alice in the deploy DM** about the first-hard-refresh white-screen risk; tell her the fix is close+reopen the tab.
+7. **Tell Alice to test** by walking this checklist. On her "pin it" reply: paste `.planning/phases/11-.../11-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/skynet-patches.md`, bump the header count, commit the pin (`docs(patches): pin patch #138 — Skynet transformation first slice`).
 8. **If broken**: manual rollback per deploy-runbook.md step 8 — `sudo sed -i 's|image: skynet-patched:local|image: ghcr.io/lukegus/skynet:latest|' /opt/skynet/docker-compose.yml && cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`. Then investigate.
 
 ---

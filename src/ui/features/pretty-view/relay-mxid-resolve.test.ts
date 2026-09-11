@@ -29,14 +29,14 @@ function makeIdentity(
 
 describe("relay-mxid-resolve — resolveMxidToIdentity", () => {
   it("Test 1: valid mxid + identityKey hit → colorHue + displayName from Identity", () => {
-    const ashley = makeIdentity("ashley", "Ashley", 200);
-    const byKey = new Map([["ashley", ashley]]);
+    const alice = makeIdentity("alice", "Alice", 200);
+    const byKey = new Map([["alice", alice]]);
 
-    const result = resolveMxidToIdentity("@Ashley:homeserver.example", byKey);
+    const result = resolveMxidToIdentity("@Alice:homeserver.example", byKey);
 
-    expect(result.identity).toBe(ashley);
+    expect(result.identity).toBe(alice);
     expect(result.colorHue).toBe(200);
-    expect(result.displayName).toBe("Ashley");
+    expect(result.displayName).toBe("Alice");
   });
 
   it("Test 2: valid mxid + no identity match → colorHue null + displayName is raw mxid", () => {
@@ -59,16 +59,16 @@ describe("relay-mxid-resolve — resolveMxidToIdentity", () => {
     expect(result.displayName).toBe("notanmxid");
   });
 
-  it("Test 4: identity match uses lowercased local-part (@Ashley:server matches identityKey 'ashley')", () => {
-    const ashley = makeIdentity("ashley", "Ashley", 42);
-    const byKey = new Map([["ashley", ashley]]);
+  it("Test 4: identity match uses lowercased local-part (@Alice:server matches identityKey 'alice')", () => {
+    const alice = makeIdentity("alice", "Alice", 42);
+    const byKey = new Map([["alice", alice]]);
 
     // Uppercase A — must still match via lowercasing
-    const result = resolveMxidToIdentity("@Ashley:server.tld", byKey);
+    const result = resolveMxidToIdentity("@Alice:server.tld", byKey);
 
-    expect(result.identity).toBe(ashley);
+    expect(result.identity).toBe(alice);
     expect(result.colorHue).toBe(42);
-    expect(result.displayName).toBe("Ashley");
+    expect(result.displayName).toBe("Alice");
   });
 });
 

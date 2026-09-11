@@ -279,7 +279,7 @@ src/ui/features/FullScreenAppWrapper.tsx:7: import { Dashboard } from "@/dashboa
 
 `src/ui/features/FullScreenAppWrapper.tsx:7` imports `Dashboard` from `@/dashboard/Dashboard.tsx`. FullScreenAppWrapper itself is consumed by ServerStatsApp, TunnelApp, DockerApp, GuacamoleApp, FileManagerApp, TerminalApp (all retained-UI feature wrappers). Deleting `dashboard/Dashboard.tsx` breaks FullScreenAppWrapper which breaks 6 retained feature apps. Options for Plan 04 executor:
 
-- **(a)** Delete FullScreenAppWrapper too. Requires Phase 13 audit — does the backend route `/host/<id>` full-screen surface reach FullScreenAppWrapper in Skynet? If backend routing renders these `*App` wrappers directly (bypassing AppShell tabs), the `<Dashboard>` inside is dead too and the whole chain can retire. If Ashley uses only the AppShell tabs, `/host/<id>` routes are dead — deletion safe.
+- **(a)** Delete FullScreenAppWrapper too. Requires Phase 13 audit — does the backend route `/host/<id>` full-screen surface reach FullScreenAppWrapper in Skynet? If backend routing renders these `*App` wrappers directly (bypassing AppShell tabs), the `<Dashboard>` inside is dead too and the whole chain can retire. If Alice uses only the AppShell tabs, `/host/<id>` routes are dead — deletion safe.
 - **(b)** Refactor FullScreenAppWrapper to render a warm-glass landing placeholder instead of `<Dashboard/>` (mirror the `PrettyLandingCard` swap from Phase 11 Plan 02 — same "delete not gate" pattern applied to a second surface).
 - **(c)** Defer entire `dashboard/` deletion to Phase 13 (couples the frontend deletion to the backend route audit).
 
@@ -425,7 +425,7 @@ $ grep -rn "commandPaletteShortcutEnabled" src/ui/AppShell.tsx
 
 **Reader semantics (verified by reading AppShell.tsx lines 280-363):**
 
-1. **State variable** at lines 282-286 (`useState<boolean>`) — reads localStorage seed on mount, defaults to `true` (per line 285: `v !== null ? v === "true" : true`). Ashley's Skynet users default to enabled.
+1. **State variable** at lines 282-286 (`useState<boolean>`) — reads localStorage seed on mount, defaults to `true` (per line 285: `v !== null ? v === "true" : true`). Alice's Skynet users default to enabled.
 2. **Gate expression** at line 343 inside the double-shift handler `useEffect`:
    ```
    if (now - lastShiftTime.current < 300 && commandPaletteShortcutEnabled)
@@ -454,7 +454,7 @@ Retention gate (what STAYS):
 - **`setCommandPaletteOpen`** (referenced on line 344) — RETAINED. This is the CommandPalette open-state setter defined elsewhere in AppShell; the double-shift path still calls it.
 - **Storage-event listener useEffect** at lines 352-363 — DELETED entirely (no writer means no event to listen for).
 
-**Result after commit:** Double-shift → open CommandPalette becomes UNCONDITIONAL. Ashley's user default was `true`, only accessible through the UserProfilePanel toggle that no longer exists → hardcoding it removes the gate without changing observable behavior.
+**Result after commit:** Double-shift → open CommandPalette becomes UNCONDITIONAL. Alice's user default was `true`, only accessible through the UserProfilePanel toggle that no longer exists → hardcoding it removes the gate without changing observable behavior.
 
 **Intermediate-state invariant:** After the atomic commit, no code path anywhere in `src/` references `commandPaletteShortcutEnabled` or `commandPaletteShortcutEnabledChanged`. Verified by Section K gates:
 
@@ -924,7 +924,7 @@ npm run build 2>&1 | tee /tmp/phase12-build.log
 grep -E "AppShell" /tmp/phase12-build.log    # capture size delta vs 75.43 kB baseline
 ```
 
-Modest additional bundle shrink expected. Not a fail gate — informational for Ashley's UAT review.
+Modest additional bundle shrink expected. Not a fail gate — informational for Alice's UAT review.
 
 ---
 

@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-08-10
 **Status:** Ready for planning
-**Source:** In-session design conversation with Ashley 2026-08-10 (post-Phase-29 UAT — reset button overlay flash surfaced the deeper Phase-29 sourcing gap)
+**Source:** In-session design conversation with Alice 2026-08-10 (post-Phase-29 UAT — reset button overlay flash surfaced the deeper Phase-29 sourcing gap)
 
 <domain>
 ## Phase Boundary
@@ -11,7 +11,7 @@
 
 **Concrete scope:**
 - Backend gains a single authoritative `pane_state` frame type that carries `{ state: "active" | "holding" | "dormant" | "inactive" | "error", reason?: string }`. Backend emits it on every WS attach (fresh clients get current truth) and on every state change.
-- Backend session-file parser learns to detect `/id reset` (and the `/id reset (...)` form with pasted text) in user turns; when seen, it triggers a `pane_state: holding` emission. **The user-turn message frame CONTINUES to render as a visible chat bubble in pretty view — Ashley's pre-existing HARD LOCK on slash-command visibility (see `claude-session-server.ts:1592-1597` comment: "slash commands must remain visible in pretty view. The state transition is orthogonal to whether the /id reset text renders as a chat bubble") is preserved.** Detection is a pure observation channel that emits the pane_state transition; it does NOT modify the message stream. Earliest real "recycling starts now" signal, replacing today's PID-death /exit-scan heuristic (which stays as a fallback for non-reset session death).
+- Backend session-file parser learns to detect `/id reset` (and the `/id reset (...)` form with pasted text) in user turns; when seen, it triggers a `pane_state: holding` emission. **The user-turn message frame CONTINUES to render as a visible chat bubble in pretty view — Alice's pre-existing HARD LOCK on slash-command visibility (see `claude-session-server.ts:1592-1597` comment: "slash commands must remain visible in pretty view. The state transition is orthogonal to whether the /id reset text renders as a chat bubble") is preserved.** Detection is a pure observation channel that emits the pane_state transition; it does NOT modify the message stream. Earliest real "recycling starts now" signal, replacing today's PID-death /exit-scan heuristic (which stays as a fallback for non-reset session death).
 - Existing frame types that today drive phase inference (`dormant`, `session_holding`, `session_holding_cleared`, `session_changed`, `inactive`) either retire outright or become internal implementation details of the pane_state emitter — the wire surface consolidates to one authoritative frame.
 - Frontend state machine (`usePaneResolvingMachine`) shrinks to consume exactly two inputs: `paneState` (last received value, or null) and `wsTransportState`. Truth table becomes trivial. All client-side entry-trigger machinery deletes: three entry-trigger effects (cold-mount, warm re-focus, PWA foreground), the `rearmSnapshotRef` pattern, the D-11 "message frame swaps to active" rule, the `backendFirstFrame` concept entirely, all ~10 `captureFirstFrame(...)` call sites, local state slots (`isHolding`, `dormant`, `waking`, `holdingTimeoutError`, etc.) that mirror phase-derived info.
 - Patch #381 (in-session frontend client-hint hack for the reset button) becomes redundant and gets deleted as part of this phase's diff.
@@ -48,7 +48,7 @@
 ### Backend observations feeding pane_state
 
 **→ holding** (in priority order):
-- Session-file parser sees `/id reset` in a user turn (the earliest real signal — /id reset lands in session.jsonl before Claude terminates). **Detection is a pure observation channel; the user-turn message frame is NOT suppressed — it renders normally per Ashley's pre-existing slash-command-visibility HARD LOCK (`claude-session-server.ts:1592-1597`).**
+- Session-file parser sees `/id reset` in a user turn (the earliest real signal — /id reset lands in session.jsonl before Claude terminates). **Detection is a pure observation channel; the user-turn message frame is NOT suppressed — it renders normally per Alice's pre-existing slash-command-visibility HARD LOCK (`claude-session-server.ts:1592-1597`).**
 - Fallback: existing PID-death detection + /exit scan (for crash / kill / manual exit / any non-reset termination).
 - Fallback: tmux pane scrape sees the harness's terminal death markers (backup for session-file lag).
 
@@ -72,7 +72,7 @@
 
 - Backend: add `pane_state` emitter as a new top-level layer that composes the existing dormancy / session_holding / session_changed / inactive detectors. Existing frame types can stay on the wire (backward compat with any in-flight clients) but frontend stops consuming them for phase inference.
 - Frontend: strip inference logic in one pass. `usePaneResolvingMachine` reduces to a trivial derivation. All `captureFirstFrame` call sites delete. Local state slots mirroring phase delete. Patch #381 deletes.
-- Parser `/id reset` detection: new test-first change in `src/backend/claude-session/session-file-parser.ts`. **Detect-and-emit only — do NOT suppress the user-turn message frame.** Ashley's pre-existing HARD LOCK on slash-command visibility in pretty view is preserved verbatim (`claude-session-server.ts:1592-1597`). Detection is an observation channel exposed alongside the normal parse output; the onLine consumer calls the pane_state emitter on the observation, and the message frame emits as it does today.
+- Parser `/id reset` detection: new test-first change in `src/backend/claude-session/session-file-parser.ts`. **Detect-and-emit only — do NOT suppress the user-turn message frame.** Alice's pre-existing HARD LOCK on slash-command visibility in pretty view is preserved verbatim (`claude-session-server.ts:1592-1597`). Detection is an observation channel exposed alongside the normal parse output; the onLine consumer calls the pane_state emitter on the observation, and the message frame emits as it does today.
 
 ### Overlay mount gates (LOCKED)
 
@@ -127,7 +127,7 @@
 ## Deferred Ideas
 
 - **Symptom 2 (mobile PWA foreground stuck in resolving):** same doctrine applies (kill client-state entry-triggers, trust backend truth), but the code paths are disjoint from Phase 30's parser + emitter work. Deserves its own phase after this one lands.
-- **Distinct warm-red UI for `inactive { reason: "holding_timeout" }`:** Phase 29's implementation retired the warm-red timeout-error variant. If Ashley wants it back later, add a `holding_timeout` variant to the pane_state enum or handle the reason field in the overlay. Out of scope here.
+- **Distinct warm-red UI for `inactive { reason: "holding_timeout" }`:** Phase 29's implementation retired the warm-red timeout-error variant. If Alice wants it back later, add a `holding_timeout` variant to the pane_state enum or handle the reason field in the overlay. Out of scope here.
 - **Retiring the legacy frame types entirely** (removing `session_holding` / `session_changed` / `dormant` / `inactive` from the wire): keep them alive for backward compat this phase. Deprecation is a follow-up once no client depends on them.
 
 </deferred>
@@ -135,4 +135,4 @@
 ---
 
 *Phase: 30-pane-state-backend-authoritative-no-client-inference*
-*Context gathered: 2026-08-10 via in-session design conversation with Ashley*
+*Context gathered: 2026-08-10 via in-session design conversation with Alice*

@@ -69,7 +69,7 @@ export interface IdentityBadgeProps {
 // hover-opacity-fade) is REMOVED entirely. Only the former `lg` treatment
 // renders (glass pill, 56px avatar left, name+title right, hue-driven
 // rim/glow, pv-identity-breathe 5s animation). The `size` prop is gone;
-// no default value, no branch. This ships Ashley's "one identity badge
+// no default value, no branch. This ships Alice's "one identity badge
 // treatment across terminal + pretty-view" decision.
 export function IdentityBadge({
   identityKey,
@@ -281,7 +281,7 @@ export function IdentityBadge({
   // Structured log (PV58-STRUCTURED-LOGGING, T-58-01-01 mitigation):
   // Explicit-field extraction ONLY — tabId + hasIdentity boolean. Do NOT
   // JSON.stringify the DragEvent (leaks React SyntheticEvent internals and
-  // fights the fleet logging directive Ashley 2026-08-11). No PII (no
+  // fights the fleet logging directive Alice 2026-08-11). No PII (no
   // displayName, no colorHue, no avatar url).
   const onDragStart = isDragSource
     ? (e: ReactDragEvent<HTMLElement>) => {
@@ -339,7 +339,7 @@ export function IdentityBadge({
     const handlePointerMove = onLongPress
       ? () => {
           // Any pointer movement while armed cancels the long-press.
-          // Ashley wants deliberate press, not accidental hover-slide.
+          // Alice wants deliberate press, not accidental hover-slide.
           clearTimer();
         }
       : undefined;

@@ -2,14 +2,14 @@
 
 **Gathered:** 2026-09-07
 **Status:** Ready for planning
-**Source:** In-session `/build feature-mode` → `/open` shape lock 2026-09-07 (greenlit `thumbs up` same session). Bounty `cosmetics-migrate-to-role` (pinned by Ashley 2026-09-07, item 1b in the reordered UX-pass campaign — upstream dependency carved out of `create-agent-modal-ux-pass` /open discussion). Shape file: `.planning/shapes/shape-cosmetics-migrate-to-role.md`.
+**Source:** In-session `/build feature-mode` → `/open` shape lock 2026-09-07 (greenlit `thumbs up` same session). Bounty `cosmetics-migrate-to-role` (pinned by Alice 2026-09-07, item 1b in the reordered UX-pass campaign — upstream dependency carved out of `create-agent-modal-ux-pass` /open discussion). Shape file: `.planning/shapes/shape-cosmetics-migrate-to-role.md`.
 
 <domain>
 ## Phase Boundary
 
 Move the four cosmetic frontmatter fields (`title`, `colorHue`, `voice`, `avatar`) from IDENTITY level to ROLE level as **defaults**, with the identity's own frontmatter fields becoming **overrides**. Mirrors how directives already inherit through the substrate (role baseline, identity narrows it). Six surface changes: role-file frontmatter grows the four cosmetic fields; backend loader overlays identity onto role; create-role dialog grows cosmetic authoring controls; new-session dialog loses those same controls; identity-edit modal gains explicit inherited/override affordances; tests updated across all four. Two documents move alongside code: substrate id-skill spec doc updates; avatar-generation runbook drops the stale Matrix-upload step.
 
-Phase-scoped narrowly: creation-time cosmetic authoring only for roles — post-creation role cosmetic EDIT is deferred (Ashley 2026-09-07 verbatim: *"I would leave this alone because I actually plan on breaking out the role level stuff into its own modal later, and that would be a good opportunity to add it."*). Migration of existing identity cosmetics up to role level is OUT of scope — whoever deploys handles by hand (this ships mechanism, not data motion).
+Phase-scoped narrowly: creation-time cosmetic authoring only for roles — post-creation role cosmetic EDIT is deferred (Alice 2026-09-07 verbatim: *"I would leave this alone because I actually plan on breaking out the role level stuff into its own modal later, and that would be a good opportunity to add it."*). Migration of existing identity cosmetics up to role level is OUT of scope — whoever deploys handles by hand (this ships mechanism, not data motion).
 
 </domain>
 
@@ -29,7 +29,7 @@ resolved_value = identity_frontmatter_value ?? role_frontmatter_value ?? null
 - Absent from both → `null` (as today for identities that have no cosmetic set).
 - `displayName` is EXCLUDED from this migration — stays per-identity always (it IS the per-identity unique name).
 
-Applies uniformly to all four fields. All four fields are structurally symmetric (Ashley 2026-09-07: "one shared image" for avatar — no per-identity generation within a role-defined style).
+Applies uniformly to all four fields. All four fields are structurally symmetric (Alice 2026-09-07: "one shared image" for avatar — no per-identity generation within a role-defined style).
 
 ### The six surface changes (LOCKED — from shape file § Shape)
 
@@ -93,16 +93,16 @@ Applies uniformly to all four fields. All four fields are structurally symmetric
 7. **Substrate id-skill spec document update.**
    - File: `~/.claude/roles/box-maintainer/id-skill-handoff.md` (per the "Reference files" list in the role file at box-maintainer.md L215).
    - Update the section describing identity frontmatter to reflect the new inheritance model: role-file frontmatter carries cosmetic defaults; identity-file frontmatter carries optional overrides; per-field resolution is `identity ?? role ?? null`; `displayName` stays per-identity always.
-   - Do NOT edit the id skill body itself (`~/.claude/skills/id/SKILL.md`) — that's Nicole/Ashley's fleet-substrate authorship territory (per box-maintainer.md § Fleet-substrate ownership 2026-09-02, id skill authorship transferred to this role, but the spec-doc + skill-body update is a follow-up motion coordinated separately with the Skynet distributor phase). For THIS phase, update only the role-owned handoff doc so future maintainers of this box know the new semantics.
+   - Do NOT edit the id skill body itself (`~/.claude/skills/id/SKILL.md`) — that's Nicole/Alice's fleet-substrate authorship territory (per box-maintainer.md § Fleet-substrate ownership 2026-09-02, id skill authorship transferred to this role, but the spec-doc + skill-body update is a follow-up motion coordinated separately with the Skynet distributor phase). For THIS phase, update only the role-owned handoff doc so future maintainers of this box know the new semantics.
 
 8. **Avatar-generation runbook update.**
    - File: `~/.claude/roles/box-maintainer/runbooks/avatar-flow.md`.
-   - Remove the Matrix media upload step (Ashley 2026-09-07 verbatim: *"'avatars also get uploaded to your Matrix homeserver' untrue, runbook that probably came from should be updated"*).
+   - Remove the Matrix media upload step (Alice 2026-09-07 verbatim: *"'avatars also get uploaded to your Matrix homeserver' untrue, runbook that probably came from should be updated"*).
    - No other content changes required unless collateral references break as a consequence of the Matrix-upload strip.
 
-### Migration is OUT of scope (LOCKED — Ashley 2026-09-07)
+### Migration is OUT of scope (LOCKED — Alice 2026-09-07)
 
-Ashley 2026-09-07 verbatim: *"Migration isn't part of the build. It's something that whoever deploys on this instance, and Stacy for her instance, would just need to do manually. and then there's no already-overridden problem anyway."*
+Alice 2026-09-07 verbatim: *"Migration isn't part of the build. It's something that whoever deploys on this instance, and Stacy for her instance, would just need to do manually. and then there's no already-overridden problem anyway."*
 
 Consequences for this phase:
 - No auto-lift-first-identity's-values-to-role-level code.
@@ -110,13 +110,13 @@ Consequences for this phase:
 - No "detect and warn" prompts in the UI about redundant overrides.
 - The build ships the MECHANISM (role cosmetics with identity override). Whoever deploys this on t1000 (me, tabitha, as part of the campaign's eventual ship gate) or T800 (Stacy, on her instance) does the data motion by hand: for each existing role, pick appropriate cosmetics, write them to the role file's frontmatter, and wipe the redundant identity frontmatter fields as part of that motion. This turns every existing identity into "explicitly overriding nothing" (empty cosmetic frontmatter → inherit from role) or "explicitly overriding X" (a value the migrator chose to keep as an intentional divergence).
 
-### Empty-role-cosmetics is not a scenario (LOCKED — Ashley 2026-09-07)
+### Empty-role-cosmetics is not a scenario (LOCKED — Alice 2026-09-07)
 
-Ashley 2026-09-07 verbatim: *"Rolls can't have empty cosmetics with the flows that we have set up, so it's not an issue to solve."*
+Alice 2026-09-07 verbatim: *"Rolls can't have empty cosmetics with the flows that we have set up, so it's not an issue to solve."*
 
 Post-migration + going forward, every role created via CreateRoleDialog carries cosmetics — the dialog requires them (planner: field-level required validation on title/colorHue/voice/avatar in CreateRoleDialog; missing values block form submission). Fall-through-to-null for the IdentityModal display case (role has nothing) is a defensive backstop only, not a designed UX — nothing in the identity edit modal shows a "inherited from role: (none)" affordance because that state does not occur in normal flows.
 
-### Test discipline (per campaign constraint — Ashley 2026-09-07)
+### Test discipline (per campaign constraint — Alice 2026-09-07)
 
 - Full suite (`npx vitest run`) does NOT run during this phase's execute step. Scoped runs only (`--related` on touched files, or targeted paths under `src/backend/claude-session/`, `src/backend/database/routes/`, `src/ui/sidebar/`, `src/ui/features/pretty-view/`).
 - `git push` IS authorized as the terminal step of this phase's execute (per campaign constraint: "farthest you'll get is pushing changes to remote and running scoped tests").
@@ -229,9 +229,9 @@ No external ADRs, specs, or PRDs cited by ROADMAP.md for this phase.
 ## Deferred / Out of Scope
 
 **Deferred to a future bounty (role-level modal breakout):**
-- Post-creation role cosmetic EDIT via UI (Ashley 2026-09-07 verbatim: *"I would leave this alone because I actually plan on breaking out the role level stuff into its own modal later, and that would be a good opportunity to add it."*). For Phase 86, roles are cosmetically authored ONCE at creation via CreateRoleDialog; subsequent changes require hand-editing the role file on disk. Whoever picks up the role-level modal bounty later adds a role-cosmetic-edit surface then.
+- Post-creation role cosmetic EDIT via UI (Alice 2026-09-07 verbatim: *"I would leave this alone because I actually plan on breaking out the role level stuff into its own modal later, and that would be a good opportunity to add it."*). For Phase 86, roles are cosmetically authored ONCE at creation via CreateRoleDialog; subsequent changes require hand-editing the role file on disk. Whoever picks up the role-level modal bounty later adds a role-cosmetic-edit surface then.
 
-**Deferred to whoever deploys (per Ashley 2026-09-07):**
+**Deferred to whoever deploys (per Alice 2026-09-07):**
 - Migration of existing identity cosmetics to role-level defaults. Manual work per instance: pick appropriate cosmetics, write to role file frontmatter, wipe redundant identity frontmatter fields. Applies to t1000 (tabitha handles at eventual campaign ship gate) and T800 (Stacy handles on her instance).
 
 **Deferred to later bounties in the campaign:**
@@ -244,7 +244,7 @@ No external ADRs, specs, or PRDs cited by ROADMAP.md for this phase.
 - `tts-speed-multiplier-per-instance` (side bounty spawned during `create-agent-modal-ux-pass` /open, NOT in the ordered campaign — pick up when campaign done or when routed).
 
 **Tempting-but-no (out of scope for this phase, per shape file § Scope edges):**
-- Per-identity avatar generation within a role-defined style (Ashley picked "one shared image" during /open — role owns one avatar, all inheriting identities show it).
+- Per-identity avatar generation within a role-defined style (Alice picked "one shared image" during /open — role owns one avatar, all inheriting identities show it).
 - Auto-lift-first-identity's-values-to-role-level during deploy (manual work, sits with deployer).
 - Redesign of the ColorPicker, VoicePicker, or avatar generator components themselves — reuse what already exists.
 - Extracting the avatar-generation flow into a standalone reusable component (only CreateRoleDialog consumes it post-phase; inline is fine — extraction later if a third caller emerges).
@@ -259,17 +259,17 @@ No external ADRs, specs, or PRDs cited by ROADMAP.md for this phase.
 <campaign_notes>
 ## Campaign Context (reordered UX-pass string — 7 bounties remaining as of 2026-09-07)
 
-Ashley 2026-09-07 verbatim on the campaign constraint:
+Alice 2026-09-07 verbatim on the campaign constraint:
 > "the farthest you'll get amongst any of this is pushing changes to remote and running scoped tests, but we're not going to be running the full test suite we're not going to be rebuilding we're not going to be deploying until we're done."
 
 Consequences enforced in this phase:
 - Execute step runs scoped tests only (`--related <files>` or targeted paths).
 - Phase ends at push. No `docker build`, no `docker compose up`, no `docker cp`, no full-suite gate.
-- No coord-room BEFORE/AFTER posts (there is no ship; the pushes go without coord posts per Ashley 2026-09-05 push-only rule).
+- No coord-room BEFORE/AFTER posts (there is no ship; the pushes go without coord posts per Alice 2026-09-05 push-only rule).
 - Every push runs `git pull --rebase origin feat/tab-title-from-tmux` first (multi-identity rule).
-- Ride-along ships: a peer's future `--force-recreate` may pick up my commits from origin. Ashley knows and has explicitly authorized this shape.
+- Ride-along ships: a peer's future `--force-recreate` may pick up my commits from origin. Alice knows and has explicitly authorized this shape.
 
-Reordered lineup (Ashley 2026-09-07, tabitha owns the order-keeping per Ashley's delegation):
+Reordered lineup (Alice 2026-09-07, tabitha owns the order-keeping per Alice's delegation):
 1a. `create-role-modal-ux-pass` — Phase 84 DONE (shipped locally, not deployed pending campaign ship gate).
 1b. **`cosmetics-migrate-to-role` — Phase 86 (this phase).** Upstream dependency carved out of `create-agent-modal-ux-pass` /open discussion.
 2. `create-agent-modal-ux-pass` — SHAPED (shape at `.planning/shapes/shape-create-agent-modal-ux-pass.md`), execution deferred until this phase lands.
@@ -279,6 +279,6 @@ Reordered lineup (Ashley 2026-09-07, tabitha owns the order-keeping per Ashley's
 6. `composebox-buttons-and-queue-tab-redesign`.
 7. `global-file-agents-may-edit-on-permission`.
 
-Ashley 2026-09-07 delegation (verbatim): *"after each build for this plan, you're going to reset yourself and then invoke the next build on the next bounty at the start of the next session"* and *"you're in charge of making sure that we continue with the plan and these bounties go in the right order."*
+Alice 2026-09-07 delegation (verbatim): *"after each build for this plan, you're going to reset yourself and then invoke the next build on the next bounty at the start of the next session"* and *"you're in charge of making sure that we continue with the plan and these bounties go in the right order."*
 
 </campaign_notes>

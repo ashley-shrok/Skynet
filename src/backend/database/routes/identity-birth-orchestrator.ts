@@ -15,7 +15,7 @@
  *   Step 5: send /id <name> then Enter
  *
  * Failure policy: any step failure emits step:N:failed + ended{ok:false,failedStep:N}
- * and STOPS. NO rollback. NO retry. NO cancel. (Ashley-locked, CONTEXT.md §Failure.)
+ * and STOPS. NO rollback. NO retry. NO cancel. (user-locked, CONTEXT.md §Failure.)
  *
  * tmux note: always -t <name> (plain). NEVER -t "=<name>" — tmux 3.4 exact-match
  * syntax errors on send-keys (Nelly §3).
@@ -101,12 +101,12 @@ export { ROLE_NAME_PATTERN };
 /**
  * Phase 22 SRIC-02 seed comment embedded in the pre-written identity file.
  *
- * REVISION 2026-08-04 (Ashley, at Task 2 checkpoint): Skynet no longer
+ * REVISION 2026-08-04 (Alice, at Task 2 checkpoint): Skynet no longer
  * SSH-invokes the relay-register block. Instead, we seed the identity file
  * with a plain-text HTML comment telling the wake-up agent to register a
  * Matrix relay account itself on first wake, then remove the comment.
  *
- * Style constraints (verbatim from Ashley):
+ * Style constraints (verbatim from Alice):
  *   - Do NOT say "Skynet" — agents don't know what that is (they see
  *     themselves as a fresh Claude Code agent on some box).
  *   - Do NOT reference id-skill section numbers (§2, §3) or the id-skill
@@ -375,7 +375,7 @@ const TMUX_SAFE_NAME_RE = /^[a-z][a-z0-9_-]*$/;
 //   avatar: <name>.<ext>    (always present when avatar bytes were written)
 //   ---
 //
-//   <!-- seed comment (Ashley-locked verbatim) -->
+//   <!-- seed comment (user-locked verbatim) -->
 //
 //   # <name>
 //

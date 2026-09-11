@@ -32,7 +32,7 @@ key-files:
 decisions:
   - "Option B (invisible Row 1 spacer skeleton) chosen over Option A (mode-conditional pt-N on primary wrapper) per RESEARCH recommendation: preserves geometry byte-for-byte via matching mb-[3px] + min-h-[44px]/min-h-8 conditional; no fine-tune of pt-N needed against QueuePlusTab's -top-N offset."
   - "Shape A (case-branch at PrettyView call site) chosen over Shape B (case-branch inside ComposeBox placeholder template): concentrates case-branch discipline alongside adjacent case-branched props (onOptimisticSend, canSend, mode)."
-  - "Placeholder capital-M `Message room…` locked (D-14 SOFT — matches harness template's `Message ${identityName}…` capitalization convention). Ashley's `message room` shorthand read as informal, not a design directive."
+  - "Placeholder capital-M `Message room…` locked (D-14 SOFT — matches harness template's `Message ${identityName}…` capitalization convention). Alice's `message room` shorthand read as informal, not a design directive."
   - "U+2026 ellipsis preserved by construction: the case-branch passes a plain string that gets interpolated into ComposeBox's existing template — the ellipsis character lives inside the template at ComposeBox.tsx:2773 and is never touched."
 metrics:
   duration_minutes: 7

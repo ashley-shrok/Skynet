@@ -8,11 +8,11 @@ dependency_graph:
     - Wave 4 completion (ebf0c43) — tree is code-complete on feat/tab-title-from-tmux; retired sidebar files deleted, F3-diag retired, tsc-clean, vitest at 499/503 (4 pre-existing failures documented in deferred-items.md)
   provides:
     - 10-BUILD-VERIFY-LOG.md — captures tsc + vitest + npm run build outputs for provenance; verdict PASS
-    - 10-UAT-CHECKLIST.md — Ashley's post-deploy walkthrough (19 non-negotiable items across Desktop/Mobile/Cross-viewport + 3 polish items + failure route-back table + deploy runbook)
+    - 10-UAT-CHECKLIST.md — Alice's post-deploy walkthrough (19 non-negotiable items across Desktop/Mobile/Cross-viewport + 3 polish items + failure route-back table + deploy runbook)
     - 10-PATCHES-MD-ENTRY.md — paste-ready patch #128 draft in the multi-commit-under-one-pin format Tina uses (matches patches #104/#105 convention)
     - Phase 10 marked complete-pending-deploy in STATE.md
   affects:
-    - No code changes; docs only. Phase 10 is now code-complete-pending-deploy on feat/tab-title-from-tmux, batched with the pending #123-#127 stack behind Ashley's morning greenlight.
+    - No code changes; docs only. Phase 10 is now code-complete-pending-deploy on feat/tab-title-from-tmux, batched with the pending #123-#127 stack behind Alice's morning greenlight.
 tech_stack:
   added: []
   patterns:
@@ -45,7 +45,7 @@ metrics:
 
 # Phase 10 Plan 05: Build-verify log + UAT checklist + patch #128 draft — Summary
 
-Delivered the final wave of Phase 10: full local build/test/tsc verification recorded to `10-BUILD-VERIFY-LOG.md`, Ashley's post-deploy walkthrough authored to `10-UAT-CHECKLIST.md`, and a paste-ready patch #128 draft written to `10-PATCHES-MD-ENTRY.md`. Phase 10 is code-complete-pending-deploy on `feat/tab-title-from-tmux`, batched behind Ashley's morning greenlight on the combined #123-#128 stack.
+Delivered the final wave of Phase 10: full local build/test/tsc verification recorded to `10-BUILD-VERIFY-LOG.md`, Alice's post-deploy walkthrough authored to `10-UAT-CHECKLIST.md`, and a paste-ready patch #128 draft written to `10-PATCHES-MD-ENTRY.md`. Phase 10 is code-complete-pending-deploy on `feat/tab-title-from-tmux`, batched behind Alice's morning greenlight on the combined #123-#128 stack.
 
 ## What Shipped
 
@@ -59,7 +59,7 @@ Three new docs files under `.planning/phases/10-pretty-conversations-visual-lang
 - `npm run build` — succeeds in 13.60s, no errors; only pre-existing large-vendor-chunk informational warnings.
 - AppShell bundle delta vs Phase 7 baseline: **+5,288 bytes** (+1.19%) — net effect of the new ~1006 LOC pretty-conversations component tree minus the 620 LOC of retired sidebar files. Terminal / index / backend bundles untouched by Phase 10.
 
-### 10-UAT-CHECKLIST.md — Ashley's post-deploy walkthrough
+### 10-UAT-CHECKLIST.md — Alice's post-deploy walkthrough
 
 Structure follows Phase 7's UAT format (numbered items with contract-block prefix, 🚨 blocking markers, sign-off table, failure route-back). Adapted for Phase 10:
 
@@ -74,7 +74,7 @@ Structure follows Phase 7's UAT format (numbered items with contract-block prefi
 
 Uses the multi-commit-under-one-pin format from patches #104/#105. Dense body covers:
 
-- Motivating gap (three-part, all Ashley-called): visual-language mismatch + mobile tap-bug inherited-and-abandoned + small-window sidebar-affordance regression.
+- Motivating gap (three-part, all user-called): visual-language mismatch + mobile tap-bug inherited-and-abandoned + small-window sidebar-affordance regression.
 - Fix summary: new `src/ui/features/pretty-conversations/` component tree, chunky rows with hue-ring avatars, ChatMessage-verbatim selected-row treatment, flat list, RDP sentinel at bottom.
 - Mobile + desktop pin mechanisms.
 - Compact pencil header replacing full-width CTA.
@@ -108,7 +108,7 @@ No route-back needed. Phase 10 is code-complete.
 - **Where:** `10-UAT-CHECKLIST.md` under "Post-UAT deploy runbook"
 - **What plan called for:** deploy runbook referencing the 15-min deadman (plan's frontmatter `truths` mentioned "batched behind 15-min deadman rollback")
 - **What shipped:** deploy runbook that acknowledges the deadman regime was retired 2026-07-21 (per user's explicit instruction: "the 15-min deadman regime was retired 2026-07-21. IGNORE it") and describes the current mechanical flow instead.
-- **Rationale:** the user's execute-phase brief explicitly directed to ignore CLAUDE.md's stale deadman bullet; the UAT checklist would be actively misleading if it instructed Ashley to check for a deadman that no longer exists. This is a Rule 2 "auto-add missing critical functionality" fix — the deploy runbook is a correctness requirement (following its instructions must actually deploy the patch correctly under the current regime).
+- **Rationale:** the user's execute-phase brief explicitly directed to ignore CLAUDE.md's stale deadman bullet; the UAT checklist would be actively misleading if it instructed Alice to check for a deadman that no longer exists. This is a Rule 2 "auto-add missing critical functionality" fix — the deploy runbook is a correctness requirement (following its instructions must actually deploy the patch correctly under the current regime).
 - **No code impact.** Docs-only.
 
 **2. [Rule 3 - Testability] Actual new-Phase-10 test count is 36, not 35**
@@ -157,15 +157,15 @@ All 5 waves shipped:
 | 4 | Retirement — delete ConversationsPanel + ConversationRow + NewSessionButton + prune Test 1 + F3-diag fully retired | `ebf0c43` (docs) |
 | 5 | Verify + UAT + patches-md draft | `[Wave-5 tip SHA]` (this commit) |
 
-**Ready for Ashley's morning greenlight on the batched #123-#128 deploy.** Post-greenlight sequence documented at the bottom of `10-UAT-CHECKLIST.md` (Post-UAT deploy runbook).
+**Ready for Alice's morning greenlight on the batched #123-#128 deploy.** Post-greenlight sequence documented at the bottom of `10-UAT-CHECKLIST.md` (Post-UAT deploy runbook).
 
-**What's next (after Ashley greenlights):**
+**What's next (after Alice greenlights):**
 
 1. Push `feat/tab-title-from-tmux` to origin.
 2. Build the image on the deploy host (`sudo docker build -t skynet-patched:local ~/skynet`).
 3. Recreate the container (`cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`).
 4. Wait for healthy.
-5. Ashley walks `10-UAT-CHECKLIST.md` items 1-19 on desktop AND iPhone.
+5. Alice walks `10-UAT-CHECKLIST.md` items 1-19 on desktop AND iPhone.
 6. If PASS: paste `10-PATCHES-MD-ENTRY.md` into `~/.claude/identities/tina/skynet-patches.md` (resolving the Wave-5 SHA placeholders), bump the patch count, commit the pin, `/close pretty-conversations-panel-redesign`.
 
 ## Known Stubs

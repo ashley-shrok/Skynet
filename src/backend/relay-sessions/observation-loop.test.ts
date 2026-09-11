@@ -631,7 +631,7 @@ describe("createObservationLoop", () => {
     expect(OBSERVATION_TICK_INTERVAL_MS).toBe(10_000);
     // Fixup quick-260910-hgs (2026-09-10). Boot-time first-tick jitter
     // window — kept separate from OBSERVATION_TICK_INTERVAL_MS so the
-    // Ashley ~20s cold-load fix does not perturb the steady-state 10s
+    // Alice ~20s cold-load fix does not perturb the steady-state 10s
     // cadence. Pinning the value protects both invariants at once.
     expect(INITIAL_TICK_JITTER_MS).toBe(500);
   });
@@ -677,7 +677,7 @@ describe("createObservationLoop", () => {
     // (2026-09-08): without boot jitter, all users' first ticks fire on
     // the very first scan pass; with jitter, users are spread across
     // [0, TICK_INTERVAL_MS). quick-260910-hgs (2026-09-10) tightened the
-    // spread window from 10s → 500ms to fix Ashley's ~20s cold-load, so
+    // spread window from 10s → 500ms to fix Alice's ~20s cold-load, so
     // the assertion values change but the intent is unchanged: three
     // users injected with three distinct rng fractions must produce
     // three distinct scheduled first-tick timestamps — the jitter code

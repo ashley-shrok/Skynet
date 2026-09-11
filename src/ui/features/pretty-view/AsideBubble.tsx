@@ -14,7 +14,7 @@
 // This component is purely presentational.
 //
 // The aesthetic is LOCKED per CONTEXT.md § Rendering (2026-07-26 —
-// verbatim from the aside-visual-snippet.js DevTools prototype Ashley
+// verbatim from the aside-visual-snippet.js DevTools prototype Alice
 // signed off on):
 //   - Identity-hue gradient background copied VERBATIM from ChatMessage
 //     assistant branch (ChatMessage.tsx L124-127) — semantically the
@@ -107,7 +107,7 @@ export function AsideBubble({
           // treatment. Border + glow are prop-driven so JIT cannot
           // pre-compile them as arbitrary-value Tailwind classes —
           // inline style is the correct mechanism (matches the
-          // aside-visual-snippet.js prototype Ashley signed off on).
+          // aside-visual-snippet.js prototype Alice signed off on).
           borderStyle: "solid",
           borderColor: "hsla(var(--pv-id-hue), 90%, 65%, 1)",
           borderWidth: `${borderWidthPx}px`,

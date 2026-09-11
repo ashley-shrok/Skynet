@@ -16,7 +16,7 @@ dependency_graph:
     - "PrettyView.tsx wired end-to-end: usePaneResolvingMachine mounted, all overlay mount gates flipped to phase-derived, watchdogs deleted, error overlay mounted, session-recycling-store publisher rewired, ComposeBox props rewired"
   affects:
     - "unblocks plan 29-05 (test suite audit — 19 existing PrettyView.test.tsx tests broken by mount-gate rewire are enumerated in this SUMMARY as 29-05's input)"
-    - "resolves Ashley's 2026-08-10 flicker complaint at the code layer (single spinner during phase === \"resolving\"; deterministic transitions to terminal phases)"
+    - "resolves Alice's 2026-08-10 flicker complaint at the code layer (single spinner during phase === \"resolving\"; deterministic transitions to terminal phases)"
 tech-stack:
   added: []
   patterns:
@@ -50,7 +50,7 @@ metrics:
 
 # Phase 29 Plan 04: PrettyView rewire to unified state machine Summary
 
-**One-liner:** Retired ~5 racing local state machines in PrettyView.tsx and rewired every overlay mount gate to derive from `usePaneResolvingMachine`'s `phase`, deleted the two wall-clock watchdogs SPEC req 5 bans (600000ms holding + 10s loading), retired the transient "Connecting…"/"Connection lost" text nodes, mounted PrettyViewErrorOverlay at `phase === "error"`, and rewired the session-recycling-store publisher + ComposeBox props to derive from `phase` — landing Ashley's 2026-08-10 flicker complaint at the code layer.
+**One-liner:** Retired ~5 racing local state machines in PrettyView.tsx and rewired every overlay mount gate to derive from `usePaneResolvingMachine`'s `phase`, deleted the two wall-clock watchdogs SPEC req 5 bans (600000ms holding + 10s loading), retired the transient "Connecting…"/"Connection lost" text nodes, mounted PrettyViewErrorOverlay at `phase === "error"`, and rewired the session-recycling-store publisher + ComposeBox props to derive from `phase` — landing Alice's 2026-08-10 flicker complaint at the code layer.
 
 ## What Was Built
 
@@ -282,7 +282,7 @@ Plan 29-05 owns the test audit. Every failing test is a mount-gate class failure
 
 - **handleRetry does NOT clear errorMessage.** The plan left this open ("if the executor decides errorMessage cleanup is needed too, add it in a follow-up (the plan does not require it)"). Chose to leave errorMessage untouched by the retry — the state is retained for debug/diag continuity (console-logged, referenced by "Connection closed" strings in the WS onclose handler which remains per D-13) but is no longer displayed to the user (the transient text nodes are retired; the error overlay carries its own fixed copy per D-08). Simpler than adding cleanup that may hide diagnostic state.
 - **ComposeBox outer mount-gate rewrite: preserving-current-behavior formulation.** The plan step 18 offered two shapes for the outer OR-chain (an ambitious four-way rewrite and a preserving-current-behavior three-clause flip). Chose the preserving-current-behavior formulation as the plan's reconsider clause explicitly suggested. `status === "streaming"` is unchanged (still gates the ComposeBox on live sessions); `status === "error"` → `phase === "error"` (source of truth flipped); `dormant` → `phase === "dormant"` (source of truth flipped). OR-chain structure kept verbatim.
-- **The `case "inactive":` holding_timeout branch fires captureFirstFrame("inactive").** The plan says "the state machine transitions phase to 'inactive'". Under this implementation, the pane loses the warm-red distinction that patch #122 introduced (recycle-failed shown as a distinct UI variant vs. plain inactive). This is documented in the deletion inventory and matches the plan's intent — if Ashley subsequently wants a distinct variant, a follow-up can add a new BackendFirstFrame member. Not tracked as a separate deviation because the plan explicitly retired holdingTimeoutError.
+- **The `case "inactive":` holding_timeout branch fires captureFirstFrame("inactive").** The plan says "the state machine transitions phase to 'inactive'". Under this implementation, the pane loses the warm-red distinction that patch #122 introduced (recycle-failed shown as a distinct UI variant vs. plain inactive). This is documented in the deletion inventory and matches the plan's intent — if Alice subsequently wants a distinct variant, a follow-up can add a new BackendFirstFrame member. Not tracked as a separate deviation because the plan explicitly retired holdingTimeoutError.
 
 ## Threat Flags
 

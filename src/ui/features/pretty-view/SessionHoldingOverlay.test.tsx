@@ -28,7 +28,7 @@
  *   A4: z-index below IdentityBadge (z-[101]) — overlay root carries
  *       `z-[99]`, NOT z-[110] or any value ≥ z-[101]. Supersedes patch
  *       #111 which had elevated the overlay to z-[110], covering the badge.
- *       Quick 260730-v9a reversed that: Ashley wants to see who's speaking
+ *       Quick 260730-v9a reversed that: Alice wants to see who's speaking
  *       and open the identity modal even mid-recycle.
  */
 

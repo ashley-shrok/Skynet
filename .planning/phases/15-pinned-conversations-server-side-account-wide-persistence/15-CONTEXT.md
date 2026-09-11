@@ -2,20 +2,20 @@
 
 **Gathered:** 2026-07-27
 **Status:** Ready for planning
-**Source:** Conversational agreement between Ashley and Tina 2026-07-27 (this session) after Ashley UAT-hit the bug: "pins are not working. they last only until i close the app." Followup-2 to patch #149 A/B/C. Tracker bounty: `~/.claude/identities/tina/bounties/skynet-transformation/` (folded into master per Ashley's one-project rule — conversation-list feature work is master, not sibling).
+**Source:** Conversational agreement between Alice and Tina 2026-07-27 (this session) after Alice UAT-hit the bug: "pins are not working. they last only until i close the app." Followup-2 to patch #149 A/B/C. Tracker bounty: `~/.claude/identities/tina/bounties/skynet-transformation/` (folded into master per Alice's one-project rule — conversation-list feature work is master, not sibling).
 
 <domain>
 ## Phase Boundary
 
-Move Ashley's pinned conversation IDs from Zustand in-memory state onto **server-side account-wide persistence** in the `skynet-data` SQLite volume, keyed to her authenticated user account. Fixes the concrete bug she hit 2026-07-27: pin a conversation, close the app (or the PWA on iPhone), reopen — pin is gone.
+Move Alice's pinned conversation IDs from Zustand in-memory state onto **server-side account-wide persistence** in the `skynet-data` SQLite volume, keyed to her authenticated user account. Fixes the concrete bug she hit 2026-07-27: pin a conversation, close the app (or the PWA on iPhone), reopen — pin is gone.
 
 ### What broke (root cause, verified in source)
 
-`pinConversation` and `unpinConversation` at `src/ui/state/conversation-store.ts:755-780` mutate `state.pinnedIds` in-memory only — no `localStorage`, no `sessionStorage`, no server write. Patch #137 wrapped a sessionStorage persistence layer around `activeSet` (`ACTIVE_SET_STORAGE_KEY` at conversation-store.ts:107-146, plus persist calls in `selectConversation`/`removeFromActiveSet`) but pinnedIds got NO persistence layer at all. Result: pinnedIds dies on tab close, browser close, hard-refresh, and PWA close — every one of Ashley's normal daily actions.
+`pinConversation` and `unpinConversation` at `src/ui/state/conversation-store.ts:755-780` mutate `state.pinnedIds` in-memory only — no `localStorage`, no `sessionStorage`, no server write. Patch #137 wrapped a sessionStorage persistence layer around `activeSet` (`ACTIVE_SET_STORAGE_KEY` at conversation-store.ts:107-146, plus persist calls in `selectConversation`/`removeFromActiveSet`) but pinnedIds got NO persistence layer at all. Result: pinnedIds dies on tab close, browser close, hard-refresh, and PWA close — every one of Alice's normal daily actions.
 
 ### What this phase delivers
 
-- **Server-side account-wide storage** for pinnedIds keyed to Ashley's authenticated user, living in the `skynet-data` SQLite volume alongside the existing user/identity records.
+- **Server-side account-wide storage** for pinnedIds keyed to Alice's authenticated user, living in the `skynet-data` SQLite volume alongside the existing user/identity records.
 - **A per-user endpoint** for reading + writing the pinnedIds set (GET returns current, PUT/POST replaces or mutates).
 - **Client-side store integration** in `conversation-store.ts`: fetch on init/mount, write on every `pinConversation`/`unpinConversation` call, optimistic UI, error-tolerant retry.
 - **Cross-device sync**: pinning on desktop shows up on iPhone (and vice versa) within one natural mount/poll cycle. No manual reload.
@@ -24,7 +24,7 @@ Move Ashley's pinned conversation IDs from Zustand in-memory state onto **server
 ### What this phase does NOT deliver (scope fences)
 
 - **No pin-ordering, pin-groups, pin-labels, or pin-metadata.** pinnedIds stays a flat Set of conversation IDs (fleet-row IDs from `fleetRowId(hostId, sessionName)` OR openTab IDs). Order in the pinned tier is determined by `computeSnapshot` iteration order as today, not by user drag/reorder.
-- **No multi-user features.** The endpoint contract must not assume single-tenant (401 for other users), but there's no admin view, no pin-sharing, no per-user isolation UI. Ashley is the only user.
+- **No multi-user features.** The endpoint contract must not assume single-tenant (401 for other users), but there's no admin view, no pin-sharing, no per-user isolation UI. Alice is the only user.
 - **No new visual affordances.** Existing pin action UI at `PinAction.tsx` and the tier rendering in `PrettyConversationsPanel.tsx` are untouched.
 - **No garbage collection of orphaned pinnedIds server-side (v1).** Orphaned IDs (host removed, session gone) are inert client-side per patch #149 A's snapshot iteration skip. Server can grow the set slowly; a v2 cleanup pass is deferred.
 - **No offline queue / durable client-side retry beyond "next mount / next mutation."** If the server is down when a pin fires, the optimistic UI update stands and the mutation retries on the next natural sync. No IndexedDB-backed queue, no exponential-backoff retry loop.
@@ -37,16 +37,16 @@ Move Ashley's pinned conversation IDs from Zustand in-memory state onto **server
 
 Locked from the 2026-07-27 conversation — do not re-litigate.
 
-### Bug + fix intent (Ashley greenlit both)
+### Bug + fix intent (Alice greenlit both)
 
 - The bug is real and reproducible: pins die on tab/PWA close. Root cause is in-memory-only `pinnedIds` (conversation-store.ts:755-780).
-- The fix is **server-side account-wide persistence**, not a localStorage stopgap. Ashley explicitly rejected the stopgap ("Let's do it right") — localStorage-only would have been a throwaway patch superseded by this work, and would not have synced desktop ↔ iPhone.
+- The fix is **server-side account-wide persistence**, not a localStorage stopgap. Alice explicitly rejected the stopgap ("Let's do it right") — localStorage-only would have been a throwaway patch superseded by this work, and would not have synced desktop ↔ iPhone.
 - The fix is **followup-2 to patch #149**. Patch #149 A made fleet-row pinning legal (removed openTabs-only guard); patch #149 B+C added the three-tier sort so pinned rows surface at the top. Followup-1 was the pruner fleet-aware fix (patch #150 A, shipped) and the URL-restore multi-tab glow (patch #150 C, shipped). This is the last piece: persistence.
 
 ### Data key + auth (locked)
 
 - The server-side pinnedIds set is keyed to the **authenticated Skynet user** via the existing identity auth (cookie jar / JWT bearer). This is the same auth path used by `/identities`, `/host/db/host`, `/user-preferences`, and every other authenticated Skynet endpoint.
-- Because Skynet is currently single-tenant (Ashley only), the practical set-size is one — but the endpoint contract MUST treat pinnedIds as per-user, not global. This future-proofs against multi-user + matches the existing user-preferences pattern.
+- Because Skynet is currently single-tenant (Alice only), the practical set-size is one — but the endpoint contract MUST treat pinnedIds as per-user, not global. This future-proofs against multi-user + matches the existing user-preferences pattern.
 
 ### Storage lives in `skynet-data` SQLite volume (locked)
 
@@ -70,7 +70,7 @@ Locked from the 2026-07-27 conversation — do not re-litigate.
 
 ### Bundle-mate discipline (locked — batch-until-triggers rule)
 
-- This phase's patches DO NOT ship immediately when the code lands. They batch with the pending `f9v + BTW + gm3` deploy queue (currently three-deep on `feat/tab-title-from-tmux`) OR ship as a solo deploy IF the pin bug is severe enough to trigger #3 ("actively broken in production Ashley is hitting") — TBD at deploy-recommendation time.
+- This phase's patches DO NOT ship immediately when the code lands. They batch with the pending `f9v + BTW + gm3` deploy queue (currently three-deep on `feat/tab-title-from-tmux`) OR ship as a solo deploy IF the pin bug is severe enough to trigger #3 ("actively broken in production Alice is hitting") — TBD at deploy-recommendation time.
 - Standard pre-warn applies (`HTTP2_PROTOCOL_ERROR` on first hard-refresh, close+reopen the tab spawns a fresh H2 connection).
 
 ### Anti-scope-creep held (per identity file § Skynet direction dead-surfaces canonical list)
@@ -107,7 +107,7 @@ The following design decisions are for the planner to lock during plan-phase. Re
 
 ### Migration of existing pinned state (planner locks)
 
-- Ashley's currently-in-memory pinnedIds are ALREADY dead per her report ("pins are not working"). There is no live data to migrate — first pin post-deploy writes fresh.
+- Alice's currently-in-memory pinnedIds are ALREADY dead per her report ("pins are not working"). There is no live data to migrate — first pin post-deploy writes fresh.
 - On rollout, the server-side pinnedIds set starts empty for her user; first pin writes creates the row/column. No migration script needed.
 
 ### Test coverage (planner scopes)
@@ -158,7 +158,7 @@ The following design decisions are for the planner to lock during plan-phase. Re
 
 ### Bounty tracker
 
-- `~/.claude/identities/tina/bounties/skynet-transformation/bounty.json` — master bounty for the Ship-of-Theseus movement (per Ashley's one-project rule). This phase's timeline entries land here, NOT in a sibling bounty.
+- `~/.claude/identities/tina/bounties/skynet-transformation/bounty.json` — master bounty for the Ship-of-Theseus movement (per Alice's one-project rule). This phase's timeline entries land here, NOT in a sibling bounty.
 
 </canonical_refs>
 
@@ -184,7 +184,7 @@ Not v1 — earned their way in later if pin usage patterns demand them.
 - **Server-side garbage collection of orphaned pinnedIds.** Client already skips orphans in snapshot iteration; server can accumulate.
 - **Offline-queue / durable client-side retry beyond next-sync.** No IndexedDB backing store, no exponential-backoff retry loop.
 - **Pin-sharing across users.** Skynet is single-tenant; endpoint contract is per-user for defense-in-depth but no sharing UI.
-- **Migration script for existing pinnedIds.** Ashley's in-memory pinnedIds are dead per her report; no live data to migrate.
+- **Migration script for existing pinnedIds.** Alice's in-memory pinnedIds are dead per her report; no live data to migrate.
 - **Real-time push (WebSocket) for cross-device sync.** v1 syncs on next mount / next mutation; if desktop ↔ iPhone latency proves intolerable, a WebSocket push on pinnedIds change is a natural v2 (the pretty-view WSS at port 30011 in `claude-session-server.ts` is the obvious vehicle).
 
 </deferred>
@@ -192,4 +192,4 @@ Not v1 — earned their way in later if pin usage patterns demand them.
 ---
 
 *Phase: 15-pinned-conversations-server-side-account-wide-persistence*
-*Context gathered: 2026-07-27 via conversational session with Ashley + Tina after Ashley UAT-hit the pin-persistence bug*
+*Context gathered: 2026-07-27 via conversational session with Alice + Tina after Alice UAT-hit the pin-persistence bug*

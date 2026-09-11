@@ -282,7 +282,7 @@ Non-negotiables (from 19-CONTEXT.md § Frontend player + § Cross-bubble Stop + 
     play(response) implementation:
     1. Guard: if `!response.ok` invoke `opts.onError?.(new Error(\`postSpeakStream returned ${response.status}\`))`; set `onErrorFired = true`; return early.
     2. Guard: if `!response.body` invoke `opts.onError?.(new Error("Response has no body"))`; return early.
-    3. Instantiate `audioContext = new AudioContext();` (or `new (window.AudioContext || (window as any).webkitAudioContext)()` for iOS Safari — patch #211 lesson; but modern iOS 14.5+ Safari has standard AudioContext, and the CONTEXT.md iOS spike already passed on Ashley's iPhone PWA, so plain `new AudioContext()` is sufficient unless typecheck complains).
+    3. Instantiate `audioContext = new AudioContext();` (or `new (window.AudioContext || (window as any).webkitAudioContext)()` for iOS Safari — patch #211 lesson; but modern iOS 14.5+ Safari has standard AudioContext, and the CONTEXT.md iOS spike already passed on Alice's iPhone PWA, so plain `new AudioContext()` is sufficient unless typecheck complains).
     4. `reader = response.body.getReader();`
     5. Declare `let headerBytes: Uint8Array | null = null; let header: RiffHeader | null = null; let nextStartTime = audioContext.currentTime + 0.02;` (20ms epsilon — small enough to be imperceptible, large enough to prevent underrun on the very first schedule).
     6. Enter async loop:

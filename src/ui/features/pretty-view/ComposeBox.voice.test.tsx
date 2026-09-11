@@ -177,11 +177,11 @@ describe("ComposeBox — Phase 16 voice flow", () => {
     expect(screen.getByRole("button", { name: "Send" })).toBeTruthy();
   });
 
-  it("Test 2 (Vehicle C v2 2026-08-01): mic and arm-idle COEXIST on non-empty text (Ashley 260729-3y1 lock: mic always reachable)", async () => {
+  it("Test 2 (Vehicle C v2 2026-08-01): mic and arm-idle COEXIST on non-empty text (Alice 260729-3y1 lock: mic always reachable)", async () => {
     // Vehicle C v2 (260801-75z): arm-idle affordance moved off the aux row
     // and onto each textarea. On non-empty primary text, three buttons
     // coexist: Mic (right-11), Arm-idle (right-21, one slot LEFT of mic),
-    // and Send (right-1). Ashley UX rule: mic must stay reachable
+    // and Send (right-1). Alice UX rule: mic must stay reachable
     // regardless of textarea contents so voice capture can start without
     // clearing input first. Empty text hides ONLY the arm-idle button —
     // mic and Send still render (Send disabled when nothing to send).
@@ -409,7 +409,7 @@ describe("ComposeBox — Phase 16 voice flow", () => {
 
   it("Test 11: While STT fetch is in flight (voice.state === 'transcribing'), Send button renders a spinning Loader2, no paper-plane, still disabled with aria-label='Send' (quick 260730-lur)", async () => {
     // Quick 260730-lur: during the 1-3s STT round-trip we render a spinning
-    // Loader2 in the send-button slot so Ashley gets in-button feedback that
+    // Loader2 in the send-button slot so Alice gets in-button feedback that
     // her Send-transcript tap registered. Freeze the transcribing state by
     // stubbing fetch with a never-resolving promise (overrides the beforeEach
     // default). afterEach's vi.unstubAllGlobals() cleans up.
@@ -456,7 +456,7 @@ describe("ComposeBox — Phase 16 voice flow", () => {
 
   it("Test 12: Idle regression guard — Send button renders the paper-plane inline SVG and NO animate-spin (patch #130 byte-preservation guard, quick 260730-lur)", async () => {
     // Idle branch (no MicButton click, voice.state === "idle") MUST still
-    // render the verbatim paper-plane inline SVG from Ashley's DevTools console
+    // render the verbatim paper-plane inline SVG from Alice's DevTools console
     // snippet (patch #130). Proves the spinner is scoped to the transcribing
     // branch and the paper-plane path is preserved byte-for-byte.
     render(<ComposeBox {...baseProps()} />);
@@ -470,7 +470,7 @@ describe("ComposeBox — Phase 16 voice flow", () => {
   });
 
   it("Test 13 (quick 260803-7vf): reset-while-recording glues transcript onto textarea body and dispatches `/id reset (glued)`", async () => {
-    // Ashley 2026-08-03: "if you are recording and you hit the reset button,
+    // Alice 2026-08-03: "if you are recording and you hit the reset button,
     // then it essentially combines the functionality of the send button when
     // you're recording and the functionality of the reset button." One click,
     // one motion, one dispatch. Fire sync fx immediately (patch #122 latency
@@ -537,7 +537,7 @@ describe("ComposeBox — Phase 16 voice flow", () => {
   it("Test 14 (quick 260803-7vf): reset-while-recording with STT failure falls back to dispatch with existing textarea body", async () => {
     // Locked design decision #4: reset ALWAYS dispatches when the user
     // pressed reset. STT failure MUST NOT produce a silent no-op — fall
-    // back to the existing textarea body so Ashley still gets a reset
+    // back to the existing textarea body so Alice still gets a reset
     // with contextual hint attached.
     vi.stubGlobal(
       "fetch",

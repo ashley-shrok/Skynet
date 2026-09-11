@@ -161,12 +161,12 @@ execution log (RED run: 3 fails / 11 pass; GREEN run: 14/14 pass).
 
 ## NOT shipped / next
 
-- **No on-device QA in this plan**. Ashley greenlights on-device
+- **No on-device QA in this plan**. Alice greenlights on-device
   visual verification (real iPhone PWA + desktop browser) separately.
   The full vitest suite covers the *behaviour* (delayed onClose +
   unmount safety); the *feel* of the 120ms flash is a human-eyes
   judgement that has to happen against a live build.
-- **No push, no `docker compose up`, no deploy**. Commit only. Ashley
+- **No push, no `docker compose up`, no deploy**. Commit only. Alice
   greenlights ship separately.
 - **No changes to `PrettyConversationRow.tsx`**: the row is the
   parent that mounts/unmounts the menu; its behaviour is unchanged

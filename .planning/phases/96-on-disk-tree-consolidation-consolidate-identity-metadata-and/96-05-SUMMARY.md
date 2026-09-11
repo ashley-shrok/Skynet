@@ -141,7 +141,7 @@ Step 7 text:
 ```
 7. ⚠️ **Verify the workspace exists** (`[ -d ~/fleet/identities/<name>/workspace ]`) before
    proceeding to dispatch. If the mkdir in step 3 failed silently (permissions / filesystem
-   full / anything), escalate to Ashley per § Failure and cleanup — do NOT retry, do NOT
+   full / anything), escalate to Alice per § Failure and cleanup — do NOT retry, do NOT
    proceed to dispatch. A missing workdir here means the actor's first launch would
    silently fall back to `$HOME`, which is not a supervised state.
 ```

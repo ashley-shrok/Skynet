@@ -159,7 +159,7 @@ Re-close after applying the unbiased general-purpose code-review pass (1 blocker
 - **Scope edge (IN): pick host → pick skill → see files as tabs** — present · Full path present exactly as described.
 - **Scope edge (IN): edit any text file inside the skill** — present · Ready+text branch renders the always-editable monospace textarea.
 - **Scope edge (IN): view any non-text file with a placeholder in place of the editor pane** — present · Non-text branch handled explicitly.
-- **Scope edge (IN): add a new file to the currently-open skill** — present · "+ Add file" + prompt + create endpoint; Ashley endorsed sub-path creation as intended.
+- **Scope edge (IN): add a new file to the currently-open skill** — present · "+ Add file" + prompt + create endpoint; Alice endorsed sub-path creation as intended.
 - **Scope edge (IN): delete a file with a confirmation prompt** — present · Trash2 in tab body → shared confirmation dialog → delete-file endpoint.
 - **Scope edge (IN): delete the currently-open skill** — present · Header Trash2 → shared confirmation dialog → delete-skill endpoint.
 - **Scope edge (IN): subfolder files show as flat tabs with path-relative labels** — present · Backend uses `find -type f -printf '%P'`; tab label renders `file.path` (not basename).
@@ -173,7 +173,7 @@ Re-close after applying the unbiased general-purpose code-review pass (1 blocker
 
 ### Additions (in the result, not in the shape)
 
-- Adding a new file into a not-yet-existing subfolder inside the skill works — typing a nested path into the "+ Add file" prompt creates the intermediate folder on the fly. The shape describes the file surface as flat but doesn't say whether creation into a new subfolder was in scope. **Ashley endorsed this pass 2 as intended.** — endorsed-as-drift
+- Adding a new file into a not-yet-existing subfolder inside the skill works — typing a nested path into the "+ Add file" prompt creates the intermediate folder on the fly. The shape describes the file surface as flat but doesn't say whether creation into a new subfolder was in scope. **Alice endorsed this pass 2 as intended.** — endorsed-as-drift
 
 ### Follow-ups
 

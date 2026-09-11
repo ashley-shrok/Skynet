@@ -149,7 +149,7 @@ completed: 2026-08-04
 
 # Phase 22 Plan 22-05: SRIC-05 — Chain create-role → create-identity Summary
 
-**When Ashley clicks Create on the `+ New role` modal with the `Then create an identity with this role` checkbox CHECKED (default), CreateRoleDialog now closes and NewSessionDialog opens with the newly-created role AND the picked host pre-filled (both stay editable). Chain does not fire when the checkbox is unchecked; NewSessionDialog stays closed. Pure frontend orchestration — zero backend surface.**
+**When Alice clicks Create on the `+ New role` modal with the `Then create an identity with this role` checkbox CHECKED (default), CreateRoleDialog now closes and NewSessionDialog opens with the newly-created role AND the picked host pre-filled (both stay editable). Chain does not fire when the checkbox is unchecked; NewSessionDialog stays closed. Pure frontend orchestration — zero backend surface.**
 
 ## Performance
 
@@ -240,7 +240,7 @@ _TDD gate sequence verified: RED test commit precedes GREEN feat commit for both
 
 ### No plan revisions
 
-Plan 22-05 was fully autonomous and needed no plan revisions or Ashley-in-the-loop checkpoints. Zero scope creep. Zero architectural decisions (Rule 4). All Rule 3 auto-fixes above were narrow implementation details, not shape changes.
+Plan 22-05 was fully autonomous and needed no plan revisions or user-in-the-loop checkpoints. Zero scope creep. Zero architectural decisions (Rule 4). All Rule 3 auto-fixes above were narrow implementation details, not shape changes.
 
 ### No unrelated fixes
 
@@ -261,19 +261,19 @@ Plan 22-05 was fully autonomous and needed no plan revisions or Ashley-in-the-lo
 None — no new environment variables, no new npm packages, no dashboard configuration, no backend routes.
 
 **Post-deploy manual verification (deferred to Phase 22 UAT per ROADMAP):**
-1. Ashley clicks `+ New role` in the panel header → CreateRoleDialog opens with the chain checkbox CHECKED (default from 22-04).
-2. Ashley picks a host, types a kebab-case role name + description, clicks Create → 201 response, CRD closes, **NSD opens with the picked host row highlighted AND the new role showing as the selected value in the Role dropdown**.
-3. Ashley confirms she can still change host and role in the NSD (fields are editable, not locked).
-4. Ashley fills out the rest of the identity-birth form (name, title, brief, avatar, voice, color), clicks Create → identity is birthed with the correct role.
-5. Ashley opens `+ New role` again, unchecks the checkbox, clicks Create → CRD closes and **NSD does NOT open** (chain skipped because checkbox was false).
-6. Regression: Ashley clicks the pencil `+ New agent` icon → NSD opens with a clean form, no host/role pre-filled from any prior chain flow.
+1. Alice clicks `+ New role` in the panel header → CreateRoleDialog opens with the chain checkbox CHECKED (default from 22-04).
+2. Alice picks a host, types a kebab-case role name + description, clicks Create → 201 response, CRD closes, **NSD opens with the picked host row highlighted AND the new role showing as the selected value in the Role dropdown**.
+3. Alice confirms she can still change host and role in the NSD (fields are editable, not locked).
+4. Alice fills out the rest of the identity-birth form (name, title, brief, avatar, voice, color), clicks Create → identity is birthed with the correct role.
+5. Alice opens `+ New role` again, unchecks the checkbox, clicks Create → CRD closes and **NSD does NOT open** (chain skipped because checkbox was false).
+6. Regression: Alice clicks the pencil `+ New agent` icon → NSD opens with a clean form, no host/role pre-filled from any prior chain flow.
 
 ## Next Phase Readiness
 
 **Phase 22 Wave 4 tail — no direct downstream consumers.** Plan 22-05 completes SRIC-05, the last requirement in the compound create-role → create-identity user journey. The chain works end-to-end from panel launcher click → CreateRoleDialog → chain callback → NewSessionDialog → identity birth (via Plan 22-02's birth flow).
 
 **Phase 22 remaining work (per ROADMAP):**
-- Phase 22 UAT (Ashley end-to-end verification against a live fleet host). This plan's contribution to UAT is the chain-flow steps above.
+- Phase 22 UAT (Alice end-to-end verification against a live fleet host). This plan's contribution to UAT is the chain-flow steps above.
 - Any Phase 22 rollup / phase-completion transition work.
 
 **Wave 4 dependency chain — all landed:**

@@ -1,7 +1,7 @@
 /**
  * contextpct-store.ts
  *
- * Phase 90 Wave 0 (D-10 delivery mechanism, Ashley 2026-09-08 D-03 waiver).
+ * Phase 90 Wave 0 (D-10 delivery mechanism, Alice 2026-09-08 D-03 waiver).
  *
  * Per-session in-memory shared map that carries the latest `contextPct: number | null`
  * value for each `(hostId, tmuxSession)` pair. Dual-written from the two
@@ -64,7 +64,7 @@ function buildKey(hostId: string | number, tmuxSession: string): string {
  * Structured logging is at `debug` level — this API fires ~every 3s per active
  * pane and can be high-volume; production log level typically excludes debug so
  * volume is bounded by default. NEVER JSON.stringify a SyntheticEvent or any
- * cross-cutting object here (fleet-wide logging directive, Ashley 2026-08-11).
+ * cross-cutting object here (fleet-wide logging directive, Alice 2026-08-11).
  */
 export function setContextPct(
   hostId: string | number,

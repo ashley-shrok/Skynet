@@ -14,7 +14,7 @@ orchestrator: tiffany
 
 ## Problem
 
-Ashley UAT report (verbatim): "all of the texts of the link of the file that you sent and all below it, like all the message bubbles and all the text in them, just jitters until I scroll, and it doesn't happen all the time. But the thing that seems to coincide with it is the pencil button kind of spazzing out and flipping between the pencil icon and the word edit."
+Alice UAT report (verbatim): "all of the texts of the link of the file that you sent and all below it, like all the message bubbles and all the text in them, just jitters until I scroll, and it doesn't happen all the time. But the thing that seems to coincide with it is the pencil button kind of spazzing out and flipping between the pencil icon and the word edit."
 
 Three independent bugs compounding:
 - **A**: extra `<span>Edit</span>` text label rendered next to the pencil icon on desktop — spec violation (UI-SPEC L124, SHAPE-03 idiom, and the component's own docstring all specify BARE pencil).
@@ -48,7 +48,7 @@ Full `npx vitest run` after each commit: **188 files / 2361 passed / 6 skipped /
 
 ## What was NOT done
 
-Per fleet directive (Ashley 2026-08-08: "sub-agents should not do deploys"), executor scope stopped at "code done, tests green, commits landed":
+Per fleet directive (Alice 2026-08-08: "sub-agents should not do deploys"), executor scope stopped at "code done, tests green, commits landed":
 
 - No `git push` (still local to tiffany tree).
 - No `npm run build:backend` / `npm run build` / `docker build`.

@@ -77,11 +77,11 @@ must_haves:
 ---
 
 <objective>
-Patch #146: build a prototype log-forwarder that mirrors frontend console.log/warn/error output to a server-side file greppable via `sudo docker exec skynet cat /tmp/skynet-console-forward.log`. Unblocks iOS-PWA reconnect debugging (patches #143 v1/v2 both shipped guesses because Ashley's iPhone-installed PWA console was unreachable).
+Patch #146: build a prototype log-forwarder that mirrors frontend console.log/warn/error output to a server-side file greppable via `sudo docker exec skynet cat /tmp/skynet-console-forward.log`. Unblocks iOS-PWA reconnect debugging (patches #143 v1/v2 both shipped guesses because Alice's iPhone-installed PWA console was unreachable).
 
-Purpose: give Tina + Ashley a side-channel signal path that DOES NOT share fate with the terminal WebSocket, so when the socket misbehaves, log output still gets through.
+Purpose: give Tina + Alice a side-channel signal path that DOES NOT share fate with the terminal WebSocket, so when the socket misbehaves, log output still gets through.
 
-Output: new frontend interceptor + backend POST endpoint + in-memory ring + best-effort file mirror with 5 MB rotation + nginx routing in both http/https configs + 2 tests. ~200 net new lines. NO deploy — batched with patch #145 for Ashley's next greenlight.
+Output: new frontend interceptor + backend POST endpoint + in-memory ring + best-effort file mirror with 5 MB rotation + nginx routing in both http/https configs + 2 tests. ~200 net new lines. NO deploy — batched with patch #145 for Alice's next greenlight.
 </objective>
 
 <execution_context>
@@ -171,7 +171,7 @@ Output: new frontend interceptor + backend POST endpoint + in-memory ring + best
     Frontend test (console-forwarder.test.ts, Vitest) — must prove the console-preservation invariant AND enqueue behavior. Assertions:
     - Test 1: Before calling initConsoleForwarder, capture `const originalError = console.error`. After init, call `console.error('probe-message')`. Assert (via vi.spyOn on the original — OR by asserting the message reaches the internal buffer AND the spy on `originalError` was called with 'probe-message'). The check that MUST hold: original method fires first, envelope is enqueued after. Achieve this by using vi.spyOn(console, 'error') BEFORE init — the spy captures the ORIGINAL, then initConsoleForwarder patches on top of the spy, so calling console.error hits the patch → the patch calls the (spied) original + enqueues.
     - Test 2: Call `console.log('one')`, `console.warn('two')`, `console.error('three')`. Assert the internal buffer (expose via a test-only `__getBuffer()` export OR via a getter passed as an argument to initConsoleForwarder for testability) contains 3 envelopes with matching level/msg and non-empty ts strings.
-    - Do NOT test the fetch/sendBeacon path — that requires DOM+network mocks and is not the load-bearing invariant for this prototype. The endpoint test in Task 1 covers the server side; end-to-end wire behavior is verified by Ashley post-deploy grepping the mirror file.
+    - Do NOT test the fetch/sendBeacon path — that requires DOM+network mocks and is not the load-bearing invariant for this prototype. The endpoint test in Task 1 covers the server side; end-to-end wire behavior is verified by Alice post-deploy grepping the mirror file.
     - Use fake timers to prevent the 500ms batch flush from firing real fetch during tests: `vi.useFakeTimers()` in beforeEach, `vi.useRealTimers()` in afterEach.
   </behavior>
   <action>
@@ -300,13 +300,13 @@ Output: new frontend interceptor + backend POST endpoint + in-memory ring + best
 </tasks>
 
 <verification>
-End-to-end phase check (Tina reviews before flagging for Ashley's next batch greenlight):
+End-to-end phase check (Tina reviews before flagging for Alice's next batch greenlight):
 
 1. **Wire disjointness confirmed:** grep both nginx configs for the /debug block; grep the backend for `app.use("/debug"` — the transport is HTTP POST through the edge proxy, disjoint from any /terminal or WebSocket location. When the terminal WS is misbehaving, the log wire is unaffected.
 
 2. **Auth gate confirmed:** manually inspect debug.ts — the `authenticateJWT` middleware is applied to POST /console-log identically to the compose-drafts pattern (compare side-by-side). Anonymous requests get 401.
 
-3. **Console preservation confirmed:** open the frontend test — the assertion that `originalError` was called with the probe message proves DevTools console output is preserved (Ashley + Tina still see logs in their browser DevTools normally, forwarding is additive).
+3. **Console preservation confirmed:** open the frontend test — the assertion that `originalError` was called with the probe message proves DevTools console output is preserved (Alice + Tina still see logs in their browser DevTools normally, forwarding is additive).
 
 4. **File-mirror best-effort confirmed:** the try/catch around fs.appendFileSync in debug.ts is present and calls apiLogger.error rather than rethrowing. Grep-confirm: `grep -A2 'appendFileSync' src/backend/database/routes/debug.ts` shows a catch handler.
 
@@ -316,13 +316,13 @@ End-to-end phase check (Tina reviews before flagging for Ashley's next batch gre
 </verification>
 
 <success_criteria>
-- Ashley (or Tina via docker-exec) can `sudo docker exec skynet cat /tmp/skynet-console-forward.log | tail` and see JSON lines of frontend console output after visiting term.example.com and doing anything that logs
+- Alice (or Tina via docker-exec) can `sudo docker exec skynet cat /tmp/skynet-console-forward.log | tail` and see JSON lines of frontend console output after visiting term.example.com and doing anything that logs
 - iPhone PWA close/background scenario: last batch of logs before backgrounding shows up in the file (sendBeacon delivery)
 - Terminal WS remains unaffected — no shared code path
 - All 5 tasks complete, all verify gates green, single atomic commit on current branch, ~200 lines net
-- No push, no deploy, no patches.md edit (batched with #145 for Ashley's next greenlight)
+- No push, no deploy, no patches.md edit (batched with #145 for Alice's next greenlight)
 </success_criteria>
 
 <output>
-Create `.planning/quick/260724-aoq-patch-146-log-forwarder-prototype-fronte/260724-aoq-SUMMARY.md` when done. Follow the standard summary template: what was built, what tests cover, exact commit SHA, any surprises hit during implementation (e.g., if the module-load env var read forced the refactor to a lazy getLogPath() called from within the handler — document it), and the deploy-batch note ("batched with patch #145 for Ashley's next greenlight; patches.md write-up deferred to deploy-recommendation time").
+Create `.planning/quick/260724-aoq-patch-146-log-forwarder-prototype-fronte/260724-aoq-SUMMARY.md` when done. Follow the standard summary template: what was built, what tests cover, exact commit SHA, any surprises hit during implementation (e.g., if the module-load env var read forced the refactor to a lazy getLogPath() called from within the handler — document it), and the deploy-batch note ("batched with patch #145 for Alice's next greenlight; patches.md write-up deferred to deploy-recommendation time").
 </output>

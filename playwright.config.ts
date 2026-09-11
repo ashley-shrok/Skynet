@@ -29,7 +29,7 @@ export default defineConfig({
         launchOptions: { args: ["--no-sandbox"] },
       },
     },
-    // Mobile emulation project — targets Ashley's real pain point (iPhone
+    // Mobile emulation project — targets Alice's real pain point (iPhone
     // 16 Pro Max chugs with 4-5 active sessions per bounty
     // hidden-pane-cost-mitigation-empirical-rotation). Playwright ships
     // the exact preset.

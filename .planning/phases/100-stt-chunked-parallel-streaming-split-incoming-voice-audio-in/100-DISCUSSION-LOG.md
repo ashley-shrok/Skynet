@@ -17,7 +17,7 @@
 | 1b | Keep current single-stream path for clips <10 s (empirically snappy already at 0.8-3.6 s), only chunk when parallelism helps | ✓ |
 
 **User's choice:** 1b (via "thumbs up" on tabitha's recommendation)
-**Notes:** Tabitha argued from benchmark data — 3 s → 0.8 s and 8 s → 3.6 s on single-stream today; adding chunker overhead to those clips makes UX worse. Ashley concurred.
+**Notes:** Tabitha argued from benchmark data — 3 s → 0.8 s and 8 s → 3.6 s on single-stream today; adding chunker overhead to those clips makes UX worse. Alice concurred.
 
 ---
 
@@ -42,7 +42,7 @@
 | 3c | Fail whole request → 502, user re-records | |
 
 **User's choice:** 3a (retry + marked gap) via thumbs-up
-**Notes:** Tabitha's rationale — voice input goes into a text field Ashley reviews before sending. A marked gap tells her "this section didn't transcribe — edit or re-record." Silent skip (3b) is dangerous — she might send an incomplete transcript unaware. Full failure (3c) means losing a 3-min rant to one transient network hiccup, user-hostile.
+**Notes:** Tabitha's rationale — voice input goes into a text field Alice reviews before sending. A marked gap tells her "this section didn't transcribe — edit or re-record." Silent skip (3b) is dangerous — she might send an incomplete transcript unaware. Full failure (3c) means losing a 3-min rant to one transient network hiccup, user-hostile.
 
 ---
 

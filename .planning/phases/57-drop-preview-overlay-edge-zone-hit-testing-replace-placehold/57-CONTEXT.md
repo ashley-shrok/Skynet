@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-08-28
 **Status:** Ready for planning
-**Source:** Direct-seeded from `.planning/shapes/shape-visual-session-management.md` §Vehicle notes Phase 2, plus Ashley's Phase 56 UAT observations (2026-08-28) that Phase 57 folds. Discuss-phase skipped per `/build` convention when the shape file already captures scope + philosophy + failure modes (precedent: Phase 53, Phase 56).
+**Source:** Direct-seeded from `.planning/shapes/shape-visual-session-management.md` §Vehicle notes Phase 2, plus Alice's Phase 56 UAT observations (2026-08-28) that Phase 57 folds. Discuss-phase skipped per `/build` convention when the shape file already captures scope + philosophy + failure modes (precedent: Phase 53, Phase 56).
 
 ## What this is
 
@@ -14,7 +14,7 @@ The SECOND of three phases delivering drag-drop session management on the deskto
 
 **Shape file philosophy that shapes this phase:**
 
-- **"Drag is the language."** The whole feature depends on drop-preview being accurate and responsive. If Ashley has to wonder where the session will land, the interaction is broken (shape §What would make it wrong).
+- **"Drag is the language."** The whole feature depends on drop-preview being accurate and responsive. If Alice has to wonder where the session will land, the interaction is broken (shape §What would make it wrong).
 - **"Snap-to-nearest-edge means anywhere in a cell that isn't dead center always shows a valid drop."** (shape §Shape para 4)
 - **The center dead zone exists so there is one path to closing a session** — closing is Phase 58's drag-badge-to-list. Center-drop must do NOTHING: no replace, no swap, no no-op-with-visual-feedback — just: release does nothing, no drop registered.
 
@@ -36,7 +36,7 @@ Post-#514 state (HEAD `60207d36`), the live drop mechanics are in `src/ui/shell/
 - `src/ui/lib/split-tree-url.ts` (293 lines) — URL round-trip (stays, no changes expected).
 - `src/ui/AppShell.tsx` — hosts the tree state, `onOpenSessionInTree` / `onDropRowInTree` handlers, portal-mount effect.
 
-## The two Phase-57-inherent gaps Ashley observed in Phase 56 UAT
+## The two Phase-57-inherent gaps Alice observed in Phase 56 UAT
 
 Phase 56 UAT (2026-08-28) confirmed drag-drop works end-to-end but surfaced two behaviors that Phase 57's whole point folds:
 
@@ -49,13 +49,13 @@ The `isDragOver` boolean flips off on `dragleave`, which fires every time the cu
 The bounding-rect guard has an advantage worth flagging: it's stateless (no counter to keep in sync), and combined with the always-mounted portal architecture (which already has `pointer-events` cascade quirks — see AppShell.tsx `tabNodesRef`), it's the most robust against React-tree/DOM-tree mismatches. Plan-phase to weigh the three.
 
 **Gap (b): edge-selection unpredictable near equidistant points.**
-`computeNearestEdge` runs at DROP TIME only, and the current placeholder overlay ("Drop to split") gives no visual signal about which edge will win. Near equidistant points (e.g. cursor near the pane's diagonal), Ashley cannot predict which edge she'll get until after release, which sometimes lands a split she didn't intend. This is inherent to Phase 56's minimum-viable geometry; Phase 57's live preview + edge-zone hit-testing directly fixes it — the coral overlay shows the incoming split BEFORE release, so if the wrong edge is highlighted, Ashley moves the cursor a few pixels and watches it snap to the intended edge.
+`computeNearestEdge` runs at DROP TIME only, and the current placeholder overlay ("Drop to split") gives no visual signal about which edge will win. Near equidistant points (e.g. cursor near the pane's diagonal), Alice cannot predict which edge she'll get until after release, which sometimes lands a split she didn't intend. This is inherent to Phase 56's minimum-viable geometry; Phase 57's live preview + edge-zone hit-testing directly fixes it — the coral overlay shows the incoming split BEFORE release, so if the wrong edge is highlighted, Alice moves the cursor a few pixels and watches it snap to the intended edge.
 
-Both gaps are what makes the shape file's "if Ashley has to wonder where the session will actually land, the interaction is broken" concrete.
+Both gaps are what makes the shape file's "if Alice has to wonder where the session will actually land, the interaction is broken" concrete.
 
 ## In-scope this phase
 
-1. **Edge-zone hit-testing with center dead zone.** Divide each pane into 5 zones by cursor position: left / right / top / bottom edge zones + center dead zone. The four edge zones each occupy the outer band along that edge; the center zone occupies the middle. Exact geometry (rectangular bands vs. diagonal-triangle wedges vs. distance-to-edge threshold) is a plan-phase decision — the shape file locks the *behavior* (nearest-edge everywhere except center = no drop), not the *geometry* of the zones. Recommend rectangular bands with a % threshold: edge zones = outer 40% of the pane on each axis (top 40% of height for top zone, etc.), overlapping corners resolved by shortest-distance tiebreak; center = the remaining inner ~20% × ~20% rectangle. Plan-phase to lock the percentages against the prototype and Ashley taste.
+1. **Edge-zone hit-testing with center dead zone.** Divide each pane into 5 zones by cursor position: left / right / top / bottom edge zones + center dead zone. The four edge zones each occupy the outer band along that edge; the center zone occupies the middle. Exact geometry (rectangular bands vs. diagonal-triangle wedges vs. distance-to-edge threshold) is a plan-phase decision — the shape file locks the *behavior* (nearest-edge everywhere except center = no drop), not the *geometry* of the zones. Recommend rectangular bands with a % threshold: edge zones = outer 40% of the pane on each axis (top 40% of height for top zone, etc.), overlapping corners resolved by shortest-distance tiebreak; center = the remaining inner ~20% × ~20% rectangle. Plan-phase to lock the percentages against the prototype and Alice taste.
 
 2. **Live coral-tinted drop-preview overlay tracking the cursor.** Replace the placeholder "Drop to split" static overlay with a rectangle that:
    - Renders at HALF the target pane's dimensions along whichever edge zone the cursor is currently in (e.g. cursor in top zone → overlay is the top half of the pane).
@@ -101,9 +101,9 @@ Files that stay untouched:
 
 ## What would make Phase 57 wrong (checkpoints for /close)
 
-- **The preview lags the cursor.** Overlay must track without perceptible delay. If `dragover` throttles the overlay update (e.g. via rAF batching that visibly stutters), Ashley's promise of "you always know where it will land" is broken.
+- **The preview lags the cursor.** Overlay must track without perceptible delay. If `dragover` throttles the overlay update (e.g. via rAF batching that visibly stutters), Alice's promise of "you always know where it will land" is broken.
 - **The preview flickers.** The Gap (a) fix must be robust — no flicker when moving across message bubbles / compose box / other portaled PrettyView content. If flicker recurs, the fix pattern was wrong; try the next option in the list above.
-- **Center dead zone unclear where its boundaries are.** If Ashley can't tell she's in the center zone (overlay disappears without explanation), she can't intentionally use center-drop as a "cancel" gesture (which shape file confirms IS the intent — the shape says "release does nothing, no drop registered"). Consider: does the overlay need any center-zone visual (e.g. faint cursor-outline "no drop" affordance)? Shape says NO — leave the center as visually inert, matching the "silent" rule. Plan-phase to reconcile.
+- **Center dead zone unclear where its boundaries are.** If Alice can't tell she's in the center zone (overlay disappears without explanation), she can't intentionally use center-drop as a "cancel" gesture (which shape file confirms IS the intent — the shape says "release does nothing, no drop registered"). Consider: does the overlay need any center-zone visual (e.g. faint cursor-outline "no drop" affordance)? Shape says NO — leave the center as visually inert, matching the "silent" rule. Plan-phase to reconcile.
 - **Overlay geometry doesn't match what actually happens on drop.** The coral rectangle must show the ACTUAL post-drop split shape (half the target pane along the chosen edge). If preview shows one thing and drop lands another, the whole feature fails its own promise.
 - **Edge selection unpredictable at zone boundaries.** Between edge zones (e.g. cursor on the diagonal between top and right zones), the preview must resolve cleanly to ONE edge with the cursor's tiny movement, not oscillate. This is the plan-phase decision on tiebreak axis + zone geometry.
 - **Drop-preview leaks into an unrelated surface.** The overlay is scoped to the Pane's outer div. If a CSS bug (z-index, positioning, portal) causes it to render outside the Pane or persist after the drag ends, it's a regression.
@@ -116,7 +116,7 @@ Files that stay untouched:
 **Plan-phase**: expected to produce 2-3 plans, roughly:
 - 57-01: Edge-zone hit-testing geometry — `computeEdgeZone` helper + tests. Standalone, pure-function, unit-test-only.
 - 57-02: Pane drop-preview overlay — `Pane` component rewire (state shape, native-listener update, coral overlay render, flicker fix, center-dead-zone short-circuit) + component tests.
-- 57-03: (optional) Structured-logging backfill + observability polish + any deferred visual tweaks Ashley calls out during plan review.
+- 57-03: (optional) Structured-logging backfill + observability polish + any deferred visual tweaks Alice calls out during plan review.
 
 **Executor scope**: code + commit + scoped tests green (`npx vitest run --related src/ui/shell/SplitView.tsx src/ui/lib/split-tree.ts`). Full-suite + docker build + deploy are orchestrator-only per role directive.
 
@@ -124,4 +124,4 @@ Files that stay untouched:
 
 **Parent bounty**: `bring-back-split-view` — this phase is todo #1 on the parent's todo list. Update the parent bounty's timeline on ship.
 
-**Reference prototype**: `~/.claude/roles/box-maintainer/bounties/bring-back-split-view/prototype.html` — the drag-drop interaction model demonstrated there is what Phase 57 makes real inside Skynet. Consult it for the exact edge-zone geometry + preview-overlay visual that Ashley validated live.
+**Reference prototype**: `~/.claude/roles/box-maintainer/bounties/bring-back-split-view/prototype.html` — the drag-drop interaction model demonstrated there is what Phase 57 makes real inside Skynet. Consult it for the exact edge-zone geometry + preview-overlay visual that Alice validated live.

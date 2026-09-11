@@ -48,7 +48,7 @@ provides:
   - Clone context-menu item in PrettyConversationRow — inserted between
     Hide/Show and Deactivate when onClone AND identity are both non-null.
   - Panel-owned cloneDialogState + handleRowClone helper — captures the
-    row's source identity + hostId when Ashley clicks Clone.
+    row's source identity + hostId when Alice clicks Clone.
   - Nginx dual-config: exact-match `/identities/clone` block added to
     BOTH docker/nginx.conf AND docker/nginx-https.conf ABOVE the
     /identities regex, per CLAUDE.md load-bearing rule.
@@ -108,7 +108,7 @@ key-files:
     - docker/nginx-https.conf                                                                        # +18 lines: matching exact-match block (parity with nginx.conf)
 
 key-decisions:
-  - "REVISION SEED COMMENT (Ashley 2026-08-04 at 22-02 checkpoint, applied
+  - "REVISION SEED COMMENT (Alice 2026-08-04 at 22-02 checkpoint, applied
     HERE per same-pattern extension): the clone endpoint does NOT invoke
     the relay-register block via SSH. Instead, the new identity file gets
     a seed comment ('This identity has no relay account yet. On first
@@ -117,7 +117,7 @@ key-decisions:
     wake. Test 8 asserts (a) 4 positive seed phrases present; (b) no
     'Skynet' (case-insensitive); (c) no §2/§3/id skill/SKILL.md; (d) no
     exec commands match /matrix|register|homeserver|thenasty/i.
-    Rationale (Ashley): fewer moving parts in Skynet, cleaner boundary
+    Rationale (Alice): fewer moving parts in Skynet, cleaner boundary
     (Skynet does file setup, agent does identity setup), same end-state.
     Matches 22-02 Task 3 revised pattern verbatim."
   - "JSON-only contract with 415 content-type gate (defense-in-depth on
@@ -143,7 +143,7 @@ key-decisions:
     components are not."
   - "brief=title for avatar regeneration (per plan Action step 1
     decision). Simpler than fetching role description via listRolesForHost
-    on dialog open. Title is Ashley's Ashley-facing description of the
+    on dialog open. Title is Alice's user-facing description of the
     identity's purpose which is 'close enough for archetype seeding'.
     Test 20 asserts postGenerateAvatarBatch called with brief=editedTitle."
   - "Duplicated helper with DRY-later rationale — CLONE_NAME_PATTERN mirrors
@@ -180,7 +180,7 @@ completed: 2026-08-04
 
 # Phase 22 Plan 22-03: SRIC-03 — Clone identity flow Summary
 
-**Ashley can now right-click any non-RDP conversation row with a resolved identity, click Clone in the context menu, and open a CloneAgentDialog that lets her edit Name/Title/Voice/Avatar (Host/Role/Color LOCKED and NOT shown). Submit fires POST /identities/clone which SSHes to the source's host, verifies no newName collision, provisions a new fleet folder with the source's role: frontmatter + a wake-up seed comment (Ashley 2026-08-04 revision: agent registers own Matrix relay account on first wake), and inserts a Skynet DB row that preserves the source's colorHue.**
+**Alice can now right-click any non-RDP conversation row with a resolved identity, click Clone in the context menu, and open a CloneAgentDialog that lets her edit Name/Title/Voice/Avatar (Host/Role/Color LOCKED and NOT shown). Submit fires POST /identities/clone which SSHes to the source's host, verifies no newName collision, provisions a new fleet folder with the source's role: frontmatter + a wake-up seed comment (Alice 2026-08-04 revision: agent registers own Matrix relay account on first wake), and inserts a Skynet DB row that preserves the source's colorHue.**
 
 ## Performance
 
@@ -213,7 +213,7 @@ completed: 2026-08-04
   16. 201 `publicIdentity(newRow)`.
   17. `try/finally conn.end()` best-effort cleanup.
 
-- **NO SSH relay-register** per REVISION 2026-08-04 (Ashley): the new identity file body is:
+- **NO SSH relay-register** per REVISION 2026-08-04 (Alice): the new identity file body is:
   ```
   ---
   role: box-maintainer
@@ -270,19 +270,19 @@ _TDD gate sequence verified: RED test commit precedes GREEN feat commit for both
 
 ## Deviations from Plan
 
-### Ashley-approved plan revision (documented in the plan file as REVISION 2026-08-04 HTML comment above Task 1)
+### user-approved plan revision (documented in the plan file as REVISION 2026-08-04 HTML comment above Task 1)
 
 **1. Clone endpoint does NOT invoke relay-register via SSH — new identity file gets a wake-up seed comment instead**
 
-- **Approved during:** 22-02 Task 2 checkpoint (2026-08-04, Ashley), applied to 22-03 Task 1 per same-pattern extension. Plan-checker gate on this revision was baked into the RED test assertions BEFORE writing the GREEN implementation.
+- **Approved during:** 22-02 Task 2 checkpoint (2026-08-04, Alice), applied to 22-03 Task 1 per same-pattern extension. Plan-checker gate on this revision was baked into the RED test assertions BEFORE writing the GREEN implementation.
 - **Original spec:** Task 1's Action step included "Relay register via SSH (mirror 22-02 Step 2.5 relay-register block byte-for-byte)"; Test 8 asserted "relay register block runs via SSH".
-- **Revised spec:** Skynet does file setup only — mkdir wakeups + touch handoff + SFTP identity file with `role: <sourceRole>` frontmatter + `CLONE_SEED_COMMENT` (Ashley-verbatim: "This identity has no relay account yet. On first wake, please register a Matrix relay account for this identity and remove this comment."). No SSH relay-register from Skynet. The fresh agent registers its own Matrix relay account on first wake, prompted by the seed comment.
+- **Revised spec:** Skynet does file setup only — mkdir wakeups + touch handoff + SFTP identity file with `role: <sourceRole>` frontmatter + `CLONE_SEED_COMMENT` (user-verbatim: "This identity has no relay account yet. On first wake, please register a Matrix relay account for this identity and remove this comment."). No SSH relay-register from Skynet. The fresh agent registers its own Matrix relay account on first wake, prompted by the seed comment.
 - **Impact on plan:**
   - Removed SSH relay-register exec call from the Action code sequence (~10 lines).
   - Modified Test 8 to (a) grep for seed comment phrases; (b) grep-assert no "Skynet" / no id-skill refs; (c) grep-assert no exec commands match `/matrix|register|homeserver|thenasty/i`.
   - Removed threat model rows for relay-register-hang DoS and relay-creds leak — no longer applicable.
   - `must_haves.truths` bullet re "relay-register" removed; Skynet's provisioning stops at file setup.
-- **Rationale (Ashley):** fewer moving parts in Skynet, cleaner boundary (Skynet does file setup, agent does identity setup), same end-state. Matches the identity-file seed pattern shipped in 22-02 Task 3 (and mirrored in 22-04 Task 1 for the role file). Third caller of the same seed-comment pattern in a row proves the pattern generalizes cleanly.
+- **Rationale (Alice):** fewer moving parts in Skynet, cleaner boundary (Skynet does file setup, agent does identity setup), same end-state. Matches the identity-file seed pattern shipped in 22-02 Task 3 (and mirrored in 22-04 Task 1 for the role file). Third caller of the same seed-comment pattern in a row proves the pattern generalizes cleanly.
 
 ### Auto-fixed Issues (Rule 1 bug)
 
@@ -310,7 +310,7 @@ _TDD gate sequence verified: RED test commit precedes GREEN feat commit for both
 - Pre-existing PrettyConversationsPanel Tests 5 + 8 (using `/new session/i` regex against `"New agent"` aria-label) were **NOT** fixed — orthogonal to SRIC-03 scope, documented in `deferred-items.md` for future work. Baseline before Task 2 = 2 failed; post-Task 2 = same 2 failed (regression-free).
 - Pre-existing NewSessionDialog Tests 5-10 (using `/^open$/i` regex against `"Create"` label) — same class of bug, same deferred-items.md entry.
 
-**Total deviations:** 1 Ashley-approved plan revision (seed comment, baked into RED test assertions before GREEN); 1 auto-fixed Rule 1 bug (auto-lowercase removed); 1 documented deviation from acceptance-criterion grep (semantic — stricter grep passes; documentation of anti-pattern retained). Zero scope creep, zero net regression on sibling suites.
+**Total deviations:** 1 user-approved plan revision (seed comment, baked into RED test assertions before GREEN); 1 auto-fixed Rule 1 bug (auto-lowercase removed); 1 documented deviation from acceptance-criterion grep (semantic — stricter grep passes; documentation of anti-pattern retained). Zero scope creep, zero net regression on sibling suites.
 
 ## Issues Encountered
 
@@ -323,12 +323,12 @@ _TDD gate sequence verified: RED test commit precedes GREEN feat commit for both
 None — no new environment variables, no new npm packages, no dashboard configuration.
 
 **Post-deploy manual verification (deferred to Phase 22 UAT per ROADMAP):**
-1. Ashley right-clicks an existing identity's conversation row → CloneAgentDialog opens with the source's title/voice/avatar pre-filled + Name blank + NO host/role/color pickers visible.
-2. Ashley types a new name, optionally edits title/voice, optionally regenerates the avatar (clicks Regenerate; picks a candidate).
-3. Ashley clicks Clone → 201 response, dialog closes.
-4. Ashley SSHs to the source's host and verifies `~/.claude/identities/<newName>/` exists with `wakeups/` subdir, empty `handoff.md`, and `<newName>.md` containing the `role: <sourceRole>` frontmatter + the wake-up seed comment + `# <newName>` heading + `(cloned from <sourceIdentityKey>)`.
-5. Ashley checks Skynet DB: new identity row with LOCKED colorHue from source, new nanoid id, user-edited title/voice.
-6. Ashley clicks Clone again with the same name → 409 conflict → inline `Name "<name>" already exists on the source host` renders, dialog stays open.
+1. Alice right-clicks an existing identity's conversation row → CloneAgentDialog opens with the source's title/voice/avatar pre-filled + Name blank + NO host/role/color pickers visible.
+2. Alice types a new name, optionally edits title/voice, optionally regenerates the avatar (clicks Regenerate; picks a candidate).
+3. Alice clicks Clone → 201 response, dialog closes.
+4. Alice SSHs to the source's host and verifies `~/.claude/identities/<newName>/` exists with `wakeups/` subdir, empty `handoff.md`, and `<newName>.md` containing the `role: <sourceRole>` frontmatter + the wake-up seed comment + `# <newName>` heading + `(cloned from <sourceIdentityKey>)`.
+5. Alice checks Skynet DB: new identity row with LOCKED colorHue from source, new nanoid id, user-edited title/voice.
+6. Alice clicks Clone again with the same name → 409 conflict → inline `Name "<name>" already exists on the source host` renders, dialog stays open.
 7. On the fresh agent's first wake, it sees the seed comment, registers its own Matrix relay account, removes the comment. (Nelly-side / cross-boundary; not testable from Skynet.)
 
 ## Next Phase Readiness

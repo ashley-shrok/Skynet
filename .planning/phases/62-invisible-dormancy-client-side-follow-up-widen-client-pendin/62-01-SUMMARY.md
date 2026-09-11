@@ -78,7 +78,7 @@ One edit in `src/ui/features/pretty-view/PrettyView.optimistic-bubbles.test.tsx`
 
 ## TDD Cycle
 
-- **RED (Task 1, commit `0ac705de`):** Test 5b added. Ran against unmodified PrettyView.tsx — failed at the T+20001ms `expect(... [data-pv-bubble-failed]).toBeNull()` assertion. Failure log captured at `/tmp/62-01-task1-red.log`. Console line `[pv-optim] flip-to-failed mqid=... reason=client_timeout_20s content-length=20` proved today's hard-coded 20000ms setTimeout fires regardless of dormancy — the exact bug Ashley reproduced live on hilda@workstation 2026-08-30 (client fired T+20.003s, server delivered send-keys T+31.379s, bubble red ~11s before message landed).
+- **RED (Task 1, commit `0ac705de`):** Test 5b added. Ran against unmodified PrettyView.tsx — failed at the T+20001ms `expect(... [data-pv-bubble-failed]).toBeNull()` assertion. Failure log captured at `/tmp/62-01-task1-red.log`. Console line `[pv-optim] flip-to-failed mqid=... reason=client_timeout_20s content-length=20` proved today's hard-coded 20000ms setTimeout fires regardless of dormancy — the exact bug Alice reproduced live on hilda@workstation 2026-08-30 (client fired T+20.003s, server delivered send-keys T+31.379s, bubble red ~11s before message landed).
 - **GREEN (Task 2, commit `b98f81f1`):** Constants + branch shipped. Test 5b now passes at both the T+20001ms (must-not-flip) and T+220001ms (must-flip) assertions. Test 5 (non-dormant sibling, unmodified) also green — 20000ms behavior byte-for-byte preserved for the common path.
 
 ## Verification
@@ -116,7 +116,7 @@ After Wave 1 + Wave 2 ship-bundle, `[pv-optim] flip-to-failed reason=...` consol
 ## Non-goals (explicitly out of scope per CONTEXT.md)
 
 - **Race case** — client with `dormantRef.current === false` at arm time but backend routes through invisible-wake path anyway. CONTEXT.md L39 + L81: separate concern, out of Phase 62.
-- **Backend watchdog non-arming for dormant sends** — Ashley's log shows the backend `pv_input_arm_split` did NOT fire for hilda's dormant send at 13:46:26 (potentially another Phase 60 gap). CONTEXT.md L82: investigate as follow-up bounty, NOT Phase 62 scope.
+- **Backend watchdog non-arming for dormant sends** — Alice's log shows the backend `pv_input_arm_split` did NOT fire for hilda's dormant send at 13:46:26 (potentially another Phase 60 gap). CONTEXT.md L82: investigate as follow-up bounty, NOT Phase 62 scope.
 - **Duplicate-bubble mechanism** — Wave 2 (Plan 62-02) covers that via instrumentation only.
 - **Automated cross-file drift guard** — the frontend can't import backend constants; the header comment is the coupling. Manual review at any future backend widening.
 

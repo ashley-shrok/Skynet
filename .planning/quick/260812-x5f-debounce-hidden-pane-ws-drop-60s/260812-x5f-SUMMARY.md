@@ -15,7 +15,7 @@ key-files:
     - src/ui/features/terminal/Terminal.tsx
     - src/ui/features/terminal/Terminal.wiring.test.ts
 decisions:
-  - "Debounce delay is 60_000ms (60s) per Ashley proposal — gives in-flight nav-away work time to finish"
+  - "Debounce delay is 60_000ms (60s) per Alice proposal — gives in-flight nav-away work time to finish"
   - "Constant is duplicated per-file (PrettyView + Terminal) — no shared helper per bounty guidance"
   - "hiddenPaneCloseTimerRef type: ReturnType<typeof setTimeout> in PrettyView, NodeJS.Timeout in Terminal — match existing style per-file"
   - "Cancellation fires on EVERY isVisible=true (not just false→true edge) for race-safety"
@@ -30,7 +30,7 @@ metrics:
 
 # Quick 260812-x5f: Debounce Hidden-Pane WS Close by ~60s Summary
 
-Debounced `ws.close()` at both hidden-pane pause-effect sites (Terminal.tsx and PrettyView.tsx) with a 60s timer, cancellation on isVisible=true, and unmount cleanup. Fixes Ashley's voice-record + send + immediate nav-away regression.
+Debounced `ws.close()` at both hidden-pane pause-effect sites (Terminal.tsx and PrettyView.tsx) with a 60s timer, cancellation on isVisible=true, and unmount cleanup. Fixes Alice's voice-record + send + immediate nav-away regression.
 
 ## Files Changed
 

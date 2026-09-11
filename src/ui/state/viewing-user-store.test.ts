@@ -63,7 +63,7 @@ describe("viewing-user-store (Phase 90 Plan 05 Task 1 — W#8)", () => {
     await act(async () => {
       resolve({
         userId: "42",
-        username: "ashley",
+        username: "alice",
         is_admin: false,
         is_oidc: false,
         totp_enabled: false,
@@ -111,7 +111,7 @@ describe("viewing-user-store (Phase 90 Plan 05 Task 1 — W#8)", () => {
   it("Test 11: fetch is fired ONCE per app-mount — subsequent hook consumers use the cached value", async () => {
     mockedGetUserInfo.mockResolvedValueOnce({
       userId: "42",
-      username: "ashley",
+      username: "alice",
       is_admin: false,
       is_oidc: false,
       totp_enabled: false,
@@ -159,7 +159,7 @@ describe("viewing-user-store (Phase 90 Plan 05 Task 1 — W#8)", () => {
     await act(async () => {
       resolve({
         userId: "42",
-        username: "ashley",
+        username: "alice",
         is_admin: false,
         is_oidc: false,
         totp_enabled: false,
@@ -182,7 +182,7 @@ describe("viewing-user-store (Phase 90 Plan 05 Task 1 — W#8)", () => {
     // Pre-Phase-90 backend response omits `mxid` entirely.
     mockedGetUserInfo.mockResolvedValueOnce({
       userId: "42",
-      username: "ashley",
+      username: "alice",
       is_admin: false,
       is_oidc: false,
       totp_enabled: false,
@@ -207,7 +207,7 @@ describe("viewing-user-store (Phase 90 Plan 05 Task 1 — W#8)", () => {
   it("L2-fixup: useViewingUserId returns null on initial mount, then the userId after fetch resolves", async () => {
     mockedGetUserInfo.mockResolvedValueOnce({
       userId: "user-uuid-42",
-      username: "ashley",
+      username: "alice",
       is_admin: false,
       is_oidc: false,
       totp_enabled: false,
@@ -223,7 +223,7 @@ describe("viewing-user-store (Phase 90 Plan 05 Task 1 — W#8)", () => {
   it("L2-fixup: useViewingUserId and useViewingUserMxid share the SAME /users/me fetch — single round-trip", async () => {
     mockedGetUserInfo.mockResolvedValueOnce({
       userId: "user-uuid-99",
-      username: "ashley",
+      username: "alice",
       is_admin: false,
       is_oidc: false,
       totp_enabled: false,
@@ -254,7 +254,7 @@ describe("viewing-user-store (Phase 90 Plan 05 Task 1 — W#8)", () => {
   it("L2-fixup: non-string userId coerces to null (defensive against pre-Phase-90 cached responses)", async () => {
     mockedGetUserInfo.mockResolvedValueOnce({
       userId: 42 as unknown as string, // numeric legacy shape
-      username: "ashley",
+      username: "alice",
       is_admin: false,
       is_oidc: false,
       totp_enabled: false,

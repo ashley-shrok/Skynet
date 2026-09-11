@@ -2,29 +2,29 @@
 
 **Gathered:** 2026-07-26
 **Status:** Ready for planning
-**Source:** Verbatim from design session between Ashley and Tina in the `plain-language-translation-asides` bounty (2026-07-26T15:52-15:58Z). Full timeline lives at `~/.claude/identities/tina/bounties/plain-language-translation-asides/bounty.json`.
+**Source:** Verbatim from design session between Alice and Tina in the `plain-language-translation-asides` bounty (2026-07-26T15:52-15:58Z). Full timeline lives at `~/.claude/identities/tina/bounties/plain-language-translation-asides/bounty.json`.
 
 <domain>
 ## Phase Boundary
 
-Layer a **plain-language translation aside** feature on top of the existing pretty-view rendering + ComposeBox + fleet-identity-session infrastructure that Skynet already has (Phases 1, 2, 4, 5, 6, 7, 9, 10 shipped or in progress). The feature is purely additive on fork-local pretty-view code paths — no upstream Skynet surfaces are touched. The full feature has to LAND before the queued `#150 A + C` deploy ships (Ashley 2026-07-26 verbatim: "there's no point in deploying until we get it in") — so the deploy sequence when this phase completes is bundled: #150 A + C + this feature's patches together in one deploy event.
+Layer a **plain-language translation aside** feature on top of the existing pretty-view rendering + ComposeBox + fleet-identity-session infrastructure that Skynet already has (Phases 1, 2, 4, 5, 6, 7, 9, 10 shipped or in progress). The feature is purely additive on fork-local pretty-view code paths — no upstream Skynet surfaces are touched. The full feature has to LAND before the queued `#150 A + C` deploy ships (Alice 2026-07-26 verbatim: "there's no point in deploying until we get it in") — so the deploy sequence when this phase completes is bundled: #150 A + C + this feature's patches together in one deploy event.
 
 ### What the feature IS (mental model — read this before anything else)
 
-When Ashley is looking at pretty-view for a fleet-identity session and a Claude Code agent finishes an assistant turn, she frequently comes back to that tab later to find several agent bubbles have accumulated since her last message (because the agent got woken by monitors + relay pings + the like). She wants to walk into the tab and immediately understand what the agent has been saying, without scrolling back and mentally parsing dev-jargon-heavy replies.
+When Alice is looking at pretty-view for a fleet-identity session and a Claude Code agent finishes an assistant turn, she frequently comes back to that tab later to find several agent bubbles have accumulated since her last message (because the agent got woken by monitors + relay pings + the like). She wants to walk into the tab and immediately understand what the agent has been saying, without scrolling back and mentally parsing dev-jargon-heavy replies.
 
 Solution: after any completed assistant turn on an actively-watched fleet-identity session, silently ask the agent (via Claude Code's own `/btw` slash-command) to re-explain what's currently going on in plain, non-technical language — then display that plain-language response as an **AsideBubble** at the bottom of pretty-view's message stream, visually distinct enough that she never confuses it with a real assistant reply. While an aside is displayed, sending / queueing / thumbing-up / resetting are all locked — she must first tap the aside's "Resume" affordance (X icon) to dismiss it. Her partial-draft text in the compose textarea is preserved untouched.
 
-Ashley's operational context — she bounces between ~5 active identity sessions doing "answering questions and explaining things," so this feature only earns its keep when it fires across ALL of those sessions, not just the currently-focused one. The intended UX is: leave session X's tab to work on session Y, come back to X later, aside is already there waiting.
+Alice's operational context — she bounces between ~5 active identity sessions doing "answering questions and explaining things," so this feature only earns its keep when it fires across ALL of those sessions, not just the currently-focused one. The intended UX is: leave session X's tab to work on session Y, come back to X later, aside is already there waiting.
 
 ### What the feature IS NOT (scope fences — do not violate)
 
-- **Not a custom translation pipeline.** Ashley explicitly rejected the parallel-Anthropic-call design ("I am not going to set up our own custom pipeline for this when the stuff that we need is sitting right there"). The mechanism uses Claude Code's `/btw` verbatim, injected via `tmux send-keys` and extracted via `tmux capture-pane`. There is no separate Anthropic API call, no Haiku detector, no worth-explaining filter, no persona-seeded prompt — the /btw runs against the SAME agent so the aside voice IS the agent's voice by construction.
-- **Not an overlay.** The AsideBubble sits in-flow at the bottom of the scrollable message list. Ashley must be able to scroll up freely to re-read history while the aside sits pinned at the bottom.
-- **No aside store.** No database row, no in-memory key-value cache, no persistence layer. The tmux BTW overlay itself is the sole source of truth ("fewer moving pieces is better" — Ashley 2026-07-26). Backend is a pure translator.
+- **Not a custom translation pipeline.** Alice explicitly rejected the parallel-Anthropic-call design ("I am not going to set up our own custom pipeline for this when the stuff that we need is sitting right there"). The mechanism uses Claude Code's `/btw` verbatim, injected via `tmux send-keys` and extracted via `tmux capture-pane`. There is no separate Anthropic API call, no Haiku detector, no worth-explaining filter, no persona-seeded prompt — the /btw runs against the SAME agent so the aside voice IS the agent's voice by construction.
+- **Not an overlay.** The AsideBubble sits in-flow at the bottom of the scrollable message list. Alice must be able to scroll up freely to re-read history while the aside sits pinned at the bottom.
+- **No aside store.** No database row, no in-memory key-value cache, no persistence layer. The tmux BTW overlay itself is the sole source of truth ("fewer moving pieces is better" — Alice 2026-07-26). Backend is a pure translator.
 - **No worth-explaining filter (v1).** Every completed assistant turn fires. If it fires too often in practice, we'll add a Haiku filter later — but not yet.
 - **Not for anonymous claude sessions.** Only fleet-identity sessions (i.e., sessions running under `/id <name>` inside a per-identity tmux) get the feature. Anonymous ad-hoc `claude` sessions in random SSH tabs are excluded from scope.
-- **Not for sessions with zero open tabs in the current browser window.** If Ashley closed all pretty-view tabs on session Y, then Y stops receiving aside fires until she opens one again.
+- **Not for sessions with zero open tabs in the current browser window.** If Alice closed all pretty-view tabs on session Y, then Y stops receiving aside fires until she opens one again.
 
 </domain>
 
@@ -52,7 +52,7 @@ Every item below is a LOCKED decision from the 2026-07-26 design session. Do not
 ### Injection
 
 - Backend SSHes into the identity's box (existing SSH exec channel — reuse, do not open new subsystem) and `tmux send-keys -t <identity-tmux-target> "/btw <prompt>" Enter` into the agent's tmux.
-- **The prompt text is fixed** — inlines the `/explain` skill body verbatim (Ashley 2026-07-26 explicit direction: "we might just take whatever's inside the explain skill and put it into the prompt for this btw thing rather than talk about the explain skill"):
+- **The prompt text is fixed** — inlines the `/explain` skill body verbatim (Alice 2026-07-26 explicit direction: "we might just take whatever's inside the explain skill and put it into the prompt for this btw thing rather than talk about the explain skill"):
 
   ```
   /btw Re-explain whatever's currently going on to me without using code symbols, in a conceptual model style. Not a metaphor — explain the actual thing, don't recast it as an extended analogy.
@@ -70,7 +70,7 @@ Every item below is a LOCKED decision from the 2026-07-26 design session. Do not
 ### Rendering (frontend)
 
 - **New bubble type `AsideBubble`.** Rendered at the very bottom of the pretty-view message-bubble list, IN-flow inside the scrollable stream (not an overlay, popup, or fixed-position element). Scroll behavior is unchanged: scrolling up to re-read history works exactly as before; the aside is pinned at the bottom of the list.
-- **Visual treatment (Ashley signed off on defaults 2026-07-26 via the `aside-visual-snippet.js` DevTools prototype in the bounty folder):**
+- **Visual treatment (Alice signed off on defaults 2026-07-26 via the `aside-visual-snippet.js` DevTools prototype in the bounty folder):**
   - Background: same identity-hue gradient as normal assistant bubbles (`hsla(var(--pv-id-hue),50%,38%,0.55)` → `hsla(var(--pv-id-hue),45%,24%,0.6)`) — the aside is a bubble from the SAME identity, semantically.
   - Border: **10px solid** `hsla(var(--pv-id-hue), 90%, 65%, 1)` — full saturation, opaque.
   - Neon glow (three stacked outer shadows in the hue at descending alpha, ADDITIVE to the bubble's existing depth shadow + inner rim):
@@ -82,7 +82,7 @@ Every item below is a LOCKED decision from the 2026-07-26 design session. Do not
 ### ComposeBox morph (frontend)
 
 While an aside is currently displayed for a session:
-- **Send button** replaced with an **X icon** (Ashley chose X over play-arrow: "play arrow is too close to the send icon already that's there"). Hover tooltip: "Resume". Style change to visually distinguish from send.
+- **Send button** replaced with an **X icon** (Alice chose X over play-arrow: "play arrow is too close to the send icon already that's there"). Hover tooltip: "Resume". Style change to visually distinguish from send.
 - **Queue-message affordance**: disabled/greyed.
 - **Thumbs-up affordance**: disabled/greyed.
 - **Reset-session affordance**: disabled/greyed.
@@ -100,7 +100,7 @@ While an aside is currently displayed for a session:
 
 ### Overlap policy (new turn while aside displayed)
 
-**v1: ignore.** If a new completed turn arrives on a session that has an aside currently displayed, the currently-displayed aside stays unchanged and the newer turn does NOT fire its own aside. The newer turn is otherwise unaffected. Ashley: "let's just ignore the new turn's aside until the current one is dismissed and we'll see how that goes." Revisit if too much translation coverage is lost in practice.
+**v1: ignore.** If a new completed turn arrives on a session that has an aside currently displayed, the currently-displayed aside stays unchanged and the newer turn does NOT fire its own aside. The newer turn is otherwise unaffected. Alice: "let's just ignore the new turn's aside until the current one is dismissed and we'll see how that goes." Revisit if too much translation coverage is lost in practice.
 
 ### Tab close / re-attach
 
@@ -112,7 +112,7 @@ While an aside is currently displayed for a session:
 **NO aside store anywhere.** The tmux BTW overlay itself is the sole source of truth for "is there an aside for this session and what does it say." Backend is a pure translator:
 - Emits `aside_ready` events when it detects an overlay landing.
 - Forwards `aside_dismissed` commands to tmux (Escape).
-- Broadcasts `aside_dismissed` when it observes the overlay disappearing (either from a client-initiated Escape or from any other reason — Ashley SSH-attaching and pressing Escape herself, tmux session death, etc.).
+- Broadcasts `aside_dismissed` when it observes the overlay disappearing (either from a client-initiated Escape or from any other reason — Alice SSH-attaching and pressing Escape herself, tmux session death, etc.).
 - Backend restarts recover state by re-probing on next event — no persistence layer, no in-memory KV, no DB row.
 
 </decisions>
@@ -124,7 +124,7 @@ While an aside is currently displayed for a session:
 
 ### Design source-of-truth
 - `~/.claude/identities/tina/bounties/plain-language-translation-asides/bounty.json` — full design session transcript captured in `timeline[]`, including the empirical kumquat-test findings, the /explain-skill-inlining decision, the aesthetic-locking decision, and the deploy-bundling decision
-- `~/.claude/identities/tina/bounties/plain-language-translation-asides/aside-visual-snippet.js` — DevTools console recipe Ashley used to sign off on the visual aesthetic; also the canonical source for the exact CSS values planners should replicate
+- `~/.claude/identities/tina/bounties/plain-language-translation-asides/aside-visual-snippet.js` — DevTools console recipe Alice used to sign off on the visual aesthetic; also the canonical source for the exact CSS values planners should replicate
 
 ### Existing infrastructure this phase LAYERS ONTO (do not re-implement — read + reuse)
 - `src/ui/features/pretty-view/PrettyView.tsx` — the pretty-view surface. New AsideBubble goes into its message-bubble list at the bottom. `--pv-id-hue` CSS var is set on this component (line ~702).
@@ -139,7 +139,7 @@ While an aside is currently displayed for a session:
 - `/btw <question>` typed into an interactive Claude Code CLI opens an overlay in the terminal buffer, returns an ephemeral answer, and closes on Escape with zero session-JSONL footprint. The answer is captureable via `tmux capture-pane -p` (visible pane) or `tmux capture-pane -S -N` (scrollback). End-of-answer marker: `↑/↓ to scroll · f to fork · Esc to close`. See bounty timeline for the kumquat-test verification.
 
 ### Fleet rules that apply
-- `~/.claude/identities/tina/tina.md § Deploy discipline` — every build → deploy is a new "may I?" moment; batching until Ashley says deploy is the norm.
+- `~/.claude/identities/tina/tina.md § Deploy discipline` — every build → deploy is a new "may I?" moment; batching until Alice says deploy is the norm.
 - `~/.claude/identities/tina/tina.md § Skynet direction — the app IS Telegram` — pretty-view chat surface interior is LOCKED; this phase adds a NEW bubble type to it (that IS allowed — the "STRUCTURALLY DONE AND LOCKED" carve-out explicitly allows adding NEW pretty-view features).
 
 </canonical_refs>
@@ -147,7 +147,7 @@ While an aside is currently displayed for a session:
 <specifics>
 ## Specific Ideas
 
-- **Prompt text is EXACTLY**: `/btw Re-explain whatever's currently going on to me without using code symbols, in a conceptual model style. Not a metaphor — explain the actual thing, don't recast it as an extended analogy.` (Do not paraphrase, do not tune, do not add framing. This is Ashley's chosen prompt.)
+- **Prompt text is EXACTLY**: `/btw Re-explain whatever's currently going on to me without using code symbols, in a conceptual model style. Not a metaphor — explain the actual thing, don't recast it as an extended analogy.` (Do not paraphrase, do not tune, do not add framing. This is Alice's chosen prompt.)
 - **End-of-answer marker to grep for**: the literal string `Esc to close` (part of the full marker `↑/↓ to scroll · f to fork · Esc to close`). Stable across BTW invocations in Claude Code 2.1.150.
 - **Extraction stability requirement**: two consecutive polls with identical pane content is the "answer complete" condition. Do not emit `aside_ready` on the first poll that sees the marker — the answer may still be streaming.
 - **Cross-tab coherence**: WS broadcast to all clients that have subscribed to the session's pretty-view WS stream. No new subscription mechanism needed — the existing per-session pretty-view WS subscription IS the fan-out list.
@@ -158,10 +158,10 @@ While an aside is currently displayed for a session:
 <deferred>
 ## Deferred Ideas
 
-- **Worth-explaining Haiku filter.** Ashley: "if we decide that it's fired too often or something, then maybe we will add a haiku call or something, but not yet." Do NOT include in v1.
+- **Worth-explaining Haiku filter.** Alice: "if we decide that it's fired too often or something, then maybe we will add a haiku call or something, but not yet." Do NOT include in v1.
 - **Aside history / stacking.** Only ONE aside displayed at a time per session (the newest, and only when no aside is currently displayed). No queue, no scrollable aside archive.
 - **Persona-seeded explainer prompt.** The /btw runs against the SAME agent so the aside voice IS the agent's voice for free — no separate persona seeding needed.
-- **Per-tab-focus scoping.** Ashley explicitly rejected: aside firing is per active-set (all tabs across the current browser window), NOT per focused tab. She wants asides to accumulate on tabs she hasn't visited yet.
+- **Per-tab-focus scoping.** Alice explicitly rejected: aside firing is per active-set (all tabs across the current browser window), NOT per focused tab. She wants asides to accumulate on tabs she hasn't visited yet.
 - **Automatic dismiss on new user message.** Not for v1. She dismisses manually via the X (Resume).
 
 </deferred>
@@ -169,4 +169,4 @@ While an aside is currently displayed for a session:
 ---
 
 *Phase: 14-plain-language-translation-asides*
-*Context authored: 2026-07-26 by Tina, verbatim from design session with Ashley (bounty `plain-language-translation-asides`, timeline entries 15:52-15:58Z)*
+*Context authored: 2026-07-26 by Tina, verbatim from design session with Alice (bounty `plain-language-translation-asides`, timeline entries 15:52-15:58Z)*

@@ -288,7 +288,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
    *
    * Real evidence of the shape-gap:
    *   ~/.claude/projects/-home-ubuntu-skynet-tina/e958881b-e151-443b-b91f-af2973c00d4e.jsonl
-   *   ts=2026-08-23T01:41:48.723Z (Ashley's `/fake` send in tina session).
+   *   ts=2026-08-23T01:41:48.723Z (Alice's `/fake` send in tina session).
    *
    * Fix: drop byte equality from head-match — FIFO + role + state gate
    * alone. First incoming user-role frame clears the oldest sending pending,
@@ -350,7 +350,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
       expect(container.querySelector('textarea[placeholder^="Message"]')).not.toBeNull(),
     );
 
-    // SYNTHETIC — represents Ashley-reported class ("pasting JSON in fail as well"), corpus TBD
+    // SYNTHETIC — represents user-reported class ("pasting JSON in fail as well"), corpus TBD
     typeAndEnter(container, '{"foo": "bar"}');
     await waitFor(() => expect(countPendingBubbles(container)).toBe(1));
 
@@ -426,7 +426,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     expect(container.querySelector("[data-pv-bubble-spinner]")).toBeNull();
 
     // ComposeBox textarea stays EMPTY after failure — the red bubble is
-    // the record of the send; no edit-and-resend repopulate (Ashley
+    // the record of the send; no edit-and-resend repopulate (Alice
     // 2026-09-02, reversing Phase 50 D-03).
     const textarea = container.querySelector(
       'textarea[placeholder^="Message"]',
@@ -823,7 +823,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     });
     // Immediately failed.
     expect(container.querySelector("[data-pv-bubble-failed]")).not.toBeNull();
-    // Textarea is CLEARED on WS-not-open (Ashley 2026-09-02) — the red
+    // Textarea is CLEARED on WS-not-open (Alice 2026-09-02) — the red
     // bubble is the record; no need to also keep the text in the textarea.
     const textarea = container.querySelector(
       'textarea[placeholder^="Message"]',
@@ -1044,7 +1044,7 @@ describe("PrettyView — optimistic bubbles state machine (Phase 50 Plan 03 Task
     expect(countPendingBubbles(container)).toBe(0);
   });
 
-  // (Test 13 deleted 2026-09-02 alongside the Ashley-directed removal of
+  // (Test 13 deleted 2026-09-02 alongside the user-directed removal of
   // flipToFailed's composeOverrideText populate. The Warning-#6 ack path
   // it exercised is dead in production — nothing sets composeOverrideText
   // to a non-null value anymore. Tests 5 / 5b / 8 cover the new

@@ -70,7 +70,7 @@ Pair two bounties into ONE atomic patch (skynet fork #172):
 
 Backend gets a new `writeIdentityBountyPinned` byte-shape mirror of `writeIdentityBountyStatus`, matching the fleet schema post-#168 where `pinned` is orthogonal to lifecycle `status`. Frontend gets a PinToggle star on BountyCard + a "Pinned" group prepended to `OPEN_STATUS_ORDER` in IdentityModal.
 
-Purpose: Ashley can pin/unpin bounties inline from the identity modal and see pinned bounties surfaced at the top of the sort regardless of status — closes both bounties in one commit on `feat/tab-title-from-tmux`.
+Purpose: Alice can pin/unpin bounties inline from the identity modal and see pinned bounties surfaced at the top of the sort regardless of status — closes both bounties in one commit on `feat/tab-title-from-tmux`.
 
 Output: Backend writer + WS handler + backend test; wire types; PinToggle in BountyCard; sortBounties/grouping updates + comment refresh in IdentityModal; draft patch-entry doc.
 </objective>
@@ -257,7 +257,7 @@ Output: Backend writer + WS handler + backend test; wire types; PinToggle in Bou
     - Do NOT git-commit the bounty JSON edits — they live outside the repo (`~/.claude/identities/` is the fleet-shared identity dir, not `~/skynet/`). This side-effect is purely the fleet bounty-lifecycle bookkeeping.
 
     Constraints (re-stated from full_scope for the executor):
-    - Do NOT push, do NOT docker build, do NOT deploy. Ashley bundles deploy separately.
+    - Do NOT push, do NOT docker build, do NOT deploy. Alice bundles deploy separately.
     - Do NOT commit docs artifacts (SUMMARY.md, PLAN.md, STATE.md, 172-PATCH-ENTRY-DRAFT.md) — orchestrator handles docs commit in Step 8.
     - Commit atomically on `feat/tab-title-from-tmux` (already checked out; no branch switch).
   </action>
@@ -322,5 +322,5 @@ Phase-level checks (run at end):
 </success_criteria>
 
 <output>
-Create `.planning/quick/260728-sqk-pair-pin-toggle-bounty-sort-add-writeide/260728-sqk-SUMMARY.md` when done, documenting: files touched, tests added, patch #172 draft path, bounty-close/archive side-effects executed, and the intentional deferrals (skynet-patches.md paste + deploy handled separately by Ashley).
+Create `.planning/quick/260728-sqk-pair-pin-toggle-bounty-sort-add-writeide/260728-sqk-SUMMARY.md` when done, documenting: files touched, tests added, patch #172 draft path, bounty-close/archive side-effects executed, and the intentional deferrals (skynet-patches.md paste + deploy handled separately by Alice).
 </output>

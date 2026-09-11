@@ -35,7 +35,7 @@ provides:
   - Clean rendering (M3 non-message events filtered server-side)
   - Observability (L2 real userId in logs, L4 no-op handle warnings, L5 wss error handler)
 affects:
-  ["Slice D UAT — the pane is now functionally complete for the group-chat receive path Ashley will test at arc-close"]
+  ["Slice D UAT — the pane is now functionally complete for the group-chat receive path Alice will test at arc-close"]
 
 # Tech tracking
 tech-stack:

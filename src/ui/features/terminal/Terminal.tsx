@@ -88,7 +88,7 @@ const visibilityDedup = createLogDedup({ N: 3, W: 5000 });
 const wsMsgDedup = createLogDedup({ N: 3, W: 5000 });
 
 // quick-260812-x5f — debounced hidden-pane WS close (~60s).
-// Ashley 2026-08-12: voice-record + send + immediately switching to another
+// Alice 2026-08-12: voice-record + send + immediately switching to another
 // session broke because the SSH WS was closed immediately on isVisible=false
 // (quick-260809-eqk regression for the nav-away case). A 60s grace window
 // lets in-flight nav-away work (queued sends, pending fetches, transcription
@@ -184,7 +184,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     // most volume is `{type:"data", data:"<tmux output>"}` and JSON overhead
     // is small relative to a full tmux frame). Snapshot fn reads + resets.
     const wsBytesRef = useRef<number>(0);
-    // Terminal render-broken-after-initial-attach diag (2026-09-03, Ashley):
+    // Terminal render-broken-after-initial-attach diag (2026-09-03, Alice):
     // desktop-only bug where switch-into-terminal renders the initial buffer
     // dump but subsequent frames silently don't paint (Ctrl-L confirmed the
     // write pipeline, not the paint layer, is stuck). These refs let a repro
@@ -2119,7 +2119,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
             // Tina could not reproduce the underlying stuck-send locally
             // (tmux+paste-buffer at 22KB/100KB), so this is our
             // observability + recovery UX rather than a byte-level fix —
-            // surface visibly so Ashley knows the send didn't take effect
+            // surface visibly so Alice knows the send didn't take effect
             // and can retry manually or shorten the message.
             toast.error(t("terminal.pasteSendFailed"), { duration: 8000 });
             addLog({
@@ -3270,7 +3270,7 @@ const TerminalInner = forwardRef<TerminalHandle, SSHTerminalProps>(
     // queue-row lifecycle is patch #60's mechanism for the MessageQueueDrawer;
     // uploads reuse ONLY the mqid field on the input event to inherit patch
     // #60's atomic-post-write side effect and patch #100's split-and-delay
-    // path). If Ashley abandons the pane between the body-send and the \r-
+    // path). If Alice abandons the pane between the body-send and the \r-
     // send (60ms window), the tmux pane will simply hold the caption+metadata
     // in its input buffer un-submitted — same failure mode as any other
     // sub-second WS disconnect. No parallel send path; no new queue row.

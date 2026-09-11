@@ -82,7 +82,7 @@ result:
      (currently `"{A, A-content, null}"`), so it emits again. UI **flip-flops**
      between A and B.
 
-2. **Same-slug regenerate (the CONTEXT-called-out "Ashley picks feedback →
+2. **Same-slug regenerate (the CONTEXT-called-out "Alice picks feedback →
    Claude regenerates → same slug" edge case).** After the intermediate
    `!isPending` tick clears the cache, fetch B is started for the new
    window. If fetch A (which was in-flight over the pending-close boundary)
@@ -150,7 +150,7 @@ plan I generated was ctrl-g to edit in  Vim  · ~/.claude/plans/old-slug.md"`)
 takes precedence over the real footer path.
 
 Consequence: the bubble shows plan CONTENTS for a slug that ISN'T what
-Ink is currently prompting on. Ashley approves based on stale content.
+Ink is currently prompting on. Alice approves based on stale content.
 Approval keystroke `1\r` still hits the real Ink prompt (approval works),
 but she may approve a plan she didn't actually read. Slug is constrained
 to `[a-z0-9-]+` so no injection surface, but the UX-integrity gap is real
@@ -249,7 +249,7 @@ non-ASCII), Node.js's `toString("utf8")` inserts U+FFFD (replacement char)
 for the incomplete trailing bytes. For a plan file with UTF-8 punctuation
 (smart quotes, em-dashes, non-ASCII names in file paths), the last
 character or two of the visible content will be garbled. Small integrity
-issue but silent — Ashley won't know the truncation lost bytes vs
+issue but silent — Alice won't know the truncation lost bytes vs
 corrupted the boundary.
 
 **Fix:** Use `TextDecoder({ fatal: false, ignoreBOM: false })` or the
@@ -364,7 +364,7 @@ codebase — a follow-up nit only).
 **Issue:** `bottomSlice.includes("shift+tab to approve with this feedback")`
 requires the marker to appear on ONE line. If tmux window width is narrow
 enough that Ink wraps that line (splitting on `this\n feedback`), detection
-fails silently — bubble never mounts, Ashley never sees the actionable UI.
+fails silently — bubble never mounts, Alice never sees the actionable UI.
 CONTEXT states the fleet is pinned to a specific Ink variant and terminal
 setup, so this is unlikely in production, but the failure mode is
 silent-broken (returns `false`) rather than raising a signal.
@@ -392,7 +392,7 @@ path, which then renders inside the bubble as `Plan contents unavailable
 ({contentError})`. React auto-escapes so no XSS, but:
 (a) the string can be arbitrarily long, blowing out the bubble layout, and
 (b) it leaks the actual home directory path into the UI, which is fine
-for Ashley's local ops posture but slightly leaky for the "small dim line"
+for Alice's local ops posture but slightly leaky for the "small dim line"
 CONTEXT-specified affordance.
 
 **Fix (defer-worthy):** Cap or classify the error at the fetch boundary:

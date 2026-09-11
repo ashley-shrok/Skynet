@@ -646,7 +646,7 @@ describe("PrettyView — Phase 14 Wave 5 aside integration (frontend-arm + morph
     return undefined;
   }
 
-  // Test A SKIPPED 2026-07-27 (Ashley): automatic aside-arm emit disabled at
+  // Test A SKIPPED 2026-07-27 (Alice): automatic aside-arm emit disabled at
   // the source via AUTO_ASIDE_ARM_ENABLED=false in PrettyView.tsx. This test
   // covers both the positive emit (identity attached) AND the anonymous
   // suppression via its Sub-case 2 — both are inert while the flag is off.
@@ -1081,7 +1081,7 @@ describe("PrettyView — Fix B: session_holding_cleared self-clear (quick 260730
   });
 
   it("Test F3: contextPct sourced from fleet-status is preserved across session_holding_cleared (no heavy-reset)", async () => {
-    // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Ashley 2026-09-08
+    // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Alice 2026-09-08
     // D-03 mechanical waiver): contextPct now lives on fleet-status; the
     // WS `context_pct` frame handler in PrettyView is a NO-OP. This test
     // rewritten to publish contextPct via the fleet-status store (the
@@ -1137,7 +1137,7 @@ describe("PrettyView — Fix B: session_holding_cleared self-clear (quick 260730
 // Bounty pretty-view-reconnect-preserve-bubbles-and-disable-send (2026-08-08).
 // The pretty-view WS retry window used to unmount the scroll region AND
 // the ComposeBox because the status="error" render gates excluded that
-// state. The bubbles Ashley was reading blinked out for ~2s and Send taps
+// state. The bubbles Alice was reading blinked out for ~2s and Send taps
 // went to a torn-down ComposeBox. Fix:
 //   1) Scroll region renders during status="error" when messages.length>0.
 //   2) ComposeBox renders during status="error"; PrettyView wires
@@ -1273,7 +1273,7 @@ describe("quick 260808-cd6 dormancy overlay integration", () => {
   // 56-03 Task 2 (KEEP condition).
 
   // ── patch #491 regression lock ─────────────────────────────────────────
-  // Ashley 2026-08-23 verbatim: "I will often go into a session, hit wake
+  // Alice 2026-08-23 verbatim: "I will often go into a session, hit wake
   // up, and then as I'm waking up, I start recording a message with the
   // mic, but when it actually wakes up, for some reason, the mic just
   // stops, and it goes back to as if I'm not recording, and so I lose that
@@ -1417,7 +1417,7 @@ describe("quick 260808-ho2 loading overlay integration", () => {
   // Phase-29's `phase === "resolving" && showResolvingSpinner` (with
   // 150ms hook-level delay-arm) to a caller-site delay-arm at 400ms
   // per phase-30-restore-resolving-overlay-paint-delay (2026-08-10) —
-  // Ashley UAT surfaced the flash Phase 30's delay-arm deletion left
+  // Alice UAT surfaced the flash Phase 30's delay-arm deletion left
   // exposed and PS30-06's own code comment explicitly authorized
   // restoring the paint-delay at THIS site (not the hook). The tests
   // below therefore assert MOUNTED-AFTER-400ms rather than mounted-

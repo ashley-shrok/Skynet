@@ -1,4 +1,4 @@
-# Shape: defer the terminal view until Ashley reaches for it
+# Shape: defer the terminal view until Alice reaches for it
 
 **Opened:** 2026-08-14
 **Vehicle:** GSD phase (inside a `/build` arc)
@@ -9,9 +9,9 @@ For an identity-based session (one where the chat surface is the default landing
 
 ## Shape
 
-Today, opening a session in the app spins up two surfaces at once: the chat surface (default landing) and the terminal view (waiting silently in the background with a live connection to the box). Both are wired up eagerly. The chat surface, in the current arrangement, actually lives inside the terminal view — the terminal is the enclosing surface, the chat surface hangs inside it. When Ashley toggles views, she's flipping which one is shown; both remain mounted and connected.
+Today, opening a session in the app spins up two surfaces at once: the chat surface (default landing) and the terminal view (waiting silently in the background with a live connection to the box). Both are wired up eagerly. The chat surface, in the current arrangement, actually lives inside the terminal view — the terminal is the enclosing surface, the chat surface hangs inside it. When Alice toggles views, she's flipping which one is shown; both remain mounted and connected.
 
-The change flips this. The chat surface is promoted to standalone: it mounts and connects on its own, without the terminal wrapping it. The terminal becomes a peer, but a *dormant* peer — it does not exist at all until Ashley reaches for it. First toggle to the terminal cold-boots it: a fresh renderer is built, a new connection dials the box, the still-hot tmux session on the backend is reattached, and the last screen redraws. Toggle back to the chat surface and the terminal is torn down completely — its renderer is destroyed and its connection is closed. Every visit to the terminal is a fresh cold-boot.
+The change flips this. The chat surface is promoted to standalone: it mounts and connects on its own, without the terminal wrapping it. The terminal becomes a peer, but a *dormant* peer — it does not exist at all until Alice reaches for it. First toggle to the terminal cold-boots it: a fresh renderer is built, a new connection dials the box, the still-hot tmux session on the backend is reattached, and the last screen redraws. Toggle back to the chat surface and the terminal is torn down completely — its renderer is destroyed and its connection is closed. Every visit to the terminal is a fresh cold-boot.
 
 Two things the chat surface has been getting through the terminal today have to be re-sourced so the chat surface can stand alone:
 
@@ -23,7 +23,7 @@ The send path from the chat surface to the agent is already self-contained (it s
 
 ## Philosophy
 
-The chat surface is what Ashley actually uses. The terminal is a rare-fallback tool for the moments the harness is in a state the chat surface can't cover — she goes in, hits a key, leaves. Nothing about the built result should assume the terminal is a co-equal always-there surface: it's summoned, used briefly, dismissed.
+The chat surface is what Alice actually uses. The terminal is a rare-fallback tool for the moments the harness is in a state the chat surface can't cover — she goes in, hits a key, leaves. Nothing about the built result should assume the terminal is a co-equal always-there surface: it's summoned, used briefly, dismissed.
 
 Cold-every-time is the deliberate stance. There is no "warm keep" mode, no escape hatch for "I'm going to be in the terminal for a while," no toggle to disable the deferral. The terminal being expensive to have open is exactly what motivates the change; adding modes to keep it open would defeat the point. If the cold-boot ever feels too slow in practice, the answer is to make cold-boot faster, not to add a warm-keep mode.
 
@@ -35,7 +35,7 @@ The send path was migrated to be chat-surface-owned rather than terminal-borrowe
 
 The backend fleet-status broadcast that will now be the source of the working-idle signal shipped in Phase 39 (patch #441) with tuning in patch #442 (which corrected a composite formula that had been mis-treating a specific status as "working" and pinning the indicator on forever). It already polls every managed host on a cadence, decrypting credentials as needed and reattaching over SSH. Adding one more property to what it broadcasts is a small extension of an existing mechanism, not a new mechanism.
 
-The current arrangement — chat surface nested inside terminal view — is a historical artifact of the chat surface having been built as an overlay on top of the terminal originally. The relationship has been inverted-in-spirit for months (Ashley almost never uses the terminal) but the code arrangement still reflects the old model. This change brings the code arrangement in line with the actual usage.
+The current arrangement — chat surface nested inside terminal view — is a historical artifact of the chat surface having been built as an overlay on top of the terminal originally. The relationship has been inverted-in-spirit for months (Alice almost never uses the terminal) but the code arrangement still reflects the old model. This change brings the code arrangement in line with the actual usage.
 
 Non-identity sessions (pure SSH terminal hosts where there's no agent, no chat surface) and RDP sessions do not render a chat surface at all — the terminal or the RDP client is the only surface. These are unaffected. The change only applies where the chat surface is the default landing view.
 
@@ -43,9 +43,9 @@ Non-identity sessions (pure SSH terminal hosts where there's no agent, no chat s
 
 - **The chat surface silently degrading** because a signal it used to get from the terminal wasn't fully re-sourced from the fleet-status broadcast. The working-idle indicator and the tab title are named; if there's a third piece of information the chat surface relies on that isn't accounted for, the change misses the point. This is the primary risk area.
 
-- **Cold-boot feeling broken instead of fast.** If summoning the terminal takes long enough that Ashley starts wondering whether the toggle registered, the shape has failed even if it technically works. Existing "connecting" state UX is reused precisely so this doesn't look like a bug when it does happen — but if cold-boot is routinely slow, that reuse isn't enough.
+- **Cold-boot feeling broken instead of fast.** If summoning the terminal takes long enough that Alice starts wondering whether the toggle registered, the shape has failed even if it technically works. Existing "connecting" state UX is reused precisely so this doesn't look like a bug when it does happen — but if cold-boot is routinely slow, that reuse isn't enough.
 
-- **Non-identity sessions or RDP sessions being affected.** If the change accidentally reaches into panes that don't have a chat surface as their default, Ashley lands on nothing when she opens them, and the terminal-first hosts break. The scope boundary is load-bearing.
+- **Non-identity sessions or RDP sessions being affected.** If the change accidentally reaches into panes that don't have a chat surface as their default, Alice lands on nothing when she opens them, and the terminal-first hosts break. The scope boundary is load-bearing.
 
 - **Toggle-back-to-chat leaving stale terminal state visible for a beat**, or the chat surface briefly showing a broken frame during the mount/unmount transitions. The pane restructure is real surgery; visual glitches during transitions would violate the "invisible replacement" quality the change should have.
 
@@ -69,12 +69,12 @@ Non-identity sessions (pure SSH terminal hosts where there's no agent, no chat s
 - Any change to the fleet-status polling cadence (tune later if lag is felt).
 
 **Deferred:**
-- If the working-idle signal lag turns out to be too laggy in practice, faster polling — deferred until Ashley reports it feels wrong.
-- Any cold-boot performance work beyond what falls out naturally from the pane restructure — deferred until Ashley reports it feels slow.
+- If the working-idle signal lag turns out to be too laggy in practice, faster polling — deferred until Alice reports it feels wrong.
+- Any cold-boot performance work beyond what falls out naturally from the pane restructure — deferred until Alice reports it feels slow.
 
 **Tempting but no:**
 - A "keep this one warm" pin. Would defeat the point of the deferral.
-- A visible indicator that the terminal is currently deferred (badge, icon, hint). Adds noise for an implementation detail Ashley doesn't need to see.
+- A visible indicator that the terminal is currently deferred (badge, icon, hint). Adds noise for an implementation detail Alice doesn't need to see.
 - Rewriting the chat surface's own architecture during this change. Out of scope.
 
 ## Vehicle notes
@@ -99,13 +99,13 @@ The build is closed out with `/close deferred-terminal-mount` — the file arran
 - **Shape — chat surface promoted to standalone under a new wrapper, terminal becomes dormant peer, isIdle and tab title re-sourced from fleet-status broadcast** — partial · wrapper + peer-render is exactly as described; isIdle and tab title both re-sourced; but a THIRD signal (uploads riding on terminal's WS) was not re-sourced — pretty-view chip strip/drop uploads are non-functional on identity panes
 - **Philosophy — cold-every-time, no warm-keep, no opt-out, no keep-warm pin, slight isIdle lag accepted** — present · no warm-keep mode, no feature flag; every summon is a fresh Terminal mount + fresh SSH WS + tmux reattach; existing 'Connecting' UX reused
 - **Prior context — Phase 35 send-path migration, Phase 39 broadcast, patch #442 composite fix** — present · PrettyView's pvSendInputRef/pvSendInterruptRef preserved in wrapper (Phase 35 send-path intact); backend broadcast SessionState.tmuxSession field discovered already on wire so no backend change required (small win over shape's expectation of adding a property); patch #442 composite honored via session-working-store
-- **What would make it wrong: chat surface silently degrading because a signal it used to get from the terminal wasn't fully re-sourced** — missing · the primary risk-area failure mode is exactly what happened — the upload channel (a third signal PrettyView was getting through Terminal's WS) is not re-sourced; wrapper hands PrettyView terminalWs=null with a TODO(41-followup); Ashley: uploads must not be broken by the shipped result — close the gap in this same change before ship
+- **What would make it wrong: chat surface silently degrading because a signal it used to get from the terminal wasn't fully re-sourced** — missing · the primary risk-area failure mode is exactly what happened — the upload channel (a third signal PrettyView was getting through Terminal's WS) is not re-sourced; wrapper hands PrettyView terminalWs=null with a TODO(41-followup); Alice: uploads must not be broken by the shipped result — close the gap in this same change before ship
 - **What would make it wrong: cold-boot feeling broken instead of fast** — present · existing terminal Connecting UX reused via SimpleLoader unchanged; no visible test evidence of slowness (would need live deploy to judge, per the reviewer's read-only remit — reused loader is the guard the shape asked for)
 - **What would make it wrong: non-identity SSH terminal sessions or RDP being affected** — present · tabUtils dispatcher branches on identitiesByKey.has(); non-identity terminal panes route to TerminalTabContent byte-unchanged; RDP/VNC/telnet/dashboard cases in switch untouched
 - **What would make it wrong: toggle-back leaving stale terminal state visible or chat surface briefly showing a broken frame during transitions** — cannot-verify · React unmount is synchronous so no stale-state leak by construction; transitional-frame quality requires a live deploy to judge — outside a read-only conformance check
 - **What would make it wrong: ready-dot workflow breaking outright because fleet-status broadcast has a bug — graceful degradation matters** — present · useSessionIsWorkingRaw returns null on absent key (never-heard-yet), which maps to isIdleDerived null → WipBubble absent (not stuck-on); explicit three-state semantics guard against pinning
 - **Scope edges IN — identity panes only, pane restructure, isIdle re-source, tab title re-source, cold-boot every summon, reuse Connecting UX** — present · all IN items delivered as described
-- **Scope edges OUT — no non-identity, no RDP, no keep-warm mode, no opt-out toggle, no changes to chat surface beyond standing alone, no polling-cadence change** — drifted · the 'no changes to chat surface beyond standing alone' commitment was quietly violated — the wrapper hands PrettyView a null upload WS where previously it had a live one, degrading upload capability; not a bad-faith addition but a subtractive change to PrettyView's runtime capability that wasn't sanctioned; Ashley disposition: fix in-this-change
+- **Scope edges OUT — no non-identity, no RDP, no keep-warm mode, no opt-out toggle, no changes to chat surface beyond standing alone, no polling-cadence change** — drifted · the 'no changes to chat surface beyond standing alone' commitment was quietly violated — the wrapper hands PrettyView a null upload WS where previously it had a live one, degrading upload capability; not a bad-faith addition but a subtractive change to PrettyView's runtime capability that wasn't sanctioned; Alice disposition: fix in-this-change
 - **Scope edges TEMPTING BUT NO — no keep-warm pin, no deferred-visible badge, no PrettyView architecture rewrite** — present · none of the rejected additions crept in
 
 ### Additions (in the result, not in the shape)
@@ -118,7 +118,7 @@ None.
 
 ### Notes
 
-The shape's re-sourcing list was incomplete: it enumerated isIdle and tab-title as the two things PrettyView was getting through the terminal, but PrettyView was ALSO borrowing the terminal's WebSocket for its upload channel (usePrettyViewUploads consuming the terminalWs prop). The executor spotted this and disposed of it as an 'acceptable trade-off' behind a TODO(41-followup) comment at IdentitySessionPane.tsx L271-275, which Ashley overturned: 'no reason to break uploads when we can just keep working to make sure everything is right.' Pattern worth carrying: /open shape enumeration of 'signals the surface depends on' should be treated as a discovery hypothesis to be validated during research, not a closed set — if research finds a third signal, the shape needs re-agreement before the plan commits to letting it degrade. The rest of the phase is a clean hit: pane restructure, cold-every-time, non-identity/RDP unaffected, ready-dot graceful degradation via three-state useSessionIsWorkingRaw, tab-title retarget through session-tmux-store, and the happy discovery that SessionState.tmuxSession was already on the fleet-status wire (no backend change needed).
+The shape's re-sourcing list was incomplete: it enumerated isIdle and tab-title as the two things PrettyView was getting through the terminal, but PrettyView was ALSO borrowing the terminal's WebSocket for its upload channel (usePrettyViewUploads consuming the terminalWs prop). The executor spotted this and disposed of it as an 'acceptable trade-off' behind a TODO(41-followup) comment at IdentitySessionPane.tsx L271-275, which Alice overturned: 'no reason to break uploads when we can just keep working to make sure everything is right.' Pattern worth carrying: /open shape enumeration of 'signals the surface depends on' should be treated as a discovery hypothesis to be validated during research, not a closed set — if research finds a third signal, the shape needs re-agreement before the plan commits to letting it degrade. The rest of the phase is a clean hit: pane restructure, cold-every-time, non-identity/RDP unaffected, ready-dot graceful degradation via three-state useSessionIsWorkingRaw, tab-title retarget through session-tmux-store, and the happy discovery that SessionState.tmuxSession was already on the fleet-status wire (no backend change needed).
 
 ---
 

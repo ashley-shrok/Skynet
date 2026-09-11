@@ -113,7 +113,7 @@ No REQUIREMENTS.md IDs are mapped to this phase (per ROADMAP L1871): "REQUIREMEN
 
 ## Human Verification Required
 
-None. All 10 verification focus items were verifiable programmatically via grep + file inspection + test execution. The phase is documentation-, code-, and test-complete at ship boundary. Deployment-time behaviors (operator adds `SKYNET_PUBLIC_URL` to `/opt/skynet/skynet.env`, docker compose recreate, browser tab opens verbatim URL on live Skynet) are explicitly out of executor scope per each plan's "Coordination note" and Ashley's greenlight is required next session.
+None. All 10 verification focus items were verifiable programmatically via grep + file inspection + test execution. The phase is documentation-, code-, and test-complete at ship boundary. Deployment-time behaviors (operator adds `SKYNET_PUBLIC_URL` to `/opt/skynet/skynet.env`, docker compose recreate, browser tab opens verbatim URL on live Skynet) are explicitly out of executor scope per each plan's "Coordination note" and Alice's greenlight is required next session.
 
 ## Gaps Summary
 

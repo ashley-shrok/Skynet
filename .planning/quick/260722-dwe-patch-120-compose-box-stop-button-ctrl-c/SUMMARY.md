@@ -59,7 +59,7 @@ docs_commit: TBD
 ## Deploy status
 
 **NOT DEPLOYED.** Local commit only, batched with #118-#122 for a
-single deploy later per Ashley 2026-07-22. Runtime verification
+single deploy later per Alice 2026-07-22. Runtime verification
 (Ctrl-C actually interrupts a live Claude Code run) deferred to
 post-deploy UAT.
 

@@ -155,11 +155,11 @@ Both fields safe to drop with no user-visible effect.
 
 ## Notes for the planner
 
-1. **The migration should physically drop the whole table**, not just the remaining columns. Precedent: Phase 66-04 used boot-time `runIdentitiesCosmeticDrops()` for column drops; the equivalent here is a full-table drop at boot with a marker to prevent re-runs. Ashley's rule: table drops are one-way (no roll-back needed for a milestone-scoped deploy).
+1. **The migration should physically drop the whole table**, not just the remaining columns. Precedent: Phase 66-04 used boot-time `runIdentitiesCosmeticDrops()` for column drops; the equivalent here is a full-table drop at boot with a marker to prevent re-runs. Alice's rule: table drops are one-way (no roll-back needed for a milestone-scoped deploy).
 2. **The share endpoint is coming out wholesale** — file, tests, frontend picker component, share API in identities-api.ts, everywhere. Don't leave dead references.
 3. **The delete endpoint is dead code** — no UI wiring today. Same wholesale removal.
 4. **Wire-type cleanup is a breaking change** on the `Identity` frontend type — drop `id`, `createdAt`, `updatedAt`. TypeScript will catch consumers; verify none use them at runtime.
 5. **Fanout enumeration reuses Phase 66-03's identityHosts / artifact-reader plumbing** — same 5s connect timeout, safe-defaults on host error. Load-bearing difference: an unreachable host now means "no identities from that host" rather than "safe-default cosmetics for a known identity." Both scenarios produce a merged list that just omits identities from unreachable hosts.
 6. **URL migration** — the three surviving `:id` paths (PUT cosmetics, DELETE, GET avatar) collapse to two (`PUT /:identityKey`, `GET /:identityKey/avatar`) since DELETE goes away. IdentityKey is URL-safe (lowercase letters + digits + hyphens per fleet convention).
-7. **Ashley pre-authorized** the phase via `/build`. Standing directive from role file: greenlight at push, not at recreate. Ship-gate = full vitest suite green.
+7. **Alice pre-authorized** the phase via `/build`. Standing directive from role file: greenlight at push, not at recreate. Ship-gate = full vitest suite green.
 8. **Bounty tracker**: `~/.claude/roles/box-maintainer/bounties/kill-identities-table-phase-68/` — holds the original ship-day premise and pre-shape call-site list.

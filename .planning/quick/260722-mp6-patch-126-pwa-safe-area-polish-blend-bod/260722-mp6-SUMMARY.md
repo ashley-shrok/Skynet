@@ -21,7 +21,7 @@ key-files:
     - src/ui/AppShell.tsx
     - src/ui/sidebar/ConversationsPanel.tsx
 decisions:
-  - Kept var(--background) fallback (no hardcoded oklch) — .dark class IS an ancestor of body per shadcn setup; visual verification will confirm on Ashley's device.
+  - Kept var(--background) fallback (no hardcoded oklch) — .dark class IS an ancestor of body per shadcn setup; visual verification will confirm on Alice's device.
   - Left desktop paddingBottom pathway alone via env() 0-resolution rather than adding a media query — matches the "3 tiny edits, no scope expansion" plan intent.
 metrics:
   duration: 4min
@@ -34,7 +34,7 @@ metrics:
 
 ## Objective
 
-Resolve Ashley's UAT feedback on the patch #125 iOS install:
+Resolve Alice's UAT feedback on the patch #125 iOS install:
 1. Black bars in the top/bottom safe-area regions (body bg leaking through) → blend body bg with Skynet-gray.
 2. ConversationsPanel scroll content hiding behind the iOS home indicator → add bottom safe-area inset to the scroll container.
 
@@ -59,7 +59,7 @@ body {
 }
 ```
 
-**Rationale:** `.dark` is the shadcn dark-mode class typically applied on `<html>` or `<body>`. `--background` is set inside `.dark` as an `oklch()` value (line 191), so `var(--background)` resolves directly without an `hsl()` wrapper. If visual verification shows the body still black in dark mode on Ashley's device, the fallback is to hardcode `background-color: oklch(0.155 0.004 128.73);` — not applied here because the plan says "if after visual verification…"
+**Rationale:** `.dark` is the shadcn dark-mode class typically applied on `<html>` or `<body>`. `--background` is set inside `.dark` as an `oklch()` value (line 191), so `var(--background)` resolves directly without an `hsl()` wrapper. If visual verification shows the body still black in dark mode on Alice's device, the fallback is to hardcode `background-color: oklch(0.155 0.004 128.73);` — not applied here because the plan says "if after visual verification…"
 
 ### EDIT 2 — `src/ui/AppShell.tsx` (outer div style, lines 1738–1742)
 
@@ -94,7 +94,7 @@ style={{
 <div className="flex-1 min-h-0 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
 ```
 
-**Rationale:** Desktop no-op (`env()` resolves to 0). iOS pushes last item above home indicator. No other scroll containers touched (SessionsPanel, dashboard cards, pretty view) — Ashley only reported hitting this one, per plan's "only reported hitting this one" scope note.
+**Rationale:** Desktop no-op (`env()` resolves to 0). iOS pushes last item above home indicator. No other scroll containers touched (SessionsPanel, dashboard cards, pretty view) — Alice only reported hitting this one, per plan's "only reported hitting this one" scope note.
 
 ## Verification Results
 
@@ -126,7 +126,7 @@ SIDEBAR_INSET: OK      (grep 'pb-\[env(safe-area-inset-bottom)\]' ConversationsP
 
 ## Deviations from Plan
 
-**None.** Plan executed exactly as written. No fallback to hardcoded `oklch(0.155 0.004 128.73)` needed at implementation time — that fallback is contingent on Ashley's visual verification and belongs to any hypothetical follow-up, not this patch.
+**None.** Plan executed exactly as written. No fallback to hardcoded `oklch(0.155 0.004 128.73)` needed at implementation time — that fallback is contingent on Alice's visual verification and belongs to any hypothetical follow-up, not this patch.
 
 ## Auth Gates
 
@@ -142,7 +142,7 @@ feat(pwa): patch #126 — safe-area polish (blend body bg, drop shell bottom pad
 - AppShell outer div: drop paddingBottom so shell bg extends to viewport bottom edge; keep paddingTop so status-bar clock/battery stay readable.
 - ConversationsPanel scroll container: append pb-[env(safe-area-inset-bottom)] so last item rests above the iOS home-indicator region (desktop no-op).
 
-Resolves Ashley UAT feedback on patch #125 iOS install. Desktop rendering unchanged (env resolves to 0). tsc-clean. 3-file diff.
+Resolves Alice UAT feedback on patch #125 iOS install. Desktop rendering unchanged (env resolves to 0). tsc-clean. 3-file diff.
 ```
 
 **Commit sha:** `0f87d02` on branch `feat/tab-title-from-tmux`
@@ -151,7 +151,7 @@ Resolves Ashley UAT feedback on patch #125 iOS install. Desktop rendering unchan
 
 - `feat/tab-title-from-tmux` branch has patch #126 as commit `0f87d02` (single atomic commit stacked on the #118–#125 batch).
 - tsc clean, no test-file changes, no manifest/index.html/icons/nginx touched.
-- Deploy behind the mandatory 15-min deadman rollback timer after Ashley greenlights the visual behavior (top+bottom safe-area regions render Skynet-gray, sidebar last-item sits above the home indicator, status-bar readable, desktop unchanged).
+- Deploy behind the mandatory 15-min deadman rollback timer after Alice greenlights the visual behavior (top+bottom safe-area regions render Skynet-gray, sidebar last-item sits above the home indicator, status-bar readable, desktop unchanged).
 
 ## Known Stubs
 

@@ -36,7 +36,7 @@ metrics:
 
 Eliminate the silent-null-drop failure mode where `handleInjectedTurnReady` silently discarded
 the injected turn when `pvSendInputRef.current === null` during a WS mid-reconnect / mount-race.
-Ashley hit this 1-in-8 UAT sends (tina, 496KB PNG, 2026-08-29 16:20:52) — compose cleared
+Alice hit this 1-in-8 UAT sends (tina, 496KB PNG, 2026-08-29 16:20:52) — compose cleared
 (outcome.ok=true), message never arrived, no error surface, no retry.
 
 ## Task Outcome
@@ -108,4 +108,4 @@ None other — plan executed as written.
 
 ## Follow-up Bounty Candidate
 
-Similar pattern exists in `MessageQueueDrawer`'s `onSend` prop in `IdentitySessionPane.tsx` (line ~243): `if (!send) return false` — the drawer send also silently drops if `pvSendInputRef.current` is null. Less likely to be hit (drawer sends are user-initiated, WS usually stable by then) but worth the same queue-and-replay treatment if Ashley observes drawer sends fizzling.
+Similar pattern exists in `MessageQueueDrawer`'s `onSend` prop in `IdentitySessionPane.tsx` (line ~243): `if (!send) return false` — the drawer send also silently drops if `pvSendInputRef.current` is null. Less likely to be hit (drawer sends are user-initiated, WS usually stable by then) but worth the same queue-and-replay treatment if Alice observes drawer sends fizzling.

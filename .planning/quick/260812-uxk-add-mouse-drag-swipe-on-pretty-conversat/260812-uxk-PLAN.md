@@ -41,7 +41,7 @@ onMouse* props remain `undefined` so the mobile row keeps touch-only behavior
 and adds zero new listeners. NO long-press-on-mouse path — desktop right-click
 already uses the existing `onContextMenu` handler.
 
-Purpose: parity between mobile and desktop swipe UX. Desktop Ashley currently
+Purpose: parity between mobile and desktop swipe UX. Desktop Alice currently
 has no fast pin+activate / unpin+deactivate composite — she must right-click
 and pick from the menu. Mouse-drag swipe restores the same one-gesture
 composite the mobile row already ships.

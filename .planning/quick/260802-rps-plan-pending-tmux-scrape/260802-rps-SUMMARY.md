@@ -23,7 +23,7 @@ Live diagnosis on Moxie/workstation 2026-08-02:
 - 2.1.150's `ExitPlanModeV2Tool` code path BUFFERS the `ExitPlanMode` tool_use in Ink UI memory and only flushes the completed tool_use + tool_result pair to the parent JSONL when the user resolves the approval prompt.
 - The model routes plan-mode tools through a deferred-tool load: `ToolSearch(query="select:ExitPlanMode")` → `ExitPlanMode(...)`. Anthropic-side model behavior, not a Claude Code binary change.
 - Consequence: patch #63's parent-JSONL scan for unmatched ExitPlanMode tool_use has literally zero signal during the pending window. PlanPendingBubble effectively never shows.
-- Direct proof: on Moxie's workstation JSONL, the ExitPlanMode tool_use appeared with its original 18:56:52 timestamp only after Ashley approved at 19:53:42 — a 57-minute gap during which the JSONL held nothing.
+- Direct proof: on Moxie's workstation JSONL, the ExitPlanMode tool_use appeared with its original 18:56:52 timestamp only after Alice approved at 19:53:42 — a 57-minute gap during which the JSONL held nothing.
 - V2 also added an `allowedPrompts` field to the tool input schema the V1 didn't have.
 
 Neither the version pin nor the frozen model version protected against this — the change was in behavior neither is version-gated on.
@@ -86,11 +86,11 @@ Grep sanity:
 
 ## Ship boundary
 
-HELD per fleet ship rule (Ashley 2026-07-27):
+HELD per fleet ship rule (Alice 2026-07-27):
 
 - NOT pushed. NOT `docker build`. NOT `docker compose up`. Container still on the pre-execution image.
 - Deploy queue now carries 5 code commits ahead of the container: `2318460 + 8c9ea5e` (patch #267), `042235e` (patch #268), `911dbfb + 6263d10` (this quick, presumably patch #269).
-- Ashley greenlights ship separately.
+- Alice greenlights ship separately.
 
 ## Out of scope
 

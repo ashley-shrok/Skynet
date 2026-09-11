@@ -50,7 +50,7 @@ decisions:
   - "handleOpenRoleModal cosmetics derivation: prefer identity.roleDefaults (already carries title/colorHue/voice/avatar per Phase 86); fall back to listRolesForHost fetch."
   - "handleOpenRunbook accepts optional roleNameOverride so RoleModal can pass its own roleName for the nested swap without relying on pvIdentity."
   - "PrettyConversationsPanel-level CreateRoleDialog mount DELETED — the only caller was the deleted 'New role' menu entry (per Task 3 note #4). Role creation now flows through RolesListModal's internal CreateRoleDialog (D-10 stack)."
-  - "Panel-level chain-to-create-identity flow dropped (Rule 1 side effect — RolesListModal doesn't yet expose onChainToCreateIdentity). Documented as a follow-up if Ashley wants it back."
+  - "Panel-level chain-to-create-identity flow dropped (Rule 1 side effect — RolesListModal doesn't yet expose onChainToCreateIdentity). Documented as a follow-up if Alice wants it back."
   - "Removed 5 sibling test files (role-tab, bounties-filter, runbooks-swap, lazy-archive, chain) whose entire subject matter moved to RoleModal / RolesListModal or was deleted by the plan."
 metrics:
   duration_hours: 3.5
@@ -174,7 +174,7 @@ New file `PrettyConversationsPanel.role-management-flow.test.tsx` — 5 tests wa
 
 - **D-09 ModalScope retirement:** Deleted `src/ui/state/modal-scope-store.ts` + its test file in this phase rather than as a follow-up sweep. The 5 surviving IdentityModal test files that used `__resetModalScopeForTest` were rewritten to use a local no-op stub.
 - **Task 3 CreateRoleDialog mount:** Deleted (not kept as a stub). The only caller was the deleted "New role" menu entry, per Task 3 note #4.
-- **Task 3 chain flow trade-off:** The panel-level `CreateRoleDialog → chainPrefill → NewSessionDialog` chain was dropped for this entry point. Documented in-code as a follow-up ("if Ashley wants it back, RolesListModal can grow an `onChainToCreateIdentity` prop").
+- **Task 3 chain flow trade-off:** The panel-level `CreateRoleDialog → chainPrefill → NewSessionDialog` chain was dropped for this entry point. Documented in-code as a follow-up ("if Alice wants it back, RolesListModal can grow an `onChainToCreateIdentity` prop").
 - **Task 4 scope-switch.test.tsx:** Kept as regression guard (2 tests) rather than fully retired — cheaper than a follow-up sweep if someone accidentally re-introduces the scope switch.
 
 ## Known Stubs

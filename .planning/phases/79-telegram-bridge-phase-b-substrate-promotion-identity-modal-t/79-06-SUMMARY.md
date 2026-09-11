@@ -19,14 +19,14 @@ tech-stack:
   patterns:
     - docker-compose env-var substitution with default (`${VAR:-default}`) for host-varying bind-mount sources
     - shared named volume mounted by two services (skynet + tg-bridge) as the sole cross-container comms surface
-    - config-via-mounted-file (bridge reads /state/config.env) instead of compose env: block (preserves Ashley-locked #3)
+    - config-via-mounted-file (bridge reads /state/config.env) instead of compose env: block (preserves user-locked #3)
 key-files:
   created:
     - docker/docker-compose.yml
   modified: []
 decisions:
   - Chose blocker B-5 fix strategy (A) env-var substitution over (B) split compose-base + overlay — zero additional moving parts, single canonical file works in repo AND on any host
-  - No environment: MATRIX_ROOT / STT_URL block on tg-bridge — bridge sources /state/config.env at boot per CONTEXT § 4C (Ashley-locked #3: Skynet is single source of config)
+  - No environment: MATRIX_ROOT / STT_URL block on tg-bridge — bridge sources /state/config.env at boot per CONTEXT § 4C (user-locked #3: Skynet is single source of config)
   - restart: always for tg-bridge (Nina's live systemd unit uses Restart=always; compose equivalent preserves the same crash-loop-recovery semantics)
   - No healthcheck, no expose, no ports on tg-bridge (outbound-only surface — polls Telegram, posts to Matrix; no HTTP server)
 metrics:
@@ -74,7 +74,7 @@ Single `skynet-net` bridge — `tg-bridge` joins it so it can reach `skynet` at 
 | header comment | none | Phase 79 Plan 06 provenance + B-5 rationale + two-file mirror note |
 | bare `/opt/skynet/` hardcoded paths | 6 (console-forward-logs, stt-recordings, branding, skynet.env, keys, Caddyfile) | 0 |
 | `${SKYNET_HOST_DIR:-/opt/skynet}` substitutions | 0 | 6 (one per parametrized path — see line-number table below) |
-| `MATRIX_ROOT` / `STT_URL` in a compose env block | not applicable | 0 (Ashley-locked #3 preserved — bridge reads from `/state/config.env`) |
+| `MATRIX_ROOT` / `STT_URL` in a compose env block | not applicable | 0 (user-locked #3 preserved — bridge reads from `/state/config.env`) |
 
 ## Blocker B-5 Parametrization — SKYNET_HOST_DIR Substitution Sites
 
@@ -119,7 +119,7 @@ $ docker compose -f docker/docker-compose.yml config >/dev/null 2>&1; echo $?
 
 The file parses cleanly, all bind-mount sources resolve (default `${SKYNET_HOST_DIR:-/opt/skynet}` matches the live layout on t1000 where the executor runs), the tg-bridge build context path is validated as a well-formed relative path, and all volume/network references cross-check.
 
-## Env-Var Abstinence Check (Ashley-locked #3)
+## Env-Var Abstinence Check (user-locked #3)
 
 The tg-bridge service block was scanned for `MATRIX_ROOT` or `STT_URL` env-var declarations:
 
@@ -157,5 +157,5 @@ None — plan executed exactly as written. All 12 acceptance criteria hit their 
 - All 12 acceptance-criteria grep gates: PASS
 - Compose-config smoke test: exit 0
 - No unintended deletions
-- Env-var abstinence: 0 hits (Ashley-locked #3 preserved)
+- Env-var abstinence: 0 hits (user-locked #3 preserved)
 - Provenance comments: 4 sites (header + skynet-service mount + tg-bridge service block + tg-bridge-state volume)

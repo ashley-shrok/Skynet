@@ -36,7 +36,7 @@ No Co-Authored-By trailer on any commit (fork convention held — verified via `
 
 ## Task 2 investigation verdict: **SAME_BUG**
 
-Both of Ashley's followup-3 UAT symptoms (2026-07-24) — (a) only ONE restored tab glowed with `.active-set`, and (b) the un-glowed tab "did NOT auto-load its content, had to wait" — collapse to a single root cause in the persisted-tab-restore branch: only `restoredTabs[0]` was routed through any store-side signal.
+Both of Alice's followup-3 UAT symptoms (2026-07-24) — (a) only ONE restored tab glowed with `.active-set`, and (b) the un-glowed tab "did NOT auto-load its content, had to wait" — collapse to a single root cause in the persisted-tab-restore branch: only `restoredTabs[0]` was routed through any store-side signal.
 
 **Mechanism traced end-to-end** (in the inline C-investigate comment block at AppShell.tsx L825-861, and repeated in the b48023e commit body):
 
@@ -45,7 +45,7 @@ Both of Ashley's followup-3 UAT symptoms (2026-07-24) — (a) only ONE restored 
 3. `PrettyConversationsPanel.tsx:162-164`'s useEffect on `selectedId` change fires → `addToActiveSet(selectedId)` → `restoredTabs[0]` glows.
 4. Every OTHER restoredTabs entry is invisible to this chain: no `pendingSelectId` write for them, no `selectedId` flip, no `addToActiveSet` reach.
 
-**Content-load pathway (why the un-glowed tab also "didn't load"):** Every tab in `tabs` mounts via the `createPortal` loop at AppShell.tsx ~L1598-1626 regardless of selection. But `Terminal.tsx`'s WebSocket-connect effect at L2800-2831 is gated on `isVisible = tab.id === effectiveSelectedTabId`. Only the focused tab is `isVisible=true`, so only its `restoredSessionId` reconnects at mount. **This is CORRECT behavior** — we do not want to prefetch N WebSocket handshakes at restore time. When Ashley clicks the un-glowed row, `selectConversation(row.id)` fires from `PrettyConversationsPanel.tsx:208`, `addToActiveSet` gives glow, the mirror effect at AppShell L510-519 sets `activeTabId`, `effectiveSelectedTabId` flips, `isVisible=true`, the connect effect fires. **That IS the load.** The "had to wait" perception is WebSocket handshake latency (~100-500ms), not a distinct bug.
+**Content-load pathway (why the un-glowed tab also "didn't load"):** Every tab in `tabs` mounts via the `createPortal` loop at AppShell.tsx ~L1598-1626 regardless of selection. But `Terminal.tsx`'s WebSocket-connect effect at L2800-2831 is gated on `isVisible = tab.id === effectiveSelectedTabId`. Only the focused tab is `isVisible=true`, so only its `restoredSessionId` reconnects at mount. **This is CORRECT behavior** — we do not want to prefetch N WebSocket handshakes at restore time. When Alice clicks the un-glowed row, `selectConversation(row.id)` fires from `PrettyConversationsPanel.tsx:208`, `addToActiveSet` gives glow, the mirror effect at AppShell L510-519 sets `activeTabId`, `effectiveSelectedTabId` flips, `isVisible=true`, the connect effect fires. **That IS the load.** The "had to wait" perception is WebSocket handshake latency (~100-500ms), not a distinct bug.
 
 **Task 4 (#150 D) status: SKIPPED.** No separate click-to-load bug exists; Task 3's fix covers both symptoms via the store-level per-tab `addToActiveSet` primitive.
 
@@ -99,16 +99,16 @@ Files touched exactly match the plan's `files_modified` frontmatter list:
 - **No push** — commits are local only; `git log origin/feat/tab-title-from-tmux..feat/tab-title-from-tmux` shows exactly the 3 new commits + the pre-dispatch plan doc unpushed.
 - **No build** — the plan's verify steps only ran `type-check` + vitest; no `npm run build`, no `docker compose` invocation.
 - **No deploy** — see above.
-- **No `~/.claude/identities/tina/skynet-patches.md` write** — deferred to the deploy-batch write-up per Ashley 2026-07-23 batch-writeups-until-deploy rule.
+- **No `~/.claude/identities/tina/skynet-patches.md` write** — deferred to the deploy-batch write-up per Alice 2026-07-23 batch-writeups-until-deploy rule.
 
 ## Deploy recommendation to the orchestrator
 
 **RECOMMEND SOLO-DEPLOY CARVEOUT for followup-1 (#150 A).**
 
 Reasoning:
-- **#150 A is actively broken in production** (Ashley's fleet-panel pin workflow: pin 4-5 fleet rows → single click nukes all pins). Per the plan's shape, this is production-broken behavior blocking Ashley's daily workflow. The three-tier sort (patch #149 B+C) that Ashley loves specifically depends on fleet rows being pinnable AND surviving activation clicks — right now #149 B+C is silently degraded by the #150 A bug.
-- **#150 C** cleans up a visual regression from #145 that leaves Ashley uncertain which of her restored tabs are "live". Medium priority, but bundling it with #150 A saves a deploy round-trip and both are surgical.
+- **#150 A is actively broken in production** (Alice's fleet-panel pin workflow: pin 4-5 fleet rows → single click nukes all pins). Per the plan's shape, this is production-broken behavior blocking Alice's daily workflow. The three-tier sort (patch #149 B+C) that Alice loves specifically depends on fleet rows being pinnable AND surviving activation clicks — right now #149 B+C is silently degraded by the #150 A bug.
+- **#150 C** cleans up a visual regression from #145 that leaves Alice uncertain which of her restored tabs are "live". Medium priority, but bundling it with #150 A saves a deploy round-trip and both are surgical.
 - Nothing concerning surfaced during Task 1 — the fix is minimally-scoped (one function, one micro-guard, one new keep-set), the two regression tests exhaustively pin both directions of the pruner contract (keep fleet, still drop stale), and the pre-existing 41 conversation-store tests + 38 pretty-conversations tests all remained green throughout.
-- The 15-min deadman rollback timer is standing constraint per Ashley 2026-07-03 — recommendation is to deploy behind that timer, not without.
+- The 15-min deadman rollback timer is standing constraint per Alice 2026-07-03 — recommendation is to deploy behind that timer, not without.
 
-Solo-deploy = ship #150 A + #150 C investigate + #150 C together (they're one plan on one branch — atomic from the deploy's perspective). Batch with any newer patches Ashley greenlights, but do NOT sit on #150 A waiting for a bigger batch.
+Solo-deploy = ship #150 A + #150 C investigate + #150 C together (they're one plan on one branch — atomic from the deploy's perspective). Batch with any newer patches Alice greenlights, but do NOT sit on #150 A waiting for a bigger batch.

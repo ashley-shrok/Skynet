@@ -76,9 +76,9 @@ const ESCAPE_TABLE: readonly (readonly [RegExp, string])[] = [
 
 | Input username | sanitizeUsernameToLocalpart output | buildHumanMxid output (server: thenasty.taild9b663.ts.net) |
 |---|---|---|
-| `ashley` | `ashley` | `@ashley_human:thenasty.taild9b663.ts.net` |
-| `Ashley` | `ashley` | `@ashley_human:thenasty.taild9b663.ts.net` |
-| `ashley@aitherhealth.com` | `ashley_at_aitherhealth_dot_com` | `@ashley_at_aitherhealth_dot_com_human:thenasty.taild9b663.ts.net` |
+| `alice` | `alice` | `@alice_human:thenasty.taild9b663.ts.net` |
+| `Alice` | `alice` | `@alice_human:thenasty.taild9b663.ts.net` |
+| `alice@example.com` | `alice_at_example_dot_com` | `@alice_at_example_dot_com_human:thenasty.taild9b663.ts.net` |
 | `snake_case` | `snake__case` | `@snake__case_human:thenasty.taild9b663.ts.net` |
 | `foo@bar` | `foo_at_bar` | — |
 | `foo_at_bar` | `foo__at__bar` | — |

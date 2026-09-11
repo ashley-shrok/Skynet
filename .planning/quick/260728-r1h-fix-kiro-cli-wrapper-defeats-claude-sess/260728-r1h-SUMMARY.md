@@ -81,14 +81,14 @@ Single atomic commit touching exactly the two files above.
 
 ## No push / no docker / no deploy
 
-No push was performed. No docker build. No docker compose. Per Ashley's 2026-07-27 code-work-authorizes-commit-only rule.
+No push was performed. No docker build. No docker compose. Per Alice's 2026-07-27 code-work-authorizes-commit-only rule.
 
 `.planning/skynet-patches.md` untouched — patch entry deferred to ship time.
 `CLAUDE.md` untouched.
 
 ## Handoff to tina
 
-Ready for ship-time push + docker build + `docker compose up -d --force-recreate skynet` + skynet-patches.md entry when Ashley greenlights.
+Ready for ship-time push + docker build + `docker compose up -d --force-recreate skynet` + skynet-patches.md entry when Alice greenlights.
 
 Post-deploy verification: open pretty-view for beatrice, nelly, shrok, vicky, yolanda on thenasty — each pane should show active Claude session (message history, compose box) instead of the "no active Claude session" fallback. Cross-check backend logs for `claude_session_discovery status:active` for those panes.
 

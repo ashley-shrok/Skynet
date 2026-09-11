@@ -54,7 +54,7 @@ must_haves:
 ---
 
 <objective>
-Fix the PrettyView auto-scroll snap-back / jump on tall-bubble re-measure (Ashley report
+Fix the PrettyView auto-scroll snap-back / jump on tall-bubble re-measure (Alice report
 2026-08-13: "if I try to scroll up, I get a little ways up before it either snaps back to
 the bottom or jumps to a completely different area … and it seems to coincide with very
 tall bubbles that are taller than the screen").
@@ -64,7 +64,7 @@ two semantically-different events — "new message arrived" (jump-to-bottom desi
 "existing bubble re-measured by TanStack Virtual" (jump-to-bottom NOT desired). Under
 tall-bubble re-measure, sticky sessions snap back to bottom; even non-sticky iOS touch-scroll
 sessions get filtered as measurement-adjustments (<20px deltas), leaving stickyRef=true so
-the RO yanks scroll on the next re-measure. Structural fix (Ashley greenlit over a threshold
+the RO yanks scroll on the next re-measure. Structural fix (Alice greenlit over a threshold
 bump): split the effect into two — a new-message signal keyed on messageCount, and a
 retained RO for pill-visibility only.
 
@@ -117,7 +117,7 @@ earlier invariants.
     (c) Replace the single Case 2 useEffect (L136-166) with TWO effects placed in the same slot (comment prose updated):
         - Effect A (new-message jump): deps `[scrollEl, messageCount, jumpToBottom]`. Body: `if (!scrollEl) return; if (stickyRef.current) jumpToBottom(scrollEl);` — no cleanup. This intentionally fires on mount (initial messageCount value) even when messageCount is 0; the Case 1 paneKey effect already handles session-first-load stickying so this is a harmless second nudge in that case.
         - Effect B (RO pill-visibility): deps `[scrollEl]` (no jumpToBottom dep — callback no longer calls it). Preserve outer `ro.observe(scrollEl)` + child-loop `for (const child of Array.from(scrollEl.children)) ro.observe(child);` + MutationObserver for `childList` on scrollEl adding new-child observation. Callback body: `const dist = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight; setIsPinnedToBottom(dist &lt;= BOTTOM_THRESHOLD);` (drop the branch, drop `shrunk`, drop `prevScrollHeightRef` read/write).
-    (d) Rewrite the module-level comment block (L3-49) to reflect the new semantics. Update the Case 2 bullet (currently L15-20) to: "New messages while at bottom → new-message useEffect keyed on `messageCount`; if sticky, jump to bottom. Semantic separation from re-measure — the RO no longer writes scrollTop." Add a paragraph explaining the retained RO: "Case 2b — pill-visibility RO. The outer-container + per-child RO + MutationObserver-for-new-children machinery is retained because pill visibility must reflect ANY scrollHeight change while non-sticky (tall-bubble re-measure grows scrollHeight → pill should still show 'jump to bottom' correctly). But the RO callback ONLY writes `setIsPinnedToBottom(...)` — it NEVER calls jumpToBottom. That decoupling is the fix for 2026-08-13 (Ashley: 'snaps back to the bottom or jumps to a completely different area … coincides with very tall bubbles')." Keep the Phase 32 CONTEXT.md reference AND the "Deliberately NOT here" bullet list intact.
+    (d) Rewrite the module-level comment block (L3-49) to reflect the new semantics. Update the Case 2 bullet (currently L15-20) to: "New messages while at bottom → new-message useEffect keyed on `messageCount`; if sticky, jump to bottom. Semantic separation from re-measure — the RO no longer writes scrollTop." Add a paragraph explaining the retained RO: "Case 2b — pill-visibility RO. The outer-container + per-child RO + MutationObserver-for-new-children machinery is retained because pill visibility must reflect ANY scrollHeight change while non-sticky (tall-bubble re-measure grows scrollHeight → pill should still show 'jump to bottom' correctly). But the RO callback ONLY writes `setIsPinnedToBottom(...)` — it NEVER calls jumpToBottom. That decoupling is the fix for 2026-08-13 (Alice: 'snaps back to the bottom or jumps to a completely different area … coincides with very tall bubbles')." Keep the Phase 32 CONTEXT.md reference AND the "Deliberately NOT here" bullet list intact.
 
     Edit `src/ui/features/pretty-view/PrettyView.tsx` at L685: change `useAutoScroll(paneKey)` to `useAutoScroll(paneKey, messages.length)`. Grep-verify exactly ONE call site (confirmed pre-plan: L685 is the only match). No other PrettyView.tsx changes needed.
 
@@ -144,7 +144,7 @@ earlier invariants.
     - Test 2 ("session first load lands at bottom"): byte-preserved. Case 1 rAF chain is untouched.
     - Test 2d ("user send from scrolled-up state"): byte-preserved. Case 3 scrollToBottomAndFollow is untouched.
     - NEW Test 2c ("tall-bubble re-measure while sticky — does NOT jump; RO-only fire produces no scrollTop write"): mount + populate 20 msgs + let Case 1 chain settle (baseline sticky at 5000) + bump `geom.setScrollHeight(5800)` to simulate a tall-bubble re-measure (image decoded, real height > 400px estimate) WITHOUT firing a WS message frame + manually fire `capturedROCallbacks` (the RO would fire in a real browser on the scrollHeight growth) → assert `geom.getScrollTop() === 5000` (NO auto-jump). This test would have FAILED under the pre-fix Case 2 useEffect (it would have yanked to 5800); it PASSES under the split effects because no new message = no new-message useEffect fire, and RO callback is now setIsPinnedToBottom-only. The test also asserts `isPinnedToBottom` end-state via a data-testid or by checking the jump-to-bottom pill visibility — but PrettyView renders the pill conditionally via `!isPinnedToBottom && messages.length > 0` at L2365; presence of `[role="button"]` with pill copy is a proxy. Simplest: at scrollTop=5000 with scrollHeight=5800 and clientHeight=600, dist=5800-5000-600=200 > BOTTOM_THRESHOLD=100 → pill SHOULD appear. But asserting no-jump alone is sufficient for the invariant — omit the pill assertion to keep the test focused.
-    - Append-only edit to `.planning/phases/32-redesign-pretty-view-auto-scroll-three-case-sticky-bottom-ho/32-CONTEXT.md`: add a new section at end of file titled `## Post-ship correction (2026-08-13)` with subsections for Symptom (Ashley quote), Root cause (RO conflated new-message vs re-measure; Case 2 useEffect wrote scrollTop on ANY scrollHeight growth), Structural fix (split into two effects; new-message signal is `messageCount` param), and a closing line "Everything else in this CONTEXT.md remains LOCKED — this is an additive correction, not a re-litigation." Do NOT modify any earlier sections (LOCKED per file header).
+    - Append-only edit to `.planning/phases/32-redesign-pretty-view-auto-scroll-three-case-sticky-bottom-ho/32-CONTEXT.md`: add a new section at end of file titled `## Post-ship correction (2026-08-13)` with subsections for Symptom (Alice quote), Root cause (RO conflated new-message vs re-measure; Case 2 useEffect wrote scrollTop on ANY scrollHeight growth), Structural fix (split into two effects; new-message signal is `messageCount` param), and a closing line "Everything else in this CONTEXT.md remains LOCKED — this is an additive correction, not a re-litigation." Do NOT modify any earlier sections (LOCKED per file header).
     - Full frontend suite green: `npx vitest run` exits 0 with zero failures. Backend NOT touched — no `npm run build:backend` needed.
   </behavior>
   <action>
@@ -159,7 +159,7 @@ earlier invariants.
     ## Post-ship correction (2026-08-13)
 
     ### Symptom
-    Ashley 2026-08-13: "if I try to scroll up, I get a little ways up before it either
+    Alice 2026-08-13: "if I try to scroll up, I get a little ways up before it either
     snaps back to the bottom or jumps to a completely different area in the overall
     height. And it seems to coincide with very tall bubbles that are taller than the
     screen."
@@ -187,7 +187,7 @@ earlier invariants.
        as content shifting.
 
     ### Structural fix
-    Ashley greenlit the structural fix over a narrow threshold-bump. Split the
+    Alice greenlit the structural fix over a narrow threshold-bump. Split the
     Case 2 useEffect into two effects:
 
     - **New effect (jump-on-new-message)**: keyed on

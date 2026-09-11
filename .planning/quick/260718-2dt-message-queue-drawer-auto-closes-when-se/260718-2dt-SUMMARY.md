@@ -107,7 +107,7 @@ All this plan does is add a second invocation site inside `handleSend`. Zero API
 
 Per the plan objective and the design_locked note, the following corner case is **acknowledged and deliberately not fixed** in this pass:
 
-- **Empty-body-draft residue after Send.** Patch #41 auto-primes an empty draft when the drawer opens on an empty-list. Sequence: open drawer on empty → auto-primed empty draft appears → user clicks Add → types real message → sends it → local remove leaves the auto-primed empty draft behind → `next.length === 1` (the empty draft) → drawer does NOT auto-close. This is niche and Ashley called it out as "acceptable for now, widen later if it bites." A future patch could tighten the gate to `next.every(it => it.body.trim().length === 0)` to close-when-only-empty-drafts-remain, but that's out of scope here.
+- **Empty-body-draft residue after Send.** Patch #41 auto-primes an empty draft when the drawer opens on an empty-list. Sequence: open drawer on empty → auto-primed empty draft appears → user clicks Add → types real message → sends it → local remove leaves the auto-primed empty draft behind → `next.length === 1` (the empty draft) → drawer does NOT auto-close. This is niche and Alice called it out as "acceptable for now, widen later if it bites." A future patch could tighten the gate to `next.every(it => it.body.trim().length === 0)` to close-when-only-empty-drafts-remain, but that's out of scope here.
 
 ## Self-Check
 

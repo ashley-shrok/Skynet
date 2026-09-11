@@ -35,7 +35,7 @@ key-decisions:
 
 patterns-established:
   - "docs/deploy/*.md — operator-facing runbook location for cloud-side per-instance setup steps"
-  - "Per-instance sections named for the operator (§ For t1000 (Ashley's instance), § For T800 (Stacy's instance)) — makes it clear which section applies without cross-referencing infra"
+  - "Per-instance sections named for the operator (§ For t1000 (Alice's instance), § For T800 (Stacy's instance)) — makes it clear which section applies without cross-referencing infra"
 
 requirements-completed:
   - P98-DOC-01
@@ -72,11 +72,11 @@ Each task was committed atomically:
 
 ## Files Created/Modified
 
-- `docs/deploy/aws-voice-setup.md` — 204-line per-instance operator setup runbook for AWS Polly + Amazon Transcribe streaming policy attach. Covers what-this-is, prerequisites, 6-step attach flow, exact IAM policy JSON, off-switch semantics, region, cost math, per-instance notes for t1000 (Ashley) and T800 (Stacy), and ship-motion coordination checklist.
+- `docs/deploy/aws-voice-setup.md` — 204-line per-instance operator setup runbook for AWS Polly + Amazon Transcribe streaming policy attach. Covers what-this-is, prerequisites, 6-step attach flow, exact IAM policy JSON, off-switch semantics, region, cost math, per-instance notes for t1000 (Alice) and T800 (Stacy), and ship-motion coordination checklist.
 
 ## Decisions Made
 
-- **New `docs/deploy/` tree at repo root** rather than co-located `src/backend/voice/DEPLOY.md`. Deploy docs are operator-facing (Ashley on t1000, Stacy on T800), not developer-facing — top-level location signals "not source code, read this for ops". Future deploy docs (any future cloud-side per-instance setup) should land in the same tree.
+- **New `docs/deploy/` tree at repo root** rather than co-located `src/backend/voice/DEPLOY.md`. Deploy docs are operator-facing (Alice on t1000, Stacy on T800), not developer-facing — top-level location signals "not source code, read this for ops". Future deploy docs (any future cloud-side per-instance setup) should land in the same tree.
 - **Two verify commands, not one:** `aws polly describe-voices --engine generative --language-code en-US` PLUS `aws transcribe list-vocabularies --max-results 1`. Only Polly was called out in D-Provider-access; the Transcribe verify catches partial-policy states (operator attaches Polly actions but forgets Transcribe actions) that a Polly-only verify would silently miss.
 - **Off-switch documented as "no restart required to re-flip on."** The SDK's default IMDS credential chain refreshes creds automatically, so re-attaching the policy takes effect at the next request. Restart is documented as belt-and-braces confirmation for step 5 of the attach flow, not a requirement.
 
@@ -90,15 +90,15 @@ None.
 
 ## User Setup Required
 
-None - this plan IS the user-setup surface for Phase 98. The doc created is what operators (Ashley on t1000 pre-ship, Stacy on T800 at cutover) read to complete the cloud-side setup step. No environment variables or dashboard configuration required from the plan itself.
+None - this plan IS the user-setup surface for Phase 98. The doc created is what operators (Alice on t1000 pre-ship, Stacy on T800 at cutover) read to complete the cloud-side setup step. No environment variables or dashboard configuration required from the plan itself.
 
 ## Ship-Motion Items Surfaced to Orchestrator
 
 Per `<output>`, surfacing these coordination items:
 
-1. **Pre-ship (Ashley owns):** Ping Iris to re-scope t1000 policy name from `PollyTranscribeExploratory` to a production name on `termix-ssm-role`. Iris asked for this explicitly during exploration.
+1. **Pre-ship (Alice owns):** Ping Iris to re-scope t1000 policy name from `PollyTranscribeExploratory` to a production name on `termix-ssm-role`. Iris asked for this explicitly during exploration.
 2. **Ship-day (both instances):** Run the browser smoke per step 6 of the doc — voice-out on any assistant message and voice-in via compose-box mic. Both should succeed on t1000 (policy already attached) and on T800 (after Stacy follows the doc).
-3. **Pre-ship sanity check (Ashley from t1000):**
+3. **Pre-ship sanity check (Alice from t1000):**
    ```bash
    AWS_INTEGRATION_TESTS=1 npx vitest run src/backend/voice/*.integration.test.ts
    ```

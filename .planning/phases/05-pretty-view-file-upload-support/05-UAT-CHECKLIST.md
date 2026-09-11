@@ -1,6 +1,6 @@
 # Phase 5 UAT Checklist — pretty-view file upload support
 
-Post-deploy walk-through for Ashley. Every UPLOAD-NN requirement gets an observable check, quoted verbatim from `.planning/REQUIREMENTS.md` so you walk the exact contract. Groupings: desktop happy-path first, clipboard paste, failure recovery + edge cases, mobile paperclip, works-on-any-pane, regression smoke. Blocking-severity gates are marked 🚨 (regression = revert immediately). Nice-to-have polish items are unmarked or ✨.
+Post-deploy walk-through for Alice. Every UPLOAD-NN requirement gets an observable check, quoted verbatim from `.planning/REQUIREMENTS.md` so you walk the exact contract. Groupings: desktop happy-path first, clipboard paste, failure recovery + edge cases, mobile paperclip, works-on-any-pane, regression smoke. Blocking-severity gates are marked 🚨 (regression = revert immediately). Nice-to-have polish items are unmarked or ✨.
 
 **Trace commits:** Phase 5 code-side ships as
 - Plan 01: `a24483f` (shared types), `aa6c86c` (orchestrator), `8b1225f` (terminal.ts WS cases)
@@ -126,7 +126,7 @@ Post-deploy walk-through for Ashley. Every UPLOAD-NN requirement gets an observa
 
 > **UPLOAD-03 contract:** *"On touch devices only (gated by the same `useIsTouchDevice` signal that gates the mobile bottom nav), a paperclip button appears in the compose area and opens the native file picker on tap; desktop never renders the paperclip"*
 
-**Ashley:** this section requires a touch device (phone / tablet). If you don't have one handy, skip and mark N/A. The Vitest suite covers the gate logic (10/10 ComposeBox tests including the showPaperclip prop branches).
+**Alice:** this section requires a touch device (phone / tablet). If you don't have one handy, skip and mark N/A. The Vitest suite covers the gate logic (10/10 ComposeBox tests including the showPaperclip prop branches).
 
 - [ ] 🚨 **UPLOAD-03 paperclip on touch** On a touchscreen device (any width), open a pretty-view pane. Verify a paperclip button appears in the compose area's icon column (TOP of the column, above ThumbsUp — least-used-first convention). Tap it → native file picker opens. Select a file → stages as a chip. Send flow works identically to desktop.
 - [ ] 🚨 **UPLOAD-03 desktop negative-space** On desktop (any window width, including narrow), verify the paperclip button is NOT rendered. In DevTools console: `matchMedia("(pointer: coarse) and (hover: none)").matches` should return `false` on desktop, and there is NO paperclip. Resize the browser narrow (mobile-width simulation) — paperclip STILL absent on desktop (patch #102's `useIsTouchDevice` is pointer-based, not width-based — this is the fix from patch #102).

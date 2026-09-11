@@ -164,9 +164,9 @@ this is not a build error.
 
 - **skynet-patches.md paste** (`~/skynet-patches.md`): Deferred to same-turn
   as deploy per fleet inline-docs rule. The draft entry is ready at
-  `.planning/quick/260728-sqk-.../172-PATCH-ENTRY-DRAFT.md`; Ashley pastes
+  `.planning/quick/260728-sqk-.../172-PATCH-ENTRY-DRAFT.md`; Alice pastes
   it in when she runs the deploy bundle.
-- **Deploy / docker build / push:** Deferred to Ashley's separate deploy
+- **Deploy / docker build / push:** Deferred to Alice's separate deploy
   bundle per the task constraints (no push, no docker build, no deploy).
 - **Docs commit** (SUMMARY.md, PLAN.md, STATE.md, 172-PATCH-ENTRY-DRAFT.md,
   ROADMAP): Orchestrator handles these in a separate `docs(...)` commit.

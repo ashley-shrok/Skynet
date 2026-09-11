@@ -11,7 +11,7 @@ autonomous: true
 requirements: [quick-260829-oxo]
 must_haves:
   truths:
-    - "Ashley can paste a screenshot (or any file-shaped clipboard payload) into any queued-slot Textarea and the file is staged under target `queued:${slot.id}` via onAttachFilesForTarget — a chip renders in that slot's chip strip"
+    - "Alice can paste a screenshot (or any file-shaped clipboard payload) into any queued-slot Textarea and the file is staged under target `queued:${slot.id}` via onAttachFilesForTarget — a chip renders in that slot's chip strip"
     - "Text pastes into a queued-slot Textarea still fall through to the browser default (no preventDefault, no attach call) — the '[pasted N lines]' collapse-avoidance path for text is preserved (byte-parity with the primary handlePaste text-branch behavior)"
     - "Primary composebox paste path (ComposeBox.tsx:2532 onPaste={handlePaste} → onAttachFiles) continues to work byte-identically — no regression, no widened signature on handlePaste, no touch to lines 497-506"
     - "A structured `[compose-paste]` log line fires from the new slot-scoped paste handler on any file-shaped paste, recording target and files.length (path was 100% un-instrumented before; logging is cheap)"
@@ -34,7 +34,7 @@ must_haves:
 ---
 
 <objective>
-Close the queued-slot paste gap Ashley live-reported. The primary composebox
+Close the queued-slot paste gap Alice live-reported. The primary composebox
 Textarea (`ComposeBox.tsx:2532`) wires `onPaste={handlePaste}` where the
 `handlePaste` useCallback at 497-506 reads `clipboardData.files` and calls
 `onAttachFiles?.(files)`. The queued-slot Textarea at `ComposeBox.tsx:3201`
@@ -122,7 +122,7 @@ handler.
 #     existing `console.info` pattern (see :1136, :1140 — same style):
 #         console.info(`[compose-paste] target=${target} files=${files.length}`);
 #     Do NOT add a log to the primary handlePaste in this quick — separate
-#     bounty if Ashley wants the primary path instrumented too.
+#     bounty if Alice wants the primary path instrumented too.
 #
 #   - Existing test file `src/ui/features/pretty-view/ComposeBox.queued-attachment.test.tsx`
 #     (nt9's suite) is the template shape for the new file: same imports,

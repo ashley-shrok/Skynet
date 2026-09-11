@@ -30,7 +30,7 @@ key-files:
     - src/backend/fleet-status/ssh-poll-orchestrator.ts
     - src/backend/fleet-status/ssh-poll-orchestrator.test.ts
 decisions:
-  - "LOCKED Option 1 rollout (CONTEXT.md § Rollout): backend publishes BOTH the two new Phase 63 mtime axes AND the retained Phase 59 lastStopAt + lastStatusChangeAt axes simultaneously for the entire rollout window. Frontend Plan 62-04 chooses which predicate to consume per-session based on marker presence. Zero deletions from the Phase 59 pipeline — a follow-up phase (post-full-rollout) retires it cleanly. Rationale: blast-radius rule (CLAUDE.md — a bad deploy loses Ashley access to her whole fleet)."
+  - "LOCKED Option 1 rollout (CONTEXT.md § Rollout): backend publishes BOTH the two new Phase 63 mtime axes AND the retained Phase 59 lastStopAt + lastStatusChangeAt axes simultaneously for the entire rollout window. Frontend Plan 62-04 chooses which predicate to consume per-session based on marker presence. Zero deletions from the Phase 59 pipeline — a follow-up phase (post-full-rollout) retires it cleanly. Rationale: blast-radius rule (CLAUDE.md — a bad deploy loses Alice access to her whole fleet)."
   - "Two separate stat reads (not one batched `stat -c %Y activity stopped`) per T-62-03-03 deferral: (a) profiling has not shown regression at the 2s poll cadence, (b) two separate reads let each empty-stdout / SSH-hiccup branch preserve its cached value INDEPENDENTLY (batched read must disambiguate two absent-file cases from a single blob), (c) two separate reads match the Phase 59 pattern the reader is familiar with. Inline code comment above the first read documents this — plan-review LOW-#10 acknowledgement."
   - "MEDIUM-#4 comment on the perSessionHookPayloadRaw block (installed by quick-260829-kmr, feeds the Phase 59 background_tasks[] pipeline + the retained Phase 59 lastStopAt fallback signal set): the comment cites CONTEXT.md § Out of scope AND § Rollout Option 1 as the two orthogonal constraints requiring the OLD path to stay. Prevents a future maintainer from `cleaning up` one of the reads mid-rollout."
   - "Test G-bis added beyond the plan's Test G to prove BOTH new axes (not just activityMtime) participate independently in computeFingerprint. Cheap belt-and-suspenders coverage — the second axis could theoretically be omitted from the fingerprint if the diff went wrong."
@@ -187,7 +187,7 @@ None. The wire schema and backend orchestrator now emit the two new axes in prod
 
 ## Executor remit boundary honored
 
-Per fleet standing directive (Ashley 2026-07-27) and this plan's `<sequential_execution>` block:
+Per fleet standing directive (Alice 2026-07-27) and this plan's `<sequential_execution>` block:
 
 - NO `git push` (deploy-window boundary at push — orchestrator handles).
 - NO `docker build` / `docker compose up` (deploys are orchestrator-only).

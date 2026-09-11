@@ -47,12 +47,12 @@ Put a canonical copy of the fleet's shared agent equipment — the skills every 
 - **IN:** the 15 items land in Skynet's code tree at a top-level folder mirroring install layout; the image build's copy step places them at a stable location inside the built image; a lightweight sanity check that the built image actually contains the expected files; a commit landing this on the current working branch.
 - **OUT:** the reconcile loop, the host-table column, the admin surface, the actual pushing to managed hosts, the self-update block retirement — all later slices of feature 02.
 - **OUT:** the per-identity CLAUDE.md manifest piece. That's per-identity templating from a per-role list, not byte-identical bundled bytes; different shape, different later slice.
-- **OUT:** the fleet-substrate-artifacts github repo (task #22 in the feature doc). Vendoring in-tree replaces the need for a separate artifacts repo entirely; task #22 is moot as of Ashley's 2026-09-04 direction.
+- **OUT:** the fleet-substrate-artifacts github repo (task #22 in the feature doc). Vendoring in-tree replaces the need for a separate artifacts repo entirely; task #22 is moot as of Alice's 2026-09-04 direction.
 - **DEFERRED:** cleanup of the staging area at `~/.claude/roles/box-maintainer/substrate/`. It stays where it is during the transition; git history in Skynet becomes the canonical source once slice 1 lands. Staging area gets pruned once distributor is fully live and every managed host is on the vendored version.
 
 ## Vehicle notes
 
-**Vehicle:** inline with harness-task tracking. Slice 1 is genuinely not code-writing: it's an rsync-shaped file move (15 items from the box-maintainer staging area into a new top-level folder in Skynet's tree, minus sibling metadata) plus a one-line copy step added to the image recipe, plus a rebuild + verify + commit. GSD phase ceremony would be overkill for this shape of work; same call Ashley made for feature 07.
+**Vehicle:** inline with harness-task tracking. Slice 1 is genuinely not code-writing: it's an rsync-shaped file move (15 items from the box-maintainer staging area into a new top-level folder in Skynet's tree, minus sibling metadata) plus a one-line copy step added to the image recipe, plus a rebuild + verify + commit. GSD phase ceremony would be overkill for this shape of work; same call Alice made for feature 07.
 
 Later slices of feature 02 (reconcile loop backend, admin surface, per-identity manifest, self-update retirement) ARE code-writing and will get their own GSD phases as appropriate.
 

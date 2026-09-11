@@ -44,7 +44,7 @@ v14 markup + CSS + tests (48-05):
 - `.pv-meta` and `.pv-ready-dot` classNames absent from JSX (grep confirms zero JSX className references).
 - CSS: `.pv-avatar` has `position:relative; overflow:visible`; `.pv-row.spinner-on .pv-avatar::before` block present at line 557 with 18-dash conic-gradient + radial mask + `pv-spinner-spin` 3s keyframe.
 
-### 2. Ashley-verbatim spinner gate — VERIFIED
+### 2. user-verbatim spinner gate — VERIFIED
 
 `src/ui/features/pretty-conversations/PrettyConversationRow.tsx` lines 961-966:
 ```
@@ -57,7 +57,7 @@ const showSpinnerOn = !(
 ```
 Emitted as `spinner-on` className at line 974: `showSpinnerOn && "spinner-on"`.
 
-CSS keys off `.pv-row.spinner-on .pv-avatar::before` at pretty-conversations.css line 557 — single class match, NO `:is(.working, .recycling)` narrowing, NO `.active-set` scoping on the CSS side. All 4 inputs live in JS, CSS matches on the single className the JS gate emits. Ashley's verbatim inversion rule is intact.
+CSS keys off `.pv-row.spinner-on .pv-avatar::before` at pretty-conversations.css line 557 — single class match, NO `:is(.working, .recycling)` narrowing, NO `.active-set` scoping on the CSS side. All 4 inputs live in JS, CSS matches on the single className the JS gate emits. Alice's verbatim inversion rule is intact.
 
 ### 3. V12 badge style reuse — VERIFIED
 
@@ -86,7 +86,7 @@ CSS keys off `.pv-row.spinner-on .pv-avatar::before` at pretty-conversations.css
 - Line 3166: `it("Test P47-14 (LOAD-BEARING): inActiveSet=true + isWorking=false + hasQueuePending=true → row HAS spinner-on class …")`
 - Line 3199: `it("Test P47-15 (LOAD-BEARING): inActiveSet=false + isWorking=true → row HAS spinner-on class …")`
 
-Both tests pass in the run below. These guard against regression to the pre-revision CSS-only gate `.pv-row.active-set:is(.working, .recycling)` that dropped 2 of Ashley's 4 inputs.
+Both tests pass in the run below. These guard against regression to the pre-revision CSS-only gate `.pv-row.active-set:is(.working, .recycling)` that dropped 2 of Alice's 4 inputs.
 
 ### 7. Full-suite green — VERIFIED (composite fallback per shared-agent OOM constraints)
 
@@ -141,7 +141,7 @@ Note: SUMMARY frontmatter commit hashes for waves 1-4 (e.g., 48-01 SUMMARY cites
 
 Phase 48 entry at ROADMAP.md line 1329-1352 declares 5/5 plans complete and lists each plan with correct scope. All 5 checkboxes `[x]` marked.
 
-**Warning (non-blocker):** The ROADMAP heading (line 1329) and Wave-4 bullet (line 1351) still reference the pre-revision CSS-only spinner gate `.pv-row.active-set:is(.working, .recycling)`. This is a documentation-lag artifact — the CONTEXT.md was revised in commit `f2f92673 docs(47): revise plans per plan-checker — spinner gate uses full 4-input JS boolean` but the ROADMAP text was not resynced. The actual code correctly implements the 4-input JS boolean gate per Ashley's verbatim rule (see Check 2 above). No functional impact; recommend a docs-only ROADMAP touch-up post-verify.
+**Warning (non-blocker):** The ROADMAP heading (line 1329) and Wave-4 bullet (line 1351) still reference the pre-revision CSS-only spinner gate `.pv-row.active-set:is(.working, .recycling)`. This is a documentation-lag artifact — the CONTEXT.md was revised in commit `f2f92673 docs(47): revise plans per plan-checker — spinner gate uses full 4-input JS boolean` but the ROADMAP text was not resynced. The actual code correctly implements the 4-input JS boolean gate per Alice's verbatim rule (see Check 2 above). No functional impact; recommend a docs-only ROADMAP touch-up post-verify.
 
 ## Anti-Patterns Found
 

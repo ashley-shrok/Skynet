@@ -7,7 +7,7 @@
 <domain>
 ## Phase Boundary
 
-**What this phase delivers:** The pretty-view BG-agents panel (the section above the composebox that lists currently-running sub-agent invocations) shows async `Agent{...}` calls issued by Claude Code v2.1.150+, which today are silently rejected by the parser's admission gate. Bug 1 of the existing bounty `claude-code-2-1-214-pretty-view-compat`. Ashley observed the failure live watching taylor's `gsd-executor` sub-agent, whose Task tool_use is in the parent JSONL but doesn't render in the panel; the executor's full conversation is in `subagents/agent-af330c389b8187098.jsonl` (a modern Claude Code storage-split that is out-of-scope for this phase).
+**What this phase delivers:** The pretty-view BG-agents panel (the section above the composebox that lists currently-running sub-agent invocations) shows async `Agent{...}` calls issued by Claude Code v2.1.150+, which today are silently rejected by the parser's admission gate. Bug 1 of the existing bounty `claude-code-2-1-214-pretty-view-compat`. Alice observed the failure live watching taylor's `gsd-executor` sub-agent, whose Task tool_use is in the parent JSONL but doesn't render in the panel; the executor's full conversation is in `subagents/agent-af330c389b8187098.jsonl` (a modern Claude Code storage-split that is out-of-scope for this phase).
 
 **What this phase does NOT deliver:**
 - Rendering sub-agent CONVERSATION content in pretty view (the `subagents/agent-*.jsonl` files) — that's a separate design call.
@@ -68,7 +68,7 @@
 - Other `claude-session-server.*.test.ts` files in the same directory — pick whichever conventions are already in use.
 
 ### Bounty context
-- `~/.claude/roles/box-maintainer/bounties/claude-code-2-1-214-pretty-view-compat/bounty.json` — the parked bounty documenting both Bug 1 (this phase) and Bug 2 (separate phase). Contains vicky's July 2026 diagnosis and Ashley's original downgrade-instead-of-fix decision.
+- `~/.claude/roles/box-maintainer/bounties/claude-code-2-1-214-pretty-view-compat/bounty.json` — the parked bounty documenting both Bug 1 (this phase) and Bug 2 (separate phase). Contains vicky's July 2026 diagnosis and Alice's original downgrade-instead-of-fix decision.
 
 ### Live diagnostic evidence
 - Taylor's parent JSONL: `~/.claude/projects/-home-ubuntu-skynet-taylor/c054cef9-c251-4d00-a460-8e90dbead931.jsonl` — contains `toolu_01C3yz4A5NV4Aa` (in-flight `gsd-executor` Agent tool_use) with input keys `[description, prompt, subagent_type]`, no `run_in_background`. Parent's session version is `2.1.150` per its per-line `version` field.
@@ -110,7 +110,7 @@ If a real async completion happens to arrive without `isAsync:true` (edge case �
 ## Deferred Ideas
 
 - **Bug 2: Plan-pending bubble via `permission-mode` events** — separate phase; bounty documents the shape (parser needs to watch for `{type:"permission-mode", permissionMode:"plan"}` and drive the plan-pending bubble off that instead of a nonexistent `ExitPlanMode` tool_use).
-- **Rendering sub-agent CONVERSATION content in pretty view** — Ashley may want this later; requires reading `subagents/agent-*.jsonl` files, wiring them either inline under the parent Task tool_use bubble, as drill-down, or as their own conversation-list rows. Distinct code path from the panel admission fix. Not in this phase.
+- **Rendering sub-agent CONVERSATION content in pretty view** — Alice may want this later; requires reading `subagents/agent-*.jsonl` files, wiring them either inline under the parent Task tool_use bubble, as drill-down, or as their own conversation-list rows. Distinct code path from the panel admission fix. Not in this phase.
 - **Bump Claude Code version on this box** — probably worth an eventual audit, but decoupled from this fix.
 
 </deferred>

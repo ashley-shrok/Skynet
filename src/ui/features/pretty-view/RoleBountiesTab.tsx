@@ -251,7 +251,7 @@ export function RoleBountiesTab({
     <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-0 pb-4">
       {/* Sticky search bar (mirrors IdentityModal L2227-2261). Rendered
           UNCONDITIONALLY so keyboard focus is never yanked by branch swaps
-          (Ashley 2026-08-29 lock). Background tint uses the role's hue for
+          (Alice 2026-08-29 lock). Background tint uses the role's hue for
           continuity with the parent RoleModal's chrome. */}
       <div
         className="sticky top-0 z-10 -mx-6 px-6 pt-4 pb-2 backdrop-blur"

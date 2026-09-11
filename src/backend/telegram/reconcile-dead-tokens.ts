@@ -61,7 +61,7 @@ export async function scanAndReconcileDeadTokens(): Promise<ReconcileResult> {
   if (sentinelFiles.length === 0) return result;
 
   // Build humanName → mxid map from the users table. Per blocker B-4:
-  // users.username is already lowercase for Ashley/Zoey — no normalization.
+  // users.username is already lowercase for Alice/Zoey — no normalization.
   let userRows: Array<{ name: string | null; mxid: string | null }> = [];
   try {
     userRows = (await db

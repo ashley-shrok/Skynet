@@ -391,7 +391,7 @@ describe("ChatMessage — pendingState (Phase 50 Plan 03 Task 1)", () => {
   });
 
   it("Test 4b — whole-bubble red fill on pendingState=failed (D-06: saturated red overrides base gradient)", () => {
-    // Phase 76 Plan 02 — D-06 pin test (Ashley 2026-09-06 verbatim intent:
+    // Phase 76 Plan 02 — D-06 pin test (Alice 2026-09-06 verbatim intent:
     // "the whole bubble would just turn red instead of the blue hue that normal
     // messages have from the user"). Post-Phase-76 a failed bubble is a TRULY
     // failed event (backend spent its full 210s ceiling; gave up). The visual

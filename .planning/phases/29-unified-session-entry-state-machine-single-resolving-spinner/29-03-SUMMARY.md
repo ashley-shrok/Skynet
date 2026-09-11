@@ -55,7 +55,7 @@ metrics:
 **`src/ui/features/pretty-view/usePaneResolvingMachine.ts`** (361 lines)
 
 - Anchor comment: `// phase-29: usePaneResolvingMachine — single authoritative pane-entry state machine (SPEC req 1, 3)`
-- Multi-paragraph rationale header (~90 lines) covering: WHY (Ashley's flicker diagnosis + racing overlays), WHAT it replaces (~6 local useStates in PrettyView), TWO-MODE SEMANTIC (initial-resolving vs post-resolve steady state per D-10/D-11/D-12), SETTIMEOUT INVARIANT (exactly one — the 150ms delay-arm — per SPEC req 5), and NO WS SUBSCRIPTIONS (controlled inputs via parameters — makes the hook testable without WS mocking).
+- Multi-paragraph rationale header (~90 lines) covering: WHY (Alice's flicker diagnosis + racing overlays), WHAT it replaces (~6 local useStates in PrettyView), TWO-MODE SEMANTIC (initial-resolving vs post-resolve steady state per D-10/D-11/D-12), SETTIMEOUT INVARIANT (exactly one — the 150ms delay-arm — per SPEC req 5), and NO WS SUBSCRIPTIONS (controlled inputs via parameters — makes the hook testable without WS mocking).
 - Three exported symbols:
   - `interface UsePaneResolvingMachineDeps { hostId, tmuxSession, isVisible, wsState, backendFirstFrame }` (5 fields — no third resolution axis; SPEC req 3)
   - `interface UsePaneResolvingMachineResult { wsState, backendFirstFrame, phase, showSpinner, requestRetry }`

@@ -58,7 +58,7 @@ must_haves:
 <objective>
 Add manual avatar upload at agent creation time. Both NewSessionDialog (birth path) and CloneAgentDialog (clone path) get an "Upload…" button that posts a local image file to a new backend endpoint (`POST /identities/avatar/candidate/manual`). The endpoint stores the buffer in the existing avatar candidate cache and returns `{id}` — the same shape `postGenerateAvatarBatch` produces per element. The frontend then uses that id as `pickedCandidateId`, so birth/clone endpoints remain UNCHANGED.
 
-Purpose: Ashley wants to hand-pick avatars for some identities without waiting for the LLM+gpt-image-1 pipeline. Reuses the existing candidate cache + auth + scope guard so the birth/clone contracts don't need touching.
+Purpose: Alice wants to hand-pick avatars for some identities without waiting for the LLM+gpt-image-1 pipeline. Reuses the existing candidate cache + auth + scope guard so the birth/clone contracts don't need touching.
 
 Output:
 - New backend endpoint on the existing /identities/avatar router

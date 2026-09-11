@@ -29,7 +29,7 @@ key-files:
   modified:
     - src/backend/claude-session/claude-session-server.ts (+164 lines, -3 lines; two commits — b698fc5c Task 1 + e7d7273a Task 2)
 decisions:
-  - W-1 (executor): __applyQueueDedupForTests return-type NOT extended with contentHash. Simpler path — hardcoded "<no-hash>" sentinel in the [dedup] log line. Rationale: keeps the helper's public contract untouched (D-62-01 — no changes to dedup internals), avoids any risk to the 24 __applyQueueDedupForTests call sites in claude-session-server.queue-dedup.test.ts (which destructure only `.suppress` and `.dedupMap`), and the rawType/operation/action/mapSize triple + the paired [frame-emit] line's eventId + contentPreview are enough to correlate frames across log lines without a hash. Cost: post-repro log analysis correlates on eventId + contentPreview instead of contentHash — negligible for the diagnostic use case Ashley described.
+  - W-1 (executor): __applyQueueDedupForTests return-type NOT extended with contentHash. Simpler path — hardcoded "<no-hash>" sentinel in the [dedup] log line. Rationale: keeps the helper's public contract untouched (D-62-01 — no changes to dedup internals), avoids any risk to the 24 __applyQueueDedupForTests call sites in claude-session-server.queue-dedup.test.ts (which destructure only `.suppress` and `.dedupMap`), and the rawType/operation/action/mapSize triple + the paired [frame-emit] line's eventId + contentPreview are enough to correlate frames across log lines without a hash. Cost: post-repro log analysis correlates on eventId + contentPreview instead of contentHash — negligible for the diagnostic use case Alice described.
   - Additive fourth `reason` value "connection-teardown" (beyond D-62-04's initial|transition|dormant-handoff spec) at teardownPane's tailHandle stop block. Rationale: teardownPane fires on ws.on("close") (final teardown) AND on mid-life pane-switch — both are legitimate lifecycle boundaries and worth logging. Guarded by `if (tailInstanceId)` to avoid spurious stop for a tail that never started, and resets tailInstanceId = "" after emit so a redundant teardown call doesn't re-log a stale ID. Explicitly called out here per plan Task 1 STEP D-2 instruction.
   - Fleet-directive override on Task 3: Task 3's plan action was `npx vitest run` (full suite) per D-62-05. The orchestrator's `<sequential_execution>` block overrides this with "Test discipline (fleet rule 2026-08-20): Run scoped tests only... Full suite runs at the orchestrator ship-gate — NOT at executor exit." Executor ran 6 scoped test files (all target files listed in success_criteria + queue-dedup.test.ts as extra safety) — 97 tests passed, 1 skipped. Full-suite vitest run deferred to the orchestrator's ship-gate per fleet rule.
 metrics:
@@ -39,7 +39,7 @@ metrics:
 
 # Phase 62 Plan 02: Wave 2 — dedup + emission-path diagnostic instrumentation Summary
 
-Added per-tail-watcher instance ID + three sshLogger.info emission sites (`[dedup]`, `[frame-emit]`, `[tail-lifecycle]`) around the `queueEnqueueDedup` Map + `__applyQueueDedupForTests` call path in `src/backend/claude-session/claude-session-server.ts`, with zero behavior change (D-62-01 hard-lock enforced — all internal dedup logic, key derivation, TTL, and `Map.clear()` semantics untouched). Sets up Phase 63 to identify (or rule out) a dedup-Map leak mechanism from Ashley's next dormant-send repro.
+Added per-tail-watcher instance ID + three sshLogger.info emission sites (`[dedup]`, `[frame-emit]`, `[tail-lifecycle]`) around the `queueEnqueueDedup` Map + `__applyQueueDedupForTests` call path in `src/backend/claude-session/claude-session-server.ts`, with zero behavior change (D-62-01 hard-lock enforced — all internal dedup logic, key derivation, TTL, and `Map.clear()` semantics untouched). Sets up Phase 63 to identify (or rule out) a dedup-Map leak mechanism from Alice's next dormant-send repro.
 
 ## What was built
 
@@ -110,7 +110,7 @@ npx vitest run \
 
 The `queue-dedup` test file was included as an extra safety check — it has 24 direct call sites of `__applyQueueDedupForTests` and would immediately catch any return-type or destructure-shape drift. All 24 sites still work with the untouched `{ suppress: boolean; dedupMap: Map<string, number> }` return shape (W-1 decision).
 
-## What the next dormant-send repro from Ashley will produce
+## What the next dormant-send repro from Alice will produce
 
 For a single dormant-send that emits one user-role frame from a queue-op enqueue:
 
@@ -167,7 +167,7 @@ None. The `contentHash=<no-hash>` sentinel is documented above under W-1 decisio
 
 ## Ship-boundary posture (per D-62-05)
 
-HEAD `e7d7273a` is LOCAL on `feat/tab-title-from-tmux`. NOT pushed, NOT docker-built, NOT deployed. Wave 2 bundles with Wave 1 (Plan 62-01, HEAD `b98f81f1`) in ONE docker build/deploy on Ashley's greenlight per D-62-05. Fleet directive from spawn prompt: "DO NOT `git push`, DO NOT `docker build`, DO NOT `docker compose up`. This is a 'not shipping until done' bundle — the orchestrator (taylor) ships after all Phase 62 waves + full-suite green + ship greenlight from Ashley."
+HEAD `e7d7273a` is LOCAL on `feat/tab-title-from-tmux`. NOT pushed, NOT docker-built, NOT deployed. Wave 2 bundles with Wave 1 (Plan 62-01, HEAD `b98f81f1`) in ONE docker build/deploy on Alice's greenlight per D-62-05. Fleet directive from spawn prompt: "DO NOT `git push`, DO NOT `docker build`, DO NOT `docker compose up`. This is a 'not shipping until done' bundle — the orchestrator (taylor) ships after all Phase 62 waves + full-suite green + ship greenlight from Alice."
 
 ## Self-Check: PASSED
 

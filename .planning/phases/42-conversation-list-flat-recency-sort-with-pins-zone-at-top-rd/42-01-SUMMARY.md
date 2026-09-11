@@ -21,7 +21,7 @@ provides:
   - "compareByRecencyDesc (Phase 42) — middle-zone comparator with no-history-to-top rule + insertion-order fallback for deterministic stability"
   - "row.lastMessageAt: number | null | undefined — optional pass-through hook wired via test-only __setLastMessageAtForTest injection map; Plan 03 will replace the test hook with a real fleet-status wire-side signal"
   - "Ambient-recession CSS + row-class-toggle RETIRED — every row carries the same visual weight"
-  - "Panel: flat middle-zone renderer (no per-host divider chips) + conditional rdpGroup renderer (Ashley lock #7 — no header on zero RDP)"
+  - "Panel: flat middle-zone renderer (no per-host divider chips) + conditional rdpGroup renderer (Alice lock #7 — no header on zero RDP)"
 affects:
   - 42-02-search-and-filter
   - 42-03-fleet-status-recency-signal-wiring
@@ -52,7 +52,7 @@ key-files:
 
 key-decisions:
   - "Task 1 + Task 2 committed as ONE atomic unit — the store shape change (Task 1) forces the panel's useConversations destructure to change (Task 2), so splitting into two commits would violate the fork's 'full-suite green at each commit' precondition. Plan spirit preserved (both tasks documented distinctly here)."
-  - "Retire the ambient VISUAL only — .active-set className toggle + inActiveSet prop SURVIVE (drive deactivate-action hover-reveal at pretty-conversations.css L978/L982/L994 + swipe machinery + context-menu item gating). Ashley lock #1 verified."
+  - "Retire the ambient VISUAL only — .active-set className toggle + inActiveSet prop SURVIVE (drive deactivate-action hover-reveal at pretty-conversations.css L978/L982/L994 + swipe machinery + context-menu item gating). Alice lock #1 verified."
   - "Middle-zone insertion-order fallback — implemented via a WeakMap keyed on row-object identity, populated during computeSnapshot's flat-middle push loop. Passed as a parameter into compareByRecencyDesc so the comparator stays pure."
   - "Phase 42 lastMessageAt field wiring — added as an OPTIONAL row field with a test-only __setLastMessageAtForTest injection map. Production callers never touch it; Plan 03 will replace the test hook with a fleet-status protocol extension. This keeps Plan 01 frontend-only per the three-plan split."
   - "Phase 25 role-clustering tests RETARGETED — moved 5 tests from middle-tier assertions to pinned-tier assertions. The (host, role, label) contract SURVIVES for activeSet + pinned + rdpGroup; only the middle tier flipped to compareByRecencyDesc."
@@ -74,7 +74,7 @@ completed: 2026-08-14
 
 # Phase 42 Plan 01: Three-zone conversation list + retire ambient-recession visual Summary
 
-**ConversationList reshaped to { activeSet, pinned, middle: ConversationRow[], rdpGroup: HostGroup | null }; middle-zone compareByRecencyDesc with no-history-to-top + insertion-order fallback; ambient-recession CSS + row-class-toggle retired; panel middle-zone flattened (no per-host divider chips); rdpGroup=null suppresses the entire RDP section (Ashley lock #7).**
+**ConversationList reshaped to { activeSet, pinned, middle: ConversationRow[], rdpGroup: HostGroup | null }; middle-zone compareByRecencyDesc with no-history-to-top + insertion-order fallback; ambient-recession CSS + row-class-toggle retired; panel middle-zone flattened (no per-host divider chips); rdpGroup=null suppresses the entire RDP section (Alice lock #7).**
 
 ## Performance
 
@@ -87,11 +87,11 @@ completed: 2026-08-14
 ## Accomplishments
 
 - **Store shape reshape**: `ConversationList: { activeSet, pinned, middle: ConversationRow[], rdpGroup: HostGroup | null }` replaces the pre-Phase-41 `grouped: HostGroup[]`. Middle is FLAT — no per-host bucketing, no hostTree walk. rdpGroup carries the sentinel HostGroup or is `null` when zero hosts have `enableRdp === true`.
-- **New middle-zone comparator**: `compareByRecencyDesc` — rows with `lastMessageAt == null` sort to the TOP (Ashley no-history-to-top lock); rows with real timestamps sort DESC (freshest first); ties + no-history rows fall back to insertion-order key (WeakMap keyed on row-object identity) for deterministic stability across snapshot recomputes.
+- **New middle-zone comparator**: `compareByRecencyDesc` — rows with `lastMessageAt == null` sort to the TOP (Alice no-history-to-top lock); rows with real timestamps sort DESC (freshest first); ties + no-history rows fall back to insertion-order key (WeakMap keyed on row-object identity) for deterministic stability across snapshot recomputes.
 - **Insertion-order fallback ready for Plan 03**: since Plan 03 has not yet landed the real `lastMessageAt` signal, EVERY row currently has `lastMessageAt: null` and the middle degrades entirely to insertion-order. Plan 03 will populate the field via a fleet-status protocol extension without changing the comparator.
 - **Ambient-recession visual retired**: the ~50-line `.pv-row.ambient` CSS block (background, avatar, hover, label, host) is deleted from `pretty-conversations.css`. The row component no longer derives `isAmbient` or toggles the `.ambient` className. Every row carries the same visual weight regardless of active-set membership — position + the ready-dot together carry the "where should I look next" story.
-- **Ashley lock #5 (.active-set survives)**: the `.active-set` CSS class + row-class-toggle SURVIVE — they gate the deactivate-action hover-reveal at `pretty-conversations.css:978/L982/L994`, drive swipe-machinery composite logic, and gate the Deactivate context-menu item. Only the ambient VISUAL axis retired; the `inActiveSet` prop is preserved with all its downstream consumers.
-- **Panel middle-zone flattened**: `displayedGrouped.map((group) => ...)` renderer replaced with a flat `displayedMiddle` renderer inside one `pv-panel-group` container. No per-host `[data-testid="host-divider"]` chips render anywhere in the panel (Ashley 2026-08-14 lock).
+- **Alice lock #5 (.active-set survives)**: the `.active-set` CSS class + row-class-toggle SURVIVE — they gate the deactivate-action hover-reveal at `pretty-conversations.css:978/L982/L994`, drive swipe-machinery composite logic, and gate the Deactivate context-menu item. Only the ambient VISUAL axis retired; the `inActiveSet` prop is preserved with all its downstream consumers.
+- **Panel middle-zone flattened**: `displayedGrouped.map((group) => ...)` renderer replaced with a flat `displayedMiddle` renderer inside one `pv-panel-group` container. No per-host `[data-testid="host-divider"]` chips render anywhere in the panel (Alice 2026-08-14 lock).
 - **Panel RDP-header-hides-on-zero regression locked**: when `snapshot.rdpGroup === null`, the entire RDP section — divider chip + rows — is suppressed. Regression test in `PrettyConversationsPanel.test.tsx` (Test 19D) asserts `container.querySelector('[data-testid="rdp-divider"]') === null` when rdpGroup=null.
 - **Ready-dot uniformity regression locked TWICE**: at the row level (`AMBIENT-RETIRED-01` covers all four `(inActiveSet, isRdp)` combos; `READY-DOT-UNIFORM-01` covers `inActiveSet=true` and `inActiveSet=false` for `isWorking===false`) AND at the panel level (Test 19E asserts every non-working middle row renders `[data-pv-conv-ready-dot="true"]` regardless of active-set membership). Patch #447 behavior survives the ambient CSS retirement.
 
@@ -124,7 +124,7 @@ _Note: The plan called for per-task commits, but the two tasks are tightly coupl
 - **Phase 25 role-clustering tests retargeted from middle to pinned tier**: Phase 25 established `compareByHostRoleLabel` at 5 sort sites (activeSet, pinned, two middle-tier sites, RDP). Phase 42 retired the two middle-tier sites; the contract survives on activeSet + pinned + RDP. The 7 role-clustering tests were retargeted from `snap.grouped[0].rows` assertions to `snap.pinned` assertions so the contract stays locked at its surviving sort sites.
 - **Backwards-compat mock shim in the panel test**: rather than bulk-rewriting every panel test that seeds `setSnapshot({ ..., grouped: [...] })`, added a `grouped` shim to `setSnapshot` that auto-splits into `middle` + `rdpGroup`. Only tests that assert on the retired shape (per-host divider chips) were explicitly rewritten. This preserves ~60 pre-Phase-41 test bodies verbatim.
 - **`.pv-row.pv-row--desktop.ambient:not(:hover) .pv-hide-action` → `.pv-row.pv-row--desktop:not(:hover) .pv-hide-action`**: with `.ambient` retired, the hide-action hover-reveal that was previously scoped to ambient rows now applies to ALL desktop rows. Same behavioral contract for the user (hover-reveal on non-hovered rows); the CSS just no longer scopes it under the retired class.
-- **`.active-set` deactivate-action hover-reveal preserved verbatim**: Ashley lock #1 — the `.active-set` CSS selectors at `pretty-conversations.css:978/L982/L994` are load-bearing for the deactivate-button hover-reveal AND for the "safety net" desktop guard that hides the deactivate-action on non-active-set rows. Retiring the `.active-set` className toggle would have broken all three. Only the ambient VISUAL axis retired.
+- **`.active-set` deactivate-action hover-reveal preserved verbatim**: Alice lock #1 — the `.active-set` CSS selectors at `pretty-conversations.css:978/L982/L994` are load-bearing for the deactivate-button hover-reveal AND for the "safety net" desktop guard that hides the deactivate-action on non-active-set rows. Retiring the `.active-set` className toggle would have broken all three. Only the ambient VISUAL axis retired.
 
 ## Deviations from Plan
 
@@ -162,9 +162,9 @@ _Note: The plan called for per-task commits, but the two tasks are tightly coupl
 ## Issues Encountered
 
 - **Full-suite log initially unreadable**: two of my three earlier full-suite background runs completed with exit=0 but their output files were empty or deleted. Worked around by piping to `/tmp/skynet-fullsuite.log` explicitly on the final run. Full-suite result verified: 2368 tests pass, 6 skipped, 1 todo, 0 failed, exit 0.
-- **Ashley lock #6 (snap reorder — no animation) verified via grep**: `grep -nE "\.pv-row[^{}]*\{[^}]*transition[^}]*(transform|top|order)"` returned no matches. No CSS transition on transform/top/order was introduced on `.pv-row` selectors.
+- **Alice lock #6 (snap reorder — no animation) verified via grep**: `grep -nE "\.pv-row[^{}]*\{[^}]*transition[^}]*(transform|top|order)"` returned no matches. No CSS transition on transform/top/order was introduced on `.pv-row` selectors.
 
-## Ashley Locks — Verification Matrix
+## Alice Locks — Verification Matrix
 
 | Lock | Location | Status |
 |------|----------|--------|

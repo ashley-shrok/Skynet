@@ -64,7 +64,7 @@ completed: 2026-09-07
 
 # Phase 85 Plan 04: SSH-poll-orchestrator lastMessageAt source swap Summary
 
-**Per-tick `SessionState.lastMessageAt` derivation in `ssh-poll-orchestrator.processPid` swapped from `scanTailForNewestMessageAt(tailRaw)` (JSONL tail scan on Ashley's-real-user-turn predicate) to `getIdentityLastSend(tmuxSession)` (Phase 85-02 identity-name-keyed send-log store). Wire shape, fingerprint composition, and every non-lastMessageAt axis are unchanged (D-07). The transcript-scan pipeline (scanTailForNewestMessageAt + isRealUserTurn) stays defined for the D-08 byte-parallel copy in `src/backend/database/routes/sessions.ts`, and `scanTailForLatestAiTitle` continues to consume the same tail buffer as sole in-source-A tail consumer. Once Plan 85-06 fires the frontend stamp on send, sending to Ivy will make Ivy rise in the middle zone within one fleet-status poll tick.**
+**Per-tick `SessionState.lastMessageAt` derivation in `ssh-poll-orchestrator.processPid` swapped from `scanTailForNewestMessageAt(tailRaw)` (JSONL tail scan on Alice's-real-user-turn predicate) to `getIdentityLastSend(tmuxSession)` (Phase 85-02 identity-name-keyed send-log store). Wire shape, fingerprint composition, and every non-lastMessageAt axis are unchanged (D-07). The transcript-scan pipeline (scanTailForNewestMessageAt + isRealUserTurn) stays defined for the D-08 byte-parallel copy in `src/backend/database/routes/sessions.ts`, and `scanTailForLatestAiTitle` continues to consume the same tail buffer as sole in-source-A tail consumer. Once Plan 85-06 fires the frontend stamp on send, sending to Ivy will make Ivy rise in the middle zone within one fleet-status poll tick.**
 
 ## Performance
 
@@ -195,7 +195,7 @@ None. The swap is purely an in-process source-of-truth swap for an existing wire
 ## Next Phase Readiness
 
 - **Phase 85 Plan 05** (client-side optimistic advance / session-working-store integration): unaffected by this plan — that's a frontend change. Once 85-05 lands, the client stamps `advanceSessionLastMessageAt(key, Date.now())` on send; this plan's read fires on the next fleet-status tick and the max-wins helper reconciles safely.
-- **Phase 85 Plan 06** (frontend send-time HTTP POST to `/api/stamp-identity-send`): the READ side of the round-trip is now live. Once Plan 85-06 fires the write on send, the round-trip closes end-to-end: Ashley sends to Ivy → frontend POSTs → `stampIdentityLastSend("ivy", Date.now())` updates the store → next fleet-status tick this plan's `getIdentityLastSend("ivy")` returns the fresh ts → fingerprint delta → publish → Ivy rises in the middle zone within one poll cadence.
+- **Phase 85 Plan 06** (frontend send-time HTTP POST to `/api/stamp-identity-send`): the READ side of the round-trip is now live. Once Plan 85-06 fires the write on send, the round-trip closes end-to-end: Alice sends to Ivy → frontend POSTs → `stampIdentityLastSend("ivy", Date.now())` updates the store → next fleet-status tick this plan's `getIdentityLastSend("ivy")` returns the fresh ts → fingerprint delta → publish → Ivy rises in the middle zone within one poll cadence.
 - **Ship blockers:** none from this plan. The 3 pre-existing tsc errors are unchanged and out of scope (Plan 85-01 already logged them to `deferred-items.md`).
 - **Executor exit posture:** two atomic commits (`3a93c497`, `903e8568`) on `feat/tab-title-from-tmux`, NOT pushed / NOT docker-built / NOT deployed — held at the executor's remit boundary. Orchestrator owns pull + full-suite + push + build + recreate + verify + coord per fleet directive.
 

@@ -7,9 +7,9 @@ files_modified:
   - src/ui/features/pretty-view/use-auto-scroll.ts
 must_haves:
   truths:
-    - "When Ashley is at bottom AND a new message TALLER than the scroll viewport is appended, the scroll container lands with the new message's top edge ~16px below the viewport top (so she reads from the start)."
-    - "When Ashley is at bottom AND a new message that FITS in the viewport is appended, existing bottom-pin behavior is preserved (scrollTop = scrollHeight)."
-    - "When Ashley has scrolled up (not pinned), NEITHER branch fires — no yank, in either the tall-message or short-message case."
+    - "When Alice is at bottom AND a new message TALLER than the scroll viewport is appended, the scroll container lands with the new message's top edge ~16px below the viewport top (so she reads from the start)."
+    - "When Alice is at bottom AND a new message that FITS in the viewport is appended, existing bottom-pin behavior is preserved (scrollTop = scrollHeight)."
+    - "When Alice has scrolled up (not pinned), NEITHER branch fires — no yank, in either the tall-message or short-message case."
     - "Streaming token deltas that grow the last message AFTER it was first appended do NOT re-fire the top-align — the top-align anchors exactly once at message-add."
     - "Non-message resize events (viewport shrink, Inter font swap, sidebar/drawer toggle) continue to re-pin to bottom when pinned — the existing RO behavior for viewport changes is untouched."
   artifacts:
@@ -24,7 +24,7 @@ must_haves:
 ---
 
 <objective>
-Fix pretty-view auto-follow so new messages taller than the scroll viewport land with their TOP edge just below the viewport top (16px offset), instead of the current bottom-pin behavior that dumps Ashley at the end of a long message. Messages that fit in the viewport keep the existing bottom-pin. Streaming deltas after message-add must NOT re-anchor.
+Fix pretty-view auto-follow so new messages taller than the scroll viewport land with their TOP edge just below the viewport top (16px offset), instead of the current bottom-pin behavior that dumps Alice at the end of a long message. Messages that fit in the viewport keep the existing bottom-pin. Streaming deltas after message-add must NOT re-anchor.
 
 Purpose: Ships as patch #88. Removes a repeated friction point (long assistant messages currently require scroll-up-to-read every time). Behavior-only, single file diff (~40-60 lines).
 
@@ -138,10 +138,10 @@ Output: Modified `src/ui/features/pretty-view/use-auto-scroll.ts` with a new mes
     16. The tall-message branch does NOT assign to `isPinnedRef.current` or call `setIsPinnedToBottom` — the ratchet in the existing scroll handler handles the flip naturally when the browser fires the scroll event from our `scrollTop` write.
 
     **Behavior assertions (manual verification, checkpoint task):**
-    17. When Ashley is pinned to bottom and an assistant message with rendered height > viewport height appears, `container.scrollTop` equals `messageEl.offsetTop - 16` within one paint frame; her viewport shows the TOP of the new message.
-    18. When Ashley is pinned to bottom and a short user message ("go ahead") appears, `container.scrollTop` equals `container.scrollHeight` (current behavior, unchanged).
-    19. Streaming token deltas into the already-anchored tall message do NOT re-fire the top-align (scroll position stays wherever Ashley last put it — either the initial top-align landing or wherever she has manually scrolled since).
-    20. When Ashley has scrolled up before a tall message arrives, the tall message does NOT top-align — no scroll change occurs (she keeps reading whatever she was on).
+    17. When Alice is pinned to bottom and an assistant message with rendered height > viewport height appears, `container.scrollTop` equals `messageEl.offsetTop - 16` within one paint frame; her viewport shows the TOP of the new message.
+    18. When Alice is pinned to bottom and a short user message ("go ahead") appears, `container.scrollTop` equals `container.scrollHeight` (current behavior, unchanged).
+    19. Streaming token deltas into the already-anchored tall message do NOT re-fire the top-align (scroll position stays wherever Alice last put it — either the initial top-align landing or wherever she has manually scrolled since).
+    20. When Alice has scrolled up before a tall message arrives, the tall message does NOT top-align — no scroll change occurs (she keeps reading whatever she was on).
   </acceptance_criteria>
 
   <done>
@@ -157,26 +157,26 @@ Output: Modified `src/ui/features/pretty-view/use-auto-scroll.ts` with a new mes
 </task>
 
 <task type="checkpoint:human-verify" gate="blocking">
-  <name>Task 2: Ashley live-verifies the tall-message top-align in a running dev build</name>
+  <name>Task 2: Alice live-verifies the tall-message top-align in a running dev build</name>
 
   <what-built>
     A new branch inside `useAutoScroll` that, on message-add (and only on message-add — not on streaming grow), checks whether the newly appended message is taller than the scroll viewport. If yes AND the user was pinned to bottom, it sets `scrollTop = messageEl.offsetTop - 16` so the top of the new message sits 16px below the viewport top. If no (short message) OR user was scrolled up, existing behavior applies unchanged.
   </what-built>
 
   <how-to-verify>
-    Since this fork's deploy discipline requires the 15-min deadman rollback per Ashley's rule (see PROJECT.md), do NOT build or deploy for this checkpoint — Ashley verifies in her own dev environment when ready. She may choose to defer verification until the next natural pin/deploy window.
+    Since this fork's deploy discipline requires the 15-min deadman rollback per Alice's rule (see PROJECT.md), do NOT build or deploy for this checkpoint — Alice verifies in her own dev environment when ready. She may choose to defer verification until the next natural pin/deploy window.
 
-    Verification steps (Ashley runs when she chooses):
+    Verification steps (Alice runs when she chooses):
 
     1. **Baseline capture** — before applying the patch, in a pretty-view pane with an active Claude session: scroll to bottom, prompt Claude with a request that produces a LONG response (e.g. "explain how React reconciliation works in detail with examples"). Confirm the current broken behavior: viewport lands at the END of the message.
 
-    2. **After patch (dev build or built docker)** — same prompt, same starting position (scrolled to bottom). Expected: viewport lands with the TOP of Claude's response visible, offset ~16px from the viewport top. Ashley can read from the beginning without scrolling up.
+    2. **After patch (dev build or built docker)** — same prompt, same starting position (scrolled to bottom). Expected: viewport lands with the TOP of Claude's response visible, offset ~16px from the viewport top. Alice can read from the beginning without scrolling up.
 
-    3. **Streaming discipline test** — while the long response is still streaming (tokens actively arriving), Ashley should NOT see the viewport re-jump each token. Whatever position she is at (initial top-align, or manually scrolled) is preserved through the streaming deltas.
+    3. **Streaming discipline test** — while the long response is still streaming (tokens actively arriving), Alice should NOT see the viewport re-jump each token. Whatever position she is at (initial top-align, or manually scrolled) is preserved through the streaming deltas.
 
     4. **Short-message regression test** — scroll to bottom, send a short message like "go ahead" (thumbs-up quick-send). Expected: viewport bottom-pins to the new message as before — no top-align kicks in for the short message.
 
-    5. **Scrolled-up gate test** — scroll UP into history (so `isPinnedToBottom` = false, jump-to-latest pill visible). Have Claude produce another long response. Expected: NO scroll change — Ashley stays where she was reading. This tests the isPinnedRef gate is honored by the new branch.
+    5. **Scrolled-up gate test** — scroll UP into history (so `isPinnedToBottom` = false, jump-to-latest pill visible). Have Claude produce another long response. Expected: NO scroll change — Alice stays where she was reading. This tests the isPinnedRef gate is honored by the new branch.
 
     6. **Viewport-shrink regression test** — while pinned to bottom, open the message-queue drawer (or otherwise shrink the pretty-view height). Expected: bottom-pin is preserved (existing ResizeObserver behavior untouched).
 
@@ -205,11 +205,11 @@ Output: Modified `src/ui/features/pretty-view/use-auto-scroll.ts` with a new mes
 </verification>
 
 <success_criteria>
-- Patch #88 slot-ready: commit exists on `feat/tab-title-from-tmux`, diff limited to the two frontend files above, no build/deploy attempted (Ashley's per-deploy green-light discipline — see STATE.md line 30).
+- Patch #88 slot-ready: commit exists on `feat/tab-title-from-tmux`, diff limited to the two frontend files above, no build/deploy attempted (Alice's per-deploy green-light discipline — see STATE.md line 30).
 - `useAutoScroll` accepts `messageCount: number` and top-aligns tall new messages with 16px margin ONLY when: (a) messageCount increased since last effect run, (b) `isPinnedRef.current` was true, (c) `newEl.offsetHeight > scrollEl.clientHeight`.
 - All other useAutoScroll behavior — scroll-event ratchet, ResizeObserver-driven bottom-pin, `scrollToBottom` imperative call, `isPinnedToBottom` state — is byte-for-byte preserved.
 - Streaming discipline: token deltas into an already-anchored message do NOT re-trigger any scroll — messageCount is unchanged by within-message growth, so the effect early-returns.
-- Task 2 checkpoint receives Ashley's "approved" (or explicit deferral for a later deploy window).
+- Task 2 checkpoint receives Alice's "approved" (or explicit deferral for a later deploy window).
 </success_criteria>
 
 <output>

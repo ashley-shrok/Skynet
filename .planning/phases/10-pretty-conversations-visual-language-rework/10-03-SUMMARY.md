@@ -21,7 +21,7 @@ dependency_graph:
       production references remain (imports + JSX elements ALL point at the new
       panel; historical comments in AppShell.tsx are documentation-only and can
       stay or be swept in Wave 4's discretion)
-    - Ashley's small-window use case: sidebar toggle now always reachable at
+    - Alice's small-window use case: sidebar toggle now always reachable at
       viewport top-left regardless of window width
 tech_stack:
   added: []
@@ -38,7 +38,7 @@ key_files:
     - .planning/phases/10-pretty-conversations-visual-language-rework/deferred-items.md
 decisions:
   - "Thin-strip resolution: REMOVED (planner's recommended option). One canonical top-left toggle replaces the two competing left-edge affordances at narrow widths. Companion `pl-6` main-content padding also removed"
-  - "Persistent toggle renders UNCONDITIONALLY — at all viewports including mobile-view screen. Plan explicitly required this to give Ashley one consistent affordance; the visual overlap with the mobile-view back button (which lives inside the h-12.5 header at w-12.5 from the left edge) is a documented trade-off — same 8px corner overlaps the back button's tap footprint at ~24px in from the left"
+  - "Persistent toggle renders UNCONDITIONALLY — at all viewports including mobile-view screen. Plan explicitly required this to give Alice one consistent affordance; the visual overlap with the mobile-view back button (which lives inside the h-12.5 header at w-12.5 from the left edge) is a documented trade-off — same 8px corner overlaps the back button's tap footprint at ~24px in from the left"
   - "sidebarHeader title span padded with `pl-12` so the persistent toggle sits over the header when sidebar is open without covering the title text (mirrors desktop.html .sidebar-header `padding-left: 52px`)"
   - "Variant predicate = useIsMobile() (narrow-viewport width) NOT useIsTouchDevice() (hardware pointer type). Adopted verbatim from Wave 2's handoff decision"
   - "F3-diag console.warn at onDetachedRowClick REMOVED. Companion panel-side diagnostic already retired in Wave 2; this AppShell-side warn was orphaned telemetry with no receiver. Defensive silent early-return preserved"
@@ -65,7 +65,7 @@ Cut AppShell.tsx over from the retiring `ConversationsPanel` to the new
 desktop inline, narrow-window Sheet, mobile touchscreen full-screen — all
 consume the same `sidebarPanelContent` JSX const at AppShell.tsx line 1391,
 so one edit at the mount at line 1403 propagates everywhere). Added the
-persistent top-left 32x32 chevron toggle Ashley asked for — the fix for the
+persistent top-left 32x32 chevron toggle Alice asked for — the fix for the
 small-window sidebar-affordance regression where the old thin-strip
 disappeared below some breakpoint. Retargeted the one Phase 6/7 test that
 coupled to the old panel (NewSessionDialog.test.tsx Test 10) to the new
@@ -119,7 +119,7 @@ Wave 1 + 2 regression checks green.
   `if (!host) return;` preserved for T-07-01-06 race mitigation.
 - **Persistent top-left toggle renders UNCONDITIONALLY at all widths.**
   Wide desktop, narrow desktop, mobile touchscreen — one consistent
-  affordance Ashley always knows where to find. Position: fixed anchors to
+  affordance Alice always knows where to find. Position: fixed anchors to
   the viewport regardless of any scrolling ancestor (the small-window use
   case has scrollable regions the old absolute-positioned strip couldn't
   survive). safe-area-inset-aware for iOS notch / rounded-corner devices
@@ -297,7 +297,7 @@ Wave 4 is purely file-hygiene / dead-code retirement.
 ## Deployment note
 
 Per user's execute-phase prompt: **no deploy in this phase**. Wave 3 is
-code-complete on `feat/tab-title-from-tmux` — Ashley reviews at her next
+code-complete on `feat/tab-title-from-tmux` — Alice reviews at her next
 awake window and greenlights deploy or requests revisions. The stale
 "15-min deadman" bullet in `CLAUDE.md` was retired 2026-07-21 per the
 user's prompt; ignored.

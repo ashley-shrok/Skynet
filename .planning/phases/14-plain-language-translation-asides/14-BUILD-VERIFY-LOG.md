@@ -91,24 +91,24 @@ git diff f4ae668..HEAD -- src/backend/claude-session/claude-session-server.ts \
 
 **Current deploy discipline** (authoritative source: `~/.claude/identities/tina/deploy-runbook.md`, post-2026-07-21):
 
-- The 15-min deadman auto-revert regime was **RETIRED 2026-07-21** — Ashley's tmux-attach-via-SSH-over-SSM fallback replaced the deadman's catastrophic-loss-recovery role. Full retired-concept documentation lives at `bounties/archive/deadman-deploy-safety/` if the mechanism ever needs to be revisited.
+- The 15-min deadman auto-revert regime was **RETIRED 2026-07-21** — Alice's tmux-attach-via-SSH-over-SSM fallback replaced the deadman's catastrophic-loss-recovery role. Full retired-concept documentation lives at `bounties/archive/deadman-deploy-safety/` if the mechanism ever needs to be revisited.
 - **Stale reference callout:** the fork's `CLAUDE.md` (this repo root) still contains a stale line under `Deploy safety` mentioning the "15-min deadman rollback timer (`/opt/skynet/.tmp-revert.sh`)". Also, the plan file (14-06-PLAN.md) references the same retired regime in its `<what-built>` block. **Both are documented stale references, not current process.** Ignore both; the authoritative source is `~/.claude/identities/tina/deploy-runbook.md`.
-- **Current fallback:** when Ashley needs to reach Tina and Skynet is down, she has a durable fallback via `aws ssm start-session --target <ec2-id>` then `sudo -u ubuntu tmux attach -t tina`. This channel is why the deadman auto-revert regime was retired — the "she can't reach me because Skynet is dead" catastrophic-loss scenario has a working recovery path now.
+- **Current fallback:** when Alice needs to reach Tina and Skynet is down, she has a durable fallback via `aws ssm start-session --target <ec2-id>` then `sudo -u ubuntu tmux attach -t tina`. This channel is why the deadman auto-revert regime was retired — the "she can't reach me because Skynet is dead" catastrophic-loss scenario has a working recovery path now.
 
 **Deploy safety rules that DID survive the deadman retirement:**
 
 1. **`git push` before build.** Deploy runbook Step 1: the build script clones from GitHub, so local-only commits cache-hit the frontend-builder layer. Trap that bit patches #43 and #69.
-2. **Explicit go-ahead for THIS deploy window.** Ashley's greenlight for the code work does NOT carry over to authorize the deploy. Every build → deploy transition is a new "may I?" moment. Even when Ashley pre-authorized a multi-step task including a deploy, still stop AT the deploy boundary and ask.
+2. **Explicit go-ahead for THIS deploy window.** Alice's greenlight for the code work does NOT carry over to authorize the deploy. Every build → deploy transition is a new "may I?" moment. Even when Alice pre-authorized a multi-step task including a deploy, still stop AT the deploy boundary and ask.
 3. **Check-before-recreate compose-image grep.** Before EVERY `docker compose up -d --force-recreate skynet`, run:
    ```
    grep 'image:' /opt/skynet/docker-compose.yml | grep -q skynet-patched:local || \
      sudo sed -i 's|image: ghcr.io/lukegus/skynet:latest|image: skynet-patched:local|' /opt/skynet/docker-compose.yml
    ```
    Idempotent — no-op when compose is already patched, corrects when it's been reverted. Catches manual sed mistakes + any lingering pre-retirement `sleep 900` background processes.
-4. **Pre-warn Ashley about first-hard-refresh HTTP2_PROTOCOL_ERROR** (per tina.md § learned preferences 2026-07-23). After `docker compose up -d --force-recreate skynet`, the FIRST hard-refresh may white-screen with `net::ERR_HTTP2_PROTOCOL_ERROR` on chunk loads. Fix = close and reopen the tab (spawns a fresh H2 connection). NOT a deploy failure. Do NOT jump to rollback on the first PROTOCOL_ERROR report.
-5. **Blast radius awareness.** A bad deploy loses Ashley access to her whole fleet (Skynet is the gateway to every managed box). Asymmetric risk drives all safety practices. Ashley SSM+tmux fallback exists but preventing a bad ship is still the primary safety strategy.
+4. **Pre-warn Alice about first-hard-refresh HTTP2_PROTOCOL_ERROR** (per tina.md § learned preferences 2026-07-23). After `docker compose up -d --force-recreate skynet`, the FIRST hard-refresh may white-screen with `net::ERR_HTTP2_PROTOCOL_ERROR` on chunk loads. Fix = close and reopen the tab (spawns a fresh H2 connection). NOT a deploy failure. Do NOT jump to rollback on the first PROTOCOL_ERROR report.
+5. **Blast radius awareness.** A bad deploy loses Alice access to her whole fleet (Skynet is the gateway to every managed box). Asymmetric risk drives all safety practices. Alice SSM+tmux fallback exists but preventing a bad ship is still the primary safety strategy.
 
-**Deploy bundle for this checkpoint:** Phase 14 patches + queued #150 A + C (per CONTEXT.md § Phase Boundary Ashley-verbatim: "there's no point in deploying until we get it in"). See `14-PATCHES-MD-ENTRY.md` for the full bundle-shape description. Deploy sequence documented in `14-UAT-CHECKLIST.md § Post-UAT deploy runbook`.
+**Deploy bundle for this checkpoint:** Phase 14 patches + queued #150 A + C (per CONTEXT.md § Phase Boundary user-verbatim: "there's no point in deploying until we get it in"). See `14-PATCHES-MD-ENTRY.md` for the full bundle-shape description. Deploy sequence documented in `14-UAT-CHECKLIST.md § Post-UAT deploy runbook`.
 
 ---
 
@@ -120,9 +120,9 @@ git diff f4ae668..HEAD -- src/backend/claude-session/claude-session-server.ts \
 | `npx vitest run` | ✓ 596/596 pass (49 test files) |
 | `npm run build` | ✓ exit 0, built in 4.38s, 2395 modules transformed, no warnings |
 | Nginx caveat | ✓ N/A — no new HTTP routes; WS-only additions on port 30011 |
-| Deploy safety | ✓ Discipline documented per current runbook (deadman retired 2026-07-21; check-before-recreate + `git push` first + Ashley pre-warn survive) |
+| Deploy safety | ✓ Discipline documented per current runbook (deadman retired 2026-07-21; check-before-recreate + `git push` first + Alice pre-warn survive) |
 
-**Verdict:** Pre-deploy build verification is CLEAN. Task 3's human-verify checkpoint is not blocked by any build-side failure. The deploy bundle (Phase 14 + #150 A + C) is ready for Ashley's greenlight decision.
+**Verdict:** Pre-deploy build verification is CLEAN. Task 3's human-verify checkpoint is not blocked by any build-side failure. The deploy bundle (Phase 14 + #150 A + C) is ready for Alice's greenlight decision.
 
 ---
 

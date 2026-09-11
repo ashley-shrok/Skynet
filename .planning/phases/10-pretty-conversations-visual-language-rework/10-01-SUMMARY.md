@@ -54,7 +54,7 @@ metrics:
 # Phase 10 Plan 01: Foundation — PrettyConversationRow + PinAction + tokens Summary
 
 Delivered the foundation of the Phase 10 pretty-conversations component tree
-in isolation. Every visual decision Ashley signed off on 2026-07-22 —
+in isolation. Every visual decision Alice signed off on 2026-07-22 —
 chunky Telegram-style row, 48/40 identity-hue avatar disc with hue ring,
 ChatMessage-verbatim selected-row hue treatment, no identity chip,
 variant-driven mobile-swipe / desktop-hover pin mechanism — lives inside
@@ -71,7 +71,7 @@ zero new dependencies.
 
 | File | LOC | Purpose |
 |---|---|---|
-| `tokens.ts` | 50 | 5 named constants for values reused 3+ times (row heights, swipe geometry) per Ashley naming rule |
+| `tokens.ts` | 50 | 5 named constants for values reused 3+ times (row heights, swipe geometry) per Alice naming rule |
 | `PinAction.tsx` | 123 | Shared hue-tinted pin/unpin button — 48x48 disc for mobile swipe strip, 24x24 rounded-md for desktop hover-reveal |
 | `PrettyConversationRow.tsx` | 441 | Chunky row with variant-based pin mechanism, identity-hue avatar, selected-row ChatMessage-verbatim treatment |
 | `PrettyConversationRow.test.tsx` | 529 | 12 tests: swipe state machine, pin toggle, RDP exclusion, selected-state, avatar fallback, hover-reveal |
@@ -193,7 +193,7 @@ as a thin container that maps over `useConversations()` output, renders
 - Per-row loop over `useConversations()` grouped structure (pinned + host groups + RDP sentinel group)
 - HostGroup header render (semibold host name; special-case `hostId === "__rdp__"` to suppress header per NOTE-A from Phase 7)
 - `currentlySwipedId` state + effect-free wiring to `onSwipeOpenChange` / `forceClosed`
-- Panel-level effect: when the selected conversation changes, force all rows closed (Ashley: "changing conversations should snap any swiped row shut")
+- Panel-level effect: when the selected conversation changes, force all rows closed (Alice: "changing conversations should snap any swiped row shut")
 - Variant selection via `useIsMobile()` (width-based) — NOT via `useIsTouchDevice()`, because the row's mobile-variant swipe behavior wants to fire on narrow desktop windows too where the touch device may still be a laptop
 - HostGroup separator styling from prototype.html / desktop.html — these are panel-owned, not row-owned
 

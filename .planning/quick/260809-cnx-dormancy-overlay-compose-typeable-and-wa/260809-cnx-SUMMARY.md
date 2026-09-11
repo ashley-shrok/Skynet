@@ -54,7 +54,7 @@ Added immediately after the existing `dormantRef` mirror useEffect (~line 1158-1
 1. `const prevIsVisibleRef = useRef<boolean>(isVisible)` — initialized to current `isVisible` so initial mount with `isVisible=true` does NOT fire the reset (the `!prev && isVisible` guard is false).
 2. A new `useEffect(() => { ... }, [isVisible])` that detects the false→true edge and calls `setWaking(false)`, `setWakingStartTs(null)`, `setElapsedSeconds(0)`, `setWakeError(null)`.
 
-This prevents the stuck "Waking up…" overlay when Ashley returns to a pane whose WS was closed by patch #344 during hidden-time and whose session has since re-dormanted.
+This prevents the stuck "Waking up…" overlay when Alice returns to a pane whose WS was closed by patch #344 during hidden-time and whose session has since re-dormanted.
 
 ## Tests Added
 

@@ -9,7 +9,7 @@ import type { ImageBlock } from "@/api/claude-session-api";
 // (composebox / iOS photo picker) render RIGHT + blue-gray user gradient;
 // assistant / tool_result turns render LEFT + identity-hue. Padding stays
 // 12px on both sides (tighter than ChatMessage's 18/14) so image edges get
-// less breathing room than prose. (Ashley 2026-08-19 clarified after
+// less breathing room than prose. (Alice 2026-08-19 clarified after
 // spotting her own image turn rendered as assistant in Wendy's session:
 // "just because i send a message with or without an image shouldn't
 // change the way the bubble looks other than the fact the image is
@@ -94,7 +94,7 @@ export function ImageBubble({
         {images.map((img, i) => (
           // quick 260810-ia4 Fix 2: reserve layout before decode; kills the
           // 0->N height pop that fires TanStack measureElement mid-scroll and
-          // displaces visible content under Ashley's scroll gesture.
+          // displaces visible content under Alice's scroll gesture.
           // ImageBlock carries only { data, mediaType, toolUseId? } — no
           // natural-dimension metadata — so the 4/3 default-aspect-ratio
           // fallback is the only path.

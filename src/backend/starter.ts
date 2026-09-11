@@ -436,7 +436,7 @@ if (process.env.VITEST !== "true") {
     // Self-starts on import (see relay-room-stream-server.ts L1342-1344 —
     // guarded to skip in vitest/test env). Was never imported anywhere in
     // the arc-close ship; nginx proxies /relay-room/websocket/ to 30015
-    // and returned 404 because nothing was listening. Ashley UAT 2026-09-09.
+    // and returned 404 because nothing was listening. Alice UAT 2026-09-09.
     await import("./relay-room-stream/relay-room-stream-server.js");
     await import("./ssh/tunnel.js");
     await import("./ssh/file-manager.js");
@@ -778,7 +778,7 @@ if (process.env.VITEST !== "true") {
 
       // ---------------------------------------------------------------------
       // Phase 39 Path C — presence-driven orchestrator lifecycle
-      // (Ashley LOCKED 2026-08-13: "nobody needs to know if something is idle
+      // (Alice LOCKED 2026-08-13: "nobody needs to know if something is idle
       // or not, or anything else that's going on here, if no user is present
       // to want to know the information")
       //

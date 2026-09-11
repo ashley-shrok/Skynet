@@ -18,7 +18,7 @@ provides:
   - "IdentityModal.tsx threads identity.coordinator down as isCoordinator to both WakeupsTab call sites (identity-wakeups + role-wakeups) and to HandoffTab"
   - "AddWakeupPill visual polish (Plan 02 palette → sketch variant D hue-tint palette) + hover state via local useState (tailwind hover: doesn't compose over inline hue-tinted styles)"
   - "6-test coverage file IdentityModal.coordinator-empty.test.tsx (C1 coord-Wakeups caption + no pill / C2 coord-Handoff caption / C3 coord-Identity-file renders normally / C4 actor regression guard / C5a+C5b pill-in-both-branches invariant)"
-  - "Human-verify walk-through spec inline in this SUMMARY (Ashley UAT after orchestrator ship)"
+  - "Human-verify walk-through spec inline in this SUMMARY (Alice UAT after orchestrator ship)"
 
 affects: [identity-modal, coordinator-legibility, wakeups-tab-empty-state, handoff-tab, phase-72-complete]
 
@@ -41,7 +41,7 @@ key-decisions:
   - "AddWakeupPill kept as a single shared component invoked at 2 render sites (empty-branch + data-branch) rather than inlined twice per plan action step's exact JSX. Testids count 1 in the source but the pill-in-both-branches invariant IS preserved (verified at runtime by Test C5a + C5b). Plan grep acceptance criterion (>=2 testid) was written assuming inline duplication — deviation logged below as Rule 3 (semantically preserved, structure differs)."
   - "Hover state on AddWakeupPill goes through local useState (mouseenter/leave/focus/blur) because tailwind's hover:bg-* class syntax doesn't compose with inline `background: hsla(${hue}, ...)` — inline styles win the specificity war regardless of hover state. React state swap keeps the hue-tinted brighten cleanly reactive without splitting the palette into a static tailwind class + a hue-only overlay."
   - "isCoordinator is required (non-optional) on both tabs — every call site knows the coordinator flag (via identity.coordinator from IdentityModal, or hardcoded false in standalone WakeupsTab tests). Making it optional would defeat the purpose of the guard (a missing prop would silently render the actor path for a coord)."
-  - "HandoffTab coord short-circuit lives at the TOP of the render body (before loading/error/empty checks) so a coord with a stray handoff.md on disk still gets the caption. Ashley's coordinator identities in the fleet may have inherited stray handoff.md files from earlier prototypes; the caption is the semantically-correct render regardless of file state."
+  - "HandoffTab coord short-circuit lives at the TOP of the render body (before loading/error/empty checks) so a coord with a stray handoff.md on disk still gets the caption. Alice's coordinator identities in the fleet may have inherited stray handoff.md files from earlier prototypes; the caption is the semantically-correct render regardless of file state."
   - "Sub-repos not touched — this is a single-repo project (no `sub_repos` config); commit-to-subrepo not applicable"
 
 patterns-established:
@@ -57,7 +57,7 @@ completed: 2026-09-04
 
 # Phase 72 Plan 04: Coordinator empty states + polish Summary
 
-**Phase 72's final wave lands. Coordinator identities opening the modal now see informative captions in their Identity-view Wakeups and Handoff tabs ("Coordinators use role-scope wakeups only. Switch to Role view to manage." and "Coordinators are stateless routers — no handoff to display.") instead of mostly-empty regions. The Add-wakeup pill matches sketch variant D's hue-tint palette. Ashley walk-through happens post-ship — spec in this document.**
+**Phase 72's final wave lands. Coordinator identities opening the modal now see informative captions in their Identity-view Wakeups and Handoff tabs ("Coordinators use role-scope wakeups only. Switch to Role view to manage." and "Coordinators are stateless routers — no handoff to display.") instead of mostly-empty regions. The Add-wakeup pill matches sketch variant D's hue-tint palette. Alice walk-through happens post-ship — spec in this document.**
 
 ## Performance
 
@@ -159,11 +159,11 @@ Threaded `isCoordinator={identity.coordinator}` at 3 call sites (grep count 3):
 - `<TabsContent value="role-wakeups">` → `<WakeupsTab ... isCoordinator={identity.coordinator} ...>` (role-scope pane — coord branch does NOT fire under scope='role', but prop is threaded for uniformity)
 - `<TabsContent value="handoff">` → `<HandoffTab ... isCoordinator={identity.coordinator} ...>` (coord short-circuit fires under both scopes; only reachable under Identity scope per NAV_SECTIONS)
 
-### Task 2 — Human-verify checkpoint (deferred to Ashley post-ship)
+### Task 2 — Human-verify checkpoint (deferred to Alice post-ship)
 
-Task 2 is a `checkpoint:human-verify` — no code changes fire during it. The plan's execution mode (sequential executor, orchestrator handles ship motion) means the executor produces the walk-through spec artifact and returns; the actual real-browser confirmation happens with Ashley after the orchestrator has pushed + deployed. The spec below is the artifact.
+Task 2 is a `checkpoint:human-verify` — no code changes fire during it. The plan's execution mode (sequential executor, orchestrator handles ship motion) means the executor produces the walk-through spec artifact and returns; the actual real-browser confirmation happens with Alice after the orchestrator has pushed + deployed. The spec below is the artifact.
 
-## Human Verify Walk-through (Ashley UAT, post-ship)
+## Human Verify Walk-through (Alice UAT, post-ship)
 
 **What was built (all four Phase 72 waves shipped):**
 - Backend CRUD parity for role-scope + identity-scope wakeups (6 new WS handlers, 6 new writer/reader functions, 12 new wire types) — Plan 01.
@@ -174,7 +174,7 @@ Task 2 is a `checkpoint:human-verify` — no code changes fire during it. The pl
 
 **How to verify (7 walk-throughs — each 30–60s):**
 
-1. **Wait for orchestrator ship** — this checkpoint fires BEFORE deploy but AFTER all code is committed. The box-maintainer directive says executors don't do deploys; the orchestrator handles push/build/deploy. Ashley walks through against the DEV build first (or the newly-deployed staging/prod URL if orchestrator has already run the pre-checkpoint deploy).
+1. **Wait for orchestrator ship** — this checkpoint fires BEFORE deploy but AFTER all code is committed. The box-maintainer directive says executors don't do deploys; the orchestrator handles push/build/deploy. Alice walks through against the DEV build first (or the newly-deployed staging/prod URL if orchestrator has already run the pre-checkpoint deploy).
 
 2. **Open Skynet in browser at https://term.example.com** (or the dev/staging URL if not yet shipped to prod).
 
@@ -272,7 +272,7 @@ No nginx / docker-compose / deploy surface touched. No worktrees used (sequentia
 
 ## Known Stubs
 
-None. Phase 72 is complete after this plan. All four waves have shipped their code (backend CRUD parity → frontend WakeupsTab scope + CRUD → IdentityModal scope switch → coord empty states + polish). The only remaining artifact is Ashley's real-browser walk-through, which is a human-verify checkpoint — the artifact spec is inline in this SUMMARY (§ Human Verify Walk-through).
+None. Phase 72 is complete after this plan. All four waves have shipped their code (backend CRUD parity → frontend WakeupsTab scope + CRUD → IdentityModal scope switch → coord empty states + polish). The only remaining artifact is Alice's real-browser walk-through, which is a human-verify checkpoint — the artifact spec is inline in this SUMMARY (§ Human Verify Walk-through).
 
 ## TDD Gate Compliance
 

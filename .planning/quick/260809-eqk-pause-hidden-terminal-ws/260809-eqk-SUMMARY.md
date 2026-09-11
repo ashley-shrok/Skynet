@@ -159,7 +159,7 @@ return {
 
 - **Reused `attemptReconnection()` as the reopen path (not `setRetryKey`):** Terminal already has a dedicated reconnect entrypoint with the full guard set. PrettyView's iter-1 shape uses `setRetryKey(k => k + 1)` to force the WS-setup effect to re-fire, but Terminal doesn't have a state-key-based WS-setup effect (its setup effect keys on `[terminal, hostConfig.id, attach, isConnected, isConnecting]`). Directly invoking `attemptReconnection()` is the safer, structurally-closer reuse.
 - **Anchor tests on planted comment tags, not line numbers:** Terminal.tsx is 3434+ lines; line numbers shift constantly. The `quick-260809-eqk` tag is unique and deliberate, making the test assertions survive reformatting.
-- **Ship PV diag fix in the same commit:** dishonest diag emit would obscure the iter-2 win — Ashley + tanya need reliable numbers post-ship to declare the empirical rotation done.
+- **Ship PV diag fix in the same commit:** dishonest diag emit would obscure the iter-2 win — Alice + tanya need reliable numbers post-ship to declare the empirical rotation done.
 - **Main WS-setup effect untouched:** iter 1 shipped a similar tradeoff (PV's setup effect stayed `[hostId, tmuxSession, retryKey]`-keyed so URL-restored offscreen panes still mount their WS); Terminal's `[attach]`-keyed setup effect gets the same treatment. Tmux persists across WS disconnects — no session state lost during the brief open→close cycle.
 
 ## Deviations from Plan
@@ -197,7 +197,7 @@ None — no external service configuration required.
   - `docker compose up -d --force-recreate skynet`.
   - Byte-verify the shipped bundle contains the new pause effect + guards.
   - Append patch entry (next id) to `~/.claude/roles/box-maintainer/skynet-patches.md`.
-  - Retire bounty `pause-hidden-terminal-ws-iter-2` (or whatever the exact bounty JSON name is) once Ashley UATs the diag delta on iPhone 16 Pro Max.
+  - Retire bounty `pause-hidden-terminal-ws-iter-2` (or whatever the exact bounty JSON name is) once Alice UATs the diag delta on iPhone 16 Pro Max.
 - Post-ship UAT hypothesis: hidden Terminal panes' `wsBytesSinceLast` and diag-emitted reconnect log lines should drop toward zero, mirroring iter 1's PrettyView `wsFramesSinceLast` ~10-13 → ~5 drop.
 
 ## Self-Check: PASSED

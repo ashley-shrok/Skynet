@@ -163,13 +163,13 @@ No end-user visual/UX behaviors require manual verification for goal achievement
 
 **Deferred to arc-close human verification** (per fleet rule "Executor doesn't ship"):
 - End-to-end UAT on a live fleet with real relay rooms (deferred until arc-close after slices C + E per CONTEXT.md constraints)
-- Visual polish + real-viewport-width mobile rendering (D-20 explicitly deferred to v1.5 by Ashley 2026-09-08)
+- Visual polish + real-viewport-width mobile rendering (D-20 explicitly deferred to v1.5 by Alice 2026-09-08)
 
 These are NOT gaps blocking this phase's goal — they are scoped-out per the phase's own explicit constraints.
 
 ### Gaps Summary
 
-No goal-blocking gaps. All 20 D-decisions delivered with observable evidence in the codebase. All threat mitigations (T-90-BE-01/02/03, T-90-FE-01) have dedicated regression tests. All warnings (W#7, W#8, W#9) resolved per their planned mechanisms. Pretty-view untouched invariant upheld (only the 2 explicit D-03 waivers Ashley greenlit modified pretty-view files).
+No goal-blocking gaps. All 20 D-decisions delivered with observable evidence in the codebase. All threat mitigations (T-90-BE-01/02/03, T-90-FE-01) have dedicated regression tests. All warnings (W#7, W#8, W#9) resolved per their planned mechanisms. Pretty-view untouched invariant upheld (only the 2 explicit D-03 waivers Alice greenlit modified pretty-view files).
 
 ### Notes / Surprises
 
@@ -177,7 +177,7 @@ No goal-blocking gaps. All 20 D-decisions delivered with observable evidence in 
 - **RelayRoomInboundBubble absolute cleanliness:** File contains zero React hooks, zero effects, zero click handlers on the header, and body renders unconditionally. The plan's grep gates on collapse/fetch tokens produce zero hits in code (only comment mentions). This is textbook fork discipline.
 - **D-10 correctness by construction:** Both surfaces (PrettyView + AgentBadgeWithAppendage) demonstrably call the SAME hook (`useSessionContextPct`) AND the SAME endpoint (`POST /agent-reset/:hostId/:tmuxSessionName`). No drift risk.
 - **Minor drift (informational, not a gap):** `RelayRoomPane.tsx:110` passes `userId: 0` with a TODO to thread the real userId once viewing-user-store carries it. Per 90-06-SUMMARY.md, this is a soft stub for structured-logging fields only — the backend derives the real userId from the JWT cookie, so send-round-trip and access-control are unaffected. Follow-up deferred; NOT a phase-90 blocker.
-- **Full-suite tsc errors (pre-existing):** `npx tsc --noEmit -p tsconfig.app.json` reports 295 errors on HEAD. Spot-checks (git blame + error content) indicate these are pre-existing (Identity `task` field, `@/types` import from May 2026) — not introduced by phase 90. Per CONTEXT.md constraints, executor's green-gate is scoped tests only ("full suite runs at orchestrator ship-gate AFTER Ashley's explicit ship greenlight, deferred to arc-close"). Scoped tests for all phase-90 files pass.
+- **Full-suite tsc errors (pre-existing):** `npx tsc --noEmit -p tsconfig.app.json` reports 295 errors on HEAD. Spot-checks (git blame + error content) indicate these are pre-existing (Identity `task` field, `@/types` import from May 2026) — not introduced by phase 90. Per CONTEXT.md constraints, executor's green-gate is scoped tests only ("full suite runs at orchestrator ship-gate AFTER Alice's explicit ship greenlight, deferred to arc-close"). Scoped tests for all phase-90 files pass.
 
 ---
 

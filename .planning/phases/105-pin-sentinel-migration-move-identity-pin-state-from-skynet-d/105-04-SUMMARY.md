@@ -25,7 +25,7 @@ tech-stack:
     - "Frontend disk-authoritative projection: identities-store's per-identity `pinned: boolean` (populated by backend disk-read per D-03) is the source-of-truth substrate; deriveDiskPinnedIds projects it into the fleet::hostId::sessionName id space the row builder emits, guaranteeing byte-for-byte match with state.pinnedIds"
     - "H2 single-derivation-site invariant: buildIdentityHostsFromFleet (identities-store.ts:74-85) is the ONLY place fleetSessions → identityHosts derivation lives; consumed by both the identities-store fetch AND the conversation-store pin toggle callsites AND the panel hydrate effect — reused by import, never re-implemented"
     - "Fail-closed pin projection: an identity with `pinned` field absent from the response is treated as unpinned (matches backend Plan 02's identityFileExists throw → false semantics); an identity not present in identityHosts is filtered out (can't render as pinned without a row-render substrate anyway)"
-    - "UI-feel preservation (D-06): pin toggle behavior byte-identical to pre-Phase-92 — same right-click menu, same fire-and-forget putPinnedIds call, same silent-catch on failure, same hydrate-on-mount reconciliation. Only the DATA SOURCE for the reconciliation shifted; failure UX unchanged per Ashley 2026-09-09 'however it would have failed already is how it will fail today'"
+    - "UI-feel preservation (D-06): pin toggle behavior byte-identical to pre-Phase-92 — same right-click menu, same fire-and-forget putPinnedIds call, same silent-catch on failure, same hydrate-on-mount reconciliation. Only the DATA SOURCE for the reconciliation shifted; failure UX unchanged per Alice 2026-09-09 'however it would have failed already is how it will fail today'"
     - "Circular-import late-binding: conversation-store.ts imports buildIdentityHostsFromFleet from identities-store, identities-store.ts imports FleetSession + getFleetSessionsSnapshot + subscribeConversationStore from conversation-store. ES module cycles resolve via late-bound function references at call time — verified green across 114 conversation-store tests"
 
 key-files:
@@ -104,7 +104,7 @@ completed: 2026-09-09
   - **PANEL-92-04** (PrettyConversationsPanel.test.tsx): asserts the panel hydrate effect calls `buildIdentityHostsFromFleet(fleetSessions)` → `deriveDiskPinnedIds(identityHosts)` → `hydratePinnedIdsFromServer(pinnedIds)` in that order with those exact arguments.
   - **Grep-hygiene** locked in commit body: `deriveIdentityHostsMap` (H2 forbidden helper name) → 0 hits across `src/ui/`; `sessionName.toLowerCase` in `src/ui/state/conversation-store.ts` → 0 code hits (only 2 anti-pattern warning comments).
 
-- **UI feel invariant preserved (D-06):** pin toggle from the user's perspective is byte-identical to pre-Phase-92. Same right-click menu entry text, same fire-and-forget optimistic flip, same silent-catch on network failure, same hydrate-on-mount reconciliation. Ashley 2026-09-09 verbatim: "however it feels now is how it's going to feel after this."
+- **UI feel invariant preserved (D-06):** pin toggle from the user's perspective is byte-identical to pre-Phase-92. Same right-click menu entry text, same fire-and-forget optimistic flip, same silent-catch on network failure, same hydrate-on-mount reconciliation. Alice 2026-09-09 verbatim: "however it feels now is how it's going to feel after this."
 
 - **hiddenConversationIds slice UNTOUCHED (D-02 out-of-scope):** PANEL-92-03 asserts `getHiddenIds()` STILL fires from the panel hydrate effect and routes through `hydrateHiddenIdsFromServer`. The hidden path was NOT rewired in Phase 92 — that's a separate future phase's problem if it ever ships.
 
@@ -201,7 +201,7 @@ None — pure frontend refactor. No new dependencies, no new env vars, no extern
   - Plan 92-03: DB pin column dropped physically.
   - Plan 92-04 (this one): frontend rewired to disk-projection reads + identityHosts-carrying writes.
 
-- **Manual per-box migration is orchestrator-owned:** Per D-07 / D-08, each box maintainer (Ashley for t1000, Stacy for T800) runs the pre-deploy `touch ~/.claude/identities/<name>/.pinned` sequence before their container recreate for each identity currently in their pinnedConversationIds list. The DB column is already physically dropped (Plan 92-03), so post-deploy the pin state reads exclusively from disk.
+- **Manual per-box migration is orchestrator-owned:** Per D-07 / D-08, each box maintainer (Alice for t1000, Stacy for T800) runs the pre-deploy `touch ~/.claude/identities/<name>/.pinned` sequence before their container recreate for each identity currently in their pinnedConversationIds list. The DB column is already physically dropped (Plan 92-03), so post-deploy the pin state reads exclusively from disk.
 
 - **id-skill-revamp campaign context:** This phase completes Shape 1 of 4. Shape 2 (agent-supervisor archive extension) can now assume the sentinel-per-identity-folder convention is production-live. Shapes 3/4 (on-disk tree consolidation, substrate prose polish) remain future phase work.
 

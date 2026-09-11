@@ -51,7 +51,7 @@ The relay receiver's long-inbound-message handling — inline for short messages
 
 - **The baseline gets corrupt or diverges.** If the persisted baseline somehow ends up disagreeing with what the agent's in-context copy actually is (e.g. the baseline captures a state the agent never saw), diffs stop making sense and every fire is confusing. Self-correcting on the next real edit, but any window where diffs are misleading is a bug.
 
-- **The first-run rule fires anyway.** If an identity's very first `/id` load produces a spurious wake because the "have I seen this file before?" check misfires, we've broken the "silent on cold start" invariant Ashley picked to keep fresh sessions clean.
+- **The first-run rule fires anyway.** If an identity's very first `/id` load produces a spurious wake because the "have I seen this file before?" check misfires, we've broken the "silent on cold start" invariant Alice picked to keep fresh sessions clean.
 
 - **It's expensive.** The premise is that this is cheap enough to run everywhere by default. If it turns out to consume real CPU or produce meaningful event traffic in the steady state (idle role file, nothing changing), the "fleet-wide default" call is wrong and we'd need to make it opt-in.
 
@@ -91,7 +91,7 @@ Full pipeline (GSD phase with spec/discuss/plan/execute/verify) is overkill — 
 Handoff notes for the implementer:
 - The identity currently doing this work is the tanya identity of the box-maintainer role. Fleet-substrate ownership sits with this role per the recent transfer from nicole, so this change is in-lane.
 - The four ambient watches all live under one owner now (this role), so no cross-role coordination is needed for the id-skill body edit.
-- Follow the standing rule: build + commit locally, do NOT push, do NOT deploy — Ashley greenlights push separately per the tightened deploy-window boundary rule.
+- Follow the standing rule: build + commit locally, do NOT push, do NOT deploy — Alice greenlights push separately per the tightened deploy-window boundary rule.
 
 ---
 
@@ -110,7 +110,7 @@ Handoff notes for the implementer:
 - **Shape: How it decides what's new** — present · persisted per-identity baseline, diff current-vs-baseline on every event, update baseline after emit.
 - **Shape: Where the baseline lives** — present · per-identity under the identity's dir, sibling to the relay cursor; not role-scoped.
 - **Shape: When it starts** — present · fourth ambient watch on the on-wake sequence, dies with the session.
-- **Shape: Scope of applicability** — drifted (endorsed) · id skill body enrolls actor identities on wake; coordinator-mode section still lists only three. Ashley: "Coordinators should not get this monitor because they don't read the role file and wouldn't need to know the updates." The shape's "every identity holding every role" language is superseded — the correct scope is every ACTOR identity holding every role. Coordinators are intentionally excluded.
+- **Shape: Scope of applicability** — drifted (endorsed) · id skill body enrolls actor identities on wake; coordinator-mode section still lists only three. Alice: "Coordinators should not get this monitor because they don't read the role file and wouldn't need to know the updates." The shape's "every identity holding every role" language is superseded — the correct scope is every ACTOR identity holding every role. Coordinators are intentionally excluded.
 - **Philosophy: live-sync aid, not source of truth** — present · `/id` load still reads the whole role file; the watch is purely additive.
 - **Philosophy: diff-first, not re-read-first** — present · event carries diff, no re-read prompt.
 - **Philosophy: dumb, on purpose** — present · watcher has no authorship detection, no self-edit filter, no importance judgment.
@@ -133,7 +133,7 @@ Handoff notes for the implementer:
 
 ### Follow-ups
 
-- Shape's "every identity holding every role" language is superseded by Ashley's coord-exclusion call; if the shape ever gets re-read as source of truth, note the sharpening: "every actor identity holding every role." — accepted-as-drift
+- Shape's "every identity holding every role" language is superseded by Alice's coord-exclusion call; if the shape ever gets re-read as source of truth, note the sharpening: "every actor identity holding every role." — accepted-as-drift
 
 ### Notes
 

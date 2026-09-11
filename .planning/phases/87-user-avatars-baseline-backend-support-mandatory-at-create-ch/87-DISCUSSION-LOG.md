@@ -20,7 +20,7 @@
 | Hybrid: thumbnail in row + full on disk | Premature at this scale but named for completeness. | |
 
 **User's choice:** File on disk with a pointer — the standard web-app go-to.
-**Notes:** Ashley verbatim: *"you know this is about as standard as i think you can get for wanting avatar support for an app um so unless you can think of a reason to do otherwise i would ask what the standard go-to way would be for doing this and then we probably just go with that"*. No Skynet-specific reason to deviate; the crown-jewel in-memory SQLite invariant actively supports keeping bytes OUT of the DB.
+**Notes:** Alice verbatim: *"you know this is about as standard as i think you can get for wanting avatar support for an app um so unless you can think of a reason to do otherwise i would ask what the standard go-to way would be for doing this and then we probably just go with that"*. No Skynet-specific reason to deviate; the crown-jewel in-memory SQLite invariant actively supports keeping bytes OUT of the DB.
 
 ---
 
@@ -33,7 +33,7 @@
 | Operator-config bind mount | Similar to the global-files.json debate; but avatars aren't hand-edited by the operator, so the argument for a bind mount doesn't carry. | |
 
 **User's choice:** Skynet server's own encrypted data volume.
-**Notes:** Ashley verbatim clarification: *"just to be clear, they would go on the machine that Skynet is running on, if they're going to go on disk, and not on hosts registered in Skynet"*. Explicitly captured because ambiguity was real.
+**Notes:** Alice verbatim clarification: *"just to be clear, they would go on the machine that Skynet is running on, if they're going to go on disk, and not on hosts registered in Skynet"*. Explicitly captured because ambiguity was real.
 
 ---
 
@@ -46,7 +46,7 @@
 | **Hybrid: single-call mandatory create + separate change endpoint sharing internal helper** | Best of both. Real backend mandatoriness (create refuses without bytes). No pending state. Change endpoint exists for downstream self-serve flow. Byte-work factored to shared helper — not real duplication. | ✓ |
 
 **User's choice:** Hybrid.
-**Notes:** Ashley's initial lean was single-call for simplicity. Then she raised mandatoriness. My initial two-step recommendation over-indexed on avoiding duplication of the avatar-upload logic. Mid-discussion I walked it back once mandatoriness came up — the "duplication" argument for pure two-step is weak once you factor bytes-work to a shared helper. Hybrid gives real backend-enforced mandatoriness AND a change endpoint AND no messy pending state. Ashley: *"if wanting them to be mandatory poses issues, then I'm willing to drop it"* — it did NOT pose issues, so mandatoriness stays.
+**Notes:** Alice's initial lean was single-call for simplicity. Then she raised mandatoriness. My initial two-step recommendation over-indexed on avoiding duplication of the avatar-upload logic. Mid-discussion I walked it back once mandatoriness came up — the "duplication" argument for pure two-step is weak once you factor bytes-work to a shared helper. Hybrid gives real backend-enforced mandatoriness AND a change endpoint AND no messy pending state. Alice: *"if wanting them to be mandatory poses issues, then I'm willing to drop it"* — it did NOT pose issues, so mandatoriness stays.
 
 ---
 
@@ -66,14 +66,14 @@
 
 ## Claude's Discretion
 
-Areas Ashley deferred to me or left to the planner:
+Areas Alice deferred to me or left to the planner:
 
 - Exact column name for the avatar pointer field on the users row.
 - Exact filename convention on disk (userId+ext vs hash+ext vs other).
 - Change-endpoint HTTP verb (PUT vs POST) and exact path shape.
 - Whether the serve endpoint sets caching / ETag headers.
-- Standard trio of accepted image formats (I named PNG/JPEG/WebP as the codebase's existing convention from `identity-avatar-batch.ts`; Ashley didn't push back).
-- Byte size cap (I named 5 MB matching the codebase's identity-avatar-batch convention; Ashley didn't push back).
+- Standard trio of accepted image formats (I named PNG/JPEG/WebP as the codebase's existing convention from `identity-avatar-batch.ts`; Alice didn't push back).
+- Byte size cap (I named 5 MB matching the codebase's identity-avatar-batch convention; Alice didn't push back).
 
 ---
 
@@ -81,8 +81,8 @@ Areas Ashley deferred to me or left to the planner:
 
 Mentioned during discussion, explicitly out of scope for this phase:
 
-- **Frontend rendering of user avatars.** The whole reason to build this plumbing. Ashley verbatim: *"they're going to start getting used in some of the front end changes that aren't part of this build."*
-- **Self-serve avatar-change UI** (modal, form, drag-drop, picker). Ashley verbatim: *"I know it would be tempting to add somewhere that it shows up right from the get go on the front end, and possibly UI affordances for changing avatars, but we are not going to do those things right now."*
+- **Frontend rendering of user avatars.** The whole reason to build this plumbing. Alice verbatim: *"they're going to start getting used in some of the front end changes that aren't part of this build."*
+- **Self-serve avatar-change UI** (modal, form, drag-drop, picker). Alice verbatim: *"I know it would be tempting to add somewhere that it shows up right from the get go on the front end, and possibly UI affordances for changing avatars, but we are not going to do those things right now."*
 - **Backfill for existing users.** They keep null pointers until a future mechanism gives them an avatar.
 - **Image transforms** (resize, crop, thumbnails, EXIF-strip).
 - **Content moderation.**

@@ -1,12 +1,12 @@
 # Patch #151 — Plain-Language Translation Asides — Phase 14
 
 **Paste target:** `~/.claude/identities/tina/skynet-patches.md`
-**Paste timing:** Only after Ashley greenlights the bundled Phase 14 + queued #150 A + C deploy AND UAT passes on the items in `14-UAT-CHECKLIST.md`. Post-deadman-retirement flow per current `~/.claude/identities/tina/deploy-runbook.md` (the 15-min deadman regime was retired 2026-07-21).
-**Batch context:** Patch #151 is the Phase 14 aside subsystem — one conceptual patch (even though it landed as 22+ commits across Waves 1-6). Ships BUNDLED with queued patches #150 A (pruner fleet-aware — `7f63a4b`) + #150 C (URL-restore multi-tab glow — `162dc1c`) per CONTEXT.md § Phase Boundary (Ashley 2026-07-26 verbatim: "there's no point in deploying until we get it in"). The three ship together in ONE Ashley-verified deploy window on `feat/tab-title-from-tmux`. Tina pins all three at the PIN moment. The solo-deploy carveout for #150 A (per tina.md — actively-broken-in-production trigger) is now MOOT because #150 A is bundled with Phase 14 in the same deploy event.
+**Paste timing:** Only after Alice greenlights the bundled Phase 14 + queued #150 A + C deploy AND UAT passes on the items in `14-UAT-CHECKLIST.md`. Post-deadman-retirement flow per current `~/.claude/identities/tina/deploy-runbook.md` (the 15-min deadman regime was retired 2026-07-21).
+**Batch context:** Patch #151 is the Phase 14 aside subsystem — one conceptual patch (even though it landed as 22+ commits across Waves 1-6). Ships BUNDLED with queued patches #150 A (pruner fleet-aware — `7f63a4b`) + #150 C (URL-restore multi-tab glow — `162dc1c`) per CONTEXT.md § Phase Boundary (Alice 2026-07-26 verbatim: "there's no point in deploying until we get it in"). The three ship together in ONE user-verified deploy window on `feat/tab-title-from-tmux`. Tina pins all three at the PIN moment. The solo-deploy carveout for #150 A (per tina.md — actively-broken-in-production trigger) is now MOOT because #150 A is bundled with Phase 14 in the same deploy event.
 
 Explicit contract line for the fork-catalog integrity gate: **patch #151 batches with queued patches #150 A + #150 C as the Phase-14-completion deploy** (one deploy, three separate patch entries in skynet-patches.md).
 
-**Ordinal position on paste:** Verify current count first with `grep "numbered patches" ~/.claude/identities/tina/skynet-patches.md | head -3`. If patches #150 A + C are unpinned at deploy time (likely — per quick task `260726-l1p` and the earlier #149 workflow, deploy was deferred pending Ashley greenlight), pin all three together: bump from N (current baseline) to N+3. Recommended combined pin commit message: `docs(patches): pin patches #150 A + #150 C + #151 — Phase 14 aside subsystem bundled with queued pruner + URL-restore fixes`.
+**Ordinal position on paste:** Verify current count first with `grep "numbered patches" ~/.claude/identities/tina/skynet-patches.md | head -3`. If patches #150 A + C are unpinned at deploy time (likely — per quick task `260726-l1p` and the earlier #149 workflow, deploy was deferred pending Alice greenlight), pin all three together: bump from N (current baseline) to N+3. Recommended combined pin commit message: `docs(patches): pin patches #150 A + #150 C + #151 — Phase 14 aside subsystem bundled with queued pruner + URL-restore fixes`.
 
 **No Co-Authored-By trailer** — fork convention (per 260723-bbt quick task pattern and Phase 10 + Phase 11 + Phase 12 + Phase 13 patches-md-entry precedents).
 
@@ -24,15 +24,15 @@ Explicit contract line for the fork-catalog integrity gate: **patch #151 batches
         (committed 2026-07-26 to `feat/tab-title-from-tmux`; deploy
         BUNDLED with queued patches #150 A (pruner fleet-aware) + #150 C
         (URL-restore multi-tab glow) per CONTEXT.md § Phase Boundary
-        Ashley-verbatim: "there's no point in deploying until we get it
+        user-verbatim: "there's no point in deploying until we get it
         in"; the three-patch bundle tells the "Phase 14 shipped with the
         two queued fleet-list fixes it was blocking" story = one deploy
         event, three catalog entries).
 
-        * **Motivating gap** (Ashley's direct call-outs, 2026-07-26 design
+        * **Motivating gap** (Alice's direct call-outs, 2026-07-26 design
           session, full timeline at `~/.claude/identities/tina/bounties/
           plain-language-translation-asides/bounty.json`):
-          Ashley bounces between ~5 active identity sessions doing "answering
+          Alice bounces between ~5 active identity sessions doing "answering
           questions and explaining things." She frequently comes back to a
           tab later to find several agent bubbles have accumulated since her
           last message (the agent got woken by monitors + relay pings + the
@@ -62,9 +62,9 @@ Explicit contract line for the fork-catalog integrity gate: **patch #151 batches
             tooltip "Resume".
           Design source-of-truth: `~/.claude/identities/tina/bounties/plain-
           language-translation-asides/bounty.json` (2026-07-26 design
-          session with Ashley, full spec locked) + `~/.claude/identities/
+          session with Alice, full spec locked) + `~/.claude/identities/
           tina/bounties/plain-language-translation-asides/aside-visual-
-          snippet.js` (DevTools recipe Ashley signed off on 2026-07-26,
+          snippet.js` (DevTools recipe Alice signed off on 2026-07-26,
           defaults at 10px border + glow multiplier 1.0 + three-layer glow
           at 12/32/64px in the identity hue).
 
@@ -109,7 +109,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #151 batches
           ASIDE_POLL_INTERVAL_MS cadence, gated on state.armed for idle-
           cheap operation, uses `tmux capture-pane -p -S -200`, marker-
           disappearance detection FIRST for cross-tab coherence when
-          Ashley externally Escapes via SSH, then streaming/stable branch
+          Alice externally Escapes via SSH, then streaming/stable branch
           with two-consecutive-stable-poll debounce, calls extractBtwAnswer
           + emits aside_ready). Connect-time re-attach probe (async IIFE
           with snapshot; runs INDEPENDENT of activeViewers.size per plan-
@@ -146,7 +146,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #151 batches
           (`hsla(var(--pv-id-hue), 90%, 65%, 1)`) + three-layer neon glow
           at 12/32/64px (`hsla(hue, 100%, 60|55|50%, 0.7|0.5|0.3)`)
           ADDITIVE to base depth shadow + inner rim per aside-visual-
-          snippet.js prototype Ashley signed off on. whitespace-pre-wrap
+          snippet.js prototype Alice signed off on. whitespace-pre-wrap
           inner div preserves multi-line /btw answer newlines; React
           default text-child escaping mitigates T-14-03-01 (XSS via /btw
           answer text). PrettyView wired end-to-end with 10 additive edits
@@ -174,7 +174,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #151 batches
           () => void as optional additive fields. 12 new vitest cases
           across 3 new test files. ChatMessage / ImageBubble /
           PlanPendingBubble / WipBubble bytes UNCHANGED (git diff --stat
-          confirms — Ashley's "pretty-view chat surface interior is
+          confirms — Alice's "pretty-view chat surface interior is
           LOCKED — add NEW bubble types, don't modify existing ones"
           invariant preserved from CONTEXT.md canonical_refs).
 
@@ -203,7 +203,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #151 batches
           [hsla(var(--pv-id-hue),90%,72%,0.95)] hover:text-[hsla(var(--pv-
           id-hue),95%,82%,1)]` — so the morphed X visually adopts the
           session's identity color, forming a visual pair with the
-          AsideBubble above; Ashley 2026-07-26 "Style change to visually
+          AsideBubble above; Alice 2026-07-26 "Style change to visually
           distinguish from send"). Textarea `disabled={queueArmed}`
           predicate DELIBERATELY NOT extended — per CONTEXT.md § ComposeBox
           morph verbatim: "Textarea remains editable. Any partial draft
@@ -346,19 +346,19 @@ Explicit contract line for the fork-catalog integrity gate: **patch #151 batches
           runbook.md`, post-2026-07-21): `git push` before build; explicit
           go-ahead for the deploy window (not carried over from code
           authorization); check-before-recreate compose-image-line grep;
-          `docker compose up -d --force-recreate skynet`; pre-warn Ashley
+          `docker compose up -d --force-recreate skynet`; pre-warn Alice
           about first-hard-refresh HTTP2_PROTOCOL_ERROR (fix = close +
           reopen tab); verify healthy + grep dist for `AsideBubble`
           signature to confirm patched bytes shipped. The retired 15-min
           deadman auto-revert regime (documented in fork CLAUDE.md's
           Deploy safety section and in the plan file's what-built section)
-          does NOT apply — retired 2026-07-21, replaced by Ashley's SSM-
+          does NOT apply — retired 2026-07-21, replaced by Alice's SSM-
           tmux-attach-via-SSH-over-SSM fallback. Full deploy sequence
           documented at `.planning/phases/14-plain-language-translation-
           asides/14-UAT-CHECKLIST.md § Post-UAT deploy runbook`.
 
         * **Bounty reference.** `~/.claude/identities/tina/bounties/plain-
-          language-translation-asides/` — closes on Ashley UAT sign-off.
+          language-translation-asides/` — closes on Alice UAT sign-off.
           Full design session transcript in the bounty's `bounty.json §
           timeline[]` (empirical kumquat-test findings, /explain-skill-
           inlining decision, aesthetic-locking decision, deploy-bundling
@@ -403,7 +403,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #151 batches
           - **No aside store.** No DB row, no in-memory KV, no persistence
             layer. tmux BTW overlay is the sole source of truth. Backend
             restarts recover state by re-probing on next event.
-          - **Locked aesthetic** (aside-visual-snippet.js prototype Ashley
+          - **Locked aesthetic** (aside-visual-snippet.js prototype Alice
             signed off on 2026-07-26). 10px opaque hue border + three-
             layer neon glow at 12/32/64px alphas 0.7/0.5/0.3. Prop-driven
             glow multiplier + borderWidthPx are future dial-back seams —
@@ -417,10 +417,10 @@ Explicit contract line for the fork-catalog integrity gate: **patch #151 batches
           CONTEXT.md):
           - `~/.claude/identities/tina/bounties/plain-language-translation-
             asides/bounty.json` — full 2026-07-26 design session with
-            Ashley, empirical kumquat-test verification of /btw mechanism,
+            Alice, empirical kumquat-test verification of /btw mechanism,
             all LOCKED design decisions in timeline entries 15:52-15:58Z.
           - `~/.claude/identities/tina/bounties/plain-language-translation-
-            asides/aside-visual-snippet.js` — DevTools recipe Ashley
+            asides/aside-visual-snippet.js` — DevTools recipe Alice
             signed off on for the aesthetic (10px + three-layer glow +
             identity hue).
           - `.planning/phases/14-plain-language-translation-asides/14-
@@ -476,7 +476,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #151 batches
           - **Plan 06 (Wave 6 — deploy checkpoint)**: 2+ commits
             - `81d08e0` docs(14-06): capture pre-deploy build verification log
             - `[Plan-06 UAT+patches-md SHA]` docs(14-06): author UAT checklist + patches-md-entry draft
-            - `[Plan-06 summary SHA]` docs(14-06): summary — Phase 14 code-complete + deploy staged for Ashley greenlight
+            - `[Plan-06 summary SHA]` docs(14-06): summary — Phase 14 code-complete + deploy staged for Alice greenlight
 
           Total: ~30 commits for Phase 14 fork sequence (~22 code commits + ~6 SUMMARY docs + 2-3 Plan 06 docs). Zero rollbacks, zero reverts.
 
@@ -485,14 +485,14 @@ Explicit contract line for the fork-catalog integrity gate: **patch #151 batches
           NOT YET deployed, image NOT YET built. Bundled with queued
           patches #150 A (pruner fleet-aware — `7f63a4b`) + #150 C (URL-
           restore multi-tab glow — `162dc1c`) per CONTEXT.md § Phase
-          Boundary Ashley-verbatim ("there's no point in deploying until
+          Boundary user-verbatim ("there's no point in deploying until
           we get it in"). Deploy sequence documented at `.planning/phases/
           14-plain-language-translation-asides/14-UAT-CHECKLIST.md` under
           "Post-UAT deploy runbook" (authoritative source cited: `~/.
           claude/identities/tina/deploy-runbook.md`, post-2026-07-21; NOT
           the fork CLAUDE.md's stale 15-min deadman reference).
 
-        * **Bounty closeout note**. Ashley's UAT sign-off on this patch
+        * **Bounty closeout note**. Alice's UAT sign-off on this patch
           (via `14-UAT-CHECKLIST.md`) closes `~/.claude/identities/tina/
           bounties/plain-language-translation-asides/`. Full backend +
           frontend + tests shipped as designed per the LOCKED 2026-07-26
@@ -521,8 +521,8 @@ After pasting into skynet-patches.md:
 1. **Verify current count first** with `grep "numbered patches" ~/.claude/identities/tina/skynet-patches.md | head -3`. Compute the correct bump based on whether #150 A + C were previously pinned. Most likely: both unpinned at deploy time → bump by 3.
 2. **Update the count line.** If both #150 A + C are pinned solo alongside #151, the count bumps by 3 (e.g. ONE HUNDRED FORTY-EIGHT → ONE HUNDRED FIFTY-ONE). If #150 A already pinned solo earlier (unlikely given the batching rule), adjust accordingly.
 3. **Commit the pin.** Recommended combined pin commit: `docs(patches): pin patches #150 A + #150 C + #151 — Phase 14 aside subsystem bundled with queued pruner + URL-restore fixes`. Solo-pin variant if only #151 shipped: `docs(patches): pin patch #151 — Phase 14 plain-language translation asides`.
-4. **Close `/close plain-language-translation-asides`** bounty at `~/.claude/identities/tina/bounties/plain-language-translation-asides/`. This is the load-bearing closeout for the Phase 14 feature. All design decisions + implementation decisions + test coverage + Ashley UAT are complete.
-5. **Update `~/.claude/identities/tina/tina.md`** compact overview if warranted. The compose-box + pretty-view sections may want to reflect the new aside subsystem as "shape-complete" for future-me's mental-model anchoring. If Ashley's next bounties are aside-refinement work (worth-explaining Haiku filter revisit, aside stacking / history, alternative dismiss gestures), tina.md's box-map may want a "Phase 14 aside subsystem shipped — see bounty archive for design decisions" pointer.
+4. **Close `/close plain-language-translation-asides`** bounty at `~/.claude/identities/tina/bounties/plain-language-translation-asides/`. This is the load-bearing closeout for the Phase 14 feature. All design decisions + implementation decisions + test coverage + Alice UAT are complete.
+5. **Update `~/.claude/identities/tina/tina.md`** compact overview if warranted. The compose-box + pretty-view sections may want to reflect the new aside subsystem as "shape-complete" for future-me's mental-model anchoring. If Alice's next bounties are aside-refinement work (worth-explaining Haiku filter revisit, aside stacking / history, alternative dismiss gestures), tina.md's box-map may want a "Phase 14 aside subsystem shipped — see bounty archive for design decisions" pointer.
 
 ---
 

@@ -8,13 +8,13 @@
  * `claude-session-server.ts` onLine), independently of whether the /id turn
  * renders as a bubble.
  *
- * ⚠️ Slash-command visibility policy REVERSED 2026-08-29 (Ashley, quick-260829-r9i):
+ * ⚠️ Slash-command visibility policy REVERSED 2026-08-29 (Alice, quick-260829-r9i):
  * the pre-existing HARD LOCK that required `/id` user turns to render as normal
  * chat bubbles has been dropped. `/id` invocations are session-lifecycle noise
  * and now SKIP (`kind:"skip", why:"slash_id"`). The observation channel is
  * unaffected — `detectIdReset` still fires on the same line; the pane_state
  * transition still emits. See `session-file-parser.ts` skip block for the
- * `slash_id` predicate; see the Ashley-said prose in the r9i quick-task PLAN.md.
+ * `slash_id` predicate; see the user-said prose in the r9i quick-task PLAN.md.
  *
  * This file is a SIBLING to `session-file-parser.test.ts` (per
  * `30-CONTEXT.md § canonical_refs`: extend, don't rewrite the existing
@@ -62,7 +62,7 @@ function bareIdResetLine(): string {
   });
 }
 
-// A freeform /id reset user-turn JSONL line — Ashley typed `/id reset because
+// A freeform /id reset user-turn JSONL line — Alice typed `/id reset because
 // I want to change roles`. The `<command-args>reset` prefix still matches
 // per the isIdResetUserTurn behavior at layer1-detect.ts:104 (prefix match,
 // not exact).
@@ -173,7 +173,7 @@ describe("detectIdReset — pure predicate over parsed JSONL objects", () => {
     // Mirrors layer1-detect.ts:isUserTurn's `line.includes('"tool_result"')`
     // exclusion — implemented at the object level here: user turns with
     // ARRAY-shaped content is where tool_result feedback lives, and those
-    // are agent-side synthetic, never real user speech. Ashley empirically
+    // are agent-side synthetic, never real user speech. Alice empirically
     // observed this spoof-vector during /id reset processing: each
     // tool_result during the save flow would false-clear the overlay
     // ~1s after /id reset if we let it through (2026-08-08, patch #350
@@ -212,7 +212,7 @@ describe("detectIdReset — pure predicate over parsed JSONL objects", () => {
 // Tests 9-11 (the "HARD LOCK preservation" describe block that required
 // /id reset / freeform /id reset / /id save user turns to parse as
 // kind:"message" bubbles) were REMOVED 2026-08-29 as part of quick-260829-r9i.
-// Ashley reversed the slash-command visibility policy: /id invocations are
+// Alice reversed the slash-command visibility policy: /id invocations are
 // session-lifecycle noise and now skip via `slash_id`. Post-r9i, the
 // bubble-skip behavior is asserted inside session-file-parser.test.ts
 // (§ session-lifecycle noise skips). Test 13 below has been updated to
@@ -282,7 +282,7 @@ describe("Cross-detector invariants (parser observation channel + Layer 1 tail-s
     //       emits pane_state:holding — UNCHANGED by r9i)
     //   (b) parseSessionLine(rawLine).kind === "skip", why === "slash_id"
     //       (message-emission; was "message" pre-r9i, now skipped as
-    //       session-lifecycle noise per Ashley 2026-08-29)
+    //       session-lifecycle noise per Alice 2026-08-29)
     // The two paths remain orthogonal: one produces a pane_state:holding
     // transition, the other produces (or in the new policy, suppresses)
     // a chat bubble. Neither suppresses the other. Both must run to

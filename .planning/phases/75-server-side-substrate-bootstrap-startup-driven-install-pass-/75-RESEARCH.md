@@ -30,7 +30,7 @@
 
 **Migration**
 - D-12: One-shot operator-run migration script ships in-phase, delivered as a small script/endpoint in the codebase.
-- D-13: Migration takes every existing substrate-host owner's key material as input (feasible because both live instances have small, known user populations and Ashley has all the credentials).
+- D-13: Migration takes every existing substrate-host owner's key material as input (feasible because both live instances have small, known user populations and Alice has all the credentials).
 - D-14: Per-host migration: unwrap credential using the owner's key material → re-wrap with CSKEK → update record. Atomic per host.
 - D-15: Migration script is retired after ship.
 
@@ -544,7 +544,7 @@ All three open questions raised at research time have been resolved during plann
 1. **Inline-credential substrate hosts (the critical fork)** — **RESOLVED**
    - What we knew: `hosts` table has no CSKEK columns; `sshCredentials` table has them; `SimpleDBOps` already writes CSKEK for `ssh_credentials` tableName.
    - What was unclear: Whether any existing `runsFleetSubstrate:true` hosts on the live instances use inline credentials (no credentialId).
-   - **Resolution**: Two-layer defense. **Plan 75-04** installs an API-layer 400 guard on POST /host/db/host and PUT /host/db/host/:id that rejects any create/update setting `runsFleetSubstrate=true` with `credentialId=null` — this prevents NEW inline-credential substrate hosts from being written. **Plan 75-08 Task 2** implements a pre-check in the migration module that queries for `runsFleetSubstrate=true AND credentialId IS NULL` before any writes; if any PRE-EXISTING inline-credential substrate hosts are found (rows that predate the 75-04 guard), the migration aborts loudly with the offending host IDs surfaced via `substrate_migration_precheck_aborted` operation tag, exit code 1, and `aborted: true` in the result JSON. Ashley must resolve any flagged rows manually before re-running the migration.
+   - **Resolution**: Two-layer defense. **Plan 75-04** installs an API-layer 400 guard on POST /host/db/host and PUT /host/db/host/:id that rejects any create/update setting `runsFleetSubstrate=true` with `credentialId=null` — this prevents NEW inline-credential substrate hosts from being written. **Plan 75-08 Task 2** implements a pre-check in the migration module that queries for `runsFleetSubstrate=true AND credentialId IS NULL` before any writes; if any PRE-EXISTING inline-credential substrate hosts are found (rows that predate the 75-04 guard), the migration aborts loudly with the offending host IDs surfaced via `substrate_migration_precheck_aborted` operation tag, exit code 1, and `aborted: true` in the result JSON. Alice must resolve any flagged rows manually before re-running the migration.
 
 2. **Migration script: password derivation internals** — **RESOLVED**
    - What we knew: `UserCrypto.setupUserEncryption(userId, password)` uses PBKDF2 with 100k iterations. The salt is stored in the `settings` table keyed to `userId`.
@@ -587,7 +587,7 @@ All three open questions raised at research time have been resolved during plann
 - `src/backend/database/routes/host-autostart-routes.ts` — canonical `forceSave` usage pattern (173-181)
 - `src/backend/distributor/run-sweep.test.ts`, `run-bootstrap.test.ts`, `ssh-poll-orchestrator.test.ts` — test patterns for new tests
 
-### Secondary (CONTEXT.md decisions — locked by Ashley)
+### Secondary (CONTEXT.md decisions — locked by Alice)
 - `.planning/phases/75-server-side-substrate-bootstrap-startup-driven-install-pass-/75-CONTEXT.md` — all 19 decisions (D-01 through D-19)
 - `.planning/shapes/shape-server-side-substrate-bootstrap.md` — scope edges, "what would make it wrong," philosophy
 

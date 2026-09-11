@@ -226,7 +226,7 @@ index.html (SPA fallback — nginx routes everything to React before the new blo
 After `docker compose up -d --force-recreate skynet`, the new nginx blocks go live and
 these smokes MUST be run.
 
-**Ashley (or Tina post-deploy): run these BEFORE starting the UAT walkthrough.**
+**Alice (or Tina post-deploy): run these BEFORE starting the UAT walkthrough.**
 
 ### Primary smoke (path-rejection + auth-rejection):
 ```bash
@@ -281,10 +281,10 @@ If either smoke returns `200` with HTML:
 | Source + docker file changes | 0 (RELAYBUB-06 gate) |
 | Post-deploy curl smoke | documented above — run AFTER `docker compose up` |
 
-**READY FOR ASHLEY GREENLIGHT**
+**READY FOR ALICE GREENLIGHT**
 
 Phase 17 code side is clean. All six RELAYBUB requirements are code-complete on
-`feat/tab-title-from-tmux` at tip `53379ef`. Awaiting Ashley's deploy + UAT walkthrough
+`feat/tab-title-from-tmux` at tip `53379ef`. Awaiting Alice's deploy + UAT walkthrough
 per `17-UAT-CHECKLIST.md`.
 
 ---

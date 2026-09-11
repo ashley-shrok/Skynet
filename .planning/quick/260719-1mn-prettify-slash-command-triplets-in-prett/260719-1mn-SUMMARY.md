@@ -36,7 +36,7 @@ completed: 2026-07-19
 
 # Quick Task 260719-1mn: Prettify Slash-Command Triplets in Pretty View — Summary
 
-Slash-command runs (`<command-message>id</command-message><command-name>/id</command-name><command-args>tina</command-args>` etc.) now render as an inline `<CommandChip>` pill in pretty-view user bubbles instead of leaking escaped XML tag text. Purely client-side render transform — the backend JSONL parser and wire format are untouched, so the fix respects patch #47's rehype-raw HARD LOCK and Ashley's "faithful backend" invariant.
+Slash-command runs (`<command-message>id</command-message><command-name>/id</command-name><command-args>tina</command-args>` etc.) now render as an inline `<CommandChip>` pill in pretty-view user bubbles instead of leaking escaped XML tag text. Purely client-side render transform — the backend JSONL parser and wire format are untouched, so the fix respects patch #47's rehype-raw HARD LOCK and Alice's "faithful backend" invariant.
 
 ## Files touched
 

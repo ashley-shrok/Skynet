@@ -657,7 +657,7 @@ export default router;
 }
 ```
 
-Ashley's vetted list is being finalized in parallel; ship whatever is landed at ship time (D-01 + shape §Naming). Casing = PascalCase (the pool-pick endpoint lowercases per request).
+Alice's vetted list is being finalized in parallel; ship whatever is landed at ship time (D-01 + shape §Naming). Casing = PascalCase (the pool-pick endpoint lowercases per request).
 
 ---
 
@@ -919,7 +919,7 @@ useEffect(() => {
 }, [selectedRole, selectedHost, identityMode]);
 ```
 
-4. **Role-select bug fix (RESEARCH §2 landmine):** the role dropdown is gated on `selectedHost !== null` (L961). Fix candidates for Ashley to confirm:
+4. **Role-select bug fix (RESEARCH §2 landmine):** the role dropdown is gated on `selectedHost !== null` (L961). Fix candidates for Alice to confirm:
    - Default-select local Skynet host when `identityMode` is on AND no host chosen (widens the auto-pick condition beyond the existing `flatHosts.length === 1` case).
    - OR render a "pick a host first" hint outside the current `{selectedHost !== null && (...)}` wrap.
 
@@ -1335,7 +1335,7 @@ None. Every file in Phase 80 has a clear existing analog. This phase is an addit
 | 6 | Pool memoization + hot-reload | Redeploy required; document in ship runbook | pool-loader.ts (this file, comment) |
 | 7 | Matrix admin creds gate | 503 fail-early at pool-routes entry | mirror identity-birth.ts L158-165 |
 | 8 | Pool exhaustion / all-taken race | Shape A picker: never fail, birth-orchestrator handles ordinal | pool-routes.ts step 6 |
-| 9 | Identity key vs MXID localpart divergence | Locked (A1) → planner confirm with Ashley in discuss-phase | shape §Naming |
+| 9 | Identity key vs MXID localpart divergence | Locked (A1) → planner confirm with Alice in discuss-phase | shape §Naming |
 | 10 | Modal rebuild regression risk | Extend NewSessionDialog, preserve all existing tests | NewSessionDialog.tsx (whole file) |
 | 11 | `initialRole` chain-prefill exists | Reuse chain mechanism for clone-modal repurpose | NewSessionDialog.tsx L399-407 |
 | 12 | Birth-orchestrator Q2 no-rollback | Task write is part of atomic buildIdentityFileBody → writeMarkdownFileAtomic | identity-birth-orchestrator.ts L345-380 + L660-671 |

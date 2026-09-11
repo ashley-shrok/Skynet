@@ -50,14 +50,14 @@ completed: 2026-08-18
 
 # Phase 43 Plan 08: Cleanup — Delete Virt Tests + Uninstall @tanstack/react-virtual + Full Pipeline Verification Summary
 
-**Retired `@tanstack/react-virtual` from the entire codebase (package.json + package-lock.json + node_modules + src/) via THREE independent executable checks, deleted the two virt-specific test files that had been failing since 43-07a removed the virtualizer code, verified nginx configs are byte-unchanged across the phase via executable git diff, and confirmed the full pipeline is green: 198/198 test files pass, 2502/2502 tests pass, both builds exit 0. Phase 43 is code-complete; awaiting Ashley's human UAT walk before the phase-verification step.**
+**Retired `@tanstack/react-virtual` from the entire codebase (package.json + package-lock.json + node_modules + src/) via THREE independent executable checks, deleted the two virt-specific test files that had been failing since 43-07a removed the virtualizer code, verified nginx configs are byte-unchanged across the phase via executable git diff, and confirmed the full pipeline is green: 198/198 test files pass, 2502/2502 tests pass, both builds exit 0. Phase 43 is code-complete; awaiting Alice's human UAT walk before the phase-verification step.**
 
 ## Performance
 
 - **Started:** 2026-08-18T19:50:03Z
 - **Completed (implementation):** 2026-08-18T20:15:41Z
 - **Wall-clock duration:** ~25 min (implementation) + ~24 min of test-suite CPU time = ~49 min total
-- **Tasks executed:** 2 auto tasks (Task 1 delete + Task 2 uninstall+verify) + Task 3 human-verify checkpoint (awaiting Ashley — see below)
+- **Tasks executed:** 2 auto tasks (Task 1 delete + Task 2 uninstall+verify) + Task 3 human-verify checkpoint (awaiting Alice — see below)
 - **Files touched:** 2 deleted (PrettyView.virtualization.test.tsx + PrettyView.estimateSize.test.tsx), 2 modified (package.json + package-lock.json)
 
 ## Accomplishments
@@ -80,7 +80,7 @@ Each task was committed atomically on `feat/tab-title-from-tmux`:
 
 1. **Task 1: chore(43-08): delete virt-specific test files** — `69fa66d5` (2 files changed, 1376 deletions)
 2. **Task 2: chore(43-08): remove @tanstack/react-virtual dependency** — `30626a5d` (2 files changed, 29 deletions in package.json + package-lock.json)
-3. **Task 3: human UAT checkpoint** — PENDING (Ashley owns the browser walk; see "Human UAT Checkpoint" section below)
+3. **Task 3: human UAT checkpoint** — PENDING (Alice owns the browser walk; see "Human UAT Checkpoint" section below)
 
 **Plan metadata commit:** (this SUMMARY.md + STATE.md + ROADMAP.md updates — see final_commit step)
 
@@ -110,9 +110,9 @@ None. Task 1 and Task 2 specs were followed exactly. Every acceptance grep + bui
 - **npm audit output surfaced 25 vulnerabilities (1 low / 21 high / 3 critical) as a side note.** These are pre-existing across other deps and are NOT introduced or affected by this uninstall — the message appears on every `npm uninstall`/`npm install` invocation on this repo and is out-of-scope for Phase 43 (documented here for completeness only, per Rule 3 scope boundary).
 - **npm printed a husky-hook-not-executable hint on both commits.** Pre-existing repo state; not introduced by this plan. Hooks are optional and skipping them is expected in the current dev environment.
 
-## Human UAT Checkpoint — Task 3 (Awaiting Ashley)
+## Human UAT Checkpoint — Task 3 (Awaiting Alice)
 
-Per the plan's `autonomous: false` directive and Task 3's `<task type="checkpoint:human-verify" gate="blocking">` designation, Phase 43 is code-complete but **must** gate on Ashley's browser walk of the 10-step acceptance criteria before phase-verification proceeds. The plan's own resume-signal reads: `Type "approved" if all 10 steps pass. Type "revise:<issue>" if any step fails — the orchestrator will route the failure back to plan 43-07a/b (surgery gap) or plan 43-04 (backend gap) as appropriate.`
+Per the plan's `autonomous: false` directive and Task 3's `<task type="checkpoint:human-verify" gate="blocking">` designation, Phase 43 is code-complete but **must** gate on Alice's browser walk of the 10-step acceptance criteria before phase-verification proceeds. The plan's own resume-signal reads: `Type "approved" if all 10 steps pass. Type "revise:<issue>" if any step fails — the orchestrator will route the failure back to plan 43-07a/b (surgery gap) or plan 43-04 (backend gap) as appropriate.`
 
 The 10 steps (verbatim from the plan) verify:
 
@@ -127,7 +127,7 @@ The 10 steps (verbatim from the plan) verify:
 9. Observation channel intact: context-% still updates, plan-pending bubble still appears when Claude uses TodoWrite, backgroundedAgents/Shells panels still populate.
 10. All 10 steps pass with zero jitter, zero yank-back, zero missing observations.
 
-**Deploy status:** Not deployed by this plan (Ashley-owned per fleet directive — the executor never runs `docker compose up`). Ashley will deploy against the 15-min deadman rollback timer per CLAUDE.md, then walk the acceptance steps.
+**Deploy status:** Not deployed by this plan (user-owned per fleet directive — the executor never runs `docker compose up`). Alice will deploy against the 15-min deadman rollback timer per CLAUDE.md, then walk the acceptance steps.
 
 ## Known Stubs
 
@@ -223,7 +223,7 @@ $ npm run build
 - Full monorepo vitest fully green (198 files / 2502 tests pass).
 - Both production builds exit 0.
 - Nginx configs byte-unchanged (proven).
-- Human UAT walk pending Ashley — the phase VERIFICATION.md flow (43-VERIFICATION.md) picks up after the UAT approval signal.
+- Human UAT walk pending Alice — the phase VERIFICATION.md flow (43-VERIFICATION.md) picks up after the UAT approval signal.
 
 ## Self-Check: PASSED
 

@@ -177,7 +177,7 @@ Confirmed: `npx vitest run src/ui/sidebar/NewSessionDialog.test.tsx` exits 0 wit
 - **Files modified:** `src/ui/sidebar/NewSessionDialog.test.tsx`
 - **Commit:** 7f0469a
 
-## Handoff to Ashley
+## Handoff to Alice
 
 This plan closes the frontend birth loop. The full phase 20 is now ready for deployment as:
 - Patch #289 (backend avatar batch — plan 01+02)

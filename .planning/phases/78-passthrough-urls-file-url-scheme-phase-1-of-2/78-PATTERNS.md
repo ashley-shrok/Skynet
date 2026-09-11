@@ -469,7 +469,7 @@ app.use("/pretty-view", prettyViewFetchHostFileRoutes);
 - **Delete entirely** the `python3 -m http.server` recipe + `mktemp -d` + `disown` + `pkill` guidance. Per RESEARCH § Pitfall 5, retiring the recipe entirely (no "fallback" or "alternative") is load-bearing — leaving it as an option means agents preferentially reach for muscle-memory.
 - **Replace with** URL-construction guidance: `<skynet-parent>/file/<hostname>/<absolute-path>`, read parent from `~/.claude/skynet-parent`, `hostname` from the `hostname` command, ABSOLUTE path (leading `/`).
 - **If `~/.claude/skynet-parent` is missing** — surface a clean error to the user rather than guess. Per CONTEXT D-03.
-- **Note the round-trip semantics**: Skynet is READ-ONLY. Save button in the modal attaches the edit to Ashley's NEXT message; agent decides what to do with it. Skynet never overwrites files.
+- **Note the round-trip semantics**: Skynet is READ-ONLY. Save button in the modal attaches the edit to Alice's NEXT message; agent decides what to do with it. Skynet never overwrites files.
 
 **Distributor delivery:** The distributor catalog already handles pushing `substrate/skills/id/SKILL.md` on every sweep (per RESEARCH § Assumption A8: `catalog.ts:96-99`). No new catalog entry needed — the rewrite ships on the next sweep after container recreate.
 

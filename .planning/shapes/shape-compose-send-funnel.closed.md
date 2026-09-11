@@ -113,7 +113,7 @@ Clean pass on both directions. Every shape commitment is present and executable-
 
 ## Amendment — 2026-09-02 (post-close correction)
 
-**Scope correction, not scope expansion.** When Ashley reviewed the Close-Out
+**Scope correction, not scope expansion.** When Alice reviewed the Close-Out
 notes flagging arm-idle drainer + voice-slot send as "system-initiated per the
 shape's Out carve-out (defensible reading)," she rejected that reading:
 

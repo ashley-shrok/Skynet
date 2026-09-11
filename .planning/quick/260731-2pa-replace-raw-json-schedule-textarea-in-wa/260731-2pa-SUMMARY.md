@@ -52,9 +52,9 @@ one-click `toggleEnabled` handler intact.
 
 ## Objective (met)
 
-Ashley pinned bounty `identity-modal-wakeup-form-editor` verbatim: "a proper
+Alice pinned bounty `identity-modal-wakeup-form-editor` verbatim: "a proper
 form UI for editing wakeup schedules inside the identity modal — not a
-text-edit-the-JSON situation." Shipped exactly per the Ashley-signed-off
+text-edit-the-JSON situation." Shipped exactly per the user-signed-off
 prototype at `~/.claude/identities/tina/bounties/identity-modal-wakeup-form-editor/prototype.html`:
 
 - Dropdown → per-type fields swap: interval → number + unit (s/m/h/d); daily →

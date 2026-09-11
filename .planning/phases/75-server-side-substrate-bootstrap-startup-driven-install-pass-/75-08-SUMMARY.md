@@ -52,7 +52,7 @@ metrics:
 
 # Phase 75 Plan 08: Substrate Credential Migration Summary
 
-One-shot operator migration script that transitions existing substrate-host credentials from per-user-DEK-only to CSKEK-wrapped. Ships the deliverables for decisions D-12, D-13, D-14, D-15, and D-19 — unblocking Ashley's post-ship operational step.
+One-shot operator migration script that transitions existing substrate-host credentials from per-user-DEK-only to CSKEK-wrapped. Ships the deliverables for decisions D-12, D-13, D-14, D-15, and D-19 — unblocking Alice's post-ship operational step.
 
 ## What Was Built
 
@@ -106,7 +106,7 @@ Migration module exports `migrateSubstrateCredentials(input: MigrationInput[]): 
 - SEC1: no plaintext passwords, DEK hex, or CSKEK hex in log calls
 - SEC2: DEK Buffer is all-zero after migration completes
 
-**Pre-check note:** No inline-credential substrate hosts found in developer's local fixture DB (empty store in tests — correct for a fresh dev environment). Production check happens when Ashley runs the migration.
+**Pre-check note:** No inline-credential substrate hosts found in developer's local fixture DB (empty store in tests — correct for a fresh dev environment). Production check happens when Alice runs the migration.
 
 ### Task 3: CLI script (commit 7e6c2080)
 
@@ -116,7 +116,7 @@ Migration module exports `migrateSubstrateCredentials(input: MigrationInput[]): 
 
 **scripts/ directory:** Pre-existed with other scripts (`generate-icons.mjs`, `generate-release-body.cjs`, etc.). This script is new in that directory — no directory creation needed.
 
-**Runbook for Ashley:**
+**Runbook for Alice:**
 ```bash
 # Prepare input file (chmod 600 FIRST)
 chmod 600 ~/known-users.json

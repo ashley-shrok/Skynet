@@ -28,7 +28,7 @@ Shape 1 of 4 in the id-skill-revamp multi-shape campaign; Shapes 2/3/4 (agent-su
 - **D-06:** Writes are SYNCHRONOUS. Pin toggle succeeds or fails right now. No queue, no optimistic-then-reconcile UI, no shadow "desired state" store. On failure the pin state stays unpinned (the truth on disk); the failure reuses whatever generic wire-error treatment the app already surfaces for other failable ops. UI feel is UNCHANGED from current pin toggle behavior — whatever pattern the toggle currently uses (optimistic-flip / spinner / whatever) stays exactly as-is.
 
 ### Migration (manual, no code)
-- **D-07:** For existing pinned identities, the DB→disk sentinel migration is a MANUAL per-box step by each box's maintainer, sequenced immediately before the container recreate that ships this phase. On t1000, tanya runs `touch ~/.claude/identities/<name>/.pinned` for each identity currently in Ashley's `pinnedConversationIds` list. On T800, Stacy does the equivalent on her box. Any other box with an active `pinnedConversationIds` entry, its maintainer. NO code path in Skynet participates in migration.
+- **D-07:** For existing pinned identities, the DB→disk sentinel migration is a MANUAL per-box step by each box's maintainer, sequenced immediately before the container recreate that ships this phase. On t1000, tanya runs `touch ~/.claude/identities/<name>/.pinned` for each identity currently in Alice's `pinnedConversationIds` list. On T800, Stacy does the equivalent on her box. Any other box with an active `pinnedConversationIds` entry, its maintainer. NO code path in Skynet participates in migration.
 - **D-08:** Migration order per box: (1) query current `pinnedConversationIds` before deploy; (2) `touch` each `.pinned` sentinel on the host; (3) deploy new code (which reads sentinels, drops the DB column). Sequencing keeps the pin-visible window closed — the moment the new code runs, sentinels are already in place.
 
 ### Authorship invariant
@@ -54,7 +54,7 @@ Shape 1 of 4 in the id-skill-revamp multi-shape campaign; Shapes 2/3/4 (agent-su
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Shape file (authoritative for this phase)
-- `.planning/shapes/shape-pin-sentinel-migration.md` — Ashley's locked shape from /open pass 2026-09-09. All D-01..D-09 above are derived from it. Read this first.
+- `.planning/shapes/shape-pin-sentinel-migration.md` — Alice's locked shape from /open pass 2026-09-09. All D-01..D-09 above are derived from it. Read this first.
 
 ### Campaign context
 - `~/.claude/roles/box-maintainer/bounties/id-skill-revamp/shape-id-skill-revamp.md` — original whole-campaign shape (multi-phase). This phase is Shape 1 of 4. Understanding the campaign frame explains why Shape 2 (agent-supervisor archive) benefits from the sentinel existing after this phase ships.
@@ -105,11 +105,11 @@ Shape 1 of 4 in the id-skill-revamp multi-shape campaign; Shapes 2/3/4 (agent-su
 <specifics>
 ## Specific Ideas
 
-- **Sentinel filename: `.pinned`** — Ashley used this term throughout the /open pass; matches `.no-dormancy` / `.recycle-requested` naming convention verbatim.
-- **Manual migration cadence**: Ashley 2026-09-09 verbatim: *"we're not doing anything fancy for migration if that's what your second thing that you were talking about is in reference to, you know, Skynet is not doing any migrating. That's such an easy step for you to just do manually that we're not going to get into extra pieces for that."*
-- **UI feel invariant**: Ashley 2026-09-09 verbatim: *"This isn't changing, so however it feels now is how it's going to feel after this."*
-- **Failure UX invariant**: Ashley 2026-09-09 verbatim: *"We are not complicating this, so however it would have failed already is how it will fail today, even if it's more likely now than before."*
-- **DB pin table disposition**: Ashley 2026-09-09 verbatim on the "drop vs. leave dormant" grill: *"Drop it"*.
+- **Sentinel filename: `.pinned`** — Alice used this term throughout the /open pass; matches `.no-dormancy` / `.recycle-requested` naming convention verbatim.
+- **Manual migration cadence**: Alice 2026-09-09 verbatim: *"we're not doing anything fancy for migration if that's what your second thing that you were talking about is in reference to, you know, Skynet is not doing any migrating. That's such an easy step for you to just do manually that we're not going to get into extra pieces for that."*
+- **UI feel invariant**: Alice 2026-09-09 verbatim: *"This isn't changing, so however it feels now is how it's going to feel after this."*
+- **Failure UX invariant**: Alice 2026-09-09 verbatim: *"We are not complicating this, so however it would have failed already is how it will fail today, even if it's more likely now than before."*
+- **DB pin table disposition**: Alice 2026-09-09 verbatim on the "drop vs. leave dormant" grill: *"Drop it"*.
 - **Discovery in scout**: the current implementation is NOT a per-identity `pin: boolean` column — it's a comma-separated text column `pinned_conversation_ids` on the `user_preferences` table (per-user list of identity keys). This shifts the pin ownership model slightly (user-scoped list → identity-global sentinel), which is a coherent move under Skynet's single-tenant reality and the shape's philosophy but worth flagging to the planner.
 
 </specifics>

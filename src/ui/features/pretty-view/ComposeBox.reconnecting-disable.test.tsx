@@ -6,7 +6,7 @@
  * WS retry window (patch #148 auto-reconnect between an old socket's onclose
  * and a fresh session frame), Send + reset + ThumbsUp + Recap are disabled
  * because onSend would silently no-op (ws.readyState !== 1). Textarea, mic,
- * and paperclip stay usable so Ashley can pre-draft the next message while
+ * and paperclip stay usable so Alice can pre-draft the next message while
  * the socket comes back.
  *
  * Truth table (mirrors ComposeBox.recycle-disable.test.tsx):

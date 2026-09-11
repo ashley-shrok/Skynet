@@ -137,7 +137,7 @@ The other five mutations (create empty file, delete file, delete skill) each hav
 ### System Architecture Diagram
 
 ```
-[Ashley clicks "Edit skills…" in PrettyConversationsPanel header menu]
+[Alice clicks "Edit skills…" in PrettyConversationsPanel header menu]
                                     │
                                     ▼
 [SkillsEditorModal (React) — mounted with hostTree + defaultHostId props]
@@ -291,7 +291,7 @@ useEffect(() => {
 }, [selectedHostId, activeTab]);
 ```
 
-**Critical:** The `eslint-disable` + comment MUST be preserved when copying — dropping `tabData` from the deps array is a load-bearing race fix from quick-260805-7rq (Ashley's 700ms SSH lazy-load infinite-spinner bug). Adding a third stateful selector layer (`selectedSkillName`) means the deps become `[selectedHostId, selectedSkillName, activeTab]` — still no `tabData` — same discipline.
+**Critical:** The `eslint-disable` + comment MUST be preserved when copying — dropping `tabData` from the deps array is a load-bearing race fix from quick-260805-7rq (Alice's 700ms SSH lazy-load infinite-spinner bug). Adding a third stateful selector layer (`selectedSkillName`) means the deps become `[selectedHostId, selectedSkillName, activeTab]` — still no `tabData` — same discipline.
 
 ### Pattern 2: Layer enumeration reflex (patch #446 arc)
 
@@ -414,7 +414,7 @@ function buildAbsSkillFilePath(remoteHome: string, skill: string, relPath: strin
 | Problem | Don't Build | Use Instead | Why |
 |---------|-------------|-------------|-----|
 | SSH connection to a managed host | Custom `ssh2.Client` wrapper | `connectOneShot(host, 5000)` from `src/backend/ssh/ssh-one-shot.ts` | Handles password + key auth + timeout + `hostVerifier: () => true` (correct for tailnet-scoped fleet). |
-| Atomic file write | Plain `sftp.writeFile` or `sftp.rename` | `writeMarkdownFileAtomic(conn, targetPath, contents)` from `identity-artifact-reader.ts` | `sftp.rename` fails with `SSH2_FX_FAILURE` when overwriting an existing target — see the 25-line prologue at L1039-1063. Ashley's "sometimes it works, sometimes it doesn't" saves were this exact trap. `ext_openssh_rename` (posix-rename@openssh.com) has POSIX rename(2) semantics and is universal on OpenSSH ≥5.1 (2008+). |
+| Atomic file write | Plain `sftp.writeFile` or `sftp.rename` | `writeMarkdownFileAtomic(conn, targetPath, contents)` from `identity-artifact-reader.ts` | `sftp.rename` fails with `SSH2_FX_FAILURE` when overwriting an existing target — see the 25-line prologue at L1039-1063. Alice's "sometimes it works, sometimes it doesn't" saves were this exact trap. `ext_openssh_rename` (posix-rename@openssh.com) has POSIX rename(2) semantics and is universal on OpenSSH ≥5.1 (2008+). |
 | Recursive directory walk over SFTP | JavaScript recursion with `sftp.readdir` per level | Backend `find <root> -type f -printf '%P\n'` shell command | One round-trip vs N. `%P` prints path relative to the starting point — exactly what D-05 requires for tab labels. |
 | Host tree flattening + RDP filter | Custom recursion | Duplicate `collectAllHosts` + `isFolder` from `GlobalFilesModal.tsx` L32-42 | Phase 23 precedent. |
 | Optimistic-concurrency conflict handling on save | Custom mtime comparison + custom error shape | Reuse Phase 23's 409 protocol: request carries `expectedMtime`; on mismatch backend returns `409 { error: "mtime mismatch", currentMtime, currentContent }`; frontend throws `GlobalFileMtimeConflictError`-shaped class and offers reload | Battle-tested end-to-end (patch #191 + quick-260805-70q + quick-260805-7rq stack). Do NOT invent a different shape for skills. Recommend: `SkillFileMtimeConflictError` class in `skills-api.ts` with byte-identical shape to `GlobalFileMtimeConflictError`. |
@@ -615,9 +615,9 @@ function detectIsText(buf: Buffer): boolean {
 | `src/ui/features/pretty-view/SkillFileTab.test.tsx` | `GlobalFileTab.test.tsx` | Assert: (a) text file renders textarea; (b) `isText: false` renders `AlertTriangle` + "Not a text file"; (c) Save button disabled when draft === state.data.content; (d) mtime-conflict flow (via mocked `onSave` throwing `SkillFileMtimeConflictError`). |
 | `src/backend/database/routes/skills-editor.test.ts` | `global-files-read-write.test.ts` (the 533-line existing test file) | Mock `connectOneShot` + `execCommand` + `writeMarkdownFileAtomic`. Assert per endpoint: happy-path 200, 400 on invalid body, 404 on cross-user host, 502 on SSH fail. Critical additional coverage: path-escape rejection (`skill = "../etc/passwd"`, `path = "../../root/.ssh/id_rsa"`, etc.) — 400 with `path escape detected` or 400 from the regex gate. |
 
-**In-process integration testing:** Skynet does NOT currently have a full-stack in-process harness (there is no VMS ViewModelShell equivalent). Test discipline is: (1) frontend component tests mock the API layer, (2) backend route tests mock the SSH layer. E2E is manual via Ashley UAT after deploy.
+**In-process integration testing:** Skynet does NOT currently have a full-stack in-process harness (there is no VMS ViewModelShell equivalent). Test discipline is: (1) frontend component tests mock the API layer, (2) backend route tests mock the SSH layer. E2E is manual via Alice UAT after deploy.
 
-**Recommendation for Phase 46:** Match Phase 23's test posture exactly. Do NOT introduce a new integration harness — that would be a phase of its own. Component tests + route tests give sufficient coverage; the Ashley UAT after deploy validates end-to-end.
+**Recommendation for Phase 46:** Match Phase 23's test posture exactly. Do NOT introduce a new integration harness — that would be a phase of its own. Component tests + route tests give sufficient coverage; the Alice UAT after deploy validates end-to-end.
 
 **Wave 0 note:** No fixture files, framework setup, or shared harness are needed — everything is in place. First test in each new test file inherits the mocking pattern from its mirror source.
 
@@ -999,7 +999,7 @@ find <escapedSkillRoot> -type f -printf '%P\n' 2>/dev/null | sort
 | Old Approach | Current Approach | When Changed | Impact |
 |--------------|------------------|--------------|--------|
 | SFTP `rename()` for atomic file writes | `ext_openssh_rename` (posix-rename@openssh.com) via `writeMarkdownFileAtomic` | Quick 260802-qrw (Phase 22 arc, 2026-08-02) | Fixes silent "Error: Failure" on overwriting existing files. Load-bearing for Phase 46 saves. |
-| Static operator-authored whitelist for editable paths (`global-files.json`) | Per-user path-safety gate (regex + resolved-path assertion) | Phase 46 (this phase) | Enables Ashley to edit ANY file in ANY skill without operator involvement. Introduces new attack surface (path escape) — mitigated by the regex gates in § Pattern 3. |
+| Static operator-authored whitelist for editable paths (`global-files.json`) | Per-user path-safety gate (regex + resolved-path assertion) | Phase 46 (this phase) | Enables Alice to edit ANY file in ANY skill without operator involvement. Introduces new attack surface (path escape) — mitigated by the regex gates in § Pattern 3. |
 | Extension-based text/binary detection | Byte-sniffing (NUL byte + control-char scan + UTF-8 decode) | Phase 46 (this phase) | Robust detection without shell dependency. |
 | `useEffect` with `tabData` in deps | `useEffect` with intentional exhaustive-deps violation + comment | Quick 260805-7rq (Phase 23 arc, 2026-08-05) | Fixes 700ms-race infinite-spinner bug. MUST be preserved in Phase 46 mirror. |
 | `window.confirm` for destructive user actions | Modal-in-modal `Dialog` confirmation | Phase 46 UI-SPEC | Better UX; still uses `window.confirm` for INHERITED mtime-conflict flow (system-triggered clarification, not user-initiated destruction). |
@@ -1013,7 +1013,7 @@ find <escapedSkillRoot> -type f -printf '%P\n' 2>/dev/null | sort
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| A1 | Skill root convention is `~/.claude/skills/` on the target host | § Architecture, all endpoints | LOW — verified against Ashley's canonical dev-os layout (`/home/ubuntu/.claude/skills/build/`, `.../explain/` etc.). CONTEXT § Claude's Discretion explicitly says "align with how global-files editor targets user files" and global-files uses `~/.claude/CLAUDE.md` — same user-scope. If the convention differs on some hosts, the endpoint returns empty skill list and the fallback empty-state renders — no crash. Add a config-override env var if this becomes a problem. |
+| A1 | Skill root convention is `~/.claude/skills/` on the target host | § Architecture, all endpoints | LOW — verified against Alice's canonical dev-os layout (`/home/ubuntu/.claude/skills/build/`, `.../explain/` etc.). CONTEXT § Claude's Discretion explicitly says "align with how global-files editor targets user files" and global-files uses `~/.claude/CLAUDE.md` — same user-scope. If the convention differs on some hosts, the endpoint returns empty skill list and the fallback empty-state renders — no crash. Add a config-override env var if this becomes a problem. |
 | A2 | `find` on the fleet Debian/Ubuntu hosts supports `-printf '%P\n'` | § Backend Endpoint 2, § Code Examples | LOW — GNU `find` (default on Debian/Ubuntu) has supported `-printf` since forever. Not a BSD `find` fleet. If a host has only BusyBox `find`, `-printf` fails silently and the file list returns empty; the empty-state renders. Not a crash, just a degraded feature on that host. |
 | A3 | `find ~/.claude/skills -mindepth 1 -maxdepth 1 -type d` runs in a non-quoted shell context that tilde-expands | § Backend Endpoint 1 | MEDIUM — needs a smoke test. If tilde does not expand, use the `echo $HOME` two-step (same as endpoints 3+). Cheap to defensively adopt the two-step everywhere. |
 | A4 | The isText byte-sniff heuristic correctly classifies typical skill files (`.py`, `.md`, `.sh`, `.json`) as text | § Text Detection | LOW — the heuristic is a well-known industry pattern (git uses similar logic). Skill files are overwhelmingly text; the binary case is `__pycache__/*.pyc` or an accidentally-committed image. Worst-case a text file mis-detected as binary shows a placeholder — user just re-tries or reports. |
@@ -1031,7 +1031,7 @@ find <escapedSkillRoot> -type f -printf '%P\n' 2>/dev/null | sort
 2. **RESOLVED:** **"+ Add file" — allow subpath creation or restrict to skill root?**
    - What we know: D-09 says "creates a new empty file at the skill's root." UI-SPEC L176 says "New file name (relative to skill root)" prompt copy.
    - What's unclear: if user types `tests/basic.py`, do we honor it (create parent dir) or reject?
-   - Recommendation: honor it — `isSafeRelativePath` accepts subpaths, backend `mkdir -p` on parent dir before `touch`. Simpler and matches user expectation. "At the skill's root" in D-09 is best read as "relative to the skill root", not "flat in the skill root." UI-SPEC L176 prompt copy already says "relative to skill root" which supports this reading. **Escalate to Ashley if planner disagrees.**
+   - Recommendation: honor it — `isSafeRelativePath` accepts subpaths, backend `mkdir -p` on parent dir before `touch`. Simpler and matches user expectation. "At the skill's root" in D-09 is best read as "relative to the skill root", not "flat in the skill root." UI-SPEC L176 prompt copy already says "relative to skill root" which supports this reading. **Escalate to Alice if planner disagrees.**
 
 3. **RESOLVED:** **Skill dropdown — how does it behave when the currently-selected skill disappears (e.g., someone deleted it in another tab)?**
    - What we know: no explicit guidance in CONTEXT or UI-SPEC.
@@ -1059,7 +1059,7 @@ find <escapedSkillRoot> -type f -printf '%P\n' 2>/dev/null | sort
 | `rm` on managed hosts | Delete-file, delete-skill endpoints | ✓ | universal POSIX | — |
 | `touch` on managed hosts | Create endpoint | ✓ | universal POSIX | Or use SFTP `writeFile(path, Buffer.alloc(0))` as fallback (same effect, no shell dep). |
 | `mkdir -p` on managed hosts | Create endpoint (for subpath parent dir) | ✓ | universal POSIX | Or SFTP `mkdir` recursion — harder, but doable. |
-| OpenSSH server ≥5.1 (for `ext_openssh_rename` / posix-rename@openssh.com) | Write endpoint (via `writeMarkdownFileAtomic`) | ✓ | universal on Ashley's fleet per `identity-artifact-reader.ts` L1054-1056 note | Fallback would be non-atomic writes — undesirable. If a host truly lacks the extension, `writeMarkdownFileAtomic` throws synchronously and endpoint returns 502. |
+| OpenSSH server ≥5.1 (for `ext_openssh_rename` / posix-rename@openssh.com) | Write endpoint (via `writeMarkdownFileAtomic`) | ✓ | universal on Alice's fleet per `identity-artifact-reader.ts` L1054-1056 note | Fallback would be non-atomic writes — undesirable. If a host truly lacks the extension, `writeMarkdownFileAtomic` throws synchronously and endpoint returns 502. |
 | nginx (both HTTP + HTTPS configs) | Frontend → backend routing in production | ✓ | already deploying via `docker/nginx.conf` + `docker/nginx-https.conf` | Missing block = broken feature in prod; verify presence via `grep skills-editor` on both files before ship. |
 | vitest 4.1.8 + @testing-library/react | Frontend + backend tests | ✓ | package.json confirmed | — |
 
@@ -1125,7 +1125,7 @@ find <escapedSkillRoot> -type f -printf '%P\n' 2>/dev/null | sort
 
 - `src/backend/ssh/file-manager-operation-routes.ts` L347-410 — `rm -rf` pattern with shellEscape (confirms the standard shape for delete-directory over SSH)
 - `src/backend/ssh/file-manager-list-routes.ts` L80-160 — SFTP recursive-listing precedent (rejected in favor of `find` shell command — one round-trip vs N)
-- Ashley's local `/home/ubuntu/.claude/skills/{build,explain}/` structure — confirms `~/.claude/skills/<skill>/SKILL.md` + `<skill>/*` file layout (representative of what a fleet host would have)
+- Alice's local `/home/ubuntu/.claude/skills/{build,explain}/` structure — confirms `~/.claude/skills/<skill>/SKILL.md` + `<skill>/*` file layout (representative of what a fleet host would have)
 
 ### Tertiary (LOW confidence)
 

@@ -5,7 +5,7 @@
 
 ## What this is
 
-A focused visual and behavioral pass on the incoming (left-side) message bubbles rendered inside a relay-source view — the view Ashley uses when she's chatting IN a matrix room via Skynet. Three concrete changes:
+A focused visual and behavioral pass on the incoming (left-side) message bubbles rendered inside a relay-source view — the view Alice uses when she's chatting IN a matrix room via Skynet. Three concrete changes:
 
 1. Strip the room identifier from every bubble's header. The header currently reads "avatar-dot • sender-name • room-identifier"; after the pass it reads "avatar-dot • sender-name" — nothing after the name.
 2. Remove the small "via recv.sh" footer that today marks each bubble as originating from the receiver script.
@@ -25,7 +25,7 @@ Shape of the resulting bubble in relay-source view:
 - **Speak button.** A small volume-icon button, anchored bottom-right of the bubble. When tapped, it starts reading the bubble's body aloud using the sender's identity voice; when the sender's identity doesn't resolve to a known identity, it falls back to a default voice rather than being hidden or disabled. States (idle / loading / playing / paused) match the existing right-side speak-button state machine and use the same icons. Cross-bubble singleton behaviour also carries over — tapping speak on one bubble stops speak on any other bubble.
 - **Long-press anywhere on the bubble.** Arms autoplay. Any subsequent incoming (non-self) bubble that arrives in the same pane afterward auto-speaks. Same arming behaviour as today's harness chat bubbles.
 
-Values (padding, exact positions, opacity, sizes) — decided live during the console-snippet visual tuning beat with Ashley, THEN locked into code. The shape does not pre-commit values; it commits the anatomy.
+Values (padding, exact positions, opacity, sizes) — decided live during the console-snippet visual tuning beat with Alice, THEN locked into code. The shape does not pre-commit values; it commits the anatomy.
 
 ## Philosophy
 
@@ -44,7 +44,7 @@ Deliberately NOT doing:
 
 ## Prior context
 
-This is the direct mirror of a change already shipped in batch #5 of the Phase 97 UAT follow-up campaign (HEAD `9cd61269`, 2026-09-10). Batch #5 removed the outbound (right-side) relay bubble entirely, routing the user's own outgoing messages through the standard chat bubble instead. The result on the right side was clean — user-blue bubbles with an iMessage-style pending spinner, no header, no footer, no "via" provenance. Ashley's end-of-session direction was to reset, then start on the left side next session. That's what this pass is.
+This is the direct mirror of a change already shipped in batch #5 of the Phase 97 UAT follow-up campaign (HEAD `9cd61269`, 2026-09-10). Batch #5 removed the outbound (right-side) relay bubble entirely, routing the user's own outgoing messages through the standard chat bubble instead. The result on the right side was clean — user-blue bubbles with an iMessage-style pending spinner, no header, no footer, no "via" provenance. Alice's end-of-session direction was to reset, then start on the left side next session. That's what this pass is.
 
 The left-side bubbles today have three tells that mark them as harness-derived rather than chat-native:
 - The header carries both the sender's identity AND the room identifier separated by a middle dot, so every bubble reads like a log line ("dot Tina dot roomId").
@@ -83,10 +83,10 @@ The file-pointer branch of the bubble is left untouched. It is real code (the re
 - The bubble's colour treatment, glass depth, gradient, sizing, corner radius, or backdrop-blur beyond what live tuning surfaces.
 - A room-name label on the pane chrome. Separate conversation.
 - The file-pointer inline body path. Real code, but never fires in the relay-source context; not touched.
-- The conversation-list row styling for relay rooms — this is the SECOND `/build` invocation Ashley and I agreed to do next, after this one lands.
+- The conversation-list row styling for relay rooms — this is the SECOND `/build` invocation Alice and I agreed to do next, after this one lands.
 
 **Deferred (may earn its own pass later, not now):**
-- Any change to the autoplay-arm scoping (whether it should arm per-sender in a multi-sender room, versus per-pane which is today's behaviour). Ashley's explicit call is to keep today's per-pane semantics.
+- Any change to the autoplay-arm scoping (whether it should arm per-sender in a multi-sender room, versus per-pane which is today's behaviour). Alice's explicit call is to keep today's per-pane semantics.
 
 **Tempting but no:**
 - Removing the file-pointer branch as "dead in this context." It is not dead in the harness context, and the harness context is out of scope; leave the branch alone.
@@ -97,7 +97,7 @@ The file-pointer branch of the bubble is left untouched. It is real code (the re
 
 `/gsd:quick`, orchestrator-driven. The overall arc runs in two beats:
 
-1. **Console-snippet visual tuning (live, this session).** Taylor produces a paste-into-DevTools snippet that mutates the live relay-source view in Ashley's browser — strips the header suffix + removes the footer + injects a mock speak-button at the target position — with a small +/- control panel exposing the tunable values (button size, right/bottom inset, opacity, hover-opacity increment). Ashley iterates in place until she says "locked at X" for each value. This beat produces the exact numbers that go into the code.
+1. **Console-snippet visual tuning (live, this session).** Taylor produces a paste-into-DevTools snippet that mutates the live relay-source view in Alice's browser — strips the header suffix + removes the footer + injects a mock speak-button at the target position — with a small +/- control panel exposing the tunable values (button size, right/bottom inset, opacity, hover-opacity increment). Alice iterates in place until she says "locked at X" for each value. This beat produces the exact numbers that go into the code.
 
 2. **Code lock-in via `/gsd:quick`.** With the locked values in hand, orchestrator dispatches a `/gsd:quick` that applies the changes to the relay-source branch of the bubble component and adds test coverage. The executor runs scoped tests as its green gate per the standing fleet directive; the full-suite ship gate is orchestrator-managed at deploy time, not part of the executor's remit.
 

@@ -8,19 +8,19 @@ Human-reference log; NOT consumed by downstream agents (they read CONTEXT.md).
 - **Prior artifact**: `.planning/shapes/shape-repo-stats-display.md` (comprehensive; seeded 104-CONTEXT.md verbatim)
 - **Codebase scouting**: revealed the actual detection wire path is `claude-session-server`, not `fleet-status` — corrected in CONTEXT.md
 
-## Areas discussed (Ashley: "all three, give me your recommendations")
+## Areas discussed (Alice: "all three, give me your recommendations")
 
 ### 1. Tooltip copy
 
 **Options presented:**
 - "Unshipped local work" (shape placeholder, terse)
-- "Trapped local work — not yet shipped" (uses Ashley's own "trapped" framing; potentially alarmist)
+- "Trapped local work — not yet shipped" (uses Alice's own "trapped" framing; potentially alarmist)
 - "Local work not yet pushed to any remote" (direct, no jargon requirement)
 - "Unpushed work in this workspace" (short, git-native, adds workspace context)
 
 **Recommendation given**: "Local work not yet pushed to any remote" — direct answer to what-does-this-icon-mean, no requirement of prior git knowledge.
 
-**Decision**: "**Has** local work not yet pushed to any remote" — Ashley agreed, requested addition of "Has" to lead the sentence.
+**Decision**: "**Has** local work not yet pushed to any remote" — Alice agreed, requested addition of "Has" to lead the sentence.
 
 ### 2. First-load behavior
 

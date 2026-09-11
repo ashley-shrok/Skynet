@@ -11,7 +11,7 @@
 
 ## Seed-only invocation
 
-Per `/build` skill convention (feature-mode → GSD phase → seed CONTEXT.md from shape file), this phase's CONTEXT.md was written directly from the shape file (`.planning/shapes/shape-relay-session-pane-rendering.md`) which had already locked all 20 implementation decisions (D-01..D-20) during a walked-one-at-a-time `/open` conversation with Ashley on 2026-09-08. Each shape decision was greenlit `thumbs up` before advancing during that conversation.
+Per `/build` skill convention (feature-mode → GSD phase → seed CONTEXT.md from shape file), this phase's CONTEXT.md was written directly from the shape file (`.planning/shapes/shape-relay-session-pane-rendering.md`) which had already locked all 20 implementation decisions (D-01..D-20) during a walked-one-at-a-time `/open` conversation with Alice on 2026-09-08. Each shape decision was greenlit `thumbs up` before advancing during that conversation.
 
 Discuss-phase was invoked to satisfy the /build pipeline's phase-vehicle auto-proceed rule, but no new gray areas surfaced — the shape file's discovery already covered them. This log preserves the alternatives considered during the `/open` conversation for audit purposes.
 
@@ -25,7 +25,7 @@ Discuss-phase was invoked to satisfy the /build pipeline's phase-vehicle auto-pr
 | Two panes side-by-side | Separate relay pane component tree; extract only truly-primitive shared pieces | ✓ |
 | Full fork with no shared primitives | Complete duplication; each pane owns everything | |
 
-**User's rationale:** Surface similarity is a trap — every layer that looks the same is driven by radically different plumbing underneath. Folding into one pane would grow a kind-branch at every layer and accumulate complexity inside the currently-working harness pane, compounding regression risk. Ashley verbatim: *"I don't want to disturb the harness session pretty view functionality because most of it works well already."*
+**User's rationale:** Surface similarity is a trap — every layer that looks the same is driven by radically different plumbing underneath. Folding into one pane would grow a kind-branch at every layer and accumulate complexity inside the currently-working harness pane, compounding regression risk. Alice verbatim: *"I don't want to disturb the harness session pretty view functionality because most of it works well already."*
 
 ---
 
@@ -50,7 +50,7 @@ Discuss-phase was invoked to satisfy the /build pipeline's phase-vehicle auto-pr
 | Full-info card-sized tile | Card with name + avatar + numeric % + reset button | |
 | Existing identity badge + shrunk meter/reset appendage | Reuse existing pretty-view badge with a bottom appendage carrying the shrunk-down compose-box meter and reset | ✓ |
 
-**User's rationale:** Reuse existing visual language. Ashley verbatim: *"the meter and button already exist in the compose box for the regular harness sessions. And so I was just picturing it as kind of a smaller version of that that is in that area that's popped out from underneath the identity badges."*
+**User's rationale:** Reuse existing visual language. Alice verbatim: *"the meter and button already exist in the compose box for the regular harness sessions. And so I was just picturing it as kind of a smaller version of that that is in that area that's popped out from underneath the identity badges."*
 
 ---
 
@@ -61,7 +61,7 @@ Discuss-phase was invoked to satisfy the /build pipeline's phase-vehicle auto-pr
 | Design fresh (~50 initial, infinite scroll, ~50 batches) | Modern chat-app defaults, snappy initial pane | |
 | Match pretty view 1:1 | Same initial load, same scroll-back trigger, same batch size | ✓ |
 
-**User's rationale:** Ashley verbatim: *"this should just be the same as Harness Sessions."*
+**User's rationale:** Alice verbatim: *"this should just be the same as Harness Sessions."*
 
 ---
 
@@ -73,7 +73,7 @@ Discuss-phase was invoked to satisfy the /build pipeline's phase-vehicle auto-pr
 | Hide inapplicable buttons; keep applicable ones enabled | Remove stop/recap/queue/thumbs-up; keep attach either disabled or hidden | |
 | Whole upper area vanishes; only textarea + send remain | Reset/meter move to per-agent badges; queue/stop/thumbs-up/recap gone entirely; attach hidden | ✓ |
 
-**User's rationale:** Ashley enumerated the entire upper-area contents and concluded none of it applies to relay sessions: reset and context meter move to per-agent badges; queue-a-message has no meaning because relay sessions never show a work-in-progress indicator; stop has no single agent to stop; thumbs-up doesn't apply; recap is redundant because the relay's message history IS the transcript already visible in the pane. Attach hidden entirely for v1 — Ashley verbatim: *"attach could just be hidden or disabled, I don't really care which."* Went with hidden per absence-as-affordance principle.
+**User's rationale:** Alice enumerated the entire upper-area contents and concluded none of it applies to relay sessions: reset and context meter move to per-agent badges; queue-a-message has no meaning because relay sessions never show a work-in-progress indicator; stop has no single agent to stop; thumbs-up doesn't apply; recap is redundant because the relay's message history IS the transcript already visible in the pane. Attach hidden entirely for v1 — Alice verbatim: *"attach could just be hidden or disabled, I don't really care which."* Went with hidden per absence-as-affordance principle.
 
 ---
 

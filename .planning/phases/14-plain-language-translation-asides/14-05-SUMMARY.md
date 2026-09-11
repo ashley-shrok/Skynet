@@ -233,7 +233,7 @@ None. All work is test-only + one test-observation seam export; no environment v
 
 None. Pure test additions + one test-observation seam export; no environment variables, no external services, no infrastructure changes.
 
-**Wave 6 (deploy checkpoint) is the next wave** — will need Ashley's explicit deploy approval per fork discipline (deploy-runbook.md + CLAUDE.md § Deploy safety).
+**Wave 6 (deploy checkpoint) is the next wave** — will need Alice's explicit deploy approval per fork discipline (deploy-runbook.md + CLAUDE.md § Deploy safety).
 
 ## Next Phase Readiness
 

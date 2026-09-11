@@ -18,11 +18,11 @@ Discovery is not the opening act — it's already been done in the shaping conve
 
 **At user-delete time**, on any of the existing Skynet-side delete paths, Skynet also calls Synapse's admin API to deactivate the corresponding Matrix account. Deactivation preserves the identifier (nobody else can ever register it again) and preserves historical attribution in any rooms the account participated in. Delete is asymmetric with create in one way: it's best-effort. If Synapse is unreachable during delete, Skynet logs the failure and proceeds with the Skynet-side deletion anyway, leaving a temporarily-orphaned Matrix account behind rather than refusing to let the user delete their Skynet account for an unrelated infra reason.
 
-**The identifier's shape** is username-derived with a suffix that distinguishes humans from agents: `@<sanitized-username>_human:<server_name>`. The sanitizer is a bijective character escape — `_` → `__`, `@` → `_at_`, `.` → `_dot_`, and analogous escapes for any other character Synapse's localpart grammar rejects. Bijective in both directions, deterministic (same username always maps to the same identifier), collision-free across any valid Skynet username, and cheap for the common non-email case (`ashley` → `@ashley_human:...`). The verbose case is when a username is an email — reasonable on the deployment where Aither users may sign in with corporate email addresses (`ashley@aitherhealth.com` → `@ashley_at_aitherhealth_dot_com_human:...`) — still readable, still safe.
+**The identifier's shape** is username-derived with a suffix that distinguishes humans from agents: `@<sanitized-username>_human:<server_name>`. The sanitizer is a bijective character escape — `_` → `__`, `@` → `_at_`, `.` → `_dot_`, and analogous escapes for any other character Synapse's localpart grammar rejects. Bijective in both directions, deterministic (same username always maps to the same identifier), collision-free across any valid Skynet username, and cheap for the common non-email case (`alice` → `@alice_human:...`). The verbose case is when a username is an email — reasonable on the deployment where Aither users may sign in with corporate email addresses (`alice@example.com` → `@alice_at_example_dot_com_human:...`) — still readable, still safe.
 
 **The Skynet-generated password is discarded on the spot.** Nobody ever knows it — not the human, not any stored record. Skynet only ever needs to mint access tokens for this account, and the admin API primitive that mints tokens uses admin authentication, not the account's password. This means humans cannot log in to a Matrix client (Element or otherwise) as themselves; every relay-side action they take is mediated by Skynet's backend on their behalf. That is the intended model.
 
-**The schema comment claiming "human relay credentials are owned by the human and never stored anywhere in Skynet" is retired** as part of this slice. That comment reflected the legacy pattern (Ashley, Zoey, Laura all self-registered before Skynet had a provisioning path) and does not describe the go-forward model. It's updated to reflect Skynet-owned provisioning.
+**The schema comment claiming "human relay credentials are owned by the human and never stored anywhere in Skynet" is retired** as part of this slice. That comment reflected the legacy pattern (Alice, Zoey, Laura all self-registered before Skynet had a provisioning path) and does not describe the go-forward model. It's updated to reflect Skynet-owned provisioning.
 
 **Runtime access-token retrieval is deferred to a later sub-slice.** This slice promises the identifier exists and the Matrix account behind it exists; whether the send path caches tokens, mints them fresh per request, or persists them encrypted is decided by whichever sub-slice builds the actual send path.
 
@@ -32,13 +32,13 @@ This slice is infrastructure. If any user notices anything from this slice landi
 
 Skynet-mediated is the model. Under the go-forward design, humans never directly touch the Matrix substrate; Skynet's backend acts on their behalf for every relay-side operation. The single-source-of-truth for a user's relay identity is the users row plus the Matrix account itself — humans hold no credential, no separate login, no independent access path. This is a deliberate simplification; anything richer (regenerate token, log into Element as yourself, multi-device) is either a later sub-slice or, more likely, permanently out of scope.
 
-The `_human` suffix on new identifiers is convention, not schema-enforced. It gives humans and agents non-overlapping namespaces on the same homeserver (agents have no suffix; humans have `_human`). Existing legacy identifiers without the suffix — the ones populated by the one-shot import for Ashley, Zoey, and Laura — continue to work indefinitely; nothing in the code treats the suffix as a correctness requirement, only as a convention going forward.
+The `_human` suffix on new identifiers is convention, not schema-enforced. It gives humans and agents non-overlapping namespaces on the same homeserver (agents have no suffix; humans have `_human`). Existing legacy identifiers without the suffix — the ones populated by the one-shot import for Alice, Zoey, and Laura — continue to work indefinitely; nothing in the code treats the suffix as a correctness requirement, only as a convention going forward.
 
 The Telegram bridge stays entirely untouched. Its existing behavior — mint access tokens for humans who have both an identifier AND a Telegram bot-token row — is preserved. Slice A populates more humans' identifiers, but the bridge's gate on "does this human have a bot-token row" filters those without one out of the bridge's scope. The bridge sees the same set of bridged humans it saw before.
 
 ## Prior context
 
-The per-user identifier column exists as a first-class first-class column on the users table (landed in Phase 75). Population today happens through two paths: an admin-only endpoint that takes a caller-supplied identifier string and associates it with a Skynet user, and a one-shot import script that seeded Ashley, Zoey, and Laura. Neither path mints the Matrix account itself; both assume the account was registered elsewhere.
+The per-user identifier column exists as a first-class first-class column on the users table (landed in Phase 75). Population today happens through two paths: an admin-only endpoint that takes a caller-supplied identifier string and associates it with a Skynet user, and a one-shot import script that seeded Alice, Zoey, and Laura. Neither path mints the Matrix account itself; both assume the account was registered elsewhere.
 
 The `matrix_admin_creds` singleton table holds the credentials Skynet uses to talk to Synapse's admin API. It's a real live thing — populated via an admin bootstrap endpoint, encrypted at rest. Two admin primitives are wired against it and exercised by other subsystems today: mint-or-update a Matrix account (with a caller-supplied password), and mint a fresh access token for any existing account without needing the account's password. Both are what slice A needs; nothing new gets built at the admin-client layer.
 
@@ -62,7 +62,7 @@ A rename is added to Skynet later without the mxid scheme being revisited, and u
 
 Two users end up with the same Matrix identifier because the sanitizer maps two different usernames to the same output. The bijective escape is not actually bijective in some corner case, or the sanitizer is short-circuited somewhere.
 
-The Matrix-side displayname is left as the raw identifier (`ashley_human`) and looks robotic in Element / any Matrix client. Slice A also sets a human-friendly displayname (`Ashley`) at mint time.
+The Matrix-side displayname is left as the raw identifier (`alice_human`) and looks robotic in Element / any Matrix client. Slice A also sets a human-friendly displayname (`Alice`) at mint time.
 
 ## Scope edges
 
@@ -74,7 +74,7 @@ The Matrix-side displayname is left as the raw identifier (`ashley_human`) and l
 - Test coverage for: happy path (create → mxid populated + Matrix account exists), failure path (Synapse down → create refused, no user row, no Matrix account), delete path (Skynet delete → Matrix deactivated), delete-failure path (Synapse down on delete → row deleted, log emitted).
 
 **Out.**
-- Backfill code for existing users without an mxid. The one-shot admin script for Ashley/Zoey/Laura is not being generalized; new deployments' existing users are hand-migrated by the maintainer of that instance (Taylor on t1000, Stacy on T800) as part of the upgrade rollout.
+- Backfill code for existing users without an mxid. The one-shot admin script for Alice/Zoey/Laura is not being generalized; new deployments' existing users are hand-migrated by the maintainer of that instance (Taylor on t1000, Stacy on T800) as part of the upgrade rollout.
 - Any change to legacy users' existing mxids (they don't get the `_human` suffix retroactively).
 - Any user-visible UI, front-end code, or user-managed affordance for the Matrix identity. Users don't see it, don't manage it, don't know it's there.
 - Any change to what the Telegram bridge does; its mint path continues unchanged.

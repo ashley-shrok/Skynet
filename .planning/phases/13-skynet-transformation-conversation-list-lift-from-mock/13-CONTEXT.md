@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-07-23
 **Status:** Ready for planning
-**Source:** Direct user conversation (Ashley 2026-07-23, this session) — no discuss-phase needed because the mock IS the source of truth and Ashley has been telling me this framing across MANY sessions; the failure pattern up to now was not context-gathering, it was fragmenting the movement into sibling bounties instead of trusting the mock as the target.
+**Source:** Direct user conversation (Alice 2026-07-23, this session) — no discuss-phase needed because the mock IS the source of truth and Alice has been telling me this framing across MANY sessions; the failure pattern up to now was not context-gathering, it was fragmenting the movement into sibling bounties instead of trusting the mock as the target.
 
 <domain>
 ## Phase Boundary
@@ -15,14 +15,14 @@
 - `src/ui/AppShell.tsx` — ONLY the shell chrome around the sidebar-toggle chevron (~L1407 area); no other AppShell changes
 - Possibly `src/ui/index.css` — if a new `--color-pv-*` token is needed to support a mock treatment we don't already have; append-only, no rebase of Skynet `--background`
 
-**Strictly OUT of scope (verified with Ashley 2026-07-23 verbatim):**
+**Strictly OUT of scope (verified with Alice 2026-07-23 verbatim):**
 - `src/ui/features/pretty-view/*.tsx` — the pretty-view chat surface interior (bubbles, compose box, IdentityBadge, message rendering, chat-column background). "Leave alone, already good, locked."
-- `src/ui/components/*.tsx` — shadcn primitives (input, skeleton, sidebar, card, sheet, sonner, password-input, command, tabs, alert-dialog, switch, etc.). Ship-of-Theseus rule: they still serve the RDP/SSH dialogs and xterm.js chrome that Ashley DOES see when she uses RDP/SSH, and preserving them preserves upstream Skynet rebase-ability.
+- `src/ui/components/*.tsx` — shadcn primitives (input, skeleton, sidebar, card, sheet, sonner, password-input, command, tabs, alert-dialog, switch, etc.). Ship-of-Theseus rule: they still serve the RDP/SSH dialogs and xterm.js chrome that Alice DOES see when she uses RDP/SSH, and preserving them preserves upstream Skynet rebase-ability.
 - `src/ui/ssh/dialogs/` — OPKSSHDialog, SSHAuthDialog, TmuxSessionPicker, WarpgateDialog, ConnectionLog. Same rule.
 - `src/ui/features/terminal/*` — xterm.js chrome. Same rule.
-- Backend routes — Phase 13 was originally scoped as backend route cleanup, and Ashley called that off in the 2026-07-23 mid-purge discussion (kept for rebase-ability, zero user impact). This Phase 13 is the RENAMED phase — the backend-routes-cleanup phase is dead.
+- Backend routes — Phase 13 was originally scoped as backend route cleanup, and Alice called that off in the 2026-07-23 mid-purge discussion (kept for rebase-ability, zero user impact). This Phase 13 is the RENAMED phase — the backend-routes-cleanup phase is dead.
 
-**The mock is the source of truth.** `~/.claude/identities/tina/bounties/skynet-transformation/prototype.html` (mock v4, Ashley signed off 2026-07-23 07:20Z). The v4 lock is: Full bubble intensity + Normal density + active-set/ambient recession + ONE dot with ONE meaning (row is in active set AND agent is idle). "Reduced" and "Selection-only" intensity variants in the mock are exploratory — Full is what ships. Density variants (tight/normal/cozy) — Normal is what ships. Do NOT re-litigate v4 lock — it's the target.
+**The mock is the source of truth.** `~/.claude/identities/tina/bounties/skynet-transformation/prototype.html` (mock v4, Alice signed off 2026-07-23 07:20Z). The v4 lock is: Full bubble intensity + Normal density + active-set/ambient recession + ONE dot with ONE meaning (row is in active set AND agent is idle). "Reduced" and "Selection-only" intensity variants in the mock are exploratory — Full is what ships. Density variants (tight/normal/cozy) — Normal is what ships. Do NOT re-litigate v4 lock — it's the target.
 
 </domain>
 
@@ -39,9 +39,9 @@
 - Row base: `padding: 10px 12px; gap: 12px; border-radius: var(--radius-pv-bubble);` with `linear-gradient(160deg, hsla(hue, 50%, 38%, 0.55), hsla(hue, 45%, 24%, 0.60))` background, hue border 32%, warm inset rim, backdrop-filter blur(20px) saturate(1.5). Text color `#fbf5e8` (creamier than base fg).
 - Row.hover: translateY(-1px), shadow +10%, border 42%.
 - Row.selected: translateY(-1px), border 55%, shadow +30%, warm inset 28%, hue outer glow 34%.
-- Row.active-set (default = row is in Ashley's active set, i.e. full bubble): base treatment applies as-is.
+- Row.active-set (default = row is in Alice's active set, i.e. full bubble): base treatment applies as-is.
 - Row NOT in active-set = ambient/recessed. **Mock's reduced-intensity variant** has bg at higher alpha than the current live implementation — the live's `hsla(hue, 40%, 20%, 0.16)` is TOO recessed. Use the mock's Reduced treatment (verify exact values from prototype.html when planning).
-- Row.working: displays no dot (only ambient rows display no dot, and dot appears only on `active-set:not(.working)` rows per Ashley 2026-07-23 v4 lock — "one meaning: this row is in the active set AND its agent is idle").
+- Row.working: displays no dot (only ambient rows display no dot, and dot appears only on `active-set:not(.working)` rows per Alice 2026-07-23 v4 lock — "one meaning: this row is in the active set AND its agent is idle").
 - Row.pinned: pin icon visible; `.row:not(.pinned) .meta .pin { display: none }`.
 - Avatar: 40x40 circle, gradient (deeper than row), hue border 40%, warm inset 35%, hue outer glow 40%. Warm cream 700-weight text or image.
 - Panel: linear-gradient bg (`--color-pv-surface-quiet` → `--color-pv-surface-quiet-alt`), border-radius `--radius-pv-card`, backdrop-blur 28px + saturate 1.3, big drop shadow.
@@ -77,7 +77,7 @@ Planner may re-slice, but keep atomic-commits-per-file discipline (Phase 11+12 p
 **Downstream agents (planner + executors) MUST read these before planning or implementing.**
 
 ### Design source-of-truth
-- `~/.claude/identities/tina/bounties/skynet-transformation/prototype.html` — LOCKED mock v4, Ashley signed off 2026-07-23. The Full-intensity + Normal density variant with active-set/ambient recession and single ready-for-attention dot is what ships. Read the `<style>` block AND the semantic HTML for row/avatar/body/meta markup structure.
+- `~/.claude/identities/tina/bounties/skynet-transformation/prototype.html` — LOCKED mock v4, Alice signed off 2026-07-23. The Full-intensity + Normal density variant with active-set/ambient recession and single ready-for-attention dot is what ships. Read the `<style>` block AND the semantic HTML for row/avatar/body/meta markup structure.
 
 ### Mental model + scope authority
 - `~/.claude/identities/tina/tina.md` § "Skynet direction — the app IS Telegram" — the two-surfaces rule (pretty-view chat surface = DONE and LOCKED; conversation list + shell chrome = final unfinished piece). The "one bounty for the entire movement" rule (all Ship-of-Theseus work folds into `skynet-transformation` master bounty; no siblings).
@@ -100,7 +100,7 @@ Planner may re-slice, but keep atomic-commits-per-file discipline (Phase 11+12 p
 - `.planning/phases/12-skynet-transformation-purge-dead-frontend-surfaces-second-slice/` — Same
 
 ### Diagnostic candidates (dot visibility, if lift alone doesn't fix)
-- `src/ui/features/terminal/Terminal.tsx` — `isIdle` starts at null, flips on backend WS ticker. Check whether ticker has fired for Ashley's active session post-recreate.
+- `src/ui/features/terminal/Terminal.tsx` — `isIdle` starts at null, flips on backend WS ticker. Check whether ticker has fired for Alice's active session post-recreate.
 - `src/stores/session-working-store.ts` (patch #137) — sessionWorkingKey = `${row.host?.id}:${row.targetTmuxSession ?? ''}`. If ConversationRow's row.targetTmuxSession is null but Terminal publishes real tmuxSessionName from hostConfig, keys mismatch.
 - `src/stores/conversation-store.ts` (patch #137) — activeSet is sessionStorage-backed. Verify populate on fresh browser session.
 - `PrettyConversationsPanel.tsx` — `PrettyConversationRowLive` micro-component. Verify Rules-of-Hooks compliance.
@@ -108,14 +108,14 @@ Planner may re-slice, but keep atomic-commits-per-file discipline (Phase 11+12 p
 </canonical_refs>
 
 <specifics>
-## Specific requirements from Ashley (this session, 2026-07-23)
+## Specific requirements from Alice (this session, 2026-07-23)
 
 - "The bar at the top that says the name of the session still looks Skynet" — pretty-view context — but she also said "leave the pretty view chat interior alone." **Reconciliation:** the "top bar in pretty view" that she called out as still-Skynet-looking is NOT the IdentityBadge inside PrettyView; it's the AppShell shell chrome around it (the surface with sidebar-toggle). That IS in scope. The IdentityBadge itself and everything else inside `src/ui/features/pretty-view/` is out.
 - "The bar at the top that says like conversations or something that to me looks like it's coming out of old Skynet stuff" — that's the PrettyConversationsPanel's `.panel-header` with the 13px mixed-case chunky title + filled-glass pencil pill. Rewrite to mock's UPPERCASE + tracking + transparent-pencil.
 - "Active conversations like ones that I've already loaded into since I loaded the page are not glowing fully like they were supposed to. It seems like they more get like a glowing border or something." — ambient recession is too aggressive (0.16 alpha bg is nearly invisible; only the faint border shows) OR the `inActiveSet` flag isn't propagating. Fix by lifting the mock's Reduced-intensity ambient values AND by re-checking dot/active-set propagation post-lift.
 - "The pin buttons are totally obnoxious" — retire the button chrome (`rounded-md bg-transparent hover:bg-white/[0.06]` + Skynet muted-gray icon color) and lift the mock's bare-icon-with-hue-drop-shadow, hidden when not pinned.
 
-## Meta-lesson pinned this session (Ashley 2026-07-23 verbatim)
+## Meta-lesson pinned this session (Alice 2026-07-23 verbatim)
 
 "I have fifteen other agents running the same way that you do and they just don't seem to have the same problem. So I don't- I don't know if this problem came from the fact that we weren't keeping this like tracked in a single bounty..."
 
@@ -127,7 +127,7 @@ The failure pattern: I fragmented the Ship-of-Theseus movement into sibling boun
 ## Deferred Ideas
 
 - Pretty-view feature additions (message queue rendering, tool-use rendering, translation asides, scroll-to-bottom UX) — those are their own bounties, NOT Ship-of-Theseus work. Don't fold them into Phase 13.
-- Backend routes serving now-dead UI — deliberately deferred forever per Ashley 2026-07-23 (zero user impact + upstream rebase-ability preservation).
+- Backend routes serving now-dead UI — deliberately deferred forever per Alice 2026-07-23 (zero user impact + upstream rebase-ability preservation).
 - shadcn primitives / SSH-RDP dialogs / xterm chrome theme-class refactor — Ship-of-Theseus rule preserves them.
 - The `deploy-runbook-stale-git-push-line` and `claude-md-15min-deadman-stale` bounties are docs hygiene, not Phase 13 scope. `/gsd:quick` those when convenient.
 

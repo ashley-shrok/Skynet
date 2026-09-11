@@ -1166,7 +1166,7 @@ describe("installStopHook (Phase 62 extended shape)", () => {
 // idempotent, defensive-shape resilient). installStopHook now merges 8 total
 // entries (6 hook + 2 permission-deny) with a single AND-fold controlling the
 // write-skip decision. The `plan_mode_deny_applied` log op is the Wave 1
-// verification breadcrumb — Ashley greps it across container logs to inventory
+// verification breadcrumb — Alice greps it across container logs to inventory
 // fleet coverage.
 // ---------------------------------------------------------------------------
 

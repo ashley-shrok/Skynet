@@ -5,7 +5,7 @@
 
 ## What this is
 
-Making the PrettyView side of the desktop layout hold multiple sessions at once, arranged in a free-form split tree that Ashley composes by dragging. Sessions come *in* from the conversation list — drag a row into any part of the PrettyView area (its empty state, or an edge of an existing cell to split at that edge). Sessions come *out* by dragging their identity badge back to the conversation list, which fully closes the session. Sessions get rearranged by dragging their identity badge onto a different cell's edge. The whole arrangement lives in the URL so it survives refresh, tab clone, and link sharing.
+Making the PrettyView side of the desktop layout hold multiple sessions at once, arranged in a free-form split tree that Alice composes by dragging. Sessions come *in* from the conversation list — drag a row into any part of the PrettyView area (its empty state, or an edge of an existing cell to split at that edge). Sessions come *out* by dragging their identity badge back to the conversation list, which fully closes the session. Sessions get rearranged by dragging their identity badge onto a different cell's edge. The whole arrangement lives in the URL so it survives refresh, tab clone, and link sharing.
 
 ## Shape
 
@@ -35,7 +35,7 @@ The tree is encoded in the URL. Refresh, share the link, clone the tab — the l
 
 ## Prior context
 
-- The parked bounty `bring-back-split-view` (2026-07-31) was Ashley's original ask. This is that bounty, expanded into the full interaction model.
+- The parked bounty `bring-back-split-view` (2026-07-31) was Alice's original ask. This is that bounty, expanded into the full interaction model.
 - Split-view infrastructure is **already in the codebase**, currently gated off — a full 766-line `SplitView` component with fixed-grid geometries (2-way through 6-way), resizable dividers, per-tab always-mounted portal architecture, WS-per-tab lifecycle, and drop-tab-into-pane handlers already wired. What was removed was the UI trigger to turn it on, not the mechanism.
 - The always-mounted portal architecture means every session's DOM tree stays alive whether or not it's visible, and moving a session between cells preserves its running React tree — no remount, no WS interruption. This is the load-bearing engineering piece; it was solved for the fixed-grid version and carries directly to the free-form tree.
 - Persistence today uses localStorage (`skynet_splitMode`, `skynet_paneTabIds`), which is being retired in favor of URL-encoded layout.
@@ -45,7 +45,7 @@ The tree is encoded in the URL. Refresh, share the link, clone the tab — the l
 
 ## What would make it wrong
 
-- **The drag feels laggy or the preview jumps.** The whole feature depends on the drop-preview being accurate and responsive. If Ashley has to wonder where the session will actually land, the interaction is broken.
+- **The drag feels laggy or the preview jumps.** The whole feature depends on the drop-preview being accurate and responsive. If Alice has to wonder where the session will actually land, the interaction is broken.
 - **Session state gets destroyed by a rearrange.** Moving a session between cells must preserve its React tree, its WebSocket, its scroll position, its compose-box draft. If a rearrange behaves like a close-and-reopen, the feature has missed the point.
 - **A misclick or accidental drag closes a session unintentionally.** Full close on drag-to-list is the intended path — but it must require a genuine drag gesture, not a slightly-too-vigorous badge click. If the click-vs-drag disambiguation lets a stationary press fall through to "started a drag then dropped it," the feature is destructive in a way that violates the "one close path" philosophy.
 - **The URL becomes an unreadable soup.** The tree needs a serialization compact enough to survive real-world URL length limits and legible enough that a debugger can read what layout a link encodes.

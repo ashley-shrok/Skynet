@@ -39,11 +39,11 @@ Make deactivating an active conversation feel instant. Currently tapping Deactiv
 
 Fix: wrap the four state mutations in `doCloseTab` inside React 18's `startTransition`. React commits the urgent Zustand-driven list update first (list settles + paints immediately), then commits the tab switch as a transition (new pane mounts async without blocking the paint).
 
-Purpose: eliminate the ~1s freeze on Deactivate tap. Ashley's fleet-management flow depends on list mutations feeling instant.
+Purpose: eliminate the ~1s freeze on Deactivate tap. Alice's fleet-management flow depends on list mutations feeling instant.
 
 Output: two-file diff — `src/ui/AppShell.tsx` (add `startTransition` import + wrap state mutations + document the trade-off with a block comment) and `src/ui/features/pretty-conversations/PrettyConversationsPanel.test.tsx` (focused ordering assertion).
 
-Trade-off (accepted by Ashley, must be documented in the code comment): for a fraction of a second between "list settled" and "new pane mounted," the right pane still shows the just-deactivated pretty view. Acceptable because Ashley isn't actually waiting on the session to be unloaded — she's waiting on the list to acknowledge her tap.
+Trade-off (accepted by Alice, must be documented in the code comment): for a fraction of a second between "list settled" and "new pane mounted," the right pane still shows the just-deactivated pretty view. Acceptable because Alice isn't actually waiting on the session to be unloaded — she's waiting on the list to acknowledge her tap.
 </objective>
 
 <execution_context>
@@ -100,7 +100,7 @@ Trade-off (accepted by Ashley, must be documented in the code comment): for a fr
       - Line 1: Bounty #5 (or the patch number this ships as — leave a placeholder like `Patch #TBD` since Tina assigns patch numbers at ingestion; do NOT invent a number).
       - Line 2: WHY — deactivating an active conversation used to freeze the UI for ~1s because the four setState calls below batched with the Zustand `removeFromActiveSet` from the caller into a single commit that unmounted the deactivated PrettyView AND mounted a fresh PrettyView (WS setup + backfill dispatch + hundreds of bubbles).
       - Line 3: WHAT — startTransition tells React to commit the urgent Zustand active-set removal first (list paints instantly), then commit the tab switch as a deferred transition (new pane mounts async without blocking the paint).
-      - Line 4: TRADE-OFF — for a fraction of a second the right pane may still show the just-deactivated view while the list updates. Accepted: Ashley isn't waiting on the session unload, she's waiting on the list to acknowledge her tap.
+      - Line 4: TRADE-OFF — for a fraction of a second the right pane may still show the just-deactivated view while the list updates. Accepted: Alice isn't waiting on the session unload, she's waiting on the list to acknowledge her tap.
       - Line 5: DO NOT revert to a synchronous batch — this is the whole point of the block.
 
     Everything else in `AppShell.tsx` — including `closeTab`, `splitTabQuick`, and every other function in the file — stays untouched. No other files touched in this task.
@@ -183,7 +183,7 @@ NOT run:
 - `npm run build:backend` — patch touches zero backend files (per patch #154 policy).
 - `npm run build` — no bundler check required; TypeScript check + vitest are the contract.
 - Manual browser test — Tina fast-paths deploy validation after ingestion (per task_context constraints).
-- Any push / build / deploy — stop at commit boundary per fleet rule (Ashley 2026-07-27).
+- Any push / build / deploy — stop at commit boundary per fleet rule (Alice 2026-07-27).
 </verification>
 
 <success_criteria>
@@ -203,5 +203,5 @@ Create `.planning/quick/260730-jes-make-deactivating-an-active-conversation/2607
 - Verification output (tsc exit code, vitest pass counts).
 - Any deviations from this plan (e.g. if fallback test path was taken).
 - Commit SHA.
-- Explicit note: "NO push, NO build, NO deploy per quick-task constraints. Tina bundles this with the pinned-slate batch when Ashley greenlights ship."
+- Explicit note: "NO push, NO build, NO deploy per quick-task constraints. Tina bundles this with the pinned-slate batch when Alice greenlights ship."
 </output>

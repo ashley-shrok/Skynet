@@ -46,7 +46,7 @@ function makeIdentity(
 }
 
 const IDENTITIES_BY_KEY = new Map<string, Identity>([
-  ["ashley", makeIdentity("ashley", "Ashley", 200)],
+  ["alice", makeIdentity("alice", "Alice", 200)],
   ["zoe", makeIdentity("zoe", "Zoe", 30)],
   ["ada", makeIdentity("ada", "Ada", 90)],
   ["nelly", makeIdentity("nelly", "Nelly", 150)],
@@ -109,7 +109,7 @@ const NELLY_MXID = "@nelly:matrix.example.com";
 function makeHumans(): HumanParticipant[] {
   return [
     { mxid: ZOE_MXID, displayName: "Zoe", userId: "2" },
-    { mxid: ASHLEY_MXID, displayName: "Ashley", userId: "1" },
+    { mxid: ASHLEY_MXID, displayName: "Alice", userId: "1" },
   ];
 }
 
@@ -181,7 +181,7 @@ describe("MultiBadgeAnchor (Phase 93 Slice 2 Task 2)", () => {
     const humanCells = container.querySelectorAll(
       '[data-testid="relay-room-participant"][data-role="human"]',
     );
-    // Ashley excluded — only Zoe renders.
+    // Alice excluded — only Zoe renders.
     expect(humanCells.length).toBe(1);
     expect(humanCells[0].getAttribute("data-mxid")).toBe(ZOE_MXID);
   });
@@ -334,7 +334,7 @@ describe("MultiBadgeAnchor (Phase 93 Slice 2 Task 2)", () => {
     const { container } = render(
       <MultiBadgeAnchor
         participants={{
-          humans: [{ mxid: ASHLEY_MXID, displayName: "Ashley", userId: "1" }],
+          humans: [{ mxid: ASHLEY_MXID, displayName: "Alice", userId: "1" }],
           agents: [],
         }}
         viewingUserMxid={ASHLEY_MXID}

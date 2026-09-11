@@ -16,7 +16,7 @@ dependency_graph:
   provides:
     - .planning/phases/70-.../71-04-SWEEP-REPORT.md (sweep report — all gates GREEN)
   affects:
-    - Ashley real-browser verification (Task 2 — awaiting orchestrator ship)
+    - Alice real-browser verification (Task 2 — awaiting orchestrator ship)
 
 tech_stack:
   added: []
@@ -33,7 +33,7 @@ key_files:
 decisions:
   - "T14 negative-assertion cleanup: removed three explicit toBeUndefined() calls that named old API identifiers; L820 exact-key-set assertion is sufficient and stronger"
   - "pinnedRef in PrettyConversationsPanel renamed to pinnedRowsRef — unambiguous name for pinned conversation rows, eliminates false-positive grep collision with auto-scroll domain"
-  - "Task 2 (human-verify) returns checkpoint — awaiting orchestrator ship to production + Ashley real-browser walk"
+  - "Task 2 (human-verify) returns checkpoint — awaiting orchestrator ship to production + Alice real-browser walk"
 
 metrics:
   duration_seconds: 600
@@ -46,7 +46,7 @@ metrics:
 
 # Phase 71 Plan 04: Contamination Sweep + Human-Verify Handoff — Summary
 
-**One-liner:** Whole-repo grep-gate sweep confirmed all 11 structural invariants GREEN after two inline fixes (redundant test assertions removed, `pinnedRef` in conversations panel renamed to `pinnedRowsRef`); Task 2 returns checkpoint for Ashley real-browser verification post-ship.
+**One-liner:** Whole-repo grep-gate sweep confirmed all 11 structural invariants GREEN after two inline fixes (redundant test assertions removed, `pinnedRef` in conversations panel renamed to `pinnedRowsRef`); Task 2 returns checkpoint for Alice real-browser verification post-ship.
 
 ## What Was Built
 
@@ -79,20 +79,20 @@ All 11 sweep gates run independently against the full `src/` and `tests/` trees:
 Full gate-by-gate results: `.planning/phases/70-.../71-04-SWEEP-REPORT.md`
 **Overall sweep verdict: GREEN.**
 
-### Task 2: Human-Verify (CHECKPOINT — awaiting orchestrator ship + Ashley)
+### Task 2: Human-Verify (CHECKPOINT — awaiting orchestrator ship + Alice)
 
 Task 2 is a `checkpoint:human-verify` gate. The orchestrator must ship the code to production
-before Ashley can walk the four bounty scenarios in a real browser. This plan does NOT attempt
+before Alice can walk the four bounty scenarios in a real browser. This plan does NOT attempt
 to simulate or substitute for that verification.
 
-**Bounties awaiting Ashley's real-browser sign-off:**
+**Bounties awaiting Alice's real-browser sign-off:**
 1. `pretty-view-auto-scroll-three-bug-rewrite` — primary Phase 71 bounty
 2. `conversations-scroll-to-bottom-on-load` — cold-load bottom anchor
 3. `pretty-view-scroll-to-bottom-after-send` — send flips mode to at-bottom
 4. `conversation-list-scroll-delay-on-load` — left panel (informational; Phase 71 did not
    touch `PrettyConversationsPanel`; may or may not close on ship)
 
-Ashley's verification protocol is in the plan's Task 2 `<how-to-verify>` block (8 numbered
+Alice's verification protocol is in the plan's Task 2 `<how-to-verify>` block (8 numbered
 scenario groups: 3a-3e, 4a, 5a-5b, 6a-6b, 7a-7b, 8a, 9a-iOS-only, 10a-informational).
 
 ## Deviations from Plan
@@ -132,12 +132,12 @@ remains in `src/` or `tests/`. The codebase is clean for ship.
 
 ## Task 2 Status
 
-**AWAITING ORCHESTRATOR SHIP + ASHLEY REAL-BROWSER VERIFICATION.**
+**AWAITING ORCHESTRATOR SHIP + ALICE REAL-BROWSER VERIFICATION.**
 
 The plan closes Phase 71's code work. Orchestrator must:
 1. Run full test suite + docker build
 2. Deploy to production (term.example.com)
-3. Ask Ashley to walk the 8 scenario groups (Task 2 `<how-to-verify>`)
+3. Ask Alice to walk the 8 scenario groups (Task 2 `<how-to-verify>`)
 4. Return `approved` if all primary scenarios pass, or describe failures for 70-05
 
 ## Known Stubs

@@ -13,7 +13,7 @@ requirements:
 must_haves:
   truths:
     - "Incoming kind:message role:user WS frame clears the OLDEST sending pending regardless of content byte-equality (FIFO + role + state gate alone)."
-    - "Ashley's real /fake slash-command jsonl frame (XML-wrapped by Claude Code) clears the seeded pending whose content is the pre-wrap typed text."
+    - "Alice's real /fake slash-command jsonl frame (XML-wrapped by Claude Code) clears the seeded pending whose content is the pre-wrap typed text."
     - "JSON-paste-shape mismatch (compact seed vs pretty WS frame) clears the pending."
     - "FIFO tiebreaker (Test 4) still works: two identical-content sends clear in insertion order, oldest first."
     - "D-05 invariant preserved: matched bubble never flips to failed (clearTimeout on match still present)."
@@ -43,7 +43,7 @@ with a FIFO + role + state gate alone: the first incoming user-role message
 frame clears the oldest pending in `state:"sending"`, no content compare.
 
 Purpose: The byte-strict head-match was fighting every Claude Code input
-transformation. Concrete evidence in Ashley's tina session
+transformation. Concrete evidence in Alice's tina session
 (~/.claude/projects/-home-ubuntu-skynet-tina/e958881b-e151-443b-b91f-af2973c00d4e.jsonl,
 ts=2026-08-23T01:41:48.723Z): user types `/fake we can try this one, problem
 happens 100% of the time` — ComposeBox seeds pending with that literal
@@ -51,7 +51,7 @@ string. Claude Code re-writes the jsonl frame content to
 `<command-message>fake</command-message>\n<command-name>/fake</command-name>\n<command-args>we can try this one, problem happens 100% of the time</command-args>`.
 Byte comparison fails, pending survives, 20s timer flips it red — DOUBLE
 BUBBLE. Same class covers every future CC wrap (JSON-paste normalization
-Ashley also reported, XML-wrapping for other slash commands, etc.). Send
+Alice also reported, XML-wrapping for other slash commands, etc.). Send
 order itself IS the match signal: CC processes user input serially, session
 file writes in order, WS preserves order. Order-based semantic is the correct
 invariant.
@@ -105,7 +105,7 @@ Output:
         FIFO-only despite the pending's content bearing zero byte-overlap
         with the frame's content).
       - Corpus provenance: ~/.claude/projects/-home-ubuntu-skynet-tina/e958881b-e151-443b-b91f-af2973c00d4e.jsonl
-        ts=2026-08-23T01:41:48.723Z (Ashley's real /fake send in tina).
+        ts=2026-08-23T01:41:48.723Z (Alice's real /fake send in tina).
 
     Behavior 3 (new Test 3c — synthetic JSON-paste representative):
       - Seed pending with content `{"foo": "bar"}` (compact single-line, what
@@ -113,7 +113,7 @@ Output:
       - Send WS frame content `{\n  "foo": "bar"\n}` (2-space pretty, what CC
         re-serialized into the jsonl frame).
       - Expected: `countPendingBubbles(container) === 0` (cleared under
-        FIFO-only). This is synthetic; represents the class Ashley reported
+        FIFO-only). This is synthetic; represents the class Alice reported
         ("pasting JSON in fail as well"). Corpus TBD — marked in a comment.
 
     Behavior 4 (untouched — regression coverage):
@@ -154,7 +154,7 @@ Output:
         // `<command-message>fake</command-message>\n<command-name>/fake</command-name>\n<command-args>args</command-args>`),
         // JSON paste normalization, and every future CC wrap. Real evidence:
         // ~/.claude/projects/-home-ubuntu-skynet-tina/e958881b-e151-443b-b91f-af2973c00d4e.jsonl
-        // ts=2026-08-23T01:41:48.723Z (Ashley's /fake in tina session).
+        // ts=2026-08-23T01:41:48.723Z (Alice's /fake in tina session).
         // Order-based semantic is preserved by the transport: CC processes
         // user input serially, session file is written in order, WS preserves
         // order — SEND ORDER itself IS the match signal. First incoming
@@ -189,7 +189,7 @@ Output:
     - Rename the test to:
         `Test 3 (quick-260823-fzy regression guard): incoming user-role frame with mismatched content STILL clears oldest sending pending — FIFO+role+state gate, no content equality`
     - Add a block comment immediately above the `it()` line referencing
-      quick-260823-fzy, the Ashley `/fake` shape-gap, and citing the corpus
+      quick-260823-fzy, the Alice `/fake` shape-gap, and citing the corpus
       path `~/.claude/projects/-home-ubuntu-skynet-tina/e958881b-e151-443b-b91f-af2973c00d4e.jsonl`
       + timestamp `2026-08-23T01:41:48.723Z`. Prose comment; explain that
       pre-quick-260823-fzy this test asserted the OPPOSITE (pending survived)
@@ -226,7 +226,7 @@ Output:
     - Name: `Test 3c (quick-260823-fzy): JSON-paste transformation still clears pending under FIFO-only (synthetic)`
     - Same mount / flipToStreaming / waitFor-textarea setup.
     - Above the `typeAndEnter` line, add a comment:
-        `// SYNTHETIC — represents Ashley-reported class ("pasting JSON in fail as well"), corpus TBD`
+        `// SYNTHETIC — represents user-reported class ("pasting JSON in fail as well"), corpus TBD`
     - `typeAndEnter(container, '{"foo": "bar"}');`
     - `await waitFor(() => expect(countPendingBubbles(container)).toBe(1));`
     - `sendWsFrame(ws, { type: "message", role: "user", content: "{\n  \"foo\": \"bar\"\n}", eventId: "ev-json", ts: Date.now() });`
@@ -252,7 +252,7 @@ Output:
     Commit message (single commit, conventional format matching repo style,
     e.g. `feat(quick-260823-fzy): drop content equality from optim-bubble head-match`
     or `fix(quick-260823-fzy): FIFO-only optim-bubble head-match`). Include a
-    body paragraph citing the Ashley /fake corpus (path + timestamp) as the
+    body paragraph citing the Alice /fake corpus (path + timestamp) as the
     proximate cause.
   </action>
   <verify>
@@ -269,7 +269,7 @@ Output:
     - Test 3 renamed to `Test 3 (quick-260823-fzy regression guard): ...`,
       assertions flipped to expect `pendingBubbles === 0` after the
       mismatched-content frame.
-    - New Test 3b (`real slash-command XML wrap`) present with the Ashley
+    - New Test 3b (`real slash-command XML wrap`) present with the Alice
       `/fake` corpus fixture + provenance comment (path + timestamp).
     - New Test 3c (`JSON-paste transformation … (synthetic)`) present with
       the SYNTHETIC-marker comment.
@@ -320,7 +320,7 @@ Explicitly NOT performed by executor (owned by ship-gate orchestrator):
   conventional `feat(quick-260823-fzy): ...` or `fix(quick-260823-fzy): ...`
   message that cites the corpus in its body.
 - No secondary edits, no push, no build, no deploy.
-- Ashley's stated behavior fixed at the source: every future Claude Code
+- Alice's stated behavior fixed at the source: every future Claude Code
   input transformation (slash-command wraps, JSON paste normalization,
   etc.) will no longer create a double bubble, because the head-match no
   longer depends on the exact wire-frame content matching the seeded

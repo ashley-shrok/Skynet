@@ -17,7 +17,7 @@
 - **Frontend `session-working-store.ts`** consumes from fleet-status channel. Same `(host, tmuxSession)` key convention.
 - **Per-pane WSes** stay per-pane for content — this phase does NOT touch Terminal.tsx or PrettyView.tsx WS lifecycle beyond removing feeder call sites.
 - **Composite state:** `main = status === "busy" || status === "shell"`, `waiting = status === "waiting"` (bubble, NOT dot), `bg = any non-ambient entry in Stop.background_tasks[] || active subagents`, `isWorking = main || bg`.
-- **Dot semantics: UNCHANGED** (Ashley 2026-07-23 lock).
+- **Dot semantics: UNCHANGED** (Alice 2026-07-23 lock).
 - **Waiting bubble:** PlanPendingBubble template, `waitingFor` reason string, visual only.
 - **Plumbing to REUSE:** `session-file-discovery.ts` `discoverClaudeSession()`, existing SSH pooling, `session-working-store.ts` store pattern.
 - **Hard dependency:** `ambient-monitor-tagging-in-id-skill` bounty MUST ship before frontend cutover.

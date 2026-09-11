@@ -65,7 +65,7 @@ Add pretty-view image support (patch #86, conceptually — patch-number is a com
 
 Extend the JSONL parser to emit a new `kind:"image"` variant carrying inline base64 images, extend the claude-session WS server to emit those as a new `{type:"image"}` frame, and render them in pretty view via a new `ImageBubble` component styled to match `ChatMessage`'s assistant identity-hue treatment exactly.
 
-Purpose: When Claude reads a PNG (avatar review, screenshot, etc.) the tool_result currently drops silently at the parser (RENDER-01 hard-lock, "aggressive minimalism"). Ashley (in pretty view) then can't see the image the agent just read. This patch lifts that restriction FOR IMAGES ONLY — non-image tool_results still drop as before.
+Purpose: When Claude reads a PNG (avatar review, screenshot, etc.) the tool_result currently drops silently at the parser (RENDER-01 hard-lock, "aggressive minimalism"). Alice (in pretty view) then can't see the image the agent just read. This patch lifts that restriction FOR IMAGES ONLY — non-image tool_results still drop as before.
 
 Design de-risked by the prototype at `/home/ubuntu/.claude/identities/tina/bounties/pretty-view-image-support/proto/server.mjs` — the `extractImageRefs` logic and WS event shape are validated against 4 real Skynet session JSONLs (7 image events on Amelia review). Port the LOGIC to TypeScript, not the JS itself.
 
@@ -219,7 +219,7 @@ Output: A working end-to-end image bubble path — parser emits ImageMessage, WS
     Create `src/ui/features/pretty-view/ImageBubble.tsx`:
 
     1. Component signature: `export function ImageBubble({ role, images, text, eventId, ts }: { role: "user" | "assistant" | "tool_result"; images: ImageBlock[]; text: string; eventId: string; ts: number; })`. Import `ImageBlock` from `@/api/claude-session-api`. Import `cn` from `@/lib/utils`.
-    2. Aesthetic rule (per scope_detail Ashley 2026-07-19 design read): ALWAYS use the assistant identity-hue treatment, regardless of `role`. Semantically the Read was invoked by the assistant so the image lives on the assistant side. Left-aligned row wrapper (`flex justify-start`).
+    2. Aesthetic rule (per scope_detail Alice 2026-07-19 design read): ALWAYS use the assistant identity-hue treatment, regardless of `role`. Semantically the Read was invoked by the assistant so the image lives on the assistant side. Left-aligned row wrapper (`flex justify-start`).
     3. Outer row: `<div className="flex justify-start">`.
     4. Inner bubble:
        - Layout: `max-w-[min(85%,640px)]`, `rounded-[var(--radius-pv-bubble)]`, `px-3 py-3` (12px padding per scope_detail), `flex flex-col gap-2`.
@@ -241,7 +241,7 @@ Output: A working end-to-end image bubble path — parser emits ImageMessage, WS
        - Add a type alias near `Status`: `type StreamEvent = ChatMessageEvent | ImageEvent;`.
        - Change `useState<ChatMessageEvent[]>` to `useState<StreamEvent[]>`.
        - Rename `appendDedup`'s param types to `StreamEvent` (it already dedups on `eventId` which both event types have).
-    10. Add a new `case "image":` in the `ws.onmessage` switch (parallel to the existing `case "message":`), appending the parsed image event to the same `messages` array via `appendDedup(prev, parsed)`. Do NOT create a separate state channel — image bubbles interleave with text messages in strict wire order (this is the whole point of Ashley seeing "the agent read this image" at the correct chronological position in the conversation).
+    10. Add a new `case "image":` in the `ws.onmessage` switch (parallel to the existing `case "message":`), appending the parsed image event to the same `messages` array via `appendDedup(prev, parsed)`. Do NOT create a separate state channel — image bubbles interleave with text messages in strict wire order (this is the whole point of Alice seeing "the agent read this image" at the correct chronological position in the conversation).
     11. In the `messages.map((m) => ...)` render inside the scroll container, branch on `m.type`:
         - `m.type === "message"` → existing `<ChatMessage key={m.eventId} role={m.role} content={m.content} />`.
         - `m.type === "image"` → new `<ImageBubble key={m.eventId} role={m.role} images={m.images} text={m.text} eventId={m.eventId} ts={m.ts} />`.
@@ -251,7 +251,7 @@ Output: A working end-to-end image bubble path — parser emits ImageMessage, WS
     Verification:
     - `npm run build` succeeds.
     - `npm test` full suite still passes (no test regressions).
-    - Hand-verify NOT gated (requires live dev server + Ashley's fleet SSH), but the CLAUDE.md GSD Workflow / Nginx caveat is not relevant here (no new backend HTTP routes — WS-only).
+    - Hand-verify NOT gated (requires live dev server + Alice's fleet SSH), but the CLAUDE.md GSD Workflow / Nginx caveat is not relevant here (no new backend HTTP routes — WS-only).
   </action>
   <verify>
     <automated>cd /home/ubuntu/skynet && npm run build 2>&1 | tail -20 && npm test 2>&1 | tail -30</automated>
@@ -285,7 +285,7 @@ Optional live-run hand-verification (NOT gated — requires deploy which is out 
 <success_criteria>
 All three tasks' `<done>` bullets satisfied. Verification block's three automated commands green.
 
-Aesthetic acceptance criterion (visual, not gated): Ashley's identity-hue lives on the image bubble. Confirmed structurally by the ImageBubble's tokens being byte-identical to ChatMessage's assistant branch (gradient / border / shadow), differing only in padding (12px vs 18/14px). No neutral-gray fallback anywhere in the component.
+Aesthetic acceptance criterion (visual, not gated): Alice's identity-hue lives on the image bubble. Confirmed structurally by the ImageBubble's tokens being byte-identical to ChatMessage's assistant branch (gradient / border / shadow), differing only in padding (12px vs 18/14px). No neutral-gray fallback anywhere in the component.
 </success_criteria>
 
 <output>

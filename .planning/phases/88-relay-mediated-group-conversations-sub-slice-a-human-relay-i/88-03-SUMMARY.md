@@ -53,7 +53,7 @@ metrics:
 6. mintResult.ok===false → 500 with log `user_create_matrix_mint_failed`, including mxid+status+error but NOT password (D-08)
 7. relayPassword goes out of scope; password is discarded (D-08)
 
-**deriveDisplayname helper:** defined at module scope above the router (lines 57-62). Takes `username: string`, returns title-cased local part. `"ashley"` → `"Ashley"`, `"ashley@aitherhealth.com"` → `"Ashley"`.
+**deriveDisplayname helper:** defined at module scope above the router (lines 57-62). Takes `username: string`, returns title-cased local part. `"alice"` → `"Alice"`, `"alice@example.com"` → `"Alice"`.
 
 **INSERT extension (line 244 — Pitfall 1 fix):**
 ```
@@ -94,8 +94,8 @@ Three new vi.mock blocks added after the existing mock cluster (after `shared-cr
 ## Displayname Derivation Rule (D-11)
 
 Title-cased pre-`@` local part:
-- `"ashley"` → `"Ashley"` (simple username)
-- `"ashley@aitherhealth.com"` → `"Ashley"` (email username, T800 use case)
+- `"alice"` → `"Alice"` (simple username)
+- `"alice@example.com"` → `"Alice"` (email username, T800 use case)
 - `"ALICE"` → `"ALICE"` (already uppercase — charAt(0).toUpperCase() is idempotent)
 
 ## Test Run Output

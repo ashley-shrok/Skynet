@@ -103,7 +103,7 @@ export function MicButton({
         // native long-press suppression utilities are grouped. Without this,
         // iOS Safari fires pointercancel mid-hold when the callout appears,
         // which the useHoldToRecord hook correctly routes to voice.cancel()
-        // — audibly cancelling Ashley's hold-to-record attempt.
+        // — audibly cancelling Alice's hold-to-record attempt.
         "[-webkit-touch-callout:none]",
         "text-[#f0ebe0] opacity-30 hover:opacity-90",
         "disabled:opacity-[0.15]",

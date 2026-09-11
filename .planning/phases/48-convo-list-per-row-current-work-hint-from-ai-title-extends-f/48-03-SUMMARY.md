@@ -31,7 +31,7 @@ key-files:
     - src/ui/state/session-working-store.test.ts
 decisions:
   - "Extended publishFleetStatusSessionState with a THIRD logically-independent axis (Axis C — aiTitle reconciliation via advanceSessionAiTitle) with a THIRD independent notify event on co-change frames — mirrors Phase 44 Plan 03's rejection of atomic-swap-then-notify-once. The alternative (an atomic-swap-then-notify-once inline last-wins) would fork the reconciliation predicate between the WS path and the seed path, defeating the single-chokepoint architecture. Test 13 (n0+3 assertion) locks this contract; it is the load-bearing invariant."
-  - "LAST-WINS semantics for aiTitle chokepoint (not max-wins like lastMessageAt): null NEVER overwrites (fail-open — transient null cannot blank cached string); identical string is Object.is no-op-no-notify (via `===` for string primitives, per 44-03 SUMMARY Test 9 pattern); otherwise write + notify. Rationale per CONTEXT.md § Working-store third axis: ai-titles EVOLVE as the session's topic drifts across turns, and strings have no numeric ordering — the freshest ARRIVAL is the correct value. Ashley 2026-08-19 verbatim: 'If WS says Debug X and later WS says Fix Y, we want Fix Y'. Test 5 documents this rationale inline."
+  - "LAST-WINS semantics for aiTitle chokepoint (not max-wins like lastMessageAt): null NEVER overwrites (fail-open — transient null cannot blank cached string); identical string is Object.is no-op-no-notify (via `===` for string primitives, per 44-03 SUMMARY Test 9 pattern); otherwise write + notify. Rationale per CONTEXT.md § Working-store third axis: ai-titles EVOLVE as the session's topic drifts across turns, and strings have no numeric ordering — the freshest ARRIVAL is the correct value. Alice 2026-08-19 verbatim: 'If WS says Debug X and later WS says Fix Y, we want Fix Y'. Test 5 documents this rationale inline."
   - "seedSessionAiTitle takes tmuxSession as a REQUIRED string (not nullable) — matches Phase 44 Plan 03 seedSessionLastMessageAt's contract for symmetry; the /sessions/list route always emits non-null sessionName, and CONTEXT.md locks 'identity name === tmux session name === /id target' so the seed path never fires for null tmuxSession."
   - "Key format for seed API: `${String(hostId)}:${tmuxSession}` — explicit String() coerce, exact mirror of seedSessionLastMessageAt's format so cross-path LAST-WINS + isWorking-preservation both work by key alignment. Test 10 locks the exact format."
   - "advanceSessionAiTitle is internal (not exported) — only reachable via seedSessionAiTitle (exported) OR publishFleetStatusSessionState (already exported). Matches the Phase 44 Plan 03 pattern for advanceSessionLastMessageAt: keeps the writable API surface narrow so a future audit for 'who writes aiTitle?' has exactly 2 answers."
@@ -80,7 +80,7 @@ Extend the working-store to a THIRD axis (aiTitle) with LAST-WINS reconciliation
   - **Test 2 (WS-only):** publish with `aiTitle:"Fix bug X"` → cache reads `"Fix bug X"` (Axis C write).
   - **Test 3 (seed then WS newer, LAST-WINS):** seed="Debug X", WS="Fix Y" → cache reads "Fix Y"; isWorking reflects WS frame.
   - **Test 4 (WS then seed newer, LAST-WINS):** WS="Debug X" busy, seed="Fix Y" → cache reads "Fix Y"; isWorking:true preserved from WS.
-  - **Test 5 (LAST-WINS regardless of chronology):** seed="Fix Y", WS="Debug X" → cache reads "Debug X" (WS arrived last). Inline comment documents Ashley 2026-08-19 rationale and the key distinction from max-wins.
+  - **Test 5 (LAST-WINS regardless of chronology):** seed="Fix Y", WS="Debug X" → cache reads "Debug X" (WS arrived last). Inline comment documents Alice 2026-08-19 rationale and the key distinction from max-wins.
   - **Test 6 (seed null — no-op):** empty cache stays empty.
   - **Test 7 (WS null after cached string — no regression):** seed="Fix Y", WS omitting aiTitle → cache stays "Fix Y" (null NEVER overwrites; invariant 1 lock).
   - **Test 8 (identical string seed — no double-notify):** two seeds with title="X"; subscriber fires exactly once (Object.is guard lock).
@@ -154,7 +154,7 @@ The plan's `<verification>` block explicit target (session-working-store + conve
 | `grep -c 'getSessionAiTitle(' src/ui/state/session-working-store.test.ts` | ≥ 8 | 12 ✓ |
 | `grep -c 'useSessionAiTitle(' src/ui/state/session-working-store.test.ts` | ≥ 1 | 4 ✓ |
 | `grep -Ec 'n0 \+ 3\|toBe\(3\)\|\+ 3\)' src/ui/state/session-working-store.test.ts` | ≥ 1 | 1 ✓ |
-| `grep -c 'last-wins\|LAST-WINS\|Ashley 2026-08-19\|topic drift' src/ui/state/session-working-store.test.ts` | ≥ 2 | 17 ✓ |
+| `grep -c 'last-wins\|LAST-WINS\|Alice 2026-08-19\|topic drift' src/ui/state/session-working-store.test.ts` | ≥ 2 | 17 ✓ |
 | `npx vitest run src/ui/state/session-working-store.test.ts` | exit 0 (46/46) | exit 0 (46/46) ✓ |
 | `npx vitest run src/ui/state/` | exit 0 | exit 0 (200/200) ✓ |
 | `npm run build` | exit 0 | exit 0 ✓ |

@@ -1,6 +1,6 @@
 # Phase 19 UAT Checklist — Streaming TTS Output via Chatterbox /tts (patch #237)
 
-**Target:** Ashley
+**Target:** Alice
 **Timing:** After `docker compose up -d --force-recreate skynet` completes AND the HTTP2_PROTOCOL_ERROR first-hard-refresh known-issue (patch #232 discovery) has been cleared.
 **URL:** https://term.example.com
 **Estimated duration:** ~5 minutes
@@ -145,14 +145,14 @@
 **What must be TRUE:**
 - Default voice is Elena (unchanged from patch #223). The streaming route did NOT switch the default to Adrian or any Nelly-demo voice.
 
-**Why this matters:** The Chatterbox demo Nelly showed used `Adrian.wav`; the plan explicitly locked `Elena.wav` as the Skynet default (Ashley: "we're not gonna switch our default voice just because nelly picked a random one to do the demo with"). The backend's `predefined_voice_id: voice ?? "Elena.wav"` fallback should produce Elena on any message where no identity voice override is set.
+**Why this matters:** The Chatterbox demo Nelly showed used `Adrian.wav`; the plan explicitly locked `Elena.wav` as the Skynet default (Alice: "we're not gonna switch our default voice just because nelly picked a random one to do the demo with"). The backend's `predefined_voice_id: voice ?? "Elena.wav"` fallback should produce Elena on any message where no identity voice override is set.
 
 ---
 
 ## Bonus — iOS Safari on PWA
 
 **What to do:**
-1. On Ashley's iPhone PWA, repeat Item 1 (streaming latency on a long message).
+1. On Alice's iPhone PWA, repeat Item 1 (streaming latency on a long message).
 
 **What must be TRUE:**
 - iOS Safari Web Audio API plays the streaming response. (Verified via the same-day spike of Nelly's demo on 2026-07-31; this bonus item confirms Skynet's implementation retains the property end-to-end through Caddy + nginx + Express + Chatterbox on the real production stack.)
@@ -176,4 +176,4 @@ If ANY item 1-7 fails and the failure cannot be quickly diagnosed:
    - Item 5 returns 404: nginx location block not loaded — `docker exec skynet grep -n speak-stream /tmp/nginx/nginx.conf` to confirm the block is in the runtime config.
    - Item 6 returns 200 (no auth): auth middleware regression — immediate rollback required.
 
-Sign-off (Ashley): __________ Date: __________
+Sign-off (Alice): __________ Date: __________

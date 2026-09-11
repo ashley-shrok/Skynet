@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-08-13
 **Status:** Ready for planning
-**Source:** In-chat design lock with Ashley 2026-08-13
+**Source:** In-chat design lock with Alice 2026-08-13
 
 <domain>
 ## Phase Boundary
@@ -14,7 +14,7 @@ Adds an additional gesture — press-and-hold — to the existing ComposeBox sen
 - Same gesture on the slot compose box's send button (whichever function/site renders the slot-version of send; grep-find during planning — Phase 16 slot support exists).
 - Threshold: **250ms** press-hold to enter "recording" state. Short taps under this threshold fire the existing `handleSend()` path unchanged (byte-identical send behavior for typed messages).
 - On entering hold-record: call `voice.start()` synchronously inside the `pointerdown` handler (D-16-02 iOS Safari constraint — `getUserMedia` must be the first non-conditional statement inside the tap handler; NO await before it).
-- On release inside button bounds: call `voice.endSend(text)` (which stops the recorder, transcribes, glues transcript to any typed text via the existing single-space rule, and returns `{transcript, glued}`), then route through the existing `handleSend(glued)` — matches the current RecordingControls `onSend` behavior byte-for-byte. Ashley 2026-08-13 verbatim: "I think it should just act the same way as when you normally hit the send button while you're recording, where it takes what's in the text area and what you said and sends both along."
+- On release inside button bounds: call `voice.endSend(text)` (which stops the recorder, transcribes, glues transcript to any typed text via the existing single-space rule, and returns `{transcript, glued}`), then route through the existing `handleSend(glued)` — matches the current RecordingControls `onSend` behavior byte-for-byte. Alice 2026-08-13 verbatim: "I think it should just act the same way as when you normally hit the send button while you're recording, where it takes what's in the text area and what you said and sends both along."
 - On slide-off-then-release (pointerup outside button's bounding rect, or pointerleave followed by pointerup): call `voice.cancel()` (discards blob, no fetch, returns to idle). No take-backs — once off, releasing anywhere is committed cancel.
 - Visual during hold: pulse/tint the send button IN PLACE (e.g., paper-plane color shifts toward `--color-pv-code-fg` coral, or a small pulse ring). Do NOT swap the button for RecordingControls under the pointer — morphing the button the user is pressing makes the slide-off-to-cancel gesture fuzzy (planner picks the exact visual per pv-palette).
 - Guard: hold-to-record is inert when the send button is morphed to X for aside-dismiss (`asideActive === true`) — X isn't a Send, so a hold on it shouldn't record. Short-tap on X continues to fire `onAsideDismiss?.()` unchanged.
@@ -23,7 +23,7 @@ Adds an additional gesture — press-and-hold — to the existing ComposeBox sen
 - Tests covering: threshold boundary (249ms tap-sends vs 250ms hold-records), slide-off-cancel, coexistence with typed text (both send together via glue), aside-morph inertness, disabled-state inertness, `voice.state !== "idle"` guard, iOS Safari sync-gesture invariant (getUserMedia called from pointerdown without any await preceding it), interaction with the co-rendered MicButton (both paths independently usable).
 
 **Out of scope:**
-- Retiring `MicButton` or `RecordingControls` — both paths coexist. Ashley 2026-08-13: "I'm cool with the threshold you mentioned … we keep both paths, you know this hold thing is just another way to interact."
+- Retiring `MicButton` or `RecordingControls` — both paths coexist. Alice 2026-08-13: "I'm cool with the threshold you mentioned … we keep both paths, you know this hold thing is just another way to interact."
 - Slide-back-on-cancels-the-cancel physics — once your finger leaves the button's bounding rect, release commits cancel.
 - Waveform display / level meter during recording (D-16-06 already prohibits these for the mic-tap flow; hold-record inherits).
 - Haptic feedback on hold-detected (mobile-only nice-to-have; deferred).
@@ -36,7 +36,7 @@ Adds an additional gesture — press-and-hold — to the existing ComposeBox sen
 </domain>
 
 <decisions>
-## Implementation Decisions (locked with Ashley 2026-08-13)
+## Implementation Decisions (locked with Alice 2026-08-13)
 
 ### Coexistence with typed text — LOCKED
 Reuse the existing `voice.endSend(currentText)` behavior verbatim: transcript is glued to `currentText` using the existing `applyGlue` single-space rule in `useVoiceRecording.ts:236-239`, and the combined string is fed to the same `handleSend(glued)` used by RecordingControls' `onSend`. Same byte-path as today's tap-mic → tap-Send-in-controls flow. No new glue behavior.
@@ -51,7 +51,7 @@ Slide off the send button (pointer leaves the button's bounding rect) then relea
 Keep BOTH paths. The tap-mic (`MicButton`) → three-button `RecordingControls` (Cancel / Append / Send) flow stays fully functional as the "careful record with append option" affordance. Hold-send is an ADDITIONAL fast-path gesture on the send button — it doesn't replace or shadow the mic path. Both paths use the same underlying `useVoiceRecording` hook, so they are naturally mutually-exclusive at the state-machine level (`voice.state === "idle"` guard prevents double-arm).
 
 ### Visual during hold — LOCKED (orchestrator default 1)
-Pulse/tint the send button IN PLACE during hold-record. Do NOT swap in `RecordingControls` under the pointer. Rationale (Tanya default, Ashley greenlit 2026-08-13): morphing the button the user is currently pressing makes the slide-off-to-cancel gesture fuzzy — the finger is on a different-looking button and the "am I still on the target" mental model gets muddy. Planner picks the exact tint from the pv-palette (`--color-pv-code-fg` coral is the natural choice — matches the RecordingControls Send button color).
+Pulse/tint the send button IN PLACE during hold-record. Do NOT swap in `RecordingControls` under the pointer. Rationale (Tanya default, Alice greenlit 2026-08-13): morphing the button the user is currently pressing makes the slide-off-to-cancel gesture fuzzy — the finger is on a different-looking button and the "am I still on the target" mental model gets muddy. Planner picks the exact tint from the pv-palette (`--color-pv-code-fg` coral is the natural choice — matches the RecordingControls Send button color).
 
 ### Aside-morph case — LOCKED (orchestrator default 2)
 When `asideActive === true` (send button rendered as X for aside dismiss, `ComposeBox.tsx:2407-2413`), hold-to-record is INERT. The X isn't a Send — it dismisses the aside via `onAsideDismiss?.()`. Short-tap continues to fire the dismiss handler unchanged. Long-press does nothing.
@@ -61,7 +61,7 @@ The pointerdown handler MUST call `voice.start()` synchronously as its first non
 
 Two allowable implementation shapes that both preserve the invariant:
 1. **Optimistic start + rollback**: call `voice.start()` immediately on pointerdown (before the 250ms mark); if pointerup fires before 250ms, treat it as a short tap and call `voice.cancel()` to discard the just-started recording, then invoke `handleSend()`. Simpler; the "silent recording flash" is harmless since no chunks land in that window.
-2. **Debounced start with sync-safe pattern**: use a `setTimeout(250)` inside pointerdown to actually call `voice.start()`. Requires verifying iOS Safari accepts the delayed getUserMedia call — MUST prototype/test on real iOS before shipping. **Recommend shape 1** unless prototype confirms shape 2 works on iOS Safari 26.6 (Ashley's device baseline per Phase 31 STATE entry).
+2. **Debounced start with sync-safe pattern**: use a `setTimeout(250)` inside pointerdown to actually call `voice.start()`. Requires verifying iOS Safari accepts the delayed getUserMedia call — MUST prototype/test on real iOS before shipping. **Recommend shape 1** unless prototype confirms shape 2 works on iOS Safari 26.6 (Alice's device baseline per Phase 31 STATE entry).
 
 ### Claude's Discretion (planner picks)
 
@@ -149,4 +149,4 @@ Two allowable implementation shapes that both preserve the invariant:
 ---
 
 *Phase: 32-hold-to-send-gesture-on-send-button*
-*Context gathered: 2026-08-13 via in-chat design lock with Ashley*
+*Context gathered: 2026-08-13 via in-chat design lock with Alice*

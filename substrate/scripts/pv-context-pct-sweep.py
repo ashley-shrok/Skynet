@@ -16,7 +16,7 @@ Wire contract (canonical): src/backend/claude-session/pv-sweep-schema.ts.
     - Field names + types must be BYTE-IDENTICAL to the TypeScript interface PvSweepLine.
 
 Invocation (production, per-WS per 3s from the contextPctTimer callback):
-    ~/.local/bin/pv-context-pct-sweep --identities tiffany,ashley,zoeysephilya
+    ~/.local/bin/pv-context-pct-sweep --identities tiffany,alice,zoeysephilya
 
 Arguments:
     --identities <comma-separated>   identities to sweep (may be a single identity).

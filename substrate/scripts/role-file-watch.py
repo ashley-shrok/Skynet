@@ -10,14 +10,14 @@ needing a full recycle.
 Why this exists: closes the mid-session gap where an agent's in-context copy of its
 role file or its own identity file has diverged from disk. For the role file, that's
 a peer identity of the same role editing it in another session. For the identity
-file, that's almost always Ashley editing it directly (cosmetic frontmatter changes,
+file, that's almost always Alice editing it directly (cosmetic frontmatter changes,
 an identity-scope `remember`) — peer sessions of the SAME identity are essentially
 impossible. Every fresh /id load STILL reads both files from scratch; this is purely
 additive.
 
 The watch is diff-first and dumb on purpose: it fires the unified diff of what
 changed (inline when small, spilled to a file pointer when large), and lets the AGENT
-decide whether the change is its own echo, a peer's, or Ashley's. See the design
+decide whether the change is its own echo, a peer's, or Alice's. See the design
 rationale in:
   .planning/shapes/shape-role-file-watch.md (in the box-maintainer role's Skynet repo)
 

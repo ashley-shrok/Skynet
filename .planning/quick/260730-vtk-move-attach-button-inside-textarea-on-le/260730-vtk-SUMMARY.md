@@ -87,7 +87,7 @@ Comment block updated to reflect the removal; Patch #83/#84 markers preserved ve
 **Added:**
 ```jsx
 {/* Quick 260730-vtk: Paperclip attach button moved from Row 1
-    aux group to here per Ashley 2026-07-30. Mirrors Send's
+    aux group to here per Alice 2026-07-30. Mirrors Send's
     inside-textarea pattern on the LEFT (Send is right-1
     bottom-0.5; Paperclip is left-1 bottom-0.5). Bare <button>
     not shadcn Button — same reason as Send (#129 wrapper-

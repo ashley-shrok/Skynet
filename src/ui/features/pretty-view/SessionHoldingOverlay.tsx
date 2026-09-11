@@ -1,7 +1,7 @@
 // Patch #74: full-surface session-recycle overlay for the pretty view.
 //
 // Replaces the previous `SessionHoldingBanner.tsx` sticky top-of-scroll
-// pill. Ashley's live 2026-07-19 design read: the old top-bar treatment
+// pill. Alice's live 2026-07-19 design read: the old top-bar treatment
 // was "too subtle for how significant the state actually is" — a session
 // recycle means the pretty-view surface is genuinely unusable for the
 // next few seconds, and the UI should communicate that with a scrim +
@@ -16,7 +16,7 @@
 //     against the chat-region — covering messages, WIP / plan
 //     bubbles, ambient panels, and the jump-to-latest pill — while
 //     the ComposeBox (peer sibling below the wrapper) stays
-//     UNCOVERED so Ashley can pre-draft the next message during the
+//     UNCOVERED so Alice can pre-draft the next message during the
 //     2-15s recycle window. ComposeBox's own `recycleActive` prop
 //     handles disabling every WS-side-effecting control during the
 //     window; textarea autosave (patches #57 / #119) preserves the
@@ -104,7 +104,7 @@ export function SessionHoldingOverlay({
         // now covers messages / tasks / shells only — ComposeBox
         // stays UNCOVERED. z-[99] sits BELOW IdentityBadge (z-[101])
         // so the badge stays visible AND clickable during a session
-        // recycle — Ashley wants to see who's speaking and open the
+        // recycle — Alice wants to see who's speaking and open the
         // identity modal even mid-recycle (supersedes patch #111
         // rationale; live feedback reversed the prior elevation so the
         // badge is no longer covered). Still below app-modal dialogs

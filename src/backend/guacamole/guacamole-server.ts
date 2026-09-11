@@ -154,7 +154,7 @@ function installWsHeartbeat(ws: WsLike): void {
 // gets taken over reads as "moved to another window, not broken." Killing
 // the prior client also releases its guacd worker (the CPU-heavy piece of
 // each concurrent RDP session — 50-80% of a core per stream), which is the
-// whole point: Ashley opens the same host in multiple browser windows to
+// whole point: Alice opens the same host in multiple browser windows to
 // grab it quickly, and only the newest window should hold a live guacd.
 //
 // Scoped to RDP only. VNC and Telnet don't insert into the map, don't get

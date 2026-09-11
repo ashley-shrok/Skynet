@@ -135,7 +135,7 @@ export async function startHarnessOnIdentity(
   // 2. Claude launch via tmux send-keys -l (literal mode so env-vars aren't
   //    pre-expanded by the shell before tmux sees them). Nelly §1(d-e).
   // -------------------------------------------------------------------------
-  // `--model opus` pins the Opus 4.7 [1m] variant explicitly (Ashley 2026-09-03).
+  // `--model opus` pins the Opus 4.7 [1m] variant explicitly (Alice 2026-09-03).
   // Claude Code v2.1.150's client-side default silently flipped from Opus → Sonnet
   // sometime between 2026-09-02 15:58Z and 2026-09-03 02:02Z, catching every
   // fresh-recycled fleet identity on Sonnet 4.6 (200K ctx) instead of Opus 4.7 [1m]

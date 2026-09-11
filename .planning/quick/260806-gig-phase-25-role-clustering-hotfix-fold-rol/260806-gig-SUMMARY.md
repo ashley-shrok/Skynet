@@ -23,7 +23,7 @@ key_files:
     - src/ui/state/conversation-store.ts
     - src/ui/state/conversation-store.cache.test.ts
 decisions:
-  - "Fold role resolution into per-host session enum path (same SSH conn) per LOCKED Ashley decision — not re-debated"
+  - "Fold role resolution into per-host session enum path (same SSH conn) per LOCKED Alice decision — not re-debated"
   - "Per-identity timeout uses same PER_HOST_TIMEOUT_MS=3000 constant as list-sessions timeout"
   - "isFleetSession guard requires role field — old cached items without role get filtered (cold start on first post-deploy load, acceptable)"
   - "rowFromTab gets sessionRoleByKey Map parameter to prefer fleet-authoritative role over identitiesByKey fallback"

@@ -41,7 +41,7 @@ metrics:
 
 # Quick 260727-uae: Rename fleet-wide bounty status `on_deck` → `pinned` — fork sweep Summary
 
-Fleet-wide, the bounty JSON schema value `on_deck` has been retired in favor of `pinned` per `~/.claude/skills/id/SKILL.md § Schema`. This quick swept every remaining reference under `src/` (backend reader + WS wire field + frontend consumer types + store + badge + BountyCard status map + IdentityModal doc comments) into a lockstep rename staged as two atomic commits, then renamed the tb1 patch's identity bounty folder to match. Full pre-push verification sweep is green; branch is on `feat/tab-title-from-tmux`, not pushed, not built for deploy — awaiting Ashley's ship-it signal.
+Fleet-wide, the bounty JSON schema value `on_deck` has been retired in favor of `pinned` per `~/.claude/skills/id/SKILL.md § Schema`. This quick swept every remaining reference under `src/` (backend reader + WS wire field + frontend consumer types + store + badge + BountyCard status map + IdentityModal doc comments) into a lockstep rename staged as two atomic commits, then renamed the tb1 patch's identity bounty folder to match. Full pre-push verification sweep is green; branch is on `feat/tab-title-from-tmux`, not pushed, not built for deploy — awaiting Alice's ship-it signal.
 
 ## What Shipped
 
@@ -72,7 +72,7 @@ Fleet-wide, the bounty JSON schema value `on_deck` has been retired in favor of 
   - `updated_at`: bumped to `2026-07-27T22:01:32Z`
   - `timeline[]`: appended entry recording the fleet-wide rename + this fork sweep + the folder rename
   - `status`: **unchanged** at `waiting_on_someone_else` (this rename does not resolve the tb1 bounty's blocking-on-deploy axis; explicitly preserved per plan direction)
-  - `premise`: **unchanged** (historical record of the original design conversation; the `on-deck` phrasing there is what Ashley said at the time)
+  - `premise`: **unchanged** (historical record of the original design conversation; the `on-deck` phrasing there is what Alice said at the time)
 
 ## Commits On Branch
 
@@ -108,7 +108,7 @@ Pre-push sweep per patch #154 discipline (file-redirect + explicit exit-code cap
 - **Fix:** Ran the unified `npm run test` suite instead. Result: 709 passed / 6 skipped across 60 test files — matches the plan's baseline sum (223 backend + 486 frontend = 709). Both count-bounties test files (backend + frontend) are in the run and would have loudly failed on import if the rename had been incomplete on either side, so the unified pass gives the same signal as the split the plan asked for.
 - **Files modified:** none (verification-only adjustment).
 - **Commit:** none.
-- **Follow-up:** if Ashley wants a scripted split, adding `"test:backend": "vitest run src/backend"` + `"test:frontend": "vitest run src/ui"` would take one line each in `package.json` — flagged for a separate cleanup patch if desired, not scoped here.
+- **Follow-up:** if Alice wants a scripted split, adding `"test:backend": "vitest run src/backend"` + `"test:frontend": "vitest run src/ui"` would take one line each in `package.json` — flagged for a separate cleanup patch if desired, not scoped here.
 
 ### Auth Gates
 
@@ -116,7 +116,7 @@ None.
 
 ## Handoff Line
 
-**Branch state (feat/tab-title-from-tmux):** backend + frontend on_deck→pinned rename committed on the branch (2 commits: 72367d9 backend, ca12bd9 frontend); identity bounty folder renamed (`pretty-conversations-on-deck-badge` → `pretty-conversations-pinned-badge`, bounty.json title + timeline + updated_at swept; status unchanged); build:backend + build + full test suite (709/709 passed) all green; fleet-wide zero-drift grep = 0 matches under `src/`. NOT pushed, NOT docker-built, NOT `docker compose up` — stopped at the push authorization boundary per fleet rule (Ashley 2026-07-27, patch #153 lesson). Waiting on your "ship it" / "deploy" signal before `git push` + docker build + `docker compose up -d --force-recreate skynet` (which runs behind the 15-min deadman rollback timer per Ashley 2026-07-03, no exceptions).
+**Branch state (feat/tab-title-from-tmux):** backend + frontend on_deck→pinned rename committed on the branch (2 commits: 72367d9 backend, ca12bd9 frontend); identity bounty folder renamed (`pretty-conversations-on-deck-badge` → `pretty-conversations-pinned-badge`, bounty.json title + timeline + updated_at swept; status unchanged); build:backend + build + full test suite (709/709 passed) all green; fleet-wide zero-drift grep = 0 matches under `src/`. NOT pushed, NOT docker-built, NOT `docker compose up` — stopped at the push authorization boundary per fleet rule (Alice 2026-07-27, patch #153 lesson). Waiting on your "ship it" / "deploy" signal before `git push` + docker build + `docker compose up -d --force-recreate skynet` (which runs behind the 15-min deadman rollback timer per Alice 2026-07-03, no exceptions).
 
 ## Self-Check: PASSED
 

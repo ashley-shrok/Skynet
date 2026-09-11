@@ -42,7 +42,7 @@ must_haves:
 <objective>
 Patch #145: fix active-glow on URL-restore and persisted-tab-restore paths.
 
-Ashley UAT'd patch #144 on 2026-07-24 and reported that a browser tab pre-loaded pointing at a session (URL-restore path) does NOT show that session as glowing in the sidebar. Tina's V2 DevTools diag on Ashley's tab (href `#tab=tmux:thenasty:yolanda`) confirmed: `sessionStorage["pv-conv-active-set"]` is EMPTY, 0 `.pv-row` elements have `.active-set` class, and `state.selectedId` stays null despite the URL clearly targeting a specific tab. Only clicking on the row makes it glow.
+Alice UAT'd patch #144 on 2026-07-24 and reported that a browser tab pre-loaded pointing at a session (URL-restore path) does NOT show that session as glowing in the sidebar. Tina's V2 DevTools diag on Alice's tab (href `#tab=tmux:thenasty:yolanda`) confirmed: `sessionStorage["pv-conv-active-set"]` is EMPTY, 0 `.pv-row` elements have `.active-set` class, and `state.selectedId` stays null despite the URL clearly targeting a specific tab. Only clicking on the row makes it glow.
 
 Root cause: `AppShell.tsx:900` (URL-driven initial open) and `:832` (persisted-tab-restore) both call `setActiveTabId(id)` — local AppShell state — but neither calls `selectConversationDeferred(id)` on the conversation store. The sidebar click handlers at `AppShell.tsx:1295, 1309, 1317` correctly call both. With `state.selectedId` null, the patch #144 useEffect `if (selectedId) addToActiveSet(selectedId)` in `PrettyConversationsPanel.tsx:162-164` skips → activeSet stays empty → no glow.
 
@@ -98,19 +98,19 @@ Do NOT touch the sidebar click handlers at lines 1295/1309/1317 — they already
 
 Do NOT touch any tests — no new tests are needed. Justification (record in commit body): the bug lived outside test coverage entirely (URL routing + persisted-tab restore paths); the fix is a symmetric 2-line change matching an existing tested pattern (click handlers); adding a new test file for this would double the size of the change, require simulating window.location.hash / IndexedDB persistence in the AppShell test harness (neither currently mocked), and blur the surgical intent. If a future patch chooses to add coverage here it belongs in a dedicated AppShell mount-restore test suite, not bolted onto this fix.
 
-Do NOT include any deploy step. Deploy will be recommended after patch #146 (log-forwarder prototype) also lands (batched-deploy rule per Ashley 2026-07-23). Patch # in commit message is 145.
+Do NOT include any deploy step. Deploy will be recommended after patch #146 (log-forwarder prototype) also lands (batched-deploy rule per Alice 2026-07-23). Patch # in commit message is 145.
 
-Do NOT write to `~/.claude/identities/tina/skynet-patches.md` — write-up is deferred per the batching rule (Ashley 2026-07-23) and will be written up alongside #146 at deploy-recommendation time.
+Do NOT write to `~/.claude/identities/tina/skynet-patches.md` — write-up is deferred per the batching rule (Alice 2026-07-23) and will be written up alongside #146 at deploy-recommendation time.
 
 Commit message (single atomic commit on `feat/tab-title-from-tmux`, NO Co-Authored-By trailer per fork convention):
 ```
 patch #145: fix active-glow on URL-restore and persisted-tab-restore
 
-Ashley UAT of #144 caught that URL-preloaded tabs (href
+Alice UAT of #144 caught that URL-preloaded tabs (href
 '#tab=tmux:thenasty:yolanda') and persisted-tab-restored tabs did
 NOT light up in the sidebar. Tina's V2 DevTools diag confirmed
 sessionStorage['pv-conv-active-set'] empty and 0 rows with
-.active-set class on Ashley's tab.
+.active-set class on Alice's tab.
 
 Root cause: AppShell.tsx:832 (persisted-tab-restore) and :900
 (URL-driven initial open) called setActiveTabId(id) — local AppShell
@@ -142,14 +142,14 @@ pattern. Deploy deferred: batched with #146.
 - `git diff --stat src/ui/AppShell.tsx` shows exactly 1 file changed, +2 -0
 - No changes to any other file (import block untouched, click handlers untouched, tests untouched, skynet-patches.md untouched)
 - Single atomic commit on `feat/tab-title-from-tmux` with the message above, NO Co-Authored-By trailer
-- No push, no deploy (batched with #146 per Ashley 2026-07-23)
+- No push, no deploy (batched with #146 per Alice 2026-07-23)
   </done>
 </task>
 
 </tasks>
 
 <verification>
-Post-execution manual UAT (Ashley or Tina, deferred to next deploy — NOT gating this patch's commit):
+Post-execution manual UAT (Alice or Tina, deferred to next deploy — NOT gating this patch's commit):
 1. Load skynet with a URL fragment targeting an active session (e.g. `#tab=tmux:thenasty:yolanda`)
 2. Confirm the sidebar row for that session shows the full pretty-view active-glow bubble treatment (hue-tinted gradient, border, shadow) — NOT the flat ambient recession treatment
 3. Open DevTools → Application → Session Storage, verify `pv-conv-active-set` contains the URL-targeted tab id

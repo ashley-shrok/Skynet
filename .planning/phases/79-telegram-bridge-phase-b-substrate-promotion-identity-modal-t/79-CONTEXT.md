@@ -12,33 +12,33 @@
 
 Take Nina's hand-configured Telegram bridge — currently a one-off systemd USER unit at `/home/thenasty/.config/tg-bridge/` — and make it a first-class shipping piece of Skynet, distributed by the fleet distributor and configured through the identity modal. Each identity opts in to wrist-reachability via a bot-token paste in a dedicated Telegram tab. Bridge lives where Skynet lives (t1000 for this deployment, T800 for Stacy's). Human Matrix passwords never touch disk; admin mints tokens on demand.
 
-## Shape overrides (Ashley 2026-09-06, discuss-phase)
+## Shape overrides (Alice 2026-09-06, discuss-phase)
 
-- **The shape file's "Migrating co-located relay+bridge onto Skynet box → deferred" is REVERSED for the bridge.** The bridge co-locates with Skynet in Phase B — that's the entire point of substrate promotion. Ashley verbatim: *"the whole point of this is that the bridge is becoming a part of Skynet"* / *"by the time this is done, the bridge is a shipping piece of Skynet, just like Agent Supervisor and everything else"* / *"the shapefile should not have deferred that i didn't agree to it."* The **relay/Matrix homeserver** stays on thenasty (Nicole's infra); only the bridge relocates.
+- **The shape file's "Migrating co-located relay+bridge onto Skynet box → deferred" is REVERSED for the bridge.** The bridge co-locates with Skynet in Phase B — that's the entire point of substrate promotion. Alice verbatim: *"the whole point of this is that the bridge is becoming a part of Skynet"* / *"by the time this is done, the bridge is a shipping piece of Skynet, just like Agent Supervisor and everything else"* / *"the shapefile should not have deferred that i didn't agree to it."* The **relay/Matrix homeserver** stays on thenasty (Nicole's infra); only the bridge relocates.
 
 ---
 
 ## Attribution corrections (2026-09-06 course-correction after planning-phase surface)
 
-An earlier revision of this file (and the earlier DISCUSSION-LOG) attributed decisions to Ashley she didn't actually make. Course-corrected 2026-09-06:
+An earlier revision of this file (and the earlier DISCUSSION-LOG) attributed decisions to Alice she didn't actually make. Course-corrected 2026-09-06:
 
-- **"Ashley 2026-08-30 normalized substrate services as user-scope"** — INVENTED by me (Tina). Ashley never said this; I pattern-matched from `agent-supervisor` being USER-scope and packaged the inference as her decision. Ashley verbatim on 2026-09-06: *"decisions get attributed to me that I didn't actually make. Because I don't even know why I would care about user scoping."* The systemd USER-scope decision is REMOVED — the bridge is a Docker Compose service (see § 4C-revised below), which drops the systemd question entirely.
-- **"Ashley decision #1 = wire an SSH credential to host id 6"** — was Ashley's greenlight of my recommendation, but was BASED ON my erroneous assumption that the Skynet host is guaranteed to be self-registered in Skynet's own host DB. Ashley 2026-09-06 corrected: *"the host machine that the app is running on will actually be a host that is registered into Skynet"* → NOT guaranteed. Decision #1 is REMOVED. The Skynet-container-to-host install pathway becomes irrelevant because the bridge no longer runs on the host (see § 4C-revised below).
+- **"Alice 2026-08-30 normalized substrate services as user-scope"** — INVENTED by me (Tina). Alice never said this; I pattern-matched from `agent-supervisor` being USER-scope and packaged the inference as her decision. Alice verbatim on 2026-09-06: *"decisions get attributed to me that I didn't actually make. Because I don't even know why I would care about user scoping."* The systemd USER-scope decision is REMOVED — the bridge is a Docker Compose service (see § 4C-revised below), which drops the systemd question entirely.
+- **"Alice decision #1 = wire an SSH credential to host id 6"** — was Alice's greenlight of my recommendation, but was BASED ON my erroneous assumption that the Skynet host is guaranteed to be self-registered in Skynet's own host DB. Alice 2026-09-06 corrected: *"the host machine that the app is running on will actually be a host that is registered into Skynet"* → NOT guaranteed. Decision #1 is REMOVED. The Skynet-container-to-host install pathway becomes irrelevant because the bridge no longer runs on the host (see § 4C-revised below).
 
-**Standing directive for the rest of this file and for downstream agents (researcher / planner / executor):** if a decision is attributed to Ashley, it must be traceable to her literal words in the conversation transcript. Inferences and pattern-matches are labeled *"my inference"* or *"mirrors existing X pattern"* — never *"Ashley decided."* This is the fleet directive from Tina's role file: *"Capture the user's words verbatim — don't paraphrase into attribution."*
+**Standing directive for the rest of this file and for downstream agents (researcher / planner / executor):** if a decision is attributed to Alice, it must be traceable to her literal words in the conversation transcript. Inferences and pattern-matches are labeled *"my inference"* or *"mirrors existing X pattern"* — never *"Alice decided."* This is the fleet directive from Tina's role file: *"Capture the user's words verbatim — don't paraphrase into attribution."*
 
 ## Locked decisions
 
 ### 1. Bridge lives where Skynet lives — co-located, distributor-shipped
 
 - Bridge runs on the Skynet host: t1000 for this deployment, T800 for Stacy's, whatever host in the future.
-- Distributed by the **fleet-substrate distributor** as a universal substrate item (like `agent-supervisor.sh`). Not "distributed to only one host" — universal, same as every other substrate piece. Ashley verbatim: *"there's nothing in the distributor that takes a universal piece like the bridge and distributes it to only one host. like that would be dumb and silly and so it certainly doesn't work that way today and it would be weird for us to make it work that way as a part of this."*
+- Distributed by the **fleet-substrate distributor** as a universal substrate item (like `agent-supervisor.sh`). Not "distributed to only one host" — universal, same as every other substrate piece. Alice verbatim: *"there's nothing in the distributor that takes a universal piece like the bridge and distributes it to only one host. like that would be dumb and silly and so it certainly doesn't work that way today and it would be weird for us to make it work that way as a part of this."*
 - The systemd unit is enabled on the Skynet host as part of Skynet's own runtime setup (research decides exact wiring — see § Research questions).
 - **Config values the bridge reads come from Skynet's own config**, not hardcoded in the script. This is a HARD requirement — the shape's "each Skynet is its own island" clause is enforced at the config layer:
   - **Matrix homeserver URL** — comes from Skynet's Matrix config (same source `matrix_admin_creds.base` uses). Removes the hardcoded `http://100.113.23.63:8008` at the top of `bridge.sh`.
-  - **STT URL** — comes from Skynet's existing STT config (Ashley confirmed Skynet already has one — she uses voice input to Skynet, which uses the same STT endpoint). Removes the hardcoded `http://100.80.122.111:8000/v1/audio/transcriptions`.
+  - **STT URL** — comes from Skynet's existing STT config (Alice confirmed Skynet already has one — she uses voice input to Skynet, which uses the same STT endpoint). Removes the hardcoded `http://100.80.122.111:8000/v1/audio/transcriptions`.
   - **TTS URL** — if the bridge grows a TTS path, same rule: read from Skynet config.
-- **Reliability check for the executor:** if we come out of this phase and the bridge is NOT reading STT (and Matrix homeserver, and any other shared endpoint) from Skynet config, we've shipped a bug. Ashley verbatim: *"if we come out of this and the bridge is not using the config values for where to get speech to text from that Skynet also uses, then that will have been a mistake."*
+- **Reliability check for the executor:** if we come out of this phase and the bridge is NOT reading STT (and Matrix homeserver, and any other shared endpoint) from Skynet config, we've shipped a bug. Alice verbatim: *"if we come out of this and the bridge is not using the config values for where to get speech to text from that Skynet also uses, then that will have been a mistake."*
 
 ### 2. Identity modal — Telegram gets its own top-level tab under Identity view
 
@@ -58,11 +58,11 @@ An earlier revision of this file (and the earlier DISCUSSION-LOG) attributed dec
 **Activation errors (3B).**
 - **Bad bot token** (Telegram API rejects on paste): inline "Telegram rejected that token — check you copied the full string from @BotFather." Paste field cleared and focused. No backend write.
 - **Token accepts, bot silent** (no `/start` yet): persistent "waiting for you to send /start to @your-bot..." status with a **Copy bot link** button (`t.me/your-bot`). No timeout that flips to error — human gets to it when they get to it. A **Cancel** button wipes the pending state and returns to paste.
-- **Bridge restart fails** (Skynet-side): tab shows "Bridge didn't come back up — Telegram is not receiving messages right now." **Retry** button re-attempts the restart. **No automatic DM notification to the maintainer** (Ashley 2026-09-06: *"we're not going to automatically notify anyone"*). The tab surfaces the error; whoever is watching the modal deals with it or escalates manually.
+- **Bridge restart fails** (Skynet-side): tab shows "Bridge didn't come back up — Telegram is not receiving messages right now." **Retry** button re-attempts the restart. **No automatic DM notification to the maintainer** (Alice 2026-09-06: *"we're not going to automatically notify anyone"*). The tab surfaces the error; whoever is watching the modal deals with it or escalates manually.
 - **Network / registry-write failure**: "Couldn't save — try again in a moment." Retry button.
 
 **Restart-interrupts-others (3C) — do nothing special.**
-- Bridge restart is <5s. Matrix-cursor persistence (this phase's core reliability deliverable) means no messages drop during restart. Ashley 2026-09-06: *"as long as we're not ever dropping messages, I don't care that the restart happens."*
+- Bridge restart is <5s. Matrix-cursor persistence (this phase's core reliability deliverable) means no messages drop during restart. Alice 2026-09-06: *"as long as we're not ever dropping messages, I don't care that the restart happens."*
 - No confirm dialog warning about "briefly interrupting other Telegram bridges." No rate-limiting on activation ops.
 
 **Recovery from bad clicks (3D).**
@@ -85,7 +85,7 @@ An earlier revision of this file (and the earlier DISCUSSION-LOG) attributed dec
 - Phase B removes `<human>.cred` files entirely from the bridge disk. The `relogin()` function is deleted from `bridge.sh`.
 - **New token lifecycle:** Skynet mints tokens via `matrix-admin-client.loginAsUser(<mxid>)` (Phase 77 primitive). Skynet writes `<human>.token` (0600) to the bridge's registry directory. Bridge reads tokens; bridge never knows a password exists.
 - **When a token dies** (Synapse 401): bridge logs LOUD, continues attempting for other humans; that human's Matrix events queue on the relay. Skynet's next reconcile pass detects the dead-token state (via a status field OR by polling `/whoami` on stored tokens periodically — research decides) and re-mints via admin.
-- **Migration:** Phase B ships a one-shot migration that (a) admin-mints fresh tokens for Ashley + Zoe + Laura via `loginAsUser`, (b) writes new `<human>.token` files, (c) deletes existing `<human>.cred` files. The three existing humans get token-refreshed cleanly. Verify: bridge post-migration has zero `.cred` files anywhere.
+- **Migration:** Phase B ships a one-shot migration that (a) admin-mints fresh tokens for Alice + Zoe + Laura via `loginAsUser`, (b) writes new `<human>.token` files, (c) deletes existing `<human>.cred` files. The three existing humans get token-refreshed cleanly. Verify: bridge post-migration has zero `.cred` files anywhere.
 - **Fleet-wide "bridge still bridges if Skynet is unhealthy" invariant preserved:** tokens on disk survive Skynet downtime; only re-minting requires Skynet to be up, and that's the rare path.
 
 **4C. Bridge runs as a Docker Compose service alongside `skynet` / `caddy` / `guacd`. No systemd unit, no host-side install, no cross-boundary SSH.** (Locked 2026-09-06 after the discovery that the Skynet host is not guaranteed to be self-registered in Skynet's own DB, invalidating the earlier SSH-to-self install pathway.)
@@ -147,7 +147,7 @@ An earlier revision of this file (and the earlier DISCUSSION-LOG) attributed dec
 - **Recovery from bad clicks:** Disconnect button in the tab returns to paste-state in one click + one confirm.
 - **No new frontend UI** outside the Telegram tab (scope-locked).
 - **No automatic DM notifications** on bridge failure — surfaced in the tab only.
-- **Migration endpoint** `POST /matrix-admin/migrate-cred-files` — one-shot admin-gated, mints fresh tokens for Ashley + Zoe + Laura, writes to shared volume, deletes any legacy `.cred` files. Idempotent, safe to re-run.
+- **Migration endpoint** `POST /matrix-admin/migrate-cred-files` — one-shot admin-gated, mints fresh tokens for Alice + Zoe + Laura, writes to shared volume, deletes any legacy `.cred` files. Idempotent, safe to re-run.
 - **No host-side systemd unit** for the bridge. No `~/.local/bin/tg-bridge`. No `/home/<user>/.config/tg-bridge/`. All bridge state lives in the Docker named volume.
 - **No SSH-to-self** required for the install pathway. The Skynet host doesn't need to be self-registered in Skynet's own host DB for the bridge to work.
 
@@ -157,7 +157,7 @@ An earlier revision of this file (and the earlier DISCUSSION-LOG) attributed dec
 
 Q1, Q4, and Q7 from the original list are OBSOLETE (see § 4C-revised — bridge is a Docker Compose service, no host-side install, no bind-mount to host paths, no runsFleetSubstrate for the bridge). Remaining research surface:
 
-1. **Where does Skynet's STT config live?** Ashley confirmed it exists (she uses voice input). Find the config key, the source file, and the read mechanism. The bridge reads STT URL from the SAME source. This will inform the shared TS constant module design (§ Ashley-locked #3).
+1. **Where does Skynet's STT config live?** Alice confirmed it exists (she uses voice input). Find the config key, the source file, and the read mechanism. The bridge reads STT URL from the SAME source. This will inform the shared TS constant module design (§ user-locked #3).
 2. **Where does Skynet's Matrix homeserver base URL config live?** `matrix_admin_creds.homeserverBase` is one candidate (Phase 77). If there's a broader Matrix config, prefer that. If not, either reuse `matrix_admin_creds.homeserverBase` or add a plain broader config value. Bridge reads from the same source.
 3. **How are docker-compose SERVICES structured today?** Read `docker/docker-compose.yml` — enumerate the existing `skynet`, `caddy`, `guacd` service blocks. Find the pattern for adding a new service: image build, volume mount, env var passing, network attachment, restart policy. The `tg-bridge` service block follows this pattern.
 4. **How does Skynet currently pass configuration to Docker services?** Env vars in docker-compose.yml? Env file? Config file bind-mount? The bridge needs its Matrix homeserver URL and STT URL — the mechanism must be consistent with how Skynet already gets its own config.
@@ -170,7 +170,7 @@ Q1, Q4, and Q7 from the original list are OBSOLETE (see § 4C-revised — bridge
 
 ## Canonical refs
 
-- `.planning/shapes/shape-telegram-bridge.md` — shape file, locked; Ashley's discuss-phase overrides in § Shape overrides above.
+- `.planning/shapes/shape-telegram-bridge.md` — shape file, locked; Alice's discuss-phase overrides in § Shape overrides above.
 - `.planning/phases/77-telegram-bridge-phase-a-skynet-matrix-admin-integration-foun/77-01-PLAN.md` through `77-05-PLAN.md` — Phase 77 admin foundation reference. Especially the `matrix-admin-client` primitives (`loginAsUser`, `createUser`, `makeAdmin`, `getWhoami`, `makeRoomAdmin`) used by Phase B for human-token minting.
 - `.planning/phases/73-*/73-*-PLAN.md` — fleet-substrate distributor (feature-02 slice-2). The reconcile-loop pattern Phase B extends for bridge distribution.
 - `.planning/phases/75-*/` — server-side substrate bootstrap; the startup-driven install pass that will place tg-bridge on hosts.
@@ -202,7 +202,7 @@ Q1, Q4, and Q7 from the original list are OBSOLETE (see § 4C-revised — bridge
 
 ## No worktrees
 
-Fleet rule (Ashley 2026-07-31). All Phase B work happens in the main tree on `feat/tab-title-from-tmux`. gsd-executor's worktree mode is not selected for any wave.
+Fleet rule (Alice 2026-07-31). All Phase B work happens in the main tree on `feat/tab-title-from-tmux`. gsd-executor's worktree mode is not selected for any wave.
 
 ## Push is orchestrator-owned
 

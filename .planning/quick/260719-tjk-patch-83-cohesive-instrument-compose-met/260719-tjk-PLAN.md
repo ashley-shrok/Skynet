@@ -40,7 +40,7 @@ meter and the reset button read as ONE cohesive instrument sharing the same segm
 visual vocabulary. Add a drain-sweep animation that fires when the reset cell is clicked.
 
 Purpose: The current thin colored strip meter + separate icon-column reset button read as
-two unrelated affordances. The new segmented-well design (per Ashley's 2026-07-19 design
+two unrelated affordances. The new segmented-well design (per Alice's 2026-07-19 design
 session) makes the meter and reset feel like a single instrument — meter fills bottom-to-top
 during use, reset drains it top-to-bottom on click.
 
@@ -213,7 +213,7 @@ Do NOT introduce any new imports beyond what's already at the top of the file. `
 </task>
 
 <task type="checkpoint:human-verify" gate="blocking">
-  <name>Task 2: Ashley browser eyeball — cohesive instrument + drain animation</name>
+  <name>Task 2: Alice browser eyeball — cohesive instrument + drain animation</name>
   <what-built>
 Patch #83 restructures the ComposeBox compose row: the old thin colored strip meter and the separate RotateCcw icon-column button have been replaced by a single segmented-well "instrument" — a 12-segment vertical meter with an integrated reset cell at its bottom. Clicking reset triggers a top-to-bottom drain sweep (~600ms) with the reset cell pulsing lit-green at the drain peak.
   </what-built>
@@ -240,17 +240,17 @@ Patch #83 restructures the ComposeBox compose row: the old thin colored strip me
 - `npx tsc --noEmit` — zero errors.
 - `npx vite build` — clean build.
 - No files touched outside src/ui/features/pretty-view/ComposeBox.tsx.
-- Ashley browser eyeball (Task 2 checkpoint) — cohesive instrument reads correctly, drain animation runs, reset dispatch fires, null-contextPct case handled.
+- Alice browser eyeball (Task 2 checkpoint) — cohesive instrument reads correctly, drain animation runs, reset dispatch fires, null-contextPct case handled.
 </verification>
 
 <success_criteria>
-- Single-file patch to ComposeBox.tsx committed to `feat/tab-title-from-tmux` after Ashley's approval.
+- Single-file patch to ComposeBox.tsx committed to `feat/tab-title-from-tmux` after Alice's approval.
 - tsc + vite build pass.
 - All existing behaviors preserved: /id reset dispatch (with and without typed body), textarea clears on success, errorMessage on failed dispatch, ThumbsUp go-ahead, Send handler, draft persistence (autosave/keepalive/retry), auto-focus, auto-grow rows.
 - New behaviors delivered: 12-segment cohesive meter well always mounts, integrated reset cell with resting/hover/drain-pulse states, top-to-bottom drain sweep animation on reset click, symmetric compose shelf padding.
-- Deploy is a SEPARATE step Ashley controls (per tina.md deploy discipline) — this task stops at commit.
+- Deploy is a SEPARATE step Alice controls (per tina.md deploy discipline) — this task stops at commit.
 </success_criteria>
 
 <output>
-Create `.planning/quick/260719-tjk-patch-83-cohesive-instrument-compose-met/260719-tjk-SUMMARY.md` when Ashley approves the checkpoint and the commit lands.
+Create `.planning/quick/260719-tjk-patch-83-cohesive-instrument-compose-met/260719-tjk-SUMMARY.md` when Alice approves the checkpoint and the commit lands.
 </output>

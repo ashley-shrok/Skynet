@@ -75,9 +75,9 @@
 
 Phase 42 is a **frontend-only reshape** of the pretty-conversations panel. Zero backend changes required for the shape as scoped. The seven concrete surfaces map cleanly to existing code — the three `compareByHostRoleLabel` sort call sites in `conversation-store.ts`, the ambient-recession CSS block in `pretty-conversations.css`, the panel render sites in `PrettyConversationsPanel.tsx`, and the row-level `.ambient` class assembly in `PrettyConversationRow.tsx`. The scroll container (`.pv-panel-scroll`) already exists as the search-input mount target and one-shot scroll surface.
 
-The one **architecturally load-bearing gap** is the recency signal source: **there is no existing fleet-wide message-either-direction push** in the current wire protocol. The fleet-status WS channel (`/fleet-status/ws`, boot-time singleton at `AppShell.tsx:397`) publishes status transitions (`busy`/`shell`/`idle`/`waiting`) with an `updatedAt` timestamp that reflects **status change time, not message time**. The per-message `type:"message"` frames (with `ts` field) only flow over the per-pane `/claude-session/ws` sockets which are only opened for pretty-view-mounted panes. To power a fleet-wide recency sort that reflects "message either direction," the planner will need to pick from three viable paths, each with different scope: (A) piggyback on the existing Stop hook payload's `updatedAt` (assistant-turns only, no user-side signal; scope-safe but violates the "either direction" lock); (B) extend the fleet-status WS to carry a `lastMessageAt` derived from tailing JSONL headers per host (backend work; scope-honest); (C) client-side approximation using the per-pane message frames for panes already open (partial coverage; regresses to arbitrary order for never-opened panes). **This decision belongs to the planner and likely needs an Ashley checkpoint** — see Open Questions §1.
+The one **architecturally load-bearing gap** is the recency signal source: **there is no existing fleet-wide message-either-direction push** in the current wire protocol. The fleet-status WS channel (`/fleet-status/ws`, boot-time singleton at `AppShell.tsx:397`) publishes status transitions (`busy`/`shell`/`idle`/`waiting`) with an `updatedAt` timestamp that reflects **status change time, not message time**. The per-message `type:"message"` frames (with `ts` field) only flow over the per-pane `/claude-session/ws` sockets which are only opened for pretty-view-mounted panes. To power a fleet-wide recency sort that reflects "message either direction," the planner will need to pick from three viable paths, each with different scope: (A) piggyback on the existing Stop hook payload's `updatedAt` (assistant-turns only, no user-side signal; scope-safe but violates the "either direction" lock); (B) extend the fleet-status WS to carry a `lastMessageAt` derived from tailing JSONL headers per host (backend work; scope-honest); (C) client-side approximation using the per-pane message frames for panes already open (partial coverage; regresses to arbitrary order for never-opened panes). **This decision belongs to the planner and likely needs an Alice checkpoint** — see Open Questions §1.
 
-**Primary recommendation:** Split the phase into three deploy-worthy plans: (1) sort-and-zones (three-zone `compareByHostRoleLabel` split; retire ambient CSS + `.ambient` className branch; verify ready-dot stays intact; RDP header hides on zero rows), (2) search-and-filter (always-in-DOM input; one-shot scroll-hide via sessionStorage sentinel; label-only flatten filter), (3) recency-signal-wiring (whichever of A/B/C the planner picks with Ashley). The first two are self-contained and can ship independently of the recency-signal decision; the flat middle degrades cleanly to insertion-order for the first pane until wave 3 lands.
+**Primary recommendation:** Split the phase into three deploy-worthy plans: (1) sort-and-zones (three-zone `compareByHostRoleLabel` split; retire ambient CSS + `.ambient` className branch; verify ready-dot stays intact; RDP header hides on zero rows), (2) search-and-filter (always-in-DOM input; one-shot scroll-hide via sessionStorage sentinel; label-only flatten filter), (3) recency-signal-wiring (whichever of A/B/C the planner picks with Alice). The first two are self-contained and can ship independently of the recency-signal decision; the flat middle degrades cleanly to insertion-order for the first pane until wave 3 lands.
 
 ## Architectural Responsibility Map
 
@@ -169,7 +169,7 @@ Recommend (a): the shape rename is honest, and `grouped` can be renamed or shrun
 - `byHostId` map (L515-529) — per-host bucketing for the middle. Retired entirely; middle becomes a flat array.
 
 **The `activeSet` tier is a wrinkle:**
-The current store emits three tiers: `activeSet`, `pinned`, `grouped`. The shape agreement talks about "three zones: pinned, middle, RDP" — but the store currently has FOUR (adding `activeSet`). Patch #144 Fix (d) at PrettyConversationsPanel.tsx:285-287 auto-enrolls every `selectedId` into the activeSet, so most rows the user has ever clicked end up in `activeSet` for that browser session. The shape doesn't explicitly retire `activeSet` — but the RETIREMENT OF AMBIENT-RECESSION removes the visual purpose of `activeSet` (which was to distinguish "in the set → full bubble" from "not in set → recessed"). **Planner call to lock:** does the activeSet concept survive Phase 42, or does it retire alongside the ambient class? Ashley's shape lock says "every row has the same visual weight" — implying activeSet's visual purpose is gone. But activeSet ALSO gates the `handleRowDeactivate` machinery (deactivate = "remove from active set + close tab"), so the store field probably needs to survive even if the tier goes away. Recommend: keep `state.activeSet` field for deactivate semantics; **drop the `activeSet` TIER from the ConversationList shape** (activeSet rows just render inline in the middle zone at their recency-determined position — no more special "activeSet cluster at top").
+The current store emits three tiers: `activeSet`, `pinned`, `grouped`. The shape agreement talks about "three zones: pinned, middle, RDP" — but the store currently has FOUR (adding `activeSet`). Patch #144 Fix (d) at PrettyConversationsPanel.tsx:285-287 auto-enrolls every `selectedId` into the activeSet, so most rows the user has ever clicked end up in `activeSet` for that browser session. The shape doesn't explicitly retire `activeSet` — but the RETIREMENT OF AMBIENT-RECESSION removes the visual purpose of `activeSet` (which was to distinguish "in the set → full bubble" from "not in set → recessed"). **Planner call to lock:** does the activeSet concept survive Phase 42, or does it retire alongside the ambient class? Alice's shape lock says "every row has the same visual weight" — implying activeSet's visual purpose is gone. But activeSet ALSO gates the `handleRowDeactivate` machinery (deactivate = "remove from active set + close tab"), so the store field probably needs to survive even if the tier goes away. Recommend: keep `state.activeSet` field for deactivate semantics; **drop the `activeSet` TIER from the ConversationList shape** (activeSet rows just render inline in the middle zone at their recency-determined position — no more special "activeSet cluster at top").
 
 ### 2. Ambient-recession visual — `src/ui/features/pretty-conversations/`
 
@@ -325,7 +325,7 @@ Per §1 above — the `state.activeSet: Set<string>` field is used for TWO indep
 This effect auto-adds every selectedId to the activeSet. It exists to defeat the OLD ambient-recession behavior for URL-restore/keyboard-nav paths (patch #144 Fix d, comment at L276-284). Phase 42 retires ambient, so this effect's original motivation is gone. **But** — retiring it would change the deactivate semantics (rows never get into activeSet without an explicit click → deactivate menu-item never appears for URL-restored panes). Two paths: (a) keep the effect for deactivate semantics; (b) refactor deactivate to not depend on activeSet membership. Recommend (a) — smaller diff, no behavior change on the deactivate side.
 
 **D. The Loading affordance placement:**
-PrettyConversationsPanel.tsx:933-947 renders the "Loading conversations…" strip as the FIRST child inside `.pv-panel-scroll`. Phase 42's search input needs to mount ABOVE this strip so cold-load scroll-hide covers it too. Or below — depends on Ashley's mental model. Recommend ABOVE (search chrome sits above everything including the loading strip).
+PrettyConversationsPanel.tsx:933-947 renders the "Loading conversations…" strip as the FIRST child inside `.pv-panel-scroll`. Phase 42's search input needs to mount ABOVE this strip so cold-load scroll-hide covers it too. Or below — depends on Alice's mental model. Recommend ABOVE (search chrome sits above everything including the loading strip).
 
 **E. Hidden section at the bottom (quick-260731-tgg):**
 PrettyConversationsPanel.tsx:1140-1197 renders a collapsible "Hidden" section BELOW the __rdp__ group. Phase 42 does not touch this. But the filter-flatten behavior needs a decision: does the filter include hidden rows in the flat match list? Recommend YES — hidden rows are still runnable sessions; if a user searches for one by label, they should see it. The predicate should just apply to the union of activeSet ∪ pinned ∪ middle ∪ RDP ∪ hidden.
@@ -353,7 +353,7 @@ This phase is a rendering + sort-logic reshape — no rename, no schema migratio
 ## Common Pitfalls
 
 ### Pitfall 1: Assuming `updatedAt` in `SessionState` reflects message time
-**What goes wrong:** Wiring the middle sort to `SessionState.updatedAt` from the fleet-status channel produces a sort that bumps on every status flip (busy→idle, background-task start/stop). Ashley's "activity = message either direction, and only that" would break — every background monitor task and every context switch would float the row.
+**What goes wrong:** Wiring the middle sort to `SessionState.updatedAt` from the fleet-status channel produces a sort that bumps on every status flip (busy→idle, background-task start/stop). Alice's "activity = message either direction, and only that" would break — every background monitor task and every context switch would float the row.
 **Why it happens:** The field name suggests message-time; it actually tracks status-transition time (from the Stop hook payload's session JSON metadata).
 **How to avoid:** Do NOT use `SessionState.updatedAt` as the recency signal. Either extend the wire protocol with a distinct `lastMessageAt` (Option B) or use a different source per the recency-signal decision.
 **Warning signs:** If, during a manual test, a session's row jumps when you switch panes on it (even without sending a message), the wiring is wrong.
@@ -449,7 +449,7 @@ This phase touches only in-browser rendering and one sessionStorage key. No new 
 |---------|--------|---------------------|
 | sessionStorage bleed via `only=1` new-window opener | Information Disclosure | Pattern already established at `conversation-store.ts:154-168` — hash-detect and clear on `only=1`. If the search-hidden sentinel is added, extend the same guard to clear the new key when `only=1` is present. |
 | XSS via unescaped label content | Tampering | React escapes text nodes by default. Do not use `dangerouslySetInnerHTML` for any search/filter output. |
-| Search-input flooding causing render thrash | Denial of Service (local) | Debounce filter input at 100-150ms via `useDeferredValue` or `setTimeout` if per-keystroke re-renders become perceptible on large lists. Not urgent for Ashley's ~20-session fleet. |
+| Search-input flooding causing render thrash | Denial of Service (local) | Debounce filter input at 100-150ms via `useDeferredValue` or `setTimeout` if per-keystroke re-renders become perceptible on large lists. Not urgent for Alice's ~20-session fleet. |
 
 ## Assumptions Log
 
@@ -460,33 +460,33 @@ This phase touches only in-browser rendering and one sessionStorage key. No new 
 | A3 | `Host.enableRdp` is `boolean | undefined` on the type | RDP-session detection | Confirmed indirectly from the strict `=== true` check; verify with `types/ui-types.ts` read |
 | A4 | The panel mounts once per page-load (no key-based remount) | Search + scroll surface | If a future refactor introduces a key-based remount, the sessionStorage sentinel still protects; risk is contained |
 | A5 | `~/.claude/fleet-status/last-stop-payload.json` bumps `updatedAt` on every assistant turn (i.e., every Stop-hook fire) | Recency signal | Confirmed at `ssh-poll-orchestrator.ts:306` and `fleet-status/types.ts:60`; but this is assistant-only and does not track user-side sends |
-| A6 | The activeSet TIER's visual purpose is gone with ambient retirement, and the tier can be retired from ConversationList shape | Sort logic §activeSet wrinkle | Ashley may still want an "active" cluster; planner should confirm before dropping the tier from the store shape. This is a real decision, not a mechanical retirement |
+| A6 | The activeSet TIER's visual purpose is gone with ambient retirement, and the tier can be retired from ConversationList shape | Sort logic §activeSet wrinkle | Alice may still want an "active" cluster; planner should confirm before dropping the tier from the store shape. This is a real decision, not a mechanical retirement |
 
 ## Open Questions
 
-### 1. Recency signal source — needs Ashley checkpoint
+### 1. Recency signal source — needs Alice checkpoint
 
 **What we know:**
-- Ashley locked "activity = message either direction, and only that" (verbatim quote in STATE.md Phase 42 entry).
+- Alice locked "activity = message either direction, and only that" (verbatim quote in STATE.md Phase 42 entry).
 - No existing fleet-wide message-either-direction push exists.
 - Per-pane message frames only cover open panes.
 - The Stop hook fires per assistant turn but is assistant-only.
 
 **What's unclear:**
 - Which of the three viable paths is the shape-compliant answer:
-  - **(A) Fleet-status protocol extension** — add a `lastMessageAt` field to `SessionState` in the wire protocol; the backend tails the JSONL header offset (cheap) OR reads the last-modified time of the JSONL file (cheaper, less precise). Ashley-directional: honors "both directions" since JSONL captures both. Requires backend work + wire-protocol version bump.
+  - **(A) Fleet-status protocol extension** — add a `lastMessageAt` field to `SessionState` in the wire protocol; the backend tails the JSONL header offset (cheap) OR reads the last-modified time of the JSONL file (cheaper, less precise). user-directional: honors "both directions" since JSONL captures both. Requires backend work + wire-protocol version bump.
   - **(B) Piggyback on Stop-hook `updatedAt`** — bump the middle sort on every assistant turn only. Cheap; requires only frontend wiring. Violates "both directions" — user sends don't move the row until an assistant turn follows.
   - **(C) Client-side signal from `/claude-session/ws` messages** — capture the `type:"message"` `ts` field per-pane and store as `lastMessageAt` in the conversation-store per row. Correct semantics for opened panes; never-opened panes get null (→ float to top per no-history rule, which is wrong — they have history, we just haven't seen it).
 
 **Recommendation:** Option A. It's the only shape-compliant, correct-semantics option. The backend work is contained: (1) add `lastMessageAt: number | null` to `SessionState` in `wire-protocol.ts` + zod schema; (2) source it in `ssh-poll-orchestrator.ts` by parsing the last non-tool-use line from the JSONL file (or, cheaper: `stat` the JSONL file for mtime and use that as a coarse approximation — accepting that a background write like a tool-result would falsely bump position, which is a shape violation, so stat isn't good enough); (3) frontend consumes via `publishFleetStatusSessionState` and stores `lastMessageAt` alongside `isWorking` in the working-store OR a sibling store. Wire-protocol version bump would be needed if there are any external consumers.
 
-Ashley checkpoint recommended before implementation because the backend scope significantly changes the phase's ship shape (frontend-only vs. full-stack).
+Alice checkpoint recommended before implementation because the backend scope significantly changes the phase's ship shape (frontend-only vs. full-stack).
 
 ### 2. Does the `activeSet` render tier survive?
 
 **What we know:** The activeSet tier's visual purpose (a highlighted top cluster with full-bubble treatment) exists specifically to distinguish it from the ambient/recessed baseline. Retiring ambient removes the distinction.
 
-**What's unclear:** Does Ashley still want an "active" cluster at the top even when every row is visually uniform, OR do activeSet rows just render inline in the middle at their recency-determined position?
+**What's unclear:** Does Alice still want an "active" cluster at the top even when every row is visually uniform, OR do activeSet rows just render inline in the middle at their recency-determined position?
 
 **Recommendation:** Ask at plan-time. The mechanical answer (activeSet tier retires with ambient) is architecturally clean; the alternative (keep the cluster; drop only the visual dimming of non-active-set) is easy but adds a fourth zone the shape doesn't mention.
 
@@ -496,11 +496,11 @@ Ashley checkpoint recommended before implementation because the backend scope si
 
 **What's unclear:** During filter, does the flat match list include hidden rows or exclude them?
 
-**Recommendation:** Include hidden rows in filter matches — user searching for a specific session by label should find it whether or not they hid it, because the intent to find > the intent to hide. Ashley may disagree; low-stakes.
+**Recommendation:** Include hidden rows in filter matches — user searching for a specific session by label should find it whether or not they hid it, because the intent to find > the intent to hide. Alice may disagree; low-stakes.
 
 ### 4. Search input focus behavior on mobile
 
-**What we know:** Ashley works from her phone almost exclusively.
+**What we know:** Alice works from her phone almost exclusively.
 
 **What's unclear:** When the user scrolls up to reveal the search input on mobile, should it auto-focus and open the virtual keyboard, or wait for a tap? Auto-focus on scroll-into-view can be jarring.
 
@@ -548,7 +548,7 @@ Ashley checkpoint recommended before implementation because the backend scope si
 - Ready-dot logic: HIGH — code + comments confirm patch #447 already retired the active-set gate.
 - Search + scroll: HIGH — scroll container, header structure, and mount lifecycle all mapped.
 - Filter renderer: HIGH — existing bounty-count filter pattern is the model.
-- Recency signal: MEDIUM — architecture is fully understood, but the RIGHT choice among three options depends on an Ashley call; the mechanics of each option are HIGH confidence.
+- Recency signal: MEDIUM — architecture is fully understood, but the RIGHT choice among three options depends on an Alice call; the mechanics of each option are HIGH confidence.
 - Test coverage impact: HIGH — grep counts + spot reads of key assertions confirm the scope of test changes.
 
 **Research date:** 2026-08-14

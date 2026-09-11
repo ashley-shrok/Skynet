@@ -144,4 +144,4 @@ jump-to-bottom pill (per shape § Scope edges "Tempting-but-no").
 | TypeScript | — | 0 errors | — |
 | Deferred-scope | 2 | 2 | 0 |
 
-**Ready for Task 2 (Ashley human-verify checkpoint).**
+**Ready for Task 2 (Alice human-verify checkpoint).**

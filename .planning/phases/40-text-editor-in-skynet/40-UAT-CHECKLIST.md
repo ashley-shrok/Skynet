@@ -1,6 +1,6 @@
 # Phase 40 UAT Checklist — In-app text editor for agent-served tailnet files (D-01..D-07)
 
-**Target:** Ashley
+**Target:** Alice
 **Timing:** After `docker compose up -d --force-recreate skynet` completes AND the HTTP2_PROTOCOL_ERROR first-hard-refresh known-issue (patch #232 discovery) has been cleared.
 **URL:** https://term.example.com
 **Estimated duration:** ~10 minutes (7 items + optional bonus mobile check)
@@ -12,8 +12,8 @@ Each of the 7 items verifies exactly one LOCKED decision from `40-CONTEXT.md § 
 ## Preconditions
 
 - Skynet deployed to https://term.example.com via the maintainer's deploy motion (git pull --rebase → coord-room BEFORE announce → docker build → deadman-guarded docker compose up --force-recreate → HTTPS 200 verify).
-- Ashley's browser is at HEAD of `feat/tab-title-from-tmux` + Phase 40 patches are live (verify by loading https://term.example.com; hard-refresh once if the first-load HTTP2_PROTOCOL_ERROR appears).
-- At least one fleet agent has served Ashley a tailnet URL via the id skill's `python3 -m http.server` serve pattern (see id-skill § "Sending files to the user"). If unsure whether one is available in a recent conversation, walk the **Ash-side prep** section below first.
+- Alice's browser is at HEAD of `feat/tab-title-from-tmux` + Phase 40 patches are live (verify by loading https://term.example.com; hard-refresh once if the first-load HTTP2_PROTOCOL_ERROR appears).
+- At least one fleet agent has served Alice a tailnet URL via the id skill's `python3 -m http.server` serve pattern (see id-skill § "Sending files to the user"). If unsure whether one is available in a recent conversation, walk the **Ash-side prep** section below first.
 - No dev-tools / no `docker exec` / no shell required for any of the 7 items. Every check is UI-observable on the production Skynet PWA (desktop AND iPhone).
 
 ---
@@ -22,7 +22,7 @@ Each of the 7 items verifies exactly one LOCKED decision from `40-CONTEXT.md § 
 
 Before starting the walk, get an agent-served URL into a pretty-view conversation:
 
-- Ask an agent (e.g. "tanya, please serve me the current 40-CONTEXT.md via the id skill's serve pattern so I can UAT the text editor") — the agent's response will be the assistant-role message that carries the tailnet URL Ashley walks Item 1 with.
+- Ask an agent (e.g. "tanya, please serve me the current 40-CONTEXT.md via the id skill's serve pattern so I can UAT the text editor") — the agent's response will be the assistant-role message that carries the tailnet URL Alice walks Item 1 with.
 - The URL will look like `http://100.x.y.z:PORT/40-CONTEXT.md` where `100.x.y.z` is the agent's tailnet IP and `PORT` is the ephemeral port the agent's `python3 -m http.server` bound to.
 - Keep the message visible in the pretty-view pane — items 1-6 all reference it.
 - Have the agent optionally serve a SECOND file with a different extension for Item 2 byte-sniff coverage (e.g. an extensionless `notes` file or a `.dat` file whose bytes are actually text).
@@ -73,13 +73,13 @@ Before starting the walk, get an agent-served URL into a pretty-view conversatio
 **Fail modes:**
 - (a) has a delay too → sync whitelist path was not exercised; the frontend twin whitelist may have diverged from the backend, OR the hook may be re-doing the backend's job unnecessarily.
 - (b) never appears → the byte-sniff fallback isn't reachable. Check that the file's URL doesn't match the whitelist (double-check basename + extension) and that the backend `POST /pretty-view/fetch-tailnet-url` is returning `{isTextByBytes: true}` for that URL.
-- (c) affordance DOES appear on binary → sniff heuristic is misclassifying — but per the LOCKED shape decision, "false-positive tolerance is acceptable" (Ashley won't save garbage), so this is a warn-only fail. Note it for a future whitelist-tightening pass, not a phase-blocker.
+- (c) affordance DOES appear on binary → sniff heuristic is misclassifying — but per the LOCKED shape decision, "false-positive tolerance is acceptable" (Alice won't save garbage), so this is a warn-only fail. Note it for a future whitelist-tightening pass, not a phase-blocker.
 
 ---
 
 ### 3. D-03: Additive-not-replacive (clicking the link still downloads/opens as before)
 
-**Verifies decision D-03 verbatim:** "**Additive, not replacive.** The existing link behavior stays — Ashley can still click through, download, or interact with the link exactly the way she can today. The edit affordance is a NEW action that appears ALONGSIDE the link, never in place of it."
+**Verifies decision D-03 verbatim:** "**Additive, not replacive.** The existing link behavior stays — Alice can still click through, download, or interact with the link exactly the way she can today. The edit affordance is a NEW action that appears ALONGSIDE the link, never in place of it."
 
 **Setup:**
 - Same eligible link from Item 1 in view. Affordance visible (via hover on desktop, or always-visible on mobile).
@@ -102,7 +102,7 @@ Before starting the walk, get an agent-served URL into a pretty-view conversatio
 
 ### 4. D-04: Fresh re-fetch at edit-open + visible failure on stale server
 
-**Verifies decision D-04 verbatim:** "**Fresh re-fetch at edit-open time** to get current bytes when Ashley taps edit. **If the re-fetch fails, Skynet errors explicitly.** Do NOT silently fall back to the detection-time cached bytes. Visible failure over silent maybe-stale."
+**Verifies decision D-04 verbatim:** "**Fresh re-fetch at edit-open time** to get current bytes when Alice taps edit. **If the re-fetch fails, Skynet errors explicitly.** Do NOT silently fall back to the detection-time cached bytes. Visible failure over silent maybe-stale."
 
 **Setup:**
 - Same eligible link from Item 1. Note the time of the agent's message (the agent's `python3 -m http.server` auto-kills after 30 minutes per the id-skill `sleep 1800; kill "$PID"` block).
@@ -128,7 +128,7 @@ Before starting the walk, get an agent-served URL into a pretty-view conversatio
 
 **Fail modes:**
 - Modal opens with stale content on the failure path → D-04 shape violation. Escalate — this is the load-bearing "visible failure over silent maybe-stale" invariant.
-- Failure path shows a bare toast but no in-modal error → the error is invisible if the modal is dismissed before Ashley reads it. Escalate — the copy must be in-body.
+- Failure path shows a bare toast but no in-modal error → the error is invisible if the modal is dismissed before Alice reads it. Escalate — the copy must be in-body.
 - Failure path shows a blank textarea with no error text → error branch is not routing correctly; check `TabState.error(...)` path in the modal source.
 
 ---
@@ -141,7 +141,7 @@ Before starting the walk, get an agent-served URL into a pretty-view conversatio
 - Same eligible link. Modal open (from Item 4 happy path). If you closed it, click the pencil affordance again.
 
 **Steps:**
-1. Compare the editor modal chrome visually against the Global Files edit modal that Ashley uses today (open a Global Files modal in a separate tab or by memory — Portal + Overlay + Content, backdrop-filter blur, blue-glass gradient, `inset-4` positioning).
+1. Compare the editor modal chrome visually against the Global Files edit modal that Alice uses today (open a Global Files modal in a separate tab or by memory — Portal + Overlay + Content, backdrop-filter blur, blue-glass gradient, `inset-4` positioning).
 2. Look at the modal HEADER. The title should read **"Edit {filename}"** (e.g. "Edit 40-CONTEXT.md") + optional sub-header **"from {agentIdentityName}"** (e.g. "from tanya") if the agent's identity resolved.
 3. Look at the modal for a **host picker `<select>` dropdown**. There should be NONE.
 4. Look at the modal for a **bottom tabs bar** (Global Files' multi-file tabs strip). There should be NONE.
@@ -198,7 +198,7 @@ Before starting the walk, get an agent-served URL into a pretty-view conversatio
 
 ### 7. D-07: Return trip via existing reply-with-attachment pipeline
 
-**Verifies decision D-07 verbatim:** "Uses Skynet's existing reply-with-attachment path (well-worn, occasional upload bugs but no fundamental flaws). NO new agent-side receive convention — agents already know how to read attachments Ashley sends them. The symmetry is: agent serves a link (their existing pattern), Ashley replies with an attachment (her existing pattern). All novelty lives inside Skynet, in the middle."
+**Verifies decision D-07 verbatim:** "Uses Skynet's existing reply-with-attachment path (well-worn, occasional upload bugs but no fundamental flaws). NO new agent-side receive convention — agents already know how to read attachments Alice sends them. The symmetry is: agent serves a link (their existing pattern), Alice replies with an attachment (her existing pattern). All novelty lives inside Skynet, in the middle."
 
 **Setup:**
 - ComposeBox has at least one chip mounted from Item 6 (an edited version of the agent's file).
@@ -206,8 +206,8 @@ Before starting the walk, get an agent-served URL into a pretty-view conversatio
 **Steps:**
 1. Type a caption in the ComposeBox (e.g. "Here's my edit — added a note at the top about the timing").
 2. Click **Send**.
-3. Observe the message going through: your caption + the file(s) as attachments should appear in the conversation as Ashley's turn.
-4. Ask the agent: "can you cat the file I just sent?" (or the equivalent — the agent's identity skill should already know how to read attachments from Ashley's message).
+3. Observe the message going through: your caption + the file(s) as attachments should appear in the conversation as Alice's turn.
+4. Ask the agent: "can you cat the file I just sent?" (or the equivalent — the agent's identity skill should already know how to read attachments from Alice's message).
 5. The agent replies with the file's contents — INCLUDING your edit.
 
 **Expected:**
@@ -277,4 +277,4 @@ If ANY item 1-7 fails and the failure cannot be quickly diagnosed:
 - [ ] Item 7 (D-07) — Return trip via existing pipeline
 - [ ] Bonus — iPhone PWA parity
 
-Sign-off (Ashley): __________ Date: __________
+Sign-off (Alice): __________ Date: __________

@@ -321,7 +321,7 @@ They are siblings of the mapped messages INSIDE the same `contentRef` flex colum
 **Implication for the executor:** the "unvirtualized accessories" scope guard from CONTEXT.md still applies — the three accessory bubbles must NOT be pushed into the virtualized `getVirtualItems()` set. But when the message-map block is replaced with the virtualizer's absolute-positioned children, the three accessories need to move OUT of the sized-height virtualizer container. Two options:
 
 - **Option A** — render them as siblings of the virtualizer container, immediately below it, both inside the scroll container. The scroll container's `scrollHeight` then includes both the virtualizer's `totalSize` AND the accessory heights. This preserves the "pin to bottom" ResizeObserver behavior for the aside (it's still in-flow at the visual bottom).
-- **Option B** — render them as siblings but sticky-positioned (`position: sticky; bottom: 0`). Adds visual complexity, changes the ASIDE-05 in-flow-not-overlay contract, likely NOT what Ashley wants.
+- **Option B** — render them as siblings but sticky-positioned (`position: sticky; bottom: 0`). Adds visual complexity, changes the ASIDE-05 in-flow-not-overlay contract, likely NOT what Alice wants.
 
 **Prefer Option A.** Update the AsideBubble comment to reflect the new structure (still in-flow, still last child of the scroll container, just no longer inside the flex column).
 

@@ -2,7 +2,7 @@
 phase: 46-frontend-skill-editing-editor-surface-for-skill-folders-on-a
 verified: 2026-08-19T04:57:00Z
 status: human_needed
-score: 16/16 code-verifiable D-XX decisions verified; UAT walk deferred to Ashley post-deploy
+score: 16/16 code-verifiable D-XX decisions verified; UAT walk deferred to Alice post-deploy
 overrides_applied: 0
 human_verification:
   - test: "Menu ordering + label rendering in the running app"
@@ -19,10 +19,10 @@ human_verification:
     why_human: "window.prompt is a browser-native modal — cannot be programmatically verified from grep; requires end-to-end user interaction"
   - test: "Delete-file confirm modal + destructive action"
     expected: "Trash2 icon left of Save opens DeleteConfirmDialog with heading 'Delete file?', body '<skill>/<path>' in monospace + 'This can't be undone.'; Cancel closes; Delete removes the file from the host and refetches the tab list"
-    why_human: "Modal-in-modal visual layering (z-125 overlay + z-130 content) and the actual rm -f behavior on a real host is the whole point of Ashley's UAT walk"
+    why_human: "Modal-in-modal visual layering (z-125 overlay + z-130 content) and the actual rm -f behavior on a real host is the whole point of Alice's UAT walk"
   - test: "Delete-skill confirm modal + destructive rm -rf"
     expected: "Trash2 in header row opens DeleteConfirmDialog with heading 'Delete skill?', body '<skill>' in monospace + 'This removes the skill folder and every file inside it. This can't be undone.'; Delete triggers rm -rf on the skill folder + clears dropdown selection"
-    why_human: "Life-critical rm -rf behavior — code-side SEC-8 test proves the path-safety gate fires on skill='..', but Ashley walking the confirm dialog on a real (throwaway) skill on production is the ultimate validation"
+    why_human: "Life-critical rm -rf behavior — code-side SEC-8 test proves the path-safety gate fires on skill='..', but Alice walking the confirm dialog on a real (throwaway) skill on production is the ultimate validation"
   - test: "Horizontal-scroll tab bar with many-file skill"
     expected: "A skill with 15+ files (or a very-long file-path skill) renders tabs that horizontal-scroll on overflow (WebKit touch-scroll on iOS PWA); no vertical stacking, no truncation-collapse"
     why_human: "overflow-x-auto behavior is CSS + touch — must be observed in an actual browser at a real viewport"
@@ -137,7 +137,7 @@ None. Scan of all Phase 46 files for `TODO|FIXME|XXX|TBD|HACK|PLACEHOLDER` retur
 
 ### Human Verification Required
 
-The 10 items below all require human verification post-deploy. Ashley's UAT walk (already captured in `46-UAT-CHECKLIST.md`, 14 Steps × Action/Expected/Pass-Fail) covers every one of them. Executor's remit ends at code + commit + tests-green per phase discipline; deploy + UAT is orchestrator + Ashley territory.
+The 10 items below all require human verification post-deploy. Alice's UAT walk (already captured in `46-UAT-CHECKLIST.md`, 14 Steps × Action/Expected/Pass-Fail) covers every one of them. Executor's remit ends at code + commit + tests-green per phase discipline; deploy + UAT is orchestrator + Alice territory.
 
 #### 1. Menu ordering + label rendering in the running app
 
@@ -167,13 +167,13 @@ The 10 items below all require human verification post-deploy. Ashley's UAT walk
 
 **Test:** Open a test file. Click Trash2 icon left of Save.
 **Expected:** DeleteConfirmDialog opens with `Delete file?` heading, `{skill}/{path}` in monospace on its own line, `This can't be undone.` prose. Cancel closes. Delete triggers `rm -f` on the host and refetches the tab list (deleted tab disappears; another tab activates).
-**Why human:** Modal-in-modal visual layering (z-125 overlay + z-130 content) and real host `rm -f` behavior are the whole point of Ashley's UAT walk.
+**Why human:** Modal-in-modal visual layering (z-125 overlay + z-130 content) and real host `rm -f` behavior are the whole point of Alice's UAT walk.
 
 #### 6. Delete-skill confirm modal + destructive rm -rf
 
 **Test:** Create a throwaway skill. In the modal, pick that skill. Click Trash2 icon in the header row (right of `+ Add file`).
 **Expected:** DeleteConfirmDialog opens with `Delete skill?` heading, `{skill}` in monospace, `This removes the skill folder and every file inside it. This can't be undone.` prose. Delete triggers `rm -rf ~/.claude/skills/<skill>` on the host; the skill vanishes from the dropdown; dropdown reverts to placeholder.
-**Why human:** Life-critical `rm -rf` behavior. SEC-8 test in isolation proves the path-safety gate fires on `skill='..'`, but Ashley walking the confirm dialog on a real (throwaway) skill on production is the ultimate validation.
+**Why human:** Life-critical `rm -rf` behavior. SEC-8 test in isolation proves the path-safety gate fires on `skill='..'`, but Alice walking the confirm dialog on a real (throwaway) skill on production is the ultimate validation.
 
 #### 7. Horizontal-scroll tab bar with many-file skill
 
@@ -203,7 +203,7 @@ The 10 items below all require human verification post-deploy. Ashley's UAT walk
 
 **No code-level gaps.** All 16 CONTEXT.md D-XX locked decisions are verified in shipped code. The load-bearing byte-shape preservations (Phase 23 race-fix, twin nginx blocks, 4-layer path-safety gate, D-12 no-guards, D-14 plain-editor discipline) are all confirmed. Full Vitest suite passes (39 backend + 18 frontend = 57 Phase 46 tests, all green). TypeScript clean.
 
-**The 10 human-verification items above are Ashley's UAT walk** — already captured in `46-UAT-CHECKLIST.md` per Wave 3's handoff artifact convention. They represent the deploy + user-observable side of the phase that lives outside the executor's remit per phase discipline. This is the intended handoff shape, NOT a shortfall of the code.
+**The 10 human-verification items above are Alice's UAT walk** — already captured in `46-UAT-CHECKLIST.md` per Wave 3's handoff artifact convention. They represent the deploy + user-observable side of the phase that lives outside the executor's remit per phase discipline. This is the intended handoff shape, NOT a shortfall of the code.
 
 ---
 

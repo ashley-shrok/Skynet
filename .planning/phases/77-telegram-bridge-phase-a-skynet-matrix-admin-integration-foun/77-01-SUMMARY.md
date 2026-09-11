@@ -69,7 +69,7 @@ completed: 2026-09-06
 ## Accomplishments
 
 - `matrix_admin_creds` singleton table lands at boot via idempotent DDL — the table exists exactly once, its schema matches the Drizzle mirror in schema.ts, and re-runs on subsequent boots are no-ops (CREATE TABLE IF NOT EXISTS).
-- `users.mxid TEXT` column lands via `addColumnIfNotExists` — nullable, ready to accept externally-created mxids from the Plan 03 endpoint (POST /users/:id/mxid) for the three pre-existing hand-made accounts (Ashley, Zoe, Laura) and any future users.
+- `users.mxid TEXT` column lands via `addColumnIfNotExists` — nullable, ready to accept externally-created mxids from the Plan 03 endpoint (POST /users/:id/mxid) for the three pre-existing hand-made accounts (Alice, Zoe, Laura) and any future users.
 - Post-DDL `DatabaseSaveTrigger.forceSave("phase-75-matrix-admin-schema")` persists both new schema mutations to the encrypted SQLite file immediately — schema no longer lives in RAM only until an unrelated write fires the debounced save (CLAUDE.md DB-in-RAM invariant).
 - `matrix-admin-creds-store.ts` provides the two-function API (`getMatrixAdminCreds`, `setMatrixAdminCreds`) that Plans 02–05 all import — eager encryption, singleton-row UPDATE-else-INSERT semantics, null-on-empty read.
 - FieldCrypto declares both secret columns as encrypted; the ciphertext blob shape is verified in Test P75-2 (data/iv/tag/salt/recordId keys, recordId="1").
@@ -111,7 +111,7 @@ export const users = sqliteTable("users", {
   // Phase 77 Plan 01 (Q3 locked decision) — mxid mapping for the Matrix
   // relay. Nullable: only humans with a registered relay account have one,
   // and it's populated via POST /users/:id/mxid (Plan 03) or the one-shot
-  // import for Ashley/Zoe/Laura. Not a credential; agents' relay identifiers
+  // import for Alice/Zoe/Laura. Not a credential; agents' relay identifiers
   // live on-disk in ~/.claude/identities/<name>/relay.json per fleet convention.
   mxid: text("mxid"),
 });

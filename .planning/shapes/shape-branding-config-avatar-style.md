@@ -25,7 +25,7 @@ The instance refuses to boot if the aesthetic director spec is missing or empty.
 
 ## Prior context
 
-- The manual avatar-generation runbook was developed 2026-07-09 across ~6 hours with Ashley. Locked in the fleet aesthetic (MOBA-champion / LoL-splash portraits) and the 0.7 gamma default.
+- The manual avatar-generation runbook was developed 2026-07-09 across ~6 hours with Alice. Locked in the fleet aesthetic (MOBA-champion / LoL-splash portraits) and the 0.7 gamma default.
 - The functionality was moved into the app a while ago and now runs as a batch endpoint: chat-model archetype draft → three parallel image-model calls → gamma lift → candidate cache → user pick.
 - The director spec currently lives as a fixed constant in the backend, embedding the LoL-champion aesthetic. The runbook file has stayed on disk as reference only and is scheduled for deletion as part of this ship.
 - A branding config already exists (from tiffany's earlier feature work); this build extends its schema.
@@ -36,7 +36,7 @@ The instance refuses to boot if the aesthetic director spec is missing or empty.
 - If any existing deployment refuses to boot after the ship because its branding config wasn't seeded with the aesthetic director spec. The migration seed has to be atomic with the code change.
 - If a differently-branded instance still ends up producing MOBA-champion avatars because some part of the aesthetic language remains hardcoded outside the config. The split of the palette-constraint line is the load-bearing check here.
 - If someone can create a valid-looking branding config that passes the presence check but produces nonsense avatars silently — trust-the-admin means we DON'T guard against this, but if the presence check ends up so loose (e.g. whitespace-only string passes) that it accepts obviously-broken input, the guardrail has missed its point.
-- If the manual runbook file's deletion loses something that's still needed. Ashley confirmed all its outrigger content is retired, but a scope-check during execution should re-verify nothing has quietly become live-again.
+- If the manual runbook file's deletion loses something that's still needed. Alice confirmed all its outrigger content is retired, but a scope-check during execution should re-verify nothing has quietly become live-again.
 - If the aesthetic director spec ends up read at avatar-generation time from a source other than the branding config (e.g. still falling back to the constant in code as a "just in case"), a stale fallback silently defeats the whole point.
 
 ## Scope edges

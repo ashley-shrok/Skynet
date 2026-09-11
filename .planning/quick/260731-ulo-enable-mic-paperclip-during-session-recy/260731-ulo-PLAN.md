@@ -47,7 +47,7 @@ must_haves:
 ---
 
 <objective>
-Close bounty `mic-available-when-composebox-disabled`: revise the quick 260729-j8l recycle-disable behavior so mic + paperclip stay USABLE during a session recycle (they don't cause WS sends by themselves — mic just records, paperclip just stages a file), while keeping Send disabled. Also gate `handleVoiceSend` so a completed transcript during recycle lands in the textarea/slot but does NOT invoke `onSend` — the user sends manually once the recycle overlay clears. Finally, bump the primary textarea's left padding from `pl-10` (40px) to `pl-11` (44px) per Ashley's request for a few more pixels of clearance under the paperclip glyph.
+Close bounty `mic-available-when-composebox-disabled`: revise the quick 260729-j8l recycle-disable behavior so mic + paperclip stay USABLE during a session recycle (they don't cause WS sends by themselves — mic just records, paperclip just stages a file), while keeping Send disabled. Also gate `handleVoiceSend` so a completed transcript during recycle lands in the textarea/slot but does NOT invoke `onSend` — the user sends manually once the recycle overlay clears. Finally, bump the primary textarea's left padding from `pl-10` (40px) to `pl-11` (44px) per Alice's request for a few more pixels of clearance under the paperclip glyph.
 
 Purpose: The prior 260729-j8l pass over-scoped the recycle gate — mic and paperclip do not fire WS side-effects on their own, so hiding/disabling them makes the UI feel dead during the 2-15s recycle window without safety benefit. This plan restores their usability while preserving the WS-safety invariant (no send while recycling).
 
@@ -91,10 +91,10 @@ SOURCE FILE: `src/ui/features/pretty-view/ComposeBox.tsx`
       `disabled={canSend === false || asideActive === true}`
     Result: paperclip enabled during recycle.
 
-(4) `handleVoiceSend` function around L1012-1047. Gate the auto-send WITHOUT changing setText / setQueueSlots / scheduleAutosave behavior, so the transcript still lands in the textarea/slot during recycle — Ashley just sends manually once the overlay clears.
+(4) `handleVoiceSend` function around L1012-1047. Gate the auto-send WITHOUT changing setText / setQueueSlots / scheduleAutosave behavior, so the transcript still lands in the textarea/slot during recycle — Alice just sends manually once the overlay clears.
 
     PRIMARY branch (target === "primary", currently L1019-1024): keep `setText(result.glued)` and `scheduleAutosave(result.glued, latestQueueSlotsRef.current)`. Wrap the `handleSend(result.glued)` call in `if (!recycleActive)`. Add a one-line comment directly above that guard:
-      `// Bounty mic-available-when-composebox-disabled (quick 260731-ulo): during recycle, land transcript in textarea but skip auto-send — Ashley sends manually once the overlay clears.`
+      `// Bounty mic-available-when-composebox-disabled (quick 260731-ulo): during recycle, land transcript in textarea but skip auto-send — Alice sends manually once the overlay clears.`
 
     SLOT branch (else block, currently L1025-1043): keep the `setQueueSlots(prev => prev.map(...))` write. Wrap the entire `const payload = collapseNewlinesForSend(...)` block (including `if (payload) { ... }`) in `if (!recycleActive)`. Inside the new `else` (when recycleActive is true), mirror the "write-to-slot-only-no-send" pattern used by the sibling `handleVoiceAppend` (L985-1010): compute the same `nextSlots` mapping used by handleVoiceAppend —
       `const nextSlots = latestQueueSlotsRef.current.map((s) => s.id === target ? { ...s, text: result.glued } : s);`
@@ -108,7 +108,7 @@ Do NOT touch: Send button (`sendDisabled` OR-in of `recycleActive` stays), Reset
 TEST FILE: `src/ui/features/pretty-view/ComposeBox.recycle-disable.test.tsx`
 
 (6) File-header comment block (L1-27): edit line 14 — remove "paperclip" from the aux list. Add a short note (2-3 lines) near the bottom of the header block noting the scope shift, wording along the lines of:
-      `Quick 260731-ulo (bounty mic-available-when-composebox-disabled): mic + paperclip stay USABLE during recycle (no WS side-effect from either alone). Voice-send is gated so a completed transcript during recycle lands in the textarea/slot but does NOT dispatch — Ashley sends manually once the overlay clears.`
+      `Quick 260731-ulo (bounty mic-available-when-composebox-disabled): mic + paperclip stay USABLE during recycle (no WS side-effect from either alone). Voice-send is gated so a completed transcript during recycle lands in the textarea/slot but does NOT dispatch — Alice sends manually once the overlay clears.`
 
 (7) Test B2 (L80-103): remove the `attachBtn` const declaration AND its `expect(attachBtn.disabled).toBe(true)` assertion. Keep resetBtn, thumbsUpBtn, explainBtn, queueBtn assertions unchanged. Rename the test title from "aux buttons all disabled" to something narrower and accurate — e.g., `"B2: recycleActive=true — aux WS-side-effect buttons (reset, thumbs-up, explain, queue-for-idle) disabled"`. Do NOT add Target `/bounty` or ListPlus `/queue` buttons here — they render conditionally and are already covered by their own disabled expressions in the source; keep scope tight.
 
@@ -142,7 +142,7 @@ COMMIT: single atomic commit on branch `feat/tab-title-from-tmux` with message i
     - `grep -nE "!recycleActive" src/ui/features/pretty-view/ComposeBox.tsx | wc -l` returns fewer occurrences than before the edit (the two mic predicates lost their clause). The remaining `recycleActive`-related lines belong to `sendDisabled`, `handleVoiceSend` guards, and the Enter-key early-return.
     - `grep -n "recycleActive === true" src/ui/features/pretty-view/ComposeBox.tsx | grep -i paperclip` shows no matches near the Paperclip disabled predicate.
     - `grep -n "showPaperclip && \"pl-11\"" src/ui/features/pretty-view/ComposeBox.tsx` returns one hit; `grep -n "showPaperclip && \"pl-10\"" ...` returns zero.
-    - Single atomic commit landed on branch `feat/tab-title-from-tmux`. No push, no docker rebuild, no compose recreate (Ashley greenlights ship separately).
+    - Single atomic commit landed on branch `feat/tab-title-from-tmux`. No push, no docker rebuild, no compose recreate (Alice greenlights ship separately).
     - No files touched under `~/.claude/identities/tina/` (orchestrator handles skynet-patches.md + bounty archive after executor returns).
   </done>
 </task>
@@ -172,6 +172,6 @@ Create `.planning/quick/260731-ulo-enable-mic-paperclip-during-session-recy/2607
 - Files touched (both file paths, absolute)
 - Commit SHA on branch `feat/tab-title-from-tmux`
 - Bounty slug: `mic-available-when-composebox-disabled` — status: ready for orchestrator to archive
-- Explicit note: no push / no docker rebuild / no compose recreate performed (Ashley greenlights ship separately)
+- Explicit note: no push / no docker rebuild / no compose recreate performed (Alice greenlights ship separately)
 - Explicit note: no `~/.claude/identities/tina/*` edits (orchestrator handles skynet-patches.md and bounty archive)
 </output>

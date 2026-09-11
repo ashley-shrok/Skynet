@@ -6,7 +6,7 @@
 **Parent shape:** `.planning/shapes/shape-relay-mediated-group-conversations.md`
 **Parent bounty:** `relay-mediated-group-conversations-humans-agents-in-rooms`
 **Depends on:** sub-slice A (`relay-human-identities-first-class`), sub-slice B (`relay-session-model-generalization`).
-**Tasting prototype:** http://100.99.149.8:8899/index.html — served from the bounty folder for the life of this session; four variants shown across mobile + desktop; Ashley picked variant D (sectioned single list + search filter).
+**Tasting prototype:** http://100.99.149.8:8899/index.html — served from the bounty folder for the life of this session; four variants shown across mobile + desktop; Alice picked variant D (sectioned single list + search filter).
 
 ## What this is
 

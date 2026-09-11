@@ -55,7 +55,7 @@ metrics:
 
 **LOCKED:** `installStopHook` fires one-shot per host per SSH-client-lifecycle, guarded by `starter.ts`' `hookInstallAttempted: Set<string>` (L554–L559). Cleared on channel end/close/error events (L616–L618) + on `releaseSshChannel` (L676) + on `onLastUnsubscriber`.
 
-**Rollout mechanism:** Skynet container restart post-merge re-fires `installStopHook` on every fleet-substrate peer as new SSH clients acquire. Steady-state channel churn (dead-channel reap + reconnect) also re-fires it. Ashley's deploy discipline (container restart post-merge) is the reliable Wave 1 rollout trigger — no new plumbing required. The helper's idempotency guarantees no duplicate entries on re-fire.
+**Rollout mechanism:** Skynet container restart post-merge re-fires `installStopHook` on every fleet-substrate peer as new SSH clients acquire. Steady-state channel churn (dead-channel reap + reconnect) also re-fires it. Alice's deploy discipline (container restart post-merge) is the reliable Wave 1 rollout trigger — no new plumbing required. The helper's idempotency guarantees no duplicate entries on re-fire.
 
 ## Test count
 
@@ -98,9 +98,9 @@ metrics:
 
 Otherwise, plan executed exactly as written.
 
-## Wave 1 UAT Gate (Task 2) — awaiting Ashley
+## Wave 1 UAT Gate (Task 2) — awaiting Alice
 
-Task 2 is a `checkpoint:human-verify` gate. Executor STOPS at Task 1 completion per checkpoint protocol. Ashley owns:
+Task 2 is a `checkpoint:human-verify` gate. Executor STOPS at Task 1 completion per checkpoint protocol. Alice owns:
 
 1. Push `feat/tab-title-from-tmux` (branch already has commit `57d42e3c` on tip).
 2. Build + deploy Skynet container to t1000 (`docker compose up -d --force-recreate skynet`).
@@ -108,7 +108,7 @@ Task 2 is a `checkpoint:human-verify` gate. Executor STOPS at Task 1 completion 
 4. Execute Task 2's six checks (documented in plan `<how-to-verify>`): container log grep of `plan_mode_deny_applied`, per-peer settings.json grep for the two deny entries, permissions.deny preservation check, hooks preservation check, 30-min post-deploy JSONL grep for actual `tool_use` invocations of the plan-mode tools, startup-warning sanity check.
 5. Reply `all 6 checks PASS — Wave 2 authorized` OR describe failures.
 
-**Wave 2 authorization signal:** NOT YET — awaiting Ashley UAT reply.
+**Wave 2 authorization signal:** NOT YET — awaiting Alice UAT reply.
 
 ## Self-Check: PASSED
 

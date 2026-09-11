@@ -63,7 +63,7 @@ impact (underscore-prefixed test-only export, same as sibling
 
 Everything else executed as-written.
 
-## What tina should tell Ashley
+## What tina should tell Alice
 
 Fleet pins now survive a page refresh — the panel waits for
 `updateFleetSessions()` to land before it hydrates `pinnedIds`, so the

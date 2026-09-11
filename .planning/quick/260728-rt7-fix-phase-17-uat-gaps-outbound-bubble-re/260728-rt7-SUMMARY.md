@@ -25,7 +25,7 @@ key_files:
     - src/backend/database/routes/relay-pointer.ts
     - src/backend/database/routes/relay-pointer.test.ts
 decisions:
-  - Option D (Ashley 2026-07-28): delete body-extractor entirely; rawCommand IS the bubble body
+  - Option D (Alice 2026-07-28): delete body-extractor entirely; rawCommand IS the bubble body
   - lockstep regex swap: POINTER_REGEX and WHITELIST_REGEX updated in the same commit to identical inner path pattern
 metrics:
   duration: ~30min
@@ -49,7 +49,7 @@ metrics:
 
 **Problem:** Every outbound bubble showed "⚠ extraction failed" because fleet-standard sends use `curl -d "$(jq -n --arg b "$MSG" ...)"` — literal-JSON extraction cannot succeed on those forms.
 
-**Fix (Option D, Ashley 2026-07-28):** Delete the body-extraction block (~L181-197) from `detectRelayOutbound`. `rawCommand` IS the body — rendered faithfully as a scrollable `<pre>` mono block.
+**Fix (Option D, Alice 2026-07-28):** Delete the body-extraction block (~L181-197) from `detectRelayOutbound`. `rawCommand` IS the body — rendered faithfully as a scrollable `<pre>` mono block.
 
 ### Changes
 
@@ -57,7 +57,7 @@ metrics:
 - `RelayOutboundMessage` type drops `body` and `extractError` fields; now `{ kind, room, rawCommand, eventId, ts }`.
 - `detectRelayOutbound` return type simplified to `{ room, rawCommand }`.
 - Body-extraction block (dSingle/dDouble/dArg/JSON.parse) deleted.
-- Follow-up bounty comment added: opportunistic MSG=/BODY=/TEXT= grep deferred per Ashley's explicit decision.
+- Follow-up bounty comment added: opportunistic MSG=/BODY=/TEXT= grep deferred per Alice's explicit decision.
 
 **claude-session-server.ts:**
 - `relay_outbound` WS emit carries `{ type, room, rawCommand, eventId, ts }` only; comment updated to "faithful command record."
@@ -117,7 +117,7 @@ Character class choices:
 ### Tests Updated
 
 **relay-pointer.test.ts:**
-- Test 1: Replaced `/tmp/` positives with Ashley's exact reproducer path (`_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt`) + alt identity path — both MUST match.
+- Test 1: Replaced `/tmp/` positives with Alice's exact reproducer path (`_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt`) + alt identity path — both MUST match.
 - Test 2: Updated traversal path to identity-dir shape with `../../` traversal.
 - Test 3: Kept `/etc/passwd`; added `/home/ubuntu/other/file.txt` (missing identities segment).
 - Test 4: Updated to identity-dir path with `.sh` suffix.
@@ -128,7 +128,7 @@ Character class choices:
 **RelayInboundBubble.test.tsx:**
 - Test 2: body updated to `body written to /home/ubuntu/.claude/identities/molly/...`.
 - Test 3: body updated to identity-dir path.
-- NEW Test 6: "detectFilePointer matches recv.sh preview line format with em-dash boundaries" — feeds the exact Ashley reproducer string; asserts `pointerPath` equals the identity-dir path.
+- NEW Test 6: "detectFilePointer matches recv.sh preview line format with em-dash boundaries" — feeds the exact Alice reproducer string; asserts `pointerPath` equals the identity-dir path.
 
 ## Test Run Summary
 
@@ -156,7 +156,7 @@ Classification: [Rule 1 - Bug] test infrastructure adaptation; no production cod
 
 - `grep -rn "extractError" src/` → zero hits in production code.
 - `grep -n "relay-msg" relay-pointer-detect.ts relay-pointer.ts` → zero hits in production code.
-- Ashley's exact reproducer path (`_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt`) matches WHITELIST_REGEX and POINTER_REGEX — verified by Test 1 (backend) and Test 6 (frontend).
+- Alice's exact reproducer path (`_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt`) matches WHITELIST_REGEX and POINTER_REGEX — verified by Test 1 (backend) and Test 6 (frontend).
 - Two atomic commits on branch `feat/tab-title-from-tmux`, in order.
 - No push performed. No docker build performed. No docker compose up performed.
 

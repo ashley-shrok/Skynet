@@ -69,7 +69,7 @@ completed: 2026-09-10
 ## Accomplishments
 
 - Shipped the zero-touch voice-value migration required by D-Per-identity-voice-binding's hard-reset locked decision — every existing identity + role voice frontmatter value referencing an old Chatterbox `.wav` file gets wiped on the next Skynet backend boot.
-- Wired the migration fire-and-forget from `starter.ts` as a sibling block to `ensureBridgeConfigWritten` — zero operator action, no `docker exec` step, no distributor task. Ashley's Phase-86 preference for ops-invisible operations honored.
+- Wired the migration fire-and-forget from `starter.ts` as a sibling block to `ensureBridgeConfigWritten` — zero operator action, no `docker exec` step, no distributor task. Alice's Phase-86 preference for ops-invisible operations honored.
 - Locked the LOAD-BEARING quote-strip (`.replace(/^["']|["']$/g, "")`) verbatim in `migrateFrontmatterFile` per plan-review recommendation. Test Case #5 (`voice: "Elena.wav"`) plus supplementary Case #5b (`voice: 'Elena.wav'`) both green — quoted YAML values are handled uniformly with bare values.
 - Idempotency confirmed via Test Case #7 (second call after first pass) — the `POLLY_VOICE_IDS.has(currentVoice)` fast-skip guard means already-migrated boxes no-op on every subsequent restart. No wasted disk churn.
 - Never-throws contract confirmed via Test Case #8 (simulated mid-write fs failure) — the entry-point wrapper catches everything and downgrades to a `warn` log; starter.ts's `.catch` is defense-in-depth against dynamic-import failure.
@@ -137,7 +137,7 @@ None. Task 1 RED confirmed cleanly (test file failed at import resolution becaus
 
 ## User Setup Required
 
-None. This plan is self-contained — the migration runs automatically on the next Skynet backend restart post-98-05 deploy. Ashley + Stacy will each observe their identity/role frontmatter voice values clear on their respective boxes' next boot; the pretty-view identity + role modals will show the placeholder "(default)" until an owner re-picks from the Polly catalog.
+None. This plan is self-contained — the migration runs automatically on the next Skynet backend restart post-98-05 deploy. Alice + Stacy will each observe their identity/role frontmatter voice values clear on their respective boxes' next boot; the pretty-view identity + role modals will show the placeholder "(default)" until an owner re-picks from the Polly catalog.
 
 ## Next Phase Readiness
 

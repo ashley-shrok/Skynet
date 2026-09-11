@@ -37,7 +37,7 @@ metrics:
 
 ## One-Liner
 
-Converted `DormancyOverlay` from a full-surface scrim (blurred + blocked the chat region) into an assistant-aligned in-flow bubble at the bottom of the message list (mirrors PlanPendingBubble's Phase 4 Glass treatment), so Ashley can read the tail of the conversation while a session is dormant and decide whether to wake it. Three states + STATIC Moon guardrail preserved verbatim; only outer container geometry and mount site changed.
+Converted `DormancyOverlay` from a full-surface scrim (blurred + blocked the chat region) into an assistant-aligned in-flow bubble at the bottom of the message list (mirrors PlanPendingBubble's Phase 4 Glass treatment), so Alice can read the tail of the conversation while a session is dormant and decide whether to wake it. Three states + STATIC Moon guardrail preserved verbatim; only outer container geometry and mount site changed.
 
 ## Tasks Completed (3/3)
 
@@ -116,9 +116,9 @@ None. Pure UI refactor, no network or supervisor round-trips.
 
 No reload command needed — Express serves the `/app/dist/` static tree directly, so the next request picks up the new hashed bundle names via the served index.html.
 
-## Ashley Sign-Off Status
+## Alice Sign-Off Status
 
-Awaiting Ashley's iOS PWA visual confirmation for:
+Awaiting Alice's iOS PWA visual confirmation for:
 - Dormant session shows an assistant-aligned bubble at the bottom of the message list; prior messages readable above it (no blur, no scrim).
 - Tapping Wake transitions to waking state (progress bar fills, Moon stays STATIC).
 - Wake failure shows warm-red error bubble with Wake retry.

@@ -1,6 +1,6 @@
 # Plan 18-05 — Summary
 
-**Status:** COMPLETE (Ashley UAT approved 2026-07-31 — "Great job.")
+**Status:** COMPLETE (Alice UAT approved 2026-07-31 — "Great job.")
 **Duration:** ~15 min executor + ~5 min UAT
 **Commits:** 2 code + 1 docs
 
@@ -32,7 +32,7 @@ All pre-existing edit surfaces preserved byte-for-byte: Bounties status/priority
 ## Executor auto-fix
 `meeting_questions` type in `src/ui/api/claude-session-api.ts` corrected from Plan 04 executor's placeholder `{ question, answered, answer? }` to the SCRATCH-REPORT locked contract `{ text, answered }`. Executor cross-checked per plan's instruction to prefer the report over the plan's placeholder shape.
 
-## Ashley's approval
+## Alice's approval
 > "Great job."
 
 Verbatim, 2026-07-31, after live UAT of all 7 field editors + non-regression walkthrough.

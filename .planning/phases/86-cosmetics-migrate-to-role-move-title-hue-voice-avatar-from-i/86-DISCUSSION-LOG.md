@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-07
 **Format:** In-session `/build feature-mode` → `/open` (shape file lock) → `/gsd:phase` → `/gsd:discuss-phase` (this log).
-**Participants:** Ashley (visionary), tabitha (builder).
+**Participants:** Alice (visionary), tabitha (builder).
 
 This file is for human reference / audits — NOT consumed by downstream researcher/planner/executor agents. CONTEXT.md is the canonical downstream input.
 
@@ -10,9 +10,9 @@ This file is for human reference / audits — NOT consumed by downstream researc
 
 ## Source: /open shape lock (2026-09-07)
 
-The bulk of the direction was settled during `/open cosmetics-migrate-to-role`, greenlit by Ashley `thumbs up` in the same session. Shape file at `.planning/shapes/shape-cosmetics-migrate-to-role.md` — everything in the shape file's `## Shape`, `## Philosophy`, `## What would make it wrong`, and `## Scope edges` sections carries into CONTEXT.md's `<decisions>` and `<deferred>` blocks without re-elicitation, per the `/build` skill directive to seed discuss-phase from the shape file.
+The bulk of the direction was settled during `/open cosmetics-migrate-to-role`, greenlit by Alice `thumbs up` in the same session. Shape file at `.planning/shapes/shape-cosmetics-migrate-to-role.md` — everything in the shape file's `## Shape`, `## Philosophy`, `## What would make it wrong`, and `## Scope edges` sections carries into CONTEXT.md's `<decisions>` and `<deferred>` blocks without re-elicitation, per the `/build` skill directive to seed discuss-phase from the shape file.
 
-Key Ashley verbatims from that discussion, all captured in CONTEXT.md:
+Key Alice verbatims from that discussion, all captured in CONTEXT.md:
 
 - *"one shared image"* — settled the avatar semantics (role owns one image, all identities show it; no per-identity generation within a role-defined style).
 - *"Migration isn't part of the build. It's something that whoever deploys on this instance, and Stacy for her instance, would just need to do manually. and then there's no already-overridden problem anyway"* — settled migration as manual, out of scope; consequence: no auto-lift, no auto-wipe, no in-UI redundant-override warnings.
@@ -44,9 +44,9 @@ Output folded into CONTEXT.md `<code_context>` section verbatim. Key discoveries
 - (b) Add role-cosmetic-edit into IdentityModal (split cosmetic tab into "role defaults" + "your overrides").
 - (c) Add a small standalone role-edit dialog in this phase.
 
-**Ashley's answer (verbatim):** *"Yeah, I would leave this alone because I actually plan on breaking out the role level stuff into its own modal later, and that would be a good opportunity to add it."*
+**Alice's answer (verbatim):** *"Yeah, I would leave this alone because I actually plan on breaking out the role level stuff into its own modal later, and that would be a good opportunity to add it."*
 
-**Resolution:** (a) — creation-only for Phase 86. Role-cosmetic-edit-post-creation deferred to the future role-level modal breakout Ashley is planning. Captured in CONTEXT.md `<deferred>` section.
+**Resolution:** (a) — creation-only for Phase 86. Role-cosmetic-edit-post-creation deferred to the future role-level modal breakout Alice is planning. Captured in CONTEXT.md `<deferred>` section.
 
 ---
 
@@ -63,7 +63,7 @@ Output folded into CONTEXT.md `<code_context>` section verbatim. Key discoveries
 
 ## Deferred ideas from this discussion
 
-- Post-creation role cosmetic edit UI → future role-level modal bounty (Ashley's planned breakout).
+- Post-creation role cosmetic edit UI → future role-level modal bounty (Alice's planned breakout).
 - Extract avatar generation into a reusable component → maybe later if a third caller emerges.
 - Sweep peer identities' redundant frontmatter as part of ship → not part of code; migration is manual data motion by whoever deploys.
 

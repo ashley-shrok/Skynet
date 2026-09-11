@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-08-19
 **Status:** Ready for planning
-**Source:** Design LOCKED via extended interactive tasting session between Ashley and tanya on 2026-08-19 (no separate `/gsd:discuss-phase` run — decisions captured inline via prototype.html 21 variants, ring-patterns.html 18 spinner variants, live-app v14-console-snippet.js taste on the running Skynet PWA, and back-and-forth iteration). Design artifact + tasting files at `~/.claude/roles/box-maintainer/bounties/convo-list-current-work-hint/`.
+**Source:** Design LOCKED via extended interactive tasting session between Alice and tanya on 2026-08-19 (no separate `/gsd:discuss-phase` run — decisions captured inline via prototype.html 21 variants, ring-patterns.html 18 spinner variants, live-app v14-console-snippet.js taste on the running Skynet PWA, and back-and-forth iteration). Design artifact + tasting files at `~/.claude/roles/box-maintainer/bounties/convo-list-current-work-hint/`.
 
 <domain>
 ## Phase Boundary
@@ -21,11 +21,11 @@
 - **Test coverage** for wire parse (aiTitle in `/sessions/list` and fleet-status frame), backend scraper (empty case, valid case, malformed line case), working-store aiTitle seed/publish/replace/no-op, `PrettyConversationRow` render for all state combos (idle, working, both counts, one count, no counts, no ai-title, active-set vs ambient), `PrettyBountyCountBadge` remains passing after relocation.
 
 **Out of scope:**
-- No changes to how `isWorking`/`isRecycling`/`hasQueuePending` are computed — the working spinner uses the EXISTING inputs, just inverted (Ashley 2026-08-19 verbatim: *"make the spinner work on the same logic as the idle indicator, except you invert it as the final step of logic there."*). Do NOT widen the state check — that would reintroduce the Phase 39 ambient-monitor gap where every session got permanently marked working. Ashley accepted the tradeoff verbatim: *"and that is fine for now."*
+- No changes to how `isWorking`/`isRecycling`/`hasQueuePending` are computed — the working spinner uses the EXISTING inputs, just inverted (Alice 2026-08-19 verbatim: *"make the spinner work on the same logic as the idle indicator, except you invert it as the final step of logic there."*). Do NOT widen the state check — that would reintroduce the Phase 39 ambient-monitor gap where every session got permanently marked working. Alice accepted the tradeoff verbatim: *"and that is fine for now."*
 - No new UI for surfacing ai-title elsewhere in the app (not in header, not in pretty-view, not in modal chrome). Row-level display only.
 - No cross-identity aggregation, filtering, sorting by ai-title.
 - No harness-level modifications — the `{"type":"ai-title"}` line is written by Claude Code itself; we only consume it as a read-only source.
-- No LLM call on our side for summarization — the ai-title IS the summary, produced by the harness for free. This was explicitly the direction Ashley wanted after empirical investigation confirmed the source is universal (~92% coverage across 216 sessions, not gated on plan mode).
+- No LLM call on our side for summarization — the ai-title IS the summary, produced by the harness for free. This was explicitly the direction Alice wanted after empirical investigation confirmed the source is universal (~92% coverage across 216 sessions, not gated on plan mode).
 - No new sort keys / recency semantics changes — Phase 44 already owns the recency sort; this phase adds a display axis only.
 - No changes to the RDP row tier or the pinned tier.
 
@@ -60,21 +60,21 @@
 
 **Title line:**
 - Content: identity name (bold-ish, existing weight) + one space + hostname wrapped in parens `(skynet-ec2)`.
-- Parens styling: SAME font-size as identity name (not smaller), alpha `.85` (subtly softer to signal parenthetical), inherits font-family from label. This is the "part of the same text" treatment Ashley locked after iteration.
+- Parens styling: SAME font-size as identity name (not smaller), alpha `.85` (subtly softer to signal parenthetical), inherits font-family from label. This is the "part of the same text" treatment Alice locked after iteration.
 - Right-edge fade-truncation via `mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 22px), transparent 100%)` + `text-overflow: clip` (not ellipsis). Long identity/hostname combos taper into transparency instead of hard-cutting.
 
 **Subtitle line (formerly hostname; now the ai-title):**
-- Content: the identity's current ai-title string. When ai-title is null (fresh session, no title yet), fallback text is `"…"` (single ellipsis char, italic, muted alpha 0.58) OR empty — decide at implementation time. Ashley's tasting used a visible placeholder for testing; for production either the ellipsis or blank line is acceptable. Slight preference for the ellipsis so the row visually anchors the same height regardless of ai-title presence.
+- Content: the identity's current ai-title string. When ai-title is null (fresh session, no title yet), fallback text is `"…"` (single ellipsis char, italic, muted alpha 0.58) OR empty — decide at implementation time. Alice's tasting used a visible placeholder for testing; for production either the ellipsis or blank line is acceptable. Slight preference for the ellipsis so the row visually anchors the same height regardless of ai-title presence.
 - Styling: color `#f0ece0` (bright, near-full brightness), `font-size: 13.5px`, `font-weight: 500`, `text-shadow: 0 1px 2px rgba(0,0,0,0.4)` for contrast on hue-tinted rows, same mask-image right-edge fade as the title line.
 
 **Working indicator (INVERSION — replaces the current idle-dot):**
 - Old behavior: idle rows get a bright cream ready-dot in `.pv-meta` right column when `inActiveSet && isWorking === false && !isRecycling && !hasQueuePending`. Working rows have no dot.
 - New behavior: **idle rows have NOTHING**. Working rows get a slow dashed spinner ring around the avatar in the identity's hue.
-- **Gate rule (Ashley 2026-08-19 verbatim):** *"make the spinner work on the same logic as the idle indicator, except you invert it as the final step of logic there."* Concretely:
+- **Gate rule (Alice 2026-08-19 verbatim):** *"make the spinner work on the same logic as the idle indicator, except you invert it as the final step of logic there."* Concretely:
   - `showSpinner = !(inActiveSet && isWorking === false && !isRecycling && !hasQueuePending)` — same four inputs the current idle-dot uses, evaluated the same way, INVERT THE FINAL BOOLEAN. Do NOT widen or narrow the state check.
   - Same JS gate as the ready-dot (which reads `useSessionQueuePending` + `useSessionIsWorking` + `useSessionRecycling`), just the final `?` on the render inverted.
-  - The `.pv-row.working` CSS class Skynet already applies is a NARROWER signal (only `status === "busy"`, excludes shell + waiting per Phase 39). That is DELIBERATELY excluded from the widening — Ashley accepted verbatim *"that is fine for now"* after understanding tool-executing sessions won't spin.
-- Spinner visual: `.pv-avatar::before` conic-gradient of 18 dashes spanning 10° each with 10° gaps between, masked to a thin outer ring via `radial-gradient` mask, animated with `transform: rotate(360deg)` over **3 seconds per revolution** (slow — Ashley picked from a ring-patterns tasting). Color: identity's `--pv-hue` at `hsla(var(--pv-hue), 70%, 65%, 1)`. Exact CSS is captured in the ring-patterns.html `.av.p05` variant and in the console snippet `v14-console-snippet.js` — copy the CSS block verbatim.
+  - The `.pv-row.working` CSS class Skynet already applies is a NARROWER signal (only `status === "busy"`, excludes shell + waiting per Phase 39). That is DELIBERATELY excluded from the widening — Alice accepted verbatim *"that is fine for now"* after understanding tool-executing sessions won't spin.
+- Spinner visual: `.pv-avatar::before` conic-gradient of 18 dashes spanning 10° each with 10° gaps between, masked to a thin outer ring via `radial-gradient` mask, animated with `transform: rotate(360deg)` over **3 seconds per revolution** (slow — Alice picked from a ring-patterns tasting). Color: identity's `--pv-hue` at `hsla(var(--pv-hue), 70%, 65%, 1)`. Exact CSS is captured in the ring-patterns.html `.av.p05` variant and in the console snippet `v14-console-snippet.js` — copy the CSS block verbatim.
 - No transition on the spinner's appearance/disappearance (turning on/off is instant; the rotation itself is the motion).
 
 **Badge relocation (V12 style reuse):**
@@ -118,8 +118,8 @@
 
 ### Bundle with Phase 44 ship
 
-- Phase 44 (convo-list recency signal fix) is code-complete on this branch, ship on hold pending bundled follow-ups per Ashley directive 2026-08-18: *"okay i would just say hold that work then and we can throw a few more things on before you deploy"*. This phase's work is a natural bundle candidate — same file family (`PrettyConversationRow.tsx`, `session-working-store.ts`, `sessions.ts`, fleet-session wire type), same architectural shape (extend FleetSession + backend scraper + working-store field + frontend consumer), one deploy carries both.
-- Also candidates to bundle at deploy time (from Phase 44 handoff): Phase 41 `setIsIdle` leftover in `Terminal.tsx:1441`, `<BountyCard>` test backfill. These are separate concerns; leaving to Ashley to bundle at deploy time.
+- Phase 44 (convo-list recency signal fix) is code-complete on this branch, ship on hold pending bundled follow-ups per Alice directive 2026-08-18: *"okay i would just say hold that work then and we can throw a few more things on before you deploy"*. This phase's work is a natural bundle candidate — same file family (`PrettyConversationRow.tsx`, `session-working-store.ts`, `sessions.ts`, fleet-session wire type), same architectural shape (extend FleetSession + backend scraper + working-store field + frontend consumer), one deploy carries both.
+- Also candidates to bundle at deploy time (from Phase 44 handoff): Phase 41 `setIsIdle` leftover in `Terminal.tsx:1441`, `<BountyCard>` test backfill. These are separate concerns; leaving to Alice to bundle at deploy time.
 
 </decisions>
 
@@ -129,7 +129,7 @@
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Design decision source
-- `~/.claude/roles/box-maintainer/bounties/convo-list-current-work-hint/bounty.json` — the design-lock bounty, has full history + verbatim Ashley quotes on the working-spinner rule and the "fine for now" tradeoff acceptance.
+- `~/.claude/roles/box-maintainer/bounties/convo-list-current-work-hint/bounty.json` — the design-lock bounty, has full history + verbatim Alice quotes on the working-spinner rule and the "fine for now" tradeoff acceptance.
 - `~/.claude/roles/box-maintainer/bounties/convo-list-current-work-hint/prototype.html` — 21 display variants; v14 is the anchor + v17-v21 are the working-indicator variants tasted.
 - `~/.claude/roles/box-maintainer/bounties/convo-list-current-work-hint/ring-patterns.html` — 18 spinner-pattern variants; `.av.p05` (slowed to 3s) is the chosen dashed-spinner CSS.
 - `~/.claude/roles/box-maintainer/bounties/convo-list-current-work-hint/v14-console-snippet.js` — live-app v14 taste (last state has the final agreed styling: bottom-left counts, hostname parens same-size, fade truncation, working spinner via `.pv-row.active-set:is(.working,.recycling)` — note this snippet uses the CSS-level classes but the real implementation should use the JS store-based gate for the full 4-input boolean).
@@ -149,7 +149,7 @@
 ### Working-indicator gate source
 - `src/ui/features/pretty-conversations/PrettyConversationRow.tsx` line ~1109 — the current ready-dot JS render gate: `{isWorking === false && !isRecycling && !hasQueuePending && (...)}`. The working-spinner render is this exact boolean INVERTED.
 - `src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx` line 179 — the `useSessionIsWorking(sessionKey)` hook call. The new spinner needs the same three hook subscriptions (isWorking, isRecycling, queue-pending) to compute its gate.
-- `src/ui/state/session-working-store.ts` — comment block at top explains `isWorking = main || bg` where `main = status === "busy"` and Phase 39's deliberate exclusion of `status === "shell"`. The spinner will NOT show during tool-exec turns; that is Ashley-accepted and NOT to be widened here.
+- `src/ui/state/session-working-store.ts` — comment block at top explains `isWorking = main || bg` where `main = status === "busy"` and Phase 39's deliberate exclusion of `status === "shell"`. The spinner will NOT show during tool-exec turns; that is user-accepted and NOT to be widened here.
 
 ### Harness ai-title source
 - Format: `{"type":"ai-title","aiTitle":"<string>","sessionId":"<uuid>"}` — one JSON line, appended to the session JSONL by Claude Code itself as topic drifts. Empirically confirmed universal (not plan-mode-gated): 199/216 sessions on this box have ai-title lines, 196 of those 199 never invoked `ExitPlanMode` (evidence gathered 2026-08-19 during the design session).
@@ -191,7 +191,7 @@ Phase 44's four plans landed the ARCHITECTURE this phase mirrors. The planner MU
 <deferred>
 ## Deferred Ideas
 
-- **Widening the working-state gate to include tool-executing sessions** — Ashley accepted the current narrow gate ("that is fine for now"). Fixing the Phase 39 ambient-monitor problem (which prevents widening) is a separate future concern; not this phase.
+- **Widening the working-state gate to include tool-executing sessions** — Alice accepted the current narrow gate ("that is fine for now"). Fixing the Phase 39 ambient-monitor problem (which prevents widening) is a separate future concern; not this phase.
 - **LLM-based summary fallback for sessions without ai-title** — considered during design, rejected in favor of the free harness-produced signal. Fallback is null/ellipsis, not a fabricated summary.
 - **Ai-title display anywhere other than the conversation list row** — no header, no pretty-view chrome, no modal. Deferred; may or may not ever surface.
 - **Cross-identity aggregation, filter-by-topic, search-by-ai-title** — not for this phase. Search bar (Phase 42) matches row labels only.

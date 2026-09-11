@@ -198,7 +198,7 @@ Verify all five surfaces render "Aither Intelligence Plus" / "AI+" / operator-pr
 
 - **Translated locales** — 15 `src/ui/locales/translated/*.json` files still contain locale-specific "loginTitle" values like `"Masuk ke SKYNET"`. If operators want the neutral-locale-title behavior for non-en users, a separate mini-plan can batch-update these. Current impact: zero (all feed dead LoginPage.tsx).
 - **SkynetLogo.tsx dead-code cleanup** — file has zero live consumers post-Phase-70. Safe to delete in a future cleanup pass; deferred here per plan action-step 7.
-- **Fifth-surface for AI+ specifically** — if Ashley later wants "Login to Aither Intelligence Plus" instead of just "Login" on the login screen, that's Option 2 territory (dynamic template in the surface that renders it). Would also require reviving or refactoring LoginPage.tsx first, since Auth.tsx doesn't have a "Login to X" heading today.
+- **Fifth-surface for AI+ specifically** — if Alice later wants "Login to Aither Intelligence Plus" instead of just "Login" on the login screen, that's Option 2 territory (dynamic template in the surface that renders it). Would also require reviving or refactoring LoginPage.tsx first, since Auth.tsx doesn't have a "Login to X" heading today.
 
 ## Threat Flags
 

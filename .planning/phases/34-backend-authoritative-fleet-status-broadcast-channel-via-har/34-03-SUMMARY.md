@@ -20,7 +20,7 @@ key_files:
     - src/ui/features/pretty-view/WaitingBubble.test.tsx
   modified: []
 decisions:
-  - "Presence-only (NO buttons) — Ashley must switch to tmux pane to answer permission prompts; enforced by test 6"
+  - "Presence-only (NO buttons) — Alice must switch to tmux pane to answer permission prompts; enforced by test 6"
   - "Hand glyph (lucide) chosen for waiting semantics — distinct from PlanPendingBubble's ClipboardList"
   - "Phase 4 Glass className stack copied verbatim from PlanPendingBubble.tsx lines 164-172, minus max-w cap"
   - "Null/empty reason → fallback 'Waiting on you' (still keeps role=status + aria-label)"

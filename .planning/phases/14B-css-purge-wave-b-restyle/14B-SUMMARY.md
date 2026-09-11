@@ -33,10 +33,10 @@ key-files:
     - src/ui/index.css (Slice 8)
 decisions:
   - "Retained .dark { } block in index.css: IdentityBadge md branch (terminal-pane badge, plan-protected reference surface) still consumes prior fork tokens via bg-card/border-border/text-foreground/text-muted-foreground; deleting .dark would silently break the md badge visual. Deviation from plan's 'delete .dark' intent, documented in Slice 8 commit."
-  - "Retained ThemeProvider's dead theme options (catppuccin/nord/solarized/tokyo-night/one-dark/gruvbox): picking them now applies the class with no matching CSS rules → no-op visual regression. Deferred to follow-up phase per Ashley's 'best effort' scope guidance."
-  - "Slice 3 restyled 16 loaded primitives; deferred 14 unloaded primitives (alert-dialog, badge, folder, popover, section-card, sidebar, accordion, command, dropdown-menu, scroll-area, table, slider, button-group, form) — they carry prior fork theme classes internally but have 0 consumers on Ashley-visible surfaces."
+  - "Retained ThemeProvider's dead theme options (catppuccin/nord/solarized/tokyo-night/one-dark/gruvbox): picking them now applies the class with no matching CSS rules → no-op visual regression. Deferred to follow-up phase per Alice's 'best effort' scope guidance."
+  - "Slice 3 restyled 16 loaded primitives; deferred 14 unloaded primitives (alert-dialog, badge, folder, popover, section-card, sidebar, accordion, command, dropdown-menu, scroll-area, table, slider, button-group, form) — they carry prior fork theme classes internally but have 0 consumers on user-visible surfaces."
   - "Slices 4 + 5 + 9 used a scripted regex sweep for the 26+ file bulk substitution to avoid transcription drift — patterns identical across all sweeps (bg-background→--color-pv-base, text-muted-foreground→--color-pv-fg-muted, etc.)."
-  - "Bug A (Slice 1): retired the outer sidebarHeader prior fork bar. The persistent fixed top-left sidebar-toggle chevron at ~L1424 already handles open/close; PrettyConversationsPanel's .pv-panel-header provides the UPPERCASE title + pv-pencil affordance. Ashley didn't call out the reset-width Maximize2 button as essential — died with the header, can be re-added with pv styling if needed."
+  - "Bug A (Slice 1): retired the outer sidebarHeader prior fork bar. The persistent fixed top-left sidebar-toggle chevron at ~L1424 already handles open/close; PrettyConversationsPanel's .pv-panel-header provides the UPPERCASE title + pv-pencil affordance. Alice didn't call out the reset-width Maximize2 button as essential — died with the header, can be re-added with pv styling if needed."
   - "Bug B (Slice 2): unified PinAction to the mock's bare-icon-with-hue-drop-shadow treatment. Mobile 48x48 disc chrome retired; mobile now uses data-size='mobile' variant for a 32x32 hit-target while keeping the same visual language."
 metrics:
   duration: ~2h execution wall-clock
@@ -47,7 +47,7 @@ metrics:
 
 # Phase 14B: CSS Purge Wave B — Restyle Summary
 
-Skynet's post-rename cleanup Wave B: restyle every surviving prior fork-styled surface Ashley sees to match the pretty-view aesthetic, fix Bug A + Bug B regressions Ashley UAT'd, and purge prior fork theme scaffolding from index.css. 9 atomic commits landed across the 9 planned slices (with Slice 9 split into base + extended sweep for scope-honesty).
+Skynet's post-rename cleanup Wave B: restyle every surviving prior fork-styled surface Alice sees to match the pretty-view aesthetic, fix Bug A + Bug B regressions Alice UAT'd, and purge prior fork theme scaffolding from index.css. 9 atomic commits landed across the 9 planned slices (with Slice 9 split into base + extended sweep for scope-honesty).
 
 ## Wave B commits
 
@@ -71,7 +71,7 @@ Skynet's post-rename cleanup Wave B: restyle every surviving prior fork-styled s
 
 The prior fork's bar with mixed-case "Conversations" title + reset-width Maximize2 button + ChevronLeft close-sidebar button (AppShell.tsx L1325-1358) lived above the pretty-conversations panel and jarred against the pv aesthetic. Deleted the `sidebarHeader` const (~35 LOC), removed `{sidebarHeader}` from all three layout branches (wide desktop inline sidebar at L1489, narrow-desktop Sheet at L1513, mobile-touchscreen list screen at L1535), dropped the unused `Maximize2` lucide import, and rebased the mobile list-screen background to `bg-[color:var(--color-pv-base)]`. Post-slice the sidebar shows ONLY `.pv-panel-header` at the top (mock's UPPERCASE title + pv-pencil affordance).
 
-The persistent fixed top-left sidebar-toggle chevron (~L1424) already handles open/close, so the ChevronLeft was redundant. The reset-width button died with the header — Ashley didn't call it out as essential.
+The persistent fixed top-left sidebar-toggle chevron (~L1424) already handles open/close, so the ChevronLeft was redundant. The reset-width button died with the header — Alice didn't call it out as essential.
 
 ### Slice 2 — Bug B: unified PinAction chrome
 
@@ -144,7 +144,7 @@ Purged prior fork theme scaffolding now that Slices 3-9 rebased every retained-U
 **Retained** (deviation from plan's "delete `.dark`" intent):
 - `.dark { }` block — IdentityBadge md branch (plan-protected) still consumes prior fork tokens. Deleting `.dark` would silently break it. Future phase: migrate IdentityBadge md to inline styles or dedicated CSS.
 - `@theme inline { }` Tailwind theme mapping — `.dark` tokens need Tailwind color plumbing to render. Also consumed by pv-tokens (`--color-pv-*`).
-- Dracula theme block (Ashley's explicit call).
+- Dracula theme block (Alice's explicit call).
 - pretty-view Glass depth aesthetic block, pv-tokens (L98-146).
 - Font-size scale, safe-area utilities, `@utility scrollbar-none`, `@utility thin-scrollbar`, `@keyframes blink`.
 - Phase 4 pv-identity-breathe keyframes + reduced-motion media rule.
@@ -164,19 +164,19 @@ File shrinks 621 → 370 lines (~40% reduction).
 
 ## Threat Flags
 
-None. Wave B is pure visual restyle + Bug A/B retirement; no new network endpoints, auth paths, file access patterns, or schema changes at trust boundaries. Auth functionality (TOTP flow, session cookies, jwt storage) verified untouched — Ashley's 6-digit code login continues to work exactly as before.
+None. Wave B is pure visual restyle + Bug A/B retirement; no new network endpoints, auth paths, file access patterns, or schema changes at trust boundaries. Auth functionality (TOTP flow, session cookies, jwt storage) verified untouched — Alice's 6-digit code login continues to work exactly as before.
 
 ## Iteration notes
 
-Ashley's "best effort, we'll iterate" guidance means these things are worth revisiting after seeing the whole surface refreshed:
+Alice's "best effort, we'll iterate" guidance means these things are worth revisiting after seeing the whole surface refreshed:
 
-1. **Deferred primitives (14 files)** — alert-dialog, badge, folder, popover, section-card, sidebar, accordion, command, dropdown-menu, scroll-area, table, slider, button-group, form. None are mounted on Ashley-visible surfaces today; sweep when they surface.
-2. **IdentityBadge md branch** — the terminal-pane badge Ashley sees on every terminal tab. Was plan-protected as a reference surface; consider migrating to inline styles matching the lg branch pattern so `.dark` can finally be retired.
+1. **Deferred primitives (14 files)** — alert-dialog, badge, folder, popover, section-card, sidebar, accordion, command, dropdown-menu, scroll-area, table, slider, button-group, form. None are mounted on user-visible surfaces today; sweep when they surface.
+2. **IdentityBadge md branch** — the terminal-pane badge Alice sees on every terminal tab. Was plan-protected as a reference surface; consider migrating to inline styles matching the lg branch pattern so `.dark` can finally be retired.
 3. **ThemeProvider dead options** — catppuccin/nord/solarized/tokyo-night/one-dark/gruvbox are still selectable but no CSS rules match; picking one is a silent no-op that shows the `.dark` fallback. Trim ThemeProvider's `ALL_THEME_CLASSES` and the theme picker UI.
 4. **Button variant balance** — the `default` variant is now warm hue-glow; some places that used the the prior fork `bg-accent-brand` treatment might read as too heavy in the new palette. Iterate variant granularity based on visual feedback (e.g., a `subtle` variant between `default` and `outline`).
 5. **Skeleton shimmer** — cool-cream 0.06 alpha is quiet; if it reads as too subtle on the pv-base surface, bump to 0.10.
 6. **Tooltip glass** — currently a strong warm-dark gradient; might read as too heavy for inline hover chrome. Consider a lower-alpha glass surface for hover-context tooltips vs. modal-level dialogs.
-7. **Auth page-level chrome** — the SKYNET wordmark + tagline decorative panel was kept intact (Skynet identity); the whole flow reads pv-native now but the wordmark's `text-4xl font-bold tracking-[0.3em] font-mono SKYNET` treatment is unchanged — worth revisiting for wordmark styling if Ashley wants brand refresh.
+7. **Auth page-level chrome** — the SKYNET wordmark + tagline decorative panel was kept intact (Skynet identity); the whole flow reads pv-native now but the wordmark's `text-4xl font-bold tracking-[0.3em] font-mono SKYNET` treatment is unchanged — worth revisiting for wordmark styling if Alice wants brand refresh.
 
 ## Verification
 
@@ -184,7 +184,7 @@ Ashley's "best effort, we'll iterate" guidance means these things are worth revi
 - `npx vitest run` — 503 passing / 2 failing (baseline: 505/507 → -2 = same 2 pre-existing ComposeBox failures from Wave A; NO new failures introduced)
 - `npm run build` — exit 0 clean production build (verified after Slice 8)
 - `git log --oneline c1b7485..HEAD` — 9 atomic commits, all with proper `refactor(14B):` prefix and Co-Authored-By line
-- Final grep for prior fork theme classes on Ashley-visible surfaces (excluding IdentityBadge md and comment lines) — 0 code hits
+- Final grep for prior fork theme classes on user-visible surfaces (excluding IdentityBadge md and comment lines) — 0 code hits
 
 ## Self-Check: PASSED
 

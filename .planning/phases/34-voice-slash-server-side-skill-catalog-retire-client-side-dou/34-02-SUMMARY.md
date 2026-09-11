@@ -56,7 +56,7 @@ Ship a fail-open SSH fetcher module `src/backend/voice/skill-catalog.ts` (+ vite
 4. Parse stdout: `split(/\r?\n/)` → per-line trim → drop empty → filter to `/^[a-z0-9-]+$/` (kebab-case). Return `new Set<string>(names)`.
 5. `finally { conn?.end() }` in its own try/catch — connection ALWAYS closed, even when exec threw.
 
-**Fail-open contract:** ANY failure — `resolveHostById` returning null OR throwing, `connectOneShot` reject, `execCommand` reject, outer `Promise.race` timeout, unparseable output — resolves to `new Set<string>()`. NEVER throws to the caller. Warn-level logging only (SSH failures on per-invocation fetches are expected/benign by design — Ashley 2026-08-13 in 34-CONTEXT.md § Decisions).
+**Fail-open contract:** ANY failure — `resolveHostById` returning null OR throwing, `connectOneShot` reject, `execCommand` reject, outer `Promise.race` timeout, unparseable output — resolves to `new Set<string>()`. NEVER throws to the caller. Warn-level logging only (SSH failures on per-invocation fetches are expected/benign by design — Alice 2026-08-13 in 34-CONTEXT.md § Decisions).
 
 ### `src/backend/voice/skill-catalog.test.ts` (13 vitest cases across 2 describe blocks)
 

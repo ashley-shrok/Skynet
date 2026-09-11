@@ -159,7 +159,7 @@ describe("Test 4 — connected: Disconnect opens AlertDialog with verbatim CONTE
     const { onStateChange } = renderTab({
       status: "connected",
       botUsername: "alex_bot",
-      telegramHandle: "ashley",
+      telegramHandle: "alice",
     });
 
     fireEvent.click(screen.getByRole("button", { name: /disconnect/i }));
@@ -188,7 +188,7 @@ describe("Test 5 — connected: AlertDialog Cancel does NOT disconnect", () => {
     const { onStateChange } = renderTab({
       status: "connected",
       botUsername: "alex_bot",
-      telegramHandle: "ashley",
+      telegramHandle: "alice",
     });
 
     fireEvent.click(screen.getByRole("button", { name: /disconnect/i }));

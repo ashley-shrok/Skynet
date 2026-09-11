@@ -74,7 +74,7 @@ export interface StagedAttachment {
 // clear the compose textarea + attachment chips (ok) or preserve them and
 // surface an inline error (!ok). Previously the attachment path was fire-
 // and-forget, silently clearing the compose state even on WS drop / upload
-// backend never emitting upload_ready_to_inject (Ashley hit this four times
+// backend never emitting upload_ready_to_inject (Alice hit this four times
 // on 2026-08-23 across wanda + nelly — bug directive quick-260823-8ji).
 // ---------------------------------------------------------------------------
 

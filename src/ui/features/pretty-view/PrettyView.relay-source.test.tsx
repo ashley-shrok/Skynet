@@ -485,7 +485,7 @@ describe("PrettyView relay source (Phase 93 Slice 3 Task 3)", () => {
     ).toContain("This conversation is no longer available.");
     // Slice 6 post-close reshape (2026-09-09): ChatSurfaceErrorState is now
     // an OVERLAY (scrim + z-band card, mirroring PrettyViewErrorOverlay per
-    // Ashley's close-out ask), NOT an in-flow replacement. The message list
+    // Alice's close-out ask), NOT an in-flow replacement. The message list
     // stays mounted underneath; the scrim covers it visually via
     // `absolute inset-0 z-[99] backdrop-blur-md bg-black/40`. This mirrors
     // how PrettyViewErrorOverlay + SessionHoldingOverlay behave when they

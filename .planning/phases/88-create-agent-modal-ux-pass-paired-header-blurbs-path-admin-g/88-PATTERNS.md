@@ -66,7 +66,7 @@ Roles are the expertise your agents adopt. Every agent using this role inherits 
 **Landmines:**
 - **Preserve `<DialogDescription>` wrapper element** — Phase 84 Plan 01 §CHANGE F.1 (84-01-SUMMARY.md L54-55) locked this decision: keep the shadcn `DialogDescription` wrapper for `aria-describedby` a11y wiring; do NOT swap for `<p>` or `<span>`.
 - **Update or replace the Phase 84 rationale block above** (L514-525). The old "future create-agent blurb" comment is now obsolete because the sibling blurb lands in the same commit. Either delete the two comment blocks and add a fresh Phase 88 one, or leave a small marker comment.
-- **Verbatim copy** — the sentence text (including the period after "adopt.") is greenlit by Ashley and must land byte-exact.
+- **Verbatim copy** — the sentence text (including the period after "adopt.") is greenlit by Alice and must land byte-exact.
 
 ---
 
@@ -158,7 +158,7 @@ Also see Phase 84 Plan 01 CHANGE F.2 (84-01-SUMMARY.md L58) — an inline single
 
 **Changes required:**
 1. Wrap block in `{isAdmin && (…)}` — same admin-gate idiom as 2b.
-2. Flip label text at L958 from `Create with new identity` → `Just a shell — no agent` (Ashley verbatim greenlit — 88-CONTEXT.md L34-36).
+2. Flip label text at L958 from `Create with new identity` → `Just a shell — no agent` (Alice verbatim greenlit — 88-CONTEXT.md L34-36).
 3. See semantic-drift note under 2e.
 
 #### 2d. `identityMode` state default flip at L326

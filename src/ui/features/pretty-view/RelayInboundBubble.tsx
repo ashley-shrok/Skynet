@@ -29,7 +29,7 @@ import {
 // SENDER's resolved colorHue rather than the pane's --pv-id-hue, so each
 // inbound bubble reads as "identity X speaking as themselves" instead of
 // being mistakable for the pane's own agent. Multi-user chat convention:
-// "not you" shows up on the left; the pane's own agent + Ashley take
+// "not you" shows up on the left; the pane's own agent + Alice take
 // right-alignment elsewhere.
 //
 // RELAYBUB-02: inbound bubble left-aligned (flex justify-start wrapper).
@@ -153,7 +153,7 @@ export function RelayInboundBubble({
     colorHue !== null ? `hsl(${Number(colorHue)}, 80%, 60%)` : NEUTRAL_GREY;
 
   // Bubble hue for V1 assistant-parity recipe. Unresolved sender → hue 210
-  // (Ashley 2026-08-18: "don't really care about the fallback"); the
+  // (Alice 2026-08-18: "don't really care about the fallback"); the
   // full-saturation recipe against 210 lands as a cool blue-tinted bubble,
   // visually distinct from resolved senders' hues without needing a
   // separate branch.

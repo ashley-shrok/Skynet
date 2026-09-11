@@ -66,7 +66,7 @@ completed: 2026-07-18
 
 ## Task Commits
 
-Wave 2 lands as ONE atomic commit at Ashley's request (all three touches ship together as a coherent unit; the type-only change on its own is unusable, and the banner component on its own is unmounted dead code):
+Wave 2 lands as ONE atomic commit at Alice's request (all three touches ship together as a coherent unit; the type-only change on its own is unusable, and the banner component on its own is unmounted dead code):
 
 1. **All three tasks (Wave 2 Frontend)** — one atomic `feat(pretty-view):` commit as directed by the prompt
 
@@ -97,7 +97,7 @@ Wave 2 lands as ONE atomic commit at Ashley's request (all three touches ship to
 - **`Terminal.tsx` NOT modified** — IdentityBadge (patch #17) and pane-tint (patch #26) are pane-scoped and correctly follow the pane, not the session. Verified via `git diff --stat src/` returning only the two intended file paths.
 - **`ComposeBox` NOT modified** — draft persistence key (patch #57) is `(userId, hostId, tmuxSession)` which excludes Claude session id, so drafts correctly SURVIVE a recycle without any code changes needed.
 - **`AppShell.tsx` NOT modified** — no chord/keyboard/shortcut work in this plan.
-- **`session-file-parser.ts` NOT modified** — Ashley wants `<command-name>` / `<local-command-stdout>` visible in pretty view (CONTEXT.md HARD REJECTED).
+- **`session-file-parser.ts` NOT modified** — Alice wants `<command-name>` / `<local-command-stdout>` visible in pretty view (CONTEXT.md HARD REJECTED).
 - **Existing WS handler cases** (`session`, `message`, `context_pct`, `harness_tasks`, `backgrounded_agents`, `plan_pending`, `tail_error`, `error`) — byte-for-byte preserved.
 - **`onopen`, `onclose`, `onerror`** handlers — byte-for-byte preserved.
 - **`useAutoScroll`, `ChatMessage`, `HarnessTasksPanel`, `BackgroundedAgentsPanel`** — unchanged.
@@ -123,7 +123,7 @@ With this Wave 2 commit landing alongside Wave 1's backend commit `99f1837`, all
 ## Next Phase Readiness
 
 - Phase 3 is committed to `feat/tab-title-from-tmux` (Wave 1: `99f1837`, Wave 2: THIS COMMIT) but NOT deployed.
-- Ready to batch-deploy with pending patches #61/#62/#63 at Ashley's greenlight per bounty `pending-patch-batch-post-60`.
+- Ready to batch-deploy with pending patches #61/#62/#63 at Alice's greenlight per bounty `pending-patch-batch-post-60`.
 
 ---
 *Phase: 03-session-changeover-detection*

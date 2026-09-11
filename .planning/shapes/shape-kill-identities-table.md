@@ -84,7 +84,7 @@ Neither timestamp is read anywhere in the current codebase. "When created" is wr
 
 GSD phase. Full pipeline: discuss → plan → execute → verify. Anticipated slot is Phase 69 per the bounty, subject to auto-resolve if the number collides with another maintainer's in-flight phase.
 
-Bounty at `~/.claude/roles/box-maintainer/bounties/kill-identities-table-phase-68/` holds the original premise Ashley greenlit on 2026-09-01, plus the call-site inventory list from ship-day.
+Bounty at `~/.claude/roles/box-maintainer/bounties/kill-identities-table-phase-68/` holds the original premise Alice greenlit on 2026-09-01, plus the call-site inventory list from ship-day.
 
 Consumer inventory produced during this shape discussion (five backend endpoints, five frontend surfaces, timestamp read/write analysis, identityKey origin/consistency, cross-references to Phase 66 summaries) should seed discuss-phase — don't re-elicit facts that were already established here.
 

@@ -382,7 +382,7 @@ describe("CollapsedPanelCloseLane component (quick-260829-ih3 Task 1)", () => {
     // exactly once at first render with `outerRef.current === null`
     // (component returned null when draggedBadgeTabId was null), silently
     // failed to attach drag listeners, and never re-ran when the div
-    // eventually mounted on drag-start. Ashley report 2026-08-30 (taylor):
+    // eventually mounted on drag-start. Alice report 2026-08-30 (taylor):
     // "when I start dragging an identity badge it does pop out that side
     // thing with the X in it but it doesn't highlight coral when I actually
     // hover over it with the identity badge and if I drop on there nothing

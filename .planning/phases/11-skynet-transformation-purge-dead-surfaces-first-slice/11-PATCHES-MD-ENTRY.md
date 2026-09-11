@@ -1,8 +1,8 @@
 # Patch #138 — Skynet transformation: purge dead Skynet surfaces (first slice) — Phase 11
 
 **Paste target:** `~/.claude/identities/tina/skynet-patches.md`
-**Paste timing:** Only after Ashley greenlights the batched Phase 11 + Phase 12+ purge cluster deploy AND UAT passes on the 22 non-negotiable items in `11-UAT-CHECKLIST.md`. Post-deadman-retirement flow per current `~/.claude/identities/tina/deploy-runbook.md` (the 15-min deadman regime was retired 2026-07-21).
-**Batch context:** Patch #138 is the FIRST Phase 11 patch. Per the fleet-standing "batch patches into meaningful deploys" rule (Ashley 2026-07-23), it does NOT ship standalone. Batches with subsequent Phase 12+ purge patches (dashboard/panel-file deletion, backend-route deletion, dead-locale-string sweep) into a single grouped-semantic-unit deploy ("the visible-surface purge cluster") unless Ashley explicitly greenlights an early Phase 11 standalone.
+**Paste timing:** Only after Alice greenlights the batched Phase 11 + Phase 12+ purge cluster deploy AND UAT passes on the 22 non-negotiable items in `11-UAT-CHECKLIST.md`. Post-deadman-retirement flow per current `~/.claude/identities/tina/deploy-runbook.md` (the 15-min deadman regime was retired 2026-07-21).
+**Batch context:** Patch #138 is the FIRST Phase 11 patch. Per the fleet-standing "batch patches into meaningful deploys" rule (Alice 2026-07-23), it does NOT ship standalone. Batches with subsequent Phase 12+ purge patches (dashboard/panel-file deletion, backend-route deletion, dead-locale-string sweep) into a single grouped-semantic-unit deploy ("the visible-surface purge cluster") unless Alice explicitly greenlights an early Phase 11 standalone.
 
 Explicit contract line for the fork-catalog integrity gate: **patch #138 batches with subsequent Phase 12+ purge patches.** No Co-Authored-By trailer per fork convention (also called out at the top of this file).
 **Ordinal position on paste:** Update the "ONE HUNDRED THIRTY-SEVEN numbered patches" line near the top of `skynet-patches.md` to "ONE HUNDRED THIRTY-EIGHT".
@@ -17,13 +17,13 @@ Explicit contract line for the fork-catalog integrity gate: **patch #138 batches
         AppRail retirement + SettingsRow retirement + rail-view state-machine
         strip; presentation-only, backend untouched)`
         (committed 2026-07-23 to `feat/tab-title-from-tmux`; deploy batched
-        with subsequent Phase 12+ purge patches per Ashley 2026-07-23 fleet-
+        with subsequent Phase 12+ purge patches per Alice 2026-07-23 fleet-
         standing "batch patches into meaningful deploys" rule; not deployed
-        standalone unless Ashley explicitly greenlights).
+        standalone unless Alice explicitly greenlights).
 
-        * **Motivating gap** (Ashley's direct call-out, Phase 10 UAT 2026-07-23):
+        * **Motivating gap** (Alice's direct call-out, Phase 10 UAT 2026-07-23):
           "I really feel like we need to get away from this skynet front end
-          stuff before any of this is worth quibbling over." Long-term Ashley
+          stuff before any of this is worth quibbling over." Long-term Alice
           sees only two visible frontend surfaces in Skynet: the pretty-
           conversations panel (sidebar) and the PrettyView chat surface (main
           pane). Everything else in today's Skynet UI — the Skynet dashboard,
@@ -57,7 +57,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #138 batches
           "inline-style palette-authority for JSDOM-testable palette-authority
           contract"). Zero animation, zero data-fetching, zero side effects,
           zero shadcn primitives, zero lifecycle hooks — motion + info-
-          disclosure guardrails per Ashley's motion-quiet lock. The
+          disclosure guardrails per Alice's motion-quiet lock. The
           `"dashboard"` TabType identifier is PRESERVED in ui-types.ts as a
           load-bearing fallback for `effectiveSelectedTabId` + `doCloseTab` +
           `hostlessTypes` machinery (minimal-blast-radius per CONTEXT.md
@@ -95,7 +95,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #138 batches
           in place of `{sidebarTitle[railView]}`. Net AppShell.tsx delta:
           386 lines deleted, 46 added, **net −340 lines**.
 
-        * **Fix summary — SettingsRow retirement** (Ashley's total-not-partial
+        * **Fix summary — SettingsRow retirement** (Alice's total-not-partial
           "no settings" lock — CONTEXT.md § scope-fence discipline "we are
           not having settings at all"). Deleted `src/ui/sidebar/SettingsRow.tsx`
           (198 lines). Stripped the `settingsRowSlot` prop from
@@ -105,7 +105,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #138 batches
           was its sole consumer. `PrettyConversationsPanel.test.tsx` Test 11
           (settingsRowSlot mobile position) pruned; file-header comment index
           at line 13 updated in place to `//  11)  RETIRED — settingsRowSlot
-          prop dropped in Phase 11 (Ashley's "no settings" lock)`. Test count:
+          prop dropped in Phase 11 (Alice's "no settings" lock)`. Test count:
           15 → 14 for that file; no renumber per Phase 10 Wave 4 precedent.
           Deletion ordered BEFORE AppRail.tsx deletion because SettingsRow.tsx
           line 42 had `import type { RailView } from "@/sidebar/AppRail"` —
@@ -153,7 +153,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #138 batches
           `case "dashboard"` → PrettyLandingCard swap (DashboardTab's host-
           list-fetching cards + chart libs + stats-panels subtree
           code-splits away), and the 340-line net strip from AppShell.tsx.
-          Ashley's Skynet client now downloads 373 kB less code on first-load
+          Alice's Skynet client now downloads 373 kB less code on first-load
           for the same landing surface.
 
         * **Scope fence held.** Zero touches to `src/backend/**`,
@@ -212,7 +212,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #138 batches
               comment index updated in place)
           - Deleted:
             - `src/ui/sidebar/AppRail.tsx` (283 LOC — PURGE-02)
-            - `src/ui/sidebar/SettingsRow.tsx` (198 LOC — Ashley's "no
+            - `src/ui/sidebar/SettingsRow.tsx` (198 LOC — Alice's "no
               settings" lock)
 
         * **Verification** (per `.planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-BUILD-VERIFY-LOG.md`):
@@ -264,10 +264,10 @@ Explicit contract line for the fork-catalog integrity gate: **patch #138 batches
             — the phase boundary + scope-fence
           - `~/.claude/identities/tina/tina.md` § Skynet direction — Ship
             of Theseus (dead-surfaces canonical list, palette authority,
-            "conversation list + pretty view is all Ashley sees" heuristic,
+            "conversation list + pretty view is all Alice sees" heuristic,
             "it is ONE project, not a collection of bounties" fleet lock)
           - `~/.claude/identities/tina/bounties/skynet-transformation-purge-dead-surfaces/`
-            — the bounty premise, Ashley's UAT quote, the todo set
+            — the bounty premise, Alice's UAT quote, the todo set
             (landing-surface swap, AppRail retirement, per-surface
             enumeration + prove-dead + delete-with-atomic-commits)
           - `.planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-01-STRIP-LIST.md`
@@ -321,7 +321,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #138 batches
             - `992bee3` `refactor(pretty-conversations): drop vestigial
               settingsRowSlot prop (Phase 11 PURGE-03)`
             - `c3c84be` `chore(sidebar): delete retired SettingsRow.tsx
-              (Phase 11 PURGE-03 — Ashley's "no settings" lock)`
+              (Phase 11 PURGE-03 — Alice's "no settings" lock)`
               (198 lines deleted)
             - `c386068` `chore(sidebar): delete retired AppRail.tsx
               (Phase 11 PURGE-02)` (283 lines deleted)
@@ -336,7 +336,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #138 batches
         * **Deploy status**. Code-complete on `feat/tab-title-from-tmux` at
           `[Plan-04 tip SHA — fill in after commit]`. NOT YET pushed, NOT
           YET deployed, image NOT YET built. Batched with subsequent Phase
-          12+ purge patches per Ashley 2026-07-23 fleet-standing "batch
+          12+ purge patches per Alice 2026-07-23 fleet-standing "batch
           patches into meaningful deploys" rule. Deploy sequence documented
           at `.planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-UAT-CHECKLIST.md`
           under "Post-UAT deploy runbook" (authoritative source cited:

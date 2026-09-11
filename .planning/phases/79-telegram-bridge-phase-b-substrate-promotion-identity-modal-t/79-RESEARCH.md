@@ -15,17 +15,17 @@ All 11 research questions have concrete answers grounded in the running codebase
 <user_constraints>
 ## User Constraints (from CONTEXT.md)
 
-### Locked Decisions (Ashley + Tina 2026-09-06 discuss-phase)
+### Locked Decisions (Alice + Tina 2026-09-06 discuss-phase)
 
 **1. Bridge lives where Skynet lives — co-located, distributor-shipped.**
 - Bridge runs on the Skynet host (t1000 for this deployment; T800 for Stacy's; whatever host in the future).
-- Distributed by the fleet-substrate distributor as a **universal** substrate item (like `agent-supervisor.sh`) — not host-filtered. Ashley: *"there's nothing in the distributor that takes a universal piece like the bridge and distributes it to only one host. like that would be dumb and silly and so it certainly doesn't work that way today and it would be weird for us to make it work that way as a part of this."*
+- Distributed by the fleet-substrate distributor as a **universal** substrate item (like `agent-supervisor.sh`) — not host-filtered. Alice: *"there's nothing in the distributor that takes a universal piece like the bridge and distributes it to only one host. like that would be dumb and silly and so it certainly doesn't work that way today and it would be weird for us to make it work that way as a part of this."*
 - Systemd unit enabled on the Skynet host as part of Skynet's own runtime setup.
 - **Config values the bridge reads come from Skynet's own config**, not hardcoded in the script. Hard requirement — verified at ship gate.
   - **Matrix homeserver URL** — from Skynet's Matrix config (same source `matrix_admin_creds.base` uses). Removes hardcoded `http://100.113.23.63:8008`.
   - **STT URL** — from Skynet's existing STT config. Removes hardcoded `http://100.80.122.111:8000/v1/audio/transcriptions`.
   - **TTS URL** — same rule if the bridge grows a TTS path.
-- **Reliability check:** if the bridge is NOT reading STT (and Matrix + any shared endpoint) from Skynet config post-phase, we've shipped a bug. Ashley verbatim: *"if we come out of this and the bridge is not using the config values for where to get speech to text from that Skynet also uses, then that will have been a mistake."*
+- **Reliability check:** if the bridge is NOT reading STT (and Matrix + any shared endpoint) from Skynet config post-phase, we've shipped a bug. Alice verbatim: *"if we come out of this and the bridge is not using the config values for where to get speech to text from that Skynet also uses, then that will have been a mistake."*
 
 **2. Identity modal — Telegram gets its own top-level tab under Identity view.**
 - Alongside identity-file / wakeups / handoff. Fixed real-estate: every identity's modal has the Telegram tab, even if un-configured (same as Handoff for young identities).
@@ -41,12 +41,12 @@ All 11 research questions have concrete answers grounded in the running codebase
   - Token accepts, bot silent (no `/start` yet): persistent "waiting for you to send /start to @your-bot..." + **Copy bot link** button (`t.me/your-bot`). No timeout that flips to error. **Cancel** button wipes pending state and returns to paste.
   - Bridge restart fails: tab shows "Bridge didn't come back up — Telegram is not receiving messages right now." **Retry** button. **No automatic DM notification.**
   - Network/registry-write failure: "Couldn't save — try again in a moment." Retry button.
-- **3C Restart interrupts others:** do nothing special. Restart is <5s. Matrix-cursor persistence means no messages drop. Ashley: *"as long as we're not ever dropping messages, I don't care that the restart happens."*
+- **3C Restart interrupts others:** do nothing special. Restart is <5s. Matrix-cursor persistence means no messages drop. Alice: *"as long as we're not ever dropping messages, I don't care that the restart happens."*
 - **3D Recovery from bad clicks:** Disconnect button + confirm dialog ("This will unbridge <identity> from Telegram. The bot stays alive in Telegram (you can reconnect anytime with the same token, or paste a new one). Confirm.") → clears registry entry for this (identity, human) row → restart bridge → tab returns to paste-state.
 
 **4. Wire mechanics (all locked):**
 - **4A `telegram_bot_tokens` table:** FieldCrypto-encrypted, columns `identityKey` (pk), `botTokenEncrypted`, `botUsername` (display), `humanUserId` (authz), `telegramChatId` (nullable until `/start`), `createdAt`, `updatedAt`. Multi-human-per-identity deferred to future join table.
-- **4B `<human>.cred` files eliminated:** Skynet mints tokens via `matrix-admin-client.loginAsUser(<mxid>)` (Phase 77); writes `<human>.token` (0600) to the bridge's registry dir. Migration: one-shot admin-mint fresh tokens for Ashley + Zoe + Laura; delete the three existing `<human>.cred` files (research confirms only Ashley + Zoey — Laura had no cred file live).
+- **4B `<human>.cred` files eliminated:** Skynet mints tokens via `matrix-admin-client.loginAsUser(<mxid>)` (Phase 77); writes `<human>.token` (0600) to the bridge's registry dir. Migration: one-shot admin-mint fresh tokens for Alice + Zoe + Laura; delete the three existing `<human>.cred` files (research confirms only Alice + Zoey — Laura had no cred file live).
 - **4C Restart trigger:** mirror the substrate distributor's `agent-supervisor` restart pattern (which is `systemctl --user restart` via SSH channel — see Q1 answer below). Bind-mount: `/var/lib/tg-bridge/` into the Skynet container.
 - **5 Matrix-cursor disk persistence:** per-human `<human>.since` file, mirroring `recv.sh`'s `SINCE_FILE` pattern. Load-bearing for Phase B's reliability floor.
 
@@ -140,7 +140,7 @@ Phase 79 has no pre-existing REQUIREMENTS.md IDs (verified: `grep telegram /home
 | Bind-mount `/var/lib/tg-bridge/` (locked from CONTEXT.md) | `/opt/skynet/tg-bridge/` — alongside branding | Locked path is `/var/lib/tg-bridge/` per CONTEXT.md § 4C. Verified free on t1000 (`ls: cannot access '/var/lib/tg-bridge': No such file or directory`). `/opt/skynet/tg-bridge/` also free — both would work. Keep the locked choice. |
 | New `/telegram-bridge/*` route family (recommendation) | Extend `/matrix-admin/*` or add to `/identities/*` | Semantic mismatch: `/matrix-admin` is Skynet's Synapse admin surface; `/identities` is the identity CRUD surface. Telegram is a separate concern (external routing). New route family matches Phase 77's precedent (`/matrix-admin` is its own family added same way). |
 | Backend proxy for Telegram `getMe` validation | Direct browser fetch to `https://api.telegram.org/bot<token>/getMe` | Direct browser fetch would leak the bot token to Telegram-CORS + require adding `api.telegram.org` to any CSP. Backend proxy is simpler + hides the token from any browser-side attacker who might sniff network traffic. Backend needs `api.telegram.org` reachable — verified: t1000 has public egress. |
-| `Send` icon (recommendation) | `MessageCircle`, `Bell`, or `Phone` | `Send` (paper airplane) is the closest lucide-react equivalent to Telegram's brand. All lucide-react. No new dep. If Ashley strongly prefers Telegram-plane-branded icon, `react-icons/fa`'s `FaTelegramPlane` is one call away but adds a dep for one icon. Recommendation stays: `Send`. |
+| `Send` icon (recommendation) | `MessageCircle`, `Bell`, or `Phone` | `Send` (paper airplane) is the closest lucide-react equivalent to Telegram's brand. All lucide-react. No new dep. If Alice strongly prefers Telegram-plane-branded icon, `react-icons/fa`'s `FaTelegramPlane` is one call away but adds a dep for one icon. Recommendation stays: `Send`. |
 
 **Installation:** No new npm packages required. On the host, `inotify-tools` may or may not be needed depending on restart-trigger choice — if needed, `sudo apt install -y inotify-tools`. If the SYSTEM systemd unit is chosen, no `linger` setup needed.
 
@@ -416,10 +416,10 @@ SINCE="$NB"; printf '%s' "$SINCE" > "$SINCE_FILE"
 
 | Category | Items Found | Action Required |
 |----------|-------------|------------------|
-| Stored data | (1) Nina's `registry.json` on thenasty at `/home/thenasty/.config/tg-bridge/registry.json` — full agent+humans+chat_ids. (2) 2 `.cred` files (ashley.cred, zoey.cred — verified via ssh). (3) 2 `.token` files (ashley.token, zoey.token). (4) 15 `<agent>.bottoken` + 12 `<agent>.chatid` files (per-bot state). (5) 15 `offset.<agent>` files (Telegram `getUpdates` cursors). (6) `bridge.log`. (7) Skynet DB has 2 `mxid` values registered for humans: `@ashley:thenasty.taild9b663.ts.net` (Ashley) + `@zoey:thenasty.taild9b663.ts.net` (Zoey) — VERIFIED via `docker logs skynet`. Laura has NO mxid registered yet. | **Data migration:** at cutover, (a) copy registry.json shape to `/var/lib/tg-bridge/registry.json` on t1000, (b) admin-mint fresh tokens for Ashley + Zoey (Laura deferred until she has an mxid registered), write to `/var/lib/tg-bridge/{ashley,zoey}.token`, (c) delete existing `.cred` files on thenasty AS PART OF CUTOVER, not before (bridge on thenasty stays running until t1000's bridge is verified working), (d) copy offset files if we want zero Telegram-message replay, (e) do NOT copy `.since` — Phase B introduces this, so first startup does initial-sync per human. **Code edit:** none needed — bridge script deletes `.cred` handling. |
-| Live service config | (1) Nina's `/home/thenasty/.config/systemd/user/tg-bridge.service` — USER-scoped unit. (2) 15 `<agent>.bottoken` files each holding a live Telegram bot token — these are still valid tokens registered with @BotFather. (3) `matrix_admin_creds` row in Skynet's SQLite (id=1) — holds admin token, homeserver base, admin mxid. VERIFIED. | **Manual:** Bot tokens must migrate cleanly — they're per-bot registered at @BotFather, so as long as we preserve them into `telegram_bot_tokens` (encrypted) OR keep the bridge reading them from bot-token files during cutover, no BotFather work needed. **NOTE:** Nina's registry lists ~15 agents with active humans. Phase B v1 UI is one-identity-one-bot-one-human, but the bridge itself supports multi-human. So the migration is: for the ~15 agents Nina serves today, populate `telegram_bot_tokens` with one row per (agent, primary human). Ashley owns most; some rows Nina owns. |
+| Stored data | (1) Nina's `registry.json` on thenasty at `/home/thenasty/.config/tg-bridge/registry.json` — full agent+humans+chat_ids. (2) 2 `.cred` files (alice.cred, zoey.cred — verified via ssh). (3) 2 `.token` files (alice.token, zoey.token). (4) 15 `<agent>.bottoken` + 12 `<agent>.chatid` files (per-bot state). (5) 15 `offset.<agent>` files (Telegram `getUpdates` cursors). (6) `bridge.log`. (7) Skynet DB has 2 `mxid` values registered for humans: `@ashley:thenasty.taild9b663.ts.net` (Alice) + `@zoey:thenasty.taild9b663.ts.net` (Zoey) — VERIFIED via `docker logs skynet`. Laura has NO mxid registered yet. | **Data migration:** at cutover, (a) copy registry.json shape to `/var/lib/tg-bridge/registry.json` on t1000, (b) admin-mint fresh tokens for Alice + Zoey (Laura deferred until she has an mxid registered), write to `/var/lib/tg-bridge/{alice,zoey}.token`, (c) delete existing `.cred` files on thenasty AS PART OF CUTOVER, not before (bridge on thenasty stays running until t1000's bridge is verified working), (d) copy offset files if we want zero Telegram-message replay, (e) do NOT copy `.since` — Phase B introduces this, so first startup does initial-sync per human. **Code edit:** none needed — bridge script deletes `.cred` handling. |
+| Live service config | (1) Nina's `/home/thenasty/.config/systemd/user/tg-bridge.service` — USER-scoped unit. (2) 15 `<agent>.bottoken` files each holding a live Telegram bot token — these are still valid tokens registered with @BotFather. (3) `matrix_admin_creds` row in Skynet's SQLite (id=1) — holds admin token, homeserver base, admin mxid. VERIFIED. | **Manual:** Bot tokens must migrate cleanly — they're per-bot registered at @BotFather, so as long as we preserve them into `telegram_bot_tokens` (encrypted) OR keep the bridge reading them from bot-token files during cutover, no BotFather work needed. **NOTE:** Nina's registry lists ~15 agents with active humans. Phase B v1 UI is one-identity-one-bot-one-human, but the bridge itself supports multi-human. So the migration is: for the ~15 agents Nina serves today, populate `telegram_bot_tokens` with one row per (agent, primary human). Alice owns most; some rows Nina owns. |
 | OS-registered state | Nina's `systemctl --user enable tg-bridge.service` on thenasty. `enable-linger thenasty` is set (bridge stays up across user logout on thenasty). | **Re-register:** on t1000, `sudo systemctl enable tg-bridge.service` (SYSTEM scope, no linger needed). AFTER t1000 bridge is verified working: on thenasty, `systemctl --user disable tg-bridge.service` + `systemctl --user stop tg-bridge.service`. |
-| Secrets/env vars | (1) Skynet's admin token (in `matrix_admin_creds.access_token`, FieldCrypto-encrypted, id=1). (2) 15 Telegram bot tokens on thenasty (plaintext files) — need migration. (3) Ashley + Zoey Matrix passwords in `<human>.cred` files (plaintext) — must be DELETED (that's the whole security win of Phase B). | **Update:** Skynet reads `matrix_admin_creds` via `getMatrixAdminCreds()` — unchanged. New `telegram_bot_tokens` table gets the 15 bot tokens (or however many the migration script lands). |
+| Secrets/env vars | (1) Skynet's admin token (in `matrix_admin_creds.access_token`, FieldCrypto-encrypted, id=1). (2) 15 Telegram bot tokens on thenasty (plaintext files) — need migration. (3) Alice + Zoey Matrix passwords in `<human>.cred` files (plaintext) — must be DELETED (that's the whole security win of Phase B). | **Update:** Skynet reads `matrix_admin_creds` via `getMatrixAdminCreds()` — unchanged. New `telegram_bot_tokens` table gets the 15 bot tokens (or however many the migration script lands). |
 | Build artifacts / installed packages | (1) Phase 77's `matrix-admin-client` compiled into `/app/dist/backend/backend/matrix/matrix-admin-client.js` inside the running skynet container — VERIFIED. (2) Docker image `skynet-patched:local` is what's running (VERIFIED via `docker ps`). (3) fleet-substrate bundled at `/app/fleet-substrate/scripts/` inside the container (VERIFIED — has `agent-supervisor.sh` etc.). | **None** — Phase B rebuilds the container with the new fleet-substrate contents (Dockerfile's COPY of `substrate/` picks up the new files automatically per Phase 73 shape). |
 
 **Nothing found in category:** All 5 categories have items. No category is empty.
@@ -456,37 +456,37 @@ SINCE="$NB"; printf '%s' "$SINCE" > "$SINCE_FILE"
 1. **Wire up a real SSH credential on host id 6.** The host can SSH to itself (t1000's SSH server accepts key auth from t1000's own ubuntu account via localhost). Add a `~/.ssh/id_ed25519` key, register it as a Skynet SSH credential, attach to the Skynet host row. Then the distributor sweep just works for the self-case. This is the fleet-consistent choice.
 2. **Skip the distributor for the local install entirely.** Ship a `tg-bridge-install-on-self.sh` script in `substrate/scripts/` that runs from the Skynet container startup, uses the bind-mounted `/var/lib/tg-bridge/` as a staging dir, and copies bytes to `/usr/local/bin/tg-bridge` + `/etc/systemd/system/tg-bridge.service` via an nsenter-style shell-out to the host (or simpler: relies on a docker post-start hook that runs on t1000 outside the container). This is the "container writes files to bind-mount; host reads files, moves them into place, restarts service" pattern.
 
-**Recommendation:** Option 1 is fleet-consistent (every substrate host is treated the same); Option 2 is simpler for the one-off self case but introduces a special code path. **Ashley/Tina to decide during discuss.** Both are viable.
+**Recommendation:** Option 1 is fleet-consistent (every substrate host is treated the same); Option 2 is simpler for the one-off self case but introduces a special code path. **Alice/Tina to decide during discuss.** Both are viable.
 
 **Warning signs:** Post-deploy, `systemctl status tg-bridge.service` on t1000 shows "Unit tg-bridge.service could not be found." OR the sweep log continues to show `no credential — skipping` for host id 6.
 
 ### Pitfall 4: `<human>.cred` file deletion timing during migration
 
-**What goes wrong:** We delete Ashley's `.cred` on thenasty BEFORE t1000's bridge is proven working, then the bridge's next 401 finds no `.cred` file, and Ashley is silently deaf until manual repair.
+**What goes wrong:** We delete Alice's `.cred` on thenasty BEFORE t1000's bridge is proven working, then the bridge's next 401 finds no `.cred` file, and Alice is silently deaf until manual repair.
 
 **Why it happens:** The migration script naïvely deletes `.cred` files immediately after minting new tokens; but during the cutover window both bridges are running and both may try to `relogin()` on the same token.
 
 **How to avoid:** Explicit sequenced migration:
-1. Admin-mint fresh tokens for Ashley + Zoey via `loginAsUser`.
+1. Admin-mint fresh tokens for Alice + Zoey via `loginAsUser`.
 2. Write `<human>.token` files to BOTH `/home/thenasty/.config/tg-bridge/` AND `/var/lib/tg-bridge/` on t1000 (so both bridges have valid tokens).
 3. Start t1000's bridge; verify it's polling.
 4. Stop thenasty's bridge.
 5. THEN delete `<human>.cred` files on thenasty.
 6. Verify no `.cred` files exist anywhere: `ssh root@100.113.23.63 'ls /home/thenasty/.config/tg-bridge/*.cred 2>/dev/null'` → empty output.
 
-**Warning signs:** A cutover window where "wrist-reachability" goes offline for one of Ashley's identities. Test by having Ashley DM one of her agents via Telegram right after cutover and confirm receipt.
+**Warning signs:** A cutover window where "wrist-reachability" goes offline for one of Alice's identities. Test by having Alice DM one of her agents via Telegram right after cutover and confirm receipt.
 
 ### Pitfall 5: STT_URL is currently hardcoded in `voice.ts`, not a config value
 
 **What goes wrong:** CONTEXT.md says "STT URL comes from Skynet's existing STT config" but VERIFIED (`grep STT_URL src/backend/database/routes/voice.ts`): the STT URL is a hardcoded `const STT_URL = "http://100.80.122.111:8000/v1/audio/transcriptions"` at `voice.ts:28`. There is NO existing "Skynet STT config" to inherit from.
 
-**Why it happens:** The shape/CONTEXT.md assumed a config key exists because Ashley uses voice input; the actual implementation hardcodes it, using a comment `// --- Locked STT endpoint (Nelly-verified live, 2026-07-27) ---`.
+**Why it happens:** The shape/CONTEXT.md assumed a config key exists because Alice uses voice input; the actual implementation hardcodes it, using a comment `// --- Locked STT endpoint (Nelly-verified live, 2026-07-27) ---`.
 
 **How to avoid:** Phase B has two options:
 1. **Add a real config key.** Introduce a `system_config` table (or reuse `matrix_admin_creds`'s pattern with a new singleton table `skynet_service_endpoints` or add rows to some existing `settings`-style table). Migrate `voice.ts` to read from it too. Skynet writes the current value into `/var/lib/tg-bridge/config.env` at startup so the bridge reads it. This is the "consistent" answer — both voice.ts and the bridge share the same source of truth.
 2. **Extract the constant into a shared module.** Move `STT_URL` to `src/backend/config/service-endpoints.ts` (or similar) as a plain TS const; import from voice.ts; also write to `config.env` at startup. This is the fast answer — no DB table, just a shared module.
 
-Recommendation: **Option 2 for Phase B** (fast, honors the "read from same source" spirit), with a note that if Ashley ever wants runtime-configurable STT/TTS endpoints, the migration to Option 1 is a small follow-up. **Ashley to confirm during discuss** — this is a real gray area that CONTEXT.md's "existing STT config" language assumed away.
+Recommendation: **Option 2 for Phase B** (fast, honors the "read from same source" spirit), with a note that if Alice ever wants runtime-configurable STT/TTS endpoints, the migration to Option 1 is a small follow-up. **Alice to confirm during discuss** — this is a real gray area that CONTEXT.md's "existing STT config" language assumed away.
 
 **Warning signs:** Bridge script has `STT_URL=http://100.80.122.111:8000/v1/audio/transcriptions` copied verbatim from Nina's bridge, which is the pre-Phase-B state and violates the "no hardcoded IPs" requirement.
 
@@ -680,12 +680,12 @@ Key findings from the 344-line script:
      "mxid": "@alexander:thenasty.taild9b663.ts.net",
      "bot_token": null,                    // ← moves out of registry.json in Phase B (see Pitfall 7)
      "humans": [{
-       "name": "ashley",
+       "name": "alice",
        "mxid": "@ashley:thenasty.taild9b663.ts.net",
        "chat_id": null,                    // ← nullable until first /start
        "room": "!rARjoVOsdNFihTxNth:thenasty.taild9b663.ts.net",
-       "cred": "ashley.cred",              // ← REMOVED in Phase B
-       "token": "ashley.token"             // ← STAYS
+       "cred": "alice.cred",              // ← REMOVED in Phase B
+       "token": "alice.token"             // ← STAYS
      }]
    }
    ```
@@ -863,7 +863,7 @@ export async function validateBotToken(token: string): Promise<
 - `src/ui/api/telegram-bridge-api.ts` — frontend fetch wrappers
 
 **One-shot migration script (not in main tree — planner decides):**
-- `scripts/phase79-migrate-thenasty-to-t1000.sh` OR a Skynet startup one-shot in the container that runs once per install lifetime — mints tokens for Ashley/Zoey, writes bridge files, later phase deletes .cred on thenasty
+- `scripts/phase79-migrate-thenasty-to-t1000.sh` OR a Skynet startup one-shot in the container that runs once per install lifetime — mints tokens for Alice/Zoey, writes bridge files, later phase deletes .cred on thenasty
 
 ## Existing Files Phase B Modifies
 
@@ -912,7 +912,7 @@ See § Runtime State Inventory above (already included in full).
 | systemd 250+ (host) | SYSTEM systemd unit | ✓ | 255 | — |
 | Node 22.12+ (container) | Backend routes | ✓ | 22.x+ (verified via docker exec) | — |
 | `matrix_admin_creds` row populated (Skynet DB) | Bridge token minting | ✓ | id=1 ingested per Phase 77 (verified via docker logs) | — |
-| `users.mxid` populated for Ashley + Zoey | Human identification for bridge | ✓ (both) | Ashley: `@ashley:thenasty.taild9b663.ts.net`; Zoey: `@zoey:thenasty.taild9b663.ts.net`. Laura: NOT populated. | Laura's Telegram tab shows "no mxid — ask admin to register" until Phase 77's `/users/:id/mxid` route is called for her |
+| `users.mxid` populated for Alice + Zoey | Human identification for bridge | ✓ (both) | Alice: `@ashley:thenasty.taild9b663.ts.net`; Zoey: `@zoey:thenasty.taild9b663.ts.net`. Laura: NOT populated. | Laura's Telegram tab shows "no mxid — ask admin to register" until Phase 77's `/users/:id/mxid` route is called for her |
 | `inotify-tools` (host) | Only if restart-trigger uses sentinel-file+inotifywait | ✗ (not installed on t1000) | — | `sudo apt install -y inotify-tools` (package exists per apt-cache) — OR skip and use SSH-based restart (Q1 recommendation) |
 | SSH credential attached to host id 6 (Skynet self-host) | Distributor pushes tg-bridge to t1000 via SSH sweep | ✗ | — | See Pitfall 3 for 2 options: wire up SSH credential OR use bind-mount+startup-script install |
 | Egress to `api.telegram.org` (from container) | Telegram getMe proxy + tg_send_text | ✓ (assumed — t1000 has full public egress) | — | If blocked, backend proxy fails, activation UI shows error |
@@ -1013,8 +1013,8 @@ See § Runtime State Inventory above (already included in full).
   - `/opt/skynet/docker-compose.yml` — the LIVE docker-compose on t1000 (VERIFIED via cat)
   - `docker/nginx.conf:142-162` and `docker/nginx-https.conf:153-173` — the /users and /matrix-admin location-block precedents
 - **Live systems (VERIFIED):**
-  - Skynet container logs (via `sudo docker logs skynet`) — confirmed Ashley + Zoey mxids registered; confirmed host id 6 Skynet is `runsFleetSubstrate:true` but skipped for `no credential`; confirmed matrix-admin creds ingested
-  - `ssh root@100.113.23.63` — read Nina's live bridge.sh (344 lines), registry.json (~15 agents), systemd USER unit, `.cred` file existence (2 files: ashley + zoey)
+  - Skynet container logs (via `sudo docker logs skynet`) — confirmed Alice + Zoey mxids registered; confirmed host id 6 Skynet is `runsFleetSubstrate:true` but skipped for `no credential`; confirmed matrix-admin creds ingested
+  - `ssh root@100.113.23.63` — read Nina's live bridge.sh (344 lines), registry.json (~15 agents), systemd USER unit, `.cred` file existence (2 files: alice + zoey)
   - `command -v jq curl bash` on t1000 host — all present; `inotifywait` NOT present but apt-installable
   - `sudo docker exec skynet` — Node 22 present; jq + curl ABSENT in container (important for the container-side design)
   - `ls /var/lib/tg-bridge` — path FREE on t1000
@@ -1040,7 +1040,7 @@ See § Runtime State Inventory above (already included in full).
 | A3 | Skynet writes to `/var/lib/tg-bridge/` need the container to run as root, OR need UID mapping so node:node inside the container can write to the bind-mounted host directory. Docker's bind-mount UID handling is platform-dependent. Not verified. | Pitfall in code examples | If writes fail with EACCES, either chown the host dir to match container UID OR run the container as root; concrete verification: `docker exec skynet node -e "fs.writeFileSync('/var/lib/tg-bridge/probe', 'x')"` post-mount |
 | A4 | Nina's ~15 active bots can migrate to Phase B without human intervention beyond the /start bootstrap. Assumes: (a) bot tokens are portable (they are — a bot token is an API key, not tied to a host); (b) the DM rooms Matrix-side don't need re-creation; (c) Telegram will accept new getUpdates calls from the new t1000-bridge (they will — Telegram doesn't rate-limit by source IP for bot API). Not tested. | Migration plan | If any bot's getUpdates race condition drops messages during cutover, we have offset files to resume from — mitigate by copying offset files to t1000 before starting the new bridge |
 | A5 | The `identityKey` (pk of `telegram_bot_tokens`) matches whatever concept Skynet already uses for "identity" — likely the folder-name slug from Phase 68 (identities are folders on disk). Not directly verified. | New table schema | If Skynet's identity concept has an id-column, use that instead of a text slug; planner call during implementation |
-| A6 | Laura's mxid must be registered via Phase 77's `/users/:id/mxid` endpoint before her Telegram tab is functional. Laura currently has no mxid in Skynet's DB (verified — only Ashley + Zoey visible). Phase B does NOT block on Laura's registration but her tab will show "no mxid" until it happens. | Environment availability | Laura's Telegram tab is inert until run: `curl -X POST /users/<laura-id>/mxid {mxid:"@laura:..."}`. Not blocking Phase B. |
+| A6 | Laura's mxid must be registered via Phase 77's `/users/:id/mxid` endpoint before her Telegram tab is functional. Laura currently has no mxid in Skynet's DB (verified — only Alice + Zoey visible). Phase B does NOT block on Laura's registration but her tab will show "no mxid" until it happens. | Environment availability | Laura's Telegram tab is inert until run: `curl -X POST /users/<laura-id>/mxid {mxid:"@laura:..."}`. Not blocking Phase B. |
 | A7 | The bridge's per-agent `<agent>.bottoken` file convention (Nina's) is preserved in Phase B for the bridge-side; Skynet writes these files at activation-time, deletes at disconnect-time. Alternative: bridge could read tokens straight from `registry.json` (Skynet writes them there decrypted). Verified: Nina's `bridge.sh:203` calls `tg_poller "$name" "$tok"` where `$tok` comes from `jq -r '.agents[] | .bot_token' registry.json`. So today the token IS in registry.json. Phase B has to decide: (a) keep it in registry.json (decrypted-on-disk, but bind-mount is 750 so only bridge reads it), or (b) split into `<agent>.bottoken` files. (a) matches Nina's exact current shape; (b) is more granular but requires more file management. **Assumption:** we pick (a) for minimum churn. | Pitfall 7 | If we pick (b), the bridge script needs an edit to `tg_poller` invocation to read from files instead of registry.json |
 | A8 | The frontend modal's activeTab state (line 257) will accept a new value "telegram" without breaking the scope-flip effect at line 259 (which resets activeTab on scope change). Verified pattern (identity-wakeups + handoff both flow through same mechanism); low risk. | Q10 answer | If the scope-flip effect asserts on a hardcoded list of valid tabs, we may need to extend it — planner discovers during implementation |
 | A9 | Skynet startup can write `config.env` (with MATRIX_ROOT + STT_URL) atomically to bind-mounted `/var/lib/tg-bridge/` before the bridge systemd unit starts. This is a startup-ordering question — if the bridge starts before Skynet writes config, the bridge crashes on missing config on first boot. Mitigation: bridge script has a bounded retry loop reading config.env on startup (5s intervals × 60 tries = 5 min budget) OR systemd `After=` ordering. **Recommendation:** bridge script does the retry loop — belt-and-suspenders (systemd After= doesn't help if the container hasn't run its startup yet). | Startup ordering | First boot silently doesn't bridge for up to 5 min after container starts — acceptable |
@@ -1050,16 +1050,16 @@ See § Runtime State Inventory above (already included in full).
 1. **How does the "install on the Skynet host itself" case wire up?**
    - What we know: host id 6 (Skynet) is `runsFleetSubstrate:true` but has no SSH credential attached (VERIFIED via container logs).
    - What's unclear: (a) wire up SSH credential on host id 6 (fleet-consistent) vs (b) skip distributor for self-case, ship a container-side install script (simpler for one host).
-   - Recommendation: Ashley/Tina should decide during plan review. Slight preference for (a) — fleet consistency, one code path for every substrate host.
+   - Recommendation: Alice/Tina should decide during plan review. Slight preference for (a) — fleet consistency, one code path for every substrate host.
 
 2. **SYSTEM vs USER systemd unit for tg-bridge?**
    - What we know: current agent-supervisor is USER-scope, and the distributor hard-codes `--user`. Nina's current bridge is USER-scope. But `/var/lib/tg-bridge/` is a system-level path and the bridge needs to survive `ubuntu` logout on t1000.
    - What's unclear: is the extra complexity of adding SYSTEM-scope support to the distributor worth it, vs just running the tg-bridge as a USER unit under `ubuntu` on t1000 (with linger enabled) like every other substrate host?
-   - Recommendation: **USER-scope for consistency with agent-supervisor.** Skip Pitfall 2 entirely. Locked bind-mount path is at `/var/lib/tg-bridge/` but that's a host filesystem choice — the bridge running as USER `ubuntu` still reads/writes to it if perms are `750 ubuntu:ubuntu`. This is the simpler path. Ashley to confirm.
+   - Recommendation: **USER-scope for consistency with agent-supervisor.** Skip Pitfall 2 entirely. Locked bind-mount path is at `/var/lib/tg-bridge/` but that's a host filesystem choice — the bridge running as USER `ubuntu` still reads/writes to it if perms are `750 ubuntu:ubuntu`. This is the simpler path. Alice to confirm.
 
 3. **STT_URL hardcode — Option 1 (config table) or Option 2 (shared TS constant)?**
    - What we know: STT_URL is hardcoded in voice.ts (VERIFIED). CONTEXT.md assumes a config exists but it doesn't.
-   - Recommendation (from Pitfall 5): **Option 2 (shared TS const)** for Phase B speed; Option 1 (proper config table) as a follow-up if runtime configurability is ever needed. Ashley to confirm.
+   - Recommendation (from Pitfall 5): **Option 2 (shared TS const)** for Phase B speed; Option 1 (proper config table) as a follow-up if runtime configurability is ever needed. Alice to confirm.
 
 4. **How does the reconcile-loop for dead-token detection get triggered?**
    - What we know: Q6 confirms admin-minted tokens don't TTL-expire; only bridge-side 401s or admin's `/logout/all` invalidate them.
@@ -1067,8 +1067,8 @@ See § Runtime State Inventory above (already included in full).
    - Recommendation: **(a) sentinel file** — simplest, doesn't need a live process on Skynet's side; deferred to Phase B implementation planning. This is planner territory.
 
 5. **Migration script placement — one-shot bash on operator's laptop, or container startup one-shot, or backend endpoint?**
-   - What we know: Ashley + Zoey are the only two humans with .cred files today; migration is a small one-off.
-   - Options: (a) manual bash script Ashley runs once; (b) container-boot idempotent one-shot (checks if migration marker exists, skips if yes); (c) admin-gated backend endpoint she POSTs once.
+   - What we know: Alice + Zoey are the only two humans with .cred files today; migration is a small one-off.
+   - Options: (a) manual bash script Alice runs once; (b) container-boot idempotent one-shot (checks if migration marker exists, skips if yes); (c) admin-gated backend endpoint she POSTs once.
    - Recommendation: **(c) admin-gated backend endpoint** — matches Phase 77 precedent (matrix-admin creds ingestion is a POST route), auditable, idempotent, doesn't need shell access to t1000.
 
 ## Metadata

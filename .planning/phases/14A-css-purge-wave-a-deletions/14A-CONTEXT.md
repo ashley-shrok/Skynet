@@ -6,7 +6,7 @@
 
 ## Objective
 
-Delete dead UI subtrees Ashley never uses + retire every dangling import, switch-case, and integration exposed by these deletions.
+Delete dead UI subtrees Alice never uses + retire every dangling import, switch-case, and integration exposed by these deletions.
 
 Wave A is DELETION ONLY. Wave B (spawned separately) handles restyle work + AppShell sidebarHeader / mobile PinAction / xterm theme purges.
 
@@ -15,9 +15,9 @@ Wave A is DELETION ONLY. Wave B (spawned separately) handles restyle work + AppS
 ### Subtrees deleted outright
 
 1. `src/ui/features/file-manager/` — 40 files, ~13,000 LOC. Superseded by a separate external file-manager surface.
-2. `src/ui/features/docker/` — 8 files, ~2,500 LOC. Ashley uses `docker` command directly.
-3. `src/ui/features/tunnel/` — 6 files, ~900 LOC. Ashley's fleet is on Tailscale.
-4. `src/ui/features/server-stats/widgets/` — 11 files, ~880 LOC. Ashley checks health via SSH.
+2. `src/ui/features/docker/` — 8 files, ~2,500 LOC. Alice uses `docker` command directly.
+3. `src/ui/features/tunnel/` — 6 files, ~900 LOC. Alice's fleet is on Tailscale.
+4. `src/ui/features/server-stats/widgets/` — 11 files, ~880 LOC. Alice checks health via SSH.
 5. `src/ui/user/C2STunnelPresetManager.tsx` — 1 file, 1,203 LOC. Orphan already (0 callers pre-Phase-14A).
 
 Also removed: retired-consumer-only files exposed by subtree deletions:

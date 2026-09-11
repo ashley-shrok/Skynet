@@ -113,7 +113,7 @@ Add per-instance configurable branding to Skynet: a host-mounted config file + a
 - The conversation header keeps its current two-element structure (small icon + wordmark). The operator supplies both files separately — not a single combined logo. This preserves the existing visual layout without needing to redesign the header.
 - t1000 deploy: drop the config file entirely. Backend falls back to bundled defaults. Behavior = identical to today.
 - AI+ deploy: Ivy installs `/opt/skynet/branding.json` + branding assets at EC2 provisioning. No Skynet code involvement at provisioning time — it's just files on disk.
-- The `common.appName` i18n key ("Skynet" in translation files) is used in some login flows but the actual login screen surfaces Ashley verified are: tab title + icon/wordmark. The i18n key does not need to be touched; the tab title is handled by the AppShell branding context and the logo surfaces are handled by `iconPath`/`wordmarkPath`.
+- The `common.appName` i18n key ("Skynet" in translation files) is used in some login flows but the actual login screen surfaces Alice verified are: tab title + icon/wordmark. The i18n key does not need to be touched; the tab title is handled by the AppShell branding context and the logo surfaces are handled by `iconPath`/`wordmarkPath`.
 
 </specifics>
 

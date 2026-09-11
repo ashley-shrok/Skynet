@@ -33,7 +33,7 @@ Removed the auto-unhide-on-click branch from `handleRowSelect` so clicking a hid
 
 ## What Was Built
 
-Inverts `quick-260731-tgg` per Ashley 2026-09-03 directive. Two lines were deleted from `handleRowSelect` in `PrettyConversationsPanel.tsx`:
+Inverts `quick-260731-tgg` per Alice 2026-09-03 directive. Two lines were deleted from `handleRowSelect` in `PrettyConversationsPanel.tsx`:
 
 ```
 // quick-260731-tgg: opening a hidden row auto-unhides it before routing.
@@ -56,7 +56,7 @@ Test (n) added to the `PrettyConversationsPanel: Hide/Show wiring (quick-260731-
 ## Verification
 
 - `grep "opening a hidden row auto-unhides" PrettyConversationsPanel.tsx` → 0 matches
-- `grep "Ashley 2026-09-03" PrettyConversationsPanel.tsx` → 1 match inside `handleRowSelect`
+- `grep "Alice 2026-09-03" PrettyConversationsPanel.tsx` → 1 match inside `handleRowSelect`
 - `grep -c "if (hiddenIds.has(row.id)) unhideConversation(row.id);" PrettyConversationsPanel.tsx` → 1 (handleTogglePin only)
 - `grep -c "Test (n)" PrettyConversationsPanel.test.tsx` → 2 (comment + it-block)
 - Vitest: 110/110 tests passed; Test (n) green, Test (f) (unhide-on-pin) green and untouched

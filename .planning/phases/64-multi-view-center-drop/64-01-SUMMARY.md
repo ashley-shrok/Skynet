@@ -99,7 +99,7 @@ logging belongs to Plan 64-02's AppShell handler layer per CONTEXT.md
 § In-scope item 5. Only defensive `console.warn` on missing-target /
 missing-leaf cases (per must_have truths 4 + 7). Warn messages use explicit
 `targetTabId=<x>` / `tabId=<x>` fields (no `JSON.stringify` on inputs) per
-the fleet logging directive Ashley 2026-08-11.
+the fleet logging directive Alice 2026-08-11.
 
 ## Tests Added (9 new Phase 64 tests)
 
@@ -163,7 +163,7 @@ $ npx vitest run src/ui/lib/split-tree.test.ts
    Duration  10.86s
 ```
 
-Exit code 0. Green-gate satisfied per box-maintainer role (Ashley
+Exit code 0. Green-gate satisfied per box-maintainer role (Alice
 2026-08-20): scoped tests relevant to touched files only; full suite is
 the orchestrator's ship-gate, not this executor's scope.
 

@@ -9,7 +9,7 @@
 // `swipe-actions-visible-through-translucent-rows`). Nothing painted behind
 // rows = no bleed-through, ever.
 //
-// Naming rule (Ashley 2026-07-22): DO NOT add a token for a value used at
+// Naming rule (Alice 2026-07-22): DO NOT add a token for a value used at
 // only one or two call sites. Prefer inline `hsla(...)` / literal numbers
 // everywhere else. Tokens exist for values shared coherently across the
 // component tree; the swipe state machine was the only such value here, so

@@ -148,7 +148,7 @@ Plan 05 (Wave 3) depends on this plan (Wave 2). Plan 05's scope:
 1. **Populate identityHosts** — rewrite `identities-store.ts fetchOnce` to derive `Record<identityKey, hostId>` from conversation-store fleetSessions and pass it to `listIdentities(hosts)`. So first-render cosmetics come back populated from disk, not as safe-defaults.
 2. **Thread hostId into avatarUrl consumers** — the flipped GET /:id/avatar requires `?hostId=<n>`; every consumer (IdentityBadge, IdentityModal DialogHeader avatar, SessionRow, chat surfaces) needs to append it. `avatarUrlWithHost(identity, hostId)` helper (shipped in this plan) is the consumption idiom.
 
-Between "Plan 03 lands" (right now) and "Plan 05 lands" the frontend renders with safe-default cosmetics on every identity (capitalizeFirst names, no avatars, gray backgrounds). Ashley greenlit this as "accept the ugly render" per shape file open question 4.
+Between "Plan 03 lands" (right now) and "Plan 05 lands" the frontend renders with safe-default cosmetics on every identity (capitalizeFirst names, no avatars, gray backgrounds). Alice greenlit this as "accept the ugly render" per shape file open question 4.
 
 ## Confirmation: GET /:id/avatar's ETag is per-response, NOT stored (W6)
 

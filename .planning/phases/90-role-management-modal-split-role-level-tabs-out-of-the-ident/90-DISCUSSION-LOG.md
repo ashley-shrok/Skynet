@@ -12,7 +12,7 @@ This discussion surfaced only implementation-HOW gray areas the shape deliberate
 
 ## Areas Presented
 
-Ashley picked all three to resolve in one turn (rather than the workflow's default one-at-a-time flow).
+Alice picked all three to resolve in one turn (rather than the workflow's default one-at-a-time flow).
 
 ### Area A: Role-cosmetic-edit UI scope
 
@@ -21,7 +21,7 @@ Ashley picked all three to resolve in one turn (rather than the workflow's defau
 - (a2) Keep this phase narrowly-scoped per its own shape; ships as immediate follow-up bounty.
 - (a3) Minimal edit surface (title text only; hue/voice/avatar deferred).
 
-**Ashley's answer (verbatim):** *"we are going to do the cosmetics editing on this like it's basically just going to be the same thing that the identity modal has, except for maybe the override stuff that shows up there. So that should be a pretty one to one recreation."*
+**Alice's answer (verbatim):** *"we are going to do the cosmetics editing on this like it's basically just going to be the same thing that the identity modal has, except for maybe the override stuff that shows up there. So that should be a pretty one to one recreation."*
 
 **Decision:** (a1) with the "one to one recreation" refinement — same pickers as identity modal, minus the inherit/override affordance layer. Captured as D-01.
 
@@ -31,7 +31,7 @@ Ashley picked all three to resolve in one turn (rather than the workflow's defau
 - (b1) Same-host only (matches existing `listRolesForHost` endpoint).
 - (b2) Cross-fleet aggregate.
 
-**Ashley's answer (verbatim):** *"for B, I was thinking we could actually set it up the same way as the edit global files modal, where there's a drop down to pick a host. And if you are a user that only has one host, then that just defaults to that one host that you have. So that keeps that simple."*
+**Alice's answer (verbatim):** *"for B, I was thinking we could actually set it up the same way as the edit global files modal, where there's a drop down to pick a host. And if you are a user that only has one host, then that just defaults to that one host that you have. So that keeps that simple."*
 
 **Decision:** (b1) with the Edit-global-files pattern — host-picker dropdown at the top, single-host users auto-selected. Captured as D-02.
 
@@ -41,7 +41,7 @@ Ashley picked all three to resolve in one turn (rather than the workflow's defau
 - (c1) Always portal to `document.body` — full-viewport.
 - (c2) Context-dependent — chat-region portal when swap-in from identity modal, `document.body` otherwise.
 
-**Ashley's answer (verbatim):** *"this kind of goes along with B in the sense that like, the roles modal and the edit role modal have nothing to do with sessions that you have open or not. like they are sort of global modals the same way that like editing skills and edit global files modals are."*
+**Alice's answer (verbatim):** *"this kind of goes along with B in the sense that like, the roles modal and the edit role modal have nothing to do with sessions that you have open or not. like they are sort of global modals the same way that like editing skills and edit global files modals are."*
 
 **Decision:** (c1) — global modal, always `document.body`. Even title-line jump-in from an identity modal opens the role modal at global viewport level (identity modal closes first). Captured as D-03.
 

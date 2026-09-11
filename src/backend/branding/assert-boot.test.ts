@@ -9,7 +9,7 @@
  *     (per 74-CONTEXT.md § "What would make it wrong" §3).
  *   - Emits a structured fatal log via `systemLogger.error` with
  *     `operation: "branding_config_boot_gate"` on failure.
- *   - Does NOT gate on `avatarGammaDefault` — per Ashley resolution #5
+ *   - Does NOT gate on `avatarGammaDefault` — per Alice resolution #5
  *     (74-CONTEXT.md), gamma is optional-with-code-default. The boot gate
  *     ignores it.
  *   - Non-empty (after trim) spec → returns silently, boot continues.
@@ -172,7 +172,7 @@ describe("assertBrandingConfigAtBoot — Phase 74 boot-time presence gate", () =
     expect(context?.operation).toBe("branding_config_boot_gate");
   });
 
-  it("Test 6 — does NOT gate on avatarGammaDefault (per Ashley resolution #5): valid spec + weird gamma still passes", async () => {
+  it("Test 6 — does NOT gate on avatarGammaDefault (per Alice resolution #5): valid spec + weird gamma still passes", async () => {
     // Sub-case A: sane gamma → passes.
     state.loadResult = {
       ...makeValidLoadResult(),

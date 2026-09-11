@@ -334,11 +334,11 @@ describe("conversation-store: session-end lifecycle (pins are sticky)", () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests 5b/5c (retire-pruner quick-260818-l8n): pins are sticky across
-// updateOpenTabs. Ashley: "Pins are pins. Doesn't matter if they are open or
+// updateOpenTabs. Alice: "Pins are pins. Doesn't matter if they are open or
 // anything else." Pre-retire, updateOpenTabs scrubbed any pinnedId not in
 // nextIds ∪ a fleet-derived keep-set — which on WS reconnect (updateOpenTabs
 // fires with a partial/empty tabs list before every managed host re-reports)
-// nuked legitimate pins. Ashley's next pin/unpin then wrote the pruned Set to
+// nuked legitimate pins. Alice's next pin/unpin then wrote the pruned Set to
 // the server via putPinnedIds, making the loss durable. Post-retire, update
 // OpenTabs never touches pinnedIds — the render-side skip in computeSnapshot
 // Tier 2 handles orphan pin ids gracefully. Regression guard pair:
@@ -389,7 +389,7 @@ describe("conversation-store: pins are sticky across updateOpenTabs (quick-26081
     // post-retire the pruner is gone, so this passes for free. Any
     // regression that re-introduces openTabs → pinnedIds scrubbing (in
     // any form — openTab-only keep-set, fleet-aware keep-set, whatever)
-    // trips this assertion on the deploy-race scenario Ashley hit.
+    // trips this assertion on the deploy-race scenario Alice hit.
     snap = __getSnapshotForTest();
     expect(snap.pinnedIds.size).toBe(4);
     expect(snap.pinnedIds.has("fleet::1::work")).toBe(true);
@@ -401,10 +401,10 @@ describe("conversation-store: pins are sticky across updateOpenTabs (quick-26081
   it("updateOpenTabs does NOT drop stale openTab pins when their tab leaves the tabs list (retire-pruner quick-260818-l8n)", () => {
     // fleetSessions is empty per beforeEach — this test locks the retire-
     // pruner invariant for pure openTab-format pins (no fleet component).
-    // Ashley's deploy-race: on WS reconnect, updateOpenTabs fires with an
+    // Alice's deploy-race: on WS reconnect, updateOpenTabs fires with an
     // empty (or transiently partial) tabs list before setTabs re-emits the
     // real list; any pruner keyed on nextIds would nuke every openTab pin
-    // in that window. Ashley's next pin/unpin write via putPinnedIds would
+    // in that window. Alice's next pin/unpin write via putPinnedIds would
     // then persist the loss server-side. The retire-pruner guarantee: both
     // pin ids survive updateOpenTabs regardless of the passed tabs list.
     const hostA = makeHost("hA", "alpha");
@@ -1329,7 +1329,7 @@ describe("conversation-store (quick-260730-wfy): pinned tier alphabetical orderi
 });
 
 describe("conversation-store (Phase 42 UAT amendment 2026-08-17): Test 30c — active-set + pinned row stays in pinned tier", () => {
-  // Phase 42 UAT amendment 2026-08-17 (Ashley verbatim): "sessions are still
+  // Phase 42 UAT amendment 2026-08-17 (Alice verbatim): "sessions are still
   // showing above the pinned area when they are active in the current instance
   // of the client. That shouldn't happen." — activeSet render tier retired;
   // activeSet-and-pinned rows stay in pinned, activeSet-only rows fall
@@ -1362,7 +1362,7 @@ describe("conversation-store (Phase 42 UAT amendment 2026-08-17): Test 30c — a
 });
 
 describe("conversation-store (Phase 42 UAT amendment 2026-08-17): Test 30d — activeSet-only row (not pinned) falls through to middle", () => {
-  // Phase 42 UAT amendment 2026-08-17 (Ashley verbatim): "sessions are still
+  // Phase 42 UAT amendment 2026-08-17 (Alice verbatim): "sessions are still
   // showing above the pinned area when they are active in the current instance
   // of the client. That shouldn't happen." — activeSet render tier retired;
   // activeSet-and-pinned rows stay in pinned, activeSet-only rows fall
@@ -1390,7 +1390,7 @@ describe("conversation-store (Phase 42 UAT amendment 2026-08-17): Test 30d — a
 });
 
 describe("conversation-store (Phase 42 UAT amendment 2026-08-17): Test 30e — openTab pinned + activeSet stays in pinned", () => {
-  // Phase 42 UAT amendment 2026-08-17 (Ashley verbatim): "sessions are still
+  // Phase 42 UAT amendment 2026-08-17 (Alice verbatim): "sessions are still
   // showing above the pinned area when they are active in the current instance
   // of the client. That shouldn't happen." — activeSet render tier retired;
   // activeSet-and-pinned rows stay in pinned, activeSet-only rows fall
@@ -1422,7 +1422,7 @@ describe("conversation-store (Phase 42 UAT amendment 2026-08-17): Test 30e — o
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests 30f-30i (quick-260727-gm3): removeFromActiveSet contract
 // ─────────────────────────────────────────────────────────────────────────────
-// Ashley 2026-07-27 preview lockdown: deactivate is the pure reverse of the
+// Alice 2026-07-27 preview lockdown: deactivate is the pure reverse of the
 // tap-ambient-to-activate flow. Store semantics MUST mirror addToActiveSet:
 //   - idempotent no-op when the id is not in the set (no notify, no write)
 //   - real removal produces a NEW Set reference, writes sessionStorage, notifies
@@ -1517,7 +1517,7 @@ describe("conversation-store (quick-260727-gm3): Test 30i — removeFromActiveSe
 
     // Deactivation is orthogonal to selection at the store layer — the
     // panel wires closeTab separately; the store MUST NOT implicitly
-    // deselect. Ashley 2026-07-27: agent keeps running under the hood.
+    // deselect. Alice 2026-07-27: agent keeps running under the hood.
     expect(selected.current).toBe("t1");
   });
 });
@@ -1581,7 +1581,7 @@ describe("conversation-store (Plan 07-02): RDP row emission", () => {
     });
     const snap = __getSnapshotForTest();
     // Phase 41 Plan 01: rdpGroup is null when zero RDP-eligible hosts exist
-    // (Ashley lock #7 — no empty RDP header renders).
+    // (Alice lock #7 — no empty RDP header renders).
     expect(snap.rdpGroup).toBeNull();
   });
 });
@@ -1637,7 +1637,7 @@ describe("conversation-store (Plan 07-02): RDP row persistence tied to enableRdp
     const hostAOff = makeHost("1", "hostA", { enableRdp: false });
 
     // Phase 41 Plan 01: rdpGroup is null when zero RDP hosts, an object with
-    // rows when >=1 (Ashley lock #7).
+    // rows when >=1 (Alice lock #7).
     act(() => {
       updateHostsFlat(new Map<number, Host>([[1, hostAOn]]));
     });
@@ -1646,7 +1646,7 @@ describe("conversation-store (Plan 07-02): RDP row persistence tied to enableRdp
     expect(snap.rdpGroup!.rows.length).toBe(1);
     expect(snap.rdpGroup!.rows[0].id).toBe("rdp-host::1");
 
-    // Simulate Ashley toggling RDP OFF in the host editor → realHostTree
+    // Simulate Alice toggling RDP OFF in the host editor → realHostTree
     // rebuild → new hostsFlat Map with enableRdp=false
     act(() => {
       updateHostsFlat(new Map<number, Host>([[1, hostAOff]]));
@@ -1784,7 +1784,7 @@ describe("conversation-store (patch #137): module-init hydrates activeSet from s
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Ashley 2026-08-05: only=1 sessionStorage-bleed guard.
+// Alice 2026-08-05: only=1 sessionStorage-bleed guard.
 //
 // When window.open drops `noopener` (PrettyConversationRow.tsx
 // uo4-noopener-fix), the child window inherits the opener's sessionStorage —
@@ -1895,7 +1895,7 @@ describe("conversation-store (2026-08-05 uo4 followup): only=1 sessionStorage-bl
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Patch #150 C — URL-restore multi-tab glow (store-level contract).
-// Ashley's followup-3 UAT (2026-07-24): a URL that captured 2 (or more)
+// Alice's followup-3 UAT (2026-07-24): a URL that captured 2 (or more)
 // active sessions restored with .active-set glow on ONLY the first restored
 // tab. Root cause: AppShell's persisted-restore branch hardcoded
 // `selectConversationDeferred(restoredTabs[0].id)` → only the first id ever
@@ -1946,7 +1946,7 @@ describe("conversation-store (patch #150 C): two-URL-tab restore glows both rest
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Patch #230 A — URL-driven restore glow parity (store-level contract).
-// Ashley reported (2026-07-31, live diag with tina): loading a hash-restore
+// Alice reported (2026-07-31, live diag with tina): loading a hash-restore
 // URL only "activates" the ONE tab focused by active=<N>; other URL-hash
 // tabs mount in the tab bar but stay ambient in pretty-conversations and
 // don't connect their WebSocket until first click. Root cause paralleled
@@ -2002,7 +2002,7 @@ describe("conversation-store (patch #230 A): URL-driven multi-tab restore glows 
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Patch #230 B — pinned tier surfaces fleet-shadow pins on URL-restored openTabs.
-// Ashley reported (2026-07-31, live diag): pin count differs by URL —
+// Alice reported (2026-07-31, live diag): pin count differs by URL —
 // loading with a hash-restore shows FEWER pins than the base URL. Root
 // cause: server-persisted pins use fleet-format ids
 // (`fleet::${hostId}::${sessionName}`). URL-hash restore calls openTab()
@@ -2620,7 +2620,7 @@ describe("conversation-store (Phase 25 retargeted Phase 41 Plan 01): role-cluste
     ]);
   });
 
-  // Phase 42 UAT amendment 2026-08-17 (Ashley verbatim): "sessions are still
+  // Phase 42 UAT amendment 2026-08-17 (Alice verbatim): "sessions are still
   // showing above the pinned area when they are active in the current instance
   // of the client. That shouldn't happen." — the activeSet render tier is
   // retired. The previous "host is outer sort key in ActiveSet — same-role
@@ -2843,7 +2843,7 @@ describe("conversation-store (Phase 25 retargeted Phase 41 Plan 01): role-cluste
 
 describe("conversation-store (Phase 41 Plan 01): compareByRecencyDesc — middle-zone recency contract", () => {
   // Test C — Phase 44 Plan 04 FLIP: null-to-bottom rule (was null-to-top).
-  // Retires Ashley's 2026-08-14 no-history-to-top lock per 44-CONTEXT.md
+  // Retires Alice's 2026-08-14 no-history-to-top lock per 44-CONTEXT.md
   // § Comparator change — retire no-history-to-top.
   it("Test C: no-history row (lastMessageAt=null) sorts AFTER a row with any timestamp (Phase 44 Plan 04 flip)", () => {
     const hostA = makeHost("hA", "alpha");
@@ -3093,7 +3093,7 @@ describe("conversation-store (Phase 41 Plan 03): real fleet-status wire-side sig
   // ---------------------------------------------------------------------------
   // Test L: pinned zone under REAL recency data — pins do NOT shuffle when the
   //          wire-side lastMessageAt makes zebra fresher than alpha. Locks Plan
-  //          01's Ashley lock #2 survives real signal flowing through the
+  //          01's Alice lock #2 survives real signal flowing through the
   //          wire path (analogous to Test G but via publishFleetStatusSessionState
   //          rather than the test-only injection API).
   // ---------------------------------------------------------------------------
@@ -3307,7 +3307,7 @@ describe("conversation-store (Phase 47 Plan 01): FleetSession aiTitle cache roun
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 44 Plan 04 — compareByRecencyDesc Rule 1 flip (null-to-bottom)
 //
-// Task 2 coverage: retires Ashley's 2026-08-14 no-history-to-top lock. Rule 1
+// Task 2 coverage: retires Alice's 2026-08-14 no-history-to-top lock. Rule 1
 // now sorts null-lastMessageAt rows AFTER rows with a real timestamp. Rule 2
 // (insertion-order fallback among null rows) preserved. Rules 3 (real DESC)
 // and 4 (identical-ts fallback) unchanged.
@@ -3417,11 +3417,11 @@ describe("conversation-store (Phase 90 Plan 01): FleetSession kind + relay-room 
       aiTitle: null,
       kind: "relay-room",
       roomId: "!abc:matrix.example",
-      roomTitle: "Ashley + team",
+      roomTitle: "Alice + team",
     };
     expect(relayRow.kind).toBe("relay-room");
     expect(relayRow.roomId).toBe("!abc:matrix.example");
-    expect(relayRow.roomTitle).toBe("Ashley + team");
+    expect(relayRow.roomTitle).toBe("Alice + team");
 
     // Legacy shape (kind absent) also typechecks — backward-compat rule
     // for pre-Phase-90 rehydrated caches.
@@ -3586,7 +3586,7 @@ describe("conversation-store (Phase 90 Plan 01): FleetSession kind + relay-room 
 // cache (which returns null for host===undefined), so lastMessageAt
 // collapsed to null and the null-to-bottom rule in compareByRecencyDesc
 // jumped the row to the bottom of the middle tier — the "jumps to end on
-// click" visual regression Ashley hit in UAT.
+// click" visual regression Alice hit in UAT.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("conversation-store (Phase 97 UAT batch #8): rowFromTab pulls lastActivityAt from matching fleet session for relay-room tabs", () => {

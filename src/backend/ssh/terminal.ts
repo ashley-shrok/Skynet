@@ -496,7 +496,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
       }
 
       // Patch #120 (2026-07-22): compose-box "stop" button safety valve.
-      // Sends Ctrl-C into the attached tmux session so Ashley can pull the
+      // Sends Ctrl-C into the attached tmux session so Alice can pull the
       // emergency brake when Claude Code goes rogue mid-run without
       // switching to raw-terminal mode and typing ^C herself.
       //
@@ -639,7 +639,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
             // instead of firing submit. Split the burst so the Enter arrives
             // as a distinct keystroke.
             //
-            // Patch #111 (2026-07-21): the 50ms gap was too tight — Ashley
+            // Patch #111 (2026-07-21): the 50ms gap was too tight — Alice
             // UAT'd patch #110 (which finally made this split path actually
             // fire) and long messages still landed in Claude Code's composer
             // without submitting. Claude Code's Ink input reader stays in
@@ -652,7 +652,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
             // is bracketed-paste wrapping under a target-detects-BPM gate.
             //
             // Patch #118 (2026-07-22): the 250ms delay from #111a still
-            // wasn't sufficient — Ashley UAT'd during Phase 9 (2026-07-22
+            // wasn't sufficient — Alice UAT'd during Phase 9 (2026-07-22
             // 07:40Z) and hit the same "message lands in Claude Code's
             // compose box but doesn't submit" symptom on a message that
             // wasn't even flagged as [pasted]. Root cause pinned in this
@@ -2418,7 +2418,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         // sshConn on purpose after attaching the ws to the pre-existing live
         // session. Firing the disconnected-send below would pop the client's
         // Connection Lost overlay on the ws that just successfully attached
-        // (Ashley 2026-08-12 desktop tab-switch bug — pane A → pane B → pane A
+        // (Alice 2026-08-12 desktop tab-switch bug — pane A → pane B → pane A
         // flips A to the overlay).
         sshLogger.info(
           "SSH connection closed (replaced by existing session — suppressing disconnect send)",

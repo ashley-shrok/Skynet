@@ -16,7 +16,7 @@ provides:
   - Wake-handoff safe-close ordering — the startActiveFlow callback (dormant→active transition) now stops + nulls the dormant tailHandle BEFORE startActiveSessionFlow reassigns it, eliminating the dormant+active tail overlap window (T-32-04 mitigation)
   - `__applyDormantBranchTailOpenForTests` seam + `__DormantBranchTailOpenDepsForTests` + `__DormantBranchTailOpenStateForTests` type exports — the SINGLE production implementation entry point for the discovery + tail-open + logging sequence
 affects:
-  - closes Ashley's verbatim complaint from 2026-08-12: "the bubble looks good, but unfortunately, the rest of the messages that would be in that session are not showing up." — the dormant identity pane's wake bubble is now backed by the tail of the conversation Ashley is deciding whether to wake
+  - closes Alice's verbatim complaint from 2026-08-12: "the bubble looks good, but unfortunately, the rest of the messages that would be in that session are not showing up." — the dormant identity pane's wake bubble is now backed by the tail of the conversation Alice is deciding whether to wake
 
 # Tech tracking
 tech-stack:
@@ -54,7 +54,7 @@ completed: 2026-08-12
 
 # Phase 32 Plan 32-02: Dormant-Branch Tail-Open Wire-in Summary
 
-**Dormant identity panes now open a tail on the identity's most-recently active JSONL, streaming historical wake-bubble message history through the existing appendDedup + eventId pipeline — closes Ashley's "the bubble looks good but the messages aren't showing up" complaint.**
+**Dormant identity panes now open a tail on the identity's most-recently active JSONL, streaming historical wake-bubble message history through the existing appendDedup + eventId pipeline — closes Alice's "the bubble looks good but the messages aren't showing up" complaint.**
 
 ## Performance
 
@@ -221,7 +221,7 @@ None — pure backend addition. No env vars, no external service config, no CLI 
 
 ## Next Phase Readiness
 
-- **Phase 32 backend work is complete.** Wave 1 shipped the helper (`discoverIdentitySessionFile`); Wave 2 (this plan) wired it into the dormant branch and added the wake-handoff safe-close ordering. Ashley's UAT will confirm once the phase deploys.
+- **Phase 32 backend work is complete.** Wave 1 shipped the helper (`discoverIdentitySessionFile`); Wave 2 (this plan) wired it into the dormant branch and added the wake-handoff safe-close ordering. Alice's UAT will confirm once the phase deploys.
 - **All 7 success criteria from the plan satisfied:**
   1. Dormant identity panes emit historical messages via the WS pipeline ✓ (code shipped; production behavior awaits deploy).
   2. Wake→active handoff never produces duplicate eventId / out-of-order message ✓ (CASE-DT4 + DT5).
@@ -230,7 +230,7 @@ None — pure backend addition. No env vars, no external service config, no CLI 
   5. Full vitest suite green ✓ (155 files pass, 1972 tests pass).
   6. `claude_session_dormant_tail_*` structured logs surface with T-32-05-safe payloads ✓ (CASE-DT1 basename assertion + no-match log carries no path).
   7. WS-close teardown continues to stop the dormant tail via teardownPane ✓ (W-4 grep gate + CASE-DT7 structural assertion).
-- **Deploy deferred to phase-end** per execution notes ("No deploy from this plan. Deploy happens ONCE at end of phase, orchestrated by [Ashley] after this executor returns.").
+- **Deploy deferred to phase-end** per execution notes ("No deploy from this plan. Deploy happens ONCE at end of phase, orchestrated by [Alice] after this executor returns.").
 - **No blockers.** No architectural changes needed. No open questions. Full suite green; type-check clean; UI byte-untouched.
 
 ## Self-Check: PASSED

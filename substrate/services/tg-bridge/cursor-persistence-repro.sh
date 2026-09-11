@@ -3,7 +3,7 @@
 # Blocker B-3: CONTEXT § Success definition bullet 6 requires proving that
 # restart drops zero messages. Plan 09's human-checkpoint smoke is not enough.
 # This script asserts the CURSOR GUARD invariant via a scripted harness:
-#   1. Seed /tmp/repro-state/ashley.since with a known next_batch token.
+#   1. Seed /tmp/repro-state/alice.since with a known next_batch token.
 #   2. Confirm the bridge, given SINCE non-empty, would skip the initial
 #      ?timeout=0 sync (as documented in recv.sh:226-235).
 #   3. Simulate a sync response with next_batch=empty; assert SINCE is NOT
@@ -28,8 +28,8 @@ STATE=$(mktemp -d /tmp/repro-state.XXXXXX)
 trap 'rm -rf "$STATE"' EXIT
 
 echo "=== Repro 1: SINCE_FILE read-on-startup ==="
-printf '%s' "s_seed_batch_12345" > "$STATE/ashley.since"
-LOADED=$(cat "$STATE/ashley.since")
+printf '%s' "s_seed_batch_12345" > "$STATE/alice.since"
+LOADED=$(cat "$STATE/alice.since")
 [ "$LOADED" = "s_seed_batch_12345" ] || {
   echo "REPRO FAIL: seeded SINCE_FILE not readable"; exit 1;
 }
@@ -40,7 +40,7 @@ echo "=== Repro 2: SINCE non-empty means bridge SKIPS the initial sync ==="
 # sync at $BASE/sync?since=$SINCE. Assert that the persisted SINCE would drive
 # that branch (i.e. SINCE is treated as truthy by the same `[ -z "$SINCE" ]`
 # guard the bridge uses).
-SINCE=$(cat "$STATE/ashley.since" 2>/dev/null || true)
+SINCE=$(cat "$STATE/alice.since" 2>/dev/null || true)
 if [ -z "$SINCE" ]; then
   echo "REPRO FAIL: persisted SINCE evaluated as empty — bridge would do initial sync"; exit 1;
 fi
@@ -56,7 +56,7 @@ if [ -n "$NB" ]; then
   echo "REPRO FAIL: expected empty NB, got '$NB'"; exit 1;
 fi
 # Guard triggered: SINCE_FILE MUST NOT change.
-STILL=$(cat "$STATE/ashley.since")
+STILL=$(cat "$STATE/alice.since")
 [ "$STILL" = "s_seed_batch_12345" ] || {
   echo "REPRO FAIL: CURSOR GUARD broken — SINCE_FILE was overwritten"; exit 1;
 }
@@ -67,8 +67,8 @@ NB=$(jq -r '.next_batch // empty' <<<"$R_REAL" 2>/dev/null)
 [ "$NB" = "s_new_batch_67890" ] || {
   echo "REPRO FAIL: expected real NB, got '$NB'"; exit 1;
 }
-printf '%s' "$NB" > "$STATE/ashley.since"
-UPDATED=$(cat "$STATE/ashley.since")
+printf '%s' "$NB" > "$STATE/alice.since"
+UPDATED=$(cat "$STATE/alice.since")
 [ "$UPDATED" = "s_new_batch_67890" ] || {
   echo "REPRO FAIL: SINCE_FILE not updated after real advance"; exit 1;
 }

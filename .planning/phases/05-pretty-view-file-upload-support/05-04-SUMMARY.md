@@ -15,8 +15,8 @@ requires:
 
 provides:
   - "05-04-BUILD-VERIFY-LOG.md — paper trail proving Phase 5 build is clean, artifacts survive Vite tree-shake, load-bearing prior-patch bytes intact"
-  - "05-UAT-CHECKLIST.md — Nyquist UAT walkthrough for Ashley post-deploy (38 checkbox items across UPLOAD-01..14 verbatim contracts, 32 blocking 🚨 markers, regression smoke section for patches #57/#60/#100/#102)"
-  - "05-PATCHES-MD-ENTRY.md — draft patch-catalog entry ready to paste into ~/.claude/identities/tina/skynet-patches.md at pin time (Ashley expected to assign #104)"
+  - "05-UAT-CHECKLIST.md — Nyquist UAT walkthrough for Alice post-deploy (38 checkbox items across UPLOAD-01..14 verbatim contracts, 32 blocking 🚨 markers, regression smoke section for patches #57/#60/#100/#102)"
+  - "05-PATCHES-MD-ENTRY.md — draft patch-catalog entry ready to paste into ~/.claude/identities/tina/skynet-patches.md at pin time (Alice expected to assign #104)"
 
 affects: []  # end of Phase 5; nothing downstream
 
@@ -24,7 +24,7 @@ affects: []  # end of Phase 5; nothing downstream
 tech-stack:
   added: []  # zero source diffs — this plan produces only .planning/ .md artifacts
   patterns:
-    - "Deploy checkpoint plan (Task 4) executed by orchestrator in main context, not by executor sub-agent — separation preserves the 'blanket pre-authorization ≠ per-deploy green light' rule (Ashley 2026-07-12)"
+    - "Deploy checkpoint plan (Task 4) executed by orchestrator in main context, not by executor sub-agent — separation preserves the 'blanket pre-authorization ≠ per-deploy green light' rule (Alice 2026-07-12)"
     - "Tree-shake-aware grep gates: verify function-body / string-literal characteristic markers rather than mangled identifier names (patch #57 gate updated in this plan)"
     - "Executor artifact preparation (Tasks 1-3) intentionally decoupled from deploy execution (Task 4) so the deploy sequence stays under the orchestrator's direct control"
 
@@ -40,7 +40,7 @@ key-decisions:
   - "Tasks 1-3 executed by executor sub-agent (this thread); Task 4 handed back to tina in the main context per orchestrator instruction — deploy stays under direct human-supervised control"
   - "Patch #57 grep-gate in 05-PATCHES-MD-ENTRY.md updated from function-name-based (putComposeDraft/flushComposeDraftKeepalive) to URL-literal-based (/compose-drafts) — Vite/Terser mangles internal function exports, so string literals are the correct post-tree-shake gate"
   - "Frontend Phase 5 artifact verification (Step C) uses characteristic strings (INJECTED_DELIMITER, 'Drop files here', 'webkitGetAsEntry', 'upload_chunk') rather than mangled identifier names — same tree-shake principle"
-  - "UAT checklist quotes every UPLOAD-01..14 contract verbatim from REQUIREMENTS.md rather than paraphrasing — Ashley walks the exact language of the requirement"
+  - "UAT checklist quotes every UPLOAD-01..14 contract verbatim from REQUIREMENTS.md rather than paraphrasing — Alice walks the exact language of the requirement"
 
 requirements-completed: []  # Task 4 (the actual deploy) will complete UPLOAD-01..14 in production; this plan produces the artifacts that support that verification
 
@@ -55,7 +55,7 @@ completed: 2026-07-20
 
 ## Scope of THIS Summary
 
-This SUMMARY covers **Tasks 1, 2, and 3 only.** Task 4 (the end-to-end deploy checkpoint including the mandatory 15-min deadman flow, container force-recreate, Ashley's UAT walk, and pin-or-revert decision) remains **PENDING tina's direct execution in the main context.** See "Task 4 status" section below.
+This SUMMARY covers **Tasks 1, 2, and 3 only.** Task 4 (the end-to-end deploy checkpoint including the mandatory 15-min deadman flow, container force-recreate, Alice's UAT walk, and pin-or-revert decision) remains **PENDING tina's direct execution in the main context.** See "Task 4 status" section below.
 
 ## Performance
 
@@ -103,7 +103,7 @@ This SUMMARY covers **Tasks 1, 2, and 3 only.** Task 4 (the end-to-end deploy ch
 `.planning/phases/05-pretty-view-file-upload-support/05-PATCHES-MD-ENTRY.md` produced:
 - Full multi-file entry following patch #60's canonical style (motivation → transport → atomic transfer → landing convention → injected metadata block → parser hardening → threat model → frontend UX → persistence asymmetry → sender-side render → works-on-any-pane → verify-post-deploy → files touched → rebase risk → deploy note)
 - All 4 canonical section headings present: `Files touched` (1), `Verify post-deploy invariants` (1), `Rebase risk` (1), `Deploy note` (1)
-- Patch numbering LEFT AS `NNN.` placeholder — Ashley fills at pin time (currently expected patch #104, since #103 is the current top per `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/skynet-patches.md | tail -3`)
+- Patch numbering LEFT AS `NNN.` placeholder — Alice fills at pin time (currently expected patch #104, since #103 is the current top per `grep -n "^\s*[0-9]\+\." ~/.claude/identities/tina/skynet-patches.md | tail -3`)
 - Deploy date LEFT AS `2026-MM-DD` placeholder — fill at pin time
 - References to load-bearing prior patches: #57 (2 mentions), #60 (8 mentions — the injected turn inherits patch #60's lifecycle key), #100 (2 mentions), #102 (2 mentions)
 - 12 grep-gate `docker exec skynet grep -c ...` invariants for future rebase smoke checks
@@ -122,7 +122,7 @@ Each task committed atomically:
 **Created (all in `.planning/phases/05-pretty-view-file-upload-support/`):**
 
 - `05-04-BUILD-VERIFY-LOG.md` — 180 lines. Steps A-E (build → backend artifacts → frontend artifacts → load-bearing prior-patch bytes → diff scope) plus byte-identity script result + tsc + vitest run.
-- `05-UAT-CHECKLIST.md` — 169 lines. Nyquist walkthrough for Ashley post-deploy.
+- `05-UAT-CHECKLIST.md` — 169 lines. Nyquist walkthrough for Alice post-deploy.
 - `05-PATCHES-MD-ENTRY.md` — 380 lines. Full multi-file patch-catalog entry draft with placeholder `NNN.` for pin-time numbering.
 - `05-04-SUMMARY.md` — this file.
 
@@ -130,15 +130,15 @@ Each task committed atomically:
 
 ## Task 4 status — PENDING tina in main context
 
-**Task 4 (`type="checkpoint:human-verify" gate="blocking"`) was NOT executed by this thread** per orchestrator instruction. The deploy sequence — arm deadman → force-recreate container → Ashley's UAT walk → disarm-or-fire decision — will be executed directly by tina in the main context per `~/.claude/identities/tina/deploy-runbook.md`:
+**Task 4 (`type="checkpoint:human-verify" gate="blocking"`) was NOT executed by this thread** per orchestrator instruction. The deploy sequence — arm deadman → force-recreate container → Alice's UAT walk → disarm-or-fire decision — will be executed directly by tina in the main context per `~/.claude/identities/tina/deploy-runbook.md`:
 
-1. **Get explicit per-deploy green light from Ashley** before running any deploy steps (blanket pre-authorization from Plans 01-03 does NOT authorize the deploy per Ashley 2026-07-12).
+1. **Get explicit per-deploy green light from Alice** before running any deploy steps (blanket pre-authorization from Plans 01-03 does NOT authorize the deploy per Alice 2026-07-12).
 2. `git push` before build (Caddy's build script clones from GitHub — local-only commits cache-hit the frontend-builder layer per patches #43 + #69 trap).
 3. `sudo bash /opt/skynet/skynet-patches/build-skynet.sh`.
 4. `sudo rm -f /tmp/skynet-keep-patched` (clear stale sentinel from any prior deploy — DO NOT try to kill any prior deadman's sleep child during this window per 2026-07-18 catastrophe rule).
 5. Arm the new deadman: `nohup sudo -b bash -c 'sleep 900; [ ! -f /tmp/skynet-keep-patched ] && bash /opt/skynet/.tmp-revert.sh' > /tmp/skynet-revert-bg.log 2>&1`.
 6. `cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`.
-7. Tell Ashley: "Deployed. Please run `05-UAT-CHECKLIST.md`."
+7. Tell Alice: "Deployed. Please run `05-UAT-CHECKLIST.md`."
 8. On all-🚨-green: `sudo touch /tmp/skynet-keep-patched && sudo pkill -f 'sleep 900; \[ ! -f /tmp/skynet-keep-patched'`. Then help pin per `05-PATCHES-MD-ENTRY.md`.
 9. On any 🚨 failure or non-response within 15 min: deadman fires OR run `sudo bash /opt/skynet/.tmp-revert.sh` immediately.
 
@@ -148,7 +148,7 @@ The Task 4 checkpoint content in `05-04-PLAN.md` remains the authoritative scrip
 
 See `key-decisions` in frontmatter. Highlights:
 
-- **Executor/orchestrator split for the deploy checkpoint.** Tasks 1-3 are pure artifact preparation and are safe for a sub-agent to execute in isolation (no source changes, no network side-effects, no container churn). Task 4 owns the deadman-armed deploy sequence which touches `/opt/skynet/`, `/tmp/skynet-*`, and the running container — these effects must stay under direct main-context supervision so the "explicit per-deploy green light" and "get Ashley's yes before starting" preferences are honored end-to-end.
+- **Executor/orchestrator split for the deploy checkpoint.** Tasks 1-3 are pure artifact preparation and are safe for a sub-agent to execute in isolation (no source changes, no network side-effects, no container churn). Task 4 owns the deadman-armed deploy sequence which touches `/opt/skynet/`, `/tmp/skynet-*`, and the running container — these effects must stay under direct main-context supervision so the "explicit per-deploy green light" and "get Alice's yes before starting" preferences are honored end-to-end.
 
 - **Patch #57 grep-gate updated from function names to URL literal.** The plan's Task 1 acceptance criterion originally asked for `putComposeDraft|flushComposeDraftKeepalive` grep ≥ 1 in `dist/assets/*.js`. When Task 1 ran, that grep returned 0 — investigation showed the function names were mangled by Vite/Terser to short identifiers (`Dr`, etc.) because they're internal exports (only consumed within the bundle, not part of any HTML/entry-point surface). The correct post-tree-shake gate is the URL literal `/compose-drafts` (returns 1 hit in `Terminal-Cyyq-xMQ.js`, appearing in both the GET and PUT-via-fetch call sites). The 05-PATCHES-MD-ENTRY.md verify-post-deploy invariants block uses the URL-based gate.
 
@@ -177,7 +177,7 @@ None. The three tasks executed straight-line. The patch #57 grep-gate finding wa
 
 ## User Setup Required
 
-None from this plan. **The next action lives with tina in the main context:** get Ashley's explicit per-deploy green light, then execute the Task 4 deadman-armed deploy sequence per `05-04-PLAN.md`'s Task 4 checkpoint content and `~/.claude/identities/tina/deploy-runbook.md`.
+None from this plan. **The next action lives with tina in the main context:** get Alice's explicit per-deploy green light, then execute the Task 4 deadman-armed deploy sequence per `05-04-PLAN.md`'s Task 4 checkpoint content and `~/.claude/identities/tina/deploy-runbook.md`.
 
 ## Next Phase Readiness
 
@@ -185,7 +185,7 @@ None from this plan. **The next action lives with tina in the main context:** ge
 
 - All three artifacts required by the deploy flow are committed on `feat/tab-title-from-tmux`:
   - `05-04-BUILD-VERIFY-LOG.md` — proof that Plans 01-03 built clean and load-bearing prior-patch bytes are intact
-  - `05-UAT-CHECKLIST.md` — the walk-through Ashley will run post-deploy
+  - `05-UAT-CHECKLIST.md` — the walk-through Alice will run post-deploy
   - `05-PATCHES-MD-ENTRY.md` — the entry to paste into `skynet-patches.md` after all-🚨-green
 - `git push` is a Task 4 prerequisite (Caddy build script clones from GitHub) — currently 15 commits ahead of `origin/feat/tab-title-from-tmux` (the 12 pre-existing Phase 5 code + doc commits + the 3 new Task 1-3 commits). Task 4 handles the push before build.
 - Task 4's checkpoint content in `05-04-PLAN.md` remains the authoritative script.
@@ -194,7 +194,7 @@ None from this plan. **The next action lives with tina in the main context:** ge
 
 ## Known Stubs
 
-None. All three artifacts are complete and production-ready. The `NNN.` placeholder in `05-PATCHES-MD-ENTRY.md` is intentional (Ashley assigns at pin time) and is documented as such in the file's preamble.
+None. All three artifacts are complete and production-ready. The `NNN.` placeholder in `05-PATCHES-MD-ENTRY.md` is intentional (Alice assigns at pin time) and is documented as such in the file's preamble.
 
 ## Threat Flags
 

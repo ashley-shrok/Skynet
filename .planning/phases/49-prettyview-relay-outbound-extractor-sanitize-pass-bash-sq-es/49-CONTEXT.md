@@ -2,13 +2,13 @@
 
 **Gathered:** 2026-08-20
 **Status:** Ready for planning
-**Source:** Direct discussion with Ashley 2026-08-19 → 2026-08-20 (verbatim quotes below).
+**Source:** Direct discussion with Alice 2026-08-19 → 2026-08-20 (verbatim quotes below).
 
 <domain>
 ## Phase Boundary
 
-Ashley reported that Nelly's most recent outbound relay bubble in PrettyView
-rendered only the words "relaying Ashley" — the rest of her ~1000-char body
+Alice reported that Nelly's most recent outbound relay bubble in PrettyView
+rendered only the words "relaying Alice" — the rest of her ~1000-char body
 was silently dropped. Diagnosis traced the failure to Strategy 1 (`BODY-sq`) of
 the extractor at `src/backend/claude-session/session-file-parser.ts:224
 extractOutboundBody`: a first-match-wins regex over the raw Bash command with
@@ -26,7 +26,7 @@ identically:
    `BODY=$(cat <<'EOF' … EOF)`, and returns the substring instead of the real
    payload.
 
-This phase implements Ashley's chosen fix: an upfront sanitize pass over the
+This phase implements Alice's chosen fix: an upfront sanitize pass over the
 WHOLE command string that replaces both bash single-quote-escape idioms with
 a private-use-area placeholder before regex, then restores `'` at the end.
 Simplifies the sq-strategy regexes (drops the `'\''` alternation) and drops
@@ -99,7 +99,7 @@ regressions, 0 fidelity loss (0 cases where the new returns fewer chars).
   heredoc CONTENT contains a substring `BODY='...'`. Expected extraction: the
   full heredoc body (via the heredoc-inline strategy). The current extractor
   incorrectly returns the inner substring; the sanitize pass does NOT fix this
-  — but Ashley greenlit accepting the self-referential case since it's rare
+  — but Alice greenlit accepting the self-referential case since it's rare
   enough to only trigger on messages ABOUT the extractor itself, and closing
   it would require a much larger rewrite.
 
@@ -118,7 +118,7 @@ converts from documentation to regression guard.
   body' is the real payload and the heredoc is unrelated python is a
   canonical shape.
 
-### Ashley's stated priorities (verbatim, 2026-08-19)
+### Alice's stated priorities (verbatim, 2026-08-19)
 
 - On extractor fidelity: *"I don't normally read the messages that show up
   that way. Like, I might sometimes but they're not super important to the
@@ -264,7 +264,7 @@ it would require either:
 - A pre-pass that masks heredoc contents from subsequent regex matches, OR
 - A full shell-aware parser (major rewrite).
 
-Deferred rationale (Ashley greenlit 2026-08-20): the self-referential class
+Deferred rationale (Alice greenlit 2026-08-20): the self-referential class
 only triggers when someone writes a message ABOUT the extractor shape. Rare
 enough to accept. If it becomes a real fleet issue, open a follow-up phase.
 
@@ -288,7 +288,7 @@ Considered and deferred 2026-08-20. Would make canonical `BODY=$(cat <<'EOF' …
 EOF)` sends byte-perfect (they already are; the current heredoc-inline
 strategy catches them). But it would break the PRIORITY-REGRESSION test where
 BODY-sq legitimately beats heredoc-to-file for tiffany's python-heredoc
-fixture. Ashley greenlit the simpler sanitize pass alone; heredoc-first is
+fixture. Alice greenlit the simpler sanitize pass alone; heredoc-first is
 NOT in this phase's scope.
 
 </deferred>
@@ -296,4 +296,4 @@ NOT in this phase's scope.
 ---
 
 *Phase: 49-prettyview-relay-outbound-extractor-sanitize-pass-bash-sq-es*
-*Context gathered: 2026-08-20 via direct discussion with Ashley*
+*Context gathered: 2026-08-20 via direct discussion with Alice*

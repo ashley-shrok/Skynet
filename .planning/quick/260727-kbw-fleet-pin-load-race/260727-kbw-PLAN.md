@@ -11,7 +11,7 @@ files_modified:
 
 must_haves:
   truths:
-    - "On page load, a fleet-row pin persisted server-side (e.g. fleet::7::aqua) survives the first background updateOpenTabs after hydration, and remains visible in the pinned tier until Ashley unpins."
+    - "On page load, a fleet-row pin persisted server-side (e.g. fleet::7::aqua) survives the first background updateOpenTabs after hydration, and remains visible in the pinned tier until Alice unpins."
     - "Panel mount does NOT call getPinnedIds until state.fleetSessionsLoaded === true."
     - "Once fleetSessionsLoaded flips true, panel calls getPinnedIds exactly once per mount (hydratedRef gate); subsequent renders do not re-fire the fetch."
     - "updateFleetSessions([]) with an empty array still counts as loaded — users with zero fleet sessions unblock hydration."
@@ -43,7 +43,7 @@ must_haves:
 <objective>
 Close the Phase 15 fleet-pin load-order race: pins persisted server-side must survive a page refresh. The current empty-deps mount effect in PrettyConversationsPanel fires getPinnedIds() in a microtask while state.fleetSessions is still empty; the next routine updateOpenTabs prunes the freshly-hydrated fleet pin because fleetPinKeepSet is empty. Fix: gate the panel's fetch-then-hydrate on a new store flag (fleetSessionsLoaded) that flips true the first time updateFleetSessions is called. When gated, the pruner's fleetPinKeepSet is always populated before pinnedIds is populated, and the race window is closed.
 
-Purpose: Ashley's server-authoritative pin persistence (shipped Phase 15, 14:20 UTC) is unusable for fleet-row pins today. Ashley's own UAT flagged it; the server side is verified correct. This is a client-side ordering fix.
+Purpose: Alice's server-authoritative pin persistence (shipped Phase 15, 14:20 UTC) is unusable for fleet-row pins today. Alice's own UAT flagged it; the server side is verified correct. This is a client-side ordering fix.
 
 Output: Store gains one boolean + one hook; panel mount effect gains a gate + a ref-based dedupe. Two test files gain regression + hook coverage. No skynet-patches.md write-up (folds into pending backlog flush per identity-file rule).
 </objective>
@@ -173,7 +173,7 @@ Output: Store gains one boolean + one hook; panel mount effect gains a gate + a 
          })();
          return () =&gt; { cancelled = true; };
        }, [fleetSessionsLoaded]);
-    5. Update the block comment above the effect: keep (a)(b)(c) verbatim (or lightly adjust wording — do NOT strip the Phase 15 rationale). Add (d): "quick-260727-kbw fleet-loaded gate — the fetch-then-hydrate IIFE is deferred until useFleetSessionsLoaded() returns true so that the first background updateOpenTabs after hydration has a populated fleetPinKeepSet (from state.fleetSessions) and does NOT nuke freshly-hydrated fleet pins via the pruner at conversation-store.ts L536-547. hydratedRef guards defense-in-depth against a hypothetical false→true→false→true flip (Ashley confirmed the flag stays true after first flip, but the ref costs nothing)."
+    5. Update the block comment above the effect: keep (a)(b)(c) verbatim (or lightly adjust wording — do NOT strip the Phase 15 rationale). Add (d): "quick-260727-kbw fleet-loaded gate — the fetch-then-hydrate IIFE is deferred until useFleetSessionsLoaded() returns true so that the first background updateOpenTabs after hydration has a populated fleetPinKeepSet (from state.fleetSessions) and does NOT nuke freshly-hydrated fleet pins via the pruner at conversation-store.ts L536-547. hydratedRef guards defense-in-depth against a hypothetical false→true→false→true flip (Alice confirmed the flag stays true after first flip, but the ref costs nothing)."
 
     Edit src/ui/features/pretty-conversations/PrettyConversationsPanel.test.tsx:
     6. Add mockFleetSessionsLoaded (module-level let) near mockActiveSet at L125.

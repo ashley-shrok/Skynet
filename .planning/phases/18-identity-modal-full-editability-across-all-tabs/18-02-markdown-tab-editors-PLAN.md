@@ -36,7 +36,7 @@ must_haves:
     - "The three save handlers are threaded to their respective tab renderers as props (onSaveIdentityFile, onSaveHistory, onSaveHandoff), each returning Promise<void> and throwing on backend error (per the sendIdentityMutation contract at IdentityModal.tsx:508-512 which throws when res.error is truthy)."
     - "On successful save, IdentityModal.tsx replaces the tab's state via setIdentityFileState / setHistoryState / setHandoffState with { status: 'ready', data: <echoed markdown or entries> } — mirrors the existing setWakeupsState pattern at line 513."
     - "History tab requires a distinct 'raw markdown' fetch path — the existing readIdentityHistory returns parsed entries[], not the raw file body suitable for a textarea editor. Solution baked into Task 2: the HistoryTab requests raw markdown via a one-shot identity:get-history-raw WS call on Edit-click (implemented as a client-side helper that opens a WS, sends identity:get-identity-file with a modified path? NO — see Task 2 for the clean approach: extend the existing identity:get-history handler and event to CARRY BOTH entries AND markdown so no new wire type is needed)."
-    - "IDMEDIT-05 verification acceptance: with Skynet-EC2's frontend connected via browser, an edit to nelly.md against nelly's identity folder on a remote box (hostId ≠ skynet-ec2's local hostId) round-trips via SFTP and the confirmed contents echo back to the modal within ~1-3 seconds. The Ashley UAT task in this plan explicitly walks the cross-machine case."
+    - "IDMEDIT-05 verification acceptance: with Skynet-EC2's frontend connected via browser, an edit to nelly.md against nelly's identity folder on a remote box (hostId ≠ skynet-ec2's local hostId) round-trips via SFTP and the confirmed contents echo back to the modal within ~1-3 seconds. The Alice UAT task in this plan explicitly walks the cross-machine case."
   artifacts:
     - path: "src/ui/features/pretty-view/IdentityFileTab.tsx"
       provides: "Edit/Save/Cancel toolbar + editable textarea mode; toggles between markdown preview (existing) and monospace textarea editor"
@@ -74,7 +74,7 @@ Edit, atomic Save via the plan-01 WS handlers with server-echoed
 rehydrate, Cancel with dirty-confirm, and error surfacing.
 
 Purpose: This IS the acceptance surface for IDMEDIT-01, IDMEDIT-02,
-IDMEDIT-03. Ashley must be able to open the identity modal on nelly (or
+IDMEDIT-03. Alice must be able to open the identity modal on nelly (or
 any identity), click Edit on any markdown tab, edit the raw markdown,
 click Save, and see her edit persist through a modal re-open and (for
 IDMEDIT-05 verification) through a cross-machine edit — nelly.md edited
@@ -86,11 +86,11 @@ IdentityModal owns the three save handlers using the existing
 sendIdentityMutation generic; HistoryTab specifically threads a raw
 markdown body alongside the existing parsed entries[] since a line-based
 list is not editable in a textarea. Design shape is LOCKED from the
-2026-07-31 file-editing-in-identity-modal scratch UAT (Ashley
+2026-07-31 file-editing-in-identity-modal scratch UAT (Alice
 docker-cp'd a scratch into the live container and greenlit "worked") — do
 NOT re-litigate the shape here.
 
-Contains a MANDATORY human-verify Ashley UAT checkpoint at end (see Task
+Contains a MANDATORY human-verify Alice UAT checkpoint at end (see Task
 4) walking IDMEDIT-01, IDMEDIT-02, IDMEDIT-03, IDMEDIT-05 against a live
 Skynet with both LOCAL (skynet-ec2 own identity) and REMOTE (nelly on
 thenasty) test cases.
@@ -119,7 +119,7 @@ thenasty) test cases.
     - src/ui/features/pretty-view/HandoffTab.tsx (READ IN FULL — 72 lines; identical shape to IdentityFileTab, receives identical treatment)
     - src/ui/features/pretty-view/IdentityModal.tsx (READ lines 950-1070 for the existing identity-tab edit toolbar shape — title input + Save/Cancel Button pair with disabled-when-clean plus disabled-when-saving; this is your visual template)
     - src/components/button.tsx (glance at Button component API — Button variant="outline"/"default" size="sm" plus disabled prop, used unchanged from identity-tab pattern)
-    - Bounty scratch reference: `/home/ubuntu/.claude/identities/tina/bounties/file-editing-in-identity-modal/` — Ashley greenlit this shape on the docker-cp scratch 2026-07-31. Consult if any shape question arises; do not re-litigate.
+    - Bounty scratch reference: `/home/ubuntu/.claude/identities/tina/bounties/file-editing-in-identity-modal/` — Alice greenlit this shape on the docker-cp scratch 2026-07-31. Consult if any shape question arises; do not re-litigate.
   </read_first>
   <action>
 Convert IdentityFileTab and HandoffTab from read-only markdown displays to toggle between preview and editor. Both files receive IDENTICAL treatment; do NOT abstract into a shared component — the tabs have historically stayed self-contained per patch #17g plan comments (each tab file is self-contained; copy-paste over shared abstraction), and BountyCard has diverged from the identity-tab shape enough that a shared abstraction would leak. Two copies is the right amount of duplication.
@@ -261,12 +261,12 @@ Do NOT invalidateBountyCount (irrelevant for markdown edits). Do NOT touch exist
 </task>
 
 <task type="checkpoint:human-verify" gate="blocking">
-  <name>Task 4: Ashley UAT — markdown-tab edits work both LOCAL and REMOTE</name>
+  <name>Task 4: Alice UAT — markdown-tab edits work both LOCAL and REMOTE</name>
   <what-built>
     Three markdown identity tabs (Identity file, History, Handoff) are editable with an Edit/Save/Cancel toolbar. Save writes the full file atomically via tmp+rename — LOCAL branch via fs.writeFile+rename, REMOTE branch via SFTP.writeFile+rename. Server echoes back the confirmed markdown after write so the tab rehydrates from truth. Cancel with unsaved changes prompts window.confirm.
   </what-built>
   <how-to-verify>
-    Prereqs: Skynet is deployed with Plan 01 backend + Plan 02 UI changes (Ashley does the deploy per fork DEPLOY DISCIPLINE — 15-min deadman rollback). Test identity `tina` lives on skynet-ec2 (LOCAL bind-mount branch); test identity `nelly` lives on thenasty (REMOTE SSH branch).
+    Prereqs: Skynet is deployed with Plan 01 backend + Plan 02 UI changes (Alice does the deploy per fork DEPLOY DISCIPLINE — 15-min deadman rollback). Test identity `tina` lives on skynet-ec2 (LOCAL bind-mount branch); test identity `nelly` lives on thenasty (REMOTE SSH branch).
 
     LOCAL branch UAT (IDMEDIT-01, IDMEDIT-02, IDMEDIT-03):
 
@@ -279,7 +279,7 @@ Do NOT invalidateBountyCount (irrelevant for markdown edits). Do NOT touch exist
 
     REMOTE branch UAT (IDMEDIT-05):
 
-    7. From Ashley's phone, connect to term.example.com. Navigate to a Nelly Claude Code session (Nelly runs on thenasty, a remote box — hostId is NOT in IDENTITIES_LOCAL_HOST_IDS).
+    7. From Alice's phone, connect to term.example.com. Navigate to a Nelly Claude Code session (Nelly runs on thenasty, a remote box — hostId is NOT in IDENTITIES_LOCAL_HOST_IDS).
     8. Open the identity modal on Nelly. Click Identity tab. Click Edit. Add "phone test line " + timestamp. Click Save. Confirm the edit round-trips within ~1-3 seconds (SFTP is fast on tailnet), the ReactMarkdown preview re-renders with the new content, no error.
     9. From a shell on thenasty (via a separate SSH), run `cat ~/.claude/identities/nelly/nelly.md | tail -3` and confirm the phone-added line is present on disk on the remote box.
     10. Repeat step 7-9 for History and Handoff tabs on Nelly.
@@ -310,7 +310,7 @@ Do NOT invalidateBountyCount (irrelevant for markdown edits). Do NOT touch exist
 | T-18-08 | Tampering | textarea payload with embedded shell metacharacters (backticks, $(...), etc.) | mitigate | Payload never touches a shell — Plan 01 REMOTE branch uses SFTP.writeFile which streams UTF-8 bytes as a first-class ssh2 channel. No shell interpolation on `contents` at any point in the write path. Inherited from Plan 01 T-18-01, T-18-02. |
 | T-18-09 | Denial of Service | very large paste into textarea (e.g. 10MB) | mitigate | Server-side IDMEDIT_MAX_MARKDOWN_BYTES = 2MB cap from Plan 01; on overflow the writer throws and the WS handler emits { markdown: "", error: "markdown payload exceeds IDMEDIT_MAX_MARKDOWN_BYTES" }; the frontend surfaces the error inline below the textarea. User can shorten and retry. No client-side length gate needed — server is authoritative. |
 | T-18-10 | Repudiation | multiple simultaneous editors on same identity file (browser tab A saves stale, overwriting tab B's fresh edit) | accept | Last-write-wins is the intended behavior — identity files are single-user single-editor by workflow convention. No optimistic locking or version field added; adding one would violate the "no re-litigation" rule on the LOCKED shape from the 2026-07-31 scratch UAT. |
-| T-18-11 | Information Disclosure | error echo leaks server-side path info | mitigate | Writer throws use static strings ("invalid identityKey", "markdown payload exceeds IDMEDIT_MAX_MARKDOWN_BYTES", "no updates") — never interpolate the file path or hostname into the error. SSH-layer exceptions ("Command exited with code X", "no such file") CAN leak; those are wrapped by execWithTimeout and re-emitted via the echo's error field. Accept the SSH-layer leakage — it is the same shape that already leaks via existing update-wakeup and update-bounty-priority handlers, and Ashley is the only user. |
+| T-18-11 | Information Disclosure | error echo leaks server-side path info | mitigate | Writer throws use static strings ("invalid identityKey", "markdown payload exceeds IDMEDIT_MAX_MARKDOWN_BYTES", "no updates") — never interpolate the file path or hostname into the error. SSH-layer exceptions ("Command exited with code X", "no such file") CAN leak; those are wrapped by execWithTimeout and re-emitted via the echo's error field. Accept the SSH-layer leakage — it is the same shape that already leaks via existing update-wakeup and update-bounty-priority handlers, and Alice is the only user. |
 | T-18-12 | Tampering | client trusts its own textarea after Save instead of server echo | mitigate | Task 3 explicitly writes setIdentityFileState({ status: "ready", data: res.markdown }) — uses the SERVER echo, not the client draft. History uses res.entries + res.markdown ?? contents (fallback to draft only if server does not echo markdown, which per the widening it always does). This eliminates the class of bug where a server-side normalization (e.g. trailing newline fix) diverges from client-side truth. |
 | T-18-SC | Tampering | npm/pip/cargo installs | mitigate | No new packages installed in this plan. |
 </threat_model>
@@ -318,7 +318,7 @@ Do NOT invalidateBountyCount (irrelevant for markdown edits). Do NOT touch exist
 <verification>
 - npx tsc --noEmit exits 0
 - npx vitest run passes (or unchanged from baseline; no new tests introduced here)
-- Ashley UAT Task 4 approved on all 13 steps
+- Alice UAT Task 4 approved on all 13 steps
 - Grep confirms both IdentityFileTab.tsx and HandoffTab.tsx render identical Edit/Save/Cancel toolbar shapes (byte-shape mirror OK; two copies expected)
 - HistoryTab.tsx has the same toolbar shape plus consumes the widened state.data.markdown for textarea seed
 - IdentityModal.tsx has three new updateIdentityFile / updateHistory / updateHandoff handlers wired
@@ -330,7 +330,7 @@ Do NOT invalidateBountyCount (irrelevant for markdown edits). Do NOT touch exist
 - Cancel with dirty state prompts window.confirm and honors user choice
 - Save is disabled when draft === confirmed and when saving is in flight
 - No regression to existing edit surfaces (Wakeups, Bounties status/priority/pinned/archive/delete, Identity-tab title/avatar/voice) per steps 11-13
-- Ashley approves UAT
+- Alice approves UAT
 </success_criteria>
 
 <output>

@@ -61,11 +61,11 @@ All four use `[^']*` — no `'\''` alternation present.
 
 ### 7. NELLY-SHAPE fixture — VERIFIED
 
-Test file lines 65-72. Fixture named `NELLY-SHAPE — BODY-sq with '"'"' apostrophe escape (bash close-sq/quote/open-sq)`. Command uses the exact `'"'"'` idiom shape. `expectedBody: "Relaying Ashley's reply: hi"` — 26 chars including the restored apostrophe. Test passes (confirmed by vitest run: 17/17 in isolated suite).
+Test file lines 65-72. Fixture named `NELLY-SHAPE — BODY-sq with '"'"' apostrophe escape (bash close-sq/quote/open-sq)`. Command uses the exact `'"'"'` idiom shape. `expectedBody: "Relaying Alice's reply: hi"` — 26 chars including the restored apostrophe. Test passes (confirmed by vitest run: 17/17 in isolated suite).
 
 ### 8. SELF-REFERENTIAL known-limitation test — VERIFIED
 
-Lines 393-412. `describe("extractOutboundBody — known limitations", ...)` block. Test documents the still-broken behavior by asserting `expect(extractOutboundBody(cmd)).toBe("relaying Ashley")` — the wrong inner match, not the real body. Comment explicitly states "documented, not fixed by Phase 49". Deferred per CONTEXT.md.
+Lines 393-412. `describe("extractOutboundBody — known limitations", ...)` block. Test documents the still-broken behavior by asserting `expect(extractOutboundBody(cmd)).toBe("relaying Alice")` — the wrong inner match, not the real body. Comment explicitly states "documented, not fixed by Phase 49". Deferred per CONTEXT.md.
 
 ### 9. PRIORITY-REGRESSION test byte-for-byte unchanged — VERIFIED
 
@@ -91,7 +91,7 @@ Exit code 0. Zero failures. Matches executor's reported count (2545 passed).
 
 No scope creep.
 
-**Self-referential case fix attempt:** The SELF-REFERENTIAL test DOCUMENTS the still-broken behavior with `toBe("relaying Ashley")`. The deferred case was not fixed. Anti-goal not triggered.
+**Self-referential case fix attempt:** The SELF-REFERENTIAL test DOCUMENTS the still-broken behavior with `toBe("relaying Alice")`. The deferred case was not fixed. Anti-goal not triggered.
 
 **Placeholder character other than U+E000:** Character is confirmed U+E000 via Python3 `ord()` check. Anti-goal not triggered.
 

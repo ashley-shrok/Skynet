@@ -223,7 +223,7 @@ export function buildHumanMxid(username: string, serverName: string): string {
 }
 ```
 
-**MXID_RE validation gate:** `MXID_RE = /^@[a-z0-9._=/+-]{1,255}:[a-z0-9.-]{1,255}$/` (matrix-admin-routes.ts line 27). The sanitizer's output must always satisfy this on the localpart segment. Test with email input `ashley@aitherhealth.com` → `@ashley_at_aitherhealth_dot_com_human:<server>`. [VERIFIED: codebase, matrix-admin-routes.ts line 27]
+**MXID_RE validation gate:** `MXID_RE = /^@[a-z0-9._=/+-]{1,255}:[a-z0-9.-]{1,255}$/` (matrix-admin-routes.ts line 27). The sanitizer's output must always satisfy this on the localpart segment. Test with email input `alice@example.com` → `@alice_at_example_dot_com_human:<server>`. [VERIFIED: codebase, matrix-admin-routes.ts line 27]
 
 **Bijectivity proof obligation:** Test suite MUST include a round-trip property test (or at minimum explicit test that `__`, `_at_`, `_dot_` in a raw username survive without collision). The escape-the-escape-char-first ordering is the proof mechanism.
 
@@ -345,7 +345,7 @@ Schema comment changes (inside the `// comment` text, not structural schema chan
 
 ### Q7: Displayname for existing users (legacy mxids)
 
-Legacy users (Ashley, Zoey, Laura) have mxids without the `_human` suffix from the one-shot import. The `createOrUpdateUser` primitive is idempotent and the PUT v2 endpoint updates the `displayname` field on existing accounts. However, slice A only calls `createOrUpdateUser` on NEW user creation, not on existing users — so legacy users' displaynames are not touched. No conflict. [VERIFIED: CONTEXT.md D-02, createOrUpdateUser implementation]
+Legacy users (Alice, Zoey, Laura) have mxids without the `_human` suffix from the one-shot import. The `createOrUpdateUser` primitive is idempotent and the PUT v2 endpoint updates the `displayname` field on existing accounts. However, slice A only calls `createOrUpdateUser` on NEW user creation, not on existing users — so legacy users' displaynames are not touched. No conflict. [VERIFIED: CONTEXT.md D-02, createOrUpdateUser implementation]
 
 ### Q8: Nginx routes — do any new routes need nginx config?
 

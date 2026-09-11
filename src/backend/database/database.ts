@@ -64,7 +64,7 @@ import composeDraftsRoutes from "./routes/compose-drafts.js";
 // authority for middle-zone recency signal (called by frontend compose-send
 // funnel on every send-attempt, fire-and-forget). Router owns its own
 // AuthManager JWT middleware chain (no additional middleware wired here).
-// Both of Ashley's devices read from the same store on next fleet-status
+// Both of Alice's devices read from the same store on next fleet-status
 // frame → multi-device consistency without client sync.
 import identitySendLogRoutes from "../fleet-status/identity-send-log-routes.js";
 import sessionsRoutes from "./routes/sessions.js";
@@ -1974,7 +1974,7 @@ app.use("/relay-room", relayRoomParticipantsRoutes);
 app.use("/user-preferences", userPreferencesRoutes);
 // RELAYBUB-04 (Phase 17): /relay-pointer needs matching location blocks in BOTH docker/nginx.conf
 // AND docker/nginx-https.conf — see CLAUDE.md nginx caveat. Handler uses head -c bounded remote
-// read for CLAUDE.md fleet-availability protection ("Ashley never loses access to her fleet").
+// read for CLAUDE.md fleet-availability protection ("Alice never loses access to her fleet").
 app.use("/relay-pointer", relayPointerRoutes);
 // WEEKLY-METER-02: usage collector proxy. No auth — collector is IP-gated to the tailnet.
 // See docker/nginx.conf + docker/nginx-https.conf for the matching /api/usage location blocks.

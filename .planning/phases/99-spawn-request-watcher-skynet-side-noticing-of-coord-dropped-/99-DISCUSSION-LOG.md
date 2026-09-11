@@ -1,11 +1,11 @@
 # Phase 99 Discussion Log
 
 **Session:** 2026-09-10
-**Discussed with:** Ashley (via tanya)
+**Discussed with:** Alice (via tanya)
 
 ## Areas Discussed
 
-All four gray areas presented; all four discussed; Ashley requested recommendations up-front and accepted all four with one clarification on #3.
+All four gray areas presented; all four discussed; Alice requested recommendations up-front and accepted all four with one clarification on #3.
 
 ### Area 1: Request file schema
 
@@ -17,7 +17,7 @@ All four gray areas presented; all four discussed; Ashley requested recommendati
 
 **Claude's recommendation:** `{role, task, requested_at}`. Rationale: role + task are functionally required for the birth-orchestrator; requested_at is nearly free to add and pays off for stuck-request debugging; coord_mxid is over-attribution since the request lives on coord's own box.
 
-**Ashley's decision:** Accepted (implicitly, via batch "Agreed" response).
+**Alice's decision:** Accepted (implicitly, via batch "Agreed" response).
 
 **Captured as D-04 + D-05 in CONTEXT.md.**
 
@@ -38,7 +38,7 @@ Failure:
 - Success: `{name, mxid, birthed_at}`
 - Failure: `{reason, message?}` with reason as small enum (`malformed`, `role_unknown`, `birth_failed`, `homeserver_unreachable`, etc.); message present + descriptive when reason == "malformed", absent or short-terse otherwise
 
-**Ashley's decision:** Accepted (implicitly, via batch "Agreed" response).
+**Alice's decision:** Accepted (implicitly, via batch "Agreed" response).
 
 **Captured as D-09 + D-10 in CONTEXT.md.**
 
@@ -46,13 +46,13 @@ Failure:
 
 **Initial framing (Claude):** Which userId in Skynet's schema would own the identity — coord's own, dedicated system userId, user who owns the host, etc.
 
-**Ashley's pushback:** *"I'm not quite sure what you mean by which user ID in Skynet's schema would own an identity, because identities are just on disk only, so I'm trying to understand what that would be referring to."*
+**Alice's pushback:** *"I'm not quite sure what you mean by which user ID in Skynet's schema would own an identity, because identities are just on disk only, so I'm trying to understand what that would be referring to."*
 
 **Claude's clarification:** Right — identities themselves have no DB row (Phase 69 killed that table). But the birth-orchestrator's signature still takes a `userId` parameter — used for host-record lookup, avatar-candidate scope, and other user-scoped state. The question is which userId argument the spawn-request worker passes to the orchestrator when calling it on behalf of a coord-dropped request.
 
-**Claude's revised recommendation:** Look up the owner-userId of the host the request came from — every request file lives on a specific box, that box has a Skynet host record with an owning userId. On single-user boxes (t1000) everything routes to Ashley. On multi-user boxes (T800), Stacy's coord births under Stacy's userId. Natural multi-user isolation boundary.
+**Claude's revised recommendation:** Look up the owner-userId of the host the request came from — every request file lives on a specific box, that box has a Skynet host record with an owning userId. On single-user boxes (t1000) everything routes to Alice. On multi-user boxes (T800), Stacy's coord births under Stacy's userId. Natural multi-user isolation boundary.
 
-**Ashley's decision:** *"Sure that works"* — accepted.
+**Alice's decision:** *"Sure that works"* — accepted.
 
 **Captured as D-14 in CONTEXT.md.**
 
@@ -65,7 +65,7 @@ Failure:
 
 **Claude's recommendation:** 1 (serialized). Rationale: coord-triggered births are rare in steady state (only on picker no_fit); birth is I/O-bound so parallelism doesn't buy latency; serialized keeps error diagnostics simple; a burst of 3-5 pending drains in ~15-25 seconds well inside coord-side minute-scale timeout; upgrade path to bounded-N is a small change if we ever need it.
 
-**Ashley's decision:** Accepted (implicitly, via batch "Agreed" response).
+**Alice's decision:** Accepted (implicitly, via batch "Agreed" response).
 
 **Captured as D-07 in CONTEXT.md.**
 
@@ -73,10 +73,10 @@ Failure:
 
 The shape file (`.planning/shapes/shape-spawn-request-watcher.md`) and the Shape 4 /open discussion locked most decisions before this session:
 - Piggyback on fleet-status per-host sweep (not new subsystem) — locked
-- Atomic read-and-delete at observation (not deferred to worker claim) — Ashley 2026-09-10 verbatim
-- Success + failure file pair (not deletion-only-on-success) — Ashley 2026-09-10 verbatim
-- No coord verification of birth output — Ashley 2026-09-10 verbatim
-- Descriptive failure only for malformed class — Ashley 2026-09-10 verbatim
+- Atomic read-and-delete at observation (not deferred to worker claim) — Alice 2026-09-10 verbatim
+- Success + failure file pair (not deletion-only-on-success) — Alice 2026-09-10 verbatim
+- No coord verification of birth output — Alice 2026-09-10 verbatim
+- Descriptive failure only for malformed class — Alice 2026-09-10 verbatim
 - In-memory queue (not persistent) — locked during Shape 5 /open
 - Coord-side safety timeout for Skynet-crash edge case — locked during Shape 5 /open
 - Response file in same folder as request (not separate folder) — locked during Shape 5 /open

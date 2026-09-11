@@ -42,7 +42,7 @@ constructs the exact transcript path. Eliminates cross-agent JSONL collisions wh
 sessions share a cwd on the same box.
 
 Purpose: Fixes the "clicking Aqua on Workstation shows Wilma's bubbles" pretty-view collision
-Ashley just hit. Old `ls -t $HOME/.claude/projects/<slug>/*.jsonl | head -n 1` picks by mtime and
+Alice just hit. Old `ls -t $HOME/.claude/projects/<slug>/*.jsonl | head -n 1` picks by mtime and
 races between agents whose cwd slugifies identically. New path is correct-first-time.
 
 Output: Rewritten `session-file-discovery.ts` (Steps 1-4 preserved verbatim, Step 5 replaced) and

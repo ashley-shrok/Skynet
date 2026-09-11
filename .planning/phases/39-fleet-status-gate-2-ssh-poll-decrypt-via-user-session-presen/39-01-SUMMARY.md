@@ -43,7 +43,7 @@ metrics:
 
 # Phase 39 Plan 01: Extend SubscriptionRegistry with Presence-Signal Callbacks — Summary
 
-Foundation layer for Path C presence-driven lifecycle (Ashley 2026-08-13 LOCKED): extends `SubscriptionRegistry` with `onFirstSubscriber(cb: (ctx: { userId }) => void)` and `onLastUnsubscriber(cb: () => void)`, plus threads an optional `{ userId }` context through `subscribe()`, so Plan 02 can wire the SSH-poll orchestrator to start on the first browser subscriber and stop on the last unsubscriber — no runtime coupling introduced in this plan.
+Foundation layer for Path C presence-driven lifecycle (Alice 2026-08-13 LOCKED): extends `SubscriptionRegistry` with `onFirstSubscriber(cb: (ctx: { userId }) => void)` and `onLastUnsubscriber(cb: () => void)`, plus threads an optional `{ userId }` context through `subscribe()`, so Plan 02 can wire the SSH-poll orchestrator to start on the first browser subscriber and stop on the last unsubscriber — no runtime coupling introduced in this plan.
 
 ## What Got Built
 

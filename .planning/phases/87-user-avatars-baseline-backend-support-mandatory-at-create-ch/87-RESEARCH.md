@@ -531,7 +531,7 @@ Step 4 — Add a migration test at `src/backend/database/db/index.migration.test
 // Phase 75 Plan 01 (Q3 locked decision) — mxid mapping for the Matrix
 // relay. Nullable: only humans with a registered relay account have one,
 // and it's populated via POST /users/:id/mxid (Plan 03) or the one-shot
-// import for Ashley/Zoe/Laura. Not a credential; agents' relay identifiers
+// import for Alice/Zoe/Laura. Not a credential; agents' relay identifiers
 // live on-disk in ~/.claude/identities/<name>/relay.json per fleet convention.
 mxid: text("mxid"),
 ```
@@ -1002,12 +1002,12 @@ async function unlinkAvatarIfExists(filenameOrNull: string | null): Promise<void
 1. **Should the OIDC user-create branch (`users.ts:981-1008`) ALSO carry a mandatory-avatar gate?**
    - What we know: CONTEXT.md D-07/D-09 explicitly names `POST /users/create` — one endpoint. OIDC create is a separate branch inside `/users/oidc/callback` (line 663). The user redirect flow doesn't offer an upload chance.
    - What's unclear: Whether "mandatoriness" is intended to be a property of "a Skynet user row" (all creation paths) or "the JSON-registration create endpoint" (one path).
-   - Recommendation: Treat OIDC create as OUT of Phase 87's mandatoriness scope (matches literal reading of D-09). Add an explicit code comment at the OIDC create site noting "OIDC users created without avatar per Phase 87 scope; downstream mechanism populates via D-10". If Ashley wants OIDC users to also have mandatory avatars, that becomes a Phase 87.1 scope-add — the D-10 change endpoint can be invoked from a first-login flow later.
+   - Recommendation: Treat OIDC create as OUT of Phase 87's mandatoriness scope (matches literal reading of D-09). Add an explicit code comment at the OIDC create site noting "OIDC users created without avatar per Phase 87 scope; downstream mechanism populates via D-10". If Alice wants OIDC users to also have mandatory avatars, that becomes a Phase 87.1 scope-add — the D-10 change endpoint can be invoked from a first-login flow later.
 
 2. **Should the serve endpoint be publicly accessible (any authenticated user can request any user's avatar) or scoped (only the user themselves + admins)?**
    - What we know: CONTEXT.md D-11 says "Frontend calls it by user id and receives raw image bytes" — implies visible-to-others. The identity-avatar serve at `identities.ts:565-648` uses only `authenticateJWT` (no per-user scoping) — any authenticated user can fetch any identity's avatar. That precedent strongly implies "any authenticated user".
    - What's unclear: Whether user avatars should have stricter privacy than identity avatars.
-   - Recommendation: Match the identity-avatar precedent — `authenticateJWT` only, no per-user scoping. Rationale: (1) the whole point of avatars is public-within-deployment recognizability; (2) user usernames are already visible in the picker (`user-admin-routes.ts:118`); an avatar tied to a public username is less sensitive than the username itself. If Ashley wants stricter, add an admin-only gate — but that would break the downstream "show avatars in tab list" use case that this plumbing is intended to enable.
+   - Recommendation: Match the identity-avatar precedent — `authenticateJWT` only, no per-user scoping. Rationale: (1) the whole point of avatars is public-within-deployment recognizability; (2) user usernames are already visible in the picker (`user-admin-routes.ts:118`); an avatar tied to a public username is less sensitive than the username itself. If Alice wants stricter, add an admin-only gate — but that would break the downstream "show avatars in tab list" use case that this plumbing is intended to enable.
 
 3. **Are the 5 delete call sites the ACTUAL exhaustive set, or are there other delete paths this grep missed?**
    - What we know: `grep -rn "delete.*users.*id\|deleteUser"` returned all 5 sites listed. I re-ran with variants (`db.delete(users)`, `deleteUserAndRelatedData`).

@@ -155,11 +155,11 @@ const upload = multer({
 });
 
 /**
- * REVISION 2026-08-04 (Ashley at 22-02 checkpoint, applies HERE per same-
+ * REVISION 2026-08-04 (Alice at 22-02 checkpoint, applies HERE per same-
  * pattern extension). Seed comment embedded below the description so the
  * first agent to hold this role knows to flesh out the file on wake.
  *
- * Style constraints (verbatim from Ashley — enforced by test 6 assertions):
+ * Style constraints (verbatim from Alice — enforced by test 6 assertions):
  *   - Do NOT say "Skynet" (agents don't know what that is)
  *   - Do NOT reference §2 / §3 / "id skill" / SKILL.md (fragile skill refs)
  *   - Plain-terms instructions to the wake-up agent

@@ -111,7 +111,7 @@ describe("PrettyViewErrorOverlay — iOS Safari backdrop-filter hardening (patch
     // Without these three tokens, iOS Safari silently degrades
     // backdrop-filter rendering on layers currently painting when a
     // MediaStream (mic recording) or similar compositor state change
-    // fires. Ashley uses this fork primarily on her iPhone PWA — the
+    // fires. Alice uses this fork primarily on her iPhone PWA — the
     // hardening is load-bearing, not cosmetic. Mirrors the class-token
     // assertion pattern from PrettyViewLoadingOverlay.test.tsx:59-79.
     const { container } = render(

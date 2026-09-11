@@ -37,7 +37,7 @@ requirements:
 Decoupled Skynet Terminal's WebSocket lifecycle from pane visibility by introducing an
 `attach: boolean` prop, so URL-restored active-set tabs open their WebSockets and
 publish honest `isWorking` signals to `session-working-store` (making
-PrettyConversationRow's ready-dot mean what Ashley locked it to mean: "idle AND
+PrettyConversationRow's ready-dot mean what Alice locked it to mean: "idle AND
 connected").
 
 ## Commit

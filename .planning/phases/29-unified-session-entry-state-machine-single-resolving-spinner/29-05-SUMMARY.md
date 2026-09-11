@@ -20,7 +20,7 @@ dependency_graph:
     - "src/ui/state/session-recycling-store.test.ts — SPEC req 7 resolving→holding transition describe block appended (+4 tests, existing 5 tests untouched)"
     - "src/ui/features/pretty-view/PrettyView.test.tsx audit — Task 1 fixed 19 mount-gate-class breakages introduced by plan 29-04's rewire (audit note added at top; every material change carries `phase-29:` tag)"
   affects:
-    - "closes phase 29 — Ashley's 2026-08-10 flicker complaint is now regression-guarded at both the compiled-source and rendered-DOM layers"
+    - "closes phase 29 — Alice's 2026-08-10 flicker complaint is now regression-guarded at both the compiled-source and rendered-DOM layers"
     - "unblocks tiffany's deploy motion (rebase to main → docker build → verify on staging → git push → patches.md entry) — orchestrator-only per fleet rule; NOT part of any plan in this phase"
 tech-stack:
   added: []
@@ -146,7 +146,7 @@ No code changes needed — Tasks 1-3 landed clean.
 | Full frontend suite (`npx vitest run`) | 139/139 files pass, 1769/1769 tests pass |
 | Backend files touched (SPEC constraint: frontend-only phase) | 0 |
 | Phase 29 own tests (resolve-phase + hook + error overlay + phase29 integration + recycling transition) | 60/60 pass |
-| Ashley's 3 named flicker regression tests | 3/3 pass |
+| Alice's 3 named flicker regression tests | 3/3 pass |
 | All SPEC acceptance-criteria checkboxes | Each has a passing test (see Test file inventory + Group tables above) |
 | Structural-grep gates for SPEC req 2 / 5 / 6 / 7 / boundary | All pass with correct anchor / count / literal-absence assertions |
 
@@ -178,15 +178,15 @@ Deploy sequence (orchestrator-only per fleet rule "sub-agents do not do deploys"
 1. Rebase `feat/tab-title-from-tmux` to main
 2. Announce deploy in coord
 3. `docker build` (frontend + nginx)
-4. Verify on staging (walk Ashley's 3 named flicker cases + spot-check phase transitions)
-5. `git push` (behind Ashley's separate greenlight per SPEC constraint)
+4. Verify on staging (walk Alice's 3 named flicker cases + spot-check phase transitions)
+5. `git push` (behind Alice's separate greenlight per SPEC constraint)
 6. Add patches.md entry describing the phase 29 change (single unified state machine, single resolving spinner, retired watchdogs + text nodes, D-11 clean-swap semantic)
 
-**Ready for orchestrator: deploy motion.** Awaiting Ashley greenlight before tiffany initiates deploy.
+**Ready for orchestrator: deploy motion.** Awaiting Alice greenlight before tiffany initiates deploy.
 
 ## Next Plan
 
-None. Plan 29-05 is the final plan of phase 29. Post-deploy, if Ashley UATs a residual flicker case or requests a warm-red variant for holding_timeout inactive (currently maps to plain `inactive` phase per plan 29-04's decision — see 29-04-SUMMARY's "Claude's-Discretion Decisions" note), that would be a separate phase or bounty.
+None. Plan 29-05 is the final plan of phase 29. Post-deploy, if Alice UATs a residual flicker case or requests a warm-red variant for holding_timeout inactive (currently maps to plain `inactive` phase per plan 29-04's decision — see 29-04-SUMMARY's "Claude's-Discretion Decisions" note), that would be a separate phase or bounty.
 
 ## Self-Check: PASSED
 

@@ -8,7 +8,7 @@ CONTEXT.md was seeded from the shape file rather than re-eliciting decisions thr
 
 ## Where each CONTEXT.md decision came from
 
-All decisions in CONTEXT.md trace to specific turns in the `/open` session with Ashley on 2026-09-05:
+All decisions in CONTEXT.md trace to specific turns in the `/open` session with Alice on 2026-09-05:
 
 | Decision | Turn in `/open` where it was locked |
 |---|---|
@@ -19,7 +19,7 @@ All decisions in CONTEXT.md trace to specific turns in the `/open` session with 
 | D-05 (once-per-uptime invariant preserved) | Turn: "the substrate can't change without an app restart anyway right now so it's not like we need sky net to be like periodically trying to update substrate on hosts that it's already hit at least once during that uptime" |
 | D-06 (loud alert after N failures) | Turn: "Um, either first or second, whichever you think is better." — I chose option 2 (loud alert after N failures) per AI+ project's already-locked "fail loud, trust operator to diagnose" stance |
 | D-07 (alert once per host per uptime) | Implicit in option 2; captured by me without re-asking |
-| D-08/D-09/D-10 (CSKEK wrap for substrate hosts, one representation, non-substrate unchanged) | Turn: "if I'm being honest with you, I feel like it's bullshit that the system can't just use the keys it already has" → me offering three shapes (A: system-key-only, B: dual-wrap, C: escrow) → Ashley: "if you're telling me option A involves just locking the credentials with the systems key instead of the users key, but the users can still log in and do everything the same way, then I think that sounds great" |
+| D-08/D-09/D-10 (CSKEK wrap for substrate hosts, one representation, non-substrate unchanged) | Turn: "if I'm being honest with you, I feel like it's bullshit that the system can't just use the keys it already has" → me offering three shapes (A: system-key-only, B: dual-wrap, C: escrow) → Alice: "if you're telling me option A involves just locking the credentials with the systems key instead of the users key, but the users can still log in and do everything the same way, then I think that sounds great" |
 | D-11 (substrate-flag-toggle-off deferred) | Captured by me in shape doc — rare edge case flagged as deferred |
 | D-12/D-13/D-14/D-15 (one-shot operator-run migration) | Turn: "I know the credentials for every user currently on both this instance and Stacey's instance, which are the only two instances of the app that exists. So maybe that can give us our answer because I can provide those and we can do a migration." |
 | D-16 through D-19 (test coverage) | Not explicitly discussed — planner-standard test coverage for the change surface |
@@ -32,7 +32,7 @@ None during `/open`. Two adjacent topics that came up were properly deferred:
 
 ## Discussion posture
 
-`/open` took Ashley through: shape pitch (me offering the shape I'd heard via her Stacy DM quote) → clarification (she clarified "no flag for un-bootstrapped state, existing runsFleetSubstrate stays") → discussion of the ongoing-update bummer (she confirmed she cares about updates rolling out server-side, not just Stacy's initial install case) → shape reframe (system-side periodic-ish pass, not browser-driven) → crypto discussion (three options offered, she picked A) → sanity check on "is this standard?" (she sought reassurance that scoped-backend-secrets is normal, I confirmed with the 1Password comparison) → grill on parallel-vs-serial, retry-forever-vs-alert, migration → vehicle selection (GSD phase).
+`/open` took Alice through: shape pitch (me offering the shape I'd heard via her Stacy DM quote) → clarification (she clarified "no flag for un-bootstrapped state, existing runsFleetSubstrate stays") → discussion of the ongoing-update bummer (she confirmed she cares about updates rolling out server-side, not just Stacy's initial install case) → shape reframe (system-side periodic-ish pass, not browser-driven) → crypto discussion (three options offered, she picked A) → sanity check on "is this standard?" (she sought reassurance that scoped-backend-secrets is normal, I confirmed with the 1Password comparison) → grill on parallel-vs-serial, retry-forever-vs-alert, migration → vehicle selection (GSD phase).
 
 Grill closed cleanly with `thumbs up` on the shape file.
 

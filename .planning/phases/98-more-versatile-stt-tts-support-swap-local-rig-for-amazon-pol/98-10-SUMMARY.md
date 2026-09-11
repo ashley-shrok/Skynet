@@ -83,7 +83,7 @@ The plan's `<output>` calls for phase-close checklist items to be surfaced. Belo
 
 | Verification Bar Item | Status |
 | --------------------- | ------ |
-| Voice-in end-to-end (transcript-return correctness against Ashley's real voice) | Handler code + adapter tests ship green; live-fleet UAT belongs to the phase-close ship gate |
+| Voice-in end-to-end (transcript-return correctness against Alice's real voice) | Handler code + adapter tests ship green; live-fleet UAT belongs to the phase-close ship gate |
 | Voice-out end-to-end (assistant-message playback via standard client pipeline, TTFB < few hundred ms) | Chunk-and-stitch orchestrator + tests ship green; live-fleet UAT belongs to the phase-close ship gate |
 | Voice catalog — identity modal shows exactly the 7 en-US generative Polly voices | Backend catalog module + validator + tests ship green (Plans 05/07); live UAT belongs to phase-close |
 | Migration — every pre-existing identity has voice value cleared; validator rejects old-format values | Migration one-shot + validator regex updated in Plans 05/07; live-fleet migration is a deploy-time step |

@@ -169,7 +169,7 @@ export function ComposeBoxShell({
             // `!` suffix (shadcn Textarea's dark: variant specificity trap).
             className={cn(
               "resize-none w-full h-full",
-              // Phase 9 UAT fix (Ashley 2026-07-22): shadcn Textarea base
+              // Phase 9 UAT fix (Alice 2026-07-22): shadcn Textarea base
               // carries `min-h-[80px]` (see textarea.tsx L16) — that's ~2.5
               // button-heights and floods any rows={1} regardless. `min-h-8!`
               // (32px = one icon-sm button height) beats it via Tailwind v4

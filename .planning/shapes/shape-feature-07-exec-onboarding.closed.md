@@ -90,9 +90,9 @@ The identity doing the work is tiffany, on this box, on the current branch. Sub-
 - **Shape — Moment 2: Enroll MFA (operator computes code locally)** — present · runbook Moment 2 does the setup + local six-digit compute + enable, same pattern as existing accounts
 - **Shape — Moment 3: Issue a per-user access key** — present · admin creates a tmx_ token scoped to the new user's ID, captured for later host registration
 - **Shape — Moment 4: Coordinate the box birth (Ivy exclusively for now)** — present · runbook Moment 4 names Ivy exclusively during current standup, dispatch-model post-standup, three-field ask + defaults + SSH probe
-- **Shape — Moment 5: Furnish the box (browser auth touchpoint stays with account owner)** — present · Ashley drives the OAuth touchpoint on the fresh VM; furnishing script then runs the mechanical pass
+- **Shape — Moment 5: Furnish the box (browser auth touchpoint stays with account owner)** — present · Alice drives the OAuth touchpoint on the fresh VM; furnishing script then runs the mechanical pass
 - **Shape — Moment 6: Register the box under the exec's ownership using their access key** — present · POST /host/db/host with Bearer of the user's tmx_, verified by re-listing under the user
-- **Shape — Moment 7: Verify + vault-share** — present · Ashley logs in as the user, confirms box + assistant, packages creds into Zoho Vault + shares via Zoho
+- **Shape — Moment 7: Verify + vault-share** — present · Alice logs in as the user, confirms box + assistant, packages creds into Zoho Vault + shares via Zoho
 - **Shape — Furnishing script installs the enumerated substrate** — present · runtime, shell surface, assistant, supervisor, identity machinery, receiver, wakeup scheduler, context-pressure watcher all installed
 - **Shape — Furnishing script seeds the executive's initial world** — present · one general-purpose role, one starter identity, .no-dormancy sentinel, user-wide CLAUDE.md preamble naming the user
 - **Shape — Furnishing script is idempotent (no state file, no resume machinery)** — present · each step checks whether already done; no resume-from-state added

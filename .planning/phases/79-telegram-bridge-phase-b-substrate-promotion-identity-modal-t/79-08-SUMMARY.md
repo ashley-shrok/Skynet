@@ -84,9 +84,9 @@ Reconcile sweep tests:
 Migration endpoint tests:
 - 401 no auth — **PASS**
 - 403 non-admin — **PASS**
-- Mixed (Ashley w/mxid + Laura w/o mxid) → minted + skipped-no-mxid — **PASS**
-- Per-row failure isolation → Ashley failed, Zoey still minted — **PASS**
-- `.cred` file deletion → ashley.cred + zoey.cred deleted, registry.json survives — **PASS**
+- Mixed (Alice w/mxid + Laura w/o mxid) → minted + skipped-no-mxid — **PASS**
+- Per-row failure isolation → Alice failed, Zoey still minted — **PASS**
+- `.cred` file deletion → alice.cred + zoey.cred deleted, registry.json survives — **PASS**
 - Idempotency → two consecutive calls both 200, mint called twice — **PASS**
 - Empty users table → ok:true, results:[], deletedCredFiles:[] — **PASS**
 
@@ -128,7 +128,7 @@ clearInterval(handle);
 ## Migration endpoint idempotency test
 
 `src/backend/matrix/matrix-admin-routes.test.ts` "200 — idempotent: two consecutive calls both succeed with same response shape":
-- First POST → `{ok:true, results:[{humanName:'ashley', mxid, status:'minted'}], deletedCredFiles:[]}`
+- First POST → `{ok:true, results:[{humanName:'alice', mxid, status:'minted'}], deletedCredFiles:[]}`
 - Second POST → identical shape
 - `mintAndWriteHumanTokenMock` called exactly 2 times (once per POST — re-mint, not no-op)
 
@@ -168,7 +168,7 @@ Task 2:
 - Line 6: `username: text("username").notNull()`
 - Line 32: `mxid: text("mxid")` (nullable per Plan 75)
 
-Both reconcile-dead-tokens and migrate-cred-files use `db.select({name: users.username, mxid: users.mxid}).from(users)` — matches schema. Prod values for `username` are lowercase (Ashley/Zoey verified during revision pass); defensive `.toLowerCase()` in the migration handler is a no-op today, safety net for future drift.
+Both reconcile-dead-tokens and migrate-cred-files use `db.select({name: users.username, mxid: users.mxid}).from(users)` — matches schema. Prod values for `username` are lowercase (Alice/Zoey verified during revision pass); defensive `.toLowerCase()` in the migration handler is a no-op today, safety net for future drift.
 
 ## Nginx caveat (CLAUDE.md rule)
 

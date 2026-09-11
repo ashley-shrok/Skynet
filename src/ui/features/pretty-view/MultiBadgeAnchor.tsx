@@ -230,7 +230,7 @@ function AgentBadgeCell({
 // wide with the badge absolute-positioned to right-5 — the LARGE empty
 // space to the left of each badge (~60px per cell) dominated any
 // inter-cell gap. Cells shrunk to content below AND gap bumped to 13px
-// per Ashley's live-snippet tasting.
+// per Alice's live-snippet tasting.
 const ROOT_ANCHOR_CLASS =
   "absolute top-4 right-5 z-[101] flex flex-row-reverse items-start gap-[13px]";
 

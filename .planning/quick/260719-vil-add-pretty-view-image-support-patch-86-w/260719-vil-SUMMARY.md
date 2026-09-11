@@ -15,7 +15,7 @@ provides:
   - ImageEvent + ImageBlock discriminated-union types on the frontend API
   - ImageBubble React component (assistant identity-hue Glass)
   - PrettyView StreamEvent union + case "image" WS dispatch
-affects: [pretty-view, claude-session, ashley-fleet-review-workflow]
+affects: [pretty-view, claude-session, user-fleet-review-workflow]
 
 # Tech tracking
 tech-stack:
@@ -96,7 +96,7 @@ _Docs commit (SUMMARY.md, STATE.md, ROADMAP.md) is deferred to the orchestrator 
 ## Decisions Made
 
 - **Role derivation rule refined during Task 1** — the plan proposed "any imageRef with toolUseId → tool_result, else user/assistant" but Test 3 (CC-local-only) expected role="tool_result" even though the CC-local shape carries no toolUseId. The prototype's rule ("user turn with image → tool_result") would fail Test 2 (bare image on user turn expects role="user"). Distinguishing factor: whether the image arrived via a tool_result path (either canonical `toolUseId` OR CC-local `obj.toolUseResult` presence). Adopted this refined rule; it satisfies all 9 test cases and reflects the true semantic (bare image content blocks are direct user/assistant image content; toolUseResult presence is by construction a tool response payload).
-- **Aesthetic parity by verbatim token copying** — ImageBubble does not import ChatMessage's className builder or share styling helpers. The gradient/border/shadow tokens are literally copied so any future divergence (e.g. Ashley tunes ChatMessage's saturation) is a deliberate choice, not accidental drift. Justified by the aesthetic-parity constraint being a design contract, not a code-DRY concern.
+- **Aesthetic parity by verbatim token copying** — ImageBubble does not import ChatMessage's className builder or share styling helpers. The gradient/border/shadow tokens are literally copied so any future divergence (e.g. Alice tunes ChatMessage's saturation) is a deliberate choice, not accidental drift. Justified by the aesthetic-parity constraint being a design contract, not a code-DRY concern.
 
 ## Deviations from Plan
 
@@ -131,9 +131,9 @@ None — no external service configuration required.
 
 ## Next Phase Readiness
 
-- Live-run hand-verify is deferred to Ashley's next deploy (per constraints: no build/docker/deploy for this patch; Ashley is still stacking patches on `feat/tab-title-from-tmux`).
+- Live-run hand-verify is deferred to Alice's next deploy (per constraints: no build/docker/deploy for this patch; Alice is still stacking patches on `feat/tab-title-from-tmux`).
 - skynet-patches.md write-up (patch #86 row) is intentionally deferred to pin/deploy time per fleet directive — do NOT write it now.
-- Aesthetic acceptance criterion is structural: ImageBubble's gradient/border/shadow tokens are byte-identical to ChatMessage's assistant branch. Ashley's per-pane identity hue will color-shift the bubble automatically via `hsla(var(--pv-id-hue),...)`.
+- Aesthetic acceptance criterion is structural: ImageBubble's gradient/border/shadow tokens are byte-identical to ChatMessage's assistant branch. Alice's per-pane identity hue will color-shift the bubble automatically via `hsla(var(--pv-id-hue),...)`.
 
 ## Self-Check: PASSED
 

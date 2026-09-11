@@ -71,10 +71,10 @@ tech-stack:
       (loading/ready/error variants) automatically covers the role tab too.
       Same convention Phase 18 established for HistoryTab / HandoffTab /
       WakeupsTab."
-    - "No no-role fallback branches (D-CONTEXT LOCK, Ashley 2026-08-04): a
+    - "No no-role fallback branches (D-CONTEXT LOCK, Alice 2026-08-04): a
       missing role: frontmatter throws from resolveRoleForIdentity, propagates
       through readRoleFile / writeRoleFile, becomes {error: '...'} on the WS
-      response, surfaces as RoleFileTab's error render (Test 20). Ashley sees
+      response, surfaces as RoleFileTab's error render (Test 20). Alice sees
       a clear error, not a fake empty state — because such identities are
       fleet-migration bugs that must be surfaced, not hidden."
 
@@ -260,9 +260,9 @@ None — no new environment variables, no new npm packages, no dashboard configu
 
 **Wave 2 nearly complete:** Plans 22-03 (clone) and 22-05 (chain create-role→create-identity) are the only remaining pieces in Phase 22. Neither depends on 22-06's outputs.
 
-**Fleet UX unlocked:** Ashley clicking on an IdentityBadge now defaults to the Role tab showing `~/.claude/roles/<role>/<role>.md` for that identity, with an Edit button that saves back atomically. The tab position and default are LOCKED per D-CONTEXT — a future plan cannot move the Role tab out of position 0 without a plan-checker BLOCK.
+**Fleet UX unlocked:** Alice clicking on an IdentityBadge now defaults to the Role tab showing `~/.claude/roles/<role>/<role>.md` for that identity, with an Edit button that saves back atomically. The tab position and default are LOCKED per D-CONTEXT — a future plan cannot move the Role tab out of position 0 without a plan-checker BLOCK.
 
-**Manual UAT gate (deferred to Phase 22 UAT per ROADMAP):** Ashley opens IdentityModal for tina; verifies Role tab is FIRST and DEFAULT; verifies contents match `~/.claude/roles/box-maintainer/box-maintainer.md` (tina's role) on tina's host; edits → saves; verifies the file was updated on disk via SSH cat. Cannot be automated because it requires a real fleet identity + role folder pair on a live host.
+**Manual UAT gate (deferred to Phase 22 UAT per ROADMAP):** Alice opens IdentityModal for tina; verifies Role tab is FIRST and DEFAULT; verifies contents match `~/.claude/roles/box-maintainer/box-maintainer.md` (tina's role) on tina's host; edits → saves; verifies the file was updated on disk via SSH cat. Cannot be automated because it requires a real fleet identity + role folder pair on a live host.
 
 ---
 

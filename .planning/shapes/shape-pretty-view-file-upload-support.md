@@ -298,4 +298,4 @@ Handoff notes for the planning agent:
   per tina's deploy runbook (`~/.claude/identities/tina/deploy-runbook.md`).
   This is a fork patch series, not an out-of-band change.
 - **Close-out:** `/close pretty-view-file-upload-support` once the
-  phase ships and Ashley has confirmed the feature in production.
+  phase ships and Alice has confirmed the feature in production.

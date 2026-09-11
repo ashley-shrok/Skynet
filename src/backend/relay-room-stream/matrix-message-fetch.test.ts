@@ -29,7 +29,7 @@ const mockGetRoomMessages = getRoomMessages as unknown as ReturnType<typeof vi.f
 const SAMPLE_EVENT = {
   event_id: "$evt-1:server",
   type: "m.room.message",
-  sender: "@ashley_human:server",
+  sender: "@alice_human:server",
   origin_server_ts: 1700000000000,
   content: { msgtype: "m.text", body: "hello" },
 };
@@ -165,21 +165,21 @@ describe("fetchRoomHistory (Phase 90 Plan 04 Task 1)", () => {
   const STATE_MEMBER_EVENT = {
     event_id: "$evt-join-1:server",
     type: "m.room.member",
-    sender: "@ashley_human:server",
+    sender: "@alice_human:server",
     origin_server_ts: 1700000001000,
     content: { membership: "join" },
   };
   const STATE_NAME_EVENT = {
     event_id: "$evt-name-1:server",
     type: "m.room.name",
-    sender: "@ashley_human:server",
+    sender: "@alice_human:server",
     origin_server_ts: 1700000002000,
     content: { name: "Working session" },
   };
   const REACTION_EVENT = {
     event_id: "$evt-reax-1:server",
     type: "m.reaction",
-    sender: "@ashley_human:server",
+    sender: "@alice_human:server",
     origin_server_ts: 1700000003000,
     content: { "m.relates_to": { rel_type: "m.annotation", key: "👍" } },
   };

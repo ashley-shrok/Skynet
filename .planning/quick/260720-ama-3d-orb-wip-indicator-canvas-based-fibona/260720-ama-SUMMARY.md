@@ -26,7 +26,7 @@ key_files:
   modified:
     - src/ui/features/pretty-view/WipBubble.tsx
 decisions:
-  - "Algorithm parameters (N=150, 0.55/0.31 rad/s, 0.88 radius, dot-size and alpha formulas, rgba(150,180,220)) locked by Ashley 2026-07-20 — not re-derived"
+  - "Algorithm parameters (N=150, 0.55/0.31 rad/s, 0.88 radius, dot-size and alpha formulas, rgba(150,180,220)) locked by Alice 2026-07-20 — not re-derived"
   - "POINTS array computed at module scope to avoid per-mount and per-frame allocations"
   - "prefers-reduced-motion renders t=0 frame only; no rAF scheduled (useEffect returns undefined)"
 metrics:
@@ -92,7 +92,7 @@ None. This change adds no new network endpoints, auth paths, file access pattern
 
 ## Visual Verification
 
-Deferred to deploy time in Ashley's browser (per plan spec). The design was locked after 4 rounds of prototyping — design archive at `~/.claude/identities/tina/bounties/spirograph-wip-indicator/NOTES.md`.
+Deferred to deploy time in Alice's browser (per plan spec). The design was locked after 4 rounds of prototyping — design archive at `~/.claude/identities/tina/bounties/spirograph-wip-indicator/NOTES.md`.
 
 ## Self-Check: PASSED
 

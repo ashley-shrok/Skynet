@@ -23,7 +23,7 @@
 
 **Failure treatment (D-08/D-09):**
 - Same whole-bubble-red treatment from Phase 76 D-06 for text-only failures.
-- Compose is NOT repopulated on failure (Ashley 2026-09-02 reversed Phase 50 D-20/D-56). No retry-easier affordance, no staged-file preservation.
+- Compose is NOT repopulated on failure (Alice 2026-09-02 reversed Phase 50 D-20/D-56). No retry-easier affordance, no staged-file preservation.
 
 **Match-and-replace (D-10/D-11):**
 - Same mqid + FIFO head-match mechanism as text-only pending bubbles (PrettyView.tsx:1885-1911).
@@ -530,7 +530,7 @@ Applied to the outer bubble `<div>` at L420. This treatment applies UNIFORMLY re
 
 ### Pitfall 4: `parseInjectedUserTurn` on caption-only content
 **What goes wrong:** A pending bubble's record has `content: caption` (the raw caption text) — no delimiter, no file lines. ChatMessage's `injected = parseInjectedUserTurn(content)` at L309 runs for every user message including pending. If the CAPTION happens to contain the string `\n---attached files---\n`, the parser would run the full parse and — if the parse succeeds — the `injected` branch would fire instead of the pending-with-attachments branch.
-**Why it happens:** Ashley could paste a message that literally includes the delimiter substring as text.
+**Why it happens:** Alice could paste a message that literally includes the delimiter substring as text.
 **How to avoid:** Two defenses. (a) `parseInjectedUserTurn` requires at least one well-formed `(N. filename ...)\n   uploaded ...` file line pair to return non-null (verified at L322-336) — a captured caption without those lines returns null even with the delimiter present. (b) In practice this is unreachable because the pending record's content field carries only the caption text, and the caption text going through `formatInjectedUserTurn` would only match the parser if it accidentally contained the entire file-line format — statistically impossible for user-typed prose. **No mitigation needed**, but the plan should include a defensive test: pending-attachment bubble with caption containing "---attached files---" as literal text still renders as pending-attachment (not as injected).
 **Warning signs:** A pending bubble renders without a spinner (because `injected` branch fires) despite `pendingState === "sending"`.
 

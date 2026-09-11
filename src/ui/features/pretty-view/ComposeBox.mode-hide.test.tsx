@@ -151,7 +151,7 @@ describe("ComposeBox mode-hide (Phase 93 Slice 3 Task 2)", () => {
     expect(spacer!.getAttribute("aria-hidden")).toBe("true");
     // Phase 97 UAT follow-up (2026-09-10): spacer height locked to 3px
     // uniformly (touch branch dropped — this is a visual spacer, not a
-    // touch target). Ashley live-tuned to 3px via console snippet;
+    // touch target). Alice live-tuned to 3px via console snippet;
     // QueuePlusTab pebble at absolute top-[-12px] only needs a few px of
     // clear headroom above the compose outer edge.
     expect(spacer!.className).toContain("mb-[3px]");

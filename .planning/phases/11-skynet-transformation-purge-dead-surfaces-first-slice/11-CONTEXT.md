@@ -2,14 +2,14 @@
 
 **Gathered:** 2026-07-23
 **Status:** Ready for planning
-**Source:** Synthesized directly from Tina's bounty `skynet-transformation-purge-dead-surfaces` + `~/.claude/identities/tina/tina.md` § Skynet direction (Ship of Theseus). Ashley's UAT quote 2026-07-23 during Phase 10 walkthrough: *"I really feel like we need to get away from this skynet front end stuff before any of this is worth quibbling over."* No discuss-phase for this one — the dead-surfaces canonical list and palette authority were both locked in tina.md across repeated calls-out during 2026-07-23. **The scope is not to be re-litigated; the planner's job is HOW to strip cleanly, not WHAT to strip.**
+**Source:** Synthesized directly from Tina's bounty `skynet-transformation-purge-dead-surfaces` + `~/.claude/identities/tina/tina.md` § Skynet direction (Ship of Theseus). Alice's UAT quote 2026-07-23 during Phase 10 walkthrough: *"I really feel like we need to get away from this skynet front end stuff before any of this is worth quibbling over."* No discuss-phase for this one — the dead-surfaces canonical list and palette authority were both locked in tina.md across repeated calls-out during 2026-07-23. **The scope is not to be re-litigated; the planner's job is HOW to strip cleanly, not WHAT to strip.**
 
 <domain>
 ## Phase Boundary
 
-Phase 11 is the **first slice** of a multi-phase Ship-of-Theseus purge of Skynet UI surfaces that Ashley never sees in Skynet. Long-term she sees two visible frontend surfaces: the pretty-conversations panel (sidebar) and the PrettyView chat surface (main pane). Everything else in today's Skynet UI is dead weight going away.
+Phase 11 is the **first slice** of a multi-phase Ship-of-Theseus purge of Skynet UI surfaces that Alice never sees in Skynet. Long-term she sees two visible frontend surfaces: the pretty-conversations panel (sidebar) and the PrettyView chat surface (main pane). Everything else in today's Skynet UI is dead weight going away.
 
-This phase's slice covers the two surfaces Ashley called out most directly in the Phase 10 UAT:
+This phase's slice covers the two surfaces Alice called out most directly in the Phase 10 UAT:
 
 1. **Landing-surface swap.** Desktop's default landing surface (what renders on a fresh page-load with no hash-fragment) becomes the pretty-conversations panel + PrettyView main pane, NOT the Skynet dashboard. Mobile already lands on the pretty-conversations panel post-Phase 10; verify unchanged.
 2. **AppRail retirement.** The left AppRail component (icon buttons for Skynet dashboard, host manager, snippets, admin console, and any settings surfaces) is deleted from `AppShell` and its file removed from the source tree. Every import of the deleted AppRail path is stripped. `tsc` clean; test suite green.
@@ -53,11 +53,11 @@ All items below are **LOCKED** by the bounty + tina.md § Skynet direction — d
 ### Palette authority
 
 - **`--color-pv-*` tokens are the authority** for any surface color change the deletion knock-on effects require (e.g., if AppShell's default background needs a rebase from Skynet's `--background` to a Skynet color, use `--color-pv-base-end` = `#0a0b12` or `--color-pv-base-start` = `#141520`). Never chase Skynet's dark-mode `--background` value — that token is on the chopping block in a follow-up phase.
-- **This phase should be minimal color work.** The landing surface swap and AppRail removal don't inherently require a color change; if the planner discovers a color decision is needed, use `--color-pv-*` and note it in the plan for Ashley's review.
+- **This phase should be minimal color work.** The landing surface swap and AppRail removal don't inherently require a color change; if the planner discovers a color decision is needed, use `--color-pv-*` and note it in the plan for Alice's review.
 
-### Scope-fence discipline (Ashley's explicit lock)
+### Scope-fence discipline (Alice's explicit lock)
 
-- **No settings UI anywhere.** Not in this phase, not as a "small mobile preferences pane," not as a "settings icon in the corner." Zero. Ashley 2026-07-23: "we are not having settings at all." If any AppRail removal knock-on effect surfaces a "we still need somewhere for X setting" — the answer is remove the setting entirely (or move it to backend config only), not add a UI for it.
+- **No settings UI anywhere.** Not in this phase, not as a "small mobile preferences pane," not as a "settings icon in the corner." Zero. Alice 2026-07-23: "we are not having settings at all." If any AppRail removal knock-on effect surfaces a "we still need somewhere for X setting" — the answer is remove the setting entirely (or move it to backend config only), not add a UI for it.
 - **If a surface isn't the conversation list or the pretty view, don't defend it in scope decisions.** When the planner encounters a borderline "should this stay?" question, the default answer is remove. The invisible-shell technical capabilities named above are the ONLY exceptions.
 - **Same landing behavior ships to both viewports.** No dual-mode ship. Desktop and mobile both use the pretty-conversations panel as landing; no viewport gets a special-case dashboard.
 - **Deletion is atomic per plan.** Each plan's deletion set commits together with its verification (grep for imports zero, tsc clean, tests green). If a plan's deletion doesn't verify clean, the plan fails — do not commit a half-deleted state that leaves broken imports.
@@ -71,8 +71,8 @@ All items below are **LOCKED** by the bounty + tina.md § Skynet direction — d
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Bounty + identity source-of-truth (authoritative)
-- `~/.claude/identities/tina/bounties/skynet-transformation-purge-dead-surfaces/bounty.json` — the bounty premise, Ashley's UAT quote, the todo set (landing-surface swap, AppRail retirement, per-surface enumeration + prove-dead + delete-with-atomic-commits).
-- `~/.claude/identities/tina/tina.md` § Skynet direction — Ship of Theseus (includes the dead-surfaces canonical list, palette authority, the "conversation list + pretty view is all Ashley sees" scope-decision heuristic, and the "it is ONE project, not a collection of bounties" fleet lock).
+- `~/.claude/identities/tina/bounties/skynet-transformation-purge-dead-surfaces/bounty.json` — the bounty premise, Alice's UAT quote, the todo set (landing-surface swap, AppRail retirement, per-surface enumeration + prove-dead + delete-with-atomic-commits).
+- `~/.claude/identities/tina/tina.md` § Skynet direction — Ship of Theseus (includes the dead-surfaces canonical list, palette authority, the "conversation list + pretty view is all Alice sees" scope-decision heuristic, and the "it is ONE project, not a collection of bounties" fleet lock).
 
 ### Phase 10 and prior visible-surface work (context for what stays)
 - `.planning/phases/10-pretty-conversations-visual-language-rework/10-01-SUMMARY.md` through `10-05-SUMMARY.md` — the pretty-conversations panel that this phase makes landing.
@@ -90,7 +90,7 @@ All items below are **LOCKED** by the bounty + tina.md § Skynet direction — d
 ### Fork operating baseline
 - `~/.claude/identities/tina/box-map.md` — Skynet operational context.
 - `~/.claude/identities/tina/skynet-patches.md` — full patch catalog through patch #137. Phase 11 patches will pick up from #138.
-- `~/.claude/identities/tina/deploy-runbook.md` — deploy flow (batched deploys per the "batch patches into meaningful deploys" fleet rule; no deploy inside this phase unless Ashley explicitly greenlights).
+- `~/.claude/identities/tina/deploy-runbook.md` — deploy flow (batched deploys per the "batch patches into meaningful deploys" fleet rule; no deploy inside this phase unless Alice explicitly greenlights).
 
 </canonical_refs>
 
@@ -107,9 +107,9 @@ All items below are **LOCKED** by the bounty + tina.md § Skynet direction — d
 <deferred>
 ## Deferred Ideas
 
-- **Full dead-surfaces purge (host manager UI pages, snippets manager, admin console, all settings surfaces, Skynet tab bar chrome, keyboard shortcut editor UI).** In scope for Phase 12+, NOT this phase. Ashley chose landing + AppRail first so we can UAT the landing effect before the broader sweep.
+- **Full dead-surfaces purge (host manager UI pages, snippets manager, admin console, all settings surfaces, Skynet tab bar chrome, keyboard shortcut editor UI).** In scope for Phase 12+, NOT this phase. Alice chose landing + AppRail first so we can UAT the landing effect before the broader sweep.
 - **Backend route deletion.** The routes that only served deleted UI (dashboard endpoints, snippet CRUD, etc.) die in a follow-up phase. This phase leaves backend untouched to keep the blast radius small.
-- **Any visual polish on the retained UI** (bubble+badge restyle refresh, ready-dot debugging, sidebar-scroll padding fixes) — separate bounties, all parked pending purge completion per Ashley's blocking.
+- **Any visual polish on the retained UI** (bubble+badge restyle refresh, ready-dot debugging, sidebar-scroll padding fixes) — separate bounties, all parked pending purge completion per Alice's blocking.
 - **Rebase automation.** The rebase-risk-HIGH acceptance means we'll eat a manual rebase pass at some point. Not this phase.
 
 </deferred>

@@ -30,7 +30,7 @@ key_files:
     - "src/backend/distributor/catalog.test.ts (Test 1 + Test 6 count bumps)"
     - "src/backend/distributor/run-sweep.test.ts (Test 1 count bump)"
 decisions:
-  - "SSH-topology LOCKED as Option 3 (per-WS): each WS runs its own sweep exec per tick. Matches existing per-WS connectOneShot topology, delivers measurable 4x exec reduction per WS per tick, zero new coordination surface. Ashley owns the override if she wants Option 1 (per-host connection pool) in a future phase."
+  - "SSH-topology LOCKED as Option 3 (per-WS): each WS runs its own sweep exec per tick. Matches existing per-WS connectOneShot topology, delivers measurable 4x exec reduction per WS per tick, zero new coordination surface. Alice owns the override if she wants Option 1 (per-host connection pool) in a future phase."
   - "Single-tier schema (no PID axis): PV context-pct is identity-keyed (one JSONL per identity), unlike Phase 92's fleet-status which needed per-pid rows. PvSweepLine has line_kind='identity', schema_version=1, identity, context_pct, jsonl_path. One line per identity per sweep invocation."
   - "pv-context-pct-sweep.py uses ThreadPoolExecutor(max_workers=8) for multi-identity parallelism to keep sweep wall-clock under 3s for coordinator boxes with 10+ identities."
 metrics:
@@ -55,7 +55,7 @@ metrics:
 | 2 (elected WS) | Cross-WS election + fan-out registry + failover | Coordination code without connection-refactor payoff | REJECTED for Phase 95 |
 | 3 (per-WS) | Each WS runs its own sweep exec per tick | Zero new plumbing; maps to existing connectOneShot topology | **LOCKED** |
 
-**Rationale:** Option 3 matches the existing per-WS `connectOneShot` SSH connection reality confirmed by RESEARCH §G1 (grep confirmed L1239/L1357/L1429/L1515/L1609/L1669/L1727/L1796/L1874 all use `connectOneShot`). Delivers the 4x reduction per WS per tick. Ashley owns the override for Option 1 in a future phase (Phase 96 or successor already scoped for semaphore work + per-host connection pool).
+**Rationale:** Option 3 matches the existing per-WS `connectOneShot` SSH connection reality confirmed by RESEARCH §G1 (grep confirmed L1239/L1357/L1429/L1515/L1609/L1669/L1727/L1796/L1874 all use `connectOneShot`). Delivers the 4x reduction per WS per tick. Alice owns the override for Option 1 in a future phase (Phase 96 or successor already scoped for semaphore work + per-host connection pool).
 
 ## pv-sweep-schema.ts
 

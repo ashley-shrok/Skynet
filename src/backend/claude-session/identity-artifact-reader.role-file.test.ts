@@ -377,7 +377,7 @@ describe("writeRoleFile — LOCAL branch (conn=null)", () => {
   });
 
   it("test 7: writes ROLES_HOST_DIR/<role>/<role>.md via fs tmp+rename atomic pattern", async () => {
-    const body = "# Box Maintainer\n\n## Role\n\nUpdated by Ashley.\n";
+    const body = "# Box Maintainer\n\n## Role\n\nUpdated by Alice.\n";
     await writeRoleFile(null, KEY, body);
 
     const roleFilePath = path.join(rolesRoot, ROLE, `${ROLE}.md`);

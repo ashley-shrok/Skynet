@@ -32,7 +32,7 @@ metrics:
 
 ## One-liner
 
-Boot-time first-tick jitter for each relay-observing user is now bounded to `[0, INITIAL_TICK_JITTER_MS) = [0, 500ms)` instead of `[0, OBSERVATION_TICK_INTERVAL_MS) = [0, 10s)`, dropping Ashley's worst-case cold-load delay for sidebar relay rooms from ~20s to under 1.5s while preserving the existing thundering-herd defense.
+Boot-time first-tick jitter for each relay-observing user is now bounded to `[0, INITIAL_TICK_JITTER_MS) = [0, 500ms)` instead of `[0, OBSERVATION_TICK_INTERVAL_MS) = [0, 10s)`, dropping Alice's worst-case cold-load delay for sidebar relay rooms from ~20s to under 1.5s while preserving the existing thundering-herd defense.
 
 ## Commits
 
@@ -49,8 +49,8 @@ Both commits on `feat/tab-title-from-tmux`. HEAD `945c5006` LOCAL — NOT pushed
 
 - Added new exported constant `INITIAL_TICK_JITTER_MS = 500` immediately below `OBSERVATION_TICK_INTERVAL_MS` (line 85), with a 30-line docblock covering:
   1. Separation from `OBSERVATION_TICK_INTERVAL_MS` — the two answer different questions ("how snappy does cold-load feel?" vs "how often do we re-check a user?").
-  2. Ashley cold-load reference — reusing the 10s cadence was the source of the ~20s worst-case; 500ms tightens the bound to `INITIAL_TICK_JITTER_MS + SCHEDULER_SCAN_INTERVAL_MS = 500ms + 1s = 1.5s`.
-  3. Thundering-herd math anchored to Ashley's fleet size (~100 concurrent boot users → peak ~200 users/sec admin-API fan-in, well within a single Synapse's healthy concurrency budget).
+  2. Alice cold-load reference — reusing the 10s cadence was the source of the ~20s worst-case; 500ms tightens the bound to `INITIAL_TICK_JITTER_MS + SCHEDULER_SCAN_INTERVAL_MS = 500ms + 1s = 1.5s`.
+  3. Thundering-herd math anchored to Alice's fleet size (~100 concurrent boot users → peak ~200 users/sec admin-API fan-in, well within a single Synapse's healthy concurrency budget).
   4. Scale guidance for future fleets (scale up past ~1000 concurrent boot users; scale down unnecessary — 500ms already at edge of human perceptibility).
 - Updated `start()` at what was line 717 (now line 756): `Math.floor(rng() * OBSERVATION_TICK_INTERVAL_MS)` → `Math.floor(rng() * INITIAL_TICK_JITTER_MS)`. Preserved the `jitterEnabled ? ... : 0` ternary so the `jitter:false` deterministic path stays byte-for-byte unchanged.
 - Refreshed the inline Fixup M-2 comment (line 745-754) to say the spread window is now `[now, now + INITIAL_TICK_JITTER_MS)` and point to the new constant's docblock for rationale. Comment now dual-tags Fixup M-2 (2026-09-08) + quick-260910-hgs (2026-09-10) for future archaeologists.
@@ -105,7 +105,7 @@ Clean project-wide, not just the two touched files.
 | `INITIAL_TICK_JITTER_MS = 500` exported with docblock covering all four rationale points | ✅ line 55-85 |
 | `start()` uses `INITIAL_TICK_JITTER_MS`; `jitterEnabled ? ... : 0` structure preserved | ✅ line 755-757 |
 | New regression test pins tightened upper bound; existing M-2 updated; M-2b untouched | ✅ Test M-2c added, Test M-2 restructured, Test M-2b byte-identical |
-| Ashley's cold-load worst case drops from ~20s to under 1s (bounded by 500ms + 1000ms = 1.5s) | ✅ math confirmed by Test M-2c upper-bound assertion |
+| Alice's cold-load worst case drops from ~20s to under 1s (bounded by 500ms + 1000ms = 1.5s) | ✅ math confirmed by Test M-2c upper-bound assertion |
 | All other observation-loop tests continue to pass | ✅ 21/21 pass, including Test 7 invariants, Test 8 isolation, Test M-2b jitter multiplier, Test 11 in-flight guard, all `runObservationTick` orchestration |
 
 ## Deviations from plan

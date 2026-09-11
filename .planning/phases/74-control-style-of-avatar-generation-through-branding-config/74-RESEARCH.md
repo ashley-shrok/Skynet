@@ -17,7 +17,7 @@
 - **Boot-time presence check:** instance refuses to boot if the aesthetic director spec is missing or empty. **NO silent fallback. NO shipped-in default** for the director spec (the numeric gamma still has a shipped fallback).
 - **Ship migration seeds BOTH existing deployments' branding configs atomically:** t1000 Skynet + T800 AI+ (Stacy's box). Either both boot after ship, or neither is shipped.
 - Delete `~/.claude/roles/box-maintainer/runbooks/avatar-flow.md` + every file under `~/.claude/roles/box-maintainer/avatar-prompts/` (amelia.md, beatrice.md, becky.md, george.md).
-- All outrigger content (Nelly handoff, Matrix media upload, colorHue-picking guidance, ashley-laptop archive notes) is retired.
+- All outrigger content (Nelly handoff, Matrix media upload, colorHue-picking guidance, user-laptop archive notes) is retired.
 
 ### Claude's Discretion
 
@@ -48,9 +48,9 @@ No REQ-ID mapping exists yet in `.planning/REQUIREMENTS.md` for Phase 74 (REQUIR
 
 - **Tech stack** — React + TypeScript frontend; Node/Express backend on Drizzle ORM over AES-encrypted SQLite; Docker Compose; Caddy 2 edge. This phase does NOT touch the DB layer or Guacamole.
 - **Commit hygiene** — atomic per-task commits, no squashes. Applies to the plan waves this phase produces.
-- **Blast radius** — a bad deploy loses Ashley access to her whole fleet. Cross-deployment migration risk is highest-severity per this rule.
+- **Blast radius** — a bad deploy loses Alice access to her whole fleet. Cross-deployment migration risk is highest-severity per this rule.
 - **Encryption** — the director spec is NOT a credential and does NOT need encryption (it's a plaintext operator config file on disk, byte-analog to `branding.json` today).
-- **Access model** — EC2 admin is AWS SSM only. Any t1000 seed step must be documented as "Ashley runs via SSM" not "tina SSHes in."
+- **Access model** — EC2 admin is AWS SSM only. Any t1000 seed step must be documented as "Alice runs via SSM" not "tina SSHes in."
 - **Nginx caveat** — this phase does NOT add any new HTTP routes. `/api/branding` already carries the extended schema for free via Phase 70's plumbing. **No new nginx blocks needed.** [VERIFIED: `/api/branding` proxy_pass exists in both `docker/nginx.conf` and `docker/nginx-https.conf` per Phase 70 Plan 02.]
 - **GSD workflow enforcement** — planner must produce concrete plans; executor works through `/gsd-execute-phase`.
 
@@ -60,7 +60,7 @@ The Phase 70 branding-config plumbing landed a complete pattern: a JSON config f
 
 The load-bearing implementation choice: the existing loader is deliberately never-throws. Phase 74 needs a **new boot-time enforcement layer** that reads the config once at startup and calls `process.exit(1)` if the director spec is missing/empty. The right place is a new `assertBrandingConfigAtBoot()` function called from `starter.ts` inside the boot IIFE (which already has `process.exit(1)` on unhandled boot failure at L757/L764/L770), BEFORE the `database.ts` server-ready await. Loader itself stays never-throws so the `/api/branding` HTTP route can never crash.
 
-Cross-deployment migration is the highest-risk piece. T800/AI+ is Stacy's box; she pulls the git fork and applies. If we ship the code change without seeding her `/opt/skynet/branding.json` on T800, her boot breaks. Ashley's shape file (line 77) explicitly defers the mechanism to the plan phase — the plausible paths are (a) tina uses her Skynet-relay account (`@tina:skynet.aithercloud.com` — established convention per `box-maintainer.md`) to DM Stacy a briefing that includes the seed config + apply instructions, or (b) tina touches both configs directly (rejected — box-maintainer.md L17 says explicitly "I do NOT operate on T800 directly"). Recommendation: commit the seed JSON as a repo artifact under `scripts/deploy/` AND DM Stacy the briefing.
+Cross-deployment migration is the highest-risk piece. T800/AI+ is Stacy's box; she pulls the git fork and applies. If we ship the code change without seeding her `/opt/skynet/branding.json` on T800, her boot breaks. Alice's shape file (line 77) explicitly defers the mechanism to the plan phase — the plausible paths are (a) tina uses her Skynet-relay account (`@tina:skynet.aithercloud.com` — established convention per `box-maintainer.md`) to DM Stacy a briefing that includes the seed config + apply instructions, or (b) tina touches both configs directly (rejected — box-maintainer.md L17 says explicitly "I do NOT operate on T800 directly"). Recommendation: commit the seed JSON as a repo artifact under `scripts/deploy/` AND DM Stacy the briefing.
 
 **Primary recommendation:**
 1. Extend `BrandingConfig` type (both backend loader + frontend store) with `avatarDirectorSpec: string` (required) and `avatarGammaDefault: number` (required in shape, defaults to `0.7` in the bundled default file).
@@ -83,7 +83,7 @@ Cross-deployment migration is the highest-risk piece. T800/AI+ is Stacy's box; s
 | Palette hue → name mechanical fact | Backend (`identity-avatar-batch.ts` `hueName()`) | — | App-owned per CONTEXT.md § "app owns mechanics". Stays in-code. |
 | Aesthetic instruction language | Config (`avatarDirectorSpec`) | — | Config-owned per CONTEXT.md § "config owns instructions". |
 | Frontend consumption | **None** | — | The director spec never leaves the backend — it's not surfaced in the UI (out of scope: no UI edit affordance). The frontend `BrandingConfig` type still receives it via `/api/branding` (free-carried by Phase 70 plumbing) but no component reads it. |
-| Cross-deployment seed | Human/operator (tina → Stacy briefing DM; Ashley on t1000 via SSM) | — | Both configs are ops-side files. Code change alone is insufficient. |
+| Cross-deployment seed | Human/operator (tina → Stacy briefing DM; Alice on t1000 via SSM) | — | Both configs are ops-side files. Code change alone is insufficient. |
 | Runbook file deletion | Local box role folder (`~/.claude/roles/box-maintainer/`) | — | Not in the repo tree; separate `rm` operation from code commits. |
 
 ## Standard Stack
@@ -180,7 +180,7 @@ docker/branding-defaults/
 
 scripts/deploy/
 └── branding-seed-example.json      # NEW (recommended): the LoL-champion seed as a repo artifact
-                                    #                    so Ashley + Stacy have a canonical source
+                                    #                    so Alice + Stacy have a canonical source
 
 # Operator-side (outside repo tree, NO git touch):
 /opt/skynet/branding/branding.json  # ON t1000 — MUST be seeded before ship (currently doesn't
@@ -257,7 +257,7 @@ import { systemLogger } from "../utils/logger.js";
  *
  * Called from starter.ts after DB init, before dbServer import. Follows the
  * existing starter.ts fail-fast pattern (L757, L764, L770) — structured error
- * log + process.exit(1) so the container's supervisor restarts and Ashley
+ * log + process.exit(1) so the container's supervisor restarts and Alice
  * sees the failed-boot log line.
  */
 export async function assertBrandingConfigAtBoot(): Promise<void> {
@@ -409,11 +409,11 @@ This phase is **not primarily a rename/refactor**, but it does change runtime be
 
 ### Pitfall 3: Cross-deployment migration coordination gap
 
-**What goes wrong:** The code change lands in the fork on `main`. Ashley ships to t1000. She has the seed config ready and drops it into `/opt/skynet/branding/branding.json` before deploy — t1000 boots. Stacy pulls the fork on T800 without receiving the seed config. T800 boot gate fires, box crash-loops. Aither users lose access.
+**What goes wrong:** The code change lands in the fork on `main`. Alice ships to t1000. She has the seed config ready and drops it into `/opt/skynet/branding/branding.json` before deploy — t1000 boots. Stacy pulls the fork on T800 without receiving the seed config. T800 boot gate fires, box crash-loops. Aither users lose access.
 
-**Why it happens:** Two production deployments, two different operators (Ashley on t1000, Stacy on T800). Code moves through git; ops-side config files don't. box-maintainer.md L100+ establishes the Stacy-briefing pattern for supervisor + id-skill changes, but this phase is a Skynet code change with an *ops-side seed dependency* — a category not yet covered by that convention.
+**Why it happens:** Two production deployments, two different operators (Alice on t1000, Stacy on T800). Code moves through git; ops-side config files don't. box-maintainer.md L100+ establishes the Stacy-briefing pattern for supervisor + id-skill changes, but this phase is a Skynet code change with an *ops-side seed dependency* — a category not yet covered by that convention.
 
-**How to avoid:** Plan phase must produce a concrete migration artifact — a repo file at `scripts/deploy/branding-seed-example.json` containing the LoL-champion seed, PLUS a Stacy briefing DM on the Skynet relay (`@tina:skynet.aithercloud.com` → `@stacy:skynet.aithercloud.com`) that points to the file + gives apply instructions Stacy can run on her side. Ashley should NOT ship to t1000 until Stacy acks receipt. The `/close` step should verify both deployments booted post-ship.
+**How to avoid:** Plan phase must produce a concrete migration artifact — a repo file at `scripts/deploy/branding-seed-example.json` containing the LoL-champion seed, PLUS a Stacy briefing DM on the Skynet relay (`@tina:skynet.aithercloud.com` → `@stacy:skynet.aithercloud.com`) that points to the file + gives apply instructions Stacy can run on her side. Alice should NOT ship to t1000 until Stacy acks receipt. The `/close` step should verify both deployments booted post-ship.
 
 **Warning signs:** Any plan-phase artifact that says "Stacy will figure out the seed" or defers seed generation to Stacy's discretion. The seed is a single JSON blob — commit it to a plan-adjacent file so Stacy can lift verbatim.
 
@@ -441,7 +441,7 @@ This phase is **not primarily a rename/refactor**, but it does change runtime be
 
 **Why it happens:** The current text is written as if the mechanical fact is right there in the same sentence. Splitting cleanly requires rewriting the aesthetic prose to reference "the hue provided" generically, while keeping the mechanical `paletteHueLine()` succinct.
 
-**How to avoid:** Plan phase should draft the actual seed text at planning time (not defer to execution). Show Ashley/discuss-phase the exact string. The seed's palette instruction should read like:
+**How to avoid:** Plan phase should draft the actual seed text at planning time (not defer to execution). Show Alice/discuss-phase the exact string. The seed's palette instruction should read like:
 
 > "PALETTE INSTRUCTION: When the identity color hue is supplied in the user message, the drafted image-gen prompt's palette section MUST center on that hue — dominant color and rim-light in that hue, accents within roughly ±30 degrees. Do NOT default to blue/cyan just because the background reads cyberpunk-adjacent. The generated avatar has to match the identity's UI badge and chat-bubble tint, which are driven from this same hue."
 
@@ -543,7 +543,7 @@ vi.mock("../../branding/branding-config-loader.js", () => ({
 |------|---------|
 | `src/backend/branding/assert-boot.ts` | Boot-time fail-fast module (~30 lines) |
 | `src/backend/branding/branding-config-loader.test.ts` | Shape guard test for the two new fields — this test file does not exist yet |
-| `scripts/deploy/branding-seed-example.json` (recommended) | Canonical seed containing the LoL-champion spec + gamma=0.7, for both Ashley (t1000) and Stacy (T800) to apply |
+| `scripts/deploy/branding-seed-example.json` (recommended) | Canonical seed containing the LoL-champion spec + gamma=0.7, for both Alice (t1000) and Stacy (T800) to apply |
 
 ### Files to DELETE (outside repo, `rm` not `git rm`)
 
@@ -569,14 +569,14 @@ Also `.planning/phases/20-*` has 6-8 references to the runbook — these are his
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| A1 | Stacy pulls the fork on T800 and applies patches per the box-maintainer.md L100+ "Stacy-briefing convention" pattern (established for supervisor + id-skill categories, extending here to Skynet code changes with ops-side seed dependencies). | Cross-deployment migration | [ASSUMED — box-maintainer.md establishes convention for supervisor/id-skill; Skynet code changes may or may not follow same route]. Wrong → migration seed doesn't reach Stacy, T800 crash-loops on boot after ship. **Ashley + Stacy must confirm at plan-phase discussion.** |
-| A2 | Ivy owns t1000 and T800 initial provisioning per feature-01 D-15, but ongoing config edits (like the Phase 74 seed) are the operator's responsibility (Ashley on t1000, Stacy on T800). | Cross-deployment migration | [ASSUMED — inferred from feature-01 D-15 language "at EC2 provisioning time" implying one-shot install, not ongoing edits]. Wrong → Ivy needs loop-in for the seed application. |
+| A1 | Stacy pulls the fork on T800 and applies patches per the box-maintainer.md L100+ "Stacy-briefing convention" pattern (established for supervisor + id-skill categories, extending here to Skynet code changes with ops-side seed dependencies). | Cross-deployment migration | [ASSUMED — box-maintainer.md establishes convention for supervisor/id-skill; Skynet code changes may or may not follow same route]. Wrong → migration seed doesn't reach Stacy, T800 crash-loops on boot after ship. **Alice + Stacy must confirm at plan-phase discussion.** |
+| A2 | Ivy owns t1000 and T800 initial provisioning per feature-01 D-15, but ongoing config edits (like the Phase 74 seed) are the operator's responsibility (Alice on t1000, Stacy on T800). | Cross-deployment migration | [ASSUMED — inferred from feature-01 D-15 language "at EC2 provisioning time" implying one-shot install, not ongoing edits]. Wrong → Ivy needs loop-in for the seed application. |
 | A3 | The bundled-default `avatarGammaDefault: 0.7` value comes from the runbook § 5 default AND matches the current hardcoded `applyGamma07()` behavior. | Standard Stack | [VERIFIED: codebase grep + runbook read — `Math.pow(data[i] / 255, 0.7)` at `identity-avatar-batch.ts` L142] |
 | A4 | `identity-birth.ts` and `identity-clone.ts` import only `getCandidateForBirth` + `consumeCandidateForBirth` from `identity-avatar-batch.ts`, NOT the archetype constants or paletteConstraintLine. | Runtime State Inventory | [VERIFIED: grep for ARCHETYPE_SYSTEM_PROMPT / paletteConstraintLine — only self-references in identity-avatar-batch.ts]. Confirmed safe to delete/replace the constant. |
 | A5 | The Stacy briefing DM is a viable delivery mechanism for a JSON config seed (not just a supervisor/id-skill .patch file). | Cross-deployment migration | [ASSUMED — extension of the convention beyond its documented scope]. If the convention is code-patch-only, an alternative like "commit a scripts/deploy/branding-seed-example.json into the repo with a README pointer" may be needed. Recommendation: do BOTH — commit AND DM. |
-| A6 | Ashley wants the LoL-champion director spec preserved verbatim as the initial seed for both deployments (implied by CONTEXT.md § "Ship migration seeds BOTH existing deployments' branding configs … with the current LoL-champion director spec"), not a *modified* or *simplified* version. The palette-instruction language folds in as an inline paragraph. | Phase Requirements | [ASSUMED — CONTEXT.md uses "current LoL-champion director spec" which suggests verbatim from `ARCHETYPE_SYSTEM_PROMPT` L183-198 + the aesthetic prose from `paletteConstraintLine` L176]. Plan phase should draft the exact seed text and confirm with Ashley. |
+| A6 | Alice wants the LoL-champion director spec preserved verbatim as the initial seed for both deployments (implied by CONTEXT.md § "Ship migration seeds BOTH existing deployments' branding configs … with the current LoL-champion director spec"), not a *modified* or *simplified* version. The palette-instruction language folds in as an inline paragraph. | Phase Requirements | [ASSUMED — CONTEXT.md uses "current LoL-champion director spec" which suggests verbatim from `ARCHETYPE_SYSTEM_PROMPT` L183-198 + the aesthetic prose from `paletteConstraintLine` L176]. Plan phase should draft the exact seed text and confirm with Alice. |
 | A7 | The palette-instruction language that moves into the director spec should be embedded such that the mechanical `paletteHueLine()` fact + the spec's aesthetic language compose gracefully at request time (both are appended to the chat-model user message today per L268). | Pattern 3 + Pitfall 6 | [ASSUMED — the current architecture has the aesthetic language in the user message via `paletteConstraintLine()`; after the split the aesthetic language lives entirely in the system-prompt directorSpec while the mechanical fact stays in the user message]. Plan should draft + confirm this composition. |
-| A8 | The behavior change to t1000 (Phase 70 D-14 no-op-with-no-config → Phase 74 must-have-config) is acceptable to Ashley because CONTEXT.md § "No silent fallbacks" locks the direction. | Runtime State Inventory + Pitfall 1 | [ASSUMED via CONTEXT.md text]. Wrong → Ashley wants a t1000 fallback path back in, plan needs a different shape. |
+| A8 | The behavior change to t1000 (Phase 70 D-14 no-op-with-no-config → Phase 74 must-have-config) is acceptable to Alice because CONTEXT.md § "No silent fallbacks" locks the direction. | Runtime State Inventory + Pitfall 1 | [ASSUMED via CONTEXT.md text]. Wrong → Alice wants a t1000 fallback path back in, plan needs a different shape. |
 | A9 | The `avatarDirectorSpec` field is not surfaced to the frontend for display — the frontend `BrandingConfig` type mirrors it only because `/api/branding` publishes the whole config, but no React component reads it. | Architectural Responsibility Map | [ASSUMED via CONTEXT.md OUT-OF-SCOPE "no UI edit affordance"]. Verified by: no existing frontend consumer references `ARCHETYPE_SYSTEM_PROMPT` or an equivalent — grep for `director` / `archetype` in `src/ui/**/*.tsx` returns zero hits. |
 
 ## Open Questions
@@ -584,7 +584,7 @@ Also `.planning/phases/20-*` has 6-8 references to the runbook — these are his
 1. **Where exactly does the aesthetic palette prose land inside the seeded director spec?**
    - What we know: `paletteConstraintLine()` current text (`identity-avatar-batch.ts` L176) is the aesthetic prose that needs to migrate. `ARCHETYPE_SYSTEM_PROMPT` (L183-198) is the base spec.
    - What's unclear: Is the seed director spec `ARCHETYPE_SYSTEM_PROMPT + "\n\n" + <aesthetic-palette-prose>`, or does the aesthetic-palette-prose weave into the archetype spec at specific bullet-point (e.g. under "Specify the palette")?
-   - Recommendation: The seed is the current `ARCHETYPE_SYSTEM_PROMPT` text with an inline "PALETTE INSTRUCTION:" paragraph inserted near the palette bullet, phrased so the mechanical hue fact from `paletteHueLine()` at request time makes sense as its concrete instance. Ashley should eyeball the drafted seed at plan-phase discussion.
+   - Recommendation: The seed is the current `ARCHETYPE_SYSTEM_PROMPT` text with an inline "PALETTE INSTRUCTION:" paragraph inserted near the palette bullet, phrased so the mechanical hue fact from `paletteHueLine()` at request time makes sense as its concrete instance. Alice should eyeball the drafted seed at plan-phase discussion.
 
 2. **Does the boot gate need to check `avatarGammaDefault` too?**
    - What we know: CONTEXT.md says gamma is "numeric, optional with a shipped fallback." A missing/invalid gamma means bundled default (0.7) is used.
@@ -598,8 +598,8 @@ Also `.planning/phases/20-*` has 6-8 references to the runbook — these are his
 
 4. **What happens on a t1000 deploy if the operator forgets to seed `/opt/skynet/branding/`?**
    - What we know: Phase 70's D-14 contract said "no host config = bundled defaults = current behavior." Phase 74 breaks D-14 for t1000 by adding a boot-required field.
-   - What's unclear: Whether Ashley wants a runtime warning + fallback for the first t1000 deploy, or wants the hard-fail to force her to seed the config.
-   - Recommendation: Hard-fail is correct per CONTEXT.md § "No silent fallback." Plan phase should explicitly call out that Ashley needs to `sudo mkdir -p /opt/skynet/branding && cat > /opt/skynet/branding/branding.json <<EOF …EOF` via SSM (per CLAUDE.md access model) before ship. Include this in the ship checklist.
+   - What's unclear: Whether Alice wants a runtime warning + fallback for the first t1000 deploy, or wants the hard-fail to force her to seed the config.
+   - Recommendation: Hard-fail is correct per CONTEXT.md § "No silent fallback." Plan phase should explicitly call out that Alice needs to `sudo mkdir -p /opt/skynet/branding && cat > /opt/skynet/branding/branding.json <<EOF …EOF` via SSM (per CLAUDE.md access model) before ship. Include this in the ship checklist.
 
 5. **Where does the frontend BrandingConfig type mirror update land — same plan wave as the backend loader extension, or a separate frontend-only wave?**
    - What we know: Frontend never CONSUMES the new fields (no UI), but the type must match or TypeScript blows up on the `/api/branding` fetch.
@@ -682,8 +682,8 @@ Config policy: `.planning/config.json` sets `workflow.security_enforcement: true
 **Confidence breakdown:**
 - Standard stack: HIGH — every capability verified in-tree, zero new packages
 - Architecture: HIGH — extends Phase 70 patterns, all analogs cited with line refs
-- Pitfalls: HIGH — five of six are code-mechanic pitfalls verified by reading the Phase 70 loader/route; the sixth (Pitfall 3, cross-deployment) is HIGH-severity-MEDIUM-confidence because it depends on Ashley + Stacy confirming the DM-based mechanism
-- Cross-deployment migration: MEDIUM — mechanism is inferable but plan-phase should surface it to Ashley + Stacy for explicit lock
+- Pitfalls: HIGH — five of six are code-mechanic pitfalls verified by reading the Phase 70 loader/route; the sixth (Pitfall 3, cross-deployment) is HIGH-severity-MEDIUM-confidence because it depends on Alice + Stacy confirming the DM-based mechanism
+- Cross-deployment migration: MEDIUM — mechanism is inferable but plan-phase should surface it to Alice + Stacy for explicit lock
 
 **Research date:** 2026-09-04
 **Valid until:** 2026-10-04 (30 days — the Phase 70 patterns are stable and the branding subsystem hasn't churned since ship). Re-verify if any Phase 70 files change between now and plan-phase execution.

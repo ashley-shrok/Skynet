@@ -43,7 +43,7 @@ The modal today has six tabs in one strip at the bottom of the modal (a Telegram
 
 Coordinator identities were added later in the fleet substrate. A coordinator has no role document loaded, doesn't touch the shared work list in the normal way, has no meaningful where-we-left-off carry, and its ONE meaningful piece of state is the role-scoped schedules that fire on it (and get routed to picked actors). Open the current modal on a coordinator and five of six tabs are near-empty and the one tab that should carry its whole reason for existing is truthfully empty — "no scheduled wakeups" — because that tab reads the wrong folder.
 
-Ashley pitched the redesign in-conversation as "divide the identity modal into role level and identity level." Five layout options were sketched (grouped strip, stacked sections, left rail, top scope switch, dashboard cards) and compared side-by-side with actor vs coordinator states. Variant D — top scope switch — was chosen.
+Alice pitched the redesign in-conversation as "divide the identity modal into role level and identity level." Five layout options were sketched (grouped strip, stacked sections, left rail, top scope switch, dashboard cards) and compared side-by-side with actor vs coordinator states. Variant D — top scope switch — was chosen.
 
 Design system notes worth carrying:
 - The modal's visual language is the pretty-view palette, not the general Skynet dark-mode tokens.

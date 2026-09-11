@@ -31,7 +31,7 @@ The shape deliberately does not add hint text inside the coral, does not visuall
 
 The multi-view drag-and-drop system with coral drop-zone highlighting is already in place. The two drag sources (conversation list row, identity badge of an open session) already produce drag events; the coral seam-drop-target already works for repositioning. The center-of-existing-session region is currently ignored — no highlight, no drop handling — and this change fills that gap.
 
-Ashley uses the app on iPhone and on desktop. Multi-view drag-and-drop is a desktop-only interaction for her in practice — the phone layout can't show the conversation list and pretty view simultaneously, so the drag source and drop target can't coexist onscreen there. Tablet is a plausible third case but untested and out of scope for this change (see § Scope edges).
+Alice uses the app on iPhone and on desktop. Multi-view drag-and-drop is a desktop-only interaction for her in practice — the phone layout can't show the conversation list and pretty view simultaneously, so the drag source and drop target can't coexist onscreen there. Tablet is a plausible third case but untested and out of scope for this change (see § Scope edges).
 
 ## What would make it wrong
 
@@ -53,12 +53,12 @@ Ashley uses the app on iPhone and on desktop. Multi-view drag-and-drop is a desk
 **Out:**
 - Any visual distinction between the two behaviors (color, label, animation variant).
 - Any guard, confirmation, or undo affordance for the replace case.
-- Touch behavior. Ashley has never exercised the existing multi-view drag-and-drop on touch and is not testing it now; whatever the current touch story is (works, doesn't work, partially works) the new center-drop inherits. Not a scope item for this change either way.
+- Touch behavior. Alice has never exercised the existing multi-view drag-and-drop on touch and is not testing it now; whatever the current touch story is (works, doesn't work, partially works) the new center-drop inherits. Not a scope item for this change either way.
 - Any new drag source. Only the two existing sources (conversation list row, open-session identity badge) are considered.
 - Any new drop target other than the body of an already-open session.
 
 **Deferred / tempting-but-no:**
-- Ashley trimmed two suggestions during the shape discussion that could resurface later if the plain shape needs help: (a) a visual distinction between replace-coral and swap-coral, and (b) special handling for the "drag a session that is already showing elsewhere in the grid onto a different open session" edge case. Both were left out on the principle of not complicating the code beyond what the interaction needs, and letting the user manage their own sessions. If either turns out to actually bite in use, they revisit as a follow-up, not as part of this shape.
+- Alice trimmed two suggestions during the shape discussion that could resurface later if the plain shape needs help: (a) a visual distinction between replace-coral and swap-coral, and (b) special handling for the "drag a session that is already showing elsewhere in the grid onto a different open session" edge case. Both were left out on the principle of not complicating the code beyond what the interaction needs, and letting the user manage their own sessions. If either turns out to actually bite in use, they revisit as a follow-up, not as part of this shape.
 
 ## Vehicle notes
 

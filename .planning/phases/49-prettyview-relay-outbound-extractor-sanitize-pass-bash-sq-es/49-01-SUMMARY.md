@@ -62,7 +62,7 @@ by `restoreApostrophes` wrapper). Source: REPORT.md in
 
 ## Deferred (out of this plan's scope)
 
-- **Self-referential heredoc-content-bleed**: a `BODY=$(cat <<'EOF' … EOF)` whose heredoc CONTENT contains a substring `BODY='...'` — Strategy 1 (BODY-sq) matches the inner substring before Strategy 9 (heredoc-inline) fires. Documented by SELF-REFERENTIAL test, not fixed by this phase. Fixing requires heredoc-first reorder (breaks PRIORITY-REGRESSION), a heredoc-content pre-mask, or a shell-aware parser (major rewrite). Deferred per CONTEXT.md § Deferred Ideas and Ashley's 2026-08-20 greenlight.
+- **Self-referential heredoc-content-bleed**: a `BODY=$(cat <<'EOF' … EOF)` whose heredoc CONTENT contains a substring `BODY='...'` — Strategy 1 (BODY-sq) matches the inner substring before Strategy 9 (heredoc-inline) fires. Documented by SELF-REFERENTIAL test, not fixed by this phase. Fixing requires heredoc-first reorder (breaks PRIORITY-REGRESSION), a heredoc-content pre-mask, or a shell-aware parser (major rewrite). Deferred per CONTEXT.md § Deferred Ideas and Alice's 2026-08-20 greenlight.
 
 - **Unextractable-by-design 3.6% tail**: tiffany's `jq -Rs … body: file > req.json; curl … --data-binary @req.json` shape — body is on disk, not in the command. Falls through to rawCommand mono-block render. Not addressed by this phase.
 

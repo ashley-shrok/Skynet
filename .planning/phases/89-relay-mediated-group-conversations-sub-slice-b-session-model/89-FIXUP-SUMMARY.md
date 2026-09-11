@@ -72,7 +72,7 @@ completed: 2026-09-08
 - **Duration:** ~55 min (H-1 RED at 15:40Z through N-3 commit at 16:18Z)
 - **Started:** 2026-09-08T15:40:00Z
 - **Completed:** 2026-09-08T16:18:00Z
-- **Commits:** 15 (5 test-RED, 4 feat-GREEN, 4 fix/feat inline, 1 refactor-batch, 1 docs — Ashley's "hit anything worth fixing" surface delivered atomically)
+- **Commits:** 15 (5 test-RED, 4 feat-GREEN, 4 fix/feat inline, 1 refactor-batch, 1 docs — Alice's "hit anything worth fixing" surface delivered atomically)
 - **Files created:** 3 (enumerate-agent-mxids.ts + .test.ts + this SUMMARY)
 - **Files modified:** 17 (source + tests across relay-sessions, matrix, database routes, schema)
 - **Test count:** 21 NEW scoped tests added across 5 test files. All 249 tests across the touched Phase 89 surface pass green.
@@ -317,7 +317,7 @@ Feature additions without new primitive coupling (M-2, M-3, M-5, M-6) committed 
 
 ## Next Steps
 
-**Ready for hand-off + Ashley greenlight → ship gate.** No push per fleet rule; orchestrator owns the deploy motion.
+**Ready for hand-off + Alice greenlight → ship gate.** No push per fleet rule; orchestrator owns the deploy motion.
 
 **For slice D (frontend):** the observation loop now populates `relay_room_sessions.room_title` from `getRoomName` (M-1 wire), so the sidebar can render meaningful labels for named rooms and fall back on the two-party otherwise for unnamed DMs/rooms.
 

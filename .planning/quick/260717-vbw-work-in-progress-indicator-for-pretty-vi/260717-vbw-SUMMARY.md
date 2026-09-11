@@ -51,7 +51,7 @@ tags: [pretty-view, wip-indicator, patch-51]
 
 ## Known Edge Case (documented, no code fix)
 
-If Claude Code crashes or is killed mid-tool-call, the last JSONL event will be `tool_use` or `tool_result` and WIP will remain `true` until new user input arrives. Accepted per Ashley's design brief. No fix in this patch.
+If Claude Code crashes or is killed mid-tool-call, the last JSONL event will be `tool_use` or `tool_result` and WIP will remain `true` until new user input arrives. Accepted per Alice's design brief. No fix in this patch.
 
 ## Deviations from Plan
 
@@ -59,4 +59,4 @@ None. Plan executed exactly as written.
 
 ## Deploy Status
 
-NOT DEPLOYED. Requires a future `build-skynet.sh` + `docker compose up -d --force-recreate skynet` behind the mandatory 15-min deadman when Ashley authorizes.
+NOT DEPLOYED. Requires a future `build-skynet.sh` + `docker compose up -d --force-recreate skynet` behind the mandatory 15-min deadman when Alice authorizes.

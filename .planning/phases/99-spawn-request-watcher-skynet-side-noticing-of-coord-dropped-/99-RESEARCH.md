@@ -51,7 +51,7 @@
 - End-to-end wire test: full flow from fleet-status tick through queue through worker through response file drop (mocked orchestrator + SSH channel).
 
 **Ship coordination (D-23)**
-- All changes held from ship until Ashley greenlights whole id-skill-revamp campaign. NO push/deploy as part of executor's remit.
+- All changes held from ship until Alice greenlights whole id-skill-revamp campaign. NO push/deploy as part of executor's remit.
 
 ### Claude's Discretion (implementation-level, planner decides)
 

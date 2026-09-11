@@ -13,7 +13,7 @@ and `/voice/speak-stream`) — this is intentional and IS the cost gate.
 - Verifying the policy is live via one `aws` CLI command.
 - Understanding the off-switch behavior (policy absence = feature dark, no
   crash, no error cascade).
-- Instance-specific notes for **t1000 (Ashley)** and **T800 (Stacy)**.
+- Instance-specific notes for **t1000 (Alice)** and **T800 (Stacy)**.
 - Ship-motion coordination checklist.
 
 ## Prerequisites
@@ -32,7 +32,7 @@ and `/voice/speak-stream`) — this is intentional and IS the cost gate.
 - IAM permissions on the operator side to attach a customer-managed policy (or
   inline policy) to that EC2 instance role. If the operator doesn't have the
   IAM perms, they need to coordinate with the cloud-infra team (Iris on
-  Ashley's side).
+  Alice's side).
 
 ## Steps
 
@@ -166,7 +166,7 @@ switching. Both t1000 and T800 have `us-east-1` generative available.
 - **Policy-attach is the primary cost gate.** Not attaching the policy = zero
   AWS spend. This is the shape's off-switch by design.
 
-## For t1000 (Ashley's instance)
+## For t1000 (Alice's instance)
 
 Policy is already attached:
 `termix-ssm-role/PollyTranscribeExploratory` (Iris attached 2026-09-09 for the
@@ -184,13 +184,13 @@ just re-run the two `aws` CLI checks in step 3–4 above.
 Follow the numbered steps above using Stacy's own AWS account and her EC2
 instance role. No modifications needed; the doc is the whole runbook.
 
-If any step is unclear or fails, contact Ashley (not tabitha directly —
-Ashley routes questions to the right person).
+If any step is unclear or fails, contact Alice (not tabitha directly —
+Alice routes questions to the right person).
 
 ## Coordination checklist (ship-motion)
 
 - [ ] Ping Iris to re-scope t1000 policy name from `PollyTranscribeExploratory`
-      to a production name on `termix-ssm-role` (pre-ship, Ashley owns).
+      to a production name on `termix-ssm-role` (pre-ship, Alice owns).
 - [ ] Confirm `SKYNET_BASE` URL is set correctly for tg-bridge → Skynet
       routing (per Plan 08 rewire).
 - [ ] Confirm `ffmpeg` is present in the docker image (per Plan 01;

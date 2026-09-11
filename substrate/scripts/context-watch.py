@@ -40,7 +40,7 @@ The loop (thresholds are % of the context window USED; higher = fuller):
     recycle mechanism.
   - >= nudge (default 80), once -> print a SOFT nudge: at your next stopping point run
     `/id reset` (it saves, then drops the recycle sentinel). Finish current work first.
-  - >= ping (default 95), once -> print a LOUD wake: recycle overdue, ping @ashley on
+  - >= ping (default 95), once -> print a LOUD wake: recycle overdue, ping @alice on
     the relay now + run `/id reset` immediately. (Shouldn't fire — agents comply on the
     nudge well before here; this is the human backstop.)
 
@@ -55,7 +55,7 @@ via the Skynet distributor (see feature 02). Stdlib only.
 Usage:  python3 context-watch.py <identity_dir>
 Env:    CTXWATCH_POLL_SEC   (default 180)  loop granularity; context climbs slowly.
         CTXWATCH_NUDGE_PCT  (default 80)   soft "save + sentinel at next stop" threshold.
-        CTXWATCH_PING_PCT   (default 95)   loud "recycle overdue, ping Ashley" threshold.
+        CTXWATCH_PING_PCT   (default 95)   loud "recycle overdue, ping Alice" threshold.
         CTXWATCH_BRIDGE_DIR (override)     dir to look for bridge files; default = tempdir.
 """
 
@@ -215,7 +215,7 @@ def main():
             if pct >= PING and not fired(pinged_f):
                 print(
                     "\U0001f6a8 [context-watch: %s] context at %d%% — recycle OVERDUE. "
-                    "Right now: message @ashley on the relay that you're at the context "
+                    "Right now: message @alice on the relay that you're at the context "
                     "limit, then run `/id reset` immediately." % (name, pct),
                     flush=True,
                 )

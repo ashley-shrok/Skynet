@@ -9,7 +9,7 @@ dependency-graph:
   provides:
     - "detectIdReset(obj) pure predicate exported from session-file-parser.ts — usable by any consumer that wants to observe /id reset events at the raw JSONL object level"
     - "onLine consumer wiring: paneStateEmitter.emit('holding', 'id_reset') fires on the FIRST-priority parser observation channel (before Layer 1 tail-state reducer), giving pretty-view the earliest real 'recycling starts now' signal per PS30-02"
-    - "HARD LOCK-preserving detection design: /id reset user turns still render as normal chat bubbles in pretty view (per Ashley's slash-command visibility doctrine at claude-session-server.ts:1620-1623 — unchanged) AND fire the pane_state:holding transition — orthogonal channels"
+    - "HARD LOCK-preserving detection design: /id reset user turns still render as normal chat bubbles in pretty view (per Alice's slash-command visibility doctrine at claude-session-server.ts:1620-1623 — unchanged) AND fire the pane_state:holding transition — orthogonal channels"
   affects:
     - "src/backend/claude-session/session-file-parser.ts (new export; parseSessionLine untouched)"
     - "src/backend/claude-session/claude-session-server.ts (onLine gains observation channel; Layer 1 arm_holding branch INTACT per F2 acknowledgment)"
@@ -38,7 +38,7 @@ metrics:
 
 # Phase 30 Plan 30-02: Backend Parser /id reset Observation Channel Summary
 
-Teaches `session-file-parser.ts` to detect `/id reset` in user turns via a pure `detectIdReset(obj)` predicate, and wires `onLine` in `claude-session-server.ts` to fire `paneStateEmitter.emit("holding", "id_reset")` on the observation — the earliest real "recycling starts now" signal per PS30-02. The `/id reset` user turn CONTINUES to render as a normal chat bubble in pretty view (Ashley's slash-command visibility HARD LOCK preserved verbatim per the revised B1 CONTEXT.md design). Layer 1 tail-state reducer's `arm_holding` branch stays intact as defense-in-depth (F2 acknowledgment).
+Teaches `session-file-parser.ts` to detect `/id reset` in user turns via a pure `detectIdReset(obj)` predicate, and wires `onLine` in `claude-session-server.ts` to fire `paneStateEmitter.emit("holding", "id_reset")` on the observation — the earliest real "recycling starts now" signal per PS30-02. The `/id reset` user turn CONTINUES to render as a normal chat bubble in pretty view (Alice's slash-command visibility HARD LOCK preserved verbatim per the revised B1 CONTEXT.md design). Layer 1 tail-state reducer's `arm_holding` branch stays intact as defense-in-depth (F2 acknowledgment).
 
 ## What Shipped
 
@@ -54,7 +54,7 @@ Teaches `session-file-parser.ts` to detect `/id reset` in user turns via a pure 
 
 ## HARD LOCK Preservation — Verification Evidence
 
-Ashley's pre-existing slash-command visibility HARD LOCK (`claude-session-server.ts:1620-1623` — the "slash commands must remain visible in pretty view. The state transition is orthogonal to whether the /id reset text renders as a chat bubble. DO NOT `return` here." doctrine block) is byte-identical:
+Alice's pre-existing slash-command visibility HARD LOCK (`claude-session-server.ts:1620-1623` — the "slash commands must remain visible in pretty view. The state transition is orthogonal to whether the /id reset text renders as a chat bubble. DO NOT `return` here." doctrine block) is byte-identical:
 
 - `git diff src/backend/claude-session/claude-session-server.ts | grep -cE '^-.*(HARD LOCK|slash commands|visible in pretty view|DO NOT|return.*here)'` → **0** (no lines from the doctrine block removed).
 - Tests 9, 10, 11 in `session-file-parser.id-reset.test.ts` assert `parseSessionLine(<any /id reset or /id save line>).kind === "message"` — the /id reset text emits as a normal chat bubble via the unchanged `case "message"` dispatch branch.
@@ -133,7 +133,7 @@ Backend claude-session suite went from 23 files / 292 tests post-30-01 to 24 fil
 
 - **Task 1 acceptance:** `grep -c 'detectIdReset(' src/backend/claude-session/session-file-parser.ts` returns 3, not the specified 1. The 3 hits are: (a) one function declaration (`export function detectIdReset(...)`), plus (b) two JSDoc references (`* JSONL line, \`detectIdReset(JSON.parse(line))\` and`, `* for a real /id reset line, BOTH \`detectIdReset(JSON.parse(line)) === true\``). The B1 intent — *parseSessionLine does NOT call detectIdReset* — is exactly met: zero actual code call sites exist in the parser (verified via `grep -cE "^[^*/]*[^ ]detectIdReset\(" ...` returning 0). The two extra grep hits are documentation-only.
 - **Task 2 acceptance:** `grep -c 'paneStateEmitter\.emit("holding", "id_reset")' src/backend/claude-session/claude-session-server.ts` returns 2, not the specified 1. The 2 hits are: (a) the observation-channel call at line 1625, plus (b) one reference inside the F2 acknowledgment comment (`// above fires paneStateEmitter.emit("holding", "id_reset") on real`). Only 1 actual code call site exists.
-- **Task 2 acceptance:** `grep -c "slash commands must remain visible in pretty view"` returns 0, not 1. The string legitimately spans two comment lines in the pre-existing HARD LOCK block (`// a message (per Ashley's HARD LOCK: slash commands must remain` / `// visible in pretty view).`). The plan-text criterion was written as if the string were on one line. HARD LOCK preservation was verified via the diff-based check `git diff | grep -cE '^-.*(HARD LOCK|slash commands|visible in pretty view|DO NOT|return.*here)'` returning 0 — no lines removed from the doctrine block.
+- **Task 2 acceptance:** `grep -c "slash commands must remain visible in pretty view"` returns 0, not 1. The string legitimately spans two comment lines in the pre-existing HARD LOCK block (`// a message (per Alice's HARD LOCK: slash commands must remain` / `// visible in pretty view).`). The plan-text criterion was written as if the string were on one line. HARD LOCK preservation was verified via the diff-based check `git diff | grep -cE '^-.*(HARD LOCK|slash commands|visible in pretty view|DO NOT|return.*here)'` returning 0 — no lines removed from the doctrine block.
 - **Fix:** None needed for the code — all criteria's INTENTS are met. Documented for future planner-tool arithmetic-precision improvements. This matches the Plan 30-01 SUMMARY §Deviations §1 pattern (`createPaneStateEmitter` grep count off by 1 due to the import statement being counted).
 
 ### 3. [Not a deviation — scope-boundary compliance] Parallel-wave 30-03 uncommitted diffs in src/ui/ NOT touched

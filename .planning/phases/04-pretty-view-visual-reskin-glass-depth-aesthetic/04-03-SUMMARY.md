@@ -37,7 +37,7 @@ metrics:
 
 # Phase 4 Plan 3: Build Verification + UAT Prep + AGENTS.md Doc Draft Summary
 
-**One-liner:** Phase 4 code-side ready for deploy — `npm run build` clean, all Phase 4 tokens survived Vite + Tailwind v4 tree-shaking, Terminal.tsx / backend / docker / nginx / dependencies all untouched, and two new artifact files (`04-UAT-CHECKLIST.md` + `04-AGENTS-MD-ENTRY.md`) prepared for Ashley's separate deploy green-light.
+**One-liner:** Phase 4 code-side ready for deploy — `npm run build` clean, all Phase 4 tokens survived Vite + Tailwind v4 tree-shaking, Terminal.tsx / backend / docker / nginx / dependencies all untouched, and two new artifact files (`04-UAT-CHECKLIST.md` + `04-AGENTS-MD-ENTRY.md`) prepared for Alice's separate deploy green-light.
 
 ## Task 1 — Build Verification
 
@@ -64,7 +64,7 @@ All three tokens made it through the pipeline. The `Terminal-CZuTs-wn.js` chunk 
 
 **Created**: `.planning/phases/04-pretty-view-visual-reskin-glass-depth-aesthetic/04-UAT-CHECKLIST.md`
 
-**Coverage**: all 10 VISUAL-01 through VISUAL-10 requirements represented as walk-through sections with concrete in-app actions + expected outcomes + failure indicators. Ashley walks the checklist post-deploy, checks boxes, signs off.
+**Coverage**: all 10 VISUAL-01 through VISUAL-10 requirements represented as walk-through sections with concrete in-app actions + expected outcomes + failure indicators. Alice walks the checklist post-deploy, checks boxes, signs off.
 
 **Key structural choices in the checklist**:
 - **VISUAL-10 first** as the safety canary — if terminal chrome looks different, STOP and revert. Structural: canary before content check.
@@ -111,12 +111,12 @@ Phase 4 is **code-side complete**. All three plan waves have shipped:
 - Wave 3 (this SUMMARY): build verification + UAT prep + AGENTS.md doc draft.
 
 **Between now and deploy-ready**:
-1. Ashley reviews `04-UAT-CHECKLIST.md` and gives explicit per-deploy green light (blanket pre-authorization ≠ per-deploy green light per tina.md rule).
+1. Alice reviews `04-UAT-CHECKLIST.md` and gives explicit per-deploy green light (blanket pre-authorization ≠ per-deploy green light per tina.md rule).
 2. Arm the mandatory 15-min deadman (`nohup sudo -b bash -c 'sleep 900; [ ! -f /tmp/skynet-keep-patched ] && bash /opt/skynet/.tmp-revert.sh' > /tmp/skynet-revert-bg.log 2>&1`).
 3. Run `sudo bash /opt/skynet/skynet-patches/build-skynet.sh` to build `skynet-patched:local` on the EC2 from the current branch state.
 4. `cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`.
-5. Ashley walks `04-UAT-CHECKLIST.md` to verify visual-01 through visual-10 all pass on the live deploy.
+5. Alice walks `04-UAT-CHECKLIST.md` to verify visual-01 through visual-10 all pass on the live deploy.
 6. On green: pin via the **narrow pkill pattern** (`sudo touch /tmp/skynet-keep-patched && sudo pkill -f 'sleep 900; \[ ! -f /tmp/skynet-keep-patched'`).
 7. Immediately at pin: paste `04-AGENTS-MD-ENTRY.md` into `/home/ubuntu/AGENTS.md` as patch #69 (or whatever the current-highest+1 is at pin time; verify via `grep -E '^   [0-9]+\.' AGENTS.md | tail -3`).
 
-If any UAT step fails: the 15-min deadman auto-reverts, or Ashley can trigger immediate revert via `sudo bash /opt/skynet/.tmp-revert.sh`.
+If any UAT step fails: the 15-min deadman auto-reverts, or Alice can trigger immediate revert via `sudo bash /opt/skynet/.tmp-revert.sh`.

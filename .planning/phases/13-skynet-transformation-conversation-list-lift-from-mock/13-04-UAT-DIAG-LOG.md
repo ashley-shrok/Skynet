@@ -3,10 +3,10 @@ phase: 13-skynet-transformation-conversation-list-lift-from-mock
 plan: 04
 type: uat-diagnostic
 requirements: [SHAPE-05]
-status: pre-UAT complete; blocked on Ashley live UAT of deployed Waves 1-3 + shell chrome
+status: pre-UAT complete; blocked on Alice live UAT of deployed Waves 1-3 + shell chrome
 tags: [ui, uat, diagnostics, ready-dot, mobile-scroll, safe-area, phase-13]
 generated: 2026-07-23T15:22:08Z
-generated_by: executor (autonomous pre-UAT static-analysis pass, per Ashley's "go all the way through" directive)
+generated_by: executor (autonomous pre-UAT static-analysis pass, per Alice's "go all the way through" directive)
 ---
 
 # Phase 13 Plan 04 — Post-Lift UAT Diagnostic Log
@@ -22,7 +22,7 @@ observability items:
 - **Section 1** — Automated diagnostic findings (executor's static-analysis
   pass; provisional verdicts for the 4 dot-visibility candidates + mobile
   scroll analysis + safe-area chain audit)
-- **Section 2** — Ashley's UAT observations (TEMPLATE — Ashley fills after
+- **Section 2** — Alice's UAT observations (TEMPLATE — Alice fills after
   Waves 1-3 deploy and she uses the app on both desktop + iPhone PWA)
 - **Section 3** — Route-back matrix (executor's exhaustive next-step
   enumeration for every combination of UAT findings)
@@ -33,8 +33,8 @@ observability items:
   bug, the route-back matrix documents it but NO EDIT happens in Wave 4)
 - No source edits in `src/` under Wave 4 — `files_modified` in the plan is
   docs-only (this log + a SUMMARY.md)
-- Ashley's UAT observation sections in Section 2 are TEMPLATES — the executor
-  does NOT invent Ashley's observations, only provides the scaffolding
+- Alice's UAT observation sections in Section 2 are TEMPLATES — the executor
+  does NOT invent Alice's observations, only provides the scaffolding
 
 ---
 
@@ -45,7 +45,7 @@ observability items:
 The `conversation-list-idle-vs-wip-state` bounty (now merged into master)
 preserved 4 diagnostic candidates for the "dot not visible after clicking 3
 conversations" failure mode. Post-Wave-1 lift may fix indirectly, but the
-plan requires source-read verdicts on all 4 before Ashley UATs.
+plan requires source-read verdicts on all 4 before Alice UATs.
 
 #### Candidate A: Terminal.tsx `isIdle` null-start (ticker not fired post-recreate?)
 
@@ -105,14 +105,14 @@ alignment dependency.**
 
 **Root failure modes hidden in this path:**
 
-- **A.1 (Startup null-start):** If Ashley clicks a row, Terminal.tsx mounts,
+- **A.1 (Startup null-start):** If Alice clicks a row, Terminal.tsx mounts,
   WS opens, but the backend has NOT yet sent an `{type:"idle"}` frame before
   she clicks a 2nd row, isIdle stays null → published value stays null →
   the store returns null → dot NEVER shows on the first row until the
   backend eventually publishes idle. If Claude is genuinely working when
   the pane opens, this is correct behavior. But if Claude is IDLE at the
   prompt when the pane opens, the row won't show a dot until the backend
-  emits an initial `{type:"idle", idle:true}` frame. Question for Ashley:
+  emits an initial `{type:"idle", idle:true}` frame. Question for Alice:
   does the backend emit an initial-state frame on WS attach, or only on
   transitions? (Comment at Terminal.tsx:241 says "plus an initial state on
   WS attach" but no runtime observation confirms this.)
@@ -133,12 +133,12 @@ alignment dependency.**
   252-257 has NO cleanup function. Terminal.tsx comment at line 250 says
   "deliberately NO cleanup — preserve last-known state across route
   changes so a remount doesn't stall on null waiting for the next backend
-  frame." — GOOD. This means when Terminal.tsx unmounts (e.g. Ashley
+  frame." — GOOD. This means when Terminal.tsx unmounts (e.g. Alice
   clicks away), the last-known isIdle stays published in the store,
   keeping the row's dot visible until the NEXT mount republishes.
   Consistent with the design intent.
 
-**Recommended Ashley runtime verification:**
+**Recommended Alice runtime verification:**
 Open DevTools console and paste:
 ```js
 // After clicking 3 conversations
@@ -197,7 +197,7 @@ Line 253-256: const hostId = hostConfig.id;
      `${hostId}:` but Terminal is publishing at `${hostId}:actualName`.
      **KEY MISMATCH POSSIBLE in the "opened without pre-picked tmux session"
      path.**
-4. **In the fleet-derived synthetic rows path** (rows Ashley sees for
+4. **In the fleet-derived synthetic rows path** (rows Alice sees for
    sessions on other machines that she hasn't attached to yet), the row
    carries `targetTmuxSession: session.sessionName`, so the key aligns.
 
@@ -206,13 +206,13 @@ picked tmux session" code path; PASS for fleet-derived synthetic rows.**
 
 **Root failure modes:**
 
-- **B.1 (Fresh-terminal path):** Ashley opens a NewSessionDialog, picks a
+- **B.1 (Fresh-terminal path):** Alice opens a NewSessionDialog, picks a
   host, DOESN'T specify a tmux session (backend picks one). Tab is created
   with `targetTmuxSession: null`. Row's key = `${hostId}:`. Terminal
   attaches, backend responds with `sessionName="whatever"`, Terminal
   publishes `${hostId}:whatever`. Row's `useSessionWorking(${hostId}:)`
   never sees the boolean the store has at `${hostId}:whatever`. **Dot never
-  shows on this row until Ashley reloads and the row is re-derived from
+  shows on this row until Alice reloads and the row is re-derived from
   the updated Tab.**
 
   BUT — do we ever update `Tab.targetTmuxSession` after the fact? Let me
@@ -222,18 +222,18 @@ picked tmux session" code path; PASS for fleet-derived synthetic rows.**
   in openTabs, then the row would re-derive with the correct key on the
   next store notify. **Needs runtime confirmation.**
 
-- **B.2 (Session-picked path):** Ashley opens a NewSessionDialog and PICKS
+- **B.2 (Session-picked path):** Alice opens a NewSessionDialog and PICKS
   a specific tmux session (e.g. "claude-agent-1"). Tab is created with
   `targetTmuxSession: "claude-agent-1"`. Row's key = `${hostId}:claude-agent-1`.
   Terminal attaches, backend responds with `sessionName="claude-agent-1"`,
   publishes at same key. **Keys align — dot works.**
 
 - **B.3 (Fleet-discovery path):** Row was auto-synthesized from a
-  FleetSession, `targetTmuxSession: session.sessionName`. If Ashley
+  FleetSession, `targetTmuxSession: session.sessionName`. If Alice
   clicks the row, openTab is called with that same sessionName. Key
   aligns. **Dot works.**
 
-**Recommended Ashley runtime verification:**
+**Recommended Alice runtime verification:**
 1. Open a NewSessionDialog, pick a host, do NOT specify a tmux session
    (let backend pick one).
 2. After Claude is idle at the prompt, check if the row shows a dot.
@@ -292,11 +292,11 @@ Lines 609-615: // Patch #137: every non-null selection is an active-set engageme
    read at PrettyConversationsPanel.tsx:327,372,398 reads from this stable
    snapshot.
 4. **Fresh browser session, first page load, no sessionStorage entry yet**:
-   activeSet starts as empty Set. Ashley clicks Row A → `selectConversation`
+   activeSet starts as empty Set. Alice clicks Row A → `selectConversation`
    → `addToActiveSet('A')` → activeSet = `{'A'}` → sessionStorage updated
    → notify() → panel re-renders with `activeSet.has('A') === true`.
    Row A now carries `.active-set` class → dot can render.
-5. **Page reload after Ashley has clicked 3 conversations**: sessionStorage
+5. **Page reload after Alice has clicked 3 conversations**: sessionStorage
    still has `["A","B","C"]` (sessionStorage persists across page reloads
    within the same tab). Module-load hydrate populates activeSet = `{A,B,C}`.
    First render: all 3 rows carry `.active-set`. Dot renders on all 3
@@ -310,7 +310,7 @@ load; no race window with first render; sessionStorage rehydration correct.**
 **No known failure modes in this candidate.** The only edge case is
 sessionStorage being unavailable (SSR / JSDOM / quota exceeded) — silently
 falls back to empty Set, then addToActiveSet works in-memory only. In
-Ashley's iPhone Safari PWA, sessionStorage is standard and available.
+Alice's iPhone Safari PWA, sessionStorage is standard and available.
 
 #### Candidate D: PrettyConversationRowLive Rules-of-Hooks compliance
 
@@ -465,7 +465,7 @@ Line 334-337:  onTouchStart={isMobile && !isRdp ? onTouchStart : undefined}
 
 **PROVISIONAL VERDICT: UNCHANGED FROM PRE-WAVE-1 — Wave 1 did not add
 `touch-action: pan-y` or otherwise change the touch handler strategy;
-freeze may still reproduce. If Ashley confirms scroll works, no action
+freeze may still reproduce. If Alice confirms scroll works, no action
 needed (touch handler bail-out at line 175 is enough). If it still
 freezes, the recommendation is to add `.pv-row { touch-action: pan-y; }`
 to pretty-conversations.css to explicitly permit vertical browser scroll
@@ -476,8 +476,8 @@ and constrain to horizontal swipe.**
 - **1B.1 (Angle tolerance too tight):** If `PC_SWIPE_ANGLE_TOLERANCE` is
   too tight (e.g. 8-12 px), an actual vertical scroll gesture starting
   with a small dx from finger placement won't hit the "vertical bail-out"
-  threshold before Ashley has moved enough to feel scroll-lock. Value
-  should be checked (Wave 1 preserved it from pre-Wave-1). Need Ashley's
+  threshold before Alice has moved enough to feel scroll-lock. Value
+  should be checked (Wave 1 preserved it from pre-Wave-1). Need Alice's
   UAT to say whether freeze is "instant lock" (angle-tolerance too tight)
   or "brief hitch" (React re-render pause during dxLive updates) or
   "no freeze at all" (Wave 1 obviated).
@@ -494,7 +494,7 @@ and constrain to horizontal swipe.**
   `backdrop-filter: blur(20px) saturate(1.5)` in its base state. If
   Safari's Metal compositor renders each row's backdrop-filter on the
   main thread, scrolling through 20+ rows can trigger a stutter that
-  Ashley perceives as freeze. Ashley's DevTools trace would confirm
+  Alice perceives as freeze. Alice's DevTools trace would confirm
   or reject this.
 
 ### 1C. `100dvh` / `100vh` safe-area padding escape
@@ -617,7 +617,7 @@ Lines 407-420: {inActiveSet && isWorking === false && (
    visible. The failure mode is exclusively at the JS-condition level
    (Candidate A or B), NOT at the CSS level.
 
-**Ashley's DevTools verification:**
+**Alice's DevTools verification:**
 ```js
 document.querySelectorAll('[data-pv-conv-ready-dot="true"]').length
 ```
@@ -631,7 +631,7 @@ none are visible, CSS is the culprit (would be surprising given the inline
 
 Static analysis: no cleanup effect in the publishSessionWorking useEffect
 (Terminal.tsx:252-257). This is DELIBERATE per comment at line 250. So when
-Ashley closes a Terminal.tsx-mounted pane, the last-known `isWorking` value
+Alice closes a Terminal.tsx-mounted pane, the last-known `isWorking` value
 STAYS in the store. If she re-selects the same conversation later, the row's
 dot state will match the last-known value until the next backend frame updates
 it. This is CORRECT behavior — the store deliberately doesn't leak "unknown"
@@ -639,13 +639,13 @@ state through the pause.
 
 **Fleet-derived row edge case:**
 
-Rows synthesized from a FleetSession (Ashley sees these for tmux sessions on
+Rows synthesized from a FleetSession (Alice sees these for tmux sessions on
 hosts she hasn't attached to yet) carry `targetTmuxSession: session.sessionName`
 (conversation-store.ts:336). BUT Terminal.tsx doesn't publish for a session
-Ashley hasn't opened (Terminal.tsx isn't mounted). So `useSessionWorking` returns
+Alice hasn't opened (Terminal.tsx isn't mounted). So `useSessionWorking` returns
 `null` for these rows → the row's condition `isWorking === false` is false →
-dot never renders. **This is CORRECT semantics per Ashley's v4 lock: dot
-means "in Ashley's active-set AND agent is idle." Fleet-only rows are NOT in
+dot never renders. **This is CORRECT semantics per Alice's v4 lock: dot
+means "in Alice's active-set AND agent is idle." Fleet-only rows are NOT in
 her active-set (she hasn't clicked them). So they're .ambient anyway, and
 `.ambient` rows never carry `.active-set`, so the CSS selector doesn't fire
 either.**
@@ -654,18 +654,18 @@ either.**
 
 ---
 
-## Section 2: Ashley's UAT Observations (TEMPLATE — Ashley fills after UAT)
+## Section 2: Alice's UAT Observations (TEMPLATE — Alice fills after UAT)
 
-### 2.0 Deployment preflight (Ashley checks BEFORE UAT)
+### 2.0 Deployment preflight (Alice checks BEFORE UAT)
 
 - [ ] Waves 1-3 shipped to term.example.com (or local `npm run dev` if
       running against a workstation build)
-- [ ] Ashley freshly reloads the page (Cmd+R desktop / iOS reload PWA) to
+- [ ] Alice freshly reloads the page (Cmd+R desktop / iOS reload PWA) to
       clear stale sessionStorage / activeSet from prior sessions
 - [ ] The 15-min deadman rollback timer (`/opt/skynet/.tmp-revert.sh`) is
       armed if deploying to prod
 
-**Deployment status:** _(Ashley: fill after deploy)_
+**Deployment status:** _(Alice: fill after deploy)_
 
 ### 2A. Overall visual parity with mock v4 (SHAPE-01/02/03/04 sanity)
 
@@ -680,7 +680,7 @@ either.**
    - Transparent pencil button (32x32, no fill, no border)
    - Bare-icon pin with hue-drop-shadow on pinned rows
 
-**Ashley fills after live UAT:**
+**Alice fills after live UAT:**
 
 | Item | Verdict | Notes |
 |------|---------|-------|
@@ -690,7 +690,7 @@ either.**
 | PinAction (bare icon with hue-drop-shadow when pinned) | _PASS / DIFFERENCE_NOTED_ | |
 | AppShell chevron (mock pencil aesthetic) | _PASS / DIFFERENCE_NOTED_ | |
 
-**Ashley's overall verdict:** _PASS / DIFFERENCE_NOTED (with specific delta)_
+**Alice's overall verdict:** _PASS / DIFFERENCE_NOTED (with specific delta)_
 
 ### 2B. Ready-for-attention dot visibility (SHAPE-05 — PRIMARY VERIFICATION)
 
@@ -699,7 +699,7 @@ either.**
 1. Cmd+R / iOS reload the page. Verify activeSet starts empty (no rows
    should have the full-bubble treatment yet; all should be ambient).
 2. Click into Row A (any conversation, ideally one with an idle Claude
-   pane at the prompt). Ashley Prime or similar known-idle identity.
+   pane at the prompt). Alice Prime or similar known-idle identity.
 3. Verify Row A now shows: (a) full-bubble treatment (not ambient),
    (b) a bright hue-cream ready-dot in its `.pv-meta` column (right
    side) — IF the agent is idle. If the agent is working, no dot yet.
@@ -710,7 +710,7 @@ either.**
 8. Rows NOT clicked this session should stay ambient and show NO dot
    regardless of their agent state.
 
-**Ashley fills after live UAT:**
+**Alice fills after live UAT:**
 
 | Row clicked | Was agent idle? | Row went to full-bubble? | Ready-dot visible? | Notes |
 |-------------|-----------------|--------------------------|--------------------|-------|
@@ -718,16 +718,16 @@ either.**
 | Row B: _(name)_ | _yes / no / working_ | _yes / no_ | _yes / no_ | |
 | Row C: _(name)_ | _yes / no / working_ | _yes / no_ | _yes / no_ | |
 
-**Ashley's overall SHAPE-05 verdict:**
+**Alice's overall SHAPE-05 verdict:**
 _PASS (all clicked+idle rows show dot) / FAIL_NO_DOTS (no dots visible on any
 clicked row) / FAIL_PARTIAL (some rows show dots, others don't) / FAIL_WRONG_ROWS
 (dots on non-clicked rows)_
 
-**If FAIL, Ashley's DevTools verification (paste into console):**
+**If FAIL, Alice's DevTools verification (paste into console):**
 ```js
 document.querySelectorAll('[data-pv-conv-ready-dot="true"]').length
 ```
-Expected: 3 (one per clicked+idle row). Actual: _(Ashley fill)_
+Expected: 3 (one per clicked+idle row). Actual: _(Alice fill)_
 
 ```js
 // Also useful for Candidate B verification:
@@ -751,7 +751,7 @@ Expected: 3 (one per clicked+idle row). Actual: _(Ashley fill)_
 4. Try scrolling while a swipe is partially in progress (drag a row
    left ~10px, then try to scroll vertically without lifting finger).
 
-**Ashley fills after live UAT:**
+**Alice fills after live UAT:**
 
 | Scroll gesture | Verdict | Notes (device model, iOS version if freeze) |
 |----------------|---------|--------|
@@ -761,7 +761,7 @@ Expected: 3 (one per clicked+idle row). Actual: _(Ashley fill)_
 | Slow drag up | _smooth / freeze / hitch_ | |
 | Mid-swipe vertical scroll | _smooth / freeze / hitch_ | |
 
-**Ashley's overall scroll verdict:**
+**Alice's overall scroll verdict:**
 _PASS (smooth all gestures) / FAIL_FREEZE (locks partway; specify which gesture) / FAIL_INTERMITTENT (freeze on some scrolls not others)_
 
 ### 2D. Safe-area padding on iPhone PWA (nice-to-have per SHAPE-04)
@@ -772,10 +772,10 @@ _PASS (smooth all gestures) / FAIL_FREEZE (locks partway; specify which gesture)
 2. Verify the LAST row is NOT scrolled behind the home indicator
    (black bar at the bottom of the iPhone screen).
 
-**Ashley fills after live UAT:**
+**Alice fills after live UAT:**
 
 - Last row visible ABOVE home indicator: _PASS / FAIL_
-- Notes: _(Ashley fill; e.g., "last row's bottom edge is ~4px above home indicator, comfortable")_
+- Notes: _(Alice fill; e.g., "last row's bottom edge is ~4px above home indicator, comfortable")_
 
 ### 2E. Pretty-view interior scope verification (SHAPE-06)
 
@@ -789,10 +789,10 @@ _PASS (smooth all gestures) / FAIL_FREEZE (locks partway; specify which gesture)
    - Message rendering (markdown, code blocks, tool bubbles)
    - Chat-column background (no visual change)
 
-**Ashley fills after live UAT:**
+**Alice fills after live UAT:**
 
 - Pretty-view interior unchanged from pre-Phase-13: _PASS / FAIL_
-- If FAIL, specific element that changed: _(Ashley fill; ROUTES BACK as
+- If FAIL, specific element that changed: _(Alice fill; ROUTES BACK as
   SHAPE-06 scope violation — hard fail)_
 
 ### 2F. RDP row + shadcn dialogs (SHAPE-06 preservation)
@@ -805,27 +805,27 @@ _PASS (smooth all gestures) / FAIL_FREEZE (locks partway; specify which gesture)
 3. Optionally open any shadcn dialog (NewSessionDialog, TmuxSessionPicker,
    SSHAuthDialog, OPKSSHDialog) and confirm visual unchanged.
 
-**Ashley fills after live UAT:**
+**Alice fills after live UAT:**
 
 - RDP pane visual unchanged: _PASS / FAIL_
 - Shadcn dialogs visual unchanged: _PASS / FAIL_
-- If FAIL, which surface changed: _(Ashley fill; ROUTES BACK as SHAPE-06
+- If FAIL, which surface changed: _(Alice fill; ROUTES BACK as SHAPE-06
   scope violation — hard fail)_
 
-### 2G. Freeform observations (Ashley's optional additional notes)
+### 2G. Freeform observations (Alice's optional additional notes)
 
-_Ashley: any observation not captured above — visual quirks, unexpected
+_Alice: any observation not captured above — visual quirks, unexpected
 delightful moments, "hmm that's weird" — write it here for the route-back
 matrix to consider._
 
-_(Ashley fill)_
+_(Alice fill)_
 
 ---
 
 ## Section 3: Route-Back Matrix
 
 **Exhaustive next-step enumeration for every possible UAT finding.** Each
-row states: what Ashley observed, what the follow-up work is, whether the
+row states: what Alice observed, what the follow-up work is, whether the
 fix belongs in this phase or the master bounty, and which candidate/
 mechanism it maps to.
 
@@ -838,20 +838,20 @@ mechanism it maps to.
 
 ### 3A. SHAPE-05 dot visibility route-back
 
-| Ashley's finding | Root cause hypothesis | Route-back action | Owner |
+| Alice's finding | Root cause hypothesis | Route-back action | Owner |
 |-----|-----|-----|-----|
 | PASS (all clicked+idle rows show dot) | Wave 1 restructured layout indirectly cleared the failure OR the failure never was in the source | Close SHAPE-05 as PASS. No follow-up needed. | closed |
 | FAIL_NO_DOTS: `data-pv-conv-ready-dot` querySelectorAll returns 0 | JS-gate `inActiveSet && isWorking === false` never evaluates to true | Investigate which side is false. If activeSet is empty despite clicking rows → Candidate C failure (unlikely per static analysis but not impossible on iOS Safari PWA — check sessionStorage in Safari devtools). If isWorking never === false → Candidate A or B failure. | phase-13 (diagnostic session) |
-| FAIL_NO_DOTS: `data-pv-conv-ready-dot` querySelectorAll returns 3 but Ashley sees 0 | CSS `display: none` is winning somehow (unlikely given inline `style="display: block"` at Row.tsx:418) OR the dot is rendered but visually hidden by a z-index / clip-path / opacity issue elsewhere | Ashley inspects the DOM element in devtools: `document.querySelector('[data-pv-conv-ready-dot]')` → check computed style for `display`, `visibility`, `opacity`, and any parent with `overflow: hidden` clipping it. | phase-13 (diagnostic session) |
+| FAIL_NO_DOTS: `data-pv-conv-ready-dot` querySelectorAll returns 3 but Alice sees 0 | CSS `display: none` is winning somehow (unlikely given inline `style="display: block"` at Row.tsx:418) OR the dot is rendered but visually hidden by a z-index / clip-path / opacity issue elsewhere | Alice inspects the DOM element in devtools: `document.querySelector('[data-pv-conv-ready-dot]')` → check computed style for `display`, `visibility`, `opacity`, and any parent with `overflow: hidden` clipping it. | phase-13 (diagnostic session) |
 | FAIL_PARTIAL: some rows show dots, others don't | **Candidate B (sessionWorkingKey mismatch) confirmed for the "fresh-terminal" path** — rows opened with `targetTmuxSession=null` won't match Terminal.tsx's published key at real backend sessionName | Add a follow-up plan to update Tab.targetTmuxSession from Terminal.tsx's `onTmuxSessionChange` callback (or plumb it through openTabs). Alternative: change publish key format to include a wildcard match. Root fix is in the Tab-lifecycle layer, not Terminal.tsx. | phase-13 (13-05 or 13-04-follow-up) — likely a 1-file fix in AppShell where openTabs is managed |
-| FAIL_PARTIAL: only fleet-derived synthetic rows fail | **Candidate C ambiguity: fleet-only rows are never in activeSet on click (per intent) — they should be routed by `onDetachedRowClick` and NOT show dot until Ashley attaches** | Verify Ashley's expectation: dot on fleet-only rows is EXPLICITLY NOT part of SHAPE-05 (per Panel.tsx:53 detached-row plumbing). If Ashley thinks it should — that's a Rule 4 architectural request, needs discussion. If not — closed. | closed (SHAPE-05 is active-set only) |
-| FAIL_WRONG_ROWS: dots on non-clicked rows | activeSet incorrectly populated OR a shared sessionStorage entry from a prior session leaked in | Ashley clears sessionStorage: `sessionStorage.removeItem('pv-conv-active-set')` in devtools console, then reloads. If dots reappear on non-clicked rows immediately → NEW bug in addToActiveSet call path (not previously suspected). If they don't reappear → stale sessionStorage cleared correctly. | phase-13 (13-05 or 13-04-follow-up) if reproducible after clear |
-| FAIL: dot doesn't appear until Ashley switches away from the pane and back | **Candidate A confirmed: no client-side "assume idle at connect" fallback; backend's initial-state `{type:"idle"}` frame lag** | Options: (1) Add client-side default `setIsIdle(true)` in Terminal.tsx after WS-attach and before backend's first frame arrives — but this is a **Terminal.tsx edit, forbidden in this plan** per scope boundary. Route-back is: **fold into master bounty as a follow-up** or into a Phase 14 plan that owns Terminal.tsx. (2) Change Panel-side null-handling: treat null-store-state as "assume idle" for rows already in activeSet — riskier semantics change, needs Ashley's Rule 4 approval. | master (Terminal.tsx edit forbidden here) OR phase-13 (13-04-follow-up if Panel-side null-handling change is preferred) |
-| PASS but with a delay: dot appears 1-2 seconds after clicking | Same as above (Candidate A) — backend's initial-state frame lag is real but tolerable | Close SHAPE-05 as PASS with a note in the master bounty about the initial-frame lag for future optimization. | closed (Ashley likely accepts this delay per verbatim "just so I know they've engaged") |
+| FAIL_PARTIAL: only fleet-derived synthetic rows fail | **Candidate C ambiguity: fleet-only rows are never in activeSet on click (per intent) — they should be routed by `onDetachedRowClick` and NOT show dot until Alice attaches** | Verify Alice's expectation: dot on fleet-only rows is EXPLICITLY NOT part of SHAPE-05 (per Panel.tsx:53 detached-row plumbing). If Alice thinks it should — that's a Rule 4 architectural request, needs discussion. If not — closed. | closed (SHAPE-05 is active-set only) |
+| FAIL_WRONG_ROWS: dots on non-clicked rows | activeSet incorrectly populated OR a shared sessionStorage entry from a prior session leaked in | Alice clears sessionStorage: `sessionStorage.removeItem('pv-conv-active-set')` in devtools console, then reloads. If dots reappear on non-clicked rows immediately → NEW bug in addToActiveSet call path (not previously suspected). If they don't reappear → stale sessionStorage cleared correctly. | phase-13 (13-05 or 13-04-follow-up) if reproducible after clear |
+| FAIL: dot doesn't appear until Alice switches away from the pane and back | **Candidate A confirmed: no client-side "assume idle at connect" fallback; backend's initial-state `{type:"idle"}` frame lag** | Options: (1) Add client-side default `setIsIdle(true)` in Terminal.tsx after WS-attach and before backend's first frame arrives — but this is a **Terminal.tsx edit, forbidden in this plan** per scope boundary. Route-back is: **fold into master bounty as a follow-up** or into a Phase 14 plan that owns Terminal.tsx. (2) Change Panel-side null-handling: treat null-store-state as "assume idle" for rows already in activeSet — riskier semantics change, needs Alice's Rule 4 approval. | master (Terminal.tsx edit forbidden here) OR phase-13 (13-04-follow-up if Panel-side null-handling change is preferred) |
+| PASS but with a delay: dot appears 1-2 seconds after clicking | Same as above (Candidate A) — backend's initial-state frame lag is real but tolerable | Close SHAPE-05 as PASS with a note in the master bounty about the initial-frame lag for future optimization. | closed (Alice likely accepts this delay per verbatim "just so I know they've engaged") |
 
 ### 3B. Mobile scroll route-back
 
-| Ashley's finding | Root cause hypothesis | Route-back action | Owner |
+| Alice's finding | Root cause hypothesis | Route-back action | Owner |
 |-----|-----|-----|-----|
 | PASS: all scroll gestures smooth | Wave 1 CSS restructuring inadvertently fixed OR the freeze was never source-side | Close mobile scroll as PASS. No follow-up needed. | closed |
 | FAIL_FREEZE on instant-lock: fast flick doesn't scroll at all | **1B.1 (Angle tolerance too tight)** — PC_SWIPE_ANGLE_TOLERANCE too small; horizontal swipe detection captures ambiguous gestures | Add `.pv-row { touch-action: pan-y }` to pretty-conversations.css. Single-line change. Route-back: follow-up plan (13-05 or 13-04-follow-up) — pretty-conversations.css IS in this phase's scope. | phase-13 |
@@ -861,15 +861,15 @@ mechanism it maps to.
 
 ### 3C. Safe-area padding route-back
 
-| Ashley's finding | Root cause hypothesis | Route-back action | Owner |
+| Alice's finding | Root cause hypothesis | Route-back action | Owner |
 |-----|-----|-----|-----|
 | PASS: last row visible above home indicator | Workaround at PrettyConversationsPanel.tsx:233 is doing its job | Close as PASS with a note: the workaround is architecturally suboptimal (safe-area compensation belongs on the AppShell root, not on each scroller). Follow-up patch to master bounty for a future move. | closed for phase-13; master for future patch |
-| FAIL: last row behind home indicator | Workaround INSUFFICIENT — `pb-[env(safe-area-inset-bottom)]` isn't being applied OR is being overridden by an ancestor `overflow: hidden` | Ashley checks in Safari devtools whether the padding is computed. If yes but visually failing — deeper layout issue (parent `min-h-0` may be collapsing the padding). If padding is 0 — Tailwind's arbitrary value class isn't compiling; fix is to move to inline style. | phase-13 (13-05 or 13-04-follow-up) |
-| PASS but Ashley wants the architectural fix now | Not phase-blocking; nice-to-have | Add a follow-up plan to move safe-area compensation to AppShell.tsx:1400 outer wrapper and revert PrettyConversationsPanel.tsx:233's workaround. | master (SHAPE-04 explicitly limited to chevron; broader AppShell change is a Ship-of-Theseus master-bounty patch) |
+| FAIL: last row behind home indicator | Workaround INSUFFICIENT — `pb-[env(safe-area-inset-bottom)]` isn't being applied OR is being overridden by an ancestor `overflow: hidden` | Alice checks in Safari devtools whether the padding is computed. If yes but visually failing — deeper layout issue (parent `min-h-0` may be collapsing the padding). If padding is 0 — Tailwind's arbitrary value class isn't compiling; fix is to move to inline style. | phase-13 (13-05 or 13-04-follow-up) |
+| PASS but Alice wants the architectural fix now | Not phase-blocking; nice-to-have | Add a follow-up plan to move safe-area compensation to AppShell.tsx:1400 outer wrapper and revert PrettyConversationsPanel.tsx:233's workaround. | master (SHAPE-04 explicitly limited to chevron; broader AppShell change is a Ship-of-Theseus master-bounty patch) |
 
 ### 3D. Overall parity (SHAPE-01/02/03/04) route-back
 
-| Ashley's finding | Root cause hypothesis | Route-back action | Owner |
+| Alice's finding | Root cause hypothesis | Route-back action | Owner |
 |-----|-----|-----|-----|
 | PASS | All Waves 1-3 landed cleanly | Close SHAPE-01/02/03/04. | closed |
 | DIFFERENCE_NOTED on row treatment | Wave 1 CSS drift from mock v4 | Re-lift specific selector from prototype.html mock v4. Diff PR back to Wave 1 output. | phase-13 (13-05 or 13-04-follow-up) |
@@ -879,14 +879,14 @@ mechanism it maps to.
 
 ### 3E. Pretty-view interior (SHAPE-06) route-back — SCOPE VIOLATION MATRIX
 
-| Ashley's finding | Root cause hypothesis | Route-back action | Owner |
+| Alice's finding | Root cause hypothesis | Route-back action | Owner |
 |-----|-----|-----|-----|
 | PASS | SHAPE-06 lockout held; no accidental Wave 1/2/3 spillover into pretty-view/ | Close SHAPE-06. | closed |
 | FAIL | HARD FAIL — one of Waves 1/2/3 modified something in `src/ui/features/pretty-view/`. `git diff HEAD~N -- src/ui/features/pretty-view/` will identify the offending commit. | Revert the pretty-view changes from the responsible Wave's commit. Rebase Wave forward without the scope violation. | phase-13 (immediate revert + rebase); mandatory before phase closes |
 
 ### 3F. RDP + shadcn (SHAPE-06) route-back — SCOPE VIOLATION MATRIX
 
-| Ashley's finding | Root cause hypothesis | Route-back action | Owner |
+| Alice's finding | Root cause hypothesis | Route-back action | Owner |
 |-----|-----|-----|-----|
 | PASS | Ship-of-Theseus scope preserved. | Close. | closed |
 | FAIL: shadcn dialog broken | Wave 1/2/3 modified `src/ui/components/`, `src/ui/ssh/`, or `src/ui/features/terminal/` | HARD FAIL — revert + rebase. Verify Ship-of-Theseus rule is honored for upstream rebase-ability. | phase-13 (immediate revert + rebase); mandatory before phase closes |
@@ -894,38 +894,38 @@ mechanism it maps to.
 
 ---
 
-## Section 4: Deferred Route-Backs Awaiting Ashley's UAT
+## Section 4: Deferred Route-Backs Awaiting Alice's UAT
 
 **Executor state after this pre-UAT pass:**
 
 - All 4 dot-visibility candidates have static-analysis verdicts (2 SUSPECT/MISMATCH, 2 PASS)
 - Mobile scroll and safe-area padding have static-analysis verdicts
 - No source edits made in this plan (verified: `git diff --stat src/` empty)
-- Ashley's UAT sections (2A-2G) are TEMPLATES ready for her live observation
+- Alice's UAT sections (2A-2G) are TEMPLATES ready for her live observation
 - Route-back matrix (3A-3F) is EXHAUSTIVE per plan requirement
 
-**Executor's provisional recommendation to Ashley (based purely on static
+**Executor's provisional recommendation to Alice (based purely on static
 analysis):**
 
 The MOST LIKELY dot-visibility failure mode is **Candidate B.1** —
 the "fresh-terminal path" where a Tab is opened with `targetTmuxSession=null`
 and Terminal.tsx publishes at a different key than the row is reading. This
 is a real, static-analysis-confirmed key mismatch in a specific code path.
-If Ashley's UAT shows this exact partial-failure pattern (rows work for
+If Alice's UAT shows this exact partial-failure pattern (rows work for
 some sessions but not others), the fix is straightforward.
 
 The SECOND-MOST LIKELY failure mode is **Candidate A.1** — the initial-
 frame lag. This one is timing-dependent and cannot be reliably reproduced
-in static analysis. Ashley's UAT observation of "dot appears with a delay"
+in static analysis. Alice's UAT observation of "dot appears with a delay"
 vs "dot never appears" will disambiguate.
 
 **Candidates C and D are PASS by static analysis and should not be
-suspected first.** If Ashley's UAT shows total FAIL_NO_DOTS but the
+suspected first.** If Alice's UAT shows total FAIL_NO_DOTS but the
 Rules-of-Hooks and activeSet paths are provably clean, the failure mode
 would have to be elsewhere entirely (Section 3A row for that case
 enumerates deeper investigation paths).
 
-**Ashley: proceed to live UAT of Waves 1-3 + shell chrome. Fill in
+**Alice: proceed to live UAT of Waves 1-3 + shell chrome. Fill in
 Sections 2A-2G with observations, then this plan closes as PARTIAL (with
 route-back citation) or PASS depending on outcome.**
 
@@ -937,15 +937,15 @@ route-back citation) or PASS depending on outcome.**
 - **4 candidates have verdicts:** yes (A: SUSPECT, B: MISMATCH, C: PASS, D: PASS)
 - **Mobile scroll has verdict:** yes (UNCHANGED FROM PRE-WAVE-1)
 - **Safe-area has verdict:** yes (WORKAROUND STILL NEEDED)
-- **Section 2 (Ashley UAT template) exists with placeholder verdicts:** yes
+- **Section 2 (Alice UAT template) exists with placeholder verdicts:** yes
 - **Section 3 (Route-back matrix) covers all UAT outcomes:** yes (SHAPE-05,
   scroll, safe-area, parity, SHAPE-06 x2)
 - **No source changes:** `git diff --stat src/` → verified empty
-- **Executor did NOT invent Ashley's observations:** confirmed; all Section 2
+- **Executor did NOT invent Alice's observations:** confirmed; all Section 2
   verdict cells are template placeholders
 - **Scope boundaries respected:** Terminal.tsx READ-ONLY (verified — no edit);
   no writes under `src/ui/features/pretty-view/`, `src/ui/components/`,
   `src/ui/ssh/`, or `src/ui/features/terminal/`; and no CSS/tsx source
   edits under `src/ui/features/pretty-conversations/` (Waves 1-3 own those)
 
-**Status: pre-UAT complete; blocked on Ashley live UAT of deployed Waves 1-3 + shell chrome.**
+**Status: pre-UAT complete; blocked on Alice live UAT of deployed Waves 1-3 + shell chrome.**

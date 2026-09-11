@@ -2,12 +2,12 @@
 
 **Gathered:** 2026-07-31
 **Status:** Ready for planning
-**Source:** Direct scope-lock session with Ashley (no discuss-phase needed — every decision was captured verbatim in this session's message log and in bounty `stream-tts-output-via-chatterbox/bounty.json`)
+**Source:** Direct scope-lock session with Alice (no discuss-phase needed — every decision was captured verbatim in this session's message log and in bounty `stream-tts-output-via-chatterbox/bounty.json`)
 
 <domain>
 ## Phase Boundary
 
-Replace the buffered TTS path on the pretty-view bubble speak-button with a progressive Web Audio player, so audio starts within ~30ms of clicking (before synthesis completes) instead of after the whole WAV is done. Ashley heard Nelly's streaming Chatterbox demo (https://example.com/tts-demo/) 2026-07-31 and said "night and day" vs the buffered path. iOS Safari Web Audio verified working on her iPhone PWA via same-day spike — no iOS-specific workaround required.
+Replace the buffered TTS path on the pretty-view bubble speak-button with a progressive Web Audio player, so audio starts within ~30ms of clicking (before synthesis completes) instead of after the whole WAV is done. Alice heard Nelly's streaming Chatterbox demo (https://example.com/tts-demo/) 2026-07-31 and said "night and day" vs the buffered path. iOS Safari Web Audio verified working on her iPhone PWA via same-day spike — no iOS-specific workaround required.
 
 **In scope** (the bubble speak-button, one caller):
 - `src/backend/database/routes/voice.ts` — new `handleSpeakStream` route + `POST /voice/speak-stream` wiring on port 30001
@@ -17,12 +17,12 @@ Replace the buffered TTS path on the pretty-view bubble speak-button with a prog
 - Tests: backend route unit tests + frontend Web Audio tests (with AudioContext mock or skip-in-jsdom pattern)
 - Ship: patch #237 + `skynet-patches.md` entry + human-verify end-to-end
 
-**Out of scope** (deliberate, Ashley-confirmed):
+**Out of scope** (deliberate, user-confirmed):
 - `POST /voice/speak` (patch #223 buffered route) — preserved BYTE-FOR-BYTE
 - `postSpeak()` axios/blob helper — preserved unchanged
 - `IdentityModal.tsx` voice-preview surface — keeps calling `postSpeak()` (one-shot 25-word sample, no benefit from streaming)
-- Aside-bubbles, voice-mode replies, any other speak surface — Skynet doesn't have them (see "Ashley's scope clarification" below)
-- Default voice change — stays `Elena.wav` (Ashley: "we're not gonna switch our default voice just because nelly picked a random one to do the demo with")
+- Aside-bubbles, voice-mode replies, any other speak surface — Skynet doesn't have them (see "Alice's scope clarification" below)
+- Default voice change — stays `Elena.wav` (Alice: "we're not gonna switch our default voice just because nelly picked a random one to do the demo with")
 - Buffered-path fallback / dual-path routing — the two routes coexist; the bubble caller picks the streaming one, the preview caller picks the buffered one. No conditional / feature-flag logic.
 
 </domain>
@@ -136,7 +136,7 @@ Reuses existing `VOICE_FILENAME_RE` (`/^[A-Z][A-Za-z]+\.wav$/`) and `SPEAK_TEXT_
 
 ### Ship as numbered patch #237
 - Full `skynet-patches.md` entry with the standard shape: motivation, root cause vs previous approach, request-body-schema translation table, files touched, rebase risk (LOW), deploy note.
-- Deploy note: bundles with the held #198→#236 queue (~57 unpushed-to-container commits). This patch rides the same rebuild + recreate whenever Ashley greenlights.
+- Deploy note: bundles with the held #198→#236 queue (~57 unpushed-to-container commits). This patch rides the same rebuild + recreate whenever Alice greenlights.
 
 ### Claude's Discretion
 - **Exact task/plan wave breakdown** — planner's call. Suggest ~4-5 plans covering: (1) backend route + tests, (2) nginx config, (3) frontend voice-api helper, (4) frontend ChatMessage.tsx player + Stop semantics + tests, (5) skynet-patches.md entry + deploy checklist.
@@ -171,15 +171,15 @@ Reuses existing `VOICE_FILENAME_RE` (`/^[A-Z][A-Za-z]+\.wav$/`) and `SPEAK_TEXT_
 - **Patch #211** (~2026-07-XX): "NEVER bare audio.play().catch(...) — jsdom returns undefined" — reminder that jsdom lies about audio APIs; Web Audio API tests need pure-function extraction or explicit mocks.
 
 ### Bounty (authoritative record of this phase's requests + scope decisions)
-- `~/.claude/identities/tina/bounties/stream-tts-output-via-chatterbox/bounty.json` — Nelly's DM captured verbatim, full spec, Ashley's 2026-07-31 scope decisions (streaming replaces bubble speak-button only; IdentityModal voice-preview stays buffered; default voice stays Elena; iOS spike passed; vehicle = plan-phase).
+- `~/.claude/identities/tina/bounties/stream-tts-output-via-chatterbox/bounty.json` — Nelly's DM captured verbatim, full spec, Alice's 2026-07-31 scope decisions (streaming replaces bubble speak-button only; IdentityModal voice-preview stays buffered; default voice stays Elena; iOS spike passed; vehicle = plan-phase).
 
 </canonical_refs>
 
 <specifics>
 ## Specific Ideas
 
-### Ashley's scope clarification 2026-07-31 (verbatim from this session)
-When asked about scope (which surfaces stream, keep buffered fallback, default voice), Ashley said:
+### Alice's scope clarification 2026-07-31 (verbatim from this session)
+When asked about scope (which surfaces stream, keep buffered fallback, default voice), Alice said:
 
 > "Yeah, well, the iOS spike did succeed, so that was great. And then, yeah, I feel like the message bubble speak button would stream, and I don't really feel like we have to have the voice preview stream. And I don't know what you mean by voice mode, because this app doesn't have a voice mode, and we're not gonna switch our default voice just because nelly picked a random one to do the demo with"
 
@@ -189,7 +189,7 @@ Concretely:
 3. There is no "voice mode" in Skynet — Tina's earlier fuzzy mention was wrong; the ONLY two speak-callers are the bubble button and the IdentityModal preview. Grep-confirmed (`grep -rn "postSpeak" src/ui | grep -v test`).
 4. Default voice stays `Elena.wav`.
 
-### Ashley's greenlight (verbatim, session end):
+### Alice's greenlight (verbatim, session end):
 > "Yeah, this seems good. Let's go."
 
 ### Nelly's endpoint spec (verbatim from DM 2026-07-31, event $Piv-9UsNx5LjDfpXbDnspf_8TMTmLQyX4XKO49i4ZC8):
@@ -210,8 +210,8 @@ See bounty `stream-tts-output-via-chatterbox/bounty.json § premise` for the ful
 **Tina uses the tailnet IP directly for the backend proxy** (`http://100.80.122.111:8001/tts`, not `https://example.com/tts-api/tts`) because the backend already sits inside Skynet's docker network with tailnet access. The public HTTPS URL is only relevant for the client-side / view-source reference.
 
 ### Deploy discipline
-- **Do not push / rebuild / recreate without Ashley's explicit ship word.** Deploy queue #198→#236 (~57 commits) is held; this patch #237 will ride the same bundle whenever she greenlights.
-- **skynet-ec2 recreate warning** (patch #232 discovery): the `--force-recreate` sequence causes a HTTP2_PROTOCOL_ERROR on the first hard-refresh — Ashley pre-warns on ship day, standard workflow.
+- **Do not push / rebuild / recreate without Alice's explicit ship word.** Deploy queue #198→#236 (~57 commits) is held; this patch #237 will ride the same bundle whenever she greenlights.
+- **skynet-ec2 recreate warning** (patch #232 discovery): the `--force-recreate` sequence causes a HTTP2_PROTOCOL_ERROR on the first hard-refresh — Alice pre-warns on ship day, standard workflow.
 
 </specifics>
 
@@ -221,12 +221,12 @@ See bounty `stream-tts-output-via-chatterbox/bounty.json § premise` for the ful
 - **Voice-picker for streaming.** IdentityModal has a voice-preview surface with the 28-voice list; the streaming route accepts any predefined voice via the same `voice` parameter, so no UI change is needed to support per-identity voices already stored in the DB. But surfacing a "test the new voice on streaming" affordance in IdentityModal is out of scope — the preview surface stays buffered.
 - **Extraction to a general-purpose `WebAudioStreamPlayer` module.** If a second streaming caller emerges later (e.g. aside-bubble narration), factor out. For now, inline in `ChatMessage.tsx` or extract as `src/ui/features/pretty-view/webAudioStreamPlayer.ts` per planner's call — but no "future-proofing for hypothetical callers."
 - **Replacing the buffered `/voice/speak` route entirely.** Not in scope. IdentityModal voice-preview would need to be rewritten to use the streaming path first (currently reads the response as a Blob for one-shot playback of a 25-word sample, no benefit). Revisit only if the buffered route becomes a maintenance burden.
-- **Auto-toast integration on stream errors** (recreating `dbHealthMonitor.isBackendUnreachable` for fetch stream errors). Out of scope — Ashley confirmed the tradeoff.
-- **iOS-specific tuning.** Spike passed on Ashley's iPhone PWA; no workaround needed. If a specific iOS Safari behavior surfaces post-ship (e.g. AudioContext auto-suspend on tab background), file a follow-up.
+- **Auto-toast integration on stream errors** (recreating `dbHealthMonitor.isBackendUnreachable` for fetch stream errors). Out of scope — Alice confirmed the tradeoff.
+- **iOS-specific tuning.** Spike passed on Alice's iPhone PWA; no workaround needed. If a specific iOS Safari behavior surfaces post-ship (e.g. AudioContext auto-suspend on tab background), file a follow-up.
 
 </deferred>
 
 ---
 
 *Phase: 19-streaming-tts-output-via-chatterbox-tts-endpoint*
-*Context gathered: 2026-07-31 via direct scope-lock session with Ashley (no discuss-phase; every decision captured verbatim in session log + bounty `stream-tts-output-via-chatterbox/bounty.json`)*
+*Context gathered: 2026-07-31 via direct scope-lock session with Alice (no discuss-phase; every decision captured verbatim in session log + bounty `stream-tts-output-via-chatterbox/bounty.json`)*

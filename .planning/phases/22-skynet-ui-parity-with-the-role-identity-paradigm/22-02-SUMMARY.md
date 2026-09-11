@@ -15,7 +15,7 @@ provides:
   - GET /roles?hostId=<n> HTTP route returning [{name, description}] scoped by user via resolveHostById
   - listRolesForHost(hostId) + RoleSummary type in ui/api/identities-api.ts
   - ROLE_NAME_PATTERN kebab-case-lowercase constant (exported from identity-birth-orchestrator; used by identity-birth.ts too)
-  - IDENTITY_FILE_SEED_COMMENT constant with Ashley-locked verbatim wake-up seed text
+  - IDENTITY_FILE_SEED_COMMENT constant with user-locked verbatim wake-up seed text
   - writeMarkdownFileAtomic now PUBLIC (was private) in identity-artifact-reader.ts — for the Step 2.5 pre-write; other in-plan uses stay behind writeIdentity{File,History,Handoff}
   - BirthOptions.role + BirthDeps.writeMarkdownFileAtomic (new required orchestrator surfaces)
   - NewSessionDialog role dropdown + host-change repopulate + submit-block-if-empty + role in birth payload
@@ -25,7 +25,7 @@ affects: [22-03-clone (may reference RoleSummary + listRolesForHost), 22-04-crea
 tech-stack:
   added: []  # No new npm packages — express, ssh2, react, @testing-library/react all already present
   patterns:
-    - "Skynet writes a wake-up SEED COMMENT — no more Skynet-side SSH-invoke of the relay-register block. The fresh agent registers its own Matrix relay account on first wake per the seed's plain-English instruction (Ashley-locked wording: no 'Skynet' word, no §2/§3 refs). Boundary shrinks: Skynet does file setup, agent does identity setup."
+    - "Skynet writes a wake-up SEED COMMENT — no more Skynet-side SSH-invoke of the relay-register block. The fresh agent registers its own Matrix relay account on first wake per the seed's plain-English instruction (user-locked wording: no 'Skynet' word, no §2/§3 refs). Boundary shrinks: Skynet does file setup, agent does identity setup."
     - "Step 2.5 piggybacks on Step 2's runStep — pre-write is silent inside Step 2's completion path, so the frontend BirthProgress checklist stays untouched (no new SSE event types)."
     - "writeMarkdownFileAtomic export lets other backend code re-use the SFTP tmp+rename with ext_openssh_rename discipline (Pitfall 3 / #2924) for arbitrary target paths, while writeIdentity{File,History,Handoff} keep locked-shape (identity-scoped) semantics."
     - "Frontend Role dropdown is CREATE-only (per D-CONTEXT §UX rules) — required when identity-mode is ON; hidden when OFF. Zero clutter for the regular-session path."
@@ -47,8 +47,8 @@ key-files:
     - src/ui/sidebar/NewSessionDialog.test.tsx                              # listRolesForHost mock + fillIdentityFormAndPick role pick + Tests G/Q/R/T inline role pick
 
 key-decisions:
-  - "REVISION 2026-08-04 (Ashley at Task 2 checkpoint): B4b(a) APPROVED with refinement — Skynet writes only the identity folder + role: frontmatter + wake-up seed comment; the fresh agent registers its own Matrix relay account on first wake. Skynet no longer performs the register step. Ashley's rationale: fewer moving parts in Skynet, cleaner boundary, same end-state."
-  - "Seed comment text is Ashley-verbatim: 'This identity has no relay account yet. On first wake, please register a Matrix relay account for this identity and remove this comment.' Style constraints enforced by tests — no 'Skynet' word (agents don't know what that is), no §2/§3 refs (fragile skill-section pointers), no 'id skill' phrase (implementation detail)."
+  - "REVISION 2026-08-04 (Alice at Task 2 checkpoint): B4b(a) APPROVED with refinement — Skynet writes only the identity folder + role: frontmatter + wake-up seed comment; the fresh agent registers its own Matrix relay account on first wake. Skynet no longer performs the register step. Alice's rationale: fewer moving parts in Skynet, cleaner boundary, same end-state."
+  - "Seed comment text is user-verbatim: 'This identity has no relay account yet. On first wake, please register a Matrix relay account for this identity and remove this comment.' Style constraints enforced by tests — no 'Skynet' word (agents don't know what that is), no §2/§3 refs (fragile skill-section pointers), no 'id skill' phrase (implementation detail)."
   - "Step 2.5 piggybacks on Step 2's runStep (no new SSE event type). Rationale: keeps the frontend BirthProgress checklist untouched — a new step:2.5 event would require frontend consumer changes for zero user-visible benefit. The pre-write IS Step 2's contract now."
   - "Step 2.5 is remote-branch only (skipped when isLocalHostId=true). Rationale: this phase's UAT scope is remote fleet hosts only per CONTEXT; local-branch self-birth is a pre-Phase-22 workflow that doesn't need the role scoping. Documented inline in the orchestrator."
   - "writeMarkdownFileAtomic exported (was private). Rationale: the orchestrator needs to write to an arbitrary target path (~/.claude/identities/<name>/<name>.md constructed at runtime), whereas writeIdentityFile locks to a fixed shape. Doc-comment updated to reflect the second call site."
@@ -143,7 +143,7 @@ _(Task 1 commits from prior executor session: `79dc4ba` (RED), `2efc2d1` (GREEN)
 
 ## Deviations from Plan
 
-### Ashley-approved plan revision (documented in the plan file as REVISION 2026-08-04 HTML comment above Task 3)
+### user-approved plan revision (documented in the plan file as REVISION 2026-08-04 HTML comment above Task 3)
 
 **1. Skynet no longer invokes the relay-register block over SSH**
 
@@ -156,7 +156,7 @@ _(Task 1 commits from prior executor session: `79dc4ba` (RED), `2efc2d1` (GREEN)
   - Removed threat model rows T-22-02-04 (register-hang DoS) and T-22-02-06 (register-creds leak in SSE) — no longer applicable since Skynet doesn't perform the register.
   - Modified Test 12 to also assert the seed comment is present + does NOT contain the word "Skynet" (case-insensitive) + does NOT reference `§2` / `§3` / `id skill` (case-insensitive).
   - Modified the CALL ORDER integration test to drop the relay-register exec step.
-- **Rationale (Ashley):** fewer moving parts in Skynet, cleaner boundary (Skynet does file setup, agent does identity setup), same end-state.
+- **Rationale (Alice):** fewer moving parts in Skynet, cleaner boundary (Skynet does file setup, agent does identity setup), same end-state.
 
 ### Auto-fixed Issues (Rule 3 blocking)
 
@@ -189,7 +189,7 @@ _(Task 1 commits from prior executor session: `79dc4ba` (RED), `2efc2d1` (GREEN)
 
 - Pre-existing NewSessionDialog Tests 5-10 (looking up button by `/^open$/i` when the label is `"Create"`) were **NOT** fixed — orthogonal to SRIC-02 scope, documented in `deferred-items.md` for future work. Baseline was 6 failing, my Task 4 kept it at 6 failing (regression-free).
 
-**Total deviations:** 4 (1 plan revision Ashley-approved, 3 auto-fixed Rule 3 blocking test-cascade cleanups)
+**Total deviations:** 4 (1 plan revision user-approved, 3 auto-fixed Rule 3 blocking test-cascade cleanups)
 **Impact on plan:** The revision reduced scope (dropped relay-register SSH exec + one test + two threat rows). The auto-fixes were essential Rule 3 unblockers — adding the required `role` field to BirthOptions cascades to every pre-existing test that constructs opts. Zero scope creep beyond what the plan documents.
 
 ## Issues Encountered
@@ -207,11 +207,11 @@ None — no new environment variables, no new npm packages, no dashboard configu
 - **22-04 (CreateRoleDialog / SRIC-04):** the "no roles on this host — create one first" inline hint in NewSessionDialog already has the no-op-stub button + comment reference to 22-04/SRIC-04. Wiring the click handler to open CreateRoleDialog is a small ~5-line change in 22-04.
 - **22-03 (Clone identity / SRIC-03):** can reference `listRolesForHost` + `RoleSummary` if the clone flow needs to display or pre-fill role. Also can rely on the invariant that every fleshly-birthed identity now has `role:` frontmatter — no need to null-check.
 
-**Wave 1 sibling (22-01 two-step) can now find role frontmatter in every fleshly-birthed identity.** Ashley's non-negotiable "no fleet identity lacks `role:` frontmatter post-migration" is now enforced at the birth boundary.
+**Wave 1 sibling (22-01 two-step) can now find role frontmatter in every fleshly-birthed identity.** Alice's non-negotiable "no fleet identity lacks `role:` frontmatter post-migration" is now enforced at the birth boundary.
 
 **Manual UAT gate (deferred to Phase 22 UAT per ROADMAP):**
-1. Ashley opens NewSessionDialog, picks a fleet host → Role dropdown populates from that host's `~/.claude/roles/`.
-2. Ashley picks a role, fills the rest of the form, clicks Create → identity is birthed with correct `role:` frontmatter in the on-box file.
+1. Alice opens NewSessionDialog, picks a fleet host → Role dropdown populates from that host's `~/.claude/roles/`.
+2. Alice picks a role, fills the rest of the form, clicks Create → identity is birthed with correct `role:` frontmatter in the on-box file.
 3. On first wake, the fresh agent sees the seed comment, registers a relay account for itself, removes the comment. (Nelly-side / cross-boundary; not testable from Skynet.)
 
 ---

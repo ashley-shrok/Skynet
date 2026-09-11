@@ -210,7 +210,7 @@ Verified via `npx tsc --noEmit -p tsconfig.node.json` — no errors reported aga
 
 - 7 default-path helpers (`/state/…` — registryPath, humanTokenPath, humanSincePath, humanTokenDeadPath, botTokenFilePath, configEnvPath, plus TG_BRIDGE_STATE_DIR constant)
 - 1 env-var override test (`TG_BRIDGE_STATE_DIR_OVERRIDE` re-imports module, verifies all 7 helpers rebase)
-- 8 `assertSafeHumanName` accept/reject cases (accepts ashley/zoey/laura/commander-zoey/agent_007; rejects `../etc/passwd`, `foo bar`, `foo;rm -rf /`, `foo$bar`, empty, 65-char, `-leading-hyphen`, uppercase)
+- 8 `assertSafeHumanName` accept/reject cases (accepts alice/zoey/laura/commander-zoey/agent_007; rejects `../etc/passwd`, `foo bar`, `foo;rm -rf /`, `foo$bar`, empty, 65-char, `-leading-hyphen`, uppercase)
 - 4 path-helper traversal rejections (humanTokenPath, humanSincePath, humanTokenDeadPath, botTokenFilePath ALL throw on `../foo`)
 
 ### Test suite result

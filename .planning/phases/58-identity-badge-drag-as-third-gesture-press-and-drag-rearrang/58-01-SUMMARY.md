@@ -22,7 +22,7 @@ tech_stack:
   patterns:
     - HTML5 native drag+drop with dual-MIME payload (source-of-truth precedent: PrettyConversationRow.tsx:927-951 patch #511)
     - Native browser drag threshold (~5px on desktop, long-press-and-move on touch) as gesture disambiguator — no manual dx/dy gate needed (same mechanism Phase 56 established for row drag coexistence with tap/swipe/long-press/context-menu)
-    - Explicit-field structured logging (no JSON.stringify of DOM Event objects) per fleet logging directive Ashley 2026-08-11
+    - Explicit-field structured logging (no JSON.stringify of DOM Event objects) per fleet logging directive Alice 2026-08-11
     - Mobile viewport gate via useIsMobile hook — mirrors AppShell.tsx:2372 `{!isMobile && (<SplitView…/>)}` mount gate
 key_files:
   created: []

@@ -40,7 +40,7 @@ log() { printf '%s %s\n' "$(date '+%H:%M:%S')" "$*"; }
 # Per-identity "last recycle at" — LOG-ONLY. Populated when recycle() finishes; read to enrich
 # the DEAD-recovering + RESUME log lines so a fresh-claude death within the recycle window (which
 # causes the recovery path to resume the pre-recycle session and silently UNDO the recycle) is
-# obvious in the log. Behavior is untouched — Ashley chose visibility over defense (2026-07-23).
+# obvious in the log. Behavior is untouched — Alice chose visibility over defense (2026-07-23).
 declare -A LAST_RECYCLE_AT=()
 
 # ---- config ----
@@ -49,7 +49,7 @@ IDENTITIES=()
 CHECK_INTERVAL=15
 STAGGER_SECONDS=8
 SETTLE_SECONDS=6
-MEMORY_CAP="disabled"    # 2026-08-08 fleet policy (Ashley + Stacy catch): cap mechanism was unsafe
+MEMORY_CAP="disabled"    # 2026-08-08 fleet policy (Alice + Stacy catch): cap mechanism was unsafe
                          # at scale (below WSS = thrash; cgroup child-inheritance broke Stacy's t800
                          # builds). Session-dormancy replaces it for idle reclamation (bounty
                          # session-dormancy-pilot-beelink). "auto" is still a VALID value below for
@@ -63,7 +63,7 @@ if [ -z "${MODE:-}" ]; then log "no MODE in $CONF (set MODE=A or MODE=B) — not
 # ---- dormancy (2026-08-07) defaults — OFF fleet-wide, enabled per-box via $CONF: DORMANCY="on"
 # See bounty session-dormancy-pilot-beelink for the design + measurement plan.
 DORMANCY="${DORMANCY:-off}"
-IDLE_THRESHOLD_MINUTES="${IDLE_THRESHOLD_MINUTES:-30}"     # pilot 10; prod default 30 (Ashley 2026-08-08: idle-check triple-guard is conservative enough that 30 is safe)
+IDLE_THRESHOLD_MINUTES="${IDLE_THRESHOLD_MINUTES:-30}"     # pilot 10; prod default 30 (Alice 2026-08-08: idle-check triple-guard is conservative enough that 30 is safe)
 FALSE_KILL_MINUTES="${FALSE_KILL_MINUTES:-5}"              # wake within this many min of kill = flagged
 DORMANCY_STATE_DIR="${DORMANCY_STATE_DIR:-$HOME/.claude/agent-supervisor-state}"
 METRICS_LOG="${METRICS_LOG:-$HOME/.claude/agent-supervisor-metrics.jsonl}"
@@ -145,7 +145,7 @@ CLAUDE_LAUNCH_ENV="CLAUDE_CODE_RESUME_THRESHOLD_MINUTES=99999999 CLAUDE_CODE_RES
 
 # Flags passed to every `claude` launch. Consolidated so all 4 launch sites (redrive+drive × resume+fresh)
 # stay in sync — an inline-per-site spelling means a flag can silently fall off some but not others
-# (2026-09-04, Ashley: fleet came back on Sonnet by default after supervisor recycles because --model opus
+# (2026-09-04, Alice: fleet came back on Sonnet by default after supervisor recycles because --model opus
 # was never wired in). Adding a flag = one edit here, applies everywhere.
 CLAUDE_LAUNCH_FLAGS="--model opus --dangerously-skip-permissions"
 
@@ -660,7 +660,7 @@ submit_id() {
 # actually landed as a user turn in the resumed session's jsonl. Mirrors submit_id's
 # observable-outcome shape.
 #
-# The failure this closes (2026-09-02, Ashley on harper + fleet-wide): paste + Enter both return
+# The failure this closes (2026-09-02, Alice on harper + fleet-wide): paste + Enter both return
 # 0, but Claude Code's Ink UI is still mounting the compose input when the paste fires. Ink
 # either drops the bytes (compose stays empty) or catches the text but not the Enter (compose
 # has text sitting unsubmitted). The old code logged "sent nudge" regardless — a lie by
@@ -669,11 +669,11 @@ submit_id() {
 # there can be a multi-second gap. Retry-until-observable-outcome closes the gap without
 # guessing at a settle time.
 #
-# 2026-09-07 refinement (Ashley, bounty supervisor-resume-nudge-enter-only-retry): the original
+# 2026-09-07 refinement (Alice, bounty supervisor-resume-nudge-enter-only-retry): the original
 # 2026-09-02 shape retried the FULL dance (C-c + re-paste + Enter) up to 3 times, and the leading
 # C-c on each retry actively WIPED the successful paste from the prior attempt. That made the
 # 'paste landed but Enter didn't fire' failure mode structurally unfixable — the cycle stomped
-# on its own convergence path. Symptom shapes Ashley named: (a) nudge sits unsubmitted in the
+# on its own convergence path. Symptom shapes Alice named: (a) nudge sits unsubmitted in the
 # harness compose, (b) nudge gets stacked on top of her next PV send. Both are the same root:
 # paste succeeded, Enter didn't. Fix: split inject vs commit. Initial dance is unchanged; INSIDE
 # each attempt's 10s poll window, if the JSONL landing check fails after ~2s, fire Enter alone
@@ -844,7 +844,7 @@ drive() {
     # bash command-scoped assignment — vars apply to this claude only, not the shell.
     timeout -k 5 10 tmux send-keys -t "$sess" -l "$MEMORY_WRAPPER env $CLAUDE_LAUNCH_ENV $CLAUDE --resume $resume $CLAUDE_LAUNCH_FLAGS" 2>/dev/null
     timeout -k 5 10 tmux send-keys -t "$sess" Enter 2>/dev/null
-    # ⚠️ VERIFY CLAUDE ACTUALLY LAUNCHED (2026-08-29, Ashley witnessed a live failure on workstation).
+    # ⚠️ VERIFY CLAUDE ACTUALLY LAUNCHED (2026-08-29, Alice witnessed a live failure on workstation).
     # send-keys drops bytes into the pane and returns 0 whether or not they became a viable command.
     # A terminal Device Attributes response echoing at the shell prompt as literal `1;2c0;276;0c`
     # got prefixed onto the env-claude line; bash parsed with `;` as command separators, `0c` became
@@ -885,7 +885,7 @@ drive() {
       *"Resume from summary"*|*"Resume full session"*|*"Yes, I trust this folder"*|*"Enter to confirm"*)
         log "WARNING: '$name' still sitting at an interactive prompt after resume — NOT at a REPL, will be relay-deaf until cleared. Prompt source-suppression (env vars + hasTrustDialogAccepted) may have regressed; restore the scrape+answer loop if this fires more than once (session '$sess')";;
       *)
-        # RE-ARM THE ON-WAKE MONITORS (2026-07-22, Ashley's call). A resume restores the
+        # RE-ARM THE ON-WAKE MONITORS (2026-07-22, Alice's call). A resume restores the
         # conversation but NOT the previous session's background Monitors — they died with the old
         # session, so a resumed agent comes back alive-but-DEAF. There's nothing to restore
         # mechanically; the agent just has to relaunch them. So once we're past the prompt and at a
@@ -895,7 +895,7 @@ drive() {
         # because the fire-and-forget paste is not enough — wait_for_claude only proves the claude
         # process is on the tty, but Ink can still be mid-render when the paste fires and drops
         # bytes (empty compose) or catches the text without the Enter (unsubmitted). See the
-        # submit_resume_nudge header for the full failure story (2026-09-02, Ashley). The nudge
+        # submit_resume_nudge header for the full failure story (2026-09-02, Alice). The nudge
         # text lives inside submit_resume_nudge alongside its verify predicate — keep them together.
         if submit_resume_nudge "$name" "$sess" "$cwd" "$resume"; then
           # supervisor's hands are OFF this pane — drop the marker with a UTC timestamp inside so
@@ -953,7 +953,7 @@ drive() {
     return 1
   fi
   # SUBMIT /id via submit_id() helper — handles the leading-newline race (2026-08-21 taylor bug +
-  # 2026-08-29 Ashley report) + never-landed-paste + submission verification with a state-machine
+  # 2026-08-29 Alice report) + never-landed-paste + submission verification with a state-machine
   # recovery loop (up to 3 attempts). See submit_id() near the top of this file for the full state
   # machine. On final failure, submit_id returns 1 and we bail from drive() (same shape as
   # wait_for_claude) rather than leaving a broken /id-in-compose pane pretending to be alive.

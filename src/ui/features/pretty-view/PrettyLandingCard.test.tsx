@@ -46,7 +46,7 @@ describe("PrettyLandingCard", () => {
 
   it("Test 4: renders idle static content — no animation, no spinner, no aria-busy", () => {
     const { container } = render(<PrettyLandingCard />);
-    // Ashley's motion guardrail (patch #72 precedent) — no motion channel.
+    // Alice's motion guardrail (patch #72 precedent) — no motion channel.
     // Grep the entire rendered subtree for animate- / aria-busy.
     const html = container.innerHTML;
     expect(html).not.toMatch(/animate-/);

@@ -12,13 +12,13 @@
 |-------------------|------|-----------|----------------|---------------|
 | **NEW — Substrate (fleet-shipped)** | | | | |
 | `substrate/scripts/tg-bridge.sh` | substrate script | event-driven (Telegram getUpdates poll + Matrix /sync) | `substrate/scripts/agent-supervisor.sh` (loop shape) + `substrate/skills/agent-relay/recv.sh` (cursor persistence) | exact-role, exact-flow |
-| `substrate/user-onboarding/tg-bridge.service` | systemd unit (USER scope per Ashley's decision #2) | systemd `Restart=always` supervisor | `substrate/user-onboarding/agent-supervisor.service` | exact |
+| `substrate/user-onboarding/tg-bridge.service` | systemd unit (USER scope per Alice's decision #2) | systemd `Restart=always` supervisor | `substrate/user-onboarding/agent-supervisor.service` | exact |
 | **NEW — Backend** | | | | |
 | `src/backend/telegram/tokens-store.ts` | service (FieldCrypto CRUD store) | CRUD (per-identity encrypted row) | `src/backend/matrix/matrix-admin-creds-store.ts` | exact-shape (only diff: per-key vs singleton) |
 | `src/backend/telegram/routes.ts` | controller (Express router) | request-response | `src/backend/matrix/matrix-admin-routes.ts` | exact |
 | `src/backend/telegram/bridge-config-writer.ts` | service (file writer to bind-mount) | file I/O (write registry.json + `<human>.token` + config.env to `/var/lib/tg-bridge/`) | NEW pattern — closest partial: identity-birth-orchestrator's SFTP-write step (`identity-birth-orchestrator.ts:562-584`) but that's remote-SSH; this is local fs. See § No Analog Found. | partial |
 | `src/backend/telegram/telegram-getme-proxy.ts` | service (external HTTP proxy) | request-response (backend → Telegram Bot API) | `src/backend/matrix/matrix-admin-client.ts:127-171` (`loginAsUser`) — same fetch+AbortController+timeout+non-2xx shape | exact-flow |
-| `src/backend/config/media-endpoints.ts` (shared TS constant module) | config module | pure constants (imported at module-load) | Grep found NO existing `src/backend/config/` dir OR shared endpoint constants — currently `STT_URL` is inline in `voice.ts:28`. See § No Analog Found for the new-pattern rationale (Ashley decision #3). | no-analog |
+| `src/backend/config/media-endpoints.ts` (shared TS constant module) | config module | pure constants (imported at module-load) | Grep found NO existing `src/backend/config/` dir OR shared endpoint constants — currently `STT_URL` is inline in `voice.ts:28`. See § No Analog Found for the new-pattern rationale (Alice decision #3). | no-analog |
 | `src/backend/matrix/reconcile-dead-tokens.ts` (or extend matrix admin service) | service (periodic sweep) | file I/O sentinel scan → mint via admin → overwrite `.token` → delete sentinel | Phase 73 reconcile-loop shape at `src/backend/distributor/run-sweep.ts` + `sweep-logic.ts` (per-host iterate → detect drift → act). See § Pattern Assignments for concrete excerpt. | role-match |
 | **NEW — Frontend** | | | | |
 | `src/ui/features/pretty-view/TelegramTab.tsx` | React component (tab in modal) | request-response (POST /telegram/*) | `src/ui/features/pretty-view/HandoffTab.tsx` (single-credential, save/error surface, `TabState<T>` prop) | exact |
@@ -42,7 +42,7 @@
 | `docker/nginx-https.conf` — same block | config | HTTP proxy rule | nginx-https.conf:164-173 (`/matrix-admin` block) | exact (copy + rename path) |
 | **MODIFIED — Docker deploy (orchestrator-owned per fleet rule)** | | | | |
 | `/opt/skynet/docker-compose.yml` — add `/var/lib/tg-bridge/` bind-mount to `skynet` service | config | rw bind-mount | Phase 70 branding bind-mount at `/opt/skynet/docker-compose.yml` lines 19-25 (verified live via cat) | exact-shape (RW instead of read_only) |
-| **MODIFIED — Host DB seed (Ashley decision #1: wire SSH cred to host id 6)** | | | | |
+| **MODIFIED — Host DB seed (Alice decision #1: wire SSH cred to host id 6)** | | | | |
 | Skynet host DB — attach `credentialId` on host id 6 ("Skynet") | data seed | one-off UPDATE row | `PUT /host/:id` update handler at `src/backend/database/routes/host.ts:1075-1084` (existing `credentialId` update path) — trigger via existing HTTP endpoint, no new code | exact (existing HTTP surface) |
 
 ---
@@ -131,7 +131,7 @@ Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 WantedBy=default.target
 ```
 
-**Phase B tg-bridge.service (Ashley decision #2 — USER scope, mirrors this exactly):**
+**Phase B tg-bridge.service (Alice decision #2 — USER scope, mirrors this exactly):**
 ```ini
 [Unit]
 Description=Telegram ↔ Matrix bridge — Apple-Watch reachability for the fleet
@@ -151,7 +151,7 @@ WantedBy=default.target
 
 Notes: `RestartSec=5` (vs 10) matches Nina's live unit; `KillMode=mixed` matches Nina's live unit (`agent-supervisor` uses `process` because it supervises tmux sessions that must survive a supervisor restart — the bridge has no such invariant, `mixed` cleans up bash + child curl polls).
 
-**Install path:** `~/.config/systemd/user/tg-bridge.service` (matches agent-supervisor at catalog.ts:237). USER scope needs `loginctl enable-linger ubuntu` on t1000 (already set per RESEARCH.md — verified via Ashley's other USER-scoped units running post-logout).
+**Install path:** `~/.config/systemd/user/tg-bridge.service` (matches agent-supervisor at catalog.ts:237). USER scope needs `loginctl enable-linger ubuntu` on t1000 (already set per RESEARCH.md — verified via Alice's other USER-scoped units running post-logout).
 
 ---
 
@@ -332,8 +332,8 @@ export default router;
 - `GET /telegram/:identityKey` — status view for the tab (auth: user + own-identity check)
 - `POST /telegram/restart` — retry restart (admin OR own-identity)
 
-**Admin-gate for the migration route** (belongs in `matrix-admin/routes.ts` per Ashley decision #5):
-- `POST /matrix-admin/migrate-cred-files` — mirrors `POST /matrix-admin/creds` exactly (same file, same middleware, same error shape); body is empty (idempotent one-shot); returns `{ok:true, minted:["ashley","zoey"], deleted:["ashley.cred","zoey.cred"]}`.
+**Admin-gate for the migration route** (belongs in `matrix-admin/routes.ts` per Alice decision #5):
+- `POST /matrix-admin/migrate-cred-files` — mirrors `POST /matrix-admin/creds` exactly (same file, same middleware, same error shape); body is empty (idempotent one-shot); returns `{ok:true, minted:["alice","zoey"], deleted:["alice.cred","zoey.cred"]}`.
 
 ---
 
@@ -392,7 +392,7 @@ try {
 
 **Core reconcile shape:** iterate a list of items → detect drift → act. Phase B applies this to `/var/lib/tg-bridge/*.token-dead` sentinels.
 
-**Ashley decision #4 sentinel-file flow:**
+**Alice decision #4 sentinel-file flow:**
 1. Bridge on any Matrix 401 writes `${REGISTRY_DIR}/<human>.token-dead` (empty file; sentinel).
 2. Skynet's reconcile pass (interval: 30s, or on demand from `POST /telegram/reconcile`) does:
    - `fs.readdirSync("/var/lib/tg-bridge")` → filter for `*.token-dead`
@@ -420,7 +420,7 @@ export async function restartUserUnit(
 }
 ```
 
-**Phase B key diff:** for the self-Skynet host (t1000), the SSH channel is against `host id 6` (per Ashley decision #1) — same code path as every other substrate host after the credential wire-up. USER-scoped (per decision #2) so this `--user` command stays as-is (no changes to `ssh-push.ts` needed).
+**Phase B key diff:** for the self-Skynet host (t1000), the SSH channel is against `host id 6` (per Alice decision #1) — same code path as every other substrate host after the credential wire-up. USER-scoped (per decision #2) so this `--user` command stays as-is (no changes to `ssh-push.ts` needed).
 
 ---
 
@@ -726,7 +726,7 @@ private static readonly ENCRYPTED_FIELDS = {
 },
 ```
 
-**Phase B additions (2 rows — USER scope per Ashley decision #2):**
+**Phase B additions (2 rows — USER scope per Alice decision #2):**
 ```typescript
 {
   slug: "tg-bridge",
@@ -742,7 +742,7 @@ private static readonly ENCRYPTED_FIELDS = {
 },
 ```
 
-**No `unitScope` field needed** (Ashley locked USER scope in decision #2 — so ssh-push.ts's hardcoded `--user` at line 218 continues to work for tg-bridge exactly as it does for agent-supervisor). The RESEARCH.md § Alternatives Considered discussion of SYSTEM scope is overridden by decision #2.
+**No `unitScope` field needed** (Alice locked USER scope in decision #2 — so ssh-push.ts's hardcoded `--user` at line 218 continues to work for tg-bridge exactly as it does for agent-supervisor). The RESEARCH.md § Alternatives Considered discussion of SYSTEM scope is overridden by decision #2.
 
 ---
 
@@ -838,11 +838,11 @@ location ~ ^/telegram(/.*)?$ {
     create_host_path: true
 ```
 
-**Note (Ashley decision #2 — USER-scope):** if the bridge is user-scoped and runs as `ubuntu`, the host dir needs `chown ubuntu:ubuntu /var/lib/tg-bridge` (or `750 ubuntu:ubuntu` if we want it group-restricted). The `create_host_path` flag creates the dir as root-owned by default; a one-shot `chown` runs at first-boot (or the operator sets it manually per RESEARCH.md § Q7 recommendation).
+**Note (Alice decision #2 — USER-scope):** if the bridge is user-scoped and runs as `ubuntu`, the host dir needs `chown ubuntu:ubuntu /var/lib/tg-bridge` (or `750 ubuntu:ubuntu` if we want it group-restricted). The `create_host_path` flag creates the dir as root-owned by default; a one-shot `chown` runs at first-boot (or the operator sets it manually per RESEARCH.md § Q7 recommendation).
 
 ---
 
-### Skynet host DB — wire SSH credential to host id 6 (Ashley decision #1)
+### Skynet host DB — wire SSH credential to host id 6 (Alice decision #1)
 
 **Analog:** existing `PUT /host/:id` credentialId update handler at `src/backend/database/routes/host.ts:1075-1084` (VERIFIED)
 
@@ -946,7 +946,7 @@ Debounced `DatabaseSaveTrigger.triggerSave("<op_name>")` wrapped in try/catch �
 - Log `{botUsername}` for display, not `{botToken}`.
 - Bridge script (bash side) mirrors: `log()` helper at agent-supervisor.sh:31 (`printf '%s %s\n' "$(date '+%H:%M:%S')" "$*"`).
 
-### Dead-token detection (Ashley decision #4)
+### Dead-token detection (Alice decision #4)
 **Source:** No exact analog exists in-tree — closest is the recv.sh `SINCE_FILE` pattern (write-file-as-persistent-state, read-file-on-startup).
 **Apply to:** `src/backend/matrix/reconcile-dead-tokens.ts` + tg-bridge.sh's 401 branch
 
@@ -965,7 +965,7 @@ Files with no close match in the codebase — planner should design from first p
 | File | Role | Data Flow | Reason / Guidance |
 |------|------|-----------|-------------------|
 | `src/backend/telegram/bridge-config-writer.ts` | service (local-fs writer to bind-mount) | file I/O (write `registry.json`, `<human>.token`, `config.env` to `/var/lib/tg-bridge/`) | **No exact analog exists.** Closest partial: `identity-birth-orchestrator.ts:562-584` (SFTP write + chmod 600) but that's *remote* over SSH. This is *local* fs (bind-mount visible to both Node and the bridge). Design: use `fs.promises.writeFile` to `<path>.tmp` → `fs.promises.rename(<path>.tmp, <path>)` (POSIX atomic on same filesystem, per RESEARCH.md § Security — "Bind-mount write-race with bridge reads"). Then `fs.promises.chmod(path, 0o600)`. Bridge reads full-file `cat` (atomic-visible via inode). For `registry.json`, parse+mutate+re-serialize via `JSON.parse`/`JSON.stringify` (container has no `jq` — RESEARCH.md § Standard Stack). |
-| `src/backend/config/media-endpoints.ts` (shared TS constants) | config module | pure constants imported at module-load | **No existing `src/backend/config/` dir.** `voice.ts:28` currently hardcodes `STT_URL` inline. Ashley decision #3 locks this as a shared TS module (Option 2 from RESEARCH.md § Pitfall 5). Design: create the dir, export `STT_URL`, `TTS_URL`, `TTS_STREAM_URL`, `VOICES_URL` as `export const` string literals (verbatim values from voice.ts:28-34). `voice.ts` imports from this module. `bridge-config-writer.ts` imports STT_URL and writes it to `config.env` at Skynet startup. For Matrix homeserver base, per RESEARCH.md § Q3 (Option 1 recommendation), Skynet reads from `matrix_admin_creds.homeserverBase` via `getMatrixAdminCreds()` and writes to `config.env` as `MATRIX_ROOT`. |
+| `src/backend/config/media-endpoints.ts` (shared TS constants) | config module | pure constants imported at module-load | **No existing `src/backend/config/` dir.** `voice.ts:28` currently hardcodes `STT_URL` inline. Alice decision #3 locks this as a shared TS module (Option 2 from RESEARCH.md § Pitfall 5). Design: create the dir, export `STT_URL`, `TTS_URL`, `TTS_STREAM_URL`, `VOICES_URL` as `export const` string literals (verbatim values from voice.ts:28-34). `voice.ts` imports from this module. `bridge-config-writer.ts` imports STT_URL and writes it to `config.env` at Skynet startup. For Matrix homeserver base, per RESEARCH.md § Q3 (Option 1 recommendation), Skynet reads from `matrix_admin_creds.homeserverBase` via `getMatrixAdminCreds()` and writes to `config.env` as `MATRIX_ROOT`. |
 
 **For both:** since no analog exists, the planner should ground the design in the specific RESEARCH.md sections cited and prefer minimal surface area (single-purpose module, pure functions, no side effects at import time).
 

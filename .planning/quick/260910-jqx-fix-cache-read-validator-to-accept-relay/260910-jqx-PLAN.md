@@ -37,7 +37,7 @@ must_haves:
 
 <objective>
 Fix `isFleetSession` at src/ui/state/conversation-store.ts:1232 so relay-room
-rows survive the cache-read validator. Ashley observed ~10s wait for relay
+rows survive the cache-read validator. Alice observed ~10s wait for relay
 rooms to appear on every app boot despite them being in the cache — traced to
 the validator strictly requiring harness-shape fields (hostId:number,
 hostName:string, sessionName:string, created:number) which relay rows do not
@@ -273,7 +273,7 @@ Semantic verification (goal-backward):
 - All four new regression tests pass; all pre-existing cache tests still pass
 - `npx tsc --noEmit` clean
 - On next app boot with a warm cache, relay rooms paint immediately (verified
-  in the follow-up execute phase or by Ashley in-app; not automatable here)
+  in the follow-up execute phase or by Alice in-app; not automatable here)
 </success_criteria>
 
 <output>

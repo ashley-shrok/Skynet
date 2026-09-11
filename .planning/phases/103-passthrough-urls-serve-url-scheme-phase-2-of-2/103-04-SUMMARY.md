@@ -133,7 +133,7 @@ Realizes the following threats from the plan's `<threat_model>`:
 ## Next Phase Readiness
 
 - **Plan 05 (subdomain-dispatch + serve-route) — READY.** Plan 05 wires proxy-factory into the actual request-dispatch layer (parsing `<hostname>-<port>` subdomain labels, resolving hosts via `resolveHostByName(name, userId)`, getting a tunnel from tunnel-cache, then calling `getOrCreateProxyForTarget(target, tunnelPort)`). This test guards proxy-factory in ISOLATION. Any Plan-05 dispatch bug that bypasses the proxy or fails to invoke `getOrCreateProxyForTarget` would need its own test — this file guards the proxy-factory itself, not the plumbing that reaches it.
-- **CI gate for D-05 is now in place.** Any PR against the main branch that touches proxy-factory.ts (or its dependencies types.ts + header-audit-sampler.ts) automatically runs this test via `npx vitest run` in the ship-gate. The gate is at container-deploy time per box-maintainer's test discipline (Ashley 2026-09-07: scoped during dev, full suite as first step of deploy motion). D-05's "MUST pass to merge" is now structurally enforced.
+- **CI gate for D-05 is now in place.** Any PR against the main branch that touches proxy-factory.ts (or its dependencies types.ts + header-audit-sampler.ts) automatically runs this test via `npx vitest run` in the ship-gate. The gate is at container-deploy time per box-maintainer's test discipline (Alice 2026-09-07: scoped during dev, full suite as first step of deploy motion). D-05's "MUST pass to merge" is now structurally enforced.
 - **No blockers.** All acceptance criteria met; test file exists at the expected path; tests pass; tsc clean.
 
 ## Self-Check: PASSED

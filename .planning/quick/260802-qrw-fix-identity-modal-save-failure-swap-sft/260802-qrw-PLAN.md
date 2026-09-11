@@ -15,7 +15,7 @@ requirements:
 
 must_haves:
   truths:
-    - "Ashley's IdentityModal saves against an EXISTING identity file no longer surface generic 'Error: Failure' (SFTP code 4) on skynet-ec2."
+    - "Alice's IdentityModal saves against an EXISTING identity file no longer surface generic 'Error: Failure' (SFTP code 4) on skynet-ec2."
     - "All four identity writers (writeIdentityFile, writeIdentityHistory, writeIdentityHandoff, writeIdentityBountyFields) route their atomic rename through the OpenSSH posix-rename extension, giving them POSIX rename(2) overwrite semantics."
     - "A regression test in the identity-artifact-reader REMOTE-branch suite fails loudly (throws a diagnostic 'must not call sftp.rename — use ext_openssh_rename') if a future edit reverts writeMarkdownFileAtomic to sftp.rename."
     - "`npm run build:backend` passes on the strict backend tsconfig (belt-and-suspenders per Tina's learned rule — frontend `tsc --noEmit` alone does not catch backend TS errors)."
@@ -49,7 +49,7 @@ Root cause (confirmed on skynet-ec2, root-caused by @stacy on ceo-skynet 2026-08
   falls through to SSH2_FX_FAILURE — the client sees a generic `Error: Failure`
   with code 4 and an empty error string. Every overwrite of an existing identity
   file therefore fails; only first-time writes (target missing) succeed. Matches
-  Ashley's "sometimes it works, sometimes it doesn't" — she confirmed all her
+  Alice's "sometimes it works, sometimes it doesn't" — she confirmed all her
   IdentityModal saves have been on EXISTING identities.
 
 Fix: swap the single call site to sftp.ext_openssh_rename (posix-rename@openssh.com
@@ -65,7 +65,7 @@ JSDoc prologue on writeMarkdownFileAtomic to record WHY the extension is require
 sftp.rename fails at review-time as well as at test-time.
 
 Purpose: Restore IdentityModal save reliability for the entire fleet. This is the
-top-of-list production bug for Ashley today.
+top-of-list production bug for Alice today.
 
 Output: single-file backend patch (identity-artifact-reader.ts) + new regression
 test file (identity-artifact-reader.remote-writes.test.ts).
@@ -85,7 +85,7 @@ test file (identity-artifact-reader.remote-writes.test.ts).
 # error surface (throws "Server does not support this extended request" if the
 # server does not advertise posix-rename@openssh.com === "1"; OpenSSH ≥5.1
 # always advertises it, so this branch is unreachable in practice against
-# every host in Ashley's fleet).
+# every host in Alice's fleet).
 @node_modules/ssh2/lib/protocol/SFTP.js
 </context>
 
@@ -139,7 +139,7 @@ STEP D (grep gate). Run `grep -c "sftp\.rename(" src/backend/claude-session/iden
 
 Constraints (from scope, non-negotiable):
 - Do NOT touch `src/backend/ssh/pretty-view-upload.ts` — its sftp.rename target is guaranteed non-existent by resolveNonCollidingFinal; scope stays narrow.
-- Do NOT add a fallback for sshd versions that lack posix-rename@openssh.com — OpenSSH ≥5.1 (2008+) supports it universally and every host in Ashley's fleet is well beyond that; a fallback would add a code path we cannot exercise.
+- Do NOT add a fallback for sshd versions that lack posix-rename@openssh.com — OpenSSH ≥5.1 (2008+) supports it universally and every host in Alice's fleet is well beyond that; a fallback would add a code path we cannot exercise.
 - Do NOT `git push`, do NOT `docker build`, do NOT `docker compose up`. Commit on the current branch and STOP.
 - Do NOT use git worktrees (fleet rule).
 - Do NOT update `~/.claude/identities/tina/skynet-patches.md` or the bounty archive — the orchestrator handles that after this plan lands.
@@ -170,7 +170,7 @@ Rebase-ability constraint (CLAUDE.md): this is a bugfix, not a numbered patch on
 
 | Boundary | Description |
 |----------|-------------|
-| skynet backend → managed target sshd | SFTP write of identity markdown crosses trust boundary (target host is Ashley-controlled fleet member, but the SFTP protocol surface itself is the boundary). |
+| skynet backend → managed target sshd | SFTP write of identity markdown crosses trust boundary (target host is user-controlled fleet member, but the SFTP protocol surface itself is the boundary). |
 | IdentityModal (browser) → skynet backend WS | Already bounded by IDENTITY_KEY_RE at the WS handler AND inside each REMOTE-branch writer (double-belt per D-IDMEDIT-06). Unchanged by this patch. |
 
 ## STRIDE Threat Register
@@ -178,7 +178,7 @@ Rebase-ability constraint (CLAUDE.md): this is a bugfix, not a numbered patch on
 | Threat ID | Category | Component | Disposition | Mitigation Plan |
 |-----------|----------|-----------|-------------|-----------------|
 | T-QRW-01 | Tampering | ext_openssh_rename argument construction (tmpPath, targetPath) | accept | targetPath is built from `${remoteHome}/.claude/identities/${identityKey}/...` where identityKey is validated by IDENTITY_KEY_RE (`^[a-z0-9_-]{1,64}$`) BEFORE the SFTP call (identity-artifact-reader.ts:931/959/987). tmpPath is `targetPath + ".tmp"`. No new interpolation, no new user-controlled string reaches SFTP through this patch. |
-| T-QRW-02 | Denial of Service | posix-rename@openssh.com absent on target sshd | accept | ssh2 throws "Server does not support this extended request" synchronously. Every OpenSSH ≥5.1 (2008+) advertises the extension by default; Ashley's fleet is entirely modern Linux (Ubuntu 22/24) — this branch is unreachable in practice. Any hypothetical failure surfaces as a caught exception in writeMarkdownFileAtomic's try/catch, gets logged via sshLogger.error with the existing shape, and propagates to the WS handler exactly as any other write error would. No new failure mode versus the pre-patch bug (which failed 100% of overwrites); this is a strict improvement. |
+| T-QRW-02 | Denial of Service | posix-rename@openssh.com absent on target sshd | accept | ssh2 throws "Server does not support this extended request" synchronously. Every OpenSSH ≥5.1 (2008+) advertises the extension by default; Alice's fleet is entirely modern Linux (Ubuntu 22/24) — this branch is unreachable in practice. Any hypothetical failure surfaces as a caught exception in writeMarkdownFileAtomic's try/catch, gets logged via sshLogger.error with the existing shape, and propagates to the WS handler exactly as any other write error would. No new failure mode versus the pre-patch bug (which failed 100% of overwrites); this is a strict improvement. |
 | T-QRW-03 | Repudiation | Bounty/history markdown overwritten silently | accept | Unchanged behavior surface. writeMarkdownFileAtomic already logs `identity_markdown_write` on success and `identity_markdown_write_error` on failure with operation/targetPath/bytes. The patch preserves the log shape verbatim. |
 | T-QRW-SC | Tampering | npm/pip/cargo installs | n/a | No new packages installed. ssh2 is a pre-existing dependency (node_modules/ssh2 already present); ext_openssh_rename is a method on the existing SFTPWrapper class, not a new module. |
 </threat_model>
@@ -192,7 +192,7 @@ Phase-level checks:
 
 3. Backend build discipline (Tina's learned rule): `npm run build:backend` is REQUIRED. The default `tsc --noEmit` on the frontend project does not exercise the backend TypeScript config; a backend-only type regression can slip past frontend typechecking. This has bitten Tina before — the learned rule is codified in `~/.claude/identities/tina/skynet-patches.md`.
 
-4. Manual smoke (out of scope for automation but noted for the orchestrator's post-plan verification): after this plan ships and skynet redeploys, Ashley should be able to open the IdentityModal on any existing identity (e.g. `tina`), edit any of the four writable fields (main markdown, history, handoff, bounty fields), click Save, and see the save succeed without the generic "Error: Failure" toast. The orchestrator owns the redeploy step (not this plan; per scope, no `docker compose up`).
+4. Manual smoke (out of scope for automation but noted for the orchestrator's post-plan verification): after this plan ships and skynet redeploys, Alice should be able to open the IdentityModal on any existing identity (e.g. `tina`), edit any of the four writable fields (main markdown, history, handoff, bounty fields), click Save, and see the save succeed without the generic "Error: Failure" toast. The orchestrator owns the redeploy step (not this plan; per scope, no `docker compose up`).
 </verification>
 
 <success_criteria>

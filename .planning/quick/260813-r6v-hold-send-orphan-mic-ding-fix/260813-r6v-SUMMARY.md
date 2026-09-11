@@ -38,7 +38,7 @@ Fix two shipped Phase 37 hold-to-send defects (patch #436):
 **Layer 1 — Orphan Guard (B-1 fix)**
 - Added `stateRef` (useRef) + `useEffect(() => { stateRef.current = state; }, [state])` so `cancel()` reads current state, not the closure snapshot.
 - `cancel()` now handles "starting" state explicitly: with recorder present → runs `stopRecording()` teardown; without recorder → arms `pendingCancelRef` + sets `setState("idle")`.
-- **Post-recorder.start() re-check** (the smoking-gun path): inside `.then()`, AFTER `recorder.start()` fires and BEFORE setState/playSound, re-checks `pendingCancelRef.current`. If true (cancel() raced between pre-construction check and here), tears down recorder + stream + refs and returns WITHOUT state transition or audio. This closes the exact race Ashley captured in her bug log.
+- **Post-recorder.start() re-check** (the smoking-gun path): inside `.then()`, AFTER `recorder.start()` fires and BEFORE setState/playSound, re-checks `pendingCancelRef.current`. If true (cancel() raced between pre-construction check and here), tears down recorder + stream + refs and returns WITHOUT state transition or audio. This closes the exact race Alice captured in her bug log.
 - `start()` early guard changed from `state !== "idle"` to `stateRef.current !== "idle"` — gates re-entrance during the "starting" grey zone.
 
 **Layer 2 — commitStartVisibility Split (B-2 fix)**
@@ -49,7 +49,7 @@ Fix two shipped Phase 37 hold-to-send defects (patch #436):
 
 **Tests added to useVoiceRecording.test.ts** (6 new, 24 updated):
 - Test PC-D: getUserMedia resolves BEFORE cancel() → cancel() tears down via stateRef ("starting" state path)
-- Test PC-E: post-recorder.start() re-check path (Ashley bug log reproduction)
+- Test PC-E: post-recorder.start() re-check path (Alice bug log reproduction)
 - Test COMMIT-A: happy path via commitStartVisibility — start.mp3 NOT played until commit
 - Test COMMIT-B: commitStartVisibility called BEFORE getUserMedia resolves → no-op
 - Test COMMIT-C: re-entrance during grey zone → getUserMedia called only once

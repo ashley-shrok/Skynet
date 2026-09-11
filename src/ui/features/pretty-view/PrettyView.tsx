@@ -101,7 +101,7 @@ import {
   useSessionIsRecycling,
 } from "@/state/session-working-store";
 import { useSessionWaitingFor } from "@/state/session-waiting-store";
-// Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Ashley 2026-09-08 D-03
+// Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Alice 2026-09-08 D-03
 // mechanical waiver): contextPct now lives on fleet-status (single source of
 // truth) rather than in this component's local useState. Both PrettyView and
 // the future Plan 06 relay-pane badge appendage subscribe to the same value
@@ -117,14 +117,14 @@ import { WaitingBubble } from "./WaitingBubble";
 // the WS-setup useEffect re-runs and opens a fresh WS. The "inactive" server
 // state short-circuits ALL retry paths — it is the authoritative terminal
 // frame and must not be overstepped by client-side reconnect logic.
-// A separate visibilitychange handler (the direct Ashley iOS PWA fix) resets
+// A separate visibilitychange handler (the direct Alice iOS PWA fix) resets
 // the attempt counter to 0 and triggers an immediate reconnect when the user
 // foregrounds the PWA tab — so her next tap always gets a live connection.
 const MAX_RECONNECT_ATTEMPTS = 5;
 
-// Ashley 2026-07-27: automatic aside triggering DISABLED. The Phase 14
+// Alice 2026-07-27: automatic aside triggering DISABLED. The Phase 14
 // isIdle-transition auto-fire of {type:"aside_arm"} was burning session
-// tokens without delivering value; Ashley plans to switch to a different
+// tokens without delivering value; Alice plans to switch to a different
 // trigger mechanism. The aside subsystem itself (backend arm handler,
 // poller, extract, dismiss, frontend AsideBubble render on aside_ready)
 // stays wired — only the automatic frontend emit is off. Flip to `true`
@@ -132,7 +132,7 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 const AUTO_ASIDE_ARM_ENABLED = false;
 
 // quick-260812-x5f — debounced hidden-pane WS close (~60s).
-// Ashley 2026-08-12: voice-record + send + immediately switching to another
+// Alice 2026-08-12: voice-record + send + immediately switching to another
 // session broke because the WS used for the transcription-and-send pipeline
 // was closed immediately on isVisible=false (quick-260808-b74 regression).
 // A 60s grace window lets in-flight nav-away work (queued sends, pending
@@ -325,7 +325,7 @@ type Status = "connecting" | "streaming" | "inactive" | "error";
 
 // Patch #86: pretty-view's message stream now interleaves text messages
 // and image bubbles in strict wire order (the whole point of the patch —
-// Ashley sees "the agent read this image" at the correct chronological
+// Alice sees "the agent read this image" at the correct chronological
 // position). Both event shapes share `eventId` + `ts`, so appendDedup's
 // dedup logic remains a one-line hash check.
 type StreamEvent =
@@ -335,13 +335,13 @@ type StreamEvent =
   | RelayInboundEvent
   | MalformedLineEvent;
 
-// inline-260823-pv-line-sorted-insert (Ashley 2026-08-23): insertion-sort by
+// inline-260823-pv-line-sorted-insert (Alice 2026-08-23): insertion-sort by
 // `line` so out-of-arrival-order frames land in chronological position.
 // Trigger case: after a load-more click flips capOff=true, a hidden-pane-close
 // → WS re-open triggers re-hydration from line 1 of the session file. Every
 // eid never seen before (lines that were cap-dropped during initial hydration)
 // gets appendDedup'd — under naive append-at-end that placed session-start
-// content at the DOM BOTTOM (Ashley's Patricia report 2026-08-23: "the first
+// content at the DOM BOTTOM (Alice's Patricia report 2026-08-23: "the first
 // 20 bubbles of the session" appeared BELOW her most-recent messages).
 //
 // Sort key: `line: number` on every wire frame (Plan 01 additive widening on
@@ -375,7 +375,7 @@ function appendDedup(
   next: StreamEvent,
 ): StreamEvent[] {
   if (prev.some((m) => m.eventId === next.eventId)) return prev;
-  // Relay-inbound matrixEventId dedup (2026-09-01, Ashley bug report: peer
+  // Relay-inbound matrixEventId dedup (2026-09-01, Alice bug report: peer
   // messages showing as 2-4 duplicate bubbles). A single Matrix event
   // arriving during a busy turn can produce up to THREE distinct jsonl
   // envelopes (queue-operation enqueue, attachment queued_command, user
@@ -422,7 +422,7 @@ function appendDedupWithCap<T extends { eventId: string; line?: number; ts?: num
 ): T[] {
   if (prev.some((m) => m.eventId === next.eventId)) return prev;
   // Relay-inbound matrixEventId dedup — same rationale as appendDedup above
-  // (2026-09-01 Ashley bug report). Generic constraint doesn't carry
+  // (2026-09-01 Alice bug report). Generic constraint doesn't carry
   // matrixEventId, so probe by shape at runtime; harmless on non-relay
   // entries. Skip the later arrival of a matrixEventId already accepted so
   // one physical Matrix message never renders as 2-4 bubbles.
@@ -469,7 +469,7 @@ function appendDedupWithCap<T extends { eventId: string; line?: number; ts?: num
     })();
   if (withNew.length > cap) {
     // pv-scroll (2026-08-23): cap-drop is the primary suspect for
-    // Ashley's "message bubble area suddenly jumps up" report — when the
+    // Alice's "message bubble area suddenly jumps up" report — when the
     // pane holds `cap` messages and a new one arrives, the oldest drops
     // off the front of the DOM. If she's scrolled up reading, and the
     // browser's overflow-anchor is defeated, the viewport shifts up by
@@ -491,7 +491,7 @@ function appendDedupWithCap<T extends { eventId: string; line?: number; ts?: num
 // (PrettyView.estimateSize.test.tsx) breaks as a result and is scheduled
 // for deletion in plan 43-08 per 43-CONTEXT.md § Deletion scope.
 
-// Phase 14 followup + UAT amendment E41 (Ashley 2026-07-27): recognize both
+// Phase 14 followup + UAT amendment E41 (Alice 2026-07-27): recognize both
 // invocation forms of the /id command. (a) SSH-typed raw form: literal
 // "/id " prefix (trailing space excludes /identity / /idle / bare /id).
 // (b) Harness slash-UI form: pretty-view's slash-UI emits the command as
@@ -758,7 +758,7 @@ export function PrettyView({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // Context-window fill %, sourced from the fleet-status shared map (single
   // source of truth). Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism,
-  // Ashley 2026-09-08 D-03 mechanical waiver) SWAPPED the previous local
+  // Alice 2026-09-08 D-03 mechanical waiver) SWAPPED the previous local
   // `useState<number | null>(null)` for this hook — same variable name,
   // same type, same behavior end-to-end. Backend dual-writes on every
   // `context_pct` emission from claude-session-server, publishes on every
@@ -815,7 +815,7 @@ export function PrettyView({
   // send button morphs to X/Resume) currently only covers the DISPLAY
   // phase (post-aside_ready, pre-dismiss). This leaves the GENERATION
   // phase (from /btw submit through aside_ready arrival, typically a
-  // few seconds to ~1 min) unblocked — Ashley can accidentally send
+  // few seconds to ~1 min) unblocked — Alice can accidentally send
   // unrelated input that collides with Claude Code's in-flight /btw
   // handling. The same single-Escape-primitive (dismissBtw) works
   // to cancel an in-flight /btw OR clear a displayed aside, so a single
@@ -920,7 +920,7 @@ export function PrettyView({
   const [dormant, setDormant] = useState(false);
   // phase-30-restore-resolving-overlay-paint-delay (2026-08-10): D-04 anti-flash
   // RESTORED at THIS site (not the hook) per PS30-06's own guidance below.
-  // Ashley UAT surfaced the flash the Phase 30 deletion left exposed — cold
+  // Alice UAT surfaced the flash the Phase 30 deletion left exposed — cold
   // paneKey entry to an already-active session momentarily shows
   // renderedState==="resolving" while the WS reopens and the backend's
   // pane_state emit lands (~200-400ms on iPhone PWA). 400ms delay-arm here
@@ -951,7 +951,7 @@ export function PrettyView({
   //
   // Design:
   //   - optimisticRecycling: per-pane React state (NOT promoted to
-  //     session-working-store — Ashley's explicit decision this session;
+  //     session-working-store — Alice's explicit decision this session;
   //     source B catches the JSONL append within seconds so the
   //     "user switches tabs mid-recycle" window is small enough to accept
   //     losing overlay-across-mount).
@@ -1040,7 +1040,7 @@ export function PrettyView({
   //      sessionKey (cross-tab dismiss coherence per ASIDE-11).
   // Idempotent: if the WS is closed or the send throws, the optimistic
   // clear still happened. The backend's next poller cycle will detect
-  // marker-disappearance (Ashley may still have to Escape manually via
+  // marker-disappearance (Alice may still have to Escape manually via
   // SSH in that failure mode) and broadcast dismissed; the WS
   // aside_dismissed handler above is idempotent so no double-render.
   // Per T-14-02-01 mitigation: the backend IGNORES msg.hostId +
@@ -1048,7 +1048,7 @@ export function PrettyView({
   // currentHostId + currentTmuxSession only), so these fields are
   // informational-only from the backend's perspective. Included here
   // matching AsideDismissedPayload's exported type shape.
-  // Dismiss-loop guard (Ashley 2026-07-26 UAT): dismissing an aside
+  // Dismiss-loop guard (Alice 2026-07-26 UAT): dismissing an aside
   // sends Escape into tmux to close the /btw overlay, which produces
   // brief pane activity → Claude Code's isIdle flips false → 4s later
   // returns true. Without a cooldown, that trailing false→true
@@ -1057,7 +1057,7 @@ export function PrettyView({
   // dismiss→settle→isIdle=true path with safety margin.
   const dismissCooldownUntilRef = useRef<number>(0);
 
-  // Phase 14 followup (Ashley 2026-07-26): full aside-surface reset for
+  // Phase 14 followup (Alice 2026-07-26): full aside-surface reset for
   // session-changeover paths. Extends clearAsidePending with the two
   // pieces the pending-only clear misses — the displayed asideText and
   // the 8s dismissCooldownUntilRef. Called from both changeover paths
@@ -1345,7 +1345,7 @@ export function PrettyView({
   // branch, and by the send_keys_error WS branch. Marks the matching
   // pending as 'failed' (state:'failed', timer:null). The red-bordered
   // failed bubble stays in the transcript as the record of the send;
-  // the composebox is NOT repopulated (Ashley 2026-09-02, reversing
+  // the composebox is NOT repopulated (Alice 2026-09-02, reversing
   // Phase 50 D-03 edit-and-resend). Ref-based lookup so we can call
   // from timer callbacks with fresh state. D-05 invariant: only flips
   // pendings that are still in state:'sending'; a pending that has
@@ -2016,7 +2016,7 @@ export function PrettyView({
       setStatus("connecting");
       setInactiveReason(null);
       setErrorMessage(null);
-      // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Ashley 2026-09-08
+      // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Alice 2026-09-08
       // D-03 mechanical waiver): contextPct now lives on fleet-status —
       // no local reset needed. The fleet-status snapshot on the WS
       // re-subscribe repopulates the store for this key; a `gone` frame
@@ -2283,7 +2283,7 @@ export function PrettyView({
           // `<command-message>fake</command-message>\n<command-name>/fake</command-name>\n<command-args>args</command-args>`),
           // JSON paste normalization, and every future CC wrap. Real evidence:
           // ~/.claude/projects/-home-ubuntu-skynet-tina/e958881b-e151-443b-b91f-af2973c00d4e.jsonl
-          // ts=2026-08-23T01:41:48.723Z (Ashley's /fake in tina session).
+          // ts=2026-08-23T01:41:48.723Z (Alice's /fake in tina session).
           // Order-based semantic is preserved by the transport: CC processes
           // user input serially, session file is written in order, WS preserves
           // order — SEND ORDER itself IS the match signal. First incoming
@@ -2448,7 +2448,7 @@ export function PrettyView({
           // pv-load-more-diag (2026-08-23): raw-batch dump for order/dedup
           // ground truth. Flows via the frontend console-forwarder to
           // /opt/skynet/console-forward-logs/console-forward.log so the
-          // maintainer can read a bad click without asking Ashley to open
+          // maintainer can read a bad click without asking Alice to open
           // DevTools (she's phone-first).
           console.info(
             `[pv-load-more-diag] batch-raw count=${parsed.messages.length} oldestLine=${parsed.oldestLine} hasMore=${parsed.hasMore}`,
@@ -2593,7 +2593,7 @@ export function PrettyView({
           break;
         }
         case "context_pct": {
-          // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Ashley
+          // Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Alice
           // 2026-09-08 D-03 mechanical waiver): NO-OP. fleet-status is now
           // the single source of truth for contextPct; the meter reads via
           // useSessionContextPct at L~570. Backend STILL emits this frame
@@ -2660,7 +2660,7 @@ export function PrettyView({
           // disappearing — either from THIS client's earlier X-click
           // (handleAsideDismiss sent aside_dismissed, backend
           // dismissBtw'd, poller saw marker vanish and broadcast
-          // dismissed) OR from any other cause (Ashley SSH-attached
+          // dismissed) OR from any other cause (Alice SSH-attached
           // and pressed Escape herself, tmux died, peer tab dismissed).
           // Idempotent: if THIS client already optimistically cleared
           // asideText in handleAsideDismiss, this setState is a no-op.
@@ -2682,7 +2682,7 @@ export function PrettyView({
           // § L2191). This handler no longer manipulates any client-side
           // pane-state — the Phase-29 client-inference calls are gone.
           // Message
-          // stream is preserved intentionally (Ashley may want to scroll
+          // stream is preserved intentionally (Alice may want to scroll
           // back through the old conversation while the new one starts).
           break;
         }
@@ -2851,7 +2851,7 @@ export function PrettyView({
       //   Attempt 1 → 2s, 2 → 4s, 3 → 6s, 4 → 8s, 5 → 8s (≈28s total window).
       //   After MAX_RECONNECT_ATTEMPTS consecutive closes, no further timer is
       //   scheduled and "Connection closed" persists. The visibilitychange handler
-      //   (Ashley iOS PWA fix) resets the counter to 0 on foreground, giving a
+      //   (Alice iOS PWA fix) resets the counter to 0 on foreground, giving a
       //   fresh 5-attempt budget per app reopen.
       if (statusRef.current === 'inactive') {
         // FALLBACK-01: preserve server-authoritative terminal state.
@@ -2914,7 +2914,7 @@ export function PrettyView({
     // source is passed.
   }, [source.kind, hostId, tmuxSession, retryKey]);
 
-  // Patch #148: visibilitychange handler — the direct Ashley iOS PWA fix.
+  // Patch #148: visibilitychange handler — the direct Alice iOS PWA fix.
   // Patch #156 hard-gates this effect on isIosPwa() because on Chrome desktop
   // / Android / non-PWA Safari, WebSockets survive tab-switches and
   // force-reconnect creates a session-attachment race that surfaces the
@@ -2955,7 +2955,7 @@ export function PrettyView({
       // fighting the pause (single-knob isVisibleRef gate per bounty design).
       if (!isVisibleRef.current) return;
       if (wsRef.current?.readyState === 1) return; // still OPEN
-      // Fresh budget for this foreground event (Ashley iOS PWA fix).
+      // Fresh budget for this foreground event (Alice iOS PWA fix).
       reconnectAttemptsRef.current = 0;
       // phase-29: mirror into state so wsState derivation re-runs on
       // retry-attempt reset.
@@ -3272,7 +3272,7 @@ export function PrettyView({
   // prevIsIdleRef.current update happens BEFORE the guard so consecutive
   // renders with the same value are correctly detected as "no transition."
   useEffect(() => {
-    // Ashley 2026-07-27: kill switch for the Phase 14 auto-aside trigger.
+    // Alice 2026-07-27: kill switch for the Phase 14 auto-aside trigger.
     // Update the ref so isIdle keeps being tracked (avoids a spurious
     // "fresh false→true transition" on re-enable), then bail before the
     // emit. See the AUTO_ASIDE_ARM_ENABLED declaration for the full
@@ -3288,7 +3288,7 @@ export function PrettyView({
       // user-initiated dismiss (Escape into tmux → pane activity →
       // isIdle bounce). See dismissCooldownUntilRef declaration.
       if (Date.now() < dismissCooldownUntilRef.current) return;
-      // Phase 14 followup (Ashley 2026-07-27): skip aside arm when the
+      // Phase 14 followup (Alice 2026-07-27): skip aside arm when the
       // user's most recent turn was an /id command. /id save, /id reset,
       // /id <name> are identity-plumbing operations whose completion
       // ("Saved: history +2 …", "I'm Tina. …") doesn't benefit from a
@@ -3299,9 +3299,9 @@ export function PrettyView({
       // and SSH-attached direct-tmux submits (both round-trip through
       // JSONL — user turn is written before the assistant response
       // streams, so it's always in messages[] well before isIdle=true).
-      // UAT amendment E41 (Ashley 2026-07-27): isIdCommand also matches
+      // UAT amendment E41 (Alice 2026-07-27): isIdCommand also matches
       // the harness slash-UI XML-wrapper form (<command-name>/id</command-name>)
-      // — Ashley's PRIMARY /id invocation path from pretty-view slash-UI.
+      // — Alice's PRIMARY /id invocation path from pretty-view slash-UI.
       // ── PHASE-43 ASIDE-ARM WALK START — DO NOT EDIT; byte-preserved per 43-CONTEXT.md aside-arm suppression walk decision ──
       // Phase 93 Slice 3 (D-09): reads from `effectiveMessages` (which
       // collapses to local `messages` in the harness case — harness walk
@@ -3704,7 +3704,7 @@ export function PrettyView({
           IdentityModal portals INTO for the "modal covers only bubble/
           tasks/shells" treatment) so the scrim is geometrically
           constrained to messages/tasks/shells and leaves ComposeBox
-          uncovered. That in turn lets Ashley pre-draft the next
+          uncovered. That in turn lets Alice pre-draft the next
           message during the 2-15s recycle window — the ComposeBox
           textarea stays typeable while every WS-side-effecting
           control (Send, reset cell, paperclip, ThumbsUp, Lightbulb,
@@ -3712,12 +3712,12 @@ export function PrettyView({
           prop wired below. Mount gate is `isRecycling`
           (Phase 53 Plan 03 rewire — backend-authoritative via working-store). Sits
           BELOW IdentityBadge (z-[99] < z-[101]) so the badge stays
-          visible and clickable during a recycle (Ashley wants the
+          visible and clickable during a recycle (Alice wants the
           identity affordance reachable mid-recycle — supersedes patch
           #111 rationale), still below app-modal dialogs (z-[500]) —
           component-local, not an app-modal event.
           Replaces the previous sticky top-of-scroll banner (retired
-          in patch #74) per Ashley's live 2026-07-19 design read.
+          in patch #74) per Alice's live 2026-07-19 design read.
 
           quick 260812-ma8: this wrapper hosts SessionHoldingOverlay only.
           (The former dormant-overlay was moved OUT of this wrapper into
@@ -3748,11 +3748,11 @@ export function PrettyView({
           never flash the overlay; genuinely-slow resolves still see the
           spinner after the paint-delay expires. Delay-arm lives at THIS
           site (not the hook) exactly as PS30-06's own comment authorized
-          if UAT surfaced the flash — which Ashley's report did. */}
+          if UAT surfaced the flash — which Alice's report did. */}
       {showResolvingSpinner && <PrettyViewLoadingOverlay />}
 
       {/* Inactive branch renders nothing — the label was noisy and sometimes
-          flashed during the dormancy transition, per Ashley 2026-08-31. */}
+          flashed during the dormancy transition, per Alice 2026-08-31. */}
 
       {/* Phase 30 (PS30-06): PrettyViewErrorOverlay gated on
           `renderedState === "error"`. Retry button wires to an inline
@@ -3778,7 +3778,7 @@ export function PrettyView({
           scrim + z-band + glass card treatment as PrettyViewErrorOverlay /
           SessionHoldingOverlay error variant, so it feels like the existing
           chat-surface's overlay family rather than a new-type error screen
-          (Ashley close-out ask 2026-09-09). The message-list container below
+          (Alice close-out ask 2026-09-09). The message-list container below
           stays mounted underneath the overlay. Structured log fires from a
           separate useEffect above — do NOT re-inline it here (spamming logs
           proportional to render count is the pre-Slice-6 bug this replaces). */}
@@ -3794,7 +3794,7 @@ export function PrettyView({
           is not "streaming"). Phase 93 Slice 6 (post-close fix): removed the
           `!(source.kind === "relay" && chatSurfaceAdapter.error !== null)`
           gate — the relay error state is now an OVERLAY (scrim + z-band card,
-          mirroring PrettyViewErrorOverlay per Ashley's close-out ask), so the
+          mirroring PrettyViewErrorOverlay per Alice's close-out ask), so the
           message-list container stays mounted underneath the overlay rather
           than being replaced by it. */}
       {(status === "streaming" ||
@@ -3853,7 +3853,7 @@ export function PrettyView({
               inside the same outer scroll container — same structural
               layout invariant established by Phase 27 Plan 27-02 Step B. */}
           {effectiveMessages.map((m) => (
-            // Phase 45 Bug #2 (Ashley UAT verbatim): 9px inter-bubble padding restored — technically padding but functionally margin per Ashley's clarification 2026-08-18.
+            // Phase 45 Bug #2 (Alice UAT verbatim): 9px inter-bubble padding restored — technically padding but functionally margin per Alice's clarification 2026-08-18.
             <div
               key={m.eventId}
               data-pv-bubble
@@ -3861,7 +3861,7 @@ export function PrettyView({
               style={{ paddingBottom: 9 }}
             >
               {/* RELAYBUB-01/RELAYBUB-02/RELAYBUB-06: relay_* frames route to their own bubble variants;
-                  normal message frames stay on ChatMessage (locked interior per Ashley 2026-07-23).
+                  normal message frames stay on ChatMessage (locked interior per Alice 2026-07-23).
                   hostId is drilled into RelayInboundBubble so its file-pointer fetch can identify
                   which pane's remote host to query. */}
               {m.type === "image" ? (
@@ -3977,7 +3977,7 @@ export function PrettyView({
               Mounts when the fleet-status channel reports status='waiting' for this
               session's (hostId, tmuxSession) key. Sibling of WipBubble in the
               in-flow message-list column. Presence-only — no interactive controls
-              (Ashley must switch to terminal to answer). See WaitingBubble.tsx header. */}
+              (Alice must switch to terminal to answer). See WaitingBubble.tsx header. */}
           {waitingFor !== null && <WaitingBubble reason={waitingFor} />}
           {/* Phase 56 (2026-08-23): former dormant-overlay mount site DELETED.
               Dormancy is now invisible — PrettyView on a dormant pane renders
@@ -4030,7 +4030,7 @@ export function PrettyView({
                   "hover:bg-[linear-gradient(180deg,rgba(100,85,55,0.85),rgba(60,50,32,0.9))]",
                   "hover:border-[rgba(255,240,215,0.22)]",
                   "hover:shadow-[0_6px_16px_rgba(0,0,0,0.6),_inset_0_1px_0_rgba(255,240,210,0.22),_0_0_20px_rgba(255,240,215,0.16)]",
-                  // Ashley 2026-09-07: shrink DESKTOP wrapper to 75% of the
+                  // Alice 2026-09-07: shrink DESKTOP wrapper to 75% of the
                   // 2026-08-23 baseline (64→48), keeping the 32px arrow
                   // unchanged. Prior 64×64 matched the mobile back-to-
                   // conversations button (AppShell.tsx:1800-1801 inline
@@ -4043,7 +4043,7 @@ export function PrettyView({
                   // (2026-08-01): mobile-only bump matching the aux row's
                   // new 75%-of-#165 mobile size (54×54 wrapper + 27px
                   // icon at html=24 mobile) for a comfortable tap target
-                  // on the floating jump-to-bottom action. Ashley said
+                  // on the floating jump-to-bottom action. Alice said
                   // mobile was okay, so this stays unchanged.
                   "max-md:size-9 [&_svg]:max-md:size-[1.125rem]",
                 )}
@@ -4124,7 +4124,7 @@ export function PrettyView({
           `active` clause, the mount gate flips false in that window and
           unmounts ComposeBox — destroying useVoiceRecording state (mid-
           flight MediaRecorder + MediaStream), textarea drafts, and any
-          in-flight compose gesture. Ashley 2026-08-23 verbatim: "as I'm
+          in-flight compose gesture. Alice 2026-08-23 verbatim: "as I'm
           waking up, I start recording a message with the mic, but when
           it actually wakes up, for some reason, the mic just stops, and
           it goes back to as if I'm not recording, and so I lose that
@@ -4172,13 +4172,13 @@ export function PrettyView({
           // stayed `status === "streaming"` only, so on a dormant pane the
           // child ComposeBox's `sendDisabled` predicate at ComposeBox.tsx:1817
           // still flipped true via `(canSend === false && !hasAttachments)`.
-          // Net: Ashley typed/pasted into a dormant compose box and the Send
+          // Net: Alice typed/pasted into a dormant compose box and the Send
           // button stayed disabled — defeating the whole Phase 60 point.
           // Widened to also enable for the two Phase 60 renderedStates so
           // Send works when the ComposeBox is intentionally mounted for
           // wake-triggering. `renderedState === "error"` deliberately NOT
           // included (an errored WS should not accept new sends until it
-          // recovers). Ashley UAT 2026-08-29: "sometimes typing into the
+          // recovers). Alice UAT 2026-08-29: "sometimes typing into the
           // main text area of the compose box or pasting stuff in there
           // doesn't enable the send button."
           canSend={

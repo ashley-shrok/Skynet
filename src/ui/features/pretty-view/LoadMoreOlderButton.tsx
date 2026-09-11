@@ -21,7 +21,7 @@
 //   - error: visible, telling you the last click could not be completed
 //     and inviting a retry
 //
-// SPINNER GLYPH LOCK — twin-arc, not lucide's spinner (Ashley 2026-08-19
+// SPINNER GLYPH LOCK — twin-arc, not lucide's spinner (Alice 2026-08-19
 // commit df4d7543 / patch #467): the in-flight state uses the symmetric
 // twin-arc SVG copied VERBATIM from ComposeBox.tsx L2551-2564. The lucide
 // spinner has a lopsided ~300° arc whose visual centroid orbits during

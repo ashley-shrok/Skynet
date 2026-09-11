@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-08-04
 **Status:** Ready for planning
-**Source:** Design conversation with Ashley (this session, 2026-08-04)
+**Source:** Design conversation with Alice (this session, 2026-08-04)
 
 <domain>
 ## Phase Boundary
@@ -34,7 +34,7 @@ Make the Claude Code plan-approval prompt actionable from the pretty view. Five 
   - Header-anywhere: `Claude has written up a plan and is ready to execute. Would you like to proceed?` — the full header string of this variant.
 - **Bottom-slice bound** stays 30 lines (matches the current file's parseContextPct rationale). No tuning needed.
 - **Test file** `plan-pending-parser.test.ts` gets its synthetic pane fixtures updated to the pinned variant. Existing negative-case tests (empty, prose-quote, etc.) should still pass structurally with the new fingerprint.
-- **Fleet is pinned to a single Claude Code version** (Ashley verified 2026-08-04). Do NOT plan for multiple variant handling, version-drift fallback, or "either old-or-new fingerprint OR." The pinned variant is the only variant.
+- **Fleet is pinned to a single Claude Code version** (Alice verified 2026-08-04). Do NOT plan for multiple variant handling, version-drift fallback, or "either old-or-new fingerprint OR." The pinned variant is the only variant.
 
 ### Plan file path extraction (backend, same file)
 - **New helper `parsePlanFilePath(paneText: string): string | null`** in the same pure-helper file, same posture as `isPlanPending` (zero I/O, testable with synthetic pane strings).
@@ -54,7 +54,7 @@ Make the Claude Code plan-approval prompt actionable from the pretty view. Five 
   3. On success → emit with `{planFilePath, planContent: "…", contentError: null}`.
   4. On failure → emit with `{planFilePath, planContent: null, contentError: "…"}`.
 - **De-dup guard** stays: use the existing `planPendingLastSerialized` compare so we don't spam identical frames on every setInterval tick.
-- **Fetch happens once per (tmuxSession, planFilePath) pair** per pending window. When the prompt clears (detection returns false), invalidate the cache. If the SAME planFilePath re-appears immediately (edge case: Ashley picks feedback → Claude regenerates → same slug), refetch — cache keyed by pending window, not global.
+- **Fetch happens once per (tmuxSession, planFilePath) pair** per pending window. When the prompt clears (detection returns false), invalidate the cache. If the SAME planFilePath re-appears immediately (edge case: Alice picks feedback → Claude regenerates → same slug), refetch — cache keyed by pending window, not global.
 
 ### Plan file fetch (backend, new module)
 - **Side-channel SFTP on the tab's existing SSH connection**, not a fresh handshake. Skynet already holds the SSH `Client` for each tab's PTY channel; open a second SFTP subsystem channel on the same `Client`. Zero new handshake, zero re-auth, reuses established host-key trust.
@@ -75,24 +75,24 @@ Make the Claude Code plan-approval prompt actionable from the pretty view. Five 
   - Middle: plan contents section — renders `planContent` in `<pre>` or equivalent monospace/preserved-whitespace block, styled to read comfortably (planner picks specifics within bubble aesthetic). Fallback states: `planContent: null && !contentError && planFilePath` → "Loading plan…" italic; `contentError` non-null → small dim "Plan contents unavailable ({error})" line, buttons still work; `planFilePath: null` → skip the middle section entirely, buttons still work.
   - Footer: [Approve] primary button + [Feedback] secondary button, side-by-side.
 - **Approve button** sends `1\r` (chooses option 1 = "Yes, and bypass permissions"; the cursor defaults there anyway, and sending the digit is deterministic regardless of cursor position).
-- **Feedback button** opens a modal with a textarea + Submit + Cancel. On Submit: sends `3<feedback>\r` (which per Ashley's live test on Amelia's pane 2026-08-04 drops the Ink cursor into the feedback input, types the string, then submits). Modal follows existing Skynet modal patterns (planner picks — DialogModal or similar existing primitive).
-- **CRITICAL: send path.** The existing ComposeBox split-send (body + `\r` with 60ms gap, patch #44) is NOT recognized by Ink Plan Mode as a keystroke selection (Ashley verified 2026-07-18 per PlanPendingBubble.tsx docstring). So neither button can reuse compose's send path. Need a **new send-raw-keystrokes WS event type** that writes the bytes in one shot, no split. Planner names it (`type: "raw_keystrokes"` or similar) and both buttons plus the modal Submit funnel through it. Backend handler writes directly to the PTY without the split.
+- **Feedback button** opens a modal with a textarea + Submit + Cancel. On Submit: sends `3<feedback>\r` (which per Alice's live test on Amelia's pane 2026-08-04 drops the Ink cursor into the feedback input, types the string, then submits). Modal follows existing Skynet modal patterns (planner picks — DialogModal or similar existing primitive).
+- **CRITICAL: send path.** The existing ComposeBox split-send (body + `\r` with 60ms gap, patch #44) is NOT recognized by Ink Plan Mode as a keystroke selection (Alice verified 2026-07-18 per PlanPendingBubble.tsx docstring). So neither button can reuse compose's send path. Need a **new send-raw-keystrokes WS event type** that writes the bytes in one shot, no split. Planner names it (`type: "raw_keystrokes"` or similar) and both buttons plus the modal Submit funnel through it. Backend handler writes directly to the PTY without the split.
 - **Bubble visual growth** shouldn't fight the existing identity-hue treatment. Keep the same background gradient / border / shadow tokens; just expand the vertical container.
 
 ### Compose-box disable (frontend, `ComposeBox.tsx` + parent `PrettyView.tsx`)
 - **Add `planPendingActive?: boolean` prop** to ComposeBox alongside the existing `asideActive` and `recycleActive` props.
 - **Parent (PrettyView) supplies it** from the WS `plan_pending` state — true when `pending` is non-null, false otherwise.
 - **OR the new prop into every existing disabled predicate** that already reads `asideActive === true || recycleActive === true`. Same pattern verbatim — DO NOT invent a new visual affordance, DO NOT add tooltips, DO NOT add a banner. Grey-out is the existing pattern's affordance and that's what we use.
-- **Disabled controls (Ashley's locked list):** reset cell, Send button, mic, send-while-idle (queue), thumbs up, recap. This matches the current `recycleActive` disable set closely — planner should audit `recycleActive` usages and copy each to also-OR in `planPendingActive`.
-- **Textarea typing:** stays enabled (matches `recycleActive` behavior — textarea remains typeable during recycle so Ashley can pre-draft). Same treatment here.
+- **Disabled controls (Alice's locked list):** reset cell, Send button, mic, send-while-idle (queue), thumbs up, recap. This matches the current `recycleActive` disable set closely — planner should audit `recycleActive` usages and copy each to also-OR in `planPendingActive`.
+- **Textarea typing:** stays enabled (matches `recycleActive` behavior — textarea remains typeable during recycle so Alice can pre-draft). Same treatment here.
 - **Do NOT collapse** `planPendingActive` / `recycleActive` / `asideActive` into a combined `interactionsDisabled` flag. The Send-button-behavior-differs rationale from the current codebase (asideActive morphs Send into an X/Resume; recycleActive keeps Send but disables it) means keeping props independent stays correct — planPendingActive follows the recycleActive treatment (Send stays as Send, disabled).
 
 ### Failure modes / edge cases
 - **SFTP fetch fails** (network flake, permission, file missing): bubble shows small dim "Plan contents unavailable ({error})" line; Approve + Feedback still work. User can still act on the prompt they can see in the tmux pane.
 - **`planFilePath` extraction returns null** (footer format changes / unusual output): same fallback — bubble renders without the middle section, buttons still work.
-- **Prompt disappears mid-fetch** (Ashley resolved it in the tmux pane directly with keyboard): WS emits `pending: null` → bubble unmounts. Any in-flight SFTP result gets dropped on arrival (frame's tmuxSession/planFilePath won't match current state).
-- **Same prompt re-appears after resolution** (rare — Ashley picks feedback → new plan generated with same slug): treat as a fresh pending window, refetch. Cache is per pending-window, not global.
-- **Very long plan** (> 500KB after cap): truncate + append a "[truncated]" line before emitting. Ashley can Ctrl+Shift+O to see the full pane if she needs it.
+- **Prompt disappears mid-fetch** (Alice resolved it in the tmux pane directly with keyboard): WS emits `pending: null` → bubble unmounts. Any in-flight SFTP result gets dropped on arrival (frame's tmuxSession/planFilePath won't match current state).
+- **Same prompt re-appears after resolution** (rare — Alice picks feedback → new plan generated with same slug): treat as a fresh pending window, refetch. Cache is per pending-window, not global.
+- **Very long plan** (> 500KB after cap): truncate + append a "[truncated]" line before emitting. Alice can Ctrl+Shift+O to see the full pane if she needs it.
 
 ### Claude's Discretion (planner picks during planning)
 - Exact WS event type name for the raw-keystroke send (`raw_keystrokes` vs `plan_reply` vs other).
@@ -133,7 +133,7 @@ Make the Claude Code plan-approval prompt actionable from the pretty view. Five 
 
 ### Related patches / prior context
 - Patch #63 (retired) — original JSONL scan for `ExitPlanMode` tool_use. Docblock in `plan-pending-parser.ts` explains why it went dead (Claude Code Ink v2 buffers the tool_use until after resolution).
-- Patch #67 — retracted the "reply 1/2" copy from PlanPendingBubble after Ashley verified the split-send doesn't work in Ink. Load-bearing lesson for this phase: the button send-path CANNOT reuse compose's split-send.
+- Patch #67 — retracted the "reply 1/2" copy from PlanPendingBubble after Alice verified the split-send doesn't work in Ink. Load-bearing lesson for this phase: the button send-path CANNOT reuse compose's split-send.
 - Quick `260731-ulo` — `recycleActive` + `mic-available-when-composebox-disabled`. The pattern this phase reuses; audit its usages for the `planPendingActive` OR-in.
 - Quick `260729-j8l` — added `recycleActive` prop to ComposeBox. The direct precedent for `planPendingActive`'s prop shape and OR-in convention.
 - Quick `260802-rps` — added `plan-pending-parser.ts` (the file this phase corrects).
@@ -158,7 +158,7 @@ Make the Claude Code plan-approval prompt actionable from the pretty view. Five 
 ## Deferred Ideas
 
 - **Prettified markdown rendering of the plan contents** (rendered headings, bold, code blocks). MVP is plain `<pre>` monospace. Upgrade if the plain view feels bad in real use.
-- **Option 2 button** ("Yes, manually approve edits"). Adds one button, straightforward, but Ashley picks option 1 exclusively and other fleet users are expected to too. Add later only if user requests.
+- **Option 2 button** ("Yes, manually approve edits"). Adds one button, straightforward, but Alice picks option 1 exclusively and other fleet users are expected to too. Add later only if user requests.
 - **Feedback modal enhancements** (paste-image, markdown preview, template snippets). MVP is plain textarea + Submit + Cancel.
 - **Optimistic bubble dismissal** after clicking Approve (fade out immediately instead of waiting for detection to clear). MVP waits for WS `pending: null`. Add later if the ~1s round-trip feels laggy.
 - **Multi-plan queuing** UI. Not observed in practice.
@@ -170,4 +170,4 @@ Make the Claude Code plan-approval prompt actionable from the pretty view. Five 
 ---
 
 *Phase: 24-plan-mode-approval-bubble-pane-tail-detection-expanded-bubbl*
-*Context gathered: 2026-08-04 via design conversation with Ashley*
+*Context gathered: 2026-08-04 via design conversation with Alice*

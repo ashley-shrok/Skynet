@@ -17,9 +17,9 @@ key_files:
     - src/ui/features/pretty-view/ComposeBox.tsx
 decisions:
   - "Kept single useVoiceRecording() call site — D-16-02 iOS Safari getUserMedia synchronous-gesture lock forbids proliferating hook instances. Fix is entirely in visibility predicates + render branching."
-  - "MicButton disabled prop uses `voice.state !== 'idle'` (blocks second concurrent recording) instead of the narrower `micTarget !== <this-source>` — matches Ashley's verbatim intent ('mic stays visible but disabled')."
+  - "MicButton disabled prop uses `voice.state !== 'idle'` (blocks second concurrent recording) instead of the narrower `micTarget !== <this-source>` — matches Alice's verbatim intent ('mic stays visible but disabled')."
   - "Slot Loader2 branch also flips the button's `disabled` to true during transcribing — mirrors primary T-16-16 rapid-tap mitigation."
-  - "Row 1 bottom margin uses the arbitrary bracket `mb-[3px]` (not a Tailwind numeric class) to preserve Ashley's DevTools-measured 3px exactly."
+  - "Row 1 bottom margin uses the arbitrary bracket `mb-[3px]` (not a Tailwind numeric class) to preserve Alice's DevTools-measured 3px exactly."
 metrics:
   duration_minutes: ~10
   completed_date: 2026-08-02
@@ -42,7 +42,7 @@ Reworked the primary + slot predicate blocks in `ComposeBox.tsx`:
 - **Primary block (~L1246-1272):**
   - Introduced `isPrimaryRecording` and `isPrimaryTranscribing` locals scoped by `micTarget === "primary"`.
   - `showMicButton` now gates on `!isPrimaryRecording && !isPrimaryTranscribing` (was `voice.state === "idle"`). Mic stays visible on the primary whenever the primary itself isn't the active mic target.
-  - `showPrimaryArmButton` — removed the `voice.state === "idle"` gate entirely. Send-when-idle is orthogonal to recording elsewhere (Ashley: valid workflow).
+  - `showPrimaryArmButton` — removed the `voice.state === "idle"` gate entirely. Send-when-idle is orthogonal to recording elsewhere (Alice: valid workflow).
   - `showRecordingControls = isPrimaryRecording` — semantic consolidation (previous `voice.state === "recording"` was fine at the render site because the guard `&& micTarget === "primary"` existed, but the predicate now reads correctly on its own).
   - `showTranscribingSend = isPrimaryTranscribing` — Bounty 2 fix. The Loader2 spinner on the primary's send button now only fires when the primary is transcribing, not when a slot is transcribing.
   - Primary `<MicButton>` at ~L2256 now receives `disabled={voice.state !== "idle"}` — visible but disabled when a slot records.
@@ -70,7 +70,7 @@ Reworked the primary + slot predicate blocks in `ComposeBox.tsx`:
 
 ### Task 3 — Vertical spacing polish (bounty 4) — commit `9dec204`
 
-- **Row 1 container (~L1406):** Added `mb-[3px]` (arbitrary bracket — not a Tailwind numeric class, per Ashley's DevTools-measured 3px). Combined with the outer `gap-1` (4px), total gap Row 1 → next block = 7px, regardless of whether the queued-slot stack is present.
+- **Row 1 container (~L1406):** Added `mb-[3px]` (arbitrary bracket — not a Tailwind numeric class, per Alice's DevTools-measured 3px). Combined with the outer `gap-1` (4px), total gap Row 1 → next block = 7px, regardless of whether the queued-slot stack is present.
 - **Queue-slots wrapper (~L1727):** Added `mb-1` (4px). Combined with the outer `gap-1` (4px), total gap last-queued → primary = 8px — matches the `gap-2` inside the wrapper (queued↔queued spacing).
 
 ### Task 3 override: human-verify pause SKIPPED
@@ -161,7 +161,7 @@ $ grep -nE 'mb-\[3px\]|"flex flex-col gap-2 mb-1"' src/ui/features/pretty-view/C
 
 ## Success Criteria Checklist
 
-- [x] All 4 bounties resolved per Ashley's verbatim descriptions.
+- [x] All 4 bounties resolved per Alice's verbatim descriptions.
 - [x] Exactly 3 commits authored (one per task, atomic).
 - [x] Only `src/ui/features/pretty-view/ComposeBox.tsx` modified.
 - [x] `useVoiceRecording.ts` NOT modified (D-16-02 lock preserved).

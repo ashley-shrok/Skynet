@@ -57,7 +57,7 @@ const authenticateJWT = authManager.createAuthMiddleware();
 const CONNECT_TIMEOUT_MS = 5_000;
 
 // Per-block timeout for the /sessions/list handler — bumped 3000 → 30000
-// (Ashley 2026-08-20 UAT) matching DISCOVERY_EXEC_TIMEOUT_MS. Wraps the
+// (Alice 2026-08-20 UAT) matching DISCOVERY_EXEC_TIMEOUT_MS. Wraps the
 // connectOneShot + `tmux list-sessions` + per-session `discoverIdentitySessionFile`
 // + `tail -c 262144` execs. On a ~5-identity host the concurrent-discovery
 // wall-clock hits ~5s; 3s tripped every /sessions/list call and null'd both
@@ -76,7 +76,7 @@ const PER_HOST_TIMEOUT_MS = 30_000;
 // Phase 43 Plan 01 — dormant-side lastMessageAt derivation
 // ---------------------------------------------------------------------------
 //
-// Ashley 2026-08-23 lock: "only my real messages going to them" —
+// Alice 2026-08-23 lock: "only my real messages going to them" —
 // INVERTS the 2026-08-14 lock. See quick-260823-bap plan for the full
 // predicate matrix. Canonical copy lives in
 // `src/backend/fleet-status/ssh-poll-orchestrator.ts` (isRealUserTurn
@@ -86,7 +86,7 @@ const PER_HOST_TIMEOUT_MS = 30_000;
 // scope for Phase 43 (43-CONTEXT.md "no new shared module" scope decision).
 
 /**
- * Ashley 2026-08-23 lock: "only my real messages going to them" —
+ * Alice 2026-08-23 lock: "only my real messages going to them" —
  * INVERTS the 2026-08-14 lock. Assistant activity, incoming/outgoing
  * DMs, scheduled wakes, task notifications, skill-body injections all
  * excluded. See quick-260823-bap plan for the full predicate matrix.
@@ -103,7 +103,7 @@ const PER_HOST_TIMEOUT_MS = 30_000;
  * discipline preserved per 43-CONTEXT.md scope decision (canonical
  * copy in ssh-poll-orchestrator.ts must stay byte-parallel).
  *
- * Ashley 2026-08-29 refinement: three additional harness-injected shapes
+ * Alice 2026-08-29 refinement: three additional harness-injected shapes
  * confirmed on Tabitha's session file now explicitly rejected:
  * - Ctrl-C kill signal: supervisor delivers "\x03\x03" as plain-string
  *   content; after trimming, stripping all ASCII control chars yields "".
@@ -137,14 +137,14 @@ function isRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok: false
   const isCommand = t.startsWith("<command-");
   if (!isCommand && isXmlWrapper) return { ok: false };
   // Step 5 (2026-08-29 refinement): drop /exit slash-command injected by agent-supervisor
-  // before recycle. Ashley's own slash-commands (/id, /build, /gsd:*) are unaffected.
+  // before recycle. Alice's own slash-commands (/id, /build, /gsd:*) are unaffected.
   if (content.includes("<command-name>/exit</command-name>")) return { ok: false };
   // Step 6 (2026-08-29 refinement): drop control-chars-only content (e.g. Ctrl-C kill
   // signal "\x03\x03"). t is already trimmed of regular whitespace; stripping ASCII
   // control chars from t and getting "" means the payload was pure control-char noise.
   if (t.replace(/[\x00-\x1F]/g, "") === "") return { ok: false };
   // Step 7 (2026-08-29 refinement): drop agent-supervisor resumed-injection sentinel.
-  // Prefix-anchored to avoid matching quoted mentions in real Ashley prose.
+  // Prefix-anchored to avoid matching quoted mentions in real Alice prose.
   if (content.startsWith("Your session was just resumed by the agent-supervisor")) return { ok: false };
   // Passed all gates — extract ts from the timestamp field.
   const rawTs = top.timestamp;
@@ -156,14 +156,14 @@ function isRealUserTurn(rawLine: string): { ok: true; ts: number } | { ok: false
 
 /**
  * Scan the raw stdout of a `tail -c 262144 <jsonl-path>` for the newest
- * Ashley-real-user-turn `ts` (unix millis) across all parseable lines.
+ * user-real-user-turn `ts` (unix millis) across all parseable lines.
  * Returns null if zero qualifying lines are found (or the tail is empty).
  *
  * Mirrors the semantics of `scanTailForNewestMessageAt` in
  * `ssh-poll-orchestrator.ts`. Empty and malformed lines are silently
  * skipped — this is best-effort sampling, not a validation pass.
  *
- * Predicate: isRealUserTurn (Ashley 2026-08-23 lock). The helper
+ * Predicate: isRealUserTurn (Alice 2026-08-23 lock). The helper
  * returns {ok, ts} so a single JSON.parse feeds both the gate and the ts
  * extraction, avoiding a second parse on the keep path.
  *

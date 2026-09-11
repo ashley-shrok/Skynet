@@ -54,7 +54,7 @@ The modal will show an empty state for every host until the seed is written.
 Rules (per plan 23-01's `global-files-config-loader.ts`):
 - `hosts` keys accept BOTH host name strings AND numeric-string host IDs
   (name wins if both present — more ergonomic for SSH-hand-editing since
-  Ashley won't need to look up hostIds in the DB when adding a new entry).
+  Alice won't need to look up hostIds in the DB when adding a new entry).
 - `path` is the file path on the target host — supports `~/` for the
   SSH user's home directory (expanded server-side via `echo $HOME`).
 - `label` is optional; defaults to `basename(path)` on the frontend.
@@ -71,7 +71,7 @@ Rules (per plan 23-01's `global-files-config-loader.ts`):
 
 ## Initial seed for skynet-ec2
 
-Ashley's fleet — 8 unix hosts with `~/.claude/CLAUDE.md`.
+Alice's fleet — 8 unix hosts with `~/.claude/CLAUDE.md`.
 
 **Windows hosts (WINDOWS-PC) are OMITTED** — no `~/.claude/CLAUDE.md`
 to edit, and Windows SSH semantics are out of MVP scope per
@@ -116,7 +116,7 @@ inbound port on the security group). There is NO direct SSH to the EC2.
 ```bash
 aws ssm start-session --target <instance-id> --profile <profile>
 ```
-(Ashley's alias for this may be `skynet-ssm` — check shell aliases in
+(Alice's alias for this may be `skynet-ssm` — check shell aliases in
 `~/.zshrc` or `~/.bashrc`. The instance ID is visible in the AWS console
 under EC2 → Instances → skynet-ec2.)
 
@@ -181,7 +181,7 @@ so ONLY the paths listed here are readable/writable via the endpoints.
 
 ## For a new Skynet instance (e.g. Stacey's ceo-skynet)
 
-The `global-files.json` config is per-Skynet-instance — Ashley's Skynet
+The `global-files.json` config is per-Skynet-instance — Alice's Skynet
 has one file, Stacey's ceo-skynet has a different file, both live in
 each deployment's own `skynet-data` volume. There is NO shared config;
 that is intentional per CONTEXT §non-negotiables ("Files are per-host,

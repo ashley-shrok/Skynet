@@ -153,7 +153,7 @@ Output:
 
     3. **Strip contentHash from every notifyMatched call.** `notifyMatched(SESSION_ID, contentHashOf("hello"))` becomes `notifyMatched(SESSION_ID)`. That covers T-1, T-3, and T-9.
 
-    4. **Rewrite T-9.** The old test asserted "notifyMatched with wrong hash does NOT clear → retry still fires". Hash no longer exists. Repurpose the test as: "notifyMatched on a sessionId with no pending arms is a silent no-op — the pending arm on a DIFFERENT session still fires its retry Enter at T+2500ms". Arm one watchdog on sess-A, call notifyMatched("sess-B") at T+100ms, then advance to T+2500ms and assert exec was called exactly once with `tmux send-keys -t 'ashley-tmux' Enter`.
+    4. **Rewrite T-9.** The old test asserted "notifyMatched with wrong hash does NOT clear → retry still fires". Hash no longer exists. Repurpose the test as: "notifyMatched on a sessionId with no pending arms is a silent no-op — the pending arm on a DIFFERENT session still fires its retry Enter at T+2500ms". Arm one watchdog on sess-A, call notifyMatched("sess-B") at T+100ms, then advance to T+2500ms and assert exec was called exactly once with `tmux send-keys -t 'user-tmux' Enter`.
 
     5. **Rewrite T-10.** The old test asserted per-mqid isolation via hash match. Rewrite as per-session isolation: two watchdogs armed at t=0 on sess-A (m1) and sess-B (m2). At t=100ms call notifyMatched("sess-A") — m1 cleared, m2 still armed. Advance to t=2600ms — only m2's retry Enter has fired (exec called 1 time). Advance to t=5600ms — m2's full-resend fires (3 more execs, total 4). notifyMatched("sess-A") at t=100 must NOT have touched m2's queue.
 

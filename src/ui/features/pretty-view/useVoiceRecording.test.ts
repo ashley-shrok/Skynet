@@ -925,7 +925,7 @@ describe("useVoiceRecording", () => {
     });
 
     it("Test PC-E: post-recorder.start() re-check path (B-1 smoking-gun — cancel arms pendingCancelRef AFTER recorder construction)", async () => {
-      // This tests the exact Ashley bug log scenario:
+      // This tests the exact Alice bug log scenario:
       //   start() called → getUserMedia in-flight → cancel() called → pendingCancelRef=true
       //   → getUserMedia resolves → .then() runs pre-construction check (sees true) but...
       // Wait, actually the pre-construction check would catch it. Let me replicate the
@@ -1089,7 +1089,7 @@ describe("useVoiceRecording", () => {
 
       // Now resolve getUserMedia — .then() runs; sees pendingCommitRef=true, skips the
       // "starting" grey zone and jumps straight to "recording" + plays start.mp3.
-      // This is the cold-start race fix (Ashley iPhone 2026-08-14 — getUserMedia took
+      // This is the cold-start race fix (Alice iPhone 2026-08-14 — getUserMedia took
       // 1.1s to resolve, timer had fired at 250ms and armed the ref).
       await act(async () => {
         resolveStream(controlledStream);

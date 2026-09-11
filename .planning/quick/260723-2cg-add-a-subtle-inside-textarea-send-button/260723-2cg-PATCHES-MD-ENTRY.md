@@ -1,7 +1,7 @@
 # Patch #129 — Subtle inside-textarea Send button
 
 **Paste target:** `~/.claude/identities/tina/skynet-patches.md`
-**Paste timing:** After Ashley greenlights the batched #123-#129 deploy AND UAT passes. Post-deadman-retirement flow per current `deploy-runbook.md`.
+**Paste timing:** After Alice greenlights the batched #123-#129 deploy AND UAT passes. Post-deadman-retirement flow per current `deploy-runbook.md`.
 **Batch context:** Stacks on the six-patch stack (#123-#128) already awaiting UAT; ships as one build/deploy with them (now a seven-patch stack).
 **Ordinal position on paste:** Bump the "ONE HUNDRED TWENTY-SEVEN numbered patches" line near the top of `skynet-patches.md` to "ONE HUNDRED TWENTY-NINE" — accounting for both #128 (Phase 10 pretty-conversations) and #129 (this patch) landing together at deploy time.
 
@@ -11,28 +11,28 @@
 
    129. `feat(pretty-view/ComposeBox): patch #129 — subtle inside-textarea
         Send button` (committed 2026-07-23 to `feat/tab-title-from-tmux`
-        at `37986b2`; deploy batched with #123-#128 pending Ashley
+        at `37986b2`; deploy batched with #123-#128 pending Alice
         greenlight).
 
         * **Motivating gap.** Post-patch-#121 (vestigial-Send trim) the
           ComposeBox had no visible send affordance at all — Enter was
           the sole submit path. Fine on desktop, discoverability gap on
           mobile / for anyone who hadn't internalized the Enter-sends
-          contract. Ashley wanted the ChatGPT/iMessage/Slack pattern:
+          contract. Alice wanted the ChatGPT/iMessage/Slack pattern:
           just the icon inside the textarea's bottom-right, no button
           chrome, quiet enough to belong there without competing with
           the well.
 
         * **Design lock via console-snippet iteration** (not prototype.html,
-          not deploy). Ashley iterated the visual through two DevTools
+          not deploy). Alice iterated the visual through two DevTools
           console paste rounds injecting a bare button into the live
           textarea wrapper. Round 1 was chromed (border + amber gradient
-          + glow — assumed VISUAL-08 was still active); Ashley pulled it
+          + glow — assumed VISUAL-08 was still active); Alice pulled it
           back: "more subtle, like the ones inside textareas I've seen —
           just the icon, no border, solid fill in a color not incredibly
           vibrant compared to the background." Round 2 stripped all
           chrome, went to warm-cream `rgba(240,235,224,X)` at
-          low-opacity rest / high-opacity hover. Ashley then tweaked
+          low-opacity rest / high-opacity hover. Alice then tweaked
           rest 0.5 → 0.3, position 10/8 → 12/10, icon 18 → 24 in her
           own paste, and locked. This iteration codified the third
           preview pattern (**console DOM/CSS injection for tweaking an
@@ -62,13 +62,13 @@
             AND the queueArmed overlay inside the existing `<div
             className="relative flex-1 self-stretch">` wrapper. Button
             positioning: `absolute right-3 bottom-2.5` (12px right, 10px
-            bottom — Ashley's locked values). `p-2` gives 40×40 hit target
+            bottom — Alice's locked values). `p-2` gives 40×40 hit target
             around a 24×24 `SendHorizontal` icon (`className="size-6"`
             `fill="currentColor"` — filled silhouette, NOT stroke; the
             second SendHorizontal path — the internal fold line — is
             elided by fill-only render). WCAG 2.5.5 relaxation acceptable
             because Enter + paperclip aux row remain primary paths.
-          - Colors locked verbatim per Ashley: rest
+          - Colors locked verbatim per Alice: rest
             `text-[rgba(240,235,224,0.3)]`, hover
             `hover:text-[rgba(240,235,224,0.9)]`, disabled
             `text-[rgba(240,235,224,0.15)]` + `cursor-not-allowed`.
@@ -109,7 +109,7 @@
           precisely to preserve amber for Send. This subtle affordance
           is intentionally NOT that treatment. If cleanup is warranted
           (either delete the comments, or repurpose amber for Send at a
-          later date), that's a separate patch — Ashley's directive was
+          later date), that's a separate patch — Alice's directive was
           "quiet ChatGPT/iMessage style," not "activate the amber
           lock." Leaving the comments alone keeps the option open.
 

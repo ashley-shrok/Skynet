@@ -2,7 +2,7 @@
 phase: 260803-7vf-reset-while-recording
 plan: 01
 subsystem: compose-voice
-tags: [compose, voice, reset, ux, ashley-bounty]
+tags: [compose, voice, reset, ux, user-bounty]
 requires: []
 provides:
   - fireResetSyncFx (synchronous UI-effect helper)
@@ -43,7 +43,7 @@ Wired the meter-well reset button so clicking while `voice.state === "recording"
 combines send-while-recording (stop → transcribe → glue) with reset dispatch —
 one click, one motion, one dispatch of `/id reset (glued)`.
 
-## Ashley's Ask (2026-08-03 verbatim)
+## Alice's Ask (2026-08-03 verbatim)
 
 > "if you are recording and you hit the reset button, then it essentially combines
 > the functionality of the send button when you're recording and the functionality
@@ -151,8 +151,8 @@ None. Plan executed exactly as written. All locked design decisions honored:
 
 ## Deployment Status
 
-**HELD pending Ashley greenlight.** Fleet directive: code motion only —
-no push, no `docker build`, no `docker compose up`. Ashley greenlights ship
+**HELD pending Alice greenlight.** Fleet directive: code motion only —
+no push, no `docker build`, no `docker compose up`. Alice greenlights ship
 separately.
 
 ## Self-Check: PASSED

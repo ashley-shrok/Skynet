@@ -36,7 +36,7 @@ Deleted the 442-line `src/ui/shell/Tab.tsx` — the Skynet visible tab-strip ren
 
 Single atomic deletion of the file Phase 11's landing swap implicitly retired:
 
-- **Removed:** `src/ui/shell/Tab.tsx` (442 lines) — contained `interface TabProps` at line 26 and `export function Tab({...})` at line 47. This was the top-of-window Skynet tab bar chrome: per-tab-type icon rendering (SSH/RDP/VNC/etc.), click-to-focus routing, X-close button, split icon. Ashley does not see any of it in Skynet post-Phase-11.
+- **Removed:** `src/ui/shell/Tab.tsx` (442 lines) — contained `interface TabProps` at line 26 and `export function Tab({...})` at line 47. This was the top-of-window Skynet tab bar chrome: per-tab-type icon rendering (SSH/RDP/VNC/etc.), click-to-focus routing, X-close button, split icon. Alice does not see any of it in Skynet post-Phase-11.
 
 - **Preserved (verified by post-deletion `test -f` gates):**
   - `src/ui/shell/TabContext.tsx` — retained tab state provider (`TabProvider`, `useTabs`, `TabType`, `TabSpec`). Note: named similarly to the deleted file but a wholly different concern (state machinery, not chrome).
@@ -94,7 +94,7 @@ None — this is a delete-only plan. No placeholder data, hardcoded empties, or 
 
 ## Requirements Delivered
 
-- **PURGE-08:** Skynet tab bar chrome (`src/ui/shell/Tab.tsx`) deleted from disk. Ashley's Skynet AppShell no longer carries the retired Skynet top-strip file.
+- **PURGE-08:** Skynet tab bar chrome (`src/ui/shell/Tab.tsx`) deleted from disk. Alice's Skynet AppShell no longer carries the retired Skynet top-strip file.
 
 ## Self-Check: PASSED
 

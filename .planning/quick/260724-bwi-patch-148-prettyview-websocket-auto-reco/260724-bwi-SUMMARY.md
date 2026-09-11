@@ -44,11 +44,11 @@ metrics:
 
 # Phase 260724-bwi Plan 01: PrettyView WebSocket Auto-Reconnect (patch #148) Summary
 
-**One-liner:** WebSocket auto-reconnect in PrettyView mirroring Terminal.tsx's proven pattern — 5 attempts with 2/4/6/8/8s linear-capped backoff plus visibilitychange:visible fresh-budget reset for Ashley's iOS PWA persistent "Connection closed" bug.
+**One-liner:** WebSocket auto-reconnect in PrettyView mirroring Terminal.tsx's proven pattern — 5 attempts with 2/4/6/8/8s linear-capped backoff plus visibilitychange:visible fresh-budget reset for Alice's iOS PWA persistent "Connection closed" bug.
 
 ## What Was Built
 
-PrettyView.tsx previously had a dead-end `ws.onclose` handler with an explicit "Do NOT auto-reopen" comment that only set status="error" and errorMessage="Connection closed" — with no retry. This meant any transient WS drop (deploy container recreate, iOS PWA backgrounding) would leave Ashley staring at "Connection closed" until she manually toggled the pretty-view off and on.
+PrettyView.tsx previously had a dead-end `ws.onclose` handler with an explicit "Do NOT auto-reopen" comment that only set status="error" and errorMessage="Connection closed" — with no retry. This meant any transient WS drop (deploy container recreate, iOS PWA backgrounding) would leave Alice staring at "Connection closed" until she manually toggled the pretty-view off and on.
 
 Patch #148 replaces that dead-end with:
 
@@ -71,7 +71,7 @@ Patch #148 replaces that dead-end with:
 
 5. **visibilitychange useEffect (mount-once, deps=[]):**
    - Hidden branch: clears pending reconnect timer (avoid background wake)
-   - Visible branch: no-ops if status="inactive" or WS already OPEN; otherwise resets `reconnectAttemptsRef.current = 0` and bumps `retryKey` immediately — this is the direct Ashley iOS PWA fix
+   - Visible branch: no-ops if status="inactive" or WS already OPEN; otherwise resets `reconnectAttemptsRef.current = 0` and bumps `retryKey` immediately — this is the direct Alice iOS PWA fix
 
 6. **4 new reconnect tests** in a dedicated `describe("PrettyView — patch #148 WebSocket auto-reconnect")` block with fake timers:
    - Test A: retry-on-close fires fresh WS after 2s backoff and clears errorMessage on onopen

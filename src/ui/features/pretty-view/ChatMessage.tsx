@@ -37,7 +37,7 @@ import {
 // Content is rendered as markdown (GFM) via react-markdown so **bold**,
 // backticks, bullet lists, tables, etc. render as formatted output
 // rather than literal characters — Claude Code's assistant output is
-// mostly markdown, and Ashley writes markdown-flavored prose too. Raw
+// mostly markdown, and Alice writes markdown-flavored prose too. Raw
 // HTML in the source is NOT interpreted (react-markdown default) so
 // there is no XSS surface even for untrusted content.
 //
@@ -412,7 +412,7 @@ export function ChatMessage({
   // gate. Assistant bubbles ignore the prop; failed supersedes sending
   // (mutually exclusive per Test 6).
   //
-  // Phase 76 Plan 02 — D-06 semantic upgrade (Ashley 2026-09-06 verbatim:
+  // Phase 76 Plan 02 — D-06 semantic upgrade (Alice 2026-09-06 verbatim:
   // "hopefully after we do this work a failed bubble will be a truly failed
   // bubble and that is worth being that loud about"). Post-Phase-76, a failed
   // bubble means the backend spent its FULL 210s give-up ceiling and actually
@@ -472,8 +472,8 @@ export function ChatMessage({
           isUser
             ? cn(
                 // User bubble = mock's original assistant treatment
-                // (translucent mid-blue-gray gradient over the depth). Ashley
-                // is always Ashley, no per-pane variation. Reads as the
+                // (translucent mid-blue-gray gradient over the depth). Alice
+                // is always Alice, no per-pane variation. Reads as the
                 // stable "not-the-agent" side; assistant bubbles pop against
                 // it with their identity hue.
                 "bg-[linear-gradient(160deg,rgba(45,55,80,0.55),rgba(28,35,55,0.6))]",
@@ -485,7 +485,7 @@ export function ChatMessage({
             : cn(
                 // Assistant carries the identity-hue tint — "the identity is
                 // the one speaking these bubbles" semantic. More saturated
-                // than the first pass (28% → 50% sat) per Ashley's "colors
+                // than the first pass (28% → 50% sat) per Alice's "colors
                 // should be more vibrant" round. Rich hue border + hue outer
                 // glow at ~15-20% alpha.
                 "bg-[linear-gradient(160deg,hsla(var(--pv-id-hue),50%,38%,0.55),hsla(var(--pv-id-hue),45%,24%,0.6))]",

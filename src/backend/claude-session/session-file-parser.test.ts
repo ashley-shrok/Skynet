@@ -480,7 +480,7 @@ describe("parseSessionLine — harness_wrapper filter (patch #97)", () => {
 // ---------------------------------------------------------------------------
 // Phase 17 relay detection tests — RELAYBUB-01, RELAYBUB-02, RELAYBUB-05
 //
-// Test corpus mirrors the 6/6 acceptance battery Ashley walked through on
+// Test corpus mirrors the 6/6 acceptance battery Alice walked through on
 // 2026-07-28 with the prototype.html detectors. Ported byte-for-byte —
 // do not weaken the detection or loosen the false-positive gates.
 // ---------------------------------------------------------------------------
@@ -715,7 +715,7 @@ describe("parseSessionLine — relay detection (Phase 17 / RELAYBUB-01, RELAYBUB
 });
 
 // pv-parser-accept-queued-command-attachment (2026-08-10) — observed in
-// Nelly's session where Ashley typed normally in pretty view and hit enter;
+// Nelly's session where Alice typed normally in pretty view and hit enter;
 // the harness wrote it as type:"attachment" with attachment.type:
 // "queued_command" and the message never rendered. Parser must accept this
 // shape as a user turn with attachment.prompt as content.
@@ -1014,7 +1014,7 @@ describe("parseSessionLine — queue-operation enqueue as kind:message (Phase 50
   });
 
   it("Test QO-3c (negative — /id slash-command skipped): enqueue whose content starts with /id does NOT emit message", () => {
-    // Ashley 2026-09-04: when Claude Code is busy and a slash-command is
+    // Alice 2026-09-04: when Claude Code is busy and a slash-command is
     // queued, the enqueue entry carries the RAW plain-text payload (no
     // <command-name> wrapper). Wrapper form is skipped downstream at
     // parser L1290; this test locks the mirroring enqueue skip so the raw
@@ -1209,7 +1209,7 @@ describe("parseSessionLine — queue-operation enqueue as kind:message (Phase 50
 
 describe("parseSessionLine — session-lifecycle noise skips (quick-260829-r9i)", () => {
   // Five negative tests — one per new skip reason. Each fixture mirrors a real
-  // JSONL shape observed in the wild that Ashley wants hidden from PrettyView
+  // JSONL shape observed in the wild that Alice wants hidden from PrettyView
   // bubbles.
 
   it("Test R9I-1: slash_exit — supervisor-injected /exit command turn is skipped", () => {
@@ -1263,7 +1263,7 @@ describe("parseSessionLine — session-lifecycle noise skips (quick-260829-r9i)"
   });
 
   // quick-260830-e6i: widen goodbye_echo predicate to 4 exit-echo variants.
-  // Ashley's session-end routine emits three additional literals beyond Goodbye!
+  // Alice's session-end routine emits three additional literals beyond Goodbye!
   // — all equally session-lifecycle noise. Set-membership is closed, so other
   // <local-command-stdout>...</local-command-stdout> bodies still render (see
   // Test R9I-3d below).
@@ -1422,7 +1422,7 @@ describe("parseSessionLine — session-lifecycle noise skips (quick-260829-r9i)"
     expect(parsed.content).toBe("< 100 rows returned > and the ratio is > 0.5");
   });
 
-  // Ashley 2026-09-02: relay-hygiene closer phrase — a bare "No response
+  // Alice 2026-09-02: relay-hygiene closer phrase — a bare "No response
   // requested." user turn is peer-agent signaling with no conversational
   // payload. Exact trim-match mirrors goodbye_echo's closed-set posture.
   it("Test R9I-9: no_response_requested — bare 'No response requested.' user turn is skipped", () => {

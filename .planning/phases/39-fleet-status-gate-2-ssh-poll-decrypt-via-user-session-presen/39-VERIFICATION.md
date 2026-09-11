@@ -27,7 +27,7 @@ notes: |
 
 Goal step → satisfying plan(s) → satisfying commit(s) → code evidence in the shipped tree.
 
-| # | Goal Step (from bounty + Ashley 2026-08-13 LOCK) | Satisfying Plan | Commit(s) | Code Evidence | Status |
+| # | Goal Step (from bounty + Alice 2026-08-13 LOCK) | Satisfying Plan | Commit(s) | Code Evidence | Status |
 | - | ------------------------------------------------ | --------------- | --------- | ------------- | ------ |
 | 1 | Browser opens https://term.example.com/ → session establishes | (nginx routing) | Patch #439 (pre-Phase-39) | Out of scope for Phase 39 — Gate 1 already fixed | UAT (requires deploy) |
 | 2 | Fleet-status WS connects → backend logs `fleet_status_connect` + frontend-subscribed op | 39-02 | 5ff0bb40, 105e3aae | fleet-status-server.ts:94 emits `fleet_status_connect`; :233 emits `fleet_status_subscribed` (naming diff from goal spec — see Gaps §1); :242 threads `{ userId: userId! }` as ctx into `registry.subscribe` | VERIFIED (with naming note) |
@@ -125,7 +125,7 @@ The goal spec uses log op names `fleet_status_frontend_subscribed` and `fleet_st
 - Is not called out in any Phase-39 plan or SUMMARY.
 - Does not affect functionality — a UAT grep against `console-forward.log` looking for `fleet_status_subscribed` (or the human-readable message "Fleet-status frontend subscribed") will find the events on subscribe.
 
-If Ashley wants the goal-spec names honored verbatim, that's a trivial follow-up rename (2 lines in fleet-status-server.ts) — but it's not a Gate 2 regression, so it does NOT block this verification.
+If Alice wants the goal-spec names honored verbatim, that's a trivial follow-up rename (2 lines in fleet-status-server.ts) — but it's not a Gate 2 regression, so it does NOT block this verification.
 
 ## UAT-Time Verifications (require deploy)
 
@@ -159,7 +159,7 @@ Not verifiable from static code alone — must be exercised against a running co
 
 - **Test:** Cross-reference the log op names in `console-forward.log` against the goal spec expectations.
 - **Expected:** If exact naming matters, `fleet_status_subscribed` needs to become `fleet_status_frontend_subscribed` and `fleet_status_disconnect` needs `_frontend_disconnected`. Otherwise, dismiss as spec-vs-code naming drift with no functional impact.
-- **Why human:** decision call by Ashley whether the op names should match the goal spec verbatim or the existing Phase-34 shape stands.
+- **Why human:** decision call by Alice whether the op names should match the goal spec verbatim or the existing Phase-34 shape stands.
 
 ## Verdict
 

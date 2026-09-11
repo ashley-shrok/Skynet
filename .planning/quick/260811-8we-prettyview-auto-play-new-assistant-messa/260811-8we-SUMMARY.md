@@ -64,7 +64,7 @@ No new network endpoints, auth paths, file access patterns, or schema changes in
 
 ## NOT Pushed / NOT Built / NOT Deployed
 
-Per box-maintainer fleet rule (Ashley 2026-08-08): sub-agents do not deploy. No `git push`, no `docker build`, no `docker compose`, no coord-room posts, no `skynet-patches.md` entries.
+Per box-maintainer fleet rule (Alice 2026-08-08): sub-agents do not deploy. No `git push`, no `docker build`, no `docker compose`, no coord-room posts, no `skynet-patches.md` entries.
 
 ## Self-Check
 

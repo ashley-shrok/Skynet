@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-08-20
 **Status:** Ready for planning
-**Source:** In-session design conversation with Ashley + Explore-agent codebase scan
+**Source:** In-session design conversation with Alice + Explore-agent codebase scan
 
 <domain>
 ## Phase Boundary
@@ -42,7 +42,7 @@ restyled popover; (b) they touch the same `.pv-filter-popover` markup +
   where `main = status === "busy"` and `bg = backgroundTasks.length > 0`.
   Already available on `ConversationRow` today (used by the ready-dot at
   PrettyConversationRow.tsx and by rendering code at PrettyConversationsPanel.tsx:206).
-- **`dormant`** — real supervisor-dormancy signal (Option C, Ashley's pick over
+- **`dormant`** — real supervisor-dormancy signal (Option C, Alice's pick over
   the time-threshold approximation and active-set alternatives). See § "Dormant
   plumbing gap" below — value exists partially in the codebase today (in the
   context-meter wire only, via tiffany's b8942cde) but does NOT reach
@@ -66,7 +66,7 @@ The exact chrome tokens to lift onto `.pv-filter-popover`:
 - `padding: 4px`
 - `min-width: 200px`
 
-**Retire the shadcn PopoverContent tokens** (`bg-popover text-popover-foreground border rounded-md shadow`) that are currently in play — those are the Skynet-general theme tokens, not the pv-* palette. The mismatch is what Ashley named ("doesn't fit").
+**Retire the shadcn PopoverContent tokens** (`bg-popover text-popover-foreground border rounded-md shadow`) that are currently in play — those are the Skynet-general theme tokens, not the pv-* palette. The mismatch is what Alice named ("doesn't fit").
 
 **Preferred implementation shape:** Keep using Radix Popover for the trigger +
 portal + open/close, but override PopoverContent's chrome. Either
@@ -101,12 +101,12 @@ Each item has a leading **outlined-square checkbox affordance** — 16x16 with:
 - 12×12 SVG check, stroke `rgba(255, 232, 200, 1)`, `stroke-width: 2.5`,
   `stroke-linecap: round`, `stroke-linejoin: round`, path `d="M3.5 8.5 L7 12 L13 5"`
 - **Inline SVG, NOT a unicode glyph** — a served `✓` character was mis-decoded
-  as `âœ"` on Ashley's iPhone PWA when the earlier snippet omitted charset;
+  as `âœ"` on Alice's iPhone PWA when the earlier snippet omitted charset;
   inline SVG dodges the class entirely.
 
 ### Labels + wording — short forms
 
-- "Ready" (new — was going to be "Awaiting" / "Focus"; Ashley picked Ready
+- "Ready" (new — was going to be "Awaiting" / "Focus"; Alice picked Ready
   since it matches the ready-dot semantic already locked in).
 - "Pinned" (was "Only rows with pinned bounties")
 - "Needs desk" (was "Only rows with needs-desk bounties")
@@ -179,7 +179,7 @@ its mobile bump at pretty-conversations.css:194-212.
 - `src/ui/index.css:143-158` — `--color-pv-*` palette definitions (base gradient, fg, fg-muted, borders). Use these tokens where a token exists; use the hardcoded hex/rgba values from the reference menus where those menus hardcoded them (chrome gradient at `rgba(20,21,32,0.94)` etc. — those are inline hex in the reference menus, not tokens).
 
 ### Iteration artifacts (design source of truth)
-- `~/.claude/roles/box-maintainer/bounties/convo-list-ready-filter-and-restyle/filter-restyle-v2.js` — the console-snippet V2 that Ashley signed off on ("yep perfect"). This is the visual target. The final .tsx/.css shape MUST match V2's rendered result. Bounty folder also holds V1 (rejected: always-visible chips) and the bounty.json.
+- `~/.claude/roles/box-maintainer/bounties/convo-list-ready-filter-and-restyle/filter-restyle-v2.js` — the console-snippet V2 that Alice signed off on ("yep perfect"). This is the visual target. The final .tsx/.css shape MUST match V2's rendered result. Bounty folder also holds V1 (rejected: always-visible chips) and the bounty.json.
 
 </canonical_refs>
 
@@ -243,11 +243,11 @@ the AND chain; RDP-group pass-through at Panel.tsx:634-637 stays.
 ## Deferred Ideas
 
 - **Filter state persistence.** Currently none — filters reset on remount.
-  Not part of this phase (parity with existing behavior). If Ashley wants
+  Not part of this phase (parity with existing behavior). If Alice wants
   persistence later, it's a separate one-liner via localStorage.
 - **Filter behavior on the RDP group.** Ready toggle explicitly SKIPS RDP-group
   rows (they pass through unfiltered) — same as pinned/needs-desk today. If
-  Ashley later wants Ready to hide the RDP zone, that's a separate change.
+  Alice later wants Ready to hide the RDP zone, that's a separate change.
 - **Distinguishing "dormant AND working" edge case.** By construction, a
   dormant identity has no live claude process, so `isWorking` should be
   false for it. If both flags simultaneously true occurs, it's a signal
@@ -262,7 +262,7 @@ the AND chain; RDP-group pass-through at Panel.tsx:634-637 stays.
 <constraints>
 ## Constraints (non-negotiable)
 
-- **Ready-dot semantics locked** (Ashley 2026-07-23, per box-maintainer role
+- **Ready-dot semantics locked** (Alice 2026-07-23, per box-maintainer role
   file § "Skynet conversation-list dot semantics"). The DOT's meaning stays
   `inActiveSet(row) === true && isWorking(row) === false`. **Ready FILTER's
   predicate differs** — it uses `!isWorking && !dormant`, NOT active-set
@@ -288,7 +288,7 @@ the AND chain; RDP-group pass-through at Panel.tsx:634-637 stays.
   build, force-recreate) is handled by me (tina) after executor returns
   code-done + tests-green.
 - **After-ship Stacy-notify ASK** (tina identity file). This phase touches
-  fork behavior → after the ship completes, I ASK Ashley whether to DM
+  fork behavior → after the ship completes, I ASK Alice whether to DM
   Stacy that a new version is ready to pull. Do NOT DM Stacy on my own.
 
 </constraints>
@@ -317,4 +317,4 @@ the AND chain; RDP-group pass-through at Panel.tsx:634-637 stays.
 ---
 
 *Phase: 52-convo-list-filter-restyle-popover-add-ready-toggle*
-*Context gathered: 2026-08-20 by tina, from in-session Ashley design conversation + Explore-agent codebase scan*
+*Context gathered: 2026-08-20 by tina, from in-session Alice design conversation + Explore-agent codebase scan*

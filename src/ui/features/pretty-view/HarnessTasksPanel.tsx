@@ -9,7 +9,7 @@ import type { HarnessTask } from "@/api/claude-session-api";
 // filtered list (pending + in_progress) is non-empty; callers guard
 // on that so this component never renders empty.
 //
-// Design decisions (locked with Ashley 2026-07-18):
+// Design decisions (locked with Alice 2026-07-18):
 //   - Above compose, in-flow — not a floating panel, not a chord-toggled drawer.
 //   - Hidden entirely when no non-completed tasks. Zero-chrome empty state.
 //   - Read-only for v1. No edit / complete / add affordances. The client
@@ -28,7 +28,7 @@ function statusIcon(status: string) {
     // Static right-pointing arrow, NOT an animated spinner — the WipBubble
     // above already carries the "session is working" motion signal, and
     // stacking a second animated glyph in the tasks panel was visually
-    // ambiguous (Ashley 2026-07-18). Arrow reads as "this is what's being
+    // ambiguous (Alice 2026-07-18). Arrow reads as "this is what's being
     // worked on right now" while leaving motion for the working state alone.
     return <ArrowRight className="size-3.5 shrink-0 text-[color:var(--color-pv-fg)]" />;
   }
@@ -46,7 +46,7 @@ export function HarnessTasksPanel({ tasks, className }: HarnessTasksPanelProps) 
       className={cn(
         // Patch #82 shelf treatment (VISUAL-05 revised): wall-to-wall
         // cool-black shelf stacked above the compose surround, replacing
-        // the prior floating-card + margin + drop-shadow look. Ashley
+        // the prior floating-card + margin + drop-shadow look. Alice
         // 2026-07-19: the floating-card visual implied chat bubbles
         // could scroll behind it, but layout-wise the panel took its
         // own vertical space with mx-3 my-1 margin gaps that the chat

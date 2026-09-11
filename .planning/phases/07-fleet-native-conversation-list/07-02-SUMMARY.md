@@ -62,7 +62,7 @@ patterns-established:
 requirements-completed: []
 # NOTE: TG-15, TG-16, TG-18 are LISTED in this plan's frontmatter but NOT
 # marked complete here. The full 7-requirement completion (TG-12..18) is
-# Plan 07-03's UAT walk on Ashley's browser after the deploy. Mirrors
+# Plan 07-03's UAT walk on Alice's browser after the deploy. Mirrors
 # 07-01's foundation-only requirements-completed=[] pattern and Phase 6
 # Plan 06-01's precedent — verification plans own the completion mark.
 
@@ -218,10 +218,10 @@ None. Zero blockers, zero auth gates, zero architectural questions, zero fix att
 Every mitigation in the plan's `<threat_model>` block landed in this plan:
 
 - **T-07-02-01 (enableRdp === undefined nullable field):** mitigated via strict `host.enableRdp === true` filter (not truthy coerce) inside computeSnapshot()'s RDP emission pass. Test 31b (enableRdp === undefined) exercises this — legacy Host records without the field produce zero RDP rows.
-- **T-07-02-02 (host name disclosure):** accepted — same host names Ashley already sees in HostsPanel, SessionsPanel, SidebarTree, double-shift menu. No new disclosure.
-- **T-07-02-03 (many RDP hosts flooding the list):** accepted — Ashley's fleet scale (~20 hosts) is well within a handful of RDP rows at the bottom. No virtualization needed.
+- **T-07-02-02 (host name disclosure):** accepted — same host names Alice already sees in HostsPanel, SessionsPanel, SidebarTree, double-shift menu. No new disclosure.
+- **T-07-02-03 (many RDP hosts flooding the list):** accepted — Alice's fleet scale (~20 hosts) is well within a handful of RDP rows at the bottom. No virtualization needed.
 - **T-07-02-04 (onRdpRowClick authz bypass):** accepted — `openTab(host, "rdp")` is the exact same lifecycle entry point HostsPanel + SessionsPanel + connectHost use today. Backend guacd authentication + host authorization are the security boundary; the frontend row click doesn't bypass them.
-- **T-07-02-05 (mobile viewport race with useIsTouchDevice):** mitigated — the hook is deterministic within a page-load (media query detection). Ashley resizing on desktop across breakpoints causes the gear to vanish when useIsTouchDevice flips true — acceptable behavior matching Plan 06-03's mobile flow gate on the same signal. No SSR concern (Skynet is client-only React).
+- **T-07-02-05 (mobile viewport race with useIsTouchDevice):** mitigated — the hook is deterministic within a page-load (media query detection). Alice resizing on desktop across breakpoints causes the gear to vanish when useIsTouchDevice flips true — acceptable behavior matching Plan 06-03's mobile flow gate on the same signal. No SSR concern (Skynet is client-only React).
 - **T-07-02-SC (supply chain — new npm dependencies):** mitigated — zero new npm deps, verified by grep gate on `git diff --stat package.json package-lock.json` (empty). Pencil + Monitor icons are already in lucide-react.
 
 **No new threat surfaces introduced beyond the plan's threat model.** No new network endpoints, no new auth paths, no new file access patterns, no schema changes.
@@ -232,13 +232,13 @@ Every mitigation in the plan's `<threat_model>` block landed in this plan:
 
 ## Next Phase Readiness
 
-**Ready for Plan 07-03 (Wave 3: build verify + UAT walk + patches-md #106 draft + Ashley-gated deploy).**
+**Ready for Plan 07-03 (Wave 3: build verify + UAT walk + patches-md #106 draft + user-gated deploy).**
 
 **UAT walk items specific to Plan 07-02 that Plan 07-03 MUST include** (in addition to the shared TG-12..17 walk items from 07-01):
 
 ### TG-15 — RDP row rendering + click behavior
 
-- With Ashley's fleet containing at least one RDP-enabled host, the conversation list shows a row for that host at the BOTTOM of the ConversationsPanel scroller with:
+- With Alice's fleet containing at least one RDP-enabled host, the conversation list shows a row for that host at the BOTTOM of the ConversationsPanel scroller with:
   - **Monitor glyph** (lucide-react `Monitor` icon, `text-muted-foreground` color) in the avatar slot (left column of the row)
   - **Host name** as the row label (font-medium size-[13px])
   - **No identity hue** (no linear-gradient tint on the row background)
@@ -248,7 +248,7 @@ Every mitigation in the plan's `<threat_model>` block landed in this plan:
   - `data-rdp-host-row="true"` attribute on the row (DevTools inspection)
 - The RDP section appears BELOW all identity-tmux HostGroups. NO semibold "host name" header renders above the RDP rows — just a top border for visual separation from the section above.
 - Clicking an RDP row opens the RDP tab: existing RDP disconnect/reconnect behavior UNCHANGED (per scope-fence lock — guacamole + Terminal.tsx untouched).
-- **Toggling `enableRdp` off** on a host via HostEditor + refresh → RDP row VANISHES. **Toggling back on** + refresh → RDP row RETURNS. (Note: NO auto-update per TG-17 shape lock — Ashley refreshes.)
+- **Toggling `enableRdp` off** on a host via HostEditor + refresh → RDP row VANISHES. **Toggling back on** + refresh → RDP row RETURNS. (Note: NO auto-update per TG-17 shape lock — Alice refreshes.)
 - **Multiple RDP-enabled hosts** → one row per host in host-tree walk order (matches identity-tmux group ordering above).
 - **Selected state** on an RDP row: when the RDP tab is the active tab, the row has `bg-accent-brand/10 text-accent-brand` treatment (`data-selected="true"`).
 
@@ -286,9 +286,9 @@ The patches-md entry for #106 should call out (per the patch #105 multi-commit p
 
 ### Deploy-runbook.md callout for Plan 07-03 Task 4
 
-- Deploy at Ashley's discretion — the visible UAT surface is now complete (fleet-native list + RDP rows + pencil + gear-dedup). Ashley can UAT the DEV/staging build first if desired.
+- Deploy at Alice's discretion — the visible UAT surface is now complete (fleet-native list + RDP rows + pencil + gear-dedup). Alice can UAT the DEV/staging build first if desired.
 - **NO DEPLOY without the mandatory 15-min deadman rollback** per CLAUDE.md hard constraint. Sentinel-cleanup-before-arm; narrow pkill disarm; ~/.claude/identities/tina/deploy-runbook.md is the canonical flow.
-- Patch #106 pins after Ashley's UAT sign-off + `/close telegram-like-interface` bounty closure.
+- Patch #106 pins after Alice's UAT sign-off + `/close telegram-like-interface` bounty closure.
 
 ## Self-Check: PASSED
 

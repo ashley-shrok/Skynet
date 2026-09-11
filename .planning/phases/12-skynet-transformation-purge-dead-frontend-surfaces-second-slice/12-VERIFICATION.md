@@ -124,7 +124,7 @@ No scope-fence violation.
 
 ## Human Verification Required
 
-None. The BUILD-VERIFY-LOG (Plan 07) is the authoritative toolchain gate per Phase 12's non-negotiable "Do NOT re-run tests or npm run build" instruction, and it records tsc/vitest/build all green. Runtime UAT (Ashley's post-deploy walkthrough of pretty-conversations still working end-to-end with the deleted UI gone) is enumerated in the phase's `12-UAT-CHECKLIST.md` — that document is the human-verification sink and is out of scope for this goal-backward verifier.
+None. The BUILD-VERIFY-LOG (Plan 07) is the authoritative toolchain gate per Phase 12's non-negotiable "Do NOT re-run tests or npm run build" instruction, and it records tsc/vitest/build all green. Runtime UAT (Alice's post-deploy walkthrough of pretty-conversations still working end-to-end with the deleted UI gone) is enumerated in the phase's `12-UAT-CHECKLIST.md` — that document is the human-verification sink and is out of scope for this goal-backward verifier.
 
 ---
 

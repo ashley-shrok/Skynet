@@ -223,7 +223,7 @@ STEP 2 — Backend-only guard: confirm no frontend files were modified. Run:
 STEP 3 — Regression sanity: confirm the box-wide read (`hookPayloadPromise` @ L1009) is still present and NOT removed. Run:
    `grep -c "hookPayloadPath" src/backend/fleet-status/ssh-poll-orchestrator.ts` — must return >= 3 (declaration, box-wide exec, plus the fallback consumer reference).
 
-STEP 4 — Commit as a single atomic commit. Do NOT push (Ashley's fleet rule: full-suite green is a precondition for PUSH not COMMIT; orchestrator batches this ship with patch #521 + #522 and runs full-suite at ship time). Commit message via HEREDOC:
+STEP 4 — Commit as a single atomic commit. Do NOT push (Alice's fleet rule: full-suite green is a precondition for PUSH not COMMIT; orchestrator batches this ship with patch #521 + #522 and runs full-suite at ship time). Commit message via HEREDOC:
 
    `git commit -m "$(cat <<'EOF'`
    `fix(quick-260829-kmr): source A reads per-session Stop payload, not box-wide`

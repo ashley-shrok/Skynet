@@ -41,10 +41,10 @@ The FIRST of three phases delivering a drag-drop session-management model on the
 
 ## Prior context: parked bounty + reference prototype
 
-- Parked bounty `bring-back-split-view` (`~/.claude/roles/box-maintainer/bounties/bring-back-split-view/bounty.json`, created 2026-07-31) is the seed for this arc. Ashley's verbatim ask was "bring back split view"; the /build /open beat expanded it into the full drag-drop dream.
-- Reference prototype: `~/.claude/roles/box-maintainer/bounties/bring-back-split-view/prototype.html` — standalone HTML+JS prototype demonstrating the drag-drop tree, edge-zone hit-testing, and preview overlay. Ashley validated it live 2026-08-28. The recursive-tree algorithm (in vanilla JS in the prototype) ports directly to the phase; the drop-preview overlay + edge-zone hit-testing pieces are Phase 57's job.
+- Parked bounty `bring-back-split-view` (`~/.claude/roles/box-maintainer/bounties/bring-back-split-view/bounty.json`, created 2026-07-31) is the seed for this arc. Alice's verbatim ask was "bring back split view"; the /build /open beat expanded it into the full drag-drop dream.
+- Reference prototype: `~/.claude/roles/box-maintainer/bounties/bring-back-split-view/prototype.html` — standalone HTML+JS prototype demonstrating the drag-drop tree, edge-zone hit-testing, and preview overlay. Alice validated it live 2026-08-28. The recursive-tree algorithm (in vanilla JS in the prototype) ports directly to the phase; the drop-preview overlay + edge-zone hit-testing pieces are Phase 57's job.
 
-## Locked decisions (Ashley, 2026-08-28)
+## Locked decisions (Alice, 2026-08-28)
 
 - **Full dream, no minimal restoration.** Retire the fixed-grid model entirely; do not keep the 2-way / 3-way / 4-way presets as convenience.
 - **No preset layouts.** Drag IS the fast path. No "give me a 4-way immediately" button.

@@ -26,7 +26,7 @@ overflow guards (`overflow-x-hidden` on the message scroll container and
 skynet-patches.md documentation.
 
 Purpose: post-#162 UAT — bubbles are right size but everything else on mobile is too
-small and composebox/jump-to-bottom feel too big. Ashley's design pivot: one global
+small and composebox/jump-to-bottom feel too big. Alice's design pivot: one global
 html lever instead of patchwork per-surface overrides. Math: `.prose-sm` = 0.875rem ×
 24px = 21px (Telegram parity, same as #162's override, no override needed).
 
@@ -162,7 +162,7 @@ Then in a single edit pass:
    - **Motivation**: post-#162 UAT — message bubbles are right size but the rest of
      mobile app is too small (bounties in identity modal, conversation list rows,
      tasks/shells/BG-agents display) AND composebox action buttons + jump-to-bottom
-     button feel too big. Ashley's design pivot: instead of per-surface patchwork,
+     button feel too big. Alice's design pivot: instead of per-surface patchwork,
      do ONE global html font-size bump on mobile (24px, previously confirmed via
      `?fonttune=1` live tuner as Telegram parity) and STRIP the pre-emptive
      `max-md:*` chrome overrides in pretty-view.

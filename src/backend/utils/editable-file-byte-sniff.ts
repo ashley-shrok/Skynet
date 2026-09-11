@@ -16,8 +16,8 @@
  *   5. new TextDecoder("utf-8", { fatal: true }).decode(sample) must not throw.
  *
  * False positives are ACCEPTABLE per shape lock — the return trip goes through
- * Ashley reviewing an editor before saving, and the agent judges the received
- * attachment. Worst case: editor shows garbage, Ashley doesn't save.
+ * Alice reviewing an editor before saving, and the agent judges the received
+ * attachment. Worst case: editor shows garbage, Alice doesn't save.
  *
  * No external dependencies. Rejected libraries (`isbinaryfile`, `istextorbinary`)
  * would earn zero benefit for ~30 LoC saved and add slopcheck/install drag.

@@ -25,8 +25,8 @@ docs_commit: TBD
 
 ## Deploy status
 
-Not deployed. Batched with #118-#120 (+ upcoming #122 for meter-reset-no-segments-until-new-session). Ashley-gated batch deploy after all 5 bounties are code-complete.
+Not deployed. Batched with #118-#120 (+ upcoming #122 for meter-reset-no-segments-until-new-session). user-gated batch deploy after all 5 bounties are code-complete.
 
 ## Bounty note
 
-`send-button-bigger` (bounty #4) was re-scoped mid-session from "make it bigger" to "rip it out" after Ashley confirmed she uses Enter exclusively. Bounty closed done, not dropped — the underlying intent (compose row that reflects her actual workflow) landed, just via a different mechanism than the original title suggested.
+`send-button-bigger` (bounty #4) was re-scoped mid-session from "make it bigger" to "rip it out" after Alice confirmed she uses Enter exclusively. Bounty closed done, not dropped — the underlying intent (compose row that reflects her actual workflow) landed, just via a different mechanism than the original title suggested.

@@ -30,7 +30,7 @@ key-files:
     - src/ui/features/pretty-conversations/PrettyConversationRow.test.tsx
     - src/ui/index.css
 decisions:
-  - "Attribute selector `[data-pv-conv-wip-dot='true']` instead of a class name for the reduced-motion fallback — avoids coupling to a class Ashley hasn't sanctioned, keeps the render slot self-contained."
+  - "Attribute selector `[data-pv-conv-wip-dot='true']` instead of a class name for the reduced-motion fallback — avoids coupling to a class Alice hasn't sanctioned, keeps the render slot self-contained."
   - "Base+overlay composition (`baseBodyStyle` → `hoverOverlay` → `selectedOverlay` → `bodyTransformStyle` merged via spread) rather than a single IIFE per state — makes hover/selected precedence explicit at the merge point."
   - "Local `hovered` useState + `onMouseEnter`/`onMouseLeave` handlers (desktop-only, unselected-only) rather than Tailwind arbitrary group-hover variants — Tailwind's arbitrary-value pseudo-classes can't cleanly express the multi-stop shadow tuples patch #136 uses."
   - "Desktop-only body `transition` (transform + box-shadow + border-color + background, 160ms ease) — mobile's `bodyTransformStyle` spreads last so its own swipe transition (transform 180ms ease) wins on mobile without collision."
@@ -45,7 +45,7 @@ metrics:
 
 ## One-liner
 
-Patch #136 restyles every `PrettyConversationRow` (not only the selected one) to Ashley's locked v2 pretty-view assistant-bubble intensity, rebases the avatar disc onto IdentityBadge.tsx's lg linear-gradient badge (radial-gradient retired), and lands a bare-glyph WIP pulse-dot render slot (`isWip` prop + `pv-conv-wip-pulse` keyframes with prefers-reduced-motion fallback) that patch #137 will wire to the store as a one-line data diff.
+Patch #136 restyles every `PrettyConversationRow` (not only the selected one) to Alice's locked v2 pretty-view assistant-bubble intensity, rebases the avatar disc onto IdentityBadge.tsx's lg linear-gradient badge (radial-gradient retired), and lands a bare-glyph WIP pulse-dot render slot (`isWip` prop + `pv-conv-wip-pulse` keyframes with prefers-reduced-motion fallback) that patch #137 will wire to the store as a one-line data diff.
 
 ## What Changed
 

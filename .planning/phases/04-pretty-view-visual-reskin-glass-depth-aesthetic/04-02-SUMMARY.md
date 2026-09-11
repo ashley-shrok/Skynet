@@ -100,4 +100,4 @@ Across all 9 files: every event handler (`handleSend`, `handleResetSend`, `handl
 
 ## Ready for Plan 04-03
 
-Plan 04-03 handles final build verification + Nyquist UAT prep + AGENTS.md doc writeup + deploy readiness. The Phase 4 reskin is functionally complete at code level; the remaining work is verification, documentation, and Ashley's separate deploy green-light per fleet-standing rule (`BLANKET PRE-AUTHORIZATION ≠ PER-DEPLOY GREEN LIGHT`).
+Plan 04-03 handles final build verification + Nyquist UAT prep + AGENTS.md doc writeup + deploy readiness. The Phase 4 reskin is functionally complete at code level; the remaining work is verification, documentation, and Alice's separate deploy green-light per fleet-standing rule (`BLANKET PRE-AUTHORIZATION ≠ PER-DEPLOY GREEN LIGHT`).

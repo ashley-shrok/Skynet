@@ -13,7 +13,7 @@ key-files:
     - src/ui/features/pretty-view/ChatMessage.tsx
   created: []
 decisions:
-  - Global html=24px mobile bump instead of per-surface .prose-sm override (Ashley pivot)
+  - Global html=24px mobile bump instead of per-surface .prose-sm override (Alice pivot)
   - Strip 27 max-md:* chrome overrides — compensated for html=16, become oversized at html=24
   - overflow-x-hidden on scroll container as defensive overflow guard
   - "[overflow-wrap:anywhere] on ChatMessage replaces break-words for long-token safety at 21px"

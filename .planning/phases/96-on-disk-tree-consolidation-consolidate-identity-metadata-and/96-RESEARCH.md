@@ -724,7 +724,7 @@ The `ssh-poll-orchestrator.test.ts` is the largest test file. At ~100+ fixture p
 
 ## MIGRATION.md Content Sketch
 
-**Audience:** Ashley (t1000), Stacy (T800), any future box maintainer. Plain language, no assumed context, self-contained.
+**Audience:** Alice (t1000), Stacy (T800), any future box maintainer. Plain language, no assumed context, self-contained.
 
 **Location:** `.planning/phases/96-on-disk-tree-consolidation-consolidate-identity-metadata-and/MIGRATION.md`
 
@@ -985,7 +985,7 @@ Phase 96 has no automated test requirements beyond the repo-wide grep audit (D-1
 3. `grep -r '~/skynet-' substrate/ --include="*.sh" --include="*.py" --include="*.md"` returns no hits.
 4. `npm test` (vitest) is green.
 5. The bash test driver `substrate/scripts/tests/agent-supervisor-archive-scan.sh` passes with 31/31 tests.
-6. MIGRATION.md is readable and self-contained — Ashley and Stacy can follow it verbatim.
+6. MIGRATION.md is readable and self-contained — Alice and Stacy can follow it verbatim.
 
 ---
 

@@ -3,14 +3,14 @@
 ## What This Is
 
 A maintained fork of Skynet (self-hosted browser SSH/RDP manager) that adds 42
-numbered patches on top of upstream v2.3.x to fit Ashley's specific workflow:
+numbered patches on top of upstream v2.3.x to fit Alice's specific workflow:
 many parallel Claude Code sessions on many machines, coordinated via
 identity-aware terminal panes with per-pane message queues. Runs in production
 at term.example.com as the central access point for her fleet.
 
 ## Core Value
 
-Ashley never loses access to her fleet. Skynet is the gateway to every managed
+Alice never loses access to her fleet. Skynet is the gateway to every managed
 machine (SSM-only admin on the EC2, tailnet-only on the peers). Every change
 must preserve reliable browser SSH+RDP access; features are added around that
 hard constraint, not through it.
@@ -49,8 +49,8 @@ hard constraint, not through it.
 - Rewriting/replacing upstream Skynet — this is a maintained fork, not a rebrand
 - Changes that break rebase-ability — patches must apply cleanly and stay
   individually PR-able upstream
-- Speculative features outside Ashley's workflow — no additions for hypothetical users
-- Anything that risks locking Ashley out of the fleet during deploy —
+- Speculative features outside Alice's workflow — no additions for hypothetical users
+- Anything that risks locking Alice out of the fleet during deploy —
   deadman rollback covers accidents but the intent is not to court them
 
 ## Context
@@ -75,8 +75,8 @@ hard constraint, not through it.
   `main`. Feature commits are numbered and individually PR-able; no squashes.
 - **Deploy safety**: Every `docker compose up -d --force-recreate skynet` runs
   behind the 15-min deadman rollback timer (`/opt/skynet/.tmp-revert.sh`) —
-  no exceptions, per Ashley 2026-07-03, even when she is at the keyboard.
-- **Blast radius**: A bad deploy loses Ashley access to her whole fleet
+  no exceptions, per Alice 2026-07-03, even when she is at the keyboard.
+- **Blast radius**: A bad deploy loses Alice access to her whole fleet
   (Skynet is the gateway to every managed box). Asymmetric risk drives all
   safety practices.
 - **Encryption**: Skynet stores host credentials + SSH keys in AES-encrypted

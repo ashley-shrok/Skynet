@@ -44,9 +44,9 @@ must_haves:
 ---
 
 <objective>
-Retire the Tier 1 active-set top zone from the pretty-conversations list AND remove the "Pinned" divider chip above the pinned tier, per Ashley UAT 2026-08-17 amendment to Phase 42.
+Retire the Tier 1 active-set top zone from the pretty-conversations list AND remove the "Pinned" divider chip above the pinned tier, per Alice UAT 2026-08-17 amendment to Phase 42.
 
-Purpose: Ashley UAT 2026-08-17 verbatim: *"sessions are still showing above the pinned area when they are active in the current instance of the client. That shouldn't happen. Also the pinned header should go away entirely."* Phase 42 shipped a three-zone list (activeSet → pinned → middle → RDP); this quick collapses activeSet into middle (or into pinned, if pinned) and kills the "Pinned" section header. Load-bearing preservation: the per-row `inActiveSet` prop and its `.active-set` CSS gate — which drives the deactivate-action hover-reveal, swipe machinery, and context-menu Deactivate item gating — MUST survive intact at every remaining render site.
+Purpose: Alice UAT 2026-08-17 verbatim: *"sessions are still showing above the pinned area when they are active in the current instance of the client. That shouldn't happen. Also the pinned header should go away entirely."* Phase 42 shipped a three-zone list (activeSet → pinned → middle → RDP); this quick collapses activeSet into middle (or into pinned, if pinned) and kills the "Pinned" section header. Load-bearing preservation: the per-row `inActiveSet` prop and its `.active-set` CSS gate — which drives the deactivate-action hover-reveal, swipe machinery, and context-menu Deactivate item gating — MUST survive intact at every remaining render site.
 
 Output: Store snapshot with `activeSet: []` always-empty (field kept to avoid destructure churn); panel renders no top active-set zone and no "Pinned" chip; both test files updated in place; full vitest + build suites green.
 </objective>
@@ -121,7 +121,7 @@ Preservation callouts (do NOT touch):
 
 5. **L2394-2418 "host is outer sort key in ActiveSet — same-role rows from different hosts stay host-ordered"**: This test asserts `snap.activeSet.map((r) => r.host?.name)).toEqual(["alpha", "beta"])`. The active-set tier is now always empty, so this test's premise is invalid. Retarget the test to assert host-outer sort semantics on a SURVIVING tier — the natural retarget is PINNED (the block at L2422+ already does this for pinned; if that block already exhaustively covers the case, DELETE this test with a comment linking to the pinned equivalent). If the pinned-equivalent test doesn't cover the exact same-role two-host scenario, retarget this test by pinning both `t-a` and `t-b` instead of `addToActiveSet`, and change the assertion to `snap.pinned.map((r) => r.host?.name)).toEqual(["alpha", "beta"])`. Update the it/describe title accordingly. Preserve the comment block's intent (host-outer sort semantics survive at their remaining sort sites).
 
-Ashley reason to embed in each rewritten test's block comment: `// Phase 42 UAT amendment 2026-08-17 (Ashley verbatim): "sessions are still showing above the pinned area when they are active in the current instance of the client. That shouldn't happen." — activeSet render tier retired; activeSet-and-pinned rows stay in pinned, activeSet-only rows fall through to middle by recency.`
+Alice reason to embed in each rewritten test's block comment: `// Phase 42 UAT amendment 2026-08-17 (Alice verbatim): "sessions are still showing above the pinned area when they are active in the current instance of the client. That shouldn't happen." — activeSet render tier retired; activeSet-and-pinned rows stay in pinned, activeSet-only rows fall through to middle by recency.`
 
 **Verify BOTH** the store change and the test rewrites in a single vitest pass on just the store test file (fast — ~2s). Do not run the full suite yet; Task 2 does that.
   </action>
@@ -145,7 +145,7 @@ Deletion 1 (L1192-1214) — the entire `{displayedActiveSetRows.length > 0 && ( 
 - The `<div className="pv-panel-group" data-active-set-group="true">` opening tag.
 - The `{displayedActiveSetRows.map((row) => ( <PrettyConversationRowLive ... /> ))}` inner map.
 - The closing `</div>` and the outer `)}`.
-- The comment header at L1183-1191 (`Patch #149 B+C: active-set rows overtake pinned per Ashley 2026-07-24. ...` through the `subtitleMode="identityTitle"` block-comment) — replace with a one-line comment: `// Phase 42 UAT amendment 2026-08-17 (Ashley verbatim): active-set top zone retired — active-set rows now flow through to pinned (if pinned) or middle (by recency).`
+- The comment header at L1183-1191 (`Patch #149 B+C: active-set rows overtake pinned per Alice 2026-07-24. ...` through the `subtitleMode="identityTitle"` block-comment) — replace with a one-line comment: `// Phase 42 UAT amendment 2026-08-17 (Alice verbatim): active-set top zone retired — active-set rows now flow through to pinned (if pinned) or middle (by recency).`
 
 Deletion 2 (L1230-1249) — the "Pinned" divider chip inside the pinned-group wrapper. That's the `{displayedPinned.length > 0 && ( <div className="flex items-center gap-2 px-4 pb-1.5 ..." data-testid="pinned-divider"> … </div> )}` block containing the `<Pin>` icon + "Pinned" label span + gradient-rule span. Delete the entire conditional and its inner markup. The surrounding `<div className="pv-panel-group" data-pinned-group="true">` wrapper (L1229) and the `{displayedPinned.map(...)}` inside it (L1250-1268) STAY unchanged.
 
@@ -189,7 +189,7 @@ Run in order (halt on first non-zero exit):
 2. `npm run build:backend` — must exit 0. Change is frontend-only but the fork-rule check is cheap and catches shared-type regressions.
 3. `npm run build` — must exit 0. This runs `tsc --noEmit` + vite build; catches TSX regressions the vitest run missed (e.g., unused variables when strict mode).
 
-**ORCHESTRATOR-ONLY EXCLUSIONS (do NOT do in this task, per Ashley 2026-08-08 fleet rule):** no `git push`, no `docker build`, no `docker compose up`, no coord-room posts, no skynet-patches.md entry, no fast-path vite-watch launch. This task ends at "code changed, tests green, builds green, ready for commit." The orchestrator picks up the deploy motion.
+**ORCHESTRATOR-ONLY EXCLUSIONS (do NOT do in this task, per Alice 2026-08-08 fleet rule):** no `git push`, no `docker build`, no `docker compose up`, no coord-room posts, no skynet-patches.md entry, no fast-path vite-watch launch. This task ends at "code changed, tests green, builds green, ready for commit." The orchestrator picks up the deploy motion.
 
 `git status` should show exactly four modified files (the two source + two test files) and zero untracked. No commit in this task — quick flow commits at the orchestrator layer.
   </action>
@@ -214,7 +214,7 @@ Full phase-level verification:
 6. **Grep check — snapshot still has field:** `grep -n "activeSet: \[\]" src/ui/state/conversation-store.ts` returns at least one match (the always-empty return).
 7. **Grep check — CSS gate preserved:** `grep -c "active-set" src/ui/features/pretty-conversations/pretty-conversations.css` returns ≥ 5 (the `.active-set` selector rules survive intact).
 8. **Grep check — inActiveSet prop preserved:** `grep -c "inActiveSet=" src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx` returns ≥ 4 (search-flat + pinned + middle + RDP render sites all still thread the prop).
-9. **Human verify (post-deploy, orchestrator's problem — not this plan's):** Ashley loads the app, confirms active sessions no longer surface above pinned area and the "Pinned" section header no longer renders.
+9. **Human verify (post-deploy, orchestrator's problem — not this plan's):** Alice loads the app, confirms active sessions no longer surface above pinned area and the "Pinned" section header no longer renders.
 </verification>
 
 <success_criteria>

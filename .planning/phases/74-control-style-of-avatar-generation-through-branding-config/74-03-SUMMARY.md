@@ -133,7 +133,7 @@ Rewired `POST /identities/avatar/batch` so 100% of its aesthetic content comes f
 
 ## Anti-Pattern Locks Held
 
-- **NO ARCHETYPE_SYSTEM_PROMPT dead code** — grep returns 0. Constant deleted outright per 74-RESEARCH.md § Anti-Patterns to Avoid #1 and Ashley `<additional_context>` load-bearing anti-pattern list.
+- **NO ARCHETYPE_SYSTEM_PROMPT dead code** — grep returns 0. Constant deleted outright per 74-RESEARCH.md § Anti-Patterns to Avoid #1 and Alice `<additional_context>` load-bearing anti-pattern list.
 - **NO fallback constant** — no `FALLBACK_ARCHETYPE`, no `FALLBACK_SPEC`, no `directorSpec || "…"` short-circuit anywhere in the route. Either the route has a real spec or it returns 503; those are the only two paths.
 - **NO caching layer** — `await loadBrandingConfig()` is fresh per request. Preserves Phase 70's hot-swap property (operator can edit `branding.json` and next request picks it up). Loader is fast — single small `fs.readFile`.
 - **NO aesthetic instruction language in code** — the PALETTE CONSTRAINT paragraph, the ±30-degree guidance, the don't-default-to-blue caveat all live in the operator-authored `avatarDirectorSpec` now (Plan 04's ship-migration seed content, orchestrator-owned).

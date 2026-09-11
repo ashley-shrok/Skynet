@@ -332,7 +332,7 @@ The `host`-optional handling lives inside PrettyView via the source-kind case-ch
 **Current shape (retire in full):**
 ```tsx
 case "terminal":
-  // Phase 91 UAT fix 2026-09-09 (Ashley): relay-room tabs are opened with
+  // Phase 91 UAT fix 2026-09-09 (Alice): relay-room tabs are opened with
   // type="terminal" + host=null (they have no fleet host ...). Render
   // RelayRoomSessionPane inline here BEFORE the host check ...
   if (tab.sessionKind === "relay-room" && tab.relayRoomId) {

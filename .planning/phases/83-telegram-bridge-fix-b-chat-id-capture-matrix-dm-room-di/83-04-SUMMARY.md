@@ -34,7 +34,7 @@ key-files:
 decisions:
   - "Optional 4th param (not required) — pre-existing callers + tests unchanged"
   - "Tab as pair-key separator — mxid grammar excludes control chars"
-  - "Per-pair Promise.all rather than sequential — parallelism gives up to 2× speedup on typical Ashley-fleet size (1-3 pairs) with zero downside; getSharedDMRoom already has 30s AbortController from Plan 83-02"
+  - "Per-pair Promise.all rather than sequential — parallelism gives up to 2× speedup on typical user-fleet size (1-3 pairs) with zero downside; getSharedDMRoom already has 30s AbortController from Plan 83-02"
   - "No caching (CONTEXT § 4 explicit) — rewrites fire on activate/disconnect/reconcile, never per-message"
   - "Per-pair failure collapses to null in map — bridge falls back to not routing MX→TG for that pair until next reconcile"
 metrics:
@@ -120,7 +120,7 @@ across Promise boundaries).
 
 ### Why per-pair `Promise.all` (not sequential)
 
-Ashley's fleet is small (typical: 1–3 (agent, human) pairs at any moment), so
+Alice's fleet is small (typical: 1–3 (agent, human) pairs at any moment), so
 sequential vs. parallel is an insignificant absolute speedup — but parallel is
 still preferable because:
 

@@ -17,7 +17,7 @@ Restructure the identity modal's tab set (remove History + Handoff, add Runbooks
 - id-skill body update — § Runbooks storage subsection: `<slug>.md` → `runbook.md` (going-forward convention only)
 - Test coverage for the above (in-process user-flow test walking the identity modal → Runbooks tab → open runbook → edit → save → close swap flow)
 
-**Out of scope (Ashley's manual post-close pass — NOT part of this build):**
+**Out of scope (Alice's manual post-close pass — NOT part of this build):**
 - On-disk rename of the 4 existing box-maintainer runbooks (`avatar-flow/avatar-flow.md` → `avatar-flow/runbook.md`, etc.)
 - box-maintainer role file `## Runbooks` pointer list path updates
 - Stale-reference sweep in active bounties for `runbooks/<slug>/<slug>.md` references
@@ -56,10 +56,10 @@ Restructure the identity modal's tab set (remove History + Handoff, add Runbooks
 
 ### id-skill body update (D-19, D-20)
 - **D-19:** Update lives at `substrate/skills/id/SKILL.md` in the Skynet repo (distributor pushes to every managed box). § Runbooks Storage subsection changes phrase "MUST be named `<slug>.md`" → "MUST be named `runbook.md`". Any adjacent phrasing that references `<slug>.md` in the § Runbooks section shifts to `runbook.md` similarly (Awareness on wake, When to invoke). Enumeration key still folder names — unchanged.
-- **D-20:** Convention is going-forward only. Existing runbooks on Ashley's manual post-close pass. Do NOT add a "for existing runbooks, main file is `<slug>.md`" migration-note in the id skill — the manual pass renames them all to `runbook.md`, so no grandfather rule needs to be codified.
+- **D-20:** Convention is going-forward only. Existing runbooks on Alice's manual post-close pass. Do NOT add a "for existing runbooks, main file is `<slug>.md`" migration-note in the id skill — the manual pass renames them all to `runbook.md`, so no grandfather rule needs to be codified.
 
 ### Ship discipline (D-21, D-22)
-- **D-21:** Campaign constraint holds — commits + push + scoped tests only. No `docker build`, no `docker cp` fast-path, no `docker compose up --force-recreate`, no full-suite test run until entire UX-pass campaign lands AND Ashley greenlights ship gate.
+- **D-21:** Campaign constraint holds — commits + push + scoped tests only. No `docker build`, no `docker cp` fast-path, no `docker compose up --force-recreate`, no full-suite test run until entire UX-pass campaign lands AND Alice greenlights ship gate.
 - **D-22 [informational]:** Push discipline is orchestrator-scope, NOT executor-scope. `git pull --rebase origin feat/tab-title-from-tmux` before every push; no coord-room post (push-only per 2026-09-05 rule); peer identities of box-maintainer role (currently tina, tiffany, tanya, taylor) may push concurrently; rebase handles it. Plans deliberately do NOT touch this — decision-coverage gate skips [informational] tagged items.
 
 ### Rename ordering (D-23)
@@ -136,7 +136,7 @@ Restructure the identity modal's tab set (remove History + Handoff, add Runbooks
 <specifics>
 ## Specific Ideas
 
-- **Skills-parity is the design bar.** Any UX detail in the runbook editor that has a corresponding detail in the skills editor should match unless there's a specific reason to diverge. Ashley explicitly asked to "steal from skills modal" during /open.
+- **Skills-parity is the design bar.** Any UX detail in the runbook editor that has a corresponding detail in the skills editor should match unless there's a specific reason to diverge. Alice explicitly asked to "steal from skills modal" during /open.
 - **`runbook.md` mirrors `SKILL.md`.** Folder-names-the-thing + fixed-sentinel-file-inside. She named this convention during /open citing skills.
 - **Swap-not-stack.** She verbatim: *"I don't think we actually have that interaction anywhere currently in the app so to keep it simple I'm thinking what we could do for for version one at least is that when you click on a runbook it closes the identity modal and opens the modal for editing that runbook. And when you close that one, it just closes."*
 - **Bare list, no peek info.** She verbatim: *"Yeah, it could just be a bare list."*

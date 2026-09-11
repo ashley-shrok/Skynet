@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-08-05
 **Status:** Ready for planning
-**Source:** In-conversation design lock with Ashley 2026-08-05
+**Source:** In-conversation design lock with Alice 2026-08-05
 
 <domain>
 ## Phase Boundary
@@ -21,10 +21,10 @@ Add a silent secondary sort key to the sidebar row list so identities of the sam
 ### Sort semantics (LOCKED)
 
 - **Sort tuple everywhere: `(host, role, label)`**. Applied to all three tiers of `PrettyConversationsPanel`: ActiveSet, Pinned, and Tier-3 host-grouped-per-bucket.
-- **Host is always outer.** Ashley verbatim: *"host is above role always."* In Tier 3, host is already the visible bucket structure — role becomes the primary inner sort. In ActiveSet + Pinned tiers, host becomes an invisible outer sort key (no subheading, no chrome — just re-orders rows).
+- **Host is always outer.** Alice verbatim: *"host is above role always."* In Tier 3, host is already the visible bucket structure — role becomes the primary inner sort. In ActiveSet + Pinned tiers, host becomes an invisible outer sort key (no subheading, no chrome — just re-orders rows).
 - **Within each role, sort by label.** Falls back to today's ordering when a role has one member.
-- **Case-insensitive alphabetical throughout.** Consistency for muscle memory — Ashley verbatim: *"as long as the stuff is showing up in the same place always, then that helps you find it, and that's what I care about."*
-- **Applies to all three tiers, not just Tier 3.** Ashley: *"most of the reason that we care about grouping is so that you can have them visually grouped while you're working with them."* Active-set is where you're working; clustering must hold there too.
+- **Case-insensitive alphabetical throughout.** Consistency for muscle memory — Alice verbatim: *"as long as the stuff is showing up in the same place always, then that helps you find it, and that's what I care about."*
+- **Applies to all three tiers, not just Tier 3.** Alice: *"most of the reason that we care about grouping is so that you can have them visually grouped while you're working with them."* Active-set is where you're working; clustering must hold there too.
 
 ### Null-role handling (LOCKED)
 
@@ -36,12 +36,12 @@ Add a silent secondary sort key to the sidebar row list so identities of the sam
 
 - NO role subheading in any tier.
 - NO indent, connecting line, color band, or per-cluster visual affordance.
-- NO extra info added to row list items. Ashley verbatim: *"the title that they get will a lot of times be the role, but look prettier. And I'm not interested in adding extra info to those list items."*
-- Rationale: colorHue inheritance on clones already gives an implicit "same-hue adjacent" visual cue; clone-clustering by position is the whole payoff. Adding chrome would fight the aesthetic Ashley has locked (§ Skynet direction in role file).
+- NO extra info added to row list items. Alice verbatim: *"the title that they get will a lot of times be the role, but look prettier. And I'm not interested in adding extra info to those list items."*
+- Rationale: colorHue inheritance on clones already gives an implicit "same-hue adjacent" visual cue; clone-clustering by position is the whole payoff. Adding chrome would fight the aesthetic Alice has locked (§ Skynet direction in role file).
 
 ### Mechanism (LOCKED)
 
-- **NO DB schema change.** Ashley verbatim: *"I believe it should stay out of the database, and it could just be read when all of the sessions in the list are enumerated, because that only happens once when you load the page anyway, so I feel like that'd be pretty easy."*
+- **NO DB schema change.** Alice verbatim: *"I believe it should stay out of the database, and it could just be read when all of the sessions in the list are enumerated, because that only happens once when you load the page anyway, so I feel like that'd be pretty easy."*
 - Role is resolved fs-side at list-enumeration time using the existing `resolveRoleForIdentity` helper in `src/backend/claude-session/identity-artifact-reader.ts:227`. That helper reads `role:` frontmatter from `~/.claude/identities/<key>/<key>.md` — LOCAL fs read on skynet-ec2, or SSH exec on the host where the identity file lives. It already knows LOCAL-vs-REMOTE branching.
 - Role plumbs through the identity list payload: `GET /identities` (`src/backend/database/routes/identities.ts:68`) resolves role per row, `publicIdentity()` (`identities.ts:52`) adds it to the wire type, `Identity` frontend type (`src/ui/api/identities-api.ts`) adds `role: string | null`, `useIdentities()` (`src/ui/state/identities-store.ts`) surfaces it via `byKey`.
 - Reads happen once per page load — same cadence as identity list refresh today.
@@ -106,7 +106,7 @@ Replace `compareByLabel` with a new comparator (`compareByHostRoleLabel` or simi
 
 - Testing: `conversation-store` has tests today (frontend suite is `npx vitest run`). New sort behavior needs coverage for: (a) role-clustering happens within a host bucket, (b) host outer works across hosts in ActiveSet/Pinned, (c) null-role rows sort last, (d) case-insensitivity across role AND label, (e) same-role different-label sorts by label, (f) same-everything remains stable.
 
-- Backend endpoint: `router.get("/")` today doesn't call any per-row helpers. Adding N `resolveRoleForIdentity` calls (N = number of identities for user, small ~dozen) adds latency. Parallelize via `Promise.all(rows.map(...))`. Total is ms in the LOCAL case; REMOTE (SSH exec) is 100s of ms per identity — batch or accept the round-trip cost. Ashley's mental model is "once per page load," which is fine.
+- Backend endpoint: `router.get("/")` today doesn't call any per-row helpers. Adding N `resolveRoleForIdentity` calls (N = number of identities for user, small ~dozen) adds latency. Parallelize via `Promise.all(rows.map(...))`. Total is ms in the LOCAL case; REMOTE (SSH exec) is 100s of ms per identity — batch or accept the round-trip cost. Alice's mental model is "once per page load," which is fine.
 
 </specifics>
 
@@ -114,10 +114,10 @@ Replace `compareByLabel` with a new comparator (`compareByHostRoleLabel` or simi
 ## Deferred Ideas
 
 - **Role-editing UI.** Not part of this phase; would require its own flow to update `role:` frontmatter, and if we later add it, that UI is where "role changed" invalidation lives (frontend just calls `refreshIdentities()`).
-- **Cross-host role clustering.** Ashley: *"we don't care [that role X exists on both hosts A and B]. We just care, like, you know, if you follow the hierarchy, host is above role always."* Not a future feature — a deliberate design choice.
-- **DB denormalization of role.** Considered and rejected by Ashley in favor of fs-read-at-list-time.
-- **Visible chrome (subheadings, badges, cluster dividers, per-role color bands).** Considered and rejected. If Ashley ever asks for it later, it'd be a new phase, not a follow-up.
-- **Role-order preference beyond alphabetical** (e.g. "role of currently-selected row floats first"). Discussed, rejected — Ashley's core value here is CONSISTENCY.
+- **Cross-host role clustering.** Alice: *"we don't care [that role X exists on both hosts A and B]. We just care, like, you know, if you follow the hierarchy, host is above role always."* Not a future feature — a deliberate design choice.
+- **DB denormalization of role.** Considered and rejected by Alice in favor of fs-read-at-list-time.
+- **Visible chrome (subheadings, badges, cluster dividers, per-role color bands).** Considered and rejected. If Alice ever asks for it later, it'd be a new phase, not a follow-up.
+- **Role-order preference beyond alphabetical** (e.g. "role of currently-selected row floats first"). Discussed, rejected — Alice's core value here is CONSISTENCY.
 
 </deferred>
 
@@ -136,7 +136,7 @@ Replace `compareByLabel` with a new comparator (`compareByHostRoleLabel` or simi
 - Any visible chrome addition to list items.
 - Any role-editing surface.
 - Any change to Tier 3's outer host-bucket structure or per-host-bucket subheadings.
-- Any handling of role membership changes at runtime (page-load semantics carry — Ashley explicitly).
+- Any handling of role membership changes at runtime (page-load semantics carry — Alice explicitly).
 - Any change to `resolveRoleForIdentity`'s throw-on-missing behavior (Phase 22 LOCKED). List endpoint catches and treats as null-role.
 - Any RDP-row-specific treatment beyond "sorts to bottom via null-role handling."
 
@@ -145,4 +145,4 @@ Replace `compareByLabel` with a new comparator (`compareByHostRoleLabel` or simi
 ---
 
 *Phase: 25-sidebar-role-clustering-group-identities-by-role-within-host*
-*Context gathered: 2026-08-05 via in-conversation design lock with Ashley*
+*Context gathered: 2026-08-05 via in-conversation design lock with Alice*

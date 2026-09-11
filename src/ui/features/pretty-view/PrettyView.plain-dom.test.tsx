@@ -416,7 +416,7 @@ describe("PrettyView plain-DOM render — Phase 43 Plan 43-07a", () => {
     //
     // NOTE: this test is intentionally a weak upper-bound assertion.
     // AUTO_ASIDE_ARM_ENABLED is currently false in PrettyView.tsx per
-    // Ashley 2026-07-27 (see PrettyView.aside.test.tsx :186-191 — Tests
+    // Alice 2026-07-27 (see PrettyView.aside.test.tsx :186-191 — Tests
     // 3/4/7/8/9 are .skip pending the flag flip), so ws.send would not
     // fire for aside_arm regardless of what the walk does. The walk
     // still runs on every isIdleDerived transition upstream of the flag
@@ -668,7 +668,7 @@ describe("PrettyView plain-DOM render — Phase 43 Plan 43-07a", () => {
   });
 
   // ── Test 7 (2026-09-01, tina): relay_inbound matrixEventId dedup ────────
-  // Locks the fix for Ashley's report that peer relay messages sometimes
+  // Locks the fix for Alice's report that peer relay messages sometimes
   // show up as 2-4 duplicate bubbles. A Matrix message arriving during a
   // busy turn can produce up to three distinct jsonl envelopes
   // (queue-operation enqueue / attachment queued_command / user

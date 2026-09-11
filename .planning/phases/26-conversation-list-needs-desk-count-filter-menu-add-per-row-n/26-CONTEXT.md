@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-08-06
 **Status:** Ready for planning
-**Source:** In-chat design lock with Ashley 2026-08-06 (bounty `conversation-list-needs-desk-count-and-filter-menu`)
+**Source:** In-chat design lock with Alice 2026-08-06 (bounty `conversation-list-needs-desk-count-and-filter-menu`)
 
 <domain>
 ## Phase Boundary
@@ -29,7 +29,7 @@ Adds per-row needs-desk bounty count to pretty-conversations rows alongside the 
 </domain>
 
 <decisions>
-## Implementation Decisions (locked with Ashley 2026-08-06)
+## Implementation Decisions (locked with Alice 2026-08-06)
 
 ### Row-display format — LOCKED
 
@@ -38,7 +38,7 @@ Combined pill `"3·1"` (pin·desk). Left number = pinned count, right number = n
 - Zero on one side renders that side blank (e.g. `"·1"` or `"3·"`).
 - Both zero renders no pill (matches today's `count=0/undefined renders null`).
 - Position stays where the current pin-count badge sits in `.pv-meta`: `[deactivate][pin][badge][ready-dot]`.
-- Both halves inherit `--pv-hue` (no dual hues — Ashley did not lock a two-hue scheme).
+- Both halves inherit `--pv-hue` (no dual hues — Alice did not lock a two-hue scheme).
 
 Rejected alternatives (do NOT re-litigate):
 - (a) Two side-by-side badges — hue conflict, doubles `.pv-meta` width when both nonzero.
@@ -54,7 +54,7 @@ Small dot indicator on the Filter icon when at least one toggle is on. NO icon s
 
 ### Active-set exemption — LOCKED
 
-Symmetric with the existing pinned filter — the needs-desk filter also exempts active-set rows (active-set rows always render regardless of filter state). Rationale: active-set is Ashley's "currently paying attention to" set; filters must never hide those.
+Symmetric with the existing pinned filter — the needs-desk filter also exempts active-set rows (active-set rows always render regardless of filter state). Rationale: active-set is Alice's "currently paying attention to" set; filters must never hide those.
 
 ### Backend widening — LOCKED
 
@@ -147,4 +147,4 @@ The WS payload widens with the `needsDeskCount` field alongside the existing `pi
 ---
 
 *Phase: 26-conversation-list-needs-desk-count-filter-menu*
-*Context gathered: 2026-08-06 via in-chat design lock with Ashley*
+*Context gathered: 2026-08-06 via in-chat design lock with Alice*

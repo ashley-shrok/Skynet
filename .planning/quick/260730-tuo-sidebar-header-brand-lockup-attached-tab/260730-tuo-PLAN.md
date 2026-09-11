@@ -41,7 +41,7 @@ must_haves:
 Quick task 260730-tuo — ship four already-in-working-tree design polish changes as one atomic commit, plus update the two test files whose Conversations→Skynet copy assertions will break.
 
 Purpose:
-1. Close pinned bounty `sidebar-header-left-gap-after-collapse-button-moved` (parked 2026-07-30 in Ashley's tina identity). Root cause: patch #193 (commit `1e14cba`) moved the persistent sidebar-toggle chevron from viewport-left to `left: sidebarWidth + 8px` on desktop-open, but the 48px padding-left clearance in `.pv-panel-header` (patch #142 Fix 5) was still firing on desktop-open — reserving space for a chevron that had already moved elsewhere. Change #1 (prop flip) stops the clearance from firing when the chevron is not at viewport-left. Change #2 (attached-tab treatment) makes the chevron read as visually part of the sidebar so no gap even looks needed.
+1. Close pinned bounty `sidebar-header-left-gap-after-collapse-button-moved` (parked 2026-07-30 in Alice's tina identity). Root cause: patch #193 (commit `1e14cba`) moved the persistent sidebar-toggle chevron from viewport-left to `left: sidebarWidth + 8px` on desktop-open, but the 48px padding-left clearance in `.pv-panel-header` (patch #142 Fix 5) was still firing on desktop-open — reserving space for a chevron that had already moved elsewhere. Change #1 (prop flip) stops the clearance from firing when the chevron is not at viewport-left. Change #2 (attached-tab treatment) makes the chevron read as visually part of the sidebar so no gap even looks needed.
 2. Ship the Skynet brand identity into the two surfaces where it belongs — sidebar-header (brand lockup with logo) and browser tab title (hardcoded string, not localizable).
 
 Output:
@@ -74,7 +74,7 @@ Output:
 ## Pre-existing work already on disk (unstaged)
 
 All four source changes are ALREADY MADE in the working tree by tina via docker cp fast-path
-into the running skynet container and eyeballed live by Ashley. DO NOT reimplement.
+into the running skynet container and eyeballed live by Alice. DO NOT reimplement.
 DO NOT second-guess the design. The executor's job is:
 
 1. Verify the four changes are present and match the spec (spot-check via `git diff`).
@@ -106,7 +106,7 @@ Two edits in the persistent sidebar-toggle chevron block:
   * Closed-state + touch/mobile "back" affordance: keeps the previous floating-pill treatment
     (`rounded-lg border` + `bg-[rgba(220,225,245,0.06)]`).
 
-Ashley's feedback: "chevron should look like part of the sidebar, not a floating mystery button."
+Alice's feedback: "chevron should look like part of the sidebar, not a floating mystery button."
 
 ### Change #3 — src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx L546 (brand lockup)
 
@@ -160,7 +160,7 @@ Two test files reference the old "Conversations" copy:
 
 ## Fleet guardrails (STANDING)
 
-- DO NOT PUSH, DO NOT DEPLOY, DO NOT touch `docker compose`. Deploy queue is HELD per Ashley's
+- DO NOT PUSH, DO NOT DEPLOY, DO NOT touch `docker compose`. Deploy queue is HELD per Alice's
   not-shipping-until-shape-lock rule (extends to patch #214 as one more entry in the batch).
 - The changes are already visible in the running container via docker cp fast-path (no compose up,
   no deadman armed). Verification means "type-check + build + tests pass"; NOT "deploy."
@@ -193,7 +193,7 @@ Two test files reference the old "Conversations" copy:
        - L543-ish: `<span className="pv-title">{headerLabel}</span>` → inline-flex span with img (apple-touch-icon-192.png, 20×20, aria-hidden, alt="") + literal "Skynet".
 
     If ANY of the four changes is missing or differs from spec, STOP and report. Do not
-    silently re-apply — Ashley eyeballed the current diff live and greenlit it as-is.
+    silently re-apply — Alice eyeballed the current diff live and greenlit it as-is.
 
     Step 2 — Update `src/ui/features/pretty-conversations/PrettyConversationsPanel.test.tsx` Test 7
     (describe block "PrettyConversationsPanel: desktop header title" at ~L1151-1178):
@@ -342,7 +342,7 @@ Two test files reference the old "Conversations" copy:
        className switches to rounded-r-lg + border-y + border-r + bg-pv-base
        (matches sidebar bg so the sidebar's right border extrudes the button
        as a tab). Closed-state + touch/mobile back affordance keeps the prior
-       floating-pill treatment. Ashley: "chevron should look like part of the
+       floating-pill treatment. Alice: "chevron should look like part of the
        sidebar, not a floating mystery button."
 
     3. PrettyConversationsPanel.tsx L546: <span className='pv-title'> becomes
@@ -369,7 +369,7 @@ Two test files reference the old "Conversations" copy:
     (Tina archives + writes skynet-patches.md #214 post-commit).
 
     NO push, NO docker build, NO deploy — stopped at commit boundary per
-    fleet rule (Ashley 2026-07-27).
+    fleet rule (Alice 2026-07-27).
     EOF
     )"
     ```

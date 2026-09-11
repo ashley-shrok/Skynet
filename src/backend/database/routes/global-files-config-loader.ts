@@ -6,7 +6,7 @@
  *
  * Host-key format decision (planner-locked):
  *   Operator-authored JSON should use human-readable host NAMES (e.g. "thenasty",
- *   "workstation", "linux-beelink") because Ashley SSH-edits the config by hand for
+ *   "workstation", "linux-beelink") because Alice SSH-edits the config by hand for
  *   MVP (GEFM-02 non-negotiable) and staring at numeric IDs is user-hostile.
  *
  *   However, to survive a host rename without silent config loss, this loader
@@ -18,7 +18,7 @@
  *
  * Error handling:
  *   - Missing file (ENOENT) → { hosts: {} } (empty state, not an error — per GEFM-02).
- *   - JSON parse error → log + { hosts: {} } (Ashley loses the feature until the JSON
+ *   - JSON parse error → log + { hosts: {} } (Alice loses the feature until the JSON
  *     is fixed, but Skynet stays up).
  *   - Unexpected shape (missing/invalid `hosts`) → log + { hosts: {} } (same safe fallback).
  *   - File size >256KB → log + { hosts: {} } (config should be tiny; anything larger

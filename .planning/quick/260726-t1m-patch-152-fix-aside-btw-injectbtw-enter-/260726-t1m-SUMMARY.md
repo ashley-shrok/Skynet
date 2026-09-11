@@ -106,7 +106,7 @@ None — no new network endpoints, auth paths, file access patterns, or schema c
 Updated `~/.claude/identities/tina/bounties/aside-btw-enter-not-submitting/bounty.json`:
 - Timeline entry appended with commit SHA and test count
 - First two todos marked `done: true` (ship fix, update tests)
-- Remaining todos (rebuild+deploy, Ashley UAT, pin) unchanged — pending Phase 14 bundled deploy
+- Remaining todos (rebuild+deploy, Alice UAT, pin) unchanged — pending Phase 14 bundled deploy
 
 ## Self-Check: PASSED
 

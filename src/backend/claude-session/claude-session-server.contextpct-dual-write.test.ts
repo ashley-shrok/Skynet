@@ -1,7 +1,7 @@
 /**
  * claude-session-server.contextpct-dual-write.test.ts
  *
- * Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Ashley 2026-09-08 D-03
+ * Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Alice 2026-09-08 D-03
  * waiver) — behaviors 6-8 per 90-00-PLAN.md.
  *
  * Verifies the two `context_pct` WS emission sites in claude-session-server.ts

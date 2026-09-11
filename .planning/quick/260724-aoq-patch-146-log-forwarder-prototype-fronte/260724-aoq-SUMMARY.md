@@ -95,7 +95,7 @@ This matches the plan's explicit fallback: "If mocking the auth middleware is he
 
 ## Deploy Note
 
-NOT deployed. Batched with patch #145 (active-glow URL-restore fix, commit `efc8e87`) for Ashley's next greenlight. `~/.claude/identities/tina/skynet-patches.md` write-up deferred to deploy-recommendation time per the Ashley 2026-07-23 batch-writeups-until-deploy rule.
+NOT deployed. Batched with patch #145 (active-glow URL-restore fix, commit `efc8e87`) for Alice's next greenlight. `~/.claude/identities/tina/skynet-patches.md` write-up deferred to deploy-recommendation time per the Alice 2026-07-23 batch-writeups-until-deploy rule.
 
 ## Self-Check: PASSED
 

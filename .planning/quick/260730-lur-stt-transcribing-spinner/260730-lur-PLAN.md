@@ -35,9 +35,9 @@ must_haves:
 ---
 
 <objective>
-Swap the ComposeBox send button icon from the static paper-plane to a spinning `Loader2` while `voice.state === "transcribing"`, so Ashley gets visible in-button feedback that STT is in flight. The button already renders disabled during transcribing (via `showTranscribingSend` on line 1779); this change adds the visual signal that "something is happening" during the 1-3s round-trip to `/voice/transcribe`.
+Swap the ComposeBox send button icon from the static paper-plane to a spinning `Loader2` while `voice.state === "transcribing"`, so Alice gets visible in-button feedback that STT is in flight. The button already renders disabled during transcribing (via `showTranscribingSend` on line 1779); this change adds the visual signal that "something is happening" during the 1-3s round-trip to `/voice/transcribe`.
 
-Purpose: Close the perceptual gap where the send button today just dims (disabled tint) with no motion — Ashley can't tell whether her Send-transcript tap registered or the app is stuck. A spinner in the same slot resolves that ambiguity without moving any layout.
+Purpose: Close the perceptual gap where the send button today just dims (disabled tint) with no motion — Alice can't tell whether her Send-transcript tap registered or the app is stuck. A spinner in the same slot resolves that ambiguity without moving any layout.
 
 Output: Single ComposeBox source edit (icon-branch swap + one added lucide import) plus one new test in the existing voice test file asserting the transcribing branch renders `animate-spin` and does NOT render the paper-plane path.
 </objective>

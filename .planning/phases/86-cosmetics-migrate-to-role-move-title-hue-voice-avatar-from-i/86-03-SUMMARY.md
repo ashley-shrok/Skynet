@@ -342,7 +342,7 @@ Every cosmetic field is explicitly required by `canOpen`:
 - `title` → `titleValid = title.trim().length > 0` (explicit gate)
 - `voice` → `voiceValid = voice.length > 0` (explicit gate)
 - `colorHue` → always non-null (random seed on open — implicit gate that
-  can never fail; matches Ashley's note that "the flows that we have set
+  can never fail; matches Alice's note that "the flows that we have set
   up" prevent the empty case rather than surfacing a user-visible error)
 - `avatar` → `avatarValid = pickedCandidateId !== null` (explicit gate;
   covers BOTH generated-then-picked and manual-upload paths since the

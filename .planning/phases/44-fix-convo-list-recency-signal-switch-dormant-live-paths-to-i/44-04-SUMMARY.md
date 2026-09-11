@@ -8,7 +8,7 @@ requires:
   - Plan 44-03 (working-store `seedSessionLastMessageAt` chokepoint + `RemoteTmuxSession.lastMessageAt` wire type — this plan is the wire consumer)
 provides:
   - "FleetSession type carries optional `lastMessageAt?: number | null`; cache round-trip preserves the field via v2 key (bumped from v1 to force clean rehydrate under the flipped Rule 1)"
-  - "compareByRecencyDesc Rule 1 flipped null-to-top → null-to-bottom (Ashley's 2026-08-14 no-history-to-top lock retired per 44-CONTEXT.md § Comparator change)"
+  - "compareByRecencyDesc Rule 1 flipped null-to-top → null-to-bottom (Alice's 2026-08-14 no-history-to-top lock retired per 44-CONTEXT.md § Comparator change)"
   - "AppShell.tsx /sessions/list handler feeds Plan 44-03 chokepoint from BOTH cached-rehydrate path AND fresh-fetch path per-row via seedSessionLastMessageAt(s.hostId, s.sessionName, s.lastMessageAt ?? null)"
 affects:
   - src/ui/state/conversation-store.ts (FleetSession type + isFleetSession predicate + cache round-trip + cache key v1→v2 + compareByRecencyDesc Rule 1 flip + docblock updates)
@@ -29,7 +29,7 @@ key-files:
     - src/ui/state/conversation-store.cache.test.ts
     - src/ui/AppShell.tsx
 decisions:
-  - "Rule 1 flip is UNCONDITIONAL — no feature flag, no toggle. Ashley's 2026-08-14 no-history-to-top lock is DELIBERATELY retired per 44-CONTEXT.md § Comparator change. Rationale locked at CONTEXT.md L59-63: null-to-bottom is Ashley's new preferred contract; no-history rows sink to bottom of middle rather than hoisting above real-message rows."
+  - "Rule 1 flip is UNCONDITIONAL — no feature flag, no toggle. Alice's 2026-08-14 no-history-to-top lock is DELIBERATELY retired per 44-CONTEXT.md § Comparator change. Rationale locked at CONTEXT.md L59-63: null-to-bottom is Alice's new preferred contract; no-history rows sink to bottom of middle rather than hoisting above real-message rows."
   - "Cache-key bump v1→v2 is load-bearing (not cosmetic). Without it, v1 rehydrate on Phase 44 first-load seeds objects with `lastMessageAt: undefined` → normalizeUndefinedToNull → null → the flipped Rule 1 (null-to-bottom) sinks them to bottom before the ~200ms fresh fetch resolves. Bumping to v2 forces one clean cold-start post-deploy; small acceptable UX cost, avoids a transient wrong-order paint."
   - "AppShell seed-loop fires in BOTH paths (cached-hit + fresh-fetch) — missing either drops the seed for that source class of session. Cached path paints correct middle-zone order immediately on cold-start (before fresh fetch resolves); fresh path is the wire consumer for Plan 44-01's response."
   - "cache.test.ts fixture update bundled with Task 3 commit as Rule 1 auto-fix. The v1→v2 bump landed in Task 1 broke the cache-test's CACHE_KEY constant and canonical-fields assertion; the fix is a downstream consequence of Task 1's cache-key bump (not an out-of-scope discovery). Documented in Task 3 commit message so the auto-fix scope is traceable in git history."
@@ -158,7 +158,7 @@ None. Recency signal is wired end-to-end:
 
 Phase 44 code work is now COMPLETE. All 4 plans landed. Recency signal correct end-to-end for both dormant + live sessions; no-history rows sink to bottom of middle; tier-flip scroll-lurch resolved via correct-data-source-first (scroll-anchor engineering deferred per CONTEXT.md § non-goals). Verification + shipping are orchestrator-scope after this handoff:
 - Full HTTPS 200 UAT walk of the pretty-conversations middle zone (dormant identities should sit at bottom; live identities at their DESC recency position).
-- `docker build` + `docker compose up -d --force-recreate skynet` (orchestrator scope — Ashley 2026-08-08 fleet directive).
+- `docker build` + `docker compose up -d --force-recreate skynet` (orchestrator scope — Alice 2026-08-08 fleet directive).
 - Byte-verify post-deploy of the flipped comparator branches + seedSessionLastMessageAt call sites in the built AppShell chunk.
 - Bounty archive: whichever bounty tracks "convo-list dormant rows hoist to top" or equivalent recency-signal correctness.
 

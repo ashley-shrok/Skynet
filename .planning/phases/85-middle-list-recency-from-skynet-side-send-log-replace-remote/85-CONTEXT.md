@@ -8,10 +8,10 @@
 
 Replace the source of the middle-zone recency signal in the conversation list.
 Today `SessionState.lastMessageAt` is derived by remote SSH tail-scan of each
-identity's newest JSONL for lines matching a strict "Ashley's real user turn"
+identity's newest JSONL for lines matching a strict "Alice's real user turn"
 predicate. That derivation fails often enough that the middle-zone ordering is
 noticeably wrong — most obviously, an identity that recycled itself sinks
-below identities Ashley hasn't touched in weeks. This phase records the
+below identities Alice hasn't touched in weeks. This phase records the
 timestamp on the send side instead, keyed on identity name, in Skynet's own
 durable state, and swaps the backend derivation of `SessionState.lastMessageAt`
 to read from that store.
@@ -38,7 +38,7 @@ any multi-user keying of the store (Skynet single-tenant on t1000).
   at `src/backend/database/db/schema.ts`). Same volume as every other durable
   fleet state on this box — survives container restart automatically. Naming
   and column layout is planner's call, but the primary key is identity name
-  and the record holds "when was Ashley's last send to this identity, in
+  and the record holds "when was Alice's last send to this identity, in
   unix millis." No user column (single-tenant); add later if Skynet ever
   runs multi-tenant.
 
@@ -55,7 +55,7 @@ any multi-user keying of the store (Skynet single-tenant on t1000).
   from the compose surface counts. The hook is architectural, not an
   enumerated allowlist. Text submit + reset button + thumbs-up + recap +
   any current or future compose-surface button all count automatically.
-  Ashley 2026-09-07 verbatim: *"if anything within the compose box sends a
+  Alice 2026-09-07 verbatim: *"if anything within the compose box sends a
   message into the harness, then it counts."*
 - **D-04:** Hook site is `useComposeSend.send` at
   `src/ui/features/pretty-view/ComposeBox.tsx:447-493` — the Phase 68
@@ -68,13 +68,13 @@ any multi-user keying of the store (Skynet single-tenant on t1000).
 
 ### Attempts vs. delivery
 - **D-05:** Attempts count. If the send fails because the target is
-  unreachable, the stamp still fires. Ashley 2026-09-07 verbatim: *"Attempts
+  unreachable, the stamp still fires. Alice 2026-09-07 verbatim: *"Attempts
   count."* The intent to talk to the identity IS the recency signal;
   filtering by delivery success re-introduces the class of bug this phase
   exists to remove.
 
 ### Client-side responsiveness
-- **D-06:** The row moves the instant Ashley hits send — optimistic
+- **D-06:** The row moves the instant Alice hits send — optimistic
   client-side stamp on the frontend `session-working-store` on the same
   frame as the send dispatches, not waiting for the backend round-trip +
   next fleet-status frame. The store's existing max-wins helper
@@ -101,14 +101,14 @@ any multi-user keying of the store (Skynet single-tenant on t1000).
 
 ### First-ship behavior
 - **D-09:** No backfill. On ship day the store is empty; every identity
-  starts at "never" and rises naturally as Ashley sends to them. Ashley
+  starts at "never" and rises naturally as Alice sends to them. Alice
   2026-09-06 verbatim: *"we don't even have to have the mechanism run on
   first ship. I'm okay with it just kind of happening naturally."* Middle
   zone falls through to insertion-order fallback until natural fill
   populates. Accepted tradeoff — natural fill is fast enough.
 
 ### Multi-device consistency
-- **D-10:** Both of Ashley's devices (phone + desktop) read from the same
+- **D-10:** Both of Alice's devices (phone + desktop) read from the same
   Skynet backend, so both see the same value on their next fleet-status
   frame after any send. The device that DID the send sees the optimistic
   stamp instantly; the OTHER device sees it on the next status frame
@@ -156,7 +156,7 @@ any multi-user keying of the store (Skynet single-tenant on t1000).
   `scanTailForNewestMessageAt`, the current recency derivation. D-07
   swaps this out for the store lookup.
 - `src/backend/fleet-status/ssh-poll-orchestrator.ts:418-476` —
-  `isRealUserTurn`, the "Ashley's real user turn" predicate (locked
+  `isRealUserTurn`, the "Alice's real user turn" predicate (locked
   2026-08-23). Stays alive per D-08 for other consumers; retires from the
   lastMessageAt path.
 - `src/backend/fleet-status/ssh-poll-orchestrator.ts:769` — fingerprint
@@ -260,7 +260,7 @@ any multi-user keying of the store (Skynet single-tenant on t1000).
 <specifics>
 ## Specific Ideas
 
-- Concrete case Ashley used to name the bug (2026-09-06): "Ivy stood up a
+- Concrete case Alice used to name the bug (2026-09-06): "Ivy stood up a
   VM for Stacy within the last 24 hours, I think... yet she shows up
   underneath Lulabelle, who hasn't had a message sent to her since at
   least two and a half weeks ago." Ivy lives on workstation. Ivy recycled
@@ -272,8 +272,8 @@ any multi-user keying of the store (Skynet single-tenant on t1000).
   works, the more often she recycles, the more often her transcript-based
   lastMessageAt resets to null. This is the pathological interaction —
   today's mechanism actively punishes the most productive identities.
-- Ashley's mental model of the list is messaging-app: "who did I last
-  talk to." One-directional signal only (Ashley → identity). The bug
+- Alice's mental model of the list is messaging-app: "who did I last
+  talk to." One-directional signal only (Alice → identity). The bug
   wasn't "the sort is wrong" — the sort is right; the SOURCE of what
   gets sorted is measuring the wrong thing.
 
@@ -282,13 +282,13 @@ any multi-user keying of the store (Skynet single-tenant on t1000).
 <deferred>
 ## Deferred Ideas
 
-- **Capture Ashley's phone Matrix DMs that bypass Skynet's compose
+- **Capture Alice's phone Matrix DMs that bypass Skynet's compose
   surface.** The old mechanism didn't count these either (predicate
   excludes `<remote-content>`-wrapped turns). Adding that path is a
   different piece of work — different signal source, different plumbing
   (agent-relay hook, not Skynet compose funnel).
 - **Multi-user keying** of the send-log store. Skynet on t1000 is
-  single-tenant for Ashley, so the record needs no user column today. If
+  single-tenant for Alice, so the record needs no user column today. If
   Skynet ever runs multi-tenant (Stacy's Skynet on T800 is per-user), add
   the user dimension then.
 - **Non-compose Skynet interaction paths.** If a future affordance adds a

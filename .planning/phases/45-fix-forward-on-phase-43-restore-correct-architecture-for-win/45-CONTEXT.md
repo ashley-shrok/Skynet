@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-08-18
 **Status:** Ready for planning
-**Source:** UAT-locked architectural decisions from Ashley 2026-08-18 (Phase 43 = patch #465 UAT-failed)
+**Source:** UAT-locked architectural decisions from Alice 2026-08-18 (Phase 43 = patch #465 UAT-failed)
 
 <domain>
 ## Phase Boundary
@@ -13,9 +13,9 @@ Phase 43 shipped as patch #465 and UAT-failed immediately with three bugs. The c
 
 1. **Backend `tail -F -n 50` starves the observation channel.** Phase 43 plans 43-01/-02/-04 rewired the backend under an assumption — that observation and emission were two separate `tail` streams — that turned out to be wrong. There is exactly ONE tail stream; capping it at `-n 50` also caps what the observation channel sees. Symptom: my session (~hundreds of messages) rendered only 4 bubbles because 50 LINES ≠ 50 FRAMES (multi-line frames burn through the line cap fast) AND the observation channel was starved of the older lines it needed. Penelope's short session (~15 msgs) rendered correctly (fit inside the cap); window resize did NOT reveal more bubbles or reflow (the missing data was never on the client).
 
-2. **9px inter-bubble padding lost during 43-07a plain-DOM conversion.** Pre-43-07a had `paddingBottom: 9` inline on each virtualized item wrapper (`git show 5bc24f49~1:src/ui/features/pretty-view/PrettyView.tsx` line 2402). Plan 43-07a converted the render to plain-DOM per-message bubbles and dropped the inline style. Ashley verbatim on the value: *"the margin between the message bubbles before was nine pixels, although it showed up as padding and not margin before the changes so functionally it's margin but technically it's padding but I just want to give the value just in case, so that we didn't have to try to re-derive a good looking version of that."*
+2. **9px inter-bubble padding lost during 43-07a plain-DOM conversion.** Pre-43-07a had `paddingBottom: 9` inline on each virtualized item wrapper (`git show 5bc24f49~1:src/ui/features/pretty-view/PrettyView.tsx` line 2402). Plan 43-07a converted the render to plain-DOM per-message bubbles and dropped the inline style. Alice verbatim on the value: *"the margin between the message bubbles before was nine pixels, although it showed up as padding and not margin before the changes so functionally it's margin but technically it's padding but I just want to give the value just in case, so that we didn't have to try to re-derive a good looking version of that."*
 
-3. **`TypeError: Cannot read properties of undefined (reading 'replace')` at `bi` in `AppShell-BjR3_4Qj.js:1:33664` on send.** Called by `Zi` at `AppShell-BjR3_4Qj.js:5:13582`, inside React's render pipeline. Fired when Ashley sent a UAT message from the crashing #465 UI. The current dist is the revert build (`AppShell-wLv43V6G.js`), so `#465`'s minified stack cannot be source-mapped from disk. Investigation identified 3 candidate `.replace()` sites in `src/ui/`:
+3. **`TypeError: Cannot read properties of undefined (reading 'replace')` at `bi` in `AppShell-BjR3_4Qj.js:1:33664` on send.** Called by `Zi` at `AppShell-BjR3_4Qj.js:5:13582`, inside React's render pipeline. Fired when Alice sent a UAT message from the crashing #465 UI. The current dist is the revert build (`AppShell-wLv43V6G.js`), so `#465`'s minified stack cannot be source-mapped from disk. Investigation identified 3 candidate `.replace()` sites in `src/ui/`:
    - `ComposeBox.tsx:1194` `collapseNewlinesForSend(s)` — 4 send-path call sites; if any caller passes `undefined`, boom.
    - `AppShell.tsx:1239` `t.label.replace(/ \(\d+\)$/, "")` — tab dedup filter, only fires on tab open; unlikely on send.
    - `commandTags.ts:53` `text.replace(COMMAND_BLOCK_RE, ...)` in `preprocessCommandTriplets(text)` — called during ChatMessage render; if a message frame arrives with `content === undefined`, crashes on render.
@@ -26,7 +26,7 @@ Phase 43 shipped as patch #465 and UAT-failed immediately with three bugs. The c
 <decisions>
 ## Implementation Decisions
 
-### Backend architecture (LOCKED — Ashley 2026-08-18 UAT)
+### Backend architecture (LOCKED — Alice 2026-08-18 UAT)
 
 **Revert Phase 43 backend rewiring entirely.** Restore backend `-n +1` full-file emission on connect. There is no `historyWindow` on the server, no `fetch_older` WS handler, no `tail -F -n <N>` parameterization, no `readSessionFileRange` / `resolveEventIdToLine` helpers. The observation channel gets the whole file again.
 
@@ -36,11 +36,11 @@ Phase 43 shipped as patch #465 and UAT-failed immediately with three bugs. The c
 - `src/backend/claude-session/claude-session-server.ts` — delete `historyWindow` handshake consumer + `fetch_older` WS handler (Plan 43-04).
 - Backend wire types in `src/shared/` — delete `fetch_older` request + `fetch_older_batch` response type + `historyWindow` connect field (Plan 43-03).
 
-### Client architecture (LOCKED — Ashley 2026-08-18 UAT)
+### Client architecture (LOCKED — Alice 2026-08-18 UAT)
 
 **Move `historyWindow` to a purely client-side cap on the `messages[]` array during initial hydration only (drop-oldest as they arrive).** The server sends everything on connect; the client keeps only the last N (proposed default: whatever Phase 43 shipped as, likely 50 — planner confirms). No `sendFetchOlder`, no `isFetchOlderBatchEvent`, no scroll-up-to-fetch-older UX affordance.
 
-**Consequences accepted (Ashley UAT verbatim: "More bandwidth on cold load but zero observation-channel damage. This is the honest fix"):**
+**Consequences accepted (Alice UAT verbatim: "More bandwidth on cold load but zero observation-channel damage. This is the honest fix"):**
 - Cold-load bandwidth is proportional to session length (not capped). Long sessions retransmit their whole JSONL on every fresh WS attach.
 - Older-than-cap messages are LOST from client memory once dropped; there is no fetch-older mechanism to bring them back. Scrolling up in the plain-DOM scroller shows exactly what's in `messages[]` — capped to last N. Loss of scroll-back-forever is explicit trade-off, not a bug.
 
@@ -49,13 +49,13 @@ Phase 43 shipped as patch #465 and UAT-failed immediately with three bugs. The c
 - `src/ui/api/claude-session-api.ts` — delete `sendFetchOlder` + `isFetchOlderBatchEvent` helpers (Plan 43-05).
 - Tests: drop the Phase 43 windowed-pagination + fetch_older specs; add client-side hydration-cap spec.
 
-### 9px inter-bubble padding (LOCKED — Ashley verbatim value)
+### 9px inter-bubble padding (LOCKED — Alice verbatim value)
 
-Add `style={{ paddingBottom: 9 }}` to the bubble wrapper at `src/ui/features/pretty-view/PrettyView.tsx:2481` (the `<div key={m.eventId} data-pv-bubble data-event-id={m.eventId}>` in the current plain-DOM `.map`). Use exactly 9 (not 8, not 10). Use PADDING (not margin — Ashley called out the medium explicitly).
+Add `style={{ paddingBottom: 9 }}` to the bubble wrapper at `src/ui/features/pretty-view/PrettyView.tsx:2481` (the `<div key={m.eventId} data-pv-bubble data-event-id={m.eventId}>` in the current plain-DOM `.map`). Use exactly 9 (not 8, not 10). Use PADDING (not margin — Alice called out the medium explicitly).
 
 ### Bug #3 `.replace()` crash
 
-**Defer the fix decision until AFTER bugs #1+#2 land AND Ashley re-triggers a send to produce a fresh minified stack line.** The current dist can't source-map #465's stack, and it's speculative to guard all 3 candidate sites blindly (which might mask the real bug or introduce dead defensive code — see § Learned preferences in role file re: not-shipping-defensive-code-for-scenarios-that-can't-happen). Plan for Bug #3 = one plan that (a) reproduces the crash after Bug #1+#2 fixes are live (or in dev), (b) reads the fresh minified stack, (c) adds a targeted undefined-guard on the confirmed site with a source-comment linking to this phase.
+**Defer the fix decision until AFTER bugs #1+#2 land AND Alice re-triggers a send to produce a fresh minified stack line.** The current dist can't source-map #465's stack, and it's speculative to guard all 3 candidate sites blindly (which might mask the real bug or introduce dead defensive code — see § Learned preferences in role file re: not-shipping-defensive-code-for-scenarios-that-can't-happen). Plan for Bug #3 = one plan that (a) reproduces the crash after Bug #1+#2 fixes are live (or in dev), (b) reads the fresh minified stack, (c) adds a targeted undefined-guard on the confirmed site with a source-comment linking to this phase.
 
 ### Test strategy (per fleet rule: full-suite green is precondition for done)
 
@@ -109,7 +109,7 @@ Every plan follows TDD-lite: add failing spec first for the behavior being chang
 <deferred>
 ## Deferred Ideas
 
-- **Scroll-up-to-fetch-older UX** — the whole reason Phase 43 built `fetch_older` in the first place. Ashley's UAT decision explicitly accepts losing this rather than fixing the observation-channel damage. If she ever wants scroll-back-into-history, that's a new phase with a fundamentally different architecture (probably a separate REST endpoint that reads the JSONL directly, decoupled from the WS observation channel).
+- **Scroll-up-to-fetch-older UX** — the whole reason Phase 43 built `fetch_older` in the first place. Alice's UAT decision explicitly accepts losing this rather than fixing the observation-channel damage. If she ever wants scroll-back-into-history, that's a new phase with a fundamentally different architecture (probably a separate REST endpoint that reads the JSONL directly, decoupled from the WS observation channel).
 - **Cold-load bandwidth optimization** — the accepted trade-off is "more bandwidth on cold load." If long sessions become painful over cellular, a future phase can revisit (e.g., server-side windowed-only-on-initial + client fetch-older via a decoupled channel). Not urgent.
 - **Bug #3 defensive audit across the whole `.replace()` surface** — after landing the one targeted guard for the confirmed crash site, do NOT sweep and guard all 25 sites — that violates the "no error handling for scenarios that can't happen" rule. Only guard what's proven to crash.
 - **Documenting the "why we reverted" in `skynet-patches.md`** — the #465 entry needs a REVERTED marker + pointer to #466 as part of the ship motion, but that's ship-time bookkeeping, not planner scope.
@@ -140,4 +140,4 @@ Every plan follows TDD-lite: add failing spec first for the behavior being chang
 ---
 
 *Phase: 45-fix-forward-on-phase-43-restore-correct-architecture-for-win*
-*Context authored: 2026-08-18 from Ashley's UAT-locked decisions (verbatim quotes preserved in <decisions> and <domain>)*
+*Context authored: 2026-08-18 from Alice's UAT-locked decisions (verbatim quotes preserved in <decisions> and <domain>)*

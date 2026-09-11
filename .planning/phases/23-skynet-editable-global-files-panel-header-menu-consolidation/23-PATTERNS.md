@@ -480,7 +480,7 @@ import type { TabState } from "./IdentityFileTab";
 
 **Analog A (existing header layout):** Same file, L700-776 (the `.pv-panel-header-row` + `.pv-header-actions` block).
 
-**Analog B (popover chrome — since no `DropdownMenu` prior art in Skynet):** `/home/ubuntu/skynet/src/ui/features/pretty-conversations/PrettyConversationContextMenu.tsx` (full file, 165 lines). This is a **custom portal-mounted menu** with the exact glass/pretty-view aesthetic Ashley wants.
+**Analog B (popover chrome — since no `DropdownMenu` prior art in Skynet):** `/home/ubuntu/skynet/src/ui/features/pretty-conversations/PrettyConversationContextMenu.tsx` (full file, 165 lines). This is a **custom portal-mounted menu** with the exact glass/pretty-view aesthetic Alice wants.
 
 **Existing header — what to remove** (L742-774):
 ```typescript
@@ -507,7 +507,7 @@ import type { TabState } from "./IdentityFileTab";
 
 **Option A: shadcn `DropdownMenu`** (component exists at `src/ui/components/dropdown-menu.tsx` but has ZERO usages elsewhere in Skynet — the shadcn base styling likely won't match the pretty-view glass aesthetic without heavy override; L45 uses `bg-popover` neutral tokens, not `--color-pv-*`).
 
-**Option B: `PrettyConversationContextMenu`-style custom portal** — matches Skynet visual language exactly (Ashley-approved glass gradient L112-124, hover hue-glow, portal-mount to `document.body` to escape overflow clipping).
+**Option B: `PrettyConversationContextMenu`-style custom portal** — matches Skynet visual language exactly (user-approved glass gradient L112-124, hover hue-glow, portal-mount to `document.body` to escape overflow clipping).
 
 **Recommendation from analog analysis:** **Option B**. There is no existing DropdownMenu usage in Skynet, and `PrettyConversationContextMenu` is proof that Skynet already implements popup menus by hand for the pretty-view surface. Reuse its glass pattern.
 
@@ -551,7 +551,7 @@ createPortal(
 )
 ```
 
-**Menu trigger button** — planner picks icon (CONTEXT §GEFM-01 lists `MoreHorizontal` / `MoreVertical` / `Plus` as candidates; `MoreVertical` is the conventional "overflow menu" glyph and fits Ashley's "collapse into one button" framing). Use the `.pv-pencil` CSS class for chrome parity with the (now-removed) sibling buttons — see `src/ui/features/pretty-conversations/pretty-conversations.css` L102 for the class definition.
+**Menu trigger button** — planner picks icon (CONTEXT §GEFM-01 lists `MoreHorizontal` / `MoreVertical` / `Plus` as candidates; `MoreVertical` is the conventional "overflow menu" glyph and fits Alice's "collapse into one button" framing). Use the `.pv-pencil` CSS class for chrome parity with the (now-removed) sibling buttons — see `src/ui/features/pretty-conversations/pretty-conversations.css` L102 for the class definition.
 
 **Menu items (three):**
 1. **New agent** (formerly the pencil `+` button) → `setNewSessionDialogOpen(true)`
@@ -568,7 +568,7 @@ const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(nu
 **Dialog mounts** — the existing `NewSessionDialog` (L1063) and `CreateRoleDialog` (L1095) mounts stay **unchanged** — only the buttons that open them change. Add a `<GlobalFilesModal>` mount adjacent, gated on `showPencilButton` (same predicate — the panel-header dropdown only shows when there's a session-creation seam).
 
 **What to adapt:**
-- The Filter button is behind a `false &&` guard (L728) per patch #317 (Ashley hid it for the identity-creation UAT). CONTEXT §GEFM-01 says "Filter button stays separate" — do NOT re-enable, but do NOT fold into the dropdown either. Leave the guard as-is.
+- The Filter button is behind a `false &&` guard (L728) per patch #317 (Alice hid it for the identity-creation UAT). CONTEXT §GEFM-01 says "Filter button stays separate" — do NOT re-enable, but do NOT fold into the dropdown either. Leave the guard as-is.
 - The pinned-count badge is not present in the visible header today (it lives inside conversation rows, not the header). CONTEXT §GEFM-01 says "Pinned count badge stays where it is (badge, not button)" — no action needed on it.
 
 ---
@@ -711,7 +711,7 @@ CONTEXT §GEFM-03/GEFM-04 says "Cookie auth using the existing admin cookie — 
 
 **Source:** `resolveHostById(hostId, userId)` — used at `roles-list-for-host.ts` L123 and `roles-create.ts` L203.
 
-**Apply to:** All three GEFM-03/04 endpoints. **CRITICAL:** Even though CONTEXT §GEFM-04 says "anyone with admin cookie can read/write", `resolveHostById` still gates per-USER host visibility (a user can only touch hosts THEY own). This is the correct Ashley-intent — she owns all fleet hosts, so she has full access; a hypothetical second user on ceo-skynet would only see their own hosts.
+**Apply to:** All three GEFM-03/04 endpoints. **CRITICAL:** Even though CONTEXT §GEFM-04 says "anyone with admin cookie can read/write", `resolveHostById` still gates per-USER host visibility (a user can only touch hosts THEY own). This is the correct user-intent — she owns all fleet hosts, so she has full access; a hypothetical second user on ceo-skynet would only see their own hosts.
 
 **Pattern:**
 ```typescript
@@ -761,7 +761,7 @@ try {
 | File | Role | Data Flow | Reason |
 |------|------|-----------|--------|
 | `.planning/phases/23-*/23-BOOTSTRAP.md` | doc | (docs) | Planner drafts the SSH-edit workflow doc fresh. Reference: CONTEXT §GEFM-06 lists the specific hosts to seed (thenasty, workstation, linux-beelink, ZoeyBattlestation, aither-cloud, aither-cloud2, aither-sftp, skynet-ec2 — omit Windows WINDOWS-PC). |
-| Seed `global-files.json` (bootstrap data) | infra config data | (JSON seed) | Content is Ashley-specific (fleet host list × `~/.claude/CLAUDE.md`); no reusable template exists. Ship the file as an operator-authored asset (probably deployed by ssh-ing into skynet-ec2 and writing it into `/var/lib/docker/volumes/skynet_skynet-data/_data/global-files.json`; no in-repo template needed since the config is per-Skynet-instance per CONTEXT §non-negotiables). |
+| Seed `global-files.json` (bootstrap data) | infra config data | (JSON seed) | Content is user-specific (fleet host list × `~/.claude/CLAUDE.md`); no reusable template exists. Ship the file as an operator-authored asset (probably deployed by ssh-ing into skynet-ec2 and writing it into `/var/lib/docker/volumes/skynet_skynet-data/_data/global-files.json`; no in-repo template needed since the config is per-Skynet-instance per CONTEXT §non-negotiables). |
 
 ## Metadata
 

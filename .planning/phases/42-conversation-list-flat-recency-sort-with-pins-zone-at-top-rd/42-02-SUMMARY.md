@@ -49,9 +49,9 @@ key-decisions:
   - "Sentinel key naming — `pv-conv-search-hidden-once` mirrors the `pv-conv-*` prefix of the sibling active-set key so both are grouped in DevTools and both are collected by the store's only=1 guard's `sessionStorage.removeItem` calls."
   - "Store-side only=1 guard extension (not panel-side) — the extension lives in conversation-store.ts's hydrateActiveSetFromStorage() because that function already parses the URL hash for only=1 and is the module-load entry point. Adding a sibling clear-call is 4 lines and reuses the existing try/catch; duplicating the URL-hash-parse in the panel would add 15 lines and split the invariant across two files. Store owns the module-level clear; panel owns the effect-level read+write."
   - "matchesSearch reproduces row-level resolution at the panel level — rather than pre-computing a `searchableText` field on ConversationRow and threading it through the store, the panel resolves identity+label+sublabel identically to PrettyConversationRow.tsx:1003-1024. This keeps ConversationRow's shape unchanged (no Plan 03 coupling risk) and keeps the predicate co-located with the render branch that uses it."
-  - "Hidden rows excluded from filter union — Ashley lock #3 verbatim: 'hidden rows do NOT appear in filter matches. Hiding is a user choice; the filter respects it.' The union deliberately walks activeSetRows + pinned + middle + rdpGroup?.rows and does NOT walk hiddenRows. T-42-02-04 mitigation locked via Tests I + I2."
+  - "Hidden rows excluded from filter union — Alice lock #3 verbatim: 'hidden rows do NOT appear in filter matches. Hiding is a user choice; the filter respects it.' The union deliberately walks activeSetRows + pinned + middle + rdpGroup?.rows and does NOT walk hiddenRows. T-42-02-04 mitigation locked via Tests I + I2."
   - "Trimmed query for the null-vs-flat branch decision — `searchQuery.trim() === ''` gates whether searchMatches returns null. Whitespace-only queries treated as empty so a user typing then deleting doesn't produce a briefly-empty flat view before the tree flip."
-  - "No auto-focus on mount — Ashley lock #4 uniform on mobile + desktop. Rejected the discretion to auto-focus on desktop per the shape's 'no separate mobile vs. desktop shape' clause."
+  - "No auto-focus on mount — Alice lock #4 uniform on mobile + desktop. Rejected the discretion to auto-focus on desktop per the shape's 'no separate mobile vs. desktop shape' clause."
 
 patterns-established:
   - "sessionStorage-sentinel one-shot mount effect (SEARCH_HIDDEN_SENTINEL_KEY): declare a module-scoped key, wrap read+write in silent try/catch, gate the effect body on getItem !== '1', setItem '1' after the body runs. Reusable for any 'do X exactly once per browser session' pattern."
@@ -84,20 +84,20 @@ completed: 2026-08-15
 
 ### Task 1 — Always-in-DOM search input + one-shot cold-load scroll-hide (commit afc5a98a)
 
-- **Search input mount**: `<input type="search">` mounts as the FIRST child inside `.pv-panel-scroll`, wrapped in `.pv-search-container` (~40px height). Always mounts regardless of snapshot state (loading / empty / populated) per Ashley lock — search is always in the DOM at the top of the list.
+- **Search input mount**: `<input type="search">` mounts as the FIRST child inside `.pv-panel-scroll`, wrapped in `.pv-search-container` (~40px height). Always mounts regardless of snapshot state (loading / empty / populated) per Alice lock — search is always in the DOM at the top of the list.
 - **UI shape chosen** (per plan `<output>` §(a)): placeholder text `"Search conversations"`; leading lucide `Search` icon (16px muted); explicit × clear affordance (lucide `X`, 14px) appearing only when `searchQuery.length > 0`; native `-webkit-search-*-decoration` pseudo-elements suppressed for cross-browser parity so only the explicit × renders. Test-ids: `pretty-conversations-search-container`, `pretty-conversations-search-input`, `pretty-conversations-search-clear`.
-- **One-shot cold-load scroll-hide**: `useEffect(() => {...}, [])` runs once on mount; gated by sessionStorage sentinel `pv-conv-search-hidden-once`. First mount per browser session sets `scrollContainer.scrollTop = searchContainer.offsetHeight`, then writes the sentinel. StrictMode dev double-mount + any future panel remount both early-return on the second run. Silent try/catch on all sessionStorage reads/writes so SSR / private-mode Safari quota errors never crash the UI thread; falls through and still sets scroll on read failure (best-effort hide). Ashley verbatim: *"we make the effort on first load of the list to hide it and then don't mess with it after that."*
+- **One-shot cold-load scroll-hide**: `useEffect(() => {...}, [])` runs once on mount; gated by sessionStorage sentinel `pv-conv-search-hidden-once`. First mount per browser session sets `scrollContainer.scrollTop = searchContainer.offsetHeight`, then writes the sentinel. StrictMode dev double-mount + any future panel remount both early-return on the second run. Silent try/catch on all sessionStorage reads/writes so SSR / private-mode Safari quota errors never crash the UI thread; falls through and still sets scroll on read failure (best-effort hide). Alice verbatim: *"we make the effort on first load of the list to hide it and then don't mess with it after that."*
 - **only=1 sessionStorage-bleed guard extension** (per plan `<output>` §(b)): conversation-store.ts's `hydrateActiveSetFromStorage()` extended to ALSO clear `pv-conv-search-hidden-once` when the URL hash contains `only=1` — same T-42-02-01 mitigation as the existing `pv-conv-active-set` clear (Move-to-new-window / Open-in-new-window flow drops `noopener`, child window inherits opener's sessionStorage; guard resets both keys so the new tab gets a fresh cold-load hide).
-- **No auto-focus** on mount for either mobile OR desktop variant (Ashley lock #4 — uniform tap/click-to-focus, no auto-summoned keyboard).
+- **No auto-focus** on mount for either mobile OR desktop variant (Alice lock #4 — uniform tap/click-to-focus, no auto-summoned keyboard).
 - **CSS**: `.pv-search-container` (flex row, 40px, muted border, rgba white bg tint), `.pv-search-input` (transparent, palette color, appearance:none to suppress native shape), `.pv-search-icon` (muted fg), `.pv-search-clear` (24px × 24px button, hover fg brightening). All scoped to the `--color-pv-*` palette tokens.
 
 ### Task 2 — Label-only filter predicate + flat match render branch (commit 5466b91d)
 
 - **matchesSearch predicate** (per plan `<output>` §(c)): resolves each row's visible text as `primary label + sublabel`. When identity resolves (`identitiesByKey.get(sessionMatchKey(row.targetTmuxSession))` returns a value) AND row is NOT RDP: `primary = identity.displayName ?? row.label`; `sublabel = identity.title ?? identity.displayName`. Otherwise (RDP rows OR non-RDP rows without a resolved identity): `primary = row.label`; `sublabel = row.host?.name ?? ""`. Both sides normalized via `.toLowerCase()` and matched via `.includes()` — substring, case-insensitive. Reproduces PrettyConversationRow.tsx:1003-1024's resolution verbatim so what the user sees IS what the filter searches. T-42-02-05 mitigation: no `new RegExp(query)`; no `dangerouslySetInnerHTML`.
-- **searchMatches useMemo**: returns `null` when trimmed query is empty (three-zone view intact) OR a flat `ConversationRow[]` filtered from the union of `activeSetRows + pinned + middle + rdpGroup.rows`. **Hidden rows DELIBERATELY excluded** from the union (Ashley lock #3 — hiding is a user choice the filter respects; T-42-02-04 mitigation locked via Tests I + I2). Deduplicated by `row.id` — activeSet + pinned can overlap.
-- **Flat match render branch**: render tree branches on `searchMatches !== null`. Flat branch renders ONE `<div className="pv-panel-group" data-search-flat-group="true">` container with NO divider chips (no `pinned-divider`, no `rdp-divider`, no `host-divider` — Ashley lock: section boundaries not preserved during search). Each row still carries `inActiveSet + pinned + hidden + deactivate/kill` handlers so all row-level actions work identically during filter (Pitfall 4 mitigation). RDP rows in the flat list use the no-op `togglePin` + no `subtitleMode` (their intrinsic contract) so pin behavior stays inert on RDP.
+- **searchMatches useMemo**: returns `null` when trimmed query is empty (three-zone view intact) OR a flat `ConversationRow[]` filtered from the union of `activeSetRows + pinned + middle + rdpGroup.rows`. **Hidden rows DELIBERATELY excluded** from the union (Alice lock #3 — hiding is a user choice the filter respects; T-42-02-04 mitigation locked via Tests I + I2). Deduplicated by `row.id` — activeSet + pinned can overlap.
+- **Flat match render branch**: render tree branches on `searchMatches !== null`. Flat branch renders ONE `<div className="pv-panel-group" data-search-flat-group="true">` container with NO divider chips (no `pinned-divider`, no `rdp-divider`, no `host-divider` — Alice lock: section boundaries not preserved during search). Each row still carries `inActiveSet + pinned + hidden + deactivate/kill` handlers so all row-level actions work identically during filter (Pitfall 4 mitigation). RDP rows in the flat list use the no-op `togglePin` + no `subtitleMode` (their intrinsic contract) so pin behavior stays inert on RDP.
 - **Clear restores three-zone view**: clicking the × clear button (or emptying the input any other way) sets `searchQuery = ""`, `searchMatches` returns `null`, the render branch flips back to the three-zone view exactly as it was pre-filter — no state loss (pinnedIds, hiddenIds, activeSet, snapshot all intact).
-- **No message-body content search** anywhere in the code path (Ashley lock #10 — Test L locks this).
+- **No message-body content search** anywhere in the code path (Alice lock #10 — Test L locks this).
 
 ## Task Commits
 
@@ -138,7 +138,7 @@ Notes:
 | T-42-02-04 | ✓ **Verified** — `searchMatches` union walks `activeSetRows + pinned + middle + rdpGroup?.rows` and NOT `hiddenRows`. Tests I + I2 lock this. |
 | T-42-02-05 | ✓ **Verified** — predicate uses `.includes()` on `.toLowerCase()` normalized strings. No `new RegExp(...)` code path exists. |
 
-## Ashley Locks — Verification Matrix
+## Alice Locks — Verification Matrix
 
 | Lock | Test | Status |
 |------|------|--------|
@@ -175,14 +175,14 @@ Per fork rule + step self_check:
 
 **None** — no external service configuration required. This plan is frontend-only + backend-inert (no backend routes added; no schema changes; no wire protocol changes; no nginx rules). No new npm packages installed.
 
-Ashley will notice on the next deploy:
+Alice will notice on the next deploy:
 - A new search input appears just above the top row of the conversation list on cold-load first-render — scroll up to reveal it (it sits behind the panel header on initial load).
 - Type any substring of a session label or identity title to filter — the list collapses to one flat container of matches; clearing (via the × button or backspacing to empty) restores the three-zone view.
 
 ## Next Phase Readiness
 
 - **Plan 42-03 (fleet-status protocol extension + recency signal wiring)**: independent of Plan 42-02. Plan 03 will populate the `lastMessageAt` signal for the middle zone's compareByRecencyDesc via a backend fleet-status wire extension; the search input + filter is orthogonal (search operates on visible label text, not recency). No coupling to worry about.
-- **Post-Phase-41 opportunities**: (a) if the fleet grows to >200 rows, add `useDeferredValue` + 100-150ms debounce on searchQuery per RESEARCH §Security Domain (T-42-02-03 acceptance path); (b) if Ashley requests filter to include hidden rows in future, flip the `searchMatches` union to also walk `hiddenRows` — one-line change; (c) potential "Cmd/Ctrl+F focuses search input" keyboard chord if Ashley finds she wants a quick-summon without scroll.
+- **Post-Phase-41 opportunities**: (a) if the fleet grows to >200 rows, add `useDeferredValue` + 100-150ms debounce on searchQuery per RESEARCH §Security Domain (T-42-02-03 acceptance path); (b) if Alice requests filter to include hidden rows in future, flip the `searchMatches` union to also walk `hiddenRows` — one-line change; (c) potential "Cmd/Ctrl+F focuses search input" keyboard chord if Alice finds she wants a quick-summon without scroll.
 
 ## Self-Check: PASSED
 

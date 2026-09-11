@@ -193,7 +193,7 @@ None. No new packages, no config, no env vars, no nginx changes. The POST rides 
   2. Observe: lulabelle's row jumps instantly to top-of-middle-zone (D-06 optimistic client stamp).
   3. Open Skynet on phone. Within one fleet-status frame (~2s), lulabelle is at top-of-middle-zone there too (D-10 multi-device).
   4. Repeat with reset button, thumbs-up, recap — each should produce the same jump.
-  5. Verify Ashley's original 2026-09-06 bug: Ivy (which recycled overnight) should now rise above Lulabelle after Ashley sends to Ivy once, regardless of Ivy's transcript state.
+  5. Verify Alice's original 2026-09-06 bug: Ivy (which recycled overnight) should now rise above Lulabelle after Alice sends to Ivy once, regardless of Ivy's transcript state.
 - **Ship blockers:** none from this plan. The 3 pre-existing tsc errors flagged in Plan 85-01's SUMMARY are unchanged and out of scope.
 - **Executor exit posture:** four atomic commits (`be42e9a6`, `8ead2b0c`, `06130d04`, `2da85836`) on `feat/tab-title-from-tmux`, NOT pushed / NOT docker-built / NOT deployed — held at the executor's remit boundary. Orchestrator owns pull + full-suite + push + build + recreate + verify + coord per fleet directive.
 - **This closes Phase 85's execution.** 6/6 plans complete; ready for orchestrator's ship-gate motion (full-suite → coord → push → build → recreate → verify → coord).

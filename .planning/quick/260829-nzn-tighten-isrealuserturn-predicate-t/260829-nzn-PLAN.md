@@ -15,18 +15,18 @@ requirements: [quick-260829-nzn]
 
 <objective>
 Tighten `isRealUserTurn` to reject three harness-injected shapes that today
-pass the predicate and spuriously bump `lastMessageAt`, floating agents Ashley
+pass the predicate and spuriously bump `lastMessageAt`, floating agents Alice
 hasn't messaged in days to the top of the conversation list (compareByRecencyDesc
 in `src/ui/state/conversation-store.ts:565` reads `lastMessageAt`).
 
 Confirmed empirically 2026-08-29 on Tabitha's session file
 (`/home/ubuntu/.claude/projects/-home-ubuntu-skynet-tabitha/7443cb12-ea03-4cd2-afeb-75d64f003a89.jsonl`):
-she ranks #2 by recency with ZERO real Ashley messages in the 256KB tail — the
+she ranks #2 by recency with ZERO real Alice messages in the 256KB tail — the
 newest passing line (`2026-08-29T15:12:49.598Z`) is a Ctrl-C kill signal (two
 `\x03` bytes as plain-string content).
 
 Purpose: Fix conversation-list recency at the source (predicate) so ordering
-reflects Ashley's actual attention, not agent-supervisor housekeeping.
+reflects Alice's actual attention, not agent-supervisor housekeeping.
 
 Output: Two predicate copies updated in the SAME commit (byte-parallel
 discipline), matching docblock refinements, and mirrored negative/positive
@@ -56,7 +56,7 @@ regression tests in both test files.
     shape intact:
 
     - DROP: content includes the exact substring `<command-name>/exit</command-name>`
-      (agent-supervisor-fired `/exit` slash-command before recycle; never Ashley-authored)
+      (agent-supervisor-fired `/exit` slash-command before recycle; never user-authored)
     - DROP: `t.replace(/[\x00-\x1F]/g, "") === ""` where `t` is the already-trimmed
       content (empty after stripping ASCII control chars — catches Ctrl-C kill signals
       like `"\x03\x03"` and any other control-only injection)
@@ -85,7 +85,7 @@ BEFORE the `rawTs = top.timestamp` extraction:
 
 1. `/exit` slash-command drop — `if (content.includes("<command-name>/exit</command-name>")) return { ok: false };`
    Rationale: agent-supervisor fires `/exit` before recycle; passes the XML gate
-   today because content starts with `<command-`. Ashley's own slash-commands
+   today because content starts with `<command-`. Alice's own slash-commands
    (`/id save`, `/id reset`, `/build`, `/gsd:*`) MUST keep counting — exclusion
    is scoped tightly to the `/exit` command-name substring.
 
@@ -106,15 +106,15 @@ BEFORE the `rawTs = top.timestamp` extraction:
    14 later ones correctly shipped as `type:"last-prompt"`). Prefix match
    because the exact tail wording is stable but keep the check anchored to
    the start — do NOT switch to `includes` (avoids matching quoted mentions
-   in real Ashley prose).
+   in real Alice prose).
 
 Both files MUST land in the SAME commit. The predicate body must remain
 byte-parallel between the two files after your edits — no divergence,
 including comment prose inside the function body.
 
 Also update the docblock in BOTH files:
-- Canonical docblock at `ssh-poll-orchestrator.ts:260-274` (the "Ashley 2026-08-23
-  lock" block that starts `Ashley 2026-08-23 lock: "only my real messages…"`).
+- Canonical docblock at `ssh-poll-orchestrator.ts:260-274` (the "Alice 2026-08-23
+  lock" block that starts `Alice 2026-08-23 lock: "only my real messages…"`).
 - Byte-parallel docblock at `sessions.ts:66-80` (identical prose).
 
 Extend both with a 2026-08-29 refinement paragraph listing the three new
@@ -138,7 +138,7 @@ line in sync — mention the three new drops explicitly. Do NOT rewrite the
   <name>Task 2: Add mirrored predicate-matrix cases to both test files (Cases 8, 9, 10)</name>
   <files>src/backend/fleet-status/ssh-poll-orchestrator.test.ts, src/backend/database/routes/sessions.test.ts</files>
   <behavior>
-    Extend the existing `describe("isRealUserTurn — Ashley 2026-08-23 lock predicate matrix", …)`
+    Extend the existing `describe("isRealUserTurn — Alice 2026-08-23 lock predicate matrix", …)`
     block in BOTH test files (ssh-poll-orchestrator.test.ts:1243 and
     sessions.test.ts:796) with three new DROP cases and two positive
     regression checks. Use the existing local `scanSingleLine` helper in each
@@ -207,7 +207,7 @@ freshest in the tail. Assertion still expects `T2` to be returned. Keep
 this edit to a small addition — do not rewrite the surrounding test body.
   </action>
   <verify>
-    <automated>cd /home/ubuntu/skynet-tina &amp;&amp; npx vitest run src/backend/fleet-status/ssh-poll-orchestrator.test.ts src/backend/database/routes/sessions.test.ts -t "Ashley 2026-08-23 lock predicate matrix"</automated>
+    <automated>cd /home/ubuntu/skynet-tina &amp;&amp; npx vitest run src/backend/fleet-status/ssh-poll-orchestrator.test.ts src/backend/database/routes/sessions.test.ts -t "Alice 2026-08-23 lock predicate matrix"</automated>
   </verify>
   <done>
     - Both test files contain identically-named `it(...)` blocks for Case 8, 9, 10 plus positive regressions.

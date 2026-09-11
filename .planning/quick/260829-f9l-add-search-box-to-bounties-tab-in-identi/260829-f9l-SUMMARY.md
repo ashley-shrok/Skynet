@@ -34,7 +34,7 @@ key-files:
       purpose: add Input import, bountyQuery state + normalized query memo + bountyMatchesQuery predicate + hasOpenAfterFilter/hasArchiveAfterFilter derived booleans; wrap Bounties TabsContent with flex-col + inner scroll container hosting sticky search bar; filter OPEN_STATUS_ORDER partitions via filteredGroup; filter sortedArchive body via sortedArchive.filter(bountyMatchesQuery); add query-driven empty state block; gate existing pure-empty branch on bountyQueryNorm === ""
 decisions:
   - "Filter applied to BOTH OPEN partitions AND (when loaded) archive body — the spec's <truths_from_read> #2 called out that only-one-site would silently omit half the matches."
-  - "Archive accordion trigger label continues to show total archive count (not filtered count) — Ashley's ask centers on scanning matches; the count is the drawer-size signal."
+  - "Archive accordion trigger label continues to show total archive count (not filtered count) — Alice's ask centers on scanning matches; the count is the drawer-size signal."
   - "Keywords collapsed into hay via .join(' ') rather than .some() — keywords never straddle spaces so one .includes() beats per-keyword iteration for the small list size."
   - "Sticky bar rendered UNCONDITIONALLY inside the scroll container (not conditionally on loading/error branches) so keyboard focus is never yanked out of the input by branch swaps."
   - "The pre-existing 'truly nothing' empty state (line 1514 in original) gated on bountyQueryNorm === '' so a non-empty query yields the query-driven empty state instead of the 'no bounties at all' message."
@@ -45,7 +45,7 @@ metrics:
 
 # Quick 260829-f9l: Bounties-tab search box
 
-Ashley's `tina` role has grown a long bounty list; scanning by eye was the bottleneck.
+Alice's `tina` role has grown a long bounty list; scanning by eye was the bottleneck.
 This quick adds a sticky, no-debounce, `useMemo`-backed substring filter over four
 fields (title / premise / keywords / slug) at the top of the Bounties tab in
 `IdentityModal`. Filter applies to open partitions AND (when loaded) the archive
@@ -67,7 +67,7 @@ unloaded and there are no open matches, the empty state carries a hint to expand
   - Gated the existing pure-empty branch on `bountyQueryNorm === ""` so it only fires when there's no query.
   - Verified with `npx tsc --noEmit` (clean) and `npx vitest run src/ui/features/pretty-view/IdentityModal` (all 35 pre-existing tests still pass).
 - **Task 2 (auto, tdd):** Add `IdentityModal.bounties-filter.test.tsx` covering all locked filter behaviors.
-  - Copied WsStub + module mocks + `renderModal` + `findSocketForRequestType` scaffolding from `IdentityModal.role-tab.test.tsx` (Ashley's fleet rule: one WS stub pattern).
+  - Copied WsStub + module mocks + `renderModal` + `findSocketForRequestType` scaffolding from `IdentityModal.role-tab.test.tsx` (Alice's fleet rule: one WS stub pattern).
   - Added 4 OPEN bounty fixtures (RDP, cert, dashboard, caddy) plus 1 archived (purge legacy) covering match paths for title / premise / keywords / slug.
   - 11 tests (A-K): Test A generic filter, B title match, C premise match, D keywords match, E slug match, F no-match empty state with loaded archive, G no-match with unloaded archive (WS-side-effect gate), H filter into loaded archive body, I X-button clear, J Escape clear, K no autofocus on tab open.
   - All 11 tests pass on first run.
@@ -95,7 +95,7 @@ Note on the vitest summary's `Errors 2 errors` line: these are captured async er
 
 None. The plan's action-level steps were followed literally (Input import, state placement near `archivedLoadState`, memoized `bountyQueryNorm`, `bountyMatchesQuery` predicate with joined-hay pattern, sticky bar inside scroll container with backdrop-blur, X + Escape clear affordances, both OPEN and archive filter sites, query-driven empty state between OPEN groups and Archive accordion, gate on pre-existing pure-empty branch).
 
-The only implementation choice not explicit in the plan text: the sticky bar was rendered UNCONDITIONALLY (outside the loading/error/empty conditional chain) rather than only in the "populated" branch. This is a strict superset of the plan's behavior contract and prevents keyboard focus from being yanked out of the input when the parent branch swaps — a UX improvement consistent with the plan's spirit ("Ashley's keyboard focus is not stolen"). Locked-scope item #3 (no autofocus) is preserved because the `<Input>` element still carries no `autoFocus` prop.
+The only implementation choice not explicit in the plan text: the sticky bar was rendered UNCONDITIONALLY (outside the loading/error/empty conditional chain) rather than only in the "populated" branch. This is a strict superset of the plan's behavior contract and prevents keyboard focus from being yanked out of the input when the parent branch swaps — a UX improvement consistent with the plan's spirit ("Alice's keyboard focus is not stolen"). Locked-scope item #3 (no autofocus) is preserved because the `<Input>` element still carries no `autoFocus` prop.
 
 ## Known Stubs
 

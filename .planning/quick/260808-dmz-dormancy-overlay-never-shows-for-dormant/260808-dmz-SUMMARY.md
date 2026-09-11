@@ -55,7 +55,7 @@ Patch #346 — hotfix for the patch #345 UAT failure where dormant panes rendere
 | 2: Frontend belt-and-suspenders + diag isVisible | DONE | tsc --noEmit EXIT 0; both grep matches confirmed |
 | 3: Full test suite + build + ship | DONE | 1585 pass / 6 skip; image c316df51; HTTPS 200 |
 | 4: Patch #346 entry in skynet-patches.md | DONE | `### Patch #346` heading present once |
-| 5: Ashley UAT on Tiffany | PENDING (human checkpoint) | Hand-off to Ashley |
+| 5: Alice UAT on Tiffany | PENDING (human checkpoint) | Hand-off to Alice |
 
 ## Implementation Details
 
@@ -118,9 +118,9 @@ None. The `startActiveSessionFlow` helper includes the full active session setup
 
 The `startActiveSessionFlow` is declared as a connection-scoped `let` (before `ws.on("message")`) rather than a closure inside the message handler. This was required because the dormant-poll timer fires asynchronously after the message handler returns via `return`, so a `const` inside the message handler would be out of scope. The plan anticipated this: "closure-scoped, NOT a module export" — connection scope satisfies this requirement.
 
-## Ashley UAT Outcome
+## Alice UAT Outcome
 
-PENDING — Task 5 is the human verify checkpoint. Ashley needs to:
+PENDING — Task 5 is the human verify checkpoint. Alice needs to:
 1. Confirm Tiffany's identity is dormant on T1000 (`ls ~/.claude/identities/tiffany/.dormant`)
 2. Open Tiffany's pretty-view pane in the PWA at term.example.com
 3. Confirm DormancyOverlay appears ("session is asleep" + Wake button, NOT "no active Claude session")
@@ -130,7 +130,7 @@ PENDING — Task 5 is the human verify checkpoint. Ashley needs to:
 
 ## Standing Directive Follow-Up
 
-DMing Stacy question is bundled with patches #344 + #345 + #346 per the bounty. Ashley should be asked about this during/after UAT.
+DMing Stacy question is bundled with patches #344 + #345 + #346 per the bounty. Alice should be asked about this during/after UAT.
 
 ## Known Stubs
 

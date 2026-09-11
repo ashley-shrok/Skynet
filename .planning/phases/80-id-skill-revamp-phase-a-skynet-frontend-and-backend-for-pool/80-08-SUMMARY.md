@@ -39,7 +39,7 @@ metrics:
 
 ## Overview
 
-Ships the conversation-list half of the phase's "task-primary display" scope (D-03, D-06). The `.pv-body` markup in `PrettyConversationRow.tsx` is now a gated ternary on `identity?.task`. When truthy → the row's top line displays the task alone (reuses `.pv-label` typography) and the subtitle displays the role prominently via `<strong>` plus the identity name in muted parens via the existing `.pv-hostname-suffix` class. The AI-generated transcript summary (`aiTitle`) drops entirely from the task-primary branch — Ashley greenlit the drop (80-CONTEXT specifics §last bullet: "do NOT quietly preserve it").
+Ships the conversation-list half of the phase's "task-primary display" scope (D-03, D-06). The `.pv-body` markup in `PrettyConversationRow.tsx` is now a gated ternary on `identity?.task`. When truthy → the row's top line displays the task alone (reuses `.pv-label` typography) and the subtitle displays the role prominently via `<strong>` plus the identity name in muted parens via the existing `.pv-hostname-suffix` class. The AI-generated transcript summary (`aiTitle`) drops entirely from the task-primary branch — Alice greenlit the drop (80-CONTEXT specifics §last bullet: "do NOT quietly preserve it").
 
 When `identity?.task` is null OR empty → the fallback branch preserves the pre-Phase-80 markup verbatim (D-06 graceful degradation): displayName-primary with hostname-suffix + aiTitle subtitle. All 96 pre-existing PrettyConversationRow tests continue passing unchanged, verifying byte-parity of the fallback branch.
 
@@ -111,7 +111,7 @@ One-liner: **Gated JSX ternary + 7-case sibling test file. Zero CSS changes. Zer
 
 None — the plan executed exactly as written. Both tasks completed on first-pass implementation; no auto-fix (Rules 1/2/3) invoked; no architectural questions (Rule 4) surfaced.
 
-The plan flagged a possible pixel-tuning escape hatch — adding a `.pv-role-prominent` class if `<strong>` inside `.pv-ai-title` renders too heavy against the base weight (D-03 executor discretion). No such adjustment was needed at implementation time; the `<strong>` inside `.pv-ai-title`'s weight-500 base gives a natural prominence bump that reads correctly. If Ashley's real-browser UAT surfaces a mismatch, a follow-up plan (or an inline-* commit) can add the class without touching the JSX.
+The plan flagged a possible pixel-tuning escape hatch — adding a `.pv-role-prominent` class if `<strong>` inside `.pv-ai-title` renders too heavy against the base weight (D-03 executor discretion). No such adjustment was needed at implementation time; the `<strong>` inside `.pv-ai-title`'s weight-500 base gives a natural prominence bump that reads correctly. If Alice's real-browser UAT surfaces a mismatch, a follow-up plan (or an inline-* commit) can add the class without touching the JSX.
 
 ## Threat Model Coverage
 
@@ -119,7 +119,7 @@ The plan flagged a possible pixel-tuning escape hatch — adding a `.pv-role-pro
 | ----------- | ----------- | ------------------- |
 | T-80-08-01  | mitigate    | Task/role/displayName rendered as `{identity.task}` / `{identity.role}` / `{identity.displayName}` — React auto-escapes; no `dangerouslySetInnerHTML`. |
 | T-80-08-02  | mitigate    | TP7 test guard: 400-char task string renders in `.pv-label` (which handles fade-truncation via inherited CSS). |
-| T-80-08-03  | accept      | aiTitle drop is a product decision (Ashley greenlit); not a security concern. |
+| T-80-08-03  | accept      | aiTitle drop is a product decision (Alice greenlit); not a security concern. |
 
 ## Test Files Touched
 

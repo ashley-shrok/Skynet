@@ -840,7 +840,7 @@ export async function inviteToRoom(
 ].map(/* … */)}
 ```
 
-Note existing lock: `KEEP ORDER: New agent → New role → Edit global files… → Edit skills… (Phase 44 Pitfall 8 guard — do not alphabetize or reshuffle)`. Placing "New conversation" **first** is a clean addition; discuss with Ashley if item order matters, but the shape file's "three-dot menu" placement doesn't lock order relative to existing items.
+Note existing lock: `KEEP ORDER: New agent → New role → Edit global files… → Edit skills… (Phase 44 Pitfall 8 guard — do not alphabetize or reshuffle)`. Placing "New conversation" **first** is a clean addition; discuss with Alice if item order matters, but the shape file's "three-dot menu" placement doesn't lock order relative to existing items.
 
 **Mount modal** (sibling of `GlobalFilesModal` at L2025-2041):
 ```tsx
@@ -869,7 +869,7 @@ const [newConversationModalOpen, setNewConversationModalOpen] = useState(false);
 onCreateRelayRoom?: (result: CreateRelayRoomResponse) => void;
 ```
 
-**Gate on menu-item visibility** — the menu button is gated on `showPencilButton = typeof onCreateSession === "function"` (L978). Slice C could add a separate gate OR ride the same one (simpler; both surfaces coexist). Ashley discussed this in the shape as a v1-throwaway placement, so riding the existing gate is fine.
+**Gate on menu-item visibility** — the menu button is gated on `showPencilButton = typeof onCreateSession === "function"` (L978). Slice C could add a separate gate OR ride the same one (simpler; both surfaces coexist). Alice discussed this in the shape as a v1-throwaway placement, so riding the existing gate is fine.
 
 ---
 

@@ -246,7 +246,7 @@ export function Auth({ onLogin }: AuthProps) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(() => {
-    // Patch #253: default true when never previously set (Ashley 2026-08-01
+    // Patch #253: default true when never previously set (Alice 2026-08-01
     // ask). Only an explicit stored "false" (user unchecked it before) keeps
     // it off; null (fresh user / never toggled) and "true" both come up
     // checked. Localstorage-throw fallback also defaults true.

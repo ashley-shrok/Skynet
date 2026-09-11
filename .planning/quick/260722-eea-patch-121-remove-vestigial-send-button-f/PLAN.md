@@ -2,14 +2,14 @@
 title: "Patch #121 — remove vestigial send button from compose row"
 task_id: 260722-eea
 slug: patch-121-remove-vestigial-send-button-f
-description: Rip the vestigial Send button + dead sendDisabled derived state out of ComposeBox — Enter (via patch #118) is the sole submit path Ashley uses.
+description: Rip the vestigial Send button + dead sendDisabled derived state out of ComposeBox — Enter (via patch #118) is the sole submit path Alice uses.
 created: 2026-07-22
 status: planned
 ---
 
 ## Task Summary
 
-Bounty #4 (`send-button-bigger`) re-scoped mid-session: the original ask was to grow the Send button to match textarea height, but on discussion Ashley realized she never clicks it — Enter is her sole submit path, made reliable by patch #118 (`tmux send-keys` hybrid). The button is vestigial from the pre-Phase-9 compose box. This patch rips it out along with its now-dead `sendDisabled` derived state, leaving the aux row clean: Paperclip / Square (stop, #120) / ThumbsUp / Hourglass.
+Bounty #4 (`send-button-bigger`) re-scoped mid-session: the original ask was to grow the Send button to match textarea height, but on discussion Alice realized she never clicks it — Enter is her sole submit path, made reliable by patch #118 (`tmux send-keys` hybrid). The button is vestigial from the pre-Phase-9 compose box. This patch rips it out along with its now-dead `sendDisabled` derived state, leaving the aux row clean: Paperclip / Square (stop, #120) / ThumbsUp / Hourglass.
 
 ## Files to modify
 

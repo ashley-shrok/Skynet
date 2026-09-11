@@ -52,7 +52,7 @@ metrics:
 
 ### Fix (a) — Terminal.tsx: patch #143 v2 (drop the `readyState === OPEN` guard)
 
-**Root cause (Ashley's diag):** iOS PWA resumes JS with the old `webSocketRef.current` still reading `readyState === OPEN` because the queued `close` event hasn't been delivered yet → v1 handler short-circuits → the delayed `close` event then fires `attemptReconnection` → `scheduleReconnect` burns 8 attempts against a stale WS → user sees "1/8..8/8 reconnecting" flash then the manual overlay.
+**Root cause (Alice's diag):** iOS PWA resumes JS with the old `webSocketRef.current` still reading `readyState === OPEN` because the queued `close` event hasn't been delivered yet → v1 handler short-circuits → the delayed `close` event then fires `attemptReconnection` → `scheduleReconnect` burns 8 attempts against a stale WS → user sees "1/8..8/8 reconnecting" flash then the manual overlay.
 
 **Fix:** Two lines deleted from inside the visibilitychange useEffect (`const ws = webSocketRef.current; if (ws && ws.readyState === WebSocket.OPEN) return;`). JSDoc rephrased to the v2 spec explaining why the guard was removed. Every other guard preserved (`isUnmountingRef`, `wasDisconnectedBySSH.current` — target-terminated boundary is load-bearing).
 
@@ -60,7 +60,7 @@ metrics:
 
 ### Fix (b) — AppShell.tsx: delete redundant mobile back-chevron header
 
-**Root cause (Ashley's diag):** Two chevrons render simultaneously on mobile-in-conversation — the fixed patch #142 chevron at (8,8) z-30 (lines 1400-1444, aria-label "Back to conversations" on touch) AND the legacy 50x49 shadcn Button chevron at (0,0). Identity badge (top-right) already surfaces conversation identity, so the `activeConversationLabel` span had become dead weight.
+**Root cause (Alice's diag):** Two chevrons render simultaneously on mobile-in-conversation — the fixed patch #142 chevron at (8,8) z-30 (lines 1400-1444, aria-label "Back to conversations" on touch) AND the legacy 50x49 shadcn Button chevron at (0,0). Identity badge (top-right) already surfaces conversation identity, so the `activeConversationLabel` span had become dead weight.
 
 **Fix:** Deleted the entire `{isMobileViewScreen && (<div>...<Button>...<Separator/>...<span>{activeConversationLabel}</span></div>)}` block at lines 1549-1570 plus the 10-line JSX comment above it. Cleanup: `activeConversationLabel` derivation removed (no other consumers); `Button` + `Separator` imports removed (no other consumers).
 
@@ -68,7 +68,7 @@ metrics:
 
 ### Fix (c) — index.css: `<html>` background = pv-base-end for iOS PWA safe area
 
-**Root cause (Ashley's diag):** `body.bgColor === rgb(10, 11, 18)` (correct pv-base-end) but `html.bgColor === rgba(0, 0, 0, 0)` (transparent). iOS PWA paints safe-area-inset-bottom with the `<html>` bg → transparent shows through as ~1cm black bar.
+**Root cause (Alice's diag):** `body.bgColor === rgb(10, 11, 18)` (correct pv-base-end) but `html.bgColor === rgba(0, 0, 0, 0)` (transparent). iOS PWA paints safe-area-inset-bottom with the `<html>` bg → transparent shows through as ~1cm black bar.
 
 **Fix:** New top-level CSS rule placed immediately AFTER the `@layer base { … }` close so it wins against Tailwind resets without needing `!important`:
 
@@ -84,7 +84,7 @@ References `--color-pv-base-end` (via `@theme inline` mapping from `.dark { --ba
 
 ### Fix (d) — PrettyConversationsPanel.tsx: activeSet on every selectedId change
 
-**Root cause (Ashley's diag):** All 32 rendered rows carried `pv-row pv-row--mobile ambient` — NONE non-ambient (activeSet empty) despite an open conversation. Cause: `addToActiveSet` fires only from `handleRowSelect` (click path). URL-fragment restore bypasses the click path and sets `selectedId` programmatically → activeSet stays empty → rows render `ambient`.
+**Root cause (Alice's diag):** All 32 rendered rows carried `pv-row pv-row--mobile ambient` — NONE non-ambient (activeSet empty) despite an open conversation. Cause: `addToActiveSet` fires only from `handleRowSelect` (click path). URL-fragment restore bypasses the click path and sets `selectedId` programmatically → activeSet stays empty → rows render `ambient`.
 
 **Fix:** Extended the React import from `useState` → `useEffect, useState`. New useEffect immediately after `const activeSet = useActiveSet();`:
 
@@ -100,7 +100,7 @@ useEffect(() => {
 
 ### Fix (e) — pretty-conversations.css + Panel: intra-group row gap
 
-**Root cause (Ashley's diag):** `.pv-panel-scroll` `gap: 8px` applies only BETWEEN groups (pinned wrapper / regular host wrappers / RDP-sentinel wrapper). Individual rows inside each `<div className="flex flex-col">` group wrapper are edge-to-edge because the wrappers have no gap declared.
+**Root cause (Alice's diag):** `.pv-panel-scroll` `gap: 8px` applies only BETWEEN groups (pinned wrapper / regular host wrappers / RDP-sentinel wrapper). Individual rows inside each `<div className="flex flex-col">` group wrapper are edge-to-edge because the wrappers have no gap declared.
 
 **Fix:** New CSS rule (pretty-conversations.css, immediately after `.pv-panel-scroll { … }`):
 
@@ -122,7 +122,7 @@ Tests 2/3/4 verified still passing — they query `[data-conversation-id]` (dept
 
 ### Fix (f) — PrettyConversationsPanel.tsx: "Conversations" title on mobile
 
-**Root cause (Ashley confirmed):** Prior handoff note "deliberately left off per Phase 10 design" was WRONG. Mobile-list-screen should show the "Conversations" title same as desktop.
+**Root cause (Alice confirmed):** Prior handoff note "deliberately left off per Phase 10 design" was WRONG. Mobile-list-screen should show the "Conversations" title same as desktop.
 
 **Fix:** Removed the `const showDesktopTitle = variant === "desktop";` derivation and inlined the title as `<span className="pv-title">{headerLabel}</span>` unconditionally (dropped the ternary that emitted an empty aria-hidden span on mobile). `sidebarToggleOverlaps` padding-left clearance stays desktop-only via AppShell's `!isMobile && !isTouchDevice && sidebarOpen` gate at the mount site — no AppShell change needed.
 
@@ -196,17 +196,17 @@ Gate 3 deviation is intentional — see "Deviations from Plan" below.
 
 ### Pre-existing Test Failures (Unchanged Baseline)
 
-**2× patch #124 ThumbsUp aria-label residuals** in `ComposeBox.test.tsx` (out of scope for this patch — carried forward per Ashley's 2026-07-23 test-hygiene deferral rule). Not triggered by the targeted `terminal pretty-conversations` test scope for this patch.
+**2× patch #124 ThumbsUp aria-label residuals** in `ComposeBox.test.tsx` (out of scope for this patch — carried forward per Alice's 2026-07-23 test-hygiene deferral rule). Not triggered by the targeted `terminal pretty-conversations` test scope for this patch.
 
 ## Follow-up Bookkeeping
 
 1. **Fix (c) reclaim-space follow-up.** Fix (c) resolves the safe-area bottom COLOR only. Reclaiming ~5/6 of that ~1cm bottom space for usable content (leaving the bottom ~1/6 for the iOS home indicator) is a separate second-order tweak — likely adjusting the compose-box `py-2` and/or the AppShell wrapper's `paddingBottom: max(env(safe-area-inset-bottom), 0px)` inline style at line 1738-1742 to a smaller derived value. Not shipped in this patch.
 
-2. **Deploy status.** Batched with #141+#142+#143 (all sitting on `feat/tab-title-from-tmux`) pending Ashley greenlight per her 2026-07-23 batch-writeups-until-deploy rule. No push, no deploy from this patch.
+2. **Deploy status.** Batched with #141+#142+#143 (all sitting on `feat/tab-title-from-tmux`) pending Alice greenlight per her 2026-07-23 batch-writeups-until-deploy rule. No push, no deploy from this patch.
 
 3. **Button/Separator cleanup succeeded fully.** No unexpected consumer surfaced during tsc; both imports were the only usages beyond the deleted block. Cleanup didn't need to be partially aborted.
 
-4. **`~/.claude/identities/tina/skynet-patches.md` NOT touched.** Awaiting Ashley greenlight to deploy before writing up the batch (patches #141-#144).
+4. **`~/.claude/identities/tina/skynet-patches.md` NOT touched.** Awaiting Alice greenlight to deploy before writing up the batch (patches #141-#144).
 
 ## Self-Check: PASSED
 

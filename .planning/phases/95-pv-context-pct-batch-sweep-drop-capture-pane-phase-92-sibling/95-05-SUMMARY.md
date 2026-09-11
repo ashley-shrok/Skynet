@@ -9,7 +9,7 @@ dependency_graph:
   provides:
     - "contextPctTimer batch-first/legacy-fallback dispatch wired (Plan 05 Task 1)"
     - "6 regression tests + 8 grep-guard tests (Plan 05 Task 2)"
-    - "UAT gate (Task 3) — PENDING Ashley execution"
+    - "UAT gate (Task 3) — PENDING Alice execution"
   affects:
     - "exec pressure on Skynet-host SSH connection (4x reduction per WS per tick post-UAT-deploy)"
     - "contextPctTimer callback: batch path 1 exec/tick vs legacy 4 execs/tick"
@@ -37,7 +37,7 @@ metrics:
 
 # Phase 95 Plan 05: contextPctTimer rewire + regression tests + UAT gate Summary
 
-**One-liner:** Rewired the contextPctTimer callback in claude-session-server.ts to batch-first/legacy-fallback dispatch (1 sweep exec per WS per tick vs up-to-4 tail execs), added 6 regression tests + 8 grep-guard tests, and prepared the Ashley UAT gate (Task 3 — awaiting human execution).
+**One-liner:** Rewired the contextPctTimer callback in claude-session-server.ts to batch-first/legacy-fallback dispatch (1 sweep exec per WS per tick vs up-to-4 tail execs), added 6 regression tests + 8 grep-guard tests, and prepared the Alice UAT gate (Task 3 — awaiting human execution).
 
 ## Task 1: contextPctTimer rewire
 
@@ -122,9 +122,9 @@ export const __pvSweepSeamRegistry = new Map<import("ws").WebSocket, __PvSweepSe
 
 All 14 tests pass. Full claude-session test suite still green.
 
-## Task 3: Ashley UAT gate — PENDING
+## Task 3: Alice UAT gate — PENDING
 
-Task 3 is a `checkpoint:human-verify` gate. Phase 95 does not close until Ashley executes checks 1-6 against t1000 and replies `all 6 checks PASS — Phase 95 complete`.
+Task 3 is a `checkpoint:human-verify` gate. Phase 95 does not close until Alice executes checks 1-6 against t1000 and replies `all 6 checks PASS — Phase 95 complete`.
 
 **Prerequisites for UAT:**
 1. Merge `feat/tab-title-from-tmux` branch (Wave 3 commits included)
@@ -156,7 +156,7 @@ Task 3 is a `checkpoint:human-verify` gate. Phase 95 does not close until Ashley
 
 ## Phase 95 close status
 
-**OPEN — awaiting Ashley UAT (Task 3).** Phase 95 closes green when Ashley replies `all 6 checks PASS — Phase 95 complete` after UAT execution.
+**OPEN — awaiting Alice UAT (Task 3).** Phase 95 closes green when Alice replies `all 6 checks PASS — Phase 95 complete` after UAT execution.
 
 ## Self-Check: PASSED
 

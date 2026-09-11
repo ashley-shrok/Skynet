@@ -1,13 +1,13 @@
 /**
  * Phase 90 Plan 90-04 Task 3 — RoleModal (Plan 90-10 shim-removal refactor)
  *
- * D-03 (LOCKED — Ashley 2026-09-09): the role modal is a GLOBAL modal —
+ * D-03 (LOCKED — Alice 2026-09-09): the role modal is a GLOBAL modal —
  *   portals to `document.body`, no chat-region target, no portal-target
  *   prop threading. Matches GlobalFilesModal + SkillsEditorModal chrome
  *   pattern. Swap-not-stack transitions from RolesListModal + identity-modal
  *   title-line jump both close their surface first, then open this modal.
  *
- * D-06 (LOCKED — Ashley 2026-09-09): the DialogContent wears the role's own
+ * D-06 (LOCKED — Alice 2026-09-09): the DialogContent wears the role's own
  *   hue (roleCosmetics.colorHue ?? 190 fallback per D-05), mirroring the
  *   IdentityModal L1614-1621 pattern keyed on the role's hue instead of an
  *   identity's.

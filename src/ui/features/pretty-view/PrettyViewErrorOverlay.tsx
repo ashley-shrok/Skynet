@@ -4,7 +4,7 @@
 // machine (Phase 29) when the pretty-view WS retry ladder terminally fails
 // (`wsState === "failed-permanently"`, resolver row → `phase === "error"`).
 // Replaces the transient inline "Connection lost" text that SPEC Requirement 2
-// retires — Ashley's flicker case (b) from the SPEC background section.
+// retires — Alice's flicker case (b) from the SPEC background section.
 //
 // SHAPE (mechanical composition of two existing overlays per PATTERNS.md § 5):
 //   * Scrim geometry + iOS Safari backdrop-filter hardening: copied VERBATIM

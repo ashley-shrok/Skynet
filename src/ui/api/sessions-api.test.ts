@@ -48,7 +48,7 @@ describe("sessions-api (Phase 90 Plan 01): RemoteTmuxSession widening", () => {
       // relay-only fields
       id: "sess-abc",
       roomId: "!abc:matrix.example",
-      roomTitle: "Ashley + team",
+      roomTitle: "Alice + team",
       lastActivityAt: "2026-09-08T20:00:00Z",
       createdAt: "2026-09-08T10:00:00Z",
       updatedAt: "2026-09-08T20:00:00Z",
@@ -65,7 +65,7 @@ describe("sessions-api (Phase 90 Plan 01): RemoteTmuxSession widening", () => {
     };
     expect(relayRoom.kind).toBe("relay-room");
     expect(relayRoom.roomId).toBe("!abc:matrix.example");
-    expect(relayRoom.roomTitle).toBe("Ashley + team");
+    expect(relayRoom.roomTitle).toBe("Alice + team");
   });
 
   // ─── Test 3: backward-compat — kind absent means harness ──────────────────

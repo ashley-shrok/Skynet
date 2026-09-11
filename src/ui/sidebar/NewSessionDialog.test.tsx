@@ -1428,7 +1428,7 @@ describe("NewSessionDialog: Phase 88 admin-gate + backend substitution", () => {
   });
 
   it("Phase 88 T4 (follow-up): admin with blank Path → Create disabled + inline error rendered", async () => {
-    // Phase 88 follow-up bounty (endorsed inline by Ashley 2026-09-08 during
+    // Phase 88 follow-up bounty (endorsed inline by Alice 2026-09-08 during
     // /close): admin-side Path field must reject blank submits at the
     // frontend so the belt-and-suspenders backend fallback stays as safety
     // net rather than the primary defense.

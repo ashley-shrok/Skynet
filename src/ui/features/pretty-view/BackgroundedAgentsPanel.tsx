@@ -10,7 +10,7 @@ import type { BackgroundedAgent } from "@/api/claude-session-api";
 // only when the input list is non-empty; callers guard on that so this
 // component never renders empty.
 //
-// Design decisions (locked with Ashley 2026-07-18):
+// Design decisions (locked with Alice 2026-07-18):
 //   - Above compose, in-flow — matches HarnessTasksPanel's placement.
 //   - Sibling to HarnessTasksPanel, not folded in — different mental
 //     models (tasks are planned; agents are happening right now).
@@ -37,7 +37,7 @@ export function BackgroundedAgentsPanel({
       className={cn(
         // Patch #82 shelf treatment (VISUAL-05 revised) — identical to
         // HarnessTasksPanel's shelf. See that file for the full rationale
-        // (Ashley 2026-07-19 flagged the floating-card + margin illusion
+        // (Alice 2026-07-19 flagged the floating-card + margin illusion
         // as off-mock; shelves match the actual layout: continuous rows
         // above compose, cool-cream 1px top border between shelves).
         "shrink-0 max-h-40 overflow-y-auto",

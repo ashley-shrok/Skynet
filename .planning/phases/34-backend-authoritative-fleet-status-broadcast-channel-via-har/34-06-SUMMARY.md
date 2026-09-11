@@ -248,13 +248,13 @@ None — all functionality is fully wired. The WaitingBubble receives live `wait
 
 ## Behavioral Notes for UAT
 
-1. **WaitingBubble appearance:** In a session where Claude Code is in `status='waiting'` (e.g. a file-deletion permission prompt surfaced through Ink UI), PrettyView will show a `Hand` icon bubble with the `waitingFor` reason string. Ashley must switch to the terminal pane to respond — the bubble is presence-only (no interactive controls).
+1. **WaitingBubble appearance:** In a session where Claude Code is in `status='waiting'` (e.g. a file-deletion permission prompt surfaced through Ink UI), PrettyView will show a `Hand` icon bubble with the `waitingFor` reason string. Alice must switch to the terminal pane to respond — the bubble is presence-only (no interactive controls).
 
 2. **backgrounded_agents panel:** The BackgroundedAgentsPanel and BackgroundedShellsPanel still render their data from the per-pane WS frames. Only the composite isWorking contribution from these panels was retired — the panels themselves remain.
 
 3. **Dot semantics unchanged:** The dot visibility formula (`inActiveSet(row) && !isWorking(row)`) is unchanged. Only the signal delivery changed from PTY-scraping to fleet-status WS.
 
-4. **Orchestrator next step:** After this plan lands, the deploy motion is `docker compose up -d --force-recreate skynet` with the 15-min deadman rollback per fleet rule (Ashley 2026-07-03). The ambient-tagging gate (Plan 05 — Nelly's external work) must be confirmed shipped before deployment — without ambient tagging, persistent Monitors in `backgroundTasks[]` would cause `isWorking=true` permanently for all identity sessions.
+4. **Orchestrator next step:** After this plan lands, the deploy motion is `docker compose up -d --force-recreate skynet` with the 15-min deadman rollback per fleet rule (Alice 2026-07-03). The ambient-tagging gate (Plan 05 — Nelly's external work) must be confirmed shipped before deployment — without ambient tagging, persistent Monitors in `backgroundTasks[]` would cause `isWorking=true` permanently for all identity sessions.
 
 ## Threat Surface Scan
 

@@ -6,9 +6,9 @@
 
 ## Overall verdict: **PASS_WITH_NOTES**
 
-All four plans are internally coherent, respect the CONTEXT.md LOCKED decisions, and collectively cover every UPLOAD-NN requirement and every Success Criterion. Every load-bearing fork-specific gotcha is honored (patch #60/#100 preservation, useIsTouchDevice reuse, $HOME resolution via sftp.realpath, no attachment-byte persistence). The plans are ready for Ashley's execution green-light.
+All four plans are internally coherent, respect the CONTEXT.md LOCKED decisions, and collectively cover every UPLOAD-NN requirement and every Success Criterion. Every load-bearing fork-specific gotcha is honored (patch #60/#100 preservation, useIsTouchDevice reuse, $HOME resolution via sftp.realpath, no attachment-byte persistence). The plans are ready for Alice's execution green-light.
 
-Notes are non-blocking design tensions that Ashley may want to be aware of before executing (chiefly: Plan 02 discloses a retry-semantics deviation from Plan 01's protocol and Plan 04's "zero source diffs" pattern claim isn't perfectly matched by Phase 1 and Phase 2's actual deploy checkpoints — this is a doc nit, not a plan defect).
+Notes are non-blocking design tensions that Alice may want to be aware of before executing (chiefly: Plan 02 discloses a retry-semantics deviation from Plan 01's protocol and Plan 04's "zero source diffs" pattern claim isn't perfectly matched by Phase 1 and Phase 2's actual deploy checkpoints — this is a doc nit, not a plan defect).
 
 ## Per-plan verdicts
 
@@ -139,7 +139,7 @@ Randomly spot-checked 5 tasks across plans for `<read_first>` presence + `<accep
 **Plan 04 Task 4** (deploy checkpoint):
 - `<what-built>` — accurately synthesizes Plans 01-04 output ✓
 - `<how-to-verify>` — 9-step deploy sequence with exact commands (`sudo touch /tmp/skynet-keep-patched`, deadman-arm nohup line, force-recreate) ✓ — matches deploy-runbook.md
-- `<resume-signal>` — precise Ashley-facing phrase ✓
+- `<resume-signal>` — precise user-facing phrase ✓
 
 No anti-shallow rule violations. Every spot-checked task has read-first prereqs, concrete acceptance criteria, and named identifiers in actions.
 
@@ -170,7 +170,7 @@ Plan 05-04 was checked against the pattern of Phase 1 (01-05) and Phase 2 (02-03
 | UAT checklist artifact | 01-05 has one | 02-03 has one | 05-UAT-CHECKLIST.md drafted | ✓ Match |
 | Patches-md-entry artifact | Not required in 01-05 | Not required in 02-03 | 05-PATCHES-MD-ENTRY.md drafted | ✓ Stronger than reference |
 
-**Minor doc nit (user question 8):** The user claim "Phase 1's 01-05-PLAN.md and Phase 2's 02-03-PLAN.md — ZERO source diffs" is not perfectly accurate. Phase 1 modified nginx configs and Phase 2 modified UserProfilePanel.tsx + en.json. Phase 5's 05-04 is stricter (truly zero source diffs) because uploads ride the existing WS and don't add a toggle. This is a positive divergence, not a defect. If Ashley wants to enforce the "zero source diffs" rule strictly going forward, that's a policy decision worth stating; if the ROADMAP wants to codify it, that's a separate documentation task.
+**Minor doc nit (user question 8):** The user claim "Phase 1's 01-05-PLAN.md and Phase 2's 02-03-PLAN.md — ZERO source diffs" is not perfectly accurate. Phase 1 modified nginx configs and Phase 2 modified UserProfilePanel.tsx + en.json. Phase 5's 05-04 is stricter (truly zero source diffs) because uploads ride the existing WS and don't add a toggle. This is a positive divergence, not a defect. If Alice wants to enforce the "zero source diffs" rule strictly going forward, that's a policy decision worth stating; if the ROADMAP wants to codify it, that's a separate documentation task.
 
 ## Fork-specific gotcha compliance
 
@@ -198,7 +198,7 @@ This creates a subtle coupling issue: Plan 02 Task 1 test 9 says "reuses SAME me
 
 **Severity: WARNING** — execution will proceed but the executor should update test 9 to match the action's actual semantics (NEW mqid on retry). This is a spec-vs-test inconsistency internal to Plan 02, not a blocker to Plan 01 or Plan 03.
 
-**Recommendation to planner (if a revision is desired):** Simplest fix — edit Plan 02 Task 1 behavior list Test 9 to read: "calling `retryBatch()` after a failure generates a FRESH `messageQueueItemId` and emits a new `upload_start` with all still-staged files (successful ones NOT re-uploaded); the batch state resets internally to the new mqid." Ashley or execution agent can also do this fix inline; not worth revising the plan for.
+**Recommendation to planner (if a revision is desired):** Simplest fix — edit Plan 02 Task 1 behavior list Test 9 to read: "calling `retryBatch()` after a failure generates a FRESH `messageQueueItemId` and emits a new `upload_start` with all still-staged files (successful ones NOT re-uploaded); the batch state resets internally to the new mqid." Alice or execution agent can also do this fix inline; not worth revising the plan for.
 
 ### W-2: Plan 02 file-overlap with Plan 03 on PrettyView.tsx and AttachmentChipStrip.tsx
 
@@ -208,15 +208,15 @@ Plan 02 creates AttachmentChipStrip.tsx and modifies PrettyView.tsx; Plan 03 als
 
 ### W-3: Plan 04 grep gate for `pretty-view-upload.js` dist path assumes Vite/tsc dist layout
 
-Plan 04 Task 1 Step B grep checks `dist/backend/backend/ssh/pretty-view-upload.js`. This double-`backend/backend/` path matches the fork's existing dist layout (verified by `dist/backend/backend/ssh/terminal.js` in patch #60's verify commands). If Ashley's Vite/tsc config changes between now and execution, this grep might miss. Low probability, but worth noting.
+Plan 04 Task 1 Step B grep checks `dist/backend/backend/ssh/pretty-view-upload.js`. This double-`backend/backend/` path matches the fork's existing dist layout (verified by `dist/backend/backend/ssh/terminal.js` in patch #60's verify commands). If Alice's Vite/tsc config changes between now and execution, this grep might miss. Low probability, but worth noting.
 
 **Severity: WARNING (informational)** — the acceptance criterion is otherwise correct.
 
 ## Blockers
 
-**None.** No BLOCKER-severity issues found. All plans are safe to execute after Ashley's green-light.
+**None.** No BLOCKER-severity issues found. All plans are safe to execute after Alice's green-light.
 
-## Hand-off notes for Ashley
+## Hand-off notes for Alice
 
 1. **Execution order is strict Wave 1 → 2 → 3 → 4** — Plan 01 must complete first (it defines the shared protocol types that Plans 02 and 03 import). Plans 02 and 03 cannot run in parallel (both touch PrettyView.tsx and AttachmentChipStrip.tsx). Plan 04 waits for all three.
 
@@ -226,11 +226,11 @@ Plan 04 Task 1 Step B grep checks `dist/backend/backend/ssh/pretty-view-upload.j
 
 4. **Zero-diff surfaces to protect:** `docker/nginx.conf`, `docker/nginx-https.conf`, `package.json`, `package-lock.json`, the `case "input":` block in `src/backend/ssh/terminal.ts` (lines 469-585 pre-change), the existing PrettyView `onSend` callback in `src/ui/features/terminal/Terminal.tsx:2846`, and the MessageQueueDrawer `onSend` at `Terminal.tsx:2869`.
 
-5. **Deploy discipline reminder:** Plan 04 Task 4 spells out the mandatory 15-min deadman flow verbatim from `~/.claude/identities/tina/deploy-runbook.md`. Blanket pre-authorization for the code work does NOT authorize the deploy per Ashley 2026-07-12. Explicit per-deploy green-light required BEFORE the checkpoint's step 1 (build + push).
+5. **Deploy discipline reminder:** Plan 04 Task 4 spells out the mandatory 15-min deadman flow verbatim from `~/.claude/identities/tina/deploy-runbook.md`. Blanket pre-authorization for the code work does NOT authorize the deploy per Alice 2026-07-12. Explicit per-deploy green-light required BEFORE the checkpoint's step 1 (build + push).
 
 6. **Bounty status:** Once UAT green + patch pinned, close the bounty at `~/.claude/identities/tina/bounties/pretty-view-file-upload-support/` via `/close pretty-view-file-upload-support`.
 
-7. **Post-deploy verify command Ashley may want to keep handy:**
+7. **Post-deploy verify command Alice may want to keep handy:**
    ```
    docker exec skynet grep -c 'case "upload_start":' /app/dist/backend/backend/ssh/terminal.js
    # → should return 1

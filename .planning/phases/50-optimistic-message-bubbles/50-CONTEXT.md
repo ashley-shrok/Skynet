@@ -99,7 +99,7 @@ The phase touches the send path end-to-end: frontend send handler + bubble rende
 - Deploy is orchestrator-only — the executor produces code + green tests, then STOPS. Orchestrator handles push/build/coord-room-announce/recreate/verify per role file § Container mutations serialize + § Subagents don't do deploys.
 - Rebase before push. No worktrees.
 - Multi-identity role — `git pull --rebase origin feat/tab-title-from-tmux` from tree before every push; resolve conflicts locally first.
-- Branch state: two un-deployed commits sit on the branch (`38eadffb` identity forceSave + `1e45b73a` context-meter diag). Ashley approved shipping everything together at the end of this phase.
+- Branch state: two un-deployed commits sit on the branch (`38eadffb` identity forceSave + `1e45b73a` context-meter diag). Alice approved shipping everything together at the end of this phase.
 
 </canonical_refs>
 

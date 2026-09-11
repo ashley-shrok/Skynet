@@ -50,7 +50,7 @@ metrics:
 
 ### Task 1 — Update PrettyView.aside.test.tsx — SKIPPED (with rationale)
 
-**Outcome:** No changes needed. Aside tests still green unchanged (4 passing / 5 skipped — the 5 skips are the identity-attached / anonymous-suppression tests that Ashley disabled at the source via `AUTO_ASIDE_ARM_ENABLED=false` back in 2026-07-27, unrelated to Phase 27).
+**Outcome:** No changes needed. Aside tests still green unchanged (4 passing / 5 skipped — the 5 skips are the identity-attached / anonymous-suppression tests that Alice disabled at the source via `AUTO_ASIDE_ARM_ENABLED=false` back in 2026-07-27, unrelated to Phase 27).
 
 **Rationale:**
 

@@ -74,8 +74,8 @@ Out-of-scope for this phase: creating a brand-new skill from scratch (no scaffol
 ## Specific Ideas
 
 - **Files listed flat with path-relative labels** — a skill file at `tests/basic.py` shows as tab label `tests/basic.py`. All tabs sit in one horizontal row.
-- **Non-text file placeholder** — where the editor pane would be, render a short message that the file isn't text and cannot be edited. Ashley did not specify exact copy; UI-phase decides.
-- **Delete-file confirm** — the ONE confirmation Ashley explicitly asked for. All other actions (open, edit, save, add file, delete skill) do NOT need extra confirmation beyond whatever global-files already does.
+- **Non-text file placeholder** — where the editor pane would be, render a short message that the file isn't text and cannot be edited. Alice did not specify exact copy; UI-phase decides.
+- **Delete-file confirm** — the ONE confirmation Alice explicitly asked for. All other actions (open, edit, save, add file, delete skill) do NOT need extra confirmation beyond whatever global-files already does.
 - **Fast-path priority** — the trigger for this feature is "quick adjustment to a skill." The user path from opening the menu → editing a file should be three selections max (menu → host → skill) then a tab click.
 
 </specifics>

@@ -77,7 +77,7 @@ Post-fix `grep -n "acceptsTouch\|isTouchDevice"` returns **19 hits** in the row 
 
 ### Decisions & edge cases
 
-- **`useIsTouchDevice` reuse decision (deviation from the bug directive's "New hook" bullet, justified in the plan):** the existing `src/ui/hooks/use-is-touch-device.ts` already exports a hook using the exact `(pointer: coarse) and (hover: none)` matchMedia query the fix requires, and is already consumed at `AppShell.tsx:290` + `PrettyView.tsx:1188`. Adding a sibling `use-touch.ts` would duplicate the surface and violate Ashley's DRY invariant. This quick backfills the missing unit tests for the pre-existing hook as a hygiene tax (was zero coverage; now 4 tests).
+- **`useIsTouchDevice` reuse decision (deviation from the bug directive's "New hook" bullet, justified in the plan):** the existing `src/ui/hooks/use-is-touch-device.ts` already exports a hook using the exact `(pointer: coarse) and (hover: none)` matchMedia query the fix requires, and is already consumed at `AppShell.tsx:290` + `PrettyView.tsx:1188`. Adding a sibling `use-touch.ts` would duplicate the surface and violate Alice's DRY invariant. This quick backfills the missing unit tests for the pre-existing hook as a hygiene tax (was zero coverage; now 4 tests).
 - **Dev-mode diagnostic log landed** (a `useEffect` with an empty dep-array — mount-only). Not skipped. It's cheap, it's DEV-only, it fires once per row mount, and iPad UAT will benefit from a grep for `[pv-row] touch handlers wired via coarse-pointer gate` in the browser console.
 - **`onContextMenu` gate unchanged** (`!isMobile ? onRowContextMenu : undefined`) — desktop mouse right-click still wires on all non-mobile-width rows, iPad included. This is fine: mouse right-click on a touchscreen is a non-event in practice, and TL7 locks that the desktop right-click path still opens the menu.
 - **`onMouseDown/Move/Up/Leave` gates unchanged** (`variant === "desktop" && !isRdp`) — desktop hover-reveal Pin drag path stays width-based. iPad in touch mode never emits synthetic mouse events for these, so the mouse-drag swipe machinery is dormant on iPad without any change.
@@ -89,7 +89,7 @@ Three quicks now stacked on `feat/tab-title-from-tmux` unpushed:
 1. Pre-existing (three prior commits): quick-260821-shn — dual-hash notify for slash-command wrappers.
 2. This quick: quick-260821-suv — iPad long-press + swipe-to-act via useIsTouchDevice.
 
-The plan mentioned "260821-kyf, 260821-m36" as prior Ashley-approved quicks — those actually appear to be shipped already (not in the current unpushed queue). The current unpushed stack is: 3 × shn + 3 × suv = 6 commits.
+The plan mentioned "260821-kyf, 260821-m36" as prior user-approved quicks — those actually appear to be shipped already (not in the current unpushed queue). The current unpushed stack is: 3 × shn + 3 × suv = 6 commits.
 
 ## Scoped-gate output (tail)
 
@@ -136,7 +136,7 @@ Baseline was 178 tests across the same three files (86 row + 92 panel); +7 = 185
 2. ✓ TL7 passes — desktop variant + fine-pointer: touch NO menu, contextmenu YES menu.
 3. ✓ TL8 passes — mobile variant + long-press opens menu (regardless of `useIsTouchDevice`).
 4. ✓ `useIsTouchDevice` hook now has 4 unit tests (was zero).
-5. ✓ Ashley on iPad: long-press → menu; swipe past threshold → action (locked by TL6 + the widened swipe-machine gate).
+5. ✓ Alice on iPad: long-press → menu; swipe past threshold → action (locked by TL6 + the widened swipe-machine gate).
 6. ✓ Two atomic Task-2 commits (RED then GREEN), documenting the TDD cycle in git history. Plus the Task-1 test commit.
 7. ✓ Zero visual regression: `pv-row--mobile`/`pv-row--desktop` className assignment on line 342 unchanged; only INPUT wiring extends. The three `pv-row--` grep hits inside the diff are all in comment blocks explicitly noting the intentional non-widening of styling.
 8. Working tree ends at `feat/tab-title-from-tmux` +7 unpushed (this SUMMARY commit added). NOT pushed. NOT deployed.

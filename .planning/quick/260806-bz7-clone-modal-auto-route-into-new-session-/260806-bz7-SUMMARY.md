@@ -27,7 +27,7 @@ metrics:
 
 Widened `NewSessionOnCreateOpts` with a third `identityMode: "existing"` variant; wired CloneAgentDialog to fire the panel's existing `onCreateSession` prop after successful clone (before onClose); AppShell narrows all three variants explicitly and treats "existing" identically to birth for `openTab` (allowCreateTmux false, sessionName from identity).
 
-## What Ashley sees now
+## What Alice sees now
 
 Right-click a conversation row → Clone → fill name → click Create → the app auto-opens a new terminal tab attached to the cloned identity's tmux session and focuses it. Same UX as identity-birth's focus-follow. No more hunting for the new row in the sidebar.
 

@@ -1,4 +1,4 @@
-> **Note:** This UI-SPEC.md IS the shape agreement produced by `/open conversation-list-recency-sort` (2026-08-14). Per Ashley greenlight (2026-08-14), it satisfies the plan-phase UI Design Contract gate without re-running `/gsd:ui-phase`. The design contract is authoritative; the shape file at `.planning/shapes/shape-conversation-list-recency-sort.md` is the same content and can be treated as a mirror.
+> **Note:** This UI-SPEC.md IS the shape agreement produced by `/open conversation-list-recency-sort` (2026-08-14). Per Alice greenlight (2026-08-14), it satisfies the plan-phase UI Design Contract gate without re-running `/gsd:ui-phase`. The design contract is authoritative; the shape file at `.planning/shapes/shape-conversation-list-recency-sort.md` is the same content and can be treated as a mirror.
 
 ---
 
@@ -83,7 +83,7 @@ narrow the list by typing part of a row's visible label.
 
 The previous shape (Phase 7) explicitly said "no recency shuffle, host-grouped,
 strict order." That was the right call at the time, because the sidebar the
-list replaced was host-organized and Ashley's mental model was still "which
+list replaced was host-organized and Alice's mental model was still "which
 box is this on." Since then, she works from her phone almost exclusively, and
 her mental model has shifted to "who did I last talk to" — which is what
 messaging apps optimize for. The shape follows the mental-model shift.
@@ -122,7 +122,7 @@ What this is deliberately NOT doing:
   ordering the whole list uses today — this shape scopes that ordering down
   to just pins and remote-desktop, and hands the middle over to recency.
 - The ready-dot was originally gated to "active-set only" and only visible
-  when a row was in the small set Ashley was actively working. That gate was
+  when a row was in the small set Alice was actively working. That gate was
   removed in patch #447 (August 14) — dots now render on any row that isn't
   currently working. This shape formalizes that direction and retires the
   ambient-recession visual entirely, so all rows carry the same visual

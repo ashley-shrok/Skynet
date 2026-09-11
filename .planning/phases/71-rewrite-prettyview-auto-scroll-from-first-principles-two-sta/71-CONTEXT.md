@@ -3,7 +3,7 @@
 **Opened:** 2026-09-04
 **Vehicle:** GSD phase (discuss-phase → plan-phase → execute-phase)
 
-**Provenance:** This CONTEXT.md was seeded directly from the `/build` → `/open` shape file at `.planning/shapes/shape-pv-autoscroll-rewrite.md` (opened + greenlit by Ashley 2026-09-04). All Shape / Philosophy / Prior context / What-would-make-it-wrong / Scope edges sections below are LOCKED decisions from that session — do NOT re-elicit. The `/gsd:discuss-phase` step surfaced no additional gray areas worth the user's time; remaining unknowns are planner territory (rewrite-vs-side-by-side strategy, API surface between the state machine module and PrettyView.tsx, diagnostics reshape, existing-test disposition). Canonical refs + code_context sections at the END of this file are the discuss-phase additions the planner needs.
+**Provenance:** This CONTEXT.md was seeded directly from the `/build` → `/open` shape file at `.planning/shapes/shape-pv-autoscroll-rewrite.md` (opened + greenlit by Alice 2026-09-04). All Shape / Philosophy / Prior context / What-would-make-it-wrong / Scope edges sections below are LOCKED decisions from that session — do NOT re-elicit. The `/gsd:discuss-phase` step surfaced no additional gray areas worth the user's time; remaining unknowns are planner territory (rewrite-vs-side-by-side strategy, API surface between the state machine module and PrettyView.tsx, diagnostics reshape, existing-test disposition). Canonical refs + code_context sections at the END of this file are the discuss-phase additions the planner needs.
 
 
 

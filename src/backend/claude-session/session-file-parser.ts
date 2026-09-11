@@ -55,7 +55,7 @@ const OUTBOUND_SENTINEL_RE = /m\.room\.message/;
 // Strict variant (INBOUND_REGEX_STRICT from prototype.html line 227).
 const INBOUND_REGEX = /\[room\s+(\S+)\]\s*\[(\@\S+)\]\s*\(event\s+(\S+)\):\s*([\s\S]*?)(?:<\/event>|$)/;
 
-// quick-260830-e6i (widen r9i goodbye_echo): Ashley's session-end routine
+// quick-260830-e6i (widen r9i goodbye_echo): Alice's session-end routine
 // emits four literal exit-echo variants — narrow to that closed set so other
 // <local-command-stdout>...</local-command-stdout> blocks (e.g. /model or
 // /status output) still render as normal bubbles. Set-membership, not
@@ -142,7 +142,7 @@ export type ParsedLine =
   // pv-malformed-jsonl-placeholder-bubble bounty, 2026-08-10: Claude Code's
   // JSONL writer occasionally concatenates two records on the same line
   // AND truncates the first mid-string — content is unrecoverable, but a
-  // byte-count placeholder tells Ashley something was lost).
+  // byte-count placeholder tells Alice something was lost).
   | { kind: "malformed"; bytes: number };
 
 type ContentBlock = { type?: string; text?: string; [k: string]: unknown };
@@ -865,7 +865,7 @@ export function detectRelayInbound(
  * message-emission path. Callers that want to react to /id reset call
  * this predicate directly on the raw JSON object; the emission channel
  * is independent. Post quick-260829-r9i (2026-08-29): parseSessionLine
- * now SKIPS all `/id` user turns as session-lifecycle noise (Ashley
+ * now SKIPS all `/id` user turns as session-lifecycle noise (Alice
  * reversed the prior HARD LOCK on slash-command visibility). The state
  * transition remains orthogonal — whether the bubble renders or is
  * skipped does not affect the pane_state:holding emission.
@@ -1070,7 +1070,7 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
 
   // Harness quirk (pv-parser-accept-queued-command-attachment, 2026-08-10):
   // Some user prompts land as type:"attachment" with attachment.type:
-  // "queued_command" — Ashley typed normally in pretty view and hit enter,
+  // "queued_command" — Alice typed normally in pretty view and hit enter,
   // no queue feature used, but Claude Code wrote it as a queued_command
   // attachment. Without this branch the message never renders as a bubble
   // (skipped as why:"attachment"). Treat as a user turn with attachment.prompt
@@ -1299,11 +1299,11 @@ export function parseSessionLine(line: string, sessionId?: string): ParsedLine {
   // Mirrors the isRealUserTurn predicate in
   // src/backend/fleet-status/ssh-poll-orchestrator.ts for slash_exit,
   // resume_injection, and ctrl_c_kill. slash_id is NOT excluded there
-  // (backend uses /id as an "Ashley present" signal) but IS excluded here
+  // (backend uses /id as an "Alice present" signal) but IS excluded here
   // (bubble noise). goodbye_echo is narrow to the four literal exit-echo
   // variants (Goodbye! / Catch you later! / See ya! / Bye!) — other
   // <local-command-stdout>...</local-command-stdout> blocks still render
-  // because Ashley intentionally invokes other slash-commands whose output
+  // because Alice intentionally invokes other slash-commands whose output
   // is useful context. See GOODBYE_ECHO_VARIANTS at module scope.
   if (isUser && imageRefs.length === 0 && typeof content === "string") {
     if (content.includes("<command-name>/exit</command-name>")) {

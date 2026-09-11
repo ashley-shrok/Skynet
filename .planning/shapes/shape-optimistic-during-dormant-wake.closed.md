@@ -5,7 +5,7 @@
 
 ## What this is
 
-When Ashley sends a message to an agent that is currently asleep, the message-in-flight
+When Alice sends a message to an agent that is currently asleep, the message-in-flight
 bubble prematurely gives up. The server has a real plan for this case — it holds the
 message, taps the sleeping agent awake, waits up to about three minutes for the agent to be
 ready, then delivers. The frontend has its own separate stopwatch, and although a previous
@@ -39,7 +39,7 @@ thing but they can drift out of sync — one of them updates only on the *change
 (agent transitions from awake to asleep or back), the other one gets a fresh full
 readout every time the connection re-establishes. When the frontend's connection to the
 server hiccups or reconnects — which happens routinely as tabs move around, phones sleep,
-networks switch — the change-only signal never gets re-sent for the sleeping-state Ashley
+networks switch — the change-only signal never gets re-sent for the sleeping-state Alice
 is actually in, and the frontend's model of that agent quietly reverts to "she's awake"
 even though she isn't. The previous round of work wired the widened stopwatch to that
 change-only signal, so the widening exists but almost never gets used when it should.
@@ -56,7 +56,7 @@ Alongside the stopwatch itself, one visual change: when a pending send does fina
 up and flip to "failed" — which post-fix is a rare and truthful event, not the common
 false alarm it is today — the bubble's whole appearance shifts to communicate that
 decisively. The current treatment is a red border on an otherwise-normal bubble. That was
-fine when a failed state was mostly a false positive Ashley had learned to ignore for a
+fine when a failed state was mostly a false positive Alice had learned to ignore for a
 few seconds. Post-fix, a failed bubble means the server tried its full budget and actually
 gave up. That is a real failure and it should look like one — the whole bubble in red, not
 just an outline.
@@ -97,10 +97,10 @@ So the stance here is deliberate:
 
 ## Prior context
 
-Ashley has been hitting this specific bug for a long time. The visible pattern is always
+Alice has been hitting this specific bug for a long time. The visible pattern is always
 the same: send while the agent is asleep, watch the pending spinner spin, watch the bubble
 turn red after about twenty seconds, and then watch a real message bubble arrive above the
-failed one seconds later. Sometimes a duplicate real bubble also shows up. Ashley has
+failed one seconds later. Sometimes a duplicate real bubble also shows up. Alice has
 learned to squint at the red bubble and wait a few seconds to see if a real one shows up
 above it before believing the failure.
 
@@ -110,10 +110,10 @@ if the signal says the agent is asleep at that moment, the pending gets the wide
 timeout; otherwise it gets the tight twenty-second one. The mechanism itself works when
 the signal is correct. What that round did not account for is that the specific dormancy
 signal it hooked into fires only on transition moments and does not get replayed on
-reconnect. In practice, Ashley's tab spends most of its life connected to sessions that
+reconnect. In practice, Alice's tab spends most of its life connected to sessions that
 went dormant before the current WS connection was established (or since the last hydration),
 which means the frontend's local model of "is she asleep right now" defaults to false
-regardless of the truth. So the widened branch almost never triggers, and Ashley sees the
+regardless of the truth. So the widened branch almost never triggers, and Alice sees the
 same 20-second false-red as before. Diagnostic logs from a repro today (2026-09-06) show
 `dormant_at_arm=false` and `timeoutMs=20000` on sends to an agent the server knew perfectly
 well was dormant at that moment.
@@ -129,11 +129,11 @@ same dormant-send flow. Deliberately not being fixed by this work. Priority two,
 follow-up, needs instrumentation-then-repro first.
 
 There is another related concern — what happens if the frontend's connection to the server
-drops during the widened wait, does the pending survive reconnect. Ashley considers this
+drops during the widened wait, does the pending survive reconnect. Alice considers this
 rare enough that spending custom mechanism budget on it here is scope creep. Follow-up
 bounty only if it bites her in practice. Note: this is a distinct concern from the
 authoritative-signal issue above — this fix does need to handle the general case of
-"reconnect can happen between when the agent went dormant and when Ashley sends," but it
+"reconnect can happen between when the agent went dormant and when Alice sends," but it
 does not need to handle the case of "reconnect happens during the three-minute widened
 wait itself."
 
@@ -152,7 +152,7 @@ wait itself."
   case was never broken; if awake sends now spin for three minutes because the widening
   was applied uniformly instead of on the "asleep at send" latched fact, this work has
   traded one bug for another.
-- **If Ashley sends two messages in a row to a sleeping agent and they do not both
+- **If Alice sends two messages in a row to a sleeping agent and they do not both
   eventually arrive as real bubbles in the same order she sent them.** The multi-send-
   during-wake claim from the previous attempt must actually work.
 - **If a symmetric surface exists on the frontend that reads asleep-versus-awake state or
@@ -182,7 +182,7 @@ wait itself."
 - The duplicate real bubble bug. Priority two, sequenced follow-up, needs instrumentation-
   then-repro first.
 - Reconnect-during-the-widened-wait behavior. Rare enough scenario that custom mechanism
-  for it is scope creep. Follow-up bounty only if it bites Ashley in practice.
+  for it is scope creep. Follow-up bounty only if it bites Alice in practice.
 
 **Deferred:**
 - Any change to how the awake-case stopwatch works. It was never broken.

@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-07-18
 **Status:** Ready for planning
-**Source:** Design iterated in-turn with Ashley 2026-07-18. Reference mock built + refined live over 8 rounds of feedback. Design spec is the mock's Glass tab final state; iteration lessons captured below.
+**Source:** Design iterated in-turn with Alice 2026-07-18. Reference mock built + refined live over 8 rounds of feedback. Design spec is the mock's Glass tab final state; iteration lessons captured below.
 
 <domain>
 
@@ -42,7 +42,7 @@ This phase reskins **pretty view only** — the top-pane mode introduced by patc
 
 ## Design Spec — Reference Mock
 
-**Path:** `/home/ubuntu/.claude/identities/tina/bounties/pretty-view-visual-overhaul/mock/index.html` (Glass tab — final iterated state after 8 rounds of Ashley's feedback loop)
+**Path:** `/home/ubuntu/.claude/identities/tina/bounties/pretty-view-visual-overhaul/mock/index.html` (Glass tab — final iterated state after 8 rounds of Alice's feedback loop)
 
 **Served over tailnet at** `http://100.99.149.8:8090/` during development. Python http.server bound to tailscale interface only (invisible from public internet).
 
@@ -63,15 +63,15 @@ This phase reskins **pretty view only** — the top-pane mode introduced by patc
 9. **Lightest-touch textarea outline** — 1px warm-white border at ~9% opacity is the ONLY affordance that makes the textarea findable within its otherwise-blending compose surround. Focused textarea gets an identity-hue focus ring (thin ring + soft outer glow).
 10. **Send button glow** — retains a saturated identity-hue gradient bg + rim highlight + outer glow. THIS is the ONE intentional attention-grab-point in the compose area.
 
-**Iteration lessons that shaped the final mock** (each was a real dead-end that Ashley pushed back on — do NOT reintroduce):
+**Iteration lessons that shaped the final mock** (each was a real dead-end that Alice pushed back on — do NOT reintroduce):
 
-- **Round 3 dead-end**: Made the compose a raised card with bright top rim + drop shadow to distinguish it from panels. Ashley: "the compose shouldn't draw as much attention as it does because it's never something that I want to draw attention." Recovery: compose lost its card treatment entirely.
-- **Round 4 dead-end**: Bright brightness contrast + hard top-edge separators between message area / panels / compose. Ashley: "as much as it does improve the issue of them blending together, I like it less so." Recovery: switched to shadow-based separation, same visual language as bubbles above (subtle floating cards), not stepped chrome.
-- **Round 5 dead-end**: Near-black textarea (rgba(14,10,6,0.7)) with hard inset shadow — read as a "hole" not a "welcoming receptacle." Ashley: "textarea just a little brighter, we might hit the sweet spot." Recovery: warm mid-dark textarea with soft inset shadow.
-- **Round 6 dead-end**: Textarea then went too bright. Ashley wanted halfway. Final: mock's current textarea values (`rgba(31,24,16,0.625)` top / `rgba(42,33,22,0.485)` bottom) — halfway between "hole" and "loud field."
-- **Round 7 pivot**: Ashley: "actually want to go back to before on the Compose box... and just try a slight outline or box shadow or whatever on the text area itself. Lightest touch we can do." Final compose = blends into atmosphere (no card), textarea = plain `rgba(255,255,255,0.03)` bg with 1px warm-white 9% outline + focus ring on interaction.
+- **Round 3 dead-end**: Made the compose a raised card with bright top rim + drop shadow to distinguish it from panels. Alice: "the compose shouldn't draw as much attention as it does because it's never something that I want to draw attention." Recovery: compose lost its card treatment entirely.
+- **Round 4 dead-end**: Bright brightness contrast + hard top-edge separators between message area / panels / compose. Alice: "as much as it does improve the issue of them blending together, I like it less so." Recovery: switched to shadow-based separation, same visual language as bubbles above (subtle floating cards), not stepped chrome.
+- **Round 5 dead-end**: Near-black textarea (rgba(14,10,6,0.7)) with hard inset shadow — read as a "hole" not a "welcoming receptacle." Alice: "textarea just a little brighter, we might hit the sweet spot." Recovery: warm mid-dark textarea with soft inset shadow.
+- **Round 6 dead-end**: Textarea then went too bright. Alice wanted halfway. Final: mock's current textarea values (`rgba(31,24,16,0.625)` top / `rgba(42,33,22,0.485)` bottom) — halfway between "hole" and "loud field."
+- **Round 7 pivot**: Alice: "actually want to go back to before on the Compose box... and just try a slight outline or box shadow or whatever on the text area itself. Lightest touch we can do." Final compose = blends into atmosphere (no card), textarea = plain `rgba(255,255,255,0.03)` bg with 1px warm-white 9% outline + focus ring on interaction.
 
-**Final attention-hierarchy that Ashley signed off on:**
+**Final attention-hierarchy that Alice signed off on:**
 1. Chat bubbles = loud primary (full depth treatment, backdrop blur, multi-layer shadows)
 2. Ambient panels + compose surround = quiet ambient (subtle floating card / blends into atmosphere)
 3. Identity badge = grounding anchor (bigger + breathing glow, always present but not shouting — pill-shape corner card)
@@ -141,9 +141,9 @@ Planner should identify all Terminal.tsx touches upfront and call them out in PL
 
 ### 5. Deploy discipline
 
-Ashley's blanket "ship it harder than drarry" (2026-07-18) authorized code work through build. Deploy is a SEPARATE green-light per fleet-standing rule (`BLANKET PRE-AUTHORIZATION ≠ PER-DEPLOY GREEN LIGHT`, patch #35 lesson in tina.md).
+Alice's blanket "ship it harder than drarry" (2026-07-18) authorized code work through build. Deploy is a SEPARATE green-light per fleet-standing rule (`BLANKET PRE-AUTHORIZATION ≠ PER-DEPLOY GREEN LIGHT`, patch #35 lesson in tina.md).
 
-Phase 4 execution ends at: **"committed to `feat/tab-title-from-tmux`, build clean, ready for Ashley's distinct deploy green-light."** The 15-min mandatory deadman + force-recreate cycle from AGENTS.md deploy runbook runs at deploy time, not during execution.
+Phase 4 execution ends at: **"committed to `feat/tab-title-from-tmux`, build clean, ready for Alice's distinct deploy green-light."** The 15-min mandatory deadman + force-recreate cycle from AGENTS.md deploy runbook runs at deploy time, not during execution.
 
 If Phase 3's undeployed patches (currently queued in bounty `pending-patch-batch-post-60`) are still undeployed when Phase 4 finishes, they batch together for one deploy. If Phase 3 has already been deployed by then, Phase 4 deploys standalone.
 
@@ -151,7 +151,7 @@ If Phase 3's undeployed patches (currently queued in bounty `pending-patch-batch
 
 ### 6. UAT criteria (planner writes into the final plan's Nyquist section)
 
-Ashley UAT-tests visually, not via metrics. UAT probes:
+Alice UAT-tests visually, not via metrics. UAT probes:
 - Open pretty view on tina pane → sees amber color chain (user bubbles, ctx bar, send, focus ring)
 - Open pretty view on a different-hue identity's pane (e.g. bella if she has a colorHue set, or use SQL to set one temporarily) → color chain shifts to that hue
 - Open pretty view on an identity with NO colorHue → sees neutral fallback, does not visually break
@@ -219,6 +219,6 @@ Ashley UAT-tests visually, not via metrics. UAT probes:
 - **IdentityBadge reference**: `src/ui/features/terminal/IdentityBadge.tsx` (patch #17 initial + patch #38 hover-fade)
 - **Tailwind v4 setup reference**: `src/ui/index.css` (patches #47/#48 for typography + Inter font import)
 - **Existing pretty-view components (reskin targets)**: `src/ui/features/pretty-view/*` — patches #43, #44, #45, #47, #48, #50, #51, #52, #57, #61, #63, #66, #67, #68
-- **Ashley's iteration bounty (feedback trail)**: `/home/ubuntu/.claude/identities/tina/bounties/pretty-view-visual-overhaul/`
+- **Alice's iteration bounty (feedback trail)**: `/home/ubuntu/.claude/identities/tina/bounties/pretty-view-visual-overhaul/`
 
 </references>

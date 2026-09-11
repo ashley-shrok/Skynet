@@ -50,7 +50,7 @@ Two-stage build verbatim from R&D findings-summary L82-87:
 1. `FROM caddy:2-builder AS builder` — `RUN xcaddy build --with github.com/caddy-dns/route53`
 2. `FROM caddy:2` — `COPY --from=builder /usr/bin/caddy /usr/bin/caddy`
 
-Provenance-comment header cites D-19, the cross-account AssumeRole topology (t1000 `termix-ssm-role` in Aither → personal `<caddy-route53-role>` in Ashley's AWS), and the R&D verification checkpoint (`caddy list-modules | grep dns.providers.route53` — verified 2026-09-05).
+Provenance-comment header cites D-19, the cross-account AssumeRole topology (t1000 `termix-ssm-role` in Aither → personal `<caddy-route53-role>` in Alice's AWS), and the R&D verification checkpoint (`caddy list-modules | grep dns.providers.route53` — verified 2026-09-05).
 
 ### Task 2 — `docker/docker-compose.yml` caddy service (commit `85daa4d5`)
 
@@ -71,7 +71,7 @@ Deploy-time artifact under `.planning/phases/103-…/`. Two site blocks:
 2. **`serve.term.example.com`** — bare subdomain, `redir https://term.example.com{uri} permanent` (D-20 accidental-paste UX).
 
 Leading comment documents:
-- D-24 single-deploy motion + on-host append instruction (Ashley appends this to `/opt/skynet/Caddyfile` at ship time — deployed Caddyfile lives on-host, not in-repo)
+- D-24 single-deploy motion + on-host append instruction (Alice appends this to `/opt/skynet/Caddyfile` at ship time — deployed Caddyfile lives on-host, not in-repo)
 - D-22 HSTS mirror requirement (mirror the exact directive from the existing `term.example.com` block when appending)
 - D-21 intentional absence of ACME-CA pin
 
@@ -110,7 +110,7 @@ Leading comment documents:
 - **Issue:** The plan's `<verify>` block calls for `docker build -f docker/Caddy.Dockerfile -t skynet-caddy:local . && docker run --rm --entrypoint /usr/bin/caddy skynet-caddy:local list-modules | grep -q '^dns.providers.route53'`. The `ubuntu` user in this executor sandbox is not in the `docker` group (`ls -la /var/run/docker.sock` → `root:docker`; `groups` → no `docker`), so `docker build` fails with `permission denied while trying to connect to the docker API`.
 - **Why acceptable:** R&D findings-summary L108-113 already end-to-end verified this exact 4-line recipe on 2026-09-05 — `caddy list-modules | grep route53 → dns.providers.route53 present`, Caddy v2.11.4 confirmed, sample Caddyfile with the wildcard block validated cleanly, wildcard cert issued end-to-end for `*.test-scratch.example.com` via DNS-01. The Dockerfile is byte-identical to the R&D-verified recipe.
 - **Files modified:** none (verification only — Dockerfile content unchanged from planned shape)
-- **Follow-up:** Ship-time docker build (Ashley's `docker compose up -d --build caddy` motion during the D-24 deploy) will re-verify the module list. Not blocking for plan completion — the static acceptance criteria all pass, and the R&D proof stands.
+- **Follow-up:** Ship-time docker build (Alice's `docker compose up -d --build caddy` motion during the D-24 deploy) will re-verify the module list. Not blocking for plan completion — the static acceptance criteria all pass, and the R&D proof stands.
 - **Commit:** N/A (verification deferral only)
 
 ### 2. [Rule 1 — Bug: false-positive grep] Task 3 HSTS-comment reword to avoid literal `acme_ca` substring

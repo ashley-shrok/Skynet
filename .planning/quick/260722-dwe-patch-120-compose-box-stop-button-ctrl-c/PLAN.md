@@ -157,7 +157,7 @@ byte-identical.
     when the prop is absent (matches the `{showPaperclip && (...)}`
     pattern used one button up at line 1059).
   - Reuse the exact same className stack that ThumbsUp uses (lines
-    1096-1105 — the warm-neutral Glass treatment). Rationale: Ashley
+    1096-1105 — the warm-neutral Glass treatment). Rationale: Alice
     approved "extra button next to the thumbs-up button" — visually
     grouping Stop with ThumbsUp under the same quiet Glass treatment
     makes them read as a peer pair rather than making Stop compete with
@@ -196,7 +196,7 @@ byte-identical.
     ws.send(JSON.stringify({ type: "interrupt" }));
   }}
   ```
-- Do NOT add any state, no toast, no error UI. Ashley's spec: "either
+- Do NOT add any state, no toast, no error UI. Alice's spec: "either
   works or we find out on the batch deploy after #121/#122" — fire and
   forget matches the safety-valve framing.
 
@@ -238,7 +238,7 @@ byte-identical.
      `type: "interrupt"` string in the callback body.
 4. **DO NOT test in the browser — no deploy this batch.** Runtime
    verification is deferred to the batch deploy after patches #121/#122.
-   The button either works or Ashley UATs it post-deploy.
+   The button either works or Alice UATs it post-deploy.
 
 ## Non-goals
 

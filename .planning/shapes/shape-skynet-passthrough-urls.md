@@ -85,14 +85,14 @@ The edit-in-bubble affordance's specific flow is worth calling out because it's 
 
 ## Vehicle notes
 
-**R&D spike first (this session).** Because phase 2 has real infrastructure unknowns (origin-isolation via wildcard subdomain + TLS + DNS-provider integration, reverse-proxy behavior with WebSockets and modern frontends, SSH tunnel machinery patterns), focused R&D happens BEFORE either phase's plan lands. Ashley's direction: take runway, don't optimize for efficiency, pressure-test until things actually work under real conditions. Findings inform both phase plans and land in bounty `skynet-passthrough-urls-rd` under the box-maintainer role's bounty pool. Concrete questions to answer:
+**R&D spike first (this session).** Because phase 2 has real infrastructure unknowns (origin-isolation via wildcard subdomain + TLS + DNS-provider integration, reverse-proxy behavior with WebSockets and modern frontends, SSH tunnel machinery patterns), focused R&D happens BEFORE either phase's plan lands. Alice's direction: take runway, don't optimize for efficiency, pressure-test until things actually work under real conditions. Findings inform both phase plans and land in bounty `skynet-passthrough-urls-rd` under the box-maintainer role's bounty pool. Concrete questions to answer:
 
 1. **Wildcard TLS + subdomain routing end-to-end.** What DNS provider does `example.com` sit on? Does Caddy have a plugin for it? Can we issue a wildcard cert and route wildcards to Skynet's backend on a test subdomain without disrupting production? What secrets/config additions does the Caddy setup need?
 2. **Reverse-proxy + WebSocket + real frontends.** Pick a Node reverse-proxy approach; stand up a POC; pressure-test with a Vite dev server (does hot-reload survive?), a WebSocket-heavy app, an SSE stream, a POST-heavy API, cookie flows, static assets served at absolute paths. Find the gotchas before phase 2 commits.
 3. **SSH tunnel machinery in Skynet's existing SSH stack.** How does the current SSH usage layer for tunnels vs terminal sessions? Persistent tunnels vs per-request? Connection pooling? Cleanup lifecycle? Any pattern to reuse.
 4. **Origin-isolation alternatives sanity check.** Confirm wildcard subdomain is the right approach vs any less-heavy alternative (path prefix with response rewriting, per-app base-path config, etc.) — not by argument but by trying the failure modes and confirming they're actually bad.
 
-Ashley offered to hook this up with the Aither VPC team if AWS/DNS resources need to be created for testing.
+Alice offered to hook this up with the Aither VPC team if AWS/DNS resources need to be created for testing.
 
 **Then, two GSD phases run sequentially:**
 
@@ -106,7 +106,7 @@ Ship discipline as normal: coord room announces, source pulled and rebased befor
 
 Handoff: this shape file is at `.planning/shapes/shape-skynet-passthrough-urls.md`. R&D findings live in bounty `skynet-passthrough-urls-rd`. Both phases reference this shape; `/close skynet-passthrough-urls` at the end of phase 2 verifies the built result against this agreement. If R&D or phase 1 discovers something that changes the shape, come back to this file and update it before proceeding — the shape governs.
 
-## Phase 2 locked decisions — from `/open` discussion 2026-09-10 (tabitha + Ashley)
+## Phase 2 locked decisions — from `/open` discussion 2026-09-10 (tabitha + Alice)
 
 Post-R&D `/open` session on 2026-09-10 pressure-tested and locked the following Phase 2 design decisions. These are LOCKED and seed the CONTEXT.md for Phase 2's `/gsd:discuss-phase`.
 

@@ -10,7 +10,7 @@ import { sshLogger } from "../utils/logger.js";
  * WHY THIS EXISTS
  * ─────────────────────────────────────────────────────────────────────
  * The tmux capture-pane scrape path (parseContextPct in
- * context-pct-parser.ts) becomes unreliable on Ashley's mobile PWA when
+ * context-pct-parser.ts) becomes unreliable on Alice's mobile PWA when
  * the browser collapses the pane to ~2 chars wide — the statusline pct
  * chars survive but the AND-anchored bar glyphs (█/░) get truncated so
  * parseContextPct returns null and the pretty-view meter freezes on the
@@ -28,7 +28,7 @@ import { sshLogger } from "../utils/logger.js";
  *
  * MODEL WINDOW
  * ─────────────────────────────────────────────────────────────────────
- * 2026-08-08 Ashley lock: every model in the harness is 1M-token window.
+ * 2026-08-08 Alice lock: every model in the harness is 1M-token window.
  * We do NOT read CLAUDE_CODE_AUTO_COMPACT_WINDOW here — that's the hook's
  * concern; the helper stays on the fleet default.
  *
@@ -65,16 +65,16 @@ const MODEL_CONTEXT_WINDOW = 1_000_000;
 //
 // WHY 512 KB CEILING (not "just keep expanding")
 // ─────────────────────────────────────────────────────────────────────
-// Over-a-few-MB JSONLs are already unusual (Ashley's fleet median is
+// Over-a-few-MB JSONLs are already unusual (Alice's fleet median is
 // well under 1 MB); the pathological case (>512 KB tail with no
 // assistant usage turn) is a genuine bug in Claude Code write patterns
 // worth surfacing via the `no_asst_usage` warn rather than expanding
-// the tail infinitely. If Ashley later reports 512 KB isn't enough,
+// the tail infinitely. If Alice later reports 512 KB isn't enough,
 // bump the top of the schedule — do NOT add another expansion step.
 //
 // EMPIRICAL BACKGROUND
 // ─────────────────────────────────────────────────────────────────────
-// 2026-08-30 Ashley UAT verified 4-for-4: for 3 of 4 dormant identities
+// 2026-08-30 Alice UAT verified 4-for-4: for 3 of 4 dormant identities
 // (Terry 1.16 MB / Pixie 1.29 MB / Holly 2.27 MB JSONLs), the previous
 // fixed 10 KB tail contained ZERO assistant usage turns → helper
 // returned null → context_pct frame never emitted → meter stayed blank.
@@ -151,7 +151,7 @@ function reverseScanForAssistantUsageSum(tailOutput: string): number | null {
  * LOUD NULL-RETURN (quick-260830-f1e)
  * ─────────────────────────────────────────────────────────────────────
  * Emits one `sshLogger.warn` per distinguishable null-return path (
- * exec_fail / empty_tail / no_asst_usage / exec_throw) so Ashley can
+ * exec_fail / empty_tail / no_asst_usage / exec_throw) so Alice can
  * grep and correlate the blank-meter class next session. Meta always
  * carries `sessionFileBasename` (basename only — no full path, mirrors
  * the T-32-05 mitigation shape used by adjacent code; the JSONL's

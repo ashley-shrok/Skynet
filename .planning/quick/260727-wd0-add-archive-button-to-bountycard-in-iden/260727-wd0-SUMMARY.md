@@ -38,7 +38,7 @@ key-files:
 decisions:
   - "TERMINAL_BOUNTY_STATUSES defined LOCALLY in identity-artifact-reader.ts (adjacent to BOUNTY_STATUS_VALUES) rather than imported from ui/api — deliberate asymmetry from v0b's BOUNTY_STATUS_VALUES pattern, keeps backend writer self-contained. Any future addition to the status enum should prompt an explicit decision about terminal membership here."
   - "Sequencing (JSON patch → mkdir -p → mv) is load-bearing per Nelly's fleet audit — a mid-crash between patch and mv leaves durable JSON at the OLD path (retry re-patches idempotently; timeline gains a duplicate entry — acceptable, better than half-moved). tmp+rename at the CURRENT (open) path only; archive/ never sees a .tmp file."
-  - "Archive button threaded to OPEN BountyCard render sites only (the single OPEN_STATUS_ORDER map covers in_progress + rest + other with one addition). Deliberately NOT threaded to sortedArchive.map — cards already under archive/ don't get the button; unarchive is a separate follow-up quick per Ashley's UX call."
+  - "Archive button threaded to OPEN BountyCard render sites only (the single OPEN_STATUS_ORDER map covers in_progress + rest + other with one addition). Deliberately NOT threaded to sortedArchive.map — cards already under archive/ don't get the button; unarchive is a separate follow-up quick per Alice's UX call."
   - "Client payload has NO status field. Server decides next status internally (flip live→done, preserve done/dropped). One less validation surface than v0b's status handler; also prevents the `dropped→done` clobber bug that would have surfaced if the client naively sent `status: done` for every archive click."
 metrics:
   duration: ~15min
@@ -47,7 +47,7 @@ metrics:
 
 # Quick 260727-wd0: Add Archive Button to BountyCard in the Identity Modal Summary
 
-Adds an Archive button to the expanded body of BountyCard (below Status + Priority rows) for cards in the three OPEN partitions (in_progress / rest / other) inside the identity modal Bounties tab. Ashley can now archive a live-status or terminal-status bounty with one click from the modal — the server atomically patches bounty.json (flipping live→done, preserving done/dropped), then moves `bounties/<slug>/` under `bounties/archive/<slug>/` (mkdir -p archive/ if absent). First WRITE surface on bounty archival — sibling of v0b on the archive axis.
+Adds an Archive button to the expanded body of BountyCard (below Status + Priority rows) for cards in the three OPEN partitions (in_progress / rest / other) inside the identity modal Bounties tab. Alice can now archive a live-status or terminal-status bounty with one click from the modal — the server atomically patches bounty.json (flipping live→done, preserving done/dropped), then moves `bounties/<slug>/` under `bounties/archive/<slug>/` (mkdir -p archive/ if absent). First WRITE surface on bounty archival — sibling of v0b on the archive axis.
 
 ## What Was Built
 
@@ -78,7 +78,7 @@ Adds an Archive button to the expanded body of BountyCard (below Status + Priori
 - Files: exactly the 6 in `files_modified` (5 modified + 1 new test file)
 - Diff: 6 files changed, 541 insertions(+), 2 deletions(-)
 
-**Post-commit report: committed on branch feat/tab-title-from-tmux at 3362d6f; NOT pushed, NOT built (image), NOT deployed. Awaiting Ashley's ship signal.**
+**Post-commit report: committed on branch feat/tab-title-from-tmux at 3362d6f; NOT pushed, NOT built (image), NOT deployed. Awaiting Alice's ship signal.**
 
 ## Deviations from Plan
 

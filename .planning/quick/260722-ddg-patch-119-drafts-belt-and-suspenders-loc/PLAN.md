@@ -13,7 +13,7 @@ status: planned
 
 ## Task Summary
 
-Compose-box and message-queue drafts vanish when the Skynet container recreates on deploy, even though the 400ms debounced saves reach SQLite. Ashley (maintainer) explicitly authorized a "sync irresponsibly, personal tool max ~20 sessions" belt-and-suspenders: mirror every keystroke to `localStorage` in both surfaces, hydrate from `localStorage` on mount when the server returns an empty body, and emit a one-line `console.warn` on save and load so the next post-restart repro reveals whether the server or the load-key is at fault. No debounce, no root-cause fix, no deploy — Ashley is stacking bounties for a batch deploy later.
+Compose-box and message-queue drafts vanish when the Skynet container recreates on deploy, even though the 400ms debounced saves reach SQLite. Alice (maintainer) explicitly authorized a "sync irresponsibly, personal tool max ~20 sessions" belt-and-suspenders: mirror every keystroke to `localStorage` in both surfaces, hydrate from `localStorage` on mount when the server returns an empty body, and emit a one-line `console.warn` on save and load so the next post-restart repro reveals whether the server or the load-key is at fault. No debounce, no root-cause fix, no deploy — Alice is stacking bounties for a batch deploy later.
 
 ## Files to modify
 
@@ -340,7 +340,7 @@ Plain file edit — NOT a git commit, NOT in the repo.
 
 - Bump the header patch count from **118 → 119**.
 - Add a full entry for **#119**:
-  - **Motivation:** compose-box and message-queue drafts vanish after Skynet container restart (20+ min old drafts confirmed lost). Debounced 400ms server writes DO reach SQLite; the failure is somewhere between save and post-restart load (suspected: `(userId, hostId, tmuxSession)` load-key mismatch, but root cause not diagnosed). Ashley auth'd "sync irresponsibly" client-side belt-and-suspenders.
+  - **Motivation:** compose-box and message-queue drafts vanish after Skynet container restart (20+ min old drafts confirmed lost). Debounced 400ms server writes DO reach SQLite; the failure is somewhere between save and post-restart load (suspected: `(userId, hostId, tmuxSession)` load-key mismatch, but root cause not diagnosed). Alice auth'd "sync irresponsibly" client-side belt-and-suspenders.
   - **Fix summary:** localStorage mirror in both compose and message-queue surfaces. Every keystroke and every successful debounced save writes to `localStorage`. On mount, if the server returns empty but ls has content, restore from ls and schedule a debounced save so the server catches up. Two `console.warn` diagnostic lines per surface (save + load) reveal the actual `serverLen` vs `lsLen` next repro.
   - **Files touched:** `src/ui/features/pretty-view/ComposeBox.tsx`, `src/ui/features/terminal/MessageQueueDrawer.tsx`.
   - **Rebase risk:** MEDIUM. Both files are heavily patched (60+ patches on ComposeBox). Changes are additive and localized but sit right on top of the debounce/hydrate machinery. Comment WHY (draft-loss belt-and-suspenders, patch #119) at each insertion site so upstream conflicts are self-explanatory.

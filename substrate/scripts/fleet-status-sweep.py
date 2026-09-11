@@ -341,7 +341,7 @@ _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1F]")
 
 
 def _is_real_user_turn(raw_line):
-    """Return (True, ts_ms) if raw_line is a real Ashley user turn, else (False, None).
+    """Return (True, ts_ms) if raw_line is a real Alice user turn, else (False, None).
 
     Verbatim port of the 7-step predicate in ssh-poll-orchestrator.ts
     L432–L472. Numbering below matches the TS steps 1..7 (plus the timestamp

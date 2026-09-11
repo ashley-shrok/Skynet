@@ -213,7 +213,7 @@ export function getOrCreateProxyForTarget(
       // the audit anomaly branch WILL fire with `outOfAllowlist:
       // ["sec-websocket-extensions"]` on every WS upgrade — this is
       // expected and documents at the log level that the fix is
-      // engaged. Ashley's dashboard filter can suppress
+      // engaged. Alice's dashboard filter can suppress
       // sec-websocket-extensions specifically (or the anomaly signal
       // proves the fix is running).
       proxyReqWs: (proxyReq) => {

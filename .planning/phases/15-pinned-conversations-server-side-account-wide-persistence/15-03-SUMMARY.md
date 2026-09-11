@@ -16,7 +16,7 @@ dependency_graph:
     - "Silent try/catch on GET failure — pinnedIds stays as-is; next remount refetches"
     - "One new integration test (Test 21) asserting the mount → fetch → hydrate round-trip"
   affects:
-    - "End-to-end pin persistence: Ashley's pin now survives tab/PWA close and syncs across devices on next mount (pending deploy)"
+    - "End-to-end pin persistence: Alice's pin now survives tab/PWA close and syncs across devices on next mount (pending deploy)"
 tech_stack:
   added: []
   patterns:
@@ -45,16 +45,16 @@ metrics:
 
 # Phase 15 Plan 3: Panel mount-effect + integration test (Wave 3 frontend) Summary
 
-Landed the read-side plumbing for Phase 15: on `PrettyConversationsPanel` mount, an async `useEffect` fires `getPinnedIds()` (Wave 2 api-client) and, on success, calls `hydratePinnedIdsFromServer(ids)` (Wave 2 store setter). This completes the end-to-end round-trip — Wave 1 backend + Wave 2 store + Wave 3 panel = Ashley's pins now survive tab/PWA close and sync across devices on next mount (pending deploy). One new integration test (Test 21) asserts the mount → fetch → hydrate wiring.
+Landed the read-side plumbing for Phase 15: on `PrettyConversationsPanel` mount, an async `useEffect` fires `getPinnedIds()` (Wave 2 api-client) and, on success, calls `hydratePinnedIdsFromServer(ids)` (Wave 2 store setter). This completes the end-to-end round-trip — Wave 1 backend + Wave 2 store + Wave 3 panel = Alice's pins now survive tab/PWA close and sync across devices on next mount (pending deploy). One new integration test (Test 21) asserts the mount → fetch → hydrate wiring.
 
-**Human-verify checkpoint (Task 2) — pending.** Per plan §autonomous:false, the executor lands the code + integration test and stops. Ashley (or the dev operator) runs the 4-step UAT below to unblock the phase completion.
+**Human-verify checkpoint (Task 2) — pending.** Per plan §autonomous:false, the executor lands the code + integration test and stops. Alice (or the dev operator) runs the 4-step UAT below to unblock the phase completion.
 
 ## Performance
 
 - **Duration:** ~10 min
 - **Started:** 2026-07-27T13:55:00Z
 - **Completed (code):** 2026-07-27T14:00:00Z
-- **Tasks:** 1 code task complete (Task 1); Task 2 is a human-verify checkpoint awaiting Ashley
+- **Tasks:** 1 code task complete (Task 1); Task 2 is a human-verify checkpoint awaiting Alice
 - **Files created:** 0
 - **Files modified:** 2
 
@@ -135,15 +135,15 @@ None encountered. The vi.mock intercepts the axios layer entirely; no real auth 
 
 ## Handoff note for the deploy-orchestrator
 
-This phase's patches batch with the pending **f9v + BTW + gm3 deploy queue** on `feat/tab-title-from-tmux` (currently three-deep per 15-CONTEXT.md § Bundle-mate discipline) OR ship as a solo deploy IF the pin-bug severity triggers #3 ("actively broken in production Ashley is hitting") — decision made at deploy-recommendation time by Ashley.
+This phase's patches batch with the pending **f9v + BTW + gm3 deploy queue** on `feat/tab-title-from-tmux` (currently three-deep per 15-CONTEXT.md § Bundle-mate discipline) OR ship as a solo deploy IF the pin-bug severity triggers #3 ("actively broken in production Alice is hitting") — decision made at deploy-recommendation time by Alice.
 
 Standard pre-warn applies: `HTTP2_PROTOCOL_ERROR` on first hard-refresh after deploy; close+reopen the tab spawns a fresh H2 connection.
 
 The phase does NOT trigger a database migration on boot beyond what Wave 1 already added (the `addColumnIfNotExists("user_preferences", "pinned_conversation_ids", "TEXT")` migration is idempotent on existing volumes and picked up on fresh volumes via `CREATE TABLE IF NOT EXISTS`).
 
-## UAT steps for Ashley (Task 2 human-verify — VERBATIM from plan)
+## UAT steps for Alice (Task 2 human-verify — VERBATIM from plan)
 
-Verify in a running dev Skynet instance (localhost or ashley's dev environment — Ashley picks). The deploy to term.example.com is intentionally NOT part of this phase — deploy is a separate step batched into the pending f9v + BTW + gm3 deploy queue per CONTEXT.md § Bundle-mate discipline.
+Verify in a running dev Skynet instance (localhost or alice's dev environment — Alice picks). The deploy to term.example.com is intentionally NOT part of this phase — deploy is a separate step batched into the pending f9v + BTW + gm3 deploy queue per CONTEXT.md § Bundle-mate discipline.
 
 ### Step 1 — Backend contract check
 
@@ -197,11 +197,11 @@ Type "approved" if all four steps pass. If a step fails, describe the specific s
 
 ## Human-verify checkpoint status
 
-**PENDING.** Task 2 (checkpoint:human-verify, gate="blocking") awaits Ashley (or dev operator) to run the 4-step UAT above and reply with "approved" or a wave-attributed failure description.
+**PENDING.** Task 2 (checkpoint:human-verify, gate="blocking") awaits Alice (or dev operator) to run the 4-step UAT above and reply with "approved" or a wave-attributed failure description.
 
-The executor has landed the code + integration test per plan §autonomous:false and returns control to the orchestrator for Ashley's verification step.
+The executor has landed the code + integration test per plan §autonomous:false and returns control to the orchestrator for Alice's verification step.
 
 ---
 *Phase: 15-pinned-conversations-server-side-account-wide-persistence*
 *Wave 3 code landed: 2026-07-27*
-*Human-verify checkpoint: pending Ashley approval*
+*Human-verify checkpoint: pending Alice approval*

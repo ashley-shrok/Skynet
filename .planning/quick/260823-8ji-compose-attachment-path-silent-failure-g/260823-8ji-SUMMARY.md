@@ -36,7 +36,7 @@ tags:
 Widen `startBatch` / `retryBatch` to surface a per-batch `Promise<BatchOutcome>` + 30 s
 timeout; rewrite `ComposeBox` `handleSend`'s attachment branch (`ComposeBox.tsx:1317-1327`)
 to await that outcome and preserve the textarea + attachment chips on failure/timeout/ws-drop
-so Ashley never loses a compose draft to a silent-clear again (bug hit 4× on 2026-08-23
+so Alice never loses a compose draft to a silent-clear again (bug hit 4× on 2026-08-23
 across wanda + nelly).
 
 ## Change surface
@@ -135,7 +135,7 @@ Zero failures, +9 tests over baseline (5 new outcome tests on use-pretty-view-up
 
 `npx tsc --noEmit` also exits clean.
 
-### Cross-reference to prior Ashley-approved quicks on this branch
+### Cross-reference to prior user-approved quicks on this branch
 
 Prior quicks on `feat/tab-title-from-tmux` (recent-to-older):
 - `260821-suv` (iPad long-press swipe useIsTouchDevice pointer) — commit `827d759d` docs, `d110ab51` GREEN, `4f4e94f2` RED, `2b40dc28` backfill.
@@ -172,7 +172,7 @@ Minor executor judgment calls (all pre-authorized by the plan's "Executor's judg
 - [x] 7. Four atomic commits (RED/GREEN × 2) on `feat/tab-title-from-tmux`. No `--no-verify`, not pushed, not deployed.
 - [x] 8. `grep -rn 'quick-260823-8ji' src/ui/features/pretty-view/` → 4 hits.
 - [x] 9. `grep -n 'onSendWithAttachments(' src/ui/features/pretty-view/ComposeBox.tsx | grep -v 'await'` → 0 non-await call sites.
-- [x] 10. Ashley UX invariant: compose state preserved on failure; retry without re-typing/re-attaching. Locked by T2/T3/T4 attachment-outcome-gating tests.
+- [x] 10. Alice UX invariant: compose state preserved on failure; retry without re-typing/re-attaching. Locked by T2/T3/T4 attachment-outcome-gating tests.
 
 ## Self-Check: PASSED
 

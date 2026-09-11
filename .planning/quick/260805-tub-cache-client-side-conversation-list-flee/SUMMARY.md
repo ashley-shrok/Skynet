@@ -29,4 +29,4 @@ Key is versioned: `skynet:convo-fleet-cache:v1`. If the `FleetSession` shape eve
 
 ## Ship path
 
-Standard session pattern per Ashley 2026-08-05: commit + push + build + recreate inline. Container recreate happens after code + docs commit lands.
+Standard session pattern per Alice 2026-08-05: commit + push + build + recreate inline. Container recreate happens after code + docs commit lands.

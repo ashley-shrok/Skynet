@@ -46,7 +46,7 @@ must_haves:
 <objective>
 Move the Paperclip attach button from Row 1's aux-button group to inside the Row 2 textarea wrapper on the LEFT side, mirroring the Send button's inside-textarea pattern (bare `<button>` at absolute right-1 bottom-0.5) that Send uses on the RIGHT. Also reserve `pl-10` on the Textarea when the Paperclip is visible, and add a regression-guard test.
 
-Purpose: Ashley's next pinned bounty (`move-attach-button-left-of-textarea`). Puts the attach affordance directly next to the composition surface where files will end up, mirroring the Send button's inside-textarea treatment so both compose-primary actions share the same visual pattern.
+Purpose: Alice's next pinned bounty (`move-attach-button-left-of-textarea`). Puts the attach affordance directly next to the composition surface where files will end up, mirroring the Send button's inside-textarea treatment so both compose-primary actions share the same visual pattern.
 
 Output: A single atomic commit touching ComposeBox.tsx (remove + add + padding) and ComposeBox.test.tsx (new Test 4b regression guard). No push, no build, no deploy.
 </objective>
@@ -84,7 +84,7 @@ Output: A single atomic commit touching ComposeBox.tsx (remove + add + padding) 
       - Locate the textarea wrapper `<div className="relative flex-1 self-stretch">` at ~L1605.
       - Insert the new Paperclip button as a sibling of the Send `<button>` at ~L1773 (INSIDE the same wrapper, before the `{showRecordingControls ? ... : ...}` conditional OR immediately after the existing pending-overlay block — both are inside the same wrapper and either placement is fine; recommend adding it just before the Send button's containing `{showRecordingControls ? ...}` block so the JSX order reads: pending overlay → Paperclip → send/recording slot).
       - Use a bare `<button type="button">`, NOT the shadcn `Button` component, to sidestep the wrapper-specificity trap called out in patch #129's comment.
-      - Include a short leading comment: "Quick 260730-vtk: Paperclip attach button moved from Row 1 aux group to here per Ashley 2026-07-30. Mirrors Send's inside-textarea pattern on the LEFT (Send is right-1 bottom-0.5; Paperclip is left-1 bottom-0.5). Bare <button> not shadcn Button — same reason as Send (#129 wrapper-specificity trap). aria-label / title / onClick preserved verbatim from the old aux-group Paperclip so Tests 3/4/5 keep passing."
+      - Include a short leading comment: "Quick 260730-vtk: Paperclip attach button moved from Row 1 aux group to here per Alice 2026-07-30. Mirrors Send's inside-textarea pattern on the LEFT (Send is right-1 bottom-0.5; Paperclip is left-1 bottom-0.5). Bare <button> not shadcn Button — same reason as Send (#129 wrapper-specificity trap). aria-label / title / onClick preserved verbatim from the old aux-group Paperclip so Tests 3/4/5 keep passing."
       - Gate on `{showPaperclip && ( ... )}` — unchanged `showPaperclip` prop semantics per the prop doc-comment at ~L184-189.
       - Attributes on the new `<button>`:
         - `type="button"`

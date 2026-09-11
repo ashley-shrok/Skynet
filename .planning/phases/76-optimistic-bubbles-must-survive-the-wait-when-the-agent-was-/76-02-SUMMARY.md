@@ -95,10 +95,10 @@ const bubbleInlineStyle: React.CSSProperties = showFailedBubble
 
 Also rewrote the comment block (lines 389-408) to document:
 - Phase 76 Plan 02 D-06 semantic upgrade rationale
-- Ashley 2026-09-06 verbatim intent
+- Alice 2026-09-06 verbatim intent
 - Why `background` shorthand (not `backgroundColor`) is critical for defeating the gradient
 
-## Exact CSS Tuple Shipped (Ashley's End-of-Phase UAT Reference)
+## Exact CSS Tuple Shipped (Alice's End-of-Phase UAT Reference)
 
 | Property | Value (source code) | jsdom normalized |
 |----------|--------------------|----|
@@ -107,7 +107,7 @@ Also rewrote the comment block (lines 389-408) to document:
 
 **Visual result:** The entire bubble surface is a dark saturated red (hue=0deg, lightness=35%, 90% opaque). The base `linear-gradient(160deg, rgba(45,55,80,0.55), rgba(28,35,55,0.6))` blue-gray gradient is completely replaced — not tinted over — because `background` shorthand overrides `background-image` via CSS specificity.
 
-**Ashley UAT note:** End-of-phase UAT (bundled into orchestrator's post-ship UAT per `human_verify_mode: end-of-phase`). Force-fail a bubble via DevTools console delivering `paste_send_failed` frame OR wait for natural dormant-wake failure. Confirm the failed bubble reads as WHOLE-BUBBLE RED — the entire bubble surface is saturated red, NOT "blue-gray gradient with a red outline."
+**Alice UAT note:** End-of-phase UAT (bundled into orchestrator's post-ship UAT per `human_verify_mode: end-of-phase`). Force-fail a bubble via DevTools console delivering `paste_send_failed` frame OR wait for natural dormant-wake failure. Confirm the failed bubble reads as WHOLE-BUBBLE RED — the entire bubble surface is saturated red, NOT "blue-gray gradient with a red outline."
 
 ## TDD Evidence
 

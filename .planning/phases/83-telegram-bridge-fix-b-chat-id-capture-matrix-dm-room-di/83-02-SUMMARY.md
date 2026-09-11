@@ -80,7 +80,7 @@ export async function getSharedDMRoom(
 - **`/rooms/{id}/members` returns both `members` array AND a `total` number.** We prefer `total` for the count check (single-key comparison) and fall back to `members.length` if `total` is absent. This makes the primitive resilient to admin-API version drift where `total` might not be emitted on older Synapse versions. Sanity: on Synapse 1.115+ (the version thenasty runs, per Phase 77 verification), both fields are always present on the `/members` endpoint.
 - **The `/rooms/{id}` endpoint DOES also return `joined_local_members` count** (CONTEXT § 3.4 suggested it as an alternative). We chose `/rooms/{id}/members` instead because:
   1. `/rooms/{id}` returns `joined_local_members` — Nina-era rooms sometimes have remote members from the old federated topology, which would break the "exactly 2 members" check. `/members` returns ALL joined members regardless of homeserver.
-  2. For Ashley + agent DM rooms specifically (single homeserver, no federation from thenasty), the two counts would be identical. But defensive programming: use the endpoint that isn't semantically ambiguous.
+  2. For Alice + agent DM rooms specifically (single homeserver, no federation from thenasty), the two counts would be identical. But defensive programming: use the endpoint that isn't semantically ambiguous.
 - **`joined_rooms` array of raw room_ids.** No pagination for `/users/{mxid}/joined_rooms` in Synapse admin API — the response is a single JSON with the full array. T-83-02-04 documented the accept-decision: for our fleet (single-digit users, tens of rooms), no paging needed. Threshold for adding pagination: when any user's joined_rooms > ~500.
 
 ## Deviations from Plan

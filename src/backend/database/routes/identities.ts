@@ -262,7 +262,7 @@ export function publicIdentity(
 // or whose disk fetch fails (unreachable / missing / malformed), come back
 // with SAFE-DEFAULT cosmetics for that row (publicIdentity emits
 // capitalizeFirst(identityKey) + null-nullables + ""-for-non-null-strings).
-// The endpoint NEVER errors 5xx due to a per-row fetch failure — Ashley
+// The endpoint NEVER errors 5xx due to a per-row fetch failure — Alice
 // greenlit "accept the ugly render" per the shape file.
 //
 // Plan 05 (wave 3) rewires the frontend caller to pass a populated
@@ -916,7 +916,7 @@ router.get(
       // (identifies the resource version) even though `no-store` below tells
       // the browser not to cache the bytes at all. Every render on every
       // viewer reaches the identity's home for the current bytes, matching
-      // Ashley's intent stated at /close 2026-09-01.
+      // Alice's intent stated at /close 2026-09-01.
       const etag = `"disk-${createHash("md5").update(readResult.bytes).digest("hex")}"`;
       const ifNoneMatch = req.headers["if-none-match"];
       if (ifNoneMatch && ifNoneMatch === etag) {

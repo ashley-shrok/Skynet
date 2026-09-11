@@ -297,7 +297,7 @@ sshLogger.info("pretty-view proxy: ok", {
 - Emit via `systemLogger.info("serve-url header audit", { operation: "serve_url_header_audit", target, headers: proxyReq.getHeaderNames() })`.
 - ADDITIONALLY, on ANY header not in the allowlist appearing on outbound: emit at `warn` level with `operation: "serve_url_header_anomaly"`. This is the "second layer of defense" per D-06.
 
-**Alert wiring**: distributor + fleet-status log pipeline already surfaces `warn`-level entries (grep for `fleet_substrate_item_failed` handling as precedent — logs surface via the existing console-forward-transport chain to Ashley's dashboard).
+**Alert wiring**: distributor + fleet-status log pipeline already surfaces `warn`-level entries (grep for `fleet_substrate_item_failed` handling as precedent — logs surface via the existing console-forward-transport chain to Alice's dashboard).
 
 ---
 
@@ -365,7 +365,7 @@ COPY --from=builder /usr/bin/caddy /usr/bin/caddy
 **Docker-compose update** (`docker/docker-compose.yml:77-87`, currently `image: caddy:2`):
 Change to `build: { context: ., dockerfile: docker/Caddy.Dockerfile }` OR keep image reference and add a separate `docker build -t skynet-caddy:local -f docker/Caddy.Dockerfile .` step in the deploy motion. Planner picks. Existing volumes stay: `${SKYNET_HOST_DIR:-/opt/skynet}/Caddyfile:/etc/caddy/Caddyfile:ro`.
 
-**AWS SDK config (per R&D findings-summary L282-292):** Additional volume mount `~/.aws/config:/root/.aws/config:ro` and env `AWS_PROFILE=caddy`, `AWS_REGION=us-east-1`. Ashley-side host `.aws/config` contents:
+**AWS SDK config (per R&D findings-summary L282-292):** Additional volume mount `~/.aws/config:/root/.aws/config:ro` and env `AWS_PROFILE=caddy`, `AWS_REGION=us-east-1`. user-side host `.aws/config` contents:
 ```
 [profile caddy]
 role_arn = arn:aws:iam::<personal-aws-account>:role/<caddy-route53-role>
@@ -716,7 +716,7 @@ Per D-17: owned-only lookup. The `resolveHostByName` implementation filters `and
 
 | File | Role | Data Flow | Reason |
 |---|---|---|---|
-| `/opt/skynet/Caddyfile` (deployed only) | config | — | Deployed-config file, not in-repo. Only `docker/docker-compose.yml:85` references its mount path. Planner writes the wildcard site block + bare-redirect block AS AN ARTIFACT under phase directory (e.g. `Caddyfile.serve-url-additions.snippet`) for Ashley to append to `/opt/skynet/Caddyfile` during the deploy motion. R&D findings-summary L91-104 shows the exact block shape. |
+| `/opt/skynet/Caddyfile` (deployed only) | config | — | Deployed-config file, not in-repo. Only `docker/docker-compose.yml:85` references its mount path. Planner writes the wildcard site block + bare-redirect block AS AN ARTIFACT under phase directory (e.g. `Caddyfile.serve-url-additions.snippet`) for Alice to append to `/opt/skynet/Caddyfile` during the deploy motion. R&D findings-summary L91-104 shows the exact block shape. |
 
 ---
 

@@ -34,7 +34,7 @@ key-decisions:
   - "Tuck depth locked at -8px (`-mt-2`) — the prototype's exact value, and dead-center of D-13's 6-10px executor-discretion band. No fine-tune needed."
   - "z-index expressed via inline `style={{ zIndex: 1 }}` rather than Tailwind's `z-[1]` arbitrary-value class — inline style is unambiguous about the exact numeric layering intent (pill implicit ≥ 2 via drop-shadow context, drawer explicitly 1)."
   - "`mt-1` on the appendage was REMOVED (not preserved alongside the drawer's -mt-2) — its 4px spacer role is replaced by the drawer's negative-margin + padding-top geometry, matching prototype semantics exactly."
-  - "Task 2 human-verify APPROVED AS-IS by Ashley (thumbs up) at the code level — byte-for-byte prototype match was accepted without live-browser tuck-depth adjustment. Live rendering deferred to phase-end deploy per standard fleet pattern; if tuck reads differently on real DOM, adjustment happens at `/close` time."
+  - "Task 2 human-verify APPROVED AS-IS by Alice (thumbs up) at the code level — byte-for-byte prototype match was accepted without live-browser tuck-depth adjustment. Live rendering deferred to phase-end deploy per standard fleet pattern; if tuck reads differently on real DOM, adjustment happens at `/close` time."
 
 patterns-established:
   - "Simple slotted drawer chrome (Variant A): wrapper carries the geometry (negative margin-top + padding-top + z-index below), inner element (the appendage) carries only its own semantics (data-role, flex layout, gap). Two-concern separation between 'how the container tucks' and 'what the container contains.'"
@@ -60,11 +60,11 @@ completed: 2026-09-10
 
 ## Accomplishments
 
-- **F-5 shipped:** the appendage below each agent's IdentityBadge in the relay case now reads visually as a drawer peeking from behind the pill, per Ashley's tasting decision (D-12 "simple slotted drawer" variant, 2026-09-10).
+- **F-5 shipped:** the appendage below each agent's IdentityBadge in the relay case now reads visually as a drawer peeking from behind the pill, per Alice's tasting decision (D-12 "simple slotted drawer" variant, 2026-09-10).
 - **Byte-for-byte prototype fidelity:** every Tailwind token in the drawer wrapper and the adjusted meter-well corner/border classes maps 1:1 to the prototype's CSS at meter-tasting.html L164-177.
 - **Meter internals preserved:** SEG_COUNT=12, band computation, reset button, gradient/shadow tokens — all byte-identical to pre-plan (T-97-04-01 threat mitigated per plan scope discipline).
 - **IdentityBadge untouched:** `git diff --name-only 50b82206~1 50b82206` shows only AgentBadgeWithMeter files (T-97-04-02 threat mitigated).
-- **Task 2 (checkpoint:human-verify) APPROVED AS-IS by Ashley** — code-level review of the byte-for-byte prototype match; no adjustment requested.
+- **Task 2 (checkpoint:human-verify) APPROVED AS-IS by Alice** — code-level review of the byte-for-byte prototype match; no adjustment requested.
 
 ## Task Commits
 
@@ -97,7 +97,7 @@ The prototype's pill drop-shadow (`0 8px 24px rgba(0,0,0,0.6)`, live at Identity
 - **Type-check:** `npx tsc --noEmit` clean project-wide.
 - **Grep gates (from Task 1 automated verify):** all 8 grep assertions passed — `data-drawer="true"` present, `-mt-2` present, `pt-[10px]` present, `zIndex: 1` present, `rounded-b-md` present, `border-t-0` present, `data-appendage="true"` count exactly 1 (no duplication), IdentityBadge diff empty.
 - **Meter internals byte-identity:** SEG_COUNT constant, reset button JSX, band computation function, gradient/shadow tokens — all unchanged (spot-checked via diff).
-- **Task 2 human-verify:** APPROVED AS-IS by Ashley (thumbs up, resume signal "approved") — Ashley reviewed the byte-for-byte prototype match at the code level and greenlit the current -8px tuck depth without adjustment. Live-browser tuck-depth verification is deferred to phase-end deploy per standard fleet pattern.
+- **Task 2 human-verify:** APPROVED AS-IS by Alice (thumbs up, resume signal "approved") — Alice reviewed the byte-for-byte prototype match at the code level and greenlit the current -8px tuck depth without adjustment. Live-browser tuck-depth verification is deferred to phase-end deploy per standard fleet pattern.
 
 ## Must-Haves Fulfilled
 
@@ -107,7 +107,7 @@ The prototype's pill drop-shadow (`0 8px 24px rgba(0,0,0,0.6)`, live at Identity
 
 ## Decisions Made
 
-- **Tuck depth locked at -8px:** the prototype's exact value, dead-center of D-13's 6-10px executor tolerance. No live-browser fine-tune executed because Ashley approved the byte-for-byte match at the code level; if the rendered tuck reads differently once deployed, adjustment happens at `/close`.
+- **Tuck depth locked at -8px:** the prototype's exact value, dead-center of D-13's 6-10px executor tolerance. No live-browser fine-tune executed because Alice approved the byte-for-byte match at the code level; if the rendered tuck reads differently once deployed, adjustment happens at `/close`.
 - **Inline `style={{ zIndex: 1 }}` rather than `z-[1]` Tailwind arbitrary-value:** unambiguous about the exact numeric layering intent, matches the prototype's declarative CSS directly, and avoids any concern about how Tailwind's z-index scale might map.
 - **`mt-1` on the appendage REMOVED, not layered with drawer -mt-2:** the drawer's negative-margin + padding-top geometry semantically replaces the 4px spacer. Keeping both would double-count and drift from the prototype.
 
@@ -117,7 +117,7 @@ None — plan executed exactly as written. Task 1 implemented Variant A byte-for
 
 ## Issues Encountered
 
-None. The pill-is-absolute-positioned-inside-its-parent-cell landmine called out in RESEARCH § Finding 5 did not manifest — the `-mt-2` on the drawer wrapper achieved the intended tuck at the code level (Ashley confirmed). The absolute-positioning fallback in the plan was not needed.
+None. The pill-is-absolute-positioned-inside-its-parent-cell landmine called out in RESEARCH § Finding 5 did not manifest — the `-mt-2` on the drawer wrapper achieved the intended tuck at the code level (Alice confirmed). The absolute-positioning fallback in the plan was not needed.
 
 ## User Setup Required
 
@@ -125,7 +125,7 @@ None — pure client-side CSS/JSX chrome change on a single component. No enviro
 
 ## Deferred Items
 
-- **Live-browser tuck-depth verification.** Ashley approved the code-level byte-for-byte prototype match. Actual rendered tuck depth on real DOM is verified at phase-end deploy per the standard fleet pattern; if the tuck reads differently on live surface than in the prototype (edge case: font-metric drift, browser-specific stacking-context resolution), adjustment happens at `/close` time. The plan already provides the tolerance band (D-13's 6-10px) for that fine-tune if needed.
+- **Live-browser tuck-depth verification.** Alice approved the code-level byte-for-byte prototype match. Actual rendered tuck depth on real DOM is verified at phase-end deploy per the standard fleet pattern; if the tuck reads differently on live surface than in the prototype (edge case: font-metric drift, browser-specific stacking-context resolution), adjustment happens at `/close` time. The plan already provides the tolerance band (D-13's 6-10px) for that fine-tune if needed.
 
 ## Next Phase Readiness
 

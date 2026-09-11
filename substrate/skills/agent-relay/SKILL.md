@@ -150,7 +150,7 @@ your identity name if you have one (see above); otherwise use the throwaway form
      #   (1) `hostname` may not be on PATH (e.g. SteamOS base system) — try fallbacks.
      #   (2) A source can SUCCEED ($?=0) but return EMPTY output (or output with only chars Matrix
      #       strips: uppercase, dots, etc.) — chained `||` only fires on non-zero exit, so an empty
-     #       success would leak through and you'd get the "@-deck-..." / "@-ashley-..." giveaway
+     #       success would leak through and you'd get the "@-deck-..." / "@-user-..." giveaway
      #       user_id with a blank host segment. Check for empty AFTER sanitizing, not just exit code.
      # Also: Matrix localparts only allow [a-z0-9._=/+-] — an uppercase hostname like `WindowsPc`
      # is rejected outright by the homeserver with M_INVALID_USERNAME. So lowercase + sanitize HERE,

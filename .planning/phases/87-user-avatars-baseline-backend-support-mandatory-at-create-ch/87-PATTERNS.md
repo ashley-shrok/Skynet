@@ -35,7 +35,7 @@
   // Phase 75 Plan 01 (Q3 locked decision) — mxid mapping for the Matrix
   // relay. Nullable: only humans with a registered relay account have one,
   // and it's populated via POST /users/:id/mxid (Plan 03) or the one-shot
-  // import for Ashley/Zoe/Laura. Not a credential; agents' relay identifiers
+  // import for Alice/Zoe/Laura. Not a credential; agents' relay identifiers
   // live on-disk in ~/.claude/identities/<name>/relay.json per fleet convention.
   mxid: text("mxid"),
 ```

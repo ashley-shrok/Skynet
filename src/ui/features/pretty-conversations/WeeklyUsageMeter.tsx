@@ -1,9 +1,9 @@
 // ─── WeeklyUsageMeter ─────────────────────────────────────────────────────────
-// Single-bar fill+tick meter (Ashley 2026-07-29 pick — B variant from the
+// Single-bar fill+tick meter (Alice 2026-07-29 pick — B variant from the
 // tune-meter picker). Two rows (5h + Week), each showing:
 //   full-height coral usage fill (width = data.X.used_percentage %)
 //   thin cyan tick at the elapsed-time position (left = elapsedPct %)
-// No numeric percentage text — bars alone communicate progress (Ashley
+// No numeric percentage text — bars alone communicate progress (Alice
 // 2026-07-29, bounty `remove-percentages-on-5h-weekly-meters`).
 //
 // Polling: fetch('/api/usage') immediately on mount, then every 15s.
@@ -74,7 +74,7 @@ function elapsedPct(resetsAt: number, windowS: number): number {
 /**
  * Format seconds as a compact `Xd Yh Zm` duration string, dropping
  * leading zero units. Never returns empty — clamped to `0m` at/below 0.
- * Used for the bar hover tooltip so Ashley can see exactly how much
+ * Used for the bar hover tooltip so Alice can see exactly how much
  * time is left in the window (the cyan tick indicates elapsed position
  * visually; this puts a number on the remainder). 2026-08-18.
  */
@@ -154,7 +154,7 @@ function MeterRow({
   secondsUntilReset: number;
 }) {
   const bandStyle = BAND_FILL_STYLE[bandFor(usagePct)];
-  // Native title hover — pairs with the visual tick so Ashley can read the
+  // Native title hover — pairs with the visual tick so Alice can read the
   // exact remaining time instead of eyeballing the gap. Refreshes each
   // 15s poll, so displayed value is within 15s of real (fine at m-precision).
   const title = `Resets in ${formatDurationRemaining(secondsUntilReset)}`;

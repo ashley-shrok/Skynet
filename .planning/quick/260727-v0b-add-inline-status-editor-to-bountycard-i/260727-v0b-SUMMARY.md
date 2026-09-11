@@ -34,7 +34,7 @@ decisions:
   - "BOUNTY_STATUS_VALUES defined LOCALLY in identity-artifact-reader.ts (mirrors how BOUNTY_PRIORITY_VALUES is defined locally there) rather than imported from ui/api — keeps backend writer self-contained. UI-side has its own parallel BOUNTY_STATUS_VALUES const in claude-session-api.ts. Both must stay in sync (no compile-time cross-check because the module boundary crosses bundling contexts)."
   - "Threaded onStatusChange to all 4 BountyCard render sites INCLUDING the Archive Accordion — deliberate divergence from patch #154 (which skipped `other` + archive for priority). Status IS meaningful on closed bounties per the resurrect flow."
   - "Writer patches bounty.json IN PLACE regardless of new status — folder-move between bounties/<slug>/ and bounties/archive/<slug>/ is DELIBERATELY out of scope (id skill handles archive population on its own cadence)."
-  - "Status pills use their STATUS_CLASSES color for the INACTIVE state (per Ashley's ask: 'no glyph — just label + color'); ACTIVE pill still gets the pressed white-ring treatment so it reads as selected against the colored row."
+  - "Status pills use their STATUS_CLASSES color for the INACTIVE state (per Alice's ask: 'no glyph — just label + color'); ACTIVE pill still gets the pressed white-ring treatment so it reads as selected against the colored row."
 metrics:
   duration: ~10min
   completed_date: 2026-07-27
@@ -42,7 +42,7 @@ metrics:
 
 # Quick 260727-v0b: Add Inline Status Editor to BountyCard Summary
 
-Adds a StatusRow inline editor to BountyCard's expanded body — the parallel of patch #154's PriorityRow, applied to `bounty.status`. Ashley can now click a pill in the identity modal to flip a bounty between the 5 status values (pinned / in_progress / waiting_on_someone_else / done / dropped) without hand-editing bounty.json, and can resurrect a done/dropped/archived bounty by clicking `pinned` or `in_progress` on it. Server patches bounty.json in place — folder is NOT moved.
+Adds a StatusRow inline editor to BountyCard's expanded body — the parallel of patch #154's PriorityRow, applied to `bounty.status`. Alice can now click a pill in the identity modal to flip a bounty between the 5 status values (pinned / in_progress / waiting_on_someone_else / done / dropped) without hand-editing bounty.json, and can resurrect a done/dropped/archived bounty by clicking `pinned` or `in_progress` on it. Server patches bounty.json in place — folder is NOT moved.
 
 ## What Was Built
 
@@ -73,7 +73,7 @@ Note on the plan's expected 3-hit distribution for `identity:update-bounty-statu
 - Branch: **feat/tab-title-from-tmux**
 - Files: exactly the 6 in `files_modified` (5 modified + 1 new test file)
 
-**Post-commit report: committed on branch feat/tab-title-from-tmux at 4de8f14; NOT pushed, NOT built (image), NOT deployed. Awaiting Ashley's ship signal.**
+**Post-commit report: committed on branch feat/tab-title-from-tmux at 4de8f14; NOT pushed, NOT built (image), NOT deployed. Awaiting Alice's ship signal.**
 
 ## Deviations from Plan
 

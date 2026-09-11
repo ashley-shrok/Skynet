@@ -55,7 +55,7 @@ metrics:
 
 ## Task 2 Status: UAT Checkpoint (Pending)
 
-Task 2 is a `type="checkpoint:human-verify"` requiring Ashley's live verification post-deploy. It cannot be executed as code. The 11-step UAT checklist from the plan covers:
+Task 2 is a `type="checkpoint:human-verify"` requiring Alice's live verification post-deploy. It cannot be executed as code. The 11-step UAT checklist from the plan covers:
 - MoreVertical button visible (no separate pencil/new-role buttons)
 - Menu opens with 3 items in correct order
 - Escape + click-outside dismiss
@@ -65,7 +65,7 @@ Task 2 is a `type="checkpoint:human-verify"` requiring Ashley's live verificatio
 - File tab load + Save + 409 conflict path
 - Filter button and pinned rows unchanged
 
-**Resume signal:** Ashley types "approved" after all 11 checks pass.
+**Resume signal:** Alice types "approved" after all 11 checks pass.
 
 ## What Was Built
 

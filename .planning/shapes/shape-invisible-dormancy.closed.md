@@ -88,7 +88,7 @@ list, mounted when the backend reports the pane state as dormant. Three variants
 "asleep" (Moon glyph + Wake button), "waking" (Moon + progress bar filling over ~90s,
 no button), "error" (warm-red variant with retry). The overlay was intentionally
 redesigned in mid-August from an earlier full-surface scrim to an in-flow bubble
-specifically so prior message history would stay readable while asleep. Ashley has
+specifically so prior message history would stay readable while asleep. Alice has
 never used the Wake button as an escape hatch when things got stuck — the button's
 only real role has been "the way to un-sleep this session so I can talk to it."
 
@@ -173,7 +173,7 @@ frontend.
 - The existing Matrix-DM and scheduled-wake triggers — they already work invisibly and
   keep doing so.
 - Any escape-hatch UI in pretty view for "session is stuck" — the tmux terminal view
-  behind pretty view is the escape hatch for that case, and Ashley doesn't use the
+  behind pretty view is the escape hatch for that case, and Alice doesn't use the
   current wake button for escape today.
 - Debug/observability UI surfaces. Backend logs stay as-is; no new user-facing telemetry.
 

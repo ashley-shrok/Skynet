@@ -1,6 +1,6 @@
 # Phase 41 UAT Checklist — Defer Terminal Mount Until User Summons It
 
-**Target:** Ashley
+**Target:** Alice
 **Timing:** After `docker compose up -d --force-recreate skynet` completes, HTTPS 200 verified, PWA hard-refreshed.
 **URL:** https://term.example.com
 **Estimated duration:** ~15 minutes (10 items, items 1-8 fast, items 9-10 involve a send + console check).
@@ -104,7 +104,7 @@ Each of the 10 items verifies exactly one LOCKED decision class from `41-CONTEXT
 
 - **Cross-reference:** CONTEXT.md `Send path` (established prior — Phase 35 patch #435; refs hoisted correctly in Phase 41-02's IdentitySessionPane wrapper)
 - **Setup:** With an identity pane open in PrettyView mode, open the message queue drawer (the existing keyboard shortcut or touch affordance — unchanged from pre-Phase-41). If you have queued messages, send one. If not, type a brief message in the ComposeBox and send it.
-- **Expected observable:** The message reaches the agent. It appears as an Ashley turn in the conversation stream (or the queued message drains to the agent). The send path (pvSendInputRef / pvSendInterruptRef, now owned by IdentitySessionPane wrapper instead of Terminal.tsx) works correctly.
+- **Expected observable:** The message reaches the agent. It appears as an Alice turn in the conversation stream (or the queued message drains to the agent). The send path (pvSendInputRef / pvSendInterruptRef, now owned by IdentitySessionPane wrapper instead of Terminal.tsx) works correctly.
 - **Fail signal:** Send button does nothing. Or the message appears to send (ComposeBox clears) but the agent doesn't receive it (pvSendInputRef ref is not wired — the wrapper failed to hoist it correctly). Or the MessageQueueDrawer fails to open.
 
 ---
@@ -187,7 +187,7 @@ If something breaks, the RESEARCH.md §9 hot areas are:
 - [ ] Item 12 — Upload survives Terminal summon mid-flight (Plan 41-04)
 - [ ] Item 13 — Upload survives toggle-back-to-PrettyView with Terminal torn down (Plan 41-04)
 
-Sign-off (Ashley): __________ Date: __________
+Sign-off (Alice): __________ Date: __________
 
 ---
 

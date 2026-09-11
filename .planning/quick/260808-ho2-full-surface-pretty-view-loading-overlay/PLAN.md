@@ -24,9 +24,9 @@ preservation_constraints:
 must_haves:
   truths:
     - "Tapping a conversation-list row that swaps pretty-view to a fresh (cold) pane shows a full-surface loading overlay (spinner over scrim) within one paint frame — no perceptible silent window."
-    - "The loading overlay covers messages / tasks / shells but does NOT cover ComposeBox (Ashley can pre-draft during the boot window; patch #275 anchor)."
+    - "The loading overlay covers messages / tasks / shells but does NOT cover ComposeBox (Alice can pre-draft during the boot window; patch #275 anchor)."
     - "The loading overlay dismisses the moment the first user-visible WS frame arrives (message / image / relay_* / context_pct / harness_tasks / session)."
-    - "The loading overlay dismisses automatically after ~10s if no frame arrives (stuck-state fallback; silent dismiss, no error variant per Ashley)."
+    - "The loading overlay dismisses automatically after ~10s if no frame arrives (stuck-state fallback; silent dismiss, no error variant per Alice)."
     - "The loading overlay does NOT render for a warm re-focus (hidden→visible on the same paneKey, e.g. patch #344 hidden-pane pause resume) — the WS re-open is fast and needs no affordance."
     - "The loading overlay does NOT render when the dormant overlay OR session-holding overlay is up (mutual exclusion: Dormancy > Holding > Loading)."
     - "SessionHoldingOverlay.tsx and DormancyOverlay.tsx are byte-untouched. Both continue to work exactly as before."
@@ -60,7 +60,7 @@ must_haves:
 <objective>
 Add a full-surface loading overlay to pretty-view that covers the ~5s window between a fresh pane mount (typically triggered by tapping a conversation-list row) and the first user-visible WS frame arriving. Blocks stray taps, provides feedback that the switch registered, and preserves ComposeBox pre-draft.
 
-Purpose: eliminate the silent-window UX bug — Ashley taps a conversation row, the row lights up but pretty-view sits blank for 5s while it mounts + fetches + does its WS handshake, so she re-taps and double-fires. Ashley verbatim ask: "just doing like a full screen overlay with like a spinner to block everything else from being touched and let you know that it's going would be good."
+Purpose: eliminate the silent-window UX bug — Alice taps a conversation row, the row lights up but pretty-view sits blank for 5s while it mounts + fetches + does its WS handshake, so she re-taps and double-fires. Alice verbatim ask: "just doing like a full screen overlay with like a spinner to block everything else from being touched and let you know that it's going would be good."
 
 Output:
   - `src/ui/features/pretty-view/PrettyViewLoadingOverlay.tsx` — new stateless component (spinner over scrim; sibling to SessionHoldingOverlay/DormancyOverlay).
@@ -70,9 +70,9 @@ Output:
 
 Design decisions locked (with justifications; reference the orchestrator prompt's 6 gate items):
   1. **ARM site — PrettyView-local, on the fresh-pane paneKey-change reset block.** Reuses the existing cold-vs-warm gate at lines 636-662 (which already distinguishes `paneKey !== paneKeyRef.current` from a retryKey-triggered re-run). Fresh pane = paneKey changed = cold mount → arm. Retry re-run (same pane, warm WS reopen) = paneKey unchanged = do NOT arm. This is the exact signal the orchestrator prompt asked for — no new `useRef<boolean>` sentinel needed; the existing `paneKeyRef` already carries it. Panel and row code stays untouched.
-  2. **DISMISS trigger — first user-visible WS frame at the top of `onmessage`.** Mirrors the DormancyOverlay dismiss pattern (currently lines 700-722): the frame set `{message, image, relay_inbound, relay_outbound, context_pct, harness_tasks, session}` fires `setIsBooting(false)` alongside the existing `setDormant(false)` logic. Uses `isBootingRef` to avoid stale-closure inside the WS onmessage handler (pattern mirrors `dormantRef` and `isVisibleRef` — same rationale documented in comments at lines 544-549). Do NOT dismiss on `ws.onopen` alone — Ashley's complaint is specifically about the pre-first-frame window.
-  3. **Minimum hold time — NONE. Arm INSTANTLY.** Contrast with SessionHoldingOverlay's 350ms delay-arm (patch #74): that pattern avoids flashing for genuinely-instant recycles. Here the opposite tradeoff applies — Ashley's complaint is silence during any perceptible latency, so the flash on a fast mount is on the good side. `setIsBooting(true)` happens synchronously inside the paneKey-change reset block, right next to `setStatus("connecting")`.
-  4. **Timeout — 10s auto-dismiss, silent.** No error variant per Ashley's ask. Contrast with SessionHoldingOverlay's 300000ms (patch #127 5-min watchdog): that's for a genuinely-long recycle; here loading is expected to be sub-5s and a stuck load past 10s is a bug that the underlying `status === "inactive"` / `status === "error"` state should show through instead of a false-loading scrim. `console.info("[pv-loading-overlay] 10s timeout dismiss")` for future diagnosis (no console-forwarder import needed — plain console call, consistent with other diagnostic logs already in PrettyView).
+  2. **DISMISS trigger — first user-visible WS frame at the top of `onmessage`.** Mirrors the DormancyOverlay dismiss pattern (currently lines 700-722): the frame set `{message, image, relay_inbound, relay_outbound, context_pct, harness_tasks, session}` fires `setIsBooting(false)` alongside the existing `setDormant(false)` logic. Uses `isBootingRef` to avoid stale-closure inside the WS onmessage handler (pattern mirrors `dormantRef` and `isVisibleRef` — same rationale documented in comments at lines 544-549). Do NOT dismiss on `ws.onopen` alone — Alice's complaint is specifically about the pre-first-frame window.
+  3. **Minimum hold time — NONE. Arm INSTANTLY.** Contrast with SessionHoldingOverlay's 350ms delay-arm (patch #74): that pattern avoids flashing for genuinely-instant recycles. Here the opposite tradeoff applies — Alice's complaint is silence during any perceptible latency, so the flash on a fast mount is on the good side. `setIsBooting(true)` happens synchronously inside the paneKey-change reset block, right next to `setStatus("connecting")`.
+  4. **Timeout — 10s auto-dismiss, silent.** No error variant per Alice's ask. Contrast with SessionHoldingOverlay's 300000ms (patch #127 5-min watchdog): that's for a genuinely-long recycle; here loading is expected to be sub-5s and a stuck load past 10s is a bug that the underlying `status === "inactive"` / `status === "error"` state should show through instead of a false-loading scrim. `console.info("[pv-loading-overlay] 10s timeout dismiss")` for future diagnosis (no console-forwarder import needed — plain console call, consistent with other diagnostic logs already in PrettyView).
   5. **Mutual exclusion — Dormancy > Holding > Loading.** Encoded as `showLoadingOverlay = isBooting && !dormant && !showOverlay` (where `showOverlay` is the existing patch #74 SessionHoldingOverlay gate). Dormant wins because loading is meaningless without an alive session. Holding wins because a recycle IS a loading state, just a distinct kind. Loading only renders when neither of the other two is active AND the arm gate is true. No z-index conflict — all three siblings share z-[99] (same as existing pair) and mutual exclusion is enforced at the mount gate, not stacking order.
   6. **Warm re-focus — no arm.** Handled naturally by decision #1: the WS-pause visibility effect (lines 1154-1187) closes/reopens the WS on isVisible flip via `setRetryKey(k => k + 1)`, which triggers the main WS-setup effect with `paneKey === paneKeyRef.current` — the reset block is skipped and `isBooting` stays false. No additional guard needed; the existing architecture already draws the cold-vs-warm boundary at the right place.
 
@@ -126,7 +126,7 @@ Patch history reference (for design lineage — the executor is not expected to 
       - Test 1: renders `role="status"` element with `aria-label="Loading conversation…"`.
       - Test 2: renders `<Loader2>` SVG (query by class `.animate-spin` on the SVG) — asserts the spinner is present AND is spinning.
       - Test 3: renders the copy `Loading…` inside the glass card.
-      - Test 4 (scrim class-list invariants — REGRESSION-GUARD for the iOS hardening + interaction-blocking classes): the `role="status"` element's className string CONTAINS each of: `absolute`, `inset-0`, `z-[99]`, `pointer-events-auto`, `bg-black/40`, `backdrop-blur-md`, `animate-in`, `isolate`, `[transform:translateZ(0)]`. This is the most important test in the file — it locks the iOS backdrop-filter mitigation (patch #333) and the interaction-blocking behavior (Ashley's ask).
+      - Test 4 (scrim class-list invariants — REGRESSION-GUARD for the iOS hardening + interaction-blocking classes): the `role="status"` element's className string CONTAINS each of: `absolute`, `inset-0`, `z-[99]`, `pointer-events-auto`, `bg-black/40`, `backdrop-blur-md`, `animate-in`, `isolate`, `[transform:translateZ(0)]`. This is the most important test in the file — it locks the iOS backdrop-filter mitigation (patch #333) and the interaction-blocking behavior (Alice's ask).
       - Test 5 (motion-channel deviation regression-guard): the `<svg>` inside the glass card DOES carry `animate-spin` in its class list. Inverse of the SessionHoldingOverlay/DormancyOverlay static-glyph test — asserts the deviation is intentional and won't be silently "fixed" by a future refactor.
   </behavior>
   <action>
@@ -198,7 +198,7 @@ Patch history reference (for design lineage — the executor is not expected to 
       // If no user-visible frame arrives within 10s of arming, the pane is
       // genuinely stuck — the underlying status="inactive" / "error" state
       // should show through instead of a false-loading scrim. Silent dismiss,
-      // no error variant (per Ashley's ask — no cancel button, no error card).
+      // no error variant (per Alice's ask — no cancel button, no error card).
       // console.info for future diagnosis. Cleanup clears the timer on unmount
       // OR when isBooting flips back false via any path (first-live-frame
       // dismiss, fresh-pane remount, dormancy takeover — the isBooting deps
@@ -229,7 +229,7 @@ Patch history reference (for design lineage — the executor is not expected to 
           true. Shares z-[99] with the sibling overlays; mutual exclusion is
           enforced at the mount gate, not stacking order. Mount site is
           adjacent to the sibling overlays inside the chat-region wrapper so
-          ComposeBox (peer sibling below the wrapper) stays typeable — Ashley
+          ComposeBox (peer sibling below the wrapper) stays typeable — Alice
           can pre-draft during the boot window. */}
       {isBooting && !dormant && !showOverlay && <PrettyViewLoadingOverlay />}
       ```
@@ -325,7 +325,7 @@ Patch history reference (for design lineage — the executor is not expected to 
         Adds PrettyViewLoadingOverlay — a full-surface scrim + spinner covering the
         ~5s window between a fresh pane mount (typically triggered by tapping a
         conversation-list row) and the first user-visible WS frame arriving.
-        Fixes Ashley's silent-window UX bug (row lights up but pretty-view sits
+        Fixes Alice's silent-window UX bug (row lights up but pretty-view sits
         blank for 5s → she thinks the tap didn't register → re-taps → double-fires).
 
         Design (all six gate decisions locked in PLAN.md § Objective):
@@ -335,8 +335,8 @@ Patch history reference (for design lineage — the executor is not expected to 
              patch #345 pattern; same frame-type set: message / image / relay_* /
              context_pct / harness_tasks / session). NOT on ws.onopen alone.
           3. No minimum hold time — arm instantly. Flash on fast mount is fine
-             (Ashley's complaint is silence, not overlong loading UX).
-          4. 10s timeout auto-dismiss, silent (no error variant per Ashley's ask).
+             (Alice's complaint is silence, not overlong loading UX).
+          4. 10s timeout auto-dismiss, silent (no error variant per Alice's ask).
              Stuck load past 10s is a bug — let inactive/error state show through.
           5. Mutual exclusion Dormancy > Holding > Loading, enforced at the mount
              gate: showLoadingOverlay = isBooting && !dormant && !showOverlay.
@@ -413,7 +413,7 @@ Patch history reference (for design lineage — the executor is not expected to 
 | T-260808-ho2-01 | Denial-of-service | PrettyViewLoadingOverlay mount + timeout | mitigate | 10s timeout guarantees the overlay cannot stay up indefinitely even if the WS delivers zero frames. Cleanup on unmount (useEffect return) prevents orphaned timers. `setIsBooting(false)` on dormancy + holding transitions prevents ghost re-arms. |
 | T-260808-ho2-02 | Tampering | Malicious WS frame with unexpected discriminant | accept | New dismiss-block reads only `parsed.type`. Unknown discriminant → no dismiss → 10s timeout fires. Worst case: the overlay stays up 10s during a garbage-frame attack, no state corruption. Already-accepted risk in shared onmessage boundary. |
 | T-260808-ho2-03 | Elevation of privilege | Loading overlay masking a real security-critical dialog | accept | Loading overlay uses z-[99] (same as sibling overlays), sits BELOW IdentityBadge (z-[101]) and BELOW app-modal dialogs (z-[500]). Same z-band as SessionHoldingOverlay + DormancyOverlay — no new elevation risk introduced. Documented in the JSX mount-site comment. |
-| T-260808-ho2-04 | Repudiation | 10s timeout dismiss hides a genuine stuck state | accept | `console.info` log emitted on timeout dismiss (see Task 2 action). Stuck-state fallback intentionally silent (no error card per Ashley); underlying `status === "inactive"` / `"error"` render branches show through immediately after dismiss. |
+| T-260808-ho2-04 | Repudiation | 10s timeout dismiss hides a genuine stuck state | accept | `console.info` log emitted on timeout dismiss (see Task 2 action). Stuck-state fallback intentionally silent (no error card per Alice); underlying `status === "inactive"` / `"error"` render branches show through immediately after dismiss. |
 | T-260808-ho2-SC | Tampering | Supply chain (npm installs) | n/a | This quick installs NO new packages. All imports use packages already in package.json: `lucide-react` (Loader2), `@/lib/utils` (cn). Package Legitimacy Gate does not apply. |
 
 </threat_model>

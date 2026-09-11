@@ -76,7 +76,7 @@ Pretty-view palette (already resident as `--color-pv-*` tokens in `src/ui/index.
 | Dominant (60%) | `#141520` → `#0a0b12` (pretty-view atmospheric gradient — `--color-pv-base` / `--color-pv-base-end`) | Modal outer/backdrop, chat surface behind the affordance, message bubble background |
 | Secondary (30%) | `hsla(220, 45%, 25%, 0.82) → hsla(220, 40%, 15%, 0.88)` (blue-glass modal gradient — verbatim from `GlobalFilesModal.tsx` L210); `rgba(0,0,0,0.20)` textarea recessed well (from `GlobalFileTab.tsx` L90 `bg-black/20`) | Editor modal chrome, textarea well, chip backgrounds |
 | Accent (10%) | `hsla(var(--pv-id-hue), 80%, 60%, X)` (per-pane identity hue — dynamic CSS custom property; falls back to `220` when identity has no `colorHue`) | Save button fill (`0.2` alpha rest → `0.3` hover — from `GlobalFileTab.tsx` L101), textarea focus ring (`0.5` alpha — L90), per-link edit affordance hover-glow, active/pressed state on the affordance |
-| Warm-coral accent | `#ffb896` (`--color-pv-code-fg`) | The **edit affordance icon color at rest** — this is Ashley's warm-coral thread through pretty-view (used today for inline-code, error-state icons, speak button glyph). Reinforces "editable text belongs to Ashley's warm surface, not the agent's cool bubble." |
+| Warm-coral accent | `#ffb896` (`--color-pv-code-fg`) | The **edit affordance icon color at rest** — this is Alice's warm-coral thread through pretty-view (used today for inline-code, error-state icons, speak button glyph). Reinforces "editable text belongs to Alice's warm surface, not the agent's cool bubble." |
 | Destructive / error | `#f87171` (Tailwind `text-red-400`) inline; sonner toast uses its own destructive tint | Re-fetch-fail error message inside the modal empty-state; sonner error toast on network failure |
 | Foreground primary | `#e8e4d8` (`--color-pv-fg` — warm off-white) | Editor text, modal title, chip labels |
 | Foreground muted | `#a89a80` (`--color-pv-fg-muted`) | Modal secondary chrome ("editing {filename}"), affordance label at rest on desktop |
@@ -107,8 +107,8 @@ All copy is **verb-first, second-person-implicit** — the fleet's established v
 | Save CTA (post-save success state) | Modal closes; sonner success toast: `Attached {filename} to your reply` | Toast fires from the save handler, then modal closes. Sonner is the fleet's established convention (see `ShareIdentityPicker.tsx` L120). |
 | Loading state — during re-fetch at edit-open | Three stacked skeletons (verbatim from `GlobalFileTab.tsx` L58-66 loading branch) | No text — visual skeleton only. This is the reused pattern and doesn't need re-copywriting. |
 | Empty state — should never happen | (n/a) | The editor is only opened on an already-eligible link; no empty-file-list branch exists here. |
-| **Error state — re-fetch failure at edit-open (server auto-killed / network fail / etc.)** | Modal opens with a clear in-body error message replacing the textarea. Heading: `Can't fetch the current file.` Body: `The agent's temporary server may have shut down (they auto-kill after 30 minutes) or the network is unreachable. Ask the agent to re-share the file if you still want to edit it.` A single dismiss button: `Close`. Also fires a sonner error toast: `Couldn't fetch {filename} — see modal.` | This is the LOCKED "visible failure over silent maybe-stale" behavior. Modal opens (Ashley intended to edit), shows the error explicitly, gives her the concrete next step. Never silently uses detection-time cached bytes. |
-| Error state — save failure (network / permission / etc.) | Inline red text below the textarea (verbatim from `GlobalFileTab.tsx` L94: `<div className="text-sm text-red-400 px-1">{saveError}</div>`) with the actual error message. Save button re-enables. | Same pattern as Global Files modal save-fail — Ashley can retry or copy her draft out and close. |
+| **Error state — re-fetch failure at edit-open (server auto-killed / network fail / etc.)** | Modal opens with a clear in-body error message replacing the textarea. Heading: `Can't fetch the current file.` Body: `The agent's temporary server may have shut down (they auto-kill after 30 minutes) or the network is unreachable. Ask the agent to re-share the file if you still want to edit it.` A single dismiss button: `Close`. Also fires a sonner error toast: `Couldn't fetch {filename} — see modal.` | This is the LOCKED "visible failure over silent maybe-stale" behavior. Modal opens (Alice intended to edit), shows the error explicitly, gives her the concrete next step. Never silently uses detection-time cached bytes. |
+| Error state — save failure (network / permission / etc.) | Inline red text below the textarea (verbatim from `GlobalFileTab.tsx` L94: `<div className="text-sm text-red-400 px-1">{saveError}</div>`) with the actual error message. Save button re-enables. | Same pattern as Global Files modal save-fail — Alice can retry or copy her draft out and close. |
 | Destructive action — Cancel-with-unsaved-changes on modal close | `Discard unsaved changes?` (window.confirm) | Only fires if the draft differs from the initial fetched content. Matches the IDMEDIT-01 idiom (`window.confirm("Discard unsaved changes?")` per REQUIREMENTS.md IDMEDIT-01). Confirming closes; canceling keeps the modal open with draft intact. |
 
 **No destructive actions in the primary flow.** Save deposits an attachment (additive); ComposeBox's existing remove-chip affordance handles "changed my mind." The only destructive-flavored gate is the discard-draft confirm above, which uses the fleet's established `window.confirm` pattern.
@@ -160,7 +160,7 @@ Components this phase introduces or modifies, in the order the executor will tou
 - Save button disabled until `draft !== initialFetchedContent` (verbatim behavior from `GlobalFileTab.tsx` L100).
 - On save click: button label → `Saving…`, disabled state.
 - Save handler: deposit `{filename, content, mtime: now, ...}` into ComposeBox's staged attachments store; if successful, close modal + fire sonner success toast `Attached {filename} to your reply`; if failed (unlikely — this is client-side state), show inline red error below textarea and re-enable save.
-- Modal close focuses the ComposeBox textarea (so Ashley can immediately type her reply caption).
+- Modal close focuses the ComposeBox textarea (so Alice can immediately type her reply caption).
 
 ### Editor modal close (Cancel path)
 
@@ -172,7 +172,7 @@ Components this phase introduces or modifies, in the order the executor will tou
 
 - Detection-time cached bytes are used ONLY for the eligibility check. They are **never** served to the editor. This is a hard rule.
 - On edit-open, a fresh HTTP GET fires to the agent's tailnet URL.
-- On failure (network error, DNS fail, 404, 503, timeout > 8s): modal switches to the copywritten error state described above. No silent fallback. No cached-bytes reuse. Sonner error toast fires simultaneously so Ashley knows about the failure even if the modal is briefly obscured.
+- On failure (network error, DNS fail, 404, 503, timeout > 8s): modal switches to the copywritten error state described above. No silent fallback. No cached-bytes reuse. Sonner error toast fires simultaneously so Alice knows about the failure even if the modal is briefly obscured.
 
 ### Multi-file per message
 
@@ -198,9 +198,9 @@ Components this phase introduces or modifies, in the order the executor will tou
 
 The CONTEXT flagged three items as TBD-for-UI-SPEC. This document resolves them:
 
-1. **Exact visual form of the edit affordance on the link** → RESOLVED: bare `Pencil` glyph in warm-coral, hover-reveal on desktop (opacity 0 → 1 on message-bubble hover, `Edit` label appears on affordance hover), always-visible-at-72%-opacity on mobile (icon-only, 44×44px touch target). Rationale: mirrors the locked speak-button opacity/hover treatment on the same bubbles (`ChatMessage.tsx` L493-496), mirrors the `PinAction.tsx` bare-glyph-with-hue-drop-shadow idiom Ashley signed off on for Phase 13, and matches the fleet's established Pencil-as-edit convention (BountyCard, WakeupsTab, IdentityModal).
+1. **Exact visual form of the edit affordance on the link** → RESOLVED: bare `Pencil` glyph in warm-coral, hover-reveal on desktop (opacity 0 → 1 on message-bubble hover, `Edit` label appears on affordance hover), always-visible-at-72%-opacity on mobile (icon-only, 44×44px touch target). Rationale: mirrors the locked speak-button opacity/hover treatment on the same bubbles (`ChatMessage.tsx` L493-496), mirrors the `PinAction.tsx` bare-glyph-with-hue-drop-shadow idiom Alice signed off on for Phase 13, and matches the fleet's established Pencil-as-edit convention (BountyCard, WakeupsTab, IdentityModal).
 
-2. **Exact UI presentation of the re-fetch-fail error** → RESOLVED: modal opens with the loading skeletons, then swaps to a full-body error message with heading + explanatory body + `Close` button. Sonner error toast fires in parallel. Rationale: Ashley intended to edit (she tapped the affordance), so opening the modal-and-explaining is more honest than a bare toast that pretends nothing happened. The dual toast is defense-in-depth so the failure is visible even if the modal is somehow dismissed before she reads it. This matches "visible failure over silent maybe-stale" from the LOCKED shape decision.
+2. **Exact UI presentation of the re-fetch-fail error** → RESOLVED: modal opens with the loading skeletons, then swaps to a full-body error message with heading + explanatory body + `Close` button. Sonner error toast fires in parallel. Rationale: Alice intended to edit (she tapped the affordance), so opening the modal-and-explaining is more honest than a bare toast that pretends nothing happened. The dual toast is defense-in-depth so the failure is visible even if the modal is somehow dismissed before she reads it. This matches "visible failure over silent maybe-stale" from the LOCKED shape decision.
 
 3. **Platform parity (desktop vs mobile affordance)** → RESOLVED: **same component, viewport-branched visibility only**. Rationale: any structural difference (different icon, different position, different interaction model) would create a per-platform maintenance drag that the pretty-view surface has systematically avoided (see `useIsTouchDevice`-gated show/hide patterns in ComposeBox paperclip and AttachmentChipStrip — never different components). The single affordance's visibility (opacity + label) branches on `useIsTouchDevice()`; nothing else does.
 
@@ -208,7 +208,7 @@ The CONTEXT flagged three items as TBD-for-UI-SPEC. This document resolves them:
 
 ## Mobile-First Load-Bearing Checks
 
-Per Ashley's stated primary use case (iPhone PWA), each contract element has been checked against mobile constraints:
+Per Alice's stated primary use case (iPhone PWA), each contract element has been checked against mobile constraints:
 
 | Element | Mobile check |
 |---------|--------------|
@@ -217,7 +217,7 @@ Per Ashley's stated primary use case (iPhone PWA), each contract element has bee
 | Textarea | `min-h-[400px]` gives real editing room on iPhone 16 Pro Max; `resize-none` prevents iOS drag-handle chrome; `spellCheck={false}` (verbatim from `GlobalFileTab.tsx` L91) prevents iOS from mangling code |
 | Save button | Right-aligned, 32×~40px minimum via padding (`px-4 py-2`) — meets 44×44 on iOS with padding; identity-hue fill is the one attention-grab element per VISUAL-08 |
 | Discard-confirm | `window.confirm` renders as iOS native alert — accessible and familiar |
-| Sonner toast | Already responsive on iOS PWA (see IdentityModal usage, tested by Ashley at #223) |
+| Sonner toast | Already responsive on iOS PWA (see IdentityModal usage, tested by Alice at #223) |
 
 ---
 
@@ -250,4 +250,4 @@ Per Ashley's stated primary use case (iPhone PWA), each contract element has bee
 
 **Pre-populated:** 100% of design system, spacing, typography, color, and registry sections from existing codebase artifacts; 100% of scope + interaction decisions from CONTEXT/shape docs; the three DEFERRED items resolved by researcher applying established fleet idioms (documented above with rationale).
 
-**User input required:** none pre-write — every decision has either a LOCKED upstream source or a strong idiomatic default. Ashley's UI-checker pass or UAT is the natural moment to override any researcher-proposed default she disagrees with (particularly the three DEFERRED-resolved items).
+**User input required:** none pre-write — every decision has either a LOCKED upstream source or a strong idiomatic default. Alice's UI-checker pass or UAT is the natural moment to override any researcher-proposed default she disagrees with (particularly the three DEFERRED-resolved items).

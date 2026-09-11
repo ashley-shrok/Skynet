@@ -278,7 +278,7 @@ describe("readContextPctFromJsonl", () => {
   // ── quick-260830-f1e — iterative tail expansion + loud null-return ─────
   //
   // Empirical root cause of blank context meter on dormant identities with
-  // large JSONLs (Ashley UAT 2026-08-30): fixed 10 KB tail misses last
+  // large JSONLs (Alice UAT 2026-08-30): fixed 10 KB tail misses last
   // assistant usage turn when recent activity is dominated by tool_results
   // / long user messages / /exit echoes. Verified 4-for-4 on workstation
   // (Terry 1.16 MB, Pixie 1.29 MB, Holly 2.27 MB all had ZERO usage turns

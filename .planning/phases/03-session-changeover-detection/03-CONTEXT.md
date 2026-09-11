@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-07-18
 **Status:** Ready for planning
-**Source:** Design synthesized in-turn with Ashley 2026-07-18, grounded in supervisor mechanics from Nelly (supervisor maintainer, DM'd via relay + confirmed from actual code), and empirical `/exit` verification against tina's own recycled session JSONLs.
+**Source:** Design synthesized in-turn with Alice 2026-07-18, grounded in supervisor mechanics from Nelly (supervisor maintainer, DM'd via relay + confirmed from actual code), and empirical `/exit` verification against tina's own recycled session JSONLs.
 
 <domain>
 ## Phase Boundary
@@ -18,7 +18,7 @@ This phase closes the "pretty-view stops updating after `/id reset`" gap. Concre
 Phase 3 does NOT change:
 - Session-file discovery (`session-file-discovery.ts`) — reused as-is per poll tick.
 - The tail primitive (`session-file-tail.ts`) — reused as-is; the server just cycles start/stop calls.
-- The parser (`session-file-parser.ts`) — **explicitly OUT OF SCOPE.** Ashley wants to keep seeing her own slash commands (`/id`, `/queue`, etc.) rendered in pretty view, so we do NOT add wrapper filters for `<command-name>` / `<local-command-stdout>`. The `/exit` raw-line scan is at the tail layer, before the parser — it's a signal detection, not a display filter.
+- The parser (`session-file-parser.ts`) — **explicitly OUT OF SCOPE.** Alice wants to keep seeing her own slash commands (`/id`, `/queue`, etc.) rendered in pretty view, so we do NOT add wrapper filters for `<command-name>` / `<local-command-stdout>`. The `/exit` raw-line scan is at the tail layer, before the parser — it's a signal detection, not a display filter.
 - The identity badge / pane-tint state (both are pane-scoped and correctly follow the pane rather than the session).
 - The WS URL, port, or nginx `location` block (`/claude-session/websocket/` on port 30011, patch #43). No new backend routes.
 
@@ -27,7 +27,7 @@ Phase 3 does NOT change:
 <decisions>
 ## Implementation Decisions
 
-### Two-layer detection: `/exit` raw-line scan + discovery-repoll backstop (HARD LOCK, greenlit by Ashley)
+### Two-layer detection: `/exit` raw-line scan + discovery-repoll backstop (HARD LOCK, greenlit by Alice)
 
 Not one, not the other — both. Reasons captured below.
 
@@ -81,7 +81,7 @@ Client behavior:
 - On `session_holding`: mount a subtle "session recycling…" band above the messages (not modal, not blocking, not obscuring). Do NOT tear down the WS. Do NOT clear messages yet — the user may want to scroll back through the old conversation while the new one starts.
 - On `session_changed`: reset `messages` to `[]`, `harnessTasks` to `[]`, `contextPct` to `null`. Auto-dismiss the holding band. The subsequent `message` events from the fresh tail will re-hydrate the new conversation from line 1.
 - The `IdentityBadge` / pane-tint state is pane-scoped in `Terminal.tsx` and MUST NOT be touched — those follow the pane, not the session.
-- `ComposeBox` state (patch #57 draft persistence): the persisted draft is keyed on `(userId, hostId, tmuxSession)`, NOT on Claude session id. So the draft correctly SURVIVES a session recycle — same pane, same tmux session, same identity, same draft. Do not touch this on session_changed. (Verified as correct design: if Ashley was composing a message before running `/id reset`, she probably wants that draft available in the new session.)
+- `ComposeBox` state (patch #57 draft persistence): the persisted draft is keyed on `(userId, hostId, tmuxSession)`, NOT on Claude session id. So the draft correctly SURVIVES a session recycle — same pane, same tmux session, same identity, same draft. Do not touch this on session_changed. (Verified as correct design: if Alice was composing a message before running `/id reset`, she probably wants that draft available in the new session.)
 
 ### Holding-band UI (Claude's Discretion within constraints)
 
@@ -93,7 +93,7 @@ Client behavior:
 
 ### Deploy discipline — do NOT deploy in this phase
 
-Ashley's standing decision (bounty `pending-patch-batch-post-60`): Phase 3 patches queue up with the already-committed-but-undeployed batch (#61 backgrounded-agents panel, #62 markdown links in new tab, #63 plan-mode pending indicator). The deploy will be a single batched flow AT ASHLEY'S GREENLIGHT, running the standard 15-min deadman → force-recreate → pin cycle from `AGENTS.md`. Phase 3 execution ends at "committed to `feat/tab-title-from-tmux`, build clean, ready to batch-deploy."
+Alice's standing decision (bounty `pending-patch-batch-post-60`): Phase 3 patches queue up with the already-committed-but-undeployed batch (#61 backgrounded-agents panel, #62 markdown links in new tab, #63 plan-mode pending indicator). The deploy will be a single batched flow AT ALICE'S GREENLIGHT, running the standard 15-min deadman → force-recreate → pin cycle from `AGENTS.md`. Phase 3 execution ends at "committed to `feat/tab-title-from-tmux`, build clean, ready to batch-deploy."
 
 Phase 3's UAT is deferred to the batch deploy. No separate deploy plan in Phase 3 unless the planner has strong justification.
 
@@ -109,7 +109,7 @@ Phase 3's UAT is deferred to the batch deploy. No separate deploy plan in Phase 
 
 ### Rejected / out-of-scope explicitly
 
-- Parser wrapper filter for `<command-name>` / `<local-command-stdout>` — Ashley wants to see her own slash commands rendered. **HARD REJECTED.**
+- Parser wrapper filter for `<command-name>` / `<local-command-stdout>` — Alice wants to see her own slash commands rendered. **HARD REJECTED.**
 - Supervisor-side signal file — Nelly rejected this on architectural grounds (supervisor shouldn't grow UI-signaling responsibility; would duplicate discovery logic in a safety-critical always-on service). Filesystem IS the source of truth; polling it directly is the decoupled design.
 - Persisting the changeover across page reload (e.g., encoding "was recycling" in the URL fragment). Not useful — the fresh page load will run discovery again immediately.
 - Detecting `/exit` via keystroke on the terminal side (before it hits the JSONL). Would require plumbing changes to the terminal WS. JSONL landing is fast enough.
@@ -136,7 +136,7 @@ Phase 3's UAT is deferred to the batch deploy. No separate deploy plan in Phase 
 ### Backend files that Phase 3 reuses but MUST NOT change
 - `src/backend/claude-session/session-file-discovery.ts` — reused per tick.
 - `src/backend/claude-session/session-file-tail.ts` — reused; server cycles start/stop.
-- `src/backend/claude-session/session-file-parser.ts` — **DO NOT ADD FILTERS.** Ashley explicitly wants slash commands visible.
+- `src/backend/claude-session/session-file-parser.ts` — **DO NOT ADD FILTERS.** Alice explicitly wants slash commands visible.
 
 ### Frontend files to modify (Phase 3 primary surface)
 - `src/ui/api/claude-session-api.ts` — add `SessionHoldingEvent` and `SessionChangedEvent` to the discriminated union.
@@ -153,7 +153,7 @@ Phase 3's UAT is deferred to the batch deploy. No separate deploy plan in Phase 
 ### Standing fork rules (must be honored)
 - Every fork commit must survive rebases against upstream `main`. Numbered commits, no squashes.
 - Nginx caveat does NOT apply (no new backend route — reuses `/claude-session/websocket/`).
-- Deploy discipline: NOT deploying in this phase (batched with #61/#62/#63 per Ashley).
+- Deploy discipline: NOT deploying in this phase (batched with #61/#62/#63 per Alice).
 
 </canonical_refs>
 
@@ -162,7 +162,7 @@ Phase 3's UAT is deferred to the batch deploy. No separate deploy plan in Phase 
 
 Phase 3 is complete when:
 
-1. Ashley runs `/id reset` in a pane whose pretty view is open. Within ~1s of the `/exit` marker landing in the JSONL, the pretty view shows a "session recycling…" banner. Within ~5s of the new .jsonl appearing (typically 5-10s total), the banner clears and the new session's conversation appears from the top.
+1. Alice runs `/id reset` in a pane whose pretty view is open. Within ~1s of the `/exit` marker landing in the JSONL, the pretty view shows a "session recycling…" banner. Within ~5s of the new .jsonl appearing (typically 5-10s total), the banner clears and the new session's conversation appears from the top.
 2. If graceful `/exit` fails and supervisor falls through to SIGTERM fallback (no `/exit` line in the JSONL), the same end state is reached within ~5s of the new .jsonl appearing — driven by discovery repoll.
 3. If a pane's claude crashes and supervisor recovers via `claude --resume <oldId>` to a different cwd (same session id, new `projects/<slug>/` subdir), pretty view detects the file has moved and re-tails it. No user intervention required.
 4. During the ~5s bare-shell gap, the WebSocket is NOT torn down and the terminal `no-active-session` fallback does NOT flash. The holding banner covers the gap.

@@ -9,7 +9,7 @@ status: in-progress
 
 ## Description
 
-Five `type:"user"` events currently render as user-role bubbles in PrettyView that Ashley wants hidden — they're all session-lifecycle noise injected by Claude Code or agent-supervisor ("hide how the sausage is made"). Add skip rules in `session-file-parser.ts` alongside the existing `harness_wrapper` skip.
+Five `type:"user"` events currently render as user-role bubbles in PrettyView that Alice wants hidden — they're all session-lifecycle noise injected by Claude Code or agent-supervisor ("hide how the sausage is made"). Add skip rules in `session-file-parser.ts` alongside the existing `harness_wrapper` skip.
 
 ## Target file
 
@@ -24,7 +24,7 @@ All go inside the existing `if (isUser && imageRefs.length === 0)` block (~line 
 2. **`slash_id`** — `content.includes("<command-name>/id</command-name>")`
    - JSONL shape: `<command-message>id</command-message>\n<command-name>/id</command-name>\n<command-args>tina</command-args>` (args-agnostic — /id reset, /id save, /id <name> all skip)
 3. **`goodbye_echo`** — `content.trim() === "<local-command-stdout>Goodbye!</local-command-stdout>"`
-   - Narrow: only this literal string; other `<local-command-stdout>...</local-command-stdout>` blocks stay (Ashley uses other slash-commands intentionally and their stdout should render)
+   - Narrow: only this literal string; other `<local-command-stdout>...</local-command-stdout>` blocks stay (Alice uses other slash-commands intentionally and their stdout should render)
 4. **`resume_injection`** — `content.startsWith("Your session was just resumed by the agent-supervisor")`
    - Prefix-anchored (guards against matching real prose that quotes the sentinel)
    - Mirrors form at `src/backend/fleet-status/ssh-poll-orchestrator.ts:320`
@@ -70,16 +70,16 @@ Place the block BEFORE the existing `harness_wrapper` strip (line 1279 today) �
   - ctrl_c_kill: content with only ASCII control chars (Ctrl-C double-tap etc)
 
   Mirrors the isRealUserTurn predicate in ssh-poll-orchestrator.ts for
-  items 1, 4, 5. /id is NOT excluded there (used as "Ashley present" signal)
+  items 1, 4, 5. /id is NOT excluded there (used as "Alice present" signal)
   but IS excluded here (bubble noise). goodbye_echo is deliberately narrow —
   other <local-command-stdout>...</local-command-stdout> blocks still render
-  because Ashley intentionally invokes other slash-commands whose output is
+  because Alice intentionally invokes other slash-commands whose output is
   useful context.
   ```
 
 ## Constraints
 
-- **DO NOT deploy.** Executor's remit stops at code + commit + scoped-tests-green. Orchestrator picks up ship motion after Ashley greenlights push.
+- **DO NOT deploy.** Executor's remit stops at code + commit + scoped-tests-green. Orchestrator picks up ship motion after Alice greenlights push.
 - **DO NOT modify** `~/.claude/roles/box-maintainer/skynet-patches.md`. Patch number claimed at ship time post-rebase by the orchestrator.
 - **DO NOT modify** `src/backend/fleet-status/ssh-poll-orchestrator.ts` or `src/backend/database/routes/sessions.ts`. Those hold the backend predicate which is intentionally different (does NOT skip /id).
 - **Scoped tests only** — do NOT run full `npx vitest run` (that's the orchestrator's ship-gate).

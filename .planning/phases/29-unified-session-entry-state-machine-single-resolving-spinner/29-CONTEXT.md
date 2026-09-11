@@ -31,7 +31,7 @@ Downstream agents MUST read `29-SPEC.md` before planning or implementing. Requir
 - WS retry-ladder or connection-layer behavioral changes
 - Backend changes to `claude-session-server.ts` frame protocol
 - Visual redesign of any specific overlay (SessionHoldingOverlay / DormancyOverlay / spinner keep their current visuals)
-- The two open Ashley-questions from session 9 on `pretty-view-conversation-pick-loading-feedback` bounty
+- The two open user-questions from session 9 on `pretty-view-conversation-pick-loading-feedback` bounty
 - MessageQueueDrawer, ComposeBox internal state (only rewired, not restructured)
 - WebSocket infrastructure sharing across identities
 
@@ -42,13 +42,13 @@ Downstream agents MUST read `29-SPEC.md` before planning or implementing. Requir
 
 ### Spinner Visual Identity + Copy
 - **D-01:** Reuse `PrettyViewLoadingOverlay` visual as-is — Loader2 spinning glyph in glass card with existing `isolate [transform:translateZ(0)]` iOS backdrop-filter hardening, existing warm-cream text color, existing scrim geometry. NO visual redesign. Keep the file (or absorb into the new hook's render output — implementation call).
-- **D-02:** Keep "Loading…" copy verbatim. Changing the copy is not part of this phase's win; Ashley already knows what that spinner means.
+- **D-02:** Keep "Loading…" copy verbatim. Changing the copy is not part of this phase's win; Alice already knows what that spinner means.
 - **D-03:** Motion channel: `animate-spin` on the Loader2 glyph is semantically correct here (surface work in progress) — mirrors the existing motion-deviation locked in by patch quick-260808-ho2's regression test. Static-glyph guardrail (patch #72) applies to TERMINAL-state overlays only (SessionHoldingOverlay + DormancyOverlay); the resolving spinner is state = work.
 
 ### Anti-Flash Delay
 - **D-04:** ~150ms armed delay before the resolving spinner mounts on any of the three entry-trigger edges. Genuinely-instant resolutions (warm re-focus where WS reopens fast + cache-warm backend responds fast — typically <100ms) never flash the spinner.
 - **D-05:** Symmetry with patch #74's 350ms delay-arm on holding — this is NOT a resolve timeout (which the phase bans), it's a paint delay that suppresses spinner-flash for fast paths. The `resolving` phase itself enters immediately on the entry-trigger edge; only the SPINNER RENDER is delay-armed. If inputs settle before the ~150ms elapses, `resolving` transitions to the terminal state and the spinner never mounts.
-- **D-06:** Exact delay value (150ms suggested) is a planner default — planner may choose anywhere in the 100-200ms range with reasoning; final value locked via UAT with Ashley on her PWA.
+- **D-06:** Exact delay value (150ms suggested) is a planner default — planner may choose anywhere in the 100-200ms range with reasoning; final value locked via UAT with Alice on her PWA.
 
 ### Error Phase UI (`phase === "error"`)
 - **D-07:** Full-surface warm-red error card mirroring `SessionHoldingOverlay`'s error variant one-to-one — same geometry (glass card centered on scrim), same warm-red gradient (`bg-[linear-gradient(160deg,rgba(85,30,35,0.55),rgba(55,20,25,0.6))]`), same warm-red text (`text-[#f5d0d4]`), same inset-glow shadow. Static `RefreshCcw` glyph (state, not work — motion channel intact). NOT a small inline banner.
@@ -107,7 +107,7 @@ Downstream agents MUST read `29-SPEC.md` before planning or implementing. Requir
 - ComposeBox `*Active` props pattern — `recycleActive`, `dormantActive`, `reconnectingActive` prop-driven disable. Existing props stay wired; only their DERIVATION site changes (from local state to `phase`).
 
 ### Related bounty (may be superseded — evaluate at plan-phase)
-- `~/.claude/roles/box-maintainer/bounties/pretty-view-conversation-pick-loading-feedback/` — Two open Ashley-questions from session 9 about revert-#351 timing and app-root-overlay-vs-anchored. This phase does NOT commit answers to those questions; loading-overlay is subsumed here in a way that leaves the questions still open for that bounty to close separately.
+- `~/.claude/roles/box-maintainer/bounties/pretty-view-conversation-pick-loading-feedback/` — Two open user-questions from session 9 about revert-#351 timing and app-root-overlay-vs-anchored. This phase does NOT commit answers to those questions; loading-overlay is subsumed here in a way that leaves the questions still open for that bounty to close separately.
 
 </canonical_refs>
 
@@ -141,21 +141,21 @@ Downstream agents MUST read `29-SPEC.md` before planning or implementing. Requir
 <specifics>
 ## Specific Ideas
 
-- Ashley's flicker cases she named verbatim (SPEC background section captures these — regression tests must cover each):
+- Alice's flicker cases she named verbatim (SPEC background section captures these — regression tests must cover each):
   1. "screen fully black with Connecting…" on entry to a pane that was active moments ago
   2. "Connection lost" box covering half the screen briefly before disappearing
   3. "Waking up" showing for a second on a session that has been awake for a while
-- Determinism framing (Ashley verbatim): *"there's no reason for this not to be deterministic"* — no timeout heuristics anywhere. Machine waits as long as inputs need.
-- Entry-trigger set (Ashley verbatim on the 3-way ask): *"the answer is all three, because all three of those situations cause reconnections and settling of the state"* — cold mount, warm re-focus, PWA foreground all arm resolving.
+- Determinism framing (Alice verbatim): *"there's no reason for this not to be deterministic"* — no timeout heuristics anywhere. Machine waits as long as inputs need.
+- Entry-trigger set (Alice verbatim on the 3-way ask): *"the answer is all three, because all three of those situations cause reconnections and settling of the state"* — cold mount, warm re-focus, PWA foreground all arm resolving.
 
 </specifics>
 
 <deferred>
 ## Deferred Ideas
 
-- **Extend to Terminal panes.** Terminal has its own connection-status story (`status="connecting"|"streaming"|"error"` and reconnection UI) that shows analogous flicker on entry. Ashley: "I really only care about pretty view for this, so unless it makes it more difficult to exclude terminal, then we could just go with that." → excluded from this phase; future phase can apply the same pattern to Terminal if the win in pretty-view proves out.
+- **Extend to Terminal panes.** Terminal has its own connection-status story (`status="connecting"|"streaming"|"error"` and reconnection UI) that shows analogous flicker on entry. Alice: "I really only care about pretty view for this, so unless it makes it more difficult to exclude terminal, then we could just go with that." → excluded from this phase; future phase can apply the same pattern to Terminal if the win in pretty-view proves out.
 - **Extend to RDP/VNC/Guacamole panes.** Same rationale as Terminal.
-- **Two open Ashley-questions on `pretty-view-conversation-pick-loading-feedback` bounty** (revert-#351 timing; app-root-overlay-vs-anchored) — this phase leaves those questions untouched. That bounty stays open for Ashley to close separately.
+- **Two open user-questions on `pretty-view-conversation-pick-loading-feedback` bounty** (revert-#351 timing; app-root-overlay-vs-anchored) — this phase leaves those questions untouched. That bounty stays open for Alice to close separately.
 - **WS retry-ladder redesign.** Explicit "failed-permanently" state may need to be surfaced from the WS layer (D-09). If a full retry-ladder redesign is preferred over an observation-based derivation, that's a separate phase — this phase consumes the signal as-is.
 - **Backend "first frame" observation site.** Currently backend fires each frame type reactively; there's no single "first frame received" hook. If planner finds that this needs to be added (rather than observed by client), consider a small backend-side helper (still preserving frame protocol). Could be a small tag-along commit or a separate follow-up.
 

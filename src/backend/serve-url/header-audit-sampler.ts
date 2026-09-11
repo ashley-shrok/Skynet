@@ -10,7 +10,7 @@
  *
  * Sample rate strategy (time-decaying, per D-06):
  * - First hour post-deploy: 100% (`Date.now() < DEPLOY_EPOCH + 3600000`).
- *   Gives Ashley + downstream dashboards a full look at every outbound
+ *   Gives Alice + downstream dashboards a full look at every outbound
  *   fingerprint right after ship, catching any pattern drift immediately.
  * - After first hour: 1% (`Math.random() < 0.01`). Keeps ongoing forensic
  *   coverage without flooding the log firehose.
@@ -25,7 +25,7 @@
  * - HEADER_ALLOWLIST is lowercase (see types.ts docblock).
  * - Any header appearing on outbound that isn't in the allowlist gets
  *   emitted at warn with `operation: "serve_url_header_anomaly"` — this is
- *   the second-layer-of-defense signal Ashley will watch.
+ *   the second-layer-of-defense signal Alice will watch.
  *
  * Info-leak invariant (T-40-05): headers array only carries NAMES
  * (`proxyReq.getHeaderNames()`), never VALUES. Cookie values, Authorization
@@ -71,7 +71,7 @@ const ALLOWLIST_SET = new Set<string>(HEADER_ALLOWLIST);
 
 /**
  * Phase — HTTP request hook vs WebSocket upgrade hook. Recorded in
- * structured logs so Ashley can filter anomalies by which surface caught
+ * structured logs so Alice can filter anomalies by which surface caught
  * them.
  */
 export type AuditPhase = "req" | "ws";
@@ -114,7 +114,7 @@ export function emitHeaderAudit(
 
   // Signal 2: anomaly detection — always runs. Any header not in the
   // allowlist reaching this point means Plan 03b's stripToAllowlist missed
-  // it. Warn-level so it surfaces on Ashley's dashboard via the standard
+  // it. Warn-level so it surfaces on Alice's dashboard via the standard
   // console-forward pipeline.
   const outOfAllowlist = headerNames.filter(
     (h) => !ALLOWLIST_SET.has(h.toLowerCase()),

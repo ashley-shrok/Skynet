@@ -5,7 +5,7 @@
 
 ## What this is
 
-The conversation-list affordance that tells Ashley "this agent is currently working, don't interrupt" (equivalently: the absence of that affordance means "ready for your next instruction, safe to click") is unreliable today. On agents that are heavily active — long turns, lots of tool use, always-on — it stays lit even when the agent is idle. The affordance's whole job is to steer where Ashley clicks next; while it lies, it can't do that job. This work retires the current guessing-based mechanism entirely and rebuilds it on a direct signal from the harness itself.
+The conversation-list affordance that tells Alice "this agent is currently working, don't interrupt" (equivalently: the absence of that affordance means "ready for your next instruction, safe to click") is unreliable today. On agents that are heavily active — long turns, lots of tool use, always-on — it stays lit even when the agent is idle. The affordance's whole job is to steer where Alice clicks next; while it lies, it can't do that job. This work retires the current guessing-based mechanism entirely and rebuilds it on a direct signal from the harness itself.
 
 ## Shape
 
@@ -13,7 +13,7 @@ The current mechanism infers whether an agent is working by combining two indire
 
 The replacement stops inferring and instead asks the harness to tell us directly. The harness already fires named lifecycle notifications at every meaningful moment — turn beginning, tool call beginning, turn ending, error ending a turn, permission decision needed, and many others. We install a very small subset of those as hooks on each managed box. Each installed hook does one thing: touch a well-known marker file. There are two such marker files per running agent session — an "activity" marker and a "stopped" marker.
 
-The lifecycle moments that touch the activity marker are the ones that mean real work is starting: Ashley submitted a prompt, or the agent began invoking a tool. The lifecycle moments that touch the stopped marker are the ones that mean the affordance should NOT be lit: turn finished cleanly, turn ended in an error, agent is blocked waiting on Ashley for a permission decision. That last one is a deliberate design choice — from the affordance's perspective, "agent is waiting on you" is the same as "agent is done": both mean the row deserves Ashley's attention right now.
+The lifecycle moments that touch the activity marker are the ones that mean real work is starting: Alice submitted a prompt, or the agent began invoking a tool. The lifecycle moments that touch the stopped marker are the ones that mean the affordance should NOT be lit: turn finished cleanly, turn ended in an error, agent is blocked waiting on Alice for a permission decision. That last one is a deliberate design choice — from the affordance's perspective, "agent is waiting on you" is the same as "agent is done": both mean the row deserves Alice's attention right now.
 
 The backend predicate that decides whether to show the affordance collapses to a single comparison: is the activity marker's modification time more recent than the stopped marker's? If yes, the agent is working (affordance lit). If no, the agent is not (affordance off). No state machine, no smoothing, no oscillation to fight.
 
@@ -23,7 +23,7 @@ The old guessing-based machinery — the state-label enum, the pane-command poll
 
 The mechanism should NOT try to be clever about lifecycle. Don't paper over noisy signals with heuristics; instead, subscribe to authoritative signals and read them directly. Where the harness has already done the work of knowing when something is happening, we consume that; we don't re-derive it from side-channels.
 
-The affordance's only job is to answer one question: "should Ashley look at this row?" Every design choice serves that question. That's why waiting-on-permission is treated the same as done — from the answering-the-question perspective they are the same. That's why long-running tool execution counts as working — the row isn't calling for Ashley's attention during it. That's why we're willing to accept a small cosmetic wart in the rare permission-approval window — the wart doesn't lie about the question the affordance is answering, it just briefly under-reports on an already-rare code path.
+The affordance's only job is to answer one question: "should Alice look at this row?" Every design choice serves that question. That's why waiting-on-permission is treated the same as done — from the answering-the-question perspective they are the same. That's why long-running tool execution counts as working — the row isn't calling for Alice's attention during it. That's why we're willing to accept a small cosmetic wart in the rare permission-approval window — the wart doesn't lie about the question the affordance is answering, it just briefly under-reports on an already-rare code path.
 
 What would violate the spirit: reintroducing heuristics to "smooth" the two markers, or adding a second inference layer alongside the direct signal to "catch cases the hooks miss." If a case is missed, that means we picked the wrong set of hooks; the fix is to change which hooks we subscribe to, not to layer a second guessing mechanism.
 
@@ -33,15 +33,15 @@ The affordance was originally driven by a status enum the harness writes to a pe
 
 Also relevant: a stop-hook installer already exists on each managed box, added by an earlier phase for the stop-side of the current predicate. The new work extends that installer to add several more hook events but reuses the same install infrastructure and settings-merge shape. And a related earlier patch closed a cross-identity leak in a different signal (the background-tasks list) that also feeds the affordance — that fix is orthogonal to this work and stays as-is.
 
-Ashley reported the Nelly false-positive symptom during UAT and asked whether a Start-hook + Stop-hook direct-signal approach would collapse the whole problem. The design was worked out together across the session, including confirming with the harness documentation exactly which lifecycle hooks fire for turn-start, turn-start-via-tool, turn-end, error, and permission-pending — and confirming the documented ordering of pre-tool and permission events.
+Alice reported the Nelly false-positive symptom during UAT and asked whether a Start-hook + Stop-hook direct-signal approach would collapse the whole problem. The design was worked out together across the session, including confirming with the harness documentation exactly which lifecycle hooks fire for turn-start, turn-start-via-tool, turn-end, error, and permission-pending — and confirming the documented ordering of pre-tool and permission events.
 
 ## What would make it wrong
 
-- The affordance lies in the OTHER direction — false-idle instead of false-working. An agent is actively mid-turn and the affordance says "ready for your instruction." Ashley clicks into it and interrupts real work. Worse failure than today's bug, and the whole approach would have missed the point.
+- The affordance lies in the OTHER direction — false-idle instead of false-working. An agent is actively mid-turn and the affordance says "ready for your instruction." Alice clicks into it and interrupts real work. Worse failure than today's bug, and the whole approach would have missed the point.
 - The lifecycle signals we chose miss an important trigger of real work — e.g. async wakes from monitor events don't produce any of our activity hooks, so an agent woken by another agent's DM looks idle even while responding. If this happens, the fix is to expand the hook set, not to layer inference back in.
 - The predicate re-introduces state or smoothing across the two marker files. The point is one comparison; anything more is the shape of the old bug creeping back.
 - The migration breaks agents whose managed box hasn't been updated yet — those show permanently-idle (or permanently-working) because the backend expects markers that aren't being touched. Rollout has to consider "what does the affordance show on an unupgraded box" as a real design question, not a footnote.
-- The rare-permission-flow wart is worse than described. If real permission approvals routinely last long enough for Ashley to notice the affordance is missing during the approve → tool-completes window, the accepted-wart assumption breaks and we need to revisit.
+- The rare-permission-flow wart is worse than described. If real permission approvals routinely last long enough for Alice to notice the affordance is missing during the approve → tool-completes window, the accepted-wart assumption breaks and we need to revisit.
 
 ## Scope edges
 
@@ -109,7 +109,7 @@ Nothing else in the pipeline needs to know about the design work that happened i
 
 ### Follow-ups
 
-- Retire the Phase 59 shell-idle-gate fallback branch (backend derivation of lastStatusChangeAt, lastStopAt per-session Stop-file mtime read, and the frontend fallback branch itself) once per-identity rollout of the new hooks is confirmed complete across every managed box. Currently un-tracked in ROADMAP/phase/bounty artifacts; Ashley to open as a bounty after /close returns. — bounty
+- Retire the Phase 59 shell-idle-gate fallback branch (backend derivation of lastStatusChangeAt, lastStopAt per-session Stop-file mtime read, and the frontend fallback branch itself) once per-identity rollout of the new hooks is confirmed complete across every managed box. Currently un-tracked in ROADMAP/phase/bounty artifacts; Alice to open as a bounty after /close returns. — bounty
 
 ### Notes
 

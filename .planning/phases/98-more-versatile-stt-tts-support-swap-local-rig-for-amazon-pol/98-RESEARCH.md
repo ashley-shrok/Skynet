@@ -32,7 +32,7 @@ Format on the wire client-facing: **request MP3 from Polly** (widest browser sup
 | Audio transcode (WebM → Ogg Opus / FLAC) | API / Backend | — | Transcribe rejects WebM natively; backend owns provider adaptation per locked contract |
 | Amazon Transcribe streaming session | API / Backend | AWS Transcribe service | Backend opens the stream and pushes buffered audio as a burst; AWS returns transcript |
 | Slash-command transform | API / Backend | — | Preserved unchanged (`slashCommandTransform.ts`) — runs post-transcript regardless of provider |
-| STT disk-bank (fire-and-forget to `/app/stt-recordings/`) | API / Backend | — | Preserve verbatim — Ashley's post-hoc reference; CONTEXT explicit |
+| STT disk-bank (fire-and-forget to `/app/stt-recordings/`) | API / Backend | — | Preserve verbatim — Alice's post-hoc reference; CONTEXT explicit |
 | Voice-out request | Browser → API | — | JSON POST /voice/speak-stream with `{text, voice}` — locked invariant per CONTEXT |
 | Sentence-boundary chunking (long text) | API / Backend | — | Chunk-and-stitch is a backend concern per CONTEXT; client player unchanged |
 | Amazon Polly synthesis | API / Backend | AWS Polly service | Backend fires one call per chunk; AWS returns audio bytes |
@@ -50,11 +50,11 @@ CONTEXT.md does not assign formal REQ-IDs; requirements are captured in `<decisi
 
 | Local ID | Description | Research Support |
 |----------|-------------|------------------|
-| P98-STT-01 | Voice-in end-to-end via Transcribe streaming, transcript quality ≥ Chatterbox on Ashley's voice | Verified in exploration (5 clips, 4.9s–127.4s) — see `samples/transcribe-outputs/` |
+| P98-STT-01 | Voice-in end-to-end via Transcribe streaming, transcript quality ≥ Chatterbox on Alice's voice | Verified in exploration (5 clips, 4.9s–127.4s) — see `samples/transcribe-outputs/` |
 | P98-STT-02 | Client contract unchanged (multipart POST /voice/transcribe) | Backend-side transcode path recommended (§ Common Pitfalls #1) |
 | P98-STT-03 | Slash-command transform runs on transcript regardless of provider | `slashCommandTransform.ts` is provider-agnostic — no changes needed (§ Code Examples #4) |
 | P98-STT-04 | STT disk-bank to `/app/stt-recordings/` preserved | Preserve pre-transcode bytes, not post-transcode (§ Common Pitfalls #6) |
-| P98-TTS-01 | Voice-out end-to-end via Polly generative engine | Verified in exploration (30 synths, 5 voices × 2 engines × 3 messages, Ashley picked generative) |
+| P98-TTS-01 | Voice-out end-to-end via Polly generative engine | Verified in exploration (30 synths, 5 voices × 2 engines × 3 messages, Alice picked generative) |
 | P98-TTS-02 | Chunk-and-stitch produces continuous audio on messages >3000 billed chars | Sentence-split → pack ≤2900 chars → sequential Polly calls → pipe through (§ Pattern 3) |
 | P98-TTS-03 | Time-to-first-byte within a few hundred ms | Polly first-byte typical is ~200-400ms (§ State of the Art) |
 | P98-TTS-04 | Client player `webAudioStreamPlayer.ts` unchanged in behavior | Request PCM from Polly + synthesize RIFF wrapper on backend (§ Pattern 4) |
@@ -147,7 +147,7 @@ VOICE-IN LANE (Browser mic → transcript)
 ┌────────────────────────────────────────────────┐
 │ Backend voice.ts::handleTranscribe             │
 │  1. multer parses (25MB cap, T-16-01)          │
-│  2. Disk-bank write (fire-and-forget)          │◄── PRESERVE (Ashley reference)
+│  2. Disk-bank write (fire-and-forget)          │◄── PRESERVE (Alice reference)
 │  3. transcode-adapter.ts                       │
 │     ffmpeg spawn: webm → ogg-opus              │◄── NEW (Transcribe rejects webm)
 │  4. transcribe-adapter.ts                      │
@@ -560,8 +560,8 @@ console.log(`roles: scanned=${rolesResult.scanned} cleared=${rolesResult.changed
 ```
 
 **Trigger (planner picks — three options):**
-1. **`docker exec` step in the deploy doc.** Cleanest — Ashley/Stacy each run one command post-`docker-compose up`. Operator-visible, easy to re-run if it errors.
-2. **Startup one-shot in `starter.ts`.** Runs every restart. Made idempotent by the "skip if already conforms" guard. Zero operator action — Ashley's preference from Phase 86 was ops-invisible where possible.
+1. **`docker exec` step in the deploy doc.** Cleanest — Alice/Stacy each run one command post-`docker-compose up`. Operator-visible, easy to re-run if it errors.
+2. **Startup one-shot in `starter.ts`.** Runs every restart. Made idempotent by the "skip if already conforms" guard. Zero operator action — Alice's preference from Phase 86 was ops-invisible where possible.
 3. **Distributor task in `substrate/`.** Overkill for a one-shot; distributor pattern is for continuous rollout.
 
 Recommendation: **option 2 (startup one-shot)**. Idempotent + zero-touch. Ship-day migration completes on first restart post-deploy; every subsequent restart finds nothing to change and exits in <50ms.
@@ -595,7 +595,7 @@ Rename/refactor phase (voice-value regex change + Chatterbox integration deletio
 | Category | Items Found | Action Required |
 |----------|-------------|------------------|
 | Stored data | (1) Every existing identity file at `~/.claude/identities/*/*.md` with `voice: <Name>.wav` in YAML frontmatter. (2) Every role file at `~/.claude/roles/*/*.md` with `voice:` in YAML frontmatter (Phase 86 introduced this at role level). (3) No database rows carry the voice value — verified: identity voice is on-disk frontmatter, not in SQLite. | Migration script (Pattern 6) clears matching frontmatter values. Both trees walked. |
-| Live service config | `docker/nginx.conf` / `nginx-https.conf` reverse-proxies `/voice/*` to the backend — path shape unchanged, no update needed. tg-bridge reads `STT_URL` from `/state/config.env` written by `bridge-config-writer.ts` — will break when `media-endpoints.ts` deletes (import failure). See § Voice-endpoint config surface after deletion below. | Update `bridge-config-writer.ts` to either (a) stop writing `STT_URL` to `/state/config.env` (bridge starts respecting policy-attached AWS for voice notes, requires bridge-side rework OUT OF SCOPE), or (b) keep writing a stub that the bridge treats as "unused". Ashley's Phase 79 D-03 said "must be shared source of truth" — but the shared source in Phase 98 is "not applicable, bridge does its own thing." Planner: recommend deleting `STT_URL` from `/state/config.env` and removing the bridge's `tg_voice_to_mx` STT call OR routing it through Skynet's `/voice/transcribe` endpoint. NEEDS ASHLEY DECISION. |
+| Live service config | `docker/nginx.conf` / `nginx-https.conf` reverse-proxies `/voice/*` to the backend — path shape unchanged, no update needed. tg-bridge reads `STT_URL` from `/state/config.env` written by `bridge-config-writer.ts` — will break when `media-endpoints.ts` deletes (import failure). See § Voice-endpoint config surface after deletion below. | Update `bridge-config-writer.ts` to either (a) stop writing `STT_URL` to `/state/config.env` (bridge starts respecting policy-attached AWS for voice notes, requires bridge-side rework OUT OF SCOPE), or (b) keep writing a stub that the bridge treats as "unused". Alice's Phase 79 D-03 said "must be shared source of truth" — but the shared source in Phase 98 is "not applicable, bridge does its own thing." Planner: recommend deleting `STT_URL` from `/state/config.env` and removing the bridge's `tg_voice_to_mx` STT call OR routing it through Skynet's `/voice/transcribe` endpoint. NEEDS ALICE DECISION. |
 | OS-registered state | Nothing. Backend runs in docker container; no systemd/launchd/Task-Scheduler registrations reference Chatterbox or voice endpoints. | None. |
 | Secrets/env vars | `STT_RECORDINGS_DIR` env var (in `voice.ts:82`) — preserved unchanged, still governs disk-bank location. No AWS-specific env vars needed (IMDS handles credentials). Region hardcoded in code (`us-east-1`), acceptable per CONTEXT ("Region: any; sample uses us-east-1"). | None. Optionally add `AWS_REGION` env var if operators want to override without code edit — cheap, adds one env-var read. |
 | Build artifacts / installed packages | (1) `@aws-sdk/*` packages need to be installed via `npm install` — will land in `package-lock.json`. (2) `ffmpeg` apt package needs to be in `docker/Dockerfile` Stage 5. Without it, the built image will NOT have ffmpeg and voice-in will fail with `ffmpeg: not found`. (3) Test files that mocked `fetch` for Chatterbox need rewriting to mock AWS SDK clients — this is code changes, not artifact changes. | Add packages via `npm install`, add `ffmpeg` to Dockerfile apt line. `npm install` regenerates `package-lock.json`. |
@@ -654,7 +654,7 @@ Rename/refactor phase (voice-value regex change + Chatterbox integration deletio
 
 ### Pitfall 5: Chunk-and-stitch produces audible gaps between chunks
 
-**What goes wrong:** Long message splits into N=3 chunks. Each Polly call takes 200-400ms to first byte. Client hears chunk 1 finish, pauses ~250ms, hears chunk 2 finish, pauses ~250ms, hears chunk 3. Ashley perceives it as "the voice stopped mid-thought."
+**What goes wrong:** Long message splits into N=3 chunks. Each Polly call takes 200-400ms to first byte. Client hears chunk 1 finish, pauses ~250ms, hears chunk 2 finish, pauses ~250ms, hears chunk 3. Alice perceives it as "the voice stopped mid-thought."
 
 **Why it happens:** Sequential firing. Chunk 2's Polly call doesn't start until chunk 1's stream drains — but the client-side playback is scheduled based on `nextStartTime`, so the gap on the wire becomes a gap in playback.
 
@@ -664,13 +664,13 @@ Rename/refactor phase (voice-value regex change + Chatterbox integration deletio
 
 ### Pitfall 6: STT disk-bank saves post-transcode bytes, not original recording
 
-**What goes wrong:** You put the disk-bank write AFTER the ffmpeg transcode step. Ashley's post-hoc reference folder fills with `.ogg` files instead of `.webm` files. Confusing for her, and if a transcode fails the file is missing entirely.
+**What goes wrong:** You put the disk-bank write AFTER the ffmpeg transcode step. Alice's post-hoc reference folder fills with `.ogg` files instead of `.webm` files. Confusing for her, and if a transcode fails the file is missing entirely.
 
 **Why it happens:** Refactoring the STT handler shuffled the order.
 
 **How to avoid:** Keep the disk-bank write at line 87-90 of `voice.ts` — BEFORE any transcode. The write uses `file.buffer` which is the raw multipart bytes.
 
-**Warning signs:** Ashley opens `/opt/skynet/stt-recordings/` and finds `.ogg` files instead of the `.webm` she recorded.
+**Warning signs:** Alice opens `/opt/skynet/stt-recordings/` and finds `.ogg` files instead of the `.webm` she recorded.
 
 **Verified:** Current implementation at `voice.ts:76-90` preserves this ordering.
 
@@ -690,7 +690,7 @@ Rename/refactor phase (voice-value regex change + Chatterbox integration deletio
 
 **Why it happens:** tg-bridge is a separate Docker service; it has its own transcode-and-transcribe path in `bridge.sh:225` that curl-POSTs to `$STT_URL`. That path is completely independent of Skynet's `handleTranscribe`.
 
-**How to avoid:** Explicit planner decision on tg-bridge future. Two viable options: (a) delete `tg_voice_to_mx` STT block entirely — bridge sends `"🎤 [voice message]"` placeholder; humans transcribe manually. Simple, small user impact. (b) Route bridge's voice-note transcription through Skynet's `/voice/transcribe` endpoint (bridge → Skynet backend → AWS Transcribe). More work, preserves current UX. NEEDS ASHLEY DECISION at plan-time.
+**How to avoid:** Explicit planner decision on tg-bridge future. Two viable options: (a) delete `tg_voice_to_mx` STT block entirely — bridge sends `"🎤 [voice message]"` placeholder; humans transcribe manually. Simple, small user impact. (b) Route bridge's voice-note transcription through Skynet's `/voice/transcribe` endpoint (bridge → Skynet backend → AWS Transcribe). More work, preserves current UX. NEEDS ALICE DECISION at plan-time.
 
 **Warning signs:** Post-ship, Telegram voice notes stop showing transcripts.
 
@@ -839,11 +839,11 @@ vi.mock("@aws-sdk/client-polly", () => ({
 | A1 | ffmpeg remux `webm → ogg-opus` with `-c:a copy` works on browser MediaRecorder output without re-encode | Pattern 5, Pitfall 1 | If Chrome/Firefox produce Opus with 2 channels at 48kHz and Transcribe streaming rejects, fallback to FLAC transcode (extra CPU, still works). Small blast radius — a plan-time test with a `samples/clips/*.webm` file catches it. |
 | A2 | Polly's `Engine: "generative"` first-byte latency ~200-400ms | Pitfall 5, State of the Art | If actual is 800ms+, chunk-and-stitch pre-fetch (Pitfall 5 mitigation) becomes MORE important — same code, same shape, just more critical. |
 | A3 | webAudioStreamPlayer.ts accepts a stream where the RIFF header appears in the first chunk followed by pure PCM in subsequent chunks | Pattern 4, Pattern 1 | Reader of the player code (lines 236-241) shows it accumulates until the 44-byte header parses, then treats remainder as PCM — supports this shape. Verified. Downgrade risk: player expects header IN the first chunk; if backend flushes 0 bytes before header, undefined behavior. Test with a mock. |
-| A4 | Startup one-shot migration (option 2 in Pattern 6) is acceptable to Ashley | Pattern 6, § Deploy | If Ashley prefers `docker exec` manual step, planner switches to option 1 — script exists either way, just wired to a different trigger. |
-| A5 | tg-bridge's `tg_voice_to_mx` STT path is safely deletable or replaceable — Ashley hasn't sacred-cow'd it | Pitfall 8, § Voice-endpoint config surface | If it must be preserved, plan gains one task (route bridge STT through Skynet's endpoint) but no architectural change. NEEDS ASHLEY DECISION at plan-time. |
+| A4 | Startup one-shot migration (option 2 in Pattern 6) is acceptable to Alice | Pattern 6, § Deploy | If Alice prefers `docker exec` manual step, planner switches to option 1 — script exists either way, just wired to a different trigger. |
+| A5 | tg-bridge's `tg_voice_to_mx` STT path is safely deletable or replaceable — Alice hasn't sacred-cow'd it | Pitfall 8, § Voice-endpoint config surface | If it must be preserved, plan gains one task (route bridge STT through Skynet's endpoint) but no architectural change. NEEDS ALICE DECISION at plan-time. |
 | A6 | AWS SDK v3 packages will still be at `~3.1129.x` at ship-time (they publish weekly; version at ship may be `3.1150.x` or later) | Standard Stack, versions | Pin to `^3.1129.0` for install; version bump between plan and ship is normal and non-breaking (v3 line follows semver). |
-| A7 | Ashley's Aither AWS account (via `termix-ssm-role`) and Stacy's T800 AWS account both support generative Polly voices in whatever region they attach the policy to | § Deploy | Generative Polly not available in all regions. If Stacy's default region doesn't have it, deploy doc must specify a region that does (e.g., `us-east-1`). Verified: Polly generative widely available in US East regions per AWS 2026-03 expansion. |
-| A8 | The `docker/Dockerfile` change (add `ffmpeg` to apt line) doesn't blow past image-size ceilings Ashley cares about | Pitfall 7, § Standard Stack | ffmpeg is ~30MB. Skynet image is already several hundred MB. Negligible in practice. |
+| A7 | Alice's Aither AWS account (via `termix-ssm-role`) and Stacy's T800 AWS account both support generative Polly voices in whatever region they attach the policy to | § Deploy | Generative Polly not available in all regions. If Stacy's default region doesn't have it, deploy doc must specify a region that does (e.g., `us-east-1`). Verified: Polly generative widely available in US East regions per AWS 2026-03 expansion. |
+| A8 | The `docker/Dockerfile` change (add `ffmpeg` to apt line) doesn't blow past image-size ceilings Alice cares about | Pitfall 7, § Standard Stack | ffmpeg is ~30MB. Skynet image is already several hundred MB. Negligible in practice. |
 | A9 | Deleting `media-endpoints.ts` entirely (vs reshaping to a stub) doesn't break other consumers | § Voice-endpoint config surface after deletion | Grep confirms only `voice.ts` + `bridge-config-writer.ts` import from it. Both must be updated in the same commit. |
 
 ## Voice-endpoint config surface after deletion
@@ -862,7 +862,7 @@ Two consumers. `voice.ts` gets rewritten to import from `polly-voice-catalog.ts`
 2. **Point tg-bridge at Skynet's `/voice/transcribe` endpoint.** Requires bridge to know a Skynet URL, requires Skynet to accept unauth'd calls from bridge OR the bridge to have a service-account JWT. Broader surface.
 3. **Delete `tg_voice_to_mx`'s STT block entirely from `bridge.sh`.** Send `"🎤 [voice message]"` placeholder, human transcribes manually if they care. Simplest, ships cleanest.
 
-**Recommendation:** Option 3 — cleanest, matches the "clean cutover" spirit of the phase. Adds one task: edit `bridge.sh:217-235` to drop the STT curl, keep the placeholder message. Ashley confirms.
+**Recommendation:** Option 3 — cleanest, matches the "clean cutover" spirit of the phase. Adds one task: edit `bridge.sh:217-235` to drop the STT curl, keep the placeholder message. Alice confirms.
 
 **Deleting `media-endpoints.ts` entirely:** viable. If deleted, `getMatrixHomeserverBase()` (the non-STT export) must move — best to `src/backend/matrix/matrix-config.ts` or similar. Small refactor.
 
@@ -881,7 +881,7 @@ Two consumers. `voice.ts` gets rewritten to import from `polly-voice-catalog.ts`
   - Polly: `synthesizeToPcm("Hello.", "Joanna")` — costs ~$0.0002.
   - Transcribe: transcribe a 2-second WAV — costs ~$0.001.
 - Gate behind `AWS_INTEGRATION_TESTS=1` env var so CI doesn't run them.
-- Total per full integration run: <$0.01. Ashley's build-phase budget ($20-30) tolerates hundreds of runs.
+- Total per full integration run: <$0.01. Alice's build-phase budget ($20-30) tolerates hundreds of runs.
 
 ### Playwright smoke
 - `voice-picker.spec.ts` — mount identity modal, assert exactly 7 voices in dropdown, assert selecting one persists.
@@ -932,13 +932,13 @@ Two consumers. `voice.ts` gets rewritten to import from `polly-voice-catalog.ts`
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| P98-STT-01 | Transcribe streaming returns transcript for real Ashley voice clip | integration (real AWS, opt-in) | `AWS_INTEGRATION_TESTS=1 npx vitest run src/backend/voice/transcribe-adapter.integration.test.ts` | ❌ Wave 0 |
+| P98-STT-01 | Transcribe streaming returns transcript for real Alice voice clip | integration (real AWS, opt-in) | `AWS_INTEGRATION_TESTS=1 npx vitest run src/backend/voice/transcribe-adapter.integration.test.ts` | ❌ Wave 0 |
 | P98-STT-02 | Client contract: POST /voice/transcribe with multipart accepted | unit (mocked) | `npx vitest run src/backend/database/routes/voice.test.ts` | ✅ (exists — reshape mocks) |
 | P98-STT-03 | Slash-command transform runs on AWS transcript | unit (existing test extended) | `npx vitest run src/backend/database/routes/voice.test.ts -t slash` | ✅ (exists) |
 | P98-STT-04 | Disk-bank preserves raw WebM bytes | unit | `npx vitest run src/backend/database/routes/voice.test.ts -t bank` | ✅ (exists — verify still passes) |
 | P98-TTS-01 | Polly SynthesizeSpeech returns audio bytes for generative voice | integration (real AWS, opt-in) | `AWS_INTEGRATION_TESTS=1 npx vitest run src/backend/voice/polly-adapter.integration.test.ts` | ❌ Wave 0 |
 | P98-TTS-02 | Chunk-and-stitch pure function correctness | unit | `npx vitest run src/backend/voice/chunk-and-stitch.test.ts` | ❌ Wave 0 |
-| P98-TTS-03 | TTFB timing (empirical — measured in UAT) | manual | UAT with Ashley on long message | manual-only |
+| P98-TTS-03 | TTFB timing (empirical — measured in UAT) | manual | UAT with Alice on long message | manual-only |
 | P98-TTS-04 | Client player unchanged behavior (PCM+RIFF still decodes) | unit | `npx vitest run src/ui/features/pretty-view/webAudioStreamPlayer.test.ts` (verify still passes) | ✅ (exists) |
 | P98-CAT-01 | 7-voice catalog rendered in picker | e2e | `npx playwright test tests/e2e/voice-picker.spec.ts` | ❌ Wave 0 |
 | P98-MIG-01 | Migration walks identities + roles, clears matching values | unit | `npx vitest run scripts/migrate-voice-values.test.ts` | ❌ Wave 0 |
@@ -985,7 +985,7 @@ Two consumers. `voice.ts` gets rewritten to import from `polly-voice-catalog.ts`
 | Pattern | STRIDE | Standard Mitigation |
 |---------|--------|---------------------|
 | Text-based prompt injection into TTS (attacker crafts text that Polly reads with a jailbreak-shaped payload) | Tampering | Not applicable — Polly speaks text verbatim; no downstream LLM consumes the audio. Existing SPEAK_TEXT_MAX cap is sufficient. |
-| Cost exhaustion via unbounded Polly calls | Denial of Service | (a) SPEAK_TEXT_MAX = 25000 caps single-call cost at ~$0.75 max per call. (b) JWT auth gate. (c) Ashley/Stacy monitor AWS billing per operator responsibility (CONTEXT: "operator controls the cost gate"). |
+| Cost exhaustion via unbounded Polly calls | Denial of Service | (a) SPEAK_TEXT_MAX = 25000 caps single-call cost at ~$0.75 max per call. (b) JWT auth gate. (c) Alice/Stacy monitor AWS billing per operator responsibility (CONTEXT: "operator controls the cost gate"). |
 | Cost exhaustion via streaming Transcribe (unbounded audio push) | Denial of Service | multer 25MB cap on upload → ~25 minutes of audio maximum → ~$0.60 max per call. JWT auth gate. |
 | SSRF via `endpoint` param on AWS SDK client | Server-Side Request Forgery | Don't accept endpoint from any input; hardcode `region: "us-east-1"` in client construction. |
 | Credential leak via error responses | Information Disclosure | Wrap all AWS SDK calls; on error, return fixed `{error, status}` shape — never surface `err.message` from AWS (may include credential hints). |
@@ -1025,7 +1025,7 @@ Two consumers. `voice.ts` gets rewritten to import from `polly-voice-catalog.ts`
 - Architecture (adapters + chunk-and-stitch): HIGH — mirrors the Python exploration script structure and CONTEXT lock
 - Pitfalls (WebM, credential chain, chunk gaps): HIGH — verified via AWS docs and SDK source
 - ffmpeg strategy: MEDIUM — recommendation is well-founded (no pure-Node alternative exists), but the specific WebM→Ogg-Opus remux command may need one round of ffmpeg-flag tuning on real Chrome/Firefox samples
-- Migration script trigger: MEDIUM — three viable options; recommended "startup one-shot" is Claude's-discretion pick, Ashley may prefer explicit docker-exec instead
+- Migration script trigger: MEDIUM — three viable options; recommended "startup one-shot" is Claude's-discretion pick, Alice may prefer explicit docker-exec instead
 - Test cost budget: MEDIUM — extrapolated from exploration's $1.14 spend; integration tests are pennies each, easy to control
 
 **Research date:** 2026-09-10

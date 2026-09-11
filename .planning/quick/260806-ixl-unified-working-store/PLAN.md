@@ -99,7 +99,7 @@ worktree). Each commit compiles + full-suite green.
 **These bind every task below. Executor must not violate them even under time pressure.**
 
 - **No worktrees.** Work in `/home/ubuntu/skynet` on branch `feat/tab-title-from-tmux`.
-  Any Agent tool spawn is main-tree, never `isolation: worktree`. (Ashley fleet
+  Any Agent tool spawn is main-tree, never `isolation: worktree`. (Alice fleet
   rule 2026-07-31, plus `workflow.use_worktrees=false` in project config.)
 - **Never leave tests failing.** After EVERY edit that could plausibly affect
   a test, run `npx vitest run > /tmp/vitest.log 2>&1; echo "EXIT: $?"; tail -80 /tmp/vitest.log`.
@@ -586,7 +586,7 @@ worktree). Each commit compiles + full-suite green.
     ```
     All three MUST exit 0 before the commit is called done. If Vitest surfaces
     any pre-existing failure that pre-dates this quick task, fix in this same
-    commit (Ashley's fleet rule — never leave tests failing). Note the fix in
+    commit (Alice's fleet rule — never leave tests failing). Note the fix in
     the commit body.
 
     Then commit. If any of the three checks fails, fix the root cause and re-run
@@ -604,7 +604,7 @@ worktree). Each commit compiles + full-suite green.
     - All 4 test mocks now mock `useSessionIsWorking: () => false`.
     - `npx tsc --noEmit` exits 0.
     - `npx vitest run` exits 0 with zero failures. Any pre-existing failures on
-      the branch were fixed in this same commit (per Ashley's rule) and the fix
+      the branch were fixed in this same commit (per Alice's rule) and the fix
       is documented in the commit body.
     - `npm run build:backend` exits 0 (defensive check).
     - Commit message like `refactor(pretty-conversations): swap useSessionWorking → useSessionIsWorking + update mocks`.
@@ -624,7 +624,7 @@ the final commit body that the following was NOT smoke-tested locally by the
 executor (Skynet is a browser SSH/RDP manager that requires the full docker
 stack running; not part of this task's blast radius):
 
-- Real-world verify Ashley will run herself post-ship:
+- Real-world verify Alice will run herself post-ship:
   1. Open a session with a Bash{run_in_background:true} shell still running.
   2. Wait for Claude to go idle (PTY silent).
   3. Sidebar-dot on that session should NOT appear (was appearing prior to fix).

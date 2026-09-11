@@ -109,7 +109,7 @@ This line is load-bearing per commit history and has NOT been changed.
 
 ## Deploy Discipline
 
-No push, no docker build, no docker compose recreate was performed. Ashley will greenlight the deploy separately after execute-phase completes.
+No push, no docker build, no docker compose recreate was performed. Alice will greenlight the deploy separately after execute-phase completes.
 
 ## Known Stubs
 

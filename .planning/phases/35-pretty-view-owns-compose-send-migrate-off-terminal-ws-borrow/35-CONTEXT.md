@@ -7,7 +7,7 @@
 <domain>
 ## Phase Boundary
 
-Pretty-view compose-send currently BORROWS the terminal pane's SSH WebSocket to write into the tmux pty — `Terminal.tsx:3261-3299 onSend` reads `webSocketRef.current` (the terminal's SSH WS at `Terminal.tsx:163`) and sends `type:"input", data:text+"\r", messageQueueItemId:"pv-adhoc-..."` which trips `terminal.ts:499`'s split-send gate. The terminal SSH WS silently dies during long-idle windows (Caddy idle-timeout, TCP keepalive gap, mobile-tower NAT rebind); the client-side `webSocketRef.current` still points at the dead socket; the one-line `if (!ws || ws.readyState !== 1) return false` guard trips instantly on Ashley's first send after returning to a session → `submit-failed err="not-connected"`. Second send (post visibility-triggered reopen) succeeds. Ashley's manual workaround is to navigate away and back to force the reopen.
+Pretty-view compose-send currently BORROWS the terminal pane's SSH WebSocket to write into the tmux pty — `Terminal.tsx:3261-3299 onSend` reads `webSocketRef.current` (the terminal's SSH WS at `Terminal.tsx:163`) and sends `type:"input", data:text+"\r", messageQueueItemId:"pv-adhoc-..."` which trips `terminal.ts:499`'s split-send gate. The terminal SSH WS silently dies during long-idle windows (Caddy idle-timeout, TCP keepalive gap, mobile-tower NAT rebind); the client-side `webSocketRef.current` still points at the dead socket; the one-line `if (!ws || ws.readyState !== 1) return false` guard trips instantly on Alice's first send after returning to a session → `submit-failed err="not-connected"`. Second send (post visibility-triggered reopen) succeeds. Alice's manual workaround is to navigate away and back to force the reopen.
 
 **This phase migrates all pretty-view outbound writes off the borrowed terminal WS onto pretty-view's OWN WebSocket** (`PrettyView.tsx:639 wsRef` → `claude-session-server.ts:1382 wss` on port 30011). The pretty-view WS already has aggressive lifecycle handling (iOS-PWA visibilitychange reopen at `PrettyView.tsx:1493`, auto-reconnect per patch #148, pane-hide close+reopen) and already writes into the pane in production via `raw_keystrokes` (backend at `claude-session-server.ts:4015-4053` uses `tmux send-keys -l`) — so this is EXTENDING an existing channel, not inventing a new one.
 
@@ -18,7 +18,7 @@ Deliver a complete end-to-end vertical: (a) additive backend `input` + `interrup
 - **Terminal-mode compose-send.** Bare xterm.js tmux pane (`isPrettyMode=false`) keeps using the terminal SSH WS for keystrokes — that's what it's for. Only pretty-view compose-send migrates.
 - **Fix A (WS keep-alive ping on terminal WS).** Explicitly considered and rejected as a standalone fix. May be a follow-up belt-and-suspenders for the terminal WS itself if terminal-mode users hit similar symptoms, but not part of this phase.
 - **Fix B (auto-retry on submit-failed on the borrowed terminal WS).** Considered and rejected — hides errors and doesn't fix the borrow smell.
-- **Empirical verification of tmux-send-keys-vs-raw-pty byte stream.** Ashley 2026-08-13 verbatim: *"I don't even think we need to verify anything empirically … as long as we're using the same method as we used on the old WebSocket in this sense, then that's good enough for me."* Verification is `npx vitest run` green + `npm run build:backend` green; no separate byte-stream comparison.
+- **Empirical verification of tmux-send-keys-vs-raw-pty byte stream.** Alice 2026-08-13 verbatim: *"I don't even think we need to verify anything empirically … as long as we're using the same method as we used on the old WebSocket in this sense, then that's good enough for me."* Verification is `npx vitest run` green + `npm run build:backend` green; no separate byte-stream comparison.
 - **Moving MessageQueueDrawer into PrettyView's subtree.** Its mount stays where it is (`Terminal.tsx:3327`); only its `wsRef` source flips. Planner picks between drilling wsRef as a prop or passing a callback that closes over it.
 - **Backend cutover / removal of terminal WS's existing `type:"input"` handler at `terminal.ts:499`.** Terminal mode still uses it. Both handlers coexist post-cutover — the terminal one for keystrokes typed in xterm.js, the pretty-view one for compose-box writes.
 - **Race-window special cases.** If pretty-view WS is momentarily CONNECTING/CLOSED during a submit, the guard `if (!ws || ws.readyState !== 1) return false` returns false the same way today's borrowed-terminal-WS version does; existing frontend hook keeps the batch in staging for retry (see `handleInjectedTurnReady` comment at `Terminal.tsx:3211`). No new retry/queue logic invented in this phase.
@@ -30,7 +30,7 @@ Deliver a complete end-to-end vertical: (a) additive backend `input` + `interrup
 
 ### Root cause is the BORROW, not the terminal WS dying
 
-The terminal SSH WS's silent-death under network middleware IS a real thing, but "fix the terminal WS to not die" is a whack-a-mole path (Caddy timeouts, TCP keepalives, cellular NAT rebinds — every network layer has its own idle killer). The structural fix is to stop borrowing it: pretty-view should own its outbound writes because pretty-view already owns its inbound stream (the JSONL tail WS). Ashley 2026-08-13 verbatim on the framing: *"can't the PrettyView WebSocket just interact the same way as the Terminal WebSocket did for the Compose send?"* — yes, exactly. That's the whole phase.
+The terminal SSH WS's silent-death under network middleware IS a real thing, but "fix the terminal WS to not die" is a whack-a-mole path (Caddy timeouts, TCP keepalives, cellular NAT rebinds — every network layer has its own idle killer). The structural fix is to stop borrowing it: pretty-view should own its outbound writes because pretty-view already owns its inbound stream (the JSONL tail WS). Alice 2026-08-13 verbatim on the framing: *"can't the PrettyView WebSocket just interact the same way as the Terminal WebSocket did for the Compose send?"* — yes, exactly. That's the whole phase.
 
 ### Backend approach — additive `type:"input"` + `type:"interrupt"` handlers on claude-session WS
 
@@ -48,7 +48,7 @@ Backend behavior:
 3. Detect the split-send case: `data` ends in `\r` AND `messageQueueItemId` is a non-empty string. This is the pretty-view compose-send shape (single event with mqid + trailing \r) that `terminal.ts:499` splits today. On this shape:
    - Strip the trailing `\r` from data → `body`.
    - Fire `tmux send-keys -l -t <session> <body>` via `execCommand(sshConn, ...)`. `-l` = literal, so `body` bytes go through without tmux key-name interpretation. Preserves the existing raw_keystrokes shell-quoting posture (see `shellQuote` at `:4039`).
-   - **Wait 250ms** (NOT 50ms — the value in `terminal.ts:842`'s live split-send is 250ms, patched up from 50ms by patch #111 after Ashley UAT confirmed 50ms was too short and messages arrived at Claude Code's composer but Enter didn't fire. Mirror the validated timing exactly.)
+   - **Wait 250ms** (NOT 50ms — the value in `terminal.ts:842`'s live split-send is 250ms, patched up from 50ms by patch #111 after Alice UAT confirmed 50ms was too short and messages arrived at Claude Code's composer but Enter didn't fire. Mirror the validated timing exactly.)
    - Fire `tmux send-keys -t <session> Enter`. NO `-l` — `Enter` is interpreted as the tmux key name for carriage return. This is the second half of the split-send.
 4. Non-split case (no mqid OR data doesn't end in \r): fire one `tmux send-keys -l -t <session> <data>` call. Same shape as `raw_keystrokes` for non-plan-mode writes. This handles `handleInjectedTurnReady`'s two-event pattern (Terminal.tsx:3208 sends body then a separate `\r`+mqid event 60ms later) — each event is a non-split-case `input` frame; the 60ms gap already exists on the client side; the backend just forwards each one via tmux send-keys.
 5. On execCommand failure: log-and-swallow (mirror raw_keystrokes' error posture at `:4041-4051`). Do NOT throw back to the client. The bubble stays mounted; user can retry via composebox.
@@ -81,14 +81,14 @@ The migration is atomic — do NOT half-migrate (leaving one call site on `webSo
 
 ### Verification collapses to tests-green
 
-No separate byte-stream comparison plan. Ashley 2026-08-13 verbatim: *"as long as we're using the same method as we used on the old WebSocket in this sense, then that's good enough for me."* Verification per plan:
+No separate byte-stream comparison plan. Alice 2026-08-13 verbatim: *"as long as we're using the same method as we used on the old WebSocket in this sense, then that's good enough for me."* Verification per plan:
 - **Plan 1 (backend):** unit tests for the new `input` + `interrupt` handlers in `claude-session-server.ts` (or a nearby test file — mirror the pattern used for `raw_keystrokes` and `wake` handler tests). Split-send behavior asserted via mock `execCommand` observing two send-keys calls with the 50ms gap between them. Non-split case asserts single send-keys call. Trust-boundary tests: client-supplied hostId/tmuxSession is IGNORED (mirror `raw_keystrokes` T-14-02-01 test).
 - **Plan 2 (frontend cutover):** existing PrettyView test suite continues passing (`PrettyView.test.tsx`, `PrettyView.aside.test.tsx`, `PrettyView.phase29.test.tsx`, `PrettyView.virtualization.test.tsx`). Add tests covering: pretty-view compose-send writes to pretty-view's WS not terminal's; onInterrupt writes to pretty-view's WS; onInjectedTurnReady writes to pretty-view's WS; MessageQueueDrawer's onSend writes to pretty-view's WS.
 - **Suite-wide:** `npx vitest run` exit 0 (currently 155 files / 2006 pass / 6 skipped / 1 todo / 0 fail); `npm run build:backend` exit 0.
 
 ### Deploy ordering — Phase 35 SHIPS FIRST
 
-Phase 34 (voice-slash-server-side-skill-catalog) + quick 260813-0qx (deactivate-reactivate-during-reset-latches-inactive) are code-complete but HELD pending Phase 35 ship. Ashley 2026-08-13 verbatim: *"why don't you just save shipping the slash command stuff for after we do this new stuff next session."* When Phase 35 ships, the deploy batches all three (Phase 34 + quick 260813-0qx + Phase 35).
+Phase 34 (voice-slash-server-side-skill-catalog) + quick 260813-0qx (deactivate-reactivate-during-reset-latches-inactive) are code-complete but HELD pending Phase 35 ship. Alice 2026-08-13 verbatim: *"why don't you just save shipping the slash command stuff for after we do this new stuff next session."* When Phase 35 ships, the deploy batches all three (Phase 34 + quick 260813-0qx + Phase 35).
 
 </decisions>
 
@@ -99,7 +99,7 @@ Phase 34 (voice-slash-server-side-skill-catalog) + quick 260813-0qx (deactivate-
 
 ### Bounty (design source of truth)
 
-- `~/.claude/roles/box-maintainer/bounties/terminal-ws-silent-death-on-session-return/bounty.json` — primary bounty, contains Ashley's original report + live diagnosis + design lock
+- `~/.claude/roles/box-maintainer/bounties/terminal-ws-silent-death-on-session-return/bounty.json` — primary bounty, contains Alice's original report + live diagnosis + design lock
 
 ### Frontend — Pretty-view WS + all four call sites to migrate
 
@@ -206,10 +206,10 @@ No upstream Skynet surfaces touched.
 <deferred>
 ## Deferred Ideas
 
-- **Terminal WS keep-alive ping (Fix A).** Belt-and-suspenders for terminal-mode users hitting the same silent-death class. Not part of this phase. Ashley may raise it later if terminal-mode symptoms surface post-Phase-35.
+- **Terminal WS keep-alive ping (Fix A).** Belt-and-suspenders for terminal-mode users hitting the same silent-death class. Not part of this phase. Alice may raise it later if terminal-mode symptoms surface post-Phase-35.
 - **Removing the terminal WS's `type:"input"` handler at `terminal.ts:499`.** Terminal-mode keystrokes still route through it. Both handlers coexist post-cutover.
 - **Migration of any additional `webSocketRef.current` reads in `Terminal.tsx`** that aren't in the four-call-site list above. Grep confirms those four are the ONLY pretty-view-adjacent uses; the other `webSocketRef.current` references (see `:679`, `:713`, `:837`, `:842`, `:865-870`, `:904-905`, `:934-935`, `:968-969`, `:1009-1013`, `:1063-1094`, `:1273-1289`, `:1323-1324`, `:1481-1484`, `:1550-1758`, etc.) are terminal-mode plumbing: xterm.js data handlers, resize, cwd polling, focus routing, disconnect coordination. Those stay on the terminal WS.
-- **Byte-stream comparison verification.** Explicitly rejected above by Ashley.
+- **Byte-stream comparison verification.** Explicitly rejected above by Alice.
 - **Renaming/consolidating the two send paths at the API level.** Post-cutover, `raw_keystrokes` and `input` are two very similar frames on the same WS. Consolidation could happen later but adds no value in this phase and risks disturbing Phase 24's plan-mode approval flow. Keep them separate.
 
 </deferred>

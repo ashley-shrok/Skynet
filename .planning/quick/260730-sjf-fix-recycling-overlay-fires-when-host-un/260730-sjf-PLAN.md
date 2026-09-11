@@ -82,7 +82,7 @@ message stream — this is a false-alarm recovery, NOT a real recycle.
 
 Purpose: Narrowing the arm alone still leaves any already-stuck holding
 overlay hanging for up to 5 minutes on the timeout. Shipping both together
-means Ashley never sees the phantom overlay in the first place, AND any
+means Alice never sees the phantom overlay in the first place, AND any
 that slip through (e.g. from a legitimate transient race) self-clear on
 the next successful repoll tick.
 

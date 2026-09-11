@@ -88,7 +88,7 @@ Each task committed atomically per TDD RED/GREEN cycle:
 ### (b) Error-state glyph
 
 **Choice:** `AlertCircle` from `lucide-react`.
-**Rationale:** Same glyph `AttachmentChipStrip.tsx` L164 uses for its error affordance. Keeps the pretty-view error vocabulary consistent — Ashley learns the glyph once and it means "this failed, and you can act on it".
+**Rationale:** Same glyph `AttachmentChipStrip.tsx` L164 uses for its error affordance. Keeps the pretty-view error vocabulary consistent — Alice learns the glyph once and it means "this failed, and you can act on it".
 
 ### (c) Visible label strings
 

@@ -16,7 +16,7 @@ dependency_graph:
 tech_stack:
   added: []
   patterns:
-    - Inline docs-with-code per Ashley's 2026-07-27 fleet directive
+    - Inline docs-with-code per Alice's 2026-07-27 fleet directive
 key_files:
   created: []
   modified:
@@ -64,7 +64,7 @@ Hyphenated-tens style preserved. Only this one line changed in the header sectio
 ### New entry content
 
 Patch #150 write-up covers:
-- **Motivation**: Ashley's one-hand voice composition need for iOS PWA; prototype UAT-passed 2026-07-27
+- **Motivation**: Alice's one-hand voice composition need for iOS PWA; prototype UAT-passed 2026-07-27
 - **Root cause**: n/a — new feature
 - **Fix summary**: Three-part shape documented (backend proxy + frontend hook/components + ComposeBox wiring)
 - **Files touched**: All 13 files landed by Plans 01-03 individually listed with LOC estimates
@@ -100,7 +100,7 @@ None — the catalog entry is complete and self-contained.
 ## Threat Flags
 
 None — as noted in the plan's threat model:
-- T-16-17: The tailnet IP `100.80.122.111` appears in the write-up by design (same disclosure posture as CONTEXT.md / bounty.json which also carry it). The catalog lives under `~/.claude/identities/tina/` — Ashley's private identity directory, not committed to any public repo.
+- T-16-17: The tailnet IP `100.80.122.111` appears in the write-up by design (same disclosure posture as CONTEXT.md / bounty.json which also carry it). The catalog lives under `~/.claude/identities/tina/` — Alice's private identity directory, not committed to any public repo.
 - T-16-SC: Doc-only edit; no npm/pip/cargo activity.
 
 ## Self-Check: PASSED

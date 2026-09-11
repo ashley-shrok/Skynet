@@ -13,18 +13,18 @@ commit: fb65084
 Adds a compact "plan pending" indicator bubble to pretty view that
 appears whenever the tailed Claude Code session has an unmatched
 `ExitPlanMode` tool_use — i.e. Claude has proposed a plan and is
-waiting on Ashley's `1` (accept) / `2` (keep planning) reply in Plan
+waiting on Alice's `1` (accept) / `2` (keep planning) reply in Plan
 Mode. Mounts as the last child of the message-content wrapper
 (sibling to `WipBubble`), not as a sidebar panel — it belongs in the
 conversation flow because it represents a moment where Claude is
 asking for input.
 
-**Detection mechanism** (Ashley-verified against a live JSONL,
+**Detection mechanism** (user-verified against a live JSONL,
 2026-07-18): every ExitPlanMode confirmation prompt appears as an
 assistant turn with `stop_reason:"tool_use"` and a `tool_use` content
 block where `name === "ExitPlanMode"`. The block carries an `id`
 (the tool_use_id) and inputs `plan` (markdown body) + `planFilePath`.
-It stays unmatched until Ashley replies — at which point a subsequent
+It stays unmatched until Alice replies — at which point a subsequent
 user turn's `content[]` includes a `{type:"tool_result",
 tool_use_id:"toolu_..."}` block closing the pair. **Same shape patch
 #61 uses to correlate backgrounded Agent invocations** — so this
@@ -180,13 +180,13 @@ Five additive edits:
 
 ## Scope explicitly out (deferred for later patches)
 
-- **Plan body rendering.** Ashley's explicit ask was
+- **Plan body rendering.** Alice's explicit ask was
   "compact WipBubble-style indicator only" — no preview, no click-to-
   expand, no on-disk read of `planFilePath`. If a future patch wants
   the plan body inline, `planFilePath` is already tracked in backend
   state (kept alongside `ts` for exactly this reason).
 - **Auto-accept/decline buttons.** Plan Mode replies belong to
-  Ashley + Claude Code; pretty view is the observer surface.
+  Alice + Claude Code; pretty view is the observer surface.
 - **60s tool_use-mtime staleness fallback** for orphaned
   ExitPlanMode from crashed Claude Code sessions. Same class of
   accepted risk as patch #61's backgrounded-agents map. Apply once,
@@ -233,7 +233,7 @@ upstream analog.
 
 ## Deploy status
 
-**Deploy pending Ashley's explicit go-ahead.** Per fork DEPLOY
+**Deploy pending Alice's explicit go-ahead.** Per fork DEPLOY
 DISCIPLINE (tina.md), the build step landed via `npm run build`
 locally but the `sudo docker compose up -d --force-recreate skynet`
 step is a separate risk gate that needs its own "go" — this patch
@@ -247,4 +247,4 @@ files) happens IN-TURN at pin, not now.
 
 This will become **patch #63** in the fork's AGENTS.md numbered-patch
 catalog. Per fork discipline the AGENTS.md write-up happens at PIN
-(post-deploy, after Ashley confirms the deploy holds), not at commit.
+(post-deploy, after Alice confirms the deploy holds), not at commit.

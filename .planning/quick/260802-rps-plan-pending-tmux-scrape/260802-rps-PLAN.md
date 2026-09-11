@@ -42,7 +42,7 @@ must_haves:
 ---
 
 <objective>
-Fix Skynet PlanPendingBubble by replacing the effectively-dead parent-JSONL scan for `ExitPlanMode` (patch #63) with a **tmux pane screen-scrape** for the plan-approval Ink prompt. The scan is dead because Claude Code 2.1.150's `ExitPlanModeV2Tool` buffers the `tool_use` in Ink UI memory and only flushes it to the parent JSONL after the user resolves the prompt — so during the entire pending window (which is exactly when we need to render PlanPendingBubble) the JSONL has zero signal. Live confirmation on Moxie's workstation 2026-08-02: `ExitPlanMode` tool_use appeared in JSONL only 57 minutes after the model called it, at the moment Ashley approved.
+Fix Skynet PlanPendingBubble by replacing the effectively-dead parent-JSONL scan for `ExitPlanMode` (patch #63) with a **tmux pane screen-scrape** for the plan-approval Ink prompt. The scan is dead because Claude Code 2.1.150's `ExitPlanModeV2Tool` buffers the `tool_use` in Ink UI memory and only flushes it to the parent JSONL after the user resolves the prompt — so during the entire pending window (which is exactly when we need to render PlanPendingBubble) the JSONL has zero signal. Live confirmation on Moxie's workstation 2026-08-02: `ExitPlanMode` tool_use appeared in JSONL only 57 minutes after the model called it, at the moment Alice approved.
 
 Purpose: PlanPendingBubble effectively never shows today; this restores it end-to-end using the pane as the authoritative live signal, mirroring the shape and gating pattern already proven for `parseContextPct` in the same setInterval.
 
@@ -124,9 +124,9 @@ Output: Two new files (parser + test) and a surgical wiring edit in `claude-sess
 - `claude-session-server.ts` wires the helper into the existing setInterval pane-scrape alongside `parseContextPct`, gates emission on serialized-diff, resets `planPendingLastSerialized` at both mirror sites, and has a deprecation comment above the untouched legacy JSONL scan.
 - `npm run build:backend` and `npm run build` both green.
 - Exactly 2 atomic commits landed on `feat/tab-title-from-tmux` in the specified order.
-- SHIP RULE HELD: no `git push`, no `docker build`, no `docker compose up`, no container restart. Ashley greenlights ship separately.
+- SHIP RULE HELD: no `git push`, no `docker build`, no `docker compose up`, no container restart. Alice greenlights ship separately.
 </success_criteria>
 
 <output>
-Two commits on `feat/tab-title-from-tmux`. No SUMMARY file required for a quick task. Return control to Tina for the identity-side bookkeeping (numbered entry in `~/.claude/identities/tina/skynet-patches.md`, bounty timeline update) and to Ashley for the ship word.
+Two commits on `feat/tab-title-from-tmux`. No SUMMARY file required for a quick task. Return control to Tina for the identity-side bookkeeping (numbered entry in `~/.claude/identities/tina/skynet-patches.md`, bounty timeline update) and to Alice for the ship word.
 </output>

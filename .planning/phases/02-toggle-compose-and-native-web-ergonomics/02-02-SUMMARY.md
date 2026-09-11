@@ -56,7 +56,7 @@ Delivered the compose-and-send box that turns pretty mode from a read-only viewe
 
 **ComposeBox is self-contained and independent** (per D-73 spirit): ~136 lines, no imports from MessageQueueDrawer. The queue drawer is a persisted queue-of-messages with CRUD; the compose box is an ephemeral single-message entry. Duplication of ~10 lines of shared patterns is cleaner than shared-component scope.
 
-**Newlines collapsed to spaces on send** (D-50 policy): `trimmed.replace(/\r?\n/g, " ")` before calling onSend. This is the same proven behavior as the queue drawer (patch #39) and avoids Ink's REPL treating an embedded `\r` as a mid-message submit. Multi-line send-side preservation (option (b) in D-50) is a potential follow-up if Ashley later wants it — it would require either per-line chunking or bracketed-paste framing, each with tradeoffs.
+**Newlines collapsed to spaces on send** (D-50 policy): `trimmed.replace(/\r?\n/g, " ")` before calling onSend. This is the same proven behavior as the queue drawer (patch #39) and avoids Ink's REPL treating an embedded `\r` as a mid-message submit. Multi-line send-side preservation (option (b) in D-50) is a potential follow-up if Alice later wants it — it would require either per-line chunking or bracketed-paste framing, each with tradeoffs.
 
 **ComposeBox gated on `status === "streaming"` only**: Compose box does not appear during `connecting` (< 500ms typical, not worth the churn), `inactive` (FALLBACK-01 requires exactly one string), or `error` (WS is down). When `onSend` is omitted, PrettyView renders as a read-only viewer — backward-compat with any future call site that doesn't wire a WS.
 

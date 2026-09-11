@@ -4,16 +4,16 @@
 # by remote-hook-install.ts (Plan 62-02). Reads the harness JSON payload from
 # stdin and atomic-touches the per-session STOPPED marker file, whose mtime
 # is read by the Skynet backend over SSH (via `stat -c %Y`) to answer the
-# affordance's one question: "should Ashley look at this row?"
+# affordance's one question: "should Alice look at this row?"
 #
 # Wired by Plan 62-02's installer to ALL THREE of these settings.json hooks:
 #   - hooks.Stop[0].hooks[]              (turn finished cleanly)
 #   - hooks.StopFailure[0].hooks[]       (turn ended in error)
-#   - hooks.PermissionRequest[0].hooks[] (agent blocked waiting on Ashley)
+#   - hooks.PermissionRequest[0].hooks[] (agent blocked waiting on Alice)
 #
 # The last one is a deliberate design choice per the shape file: from the
 # affordance's perspective, "agent is waiting on you" is the same as "agent
-# is done" — both mean the row deserves Ashley's attention right now. This
+# is done" — both mean the row deserves Alice's attention right now. This
 # script is EVENT-AGNOSTIC — it does not branch on hook_event_name; the
 # installer's routing (which events pipe to this script) is the entire event
 # discrimination.

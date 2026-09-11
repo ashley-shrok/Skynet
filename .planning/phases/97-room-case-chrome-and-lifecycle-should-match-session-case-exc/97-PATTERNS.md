@@ -475,7 +475,7 @@ export function AgentBadgeWithMeter({
 
 **Analog (self):** Existing native drop-target listener at L297-575 + existing `[pv-split-preview]` structured log at L358.
 
-**Sequence-front task per D-07:** Add a temporary `[pv-split-drop-diag]` structured log at native `dragover` / `drop` on a relay-showing Pane. Reproduce Ashley's flow:
+**Sequence-front task per D-07:** Add a temporary `[pv-split-drop-diag]` structured log at native `dragover` / `drop` on a relay-showing Pane. Reproduce Alice's flow:
 
 1. Open plain session → open room → close room → try to drag another session onto the plain session's Pane.
 2. Confirm what breaks: does the plain-session Pane's dragover still fire? Does the coral overlay still paint? Does the drop still route to `onOpenSessionInTree`?
@@ -496,7 +496,7 @@ console.info(
 ```
 
 **Verdict paths:**
-- **If plain-session Pane behaves correctly after room open/close cycle** → Ashley's "shared-state corruption" is a red herring. The fix reduces to threading `tabId` through MultiBadgeAnchor (above). NO SplitView change ships. Diagnostic log can stay as ambient instrumentation OR be removed.
+- **If plain-session Pane behaves correctly after room open/close cycle** → Alice's "shared-state corruption" is a red herring. The fix reduces to threading `tabId` through MultiBadgeAnchor (above). NO SplitView change ships. Diagnostic log can stay as ambient instrumentation OR be removed.
 - **If plain-session Pane misbehaves after a room mount** → identify which handler misbehaves. Full diagnosis THEN decide split-out per D-07.
 
 **Landmines from RESEARCH:**
@@ -587,7 +587,7 @@ showPaperclip && mode !== "relay" && "pl-11",
 
 Placed at the SAME position as Row 1's `{mode !== "relay" && (...)}` block (L2334). This preserves the vertical geometry byte-for-byte between harness and relay cases — the wrapper below sees identical layout.
 
-**Recommendation from RESEARCH:** Option B is cleaner (preserves geometry byte-for-byte; Ashley's ask is parity in feel). Option A requires a fine-tune of the `pt-N` value against the QueuePlusTab's absolute offset. Executor picks based on live visual review.
+**Recommendation from RESEARCH:** Option B is cleaner (preserves geometry byte-for-byte; Alice's ask is parity in feel). Option A requires a fine-tune of the `pt-N` value against the QueuePlusTab's absolute offset. Executor picks based on live visual review.
 
 ---
 
@@ -598,7 +598,7 @@ After Steps 1 + 2, measure the ComposeBox's total height in relay vs harness mod
 **Analog (harness case):** The harness-mode ComposeBox bounding rect at the same viewport size IS the reference. No new design.
 
 **Landmines from RESEARCH:**
-- **Do NOT hide QueuePlusTab in relay mode.** Ashley wants the top-edge affordance to work (RESEARCH § Finding 3 landmines).
+- **Do NOT hide QueuePlusTab in relay mode.** Alice wants the top-edge affordance to work (RESEARCH § Finding 3 landmines).
 - **Do NOT reintroduce Row 1 chrome to "solve" pebble headroom.** D-11 locked the monolithic Row 1 hide.
 - **Do NOT touch Textarea's `min-h-8!` / `!` specificity** (L2792 and adjacent). Load-bearing against shadcn Textarea `min-h-[80px]` and `dark:bg-input/30`.
 - **Do NOT let reflow spill into harness case.** All new class tokens gated on `mode === "relay"` (or equivalently `mode !== "relay"` — reserving harness as the default).
@@ -609,7 +609,7 @@ After Steps 1 + 2, measure the ComposeBox's total height in relay vs harness mod
 
 #### `src/ui/features/pretty-view/MultiBadgeAnchor.tsx` (EXTEND-IN-PLACE — single token)
 
-**Analog:** None (there is no session-case analog for multi-badge — the harness case has exactly one badge). The reference is Ashley's judgment "halve the gap."
+**Analog:** None (there is no session-case analog for multi-badge — the harness case has exactly one badge). The reference is Alice's judgment "halve the gap."
 
 **Current (L192-193):**
 ```typescript
@@ -745,7 +745,7 @@ placeholder={mode === "relay" ? "Message room…" : `Message ${identityName || "
 
 **Discipline (from RESEARCH landmines):**
 - **Ellipsis is `…` U+2026, NOT three dots.** Preserve verbatim. Grep to confirm.
-- **`Message` capital M** matches harness template convention. Ashley's shorthand `"message room"` was informality, not a design decision. Lock on `Message room…` (SOFT verify at plan-check per RESEARCH § Open Questions).
+- **`Message` capital M** matches harness template convention. Alice's shorthand `"message room"` was informality, not a design decision. Lock on `Message room…` (SOFT verify at plan-check per RESEARCH § Open Questions).
 - **Do NOT change harness placeholder.** Regression floor.
 
 ---
@@ -1134,7 +1134,7 @@ const roomId = decodeURIComponent(rest);
 
 ---
 
-### Harness case regression floor (D-01 no-accidental-inheritance — Ashley's `/close` yardstick)
+### Harness case regression floor (D-01 no-accidental-inheritance — Alice's `/close` yardstick)
 
 **Source:** Phase 93 Landmine 7 + CONTEXT.md D-01 verbatim.
 

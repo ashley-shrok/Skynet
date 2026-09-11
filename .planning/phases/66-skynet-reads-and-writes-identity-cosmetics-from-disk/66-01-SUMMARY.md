@@ -39,7 +39,7 @@ decisions:
   - yaml.dump options landed as {sortKeys:false, lineWidth:-1, noRefs:true, forceQuotes:false} — sortKeys:false preserves the [role, displayName, title, colorHue, voice, avatar] canonical insertion order that gives us post-Phase-A byte-shape parity on disk
   - image/jpeg → "jpg" (not "jpeg") in MIME_TO_AVATAR_EXT — matches Nelly's Phase A fleet-wide sibling-file convention
   - writeAvatarSiblingFile is a separate helper from writeMarkdownFileAtomic (not an overload) — kept the string-vs-buffer split so log tags stay grep-friendly (identity_markdown_write vs identity_avatar_write)
-  - Avatar write runs LAST in Step 2.5, AFTER writeMarkdownFileAtomic — a failure leaves the identity folder in a partial state (.md + wakeups/ + handoff.md still on disk); re-birth is the recovery path, not a rollback we build (matches Ashley-locked "graceful partial recovery" design in the shape file)
+  - Avatar write runs LAST in Step 2.5, AFTER writeMarkdownFileAtomic — a failure leaves the identity folder in a partial state (.md + wakeups/ + handoff.md still on disk); re-birth is the recovery path, not a rollback we build (matches user-locked "graceful partial recovery" design in the shape file)
   - Tests 12 + 17 (pre-existing) had regexes that asserted role was the ONLY frontmatter key — those were accidents of the pre-Phase-66 role-only design, not real invariants; loosened to assert only "role first" which is the invariant we DO want to pin going forward
 metrics:
   duration_min: 25

@@ -84,7 +84,7 @@ Three intertwined pieces plus one deletion:
 - Any change to agent-supervisor scripts or the sentinel/marker contract.
 - Wake-on-focus, wake-on-scroll, or any other implicit wake trigger.
 - The existing invisible wake triggers (Matrix DM, scheduled) — no changes; they already work as intended.
-- Any escape-hatch UI in PrettyView for "session is stuck" (Ashley confirmed she doesn't use the current Wake button as escape).
+- Any escape-hatch UI in PrettyView for "session is stuck" (Alice confirmed she doesn't use the current Wake button as escape).
 - New user-facing observability of the dormancy/wake subsystem. Backend logs (`sshLogger.info`) stay as-is.
 
 **Tempting-but-no:**
@@ -108,7 +108,7 @@ Three intertwined pieces plus one deletion:
 - Fleet-status ready-dot behavior unchanged (still "in active set AND idle").
 - Sends into an awake pane behave identically to today — watchdog window unchanged for non-dormant sends.
 
-**Ship-gate:** full `npx vitest run` green; scoped tests pass throughout dev; docker build + force-recreate; HTTPS 200; Ashley UAT — invisible wake works, red-bubble fires on real failure.
+**Ship-gate:** full `npx vitest run` green; scoped tests pass throughout dev; docker build + force-recreate; HTTPS 200; Alice UAT — invisible wake works, red-bubble fires on real failure.
 
 ## Canonical refs
 

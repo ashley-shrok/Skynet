@@ -6,7 +6,7 @@
 //
 // The tree data model is a recursive discriminated union — see split-tree.ts
 // header for the full contract. Constant-ratio 50/50 is baked in (locked
-// decision Ashley 2026-08-28: no draggable pane dividers → no ratio field).
+// decision Alice 2026-08-28: no draggable pane dividers → no ratio field).
 
 import { describe, it, expect, vi } from "vitest";
 import {

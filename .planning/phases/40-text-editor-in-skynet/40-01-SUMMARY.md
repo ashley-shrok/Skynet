@@ -61,7 +61,7 @@ One-line: SSRF-hardened `POST /pretty-view/fetch-tailnet-url` proxy plus the D-0
 - **Size cap**: 2 MB via `arrayBuffer().byteLength` check → 413.
 - **Response** (single call covers both eligibility path AND editor-open re-fetch path per D-04): `{ contentBase64, sizeBytes, contentType, extension, filename, isTextByExt, isTextByBytes? }`. `isTextByBytes` is populated only when `isTextByExt = false` (byte-sniff runs only for extension-miss).
 - **Error taxonomy**: 400 invalid body / invalid tailnet URL; 401 unauth; 413 oversized; 502 upstream non-2xx / HTML spoof / fetch failed; 504 fetch timeout.
-- **Log discipline**: host+port only. **Filename never logged** (Ashley-served files are sensitive by definition). Error paths log error class name only — no `.message`, no URL.
+- **Log discipline**: host+port only. **Filename never logged** (user-served files are sensitive by definition). Error paths log error class name only — no `.message`, no URL.
 
 Router mounted alongside `/global-files` at `app.use("/pretty-view", prettyViewFetchTailnetUrlRoutes)` in `src/backend/database/database.ts` (before the generic `/identities` router to preserve match precedence).
 

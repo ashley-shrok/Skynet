@@ -56,7 +56,7 @@ export const fileManagerPinned = sqliteTable("file_manager_pinned", {
 });
 ```
 
-Direct adaptation for pinnedIds (Ashley's pins are opaque conversation ids, not host+path tuples — so a leaner row):
+Direct adaptation for pinnedIds (Alice's pins are opaque conversation ids, not host+path tuples — so a leaner row):
 ```typescript
 export const pinnedConversations = sqliteTable("pinned_conversations", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -100,7 +100,7 @@ Extension adds one column:
 
 **Load-bearing observation for the planner:** the existing `user_preferences` row has NO existing JSON blob column. Every existing field is a discrete scalar (boolean or nullable string). Adding `pinnedConversationIds` as a JSON-serialized text column is a NEW pattern for this table (though it exists elsewhere in the schema — `identities.tags`, `snippets.tags`, etc. are all `text` columns holding JSON strings). If Option B is picked, the route layer must add JSON.parse / JSON.stringify explicitly at the boundary (existing `user-preferences.ts` doesn't do this because it has no JSON fields yet).
 
-**Recommendation on Option A vs. Option B** (planner has final say): **Option B (JSON column on `user_preferences`)** requires no schema migration if the drizzle-orm setup auto-adds the column on next boot (which SQLite CREATE TABLE IF NOT EXISTS + Drizzle's schema-sync typically does not — planner MUST verify how migrations are applied by grep'ing for `migrate(` or looking at `db/index.ts`). Option A (new table) is heavier infrastructure but zero-risk migration-wise (a new table is always additive). Given Ashley's single-tenant + set-size-1 reality AND that the endpoint contract already treats pinnedIds as a bare `string[]` (per CONTEXT.md § scope-fences: no per-pin metadata, no ordering), the JSON blob semantically fits — it's a flat opaque set.
+**Recommendation on Option A vs. Option B** (planner has final say): **Option B (JSON column on `user_preferences`)** requires no schema migration if the drizzle-orm setup auto-adds the column on next boot (which SQLite CREATE TABLE IF NOT EXISTS + Drizzle's schema-sync typically does not — planner MUST verify how migrations are applied by grep'ing for `migrate(` or looking at `db/index.ts`). Option A (new table) is heavier infrastructure but zero-risk migration-wise (a new table is always additive). Given Alice's single-tenant + set-size-1 reality AND that the endpoint contract already treats pinnedIds as a bare `string[]` (per CONTEXT.md § scope-fences: no per-pin metadata, no ordering), the JSON blob semantically fits — it's a flat opaque set.
 
 ---
 

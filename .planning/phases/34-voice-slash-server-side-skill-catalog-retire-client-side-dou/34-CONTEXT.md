@@ -7,14 +7,14 @@
 <domain>
 ## Phase Boundary
 
-Retire the client-side doubled-word intent-transform (voice-first shortcut where "bounty bounty add X" rewrites to "/bounty add X") in favor of a **server-side, STT-endpoint-scoped transform** that lets Ashley say "**slash `<skill-name>` `<args>`**" (voice-first path only) to invoke ANY skill present on the target box's `~/.claude/skills/` — with no client-maintained registry. Deliver a complete end-to-end vertical: STT endpoint accepts target-pane context, gates on the wake-word, SSH-fetches the skill catalog on demand (fail-open on timeout), applies a greedy longest-prefix matcher against the words after "slash", and returns the transformed transcript to the client. Both endSend (direct-send path) and endAppend (into-textarea path) in `useVoiceRecording.ts` consume the pre-transformed transcript. The client-side `composeIntentTransform.ts` module + `INTENT_REGISTRY` + doubled-word regex + all associated tests are retired in the same phase.
+Retire the client-side doubled-word intent-transform (voice-first shortcut where "bounty bounty add X" rewrites to "/bounty add X") in favor of a **server-side, STT-endpoint-scoped transform** that lets Alice say "**slash `<skill-name>` `<args>`**" (voice-first path only) to invoke ANY skill present on the target box's `~/.claude/skills/` — with no client-maintained registry. Deliver a complete end-to-end vertical: STT endpoint accepts target-pane context, gates on the wake-word, SSH-fetches the skill catalog on demand (fail-open on timeout), applies a greedy longest-prefix matcher against the words after "slash", and returns the transformed transcript to the client. Both endSend (direct-send path) and endAppend (into-textarea path) in `useVoiceRecording.ts` consume the pre-transformed transcript. The client-side `composeIntentTransform.ts` module + `INTENT_REGISTRY` + doubled-word regex + all associated tests are retired in the same phase.
 
 ## Out of Scope (explicit)
 
 - **Project-scoped skills** (`.claude/skills/*` inside a repo). User-wide only (`~/.claude/skills/*/`) at v1; project-scoped deferred.
 - **TTL cache** of the skill catalog. Not needed at v1 (see § Decisions). Adding one later is a small follow-up.
-- **Typed-message transform.** Voice-only path — Ashley types `/foo` directly for typed slash-commands (already works today; nothing to change).
-- **Doubled-word registry backwards-compat.** The `bounty bounty → /bounty` shortcut is fully retired — Ashley says "slash bounty add a banana" from voice going forward.
+- **Typed-message transform.** Voice-only path — Alice types `/foo` directly for typed slash-commands (already works today; nothing to change).
+- **Doubled-word registry backwards-compat.** The `bounty bounty → /bounty` shortcut is fully retired — Alice says "slash bounty add a banana" from voice going forward.
 
 </domain>
 
@@ -23,7 +23,7 @@ Retire the client-side doubled-word intent-transform (voice-first shortcut where
 
 ### Transform location — server-side, at the STT endpoint
 
-Ashley 2026-08-13 (verbatim): *"the best time to be doing it would be when we do the STT, because that's the only time this pattern is used. So whether I'm intending to hit the send button where the voice gets transcribed and sent right away, or I'm hitting the append button so that it ends up in the compose box, i feel like the place that this change should happen is like coming back from the stt transcription server."*
+Alice 2026-08-13 (verbatim): *"the best time to be doing it would be when we do the STT, because that's the only time this pattern is used. So whether I'm intending to hit the send button where the voice gets transcribed and sent right away, or I'm hitting the append button so that it ends up in the compose box, i feel like the place that this change should happen is like coming back from the stt transcription server."*
 
 **Consequence:** the transform lives on the backend STT route, NOT in the client and NOT in the pretty-view WS `send-text-to-tmux` seam. Both `endSend` (direct-send path) and `endAppend` (glue-to-textarea path) in `useVoiceRecording.ts` receive the ALREADY-TRANSFORMED transcript from the server.
 
@@ -34,8 +34,8 @@ The transcript must begin with `/^\s*slash[\s.,;:!?\-]+/` (case-insensitive) —
 ### On wake-word HIT — SSH-fetch the skill catalog, greedy longest-prefix match
 
 - **Fetch:** SSH `ls ~/.claude/skills/` on the target box (parse directory names — each subdirectory of `~/.claude/skills/` whose name matches `[a-z0-9-]+` is a skill). Executed via the existing `execCommand` + `connectOneShot` primitives (see `src/backend/database/routes/sessions.ts` for the canonical pattern used by the Kill route). Skill names are already kebab-case on disk.
-- **Timeout:** generous **10s** deadline on the SSH round-trip. Ashley 2026-08-13 (verbatim): *"instead of a 500 millisecond hard timeout, I think we could increase the timeout to something way overboard, and as long as that call is only happening when the message begins with the word slash, then I feel like that's a good tradeoff ... I only invoke skills that way, you know, maybe a handful of times out of every dozens of messages."*
-- **Fail-open:** if SSH errors, times out, returns empty, or the parse fails, return the raw transcript unchanged. No user-visible failure, no error toast, no thrown exception up to the STT client. The transcript still lands in the textarea / gets sent — Ashley will just see it wasn't rewritten and understand.
+- **Timeout:** generous **10s** deadline on the SSH round-trip. Alice 2026-08-13 (verbatim): *"instead of a 500 millisecond hard timeout, I think we could increase the timeout to something way overboard, and as long as that call is only happening when the message begins with the word slash, then I feel like that's a good tradeoff ... I only invoke skills that way, you know, maybe a handful of times out of every dozens of messages."*
+- **Fail-open:** if SSH errors, times out, returns empty, or the parse fails, return the raw transcript unchanged. No user-visible failure, no error toast, no thrown exception up to the STT client. The transcript still lands in the textarea / gets sent — Alice will just see it wasn't rewritten and understand.
 - **Matcher (greedy longest-prefix):**
   1. Strip the wake-word prefix. The remainder is the "post-slash" text.
   2. Tokenize post-slash: split on `[\s.,;:!?\-]+` (same punctuation-tolerance class). Lowercase all tokens. Empty tokens dropped.
@@ -46,9 +46,9 @@ The transcript must begin with `/^\s*slash[\s.,;:!?\-]+/` (case-insensitive) —
 
 ### No TTL cache at v1
 
-Ashley 2026-08-13 (verbatim): *"I don't send messages more than once every 60 seconds usually anyways, so [TTL] would basically do nothing anyways ... if it's not a big deal, then we probably don't even need any TTL."*
+Alice 2026-08-13 (verbatim): *"I don't send messages more than once every 60 seconds usually anyways, so [TTL] would basically do nothing anyways ... if it's not a big deal, then we probably don't even need any TTL."*
 
-**Rationale:** SSH cost (~70-150ms for a fresh one-shot connection + `ls` + close) is dominated by STT latency (~500-2000ms). Wake-word gate keeps the fetch off the 90%+ of STT calls that aren't slash-invocations. Fetching per-invocation is fine given Ashley's ~1-msg-per-minute cadence. Per-`(hostId, tmuxSession)` cache with a 60s+ TTL is a small follow-up if latency ever becomes visible; not v1.
+**Rationale:** SSH cost (~70-150ms for a fresh one-shot connection + `ls` + close) is dominated by STT latency (~500-2000ms). Wake-word gate keeps the fetch off the 90%+ of STT calls that aren't slash-invocations. Fetching per-invocation is fine given Alice's ~1-msg-per-minute cadence. Per-`(hostId, tmuxSession)` cache with a 60s+ TTL is a small follow-up if latency ever becomes visible; not v1.
 
 ### Client responsibilities
 
@@ -69,7 +69,7 @@ Ashley 2026-08-13 (verbatim): *"I don't send messages more than once every 60 se
 
 ### Typed messages — untransformed by design
 
-Voice-only path. Ashley types `/foo` directly for typed slash-commands (already works — that text lands in tmux as-is and Claude Code sees it as a skill invocation). No typed-path transform, no changes to the ComposeBox send handler.
+Voice-only path. Alice types `/foo` directly for typed slash-commands (already works — that text lands in tmux as-is and Claude Code sees it as a skill invocation). No typed-path transform, no changes to the ComposeBox send handler.
 
 ### Claude's Discretion (planner picks)
 
@@ -147,10 +147,10 @@ The rewritten string preserves the post-slash tail EXACTLY as spoken, minus the 
 <deferred>
 ## Deferred Ideas
 
-- **TTL cache** of skill catalog per `(hostId, tmuxSession)` — small follow-up if latency ever becomes visible. Ashley OK'd it as a v2.
+- **TTL cache** of skill catalog per `(hostId, tmuxSession)` — small follow-up if latency ever becomes visible. Alice OK'd it as a v2.
 - **Project-scoped skills** (`.claude/skills/*` inside identity's project cwd) — would layer on top of user-wide `~/.claude/skills/` in the catalog. Requires knowing the identity's cwd. Deferred.
-- **Typed-path slash-transform** (typing "slash foo" gets rewritten to "/foo") — Ashley's usage is voice-first for slash-commands, typed path unchanged.
-- **Feedback UX for no-match / SSH-fail cases** — currently silent passthrough (raw transcript). Could add a subtle toast/log if slash-invocations start missing. Defer until Ashley reports it.
+- **Typed-path slash-transform** (typing "slash foo" gets rewritten to "/foo") — Alice's usage is voice-first for slash-commands, typed path unchanged.
+- **Feedback UX for no-match / SSH-fail cases** — currently silent passthrough (raw transcript). Could add a subtle toast/log if slash-invocations start missing. Defer until Alice reports it.
 
 </deferred>
 

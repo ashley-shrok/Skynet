@@ -558,7 +558,7 @@ async function initializeCompleteDatabase(): Promise<void> {
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     );
 
-    -- Phase 85 (D-01, D-02): identity_send_log — Ashley's per-identity
+    -- Phase 85 (D-01, D-02): identity_send_log — Alice's per-identity
     -- last-send timestamp. Keyed on identity name only (Skynet single-tenant).
     -- Consumed by ssh-poll-orchestrator lastMessageAt derivation. No FK
     -- references; identity names are freestanding strings. Drizzle mirror

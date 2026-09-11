@@ -7,7 +7,7 @@
 
 ## Motivation
 
-Ashley asked for a fast-path to make quick edits to a skill's files on any managed host from inside Skynet, mirroring the Phase 23 global-files editor surface she already uses daily. The trigger is fast-adjustment work — she notices a skill wants a small update while she's in the fleet UI and wants to fix it right there without leaving the browser or opening a full-fat editor. The design mandate (per the `/open` shape file at `.planning/shapes/shape-frontend-skill-editing.md`) is three selections max — menu → host → skill — then a tab click, and the whole UX is subordinate to that fast-path. The whole feature is invisible until the panel-header ⋮ menu is opened; no new top-level surface, no new keyboard shortcut, no new prop thread through AppShell.
+Alice asked for a fast-path to make quick edits to a skill's files on any managed host from inside Skynet, mirroring the Phase 23 global-files editor surface she already uses daily. The trigger is fast-adjustment work — she notices a skill wants a small update while she's in the fleet UI and wants to fix it right there without leaving the browser or opening a full-fat editor. The design mandate (per the `/open` shape file at `.planning/shapes/shape-frontend-skill-editing.md`) is three selections max — menu → host → skill — then a tab click, and the whole UX is subordinate to that fast-path. The whole feature is invisible until the panel-header ⋮ menu is opened; no new top-level surface, no new keyboard shortcut, no new prop thread through AppShell.
 
 ## What shipped
 
@@ -89,14 +89,14 @@ Every user-supplied path or skill name runs a four-layer defense before any I/O:
 5. Live-fire HTTPS check:
    ```bash
    TOKEN=$(cat ~/.claude/skynet-token-for-testing || echo "SET-ME")
-   HOST_ID=<pick-a-real-hostId-from-Ashley's-fleet>
+   HOST_ID=<pick-a-real-hostId-from-Alice's-fleet>
    curl -sS -H "Authorization: Bearer $TOKEN" \
      "https://example.com/skills-editor/skills?hostId=$HOST_ID" | jq
    # Expect: {"skills": [...]}  — NOT the frontend index.html payload.
    ```
    If the response is HTML instead of JSON, the nginx block is missing or misordered — ABORT and let the deadman fire.
 6. If HTTPS 200 verified + JSON payload shape correct → cancel the deadman.
-7. Post to coord-room announcing patch #TBD landed; drop the UAT checklist link so Ashley can walk it when she's ready.
+7. Post to coord-room announcing patch #TBD landed; drop the UAT checklist link so Alice can walk it when she's ready.
 
 ## Rebase risk — LOW
 
@@ -115,4 +115,4 @@ Every user-supplied path or skill name runs a four-layer defense before any I/O:
 
 ## Bounty tracker
 
-Reference the box-maintainer's bounty tree at `~/.claude/roles/box-maintainer/bounties/frontend-skill-editing/` (maintainer's local path — orchestrator confirms and closes the bounty at PIN time). Bounty ships when Ashley signs off on the UAT checklist (`.planning/phases/44-.../46-UAT-CHECKLIST.md`).
+Reference the box-maintainer's bounty tree at `~/.claude/roles/box-maintainer/bounties/frontend-skill-editing/` (maintainer's local path — orchestrator confirms and closes the bounty at PIN time). Bounty ships when Alice signs off on the UAT checklist (`.planning/phases/44-.../46-UAT-CHECKLIST.md`).

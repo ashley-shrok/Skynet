@@ -247,7 +247,7 @@ export type AsideReadyEvent = {
 
 // aside_dismissed — server -> client. Backend observed the BTW overlay
 // disappearing (either from a client-initiated Escape, or from any other
-// cause — Ashley SSH-attaching and pressing Escape herself, tmux death,
+// cause — Alice SSH-attaching and pressing Escape herself, tmux death,
 // etc.). Broadcast to ALL clients subscribed to this session's WS stream
 // for cross-tab dismiss coherence. Refs: ASIDE-07 (dismiss via Resume X) +
 // ASIDE-11 (cross-tab dismiss coherence).
@@ -358,7 +358,7 @@ export type PaneStateEvent = {
  * file-history-snapshot onto the same line and cuts the first mid-string).
  * `bytes` carries the trimmed byte length of the unparseable line for
  * diagnostic display; `eventId` is fabricated backend-side (no uuid was
- * parseable). Rendered as a compact placeholder bubble so Ashley sees
+ * parseable). Rendered as a compact placeholder bubble so Alice sees
  * that something was dropped instead of silently losing the turn.
  */
 export type MalformedLineEvent = {
@@ -521,7 +521,7 @@ export type FetchOlderRangePayload = {
 
 export type Bounty = {
   /** Patch #109: folder basename. bounty.json's `id` field is a UUID —
-   *  useless for humans. The FOLDER name is what Ashley references bounties
+   *  useless for humans. The FOLDER name is what Alice references bounties
    *  by in conversation. Backend injects this from the directory listing;
    *  frontend renders it alongside `title` in BountyCard. Always present. */
   slug: string;
@@ -535,7 +535,7 @@ export type Bounty = {
    *  bounty.json. Flipped via identity:update-bounty-pinned WS write. */
   pinned: boolean;
   /** Phase 26 / this quick: independent user-reserved boolean — true when
-   *  Ashley flagged the bounty as needing a desk (real browser/keyboard) to
+   *  Alice flagged the bounty as needing a desk (real browser/keyboard) to
    *  work on next. Orthogonal to status and pinned. Backend normalizeBounty
    *  defaults to false when absent. Flipped via identity:update-bounty-
    *  needs-desk WS write. */

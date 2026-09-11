@@ -305,7 +305,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     ]);
 
     await stubUsersQuery([
-      { id: "u1", username: "ashley", mxid: "@ashley:100.113.23.63" },
+      { id: "u1", username: "alice", mxid: "@ashley:100.113.23.63" },
     ]);
 
     const { syncAllBotTokenFiles } = await import(
@@ -350,7 +350,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     expect(syncAllBotTokenFiles).toHaveBeenCalled();
     expect(mintAndWriteHumanToken).toHaveBeenCalledWith(
       "@ashley:100.113.23.63",
-      "ashley",
+      "alice",
     );
     expect(buildRegistryFromRows).toHaveBeenCalled();
     expect(writeRegistry).toHaveBeenCalled();
@@ -454,7 +454,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
       },
     ]);
     await stubUsersQuery([
-      { id: "u1", username: "ashley", mxid: "@ashley:thenasty.taild9b663.ts.net" },
+      { id: "u1", username: "alice", mxid: "@ashley:thenasty.taild9b663.ts.net" },
     ]);
 
     const { syncAllBotTokenFiles } = await import(
@@ -592,7 +592,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     await stubUsersQuery([
       {
         id: "u1",
-        username: "ashley",
+        username: "alice",
         mxid: "@ashley:thenasty.taild9b663.ts.net",
       },
       {
@@ -619,7 +619,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     );
     vi.mocked(getSharedDMRoom).mockImplementation(
       async (_agent: string, human: string) => {
-        if (human === "@ashley:thenasty.taild9b663.ts.net") return "!ashley-room";
+        if (human === "@ashley:thenasty.taild9b663.ts.net") return "!user-room";
         if (human === "@zoey:thenasty.taild9b663.ts.net") return "!zoey-room";
         return null;
       },
@@ -668,7 +668,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
       roomMap!.get(
         "@alexander:thenasty.taild9b663.ts.net\t@ashley:thenasty.taild9b663.ts.net",
       ),
-    ).toBe("!ashley-room");
+    ).toBe("!user-room");
     expect(
       roomMap!.get(
         "@alexander:thenasty.taild9b663.ts.net\t@zoey:thenasty.taild9b663.ts.net",
@@ -708,7 +708,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     await stubUsersQuery([
       {
         id: "u1",
-        username: "ashley",
+        username: "alice",
         mxid: "@ashley:thenasty.taild9b663.ts.net",
       },
       {
@@ -735,7 +735,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     );
     vi.mocked(getSharedDMRoom).mockImplementation(
       async (_agent: string, human: string) => {
-        if (human === "@ashley:thenasty.taild9b663.ts.net") return "!ashley-room";
+        if (human === "@ashley:thenasty.taild9b663.ts.net") return "!user-room";
         return null; // zoey: no shared DM room discovered
       },
     );
@@ -760,7 +760,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
       roomMap!.get(
         "@alexander:thenasty.taild9b663.ts.net\t@ashley:thenasty.taild9b663.ts.net",
       ),
-    ).toBe("!ashley-room");
+    ).toBe("!user-room");
     // Zoey key present but value is null (not undefined).
     expect(
       roomMap!.has(
@@ -806,7 +806,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     await stubUsersQuery([
       {
         id: "u1",
-        username: "ashley",
+        username: "alice",
         mxid: "@ashley:thenasty.taild9b663.ts.net",
       },
       {
@@ -833,7 +833,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     );
     vi.mocked(getSharedDMRoom).mockImplementation(
       async (_agent: string, human: string) => {
-        if (human === "@ashley:thenasty.taild9b663.ts.net") return "!ashley-room";
+        if (human === "@ashley:thenasty.taild9b663.ts.net") return "!user-room";
         throw new Error("simulated admin API failure for zoey");
       },
     );
@@ -858,7 +858,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
       roomMap!.get(
         "@alexander:thenasty.taild9b663.ts.net\t@ashley:thenasty.taild9b663.ts.net",
       ),
-    ).toBe("!ashley-room");
+    ).toBe("!user-room");
     expect(
       roomMap!.get(
         "@alexander:thenasty.taild9b663.ts.net\t@zoey:thenasty.taild9b663.ts.net",
@@ -947,7 +947,7 @@ describe("bridge-config-writer.rewriteRegistryFromCurrentState", () => {
     ]);
 
     await stubUsersQuery([
-      { id: "u1", username: "ashley", mxid: "@ashley:100.113.23.63" },
+      { id: "u1", username: "alice", mxid: "@ashley:100.113.23.63" },
     ]);
 
     const { syncAllBotTokenFiles } = await import(

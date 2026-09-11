@@ -28,7 +28,7 @@ The bounty is small on the wire but load-bearing on stance:
 ## Prior context
 
 - The create-role modal shipped its own UX pass four hours earlier (Phase 84, at HEAD `dfa5929e`). Its header blurb, paired-copy pattern, admin-only path field pattern, and single-host-hide primitive are the anchors this bounty pairs with. This bounty is the sibling of that one.
-- Nine items were originally sorted into this bounty from Ashley's UX-pass digest 2026-09-07. During /open discussion, verification against the current code revealed:
+- Nine items were originally sorted into this bounty from Alice's UX-pass digest 2026-09-07. During /open discussion, verification against the current code revealed:
   - **Three items were already working correctly** and needed no work (role pre-fill from create-role chain — Phase 22 wired + tested; role picker existence — Phase 22 shipped, coherent with current model; hide-host-when-1 — Phase 84 shipped).
   - **One item was a spec collision** that pointed at a separate structural change: cosmetics (title, colorHue, voice, avatar) should migrate from identity-level to role-level with per-identity override semantics, matching how directives already work in the id skill. That's now its own upstream bounty.
   - **Two items dissolved** as a consequence of that migration (title field is removed from create-agent because cosmetics live at role level; Brief field is removed because its sole purpose was seeding avatar generation which also moves).
@@ -63,9 +63,9 @@ The bounty is small on the wire but load-bearing on stance:
 - The whole bounty's execution is deferred until `cosmetics-migrate-to-role` lands.
 
 **Tempting-but-no:**
-- Adding a per-agent "description" or "notes" field on create-agent to replace the removed Brief. Ashley didn't ask for one; if it turns out to be needed later, it's a separate bounty.
+- Adding a per-agent "description" or "notes" field on create-agent to replace the removed Brief. Alice didn't ask for one; if it turns out to be needed later, it's a separate bounty.
 - Renaming the modal from "New agent" to something else. Phase 84 already conformed the title; no re-open.
-- Making the checkbox label something more clever than "Just a shell — no agent." Ashley greenlit that specific text.
+- Making the checkbox label something more clever than "Just a shell — no agent." Alice greenlit that specific text.
 - Adding an "Override cosmetics for this identity" affordance on create-agent as a per-identity opt-out. Post-cosmetics-migration, per-identity overrides are done via the identity modal after creation; the create-agent modal stays lean.
 
 ## Vehicle notes
@@ -74,7 +74,7 @@ The bounty is small on the wire but load-bearing on stance:
 
 **Why deferred:** Items #4 and #5 dissolve because cosmetics move to role level, and that migration is its own bounty upstream in the campaign. Executing THIS phase before `cosmetics-migrate-to-role` lands would strand the modal in an inconsistent state (title/brief fields removed here with no role-side home).
 
-**Execution order** (Ashley's standing UX-pass campaign, reshuffled 2026-09-07 during this /open):
+**Execution order** (Alice's standing UX-pass campaign, reshuffled 2026-09-07 during this /open):
 1. ~~`create-role-modal-ux-pass`~~ — DONE (Phase 84, at HEAD `dfa5929e`).
 2. **`cosmetics-migrate-to-role`** — NEW upstream bounty, first up in the next `/build`.
 3. **`create-agent-modal-ux-pass`** — THIS BOUNTY, third in order.
@@ -84,9 +84,9 @@ The bounty is small on the wire but load-bearing on stance:
 7. `composebox-buttons-and-queue-tab-redesign`.
 8. `global-file-agents-may-edit-on-permission`.
 
-**Standing rule (Ashley 2026-09-07 verbatim, holds across the whole campaign):** *"after each build for this plan, you're going to reset yourself and then invoke the next build on the next bounty at the start of the next session."* Plus the campaign constraint: no full test suite, no docker build, no docker cp, no `docker compose up`, no deploy until ALL remaining bounties in the campaign are done. Push + scoped tests only per bounty.
+**Standing rule (Alice 2026-09-07 verbatim, holds across the whole campaign):** *"after each build for this plan, you're going to reset yourself and then invoke the next build on the next bounty at the start of the next session."* Plus the campaign constraint: no full test suite, no docker build, no docker cp, no `docker compose up`, no deploy until ALL remaining bounties in the campaign are done. Push + scoped tests only per bounty.
 
-**Ashley delegated to tabitha (2026-09-07 verbatim):** *"you're in charge of making sure that we continue with the plan and these bounties go in the right order."*
+**Alice delegated to tabitha (2026-09-07 verbatim):** *"you're in charge of making sure that we continue with the plan and these bounties go in the right order."*
 
 **Identity in charge:** tabitha (box-maintainer on t1000).
 

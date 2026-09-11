@@ -8,7 +8,7 @@ dependency_graph:
     - phase: 13-01
       provides: pretty-conversations.css `.pv-panel-header`, `.pv-title`, `.pv-pencil` selectors (already declared for Wave 2 consumption)
     - src/ui/index.css (--color-pv-* palette tokens)
-    - prototype.html mock v4 (Ashley-locked 2026-07-23)
+    - prototype.html mock v4 (user-locked 2026-07-23)
   provides:
     - PrettyConversationsPanel header rendered with mock's class-toggle treatment (12px + 700 + 0.1em UPPERCASE title, 32x32 transparent 8px-radius pencil, hairline border-bottom)
     - AppShell sidebar-toggle chevron rebased to --color-pv-* palette (mock v4 `.pv-pencil` aesthetic — transparent bare-icon-with-rounded-md)
@@ -97,13 +97,13 @@ Plan-suggested atomic split (2 commits for Task 1 source + test, 1 commit for Ta
 
 ## Deviations from Plan
 
-None. All work stayed within the class-toggle-state-variant architecture Ashley locked in `13-CONTEXT.md`, and the plan's suggested commit split (2 for Task 1 source+test, 1 for Task 2) was followed exactly.
+None. All work stayed within the class-toggle-state-variant architecture Alice locked in `13-CONTEXT.md`, and the plan's suggested commit split (2 for Task 1 source+test, 1 for Task 2) was followed exactly.
 
 The plan's post-condition grep for AppShell's chevron block briefly tripped after the first pass because the initial JSDoc revision mentioned exact retired class strings (`bg-[rgba(20,22,28,0.85)]` etc.) inside a `{/* */}` comment. The grep uses `grep -vE '^\s*//'` to filter only `//` line comments and can't distinguish JSX block comments. This is a comment-only concern (not a code-behavior concern), and was resolved by rewriting the JSDoc to describe the retired treatment semantically ("opaque rgba fill + backdrop-blur + white-alpha border + drop shadow + Skynet muted-foreground text") rather than by exact class strings. Documented here as a note rather than as a deviation because no functional behavior changed and no rule was triggered.
 
 ## Issues Encountered
 
-- **Baseline pre-existing failure:** `src/ui/features/pretty-view/ComposeBox.test.tsx` has 2 failing tests (`Test :send-yes | send-no`) that fail both with and without this plan's changes. Confirmed via `git stash` + rerun on baseline (2 fail there too) then `git stash pop` to restore working state. These are in `src/ui/features/pretty-view/*` which this plan explicitly does NOT touch (SHAPE-06 lockout — "leave the pretty view chat interior alone" per Ashley). Not this plan's scope; not resolved here. Test count reflected in Task 2's verify: overall `npx vitest run` reports `Test Files 1 failed | 42 passed (43); Tests 2 failed | 524 passed (526)` — the 2 failures are the pre-existing ComposeBox failures.
+- **Baseline pre-existing failure:** `src/ui/features/pretty-view/ComposeBox.test.tsx` has 2 failing tests (`Test :send-yes | send-no`) that fail both with and without this plan's changes. Confirmed via `git stash` + rerun on baseline (2 fail there too) then `git stash pop` to restore working state. These are in `src/ui/features/pretty-view/*` which this plan explicitly does NOT touch (SHAPE-06 lockout — "leave the pretty view chat interior alone" per Alice). Not this plan's scope; not resolved here. Test count reflected in Task 2's verify: overall `npx vitest run` reports `Test Files 1 failed | 42 passed (43); Tests 2 failed | 524 passed (526)` — the 2 failures are the pre-existing ComposeBox failures.
   - **Note on baseline verification method:** Used `git stash` + `git stash pop` inside this plain (non-worktree) checkout. Safe here because this repo is not a Claude Code worktree — `refs/stash` isolation warnings don't apply. For worktree contexts, `git show HEAD~1:path` or a scratch-branch commit would be the sanctioned alternatives.
 - No auth-gate encounters. No package installs. No architectural (Rule 4) escalations.
 
@@ -165,14 +165,14 @@ No new security-relevant surface. This plan is pure UI CSS refactoring — no ne
 This plan's execution makes Wave 3 (13-03 PinAction rewrite) and Wave 4 (13-04 post-lift verification/UAT) straightforward:
 
 - **Wave 3 (13-03) — PinAction rewrite:** PinAction lives inside a row, not in the header. This plan's header rewrite doesn't touch the row internals, so 13-03 has full freedom to rewrite PinAction's pin-icon-with-hue-glow treatment without any coordination overhead. Wave 1's CSS already declared the row hover-reveal rule (`.pv-row.pv-row--desktop:not(.pinned):not(:hover) .pv-meta [data-testid="pin-action"] { opacity: 0 }`) that PinAction will consume.
-- **Wave 4 (13-04) — post-lift verification / UAT:** Both surfaces Ashley called out ("bar at the top that says conversations" + "bar at the top around the session name") have now been rebased to the mock v4 aesthetic. UAT should focus on visual match confirmation against `prototype.html` mock v4, plus the ambient-recession dot-visibility investigation (which is upstream of both Wave 2 and Wave 3).
+- **Wave 4 (13-04) — post-lift verification / UAT:** Both surfaces Alice called out ("bar at the top that says conversations" + "bar at the top around the session name") have now been rebased to the mock v4 aesthetic. UAT should focus on visual match confirmation against `prototype.html` mock v4, plus the ambient-recession dot-visibility investigation (which is upstream of both Wave 2 and Wave 3).
 
 ## Follow-up Candidates for Master Bounty
 
 None require sibling bounties. Everything in this plan flows through the master `skynet-transformation` bounty:
 
-- The AppShell shell chrome outside the chevron (`className="flex w-screen bg-background"` outer wrapper on L1400, the `100dvh` + `paddingTop` safe-area logic) still uses Skynet theme classes. Ashley's SHAPE-04 description explicitly limited SHAPE-04 to "the chevron area only"; broader shell-chrome rebase would be a future patch if it turns out to matter for the visual match. Deferred candidate for the master bounty timeline, NOT a sibling bounty.
-- The 2 pre-existing ComposeBox test failures (`Test :send-yes | send-no` in `src/ui/features/pretty-view/ComposeBox.test.tsx`) are baseline flakes / regressions from an earlier phase, not caused by this plan. If they matter, they belong in a fresh bounty (compose-box test-suite hygiene) — SHAPE-06 lockout keeps them out of the Ship-of-Theseus scope, but they COULD be resolved by a `/gsd:quick`-style fix if Ashley cares. Not this plan's problem.
+- The AppShell shell chrome outside the chevron (`className="flex w-screen bg-background"` outer wrapper on L1400, the `100dvh` + `paddingTop` safe-area logic) still uses Skynet theme classes. Alice's SHAPE-04 description explicitly limited SHAPE-04 to "the chevron area only"; broader shell-chrome rebase would be a future patch if it turns out to matter for the visual match. Deferred candidate for the master bounty timeline, NOT a sibling bounty.
+- The 2 pre-existing ComposeBox test failures (`Test :send-yes | send-no` in `src/ui/features/pretty-view/ComposeBox.test.tsx`) are baseline flakes / regressions from an earlier phase, not caused by this plan. If they matter, they belong in a fresh bounty (compose-box test-suite hygiene) — SHAPE-06 lockout keeps them out of the Ship-of-Theseus scope, but they COULD be resolved by a `/gsd:quick`-style fix if Alice cares. Not this plan's problem.
 
 ## Self-Check: PASSED
 

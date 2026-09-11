@@ -4,10 +4,10 @@
 # by remote-hook-install.ts (Plan 62-02). Reads the harness JSON payload from
 # stdin and atomic-touches the per-session activity marker file, whose mtime
 # is read by the Skynet backend over SSH (via `stat -c %Y`) to answer the
-# affordance's one question: "should Ashley look at this row?"
+# affordance's one question: "should Alice look at this row?"
 #
 # Wired by Plan 62-02's installer to BOTH of these settings.json hooks:
-#   - hooks.UserPromptSubmit[0].hooks[]  (Ashley submitted a prompt)
+#   - hooks.UserPromptSubmit[0].hooks[]  (Alice submitted a prompt)
 #   - hooks.PreToolUse[0].hooks[]         (agent began invoking a tool)
 # This script is EVENT-AGNOSTIC — it does not branch on hook_event_name; the
 # installer's routing (which events pipe to this script) is the entire event

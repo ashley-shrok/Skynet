@@ -6,7 +6,7 @@
  * The dormancy-bubble-in-flow quick task (patch #422, 2026-08-12) ships a
  * wake-bubble frame when a dormant identity pane comes back to life, but
  * the messages behind that bubble never appear — the dormant branch has no
- * tail open, so the JSONL history is never streamed to the UI. Ashley's
+ * tail open, so the JSONL history is never streamed to the UI. Alice's
  * verbatim direction: *"the bubble looks good, but unfortunately, the
  * rest of the messages that would be in that session are not showing up."*
  *
@@ -70,7 +70,7 @@ import type { Client } from "ssh2";
 import { execCommand } from "../ssh/tmux-helper.js";
 
 /**
- * Hard ceiling on the discovery exec call. Bumped 3000 → 30000 (Ashley
+ * Hard ceiling on the discovery exec call. Bumped 3000 → 30000 (Alice
  * 2026-08-20 UAT) after aiTitle + lastMessageAt shipped as null for every
  * local identity on skynet-ec2. Root cause: the discovery shell script
  * (`find ~/.claude/projects/ ... | head -c 4096 | grep`) costs ~1.5s

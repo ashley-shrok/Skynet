@@ -46,7 +46,7 @@ metrics:
 
 # Phase 15 Plan 1: Server-side pinned conversation IDs (Wave 1 backend) Summary
 
-Extended the existing `/user-preferences` endpoint with a `pinnedConversationIds: string[]` field, backed by a new nullable `pinned_conversation_ids TEXT` column on the `user_preferences` table storing a JSON-serialized array. Landed the schema column, the endpoint validation + response-echo contract, and 10 pin-specific + 3 regression direct-handler tests — the backbone Wave 2 (store integration) and Wave 3 (panel wire-up) will consume as a stable server surface. Fixes the root cause of Ashley's UAT bug: pins died on tab/PWA close because they lived only in Zustand memory.
+Extended the existing `/user-preferences` endpoint with a `pinnedConversationIds: string[]` field, backed by a new nullable `pinned_conversation_ids TEXT` column on the `user_preferences` table storing a JSON-serialized array. Landed the schema column, the endpoint validation + response-echo contract, and 10 pin-specific + 3 regression direct-handler tests — the backbone Wave 2 (store integration) and Wave 3 (panel wire-up) will consume as a stable server surface. Fixes the root cause of Alice's UAT bug: pins died on tab/PWA close because they lived only in Zustand memory.
 
 ## What was built
 

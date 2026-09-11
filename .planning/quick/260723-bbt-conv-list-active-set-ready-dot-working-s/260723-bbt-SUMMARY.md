@@ -22,7 +22,7 @@ dependency-graph:
     - PrettyConversationsPanel PrettyConversationRowLive micro-component (Rules-of-Hooks-safe per-row store subscription)
   affects:
     - Every row in PrettyConversationsPanel now visually distinguishes engaged (active-set, full bubble) vs ambient (not selected in this session, recessed) rows
-    - Rows where the agent is idle (isIdle-published false) AND that Ashley has engaged with show a steady hue-cream "ready" dot
+    - Rows where the agent is idle (isIdle-published false) AND that Alice has engaged with show a steady hue-cream "ready" dot
 tech-stack:
   added:
     - session-working-store (module-scoped Map<string, boolean|null> + useSyncExternalStore, mirrors conversation-store pattern verbatim)
@@ -61,7 +61,7 @@ metrics:
 
 # Quick Task 260723-bbt: Conversation-List Active-Set + Ready-Dot + Session-Working Store Summary
 
-Wired patch #137 per Ashley's LOCKED 2026-07-23 spec — pretty-conversations rows now visually distinguish engaged (active-set) vs ambient (backgrounded) sessions and telegraph agent-idle-ready-for-input status via a single steady hue-cream dot. Ready-dot renders iff `inActiveSet === true && isWorking === false`; ambient recession applies to non-RDP rows NOT in the active-set. RDP rows are exempt from ambient recession and never render the dot.
+Wired patch #137 per Alice's LOCKED 2026-07-23 spec — pretty-conversations rows now visually distinguish engaged (active-set) vs ambient (backgrounded) sessions and telegraph agent-idle-ready-for-input status via a single steady hue-cream dot. Ready-dot renders iff `inActiveSet === true && isWorking === false`; ambient recession applies to non-RDP rows NOT in the active-set. RDP rows are exempt from ambient recession and never render the dot.
 
 ## What Changed
 

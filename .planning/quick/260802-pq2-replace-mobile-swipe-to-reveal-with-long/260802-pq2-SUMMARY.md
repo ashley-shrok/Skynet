@@ -42,9 +42,9 @@ Retire mobile swipe-to-reveal action strip on `PrettyConversationRow`; wire a 50
 
 ## Purpose
 
-The prior swipe-to-reveal strip absolutely-positioned action buttons (PinAction / DeactivateAction / HideAction) BEHIND the row body and revealed them by translating the body left. On rows with translucent ambient/hidden backgrounds, those action buttons bled visually through the row itself — Ashley's bounty `swipe-actions-visible-through-translucent-rows`.
+The prior swipe-to-reveal strip absolutely-positioned action buttons (PinAction / DeactivateAction / HideAction) BEHIND the row body and revealed them by translating the body left. On rows with translucent ambient/hidden backgrounds, those action buttons bled visually through the row itself — Alice's bounty `swipe-actions-visible-through-translucent-rows`.
 
-Fix approach: delete the entire class of bug by deleting the class of DOM that causes it. If nothing paints behind rows, nothing can bleed through. Ashley's own comment at `PrettyConversationRow.tsx:429` already noted: "to hide, long-press → menu" — the intent was pre-loaded; this quick just executes it.
+Fix approach: delete the entire class of bug by deleting the class of DOM that causes it. If nothing paints behind rows, nothing can bleed through. Alice's own comment at `PrettyConversationRow.tsx:429` already noted: "to hide, long-press → menu" — the intent was pre-loaded; this quick just executes it.
 
 ## What shipped
 

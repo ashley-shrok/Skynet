@@ -2,7 +2,7 @@
 
 > **⚠️ CLOSED / SUPERSEDED 2026-09-04** — this shape is no longer the direction.
 > Multi-VM POC validated 2026-09-04 (Ivy provisioned t4g.small in Aither VPC,
-> tiffany installed substrate, Ashley drove login + `/id` via Skynet frontend
+> tiffany installed substrate, Alice drove login + `/id` via Skynet frontend
 > — worked). Codebase-verification pass revealed **Skynet already user-scopes
 > every host operation** (`WHERE hosts.userId = req.userId`), AND already has
 > an admin-scoped `POST /users/api-keys` endpoint that creates a `tmx_` API key

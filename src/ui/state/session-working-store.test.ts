@@ -835,7 +835,7 @@ describe("session-working-store (Phase 47 Plan 03): reconciliation chokepoint �
   // Test 5 — seed then WS "older" (by pretend chronology): LAST-WINS applies regardless
   it("Test 5 (seed then WS 'older' — LAST-WINS applies regardless): seed='Fix Y', WS='Debug X' → cache reads 'Debug X'", () => {
     // Ai-title is LAST-WINS (not max-wins like lastMessageAt) because strings have no
-    // numeric ordering — the freshest ARRIVAL is the correct value. Ashley 2026-08-19:
+    // numeric ordering — the freshest ARRIVAL is the correct value. Alice 2026-08-19:
     // "If WS says Debug X and later WS says Fix Y, we want Fix Y".
     seedSessionAiTitle(1, "tina", "Fix Y");
     publishFleetStatusSessionState(
@@ -1597,7 +1597,7 @@ describe("session-working-store (Phase 62 Plan 04): direct-signal predicate", ()
       );
     });
     rerender();
-    // Activity observed, no stop yet → row deserves Ashley's attention.
+    // Activity observed, no stop yet → row deserves Alice's attention.
     expect(result.current).toBe(true);
   });
 
@@ -1933,7 +1933,7 @@ describe("session-working-store (Phase 62 Plan 04): Nelly oscillation + Permissi
       useSessionIsWorking("h1:s1"),
     );
 
-    // Frame 1: UserPromptSubmit fires (Ashley submitted a prompt) →
+    // Frame 1: UserPromptSubmit fires (Alice submitted a prompt) →
     // activity marker bumped to 1000; stopped marker not touched yet.
     act(() => {
       publishFleetStatusSessionState(
@@ -1982,7 +1982,7 @@ describe("session-working-store (Phase 62 Plan 04): Nelly oscillation + Permissi
     // flipped from "working" to "ready to click".
     expect(result.current).toBe(false);
 
-    // Frame 4: PermissionRequest fires (agent blocked waiting on Ashley) →
+    // Frame 4: PermissionRequest fires (agent blocked waiting on Alice) →
     // stopped marker bumped to 4000 via stopped-hook.sh (per Plan 62-01/02:
     // PermissionRequest is routed to the stopped marker deliberately per
     // §Philosophy — "agent is waiting on you" is the same as "agent is
@@ -1998,12 +1998,12 @@ describe("session-working-store (Phase 62 Plan 04): Nelly oscillation + Permissi
     });
     rerender();
     // stopped (4000) > activity (2000) → false. Proves the shape
-    // §Philosophy design choice: both mean the row deserves Ashley's
+    // §Philosophy design choice: both mean the row deserves Alice's
     // attention right now, both leave the affordance off. This is the
     // "PermissionRequest = done" end-to-end signal correctness proof.
     expect(result.current).toBe(false);
 
-    // Frame 5: UserPromptSubmit fires (Ashley responded to the permission
+    // Frame 5: UserPromptSubmit fires (Alice responded to the permission
     // request, next turn begins) → activity marker bumped to 5000.
     act(() => {
       publishFleetStatusSessionState(

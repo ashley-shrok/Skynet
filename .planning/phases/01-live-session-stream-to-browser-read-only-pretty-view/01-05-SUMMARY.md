@@ -42,7 +42,7 @@ armed 15-min deadman, `docker compose up -d --force-recreate skynet`.
   `HTTP/2 426 Upgrade Required` with `content-type: text/plain` — backend
   rejecting an unauthenticated WS handshake. NOT the trap signature
   (`200 text/html` = SPA fallback ate it).
-- First browser smoke by Ashley: reported "no active Claude session"
+- First browser smoke by Alice: reported "no active Claude session"
   overlay on a pane where Claude Code WAS running. Discovery bug — see
   next section.
 
@@ -79,7 +79,7 @@ window).** Replace the fd walk with a CWD-driven approach:
 moxie (Pantheon-Morpheus), molly (Pantheon-Metis) — all resolved to
 their correct active session file.
 
-Redeployed via same build+deadman flow. Ashley's second browser smoke
+Redeployed via same build+deadman flow. Alice's second browser smoke
 reported "worked!" — pretty view rendered the live conversation.
 
 ## Deadman flow record (for future reference)
@@ -89,7 +89,7 @@ reported "worked!" — pretty view rendered the live conversation.
 - Broken discovery reported 16:32
 - Root-caused + fixed + committed + pushed 16:37
 - Old deadman kept inert by touching sentinel; v2 deadman armed with
-  distinct `/tmp/skynet-keep-patched-v2` sentinel to give Ashley a
+  distinct `/tmp/skynet-keep-patched-v2` sentinel to give Alice a
   fresh 15-min window for the fix
 - Second deploy live at 16:38
 - "Worked!" confirmed 16:39
@@ -103,7 +103,7 @@ reported "worked!" — pretty view rendered the live conversation.
 - Also validated end-to-end in production:
   - **BACKEND-01/02** — discovery now correctly locates the JSONL for
     live Claude sessions
-  - **BACKEND-03** — tail streaming works (Ashley saw the conversation
+  - **BACKEND-03** — tail streaming works (Alice saw the conversation
     render)
   - **RENDER-01/02/03** — chat bubbles render user + Claude messages
     only, from the start of the file, with chat-app auto-scroll
@@ -116,7 +116,7 @@ reported "worked!" — pretty view rendered the live conversation.
 - **Executor swap:** the plan block for Task 3 was written for a
   gsd-executor agent, but the standing fleet directive "GSD is CODE-ONLY"
   (identity file) mandates that operational tasks (nginx edits + deploy)
-  bypass GSD. Ashley enforced this mid-run. Tasks 1 + 2 were also handled
+  bypass GSD. Alice enforced this mid-run. Tasks 1 + 2 were also handled
   inline by tina rather than by a spawned executor — coherent with the
   "GSD is code, deploys are operational" split. All commit + verification
   criteria from the plan's Tasks 1 + 2 still met.

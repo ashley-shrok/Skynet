@@ -2,7 +2,7 @@
 
 Timestamp: 2026-07-21T06:32:27Z
 Commit: 858ad4295d3964c3992920c4437166a409041fa2 (feat/tab-title-from-tmux)
-Scope: Local `npm run build` verification only. Docker image build is Ashley-gated in the main orchestrator context and NOT executed here (Task 4 deploy deferred per plan hard_constraint).
+Scope: Local `npm run build` verification only. Docker image build is user-gated in the main orchestrator context and NOT executed here (Task 4 deploy deferred per plan hard_constraint).
 
 ## Step A — Clean build
 
@@ -158,7 +158,7 @@ Total: 6 files modified, 0 created, 0 deleted, +1110 / -33 net across the whole 
 
 ## Verdict
 
-**CLEAN** — safe for Ashley-gated deploy in the main orchestrator context.
+**CLEAN** — safe for user-gated deploy in the main orchestrator context.
 
 Rationale:
 1. Build completes in 10.64s with no errors and no new warnings beyond the pre-existing large-vendor-chunk informational.
@@ -170,8 +170,8 @@ Rationale:
 7. Scope fence honored — zero source diffs to pretty-view, terminal, guacamole, backend, docker, package.json, NewSessionDialog, or ConversationRow (Step G).
 8. Bundle-size impact: AppShell +2,984 bytes (+0.68%); other bundles byte-identical to Phase 6 (Step A).
 
-Deploy remains Ashley-gated per fork discipline (`~/.claude/identities/tina/deploy-runbook.md` — DEADMAN IS MANDATORY, NO EXCEPTIONS; BLANKET PRE-AUTHORIZATION ≠ PER-DEPLOY GREEN LIGHT). Task 4 in Plan 07-03 is deferred to the main orchestrator context after Ashley reviews UAT checklist + patches-md entry and gives explicit deploy green-light.
+Deploy remains user-gated per fork discipline (`~/.claude/identities/tina/deploy-runbook.md` — DEADMAN IS MANDATORY, NO EXCEPTIONS; BLANKET PRE-AUTHORIZATION ≠ PER-DEPLOY GREEN LIGHT). Task 4 in Plan 07-03 is deferred to the main orchestrator context after Alice reviews UAT checklist + patches-md entry and gives explicit deploy green-light.
 
 ---
 
-*Executed 2026-07-21 by Plan 07-03 Task 1 executor (Tasks 1-3 scope only; Task 4 deploy Ashley-gated in main orchestrator context).*
+*Executed 2026-07-21 by Plan 07-03 Task 1 executor (Tasks 1-3 scope only; Task 4 deploy user-gated in main orchestrator context).*

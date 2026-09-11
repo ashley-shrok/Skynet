@@ -278,7 +278,7 @@ Phase 61 plans declared `requirements: []` in all three PLAN frontmatters — no
 
 None required for the phase-goal verification (all truths verifiable against code + tests).
 
-**Post-deploy UAT** (out-of-scope for this verifier, but planned by 61-03-SUMMARY.md § Poppy/aqua/wilma post-deploy prediction): after Ashley deploys Phase 61, Poppy/aqua/wilma should remain lit initially (rollout-safety default-on since backend hasn't seen their per-session Stop file yet); on their next real turn-end, the per-session file lands for the first time, backend stamps lastStopAt, frontend predicate reads `lastStatusChangeAt (18-20h ago) < lastStopAt (now)` → indicator flips off. This is a live-fleet observability check, not a codebase check — the codebase-level verification (this document) confirms the machinery to enable that observation is fully wired.
+**Post-deploy UAT** (out-of-scope for this verifier, but planned by 61-03-SUMMARY.md § Poppy/aqua/wilma post-deploy prediction): after Alice deploys Phase 61, Poppy/aqua/wilma should remain lit initially (rollout-safety default-on since backend hasn't seen their per-session Stop file yet); on their next real turn-end, the per-session file lands for the first time, backend stamps lastStopAt, frontend predicate reads `lastStatusChangeAt (18-20h ago) < lastStopAt (now)` → indicator flips off. This is a live-fleet observability check, not a codebase check — the codebase-level verification (this document) confirms the machinery to enable that observation is fully wired.
 
 ---
 

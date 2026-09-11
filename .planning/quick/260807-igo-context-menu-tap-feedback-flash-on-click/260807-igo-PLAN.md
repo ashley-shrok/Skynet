@@ -45,7 +45,7 @@ must_haves:
 <objective>
 Give the conversation-row context menu a perceivable tap-down flash on mobile touch AND desktop mouse, and let that flash actually be seen by delaying menu teardown ~120ms after the item's onClick fires.
 
-Purpose: Right now the menu vanishes with zero feedback on mobile (mouse-only hover handlers never fire on touch) and effectively no feedback on desktop either (the portal tears down synchronously). This makes the menu feel broken/unresponsive to Ashley on the PWA.
+Purpose: Right now the menu vanishes with zero feedback on mobile (mouse-only hover handlers never fire on touch) and effectively no feedback on desktop either (the portal tears down synchronously). This makes the menu feel broken/unresponsive to Alice on the PWA.
 
 Output: A CSS-class-driven `:hover`/`:active` background on menu items, and a mount-guarded `setTimeout` between `item.onClick()` and `onClose()` so the `:active` state is visible before unmount. No mobile-only branching, no user-agent sniffing.
 </objective>
@@ -54,9 +54,9 @@ Output: A CSS-class-driven `:hover`/`:active` background on menu items, and a mo
 @$HOME/.claude/get-shit-done/workflows/execute-plan.md
 @$HOME/.claude/get-shit-done/templates/summary.md
 
-**Branch policy:** Executor MUST run in the main tree on the current branch (`feat/tab-title-from-tmux`). NO worktrees — `workflow.use_worktrees=false`, fleet rule (Ashley).
+**Branch policy:** Executor MUST run in the main tree on the current branch (`feat/tab-title-from-tmux`). NO worktrees — `workflow.use_worktrees=false`, fleet rule (Alice).
 
-**Ship policy:** DO NOT push, build, or deploy after committing. The plan's final step is the atomic commit + SUMMARY. Ashley greenlights ship separately.
+**Ship policy:** DO NOT push, build, or deploy after committing. The plan's final step is the atomic commit + SUMMARY. Alice greenlights ship separately.
 </execution_context>
 
 <context>
@@ -144,7 +144,7 @@ Output: A CSS-class-driven `:hover`/`:active` background on menu items, and a mo
       - **Why this shape**: `:active` is the only cross-input tap-down affordance; a class-based approach means no user-agent sniffing and no mobile-only branch. The delay is the shortest value that reliably survives a 60Hz paint cycle with margin.
       - **Safety**: mounted-ref + timer cleanup prevents onClose-after-unmount when the portal parent tears down mid-flash-delay for unrelated reasons.
       - **Verification**: `npx vitest run` exits 0 (both file-scoped and full suite).
-      - **NOT shipped / next**: No visual QA on device in this plan — Ashley greenlights ship + on-device check separately. No push, no deploy.
+      - **NOT shipped / next**: No visual QA on device in this plan — Alice greenlights ship + on-device check separately. No push, no deploy.
 
     After writing SUMMARY.md, create ONE atomic git commit on the current branch (`feat/tab-title-from-tmux`) containing:
       - src/ui/features/pretty-conversations/PrettyConversationContextMenu.tsx
@@ -177,7 +177,7 @@ Output: A CSS-class-driven `:hover`/`:active` background on menu items, and a mo
       Trailer:
       `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
 
-    **DO NOT push. DO NOT build. DO NOT deploy.** Ashley greenlights ship separately.
+    **DO NOT push. DO NOT build. DO NOT deploy.** Alice greenlights ship separately.
   </action>
   <verify>
     <automated>cd /home/ubuntu/skynet &amp;&amp; git log -1 --format="%s" | grep -q "^fix(pretty-conversations): tap-flash" &amp;&amp; git status --short | grep -v '^$' | wc -l | grep -q '^0$' &amp;&amp; test -f .planning/quick/260807-igo-context-menu-tap-feedback-flash-on-click/260807-igo-SUMMARY.md</automated>

@@ -319,7 +319,7 @@ Overall phase checks (Claude runs after all three tasks complete):
 6. **Deploy readiness:**
    - Backend changed (both `debug.ts` and `console-forward-transport.ts`) → `docker compose up -d --force-recreate skynet` required.
    - Frontend changed (`Terminal.tsx`) → same force-recreate covers it (single container).
-   - Deploy MUST run under the 15-minute deadman rollback timer (CLAUDE.md hard constraint, no exceptions per Ashley 2026-07-03).
+   - Deploy MUST run under the 15-minute deadman rollback timer (CLAUDE.md hard constraint, no exceptions per Alice 2026-07-03).
 </verification>
 
 <success_criteria>

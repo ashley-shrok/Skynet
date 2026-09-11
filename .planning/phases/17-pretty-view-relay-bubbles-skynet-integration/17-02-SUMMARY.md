@@ -231,7 +231,7 @@ app.use("/sessions", sessionsRoutes);
 app.use("/user-preferences", userPreferencesRoutes);
 // RELAYBUB-04 (Phase 17): /relay-pointer needs matching location blocks in BOTH docker/nginx.conf
 // AND docker/nginx-https.conf — see CLAUDE.md nginx caveat. Handler uses head -c bounded remote
-// read for CLAUDE.md fleet-availability protection ("Ashley never loses access to her fleet").
+// read for CLAUDE.md fleet-availability protection ("Alice never loses access to her fleet").
 app.use("/relay-pointer", relayPointerRoutes);
 app.use("/debug", debugRoutes);
 ```

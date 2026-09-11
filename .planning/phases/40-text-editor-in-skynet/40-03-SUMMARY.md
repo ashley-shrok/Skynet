@@ -29,7 +29,7 @@ key-files:
     - src/ui/features/pretty-view/GlobalFileTab.tsx  # +optional onDraftChange prop + useEffect (rev-2)
     - src/ui/features/pretty-view/GlobalFileTab.test.tsx  # +2 tests (backward-compat, callback firing)
 decisions:
-  - "Rev-2 (2026-08-14, Ashley explicit greenlight): draft-guard confirm gate INCLUDED in this plan (originally deferred). Modal fires window.confirm('Discard unsaved changes?') on dirty close; save-success bypasses via savingRef"
+  - "Rev-2 (2026-08-14, Alice explicit greenlight): draft-guard confirm gate INCLUDED in this plan (originally deferred). Modal fires window.confirm('Discard unsaved changes?') on dirty close; save-success bypasses via savingRef"
   - "GlobalFileTab.tsx extension is a single new optional prop (onDraftChange) — chose the additive-callback path over an internal-owned isDirty state because it keeps GlobalFileTab's contract flat and cross-cuts nothing else for existing GlobalFilesModal callers"
   - "Error copy wrapped in JSX `{'string'}` expression rather than `&apos;` HTML entity — the Task 3 grep gate is source-level and requires the literal apostrophe; the JS-string form satisfies both the gate and react/no-unescaped-entities"
   - "Test 9 (onInteractOutside guard) — assertion uses 'no close call within a tick after mousedown' rather than direct guard-fired inspection; radix's outside-detector wiring is opaque and the observable contract is what matters"
@@ -135,7 +135,7 @@ All 14 gates green. The single deviation (grep gate 6) is documented below and f
 
 ### None-otherwise deviations
 
-No Rule 1 bugs, no Rule 2 missing critical functionality, no Rule 4 architectural questions. The plan's task breakdown, TDD RED/GREEN sequencing, mock strategy, and grep gate list all matched the codebase's actual shape. The rev-2 draft-guard scope (added post-original-planning by Ashley on 2026-08-14) landed exactly as specified in the revised plan.
+No Rule 1 bugs, no Rule 2 missing critical functionality, no Rule 4 architectural questions. The plan's task breakdown, TDD RED/GREEN sequencing, mock strategy, and grep gate list all matched the codebase's actual shape. The rev-2 draft-guard scope (added post-original-planning by Alice on 2026-08-14) landed exactly as specified in the revised plan.
 
 ## Authentication gates
 

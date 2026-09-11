@@ -28,7 +28,7 @@ must_haves:
     - "updateBountyFields is threaded to BountyCard as a new optional prop onFieldsChange?: (patch: BountyFieldsPatch) => Promise<void>. Threaded for ALL FOUR partitions (in_progress / rest / other / archive) — same coverage as onStatusChange and onPinnedChange. Archived cards can also have their fields edited (e.g. add a meeting_question retrospectively) so onFieldsChange is threaded to sortedArchive.map's BountyCard mount too."
     - "meeting_questions[] editor surfaces per IDMEDIT-08 semantics from SCRATCH-REPORT.md: add-input for new questions plus per-row mark-answered checkbox; NO agent-add path introduced anywhere. pinned remains off the field editor (header star from patch #172 sole path)."
     - "Existing tests continue to pass (BountyCard test file if one exists — grep confirms; if none exists this is out of scope for Plan 05 and Plan 06 UAT is the acceptance surface). No test regression."
-    - "IDMEDIT-07 non-regression walkthrough is exercised in the Task 3 Ashley UAT: Wakeups spec CRUD (patch #154 + quick 260731-2pa), Bounties status/priority/pinned/archive/delete (patches #154, #172, quick 260727-v0b, quick 260727-wd0, quick 260729-g5r, quick 260728-sqk), Identity-tab title/avatar/voice (quick 260731-1c8 + patch #223), plus markdown-tab editors from Plan 02 all continue to work."
+    - "IDMEDIT-07 non-regression walkthrough is exercised in the Task 3 Alice UAT: Wakeups spec CRUD (patch #154 + quick 260731-2pa), Bounties status/priority/pinned/archive/delete (patches #154, #172, quick 260727-v0b, quick 260727-wd0, quick 260729-g5r, quick 260728-sqk), Identity-tab title/avatar/voice (quick 260731-1c8 + patch #223), plus markdown-tab editors from Plan 02 all continue to work."
   artifacts:
     - path: "src/ui/features/pretty-view/BountyCard.tsx"
       provides: "field editors for title, premise, todos, keywords, source_links, deadline, meeting_questions; onFieldsChange prop; save state per editor"
@@ -60,14 +60,14 @@ every existing edit surface byte-for-byte per IDMEDIT-07.
 
 Purpose: This IS the acceptance surface for IDMEDIT-04 (bounty field
 editability) and IDMEDIT-07 (no-regression on existing edit surfaces).
-The design is LOCKED from Wave 3's Ashley UAT; this plan's job is
+The design is LOCKED from Wave 3's Alice UAT; this plan's job is
 faithful implementation, not further design work. If the executor
 encounters a shape question not answered in SCRATCH-REPORT.md, stop and
 escalate — do NOT invent a shape.
 
 Output: BountyCard.tsx expanded with editor UI + one prop; IdentityModal
 gets one new save handler + threads the prop to all four BountyCard mount
-sites (three open partitions + archive). Ashley UAT (Task 3) walks
+sites (three open partitions + archive). Alice UAT (Task 3) walks
 IDMEDIT-04 + IDMEDIT-07 + IDMEDIT-08 end-to-end.
 </objective>
 
@@ -133,7 +133,7 @@ Editor-specific notes:
 
 Do NOT reorganize the existing card layout. Do NOT touch the header row (title + status pill + priority icon + expand chevron + pin star). Do NOT touch StatusRow / PriorityRow / Archive / Delete implementations — they remain functional and byte-identical.
 
-Handle the archived bounty case: SCRATCH-REPORT.md may specify that some editors are disabled for archived bounties (Ashley's decision). Honor that gate — if the report says "title is read-only on archived cards", do not render the title editor when `archived === true`.
+Handle the archived bounty case: SCRATCH-REPORT.md may specify that some editors are disabled for archived bounties (Alice's decision). Honor that gate — if the report says "title is read-only on archived cards", do not render the title editor when `archived === true`.
   </action>
   <verify>
     <automated>cd /home/ubuntu/skynet && npx tsc --noEmit 2>&1 | grep -E "BountyCard\.tsx|error TS" | head -20 ; echo "---" ; grep -c "onFieldsChange\|editingTitle\|editingPremise\|editingTodos\|editingKeywords\|editingSourceLinks\|editingDeadline\|editingMeetingQuestions\|BountyFieldsPatch" src/ui/features/pretty-view/BountyCard.tsx</automated>
@@ -214,7 +214,7 @@ Import BountyFieldsPatch, IdentityUpdateBountyFieldsPayload, IdentityBountyField
 </task>
 
 <task type="checkpoint:human-verify" gate="blocking">
-  <name>Task 3: Ashley UAT — bounty-field editors work end-to-end plus IDMEDIT-07 non-regression walkthrough</name>
+  <name>Task 3: Alice UAT — bounty-field editors work end-to-end plus IDMEDIT-07 non-regression walkthrough</name>
   <what-built>
     BountyCard exposes editable inline surfaces for title, premise, todos (add/edit/toggle/remove/reorder), keywords, source_links, deadline, and meeting_questions (add + mark-answered only). Each Save dispatches a partial patch through identity:update-bounty-fields, atomically updates bounty.json with updated_at + timeline appends, and echoes fresh bounty lists so the modal re-renders. Existing edit surfaces (Wakeups, Bounties status/priority/pinned/archive/delete, Identity-tab title/avatar/voice, markdown-tab editors from Plan 02) all continue to work byte-for-byte.
   </what-built>
@@ -286,7 +286,7 @@ Import BountyFieldsPatch, IdentityUpdateBountyFieldsPayload, IdentityBountyField
 |-----------|----------|-----------|-------------|-----------------|
 | T-18-23 | Elevation of Privilege | client dispatches patch containing pinned or timeline or id to hijack server-managed fields | mitigate | Inherited from Plan 04 T-18-17 + T-18-22 — server's writeIdentityBountyFields enforces changedFields enumeration and unconditional post-merge overwrite of updated_at and timeline. This plan does not add UI paths that surface those fields for editing, so a compromised client would need to bypass BountyCard entirely — server-side gate remains authoritative. |
 | T-18-24 | Denial of Service | user rapid-fires 100 keystrokes into title editor, dispatching 100 patches | mitigate | Save is disabled while a save is in flight per Task 1 acceptance (`saving<Field>` state gates the Save button). Client sends one payload per Save click, not per keystroke — no debounced auto-save was locked in SCRATCH-REPORT.md unless the report says otherwise (executor cross-checks). Inherited byte-cap protection from Plan 04 IDMEDIT_MAX_BOUNTY_JSON_BYTES. |
-| T-18-25 | Repudiation | user edits meeting_question then blames agent | accept | Per IDMEDIT-08 semantics + Wave 3 SCRATCH-REPORT.md — meeting_questions user-authoring is a UI convention. Ashley is the only user; audit trail is bounty.json timeline entries (each meeting_questions edit generates one `<ISO-Z> meeting_questions updated via identity modal` line). Repudiation surface accepted. |
+| T-18-25 | Repudiation | user edits meeting_question then blames agent | accept | Per IDMEDIT-08 semantics + Wave 3 SCRATCH-REPORT.md — meeting_questions user-authoring is a UI convention. Alice is the only user; audit trail is bounty.json timeline entries (each meeting_questions edit generates one `<ISO-Z> meeting_questions updated via identity modal` line). Repudiation surface accepted. |
 | T-18-26 | Tampering | XSS via title / premise / source_links markdown rendering | mitigate | Existing BountyCard rendering uses React text nodes (auto-escaped by React) and does not use dangerouslySetInnerHTML anywhere in the existing render tree. New editors continue this pattern — plain text via React children. source_links, if rendered as anchors per SCRATCH-REPORT.md, use React's `<a href={link}>` which does NOT auto-escape javascript: URLs — MUST validate the href starts with http:// or https:// or mailto: at render time. Codify: `const safeHref = /^(https?|mailto):/i.test(link) ? link : "#"`. Include this in the read-mode source_links rendering. |
 | T-18-SC | Tampering | npm/pip/cargo installs | mitigate | No new packages installed unless SCRATCH-REPORT.md locked a date-picker library. If so, the added package MUST appear in a Package Legitimacy Audit before install — halt and escalate if the audit is missing. If purely HTML5 native inputs, no packages added. |
 </threat_model>
@@ -294,7 +294,7 @@ Import BountyFieldsPatch, IdentityUpdateBountyFieldsPayload, IdentityBountyField
 <verification>
 - npx tsc --noEmit exits 0
 - npx vitest run passes (or unchanged from baseline)
-- Ashley UAT Task 3 approved on all 13 steps
+- Alice UAT Task 3 approved on all 13 steps
 - Grep confirms BountyCard has editors for all seven fields plus the onFieldsChange prop
 - Grep confirms IdentityModal has updateBountyFields handler plus four onFieldsChange prop threadings
 - Existing edit surfaces byte-identical (grep counts of onPriorityChange / onStatusChange / onPinnedChange / onArchive / onDelete threadings unchanged from pre-Plan-05 baseline)
@@ -306,7 +306,7 @@ Import BountyFieldsPatch, IdentityUpdateBountyFieldsPayload, IdentityBountyField
 - Server-echoed fresh bounty lists drive atomic modal rehydrate
 - IDMEDIT-07 non-regression: all 8 pre-existing edit surfaces (5 bounty + 1 wakeup + 3 identity-tab + 3 markdown-tab) continue to work byte-identical
 - IDMEDIT-08 semantics preserved at UI layer (meeting_questions user-add only, pinned NOT in editor)
-- Ashley approves UAT
+- Alice approves UAT
 </success_criteria>
 
 <output>

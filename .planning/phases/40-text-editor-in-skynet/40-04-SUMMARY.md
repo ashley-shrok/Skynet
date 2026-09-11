@@ -207,7 +207,7 @@ Zero new network endpoints, zero new auth paths, zero schema changes, zero new f
 
 **Plan 40-05 (deploy checkpoint + UAT)** needs three artifacts:
 
-1. **Build-verify log** — capture the exact `npm run build` + `NODE_OPTIONS=--max-old-space-size=4096 npm run build:backend` + `npx vitest run` output from this HEAD (all green as of `3db51688`). The deploy checkpoint runs on a fresh `git checkout` so bundle-size drift or environment-specific test failures surface before Ashley sees them.
+1. **Build-verify log** — capture the exact `npm run build` + `NODE_OPTIONS=--max-old-space-size=4096 npm run build:backend` + `npx vitest run` output from this HEAD (all green as of `3db51688`). The deploy checkpoint runs on a fresh `git checkout` so bundle-size drift or environment-specific test failures surface before Alice sees them.
 2. **UAT checklist** — end-to-end validation on production Skynet covering all seven LOCKED decisions:
    - **D-01** (frontend-only URL detection): assistant sends a tailnet URL → affordance appears without any agent-side round-trip.
    - **D-02** (whitelist first, byte-sniff fallback): sync-path (`.md` extension) affordance appears at message-arrival with no backend fetch; extension-miss URL (e.g. `.dat`) affordance appears only after the eligibility fetch classifies as text.

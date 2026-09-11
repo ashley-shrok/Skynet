@@ -1,6 +1,6 @@
 # Phase 7 UAT Checklist — Fleet-native Conversation List
 
-**For:** Ashley
+**For:** Alice
 **Post-deploy validation of patch #106 (Phase 7 — follow-up to patch #105)**
 **Deployed:** _<auto-fill at deploy time>_
 **Deadman armed at:** _<auto-fill at deploy time>_
@@ -57,7 +57,7 @@ Work through top-to-bottom. Each item has an action + expected result + "if this
 > **TG-12 contract:** *"The conversation list on a fresh page-load shows the running tmux sessions across the fleet (unioned with any browser-tab-open Skynet tabs), not just tabs open in the current browser session."*
 
 - [ ] 🚨 **TG-12 desktop fresh page-load** Open Skynet in a fresh incognito window on desktop. Wait for the page to load fully (allow ~2 seconds for `/sessions/list` to resolve). Expected: the ConversationsPanel shows one row per running tmux session across ALL your reachable hosts — the same set the current sidebar host-tree + double-shift menu would show. Rows grouped by host with separators. **If: only shows tabs from this browser tab (empty on fresh load)** → Plan 07-01's fetch effect isn't firing; check DevTools console for JS errors + Network tab for the `/sessions/list` request; if the request is missing, the useEffect empty-dep-array wiring in `AppShell.tsx` regressed; if the request returns non-200, backend session-list endpoint is broken.
-- [ ] 🚨 **TG-12 mobile fresh page-load** Open Skynet in fresh incognito on phone (or DevTools with `pointer: coarse` + narrow viewport). Same expectation: full-screen ConversationsPanel shows running tmux sessions. **This is THE gap patch #105 shipped with** — Phase 6 UAT found "no active conversations" on a fresh mobile page-load even when Ashley had active sessions on hosts. Phase 7 fix must show them.
+- [ ] 🚨 **TG-12 mobile fresh page-load** Open Skynet in fresh incognito on phone (or DevTools with `pointer: coarse` + narrow viewport). Same expectation: full-screen ConversationsPanel shows running tmux sessions. **This is THE gap patch #105 shipped with** — Phase 6 UAT found "no active conversations" on a fresh mobile page-load even when Alice had active sessions on hosts. Phase 7 fix must show them.
 - [ ] 🚨 **TG-12 graceful fallback if `/sessions/list` fails** Simulate backend failure (block `/sessions/list` in DevTools Network tab → Block request URL). Refresh. Expected: page loads, ConversationsPanel renders Phase 6 openTabs-only behavior (empty state on fresh incognito, or existing tabs if any). NO error toast, NO crash — Plan 07-01's silent try/catch swallowing keeps the UI graceful. **If: page crashes or shows error banner** → the try/catch on the fetch effect regressed.
 
 ### TG-13 — Attached vs detached rows visually indistinguishable
@@ -91,7 +91,7 @@ Work through top-to-bottom. Each item has an action + expected result + "if this
 - [ ] 🚨 **TG-15 one row per RDP host** If you have 2+ RDP-enabled hosts, verify one row for EACH. Not one row for all RDP hosts; not multiple rows for the same host. Rows appear in host-tree walk order (matches the ordering of identity-tmux HostGroups above).
 - [ ] 🚨 **TG-15 click an RDP row opens the RDP tab** Click an RDP row. Expected: RDP tab opens, remote desktop connects normally. Existing RDP disconnect/reconnect behavior UNCHANGED (per scope-fence lock — guacamole + Terminal.tsx untouched in Phase 7). Row's `data-selected="true"` state applies once selected (same accent treatment as identity-tmux rows).
 - [ ] 🚨 **TG-15 selected state on RDP row** When the RDP tab is the active tab, the RDP row has the `bg-accent-brand/10 text-accent-brand` selected treatment. Click away to a tmux tab; the RDP row loses the selected state. Click back; it re-acquires it.
-- [ ] 🚨 **TG-15 enableRdp toggle roundtrip** In HostEditor (Host Manager → edit host), **disable RDP** on one host (uncheck `enableRdp`). Save. Refresh browser. Expected: that host's RDP row is **GONE** from the ConversationsPanel bottom section. Now **re-enable RDP** on the same host (check `enableRdp`). Save. Refresh again. Expected: RDP row **RETURNS** to the bottom section. **Note:** NO auto-update per TG-17 shape lock — Ashley refreshes to see the change. **If: RDP row persists after disable + refresh** → the store's `enableRdp === true` filter regressed to truthy coerce and is picking up stale/undefined values; check Plan 07-02's strict filter.
+- [ ] 🚨 **TG-15 enableRdp toggle roundtrip** In HostEditor (Host Manager → edit host), **disable RDP** on one host (uncheck `enableRdp`). Save. Refresh browser. Expected: that host's RDP row is **GONE** from the ConversationsPanel bottom section. Now **re-enable RDP** on the same host (check `enableRdp`). Save. Refresh again. Expected: RDP row **RETURNS** to the bottom section. **Note:** NO auto-update per TG-17 shape lock — Alice refreshes to see the change. **If: RDP row persists after disable + refresh** → the store's `enableRdp === true` filter regressed to truthy coerce and is picking up stale/undefined values; check Plan 07-02's strict filter.
 
 ### TG-16 — Pencil re-style
 

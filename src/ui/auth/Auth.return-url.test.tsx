@@ -113,7 +113,7 @@ describe("Structural: main.tsx wiring (S10)", () => {
 vi.mock("@/main-axios", () => ({
   loginUser: vi.fn().mockResolvedValue({ success: true }),
   registerUser: vi.fn().mockResolvedValue({}),
-  getUserInfo: vi.fn().mockResolvedValue({ username: "ashley", userId: "u1", is_admin: false }),
+  getUserInfo: vi.fn().mockResolvedValue({ username: "alice", userId: "u1", is_admin: false }),
   getRegistrationAllowed: vi.fn().mockResolvedValue({ allowed: true }),
   getPasswordLoginAllowed: vi.fn().mockResolvedValue({ allowed: true }),
   getPasswordResetAllowed: vi.fn().mockResolvedValue(true),
@@ -214,7 +214,7 @@ describe("Behavioral: mount-time redirect (B1-B3)", () => {
       "term.example.com",
       "?return=https%3A%2F%2Ffoo-8899.serve.term.example.com%2F",
     );
-    localStorage.setItem("skynet_auth", JSON.stringify({ loggedIn: true, username: "ashley" }));
+    localStorage.setItem("skynet_auth", JSON.stringify({ loggedIn: true, username: "alice" }));
 
     const { Auth } = await import("./Auth");
     render(<Auth onLogin={vi.fn()} />);
@@ -233,7 +233,7 @@ describe("Behavioral: mount-time redirect (B1-B3)", () => {
       "term.example.com",
       "?return=https%3A%2F%2Fevil.com%2F",
     );
-    localStorage.setItem("skynet_auth", JSON.stringify({ loggedIn: true, username: "ashley" }));
+    localStorage.setItem("skynet_auth", JSON.stringify({ loggedIn: true, username: "alice" }));
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
@@ -249,7 +249,7 @@ describe("Behavioral: mount-time redirect (B1-B3)", () => {
 
   it("B3 already-authed + no return= → window.location.assign NOT called (regression guard)", async () => {
     setupLocation("term.example.com", "");
-    localStorage.setItem("skynet_auth", JSON.stringify({ loggedIn: true, username: "ashley" }));
+    localStorage.setItem("skynet_auth", JSON.stringify({ loggedIn: true, username: "alice" }));
 
     const { Auth } = await import("./Auth");
     render(<Auth onLogin={vi.fn()} />);

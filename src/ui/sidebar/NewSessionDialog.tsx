@@ -147,7 +147,7 @@ function collectAllHosts(children: (Host | HostFolder)[]): Host[] {
 }
 
 // Three-way discriminated union on `identityMode`:
-//   - `false`   → regular-session open (Ashley picks a host + optional session name).
+//   - `false`   → regular-session open (Alice picks a host + optional session name).
 //   - `true`    → identity-birth success (the birth stream finished; the new identity
 //                 has a fresh tmux session on `host` keyed by `name`). Phase 86 Plan
 //                 86-04 (D-CTX-86-surface-4): cosmetic fields (title, brief, voice,
@@ -430,7 +430,7 @@ export function NewSessionDialog({
   const flatHosts = useMemo(
     () =>
       // Patch #111 F4: exclude RDP-enabled hosts from the new-session picker.
-      // Rationale (Ashley UAT 2026-07-21): RDP hosts already surface as
+      // Rationale (Alice UAT 2026-07-21): RDP hosts already surface as
       // sentinel rows at the bottom of the conversation list (Plan 07-02
       // TG-15), so listing them here too is redundant clutter. Match the
       // exact predicate used in conversation-store's RDP row derivation
@@ -828,7 +828,7 @@ export function NewSessionDialog({
     ? name.length > 0 && IDENTITY_NAME_PATTERN.test(name)
     : SESSION_NAME_PATTERN.test(sessionName);
 
-  // Phase 88 follow-up (post-/close, endorsed inline by Ashley 2026-09-08):
+  // Phase 88 follow-up (post-/close, endorsed inline by Alice 2026-09-08):
   // admin-side Path field must reject blank submits at the frontend so the
   // belt-and-suspenders backend fallback at identity-birth.ts:228-232 stays
   // as a safety net rather than the primary defense. Non-admins never see

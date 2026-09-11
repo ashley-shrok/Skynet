@@ -1,7 +1,7 @@
 # Patch #169 — Pretty-View Relay Bubbles — Skynet Integration (Phase 17)
 
 **Paste target:** `~/.claude/identities/tina/skynet-patches.md`
-**Paste timing:** Only after Ashley greenlights the Phase 17 deploy AND UAT passes on all
+**Paste timing:** Only after Alice greenlights the Phase 17 deploy AND UAT passes on all
 RELAYBUB-01..06 items in `17-UAT-CHECKLIST.md`. Deploy behind current fleet DEPLOY
 DISCIPLINE per `~/.claude/identities/tina/deploy-runbook.md`. Claude does NOT deploy.
 
@@ -24,21 +24,21 @@ Recommended commit message: `docs(patches): pin patch #169 — Phase 17 pretty-v
         session-tail infrastructure; no upstream Skynet surfaces touched)`
         (committed 2026-07-28 to `feat/tab-title-from-tmux`)
 
-        * **Motivating gap** (Ashley 2026-07-28 design session, prototype
+        * **Motivating gap** (Alice 2026-07-28 design session, prototype
           validated 6/6 in acceptance battery):
-          Ashley's fleet identity sessions frequently interleave with Matrix
+          Alice's fleet identity sessions frequently interleave with Matrix
           relay activity — outbound `curl -X PUT` room sends (direct
           messages to fleet-ops contacts via the Matrix bridge) and inbound
           `recv.sh` events (replies arriving via the bridge). In the
           old pretty-view, both appeared as raw Bash tool-use turns and
           task-notification banners: indistinguishable from normal agent
-          work, buried in the conversation stream. Ashley wanted them
+          work, buried in the conversation stream. Alice wanted them
           surfaced immediately as distinct visual events so she can follow
           relay round-trips without scrolling back and parsing raw command
           text.
           Design source-of-truth: `~/.claude/identities/tina/bounties/
           pretty-view-relay-bubble-prototype/prototype.html` (6/6
-          acceptance battery passed with Ashley 2026-07-28 — outbound blue,
+          acceptance battery passed with Alice 2026-07-28 — outbound blue,
           inbound orange, sender-hue chain, extraction-failure graceful
           fallback, file-pointer fetch, no-regression on normal turns).
 
@@ -172,13 +172,13 @@ Recommended commit message: `docs(patches): pin patch #169 — Phase 17 pretty-v
           chain on inbound header), RELAYBUB-04 (long-inbound file-pointer
           fetch via /relay-pointer), RELAYBUB-05 (extraction-failure ⚠
           graceful fallback + source toggle), RELAYBUB-06 (no-regression
-          on normal pretty-view surfaces). All six closed per Ashley's
+          on normal pretty-view surfaces). All six closed per Alice's
           prototype 6/6 acceptance battery 2026-07-28.
 
         * **15-min deadman deploy discipline observed.** Per fork DEPLOY
           DISCIPLINE (CLAUDE.md), `docker compose up -d --force-recreate
-          skynet` runs behind Ashley's 15-min deadman rollback timer, no
-          exceptions. Claude does not execute the deploy. Ashley's
+          skynet` runs behind Alice's 15-min deadman rollback timer, no
+          exceptions. Claude does not execute the deploy. Alice's
           greenlight (post-UAT per `17-UAT-CHECKLIST.md`) is the sole
           authorize signal.
 
@@ -203,7 +203,7 @@ Recommended commit message: `docs(patches): pin patch #169 — Phase 17 pretty-v
           parsing logic.
 
         * **Bounty reference.** `~/.claude/identities/tina/bounties/
-          pretty-view-relay-bubble-prototype/` — closes on Ashley UAT
+          pretty-view-relay-bubble-prototype/` — closes on Alice UAT
           sign-off. Prototype `prototype.html` remains the design source-
           of-truth (6/6 acceptance battery passed 2026-07-28).
 

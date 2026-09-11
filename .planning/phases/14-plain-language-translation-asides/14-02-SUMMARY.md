@@ -57,7 +57,7 @@ key-decisions:
   - "T-14-02-08 mitigation — arm + dismiss dispatch inspects ONLY msg.type; all other payload fields are ignored for security. tmux commands use compile-time-constant BTW_PROMPT + shellQuote on the backend-owned tmuxSession — no client-controlled interpolation reaches the shell."
   - "Connect-time probe runs INDEPENDENT of activeViewers.size (per plan-checker W7 clarification) — each connection discovers overlay presence via one-shot capture-pane on mount. No 'wait for another viewer' gate; late-mounting tabs recover overlay immediately."
   - "Connect-time probe emits aside_ready to THIS client only (no peer broadcast) — other tabs either already have the aside displayed (their own state carries it) or their own probes will fire independently. Broadcasting on the probe would race and could double-fire aside_ready."
-  - "Extraction poller marker-disappearance detection runs FIRST — before the streaming/stable branches. Preserves cross-tab dismiss coherence when Ashley externally Escapes via SSH: broadcastAsideDismissed fans out (dismiss frame + peer state flip) so all tabs clear their aside."
+  - "Extraction poller marker-disappearance detection runs FIRST — before the streaming/stable branches. Preserves cross-tab dismiss coherence when Alice externally Escapes via SSH: broadcastAsideDismissed fans out (dismiss frame + peer state flip) so all tabs clear their aside."
   - "Test-only re-exports (__asideStateForTests, __activeViewersForTests, __sessionKeyForTests, __broadcastAsideDismissedForTests) — internal test seams that let the vitest suite assert module-scope Map identities and atomic broadcast semantics WITHOUT spinning up a full WebSocketServer. Same underscore-prefix convention as Wave 1's __asideShellQuoteForTests."
   - "Additive-only wire extension (per CLAUDE.md § Rebase-ability) — zero merge conflicts on existing wire types or existing WS event shapes. New members added to ClaudeSessionServerEvent union in a stable position (grouped with existing session events)."
   - "Pre-existing ComposeBox.test.tsx failures deferred to Wave 4 — reproduced at commit 19ae23f BEFORE Wave 2 GREEN; unrelated to Phase 14 work. Wave 4 (ComposeBox morph) is the natural touchpoint."
@@ -246,7 +246,7 @@ None. Pure code additions to backend + frontend TypeScript; no environment varia
 - Frontend can `WebSocket.send(JSON.stringify({type: "aside_arm"}))` on the `isIdle:false → true` transition (gated frontend-side on `pvIdentity !== null` per CONTEXT.md § Trigger); the backend arms the injection + poller for THAT connection.
 - Frontend can `WebSocket.send(JSON.stringify({type: "aside_dismissed", hostId, tmuxSession}))` on X (Resume) click; the backend sends Escape to tmux + broadcasts dismiss to all peer WSes on the same session.
 - Frontend receives `{type: "aside_ready", text: "..."}` when the /btw answer lands (either from the extraction poller AFTER an arm, or from the connect-time probe if the overlay was already open at mount time — ASIDE-09).
-- Frontend receives `{type: "aside_dismissed"}` when any tab dismisses OR when the poller observes the marker disappearing externally (Ashley pressed Escape via SSH, tmux died).
+- Frontend receives `{type: "aside_dismissed"}` when any tab dismisses OR when the poller observes the marker disappearing externally (Alice pressed Escape via SSH, tmux died).
 
 **Wave 3 imports** (from `src/ui/api/claude-session-api.ts`):
 

@@ -1,6 +1,6 @@
 # Draft entry for `~/.claude/identities/tina/skynet-patches.md`
 
-**Patch number placeholder:** `NNN.` — Ashley fills in at pin time. Current top is patch #103 (jump-pill scroll fix, 2026-07-20), so this will most likely be **patch #104** unless something else lands between now and Phase 5 deploy.
+**Patch number placeholder:** `NNN.` — Alice fills in at pin time. Current top is patch #103 (jump-pill scroll fix, 2026-07-20), so this will most likely be **patch #104** unless something else lands between now and Phase 5 deploy.
 
 **Deploy date placeholder:** `2026-MM-DD` — fill in with the actual deploy date at pin time.
 
@@ -359,8 +359,8 @@ Formatted to match patch #60's canonical multi-file entry style (motivation → 
          (all fork-only files — pretty-view didn't exist upstream).
 
        * **Deploy note**: shipped behind the mandatory 15-min
-         deadman per Ashley 2026-07-03 with explicit per-deploy
-         green light per Ashley 2026-07-12. Zero new npm
+         deadman per Alice 2026-07-03 with explicit per-deploy
+         green light per Alice 2026-07-12. Zero new npm
          dependencies (ssh2 SFTP subsystem already in dep tree
          from file-manager routes). Zero new nginx location blocks
          (rides existing `/ssh/websocket/` — no new backend HTTP
@@ -368,7 +368,7 @@ Formatted to match patch #60's canonical multi-file entry style (motivation → 
          both nginx configs" trap does NOT apply here). Standard
          `sudo bash /opt/skynet/skynet-patches/build-skynet.sh` +
          `sudo docker compose up -d --force-recreate skynet`
-         inside the arm-deadman → deploy → wait-for-Ashley →
+         inside the arm-deadman → deploy → wait-for-Alice →
          disarm-or-fire flow documented in `~/.claude/identities/
          tina/deploy-runbook.md`. UAT walkthrough for post-deploy
          verification: `.planning/phases/05-pretty-view-file-

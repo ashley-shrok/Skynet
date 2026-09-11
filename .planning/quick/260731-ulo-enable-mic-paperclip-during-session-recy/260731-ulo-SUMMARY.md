@@ -37,7 +37,7 @@ metrics:
 
 # Quick 260731-ulo: Enable Mic + Paperclip During Session Recycle Summary
 
-Restored mic + paperclip usability during the session-recycle overlay window (2-15s) — neither has a WS side-effect on its own, so gating them was over-scoped in the prior 260729-j8l pass; voice-send is now gated so a completed transcript during recycle lands in the textarea/slot but does NOT auto-dispatch (Ashley sends manually once the overlay clears); primary textarea left padding bumped 40→44px per Ashley for clearance under the Paperclip glyph.
+Restored mic + paperclip usability during the session-recycle overlay window (2-15s) — neither has a WS side-effect on its own, so gating them was over-scoped in the prior 260729-j8l pass; voice-send is now gated so a completed transcript during recycle lands in the textarea/slot but does NOT auto-dispatch (Alice sends manually once the overlay clears); primary textarea left padding bumped 40→44px per Alice for clearance under the Paperclip glyph.
 
 ## What Shipped
 
@@ -97,9 +97,9 @@ Full vitest log grepped for `FAIL|failed|✗` returned **zero** lines (per fleet
 
 ## Ship Motion (NOT performed by executor)
 
-- **No push** to origin — Ashley greenlights ship separately per fleet push→build→recreate rule.
+- **No push** to origin — Alice greenlights ship separately per fleet push→build→recreate rule.
 - **No `docker build`** — frontend-only edit; skipped `npm run build:backend` per constraints.
-- **No `docker compose up -d --force-recreate skynet`** — deploy motion is the orchestrator/Ashley's decision.
+- **No `docker compose up -d --force-recreate skynet`** — deploy motion is the orchestrator/Alice's decision.
 
 ## Identity-file Bookkeeping (NOT touched by executor)
 

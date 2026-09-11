@@ -89,7 +89,7 @@ One-liner: 2s SSH-poll orchestrator wired into the Skynet backend, consuming all
 
 ### Task 3: Fail-open regression tests (commit be04011)
 
-The `describe('fail-open on missing hook payload file', ...)` block in `ssh-poll-orchestrator.test.ts` pins the Ashley 2026-08-13 LOCKED constraint across 6 scenarios:
+The `describe('fail-open on missing hook payload file', ...)` block in `ssh-poll-orchestrator.test.ts` pins the Alice 2026-08-13 LOCKED constraint across 6 scenarios:
 
 | Test | Trigger | Assertions |
 |------|---------|------------|
@@ -202,7 +202,7 @@ No new network endpoints, auth paths, or trust boundaries introduced beyond the 
 
 ## Task 5 — CLOSED 2026-08-13 (partial: OQ-2 done inline; fail-open deferred to bundle-deploy)
 
-**Ashley 2026-08-13**: after weighing rigor vs. cost, chose option (A) — trust the 6 dedicated fail-open regression tests + verify fail-open at bundle-deploy time. Full backend dev-mode boot on this box would have collided with production port bindings and risked fleet access.
+**Alice 2026-08-13**: after weighing rigor vs. cost, chose option (A) — trust the 6 dedicated fail-open regression tests + verify fail-open at bundle-deploy time. Full backend dev-mode boot on this box would have collided with production port bindings and risked fleet access.
 
 **Steps 1, 2 (build/tsc/backend/vitest + dev-mode boot):** skipped per option (A). Full-suite check already ran green during Task 3 authoring (`npx tsc --noEmit` clean, `npm run build:backend` clean, `npx vitest run src/backend/fleet-status/` all pass).
 
@@ -212,7 +212,7 @@ No new network endpoints, auth paths, or trust boundaries introduced beyond the 
 
 **⚠️ Empirical deviation from RESEARCH § 1** documented in `34-RESEARCH.md`: all 4 of tina's persistent Monitor tool calls (thenasty-recv, skynet-recv, wake-up-scheduler, context-watch) reported `"type": "shell"` in the payload, NOT `"type": "monitor"`. The 7-discriminant taxonomy the docs field table lists overstates reality — at v2.1.150, Monitor tool-call background tasks are indistinguishable from `run_in_background` bash by `type` alone. **Impact on ambient-Monitor filter (Plan 05 companion): NONE.** `filterAmbientTasks` in `src/backend/fleet-status/ambient-filter.ts` filters on `description.startsWith('[ambient]')` regardless of `type` — the description-prefix mechanism holds up. Marker mechanism decision from RESEARCH § 1 stands unchanged. Also observed: payload includes a `effort` top-level field not listed in the docs field table (parsed but unused).
 
-**Steps 5-6 (Live orchestrator publish + live fail-open):** DEFERRED to bundle-deploy time per Ashley's option (A). The 6 fail-open regression tests in `src/backend/fleet-status/ssh-poll-orchestrator.test.ts` (Tests F1-F6) cover: ENOENT, empty, malformed JSON, transient SSH read error, schema-invalid, session-JSON-authority. Failure mode is graceful degradation (dot under-reports bg work on the affected host, no crash / no data loss). At bundle-deploy time (after Waves 3 + 4 land), the orchestrator (tina) will grep the production backend log for `operation: 'fleet_status_orchestrator_started'` on startup and `operation: 'fleet_status_hook_payload_missing'` for any hosts not yet running the Stop hook install.
+**Steps 5-6 (Live orchestrator publish + live fail-open):** DEFERRED to bundle-deploy time per Alice's option (A). The 6 fail-open regression tests in `src/backend/fleet-status/ssh-poll-orchestrator.test.ts` (Tests F1-F6) cover: ENOENT, empty, malformed JSON, transient SSH read error, schema-invalid, session-JSON-authority. Failure mode is graceful degradation (dot under-reports bg work on the affected host, no crash / no data loss). At bundle-deploy time (after Waves 3 + 4 land), the orchestrator (tina) will grep the production backend log for `operation: 'fleet_status_orchestrator_started'` on startup and `operation: 'fleet_status_hook_payload_missing'` for any hosts not yet running the Stop hook install.
 
 **Hook install cleanup performed post-capture:** `~/.claude/settings.json` restored from backup (Stop entry removed), `~/.claude/hooks/skynet-fleet-status-stop.sh` removed, `~/.claude/fleet-status/` directory removed. Confirmed via re-read: `hooks.Stop` key absent from settings.json.
 
@@ -232,5 +232,5 @@ No new network endpoints, auth paths, or trust boundaries introduced beyond the 
 **Commits verified present:**
 - FOUND: 7228efb — feat(34-04-01): add SSH-poll orchestrator with 2s poll loop, state-delta publish, fail-open
 - FOUND: 874fc6b — feat(34-04-02): add remote-hook-install + stop-hook.sh — one-time-per-host Stop hook drop
-- FOUND: be04011 — test(34-04-03): pin fail-open regression tests for Ashley's 2026-08-13 LOCKED constraint
+- FOUND: be04011 — test(34-04-03): pin fail-open regression tests for Alice's 2026-08-13 LOCKED constraint
 - FOUND: eae3c6c — feat(34-04-04): verify-monitor-payload.sh + scripts/README + starter.ts wire-in

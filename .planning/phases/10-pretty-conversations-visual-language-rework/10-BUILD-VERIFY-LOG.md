@@ -8,7 +8,7 @@
 
 Wave 5 of Phase 10 (pretty-conversations visual-language rework). All three verification commands run cleanly, with only the four pre-existing ComposeBox failures inherited from patch #121 (Send-button removal) and patch #124 (ThumbsUp "yes"→"let's go" rename) surviving from earlier phases — those four remain out of Phase 10 scope per `deferred-items.md`.
 
-Scope: local verification only. No `docker build`, no `docker compose up`, no push, no deploy — all deferred to Ashley's morning greenlight on the batched #123-#128 stack per the fork's post-deadman-retirement DEPLOY DISCIPLINE.
+Scope: local verification only. No `docker build`, no `docker compose up`, no push, no deploy — all deferred to Alice's morning greenlight on the batched #123-#128 stack per the fork's post-deadman-retirement DEPLOY DISCIPLINE.
 
 ---
 
@@ -131,6 +131,6 @@ Backend bundle untouched — Phase 10 is presentation-only, no server changes.
 - ✅ `npx vitest run` — 499/503 passing (4 pre-existing failures documented in `deferred-items.md`, all in ComposeBox.test.tsx test-fixture drift from patches #121 + #124)
 - ✅ `npm run build` — succeeds in 13.60s, no errors, warnings pre-existing
 
-**Phase 10 code-complete on `feat/tab-title-from-tmux` at `ebf0c43`.** Ready for Ashley's morning greenlight on the batched #123-#128 deploy per current fork DEPLOY DISCIPLINE.
+**Phase 10 code-complete on `feat/tab-title-from-tmux` at `ebf0c43`.** Ready for Alice's morning greenlight on the batched #123-#128 deploy per current fork DEPLOY DISCIPLINE.
 
 **Route-back target wave:** N/A — no failures to route back.

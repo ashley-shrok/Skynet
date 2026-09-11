@@ -58,7 +58,7 @@ WIP state is derived from the JSONL structure state machine — the same JSONL
 the pretty-view backend already tails — so this piggybacks on existing I/O
 with zero new SSH connections, no polling, and no PTY inspection.
 
-Purpose: today, when Claude Code takes 30-60s to finish a tool call, Ashley
+Purpose: today, when Claude Code takes 30-60s to finish a tool call, Alice
 has no visual signal in pretty view that "the session is still moving." She
 either wonders if it crashed or context-switches to tmux mode to check. A
 persistent tail-driven spinner solves this structurally.
@@ -81,7 +81,7 @@ deploy. Local `npm run build` must succeed before the plan is done.
 @/home/ubuntu/skynet/src/ui/features/pretty-view/PrettyView.tsx
 @/home/ubuntu/skynet/src/ui/features/pretty-view/ChatMessage.tsx
 
-# Constraints (Ashley, 2026-07-17):
+# Constraints (Alice, 2026-07-17):
 # - Do NOT deploy. Do NOT touch /opt/skynet. Do NOT run docker compose.
 # - Do NOT arm any deadman timer. Do NOT update AGENTS.md.
 # - Working directory MUST be /home/ubuntu/skynet on branch feat/tab-title-from-tmux.
@@ -121,7 +121,7 @@ deploy. Local `npm run build` must succeed before the plan is done.
   <action>
 Create NEW file `src/backend/claude-session/wip-classifier.ts` as a sibling of
 `session-file-parser.ts`. Do NOT modify `session-file-parser.ts` (it is hands
-off per Ashley's directive).
+off per Alice's directive).
 
 Export a single pure function:
 
@@ -169,7 +169,7 @@ After writing, stage ONLY this file and commit with:
   git add src/backend/claude-session/wip-classifier.ts
   git commit -m "feat(pretty-view): add wip-classifier for JSONL turn state machine"
 
-Do NOT include a Claude co-author line — Ashley's convention is bare
+Do NOT include a Claude co-author line — Alice's convention is bare
 conventional-commits messages on fork branches (verify by running
 `git log --oneline -6` and matching the style).
   </action>
@@ -358,7 +358,7 @@ Concrete requirements:
    - Notes that the visual is intentionally text-free (spinner is
      self-explanatory in context).
 
-4. Do NOT accept props for now; hardcode the visual. Ashley's design is
+4. Do NOT accept props for now; hardcode the visual. Alice's design is
    settled: no text label, no size variants, no theme knobs.
 
 Stage only this file and commit:
@@ -448,7 +448,7 @@ Concrete edits:
       build fails, DO NOT deploy — investigate the error, fix in an
       additional 6th commit (`fix(pretty-view): resolve build error in
       ...`) or amend if the fix is trivial to the immediately-previous
-      commit. Ashley's convention preserves atomic commits; prefer a
+      commit. Alice's convention preserves atomic commits; prefer a
       new fix commit over an amend unless the fix is literally a typo.
 
    c. Verify the auto-scroll ratchet observes the content wrapper (no
@@ -459,7 +459,7 @@ Concrete edits:
       re-pin without additional work.
 
 9. DO NOT deploy. DO NOT run `docker compose`. DO NOT touch /opt/skynet.
-   DO NOT arm a deadman. DO NOT update AGENTS.md. Ashley has explicitly
+   DO NOT arm a deadman. DO NOT update AGENTS.md. Alice has explicitly
    scoped this task to source-level changes only.
   </action>
   <verify>
@@ -493,7 +493,7 @@ for the goal-backward invariant):
    `claude-session-server.ts`; `WipEvent` is a member of the wire union;
    `WipBubble` is imported and mounted in `PrettyView.tsx`.
 
-4. No changes to `session-file-parser.ts` (hands off per Ashley).
+4. No changes to `session-file-parser.ts` (hands off per Alice).
 
 5. Working tree is on `feat/tab-title-from-tmux` branch (verify with
    `git branch --show-current`).
@@ -529,5 +529,5 @@ SUMMARY should record:
 - The net line count (from `git diff HEAD~5..HEAD --shortstat`).
 - Confirmation that `npm run build` succeeded.
 - Explicit note: NOT deployed. Requires future deploy behind the mandatory
-  15-min deadman when Ashley authorizes.
+  15-min deadman when Alice authorizes.
 </output>

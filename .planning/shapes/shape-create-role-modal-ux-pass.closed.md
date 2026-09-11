@@ -8,7 +8,7 @@
 A user-experience cleanup on the "create a new role" dialog and its sibling
 "create a new agent" dialog title, tightening both away from being form-shaped
 and toward being lean, opinionated flows that don't ask questions the system
-already has answers to. This is item 1 of a 7-bounty UX-pass campaign Ashley
+already has answers to. This is item 1 of a 7-bounty UX-pass campaign Alice
 digested 2026-09-07; each of the seven lands in its own session.
 
 ## Shape
@@ -68,11 +68,11 @@ agent under this role" — surfacing a choice the user shouldn't really have,
 because a role without any agent is a shape nobody wants intentionally.
 
 The host picker in both dialogs renders unconditionally, including when the
-user only has one pickable host (a state Ashley regularly hits herself, and
+user only has one pickable host (a state Alice regularly hits herself, and
 the target Aither Health users will hit even more often since their instance
 provisions one dedicated VM per user).
 
-Ashley shared a full UX-pass digest 2026-09-07 covering both these dialogs,
+Alice shared a full UX-pass digest 2026-09-07 covering both these dialogs,
 the clone dialog, the identity modal, the composebox, and a new runbooks
 concept — this bounty is item 1 of seven. Campaign constraint from same
 day: the whole string caps at push + scoped tests until every bounty lands,
@@ -147,7 +147,7 @@ This shape file seeds the phase's discuss step directly rather than
 re-eliciting the same material — the phase's CONTEXT.md is generated from
 this file.
 
-Campaign constraint (Ashley 2026-09-07): the whole 7-bounty UX-pass string
+Campaign constraint (Alice 2026-09-07): the whole 7-bounty UX-pass string
 caps at push + scoped tests. NO full suite, NO rebuild, NO deploy — until
 the entire bounty string is done. Consequences for this phase:
 - Execute-step tests are scoped, not full-suite.

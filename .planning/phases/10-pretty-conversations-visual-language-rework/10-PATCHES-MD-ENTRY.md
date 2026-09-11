@@ -1,7 +1,7 @@
 # Patch #128 — Pretty-Conversations visual-language rework (Phase 10)
 
 **Paste target:** `~/.claude/identities/tina/skynet-patches.md`
-**Paste timing:** After Ashley greenlights the batched #123-#128 deploy AND UAT passes on the 19 non-negotiable items. Post-deadman-retirement flow per current `deploy-runbook.md` (the 15-min deadman regime was retired 2026-07-21).
+**Paste timing:** After Alice greenlights the batched #123-#128 deploy AND UAT passes on the 19 non-negotiable items. Post-deadman-retirement flow per current `deploy-runbook.md` (the 15-min deadman regime was retired 2026-07-21).
 **Batch context:** Stacks on the pending #123-#127 stack (paperclip decouple, ThumbsUp "yes"→"let's go" rename, Skynet rebrand + PWA install, PWA safe-area polish, plus whatever #127 landed as). Single build/deploy per current fork discipline.
 **Ordinal position on paste:** Update the "ONE HUNDRED TWENTY-SEVEN numbered patches" line near the top of `skynet-patches.md` to "ONE HUNDRED TWENTY-EIGHT".
 
@@ -12,9 +12,9 @@
    128. `feat(sidebar): patch #128 — pretty-conversations visual-language
         rework (Phase 10, presentation-only follow-up to Phase 6/7)`
         (committed 2026-07-22 to `feat/tab-title-from-tmux`; deploy
-        batched with #123-#127 pending Ashley greenlight).
+        batched with #123-#127 pending Alice greenlight).
 
-        * **Motivating gap** (three-part, all Ashley-called):
+        * **Motivating gap** (three-part, all user-called):
           (a) The Phase 6/7 ConversationsPanel + ConversationRow felt
           like a Skynet retrofit — dense rows, small tap targets, no
           identity presence — not mobile-native and out of step with
@@ -26,7 +26,7 @@
           redesign IS the fix (fresh component tree, new touch
           handlers, generous tap targets). Patch #111e F3-diag
           console-log telemetry retired in the same cutover.
-          (c) At Ashley's typical desktop window width (~600-800px)
+          (c) At Alice's typical desktop window width (~600-800px)
           the collapsed-sidebar's thin clickable strip disappeared
           entirely, making the sidebar unreachable without resizing
           the window. A persistent top-left toggle survives at ALL
@@ -40,7 +40,7 @@
           min-height) with a 48/40px identity-hue avatar disc
           (radial-gradient with a `hsla(colorHue, 65%, 55%, 0.45)`
           hue-ring, matches prototype.html design source-of-truth),
-          primary label = session name = identity name (Ashley
+          primary label = session name = identity name (Alice
           convention, so no separate IdentityBadge chip on rows),
           secondary line = Server-glyph + host name. Selected-row
           treatment mirrors ChatMessage.tsx assistant-bubble class
@@ -48,7 +48,7 @@
           `hsla(hue,45%,24%,0.35)` gradient + hue-border + inset+outer
           glow) adapted for row geometry with reduced alpha per
           prototype.html lines 231-239 (background dilution vs. bubble
-          focal treatment) — inline hsla per Ashley's naming rule (no
+          focal treatment) — inline hsla per Alice's naming rule (no
           new CSS vars unless a value is reused 3+ times). Flat list,
           no "Pinned" section header, no per-host semibold section
           headers (pin glyph on row IS the marker). Sentinel HostGroup
@@ -102,7 +102,7 @@
           z-index: 30` with glass-treatment matching desktop.html mock
           (subtle backdrop-blur + thin border). Rotates 180° when
           `sidebarOpen` is true vs false. Fixes the small-window
-          sidebar-affordance regression Ashley called out (at her
+          sidebar-affordance regression Alice called out (at her
           typical narrow-window width ~600-800px the old collapsed-
           sidebar thin-strip disappeared entirely, making the sidebar
           unreachable). The old narrow-window thin-strip at
@@ -110,7 +110,7 @@
           canonical toggle at all widths.
 
         * **Old files DELETED post-cutover** (no dual-mode ship per the
-          shape file rule that Ashley signed off on 2026-07-22):
+          shape file rule that Alice signed off on 2026-07-22):
           `src/ui/sidebar/ConversationsPanel.tsx` (430 LOC),
           `src/ui/sidebar/ConversationRow.tsx` (150 LOC),
           `src/ui/sidebar/NewSessionButton.tsx` (40 LOC). Deletions
@@ -181,7 +181,7 @@
             `src/ui/sidebar/ConversationRow.tsx` (150 LOC),
             `src/ui/sidebar/NewSessionButton.tsx` (40 LOC).
 
-        * **Design source-of-truth** (locked, Ashley signed off
+        * **Design source-of-truth** (locked, Alice signed off
           2026-07-22):
           `/home/ubuntu/.claude/identities/tina/bounties/pretty-conversations-panel-redesign/prototype.html`
           (mobile v0.3) and `.../desktop.html` (desktop v0.1). Full
@@ -243,7 +243,7 @@
         * **Deploy status**. Code-complete on
           `feat/tab-title-from-tmux` at `[Wave-5 tip SHA]`. NOT YET
           pushed, NOT YET deployed, image NOT YET built. Batched with
-          the pending #123-#127 stack pending Ashley's morning
+          the pending #123-#127 stack pending Alice's morning
           greenlight on visual behavior. Deploy sequence documented
           at `.planning/phases/10-pretty-conversations-visual-language-rework/10-UAT-CHECKLIST.md`
           under "Post-UAT deploy runbook".

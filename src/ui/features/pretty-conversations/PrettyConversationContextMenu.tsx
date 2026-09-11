@@ -106,7 +106,7 @@ export function PrettyConversationContextMenu({
   // descendant tap targets — even when the listener itself does nothing
   // observable. Symptom: user taps a menu item, :active flash paints from
   // touchstart, but the synthesized click never fires so item.onClick
-  // never runs and nothing happens. Ashley confirmed via UAT ("touch pin
+  // never runs and nothing happens. Alice confirmed via UAT ("touch pin
   // twice before it actually pins") — matched tiffany's independent
   // 30%-no-op signal on the compose textarea (patch #181 delegated
   // pointerdown-capture had the same effect on textarea taps). Diagnosed

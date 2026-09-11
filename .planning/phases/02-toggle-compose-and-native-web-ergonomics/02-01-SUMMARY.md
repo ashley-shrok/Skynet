@@ -25,7 +25,7 @@ key_files:
     - src/ui/AppShell.tsx
     - src/ui/shell/tabUtils.tsx
 decisions:
-  - "Chord is Ctrl+Shift+O (e.code === KeyO) per D-32 — layout-independent, unbound in Chrome/VS Code/Ashley's OS"
+  - "Chord is Ctrl+Shift+O (e.code === KeyO) per D-32 — layout-independent, unbound in Chrome/VS Code/Alice's OS"
   - "xterm div stays mounted with display:none in pretty mode — SSH connection and tmux attach survive mode flips (TOGGLE-03)"
   - "PrettyView and fallback rendered as siblings inside the existing flex-column wrapper between xterm div and MessageQueueDrawer — drawer is never re-mounted"
   - "useMemo import removed from tabUtils.tsx alongside isPrettyMode (was the only useMemo in the file)"
@@ -84,7 +84,7 @@ Files diff stat: exactly 5 files changed (all within plan's `files_modified` lis
 
 ## Chord Confirmation Note
 
-The chord ships as Ctrl+Shift+O per D-32. Ashley's confirmation of non-collision with her live OS bindings happens at Plan 03's deploy checkpoint (browser UAT), not in this plan.
+The chord ships as Ctrl+Shift+O per D-32. Alice's confirmation of non-collision with her live OS bindings happens at Plan 03's deploy checkpoint (browser UAT), not in this plan.
 
 ## Deviations from Plan
 

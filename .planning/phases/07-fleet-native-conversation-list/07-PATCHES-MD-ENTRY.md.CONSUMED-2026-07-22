@@ -1,6 +1,6 @@
 # Patch #106 draft — Fleet-native conversation list (Phase 7 follow-up to patch #105)
 
-**This file is a DRAFT for Ashley review — expect edits.** Paste into `~/.claude/identities/tina/skynet-patches.md` at the next ordinal position (patch #106) after Phase 7 UAT sign-off. Format matches patch #105's multi-commit precedent verbatim; only the content differs. Placeholders `<date>`, `<time>`, `<deploy-sha>` filled in at PIN time.
+**This file is a DRAFT for Alice review — expect edits.** Paste into `~/.claude/identities/tina/skynet-patches.md` at the next ordinal position (patch #106) after Phase 7 UAT sign-off. Format matches patch #105's multi-commit precedent verbatim; only the content differs. Placeholders `<date>`, `<time>`, `<deploy-sha>` filled in at PIN time.
 
 Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to `"ONE HUNDRED SIX numbered patches"` when pinning.
 
@@ -27,11 +27,11 @@ Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to 
           conversation-list metaphor but the list's data source was scoped
           too narrowly — it mirrored only the browser-tab's currently-open
           Skynet tabs. On a fresh mobile page-load with no tabs open, the
-          list showed "no active conversations" even when Ashley had running
+          list showed "no active conversations" even when Alice had running
           sessions across her fleet. Shape file at
           `.planning/shapes/shape-fleet-native-conversation-list.md`
           (LOCKED 2026-07-21) — every philosophical question locked during
-          `/open fleet-native-conversation-list` on 2026-07-21 with Ashley,
+          `/open fleet-native-conversation-list` on 2026-07-21 with Alice,
           same day patch #105 shipped. This patch closes the shape gap.
 
         * **Store extension — fleet-native data source.** Extends
@@ -70,7 +70,7 @@ Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to 
           NOT wired into the existing `skynet:hosts-changed` event
           listener. NOT re-fetched on window focus / tab visibility
           change. NOT re-fetched on interval. Cross-device / cross-
-          session fleet staleness is DELIBERATELY acceptable — Ashley
+          session fleet staleness is DELIBERATELY acceptable — Alice
           refreshes to update. Grep gates enforce all three defenses:
           `grep -cE "setInterval|setTimeout" src/ui/state/conversation-
           store.ts` = 0; `grep -B2 -A15 "getSessionList()" src/ui/
@@ -169,7 +169,7 @@ Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to 
             near getSessionList + NOT-wired-to-skynet:hosts-changed.
             All three gates return 0.
           - T-07-01-03 (fleet-session list disclosure): accepted —
-            same list Ashley already sees in SessionsPanel + double-
+            same list Alice already sees in SessionsPanel + double-
             shift menu; no new disclosure surface.
           - T-07-01-04 (malformed getSessionList response):
             `Array.isArray(sessions) ? sessions : []` guard + silent
@@ -182,16 +182,16 @@ Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to 
             strict `=== true` filter, not truthy coerce. Test 31b
             covers.
           - T-07-02-02 (host name disclosure): accepted — same names
-            Ashley already sees in HostsPanel + SessionsPanel +
+            Alice already sees in HostsPanel + SessionsPanel +
             SidebarTree + double-shift menu.
           - T-07-02-03 (many RDP hosts flooding list): accepted —
-            Ashley's fleet ~20 hosts, no virtualization needed.
+            Alice's fleet ~20 hosts, no virtualization needed.
           - T-07-02-04 (onRdpRowClick authz bypass): accepted —
             `openTab(host, "rdp")` is the same lifecycle entry point
             HostsPanel + SessionsPanel + connectHost use today.
             Backend guacd auth is the security boundary.
           - T-07-02-05 (mobile viewport race with useIsTouchDevice):
-            hook is deterministic within a page-load; Ashley resizing
+            hook is deterministic within a page-load; Alice resizing
             across breakpoints on desktop causes gear to vanish when
             useIsTouchDevice flips true — acceptable, matches Plan
             06-03's mobile flow gate on the same signal.
@@ -204,22 +204,22 @@ Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to 
 
         * **What we DIDN'T do** (deferred / out per shape lock):
           - Real-time polling / push / notification chrome on the
-            conversation list (TG-17 lock — Ashley refreshes)
-          - Plain-SSH host rows in the list (Ashley never creates
+            conversation list (TG-17 lock — Alice refreshes)
+          - Plain-SSH host rows in the list (Alice never creates
             plain-SSH one-shots — OUT entirely, not v2)
           - Attached-vs-detached visual distinction (TG-13 lock —
             rows are rows)
           - Per-conversation activity/unread signals (still v2 —
             same as Phase 6)
           - Cross-device / cross-session state sync (a session
-            created on Ashley's phone doesn't automatically show up
+            created on Alice's phone doesn't automatically show up
             on her desktop without a refresh — OUT entirely, not v2)
           - Persisting the currently-selected conversation across
             browser refreshes (still v2 — in-memory only per Phase 6)
           - A second creation button for plain-SSH or raw shell —
             keep the pencil single-purpose
           - Distinguishing "identity attached" from "identity not-
-            yet-attached" for a newly-created row while Ashley
+            yet-attached" for a newly-created row while Alice
             does her identity setup inside the pane
           - Turning the pencil into a two-action popover — OUT
 
@@ -329,8 +329,8 @@ Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to 
           UNTOUCHED (TG-16 function-unchanged lock).
 
         * **Deploy note**: shipped behind the mandatory 15-min deadman
-          per Ashley 2026-07-03 with explicit per-deploy green light
-          per Ashley 2026-07-12 (see `deploy-runbook.md` under Tina's
+          per Alice 2026-07-03 with explicit per-deploy green light
+          per Alice 2026-07-12 (see `deploy-runbook.md` under Tina's
           identity — "DEADMAN IS MANDATORY. NO EXCEPTIONS" + "BLANKET
           PRE-AUTHORIZATION ≠ PER-DEPLOY GREEN LIGHT"). This is a
           **substantially additive user-visible change** — a fresh
@@ -345,7 +345,7 @@ Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to 
           standard `sudo bash /opt/skynet/skynet-patches/build-skynet
           .sh` + `sudo docker compose up -d --force-recreate skynet`
           via runbook step 1-9 (arm-BEFORE-deploy sentinel cleanup,
-          nohup deadman arm, force-recreate, wait healthy, Ashley
+          nohup deadman arm, force-recreate, wait healthy, Alice
           UAT, disarm-on-green-light with narrow pkill, let-fire-on-
           failure). UAT checklist for the walk-through:
           `~/skynet/.planning/phases/07-fleet-native-conversation-list/
@@ -373,7 +373,7 @@ Also update the top-of-file count from `"ONE HUNDRED FIVE numbered patches"` to 
 
 **Placeholders to fill in at PIN time:**
 
-- `<date>` — deploy date (once Ashley approves and deploy completes)
+- `<date>` — deploy date (once Alice approves and deploy completes)
 - `<deploy-sha>` — the HEAD commit SHA at deploy time (currently `858ad42` before this Plan 07-03's doc commits; will be different after 07-03 commits + any pre-deploy touches)
 
 **Top-of-file update:**
@@ -391,5 +391,5 @@ Runs against `~/.claude/identities/tina/bounties/telegram-like-interface/` — t
 ---
 
 *Draft phase: 07-fleet-native-conversation-list*
-*Draft generated: 2026-07-21T06:33Z by Plan 07-03 Task 3 (Tasks 1-3 scope only; Task 4 deploy Ashley-gated in main orchestrator context)*
+*Draft generated: 2026-07-21T06:33Z by Plan 07-03 Task 3 (Tasks 1-3 scope only; Task 4 deploy user-gated in main orchestrator context)*
 *Format precedent: patch #105 (Phase 6) in `~/.claude/identities/tina/skynet-patches.md` lines 7213-7552*

@@ -136,7 +136,7 @@ This removal is **intentional**. The one-shot `scrollTop = newEl.offsetTop` writ
 - `src/ui/features/pretty-view/PrettyView.tsx` — hook call-site update + anchor wiring + pill onClick + ComposeBox prop
 - `src/ui/features/pretty-view/ComposeBox.tsx` — onGoodToGo prop + ThumbsUp onClick
 
-**Pin-time reminder:** bump `skynet-patches.md` header 95 → 96, add per-patch entry for the four files above, update the "Patch drift caveat" file list, and follow `~/.claude/identities/tina/deploy-runbook.md` (mandatory 15-min deadman) at deploy time — NOT now (Ashley handles deploy separately per fleet rule).
+**Pin-time reminder:** bump `skynet-patches.md` header 95 → 96, add per-patch entry for the four files above, update the "Patch drift caveat" file list, and follow `~/.claude/identities/tina/deploy-runbook.md` (mandatory 15-min deadman) at deploy time — NOT now (Alice handles deploy separately per fleet rule).
 
 ## Commits
 

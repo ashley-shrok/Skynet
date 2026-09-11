@@ -56,7 +56,7 @@ One-liner: Ship four already-in-working-tree design polish changes (chevron atta
 
 Two purposes rolled into one atomic patch:
 
-1. **Close pinned bounty `sidebar-header-left-gap-after-collapse-button-moved`** (parked 2026-07-30 in Ashley's tina identity). Root cause: patch #193 (commit `1e14cba`) moved the persistent sidebar-toggle chevron from viewport-left to `left: sidebarWidth + 8px` on desktop-open, but the 48px padding-left clearance in `.pv-panel-header` (patch #142 Fix 5) was still firing on desktop-open — reserving space for a chevron that had already moved elsewhere. The prop-flip (change #1) stops the clearance from firing when the chevron isn't at viewport-left. The attached-tab treatment (change #2) makes the chevron read as visually part of the sidebar so no gap even looks needed.
+1. **Close pinned bounty `sidebar-header-left-gap-after-collapse-button-moved`** (parked 2026-07-30 in Alice's tina identity). Root cause: patch #193 (commit `1e14cba`) moved the persistent sidebar-toggle chevron from viewport-left to `left: sidebarWidth + 8px` on desktop-open, but the 48px padding-left clearance in `.pv-panel-header` (patch #142 Fix 5) was still firing on desktop-open — reserving space for a chevron that had already moved elsewhere. The prop-flip (change #1) stops the clearance from firing when the chevron isn't at viewport-left. The attached-tab treatment (change #2) makes the chevron read as visually part of the sidebar so no gap even looks needed.
 
 2. **Ship the Skynet brand identity** into the two surfaces where it belongs — sidebar-header (brand lockup with logo, change #3) and browser tab title (hardcoded string, change #4).
 
@@ -69,7 +69,7 @@ Result: 3 files changed in one atomic commit (`f1ab681`) landing all four visual
 **Commit:** `f1ab681` (single atomic commit covers both tasks per plan)
 **Duration:** ~3 minutes
 
-Verified via `git diff` that all four working-tree changes were present as spec'd (tina-authored via docker cp fast-path, eyeballed live by Ashley — executor did NOT reimplement):
+Verified via `git diff` that all four working-tree changes were present as spec'd (tina-authored via docker cp fast-path, eyeballed live by Alice — executor did NOT reimplement):
 
 1. **AppShell.tsx L178** — `label: t("nav.conversations.title", ...)` → `label: "Skynet"` (dashboard tab initial useState)
 2. **AppShell.tsx L1189** — same substitution in the re-create-dashboard-when-all-tabs-closed path
@@ -124,7 +124,7 @@ Zero Rule-1/2/3/4 deviations triggered. Zero authentication gates. Zero blockers
 - NO `docker build` invoked.
 - NO edits under `src/backend/` (frontend-only patch, backend build correctly skipped).
 - NO edits under `~/.claude/identities/tina/**` (patches file + bounty archiving are post-executor tina jobs).
-- Post-commit branch still `feat/tab-title-from-tmux`; deploy queue extends to #198→#214, still HELD per Ashley's not-shipping-until-shape-lock rule.
+- Post-commit branch still `feat/tab-title-from-tmux`; deploy queue extends to #198→#214, still HELD per Alice's not-shipping-until-shape-lock rule.
 - Changes are already visible in the running container via tina's docker cp fast-path (no deadman armed).
 
 ## Verification Results

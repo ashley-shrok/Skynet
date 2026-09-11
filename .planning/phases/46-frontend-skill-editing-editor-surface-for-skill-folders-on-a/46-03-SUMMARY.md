@@ -22,12 +22,12 @@ requires:
     provides: "GlobalFilesModal wiring pattern in PrettyConversationsPanel.tsx (L60 import / L485 useState / L1583 portal mount / L1616 menu-item entry) — this plan mirrors the pattern parallel-sibling style"
 provides:
   - "src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx — 16-line delta wiring the SkillsEditorModal into the panel-header ⋮ menu at position 4 (after Edit global files…)"
-  - ".planning/phases/44-.../46-UAT-CHECKLIST.md — 260-line / 14-Step Ashley-facing walkthrough covering D-01..D-16 with Action / Expected / Pass-Fail sub-fields"
+  - ".planning/phases/44-.../46-UAT-CHECKLIST.md — 260-line / 14-Step user-facing walkthrough covering D-01..D-16 with Action / Expected / Pass-Fail sub-fields"
   - ".planning/phases/44-.../46-PATCH-DRAFT.md — 118-line skynet-patches.md entry draft ready for orchestrator PIN (motivation, what shipped, backend + frontend surfaces tables, path-safety design, deploy note, rebase risk, related)"
   - "KEEP ORDER: New agent → New role → Edit global files… → Edit skills… guard comment above the menu-items array (T-46-16 regression guard against alphabetization / refactor drift)"
 affects:
   - "Deploy pipeline — orchestrator now has PATCH-DRAFT.md ready for the skynet-patches.md pin + docker build + container recreate + HTTPS 200 verify + coord-room announces + 15-min deadman timer"
-  - "Ashley UAT walk — orchestrator hands UAT-CHECKLIST.md to Ashley post-deploy for sign-off before considering the phase closed"
+  - "Alice UAT walk — orchestrator hands UAT-CHECKLIST.md to Alice post-deploy for sign-off before considering the phase closed"
 
 # Tech tracking
 tech-stack:
@@ -48,7 +48,7 @@ key-decisions:
   - "Placed the SkillsEditorModal mount as an immediate JSX sibling of the GlobalFilesModal mount (not wrapped in a fragment, not lifted to a separate ModalsRegion). Minimizes the diff to the panel component; matches the plan's byte-shape mandate."
   - "Used two comment landmarks (Phase 46 SKILLED-01 on the state + on the mount) to make the parallel-sibling relationship greppable from a fresh reader — mirrors the Phase 23 GEFM-05 comment discipline."
   - "KEEP ORDER guard comment placed OUTSIDE the array literal (as a JSX comment block above the map's `{[` opening) rather than inside as a code comment — this keeps the array literal a clean structural token so future refactors that reformat the array (Prettier's line-per-item, etc.) don't accidentally push the comment inside a specific item's position."
-  - "UAT checklist framed as Ashley-does-it-in-the-app steps, never CLI commands, per the box-maintainer role file. Two exceptions where a CLI check was necessary (Step 10 host-side ls verification, Step 13 DevTools console fetch) are called out explicitly as maintainer-assisted."
+  - "UAT checklist framed as user-does-it-in-the-app steps, never CLI commands, per the box-maintainer role file. Two exceptions where a CLI check was necessary (Step 10 host-side ls verification, Step 13 DevTools console fetch) are called out explicitly as maintainer-assisted."
 
 patterns-established:
   - "Wave 3 wiring convention for a Phase-23-style mirror-and-fork phase: parallel-sibling in exactly three landmark positions (import / useState / portal mount) + one menu-item entry with a KEEP ORDER guard. Diff should be <20 lines."
@@ -79,7 +79,7 @@ completed: 2026-08-19
 - **Wired SkillsEditorModal into PrettyConversationsPanel with minimum diff** — 16-line delta across 4 landmark positions: import (L61), useState (L487), portal mount (L1590-1599), menu item (L1632) + KEEP ORDER guard comment (L1627). Zero behavior changes to existing global-files / new-session / new-role flows.
 - **Menu ordering guarded** — the KEEP ORDER comment above the menu-items array (T-46-16 mitigation) explicitly locks the sequence to `New agent → New role → Edit global files… → Edit skills…`. UAT Step 1 verifies the ordering post-deploy; grep-based acceptance criterion asserts the source-line ordering.
 - **Full test suite green** — `npx vitest run` on the wired panel: 2592 pass / 9 skipped / 1 todo / 0 fail (exit 0). Cleaner than Wave 1's baseline; no cross-identity contention flakes this run. Wave 3 wiring introduces zero regressions.
-- **UAT-CHECKLIST.md delivers Ashley's post-deploy walkthrough** — 260 lines / 14 Steps covering every D-01..D-16 decision + regression guards + path-safety verification. Framed for iPhone-primary PWA use; fast-path steps first (menu → host → skill → tab → edit → save); destructive paths (delete-file, delete-skill) and path-safety attack-input verification (Step 13) covered with explicit expected outcomes.
+- **UAT-CHECKLIST.md delivers Alice's post-deploy walkthrough** — 260 lines / 14 Steps covering every D-01..D-16 decision + regression guards + path-safety verification. Framed for iPhone-primary PWA use; fast-path steps first (menu → host → skill → tab → edit → save); destructive paths (delete-file, delete-skill) and path-safety attack-input verification (Step 13) covered with explicit expected outcomes.
 - **PATCH-DRAFT.md ready for orchestrator PIN** — 118 lines / 7 mandated sections (motivation, what shipped, backend + frontend surface tables, path-safety design, files touched, deploy note, rebase risk, related). References patch #446 (layer-enumeration reflex) in both the shipped section and the related section. Deploy note includes verify-in-bundle byte-check strings the orchestrator can grep post-deploy.
 
 ## Task Commits
@@ -101,13 +101,13 @@ Each task was committed atomically on `feat/tab-title-from-tmux`:
 
 ### Created
 
-- **`.planning/phases/44-.../46-UAT-CHECKLIST.md`** (260 lines / ~15KB) — 14-Step Ashley-facing walkthrough. Every Step has `**D-XX**` reference, `**Action:**`, `**Expected:**`, and `**Pass/Fail:** ☐ Pass ☐ Fail — Notes:` sub-fields. Coverage:
+- **`.planning/phases/44-.../46-UAT-CHECKLIST.md`** (260 lines / ~15KB) — 14-Step user-facing walkthrough. Every Step has `**D-XX**` reference, `**Action:**`, `**Expected:**`, and `**Pass/Fail:** ☐ Pass ☐ Fail — Notes:` sub-fields. Coverage:
   - **Fast-path (Steps 1-6):** menu ordering (D-01) → modal opens (D-02) → skill dropdown appears (D-03) → file tabs load with flat path-relative labels (D-04, D-05) → many-file horizontal scroll (D-06) → text-file edit + save (D-07).
   - **Branch coverage (Steps 7-10):** non-text placeholder AlertTriangle (D-08) → `+ Add file` prompt round-trip with subpath + duplicate rejection (D-09) → delete-file confirm dialog with copy verification (D-10) → delete-skill confirm dialog (D-11).
   - **Regression guards (Steps 11-14):** menu item no-icon-no-shortcut-no-badge (D-01 + UI-SPEC L116) → GlobalFilesModal still works (D-01 regression) → path-safety DevTools attack input (D-16 / T-46-02) → Esc closes but outside-click does NOT (D-02 modal chrome inheritance).
   - **Prep section** + **post-walk sign-off** with cleanup reminders for throwaway UAT skills.
 - **`.planning/phases/44-.../46-PATCH-DRAFT.md`** (118 lines / ~14KB) — skynet-patches.md entry draft ready for orchestrator PIN at ship time. All 7 mandated sections present:
-  - `## Motivation` — Ashley's fast-path trigger, three selections max
+  - `## Motivation` — Alice's fast-path trigger, three selections max
   - `## What shipped` — backend router + 7 endpoints + 6 new frontend files + panel wiring delta + twin nginx blocks
   - `## Backend surface` — 7-row endpoints table with method / path / body / 200 response / notable errors
   - `## Frontend surface` — 5-row components table with role
@@ -190,7 +190,7 @@ $ grep -cE "TODO|FIXME" .planning/phases/44-.../46-PATCH-DRAFT.md
 1. **Mount SkillsEditorModal as an immediate JSX sibling of GlobalFilesModal** — not wrapped in a fragment, not lifted to a separate `ModalsRegion` component. Minimizes the diff to `PrettyConversationsPanel.tsx`; matches the plan's byte-shape mandate; the two modals never render simultaneously (they're both opened from mutually-exclusive menu clicks), so no z-index conflict.
 2. **KEEP ORDER guard placed as a JSX comment ABOVE the array literal** — not as a code-comment inside the array. Rationale: keeps the array literal a clean structural token; future refactors (Prettier's line-per-item reformat, ESLint's array-order-check rule, etc.) don't push the comment into an arbitrary item's position. The guard is intended to be read by humans before they touch the array, so it lives above the opening bracket where a code review can't miss it.
 3. **Two Phase 46 SKILLED-01 comment landmarks (on state + on mount)** — mirrors the Phase 23 GEFM-05 comment discipline for parallel-sibling wiring. Makes the relationship between the state / mount / menu-item greppable from a fresh reader without having to trace through the whole 1700-line panel component.
-4. **UAT checklist steps are Ashley-does-it-in-the-app, never CLI commands** — the two exceptions where a CLI check is unavoidable (Step 10 host-side `ls` verification of skill deletion, Step 13 DevTools console `fetch` for path-safety attack inputs) are explicitly called out as maintainer-assisted, per the box-maintainer role file's "audience is Ashley on iPhone-primary PWA" instruction.
+4. **UAT checklist steps are user-does-it-in-the-app, never CLI commands** — the two exceptions where a CLI check is unavoidable (Step 10 host-side `ls` verification of skill deletion, Step 13 DevTools console `fetch` for path-safety attack inputs) are explicitly called out as maintainer-assisted, per the box-maintainer role file's "audience is Alice on iPhone-primary PWA" instruction.
 5. **PATCH-DRAFT.md leaves patch number as `#TBD` and bounty path as a placeholder** — the orchestrator claims a real patch number at ship time (mirror of skynet-patches.md's numbered patch discipline) and confirms the box-maintainer's local bounty path (`~/.claude/roles/box-maintainer/bounties/frontend-skill-editing/`) at PIN time.
 
 ## Deviations from Plan
@@ -234,8 +234,8 @@ Executor scope ends here. Orchestrator owns:
 4. **HTTPS 200 verify** — live-fire `curl -sS -H "Authorization: Bearer $TOKEN" "https://example.com/skills-editor/skills?hostId=<n>" | jq` and confirm JSON payload shape (NOT the frontend index.html — that would mean the nginx block is missing).
 5. **Verify-in-bundle byte checks** — grep the deployed bundle for `"Edit skills…"`, `"skills-editor/skills"`, and either `"SkillsEditorModal"` (unminified) or `"Edit skills"` fallback.
 6. **Cancel the deadman** — only after Steps 4-5 pass.
-7. **Coord-room announcement** — post that patch #<claimed> landed with the UAT-CHECKLIST.md link for Ashley to walk when she's ready.
-8. **Bounty close** — mark the box-maintainer bounty at `~/.claude/roles/box-maintainer/bounties/frontend-skill-editing/` as delivered once Ashley signs off on the UAT.
+7. **Coord-room announcement** — post that patch #<claimed> landed with the UAT-CHECKLIST.md link for Alice to walk when she's ready.
+8. **Bounty close** — mark the box-maintainer bounty at `~/.claude/roles/box-maintainer/bounties/frontend-skill-editing/` as delivered once Alice signs off on the UAT.
 
 ## Self-Check: PASSED
 

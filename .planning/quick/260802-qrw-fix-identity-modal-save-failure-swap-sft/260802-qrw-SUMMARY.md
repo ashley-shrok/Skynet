@@ -22,7 +22,7 @@ key-files:
   modified:
     - src/backend/claude-session/identity-artifact-reader.ts
 decisions:
-  - "Use sftp.ext_openssh_rename (posix-rename@openssh.com) unconditionally — every OpenSSH ≥5.1 (2008+) advertises it; Ashley's fleet is fully modern; a fallback would add an untestable code path."
+  - "Use sftp.ext_openssh_rename (posix-rename@openssh.com) unconditionally — every OpenSSH ≥5.1 (2008+) advertises it; Alice's fleet is fully modern; a fallback would add an untestable code path."
   - "Pin the fix with a throwing rename trap in the mock so a future revert to sftp.rename fails LOUDLY with a diagnostic that names the fix, not silently green."
   - "Update JSDoc prologue to record WHY the extension is required so a future refactor that 'cleans up' back to sftp.rename fails at review-time in addition to test-time."
   - "Keep scope narrow: do NOT touch src/backend/ssh/pretty-view-upload.ts — its sftp.rename target is guaranteed non-existent by resolveNonCollidingFinal."
@@ -38,7 +38,7 @@ requirements_satisfied: [QRW-01, QRW-02, QRW-03]
 
 # Quick 260802-qrw: Fix IdentityModal Save Failure — Swap sftp.rename → ext_openssh_rename Summary
 
-**One-liner:** Root-cause fix for Ashley's IdentityModal generic "Error: Failure" on saves — swap SFTP rename call site to posix-rename@openssh.com extension so existing identity files can be overwritten atomically, pinned by a regression test with a throwing rename trap.
+**One-liner:** Root-cause fix for Alice's IdentityModal generic "Error: Failure" on saves — swap SFTP rename call site to posix-rename@openssh.com extension so existing identity files can be overwritten atomically, pinned by a regression test with a throwing rename trap.
 
 ## What Shipped
 
@@ -72,9 +72,9 @@ Root-caused by @stacy on ceo-skynet 2026-08-02 (full handoff at `~/pretty-view-u
 
 The pre-fix code called `sftp.rename(tmp, target, cb)`, which sends SFTPv3 `SSH_FXP_RENAME`. OpenSSH's `process_rename` tries `link(old, new)` first. When `new` already exists, `link()` returns `EEXIST`. OpenSSH's `errno_to_portable()` has no case for `EEXIST` and falls through to `SSH2_FX_FAILURE` — the ssh2 client surfaces a generic `Error: Failure` with code `4` and an empty error string.
 
-Symptom in Ashley's fleet: every save of an EXISTING identity file failed; only first-time writes (target missing) succeeded. Matches her "sometimes it works, sometimes it doesn't" report — all her IdentityModal edits are on existing identities.
+Symptom in Alice's fleet: every save of an EXISTING identity file failed; only first-time writes (target missing) succeeded. Matches her "sometimes it works, sometimes it doesn't" report — all her IdentityModal edits are on existing identities.
 
-Fix mechanism: `posix-rename@openssh.com` extension (`ext_openssh_rename`) has POSIX `rename(2)` semantics — atomic overwrite of an existing target, no `link()`/`EEXIST` detour. Advertised by every OpenSSH ≥5.1 (2008+); universal across Ashley's fleet.
+Fix mechanism: `posix-rename@openssh.com` extension (`ext_openssh_rename`) has POSIX `rename(2)` semantics — atomic overwrite of an existing target, no `link()`/`EEXIST` detour. Advertised by every OpenSSH ≥5.1 (2008+); universal across Alice's fleet.
 
 ## Deviations from Plan
 
@@ -91,7 +91,7 @@ None — plan executed exactly as written. RED→GREEN→gates flow followed to 
 
 ## Follow-ups (not this task's scope)
 
-- Orchestrator: redeploy skynet so Ashley can smoke-test the IdentityModal on an existing identity (any of the four writable fields). Expected outcome: no generic "Error: Failure" toast.
+- Orchestrator: redeploy skynet so Alice can smoke-test the IdentityModal on an existing identity (any of the four writable fields). Expected outcome: no generic "Error: Failure" toast.
 - Orchestrator: update `~/.claude/identities/tina/skynet-patches.md` with the codified `npm run build:backend` gate rule (already established, this quick task honored it).
 
 ## Self-Check: PASSED

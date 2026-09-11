@@ -62,7 +62,7 @@ Fleet-wide, the bounty JSON schema value `on_deck` has been retired in favor of 
 
 Purpose: Prevent the tb1 per-row bounty count badge from silently counting zero forever (the reader currently filters `.status === "on_deck"` — a value no bounty will ever again carry). Keep the pretty-view BountyCard rendering the correct label + style for the surviving `pinned` status. Sweep dead comment references so future greppers aren't confused.
 
-Output: One atomic sweep across ~13 files in `src/`, staged into three commits (backend, frontend, identity-folder + verification) so each layer's rename lands as a legible unit. Commit only — do NOT push, do NOT build for deploy, do NOT `docker compose up`. Stop at the push authorization boundary per fleet rule (Ashley 2026-07-27, patch #153 lesson) and wait for the human "deploy" / "ship it" signal.
+Output: One atomic sweep across ~13 files in `src/`, staged into three commits (backend, frontend, identity-folder + verification) so each layer's rename lands as a legible unit. Commit only — do NOT push, do NOT build for deploy, do NOT `docker compose up`. Stop at the push authorization boundary per fleet rule (Alice 2026-07-27, patch #153 lesson) and wait for the human "deploy" / "ship it" signal.
 </objective>
 
 <execution_context>
@@ -222,13 +222,13 @@ Rename the tb1 patch's bounty folder to match the new terminology and record the
 - Update its `title` field: replace any "on-deck" or "on_deck" with "pinned" (e.g. "Per-row on-deck bounty count badge on pretty-conversations panel" → "Per-row pinned bounty count badge on pretty-conversations panel").
 - Append a `timeline[]` entry (with today's ISO-Z prefix, `2026-07-27T...Z`) noting the fleet-wide schema rename `on_deck` → `pinned` and this followup that swept the fork's references in lockstep. One line, e.g. `"2026-07-27T... · fleet-wide bounty status on_deck retired → pinned; this quick (260727-uae) swept fork references (reader filter, WS wire field pinnedCount, store, badge, BountyCard, IdentityModal comments) in lockstep and renamed this bounty folder to match"`.
 - Bump `updated_at` to the same ISO-Z timestamp.
-- Keep `status: "waiting_on_someone_else"` — the bounty is not done (it's blocked on Ashley's deploy authorization for the tb1 badge itself), and this rename doesn't change that status axis. Do NOT flip it to `pinned` or `done` unless explicitly told to.
+- Keep `status: "waiting_on_someone_else"` — the bounty is not done (it's blocked on Alice's deploy authorization for the tb1 badge itself), and this rename doesn't change that status axis. Do NOT flip it to `pinned` or `done` unless explicitly told to.
 
 Step 3 — Final commit + STOP:
 
 `git add` nothing further (the identity folder rename is outside the repo; nothing to commit in-repo for step 2). If the build/test pass revealed any missed edit that needed a fix commit, that fix belongs as a small third commit on top of the two rename commits.
 
-⚠️ STOP HERE — do NOT `git push`, do NOT `docker build`, do NOT `docker compose up`. Fleet rule (Ashley 2026-07-27, patch #153 lesson): a code-work ask authorizes CODE motion only. Report to the user: "backend + frontend rename committed on the branch (2 commits); identity bounty folder renamed; build:backend + build + test:backend + test all green; not pushed, not built for deploy — waiting on your 'ship it' before push+build+deploy." Then wait.
+⚠️ STOP HERE — do NOT `git push`, do NOT `docker build`, do NOT `docker compose up`. Fleet rule (Alice 2026-07-27, patch #153 lesson): a code-work ask authorizes CODE motion only. Report to the user: "backend + frontend rename committed on the branch (2 commits); identity bounty folder renamed; build:backend + build + test:backend + test all green; not pushed, not built for deploy — waiting on your 'ship it' before push+build+deploy." Then wait.
   </action>
   <verify>
     <automated>test -d /home/ubuntu/.claude/identities/tina/bounties/pretty-conversations-pinned-badge &amp;&amp; ! test -d /home/ubuntu/.claude/identities/tina/bounties/pretty-conversations-on-deck-badge &amp;&amp; grep -q '"pinned"\|pinned' /home/ubuntu/.claude/identities/tina/bounties/pretty-conversations-pinned-badge/bounty.json</automated>
@@ -257,7 +257,7 @@ npm run test:backend                                       # 223/223
 npm run test                                               # 486/486
 ```
 
-Nothing is pushed. Nothing is docker-built for deploy. The tree is on the branch, green, and awaiting Ashley's explicit deploy authorization.
+Nothing is pushed. Nothing is docker-built for deploy. The tree is on the branch, green, and awaiting Alice's explicit deploy authorization.
 </verification>
 
 <success_criteria>

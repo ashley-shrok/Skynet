@@ -3,7 +3,7 @@
  * SessionHoldingOverlay alongside Layer 1 (/id reset in JSONL) and
  * Layer 2 (discovery-repoll sees a changed session file).
  *
- * WHY THIS EXISTS (Ashley 2026-08-18):
+ * WHY THIS EXISTS (Alice 2026-08-18):
  *
  * The pre-existing arm signals only cover the case where the agent
  * itself runs `/id reset` (Layer 1 sees it in the JSONL) or the

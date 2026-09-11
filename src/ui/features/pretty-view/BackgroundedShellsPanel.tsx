@@ -10,7 +10,7 @@ import type { BackgroundedShell } from "@/api/claude-session-api";
 // list is non-empty; callers guard on that so this component never renders
 // empty.
 //
-// Design decisions (locked with Ashley 2026-07-18):
+// Design decisions (locked with Alice 2026-07-18):
 //   - Above compose, in-flow — matches BackgroundedAgentsPanel's placement.
 //   - Sibling to BackgroundedAgentsPanel, not folded in — different mental
 //     models (agents are LLM subagents; shells are raw commands).
@@ -20,7 +20,7 @@ import type { BackgroundedShell } from "@/api/claude-session-api";
 //   - Label: description as primary; if description is empty, fall back
 //     to the command as primary. Description-only rendering
 //     (patch #80): the command NEVER renders as a visible secondary
-//     line. Ashley called the second-line command-truncation visual
+//     line. Alice called the second-line command-truncation visual
 //     noise during #68 pin-time; this patch is the followup that
 //     drops it. The full command remains on the wire
 //     (BackgroundedShell.command) AND on the row's hover `title`
@@ -42,7 +42,7 @@ export function BackgroundedShellsPanel({
       className={cn(
         // Patch #82 shelf treatment (VISUAL-05 revised) — identical to
         // HarnessTasksPanel's shelf. See that file for the full rationale
-        // (Ashley 2026-07-19 flagged the floating-card + margin illusion
+        // (Alice 2026-07-19 flagged the floating-card + margin illusion
         // as off-mock; shelves match the actual layout: continuous rows
         // above compose, cool-cream 1px top border between shelves).
         "shrink-0 max-h-40 overflow-y-auto",

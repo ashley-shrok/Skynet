@@ -172,7 +172,7 @@ function classifyModalError(
  *     never reassigned across the modal's open lifecycle (Pitfall 6 defense
  *     — reseeding the draft would blow away every keystroke).
  *
- * rev-2 draft-guard confirm gate (UI-SPEC L167-169, Ashley explicit
+ * rev-2 draft-guard confirm gate (UI-SPEC L167-169, Alice explicit
  *   greenlight 2026-08-14): the modal wraps `onOpenChange` in
  *   `handleOpenChange`. On close-transitions when the draft is dirty AND
  *   not mid-save, it fires `window.confirm("Discard unsaved changes?")`.

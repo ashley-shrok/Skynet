@@ -45,7 +45,7 @@ must_haves:
 <objective>
 Skynet consumes Nelly's .resume-complete supervisor-hands-off marker to dismiss the DormancyOverlay only after supervisor injection completes, per the wake-completion-signal-from-supervisor bounty contract. Extends the existing dormant-poll loop (patch #346 acfdf55) with a marker stat plus freshness comparison (marker_ts > wake_trigger_ts) plus a 90s fallback for mixed-fleet compatibility with pre-marker supervisor versions. The copy polish already committed as 06bcb4d rides along on the same ship.
 
-Purpose. Close the current gap where DormancyOverlay dismisses on the FIRST live Claude frame, which fires DURING the supervisor's ~20s Ctrl-C train plus bracketed-paste plus start-your-monitors nudge Enter, leaving a window where Ashley's typing could interleave with the supervisor's paste and Enter. Contract per Nelly's 2026-08-08T10:55Z DM. Supervisor writes ISO-UTC marker at end of drive() right after final Enter (both fresh and resume paths). Removes at start of drive() and start of do_kill_dormant(). Skynet must NOT trust bare presence. The freshness check kills the stale-marker-across-supervisor-restart footgun.
+Purpose. Close the current gap where DormancyOverlay dismisses on the FIRST live Claude frame, which fires DURING the supervisor's ~20s Ctrl-C train plus bracketed-paste plus start-your-monitors nudge Enter, leaving a window where Alice's typing could interleave with the supervisor's paste and Enter. Contract per Nelly's 2026-08-08T10:55Z DM. Supervisor writes ISO-UTC marker at end of drive() right after final Enter (both fresh and resume paths). Removes at start of drive() and start of do_kill_dormant(). Skynet must NOT trust bare presence. The freshness check kills the stale-marker-across-supervisor-restart footgun.
 
 Output.
 - Backend. wake_trigger_ts recording in the wake handler. Extended seam with marker-stat plus freshness compare plus 90s fallback plus fallback log line.
@@ -163,7 +163,7 @@ Output.
 
     STEP B. Commit the code changes as ONE atomic commit before deploy. Use commit message. feat(quick-260808-fgf-01) backend consume .resume-complete marker with freshness check plus 90s fallback plus tests L M N O. Include the two changed source files (claude-session-server.ts and dormant-poll.test.ts). This lands on top of 06bcb4d (the copy polish already committed) so both ride the same deploy.
 
-    STEP C. Deploy under 15-min deadman per PROJECT constraint. cd /home/ubuntu/skynet && follow the standard ship dance from prior quick summaries (260808-dmz-SUMMARY.md is the reference). docker compose up -d --force-recreate skynet. Immediately arm the 15-min deadman rollback timer per Ashley 2026-07-03 constraint. Poll container health until healthy sustained. Curl HTTPS to https://term.example.com and confirm 200 response. If any of container-unhealthy, HTTPS non-200, or 15-min elapsed fires, roll back. If all three succeed, disarm the deadman.
+    STEP C. Deploy under 15-min deadman per PROJECT constraint. cd /home/ubuntu/skynet && follow the standard ship dance from prior quick summaries (260808-dmz-SUMMARY.md is the reference). docker compose up -d --force-recreate skynet. Immediately arm the 15-min deadman rollback timer per Alice 2026-07-03 constraint. Poll container health until healthy sustained. Curl HTTPS to https://term.example.com and confirm 200 response. If any of container-unhealthy, HTTPS non-200, or 15-min elapsed fires, roll back. If all three succeed, disarm the deadman.
 
     STEP D. After successful deploy, append TWO patch entries to /home/ubuntu/.claude/roles/box-maintainer/skynet-patches.md. Use the exact format of the existing patch #345 and patch #346 entries (H2 heading with patch number and title and bounty slug in brackets, followed by root-cause and changes sections and verification section with test counts and image sha and byte-verify note, followed by commits list and rebase-risk line).
 
@@ -184,7 +184,7 @@ Output.
     </human-check>
     <automated>docker compose -f /home/ubuntu/skynet/docker-compose.yml ps skynet 2>&1 | tail -5 && echo "---HTTP---" && curl -s -o /dev/null -w "%{http_code}\n" https://term.example.com && echo "---PATCHES---" && grep -c "^## Patch #34[78]" /home/ubuntu/.claude/roles/box-maintainer/skynet-patches.md</automated>
   </verify>
-  <done>Container Up healthy. HTTPS returns 200. Patches file has both #347 and #348 headings. Feat commit plus docs commit both present on branch on top of 06bcb4d. 15-min deadman disarmed cleanly (no rollback fired). Ashley UAT pending per usual quick-task handoff.</done>
+  <done>Container Up healthy. HTTPS returns 200. Patches file has both #347 and #348 headings. Feat commit plus docs commit both present on branch on top of 06bcb4d. 15-min deadman disarmed cleanly (no rollback fired). Alice UAT pending per usual quick-task handoff.</done>
 </task>
 
 </tasks>
@@ -210,7 +210,7 @@ Objective is achieved when.
 - Container skynet is Up and healthy on the box after docker compose up -d --force-recreate skynet. HTTPS 200 on term.example.com sustained.
 - 15-min deadman timer disarmed cleanly (no rollback fired).
 - skynet-patches.md updated with both patch #347 and #348 entries.
-- Ashley can UAT. Open Tiffany's PWA pane while dormant. Click Wake. Overlay stays up through the entire ~10s Ctrl-C train (Nelly reduced from 20s per her concern-1 ship) plus bracketed-paste plus final Enter. Overlay dismisses ONLY after Nelly's marker appears with a fresh ISO-UTC ts (or after 90s fallback if the target box is running the pre-marker supervisor). Typing during the wait window is safe (no interleave with supervisor paste).
+- Alice can UAT. Open Tiffany's PWA pane while dormant. Click Wake. Overlay stays up through the entire ~10s Ctrl-C train (Nelly reduced from 20s per her concern-1 ship) plus bracketed-paste plus final Enter. Overlay dismisses ONLY after Nelly's marker appears with a fresh ISO-UTC ts (or after 90s fallback if the target box is running the pre-marker supervisor). Typing during the wait window is safe (no interleave with supervisor paste).
 </success_criteria>
 
 <output>

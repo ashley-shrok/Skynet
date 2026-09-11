@@ -148,7 +148,7 @@ Task 3 (cursor-persistence-repro.sh):
 
 ## Ship-gate zero-IP result (per output spec §c)
 
-**Confirmed.** `grep -cE '100\.113\.23\.63|100\.80\.122\.111' substrate/services/tg-bridge/bridge.sh` returns `0`. Bridge sources both MATRIX_ROOT and STT_URL from `/state/config.env` via `. "$CONFIG_FILE"` — no hardcoded Tailscale endpoints anywhere in the script. This is Ashley's non-negotiable Phase-B reliability floor.
+**Confirmed.** `grep -cE '100\.113\.23\.63|100\.80\.122\.111' substrate/services/tg-bridge/bridge.sh` returns `0`. Bridge sources both MATRIX_ROOT and STT_URL from `/state/config.env` via `. "$CONFIG_FILE"` — no hardcoded Tailscale endpoints anywhere in the script. This is Alice's non-negotiable Phase-B reliability floor.
 
 ## Deviations from PATTERNS.md § tg-bridge.sh analog patterns (per output spec §d)
 

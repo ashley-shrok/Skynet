@@ -5,7 +5,7 @@
 
 ## What this is
 
-When Ashley taps a conversation that isn't already loaded, the pane sits with a loading overlay for about five seconds before her message bubbles appear. Under the hood, most of that wait is the box asking the target host a long series of small questions — one at a time, over the network — in order to figure out which conversation file to start reading from. Only after that whole investigation completes does the pane actually start streaming her bubbles.
+When Alice taps a conversation that isn't already loaded, the pane sits with a loading overlay for about five seconds before her message bubbles appear. Under the hood, most of that wait is the box asking the target host a long series of small questions — one at a time, over the network — in order to figure out which conversation file to start reading from. Only after that whole investigation completes does the pane actually start streaming her bubbles.
 
 The change: make that jump-in feel effectively instant when the answer is already known, and much faster than today when it isn't.
 
@@ -35,13 +35,13 @@ Every jump-in also leaves a log line naming which path it took (shared-answer hi
 
 ## Prior context
 
-Today, when Ashley taps a conversation she hasn't loaded yet, the box connects to the target and runs roughly ten small SSH questions in series: what process is running the pane, what does that process's own state record say, what conversation file does it point at, does that file exist. Each question is one network round-trip; total wall time is ~4 seconds. Only when that investigation completes does the pane's file-following start, and only when the first "attached" signal comes back does the loading overlay disappear.
+Today, when Alice taps a conversation she hasn't loaded yet, the box connects to the target and runs roughly ten small SSH questions in series: what process is running the pane, what does that process's own state record say, what conversation file does it point at, does that file exist. Each question is one network round-trip; total wall time is ~4 seconds. Only when that investigation completes does the pane's file-following start, and only when the first "attached" signal comes back does the loading overlay disappear.
 
 Meanwhile, the ready-dot polling machinery has been walking that exact same investigation, for every identity in her fleet, every couple of seconds, since Phase 34. It has a very recent answer for every conversation the ready-dot cares about — but nothing else consults that answer.
 
 The reason it works this way is historical, not by design. The two subsystems grew up at different times, for different reasons, and nobody noticed they were solving the same problem twice.
 
-An instrumented tap earlier in this session (Ashley pressed a hotkey before and after a real jump-in) put a hard number on it: total load-in was 6.4 seconds; ~4 of those seconds were the serial investigation loop, the rest was network handshake and file-attach setup. The batching and the reuse are the two levers that shrink that number to near-zero (reuse) or ~500ms (batch).
+An instrumented tap earlier in this session (Alice pressed a hotkey before and after a real jump-in) put a hard number on it: total load-in was 6.4 seconds; ~4 of those seconds were the serial investigation loop, the rest was network handshake and file-attach setup. The batching and the reuse are the two levers that shrink that number to near-zero (reuse) or ~500ms (batch).
 
 ## What would make it wrong
 
@@ -51,7 +51,7 @@ An instrumented tap earlier in this session (Ashley pressed a hotkey before and 
 
 - **If it's fast for identity conversations but slower for anything else.** Bare host terminals — connections to hosts that aren't running an identity — have never gone through this discovery path and never will. But any change to shared plumbing that accidentally regresses their attach cost is a violation. The bar is "same or faster than today for every pane type."
 
-- **If the log doesn't tell us why a slow tap was slow.** The point of the observability line is that Ashley (or a future maintainer) can look at the log after a "why did that feel slow?" moment and see path-taken + time. If the log line lands but doesn't distinguish the three paths, or omits the total time, it's not doing its job.
+- **If the log doesn't tell us why a slow tap was slow.** The point of the observability line is that Alice (or a future maintainer) can look at the log after a "why did that feel slow?" moment and see path-taken + time. If the log line lands but doesn't distinguish the three paths, or omits the total time, it's not doing its job.
 
 - **If the frontend needs to change to get the benefit.** The whole change is server-side. The frontend's jump-in behavior is unchanged; the metadata frame arrives faster, the file-following starts sooner, the loading overlay comes down sooner. No new frontend states, no new frames, no new configuration.
 

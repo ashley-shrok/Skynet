@@ -7,7 +7,7 @@ human_verification:
   - test: "Live plan-approval on a fleet pane"
     expected: "Presence bubble mounts within ~one setInterval tick after Claude Code prints the plan prompt; header + plan file contents appear; Approve fires option 1; Feedback modal Submit lands feedback into Ink"
     why_human: "Requires a real Claude Code session that has just emitted the ExitPlanModeV2 prompt on the pinned fleet Ink variant — cannot be exercised without a live LLM turn"
-  - test: "Ashley cannot accidentally approve via ComposeBox Enter during plan-pending"
+  - test: "Alice cannot accidentally approve via ComposeBox Enter during plan-pending"
     expected: "With bubble mounted, pressing Enter in the ComposeBox does NOT send anything and does NOT dispatch the raw_keystrokes '1\\r' payload"
     why_human: "Requires a real WS-connected pane with a real live plan_pending frame; the unit test proves the swallow at the handleKeyDown level, but the end-to-end wiring (WS frame → planPending state → planPendingActive prop → Enter swallow) benefits from a live tick to observe"
   - test: "Backend SFTP fetch pulls a real plan file over the pane's existing SSH Client"
@@ -20,7 +20,7 @@ human_verification:
 
 # Phase 24: Plan-mode approval bubble — Verification Report
 
-**Phase Goal:** Make the Claude Code plan-approval prompt actionable from the pretty view. Ashley can now approve plan-mode prompts from the browser, see the plan she's approving, and give feedback via modal — without accidentally approving via compose-box Enter.
+**Phase Goal:** Make the Claude Code plan-approval prompt actionable from the pretty view. Alice can now approve plan-mode prompts from the browser, see the plan she's approving, and give feedback via modal — without accidentally approving via compose-box Enter.
 
 **Verified:** 2026-08-04T20:50:00Z
 **Status:** PASSED

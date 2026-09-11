@@ -20,7 +20,7 @@ key_files:
     - "src/backend/voice/slashCommandTransform.test.ts (236 lines — 21 vitest cases)"
   modified: []
 decisions:
-  - "Fail-open on catalog miss: wake-word HIT followed by no catalog prefix match returns byte-identical passthrough with matched:false — same posture as the retired client-side registry gate, so Ashley's transcript still lands even when the matcher can't rewrite it"
+  - "Fail-open on catalog miss: wake-word HIT followed by no catalog prefix match returns byte-identical passthrough with matched:false — same posture as the retired client-side registry gate, so Alice's transcript still lands even when the matcher can't rewrite it"
   - "Verbatim-tail extraction walks the ORIGINAL post-slash string (not the lowercased tokens) via a sticky-flag anchored regex cursor — preserves capitalization, mid-content punctuation, and multi-line content past the matched prefix exactly as spoken"
   - "MAX_SKILL_WORDS = 5 (defensive cap): real on-disk skill names are almost always ≤3 kebab-tokens; cap prevents pathological 'slash a b c d e f g h i j …' inputs from doing O(N) catalog lookups per STT call"
   - "Zero runtime imports enforced (grep-verified in acceptance criteria): kernel is pure enough that Plan 34-02's SSH fetcher and Plan 34-03's route wiring can layer on top without any dependency-injection ceremony"

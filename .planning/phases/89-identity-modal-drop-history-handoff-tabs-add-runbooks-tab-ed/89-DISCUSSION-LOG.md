@@ -19,7 +19,7 @@ Most of the shape was locked upstream via `/build` → `/open` (see `shape-ident
 | All-atomic in one execute | Simpler wave graph; risk of interim commits with id-skill/disk mismatch. Low blast radius since campaign doesn't ship until end. | |
 
 **User's choice:** Rename ordering IS as its own wave, BUT the phase's scope narrowed to only the id-skill body update (see § Repo-vs-on-disk scope split below). On-disk rename moved to manual post-close.
-**Notes:** Ashley's rule: repo changes happen in the phase; on-disk operator state migrates manually after close. So Wave 1 = id-skill body update (repo); Wave 2+ = modal + backend work. On-disk rename of the 4 existing runbooks + role file pointer list + bounty sweep = Ashley's manual pass post-close.
+**Notes:** Alice's rule: repo changes happen in the phase; on-disk operator state migrates manually after close. So Wave 1 = id-skill body update (repo); Wave 2+ = modal + backend work. On-disk rename of the 4 existing runbooks + role file pointer list + bounty sweep = Alice's manual pass post-close.
 
 ---
 
@@ -41,10 +41,10 @@ Most of the shape was locked upstream via `/build` → `/open` (see `shape-ident
 |--------|-------------|----------|
 | Implicit approval from shape thumbs-up | Treat shape approval as implicit for mechanical path updates (role file pointer list + bounty stale-path refs matching the rename). | |
 | Ask separately during execute | Surface exact diff of role file update during execute and wait for fresh greenlight. | |
-| **Not in this phase at all — Ashley's manual post-close** | Role file + bounty updates are on-disk operator state, not repo. Ashley does them manually after close. | ✓ |
+| **Not in this phase at all — Alice's manual post-close** | Role file + bounty updates are on-disk operator state, not repo. Alice does them manually after close. | ✓ |
 
 **User's choice:** Not in this phase — moved to manual post-close pass.
-**Notes:** Ashley verbatim: *"you're not doing any existing runbook migration during this. That would come after the build has been closed entirely and it's all manual."* And on the repo-vs-not distinction: *"ID skill is part of the repo so it gets changed, but the migration stuff is not in the repo so we don't do that as a part of the build."*
+**Notes:** Alice verbatim: *"you're not doing any existing runbook migration during this. That would come after the build has been closed entirely and it's all manual."* And on the repo-vs-not distinction: *"ID skill is part of the repo so it gets changed, but the migration stuff is not in the repo so we don't do that as a part of the build."*
 
 ---
 
@@ -64,11 +64,11 @@ Most of the shape was locked upstream via `/build` → `/open` (see `shape-ident
 
 | Option | Description | Selected |
 |--------|-------------|----------|
-| Ship convention change (id-skill body) in this phase; defer on-disk rename to manual post-close | id-skill body update codifies `runbook.md` going-forward. Existing runbook data (4 folders) stays as-is until Ashley's manual pass. Modal itself doesn't care what the main file is called (enumerates all files as tabs). | ✓ |
+| Ship convention change (id-skill body) in this phase; defer on-disk rename to manual post-close | id-skill body update codifies `runbook.md` going-forward. Existing runbook data (4 folders) stays as-is until Alice's manual pass. Modal itself doesn't care what the main file is called (enumerates all files as tabs). | ✓ |
 | Defer id-skill body update to manual pass too | Everything (convention + data + role file + bounties) migrates atomically post-close. Phase ships modal + backend only, against the old convention statement. | |
 
 **User's choice:** Ship id-skill body change in this phase; defer only the on-disk data + operator-state migration.
-**Notes:** Ashley's clean rule — repo changes in-phase, on-disk migration manual post-close. Interim implication is small: the modal enumerates every file and tabs them; no code reads "the main file" specifically.
+**Notes:** Alice's clean rule — repo changes in-phase, on-disk migration manual post-close. Interim implication is small: the modal enumerates every file and tabs them; no code reads "the main file" specifically.
 
 ---
 
@@ -91,4 +91,4 @@ Most of the shape was locked upstream via `/build` → `/open` (see `shape-ident
 - Shared editor-modal primitive extraction — clone first, extract when both proven.
 - Restore-identity-modal-on-close — v2 add if wanted.
 - Cross-role runbook browsing — separate feature if wanted.
-- **Manual post-close pass (Ashley owns, not part of this phase):** on-disk rename of the 4 existing box-maintainer runbooks; box-maintainer role file `## Runbooks` pointer list path updates; stale-reference sweep in active bounties for `runbooks/<slug>/<slug>.md` refs.
+- **Manual post-close pass (Alice owns, not part of this phase):** on-disk rename of the 4 existing box-maintainer runbooks; box-maintainer role file `## Runbooks` pointer list path updates; stale-reference sweep in active bounties for `runbooks/<slug>/<slug>.md` refs.

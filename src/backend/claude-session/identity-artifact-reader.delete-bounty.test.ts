@@ -5,7 +5,7 @@
 // test file (identity-artifact-reader.archive-bounty.test.ts) with the
 // simpler rm -rf semantics (no JSON patch, no timeline, no status flip).
 //
-// The three cases target the invariants Ashley locked in PLAN.md § Semantics:
+// The three cases target the invariants Alice locked in PLAN.md § Semantics:
 //   1. OPEN delete: seed bounties/<slug>/bounty.json, call deleteIdentityBounty
 //      (null, key, slug); assert bounties/<slug>/ no longer exists AND
 //      bounties/ itself remains (only the slug dir was removed).

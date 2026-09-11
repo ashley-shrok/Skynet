@@ -29,7 +29,7 @@
 //   Monitors from `background_tasks[]`, so the fix targeted the foreground
 //   `status` axis in the store.
 //
-// inline-260823-wip-shell-is-work (Ashley 2026-08-23): RESTORED to include
+// inline-260823-wip-shell-is-work (Alice 2026-08-23): RESTORED to include
 //   `shell` in `main`. Empirical: three idle sessions on tina's box (all
 //   with 4 ambient Monitors each) are `status: idle`, not `shell` — the
 //   original "shell always" symptom is no longer reproducible on the same
@@ -37,7 +37,7 @@
 //   shell → busy → shell (assistant tokens + tool executions), and the
 //   post-#442 predicate flipped isWorking=false for the entire duration
 //   of every tool execution — producing the "flickers on and off" +
-//   "many sessions working but no indicator" symptoms Ashley reported
+//   "many sessions working but no indicator" symptoms Alice reported
 //   2026-08-23. Evidence: patricia + molly + wendy + carly + stephanie
 //   + vicky logs 10:03-10:06Z all showed busy↔shell oscillation flipping
 //   isWorking every 10-30s during continuous work.
@@ -192,7 +192,7 @@ type WorkingRecord = {
   // 62-01/02 — PermissionRequest is deliberately treated as "stopped" per
   // CONTEXT.md §Philosophy: "agent is waiting on you" is the same as "agent
   // is done" from the affordance's perspective — both mean the row deserves
-  // Ashley's attention right now).
+  // Alice's attention right now).
   //
   // Same three-valued semantics + Pitfall-3 preservation invariant as
   // activityMtime above. Axis I below is the ONLY writer on wire delta.
@@ -692,7 +692,7 @@ export function publishFleetStatusSessionState(
   // on Stop / StopFailure / PermissionRequest events (PermissionRequest
   // deliberately treated as "stopped" per CONTEXT.md §Philosophy — from the
   // affordance's perspective "agent is waiting on you" is the same as "agent
-  // is done": both mean the row deserves Ashley's attention right now).
+  // is done": both mean the row deserves Alice's attention right now).
   // Fire only when we have an explicit signal AND it differs from cache.
   // Brand-new-key case is handled above in Axis A which preserves
   // stoppedMtime in its nextMap write. Mirrors the Axis G pattern above.
@@ -859,7 +859,7 @@ export function seedSessionLastMessageAt(
  * Distinct from advanceSessionLastMessageAt's max-wins because ai-title
  * EVOLVES: as the session's topic drifts across turns, the freshest
  * ARRIVAL is the correct value — strings have no numeric ordering, only
- * recency of arrival. Ashley 2026-08-19: "If WS says Debug X and later
+ * recency of arrival. Alice 2026-08-19: "If WS says Debug X and later
  * WS says Fix Y, we want Fix Y."
  *
  * Called from BOTH the WS publish path (via publishFleetStatusSessionState's

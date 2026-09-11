@@ -3,7 +3,7 @@
 // tree; Slice 4 deleted the source). Reshaped in Phase 93 Slice 6 (post-close
 // fix) to match the existing chat-surface overlay pattern (scrim + centered
 // glass card + static glyph + z-band) that PrettyViewErrorOverlay and
-// SessionHoldingOverlay share — Ashley's close-out ask: "matches existing
+// SessionHoldingOverlay share — Alice's close-out ask: "matches existing
 // overlays = endorsed drift; new-type screen = unsanctioned."
 //
 // The V8 no-existence-oracle discipline (D-20) — same title regardless of the

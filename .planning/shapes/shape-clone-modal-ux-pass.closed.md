@@ -67,7 +67,7 @@ ships separately.
 
 ## Prior context
 
-- Bounty parked 2026-09-07 from Ashley's UX-pass digest as a small
+- Bounty parked 2026-09-07 from Alice's UX-pass digest as a small
   polish pass on the clone modal itself (strip "host" from the top
   description, remove the name-field placeholder, apply the admin-only
   path split from the sibling create-agent bounty, plus the context-
@@ -91,7 +91,7 @@ ships separately.
   deferred (execution waits on `cosmetics-migrate-to-role`, which
   is now landed, so it is executable in the campaign order).
   Sibling shape at `.planning/shapes/shape-create-agent-modal-ux-pass.md`.
-- Ashley confirmed 2026-09-08: the row context menu is the only
+- Alice confirmed 2026-09-08: the row context menu is the only
   entry point into the current clone flow. No hover-button, keyboard
   shortcut, or other affordance also opens the clone modal.
 
@@ -169,7 +169,7 @@ ships separately.
   before (role-header rows, group rows, etc.). Pure label + wiring
   swap on the exact same placement.
 - Renaming the context-menu item to something more descriptive
-  than "create new agent under this role." Ashley greenlit that
+  than "create new agent under this role." Alice greenlit that
   specific text.
 
 ## Vehicle notes
@@ -185,17 +185,17 @@ be more than this needs; inline would leave the two changes as one
 undifferentiated commit.
 
 **Campaign constraint (holds across the whole UX-pass campaign,
-Ashley 2026-09-07 verbatim):** push + scoped tests only per bounty;
+Alice 2026-09-07 verbatim):** push + scoped tests only per bounty;
 no full test suite, no docker build, no `docker cp`, no
 `docker compose up`, no deploy until ALL remaining bounties in the
 campaign are done. The ship gate lives at the end of the campaign,
 not per-bounty.
 
-**Standing rule (Ashley 2026-09-07 verbatim):** *"after each build
+**Standing rule (Alice 2026-09-07 verbatim):** *"after each build
 for this plan, you're going to reset yourself and then invoke the
 next build on the next bounty at the start of the next session."*
 
-**Ashley delegated to tabitha (2026-09-07 verbatim):** *"you're in
+**Alice delegated to tabitha (2026-09-07 verbatim):** *"you're in
 charge of making sure that we continue with the plan and these
 bounties go in the right order."*
 

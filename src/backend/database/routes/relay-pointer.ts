@@ -8,7 +8,7 @@
  *      actual recv.sh identity-dir output path shape (prev. form used a /tmp path).
  *   2. resolveHostById(hostId, userId) — per-user host ownership (elevation-of-privilege gate)
  *   3. head -c bounded remote read — server-side truncation at SSH exec channel so backend RAM
- *      is bounded by construction (CLAUDE.md "Ashley never loses access to her fleet" constraint)
+ *      is bounded by construction (CLAUDE.md "Alice never loses access to her fleet" constraint)
  *
  * Mounted on port 30001 (main Express backend), NOT port 30011 (WSS-only).
  * Structural pattern mirrors src/backend/database/routes/sessions.ts exactly.

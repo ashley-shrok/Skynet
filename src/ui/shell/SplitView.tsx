@@ -2,7 +2,7 @@
 // Phase 56 Plan 02 — recursive-tree renderer. Phase 56 Plan 03 substitutes the
 // real nearest-edge geometry in place of Plan 02's stub.
 //
-// Adopted (Plan 56-01 + 56-02 + 56-03 LOCKED decisions — Ashley 2026-08-28):
+// Adopted (Plan 56-01 + 56-02 + 56-03 LOCKED decisions — Alice 2026-08-28):
 //   - Recursive `SplitNode` tree drives layout. Leaves render as `Pane`;
 //     internal nodes render as flex containers with a constant-width,
 //     non-draggable `<Divider>` between two children.

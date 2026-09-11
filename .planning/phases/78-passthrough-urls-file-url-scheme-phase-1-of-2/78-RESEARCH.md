@@ -745,7 +745,7 @@ Construct it and emit as a clickable Markdown link:
     FILE=/home/ubuntu/notes/thing.md
     printf '[%s](%s/file/%s%s)\n' "$(basename "$FILE")" "$PARENT" "$HOST" "$FILE"
 
-That renders as `[thing.md](https://term.example.com/file/thenasty/home/ubuntu/notes/thing.md)` — Ashley clicks and gets a modal to view / edit / send-back the file. When she saves the edit, it lands as an attachment in her next message to you — the file at the original path is NEVER overwritten by Skynet; every write goes through her explicit re-share.
+That renders as `[thing.md](https://term.example.com/file/thenasty/home/ubuntu/notes/thing.md)` — Alice clicks and gets a modal to view / edit / send-back the file. When she saves the edit, it lands as an attachment in her next message to you — the file at the original path is NEVER overwritten by Skynet; every write goes through her explicit re-share.
 
 **If `~/.claude/skynet-parent` is missing:** tell the user "I can't share files right now — my parent-Skynet config is missing. Ask the box-maintainer role to check the distributor sweep." Do NOT guess or fall back to serving your own HTTP server.
 
@@ -790,7 +790,7 @@ That renders as `[thing.md](https://term.example.com/file/thenasty/home/ubuntu/n
 1. **Should the backend route mount at `/file/:host/*` verbatim OR at `/pretty-view/fetch-host-file` with `{host,path}` in body?**
    - What we know: Agent-written URL is shape-locked to `<skynet-domain>/file/<hostname>/<abs-path>`. Caddy passes it through unchanged. Either mount works.
    - What's unclear: Which is cleaner for the modal's fetch call. Verbatim `/file/:host/*` means the modal's fetch just does `GET <url>`. JSON POST means the modal parses the URL client-side and sends `{host, path}`.
-   - Recommendation: **Mount BOTH.** Factor the fetch logic into a handler function. Route `/file/:host/*` handles direct-URL hits (Ashley clicks the link → browser opens a new tab → backend serves the raw bytes with correct Content-Type for browser-native rendering). Route `POST /pretty-view/fetch-host-file` (JSON body) handles the modal's programmatic fetch (returns the base64-envelope shape matching `TailnetFetchResult`, for consistency with the existing modal code path). Both routes call the same underlying `fetchHostFileBytes(host, path, userId)` helper. This lets the same URL work in two modes: click-to-open-in-modal (via ChatMessage's affordance) AND click-to-view-raw (via a direct browser tab if Ashley wants that). Bonus: the raw route makes the URL work identically to how a plain HTTP link would — matches the shape's "agents aren't lied to" philosophy.
+   - Recommendation: **Mount BOTH.** Factor the fetch logic into a handler function. Route `/file/:host/*` handles direct-URL hits (Alice clicks the link → browser opens a new tab → backend serves the raw bytes with correct Content-Type for browser-native rendering). Route `POST /pretty-view/fetch-host-file` (JSON body) handles the modal's programmatic fetch (returns the base64-envelope shape matching `TailnetFetchResult`, for consistency with the existing modal code path). Both routes call the same underlying `fetchHostFileBytes(host, path, userId)` helper. This lets the same URL work in two modes: click-to-open-in-modal (via ChatMessage's affordance) AND click-to-view-raw (via a direct browser tab if Alice wants that). Bonus: the raw route makes the URL work identically to how a plain HTTP link would — matches the shape's "agents aren't lied to" philosophy.
 
 2. **Should `~/.claude/skynet-parent` end with a newline or not?**
    - What we know: Some `cat`-based agent code will `printf` (no newline handling) or `read` (strips one trailing newline). Both should work with either format.
@@ -866,7 +866,7 @@ That renders as `[thing.md](https://term.example.com/file/thenasty/home/ubuntu/n
 
 ### Primary (HIGH confidence)
 
-- `.planning/shapes/shape-skynet-passthrough-urls.md` — the ratified two-phase shape (2026-09-05, Ashley)
+- `.planning/shapes/shape-skynet-passthrough-urls.md` — the ratified two-phase shape (2026-09-05, Alice)
 - `~/.claude/roles/box-maintainer/bounties/skynet-passthrough-urls-rd/findings-summary.md` — R&D pre-work (2026-09-05)
 - `.planning/phases/78-passthrough-urls-file-url-scheme-phase-1-of-2/75-CONTEXT.md` — locked decisions
 - `/home/ubuntu/skynet-tiffany/src/backend/database/routes/pretty-view-fetch-tailnet-url.ts` — full route template (Phase 40)

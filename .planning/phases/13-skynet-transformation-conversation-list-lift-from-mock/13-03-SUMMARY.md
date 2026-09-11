@@ -8,14 +8,14 @@ dependency_graph:
     - phase: 13-01
       provides: pretty-conversations.css `.pv-row` + `.pv-meta` + `.pv-pin` + hide-on-unpinned-pin-glyph selectors (Wave 1's foundation)
     - src/ui/index.css (--color-pv-* palette tokens for the RDP defensive override + focus-visible outline)
-    - prototype.html mock v4 lines 333-337 (Ashley-locked 2026-07-23)
+    - prototype.html mock v4 lines 333-337 (user-locked 2026-07-23)
   provides:
     - PinAction desktop button rendered as bare icon with hue-cream fill + hue-drop-shadow (SHAPE-03 mock recipe)
     - `.pv-pin-action-desktop` CSS class contract — usable by any future component that wants the mock's bare-icon-with-hue-glow treatment inside a `.pv-row`
     - Hide-on-unpinned-desktop-non-hovered-non-focused rule — the mock's `.row:not(.pinned) .meta .pin { display: none }` translated to the fork's `.pv-pin-action-desktop` selector (class-based, keyboard-nav friendly)
   affects:
     - Wave 4 (13-04): post-lift verification/UAT — pin appearance now matches mock v4 across all identity hues
-    - Master `skynet-transformation` bounty: closes SHAPE-03 ("The pin buttons are totally obnoxious" — Ashley 2026-07-23)
+    - Master `skynet-transformation` bounty: closes SHAPE-03 ("The pin buttons are totally obnoxious" — Alice 2026-07-23)
 tech_stack:
   added: []
   patterns:
@@ -33,7 +33,7 @@ decisions:
   - "Chose `var(--pv-hue, 216)` CSS fallback (216 = neutral blue) over a JS-side `hue == null` branch. Plan explicitly allowed either — the CSS fallback is one line, no JS state, and matches how `.pv-row { --pv-hue: 216; }` already declares its own fallback for hue-null rows. Component signature (hue: number | null) unchanged."
   - "Kept `data-testid={dataTestId ?? 'pin-action'}` verbatim. Test 8 (desktop pin click stopPropagation) queries the button by that testid; changing it would break the test without changing behavior."
   - "Retired icon size classes (`w-3.5 h-3.5` on <Pin>/<PinOff>) in favor of CSS `.pv-pin-action-desktop svg { width: 14px; height: 14px; stroke-width: 2 }` — matches the mock's raw-CSS approach and keeps all visual definition in the CSS file."
-  - "Added `:hover` glow boost (drop-shadow from 4px/0.55 to 6px/0.75) and `:focus-visible` hue-tinted outline (a11y — the retired Skynet chrome had `hover:bg-white/[0.06]` as the only affordance signal; the new bare-icon needs its own hover + focus signals). Both are palette-consistent additions the mock didn't cover but that Ashley's fork requires for keyboard-nav accessibility."
+  - "Added `:hover` glow boost (drop-shadow from 4px/0.55 to 6px/0.75) and `:focus-visible` hue-tinted outline (a11y — the retired Skynet chrome had `hover:bg-white/[0.06]` as the only affordance signal; the new bare-icon needs its own hover + focus signals). Both are palette-consistent additions the mock didn't cover but that Alice's fork requires for keyboard-nav accessibility."
   - "RDP row override (`.pv-row.rdp .pv-pin-action-desktop { color: var(--color-pv-fg-muted); filter: none }`) declared defensively even though RDP rows never render PinAction per the Row's contract. Costs nothing (2 lines) and preempts a class of visual bugs if a future refactor allows RDP pinning."
 requirements_completed: [SHAPE-03]
 metrics:
@@ -50,7 +50,7 @@ metrics:
 
 # Phase 13 Plan 03: Skynet Transformation — PinAction Bare-Icon-with-Hue-Glow Lift-from-Mock Summary
 
-**PinAction desktop branch rebased to the mock v4 bare-icon-with-hue-drop-shadow treatment — `color: hsla(var(--pv-hue), 80%, 70%, 0.95)` + `filter: drop-shadow(0 0 4px hsla(var(--pv-hue), 80%, 60%, 0.55))` — retiring the last 2 Skynet theme-class hits in the conversation-list subtree and delivering SHAPE-03 verbatim per Ashley's "totally obnoxious" callout.**
+**PinAction desktop branch rebased to the mock v4 bare-icon-with-hue-drop-shadow treatment — `color: hsla(var(--pv-hue), 80%, 70%, 0.95)` + `filter: drop-shadow(0 0 4px hsla(var(--pv-hue), 80%, 60%, 0.55))` — retiring the last 2 Skynet theme-class hits in the conversation-list subtree and delivering SHAPE-03 verbatim per Alice's "totally obnoxious" callout.**
 
 ## One-Liner
 
@@ -74,7 +74,7 @@ Desktop pin now renders as a bare icon with hue-cream fill + hue-drop-shadow (no
   - `:focus-visible`: 2px hue-tinted outline for keyboard-nav accessibility
   - RDP defensive override: `color: var(--color-pv-fg-muted); filter: none` (RDP rows never render PinAction per Row contract, but the override costs nothing)
   - Hide-on-unpinned rule: `.pv-row.pv-row--desktop:not(.pinned):not(:hover):not(:focus-within) .pv-pin-action-desktop { display: none }` — mock invariant lifted verbatim, with `:focus-within` added for keyboard-nav pinning
-- Mobile branch (`size='mobile'`) preserved byte-for-byte in code — only comments annotated with "UNCHANGED by Phase 13 Plan 03" to make the parallel-safety with Ashley's iPhone swipe workflow explicit. The 48x48 hue-tinted disc treatment (bg, borderColor, box-shadow) is identical to pre-Phase-13.
+- Mobile branch (`size='mobile'`) preserved byte-for-byte in code — only comments annotated with "UNCHANGED by Phase 13 Plan 03" to make the parallel-safety with Alice's iPhone swipe workflow explicit. The 48x48 hue-tinted disc treatment (bg, borderColor, box-shadow) is identical to pre-Phase-13.
 - Purged the last 2 Skynet theme-class hits in the conversation-list subtree — PinAction.tsx:97,98,101 (`text-muted-foreground/60`, `hover:text-foreground`). Full-subtree grep for `text-muted-foreground|hover:text-foreground|bg-background|bg-card|text-foreground|border-border|muted-foreground` now returns 0 non-comment hits.
 - `npx tsc --noEmit` exits 0 after the commit.
 - `npx vitest run src/ui/features/pretty-conversations/` all 34 tests pass (14 panel + 20 row) — Test 8 (desktop pin click stopPropagation) continues to pass since click event forwarding is preserved verbatim.
@@ -104,7 +104,7 @@ Plan's suggested split (1 or 2 commits at Claude's discretion) resolved as 1. Se
 - **Retained icon size in CSS, retired inline Tailwind:** `.pv-pin-action-desktop svg { width: 14px; height: 14px; stroke-width: 2 }` — matches the mock's raw-CSS approach and keeps all visual definition in the CSS file. Component just emits `<Pin/>` / `<PinOff/>` with no size class.
 - **Added `:hover` glow boost + `:focus-visible` outline:** Not in the mock (which is a static HTML mock without hover/focus signals). The retired Skynet chrome had `hover:bg-white/[0.06]` as the only hover affordance signal; the new bare-icon needs its own hover + focus signals for accessibility. Both use `hsla(var(--pv-hue), ...)` to stay palette-consistent.
 - **RDP defensive override:** `.pv-row.rdp .pv-pin-action-desktop { color: var(--color-pv-fg-muted); filter: none }` declared even though RDP rows never render PinAction per Row contract. Costs 2 lines; preempts a future-refactor bug class.
-- **Comment-only annotation of mobile branch:** Mobile branch code is byte-equivalent pre and post. Only added the "UNCHANGED by Phase 13 Plan 03" annotation in the mobile section's comment so future readers see the parallel-safety with Ashley's iPhone swipe-reveal affordance made explicit. No behavior change.
+- **Comment-only annotation of mobile branch:** Mobile branch code is byte-equivalent pre and post. Only added the "UNCHANGED by Phase 13 Plan 03" annotation in the mobile section's comment so future readers see the parallel-safety with Alice's iPhone swipe-reveal affordance made explicit. No behavior change.
 
 ## Deviations from Plan
 
@@ -116,7 +116,7 @@ None. Pure UI CSS + React component rewrite — no network endpoints, no auth pa
 
 ## Rule 4 (Architectural) Decisions
 
-None escalated. All work stayed within the class-toggle-state-variant architecture Ashley locked in `13-CONTEXT.md`.
+None escalated. All work stayed within the class-toggle-state-variant architecture Alice locked in `13-CONTEXT.md`.
 
 ## Issues Encountered
 
@@ -168,7 +168,7 @@ No new security-relevant surface. This plan is pure UI CSS + JSX text refactorin
 
 This plan closes the last SHAPE requirement in Wave 3, freeing Wave 4 (13-04) for post-lift verification:
 
-- **Wave 4 (13-04) — post-lift verification / UAT:** With the pin-button chrome retired and the mock's bare-icon-with-hue-glow treatment applied, Ashley can walk through 3+ active sessions with distinct hues and verify that (a) the pin appears/disappears correctly based on pinned/hover/focus state, (b) the hue tracks the row's identity color, (c) the mobile swipe-reveal 48x48 disc is unchanged. All three SHAPE requirements (SHAPE-01 dot, SHAPE-02 header, SHAPE-03 pin, SHAPE-04 chevron) now match mock v4 verbatim on the surfaces Ashley called out.
+- **Wave 4 (13-04) — post-lift verification / UAT:** With the pin-button chrome retired and the mock's bare-icon-with-hue-glow treatment applied, Alice can walk through 3+ active sessions with distinct hues and verify that (a) the pin appears/disappears correctly based on pinned/hover/focus state, (b) the hue tracks the row's identity color, (c) the mobile swipe-reveal 48x48 disc is unchanged. All three SHAPE requirements (SHAPE-01 dot, SHAPE-02 header, SHAPE-03 pin, SHAPE-04 chevron) now match mock v4 verbatim on the surfaces Alice called out.
 - **Wave 5 (13-05) — Build-verify + UAT checklist + patch draft:** All conversation-list-surface Skynet theme classes purged. The subtree is 100% `--color-pv-*`/`.pv-*`-scoped. Build-verify + upstream-rebase-diff can proceed cleanly.
 
 ## Follow-up Candidates for Master Bounty

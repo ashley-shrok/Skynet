@@ -39,7 +39,7 @@ must_haves:
 <objective>
 Refactor Layer 1 fast-path recycle detector in `src/backend/claude-session/claude-session-server.ts` from an edge-triggered /exit scan (broken across WS reconnects: `hasSeenExit` resets on every `-n +1` tail replay, and every historical /exit line re-fires the overlay) to a tail-state-derived /id reset detector (correct across reconnects: the overlay is armed IFF the file's most-recent user turn is `/id reset`, computed uniformly across replay and live-append).
 
-Purpose: Fixes Ashley's observed bug — SessionHoldingOverlay flashes for a few seconds on every conversation-list revisit of any session whose JSONL contains a historical /exit turn (empirically 14 arm+clear pairs in ~1h on session `owGv_6oxMc7Sd5o8kzt3O`; bounty `session-holding-layer1-detect-id-reset-not-exit`).
+Purpose: Fixes Alice's observed bug — SessionHoldingOverlay flashes for a few seconds on every conversation-list revisit of any session whose JSONL contains a historical /exit turn (empirically 14 arm+clear pairs in ~1h on session `owGv_6oxMc7Sd5o8kzt3O`; bounty `session-holding-layer1-detect-id-reset-not-exit`).
 
 Output: Two production files (one refactored, one new pure-helper sibling) + two test files (helpers + integration via a new `__applyLayer1LineForTests` seam mirroring the existing `__applyRepollResultForTests` pattern), full vitest suite green, tsc clean.
 </objective>
@@ -68,7 +68,7 @@ Output: Two production files (one refactored, one new pure-helper sibling) + two
 
     - `isUserTurn(line: string): boolean` — cheapest raw-string check that the JSONL line represents a Claude Code user-role turn. Uses `line.includes('"type":"user"')`. Verified byte shape: session-file-parser.ts:213 filters on `obj.type !== "user"` after JSON.parse, so the raw-line substring form matches the same set. Does NOT JSON.parse.
 
-    - `isIdResetUserTurn(line: string): boolean` — true iff `isUserTurn(line)` AND the line contains BOTH `<command-name>/id</command-name>` AND `<command-args>reset`. Uses `line.includes(...)` — no JSON.parse. The `<command-args>reset` check is intentionally a prefix match (args-STARTS-with `reset`) so Ashley's freeform explanation (e.g. `<command-args>reset because X</command-args>`) still fires. This is the ONLY function that decides "this line is an /id reset user turn".
+    - `isIdResetUserTurn(line: string): boolean` — true iff `isUserTurn(line)` AND the line contains BOTH `<command-name>/id</command-name>` AND `<command-args>reset`. Uses `line.includes(...)` — no JSON.parse. The `<command-args>reset` check is intentionally a prefix match (args-STARTS-with `reset`) so Alice's freeform explanation (e.g. `<command-args>reset because X</command-args>`) still fires. This is the ONLY function that decides "this line is an /id reset user turn".
 
     Tail-state reducer (stateful in the caller's box, itself pure of I/O):
 
@@ -78,7 +78,7 @@ Output: Two production files (one refactored, one new pure-helper sibling) + two
         - user turn AND now `mostRecentUserTurnIsIdReset === true` AND `currentChangeoverState === "active"` → `"arm_holding"`
         - user turn AND now `mostRecentUserTurnIsIdReset === false` AND `currentChangeoverState === "holding"` → `"clear_holding"`
         - otherwise → `"none"`
-      The reducer itself does NOT call transitionToHolding / transitionFromHoldingToActiveSameFile — caller (claude-session-server onLine) does that based on the returned action. Same logic applies uniformly on `-n +1` replay AND live appends — this is Ashley's tail-state-derived model.
+      The reducer itself does NOT call transitionToHolding / transitionFromHoldingToActiveSameFile — caller (claude-session-server onLine) does that based on the returned action. Same logic applies uniformly on `-n +1` replay AND live appends — this is Alice's tail-state-derived model.
 
     Test cases (extend as needed to hit the acceptance criteria):
 
@@ -108,7 +108,7 @@ Output: Two production files (one refactored, one new pure-helper sibling) + two
     - state `{...: true}` + non-reset user turn + changeoverState "active" → returns `"none"` (was already active; no spurious clear), state now `{...: false}`
     - state `{...: true}` + assistant/tool_use/tool_result/thinking line → returns `"none"`, state unchanged (non-user turns never change state)
     - state anything + changeoverState "dead" → returns `"none"` (dead is terminal — no arm, no clear)
-    - Historical /id reset followed by a later regular user turn (fed line-by-line) → after the later user turn, `mostRecentUserTurnIsIdReset` is `false`, and if changeoverState was "active" throughout, no `"arm_holding"` action is ever produced. This is the Ashley bug fix in its purest form.
+    - Historical /id reset followed by a later regular user turn (fed line-by-line) → after the later user turn, `mostRecentUserTurnIsIdReset` is `false`, and if changeoverState was "active" throughout, no `"arm_holding"` action is ever produced. This is the Alice bug fix in its purest form.
   </behavior>
   <action>
     Create `src/backend/claude-session/layer1-detect.ts` exporting `isUserTurn`, `isIdResetUserTurn`, the `Layer1State` / `Layer1Action` types, and `applyLineToLayer1State`. All functions pure, no imports from ssh2 / WebSocket / logger / anything I/O-shaped. Match project TypeScript style (single-quotes NOT used elsewhere in this dir — use double-quotes; explicit return types on exports; block comments explaining the WHY, not just the WHAT).
@@ -162,7 +162,7 @@ Output: Two production files (one refactored, one new pure-helper sibling) + two
 
     - Case 2: Same shape but the final turn is ALSO a /id reset user turn (i.e. most-recent-user-turn IS /id reset). Expected: 1 arm, 0 clears, final state.changeoverState === "holding".
 
-    - Case 3: History contains ONLY regular user turns (no /id reset at all) + a stray line containing the literal bytes `<command-args>reset` inside an assistant message. Expected: zero calls to either helper, state.changeoverState stays "active" throughout. This is the exact Ashley-bug regression guard.
+    - Case 3: History contains ONLY regular user turns (no /id reset at all) + a stray line containing the literal bytes `<command-args>reset` inside an assistant message. Expected: zero calls to either helper, state.changeoverState stays "active" throughout. This is the exact user-bug regression guard.
 
     - Case 4: History contains a historical `/exit` user turn (leftover from pre-refactor sessions). Expected: zero calls to either helper (the whole /exit path is gone from Layer 1).
 
@@ -187,7 +187,7 @@ Output: Two production files (one refactored, one new pure-helper sibling) + two
        if (action === "arm_holding") transitionToHolding("id_reset");
        else if (action === "clear_holding") transitionFromHoldingToActiveSameFile();
        ```
-       Update the surrounding block comment to describe the new tail-state-derived model (Ashley's design point 2) and to cite the bounty `session-holding-layer1-detect-id-reset-not-exit`. Remove the "DO NOT return here" caveat's /exit-specific wording; the same "fall through to the JSON.parse-based paths below" invariant still holds (the state transition is orthogonal to whether the /id reset turn renders as a chat bubble), so preserve a version of that comment adapted to /id reset.
+       Update the surrounding block comment to describe the new tail-state-derived model (Alice's design point 2) and to cite the bounty `session-holding-layer1-detect-id-reset-not-exit`. Remove the "DO NOT return here" caveat's /exit-specific wording; the same "fall through to the JSON.parse-based paths below" invariant still holds (the state transition is orthogonal to whether the /id reset turn renders as a chat bubble), so preserve a version of that comment adapted to /id reset.
 
     3. Update `transitionToHolding`'s reason type at line 1774-1776: `"exit_marker" | "discovery_diff"` → `"id_reset" | "discovery_diff"`. The Layer 2 call sites at lines 881, 889, 3975, 3989 already pass `"discovery_diff"` — leave alone (verify via grep after the change: `grep -n '"exit_marker"' src/backend/claude-session/claude-session-server.ts` MUST return zero hits post-refactor).
 
@@ -225,7 +225,7 @@ Output: Two production files (one refactored, one new pure-helper sibling) + two
 <verification>
 Whole-refactor sanity checks (in addition to per-task <verify> commands):
 
-1. Symptom reproduction check (manual reasoning — no live SSH needed): Trace the code path for the Ashley bug scenario. WS reconnect on a session whose JSONL contains 2 historical /exit lines followed by 12 assistant/user turns none of which are /id reset. With the refactor:
+1. Symptom reproduction check (manual reasoning — no live SSH needed): Trace the code path for the Alice bug scenario. WS reconnect on a session whose JSONL contains 2 historical /exit lines followed by 12 assistant/user turns none of which are /id reset. With the refactor:
    - teardownPane runs → layer1 resets to `{mostRecentUserTurnIsIdReset: null}`, changeoverState resets to "active"
    - Fresh tail with `-n +1` replays every line
    - Each /exit line: `isUserTurn` may match (user turn with /exit content) → `isIdResetUserTurn` returns false → layer1.mostRecentUserTurnIsIdReset becomes false → action "none" (state is "active", not "holding")
@@ -245,10 +245,10 @@ Whole-refactor sanity checks (in addition to per-task <verify> commands):
 - Layer 1 detector is now tail-state-derived (arms iff most-recent user turn is /id reset), not edge-triggered
 - The /exit code path is entirely removed (hasSeenExit gone, `<command-name>/exit</command-name>` literal gone, "exit_marker" reason gone)
 - Pure detection helpers `isUserTurn` + `isIdResetUserTurn` + reducer `applyLineToLayer1State` live in a sibling `layer1-detect.ts` and are unit-tested with realistic JSONL fixtures
-- Integration seam `__applyLayer1LineForTests` co-located with the reducer, mirrors the `__applyRepollResultForTests` pattern, covers all 8 acceptance cases including the exact Ashley-bug regression guard (Case 3 + Case 4)
+- Integration seam `__applyLayer1LineForTests` co-located with the reducer, mirrors the `__applyRepollResultForTests` pattern, covers all 8 acceptance cases including the exact user-bug regression guard (Case 3 + Case 4)
 - Layer 2 (discovery-repoll) is byte-untouched — same session_holding_cleared + session_changed WS frame behavior
 - `npx tsc --noEmit` exits 0, full `npx vitest run` is fully green with zero regressions vs the 1526/6/0 baseline from STATE.md 2026-08-08
-- No push, no build, no deploy performed by this plan (per project rule: code work doesn't authorize ship; Ashley greenlights deploys separately)
+- No push, no build, no deploy performed by this plan (per project rule: code work doesn't authorize ship; Alice greenlights deploys separately)
 </success_criteria>
 
 <output>
@@ -257,7 +257,7 @@ Two atomic commits recommended (TDD split, matching prior quick-task convention)
 1. `feat(quick-260808-ohn-01): extract Layer 1 detection helpers + reducer with unit tests` (Task 1 output)
 2. `refactor(quick-260808-ohn-02): Layer 1 fast-path uses /id reset tail-state, drop /exit edge-trigger` (Task 2 output — combines the rewire + integration tests + type union update; the type change is inseparable from the call-site change)
 
-A single combined commit is also acceptable if the executor prefers (see 260807-igo pattern in STATE.md). Do NOT push. Do NOT build. Do NOT deploy. Ashley greenlights ship separately.
+A single combined commit is also acceptable if the executor prefers (see 260807-igo pattern in STATE.md). Do NOT push. Do NOT build. Do NOT deploy. Alice greenlights ship separately.
 
 Create `.planning/quick/260808-ohn-refactor-layer-1-fast-path-recycle-detec/260808-ohn-SUMMARY.md` when done, following the quick-task summary shape used by prior quicks (short — what changed, why, verification result line, ship-status line).
 </output>

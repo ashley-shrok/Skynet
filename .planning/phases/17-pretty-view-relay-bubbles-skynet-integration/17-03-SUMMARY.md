@@ -113,7 +113,7 @@ Full pretty-view directory: **175 tests passing, 19 test files**.
 
 ## Scope Fence Verification (RELAYBUB-06)
 
-`git diff --stat src/ui/features/pretty-view/ChatMessage.tsx src/ui/features/pretty-view/ComposeBox.tsx src/ui/features/terminal/IdentityBadge.tsx` → zero lines changed. Ashley's 2026-07-23 lock held.
+`git diff --stat src/ui/features/pretty-view/ChatMessage.tsx src/ui/features/pretty-view/ComposeBox.tsx src/ui/features/terminal/IdentityBadge.tsx` → zero lines changed. Alice's 2026-07-23 lock held.
 
 ---
 

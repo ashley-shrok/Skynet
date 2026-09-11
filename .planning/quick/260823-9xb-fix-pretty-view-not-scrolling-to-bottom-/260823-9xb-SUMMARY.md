@@ -34,9 +34,9 @@ metrics:
 
 ## Objective
 
-Fix Ashley's 2026-08-23 bug: "When I open sessions for the first time or refresh the page and it brings the session back up on its own, it doesn't put me at the bottom of the scroll of message bubbles."
+Fix Alice's 2026-08-23 bug: "When I open sessions for the first time or refresh the page and it brings the session back up on its own, it doesn't put me at the bottom of the scroll of message bubbles."
 
-Root cause: `useAutoScroll`'s mount effect writes `scrollTop=scrollHeight` at ref-bind time, but at that moment `messages=[]` (PrettyView initializes empty; WS backfill populates async), so the write is a no-op on an empty container. Any scroll event between ref-bind and first-content arrival can flip `pinnedRef` to false via the onScroll listener (browser scroll-restoration, scrollbar-mount reflow, empty-container programmatic-write reflow). Once false, the `messageCount 0→N` follow effect's `if (!pinnedRef.current) return` gate skips the anchor write and Ashley lands scrolled-up.
+Root cause: `useAutoScroll`'s mount effect writes `scrollTop=scrollHeight` at ref-bind time, but at that moment `messages=[]` (PrettyView initializes empty; WS backfill populates async), so the write is a no-op on an empty container. Any scroll event between ref-bind and first-content arrival can flip `pinnedRef` to false via the onScroll listener (browser scroll-restoration, scrollbar-mount reflow, empty-container programmatic-write reflow). Once false, the `messageCount 0→N` follow effect's `if (!pinnedRef.current) return` gate skips the anchor write and Alice lands scrolled-up.
 
 ## What Was Built
 
@@ -124,7 +124,7 @@ Both on `feat/tab-title-from-tmux`. NOT pushed. NOT built. NOT deployed. Executo
 - **`scrollToBottomAndFollow` semantics:** unchanged. Explicit user-action path does not touch `didFirstContentScrollRef` — flag is scoped to automatic content-arrival only.
 - **`PrettyView.tsx` consumer (line 901 `useAutoScroll(paneKey, messages.length)`):** UNCHANGED — hook return signature identical.
 
-## Ashley UAT (post-orchestrator-deploy, out of scope for this executor)
+## Alice UAT (post-orchestrator-deploy, out of scope for this executor)
 
 - Open a session cold → lands at bottom.
 - Refresh page mid-session → auto-reopens at bottom.

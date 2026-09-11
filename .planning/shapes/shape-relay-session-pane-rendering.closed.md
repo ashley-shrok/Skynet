@@ -113,7 +113,7 @@ The one shape decision the plan phase needs to reason from directly — and that
 
 Depends on sub-slices A (human relay identities first-class) and B (session-model generalization) — both landed prior to this session. Can be run in parallel with sub-slice C (new-conversation flow) per the master shape; C wasn't the pick for this session but is unblocked whenever it starts.
 
-The identity implementing this work is box-maintainer (taylor), working out of `~/skynet-taylor/`. The bounty's timeline is where cross-phase context and decisions taken during execution should be recorded. Per Ashley standing plan: this phase lands as commits only; no push. Ship for the whole arc happens after Slices C + E land and `/close relay-mediated-group-conversations` passes against the master shape.
+The identity implementing this work is box-maintainer (taylor), working out of `~/skynet-taylor/`. The bounty's timeline is where cross-phase context and decisions taken during execution should be recorded. Per Alice standing plan: this phase lands as commits only; no push. Ship for the whole arc happens after Slices C + E land and `/close relay-mediated-group-conversations` passes against the master shape.
 
 ---
 

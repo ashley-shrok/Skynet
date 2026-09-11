@@ -521,7 +521,7 @@ export function CreateRoleDialog({
            * that dialog's <DialogDescription>{startDescription}</DialogDescription>).
            * The paired vocabulary anchor is the shared verb ADOPT; the role
            * side says agents ADOPT expertise, the agent side says each agent
-           * ADOPTS a role. Ashley greenlit the byte-exact text; see
+           * ADOPTS a role. Alice greenlit the byte-exact text; see
            * 88-CONTEXT.md for the LOCKED strings.
            *
            * The <DialogDescription> wrapper element is preserved per the
@@ -757,7 +757,7 @@ export function CreateRoleDialog({
            * the user has zero or ≥2 hosts, both the search box and the listbox
            * render as before. Rationale: Aither Health users (target segment)
            * provision one dedicated VM per user and hit this case constantly;
-           * Ashley hits it herself. Matched by Plan 84-02 for NewSessionDialog.
+           * Alice hits it herself. Matched by Plan 84-02 for NewSessionDialog.
            */}
           {flatHosts.length !== 1 && (
             <>

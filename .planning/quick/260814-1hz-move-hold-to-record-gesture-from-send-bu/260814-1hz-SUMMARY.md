@@ -93,7 +93,7 @@ Cross-reference: bounty `~/.claude/roles/box-maintainer/bounties/hold-to-record-
 
 ### Manual mobile spot-check
 
-Deferred to Ashley's next mobile session (per plan step 6): hold the mic button on iOS Safari, confirm the mic-permission prompt fires and the record → release-inside-bounds → send flow works.
+Deferred to Alice's next mobile session (per plan step 6): hold the mic button on iOS Safari, confirm the mic-permission prompt fires and the record → release-inside-bounds → send flow works.
 
 ## Deviations from Plan
 
@@ -150,9 +150,9 @@ None — this task only rewires an existing user-facing gesture across two alrea
 
 Bounty file: `~/.claude/roles/box-maintainer/bounties/hold-to-record-move-to-mic-button/bounty.json`
 
-The delivered behavior satisfies the bounty's stated intent (from the objective section of the PLAN): "Hold-on-Send is currently broken on mobile — the raw `<button>` falls through to native long-press text-selection UI. MicButton already carries the correct semantic affordance (per the `one-handed-mobile-mode` bounty, Ashley 2026-07-27: 'hold the mic button'), and moving the gesture there restores the original design intent while eliminating the mobile fallthrough via `select-none touch-none` on MicButton."
+The delivered behavior satisfies the bounty's stated intent (from the objective section of the PLAN): "Hold-on-Send is currently broken on mobile — the raw `<button>` falls through to native long-press text-selection UI. MicButton already carries the correct semantic affordance (per the `one-handed-mobile-mode` bounty, Alice 2026-07-27: 'hold the mic button'), and moving the gesture there restores the original design intent while eliminating the mobile fallthrough via `select-none touch-none` on MicButton."
 
-Ashley may close this bounty on the basis of:
+Alice may close this bounty on the basis of:
 1. Hold gesture bound to MicButton (primary + slot) per must_haves.truths #1.
 2. `select-none touch-none` classes on the button suppress native long-press per must_haves.truths #5.
 3. Send button restored to direct-tap-send per must_haves.truths #3 with the aside-morph Resume/X preserved per must_haves.truths #4.
@@ -160,7 +160,7 @@ Ashley may close this bounty on the basis of:
 5. `useHoldToRecord.ts` untouched — D-16-02 iOS Safari sync-gesture invariant survives by construction per must_haves.truths #7.
 6. All 11 tests in the renamed suite pass; broader pretty-view suite 583/583 (excluding pre-existing IdentityModal flake).
 
-Remaining validation: manual on-device iOS Safari smoke test (deferred to Ashley's next mobile session).
+Remaining validation: manual on-device iOS Safari smoke test (deferred to Alice's next mobile session).
 
 ## Self-Check: PASSED
 

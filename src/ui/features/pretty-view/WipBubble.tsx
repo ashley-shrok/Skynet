@@ -1,7 +1,7 @@
 // Patch #51 introduced the WIP indicator; patch #72 reworked it.
 // Patch #86 (2026-07-20): canvas Fibonacci-lattice 3D dot-orb.
 // Patch #260 (2026-08-02): canvas "voxel cube" — 4×4×4 lattice (64 dots)
-// rotating on two axes with a radial pulse. Selected by Ashley from a
+// rotating on two axes with a radial pulse. Selected by Alice from a
 // gallery ("Dense 4³" at 2.5× base speed, 1.5× original 50px footprint).
 //
 // 2026-09-05: swapped the canvas rAF render for a pre-rendered animated

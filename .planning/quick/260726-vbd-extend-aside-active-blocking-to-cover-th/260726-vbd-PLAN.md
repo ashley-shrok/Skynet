@@ -60,7 +60,7 @@ aside active right now?".
 Also: insert the word `concisely` into the `/btw` prompt literal injected
 into tmux so Claude's aside answers stay short.
 
-Purpose: Prevents Ashley from sending unrelated input into the terminal
+Purpose: Prevents Alice from sending unrelated input into the terminal
 during the ~seconds-to-minute window between `/btw` submit and answer
 arrival. That input would collide with Claude Code's in-flight aside
 handling. Same underlying `sendKeys(Escape)` primitive works to cancel
@@ -222,7 +222,7 @@ Output:
     stays exactly as landed in commit 34cfeec.
 
     Do NOT strip or touch the `aside poll diag:` logs in
-    claude-session-server.ts — separate followup pending Ashley's
+    claude-session-server.ts — separate followup pending Alice's
     cooldown UAT.
   </action>
   <verify>
@@ -349,7 +349,7 @@ All previously-passing suites should still pass (Task 1 is purely
 additive to PrettyView aside-active predicate; Task 2 flips one string
 constant and its matching test expectation).
 
-Manual UAT (Ashley, post-deploy):
+Manual UAT (Alice, post-deploy):
 1. Open a pretty-view session with an identity attached (identity
    required — arm-emitter is identity-gated per ASIDE-02).
 2. Type `/btw what is happening` in ComposeBox and click send.

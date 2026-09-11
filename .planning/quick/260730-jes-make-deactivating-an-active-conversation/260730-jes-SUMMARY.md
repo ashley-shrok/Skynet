@@ -98,7 +98,7 @@ npx vitest run (full suite)
 
 ## Constraints Honored
 
-NO push, NO build (`npm run build`), NO `npm run build:backend`), NO deploy per quick-task constraints. Tina bundles this with the pinned-slate batch when Ashley greenlights ship.
+NO push, NO build (`npm run build`), NO `npm run build:backend`), NO deploy per quick-task constraints. Tina bundles this with the pinned-slate batch when Alice greenlights ship.
 
 Exactly 2 files modified. No identity-side files (~/.claude/identities/tina/**, skynet-patches.md, tina.md, bounties) touched. Remained on branch `feat/tab-title-from-tmux` — no new branch created.
 

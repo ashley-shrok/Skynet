@@ -80,7 +80,7 @@ completed: 2026-09-10
 Each task was committed atomically:
 
 1. **Task 1: Rewrite 'Sending files to the user' section with active/passive framing + serve URL sub-section** — `f0c23b47` (docs)
-2. **Task 2: Ashley reviews the rewritten section for tone + framing accuracy** — greenlit on trust 2026-09-10, deferring visual/tone review to end-of-phase UAT. Verbatim: *"We will test things properly after we get all through the work."* No revisions requested.
+2. **Task 2: Alice reviews the rewritten section for tone + framing accuracy** — greenlit on trust 2026-09-10, deferring visual/tone review to end-of-phase UAT. Verbatim: *"We will test things properly after we get all through the work."* No revisions requested.
 
 ## Files Created/Modified
 
@@ -133,9 +133,9 @@ None during Task 1 execution.
 
 ## Task 2 human-verify checkpoint — resolved
 
-Ashley greenlit on trust 2026-09-10 without a line-by-line read-through, explicitly deferring the tone/framing/wording review to end-of-phase UAT (Plan 10 covers the technical end-to-end verification; a separate `serve-and-file-url-visual-affordances` follow-up shape will do the visual/tone tasting session on both file and serve URLs together).
+Alice greenlit on trust 2026-09-10 without a line-by-line read-through, explicitly deferring the tone/framing/wording review to end-of-phase UAT (Plan 10 covers the technical end-to-end verification; a separate `serve-and-file-url-visual-affordances` follow-up shape will do the visual/tone tasting session on both file and serve URLs together).
 
-Automated verification (see § Verification above) covers the structural correctness: correct sub-section order, correct grammar in the serve URL example, zero old tailnet HTTP-server recipe residue, zero auto-serve heuristics. Ashley's post-ship review will cover subjective tone.
+Automated verification (see § Verification above) covers the structural correctness: correct sub-section order, correct grammar in the serve URL example, zero old tailnet HTTP-server recipe residue, zero auto-serve heuristics. Alice's post-ship review will cover subjective tone.
 
 If she comes back with revision requests after end-of-phase UAT, they land as a follow-up `docs(103-09-followup): revise ...` commit rather than a plan-09 re-checkpoint.
 
@@ -147,7 +147,7 @@ If she comes back with revision requests after end-of-phase UAT, they land as a 
 
 ## Next Phase Readiness
 
-- Once Ashley greenlights Task 2, this plan closes. Phase 103's remaining work: verify all plans of Phase 103 are complete, then the deploy motion (per box-maintainer directive: full-suite ship gate → Ashley greenlight-at-push → build → force-recreate → verify → distributor sweep on next cycle → id skill lands on every managed box).
+- Once Alice greenlights Task 2, this plan closes. Phase 103's remaining work: verify all plans of Phase 103 are complete, then the deploy motion (per box-maintainer directive: full-suite ship gate → Alice greenlight-at-push → build → force-recreate → verify → distributor sweep on next cycle → id skill lands on every managed box).
 - No blockers for the deploy motion introduced by this plan (documentation-only change; no code path affected until the distributor sweep runs).
 
 ---

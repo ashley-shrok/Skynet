@@ -155,7 +155,7 @@ The only execution note: the initial implementation used an array+map approach f
 
 ## Threat Flags
 
-None — no new network endpoints, auth paths, file access patterns, or schema changes. All changes are CSS + React state + JSX markup. The inline SVG approach for the check glyph directly mitigates T-52-02-01 (unicode encoding trap on Ashley's iPhone PWA when charset header absent).
+None — no new network endpoints, auth paths, file access patterns, or schema changes. All changes are CSS + React state + JSX markup. The inline SVG approach for the check glyph directly mitigates T-52-02-01 (unicode encoding trap on Alice's iPhone PWA when charset header absent).
 
 ## Self-Check: PASSED
 

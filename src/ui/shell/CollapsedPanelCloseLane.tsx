@@ -4,7 +4,7 @@
 // on desktop. Implements the surface described in
 // `.planning/shapes/shape-drop-lane-close-in-split-view.md`.
 //
-// Grammar & philosophy (Ashley, 2026-08-29):
+// Grammar & philosophy (Alice, 2026-08-29):
 //   - Coral is reserved for "you are hovering a valid drop target right now."
 //     The lane appears NEUTRAL (bg pv-base, right-edge quiet-strong border)
 //     at rest and only switches to coral when the cursor enters it during a
@@ -99,7 +99,7 @@ export default function CollapsedPanelCloseLane({
   openTabIds,
   onCloseTab,
 }: CollapsedPanelCloseLaneProps): JSX.Element | null {
-  // inline-260830-close-lane-callback-ref (Ashley 2026-08-30, taylor): the
+  // inline-260830-close-lane-callback-ref (Alice 2026-08-30, taylor): the
   // component conditionally returns `null` when no drag is in flight (see
   // `if (draggedBadgeTabId === null) return null;` below). With a plain
   // useRef, the drag-listener useEffect (deps `[]`) runs on FIRST mount with

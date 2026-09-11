@@ -158,7 +158,7 @@ export function useVoiceRecording(
   // .then() handler that later transitions to "starting" checks it and immediately
   // advances to "recording" + plays start.mp3. Cleared by cancel() and by successful
   // consumption in .then(). (Diagnosed 2026-08-14 from console-forward logs of
-  // Ashley's iPhone attempt 3 — getUserMedia took 1.1s to resolve.)
+  // Alice's iPhone attempt 3 — getUserMedia took 1.1s to resolve.)
   const pendingCommitRef = useRef<boolean>(false);
 
   // Audio feedback instances — lazy-initialized once on first render via ref.
@@ -364,7 +364,7 @@ export function useVoiceRecording(
    *   true between the initial pre-.then() check and now (cancel() ran while
    *   getUserMedia was in-flight), tear down the recorder + stream + refs and
    *   return WITHOUT setState or playSound. This closes the "post-getUserMedia
-   *   orphan" race captured in Ashley's bug log (patch #436 B-1).
+   *   orphan" race captured in Alice's bug log (patch #436 B-1).
    *
    *   Layer 2 (commitStartVisibility split): setState("recording") and
    *   playSound(startAudioRef) are NO LONGER called unconditionally inside .then().
@@ -430,7 +430,7 @@ export function useVoiceRecording(
         // above (race window: state==="starting" path set pendingCancelRef), the
         // recorder was constructed but cancel() couldn't yet stop it. Tear down
         // here so the mic does NOT stay hot. This is the smoking-gun path from
-        // Ashley's bug log.
+        // Alice's bug log.
         if (pendingCancelRef.current) {
           pendingCancelRef.current = false;
           recorder.stop();

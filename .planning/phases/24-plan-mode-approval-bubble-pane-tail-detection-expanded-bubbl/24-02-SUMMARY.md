@@ -62,7 +62,7 @@ Vitest suite mirroring `pretty-view-upload.test.ts` L59-100 mock shape.
 
 **Happy path (2):**
 - Valid slug + existing file → returns `{ content }` matching injected fixture.
-- Non-standard `$HOME` (`/srv/agents/ashley`) — proves absPath is computed from resolvedHome, not hardcoded.
+- Non-standard `$HOME` (`/srv/agents/alice`) — proves absPath is computed from resolvedHome, not hardcoded.
 
 **Rejection cases (9 — all assert `client.sftp` + `sftp.realpath` + `sftp.stat` + `sftp.readFile` are NEVER called):**
 - `..` traversal (`~/.claude/plans/../../../etc/passwd.md`)
@@ -136,7 +136,7 @@ Every rejection test calls a shared `expectNoSftpContact(client, sftp)` helper �
 
 - **Double-quote rejection** — plan's behavior list mentions backtick / single-quote / `$` but not double-quote. Added because the implementation rejects `[\`'"$]` as a class; the test locks that in.
 - **Slash-in-slug rejection** — plan's behavior list mentions traversal but not "slug has a slash without `..`". Added because that's a distinct rejection path (fails the `SLUG_RE` regex, not the `..` check) and it's cheap insurance against a regex regression.
-- **Non-standard $HOME test** — plan requires "home directory resolution success" (covered by the `/home/ashley` test); I added a second case with `/srv/agents/ashley` to prove the absPath is computed from `realpath(".")`, not hardcoded.
+- **Non-standard $HOME test** — plan requires "home directory resolution success" (covered by the `/home/ashley` test); I added a second case with `/srv/agents/alice` to prove the absPath is computed from `realpath(".")`, not hardcoded.
 
 Nine rejection tests instead of the plan's minimum of seven; 14 total tests instead of the minimum of 11. All extras follow the same fail-closed assertion pattern (`expectNoSftpContact` helper).
 

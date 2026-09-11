@@ -2,7 +2,7 @@
 
 **Vehicle:** Follow-up to Phase 79 (Docker Compose bridge substrate promotion, shipped 2026-09-07 as HEAD `4b53d3be`). Phase 79 delivered the substrate + config-from-Skynet + FieldCrypto bot_token storage + activation UI, but two writeback paths were deferred and are needed to complete end-to-end "no shell" wrist activation. Sits directly on top of Phase 79.
 
-**Urgency:** Ashley currently has ZERO wrist reachability. Nina's bridge was taken down 2026-09-07 in preparation for cutover; the new tg-bridge container is up but cannot route MX↔TG without chat_id capture + room discovery. Pre-authorized by Ashley — she said verbatim: *"pick up with progressing to the real finish line in all of this when next session starts."*
+**Urgency:** Alice currently has ZERO wrist reachability. Nina's bridge was taken down 2026-09-07 in preparation for cutover; the new tg-bridge container is up but cannot route MX↔TG without chat_id capture + room discovery. Pre-authorized by Alice — she said verbatim: *"pick up with progressing to the real finish line in all of this when next session starts."*
 
 **Depends on:** Phase 79 (all 9 plans + Fix A shipped in `feat/tab-title-from-tmux`).
 
@@ -59,7 +59,7 @@ Fix B closes both gaps with a **sentinel handshake pattern** — the bridge writ
   4. For each shared room_id, GET `/_synapse/admin/v1/rooms/{room_id}` (which returns joined_members count) OR `/_synapse/admin/v1/rooms/{room_id}/members` — pick whichever is cheapest
   5. Filter to rooms with exactly 2 joined members (the two mxids we already have)
   6. Return the first match, or `null` if no 2-member shared room exists
-- **No Skynet-driven room creation** — if no shared DM room exists, return null. For Phase 83 this depends on pre-existing rooms from the Nina era (Ashley confirmed Nina's tina↔ashley DM room is `!ugXtUphVwaxdjoXkIq:thenasty.taild9b663.ts.net` — that's the seed truth). Skynet-driven room creation is deferred to a later phase.
+- **No Skynet-driven room creation** — if no shared DM room exists, return null. For Phase 83 this depends on pre-existing rooms from the Nina era (Alice confirmed Nina's tina↔alice DM room is `!ugXtUphVwaxdjoXkIq:thenasty.taild9b663.ts.net` — that's the seed truth). Skynet-driven room creation is deferred to a later phase.
 - **Verified admin API:** the `/_synapse/admin/v1/users/{user_id}/joined_rooms` endpoint is documented Synapse-only (not Continuwuity) — Phase 77's admin foundation already targets this API on the thenasty homeserver, so it's ready.
 
 ### 4. Registry-writer populates humans[].room via getSharedDMRoom

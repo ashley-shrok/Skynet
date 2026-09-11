@@ -12,11 +12,11 @@ description: >-
   DMs, zero log lines, zero state on disk. The skill exists visually only when it has
   something to say.
 - **Notice and resolve are one loop, not two.** The DM that says "click this URL" is the
-  same conversation Ashley pastes the code back into; the token that setup-token then
+  same conversation Alice pastes the code back into; the token that setup-token then
   prints is captured by the agent without any further ask.
 - **Agent-driven, not user-driven.** The agent runs `claude setup-token` in a sidecar tmux
   on the target box, captures the URL, DMs it out, receives the code, pastes it in, scrapes
-  the printed token, and installs it. Ashley's only manual step is clicking the URL and
+  the printed token, and installs it. Alice's only manual step is clicking the URL and
   DMing back the code from her browser. She never runs a command herself.
 - **Ephemeral and self-cleaning.** The sidecar tmux exists only for the duration of the
   flow. Complete, cancel, or time out — either way, nothing lingers.
@@ -45,7 +45,7 @@ The old skill drove `/login` inside a sidecar tmux, DMed the URL, and pasted a r
 back — producing a short-lived `.credentials.json` OAuth session that expired in
 days-to-weeks (anthropics/claude-code issues #33811, #36911). Setup-token gives a 1-year
 token with an ~11-month renewal cadence — an order-of-magnitude improvement in
-false-positive DM frequency, same agent-driven UX for Ashley.
+false-positive DM frequency, same agent-driven UX for Alice.
 
 Empirically verified 2026-09-02: `claude setup-token` at Claude Code 2.1.150+ does NOT pop
 the 3-option auth-method menu that `/login` does — it's a bare subcommand that goes straight
@@ -61,7 +61,7 @@ Contents: single line, ISO-8601 UTC timestamp of when the currently-installed to
 last written. Read on every daily wake to check age. Written by Phase B on successful
 install. Absent = no token has ever been installed by this skill on this box (bootstrap case).
 
-**Pending-flow state (transient, exists only while awaiting Ashley's paste):**
+**Pending-flow state (transient, exists only while awaiting Alice's paste):**
 
     ~/fleet/identities/<name>/harness-auth-pending.json
 
@@ -79,7 +79,7 @@ Contents:
 
 Written atomically (`.tmp` then `mv`). Cleared on successful install or on timeout.
 
-`step` transitions: `awaiting-code` (Ashley clicks URL, DMs code back) →
+`step` transitions: `awaiting-code` (Alice clicks URL, DMs code back) →
 `awaiting-token-capture` (agent pastes code, watches pane for `sk-ant-oat01-...`).
 
 ## Phase A — check-and-maybe-start (daily silent check)
@@ -202,7 +202,7 @@ pieces of it.
 
     # URL post-condition: assert the OAuth query params setup-token is supposed to emit
     # are all present. If Claude Code ever changes the URL format and drops one, we want
-    # to fail LOUD here rather than silently ship an incomplete URL to Ashley whose
+    # to fail LOUD here rather than silently ship an incomplete URL to Alice whose
     # browser OAuth flow would then fail with an obscure error. Belt to the length
     # check's suspenders — length alone can't distinguish "full URL" from "full URL
     # of a format that no longer produces a valid session."
@@ -218,15 +218,15 @@ pieces of it.
     done
 
 The URL matcher is loose on purpose — Claude Code has changed URL formats between versions.
-If a future version breaks the matcher, the URL-capture timeout fires and Ashley gets a
+If a future version breaks the matcher, the URL-capture timeout fires and Alice gets a
 plain-error DM instead of a partial success. Coarse-grained failure by design.
 
-⚠️ **Do NOT skip the ANSI strip on any DM sent to Ashley.** pipe-pane captures include
+⚠️ **Do NOT skip the ANSI strip on any DM sent to Alice.** pipe-pane captures include
 trailing OSC 8 hyperlink markers (`\e]8;;`) that render as `[39m]8;;` junk in a chat
 message and break the URL click. The strip_ansi step must run before the URL text is
 shown to a human.
 
-### A.4 — DM Ashley the URL and persist state
+### A.4 — DM Alice the URL and persist state
 
 Via the `agent-relay` skill's building blocks (log in with
 `~/fleet/identities/<name>/relay.json`, find or create the DM room, send). Body:
@@ -253,11 +253,11 @@ Persist state:
        ~/fleet/identities/<name>/harness-auth-pending.json
 
 Return control. Sidecar sits idle waiting for the code. The relay receiver wakes the
-maintainer when Ashley DMs back; Phase B runs then.
+maintainer when Alice DMs back; Phase B runs then.
 
 ## Phase B — continue with code, capture token, install
 
-Runs from the maintainer's reflex when Ashley's DM lands and pending state exists.
+Runs from the maintainer's reflex when Alice's DM lands and pending state exists.
 
 ### B.1 — sanity-check state and sidecar
 
@@ -274,7 +274,7 @@ Runs from the maintainer's reflex when Ashley's DM lands and pending state exist
 
 ### B.2 — extract the code from the DM body
 
-If Ashley DMed anything other than a plausible OAuth code, it's chat, not the code — leave
+If Alice DMed anything other than a plausible OAuth code, it's chat, not the code — leave
 state alone, respond conversationally.
 
     CODE=$(printf '%s' "$MSG_BODY" | tr -d '[:space:]')
@@ -460,17 +460,17 @@ that catches silent-invalid-token cases.**
 
 **Code-paste timeout (4 hours from `url_sent_at`)** — handled in A.0. Setup-token's OAuth
 code from Anthropic is short-lived (~10-15 min from browser step), so 4h is really "if
-Ashley didn't come back within 4h assume she's not going to" — anything past that will fail
+Alice didn't come back within 4h assume she's not going to" — anything past that will fail
 Anthropic's own validation anyway. On stale detection, kill sidecar, clear state, and fall
 through to a fresh Phase A evaluation.
 
 **Token-capture timeout (60 seconds after code paste)** — handled in B.4. If the pane
 doesn't produce `sk-ant-oat01-...` within a minute, the code was rejected or setup-token
-hit a failure mode we don't recognize. Kill sidecar, clear state, DM Ashley, retry next
+hit a failure mode we don't recognize. Kill sidecar, clear state, DM Alice, retry next
 daily wake.
 
 **Sidecar died mid-flow.** Handled in B.1 — if `tmux has-session` fails, clean up state
-and DM Ashley the failure without feeding the code into nothing.
+and DM Alice the failure without feeding the code into nothing.
 
 ## Rescuing an already-401'd session
 
@@ -516,7 +516,7 @@ which point the underlying broken token surfaced.
 
 ## What would make this go wrong
 
-- **Ashley gets DMed when nothing is actually wrong.** False-positive DMs — asking for a
+- **Alice gets DMed when nothing is actually wrong.** False-positive DMs — asking for a
   fresh token when the current one is still valid — erode trust. The 11-month threshold
   is generous exactly to avoid this. Never DM inside 11 months.
 - **jq-merge clobbers existing settings.json keys.** B.5's merge is
@@ -525,14 +525,14 @@ which point the underlying broken token surfaced.
   vars. Same-shape gotcha for the top-level: never `settings.json` overwrite; always
   key-merge.
 - **The install marker gets lost or corrupted.** Daily check re-triggers on missing marker
-  (bootstrap case). If a working token IS installed but marker is gone, Ashley gets an
+  (bootstrap case). If a working token IS installed but marker is gone, Alice gets an
   unnecessary DM. Consider deriving install date from settings.json mtime as fallback OR
   keeping the marker under version control alongside the settings.
 - **Sidecar dies mid-flow.** Handled explicitly in B.1 and Phase C's paste-timeout cleanup;
   if either check is ever loosened, a zombie tmux hoards a session slot forever.
 - **Token-capture regex misses a future format change.** Anthropic could rename the token
   prefix or change the character set. B.4's regex `sk-ant-oat01-[A-Za-z0-9_-]{80,}` is
-  loose but not future-proof. A miss triggers the coarse-fail path (DM Ashley, retry next
+  loose but not future-proof. A miss triggers the coarse-fail path (DM Alice, retry next
   daily) — she'll notice within a day and fix the regex.
 - **Silent-invalid-token: partial capture passes the regex but fails Anthropic.** A
   progressive-render truncation, a stale buffer bleed, or any other capture-side bug can
@@ -557,8 +557,8 @@ which point the underlying broken token surfaced.
   everything) with it. Plain `claude setup-token` keeps the shell alive after claude
   exits, and pipe-pane keeps recording. A.2 must not use `exec`.
 - **Subscription lapses.** If Claude Max expires or org membership changes, setup-token
-  stops working. Skill has no visibility — Ashley sees 401, fixes subscription first.
+  stops working. Skill has no visibility — Alice sees 401, fixes subscription first.
 - **The flow becomes a place things get stuck.** A sidecar tmux that survives failure and
-  blocks a session slot. A state file that never clears. Ashley DMs the code and nothing
+  blocks a session slot. A state file that never clears. Alice DMs the code and nothing
   happens. Cleanup (in B.4, B.5, B.6, and Phase C's stale check) is load-bearing — if a
   change loosens ANY of them, the trust goes.

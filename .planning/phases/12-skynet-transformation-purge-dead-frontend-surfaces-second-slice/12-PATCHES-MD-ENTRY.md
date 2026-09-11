@@ -1,8 +1,8 @@
 # Patch #139 — Skynet transformation: purge dead frontend surfaces (second slice) — Phase 12
 
 **Paste target:** `~/.claude/identities/tina/skynet-patches.md`
-**Paste timing:** Only after Ashley greenlights the batched Phase 11 + Phase 12 purge cluster deploy AND UAT passes on the 23 non-negotiable items in `12-UAT-CHECKLIST.md`. Post-deadman-retirement flow per current `~/.claude/identities/tina/deploy-runbook.md` (the 15-min deadman regime was retired 2026-07-21).
-**Batch context:** Patch #139 is the SECOND Phase-12-cluster patch (patch #138 = Phase 11 first slice; #139 = this Phase 12 second slice). Per the fleet-standing "batch patches into meaningful deploys" rule (Ashley 2026-07-23), it does NOT ship standalone. Batches with patch #138 (Phase 11) and any subsequent Phase 13+ backend-route purge patches into a single grouped-semantic-unit deploy ("the Skynet-client-surface purge cluster") unless Ashley explicitly greenlights an earlier standalone Phase 12 deploy.
+**Paste timing:** Only after Alice greenlights the batched Phase 11 + Phase 12 purge cluster deploy AND UAT passes on the 23 non-negotiable items in `12-UAT-CHECKLIST.md`. Post-deadman-retirement flow per current `~/.claude/identities/tina/deploy-runbook.md` (the 15-min deadman regime was retired 2026-07-21).
+**Batch context:** Patch #139 is the SECOND Phase-12-cluster patch (patch #138 = Phase 11 first slice; #139 = this Phase 12 second slice). Per the fleet-standing "batch patches into meaningful deploys" rule (Alice 2026-07-23), it does NOT ship standalone. Batches with patch #138 (Phase 11) and any subsequent Phase 13+ backend-route purge patches into a single grouped-semantic-unit deploy ("the Skynet-client-surface purge cluster") unless Alice explicitly greenlights an earlier standalone Phase 12 deploy.
 
 Explicit contract line for the fork-catalog integrity gate: **patch #139 batches with subsequent Phase 13+ backend-route purge patches.** No Co-Authored-By trailer per fork convention (also called out at the top of this file).
 **Ordinal position on paste:** Update the count line near the top of `skynet-patches.md` from "ONE HUNDRED THIRTY-SEVEN numbered patches" (pre-Phase-11 baseline) to "ONE HUNDRED THIRTY-NINE" — pin both patch #138 (Phase 11) and patch #139 (Phase 12) together at the batch-deploy moment. If patch #138 was already pinned earlier as a solo bump, bump from "ONE HUNDRED THIRTY-EIGHT" to "ONE HUNDRED THIRTY-NINE" here.
@@ -19,11 +19,11 @@ Explicit contract line for the fork-catalog integrity gate: **patch #139 batches
         untouched)`
         (committed 2026-07-23 to `feat/tab-title-from-tmux`; deploy batched
         with patch #138 (Phase 11 first slice) and subsequent Phase 13+
-        backend-route purge patches per Ashley 2026-07-23 fleet-standing
+        backend-route purge patches per Alice 2026-07-23 fleet-standing
         "batch patches into meaningful deploys" rule; not deployed standalone
-        unless Ashley explicitly greenlights).
+        unless Alice explicitly greenlights).
 
-        * **Motivating gap** (Ashley's direct call-out, Phase 10 UAT 2026-07-23,
+        * **Motivating gap** (Alice's direct call-out, Phase 10 UAT 2026-07-23,
           same quote that motivated Phase 11 patch #138):
           "I really feel like we need to get away from this skynet front end
           stuff before any of this is worth quibbling over." Phase 11 (patch
@@ -254,7 +254,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #139 batches
           **Cumulative Phase 11 + Phase 12 delta vs Phase 10 tip**:
           - AppShell chunk: 448.82 kB → 74.24 kB = **−374.58 kB / −83.4%**
           - AppShell gzip: 87.63 kB → 20.21 kB = **−67.42 kB / −76.9%**
-          Ashley's Skynet client now downloads ~125 kB less across first-load
+          Alice's Skynet client now downloads ~125 kB less across first-load
           + code-split idle chunks compared to Phase 11 tip, on top of the
           Phase 11 −373 kB AppShell reduction. Ship-of-Theseus purge landed
           in two waves — patches #138 + #139 together tell the full "we
@@ -421,11 +421,11 @@ Explicit contract line for the fork-catalog integrity gate: **patch #139 batches
             decisions.
           - `~/.claude/identities/tina/tina.md` § Skynet direction — Ship
             of Theseus (dead-surfaces canonical list, palette authority,
-            "conversation list + pretty view is all Ashley sees" heuristic,
+            "conversation list + pretty view is all Alice sees" heuristic,
             "no settings at all" lock, "it is ONE project, not a collection
             of bounties" fleet lock).
           - `~/.claude/identities/tina/bounties/skynet-transformation-purge-dead-surfaces/`
-            — the bounty premise, Ashley's UAT quote (same quote motivating
+            — the bounty premise, Alice's UAT quote (same quote motivating
             patch #138), the todo set (Phase 11 handled first slice;
             Phase 12 handles second slice; Phase 13 backend routes if
             needed).
@@ -543,7 +543,7 @@ Explicit contract line for the fork-catalog integrity gate: **patch #139 batches
           `[Plan-07 tip SHA — fill in after commit]`. NOT YET pushed, NOT
           YET deployed, image NOT YET built. Batched with patch #138 (Phase
           11 first slice) and subsequent Phase 13+ backend-route purge
-          patches per Ashley 2026-07-23 fleet-standing "batch patches into
+          patches per Alice 2026-07-23 fleet-standing "batch patches into
           meaningful deploys" rule. Deploy sequence documented at
           `.planning/phases/12-skynet-transformation-purge-dead-frontend-surfaces-second-slice/12-UAT-CHECKLIST.md`
           under "Post-UAT deploy runbook" (authoritative source cited:

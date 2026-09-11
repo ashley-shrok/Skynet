@@ -255,7 +255,7 @@ describe("useRelayAdapter (Phase 93 Slice 3)", () => {
     // live_event is never delivered to their own WS (some Matrix
     // homeserver configs echo only to OTHER participants). Pre-change
     // behavior expected `messages` to stay empty here; UAT surfaced that
-    // this was wrong — Ashley never saw her own sent messages.
+    // this was wrong — Alice never saw her own sent messages.
     const { result } = renderHook(() => useRelayAdapter(RELAY_SOURCE, true));
     act(() => {
       instances[0].simulateOpen();
@@ -452,7 +452,7 @@ describe("useRelayAdapter (Phase 93 Slice 3)", () => {
       instances[0].simulateFrame({
         type: "participants",
         humans: [
-          { mxid: VIEWING_MXID, displayName: "Ashley", userId: "1" },
+          { mxid: VIEWING_MXID, displayName: "Alice", userId: "1" },
           { mxid: OTHER_MXID, displayName: "Tina", userId: "2" },
         ],
         agents: [{ mxid: "@nelly:matrix.example.com", identityKey: "nelly" }],
@@ -634,7 +634,7 @@ describe("useRelayAdapter (Phase 93 Slice 3)", () => {
   });
 
   // ─── Test 24: WS-closed send → immediate failed bubble in messages ──────
-  // Regression pin for the silent-message-loss failure mode Ashley flagged
+  // Regression pin for the silent-message-loss failure mode Alice flagged
   // during Phase 93 UAT. If the WS closes (network drop, tab returned from
   // background) and the user sends before it reconnects, sendMessage must:
   //   1. Return false (caller can decide to retry).

@@ -13,7 +13,7 @@ requirements:
 must_haves:
   truths:
     - "Boot-time first-tick delay for each relay-observing user is bounded to [0, 500ms) instead of [0, 10s)"
-    - "Ashley's cold-load delay for sidebar relay rooms drops from ~20s worst case to <1s"
+    - "Alice's cold-load delay for sidebar relay rooms drops from ~20s worst case to <1s"
     - "Post-boot steady-state cadence still fires every OBSERVATION_TICK_INTERVAL_MS (10s) — scheduled cadence is unchanged"
     - "Existing thundering-herd defense still holds: 100 users fan across a 500ms window (mean ~5 users/50ms bucket), not a single scan pass"
     - "jitterEnabled=false path still yields deterministic 0ms initial delay (existing tests keep passing)"
@@ -36,7 +36,7 @@ must_haves:
 ---
 
 <objective>
-Tighten the relay observation-loop boot-time first-tick jitter from [0, OBSERVATION_TICK_INTERVAL_MS) = [0, 10s) to [0, INITIAL_TICK_JITTER_MS) = [0, 500ms). This fixes Ashley's observed ~20s cold-load delay for relay rooms in the sidebar (worst-case first-tick was up to 10s + 10s catch-up on a slow scan pass).
+Tighten the relay observation-loop boot-time first-tick jitter from [0, OBSERVATION_TICK_INTERVAL_MS) = [0, 10s) to [0, INITIAL_TICK_JITTER_MS) = [0, 500ms). This fixes Alice's observed ~20s cold-load delay for relay rooms in the sidebar (worst-case first-tick was up to 10s + 10s catch-up on a slow scan pass).
 
 Purpose: Preserve the existing thundering-herd defense (users are still spread, not fired simultaneously) while shrinking the worst-case user-visible cold-load latency by 20x. For a fleet of ~100 concurrent boot users, 500ms yields ~200 users/second peak fan-in — well within a single Synapse admin-API's healthy concurrency budget — but keeps the cold-load feel snappy instead of "did the app hang?".
 
@@ -64,7 +64,7 @@ Output: One exported constant (`INITIAL_TICK_JITTER_MS = 500`) with a comment ex
     - Scheduled cadence is unchanged: `OBSERVATION_TICK_INTERVAL_MS` still equals `10_000` and drives the per-tick success-jitter multiplier used elsewhere in the file.
   </behavior>
   <action>
-    In `src/backend/relay-sessions/observation-loop.ts` add a new exported constant `INITIAL_TICK_JITTER_MS = 500` immediately below the existing `OBSERVATION_TICK_INTERVAL_MS` declaration (around line 52-62). Attach a docblock explaining: (a) this bounds ONLY the boot-time first-tick spread, not the steady-state 10s cadence; (b) why it is separate from `OBSERVATION_TICK_INTERVAL_MS` — the two knobs answer different questions ("how snappy does cold-load feel?" vs "how often do we re-check a user?"); (c) thundering-herd math anchored to Ashley's fleet size: at ~100 concurrent boot users the 500ms window yields a peak of ~200 users/sec of admin-API fan-in, which is well within one Synapse's healthy concurrency budget while keeping cold-load latency imperceptible; (d) Ashley's ~20s cold-load bug reference so the next reader understands why we did not just reuse the 10s constant. Then update the `start()` body at lines 717-719: replace `Math.floor(rng() * OBSERVATION_TICK_INTERVAL_MS)` with `Math.floor(rng() * INITIAL_TICK_JITTER_MS)`. Preserve the surrounding `const initialDelayMs = jitterEnabled ? ... : 0;` ternary structure exactly so the `jitter: false` test path stays deterministic. Also refresh the inline Fixup M-2 comment above line 717 so it says the spread window is now `[now, now + INITIAL_TICK_JITTER_MS)` (not `TICK_INTERVAL_MS`), with a one-line pointer to the new constant's docblock for the rationale. Do NOT change `OBSERVATION_TICK_INTERVAL_MS`, `MAX_PARALLEL_ROOMS_PER_TICK`, `SCHEDULER_SCAN_INTERVAL_MS`, or the per-tick success-jitter multiplier logic. This delivers the sub-1s cold-load fix in the bounty item verbatim.
+    In `src/backend/relay-sessions/observation-loop.ts` add a new exported constant `INITIAL_TICK_JITTER_MS = 500` immediately below the existing `OBSERVATION_TICK_INTERVAL_MS` declaration (around line 52-62). Attach a docblock explaining: (a) this bounds ONLY the boot-time first-tick spread, not the steady-state 10s cadence; (b) why it is separate from `OBSERVATION_TICK_INTERVAL_MS` — the two knobs answer different questions ("how snappy does cold-load feel?" vs "how often do we re-check a user?"); (c) thundering-herd math anchored to Alice's fleet size: at ~100 concurrent boot users the 500ms window yields a peak of ~200 users/sec of admin-API fan-in, which is well within one Synapse's healthy concurrency budget while keeping cold-load latency imperceptible; (d) Alice's ~20s cold-load bug reference so the next reader understands why we did not just reuse the 10s constant. Then update the `start()` body at lines 717-719: replace `Math.floor(rng() * OBSERVATION_TICK_INTERVAL_MS)` with `Math.floor(rng() * INITIAL_TICK_JITTER_MS)`. Preserve the surrounding `const initialDelayMs = jitterEnabled ? ... : 0;` ternary structure exactly so the `jitter: false` test path stays deterministic. Also refresh the inline Fixup M-2 comment above line 717 so it says the spread window is now `[now, now + INITIAL_TICK_JITTER_MS)` (not `TICK_INTERVAL_MS`), with a one-line pointer to the new constant's docblock for the rationale. Do NOT change `OBSERVATION_TICK_INTERVAL_MS`, `MAX_PARALLEL_ROOMS_PER_TICK`, `SCHEDULER_SCAN_INTERVAL_MS`, or the per-tick success-jitter multiplier logic. This delivers the sub-1s cold-load fix in the bounty item verbatim.
   </action>
   <verify>
     <automated>grep -n "INITIAL_TICK_JITTER_MS" src/backend/relay-sessions/observation-loop.ts | grep -v '^#' | wc -l | awk '{ if ($1 < 3) { print "FAIL: expected >=3 references (export decl, docblock, start() use); got " $1; exit 1 } else { print "OK: " $1 " references" } }' &amp;&amp; grep -n "INITIAL_TICK_JITTER_MS = 500" src/backend/relay-sessions/observation-loop.ts &amp;&amp; grep -n "OBSERVATION_TICK_INTERVAL_MS = 10_000" src/backend/relay-sessions/observation-loop.ts</automated>
@@ -113,10 +113,10 @@ Overall phase checks:
 </verification>
 
 <success_criteria>
-- `INITIAL_TICK_JITTER_MS = 500` is exported from `observation-loop.ts` with a docblock covering: separation from `OBSERVATION_TICK_INTERVAL_MS`, ~100-user thundering-herd math, and the Ashley cold-load fix reference.
+- `INITIAL_TICK_JITTER_MS = 500` is exported from `observation-loop.ts` with a docblock covering: separation from `OBSERVATION_TICK_INTERVAL_MS`, ~100-user thundering-herd math, and the Alice cold-load fix reference.
 - `start()` uses `INITIAL_TICK_JITTER_MS` for the boot-time initial delay; the `jitterEnabled ? ... : 0` structure is preserved.
 - One new regression test (`Test M-2c`) pins the tightened upper bound; the existing `Test M-2` is updated to reflect the 500ms window and still passes; `Test M-2b` (per-tick success jitter) is untouched.
-- Ashley's cold-load worst case for relay rooms in the sidebar drops from ~20s to under 1s (bounded by `INITIAL_TICK_JITTER_MS + SCHEDULER_SCAN_INTERVAL_MS` = 500ms + 1000ms).
+- Alice's cold-load worst case for relay rooms in the sidebar drops from ~20s to under 1s (bounded by `INITIAL_TICK_JITTER_MS + SCHEDULER_SCAN_INTERVAL_MS` = 500ms + 1000ms).
 - All other observation-loop tests continue to pass.
 </success_criteria>
 

@@ -162,7 +162,7 @@ The plan's threat register (T-39-11 through T-39-13 plus T-39-SC) is upheld:
 ## What Downstream Consumes
 
 - **Phase 39 completion criteria** (all six gates GATE2-01..06) are now MATERIALLY complete. GATE2-05 was the last outstanding requirement per this phase's frontmatter. Post-deploy runtime signature verification (log-observation of `fleet_status_hook_install_*` ops per host during a real browser session) is the orchestrator/tanya-scope validation step.
-- **Post-Phase-39 orchestrator work.** The runtime signature to look for: on first browser subscribe, per-enrolled-host, expect ONE `fleet_status_hook_install_started` + ONE of `fleet_status_hook_install_success` (or `_failed` with error message) in `console-forward.log`. If `_failed` appears with `error: "..."`, that's a diagnostic pointing at the exact host that needs manual investigation — the poll cycle continues regardless (fail-open per Phase 34 Ashley LOCK).
+- **Post-Phase-39 orchestrator work.** The runtime signature to look for: on first browser subscribe, per-enrolled-host, expect ONE `fleet_status_hook_install_started` + ONE of `fleet_status_hook_install_success` (or `_failed` with error message) in `console-forward.log`. If `_failed` appears with `error: "..."`, that's a diagnostic pointing at the exact host that needs manual investigation — the poll cycle continues regardless (fail-open per Phase 34 Alice LOCK).
 - **Future testability of starter.ts.** The `if (process.env.VITEST !== "true")` guard + module-scope helper extraction pattern established here is reusable — future plans that want to add starter.ts-level exports can drop them at module scope and test them directly via the same pattern.
 
 ## Known Stubs

@@ -17,7 +17,7 @@ affects:
 tech_stack:
   added: []
   patterns:
-    - "Pure-function port of the Ashley-validated reference prototype (verbatim math + verbatim tie-break priority)"
+    - "Pure-function port of the user-validated reference prototype (verbatim math + verbatim tie-break priority)"
     - "TDD RED→GREEN: failing tests committed first (eb7e01f9), implementation second (399c9f55)"
     - "Module-local locked-constant (EDGE_ZONE_THRESHOLD deliberately not exported)"
 key_files:
@@ -48,7 +48,7 @@ requirements_completed:
 
 # Phase 57 Plan 01: Edge-zone hit-testing geometry Summary
 
-**One-liner:** Pure-function `computeEdgeZone(rect, x, y): DropZone` + `DropZone` type alias landed in `src/ui/lib/split-tree.ts`, ported verbatim from the Ashley-validated prototype (EDGE_ZONE_THRESHOLD=0.28, tie-break top → bottom → left → right), with 13 unit tests + zero Phase 56 regressions.
+**One-liner:** Pure-function `computeEdgeZone(rect, x, y): DropZone` + `DropZone` type alias landed in `src/ui/lib/split-tree.ts`, ported verbatim from the user-validated prototype (EDGE_ZONE_THRESHOLD=0.28, tie-break top → bottom → left → right), with 13 unit tests + zero Phase 56 regressions.
 
 ## What shipped
 
@@ -61,7 +61,7 @@ Two commits, TDD gate compliance:
 | `eb7e01f9` | test | `src/ui/lib/split-tree.test.ts` (+129) | RED — 12 new tests fail with `TypeError: computeEdgeZone is not a function`. Test 13 (regression guard) uses an already-shipped symbol so passes. |
 | `399c9f55` | feat | `src/ui/lib/split-tree.ts` (+97)      | GREEN — `DropZone` alias + `computeEdgeZone` pure function + `EDGE_ZONE_THRESHOLD` const. All 13 new tests pass; 20 Phase 56 tests still pass. |
 
-No REFACTOR commit — the implementation is a verbatim port of the reference prototype; further "cleanup" would risk drifting from the Ashley-validated math.
+No REFACTOR commit — the implementation is a verbatim port of the reference prototype; further "cleanup" would risk drifting from the user-validated math.
 
 ## Behaviour spec — verbatim port confirmation
 
@@ -224,7 +224,7 @@ None. Per the plan's `<threat_model>`, this is a pure-function UI geometry helpe
 
 - **RED gate:** `test(57-01)` commit `eb7e01f9` — 12 tests fail with `TypeError: computeEdgeZone is not a function` before implementation. ✓
 - **GREEN gate:** `feat(57-01)` commit `399c9f55` — all 33 tests pass. ✓
-- **REFACTOR gate:** Not needed. Implementation is a verbatim port of the Ashley-validated prototype math — any "cleanup" would risk drifting from validated behaviour. ✓ (documented rationale)
+- **REFACTOR gate:** Not needed. Implementation is a verbatim port of the user-validated prototype math — any "cleanup" would risk drifting from validated behaviour. ✓ (documented rationale)
 
 ## Fleet-rule compliance
 

@@ -43,7 +43,7 @@ affects:
 tech-stack:
   added: []  # Zero new deps — reuses React (useCallback / useEffect / useRef / useState), cn from @/lib/utils, existing WS connection, existing testing infra (@testing-library/react + vitest)
   patterns:
-    - "aesthetic-locked-inline-style — CSS values (border-width, box-shadow) that are prop-driven use inline style (JIT can't pre-compile them as Tailwind arbitrary-value classes); base identity-hue treatment uses Tailwind arbitrary-value classes (stable across every render, JIT pre-compilable). Consistent with aside-visual-snippet.js prototype Ashley signed off on."
+    - "aesthetic-locked-inline-style — CSS values (border-width, box-shadow) that are prop-driven use inline style (JIT can't pre-compile them as Tailwind arbitrary-value classes); base identity-hue treatment uses Tailwind arbitrary-value classes (stable across every render, JIT pre-compilable). Consistent with aside-visual-snippet.js prototype Alice signed off on."
     - "verbatim-class-string-copy — AsideBubble copies the identity-hue gradient / prose-invert / Inter-font class strings from ChatMessage L124-127 rather than importing. Keeps AsideBubble self-contained per PATTERNS.md § Analog rationale — no cross-component coupling means future ChatMessage refactors can't break AsideBubble by surprise."
     - "interface-first-across-wave-boundaries — plan-checker W3 correction: interface extensions land in the CONSUMING wave (here Wave 3), NOT in the PRODUCING wave (Wave 4). PrettyView passes asideActive + onAsideDismiss to ComposeBox in Wave 3; ComposeBox's interface accepts them in Wave 3; ComposeBox's BODY consumes them in Wave 4. Wave-boundary tsc gate stays clean at every commit."
     - "prev-value ref for transition detection — useRef holding the previous render's value + useEffect updating the ref before evaluating the guard. Standard React pattern for 'fire once on X → Y transition' without a race with the render cycle. Initialization to CURRENT value on mount ensures mount-with-already-Y doesn't false-trigger."
@@ -71,7 +71,7 @@ key-decisions:
   - "handleAsideDismiss is a two-step callback: (1) optimistic setAsideText(null) — AsideBubble unmounts immediately, no visible latency waiting for the WS round-trip; (2) WS-send {type:'aside_dismissed', hostId, tmuxSession} — Wave 2 backend does sendEscapeToBtw + broadcastAsideDismissed. Backend IGNORES msg.hostId/msg.tmuxSession for send-keys routing per T-14-02-01 mitigation; these fields are informational only. Idempotent: if the WS is closed, the optimistic clear still happened; peer tabs' subsequent aside_dismissed WS frames re-clear (no-op on this tab; visible clear on peers)."
   - "ComposeBoxProps interface extension (asideActive + onAsideDismiss) landed in Wave 3 per plan-checker W3 correction — NOT in Wave 4. This split-wave ordering means PrettyView's mount can typesafely pass these props in Wave 3; Wave 4 then implements only the body consumption with zero interface risk. Wave 3 does NOT modify ComposeBox's body — all three negative-grep gates (no 'asideActive === true' anywhere, no aria-label morph, no lucide X import) confirm."
   - "Fresh-pane reset extended with setAsideText(null) — a pane switch clears any aside carried over from the prior pane. Wave 2 backend's connect-time re-attach probe (ASIDE-09) will re-emit aside_ready if the NEW pane's tmux still has an open BTW overlay, so this reset is safe."
-  - "ChatMessage / ImageBubble / PlanPendingBubble / WipBubble bytes UNCHANGED — git diff --stat over the wave's commit range confirms only PrettyView.tsx and ComposeBox.tsx are modified. Preserves Ashley's 'pretty-view chat surface interior is LOCKED — add NEW bubble types, don't modify existing ones' invariant from CONTEXT.md canonical_refs."
+  - "ChatMessage / ImageBubble / PlanPendingBubble / WipBubble bytes UNCHANGED — git diff --stat over the wave's commit range confirms only PrettyView.tsx and ComposeBox.tsx are modified. Preserves Alice's 'pretty-view chat surface interior is LOCKED — add NEW bubble types, don't modify existing ones' invariant from CONTEXT.md canonical_refs."
   - "Doc-comment prophylaxis for negative-grep gate — Task 2's JSDoc for asideActive originally read 'extend each aux-button disabled predicate with `|| asideActive === true`' but the plan verify block's negative grep on `asideActive === true` false-positive'd on prose. Rewrote in-place to describe the same Wave 4 edit without using the literal expression. Precedent: 14-02-SUMMARY.md § Deviations #2 (same doc-vs-grep pattern from Wave 2)."
 
 patterns-established:
@@ -95,7 +95,7 @@ completed: 2026-07-26
 
 # Phase 14 Plan 03: Aside Wave 3 Frontend Rendering + Arm-Emitter + ComposeBox Interface Summary
 
-**Three tasks land the frontend arm of the aside subsystem: (1) the new AsideBubble React component with the locked 10px + three-layer neon-glow identity-hue aesthetic Ashley signed off on, (2) the ComposeBoxProps interface extension carrying asideActive + onAsideDismiss for Wave 4's body consumption, (3) PrettyView's ten-edit wiring layer — state + refs + WS event handlers + isIdle-transition arm emitter + handleAsideDismiss callback + AsideBubble mount + ComposeBox prop plumbing + fresh-pane reset extension. Full frontend-arm architecture (per CONTEXT.md § Trigger LOCK 2026-07-26) is now closed: PrettyView emits aside_arm on isIdle:false→true when pvIdentity != null, and receives aside_ready + aside_dismissed WS frames to drive AsideBubble mount/unmount with cross-tab dismiss coherence. Landed via strict TDD RED→GREEN with 12 passing new vitest cases across three test files and full pretty-view regression at 117/119 (2 pre-existing ComposeBox.test.tsx failures documented in deferred-items.md, unrelated to Phase 14).**
+**Three tasks land the frontend arm of the aside subsystem: (1) the new AsideBubble React component with the locked 10px + three-layer neon-glow identity-hue aesthetic Alice signed off on, (2) the ComposeBoxProps interface extension carrying asideActive + onAsideDismiss for Wave 4's body consumption, (3) PrettyView's ten-edit wiring layer — state + refs + WS event handlers + isIdle-transition arm emitter + handleAsideDismiss callback + AsideBubble mount + ComposeBox prop plumbing + fresh-pane reset extension. Full frontend-arm architecture (per CONTEXT.md § Trigger LOCK 2026-07-26) is now closed: PrettyView emits aside_arm on isIdle:false→true when pvIdentity != null, and receives aside_ready + aside_dismissed WS frames to drive AsideBubble mount/unmount with cross-tab dismiss coherence. Landed via strict TDD RED→GREEN with 12 passing new vitest cases across three test files and full pretty-view regression at 117/119 (2 pre-existing ComposeBox.test.tsx failures documented in deferred-items.md, unrelated to Phase 14).**
 
 ## Performance
 
@@ -266,7 +266,7 @@ Otherwise: single-attempt RED→GREEN on all three tasks, no additional auto-fix
 
 ## User Setup Required
 
-None. Pure code additions to frontend TypeScript + React; no environment variables, no external services, no infrastructure changes. Wave 4 will land the ComposeBox morph body; still no user setup required. Wave 5 (integration + smoke tests) may need Ashley to eyeball the aesthetic in situ once end-to-end wiring is complete — but that's a Wave 5 concern, not a Wave 3 setup step.
+None. Pure code additions to frontend TypeScript + React; no environment variables, no external services, no infrastructure changes. Wave 4 will land the ComposeBox morph body; still no user setup required. Wave 5 (integration + smoke tests) may need Alice to eyeball the aesthetic in situ once end-to-end wiring is complete — but that's a Wave 5 concern, not a Wave 3 setup step.
 
 ## Next Phase Readiness
 
@@ -278,7 +278,7 @@ None. Pure code additions to frontend TypeScript + React; no environment variabl
 
 **Wave 4 should also absorb the pre-existing ComposeBox.test.tsx failures** documented in deferred-items.md (2/20 baseline unrelated to Phase 14). Wave 4 is already touching ComposeBox — this is the natural touchpoint per the deferred log.
 
-**Wave 5 (integration + smoke tests) is the natural place for end-to-end aesthetic UAT** — Ashley eyeballs the aside in situ across the full stack (arm emit → backend inject → poller extract → aside_ready → AsideBubble render → X click → dismiss round-trip → cross-tab dismiss).
+**Wave 5 (integration + smoke tests) is the natural place for end-to-end aesthetic UAT** — Alice eyeballs the aside in situ across the full stack (arm emit → backend inject → poller extract → aside_ready → AsideBubble render → X click → dismiss round-trip → cross-tab dismiss).
 
 No blockers, no concerns.
 

@@ -9,7 +9,7 @@ files_modified:
   - src/ui/features/pretty-view/PrettyView.tsx
 autonomous: true
 requirements:
-  - ASHLEY-MOBILE-SIZING
+  - USER-MOBILE-SIZING
 must_haves:
   truths:
     - "On mobile viewports (<768px), every ComposeBox button roughly doubles in tap-target size"
@@ -40,9 +40,9 @@ must_haves:
 ---
 
 <objective>
-Ashley finds ComposeBox controls and the PrettyView jump-to-latest button cramped on her mobile viewport. Apply purely-additive Tailwind `max-md:` className variants (viewport <768px, same threshold as `useIsMobile()`) so every ComposeBox button roughly doubles in tap-target size and the scroll-to-bottom button roughly quadruples on mobile — with zero desktop visual changes and zero JS/logic touched.
+Alice finds ComposeBox controls and the PrettyView jump-to-latest button cramped on her mobile viewport. Apply purely-additive Tailwind `max-md:` className variants (viewport <768px, same threshold as `useIsMobile()`) so every ComposeBox button roughly doubles in tap-target size and the scroll-to-bottom button roughly quadruples on mobile — with zero desktop visual changes and zero JS/logic touched.
 
-Purpose: Ashley-requested mobile ergonomics batch. Stacks on top of cdccd4f (this session's earlier ComposeBox amendment) and is held for a single combined deploy after Ashley's UAT greenlight — do NOT deploy inside this task.
+Purpose: user-requested mobile ergonomics batch. Stacks on top of cdccd4f (this session's earlier ComposeBox amendment) and is held for a single combined deploy after Alice's UAT greenlight — do NOT deploy inside this task.
 
 Output: ~11-12 className touches across exactly 2 files. No new files, no new imports, no test files, no logic changes.
 </objective>
@@ -106,7 +106,7 @@ Purely additive Tailwind `max-md:` variant bumps — no existing classes removed
 - Any code outside the ~11-12 className touches enumerated above
 - No new imports, no new state, no new components, no test files
 
-**Batch-deploy rule**: Do NOT run `docker compose up -d --force-recreate skynet` inside this task. This change stacks on cdccd4f and awaits Ashley's combined-batch UAT greenlight before deploy (per the 15-min deadman rollback constraint — one deploy, not two).
+**Batch-deploy rule**: Do NOT run `docker compose up -d --force-recreate skynet` inside this task. This change stacks on cdccd4f and awaits Alice's combined-batch UAT greenlight before deploy (per the 15-min deadman rollback constraint — one deploy, not two).
   </action>
   <verify>
     <automated>bash -lc 'set -e; cd /home/ubuntu/skynet; \
@@ -142,7 +142,7 @@ Purely additive Tailwind `max-md:` variant bumps — no existing classes removed
       # Typecheck
       npx tsc --noEmit -p tsconfig.json 2>&1 | tail -20; \
       echo "PASS: mobile sizing bumps applied — ComposeBox max-md hits=$COMPOSE_HITS, PrettyView max-md hits=$PRETTY_HITS"'</automated>
-    <human-check>Ashley: verify on mobile that (a) every ComposeBox button feels doubled in tap-target size, (b) the jump-to-latest scroll-to-bottom button is ~4× bigger and comfortable to tap, (c) desktop view is byte-for-byte identical (no button size regression), (d) no SSR flash or layout jump on load, (e) textarea Send button has enough right padding that cursor/text doesn't collide with it on mobile.</human-check>
+    <human-check>Alice: verify on mobile that (a) every ComposeBox button feels doubled in tap-target size, (b) the jump-to-latest scroll-to-bottom button is ~4× bigger and comfortable to tap, (c) desktop view is byte-for-byte identical (no button size regression), (d) no SSR flash or layout jump on load, (e) textarea Send button has enough right padding that cursor/text doesn't collide with it on mobile.</human-check>
   </verify>
   <done>
     - Exactly 2 files modified: `src/ui/features/pretty-view/ComposeBox.tsx` and `src/ui/features/pretty-view/PrettyView.tsx`
@@ -150,7 +150,7 @@ Purely additive Tailwind `max-md:` variant bumps — no existing classes removed
     - Zero JS/logic changes, zero new imports, zero new files
     - All `grep -q` guards in the automated verify pass
     - `npx tsc --noEmit` clean
-    - NOT deployed — stacks with cdccd4f pending Ashley's combined-batch UAT greenlight
+    - NOT deployed — stacks with cdccd4f pending Alice's combined-batch UAT greenlight
   </done>
 </task>
 
@@ -160,7 +160,7 @@ Purely additive Tailwind `max-md:` variant bumps — no existing classes removed
 - Automated grep-based checks (see task verify block) enforce: exact 5 Row-2 button bumps, presence of every enumerated max-md: token, preservation of isTouchDevice gate / Send positioning / meter CSS var / SVG width-height fallback / lucide-react import lines.
 - `npx tsc --noEmit` typechecks cleanly.
 - No new tests added (JSDOM cannot reliably assert viewport-relative CSS media queries; pure CSS additive changes have no unit-testable behavior surface).
-- Human verification (Ashley on mobile) is the definitive UAT signal — deferred to post-deploy alongside cdccd4f.
+- Human verification (Alice on mobile) is the definitive UAT signal — deferred to post-deploy alongside cdccd4f.
 </verification>
 
 <success_criteria>
@@ -168,7 +168,7 @@ Purely additive Tailwind `max-md:` variant bumps — no existing classes removed
 - On desktop viewport (>=768px): pixel-identical to pre-change state.
 - No SSR flash, no re-render on viewport resize (pure CSS media queries).
 - `isTouchDevice` gate at Row-1 container preserved (both signals coexist).
-- Change is held (NOT deployed) until Ashley greenlights the combined batch with cdccd4f.
+- Change is held (NOT deployed) until Alice greenlights the combined batch with cdccd4f.
 </success_criteria>
 
 <output>
@@ -176,5 +176,5 @@ Create `.planning/quick/260727-ejk-mobile-sizing-bumps-for-composebox-butto/2607
 - Final file paths + line ranges touched (may drift from planning-time line numbers)
 - Total count of `max-md:` occurrences added per file
 - Confirmation that no imports, logic, or non-className code was changed
-- Deploy status: HELD (batched with cdccd4f, awaiting Ashley UAT)
+- Deploy status: HELD (batched with cdccd4f, awaiting Alice UAT)
 </output>

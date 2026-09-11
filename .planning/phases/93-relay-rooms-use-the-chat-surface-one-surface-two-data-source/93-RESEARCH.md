@@ -6,7 +6,7 @@
 
 ## Summary
 
-Phase 93 is a **grounded refactor**, not a new-feature investigation. Slice D (Phase 90) shipped a standalone relay-room pane tree (11 files, ~4,275 LOC) built as a fresh parallel implementation of the harness chat surface. Ashley's 2026-09-09 UAT reformulation reversed that choice: **the harness chat surface (`PrettyView`) IS the shared thing**, extended once to accept a discriminated-union `source` prop that swaps in a relay-adapter hook + hides compose-box ambient chrome + extends the single upper-right identity badge anchor into a leftward-growing badge set. The standalone pane retires entirely, and the retirement is atomic with the extension work — no thin wrapper survives.
+Phase 93 is a **grounded refactor**, not a new-feature investigation. Slice D (Phase 90) shipped a standalone relay-room pane tree (11 files, ~4,275 LOC) built as a fresh parallel implementation of the harness chat surface. Alice's 2026-09-09 UAT reformulation reversed that choice: **the harness chat surface (`PrettyView`) IS the shared thing**, extended once to accept a discriminated-union `source` prop that swaps in a relay-adapter hook + hides compose-box ambient chrome + extends the single upper-right identity badge anchor into a leftward-growing badge set. The standalone pane retires entirely, and the retirement is atomic with the extension work — no thin wrapper survives.
 
 Every piece the planner needs is a code-mapping problem, not a design problem: CONTEXT.md D-01 through D-21 lock the 21 gray areas, and the shape file's "Tempting but no" section explicitly rejects the extract-and-rebuild path that would be tempting to re-do here. Research below inventories the seven concrete code sites the plan will touch and enumerates every file referencing the relay-room-pane tree for retirement.
 
@@ -85,10 +85,10 @@ Every piece the planner needs is a code-mapping problem, not a design problem: C
 No `./CLAUDE.md` exists at the working directory root, and no project skills directory (`.claude/skills/`, `.agents/skills/`) is present. Constraints below come from CONTEXT.md § Constraints, the shape file § Vehicle notes, and Slice D's still-applicable fleet rules.
 
 - **NO worktrees** (fleet rule). All work in main working tree on `feat/tab-title-from-tmux`.
-- **Executor doesn't ship** (fleet rule, Ashley 2026-08-08). Plans MUST NOT include a "ship" task at executor scope. Executor's remit stops at code + commit + scoped tests green. Deploy motion (push, docker build, docker compose up, verify, coord-post) is orchestrator-owned.
-- **Scoped tests during dev; full suite at deploy gate** (fleet rule, Ashley 2026-08-20 + 2026-09-07). Executor's green-gate is `npx vitest run --related <changed-files>` OR targeted paths (e.g. `src/ui/features/pretty-view/`), NOT full suite.
+- **Executor doesn't ship** (fleet rule, Alice 2026-08-08). Plans MUST NOT include a "ship" task at executor scope. Executor's remit stops at code + commit + scoped tests green. Deploy motion (push, docker build, docker compose up, verify, coord-post) is orchestrator-owned.
+- **Scoped tests during dev; full suite at deploy gate** (fleet rule, Alice 2026-08-20 + 2026-09-07). Executor's green-gate is `npx vitest run --related <changed-files>` OR targeted paths (e.g. `src/ui/features/pretty-view/`), NOT full suite.
 - **No message streaming anywhere** (fleet rule). Do NOT design any streaming state, do NOT add streaming affordances.
-- **Regression floor: harness case unchanged.** Every slice ships with Ashley's daily chat surface looking + behaving EXACTLY as today. If a slice can't clear that gate, stop and rework. This is the strongest "what would make it wrong" from the shape.
+- **Regression floor: harness case unchanged.** Every slice ships with Alice's daily chat surface looking + behaving EXACTLY as today. If a slice can't clear that gate, stop and rework. This is the strongest "what would make it wrong" from the shape.
 - **Multi-identity role — `git pull --rebase before every push`** (fleet rule, no coord-room post required for push-only, per 2026-09-05 rule).
 - **Every backend write to a user row must be paired with `DatabaseSaveTrigger.forceSave`** (Skynet in-memory-DB invariant). NOT expected to apply — Phase 93 is frontend-primary.
 
@@ -349,7 +349,7 @@ Phase 93 is a refactor that involves deleting a component tree, but it does NOT 
 ## Common Pitfalls
 
 ### Pitfall 1: Harness regression via unintended cross-branch effect
-**What goes wrong:** The multi-badge extension or source-prop plumbing accidentally shifts harness-case badge position by 1px, changes hue calculation, or introduces a stray z-index conflict. Ashley notices in daily use; regression escalates.
+**What goes wrong:** The multi-badge extension or source-prop plumbing accidentally shifts harness-case badge position by 1px, changes hue calculation, or introduces a stray z-index conflict. Alice notices in daily use; regression escalates.
 **Why it happens:** The extension goes in the same anchor location as the current single badge, and PrettyView's badge positioning is delicate (comment at PrettyView.tsx:3311-3320 lists a hard-lock on background-image with reasoning about stacking contexts).
 **How to avoid:**
 - Snapshot the harness case's current DOM at the badge anchor BEFORE any refactor (visual regression test or `render()` + serialize the tree in a test file).
@@ -726,7 +726,7 @@ export interface ComposeBoxProps {
 
 ## State of the Art
 
-Not applicable — this is a refactor of internal code, not adoption of a new library or ecosystem shift. Slice D shipped ~2 days ago (Phase 90, 2026-09-08 planning; Phase 91 UAT fix 2026-09-09). Phase 93 reverses Slice D's architectural choice within the same week based on Ashley's UAT reformulation.
+Not applicable — this is a refactor of internal code, not adoption of a new library or ecosystem shift. Slice D shipped ~2 days ago (Phase 90, 2026-09-08 planning; Phase 91 UAT fix 2026-09-09). Phase 93 reverses Slice D's architectural choice within the same week based on Alice's UAT reformulation.
 
 ## Assumptions Log
 

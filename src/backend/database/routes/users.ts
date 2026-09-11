@@ -79,7 +79,7 @@ router.use((req, res, next) => {
  * Derive a human-friendly displayname from a Skynet username (D-11).
  * For simple usernames: title-case the whole string.
  * For email-form usernames: take the pre-@ local part and title-case it.
- * Examples: "ashley" → "Ashley", "ashley@aitherhealth.com" → "Ashley"
+ * Examples: "alice" → "Alice", "alice@example.com" → "Alice"
  */
 function deriveDisplayname(username: string): string {
   const localPart = username.includes("@") ? username.split("@")[0] : username;

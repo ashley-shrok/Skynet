@@ -84,7 +84,7 @@ export function AsideBubble({ text, glow = 1.0, borderWidthPx = 10 }: AsideBubbl
 }
 ```
 
-**Rationale for arbitrary-class vs inline-style split (from ChatMessage.tsx L124-127 pattern):** ChatMessage / ImageBubble / PlanPendingBubble use Tailwind arbitrary-value classes for the identity-hue treatment because those classes are stable across every render (JIT can pre-compile them). AsideBubble uses inline `style` for the border-width and glow multiplier because they're prop-driven (JIT can't compile a `border-[${var}px]` at build time). This split is consistent with the codebase — the aside-visual-snippet.js prototype Ashley signed off on also uses inline styles for the tunable pieces.
+**Rationale for arbitrary-class vs inline-style split (from ChatMessage.tsx L124-127 pattern):** ChatMessage / ImageBubble / PlanPendingBubble use Tailwind arbitrary-value classes for the identity-hue treatment because those classes are stable across every render (JIT can pre-compile them). AsideBubble uses inline `style` for the border-width and glow multiplier because they're prop-driven (JIT can't compile a `border-[${var}px]` at build time). This split is consistent with the codebase — the aside-visual-snippet.js prototype Alice signed off on also uses inline styles for the tunable pieces.
 
 ---
 
@@ -216,7 +216,7 @@ Apply this to ALL FOUR aux buttons (paperclip L1150, interrupt L1180 if wired, t
     "absolute right-1 bottom-0.5",
     "p-2",
     // Distinct color when morphed to X so it visually separates from Send
-    // (Ashley: "Style change to visually distinguish from send" per CONTEXT.md).
+    // (Alice: "Style change to visually distinguish from send" per CONTEXT.md).
     asideActive
       ? "text-[hsla(var(--pv-id-hue),90%,72%,0.95)] hover:text-[hsla(var(--pv-id-hue),95%,82%,1)]"
       : "text-[rgba(240,235,224,0.3)] hover:text-[rgba(240,235,224,0.9)]",
@@ -260,7 +260,7 @@ export type AsideReadyEvent = {
 };
 
 // Phase 14: aside_dismissed — backend observed the BTW overlay disappearing
-// (either from a client-initiated Escape, or from any other cause — Ashley
+// (either from a client-initiated Escape, or from any other cause — Alice
 // SSH-attaching and pressing Escape herself, tmux death, etc.). Broadcast
 // to ALL clients subscribed to this session's WS stream (cross-tab dismiss
 // coherence per CONTEXT.md § Dismiss step 5 and ASIDE-11).

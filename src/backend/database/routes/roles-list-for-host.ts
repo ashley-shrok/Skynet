@@ -159,7 +159,7 @@ router.get(
           error: err instanceof Error ? err.message : "Unknown",
         });
         // Non-fatal: return empty list so dropdown renders "no roles" instead
-        // of a hard error surface (Ashley sees empty state, not a 500).
+        // of a hard error surface (Alice sees empty state, not a 500).
         return res.json([]);
       }
 
@@ -205,7 +205,7 @@ router.get(
           error: err instanceof Error ? err.message : "Unknown",
         });
         // Same graceful path — return names with empty descriptions so
-        // Ashley can still pick a role even if descriptions failed to load.
+        // Alice can still pick a role even if descriptions failed to load.
         return res.json(validRoles.map((name) => ({ name, description: "" })));
       }
 

@@ -13,7 +13,7 @@ they exercise, but they are never `import()`ed by any backend module.
 
 ## Fail-open guarantee (LOCKED)
 
-Per Ashley 2026-08-13 verbatim: *"just make sure that it fails open if the file
+Per Alice 2026-08-13 verbatim: *"just make sure that it fails open if the file
 that the hook is supposed to generate isn't found"*.
 
 **If the operator finds the payload file missing on a host AND the orchestrator is

@@ -54,9 +54,9 @@ must_haves:
 ---
 
 <objective>
-Patch #136 in the Skynet fork: restyle every `PrettyConversationRow` (not only the SELECTED row) to match the pretty-view assistant-bubble treatment locked in Ashley's prototype v2 — **full bubble intensity + normal density** — with the avatar disc adapted from `IdentityBadge.tsx` lg pill. Add a bare-glyph WIP pulse-dot render slot (`isWip` prop) as a same-file affordance; wire the prop through `PrettyConversationsPanel` as `isWip={false}` so a follow-up patch (#137) can turn it on with a one-line store subscription.
+Patch #136 in the Skynet fork: restyle every `PrettyConversationRow` (not only the SELECTED row) to match the pretty-view assistant-bubble treatment locked in Alice's prototype v2 — **full bubble intensity + normal density** — with the avatar disc adapted from `IdentityBadge.tsx` lg pill. Add a bare-glyph WIP pulse-dot render slot (`isWip` prop) as a same-file affordance; wire the prop through `PrettyConversationsPanel` as `isWip={false}` so a follow-up patch (#137) can turn it on with a one-line store subscription.
 
-Purpose: Land Ashley's locked visual pass for the conversation list (matches the assistant-bubble+identity-badge language everywhere in pretty-view). Ship the WIP dot render slot now so #137 is a data-only diff.
+Purpose: Land Alice's locked visual pass for the conversation list (matches the assistant-bubble+identity-badge language everywhere in pretty-view). Ship the WIP dot render slot now so #137 is a data-only diff.
 
 Output: Restyled `PrettyConversationRow.tsx`, prop-threaded `PrettyConversationsPanel.tsx`, updated tests, `pv-conv-wip-pulse` keyframes in `index.css`.
 
@@ -66,7 +66,7 @@ Batched deploy: LAND CODE + TESTS + COMMIT ONLY. NO build, NO docker up, NO depl
 <execution_context>
 Batched-deploy mode. No `npm run build`, no `docker compose up`, no deploy verification. Commit only.
 
-Commit message: `feat(pretty-conversations): patch #136 — full pretty-view bubble+badge restyle for every row (locked from Ashley's mock)`
+Commit message: `feat(pretty-conversations): patch #136 — full pretty-view bubble+badge restyle for every row (locked from Alice's mock)`
 </execution_context>
 
 <context>
@@ -77,7 +77,7 @@ Commit message: `feat(pretty-conversations): patch #136 — full pretty-view bub
 @src/ui/features/terminal/IdentityBadge.tsx
 @src/ui/index.css
 
-Live prototype (Ashley-approved v2, Full + Normal locked):
+Live prototype (user-approved v2, Full + Normal locked):
 http://100.99.149.8:8899/conversation-list-bubble-badge-restyle/prototype.html
 Prototype file on disk: /home/ubuntu/.claude/identities/tina/bounties/conversation-list-bubble-badge-restyle/prototype.html
 </context>
@@ -100,7 +100,7 @@ Block 1 — keyframes:
 - `50%`: `opacity: 1; transform: scale(1.15);`
 
 Block 2 — reduced-motion fallback:
-- `@media (prefers-reduced-motion: reduce)` wrapping a selector that targets the dot: use an attribute selector `[data-pv-conv-wip-dot="true"]` so the `.tsx` render slot in Task 2 can opt in via a data attribute (avoids coupling to a global class name Ashley hasn't sanctioned).
+- `@media (prefers-reduced-motion: reduce)` wrapping a selector that targets the dot: use an attribute selector `[data-pv-conv-wip-dot="true"]` so the `.tsx` render slot in Task 2 can opt in via a data attribute (avoids coupling to a global class name Alice hasn't sanctioned).
 - Inside the media query set `animation: none !important; opacity: 1; transform: scale(1);` on `[data-pv-conv-wip-dot="true"]`.
 
 Do NOT modify any existing token values. Do NOT touch anything above line ~152 or in the `:root` block.
@@ -383,7 +383,7 @@ NO `npm run build`. NO `docker compose up`. NO deploy verification.
 - Panel threads `isWip={false}` at all 3 render sites; comment above the first site marks it as patch-#136-render-slot / patch-#137-wiring-point.
 - All 14 Vitest tests pass (11 preserved + 3 new).
 - Commit lands (single commit) with the message shape:
-  `feat(pretty-conversations): patch #136 — full pretty-view bubble+badge restyle for every row (locked from Ashley's mock)`
+  `feat(pretty-conversations): patch #136 — full pretty-view bubble+badge restyle for every row (locked from Alice's mock)`
 - No build, no deploy, no `skynet-patches.md` write-up. Chrome outside `src/ui/features/pretty-conversations/*` and `src/ui/index.css` UNTOUCHED.
 </success_criteria>
 

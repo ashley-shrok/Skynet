@@ -33,13 +33,13 @@ requirements-completed: [QUICK-260823-FZY-01]
 
 ## Objective
 
-Fix the double-bubble bug Ashley hit in her tina session on 2026-08-23 when she
+Fix the double-bubble bug Alice hit in her tina session on 2026-08-23 when she
 typed `/fake we can try this one, problem happens 100% of the time`. Claude
 Code re-wrote the jsonl frame content to
 `<command-message>fake</command-message>\n<command-name>/fake</command-name>\n<command-args>we can try this one, problem happens 100% of the time</command-args>`,
 byte comparison against the seeded pending failed, the pending survived, the
 20s timer flipped it red — DOUBLE BUBBLE. Same shape-class covers every future
-CC input transformation (JSON paste normalization Ashley also reported, XML
+CC input transformation (JSON paste normalization Alice also reported, XML
 wrapping for other slash commands, etc.).
 
 Solution: drop byte equality from the head-match; use FIFO + role + state
@@ -85,7 +85,7 @@ if (parsed.role === "user") {
 ```
 
 The surrounding rationale comment was also rewritten to reference the
-quick-260823-fzy rationale + Ashley's `/fake` corpus (path + timestamp).
+quick-260823-fzy rationale + Alice's `/fake` corpus (path + timestamp).
 
 ## `collapseNewlinesForMatch` Still Called from `handleOptimisticSend`
 

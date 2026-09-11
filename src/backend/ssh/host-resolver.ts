@@ -256,7 +256,7 @@ export async function resolveHostById(
         }
         host.authType = host.key ? "key" : host.password ? "password" : "none";
       } else {
-        // Cross-user shared credential fallback (2026-09-10, Ashley: "shared means
+        // Cross-user shared credential fallback (2026-09-10, Alice: "shared means
         // shared"). The row-owner's user-DEK path returned nothing — either
         // because the cred exists under a different user (admin-set via the
         // cross-user PUT from quick 260910-67z) or because ownerId's key can't
@@ -383,7 +383,7 @@ export async function resolveHostByName(
   // D-13 promise ("display case preserved on the returned host row") — every
   // serve URL to a mixed-case host returned unknown_host + host_unreachable
   // interstitial. Discovered 2026-09-10 when tina served a prototype from
-  // `Skynet-8891.serve.term.example.com` and Ashley hit the interstitial.
+  // `Skynet-8891.serve.term.example.com` and Alice hit the interstitial.
   // Fix: LOWER(hosts.name) = name so the WHERE matches regardless of stored
   // case. Cross-user isolation invariant (§ Pitfall 7) is preserved by the
   // unchanged userId equality.

@@ -1,7 +1,7 @@
 ---
 phase: 32-identity-first-turn-session-discovery-wake-bubble-message-hi
 type: context
-source: ROADMAP.md § Phase 32 (LOCKED via design conversation with Ashley 2026-08-12)
+source: ROADMAP.md § Phase 32 (LOCKED via design conversation with Alice 2026-08-12)
 authority: "Every D-nnn below is a LOCKED decision. Plans and executors MUST NOT re-litigate. Every task in every plan MUST cite at least one D-nnn in its action and appear in the plan's `requirements` frontmatter."
 ---
 
@@ -9,7 +9,7 @@ authority: "Every D-nnn below is a LOCKED decision. Plans and executors MUST NOT
 
 **Source of truth:** `.planning/ROADMAP.md` § Phase 32: Identity-first-turn session discovery + wake-bubble message history (lines 1011-1049). The nine "Deliberate design choices" bullets from ROADMAP are captured verbatim below and assigned IDs D-01..D-09. All D-nnn are LOCKED — no re-litigation permitted at plan or execution time.
 
-**Consumer context (from ROADMAP, verbatim):** "wake bubble message history (from the just-shipped `dormancy-bubble-in-flow` quick task) is the first and currently only consumer. Ashley 2026-08-12: *'the bubble looks good, but unfortunately, the rest of the messages that would be in that session are not showing up.'*"
+**Consumer context (from ROADMAP, verbatim):** "wake bubble message history (from the just-shipped `dormancy-bubble-in-flow` quick task) is the first and currently only consumer. Alice 2026-08-12: *'the bubble looks good, but unfortunately, the rest of the messages that would be in that session are not showing up.'*"
 
 **Depends on:** Phase 31 (structured logging — the dormant-branch tail-open path will emit `[ws]` / `[session]` boundary logs consistent with the Phase 31 taxonomy).
 
@@ -41,7 +41,7 @@ New `/id reset` recycles create fresh JSONLs with the same first-turn signature;
 
 ### D-04 — Throwaway/non-identity panes naturally excluded
 
-Their first user turn isn't `/id <name>` (Ashley opens a shell, launches claude with no `/id` invocation), so they never match — the helper is identity-only BY CONSTRUCTION. **No explicit throwaway-pane filter needed.** This falls out of D-02 + D-01.
+Their first user turn isn't `/id <name>` (Alice opens a shell, launches claude with no `/id` invocation), so they never match — the helper is identity-only BY CONSTRUCTION. **No explicit throwaway-pane filter needed.** This falls out of D-02 + D-01.
 
 ### D-05 — Cold-start works
 
@@ -97,4 +97,4 @@ Additive only — the helper is wired into the dormant branch and no other site.
 
 ## Consumer sequencing
 
-Wake-bubble message history (from the just-shipped `dormancy-bubble-in-flow` quick task, patch #422, 2026-08-12) is the first and currently only consumer. The predecessor quick-task SUMMARY is at `.planning/quick/260812-ma8-dormancy-bubble-in-flow/260812-ma8-SUMMARY.md`. Ashley's verbatim direction after that ship: *"the bubble looks good, but unfortunately, the rest of the messages that would be in that session are not showing up."* Phase 32 closes that gap.
+Wake-bubble message history (from the just-shipped `dormancy-bubble-in-flow` quick task, patch #422, 2026-08-12) is the first and currently only consumer. The predecessor quick-task SUMMARY is at `.planning/quick/260812-ma8-dormancy-bubble-in-flow/260812-ma8-SUMMARY.md`. Alice's verbatim direction after that ship: *"the bubble looks good, but unfortunately, the rest of the messages that would be in that session are not showing up."* Phase 32 closes that gap.

@@ -37,14 +37,14 @@
 **UX rules**
 - **Clone is true-to-the-word.** Host/Role/Color are auto-copied and LOCKED. Only Name/Title/Voice/Avatar editable. Any plan that exposes host/role/color as editable on clone is a plan-checker BLOCK.
 - **Required-role dropdown is CREATE-only.** No affordance to edit an identity's role assignment anywhere in the UI.
-- **`Then create an identity with this role` defaults to TRUE.** Ashley: "obviously going to want an identity to take on the new role otherwise you'll have a role without any identities."
+- **`Then create an identity with this role` defaults to TRUE.** Alice: "obviously going to want an identity to take on the new role otherwise you'll have a role without any identities."
 - **Role tab is FIRST and DEFAULT** in IdentityModal — not slotted after Identity, not toggleable in position.
 - **Chain from create-role modal to create-identity modal** happens on submit only when checkbox is TRUE. Skips chain when unchecked.
 
 **Failure modes / edge cases**
 - **Zero roles on selected host** in the NewSessionDialog dropdown — MVP shows a "no roles on this host — create one first" link that opens CreateRoleDialog (planner may pick simpler "just empty dropdown"; either is acceptable).
 - **Clone name collision** with existing fleet folder on target host — clone endpoint validates before writing and returns an error the modal surfaces inline.
-- **No no-role fallback branches anywhere.** Ashley confirmed 2026-08-04 no fleet identity lacks `role:` frontmatter post-migration. Any plan that adds "graceful (no role)" fallback branches or empty-state handling is a plan-checker BLOCK (dead code).
+- **No no-role fallback branches anywhere.** Alice confirmed 2026-08-04 no fleet identity lacks `role:` frontmatter post-migration. Any plan that adds "graceful (no role)" fallback branches or empty-state handling is a plan-checker BLOCK (dead code).
 
 ### Claude's Discretion (planner picks during planning)
 - **Description source** in `roles:list-for-host`: first non-heading paragraph vs `## Role` section content. Default `## Role` (matches id skill template).
@@ -64,7 +64,7 @@ Explicitly out of scope for this phase (from design-and-waves.md):
 - **A dedicated "Manage roles" list surface.** MVP is just the `+ New role` launcher button; a list surface can come later.
 - **Display of role outside IdentityModal.** No badge on avatar in conversation list, no filter-by-role, no role in the sidebar. IdentityModal is the only surface where role is visible in this phase.
 - **Backfill legacy Skynet DB rows with role information.** Moot — no DB column exists (roles are filesystem-only).
-- **No-role fallback / graceful empty branches.** Ashley confirmed no such identities exist post-migration; adding dead code branches is a plan-checker BLOCK.
+- **No-role fallback / graceful empty branches.** Alice confirmed no such identities exist post-migration; adding dead code branches is a plan-checker BLOCK.
 - **Editing an identity's role assignment.** Not supported in this phase. Users edit role frontmatter directly via the identity file (visible in the existing Identity tab) if they need to change it.
 </user_constraints>
 
@@ -701,7 +701,7 @@ Fully documented at `identity-artifact-reader.ts:826-849` in the code comments. 
 
 ### Pitfall 8: Adding no-role fallback branches
 
-**What goes wrong:** Dead code — Ashley confirmed 2026-08-04 no fleet identity lacks `role:` frontmatter post-migration. Any `(no role)` empty state renders never (validated by grep across the fleet).
+**What goes wrong:** Dead code — Alice confirmed 2026-08-04 no fleet identity lacks `role:` frontmatter post-migration. Any `(no role)` empty state renders never (validated by grep across the fleet).
 
 **How to avoid:** CONTEXT.md LOCKED. The two-step helper `resolveRoleForIdentity` should THROW on missing role, not fall through. Frontend must not have "if no role show placeholder" branches. Plan-checker BLOCK.
 
@@ -872,7 +872,7 @@ All five questions raised during research have been resolved and are consumed by
    - What we know: Birth Step 5 is `/id <name>` which triggers the id skill's interactive create-flow (§2 of id skill). The identity file is written by the id skill on the box, AFTER an interactive human prompt for role. Skynet cannot pre-inject role: without pre-creating the file.
    - What's unclear: Which resolution the planner picks (B4b(a) modify birth to pre-write the file, vs B4b(b) modify id skill to accept role param).
    - Recommendation: Adopt B4b(a). It's Skynet-contained and testable. Adds ~40 lines to the birth orchestrator.
-   - **RESOLVED:** B4b(a) locked. Plan 22-02 Task 2 is a `checkpoint:human-verify` where Ashley confirms the ~40-line birth-orchestrator change before it lands; Task 3 implements the pre-write of `<name>.md` + `wakeups/` + `handoff.md` + relay-register via SSH inside Step 2's completion path (silent — no new SSE event type).
+   - **RESOLVED:** B4b(a) locked. Plan 22-02 Task 2 is a `checkpoint:human-verify` where Alice confirms the ~40-line birth-orchestrator change before it lands; Task 3 implements the pre-write of `<name>.md` + `wakeups/` + `handoff.md` + relay-register via SSH inside Step 2's completion path (silent — no new SSE event type).
 
 2. **Where does the "brief" for regen-avatar during clone come from?**
    - What we know: OpenAI's archetype prompt (identity-avatar-batch.ts L155-170) requires `name`, `title`, `brief`. Clone edits title but the design doesn't ship a brief input.
@@ -950,7 +950,7 @@ From `/home/ubuntu/skynet/CLAUDE.md`:
 - **All work goes through a GSD workflow** (`/gsd-quick` for small; `/gsd-execute-phase` for planned phase work). No direct repo edits outside GSD.
 - **Every `docker compose up -d --force-recreate skynet` runs behind the 15-min deadman rollback timer** — per-phase deploy gates apply.
 - **Skynet stores host credentials + SSH keys in AES-encrypted SQLite (`skynet-data` volume). Backup is daily EBS DLM snapshot; no separate DB backup.** Clone endpoint MUST NOT touch `skynet-data` schema (adding a `role` column would). Consistent with CONTEXT.md lockdown.
-- **Ashley never loses access to her fleet.** Bad clone or bad create-role must not brick the SSH gateway; every new route needs error paths that surface clear failures without breaking the rest of Skynet. Standard error handlers (`router.use((err, req, res, next) => ...)`) at the end of each route file, mirroring identities.ts L316-333.
+- **Alice never loses access to her fleet.** Bad clone or bad create-role must not brick the SSH gateway; every new route needs error paths that surface clear failures without breaking the rest of Skynet. Standard error handlers (`router.use((err, req, res, next) => ...)`) at the end of each route file, mirroring identities.ts L316-333.
 
 ## Sources
 

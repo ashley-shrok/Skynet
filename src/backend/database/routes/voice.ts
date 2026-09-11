@@ -119,9 +119,9 @@ export async function handleTranscribe(req: Request, res: Response): Promise<Res
   const ext = extFromMimetype(file.mimetype);
 
   // --- Disk-bank: fire-and-forget write of incoming audio buffer to container FS ---
-  // MUST run BEFORE any transcode (Pitfall 6): Ashley's post-hoc reference folder
+  // MUST run BEFORE any transcode (Pitfall 6): Alice's post-hoc reference folder
   // stays populated with the ORIGINAL .webm bytes (not the transcoded .ogg / .flac).
-  // Addresses Ashley 2026-08-14 3.87 MB clip incident: multer is memory-only so once
+  // Addresses Alice 2026-08-14 3.87 MB clip incident: multer is memory-only so once
   // a 504 returned the audio was GC'd. Banking to disk before the transcribe attempt
   // ensures raw bytes are recoverable even if the AWS round-trip fails.
   const authReq = req as AuthenticatedRequest;

@@ -32,7 +32,7 @@ key-files:
 key-decisions:
   - "HOLDING_TIMEOUT_TICKS = 15 (45s) — Nelly's timing note: new .jsonl within ~5s, fully-loaded identity 30-70s later; 45s catches truly-dead recycles without prematurely giving up on a slow one"
   - "Full discoverClaudeSession per tick, NOT cached ls -t $projects_dir/*.jsonl — Nelly's recover-in-different-cwd case (2026-07-15) means the same session UUID can move projects subdirs, and cached-dir shortcut would miss it"
-  - "Layer 1 /exit scan FALLS THROUGH (no return after transitionToHolding) so the parser still emits the /exit turn as a chat bubble — Ashley HARD LOCK: slash commands must remain visible in pretty view"
+  - "Layer 1 /exit scan FALLS THROUGH (no return after transitionToHolding) so the parser still emits the /exit turn as a chat bubble — Alice HARD LOCK: slash commands must remain visible in pretty view"
   - "setupHarnessTasksPoller is idempotent — safe to call with the same UUID (recover case) as a no-op restart; simplifies transitionToActiveNew (no guard needed on whether the UUID actually changed)"
   - "sessionIdChanged boolean added to claude_session_changed log line — distinguishes recycle (new UUID) from recover-in-different-cwd (same UUID) for post-deploy debugging"
   - "W1 canonical hoisting order committed unconditionally: state vars → teardownPane → const onLine → const onError → setupHarnessTasksPoller → transitionToHolding → transitionToActiveNew → transitionToDead → ws message handler body"

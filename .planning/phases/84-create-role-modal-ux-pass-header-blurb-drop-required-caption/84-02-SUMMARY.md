@@ -109,7 +109,7 @@ Code paths this plan modified: DialogTitle text, JSX conditional wrap around sea
 
 **Conclusion:** These are pre-existing flakes in the test-suite infrastructure exposed by full-file parallel load, not regressions introduced by this plan.
 
-**Expected failure not observed in this run:** Per plan `<verification>`: "`src/ui/features/pretty-conversations/PrettyConversationsPanel.test.tsx` Test 5 (L1259+, L1297-1298 asserts `expect(dialog!.textContent).toMatch(/start a new agent/i)`) will FAIL after this task lands. Plan 84-03 updates that assertion." This plan runs SCOPED tests only per Ashley 2026-09-07 campaign constraint (only `src/ui/sidebar/NewSessionDialog.test.tsx`), so the PrettyConversationsPanel test was not re-run here. Plan 84-03 (Wave 2) picks up that assertion swap.
+**Expected failure not observed in this run:** Per plan `<verification>`: "`src/ui/features/pretty-conversations/PrettyConversationsPanel.test.tsx` Test 5 (L1259+, L1297-1298 asserts `expect(dialog!.textContent).toMatch(/start a new agent/i)`) will FAIL after this task lands. Plan 84-03 updates that assertion." This plan runs SCOPED tests only per Alice 2026-09-07 campaign constraint (only `src/ui/sidebar/NewSessionDialog.test.tsx`), so the PrettyConversationsPanel test was not re-run here. Plan 84-03 (Wave 2) picks up that assertion swap.
 
 ## Deviations from Plan
 

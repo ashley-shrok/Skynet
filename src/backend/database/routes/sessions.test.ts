@@ -527,7 +527,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
         return Promise.resolve("---\nrole: chef\n---\n# Tiffany\n");
       }
       if (cmd.includes(TANYA_JSONL)) {
-        // Ashley 2026-08-23 lock: tanya's tail has only an assistant message —
+        // Alice 2026-08-23 lock: tanya's tail has only an assistant message —
         // excluded by isRealUserTurn; lastMessageAt is null.
         return Promise.resolve(
           jsonlMessageLine(5000, "assistant", "hi tanya") + "\n",
@@ -594,7 +594,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
         return Promise.resolve("---\nrole: chef\n---\n# X\n");
       }
       if (cmd.includes(TANYA_JSONL)) {
-        // Ashley 2026-08-23 lock: assistant-only tail → null (excluded).
+        // Alice 2026-08-23 lock: assistant-only tail → null (excluded).
         return Promise.resolve(
           jsonlMessageLine(9000, "assistant", "found me") + "\n",
         );
@@ -613,7 +613,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
     }>;
     expect(rows).toHaveLength(2);
 
-    // Ashley 2026-08-23 lock: tanya's tail has only an assistant message;
+    // Alice 2026-08-23 lock: tanya's tail has only an assistant message;
     // isRealUserTurn excludes it → lastMessageAt:null.
     const tanya = rows.find((r) => r.sessionName === "tanya");
     expect(tanya?.lastMessageAt).toBeNull();
@@ -648,7 +648,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
         return Promise.resolve("---\nrole: chef\n---\n# X\n");
       }
       if (cmd.includes(TIFFANY_JSONL)) {
-        // Ashley 2026-08-23 lock: tiffany's tail has only an assistant message
+        // Alice 2026-08-23 lock: tiffany's tail has only an assistant message
         // ("sibling ok") — excluded by isRealUserTurn → lastMessageAt:null.
         return Promise.resolve(
           jsonlMessageLine(4200, "assistant", "sibling ok") + "\n",
@@ -673,7 +673,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
     const tanya = rows.find((r) => r.sessionName === "tanya");
     expect(tanya?.lastMessageAt).toBeNull(); // hung → timed out → null
 
-    // Ashley 2026-08-23 lock: tiffany's assistant message is excluded;
+    // Alice 2026-08-23 lock: tiffany's assistant message is excluded;
     // sibling isolation still holds but lastMessageAt is now null too.
     const tiffany = rows.find((r) => r.sessionName === "tiffany");
     expect(tiffany?.lastMessageAt).toBeNull();
@@ -730,7 +730,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
     expect(tanya?.aiTitle).toBeNull();
   });
 
-  it("Test 5 (message-bearing filter): user + tool_use + assistant + bg-task → lastMessageAt = USER MSG ts (assistant excluded by Ashley 2026-08-23 lock)", async () => {
+  it("Test 5 (message-bearing filter): user + tool_use + assistant + bg-task → lastMessageAt = USER MSG ts (assistant excluded by Alice 2026-08-23 lock)", async () => {
     const fakeConn = { end: vi.fn(), exec: vi.fn() };
     (connectOneShot as Mock).mockResolvedValue(fakeConn);
 
@@ -748,7 +748,7 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
       }
       if (cmd.includes(TANYA_JSONL)) {
         // user_ts=1000, tool_use_ts=1500, assistant_ts=2000, bg_task_ts=2500.
-        // Ashley 2026-08-23 lock: only the user turn at ts=1000 qualifies —
+        // Alice 2026-08-23 lock: only the user turn at ts=1000 qualifies —
         // isRealUserTurn drops the assistant turn (ts=2000), tool_use
         // (kind:"skip" from parseSessionLine → dropped by predicate), and
         // background_task (type not "user" → dropped).
@@ -826,14 +826,14 @@ describe("GET /sessions/list — lastMessageAt derivation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// quick-260823-bap — Ashley 2026-08-23 lock predicate matrix
+// quick-260823-bap — Alice 2026-08-23 lock predicate matrix
 //
 // Byte-parallel with ssh-poll-orchestrator.test.ts predicate-matrix describe
 // block. Tested via the /sessions/list HTTP route (scanTailForNewestMessageAt
 // as the observable) rather than the private predicate helper directly.
 // ---------------------------------------------------------------------------
 
-describe("isRealUserTurn — Ashley 2026-08-23 lock predicate matrix", () => {
+describe("isRealUserTurn — Alice 2026-08-23 lock predicate matrix", () => {
   // Phase 85 (D-08): the /sessions/list route no longer calls
   // scanTailForNewestMessageAt on the lastMessageAt axis (source-swapped to
   // the send-log store). But the function definition + its
@@ -866,7 +866,7 @@ describe("isRealUserTurn — Ashley 2026-08-23 lock predicate matrix", () => {
       timestamp: "2026-08-23T10:00:00.000Z",
       uuid: "u1",
     });
-    // Ashley 2026-08-23 lock: typed prose is a real message → KEEP.
+    // Alice 2026-08-23 lock: typed prose is a real message → KEEP.
     expect(await scanSingleLine(rawLine)).toBe(ts);
   });
 
@@ -937,7 +937,7 @@ describe("isRealUserTurn — Ashley 2026-08-23 lock predicate matrix", () => {
     });
     // pre-Aug-23 this was silently counted (MESSAGE_BEARING_KINDS included
     // "message" kind, and parseSessionLine returned kind:"message" for some
-    // list-content user turns). Ashley 2026-08-23 lock: list content → DROP.
+    // list-content user turns). Alice 2026-08-23 lock: list content → DROP.
     expect(await scanSingleLine(rawLine)).toBeNull();
   });
 
@@ -1444,7 +1444,7 @@ describe("GET /sessions/list — aiTitle derivation (Phase 47 Plan 02)", () => {
 //
 // The single test below asserts `connectOneShot` receives 5_000 (not 30_000).
 // A future refactor that collapses the two constants back to one fails this
-// test loudly BEFORE Ashley's cold-cache clients get stuck at "Loading agents…"
+// test loudly BEFORE Alice's cold-cache clients get stuck at "Loading agents…"
 // again.
 describe("GET /sessions/list — connect vs discovery timeout split (quick-260821-m36)", () => {
   it("connectOneShot receives CONNECT_TIMEOUT_MS (5_000), not PER_HOST_TIMEOUT_MS (30_000)", async () => {
@@ -1761,7 +1761,7 @@ describe("GET /sessions/list — Phase 89 Plan 04 merge (D-15)", () => {
   const relayRowA = {
     id: "row-uuid-a",
     roomId: "!room-a:matrix.local",
-    roomTitle: "Ashley + Taylor",
+    roomTitle: "Alice + Taylor",
     lastActivityAt: "2026-09-08T14:30:00Z",
     createdAt: "2026-09-08T13:00:00Z",
     updatedAt: "2026-09-08T14:30:00Z",
@@ -1835,7 +1835,7 @@ describe("GET /sessions/list — Phase 89 Plan 04 merge (D-15)", () => {
     // Fields carried through from the store shape.
     expect(rows[0].id).toBe("row-uuid-a");
     expect(rows[0].roomId).toBe("!room-a:matrix.local");
-    expect(rows[0].roomTitle).toBe("Ashley + Taylor");
+    expect(rows[0].roomTitle).toBe("Alice + Taylor");
     expect(rows[0].lastActivityAt).toBe("2026-09-08T14:30:00Z");
     expect(rows[0].createdAt).toBe("2026-09-08T13:00:00Z");
     expect(rows[0].updatedAt).toBe("2026-09-08T14:30:00Z");

@@ -14,7 +14,7 @@
 // backdrop-blur, warm-cream text. NO animation, NO spinner, NO shadcn
 // primitives (Phase 10 patch #133 precedent — the pretty surfaces are
 // shadcn-free), NO useEffect / useState (motion + data-fetch guardrails per
-// Ashley's motion-quiet lock and threat-model T-11-02-03).
+// Alice's motion-quiet lock and threat-model T-11-02-03).
 //
 // Palette tokens live on the inline `style={{...}}` prop of the outer
 // container, NOT in a Tailwind arbitrary-value class. Reason (per plan

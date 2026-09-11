@@ -1,6 +1,6 @@
 # Phase 4 — Pretty View Visual Reskin — UAT Checklist
 
-**Purpose**: post-deploy walk-through Ashley runs to confirm the Phase 4 Glass depth reskin works end-to-end across VISUAL-01 through VISUAL-10.
+**Purpose**: post-deploy walk-through Alice runs to confirm the Phase 4 Glass depth reskin works end-to-end across VISUAL-01 through VISUAL-10.
 
 ## Prerequisites (do these once before starting the checklist)
 
@@ -78,7 +78,7 @@
 - [ ] The only visual cue distinguishing compose from the messages above is a **very subtle inset shadow shading the bottom strip** + a faint darkening linear-gradient.
 - [ ] Compose reads as "quiet — go there when you're ready." Does NOT compete with chat for attention.
 
-**Failure indicator**: compose looks like a raised card with hard edges, bright top rim, or a bordered panel treatment. This was the Round-3 dead-end Ashley explicitly rejected — treat any card treatment on compose as a regression.
+**Failure indicator**: compose looks like a raised card with hard edges, bright top rim, or a bordered panel treatment. This was the Round-3 dead-end Alice explicitly rejected — treat any card treatment on compose as a regression.
 
 ### VISUAL-07 — Textarea lightest-touch outline + identity-hue focus ring
 
@@ -130,7 +130,7 @@
 - [ ] Terminal / RDP / VNC / dashboard / sidebar / AppRail / tab bar / file manager chrome verified as UNCHANGED.
 - [ ] All existing pretty-view functionality verified as PRESERVED end-to-end.
 - [ ] SessionHoldingBanner sticky positioning verified as PRESERVED (FRAGILITY WARNING acid test passed).
-- [ ] Ashley signs off: **"Phase 4 UAT green — pin the deploy."**
+- [ ] Alice signs off: **"Phase 4 UAT green — pin the deploy."**
 
 If any item fails, the standard 15-min deadman timer + `sudo bash /opt/skynet/.tmp-revert.sh` runbook handles rollback. Otherwise pin with the **narrow pkill pattern** per AGENTS.md:
 

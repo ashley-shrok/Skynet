@@ -16,7 +16,7 @@ Bring the fleet-level role/identity split into Skynet's UI. Six coordinated piec
 5. **Chain** create-role → create-identity with role + host pre-filled when checkbox true (checkbox defaults to `true`).
 6. **Role tab** as FIRST/default tab in IdentityModal + backend `identity:get-role-file` / `identity:update-role-file` ops doing the two-step to read/write `~/.claude/roles/<role>/<role>.md`.
 
-**NOT in this phase:** DB schema changes, delete role/identity, manage-roles list surface, legacy no-role identity handling (Ashley confirmed no such identities exist post-migration), role display outside IdentityModal.
+**NOT in this phase:** DB schema changes, delete role/identity, manage-roles list surface, legacy no-role identity handling (Alice confirmed no such identities exist post-migration), role display outside IdentityModal.
 
 </domain>
 
@@ -51,14 +51,14 @@ Bring the fleet-level role/identity split into Skynet's UI. Six coordinated piec
 ### UX rules
 - **Clone is true-to-the-word.** Host/Role/Color are auto-copied and LOCKED. Only Name/Title/Voice/Avatar editable. Any plan that exposes host/role/color as editable on clone is a plan-checker BLOCK.
 - **Required-role dropdown is CREATE-only.** No affordance to edit an identity's role assignment anywhere in the UI.
-- **`Then create an identity with this role` defaults to TRUE.** Ashley: "obviously going to want an identity to take on the new role otherwise you'll have a role without any identities."
+- **`Then create an identity with this role` defaults to TRUE.** Alice: "obviously going to want an identity to take on the new role otherwise you'll have a role without any identities."
 - **Role tab is FIRST and DEFAULT** in IdentityModal — not slotted after Identity, not toggleable in position.
 - **Chain from create-role modal to create-identity modal** happens on submit only when checkbox is TRUE. Skips chain when unchecked.
 
 ### Failure modes / edge cases
 - **Zero roles on selected host** in the NewSessionDialog dropdown — MVP shows a "no roles on this host — create one first" link that opens CreateRoleDialog (planner may pick simpler "just empty dropdown"; either is acceptable).
 - **Clone name collision** with existing fleet folder on target host — clone endpoint validates before writing and returns an error the modal surfaces inline.
-- **No no-role fallback branches anywhere.** Ashley confirmed 2026-08-04 no fleet identity lacks `role:` frontmatter post-migration. Any plan that adds "graceful (no role)" fallback branches or empty-state handling is a plan-checker BLOCK (dead code).
+- **No no-role fallback branches anywhere.** Alice confirmed 2026-08-04 no fleet identity lacks `role:` frontmatter post-migration. Any plan that adds "graceful (no role)" fallback branches or empty-state handling is a plan-checker BLOCK (dead code).
 
 ### Claude's Discretion (planner picks during planning)
 - **Description source** in `roles:list-for-host`: first non-heading paragraph vs `## Role` section content. Default `## Role` (matches id skill template).
@@ -78,7 +78,7 @@ Bring the fleet-level role/identity split into Skynet's UI. Six coordinated piec
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Design source-of-truth (locked)
-- `~/.claude/roles/box-maintainer/bounties/skynet-role-identity-crud-ui/design-and-waves.md` — Locked design + wave breakdown. Reviewed by Ashley 2026-08-04.
+- `~/.claude/roles/box-maintainer/bounties/skynet-role-identity-crud-ui/design-and-waves.md` — Locked design + wave breakdown. Reviewed by Alice 2026-08-04.
 - `~/.claude/roles/box-maintainer/bounties/skynet-role-identity-crud-ui/bounty.json` — Bounty metadata + premise.
 
 ### Fleet-level role/identity paradigm (source of truth for the shape being mirrored)
@@ -169,7 +169,7 @@ Explicitly out of scope for this phase (from design-and-waves.md):
 - **A dedicated "Manage roles" list surface.** MVP is just the `+ New role` launcher button; a list surface can come later.
 - **Display of role outside IdentityModal.** No badge on avatar in conversation list, no filter-by-role, no role in the sidebar. IdentityModal is the only surface where role is visible in this phase.
 - **Backfill legacy Skynet DB rows with role information.** Moot — no DB column exists (roles are filesystem-only).
-- **No-role fallback / graceful empty branches.** Ashley confirmed no such identities exist post-migration; adding dead code branches is a plan-checker BLOCK.
+- **No-role fallback / graceful empty branches.** Alice confirmed no such identities exist post-migration; adding dead code branches is a plan-checker BLOCK.
 - **Editing an identity's role assignment.** Not supported in this phase. Users edit role frontmatter directly via the identity file (visible in the existing Identity tab) if they need to change it.
 
 </deferred>

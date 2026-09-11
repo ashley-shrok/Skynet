@@ -19,7 +19,7 @@
 | Feature flag + dark-first | Ship infra dark, verify against manually-poked test subdomain, then flip agents' URL construction in a follow-up | |
 
 **User's choice:** Single deploy.
-**Notes:** Ashley explicitly framed this whole build as "not in a rush, do this thing right" — combined with R&D having been thorough enough that infra unknowns are gone, single deploy is fine. No feature-flag ceremony needed.
+**Notes:** Alice explicitly framed this whole build as "not in a rush, do this thing right" — combined with R&D having been thorough enough that infra unknowns are gone, single deploy is fine. No feature-flag ceremony needed.
 
 ---
 
@@ -31,7 +31,7 @@
 | Targeted audit | Only hot / sensitive endpoints (auth, host CRUD, identity CRUD, message send) audited; everything else assumed OK | |
 
 **User's choice:** Full audit.
-**Notes:** Ashley verbatim: "full audit because we're gonna take our time and do this whole thing right. We are not in a rush." The cookie widen is a security posture change; half-audits are how you ship CSRF holes.
+**Notes:** Alice verbatim: "full audit because we're gonna take our time and do this whole thing right. We are not in a rush." The cookie widen is a security posture change; half-audits are how you ship CSRF holes.
 
 ---
 
@@ -53,10 +53,10 @@
 |--------|-------------|----------|
 | Plain clickable link | Same tailnet-URL-detection stack Phase 78 extended; add serve URL regex; render as clickable, that's it | ✓ (for Phase 103 only) |
 | Custom render in Phase 103 | Live-app icon / preview card / distinctive Skynet-proxied render inline in the message bubble | |
-| Custom render as its own future shape | Deferred — Ashley wants a tasting session for both file AND serve URL visual affordances together | ✓ (as follow-up) |
+| Custom render as its own future shape | Deferred — Alice wants a tasting session for both file AND serve URL visual affordances together | ✓ (as follow-up) |
 
 **User's choice:** Plain clickable link for Phase 103; custom visual render (for both file and serve URLs) becomes its own shape.
-**Notes:** Ashley verbatim: "I really did want to do something special for both files and serving stuff links. Um, so, I don't necessarily know if it needs to be part of like exactly what we're gonna do... or if it gets like tacked on later on in the campaign, but I think this is a good opportunity to hit that stuff. But I think like that should probably be its own shape. cause I'm gonna wanna do a tasting and other stuff like that." → Phase 103 ships plain links; visual affordance is its own build later.
+**Notes:** Alice verbatim: "I really did want to do something special for both files and serving stuff links. Um, so, I don't necessarily know if it needs to be part of like exactly what we're gonna do... or if it gets like tacked on later on in the campaign, but I think this is a good opportunity to hit that stuff. But I think like that should probably be its own shape. cause I'm gonna wanna do a tasting and other stuff like that." → Phase 103 ships plain links; visual affordance is its own build later.
 
 ---
 
@@ -71,7 +71,7 @@
 ## Deferred Ideas
 
 - **First-class "Apps" concept in Skynet** — persistent, Skynet-managed apps, Bun/SQLite stack, own UI panel, split-view droppable, cross-user "share my app" belongs here not to serve URL. Bounty `first-class-agent-apps-in-skynet` opens at end of session.
-- **Custom visual affordance shape** for BOTH file URLs and serve URLs — Ashley wants a tasting session; deferred out of Phase 103. Bounty `serve-and-file-url-visual-affordances` opens at end of session.
+- **Custom visual affordance shape** for BOTH file URLs and serve URLs — Alice wants a tasting session; deferred out of Phase 103. Bounty `serve-and-file-url-visual-affordances` opens at end of session.
 - **Per-URL revocation / rate-limiting / custom headers on serve URLs** — shape-file-deferred. Add if a real need surfaces.
 - **Skynet dashboard for "live serve URLs right now"** — shape-file-deferred. URLs are ephemeral; no state to display.
 - **Per-user disambiguation UX for the (rare) case of a user owning two hosts with the same name** — first-match-wins + warning log for now; add richer UX only if it bites.

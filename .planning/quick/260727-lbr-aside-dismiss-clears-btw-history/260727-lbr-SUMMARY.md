@@ -52,7 +52,7 @@ One-liner: Replace single-Escape aside dismiss with a two-keystroke `x`-then-Esc
 
 ## What changed
 
-**Root cause (from CONTEXT.md):** Claude Code's `/btw` overlay maintains its own in-overlay history buffer within a single Claude Code session. When Ashley opens an aside, gets an answer, closes it, then opens a second aside on a different topic, the model self-references the first aside's answer — poisoning the second aside. The `/btw` overlay's keybinding for "clear history" is `x`; pressing it before `Escape` gives every new aside a clean slate.
+**Root cause (from CONTEXT.md):** Claude Code's `/btw` overlay maintains its own in-overlay history buffer within a single Claude Code session. When Alice opens an aside, gets an answer, closes it, then opens a second aside on a different topic, the model self-references the first aside's answer — poisoning the second aside. The `/btw` overlay's keybinding for "clear history" is `x`; pressing it before `Escape` gives every new aside a clean slate.
 
 **Fix (backend only, WS frame shape untouched):**
 - New exported constant `BTW_CLEAR_HISTORY_KEY = "x"` in `claude-session-server.ts`, sitting next to `BTW_PROMPT` and `ASIDE_END_MARKER`.
@@ -76,7 +76,7 @@ The 100ms number is captured as the literal `100` inside `dismissBtw`; if UAT re
 
 ## One-line-fix property of BTW_CLEAR_HISTORY_KEY
 
-If Ashley's UAT reveals `x` isn't the right key (e.g., the overlay actually needs `c`, `Ctrl+L`, or some other keybinding), the fix is a **single-line change**:
+If Alice's UAT reveals `x` isn't the right key (e.g., the overlay actually needs `c`, `Ctrl+L`, or some other keybinding), the fix is a **single-line change**:
 
 ```ts
 export const BTW_CLEAR_HISTORY_KEY = "x";   // ← flip to correct key
@@ -120,7 +120,7 @@ None — plan executed exactly as written. All plan non-negotiables preserved:
 
 ## Manual UAT (post-merge, not gated by this plan)
 
-Ashley opens an aside in a Claude Code pane, closes it, opens a second aside on a different topic, and confirms the second aside answer no longer self-references the first. If the wrong key was chosen (overlay did NOT clear), flip `BTW_CLEAR_HISTORY_KEY` from `"x"` to the correct key — single-line fix, no other code change needed, tests will fail loud at Test 4 to prompt the re-decision.
+Alice opens an aside in a Claude Code pane, closes it, opens a second aside on a different topic, and confirms the second aside answer no longer self-references the first. If the wrong key was chosen (overlay did NOT clear), flip `BTW_CLEAR_HISTORY_KEY` from `"x"` to the correct key — single-line fix, no other code change needed, tests will fail loud at Test 4 to prompt the re-decision.
 
 ## Self-Check: PASSED
 

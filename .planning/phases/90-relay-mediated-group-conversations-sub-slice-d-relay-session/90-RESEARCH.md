@@ -13,7 +13,7 @@
 - **D-01: Two panes side-by-side, not one modified pretty view.** Build the relay pane as its own component tree, entirely separate orchestration. Pretty view (harness pane) is NOT modified in this slice.
 - **D-02: Share truly-primitive pieces only. Don't share pane orchestration.** Shared: (a) `RelayInboundBubble` (already-shipped, reuse as-is); (b) outbound "you speaking" bubble (extract from ChatMessage's `isUser` branch); (c) compose textarea + send button visual shell. Not shared: data fetching, pagination trigger, top-of-pane chrome, attach/stop/recap wiring, per-participant state.
 - **D-03: Don't refactor pretty view onto the shared primitives in this slice.** Extract primitives minimally, land relay pane on top, leave pretty view consuming its current private components.
-  - **D-03 WAIVER (Ashley 2026-09-08, plan-checker review):** Fleet-status contextPct promotion is greenlit as a MECHANICAL state-source swap in PrettyView (swap `useState<number | null>` for `useSessionContextPct(hostId, tmuxSession)` hook; remove/no-op the WS `context_pct` handler). This is zero UX change, zero behavior change. Rest of pretty view remains off-limits.
+  - **D-03 WAIVER (Alice 2026-09-08, plan-checker review):** Fleet-status contextPct promotion is greenlit as a MECHANICAL state-source swap in PrettyView (swap `useState<number | null>` for `useSessionContextPct(hostId, tmuxSession)` hook; remove/no-op the WS `context_pct` handler). This is zero UX change, zero behavior change. Rest of pretty view remains off-limits.
 
 **Compose box**
 - **D-04: The whole upper area of pretty view's compose box vanishes in the relay pane.** No reset, meter, queue, stop, thumbs-up, recap. Reset + meter move to per-agent badge appendages (D-08).
@@ -25,12 +25,12 @@
 - **D-08: Per-agent badge shape.** Reuse existing identity badges + shrunk meter/reset appendage hanging off the bottom.
 - **D-09: Per-human badge shape.** Plain identity badge, no appendage, no meter, no reset. Absence of appendage is how viewer distinguishes humans from agents.
 - **D-10: Per-agent state source.** Reuse pretty view's existing per-agent state channel — same context number and reset behavior whether viewed in the agent's own harness pane or its badge in a relay-room pane.
-  - **D-10 DELIVERY MECHANISM (Ashley 2026-09-08, plan-checker review):** contextPct is PROMOTED from PrettyView-local `useState` to a per-session field on the fleet-status response. Both PrettyView and the relay-pane badge appendage subscribe to fleet-status via a new `useSessionContextPct(hostId, tmuxSession)` hook. Reset from the relay pane uses a new backend endpoint `POST /agent-reset/:hostId/:tmuxSessionName` that dispatches the same `/id reset` input the existing PrettyView reset button dispatches — pretty view's own reset button is rewired to use the same endpoint for consistency (D-03 waiver, mechanical swap).
+  - **D-10 DELIVERY MECHANISM (Alice 2026-09-08, plan-checker review):** contextPct is PROMOTED from PrettyView-local `useState` to a per-session field on the fleet-status response. Both PrettyView and the relay-pane badge appendage subscribe to fleet-status via a new `useSessionContextPct(hostId, tmuxSession)` hook. Reset from the relay pane uses a new backend endpoint `POST /agent-reset/:hostId/:tmuxSessionName` that dispatches the same `/id reset` input the existing PrettyView reset button dispatches — pretty view's own reset button is rewired to use the same endpoint for consistency (D-03 waiver, mechanical swap).
 
 **Bubbles + message history**
 - **D-11: Inbound bubbles sourced directly from the relay** — NOT from parsed session transcripts. History from relay's own message-history endpoint (older) + live subscription (new).
 - **D-12: Inbound bubble visual — reuse RelayInboundBubble** (shipped 2026-08-18 by tiffany, bounty `relay-inbound-bubble-sender-hue-recolor`). Same per-sender hue, left-alignment, resolved-identity dot.
-  - **D-12 FORK CLARIFICATION (Ashley 2026-09-08, plan-checker review):** Ashley verbatim: *"in relay sessions, the collapsed nature of relay bubbles would not be what we want. And there really wouldn't be a collapse feature in the relay sessions because it doesn't make sense."* Fork `RelayInboundBubble` as `RelayRoomInboundBubble` (planner-flex on name) — a COPY-extraction that renders EXPANDED by default, has NO collapse/expand toggle, does NOT run pointer-detection (D-11 relay bubbles come from relay directly, not parsed transcripts — pointer-detect was for the transcript-parsed case). Preserves the sender-hue visual encoding + left-alignment + resolved-identity dot. Original RelayInboundBubble in pretty view stays untouched (D-03).
+  - **D-12 FORK CLARIFICATION (Alice 2026-09-08, plan-checker review):** Alice verbatim: *"in relay sessions, the collapsed nature of relay bubbles would not be what we want. And there really wouldn't be a collapse feature in the relay sessions because it doesn't make sense."* Fork `RelayInboundBubble` as `RelayRoomInboundBubble` (planner-flex on name) — a COPY-extraction that renders EXPANDED by default, has NO collapse/expand toggle, does NOT run pointer-detection (D-11 relay bubbles come from relay directly, not parsed transcripts — pointer-detect was for the transcript-parsed case). Preserves the sender-hue visual encoding + left-alignment + resolved-identity dot. Original RelayInboundBubble in pretty view stays untouched (D-03).
 - **D-13: Outbound bubbles use existing right-aligned "you speaking" visual style.** Extract as shared primitive per D-02.b.
 - **D-14: Message-history pagination — behavior matches pretty view 1:1.** Same initial load size, same scroll-back trigger, same batch size. Planner reads pretty view's implementation and matches.
 
@@ -383,13 +383,13 @@ export async function sendMessageAsUser(
 }
 ```
 
-**Pitfall:** DO NOT reuse the admin token to send. If `@skynet-admin` sends `hello` into a room, every participant sees `@skynet-admin: hello`, not `@ashley_human: hello`. The `loginAsUser` mint-per-request pattern is what the existing agent-side recv.sh path uses (Phase 88 D-13 explicitly deferred the "cache access tokens" decision to whichever later slice needs them — that's THIS slice).
+**Pitfall:** DO NOT reuse the admin token to send. If `@skynet-admin` sends `hello` into a room, every participant sees `@skynet-admin: hello`, not `@alice_human: hello`. The `loginAsUser` mint-per-request pattern is what the existing agent-side recv.sh path uses (Phase 88 D-13 explicitly deferred the "cache access tokens" decision to whichever later slice needs them — that's THIS slice).
 
 ### Pattern 3: Reuse the Per-Agent State Channel — Don't Invent New State (D-10)
 
 **What:** The pretty-view compose box's context meter reads `contextPct?: number | null` (`ComposeBox.tsx:256`) which is populated from the `context_pct` WS frame handled in `PrettyView.tsx:2269-2273`. The `session-working-store` publishes per-session working state keyed on `${hostId}:${tmuxSessionName}`. For the relay-room pane's per-agent badge appendage to show identical state, the appendage MUST subscribe to the SAME store keys.
 
-**REVISED (D-10 delivery mechanism, Ashley 2026-09-08):** Rather than opening a hidden PrettyView WS per agent, `contextPct` is promoted to a per-session field on `fleet-status`'s response. The backend's existing `context_pct` emission in `claude-session-server.ts` (L3219 dormant branch + L7074 primary emission) is dual-written into a shared map that `fleet-status-server` publishes on every tick. Both surfaces (PrettyView after mechanical D-03-waiver swap; RelayRoomPane badge appendage) subscribe via a new `useSessionContextPct(hostId, tmuxSession)` hook. Same source of truth, same value, zero drift.
+**REVISED (D-10 delivery mechanism, Alice 2026-09-08):** Rather than opening a hidden PrettyView WS per agent, `contextPct` is promoted to a per-session field on `fleet-status`'s response. The backend's existing `context_pct` emission in `claude-session-server.ts` (L3219 dormant branch + L7074 primary emission) is dual-written into a shared map that `fleet-status-server` publishes on every tick. Both surfaces (PrettyView after mechanical D-03-waiver swap; RelayRoomPane badge appendage) subscribe via a new `useSessionContextPct(hostId, tmuxSession)` hook. Same source of truth, same value, zero drift.
 
 **When to use:** Wave 2 — badge appendage wiring. This is the D-10 correctness invariant.
 
@@ -430,7 +430,7 @@ export function AgentBadgeWithAppendage(props: AgentBadgeWithAppendageProps) {
 - **Adding a disabled attach button with a "coming later" tooltip.** Explicitly rejected by D-05.
 - **Reshuffling the identity-badge row by recency-of-last-message.** Explicitly rejected by D-07 (rejected during grill — restless).
 - **Using `dangerouslySetInnerHTML` for any rendered relay text.** Every existing bubble primitive renders body via React text children — same discipline for slice D. Sender-side content from strangers is untrusted by default.
-- **Streaming affordances (typing indicators, streaming spinners, auto-expand-while-streaming).** Fleet rule — no streaming anywhere ever (Ashley 2026-08-29). Every bubble renders atomically after send/receive lands.
+- **Streaming affordances (typing indicators, streaming spinners, auto-expand-while-streaming).** Fleet rule — no streaming anywhere ever (Alice 2026-08-29). Every bubble renders atomically after send/receive lands.
 - **Storing Matrix access tokens in the browser.** Slice A D-08 explicit rejection. Backend-proxied is the only path.
 - **Piggybacking relay events on `/claude-session/websocket/` with synthetic hostId/tmuxSession values.** Cleaner to open a new WS route keyed on `(userId, roomId)` per D-02's "don't share pane orchestration."
 
@@ -441,7 +441,7 @@ export function AgentBadgeWithAppendage(props: AgentBadgeWithAppendageProps) {
 | mxid → displayName + colorHue resolution | New resolver | `resolveMxidToIdentity(mxid, byKey)` at `src/ui/features/pretty-view/relay-mxid-resolve.ts` | Already handles the full mxid grammar, `_human` suffix stripping, and neutral-grey fallback for unknown senders. Battle-tested via RelayInboundBubble since 2026-08-18. |
 | Per-agent working state / context% | New per-agent state store | `session-working-store` + `useSessionIsWorking(key)`; `useSessionContextPct(hostId, tmuxSession)` from `fleet-status-client` (Wave 0) | D-10 correctness — two stores would drift. Wave 0 promotes contextPct to fleet-status so both PrettyView and the relay-pane badge subscribe to the same source. |
 | WS reconnect with backoff + visibility handling | Custom scheduler | Mirror `PrettyView.tsx`'s pattern (patch #148 — `MAX_RECONNECT_ATTEMPTS=5`, linear-with-cap 2s/4s/6s/8s/8s, visibilitychange handler resets attempts) | Proven pattern for the same class of long-lived WS. |
-| JSON serialization of a React SyntheticEvent for logging | `JSON.stringify(e)` | Extract explicit fields (see PATTERNS.md fleet-wide directive Ashley 2026-08-11) | JSON.stringify DOM/React events leaks huge object graphs and often throws on circular refs. |
+| JSON serialization of a React SyntheticEvent for logging | `JSON.stringify(e)` | Extract explicit fields (see PATTERNS.md fleet-wide directive Alice 2026-08-11) | JSON.stringify DOM/React events leaks huge object graphs and often throws on circular refs. |
 | mxid grammar validation | Ad-hoc regex | `MXID_RE` at `src/backend/matrix/matrix-admin-routes.ts:30` — `/^@[a-z0-9._=/+-]{1,255}:[a-z0-9.-]{1,255}$/` | Canonical Synapse localpart grammar; used by Phase 88 sanitizer. |
 | Matrix admin API calls | Raw fetch to Synapse | `matrix-admin-client.ts` primitives | Standard error discriminated union, 30s timeout, token scrubbing, encodeURIComponent path defense. Extend the file, don't parallel-implement. |
 | Access token retrieval for a specific user | New token store | `loginAsUser(mxid)` from `matrix-admin-client.ts:135` | Uses admin auth to mint fresh per-user tokens; no password storage needed. Phase 88 D-13 explicitly named THIS slice as the one that picks the runtime-token strategy — the recommendation is mint-fresh-per-request (simple, higher latency, zero storage, matches how the identity-birth path uses it at `identity-birth-orchestrator.ts:779`). Cache-in-memory or persist-encrypted are v1.5 optimizations. |
@@ -482,7 +482,7 @@ However, the following IS worth noting for planner awareness:
 **Warning signs:** A planner draft that adds `context_pct` fields to a new store, or wires the meter to any per-user or per-mxid state, or opens a per-agent WS just to read context %.
 
 ### Pitfall 3: Sending as `@skynet-admin` instead of the user
-**What goes wrong:** Every message the user sends in a relay-room pane appears in the room as `@skynet-admin: hello` instead of `@ashley_human: hello`. Every other participant sees admin traffic, not user traffic.
+**What goes wrong:** Every message the user sends in a relay-room pane appears in the room as `@skynet-admin: hello` instead of `@alice_human: hello`. Every other participant sees admin traffic, not user traffic.
 **Why it happens:** Naive implementation reuses `matrix-admin-client.ts`'s admin credential for sends — that credential is the admin's, not the user's.
 **How to avoid:** For sends, ALWAYS `loginAsUser(users.mxid)` first to mint a per-user token, then use THAT token in the `Authorization: Bearer …` header on the `PUT /rooms/{roomId}/send/m.room.message/{txnId}` call. Wrap this as a `sendMessageAsUser(senderMxid, roomId, body, txnId)` primitive in `matrix-admin-client.ts`.
 **Warning signs:** Any backend send-path code that calls `PUT .../send/...` directly with `creds.accessToken` (the admin token).
@@ -519,7 +519,7 @@ However, the following IS worth noting for planner awareness:
 ### Pitfall 9: Streaming/typing-indicator temptation
 **What goes wrong:** Slice D is a group-chat UI; group-chat UIs conventionally have typing indicators, read receipts, streaming send-in-progress spinners.
 **Why it happens:** Frontend intuition from every other chat product.
-**How to avoid:** Fleet rule — NO STREAMING ANYWHERE EVER (Ashley 2026-08-29). Bubbles render atomically after send/receive lands. No typing indicators, no streaming-in-progress spinners, no auto-expand-while-streaming. The only "in-progress" affordance is the existing optimistic-send bubble (pending → sent OR pending → failed-red), which is discrete state transitions, not streaming.
+**How to avoid:** Fleet rule — NO STREAMING ANYWHERE EVER (Alice 2026-08-29). Bubbles render atomically after send/receive lands. No typing indicators, no streaming-in-progress spinners, no auto-expand-while-streaming. The only "in-progress" affordance is the existing optimistic-send bubble (pending → sent OR pending → failed-red), which is discrete state transitions, not streaming.
 **Warning signs:** Any task description containing "streaming", "typing indicator", "read receipt", "presence".
 
 ## Code Examples
@@ -835,7 +835,7 @@ Slice D is a code-only phase — no new external CLI tools or services are requi
 - **Every backend write to a user row must be paired with `DatabaseSaveTrigger.forceSave(<reason>)`.** Not expected to apply to slice D (frontend-primary; no new DB writes) — flag if any backend touch introduces DB writes.
 - **Every new URL prefix needs matching `location` blocks in BOTH `docker/nginx.conf` AND `docker/nginx-https.conf`.** Applies to the new `/relay-room/websocket/` route, `/relay-room/` REST prefix (participants endpoint), AND `/agent-reset/` prefix (Wave 0).
 - **AES-encrypted SQLite for `matrix_admin_creds`, `telegram_bot_tokens`.** No new secrets stored in slice D.
-- **Executor doesn't ship** (fleet rule Ashley 2026-08-08). Plans do NOT include ship tasks. Executor stops at code + commit + scoped tests green.
+- **Executor doesn't ship** (fleet rule Alice 2026-08-08). Plans do NOT include ship tasks. Executor stops at code + commit + scoped tests green.
 
 ## Project Constraints (from PROJECT.md — no CLAUDE.md present)
 
@@ -844,19 +844,19 @@ Skynet does not have a `CLAUDE.md` in the repo root. `PROJECT.md` § Constraints
 - **Tech stack:** React + TypeScript frontend; Node/Express backend on Drizzle ORM over AES-encrypted SQLite; Docker Compose; Caddy 2 edge; guacd 1.6.0 for RDP/VNC. Slice D adds no new tech; extends the frontend + backend.
 - **Rebase-ability:** Every fork commit must survive rebases against upstream `main`. Slice D commits are additive frontend + backend + Matrix client extensions; expected to rebase cleanly.
 - **Deploy safety:** `docker compose up -d --force-recreate skynet` runs behind the 15-min deadman rollback timer. NOT applicable to slice D execution (executor doesn't ship) — but the ship phase (arc-close, orchestrator-owned) must honor this.
-- **Blast radius:** A bad deploy loses Ashley access to her whole fleet. Slice D touches auth + WS + Matrix — all of these have "silently break Ashley's session" failure modes. Extra caution on the WS route addition (nginx location block MUST be correct in both configs).
+- **Blast radius:** A bad deploy loses Alice access to her whole fleet. Slice D touches auth + WS + Matrix — all of these have "silently break Alice's session" failure modes. Extra caution on the WS route addition (nginx location block MUST be correct in both configs).
 - **Encryption:** Existing FieldCrypto layer for secrets; slice D stores no new secrets.
 - **Nginx caveat:** BOTH `docker/nginx.conf` AND `docker/nginx-https.conf` need matching `location` blocks for new URL prefixes. Applies to the new relay-room WS route AND the /relay-room/ REST prefix AND the /agent-reset/ prefix.
 - **Test scope during dev:** scoped tests only (`--related <files>` or targeted `src/ui/features/<feature>/`); full suite runs at orchestrator ship-gate. Every plan task green-gate is `npx vitest run` scoped to the touched files.
 - **Executor doesn't ship:** No ship task in the plan.
 - **`DatabaseSaveTrigger.forceSave` invariant:** Applies to any backend DB write (not expected in slice D).
-- **Structured logging at boundaries:** Every WS connect/disconnect/frame-in/frame-out, every send-path outcome, every observation-loop tick — log via `databaseLogger` / `authLogger` / `sshLogger` with explicit field extraction (never `JSON.stringify(event)`). See `PATTERNS.md` fleet-wide directive Ashley 2026-08-11.
+- **Structured logging at boundaries:** Every WS connect/disconnect/frame-in/frame-out, every send-path outcome, every observation-loop tick — log via `databaseLogger` / `authLogger` / `sshLogger` with explicit field extraction (never `JSON.stringify(event)`). See `PATTERNS.md` fleet-wide directive Alice 2026-08-11.
 
 ## Sources
 
 ### Primary (HIGH confidence)
 
-- **`.planning/phases/90-.../90-CONTEXT.md`** — 20 locked D-decisions (D-01..D-20) walked with Ashley 2026-09-08.
+- **`.planning/phases/90-.../90-CONTEXT.md`** — 20 locked D-decisions (D-01..D-20) walked with Alice 2026-09-08.
 - **`.planning/shapes/shape-relay-session-pane-rendering.md`** — Shape file this CONTEXT.md was seeded from; fuller narrative on rationale.
 - **`.planning/shapes/shape-relay-mediated-group-conversations.md`** — Master arc shape; orthogonality invariant.
 - **`.planning/phases/89-.../89-CONTEXT.md`** — Phase 89 decisions (kind discriminator `kind: "harness" | "relay-room"`, merge shape at `/sessions/list`).
@@ -864,7 +864,7 @@ Skynet does not have a `CLAUDE.md` in the repo root. `PROJECT.md` § Constraints
 - **`src/ui/features/pretty-view/PrettyView.tsx`** — 3800 lines; the reference implementation for pane orchestration, WS setup, optimistic-send lifecycle, pagination behavior. Lines 890-1400 (pending-send state machine), 1762-2073 (WS message handling), 2269-2273 (context_pct frame handling), 570 (contextPct useState — to be swapped for `useSessionContextPct` hook per D-03 mechanical waiver).
 - **`src/ui/features/pretty-view/ComposeBox.tsx`** — 3608 lines; the reference for compose-box structure (Row 1 = meter + aux; Row 2 = textarea + Send). Lines 2264-2434 (meter well + reset), 2635-2730 (textarea + send), 1826-1919 (reset dispatch chain — `dispatchResetPayload` → `funnel.send('/id reset')`; the same input flow the new `POST /agent-reset/*` endpoint dispatches).
 - **`src/ui/features/pretty-view/ChatMessage.tsx`** — 688 lines; the reference for user-turn bubble styling (isUser branch at L430-490, L465-489).
-- **`src/ui/features/pretty-view/RelayInboundBubble.tsx`** — 226 lines; shipped 2026-08-18 by tiffany; reuse target for D-12 (with FORK per Ashley's 2026-09-08 clarification — `RelayRoomInboundBubble` is a COPY with no collapse/expand and no pointer-detect).
+- **`src/ui/features/pretty-view/RelayInboundBubble.tsx`** — 226 lines; shipped 2026-08-18 by tiffany; reuse target for D-12 (with FORK per Alice's 2026-09-08 clarification — `RelayRoomInboundBubble` is a COPY with no collapse/expand and no pointer-detect).
 - **`src/ui/features/pretty-view/LoadMoreOlderButton.tsx`** — 166 lines; pure component, zero hooks; reuse target for D-14.
 - **`src/ui/features/terminal/IdentityBadge.tsx`** — 328 lines; the identity-badge primitive to reuse for D-08/D-09.
 - **`src/backend/matrix/matrix-admin-client.ts`** — 990+ lines; 12 admin API primitives; extend with `getRoomMessages` + `sendMessageAsUser`.
@@ -903,7 +903,7 @@ Skynet does not have a `CLAUDE.md` in the repo root. `PROJECT.md` § Constraints
 - **Standard stack:** HIGH — all packages are existing dependencies; no new installs; each cited utility has a direct file + line reference.
 - **Architecture (component tree + extraction boundaries):** HIGH — the shape file and CONTEXT.md explicitly lock D-01/D-02/D-03; the specific extraction targets (outbound bubble, compose shell, forked room-inbound bubble) are named in D-02.b/D-02.c/D-12; the branching site is left to planner discretion.
 - **Pattern 2 (backend-proxied Matrix)/Pitfall 3 (`sendMessageAsUser`):** HIGH — the mint-per-request pattern is proven in `identity-birth-orchestrator.ts:779`; the token-never-leaves-backend rule is locked by Phase 88 D-08.
-- **Pattern 3 (reuse per-agent state channel)/Pitfall 2 (D-10 drift):** HIGH — the `session-working-store` + `contextPct` frame + `${hostId}:${tmuxSession}` key are all inspectable in-repo. Wave 0 fleet-status contextPct promotion is architecturally cleaner and greenlit by Ashley 2026-09-08.
+- **Pattern 3 (reuse per-agent state channel)/Pitfall 2 (D-10 drift):** HIGH — the `session-working-store` + `contextPct` frame + `${hostId}:${tmuxSession}` key are all inspectable in-repo. Wave 0 fleet-status contextPct promotion is architecturally cleaner and greenlit by Alice 2026-09-08.
 - **Pitfall 4 (mqid↔txnId correlation):** MEDIUM — depends on Matrix's `unsigned.transaction_id` echo behavior; a `curl` probe during planning would upgrade this to HIGH.
 - **Pitfall 5 (event-id cursor pagination):** MEDIUM — Matrix's `/messages?from=<eventId>` is standard but the concrete backend wrapper hasn't been written; planner implements + tests during Wave 1.
 - **A5 (new WS route vs. piggyback):** MEDIUM — both are architecturally sound; the recommendation is new-route but planner has legitimate flexibility.

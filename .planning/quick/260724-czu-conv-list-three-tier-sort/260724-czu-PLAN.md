@@ -50,7 +50,7 @@ must_haves:
 <objective>
 Patch #149 Slice B+C — Rework the derived ConversationList so it emits rows in three strictly-deduped tiers (activeSet → pinned → grouped), and update PrettyConversationsPanel to render the new active-set tier ABOVE the existing pinned tier. Also update the pinned tier so it surfaces BOTH openTab-derived AND fleet-derived pinned rows (Slice A already removed the pin guard; this slice makes those fleet ids actually surface at the top).
 
-Purpose: Ashley's ask (verbatim) — "we should definitely be sorting active sessions to the top, even overtaking pinned ones, because the most important thing is being able to bounce between the sessions that are active when you've already made some of them active. and then besides that the pinned ones stay to the top."
+Purpose: Alice's ask (verbatim) — "we should definitely be sorting active sessions to the top, even overtaking pinned ones, because the most important thing is being able to bounce between the sessions that are active when you've already made some of them active. and then besides that the pinned ones stay to the top."
 
 Output: Three-tier derived list, panel rendering the new tier above pinned, extended + new tests. Bundled with Slice A (cf624a4) for a single deploy at end.
 </objective>
@@ -133,7 +133,7 @@ Output: Three-tier derived list, panel rendering the new tier above pinned, exte
     5. **DO NOT modify** the following (out of scope for this slice):
        - `pinConversation` / `unpinConversation` / `togglePinConversation` — Slice A already removed the openTabs guard; behavior is correct.
        - `addToActiveSet` / `hydrateActiveSetFromStorage` — activeSet mutation semantics are unchanged.
-       - The `updateOpenTabs` pruning behavior for pinnedIds. Note: this DOES still prune pinnedIds for ids not in openTabs; that means a fleet-only pinned id (fleet::1::work) will NOT survive an updateOpenTabs call that lacks it. Ashley's post-#149-A design accepts this as a known limitation (fleet rows can be pinned per-session; page refresh drops the pin). Do NOT try to fix here; leave the pruning code alone.
+       - The `updateOpenTabs` pruning behavior for pinnedIds. Note: this DOES still prune pinnedIds for ids not in openTabs; that means a fleet-only pinned id (fleet::1::work) will NOT survive an updateOpenTabs call that lacks it. Alice's post-#149-A design accepts this as a known limitation (fleet rows can be pinned per-session; page refresh drops the pin). Do NOT try to fix here; leave the pruning code alone.
 
     Edit `src/ui/state/conversation-store.test.ts`:
 
@@ -177,7 +177,7 @@ Output: Three-tier derived list, panel rendering the new tier above pinned, exte
       * Tier 2 rows: `pinned={true}` hardcoded (they're in the tier because they're pinned — unchanged from existing pinned render site).
       * Tier 3 rows: `pinned={pinnedIds.has(row.id)}` (unchanged — defensive; guaranteed false by tier logic after this slice).
     - `isEmpty` check accounts for the new tier: empty iff `activeSetRows.length === 0 && pinned.length === 0 && grouped.length === 0`.
-    - No visual separator between the three tiers — the existing `.pv-panel-group` gap CSS gives adequate visual coherence per Ashley's Telegram-shape flat-list lock.
+    - No visual separator between the three tiers — the existing `.pv-panel-group` gap CSS gives adequate visual coherence per Alice's Telegram-shape flat-list lock.
     - The Vitest mock at PrettyConversationsPanel.test.tsx returns an `activeSet: []` field on `useConversations()` so all existing panel tests continue to pass without shape errors.
   </behavior>
   <action>
@@ -205,7 +205,7 @@ Output: Three-tier derived list, panel rendering the new tier above pinned, exte
     3. **Add the new active-set group render block** immediately BEFORE the existing `<div className="pv-panel-group" data-pinned-group="true">` block (~line 331). Structure mirrors the pinned block VERBATIM except:
        - `data-active-set-group="true"` instead of `data-pinned-group="true"`.
        - `pinned={pinnedIds.has(row.id)}` prop (dynamic per row) instead of `pinned={true}`.
-       - Comment above the block: `{/* Patch #149 B+C: active-set rows overtake pinned per Ashley 2026-07-24. Rows here get pinned={pinnedIds.has(row.id)} so a row that IS pinned AND active still shows the pin glyph. */}`
+       - Comment above the block: `{/* Patch #149 B+C: active-set rows overtake pinned per Alice 2026-07-24. Rows here get pinned={pinnedIds.has(row.id)} so a row that IS pinned AND active still shows the pin glyph. */}`
        - All other row props identical to the pinned render site: `key={row.id}`, `row={row}`, `selected={row.id === selectedId}`, `variant={variant}`, `onSelect={() => handleRowSelect(row)}`, `onTogglePin={() => togglePinConversation(row.id)}`, `onSwipeOpenChange={isMobileVariant ? (open) => handleSwipeOpenChange(row.id, open) : undefined}`, `forceClosed={forceClosedFor(row.id)}`, `inActiveSet={activeSet.has(row.id)}`, `sessionKey={sessionWorkingKey(row)}`.
 
        Exact placement: inside the `<>...</>` fragment (line 320), as the FIRST child, ABOVE the existing pinned-group `<div>`. Do NOT wrap in additional containers.
@@ -272,8 +272,8 @@ Output: Three-tier derived list, panel rendering the new tier above pinned, exte
 
     3. Do NOT run:
        - `npm run build` (not requested by spec; type-check is the guardrail).
-       - Docker build or docker compose commands (deploy is batched with Slice A, deferred to Ashley greenlight).
-       - Fork-specific patches.md updates (deferred to deploy-recommendation time per Ashley 2026-07-23 batch-writeups-until-deploy rule).
+       - Docker build or docker compose commands (deploy is batched with Slice A, deferred to Alice greenlight).
+       - Fork-specific patches.md updates (deferred to deploy-recommendation time per Alice 2026-07-23 batch-writeups-until-deploy rule).
 
     4. After both pass, `git status` + `git diff --stat` to show the surface area. Expected: 4 files modified (2 store, 2 panel), zero new files, zero deletions.
 
@@ -304,11 +304,11 @@ Final phase checks:
 </verification>
 
 <success_criteria>
-- Ashley's ask satisfied: active-set rows overtake pinned rows at the top of the panel.
+- Alice's ask satisfied: active-set rows overtake pinned rows at the top of the panel.
 - Slice A's pinnedIds-can-hold-fleet-ids capability now visible in the UI (Slice B: fleet pinned rows surface in the pinned tier).
 - All existing tests remain green; new tests 30b/30c/30d/30e prove the tier + dedup contract.
 - Rebase-ability preserved: no upstream file surface widened beyond the four fork-owned files.
-- No deploy — bundled with Slice A (cf624a4) for one deploy at Ashley greenlight.
+- No deploy — bundled with Slice A (cf624a4) for one deploy at Alice greenlight.
 </success_criteria>
 
 <output>

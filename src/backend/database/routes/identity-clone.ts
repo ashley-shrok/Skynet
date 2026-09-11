@@ -62,7 +62,7 @@
  *   13. 201 with publicIdentity(newRow) response.
  *   14. Finally: try conn.end() catch {} — best-effort cleanup on every exit.
  *
- * REVISION 2026-08-04 (Ashley at 22-02 checkpoint, applied here per same-
+ * REVISION 2026-08-04 (Alice at 22-02 checkpoint, applied here per same-
  * pattern extension): Skynet does NOT invoke the relay-register block via
  * SSH from this endpoint. Same refinement as 22-02 Task 3 (revised): the
  * new identity file gets a SEED COMMENT instructing the wake-up agent to
@@ -179,12 +179,12 @@ function normalizeRemotePath(p: string): string {
 }
 
 /**
- * REVISION 2026-08-04 (Ashley at 22-02 checkpoint, applied here per same-
+ * REVISION 2026-08-04 (Alice at 22-02 checkpoint, applied here per same-
  * pattern extension). Seed comment embedded in the new identity file
  * telling the wake-up agent to register a Matrix relay account for this
  * identity on first wake.
  *
- * Style constraints (verbatim from Ashley — enforced by test 8 assertions):
+ * Style constraints (verbatim from Alice — enforced by test 8 assertions):
  *   - Do NOT say "Skynet" (agents don't know what that is)
  *   - Do NOT reference §2 / §3 / "id skill" / SKILL.md (fragile skill refs)
  *   - Plain-terms instructions to the wake-up agent
@@ -526,7 +526,7 @@ router.post(
       //     frontmatter line. If the source has no sibling either, the clone
       //     ships without an avatar (placeholder-initial fallback). SSH errors
       //     during the read are best-effort: warn + proceed without avatar
-      //     rather than fail the whole clone — matches Ashley's "accept the
+      //     rather than fail the whole clone — matches Alice's "accept the
       //     ugly render" posture for avatar failures elsewhere in the reader.
       // ---------------------------------------------------------------------
       if (!avatarBytes) {

@@ -3,14 +3,14 @@
 **Gathered:** 2026-09-10
 **Status:** Ready for planning
 
-> **Seeded from shape file** per `/build` convention. The shape file (`.planning/shapes/shape-phase-93-uat-polish-arc.md`) captures the why/what/philosophy/scope through a `/open` conversation with Ashley (2026-09-10, greenlit `thumbs up` same session; included a design tasting for the meter chrome that converged on "simple slotted drawer"). Every user-facing decision — meter treatment, placeholder copy, URL identifier shape, philosophy, scope edges, deferred split-out candidate — is locked in the shape file. This CONTEXT.md is the discuss-phase artifact translating those shape decisions plus prior-phase carryover (Phase 93 CONTEXT) into a form downstream agents (researcher, planner) can act on without re-asking. **Read the shape file first; this file is the actionable extract.**
+> **Seeded from shape file** per `/build` convention. The shape file (`.planning/shapes/shape-phase-93-uat-polish-arc.md`) captures the why/what/philosophy/scope through a `/open` conversation with Alice (2026-09-10, greenlit `thumbs up` same session; included a design tasting for the meter chrome that converged on "simple slotted drawer"). Every user-facing decision — meter treatment, placeholder copy, URL identifier shape, philosophy, scope edges, deferred split-out candidate — is locked in the shape file. This CONTEXT.md is the discuss-phase artifact translating those shape decisions plus prior-phase carryover (Phase 93 CONTEXT) into a form downstream agents (researcher, planner) can act on without re-asking. **Read the shape file first; this file is the actionable extract.**
 >
-> Discussion was intentionally short because /open + the tasting already extracted every meaningful gray area. The workflow's "skip assessment when no meaningful gray areas remain" rule applies: what's left is diagnostic (for the researcher to trace) and plumbing (for the executor to implement), not user-facing implementation choices Ashley needs to decide on.
+> Discussion was intentionally short because /open + the tasting already extracted every meaningful gray area. The workflow's "skip assessment when no meaningful gray areas remain" rule applies: what's left is diagnostic (for the researcher to trace) and plumbing (for the executor to implement), not user-facing implementation choices Alice needs to decide on.
 
 <domain>
 ## Phase Boundary
 
-Address the 7 findings from Ashley's UAT walkthrough of the just-shipped Phase 93 (relay rooms use the chat surface). The two-source chat surface delivered by Phase 93 is architecturally settled; this arc fills in the case-branches Phase 93's architecture always required but didn't yet make. The philosophy is "no accidental inheritance" — the room case should feel identical to the session (harness) case except where we've deliberately case-branched. Nothing changes in the harness case (regression floor); nothing changes about the overall two-source architecture; the surface's shape stays what Phase 93 shipped.
+Address the 7 findings from Alice's UAT walkthrough of the just-shipped Phase 93 (relay rooms use the chat surface). The two-source chat surface delivered by Phase 93 is architecturally settled; this arc fills in the case-branches Phase 93's architecture always required but didn't yet make. The philosophy is "no accidental inheritance" — the room case should feel identical to the session (harness) case except where we've deliberately case-branched. Nothing changes in the harness case (regression floor); nothing changes about the overall two-source architecture; the surface's shape stays what Phase 93 shipped.
 
 **What ships here (in scope, per shape):**
 1. Loading-veil dismissal signal wired to the room case's "messages loaded" signal (currently the veil stays up permanently in the room case).
@@ -22,7 +22,7 @@ Address the 7 findings from Ashley's UAT walkthrough of the just-shipped Phase 9
 7. URL persistence for the currently-open room, using the room's opaque stable identifier (the room's Matrix room ID). Readability of the URL is explicitly not a concern.
 
 **What does NOT ship (out of arc, per shape):**
-- The room's list-item appearance in the conversation list (Ashley noted it looks identical to a plain terminal session with no identity — adjacent, separate thread).
+- The room's list-item appearance in the conversation list (Alice noted it looks identical to a plain terminal session with no identity — adjacent, separate thread).
 - The latency of rooms appearing in the conversation list at all (pre-existing outstanding issue).
 - Any architectural change to the two-source chat surface itself.
 - Any change to the session-case chrome or behavior. Regression floor.
@@ -36,13 +36,13 @@ Every user-facing decision on the 7 findings is locked in the shape file. This s
 
 ### Philosophy (locked, load-bearing)
 
-- **D-01: No accidental inheritance.** Any place the room case still looks or feels different from the session case in a way we did NOT deliberately case-branch is a bug. Ashley 2026-09-10 verbatim: *"relay sessions should feel no different other than the deliberate changes we have made, like removing certain buttons and things like that. So to the user, they don't have a concept of a harness or the relay backing what they're looking at."* This is the reviewer's yardstick at `/close` time.
+- **D-01: No accidental inheritance.** Any place the room case still looks or feels different from the session case in a way we did NOT deliberately case-branch is a bug. Alice 2026-09-10 verbatim: *"relay sessions should feel no different other than the deliberate changes we have made, like removing certain buttons and things like that. So to the user, they don't have a concept of a harness or the relay backing what they're looking at."* This is the reviewer's yardstick at `/close` time.
 
 - **D-02: Every case-branch is deliberate.** If a fix introduces a case-branch in a place the philosophy said should be parity, that's a divergence to justify (or roll back), not a stylistic freedom to exercise. The room case doesn't get its own aesthetic; it inherits the session case's aesthetic everywhere except the explicit branches.
 
 ### Loading veil (finding 1, blocker)
 
-- **D-03: The room case gets a loading veil, same as the session case — signal is what changes.** Room messages take enough perceived time to arrive that a veil DOES make sense (Ashley confirmed during discussion). The bug is that the veil never dismisses. Fix: wire the veil's dismissal to the relay adapter's "messages loaded" signal, whatever that ends up being.
+- **D-03: The room case gets a loading veil, same as the session case — signal is what changes.** Room messages take enough perceived time to arrive that a veil DOES make sense (Alice confirmed during discussion). The bug is that the veil never dismisses. Fix: wire the veil's dismissal to the relay adapter's "messages loaded" signal, whatever that ends up being.
 
 - **D-04: The exact "messages loaded" signal is diagnostic — researcher traces it.** The relay adapter (Phase 93 Slice 3) currently exposes an `isReady` flag defined as "flips true when the first participants frame arrives" (see Phase 93 `AgentBadgeWithMeter` / `MultiBadgeAnchor` code comment). Whether the veil should dismiss on that same participants-arrived signal, or on a stronger first-history-batch-received signal, or on first-message-painted, is a technical question. The harness case's veil dismisses on something specific in the harness adapter — mirror that pattern in the relay adapter. Researcher: trace the harness veil signal; identify the relay-adapter equivalent; note any timing gap between "adapter exposes ready" and "veil dismisses."
 
@@ -50,7 +50,7 @@ Every user-facing decision on the 7 findings is locked in the shape file. This s
 
 - **D-05: Both directions must work.** Dragging a session onto a room-showing surface splits (does not replace). Dragging a room-showing surface into an empty split slot opens the room in that slot. The room-showing surface participates in the drag-and-drop system as a first-class drop target AND drag source, on parity with the harness case.
 
-- **D-06: The shared-state corruption is in scope.** After a room has been opened, plain-session split-view is disturbed until a full page reload. This corruption is IN scope for this arc — the fix must address it, not just the specific-cases-that-fail symptoms. Ashley's observation is the diagnostic hypothesis: the room-showing surface may be leaving the drag-and-drop system in a bad state (registration, listener wiring, dataTransfer contract, or similar).
+- **D-06: The shared-state corruption is in scope.** After a room has been opened, plain-session split-view is disturbed until a full page reload. This corruption is IN scope for this arc — the fix must address it, not just the specific-cases-that-fail symptoms. Alice's observation is the diagnostic hypothesis: the room-showing surface may be leaving the drag-and-drop system in a bad state (registration, listener wiring, dataTransfer contract, or similar).
 
 - **D-07: This item is the deferred-split candidate.** If diagnosis at plan-phase reveals that fixing D-05 + D-06 requires a structural reshape of how the drag-and-drop system registers surfaces (rather than fitting as a case-branch fill-in), this finding splits out of Phase 97 into its own follow-up phase and the other six ship without it. Threshold is a plan-phase call, not fixed here. Planner: sequence this item's discovery task FIRST so the split-out decision surfaces early.
 
@@ -68,7 +68,7 @@ Every user-facing decision on the 7 findings is locked in the shape file. This s
 
 ### Meter chrome (finding 5, polish — design tasting completed)
 
-- **D-12: Pull-out drawer, "simple slotted" variant.** The meter that hangs below each agent indicator gets chrome that reads as a drawer peeking out from behind the pill (the identity indicator). Specific treatment (chosen by Ashley in the tasting, 2026-09-10):
+- **D-12: Pull-out drawer, "simple slotted" variant.** The meter that hangs below each agent indicator gets chrome that reads as a drawer peeking out from behind the pill (the identity indicator). Specific treatment (chosen by Alice in the tasting, 2026-09-10):
     - Drawer's top edge tucks 6–10px behind the pill's bottom.
     - Drawer's bottom corners are rounded; top corners are squared/tucked.
     - Drawer background stays the current dark meter-well palette (not hue-tinted; Variant B "hue-tinted" was rejected in favor of A "simple slotted").
@@ -79,11 +79,11 @@ Every user-facing decision on the 7 findings is locked in the shape file. This s
 
 ### ComposeBox placeholder copy (finding 6, polish)
 
-- **D-14: Placeholder in the room case reads `"message room"`.** Not the addressees' names, not a longer sentence, not blank — just `"message room"`. Ashley 2026-09-10 verbatim: *"it should probably just say room, like message room, I guess."*
+- **D-14: Placeholder in the room case reads `"message room"`.** Not the addressees' names, not a longer sentence, not blank — just `"message room"`. Alice 2026-09-10 verbatim: *"it should probably just say room, like message room, I guess."*
 
 ### URL persistence (finding 7, lifecycle miss)
 
-- **D-15: The URL records the currently-open room's opaque Matrix room ID.** Readability of the URL is explicitly not a concern — Ashley 2026-09-10: *"the readability doesn't matter."* An opaque room ID is stable across room renames, unambiguous across similarly-named rooms, and matches what the frontend already has in the tab's session model.
+- **D-15: The URL records the currently-open room's opaque Matrix room ID.** Readability of the URL is explicitly not a concern — Alice 2026-09-10: *"the readability doesn't matter."* An opaque room ID is stable across room renames, unambiguous across similarly-named rooms, and matches what the frontend already has in the tab's session model.
 
 - **D-16: URL shape and history behavior match the session case's pattern.** Whatever URL pattern the harness case uses for session tabs (path segment vs query param, push vs replace on switch), the relay case uses the equivalent. This is a "match existing session behavior" carry, not a design decision. Researcher: identify the current session URL routing pattern; mirror it in the relay case with the room ID as the identifier.
 
@@ -151,8 +151,8 @@ Every user-facing decision on the 7 findings is locked in the shape file. This s
 <specifics>
 ## Specific Ideas
 
-- **Meter drawer prototype URL:** http://100.99.149.8:8899/meter-tasting.html (tailnet-served from t1000 during discussion). Variant A "simple slotted drawer" is the locked reference. Ashley reviewed and picked live during the /open tasting.
-- **Placeholder copy verbatim:** `"message room"` — Ashley's phrasing.
+- **Meter drawer prototype URL:** http://100.99.149.8:8899/meter-tasting.html (tailnet-served from t1000 during discussion). Variant A "simple slotted drawer" is the locked reference. Alice reviewed and picked live during the /open tasting.
+- **Placeholder copy verbatim:** `"message room"` — Alice's phrasing.
 - **URL identifier verbatim:** opaque Matrix room ID, readability explicitly not a concern.
 - **Split-out on drag-drop:** if diagnosis at plan-phase shows structural reshape needed, this item drops out of Phase 97 and gets its own `/open`. The other six ship regardless.
 
@@ -161,8 +161,8 @@ Every user-facing decision on the 7 findings is locked in the shape file. This s
 <deferred>
 ## Deferred Ideas
 
-- **Room list-item visual distinction from untied-terminal-session list-item.** Ashley noted during discussion that in the conversation list, a relay-room row looks identical to a plain terminal-session row that has no identity. Adjacent thread, out of scope for this arc — worth its own bounty later.
-- **Latency of rooms appearing in the conversation list at all.** Ashley: *"they take a while, which is an outstanding issue."* Pre-existing, out of scope for this arc.
+- **Room list-item visual distinction from untied-terminal-session list-item.** Alice noted during discussion that in the conversation list, a relay-room row looks identical to a plain terminal-session row that has no identity. Adjacent thread, out of scope for this arc — worth its own bounty later.
+- **Latency of rooms appearing in the conversation list at all.** Alice: *"they take a while, which is an outstanding issue."* Pre-existing, out of scope for this arc.
 - **Reshaping the participant-indicator layout beyond the gap tighten** — not in scope for this arc; explicitly a tempting-but-no per shape.
 - **Redesigning the meter beyond the drawer treatment** — not in scope; drawer picked in tasting is the whole meter answer.
 - **Adding a room-case-specific compose affordance to replace the hidden attach button** — not in scope; the attach hide stays monolithic.

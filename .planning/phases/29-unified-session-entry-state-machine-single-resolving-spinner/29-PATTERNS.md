@@ -34,7 +34,7 @@ This is the **canonical fork pattern** for extracting a pure state-derivation re
  * claude-session-server.ts (quick 260808-ohn / bounty
  * session-holding-layer1-detect-id-reset-not-exit).
  *
- * WHY THIS EXISTS (Ashley's design point 2):
+ * WHY THIS EXISTS (Alice's design point 2):
  *   [multi-paragraph rationale explaining the bug this fixes + why the
  *    tail-state-derived model replaces the previous heuristic]
  *

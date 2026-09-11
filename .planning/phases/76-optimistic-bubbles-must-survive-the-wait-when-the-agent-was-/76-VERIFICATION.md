@@ -7,7 +7,7 @@ overrides_applied: 0
 human_verification:
   - test: "After a real or forced dormant-wake failure, confirm the failed bubble reads as WHOLE-BUBBLE RED — the entire bubble surface is saturated red, NOT blue-gray gradient with a red outline."
     expected: "The entire user-bubble surface is a dark saturated red (hsla(0,60%,35%,0.90)), completely replacing the base blue-gray gradient. The border is also saturated red (hsla(0,70%,50%,0.85)). No blue-gray gradient visible."
-    why_human: "CSS inline-style specificity behavior and gradient override cannot be fully verified in jsdom (jsdom confirms the values are set; a browser must confirm background shorthand defeats the className gradient visually). Ashley UAT deferred to end-of-phase per human_verify_mode: end-of-phase."
+    why_human: "CSS inline-style specificity behavior and gradient override cannot be fully verified in jsdom (jsdom confirms the values are set; a browser must confirm background shorthand defeats the className gradient visually). Alice UAT deferred to end-of-phase per human_verify_mode: end-of-phase."
 ---
 
 # Phase 76: Optimistic Bubbles — Verification Report
@@ -147,7 +147,7 @@ All D-01 through D-08 requirements are delivered and verified by codebase eviden
 
 **Test suite:** 48/48 tests pass (22 in PrettyView.optimistic-bubbles.test.tsx + 26 in ChatMessage.test.tsx), including all Phase 76 additions (Test 5c, 5d, 4b) and all pre-existing Phase 62 and earlier tests.
 
-**Pending:** End-of-phase visual UAT for D-06 whole-bubble red visual (Ashley, next dormant-wake failure or forced via DevTools).
+**Pending:** End-of-phase visual UAT for D-06 whole-bubble red visual (Alice, next dormant-wake failure or forced via DevTools).
 
 ---
 

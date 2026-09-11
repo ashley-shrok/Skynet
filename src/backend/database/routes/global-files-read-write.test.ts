@@ -2,7 +2,7 @@
  * quick-260805-70q (Fix B): Tests for POST /global-files/read tilde-expansion.
  * Extended by inline-fix 2026-08-05 to cover PUT /global-files/write's own
  * tilde-expansion (which had the SAME class of bug on its mtime pre-check,
- * currentContent cat, and post-write re-stat — Ashley UAT of 70q ship caught
+ * currentContent cat, and post-write re-stat — Alice UAT of 70q ship caught
  * it via false 409 on every save).
  *
  * Tests exercise POST /global-files/read and PUT /global-files/write via a
@@ -31,7 +31,7 @@
  *       check ran first with a raw ~/... and false-triggered a 409)
  *   W4: tilde path with real mtime mismatch → 409 with currentContent read from
  *       the resolved absolute path (NOT empty) — regression guard for the reload
- *       UX Ashley hit that replaced the textarea with "No content in this file yet"
+ *       UX Alice hit that replaced the textarea with "No content in this file yet"
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
@@ -355,7 +355,7 @@ describe("POST /global-files/read — tilde-expansion", () => {
   });
 });
 
-describe("PUT /global-files/write — tilde-expansion (Ashley 2026-08-05 false-409 fix)", () => {
+describe("PUT /global-files/write — tilde-expansion (Alice 2026-08-05 false-409 fix)", () => {
   it("Test W1: tilde path save with matching expectedMtime → 200 { mtime } with real new mtime; SFTP write + all stat/cat use resolved absolute path", async () => {
     (execCommand as Mock).mockImplementation(async (_conn: unknown, cmd: string) => {
       if (cmd === "echo $HOME") return "/home/testuser\n";

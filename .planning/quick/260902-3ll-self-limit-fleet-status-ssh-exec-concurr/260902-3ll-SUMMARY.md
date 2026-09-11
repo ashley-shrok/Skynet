@@ -156,7 +156,7 @@ Follow-up to bounty `wip-indicator-ssh-transport-error-conflated-with-pid-dead` 
 
 The throttle is INVISIBLE to `ssh-poll-orchestrator.ts` — its `Promise.all([...])` fan-outs at :1205 (sessionJson/stat/hookPayload), :966 (dormant/recycled-at/recycle-requested), sweepOneHost, source-B enumeration, JSONL tail, etc. queue implicitly with zero call-site changes. Poll interval is 2s; parallel bursts now serialize into batches of 8 (~500-1000ms worst case), well under the interval.
 
-Confirmed with Ashley 2026-09-02: OpenSSH `MaxSessions` is per-CONNECTION not per-host-global (sshd_config man page verbatim: "the maximum number of open shell, login or subsystem sessions permitted per network connection"). An 8-cap on Skynet's own connection uses 8 of Skynet's-own-10 slots, leaves 2 headroom on Skynet's bucket, and touches nothing on any other SSH client's bucket on the same target host.
+Confirmed with Alice 2026-09-02: OpenSSH `MaxSessions` is per-CONNECTION not per-host-global (sshd_config man page verbatim: "the maximum number of open shell, login or subsystem sessions permitted per network connection"). An 8-cap on Skynet's own connection uses 8 of Skynet's-own-10 slots, leaves 2 headroom on Skynet's bucket, and touches nothing on any other SSH client's bucket on the same target host.
 
 ---
 

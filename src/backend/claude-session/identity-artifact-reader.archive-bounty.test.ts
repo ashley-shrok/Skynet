@@ -5,7 +5,7 @@
 // test file (identity-artifact-reader.write-bounty-status.test.ts) with the
 // added mv + terminal-preservation semantics.
 //
-// The three cases target the invariants Ashley locked in PLAN.md § Semantics:
+// The three cases target the invariants Alice locked in PLAN.md § Semantics:
 //   1. LIVE-status flip + move: an in_progress bounty flips to done, gets a
 //      freshened updated_at, gains a "flipped from in_progress to done"
 //      timeline entry, and the folder is moved from bounties/<slug>/ to

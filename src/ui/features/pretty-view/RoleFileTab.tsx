@@ -15,7 +15,7 @@ import type { TabState } from "./IdentityFileTab";
 // The backend does the two-step (identity file → role: frontmatter → role
 // artifact) inside readRoleFile / writeRoleFile — the frontend never sees the
 // role name and the wire contract stays (identityKey, hostId). Per D-CONTEXT
-// § "No no-role fallback branches" (Ashley 2026-08-04), a missing role:
+// § "No no-role fallback branches" (Alice 2026-08-04), a missing role:
 // frontmatter surfaces as state.status === "error" and renders the standard
 // error branch below — NOT a fake empty state.
 

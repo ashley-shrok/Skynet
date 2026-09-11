@@ -39,7 +39,7 @@ Reshape fleet-substrate distribution from **per-user browser-driven** to **syste
 
 ### Migration
 - **D-12:** **One-shot operator-run migration script** ships in-phase, delivered as a small script/endpoint in the codebase.
-- **D-13:** Migration takes **every existing substrate-host owner's key material as input** (feasible today because both live instances — this box and T800 — have small, known user populations and Ashley has all the credentials).
+- **D-13:** Migration takes **every existing substrate-host owner's key material as input** (feasible today because both live instances — this box and T800 — have small, known user populations and Alice has all the credentials).
 - **D-14:** Per-host migration: unwrap credential using the owner's key material → re-wrap with CSKEK → update record. Atomic per host (either the swap succeeds AND the wrap flips, or nothing changes for that host).
 - **D-15:** Migration script is **retired after ship** — new hosts go straight into the new model at create time, so there's no ongoing use for it.
 
@@ -131,13 +131,13 @@ Reshape fleet-substrate distribution from **per-user browser-driven** to **syste
 <specifics>
 ## Specific Ideas
 
-- Ashley's verbatim call on the deliberate-posture-change (from `/open` discussion, 2026-09-05): *"if I'm being honest with you, I feel like it's bullshit that the system can't just use the keys it already has."* Followed later by the sanity-check: *"like the running back end of an app has access to, you know, all of the things that it needs to function and if anyone got a hold of that stuff it would be bad right so that that's like that feels like a pretty standard pattern to me so it seems like we're not exactly like being reckless here in that sense."* — Locks D-08/D-09/D-10 as scoped-relaxation, not fleet-wide.
+- Alice's verbatim call on the deliberate-posture-change (from `/open` discussion, 2026-09-05): *"if I'm being honest with you, I feel like it's bullshit that the system can't just use the keys it already has."* Followed later by the sanity-check: *"like the running back end of an app has access to, you know, all of the things that it needs to function and if anyone got a hold of that stuff it would be bad right so that that's like that feels like a pretty standard pattern to me so it seems like we're not exactly like being reckless here in that sense."* — Locks D-08/D-09/D-10 as scoped-relaxation, not fleet-wide.
 
-- Ashley's call on the migration approach (2026-09-05): *"I know the credentials for every user currently on both this instance and Stacey's instance, which are the only two instances of the app that exists. So maybe that can give us our answer because I can provide those and we can do a migration."* — Locks D-12/D-13 as one-shot operator-driven.
+- Alice's call on the migration approach (2026-09-05): *"I know the credentials for every user currently on both this instance and Stacey's instance, which are the only two instances of the app that exists. So maybe that can give us our answer because I can provide those and we can do a migration."* — Locks D-12/D-13 as one-shot operator-driven.
 
-- Ashley's call on retry cadence (2026-09-05): *"piggybacking on the 30 second thing seems like a good idea and you know the benefit of it is that it would catch a host that comes back up pretty quickly which is nice."* — Locks D-03.
+- Alice's call on retry cadence (2026-09-05): *"piggybacking on the 30 second thing seems like a good idea and you know the benefit of it is that it would catch a host that comes back up pretty quickly which is nice."* — Locks D-03.
 
-- Ashley's call on failure alerting (2026-09-05): *"Um, either first or second, whichever you think is better."* — Delegated within the choice between quiet-forever and loud-after-N-failures. Chose loud-after-N (D-06) per the AI+ project's already-locked "fail loud, trust operator to diagnose" stance.
+- Alice's call on failure alerting (2026-09-05): *"Um, either first or second, whichever you think is better."* — Delegated within the choice between quiet-forever and loud-after-N-failures. Chose loud-after-N (D-06) per the AI+ project's already-locked "fail loud, trust operator to diagnose" stance.
 
 </specifics>
 

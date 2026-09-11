@@ -188,7 +188,7 @@ Plan executed exactly as written for the two coordinated tasks. Two small notes:
 
 ## Live Browser Verification
 
-Not executed as part of this executor run — fleet directive is no docker / no playwright in executor scope. Live browser verification is Ashley's `/close`-time gate for this phase: open a relay room, observe the URL fragment updates to include `relay:<encoded>`; refresh the browser; observe the relay tab restores. The unit-test coverage plus the shipped grep gates give high confidence the wiring is correct; live UAT closes the loop.
+Not executed as part of this executor run — fleet directive is no docker / no playwright in executor scope. Live browser verification is Alice's `/close`-time gate for this phase: open a relay room, observe the URL fragment updates to include `relay:<encoded>`; refresh the browser; observe the relay tab restores. The unit-test coverage plus the shipped grep gates give high confidence the wiring is correct; live UAT closes the loop.
 
 ## Threat Flags
 

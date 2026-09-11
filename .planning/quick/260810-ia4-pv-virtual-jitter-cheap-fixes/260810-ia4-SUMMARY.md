@@ -29,7 +29,7 @@ metrics:
 
 # Quick Task 260810-ia4: PrettyView Virtualizer Jitter Cheap Fixes — Summary
 
-**One-liner:** Three coordinated fixes — type-aware height estimates, aspect-ratio image reservation, and overflow-anchor suppression — reduce TanStack Virtual re-measure displacement under Ashley's scroll gesture.
+**One-liner:** Three coordinated fixes — type-aware height estimates, aspect-ratio image reservation, and overflow-anchor suppression — reduce TanStack Virtual re-measure displacement under Alice's scroll gesture.
 
 ## What Shipped
 

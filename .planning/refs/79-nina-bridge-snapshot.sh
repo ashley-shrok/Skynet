@@ -126,7 +126,7 @@ tg_download(){
   [ -s "$dest" ]
 }
 
-# Human display form for user-visible bridge notices ("Ashley sent" vs "Zoey sent").
+# Human display form for user-visible bridge notices ("Alice sent" vs "Zoey sent").
 # Uppercases the first character of the human name.
 _hdisp(){ local h="$1"; printf '%s' "$(printf '%s' "${h:0:1}" | tr '[:lower:]' '[:upper:]')${h:1}"; }
 

@@ -1,11 +1,11 @@
 # Phase 18 / Plan 18-03 — SCRATCH REPORT (waived)
 
-**Status:** SCRATCH ITERATION WAIVED by Ashley 2026-07-31.
-**Ashley's verbatim greenlight:** *"I feel like you don't need to show me anything, just get something functional in there and then I will probably come back later wanting to polish it on my own at some point."*
+**Status:** SCRATCH ITERATION WAIVED by Alice 2026-07-31.
+**Alice's verbatim greenlight:** *"I feel like you don't need to show me anything, just get something functional in there and then I will probably come back later wanting to polish it on my own at some point."*
 
-Per plan Task 1 Option C: Ashley explicitly waived the scratch prerequisite. Design decisions below are unilateral defaults chosen by Tina to give Plan 05's executor an unambiguous spec. Ashley reserves the right to open follow-up polish bounties for any specific field once the functional shape is in her hands.
+Per plan Task 1 Option C: Alice explicitly waived the scratch prerequisite. Design decisions below are unilateral defaults chosen by Tina to give Plan 05's executor an unambiguous spec. Alice reserves the right to open follow-up polish bounties for any specific field once the functional shape is in her hands.
 
-**Task 1 outcome:** Option C (skip scratch — explicit waiver, per Ashley verbatim above).
+**Task 1 outcome:** Option C (skip scratch — explicit waiver, per Alice verbatim above).
 **Task 2 outcome:** N/A (skipped per waiver).
 **Task 3 outcome:** This document.
 
@@ -19,7 +19,7 @@ Per plan Task 1 Option C: Ashley explicitly waived the scratch prerequisite. Des
 4. **`window.confirm("Discard unsaved changes?")` on dirty-cancel** — same guard used in IdentityFileTab/HistoryTab/HandoffTab.
 5. **Server-echoed truth wins.** Save response returns the fresh bounty; card re-hydrates from server state (mirrors Wave 2's `identity:*-updated` echo pattern).
 6. **`cursor-pointer` on every button** (regression the Wave 2 UAT caught — do not repeat).
-7. **No polish, no animations, no drag-and-drop library.** Ship functional. If a field would take 30 min to polish vs 10 min to ship functional, ship functional and let Ashley pick the polish bounty later.
+7. **No polish, no animations, no drag-and-drop library.** Ship functional. If a field would take 30 min to polish vs 10 min to ship functional, ship functional and let Alice pick the polish bounty later.
 
 ---
 
@@ -143,17 +143,17 @@ Server-side behavior (per plan 18-04):
 
 ## IDMEDIT-08 Semantics — Explicitly Confirmed
 
-- **`meeting_questions[]` is user-only-authored.** The bounty-field editor exposes add + mark-answered as UI affordances. No agent-callable programmatic-add path is introduced. No new server WS handler is added that a bounty-updating agent flow could invoke to add a `meeting_question` on the user's behalf. The `identity:update-bounty-fields` wire handler DOES accept `meeting_questions` writes from any authenticated caller (matching the existing bounty-write convention where the wire doesn't enforce field-level authorship), but UI convention is the semantic guard — mirrors Ashley's 2026-07-08 note on the bounty schema. Rationale: leaking user-only semantics into the wire would also block legitimate agent-driven bounty-create flows that co-populate multiple fields; UI-layer convention is sufficient and matches the existing `pinned` treatment.
+- **`meeting_questions[]` is user-only-authored.** The bounty-field editor exposes add + mark-answered as UI affordances. No agent-callable programmatic-add path is introduced. No new server WS handler is added that a bounty-updating agent flow could invoke to add a `meeting_question` on the user's behalf. The `identity:update-bounty-fields` wire handler DOES accept `meeting_questions` writes from any authenticated caller (matching the existing bounty-write convention where the wire doesn't enforce field-level authorship), but UI convention is the semantic guard — mirrors Alice's 2026-07-08 note on the bounty schema. Rationale: leaking user-only semantics into the wire would also block legitimate agent-driven bounty-create flows that co-populate multiple fields; UI-layer convention is sufficient and matches the existing `pinned` treatment.
 
 - **`pinned` is NOT surfaced as a bounty-field editor field.** The header star toggle from patch #172 remains the sole path to flip `pinned`. Plan 05 does not add a pinned checkbox / toggle / editor field. The `identity:update-bounty-fields` handler explicitly rejects `pinned` in `fields` (fail-loud with `error: "pinned is not editable via update-bounty-fields; use update-bounty-pinned"`).
 
 ---
 
-## Open Items (deferred for follow-up bounties Ashley will open on her own)
+## Open Items (deferred for follow-up bounties Alice will open on her own)
 
-Per Ashley's verbatim: *"I will probably come back later wanting to polish it on my own at some point."*
+Per Alice's verbatim: *"I will probably come back later wanting to polish it on my own at some point."*
 
-The following are consciously deferred to polish-later bounties (Ashley will park them herself when she gets to them):
+The following are consciously deferred to polish-later bounties (Alice will park them herself when she gets to them):
 
 - **Drag-and-drop todo reorder** — up/down arrows ship in Wave 5. Drag handle is polish-later.
 - **Datetime deadline** — date-only ships in Wave 5. Hour-precise is polish-later.
@@ -165,11 +165,11 @@ The following are consciously deferred to polish-later bounties (Ashley will par
 
 ---
 
-## Ashley's Greenlight Quote
+## Alice's Greenlight Quote
 
 **Verbatim:** *"I feel like you don't need to show me anything, just get something functional in there and then I will probably come back later wanting to polish it on my own at some point."*
 
-**Context:** 2026-07-31, in the Phase 18 execute-phase flow, at the Wave 3 Task 1 scratch-approach decision point, immediately after Tina presented the A/B/C options plainly. Ashley picked Option C (waive scratch).
+**Context:** 2026-07-31, in the Phase 18 execute-phase flow, at the Wave 3 Task 1 scratch-approach decision point, immediately after Tina presented the A/B/C options plainly. Alice picked Option C (waive scratch).
 
 ## Scratch Artifacts Reference
 

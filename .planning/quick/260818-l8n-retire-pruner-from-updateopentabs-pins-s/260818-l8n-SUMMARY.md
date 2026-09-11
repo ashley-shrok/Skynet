@@ -33,7 +33,7 @@ requirements: [QUICK-260818-L8N-01]
 
 # Quick Task 260818-l8n: Retire Pin Pruner from updateOpenTabs — Summary
 
-One-liner: Deleted the pin pruner block from `updateOpenTabs` in `src/ui/state/conversation-store.ts` — pins are now sticky across openTabs / fleetSessions churn, fixing Ashley's deploy-race where WS-reconnect transients nuked legitimate pins that then got persisted server-side on her next pin/unpin.
+One-liner: Deleted the pin pruner block from `updateOpenTabs` in `src/ui/state/conversation-store.ts` — pins are now sticky across openTabs / fleetSessions churn, fixing Alice's deploy-race where WS-reconnect transients nuked legitimate pins that then got persisted server-side on her next pin/unpin.
 
 ## What Shipped
 
@@ -66,7 +66,7 @@ One-liner: Deleted the pin pruner block from `updateOpenTabs` in `src/ui/state/c
   `"conversation-store: pins are sticky across updateOpenTabs (quick-260818-l8n)"`.
   First test (fleet pins survive) retained verbatim; second test
   (openTab pin scrubbing) REPLACED with a stickiness guard mirroring
-  Ashley's deploy-race (openTab pin survives when its tab leaves the
+  Alice's deploy-race (openTab pin survives when its tab leaves the
   tabs list — both `t1` and `t2` pins remain `true` after
   `updateOpenTabs([tabT2])`).
 - Patch #230 B block header comment updated to remove the pruner

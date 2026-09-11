@@ -17,7 +17,7 @@ tech_stack:
     - full-cell coral overlay geometry helper branch (extends the Phase 57 edge-zone overlay)
     - symmetric-focus semantics on replace + swap ("session the user was carrying lands focused" per CONTEXT.md § In-scope item 2 revised)
     - defensive JSON.parse with try/catch + fall-through-to-next-branch on parse failure (mirrors Phase 56 rich-payload branch pattern at SplitView.tsx:364-378)
-    - explicit-field logging (no JSON.stringify on inputs) per fleet directive Ashley 2026-08-11
+    - explicit-field logging (no JSON.stringify on inputs) per fleet directive Alice 2026-08-11
 key_files:
   created:
     - .planning/phases/64-multi-view-center-drop/64-02-SUMMARY.md (this file)
@@ -252,7 +252,7 @@ $ npx vitest run src/ui/lib/split-tree.test.ts src/ui/shell/SplitView.test.tsx s
       Tests  96 passed (96)
 ```
 
-Exit code 0 both runs. Green-gate satisfied per box-maintainer role (Ashley
+Exit code 0 both runs. Green-gate satisfied per box-maintainer role (Alice
 2026-08-20): scoped tests relevant to touched files only; full suite is the
 orchestrator's ship-gate, not this executor's scope.
 

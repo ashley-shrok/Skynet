@@ -35,7 +35,7 @@ design_decisions_locked:
   arm_site: fresh-pane paneKey-change reset block (reuses existing cold-vs-warm gate; no new sentinel ref)
   dismiss_trigger: first user-visible WS frame (message | image | relay_inbound | relay_outbound | context_pct | harness_tasks | session) — NOT on ws.onopen alone
   minimum_hold_time: none (arm instantly)
-  timeout: 10000ms silent auto-dismiss (no error variant per Ashley's ask)
+  timeout: 10000ms silent auto-dismiss (no error variant per Alice's ask)
   mutex_order: "Dormancy > Holding > Loading (encoded as `isBooting && !dormant && !showOverlay` at the mount gate)"
   warm_refocus_arm: false (WS-pause reopen bumps retryKey without changing paneKey, so the reset block is skipped)
 ---
@@ -44,9 +44,9 @@ design_decisions_locked:
 
 ## What was built
 
-A new `PrettyViewLoadingOverlay` component and its wiring into `PrettyView.tsx` that covers the ~5s window between a fresh pane mount and the first user-visible WS frame arriving. Fixes Ashley's silent-window UX bug (row lights up but pretty-view sits blank for 5s → she re-taps → double-fires).
+A new `PrettyViewLoadingOverlay` component and its wiring into `PrettyView.tsx` that covers the ~5s window between a fresh pane mount and the first user-visible WS frame arriving. Fixes Alice's silent-window UX bug (row lights up but pretty-view sits blank for 5s → she re-taps → double-fires).
 
-Component: full-surface scrim + centered glass card with `Loader2` spinner + "Loading…" copy. Mounted inside the chat-region wrapper as a sibling of SessionHoldingOverlay and DormancyOverlay — ComposeBox (peer sibling below the wrapper) stays typeable so Ashley can pre-draft during the boot window (patch #275 posture preserved).
+Component: full-surface scrim + centered glass card with `Loader2` spinner + "Loading…" copy. Mounted inside the chat-region wrapper as a sibling of SessionHoldingOverlay and DormancyOverlay — ComposeBox (peer sibling below the wrapper) stays typeable so Alice can pre-draft during the boot window (patch #275 posture preserved).
 
 ## Wiring (all edits tagged `quick 260808-ho2` for grep-ability)
 
@@ -90,7 +90,7 @@ No source-code or design deviations. All six locked design decisions in PLAN.md 
 
 - No backend or WS type changes (pure frontend).
 - No `ComposeBox.tsx` `*_active` prop for loading (window is short; existing ComposeBox pre-draft path handles it).
-- No error variant of the loading overlay (per Ashley — 10s silent dismiss + underlying `status="inactive"`/`"error"` render branches).
+- No error variant of the loading overlay (per Alice — 10s silent dismiss + underlying `status="inactive"`/`"error"` render branches).
 - No panel-side change (ARM signal is the paneKey change downstream, not the row-tap upstream).
 
 ## Known stubs

@@ -484,7 +484,7 @@ describe("applyLineToLayer1State — tool_result during holding must not clear (
   });
 
   it("state {isIdReset:true} + tool_result + REAL follow-up user typing + holding → clear only on the real typing", () => {
-    // Full-realism: after tool_results, if Ashley DOES type a new
+    // Full-realism: after tool_results, if Alice DOES type a new
     // non-reset message (rare during a reset but valid), that real turn
     // should still supersede correctly.
     const state: Layer1State = { mostRecentUserTurnIsIdReset: true };
@@ -538,11 +538,11 @@ describe("applyLineToLayer1State — dead is terminal", () => {
   });
 });
 
-// ── The Ashley-bug regression guard ─────────────────────────────────────────
+// ── The user-bug regression guard ─────────────────────────────────────────
 
-describe("applyLineToLayer1State — Ashley-bug regression guard (historical /id reset + later regular user turn)", () => {
+describe("applyLineToLayer1State — user-bug regression guard (historical /id reset + later regular user turn)", () => {
   it("replaying: user(regular) → assistant → user(/id reset) → assistant → user(regular) with changeoverState always 'active' produces zero arm_holding actions overall", () => {
-    // This is Ashley's bug in its purest form. Under the OLD /exit
+    // This is Alice's bug in its purest form. Under the OLD /exit
     // edge-triggered detector, any historical /exit line during replay
     // would fire arm_holding, flashing the overlay on every reconnect.
     // Under the NEW tail-state-derived detector, we only arm if the
@@ -616,8 +616,8 @@ describe("applyLineToLayer1State — Ashley-bug regression guard (historical /id
     expect(state.mostRecentUserTurnIsIdReset).toBe(false);
   });
 
-  it("replaying a session with 2 historical /exit user turns + no /id reset produces ZERO arms (the direct Ashley bug fix)", () => {
-    // The exact scenario from Ashley's bug report: JSONL has 2
+  it("replaying a session with 2 historical /exit user turns + no /id reset produces ZERO arms (the direct Alice bug fix)", () => {
+    // The exact scenario from Alice's bug report: JSONL has 2
     // historical /exit lines followed by regular user/assistant turns,
     // none of which are /id reset. Under the OLD detector, each /exit
     // line fired arm_holding on every WS reconnect (14 arm+clear pairs
@@ -714,8 +714,8 @@ describe("applyLineToLayer1State — harness synthetics do not supersede /id res
     expect(state.layer1.mostRecentUserTurnIsIdReset).toBe(true);
   });
 
-  it("Test I — real user typing after /id reset STILL supersedes: [/id reset → real freeform typing] fires arm + clear (Ashley cancels reset by typing)", () => {
-    // Preserves the "supersede" semantics: Ashley explicitly cancels the
+  it("Test I — real user typing after /id reset STILL supersedes: [/id reset → real freeform typing] fires arm + clear (Alice cancels reset by typing)", () => {
+    // Preserves the "supersede" semantics: Alice explicitly cancels the
     // /id reset by typing a new message. The widening is surgical — it only
     // blocks harness synthetics, not genuine human input.
     const state: __Layer1StateForTests = {

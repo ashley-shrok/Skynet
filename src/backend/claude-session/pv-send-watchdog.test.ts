@@ -73,7 +73,7 @@ vi.mock("../utils/logger.js", () => ({
 }));
 
 const SESSION_ID = "sess-A";
-const TMUX_TARGET = "ashley-tmux";
+const TMUX_TARGET = "user-tmux";
 
 function makeExec(): Mock {
   return vi.fn().mockResolvedValue("");

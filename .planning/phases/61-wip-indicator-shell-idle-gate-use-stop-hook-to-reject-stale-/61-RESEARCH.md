@@ -75,7 +75,7 @@ The new-in-Phase-57 wrinkles are:
 - **61-01** — Stop hook edit + wire schema extension (backend types + fleet-status-types.ts mirror). Foundation, no runtime behavior changes yet.
 - **61-02** — Backend `processPid` extension: per-session file glob + read, status-delta tracking, stamp both axes into `SessionState`, extend fingerprint. Backend tests.
 - **61-03** — Frontend `session-working-store` extension: `WorkingRecord` gains two axes, `main` predicate updated. Frontend tests. **Also**: revise the existing session-working-store Test B ("`shell` + bg:[] → true") to reflect the new gate.
-- **57-04** — Deploy checkpoint + UAT verification (lazy rollout — Ashley walks through Poppy/aqua/wilma, confirms next turn-end flips the indicator off correctly).
+- **57-04** — Deploy checkpoint + UAT verification (lazy rollout — Alice walks through Poppy/aqua/wilma, confirms next turn-end flips the indicator off correctly).
 
 Note: 61-03 is technically parallelizable with 61-02 given clean wire contract in 61-01, but sequential is simpler and matches the Phase 53/52 pattern.
 
@@ -324,9 +324,9 @@ This is not a rename/refactor/migration phase. However, there is a small runtime
 3. `installStopHook` writes the script contents fresh every time (it does NOT check whether the script bytes match — it just overwrites via heredoc + mv + chmod +x).
 4. The Set is also cleared per-host in `releaseSshChannel` (line 469) so a re-added host re-installs.
 
-Therefore: as soon as Ashley opens the Skynet UI after the deploy, every currently-connected host gets the new hook script written to disk on the next `acquireSshChannel` call. Existing sessions on those boxes carry the OLD hook (which fires the box-wide-file-only write) until their next turn-end, at which point the NEW hook fires and writes the per-session file for the first time. The Skynet backend's poll cycle sees the new file appear on its next tick and starts including `lastStopAt` for that session. The predicate flips.
+Therefore: as soon as Alice opens the Skynet UI after the deploy, every currently-connected host gets the new hook script written to disk on the next `acquireSshChannel` call. Existing sessions on those boxes carry the OLD hook (which fires the box-wide-file-only write) until their next turn-end, at which point the NEW hook fires and writes the per-session file for the first time. The Skynet backend's poll cycle sees the new file appear on its next tick and starts including `lastStopAt` for that session. The predicate flips.
 
-**Poppy / aqua / wilma today (per CONTEXT):** they are `status: shell` with no per-session file yet. `lastStopAt === null` → default-on → indicator stays lit (correct — we cannot prove they are done). On their next real turn-end, per-session file appears, `lastStopAt` gets a value, `lastStatusChangeAt` was set on their last real status transition (which was days ago), the predicate reads `shell && lastStatusChangeAt < lastStopAt` → NOT work → indicator off. Ashley's UAT is exactly this scenario.
+**Poppy / aqua / wilma today (per CONTEXT):** they are `status: shell` with no per-session file yet. `lastStopAt === null` → default-on → indicator stays lit (correct — we cannot prove they are done). On their next real turn-end, per-session file appears, `lastStopAt` gets a value, `lastStatusChangeAt` was set on their last real status transition (which was days ago), the predicate reads `shell && lastStatusChangeAt < lastStopAt` → NOT work → indicator off. Alice's UAT is exactly this scenario.
 
 ---
 
@@ -351,10 +351,10 @@ Therefore: as soon as Ashley opens the Skynet UI after the deploy, every current
 **Warning signs:** `lastStopAt` briefly appears in the cache then disappears on the next unrelated frame; indicator flickers between correct-off and default-on.
 
 ### Pitfall 4: Trusting `sessionJson.updatedAt` for `lastStatusChangeAt`
-**What goes wrong:** The `sessionJson.updatedAt` field bumps whenever the harness rewrites the session file — including on compose-box typing that never submits. Using it as `lastStatusChangeAt` would falsely register "the status changed" on every keystroke while Ashley is typing, defeating the entire purpose of the stop-gate.
+**What goes wrong:** The `sessionJson.updatedAt` field bumps whenever the harness rewrites the session file — including on compose-box typing that never submits. Using it as `lastStatusChangeAt` would falsely register "the status changed" on every keystroke while Alice is typing, defeating the entire purpose of the stop-gate.
 **Why it happens:** `updatedAt` is right there in the parsed sessionJson, easy to grab.
 **How to avoid:** Derive `lastStatusChangeAt` PURELY from server-side status-value delta tracking. Compare `sessionJson.status` (this tick) to `PidCacheEntry.lastStatus` (previous tick). Only update `lastStatusChangeAt = deps.now()` when they DIFFER. `updatedAt` MUST NOT feed this derivation. This is called out in CONTEXT.md as a locked decision.
-**Warning signs:** Indicator flickers back on every time Ashley types a character in the compose box.
+**Warning signs:** Indicator flickers back on every time Alice types a character in the compose box.
 
 ### Pitfall 5: Publishing before status-delta cache is seeded (first-tick correctness)
 **What goes wrong:** On the FIRST tick a PID is seen, there is no cached `lastStatus` to compare against. If the code defaults `lastStatusChangeAt` to 0 (unix epoch), then `shell && lastStatusChangeAt > lastStopAt` is always false (any non-null Stop is fresher than epoch) → newly-appearing shell sessions incorrectly go dark on first appearance.
@@ -365,7 +365,7 @@ Therefore: as soon as Ashley opens the Skynet UI after the deploy, every current
 ### Pitfall 6: Per-session file grows unbounded on active boxes
 **What goes wrong:** Boxes with high session churn (identity recycles, `/id reset` cycles, new session creation) accumulate hundreds/thousands of `stop-<sessionId>.json` files over time.
 **Why it happens:** No cleanup. CONTEXT explicitly defers cleanup.
-**How to avoid:** Accept it (documented tradeoff). At <1KB per file, 1000 sessions/year on a busy box is ~1MB/year — safely below any noticeable disk-usage threshold. Ashley can `rm -rf ~/.claude/fleet-status/stop-*.json` manually if it ever becomes an issue. If a future phase wants cleanup, hook it into whatever session-lifecycle cleanup already exists on the managed box.
+**How to avoid:** Accept it (documented tradeoff). At <1KB per file, 1000 sessions/year on a busy box is ~1MB/year — safely below any noticeable disk-usage threshold. Alice can `rm -rf ~/.claude/fleet-status/stop-*.json` manually if it ever becomes an issue. If a future phase wants cleanup, hook it into whatever session-lifecycle cleanup already exists on the managed box.
 **Warning signs:** Would only surface as a disk-space alert on a managed box after years of use.
 
 ### Pitfall 7: Frontend mirror at `fleet-status-types.ts` missed
@@ -730,7 +730,7 @@ if (state_arg.lastStatusChangeAt !== undefined) {
 1. **Managed-box `bash` vs `sh` for the Stop hook's inner subshell.**
    - What we know: current script uses `#!/bin/bash`, then `timeout 2 sh -c "..."`. `sh` may be dash on Debian/Ubuntu-derived, ash on Alpine. Bash-specific features (`[[`, `=~`) do NOT work under dash/ash.
    - What's unclear: whether the current single-string atomic-write `sh -c` works only because it uses POSIX-portable syntax, and whether extending it to include a bash regex would break on any managed box.
-   - Recommendation: change the inner subshell to `timeout 2 bash -c "..."` (bash is present on every non-embedded Linux distro — it is a dependency of the harness itself since Claude Code requires it). Verify with `which bash` on Ashley's target fleet before finalizing the script.
+   - Recommendation: change the inner subshell to `timeout 2 bash -c "..."` (bash is present on every non-embedded Linux distro — it is a dependency of the harness itself since Claude Code requires it). Verify with `which bash` on Alice's target fleet before finalizing the script.
 
 2. **Where in `processPid` to place the per-session file read.**
    - What we know: `parseSessionJson` returns `sessionId` at line 991. The current `Promise.all` on line 977 does not know `sessionId` yet (it fires the box-wide payload read at line 971 before parsing).
@@ -745,7 +745,7 @@ if (state_arg.lastStatusChangeAt !== undefined) {
 4. **How to handle the box-wide `last-stop-payload.json` when TWO sessions end their turns in the same 2s poll window.**
    - What we know: the file gets overwritten (second session's payload replaces first's). This is the exact bug that necessitates per-session files.
    - What's unclear: whether `backgroundTasks[]` should also be moved to per-session files (in which case, do we retire the box-wide file?), or whether backgroundTasks are best treated as per-box (as they largely represent shared MCP servers etc.).
-   - Recommendation: CONTEXT explicitly locks the box-wide file staying as-is for backgroundTasks[]. Phase 61 does NOT touch the box-wide read path. Two sessions may still lose each other's `background_tasks[]` in a race — that is unchanged from today and out of scope. If Ashley cares about this in the future, it's a separate phase.
+   - Recommendation: CONTEXT explicitly locks the box-wide file staying as-is for backgroundTasks[]. Phase 61 does NOT touch the box-wide read path. Two sessions may still lose each other's `background_tasks[]` in a race — that is unchanged from today and out of scope. If Alice cares about this in the future, it's a separate phase.
 
 ---
 
@@ -762,7 +762,7 @@ if (state_arg.lastStatusChangeAt !== undefined) {
 
 **Missing dependencies with no fallback:** none identified.
 
-**Missing dependencies with fallback:** BSD `stat` if any managed box uses it. Fleet is presumed Linux-only per prior phases; verify with Ashley if any macOS or *BSD boxes are in the fleet.
+**Missing dependencies with fallback:** BSD `stat` if any managed box uses it. Fleet is presumed Linux-only per prior phases; verify with Alice if any macOS or *BSD boxes are in the fleet.
 
 ---
 

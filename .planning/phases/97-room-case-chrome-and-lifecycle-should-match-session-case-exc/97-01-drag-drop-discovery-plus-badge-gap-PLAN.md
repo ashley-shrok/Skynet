@@ -18,7 +18,7 @@ requirements:
 
 must_haves:
   truths:
-    - "Ashley's UAT reproduction of 'plain-session split-view broken after opening a room' is either confirmed (structural reshape needed → split-out) or refuted (case-branch fill-in only, ship F-2 fix in Plan 06)."
+    - "Alice's UAT reproduction of 'plain-session split-view broken after opening a room' is either confirmed (structural reshape needed → split-out) or refuted (case-branch fill-in only, ship F-2 fix in Plan 06)."
     - "MultiBadgeAnchor's inner gap between badge cells reads visibly tighter than gap-2 (8px) — halved to gap-1 (4px)."
     - "Structured diagnostic logs at native dragover/drop on a relay-showing Pane land in the console during discovery so future maintenance has a forensic trail."
     - "Harness-case behavior byte-identical: no change to session-case badge gap, no change to session-case drop-target behavior, no new production side-effects."
@@ -44,7 +44,7 @@ must_haves:
 ---
 
 <objective>
-Ship two file-disjoint slices in Wave 1: (a) F-2 drag-drop discovery — instrument the SplitView native drop-target listener, reproduce Ashley's "plain-session split broken after room open" flow, and produce a written verdict at a blocking human-verify checkpoint that either DECLARES the F-2 fix as a case-branch fill-in (Plan 06 ships as planned) or FLAGS a structural reshape needed (Plan 06 drops from Phase 97 and gets its own /open per D-07 split-out gate); (b) F-4 MultiBadgeAnchor inner gap tighten from `gap-2` to `gap-1` per D-11.
+Ship two file-disjoint slices in Wave 1: (a) F-2 drag-drop discovery — instrument the SplitView native drop-target listener, reproduce Alice's "plain-session split broken after room open" flow, and produce a written verdict at a blocking human-verify checkpoint that either DECLARES the F-2 fix as a case-branch fill-in (Plan 06 ships as planned) or FLAGS a structural reshape needed (Plan 06 drops from Phase 97 and gets its own /open per D-07 split-out gate); (b) F-4 MultiBadgeAnchor inner gap tighten from `gap-2` to `gap-1` per D-11.
 
 Purpose: The F-2 discovery MUST run before any F-2 fix so the split-out decision surfaces early (per Phase 97 D-07 split-out contract from CONTEXT.md; per RESEARCH.md § "Split-out assessment for finding 2" which says most-likely-outcome is "split-out DOES NOT apply — root cause is missing tabId in MultiBadgeAnchor" but demands live confirmation). F-4 is co-located here because it touches MultiBadgeAnchor (a single-token change) but is file-disjoint from every other Wave 1 plan and from Plan 06's tabId-threading (Plan 06 modifies props/render body of the same file; the ROOT_ANCHOR_CLASS constant is a separate identifier — Plan 06 depends on this plan to avoid re-touching gap tokens).
 
@@ -171,7 +171,7 @@ Severity: LOW / none-new. This slice is client-side UI instrumentation + a singl
 </task>
 
 <task type="auto" tdd="false">
-  <name>Task 3: Reproduce Ashley's flow + write DISCOVERY-NOTES.md with split-out verdict</name>
+  <name>Task 3: Reproduce Alice's flow + write DISCOVERY-NOTES.md with split-out verdict</name>
   <files>.planning/phases/97-room-case-chrome-and-lifecycle-should-match-session-case-exc/97-01-DISCOVERY-NOTES.md</files>
   <read_first>
     - .planning/phases/97-room-case-chrome-and-lifecycle-should-match-session-case-exc/97-RESEARCH.md § "Finding 2" + § "Split-out assessment for finding 2" (full sections — hypotheses H1-H5, structural-reshape scenarios, verdict paths)
@@ -180,7 +180,7 @@ Severity: LOW / none-new. This slice is client-side UI instrumentation + a singl
     - src/ui/features/pretty-view/IdentityBadge.tsx:82 (the `isDragSource = !!tabId && !isMobile` gate)
   </read_first>
   <action>
-    Reproduce Ashley's flow in a live browser (Chrome DevTools console open, filter for `pv-split-drop`), and produce `.planning/phases/97-room-case-chrome-and-lifecycle-should-match-session-case-exc/97-01-DISCOVERY-NOTES.md` documenting:
+    Reproduce Alice's flow in a live browser (Chrome DevTools console open, filter for `pv-split-drop`), and produce `.planning/phases/97-room-case-chrome-and-lifecycle-should-match-session-case-exc/97-01-DISCOVERY-NOTES.md` documenting:
 
     1. **Preconditions:** git SHA at test time; branch name; dev server URL; browser + version.
     2. **Reproduction steps A (drag-source ask, per D-05):**
@@ -189,12 +189,12 @@ Severity: LOW / none-new. This slice is client-side UI instrumentation + a singl
        c. Open a relay room via the room list.
        d. From the room-showing surface, attempt to drag any participant badge onto the plain-session Pane's center zone.
        e. Record: does a `dragstart` fire? Do the `[pv-split-drop-diag] phase=dragover` logs fire on the target Pane? Does the drop route to `onOpenSessionInTree`? Does a split open?
-    3. **Reproduction steps B (Ashley's "shared-state corruption" claim, per D-06):**
+    3. **Reproduction steps B (Alice's "shared-state corruption" claim, per D-06):**
        a. Open the app in a fresh tab.
        b. Open plain session A.
        c. Open a relay room.
        d. Close the relay room's tab.
-       e. From the tab bar, drag plain session B (a second session tab) onto plain session A's Pane center zone — expect a split to open (this is the baseline session→session drag-drop flow that Ashley reports is broken).
+       e. From the tab bar, drag plain session B (a second session tab) onto plain session A's Pane center zone — expect a split to open (this is the baseline session→session drag-drop flow that Alice reports is broken).
        f. Record: does the `[pv-split-drop-diag] phase=dragover` log fire on the target Pane? Does the coral overlay paint? Does the drop route through? Does the split open?
        g. If it fails, repeat WITHOUT the intermediate room-open (skip step c-d). Record whether the failure only manifests AFTER a room has been mounted at least once.
     4. **Verdict — pick exactly ONE of the two paths, per D-07:**
@@ -230,7 +230,7 @@ Severity: LOW / none-new. This slice is client-side UI instrumentation + a singl
   </what-built>
   <how-to-verify>
     1. Read `.planning/phases/97-room-case-chrome-and-lifecycle-should-match-session-case-exc/97-01-DISCOVERY-NOTES.md` end-to-end.
-    2. Confirm the reproduction steps A and B match Ashley's UAT findings (open plain session → open room → try drag-source; open plain session A → open room → close room → drag plain session B onto A).
+    2. Confirm the reproduction steps A and B match Alice's UAT findings (open plain session → open room → try drag-source; open plain session A → open room → close room → drag plain session B onto A).
     3. Confirm the verdict path selected (Verdict A "Plan 06 SHIPS" OR Verdict B "Plan 06 DROPS FROM PHASE 97") is consistent with the log evidence pasted in the notes.
     4. Confirm the recommendation to orchestrator is clear and actionable.
     5. Visually inspect the running app: open a relay room, look at MultiBadgeAnchor — the inner gap between participant badges should read visibly tighter than before (4px vs 8px). No other visual change to the badge row.

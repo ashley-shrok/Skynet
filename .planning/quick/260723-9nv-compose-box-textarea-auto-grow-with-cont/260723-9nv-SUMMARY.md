@@ -90,4 +90,4 @@ None. Executed exactly as written. All Task 1 done-criteria greps returned expec
 
 - Files exist: `src/ui/features/pretty-view/ComposeBox.tsx` FOUND, `src/ui/features/pretty-view/ComposeBox.test.tsx` FOUND.
 - Commit exists: `53b1c7b` FOUND at HEAD via `git log --oneline -1`.
-- Working tree clean (except intentional `.planning/quick/260723-9nv-.../` untracked, per fork convention — quick planning docs stay untracked until Ashley or tina decides to snapshot them).
+- Working tree clean (except intentional `.planning/quick/260723-9nv-.../` untracked, per fork convention — quick planning docs stay untracked until Alice or tina decides to snapshot them).

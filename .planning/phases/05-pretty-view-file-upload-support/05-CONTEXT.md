@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-07-20
 **Status:** Ready for planning
-**Source:** Synthesized from shape file `.planning/shapes/shape-pretty-view-file-upload-support.md` — that file is authoritative and every philosophical question was locked during a long `/open` discussion with Ashley on 2026-07-20 (see the shape's session log for provenance). This CONTEXT.md restates the shape as locked planning decisions plus the concrete skynet-fork integration points. **The shape is not to be re-litigated; the planner's job is HOW, not WHAT.**
+**Source:** Synthesized from shape file `.planning/shapes/shape-pretty-view-file-upload-support.md` — that file is authoritative and every philosophical question was locked during a long `/open` discussion with Alice on 2026-07-20 (see the shape's session log for provenance). This CONTEXT.md restates the shape as locked planning decisions plus the concrete skynet-fork integration points. **The shape is not to be re-litigated; the planner's job is HOW, not WHAT.**
 
 <domain>
 ## Phase Boundary
@@ -148,7 +148,7 @@ All items below are **LOCKED** by the shape file — do NOT re-open them during 
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Shape file (source of truth)
-- `.planning/shapes/shape-pretty-view-file-upload-support.md` — the LOCKED shape from Ashley's `/open` discussion. Every decision in this CONTEXT.md traces back to this file. Read it first.
+- `.planning/shapes/shape-pretty-view-file-upload-support.md` — the LOCKED shape from Alice's `/open` discussion. Every decision in this CONTEXT.md traces back to this file. Read it first.
 
 ### Backend send path (atomic delete-on-send + split-and-delay Enter)
 - `src/backend/ssh/terminal.ts` — the input handler patch #60 introduced `messageQueueItemId` and atomic delete-on-send in. Patch #100 added the split-and-delay Enter path here. The upload orchestration extends this handler; do NOT add a parallel one.

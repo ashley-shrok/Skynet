@@ -1,6 +1,6 @@
 # MANUAL VERIFICATION — Phase 31 Post-Ship Procedure
 
-**Purpose:** Phase 31 shipped instrumentation only (D-22 — no bugs fixed). The two deferred symptom bounties (`ws-pause-gate-stuck-connect-cycling`, `speak-button-broken-on-cellular`) are unblocked once Ashley reproduces on the instrumented app and confirms the new log trail lands as expected. This document is the post-ship verification procedure.
+**Purpose:** Phase 31 shipped instrumentation only (D-22 — no bugs fixed). The two deferred symptom bounties (`ws-pause-gate-stuck-connect-cycling`, `speak-button-broken-on-cellular`) are unblocked once Alice reproduces on the instrumented app and confirms the new log trail lands as expected. This document is the post-ship verification procedure.
 
 ---
 
@@ -151,19 +151,19 @@ File a revision back to the responsible plan to fix the field extraction.
 
 ---
 
-## 6. Ashley's Role
+## 6. Alice's Role
 
 1. After Phase 31 is deployed, reproduce ONE instance of each symptom on her iPhone PWA on cellular (this is the whole point of Phase 31 — ambient-signal collection from the instrumented app).
 2. Open an SSH session to skynet-ec2 and run the `sudo tail -F ... | grep` commands from sections 3 and 4 (5-10 minutes of log watching per symptom).
 3. Capture the log output from the reproduction window (or share the skynet-ec2 grep output).
 4. Report back with either "log trail lands as expected — opening bounty for diagnosis" or "log trail missing X — revising Phase 31."
 
-The grep commands above are designed to produce a self-contained log excerpt that contains everything needed for diagnosis, without requiring Ashley to understand the log format.
+The grep commands above are designed to produce a self-contained log excerpt that contains everything needed for diagnosis, without requiring Alice to understand the log format.
 
 ---
 
 ## 7. Silence-Is-Success Rule
 
-Per box-maintainer.md convention: if Ashley doesn't reproduce and report back within a reasonable window (several days post-deploy), Phase 31 is assumed verified. This runbook is not a blocking gate — it is a preferred path that unlocks faster diagnosis of the deferred bounties.
+Per box-maintainer.md convention: if Alice doesn't reproduce and report back within a reasonable window (several days post-deploy), Phase 31 is assumed verified. This runbook is not a blocking gate — it is a preferred path that unlocks faster diagnosis of the deferred bounties.
 
 The alternative path is: Phase 31 ships, a new symptom appears in a later session, and the log trail surfaces the diagnosis at that point automatically. Phase 31 still delivered value — it just didn't get an explicit "log trail confirmed" signal before the diagnosis opportunity arose.

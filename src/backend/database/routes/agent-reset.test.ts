@@ -176,7 +176,7 @@ function httpRequest(
 // is mocked at module level so `conn` is opaque).
 const fakeConn = { end: vi.fn() } as unknown as import("ssh2").Client;
 
-// Owned host (Ashley owns hostId=42 as userId=1).
+// Owned host (Alice owns hostId=42 as userId=1).
 const stubResolvedHost = {
   id: 42,
   ip: "10.0.0.42",

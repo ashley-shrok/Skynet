@@ -161,7 +161,7 @@ disabled={asideActive ? false : (sendDisabled || showTranscribingSend)}
 ```
 Copy shape: `disabled={status === "in-flight"}` — click-through blocked during flight.
 
-**Spinner glyph pattern** (ComposeBox.tsx L2551-2564) — the LOCKED symmetric twin-arc spinner. Same 2 commits back (ab00cc61 → df4d7543): Ashley explicitly rejected `lucide's Loader2` for the wobbling-centroid issue. Copy VERBATIM:
+**Spinner glyph pattern** (ComposeBox.tsx L2551-2564) — the LOCKED symmetric twin-arc spinner. Same 2 commits back (ab00cc61 → df4d7543): Alice explicitly rejected `lucide's Loader2` for the wobbling-centroid issue. Copy VERBATIM:
 ```typescript
 // ComposeBox.tsx L2552-2564
 <svg
@@ -178,7 +178,7 @@ Copy shape: `disabled={status === "in-flight"}` — click-through blocked during
   <path d="M3 12 A9 9 0 0 0 12 21" />
 </svg>
 ```
-This is a repo-wide convention (Ashley 2026-08-19 commit df4d7543); the new load-more button MUST use this same spinner for in-flight state, not `Loader2` or `animate-spin` on a lucide glyph.
+This is a repo-wide convention (Alice 2026-08-19 commit df4d7543); the new load-more button MUST use this same spinner for in-flight state, not `Loader2` or `animate-spin` on a lucide glyph.
 
 **Button + wrapper pattern** (DormancyOverlay.tsx L181-193):
 ```typescript
@@ -838,7 +838,7 @@ None. Every file in Phase 47 has a strong in-repo analog. The one place the mapp
 
 ## Cross-Cutting Callouts (planner MUST propagate to every relevant plan)
 
-1. **NEVER use the type name `fetch_older` or `fetch_older_batch`** — locked forbidden by `PrettyView.hydration-cap.test.tsx` Test H. Fresh type name required. Recommendation: `fetch_older_range` for request + `fetch_older_range_batch` for response (or Ashley/planner names a different pair).
+1. **NEVER use the type name `fetch_older` or `fetch_older_batch`** — locked forbidden by `PrettyView.hydration-cap.test.tsx` Test H. Fresh type name required. Recommendation: `fetch_older_range` for request + `fetch_older_range_batch` for response (or Alice/planner names a different pair).
 
 2. **Batch size stays at twenty** — CONTEXT.md § Scope edges "Out of scope: A user-configurable 'how many per click' setting. The batch size stays at twenty." No plan should widen or make this configurable.
 

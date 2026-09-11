@@ -9,7 +9,7 @@ files_modified:
   - src/ui/features/pretty-view/PrettyView.test.tsx
 autonomous: true
 requirements:
-  - CNX-A  # ComposeBox mounts in reduced state during dormant so Ashley can pre-draft
+  - CNX-A  # ComposeBox mounts in reduced state during dormant so Alice can pre-draft
   - CNX-B  # Waking-related local state resets on isVisible false→true edge so re-dormanted sessions don't stick on "Waking up…"
 
 must_haves:
@@ -40,11 +40,11 @@ must_haves:
 <objective>
 Two additive DormancyOverlay refinements, both landing in `PrettyView.tsx`, with matching tests in `PrettyView.test.tsx`.
 
-**Fix A** (CNX-A): Extend the ComposeBox mount gate at `PrettyView.tsx:~1834` to include `dormant`, so Ashley can pre-draft messages during the dormant/waking window. All existing reduced-state prop wiring (`dormantActive={dormant || waking}`) already disables Send/reset/queue/thumbsUp/paperclip while leaving textarea + mic typeable — the mount gate is the only thing missing.
+**Fix A** (CNX-A): Extend the ComposeBox mount gate at `PrettyView.tsx:~1834` to include `dormant`, so Alice can pre-draft messages during the dormant/waking window. All existing reduced-state prop wiring (`dormantActive={dormant || waking}`) already disables Send/reset/queue/thumbsUp/paperclip while leaving textarea + mic typeable — the mount gate is the only thing missing.
 
-**Fix B** (CNX-B): Add a new small `useEffect` on `[isVisible]` that uses a `prevIsVisibleRef` edge detector to reset local waking state (`setWaking(false)`, `setWakingStartTs(null)`, `setElapsedSeconds(0)`, `setWakeError(null)`) whenever the pane transitions from `isVisible=false` to `isVisible=true`. This clears stale waking state when Ashley returns to a pane whose WS was closed by patch #344 during hidden-time and whose session has since re-dormanted, so the next backend dormant frame (within one 3s poll cycle) paints an accurate "Session is asleep" overlay with a working Wake button instead of a stuck "Waking up…".
+**Fix B** (CNX-B): Add a new small `useEffect` on `[isVisible]` that uses a `prevIsVisibleRef` edge detector to reset local waking state (`setWaking(false)`, `setWakingStartTs(null)`, `setElapsedSeconds(0)`, `setWakeError(null)`) whenever the pane transitions from `isVisible=false` to `isVisible=true`. This clears stale waking state when Alice returns to a pane whose WS was closed by patch #344 during hidden-time and whose session has since re-dormanted, so the next backend dormant frame (within one 3s poll cycle) paints an accurate "Session is asleep" overlay with a working Wake button instead of a stuck "Waking up…".
 
-Purpose: Fixes two related UX papercuts in the dormant flow — one lets Ashley pre-draft during wake, the other prevents a stuck-waking overlay after visibility-driven WS reconnects.
+Purpose: Fixes two related UX papercuts in the dormant flow — one lets Alice pre-draft during wake, the other prevents a stuck-waking overlay after visibility-driven WS reconnects.
 
 Output: Two-line change at the mount gate (fix A), a ~10-line new useEffect + one new `prevIsVisibleRef` declaration (fix B), and two new integration tests in `PrettyView.test.tsx`.
 </objective>
@@ -203,7 +203,7 @@ Output: Two-line change at the mount gate (fix A), a ~10-line new useEffect + on
         // Confirm we entered waking state.
         expect(container.textContent).toContain('Waking up…');
 
-        // Hide the pane (simulates Ashley navigating away — patch #344 closes WS).
+        // Hide the pane (simulates Alice navigating away — patch #344 closes WS).
         rerender(<PrettyView hostId={1} tmuxSession="s1" onSend={vi.fn(() => true)} isVisible={false} />);
 
         // Return to the pane (visibility false → true transition).

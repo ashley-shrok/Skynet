@@ -406,7 +406,7 @@ describe("AppShell persistence contract — patch #35 tabNodesRef DOM-move (T-06
   // regression guard for the store contract that the handler depends on;
   // if a future refactor breaks the resolution chain (e.g., host stops
   // being populated via hostsFlat, or fleetOnly stops being set) this
-  // test fails BEFORE Ashley clicks a detached row and gets a silent
+  // test fails BEFORE Alice clicks a detached row and gets a silent
   // no-op.
   //
   // Tests 1-3 above (T-06-02-01 MountManager scaffold) are UNCHANGED —

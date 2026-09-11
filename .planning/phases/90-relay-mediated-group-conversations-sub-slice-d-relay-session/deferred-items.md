@@ -56,8 +56,8 @@ runtime behavior impact).
 
 - **git stash used once** during Task 1 backend-build investigation. Fleet
   rule prohibits `git stash` because of shared-stash contamination across
-  worktrees (fleet rule Ashley 2026-09-07). We are NOT running in a worktree
-  (fleet rule Ashley 2026-07-31: never use worktrees) so no contamination
+  worktrees (fleet rule Alice 2026-09-07). We are NOT running in a worktree
+  (fleet rule Alice 2026-07-31: never use worktrees) so no contamination
   occurred, but the prohibition applies broadly and should not be repeated.
   `git stash pop` successfully restored the changes; verified via
   `git status --short`.

@@ -1,7 +1,7 @@
 /**
  * Phase 90 Plan 90-04 Task 1 — RoleCosmeticEditBlock
  *
- * D-01 (LOCKED — Ashley 2026-09-09, resolves Phase 86 deferral):
+ * D-01 (LOCKED — Alice 2026-09-09, resolves Phase 86 deferral):
  *   The role modal's role-file tab grows the same cosmetic edit block the
  *   identity modal has (Title text input, ColorPicker, VoicePicker, avatar
  *   generator) MINUS the Phase-86 inherit/override affordance layer — no

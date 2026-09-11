@@ -44,9 +44,9 @@ Modified `src/ui/features/pretty-view/use-auto-scroll.ts` (patch #88):
 | Task | Name | Status | Commit |
 |------|------|--------|--------|
 | 1 | Add tall-message top-align branch to useAutoScroll on message-add | COMPLETE | d6e40d1 |
-| 2 | Ashley live-verifies in dev build (checkpoint:human-verify) | PENDING HUMAN VERIFY | — |
+| 2 | Alice live-verifies in dev build (checkpoint:human-verify) | PENDING HUMAN VERIFY | — |
 
-Task 2 is a `checkpoint:human-verify` gate. Ashley verifies scroll behavior in a running dev environment. Six behavioral checks defined in the plan (tall message lands top-aligned, short message still bottom-pins, streaming does not re-anchor, scrolled-up user is never yanked, viewport shrink still re-pins). Cannot be verified from CLI.
+Task 2 is a `checkpoint:human-verify` gate. Alice verifies scroll behavior in a running dev environment. Six behavioral checks defined in the plan (tall message lands top-aligned, short message still bottom-pins, streaming does not re-anchor, scrolled-up user is never yanked, viewport shrink still re-pins). Cannot be verified from CLI.
 
 ## Grep Gate Results (Non-Goal Enforcement)
 

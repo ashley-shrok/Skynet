@@ -17,13 +17,13 @@ Slice A is pure infrastructure — nothing user-visible ships in this slice. All
 <decisions>
 ## Implementation Decisions
 
-All 8 decisions below were walked one-at-a-time with Ashley during the `/open` conversation for this shape (2026-09-08). Each one was greenlit `thumbs up` before advancing.
+All 8 decisions below were walked one-at-a-time with Alice during the `/open` conversation for this shape (2026-09-08). Each one was greenlit `thumbs up` before advancing.
 
 ### Slice scoping
 
 - **D-01: Skip the discovery-first act.** The seed shape opened with "figure out what exists in Skynet today for per-user relay credentials, then promote to first-class." Codebase reading during `/open` proved the promotion is already done — `users.mxid` is a first-class column landed in Phase 75, `matrix_admin_creds` is a live singleton, and the two Synapse admin primitives (`createOrUpdateUser` + `loginAsUser`) are already wired and exercised. The real gap is eager provisioning at user-create time, not promotion.
 
-- **D-02: No backfill code in this slice.** Existing users without mxids get hand-migrated by the maintainer of each Skynet instance (Taylor on t1000, Stacy on T800) as part of upgrading Skynet on that box. Slice A ships zero backfill/sweep code. Legacy users (Ashley, Zoey, Laura on t1000) — who ALREADY have mxids from the pre-existing one-shot import — are not touched at all.
+- **D-02: No backfill code in this slice.** Existing users without mxids get hand-migrated by the maintainer of each Skynet instance (Taylor on t1000, Stacy on T800) as part of upgrading Skynet on that box. Slice A ships zero backfill/sweep code. Legacy users (Alice, Zoey, Laura on t1000) — who ALREADY have mxids from the pre-existing one-shot import — are not touched at all.
 
 ### Create-flow provisioning
 
@@ -35,9 +35,9 @@ All 8 decisions below were walked one-at-a-time with Ashley during the `/open` c
 
 ### Identifier shape
 
-- **D-06: mxid format is `@<sanitized-username>_human:<server_name>`.** The `_human` suffix separates humans from agents in the same homeserver namespace (agents get no suffix). Legacy identifiers without the suffix (Ashley, Zoey, Laura) continue to work indefinitely — the suffix is convention going forward, not a schema-enforced correctness requirement.
+- **D-06: mxid format is `@<sanitized-username>_human:<server_name>`.** The `_human` suffix separates humans from agents in the same homeserver namespace (agents get no suffix). Legacy identifiers without the suffix (Alice, Zoey, Laura) continue to work indefinitely — the suffix is convention going forward, not a schema-enforced correctness requirement.
 
-- **D-07: Username → mxid sanitization is a bijective escape.** Per Synapse's localpart grammar `[a-z0-9._=/+-]`, disallowed characters escape to unique multi-char sequences. Table: `_` → `__`, `@` → `_at_`, `.` → `_dot_`, and analogous escapes for other rejected characters. Bijective (escape-the-escape ensures a literal `_at_` in a username cannot be confused with the escape sequence), deterministic (same input always same output), collision-free across any valid Skynet username. The common case stays clean (`ashley` → `@ashley_human:...`); the T800 case where a user's username is an email (`ashley@aitherhealth.com`) yields a longer-but-readable identifier (`@ashley_at_aitherhealth_dot_com_human:...`).
+- **D-07: Username → mxid sanitization is a bijective escape.** Per Synapse's localpart grammar `[a-z0-9._=/+-]`, disallowed characters escape to unique multi-char sequences. Table: `_` → `__`, `@` → `_at_`, `.` → `_dot_`, and analogous escapes for other rejected characters. Bijective (escape-the-escape ensures a literal `_at_` in a username cannot be confused with the escape sequence), deterministic (same input always same output), collision-free across any valid Skynet username. The common case stays clean (`alice` → `@alice_human:...`); the T800 case where a user's username is an email (`alice@example.com`) yields a longer-but-readable identifier (`@alice_at_example_dot_com_human:...`).
 
   Motivating context: on the T800 Skynet deployment (Aither Health), users may sign in with their corporate email address as their Skynet username. That must land as a valid Matrix identifier without collision.
 
@@ -57,11 +57,11 @@ All 8 decisions below were walked one-at-a-time with Ashley during the `/open` c
 
 ### Displayname
 
-- **D-11: Skynet sets a Matrix displayname at mint time.** The mint call passes the human-friendly form as displayname (e.g. `Ashley` for username `ashley`, or the pre-escape human form for email usernames). Rooms in Element / any Matrix client show the displayname (not the sanitized mxid). Set once at mint time; nothing later updates it in this slice.
+- **D-11: Skynet sets a Matrix displayname at mint time.** The mint call passes the human-friendly form as displayname (e.g. `Alice` for username `alice`, or the pre-escape human form for email usernames). Rooms in Element / any Matrix client show the displayname (not the sanitized mxid). Set once at mint time; nothing later updates it in this slice.
 
 ### Deferrals (locked out of slice A)
 
-- **D-12: OIDC-callback user creation is out of scope.** Skynet has a live `registerOIDCUser` code path used by the OIDC callback route, but Ashley confirmed nobody is currently using OIDC on either deployment. Slice A leaves that path untouched — an OIDC-authenticated user would land with `mxid = null`. When OIDC ever goes live somewhere, whoever turns it on re-opens this slice's decision to also wire mint-first provisioning into that path.
+- **D-12: OIDC-callback user creation is out of scope.** Skynet has a live `registerOIDCUser` code path used by the OIDC callback route, but Alice confirmed nobody is currently using OIDC on either deployment. Slice A leaves that path untouched — an OIDC-authenticated user would land with `mxid = null`. When OIDC ever goes live somewhere, whoever turns it on re-opens this slice's decision to also wire mint-first provisioning into that path.
 
 - **D-13: Runtime access-token retrieval is out of scope.** The later relay-session send path will need access tokens at request time; how those get retrieved (mint fresh per request via `loginAsUser`, mint-and-cache in memory, mint-and-persist encrypted in `users.matrix_access_token`) is a decision for whichever later sub-slice builds the send path. Slice A promises only that the mxid exists and the Matrix account behind it exists — the runtime token story rides on top.
 
@@ -108,7 +108,7 @@ The following are planner-and-researcher territory; the shape does not lock them
 
 ### Fleet-scope references (not code)
 - `~/.claude/roles/box-maintainer/bounties/relay-human-identities-first-class/` — the bounty tracker for this slice's execution. Timeline entries here as work progresses.
-- `~/.claude/roles/box-maintainer/bounties/relay-mediated-group-conversations-humans-agents-in-rooms/` — the parent-arc coordinating bounty. Pinned by Ashley.
+- `~/.claude/roles/box-maintainer/bounties/relay-mediated-group-conversations-humans-agents-in-rooms/` — the parent-arc coordinating bounty. Pinned by Alice.
 
 </canonical_refs>
 
@@ -140,10 +140,10 @@ The following are planner-and-researcher territory; the shape does not lock them
 ## Specific Ideas
 
 - **Concrete mxid examples for the two cases:**
-  - Simple username (`ashley` on t1000): `@ashley_human:thenasty.taild9b663.ts.net`
-  - Email username (`ashley@aitherhealth.com` on T800): `@ashley_at_aitherhealth_dot_com_human:skynet.aithercloud.com`
+  - Simple username (`alice` on t1000): `@alice_human:thenasty.taild9b663.ts.net`
+  - Email username (`alice@example.com` on T800): `@alice_at_example_dot_com_human:skynet.aithercloud.com`
 - **Password generation approach** to mirror agent-birth's convention (existing `randomBytes` usage in identity-birth-orchestrator.ts).
-- **Displayname derivation** — for a simple username `ashley`, the human-friendly displayname is `Ashley` (title-cased). For an email username `ashley@aitherhealth.com`, the displayname is either the raw email or the pre-`@` local part title-cased (`Ashley`) — implementer to pick during planning; both are acceptable.
+- **Displayname derivation** — for a simple username `alice`, the human-friendly displayname is `Alice` (title-cased). For an email username `alice@example.com`, the displayname is either the raw email or the pre-`@` local part title-cased (`Alice`) — implementer to pick during planning; both are acceptable.
 
 </specifics>
 

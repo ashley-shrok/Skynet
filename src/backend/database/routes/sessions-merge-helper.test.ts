@@ -49,7 +49,7 @@ function makeRelayRow(
     kind: "relay-room",
     id: "row-uuid-1",
     roomId: "!room-1:matrix.local",
-    roomTitle: "Ashley + Taylor",
+    roomTitle: "Alice + Taylor",
     lastActivityAt: "2026-09-08T14:30:00Z",
     createdAt: "2026-09-08T13:00:00Z",
     updatedAt: "2026-09-08T14:30:00Z",

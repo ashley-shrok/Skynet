@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-09-08
 **Status:** Ready for planning
-**Source:** In-session `/build feature-mode` continuation of a `/open` shape locked 2026-09-07 (greenlit `thumbs up` same session, alongside the parent cosmetics-migration /open). Bounty `create-agent-modal-ux-pass` (pinned by Ashley 2026-09-07, item 3 in the reordered UX-pass campaign — upstream dependency `cosmetics-migrate-to-role` shipped 2026-09-08 as Phase 86, unblocking this bounty). Shape file: `.planning/shapes/shape-create-agent-modal-ux-pass.md`. On this run of `/build`, Ashley greenlit skipping `/gsd:discuss-phase` — shape has verbatim copy, exact file:line targets, Phase 84 admin-gate pattern to mirror; nothing left to elicit.
+**Source:** In-session `/build feature-mode` continuation of a `/open` shape locked 2026-09-07 (greenlit `thumbs up` same session, alongside the parent cosmetics-migration /open). Bounty `create-agent-modal-ux-pass` (pinned by Alice 2026-09-07, item 3 in the reordered UX-pass campaign — upstream dependency `cosmetics-migrate-to-role` shipped 2026-09-08 as Phase 86, unblocking this bounty). Shape file: `.planning/shapes/shape-create-agent-modal-ux-pass.md`. On this run of `/build`, Alice greenlit skipping `/gsd:discuss-phase` — shape has verbatim copy, exact file:line targets, Phase 84 admin-gate pattern to mirror; nothing left to elicit.
 
 <domain>
 ## Phase Boundary
@@ -33,7 +33,7 @@ Shared verb: **"adopt"** — deliberately paired. Both blurbs go in `<DialogDesc
 
 - **Old label** at `NewSessionDialog.tsx:958`: *"Create with new identity"* (checkbox default checked).
 - **New label:** *"Just a shell — no agent"* (checkbox default UNCHECKED).
-- Ashley greenlit that exact wording during /open (shape §Tempting-but-no: "Ashley greenlit that specific text").
+- Alice greenlit that exact wording during /open (shape §Tempting-but-no: "Alice greenlit that specific text").
 
 ### Path field admin-gate
 
@@ -81,7 +81,7 @@ Phase 84 established the sibling patterns this bounty pairs against:
 ### Phase 86 (cosmetics-migrate-to-role, shipped 2026-09-08)
 
 - Removed the cosmetic pickers, Title, and Brief fields from `NewSessionDialog`. So the modal today (Phase 86 HEAD) is already lean — only host list, name, path, checkbox, role picker remain.
-- Reordering: Ashley's 2026-09-07 delegation to tabitha *"you're in charge of making sure that we continue with the plan and these bounties go in the right order"* stands. Phase 86 was the upstream that had to land first for the modal removals in that phase; this bounty (Phase 88) is now unblocked.
+- Reordering: Alice's 2026-09-07 delegation to tabitha *"you're in charge of making sure that we continue with the plan and these bounties go in the right order"* stands. Phase 86 was the upstream that had to land first for the modal removals in that phase; this bounty (Phase 88) is now unblocked.
 
 ### Bounty JSON state
 
@@ -121,7 +121,7 @@ Phase 84 established the sibling patterns this bounty pairs against:
 - Working-directory auto-creation timing (whether backend `mkdir`s at birth vs lazy on first write) — whatever current behavior is, stays.
 - Task-input textarea (already added in Phase 80).
 - Any rename of the modal itself ("New agent" title stays — Phase 84 conformed).
-- Making the checkbox label "cleverer" than "Just a shell — no agent" (Ashley greenlit exact text).
+- Making the checkbox label "cleverer" than "Just a shell — no agent" (Alice greenlit exact text).
 
 ### Tempting-but-no
 
@@ -144,7 +144,7 @@ Phase 84 established the sibling patterns this bounty pairs against:
 <constraints>
 ## Execution constraints (fleet + campaign rules)
 
-- **Campaign constraint (Ashley 2026-09-07):** push + scoped tests only, no full suite, no docker build, no docker cp, no `docker compose up --force-recreate`, no deploy — until entire remaining UX-pass campaign lands + Ashley greenlights ship.
+- **Campaign constraint (Alice 2026-09-07):** push + scoped tests only, no full suite, no docker build, no docker cp, no `docker compose up --force-recreate`, no deploy — until entire remaining UX-pass campaign lands + Alice greenlights ship.
 - **/build pipeline ends at push** for this bounty. Post-push: unbiased general-purpose subagent code review → apply findings → `/close create-agent-modal-ux-pass` → `/id reset` → next bounty (item 4: `runbooks-formal-concept`).
 - **Scoped tests only for the executor's green gate** per fleet 2026-08-20 rule (`--related <changed-files>` or targeted paths under `src/ui/sidebar/` + `src/backend/` if backend touched).
 - **No worktrees** per fleet 2026-07-31 rule. Work happens on `~/skynet-tabitha` on branch `feat/tab-title-from-tmux`.
@@ -157,7 +157,7 @@ Phase 84 established the sibling patterns this bounty pairs against:
 ## Vehicle notes
 
 - **Vehicle:** GSD phase (Phase 88).
-- **Discuss-phase:** SKIPPED per Ashley greenlight this session ("straightforward enough that we don't have to discuss"). Shape has verbatim copy, exact file:line targets, admin-gate pattern from Phase 84 to mirror.
+- **Discuss-phase:** SKIPPED per Alice greenlight this session ("straightforward enough that we don't have to discuss"). Shape has verbatim copy, exact file:line targets, admin-gate pattern from Phase 84 to mirror.
 - **Plan-phase:** next step. Seed from this CONTEXT.md + the shape file.
 - **Execute-phase:** wave/task structure at planner's discretion. Roughly 3-5 tasks fit: (1) prop plumb + fail-closed default, (2) blurb revise + add pair, (3) Path admin-gate, (4) checkbox admin-gate + label flip + default flip + invariant fix, (5) backend/frontend path-default substitution + submit-invariant enforcement. Planner may fold some together (e.g. steps 3-4-5 all inside `NewSessionDialog.tsx` — they overlap in file surface).
 - **Post-execute (orchestrator, tabitha):** unbiased general-purpose subagent code review → apply findings inline → `/close create-agent-modal-ux-pass` → `/id reset`.

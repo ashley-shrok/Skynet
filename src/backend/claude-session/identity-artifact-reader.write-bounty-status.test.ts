@@ -16,7 +16,7 @@
 //      WS-layer validation.
 //   3. Folder-untouched: writing done/dropped does NOT create or rename
 //      any sibling directory (bounties/archive is out of scope for this
-//      quick — Ashley's separate concern). This is the load-bearing
+//      quick — Alice's separate concern). This is the load-bearing
 //      guarantee for the resurrect flow.
 //   4. All four remaining valid statuses are accepted (in_progress,
 //      waiting_on_someone_else, done, dropped).

@@ -10,7 +10,7 @@ tags:
   - regression-fix
 dependency_graph:
   requires:
-    - quick-260814-1hz (MicButton hold-to-record wiring shipped as patch #441 in Ashley's UAT window; this fix restores that flow on iPhone).
+    - quick-260814-1hz (MicButton hold-to-record wiring shipped as patch #441 in Alice's UAT window; this fix restores that flow on iPhone).
   provides:
     - useHoldToRecord.keepRecordingOnShortTap prop (mic-button consumers can opt into commitStartVisibility short-tap semantic; send-button consumers see no change).
     - Forensic console.info logging on pointerup + pointercancel branches ([hold-to-record] prefix), surfaces branch-level evidence in the console-forward stream for next iOS UAT window.
@@ -39,7 +39,7 @@ decisions:
   - "keepRecordingOnShortTap is opt-in (default false) rather than inverting the default: preserves send-button consumers documented in useHoldToRecord's D-16-02 / B-1 / B-3 header comments. Any existing/future consumer that omits the prop sees byte-identical short-tap behavior (await voice.cancel + onShortTap)."
   - "Forensic logs live inside the hook (not in ComposeBox) so they surface for BOTH primary and slot mic + any future consumer without duplicating the emit sites. Uses console.info (not console.debug) so the app's console-forward filter picks it up. Prefix [hold-to-record] mirrors the [voice] convention in useVoiceRecording."
   - "MicButton's onPointerDown wrapper is applied AT THE MICBUTTON COMPONENT LEVEL (not in the hook) because MicButton is the DOM host where iOS native gestures originate. Guarding on onPointerDown-defined && !disabled means zero-arg / disabled callers get byte-identical DOM output — a11y invariant preserved (disabled buttons don't emit preventDefault). Deliberately NOT applied to send-button consumers of the hook (they don't hit the iOS callout — different gesture surface)."
-  - "No modification to useVoiceRecording.ts: the fix uses commitStartVisibility's existing idempotent contract (no-op if state !== \"starting\"). See Known Race Window below for the caveat this introduces and the follow-up path if Ashley's UAT surfaces it."
+  - "No modification to useVoiceRecording.ts: the fix uses commitStartVisibility's existing idempotent contract (no-op if state !== \"starting\"). See Known Race Window below for the caveat this introduces and the follow-up path if Alice's UAT surfaces it."
 metrics:
   duration_seconds: 900
   completed_date: "2026-08-14"
@@ -110,21 +110,21 @@ This fix inherits a **cold-start race window** that the plan's "commitStartVisib
 **Race description:** In production, if the user's short-tap on the mic completes (pointerup fires) BEFORE `navigator.mediaDevices.getUserMedia()` has resolved (typical case: first-time permission prompt, or cold-start on a fresh page load where the getUserMedia stack is uncached), `voice.state` will still be `"idle"` when the hook's short-tap-keep branch runs `voice.commitStartVisibility()`. Per the useVoiceRecording.ts L656 guard (`if (stateRef.current !== "starting") return;`), the call is a no-op. When getUserMedia later resolves, `voice.state` transitions to `"starting"` — but nothing subsequently calls commitStartVisibility, so state stays `"starting"` forever. The user sees the mic frozen: no start.mp3, no RecordingControls swap-in, apparently dead.
 
 **Why this ships anyway:**
-1. **Ashley's UAT window is post-permission-grant.** iOS Safari caches getUserMedia permission across page loads. Once Ashley granted permission during quick-260814-1hz's UAT, subsequent taps in her session return the stream in milliseconds — the race window (~10s of ms between the pre-cached-permission getUserMedia call and its Promise resolution) is short and rarely races with a fast tap.
+1. **Alice's UAT window is post-permission-grant.** iOS Safari caches getUserMedia permission across page loads. Once Alice granted permission during quick-260814-1hz's UAT, subsequent taps in her session return the stream in milliseconds — the race window (~10s of ms between the pre-cached-permission getUserMedia call and its Promise resolution) is short and rarely races with a fast tap.
 2. **Task 1's forensic logging surfaces the race deterministically if it fires.** On next UAT, the console-forward stream will show `[hold-to-record] pointerup branch=short-keep elapsedMs=<n> ... startedRecording=true` when the tap fires, followed by either a `[voice] recording-started` line (state advanced) OR silence (state stuck at "starting"). If the mic is visibly dead post-tap AND there is no `recording-started` line after the pointerup log, the race fired.
 3. **The plan explicitly forbids modifying useVoiceRecording.ts** — the fix "rides on the existing commitStartVisibility() call being idempotent." Adding a pending-commit ref pattern (mirror of pendingCancelRef) would exceed this task's scope.
 
-**Follow-up path if the race fires in Ashley's UAT:**
+**Follow-up path if the race fires in Alice's UAT:**
 1. New plan `quick-260814-XXX` adds `pendingCommitRef` to useVoiceRecording. When `commitStartVisibility()` is called while `state === "idle"` (getUserMedia unresolved), arm `pendingCommitRef = true`. In `start()`'s `.then()`, after the pending-cancel checks, before `setState("starting")`, check `pendingCommitRef`: if true, transition directly to `"recording"` + play start.mp3 (identical to the `autoCommit: true` path at L437-443). This is a small, self-contained state-machine extension that mirrors the existing `pendingCancelRef` pattern.
 2. Estimated size: ~15 lines in useVoiceRecording, one new test in useVoiceRecording.test.tsx.
-3. Not blocking on Ashley's greenlight for this ship — the current fix ALREADY unblocks the happy path (warm-cache permission, ≥50ms hold), and the race window's blast radius is limited to a single re-tap.
+3. Not blocking on Alice's greenlight for this ship — the current fix ALREADY unblocks the happy path (warm-cache permission, ≥50ms hold), and the race window's blast radius is limited to a single re-tap.
 
 ## Cross-References
 
-- **quick-260814-1hz-SUMMARY.md** (`.planning/quick/260814-1hz-move-hold-to-record-gesture-from-send-bu/260814-1hz-SUMMARY.md`) — the shipped plan whose iPhone regressions this fixes. Ashley's UAT window post-260814-1hz surfaced Bug 1 (callout / long-press) and Bug 2 (cancel.mp3 first-tap).
+- **quick-260814-1hz-SUMMARY.md** (`.planning/quick/260814-1hz-move-hold-to-record-gesture-from-send-bu/260814-1hz-SUMMARY.md`) — the shipped plan whose iPhone regressions this fixes. Alice's UAT window post-260814-1hz surfaced Bug 1 (callout / long-press) and Bug 2 (cancel.mp3 first-tap).
 - **Phase 32 useHoldToRecord original** — this fix extends the hook without touching the D-16-02 sync-gesture invariant. The refactored short-tap branch is byte-identical for consumers that omit `keepRecordingOnShortTap` (send-button semantics preserved verbatim per useHoldToRecord.ts header docstring paragraphs B-1 / M-1 / D-16-02).
-- **Bounty:** `~/.claude/roles/box-maintainer/bounties/hold-to-record-move-to-mic-button/` — update pending; timeline entry for this fix should be appended by tina or Ashley (executor context does not close bounties).
-- **Ship intent:** `#442` (Tanya reserved `#441` for Phase 39). tina orchestrator verifies next available at ship time; if `#442` is taken, tina picks the next open number. Do NOT ship from executor context — Ashley greenlights + tina executes ship motion.
+- **Bounty:** `~/.claude/roles/box-maintainer/bounties/hold-to-record-move-to-mic-button/` — update pending; timeline entry for this fix should be appended by tina or Alice (executor context does not close bounties).
+- **Ship intent:** `#442` (Tanya reserved `#441` for Phase 39). tina orchestrator verifies next available at ship time; if `#442` is taken, tina picks the next open number. Do NOT ship from executor context — Alice greenlights + tina executes ship motion.
 
 ## Verification Results
 
@@ -154,7 +154,7 @@ This fix inherits a **cold-start race window** that the plan's "commitStartVisib
 
 ### Manual iPhone Spot-Check (deferred)
 
-Deferred to Ashley's next iOS UAT window — not blocking executor exit:
+Deferred to Alice's next iOS UAT window — not blocking executor exit:
 
 - Hold MicButton → mic-permission prompt fires → holds through native callout suppression → release inside bounds sends the transcript. If it still ends in cancel.mp3, the console-forward stream will now show `[hold-to-record] pointercancel triggered startedRecording=true` (new forensic log from Task 1) — pinning the cause to a pointercancel source the callout suppression didn't catch. Next iteration can then target that source specifically.
 - Short-tap MicButton once → start.mp3 plays (NOT cancel.mp3) → RecordingControls swap in with Cancel/Append/Send. NO double-tap required. If the mic is visibly dead post-tap AND no `[voice] recording-started` line appears after the `[hold-to-record] pointerup branch=short-keep` log line, the cold-start race documented above fired — follow-up plan needed.

@@ -73,7 +73,7 @@ metrics:
 
 # Phase 18 Plan 02: Markdown-Tab Editors (IdentityFileTab, HistoryTab, HandoffTab) Summary
 
-Edit/Save/Cancel toolbar with monospace textarea editor for the three markdown identity tabs, backed by the Plan 01 WS write handlers. Server-echo-driven rehydrate with dirty-confirm Cancel. PAUSED at Task 4 (Ashley UAT checkpoint).
+Edit/Save/Cancel toolbar with monospace textarea editor for the three markdown identity tabs, backed by the Plan 01 WS write handlers. Server-echo-driven rehydrate with dirty-confirm Cancel. PAUSED at Task 4 (Alice UAT checkpoint).
 
 ## Tasks Completed
 
@@ -87,7 +87,7 @@ Edit/Save/Cancel toolbar with monospace textarea editor for the three markdown i
 
 | Task | Description | Reason |
 |------|-------------|--------|
-| 4 | Ashley UAT — LOCAL + REMOTE markdown writes | checkpoint:human-verify — requires Ashley to deploy and run 13-step UAT |
+| 4 | Alice UAT — LOCAL + REMOTE markdown writes | checkpoint:human-verify — requires Alice to deploy and run 13-step UAT |
 
 ## What Was Built
 
@@ -164,7 +164,7 @@ None — plan executed exactly as written.
 
 ## Known Stubs
 
-None — all three tabs are fully wired. Edit/Save/Cancel is functional end-to-end pending Ashley UAT (Task 4).
+None — all three tabs are fully wired. Edit/Save/Cancel is functional end-to-end pending Alice UAT (Task 4).
 
 ## Threat Flags
 

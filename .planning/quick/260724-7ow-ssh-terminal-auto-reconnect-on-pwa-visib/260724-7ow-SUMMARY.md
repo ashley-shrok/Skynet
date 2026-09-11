@@ -34,7 +34,7 @@ metrics:
 # Quick Task 260724-7ow — SSH terminal auto-reconnect on PWA visibilitychange (patch #143) Summary
 
 Adds a single new sibling `useEffect` to `Terminal.tsx` (patch #143) that fixes the iOS PWA
-backgrounding failure mode: when Ashley switches away from Skynet and returns ~1 min later,
+backgrounding failure mode: when Alice switches away from Skynet and returns ~1 min later,
 the SSH terminal's 8-attempt exponential-backoff reconnect budget (2s→4s→8s cap, ~50s total)
 has typically burned through against a throttled iOS tab — leaving `shouldNotReconnectRef.current=true`
 and the manual "Connection lost" overlay stuck on screen even though the target's tmux was up
@@ -123,7 +123,7 @@ None. Patch adds a passive DOM event listener (`document.addEventListener("visib
 
 ## Follow-Up Bookkeeping
 
-- **NOT deployed.** Per constraints, patch #143 joins the pending batch that Ashley will deploy together next. `~/.claude/identities/tina/skynet-patches.md` NOT touched (Tina writes that at deploy time).
+- **NOT deployed.** Per constraints, patch #143 joins the pending batch that Alice will deploy together next. `~/.claude/identities/tina/skynet-patches.md` NOT touched (Tina writes that at deploy time).
 - **NOT pushed.** `git status` shows `Your branch is ahead of 'origin/feat/tab-title-from-tmux' by 4 commits` after this patch (3 pre-existing + 1 new).
 - **STATE.md** will get a new Quick Tasks row via the orchestrator's docs commit step.
 

@@ -10,11 +10,11 @@ requires:
   - 41-02
 provides:
   - "41-BUILD-VERIFY-LOG.md: objective build/test posture at HEAD after Plans 01+02"
-  - "41-UAT-CHECKLIST.md: 10-item Nyquist-style checklist for Ashley's post-deploy walk"
+  - "41-UAT-CHECKLIST.md: 10-item Nyquist-style checklist for Alice's post-deploy walk"
   - "41-PATCHES-MD-ENTRY.md: paste-ready draft skynet-patches.md entry with TBD orchestrator fields"
 affects:
   - orchestrator deploy motion (consumes artifacts)
-  - Ashley's UAT walk (consumes checklist)
+  - Alice's UAT walk (consumes checklist)
 
 # Tech tracking
 tech-stack:
@@ -116,11 +116,11 @@ Acceptance criteria verification:
 
 ## Task 2: Human UAT Gate — HELD OPEN
 
-Per `workflow.human_verify_mode=end-of-phase`, Task 2 cannot be closed by the executor. This is the hold-point for orchestrator-driven deploy + Ashley's UAT walk.
+Per `workflow.human_verify_mode=end-of-phase`, Task 2 cannot be closed by the executor. This is the hold-point for orchestrator-driven deploy + Alice's UAT walk.
 
-**Current status:** Awaiting orchestrator deploy motion (docker build + docker compose up --force-recreate + HTTPS 200 + coord-room BEFORE/AFTER) and Ashley's sign-off on 41-UAT-CHECKLIST.md items 1-10.
+**Current status:** Awaiting orchestrator deploy motion (docker build + docker compose up --force-recreate + HTTPS 200 + coord-room BEFORE/AFTER) and Alice's sign-off on 41-UAT-CHECKLIST.md items 1-10.
 
-**Resolution path:** Ashley walks 41-UAT-CHECKLIST.md items 1-10 against the deployed build and signals "UAT green" (or per-item resolution) → /gsd-verify-phase marks Task 2 done and Phase 41 complete. If items fail → gap plans (41-04+) via `/gsd-plan-phase 41 --gaps`.
+**Resolution path:** Alice walks 41-UAT-CHECKLIST.md items 1-10 against the deployed build and signals "UAT green" (or per-item resolution) → /gsd-verify-phase marks Task 2 done and Phase 41 complete. If items fail → gap plans (41-04+) via `/gsd-plan-phase 41 --gaps`.
 
 ## Task Commits
 
@@ -171,4 +171,4 @@ Acceptance criteria:
 
 *Phase: 41-defer-terminal-view-mount-until-user-summons-it*
 *Plan 03 completed: 2026-08-14*
-*Task 2 (UAT gate): HELD OPEN — awaiting orchestrator deploy + Ashley sign-off*
+*Task 2 (UAT gate): HELD OPEN — awaiting orchestrator deploy + Alice sign-off*

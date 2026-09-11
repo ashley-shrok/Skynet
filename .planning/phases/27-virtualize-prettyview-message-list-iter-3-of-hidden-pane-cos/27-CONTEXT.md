@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-08-09
 **Status:** Ready for planning
-**Source:** In-chat design lock with Ashley 2026-08-09 (iter 3 dispatch + ⌘F decision) + parent bounty `hidden-pane-cost-mitigation-empirical-rotation` + iter-3 bounty `pretty-view-message-list-virtualization` (both LOCKED)
+**Source:** In-chat design lock with Alice 2026-08-09 (iter 3 dispatch + ⌘F decision) + parent bounty `hidden-pane-cost-mitigation-empirical-rotation` + iter-3 bounty `pretty-view-message-list-virtualization` (both LOCKED)
 
 <domain>
 ## Phase Boundary
@@ -40,9 +40,9 @@ Approach: virtualize the PrettyView message list so only viewport-visible messag
 <decisions>
 ## Implementation Decisions (locked)
 
-### Vehicle — LOCKED (Ashley 2026-08-09)
+### Vehicle — LOCKED (Alice 2026-08-09)
 
-Full `/gsd:plan-phase` with a real roadmap phase entry (Phase 27), NOT a `/gsd:quick`. Ashley verbatim rebuke: *"Why are you guys always allergic to setting up phases for the work you do? If you are doing a phase then obviously a phase has to be set up. Simple."* Fleet-wide learning: phase-sized work gets a real phase, no rerouting through quicks to skip the ~5 min of roadmap setup.
+Full `/gsd:plan-phase` with a real roadmap phase entry (Phase 27), NOT a `/gsd:quick`. Alice verbatim rebuke: *"Why are you guys always allergic to setting up phases for the work you do? If you are doing a phase then obviously a phase has to be set up. Simple."* Fleet-wide learning: phase-sized work gets a real phase, no rerouting through quicks to skip the ~5 min of roadmap setup.
 
 ### Library choice — RECOMMENDED (planner may reconfirm during pattern mapping)
 
@@ -53,17 +53,17 @@ Rejected alternatives:
 - **`react-virtuoso`** — feature-rich (built-in scroll anchor + reverse-list), but larger footprint and more opinionated. Adopts too much of our existing scroll-anchor logic that we already have working.
 - **Hand-rolled IntersectionObserver approach** — reinventing solved problems; not worth the maintenance burden vs a 5KB battle-tested dep.
 
-### ⌘F/find-in-page regression on long conversations — ACCEPTED (Ashley 2026-08-09)
+### ⌘F/find-in-page regression on long conversations — ACCEPTED (Alice 2026-08-09)
 
 Verbatim: *"For the ctrl-F, I don't really care about losing that functionality."*
 
 Browser find-in-page can only search rendered DOM. With virtualization, only ~5-15 messages render at any moment, so ⌘F on a long conversation will not find text above the current viewport. This regression is ACCEPTED — do NOT build in-app message search as a sibling workstream. Users who need to search a long conversation can either scroll to it OR use the tmux terminal pane below the pretty-view (which has full scrollback).
 
-### Streaming bubble re-measure — MOOT (design confirmation, Ashley 2026-08-09)
+### Streaming bubble re-measure — MOOT (design confirmation, Alice 2026-08-09)
 
 Verbatim: *"We don't do streaming tokens."* Our assistant bubbles do NOT grow token-by-token; they land atomically as whole messages when a JSONL frame arrives. So the "virtualizer has to re-measure per frame while tokens stream in" failure mode does not apply. Planner does not need to design around it.
 
-### Scroll anchor preservation — LOCKED (existing behavior + Ashley 2026-08-09)
+### Scroll anchor preservation — LOCKED (existing behavior + Alice 2026-08-09)
 
 Verbatim: *"we already have scroll anchor."* The real API (per pattern-mapper 27-PATTERNS.md) is `useAutoScroll(paneKey) → { scrollRef, contentRef, isPinnedToBottom, forceStickAndJump, scrollToBottomAndFollow }` (see `src/ui/features/pretty-view/hooks/use-auto-scroll.ts`). The virtualization refactor MUST preserve this existing anchor logic — `scrollRef` plugs into the virtualizer's scroll container and `contentRef` becomes the sized-height wrapper. Do NOT invent a new anchor mechanism. If TanStack Virtual's built-in scroll helpers conflict with our existing anchor pattern, prefer to keep OUR pattern and treat the virtualizer as headless-measurement-only.
 
@@ -149,13 +149,13 @@ The phase's core `must_have` is empirical: **on a 100+ msg conversation, the vis
 <deferred>
 ## Deferred Ideas
 
-- **Custom in-app message search** — user-facing recovery for the ⌘F regression. Ashley explicitly declined this (2026-08-09). If she changes her mind later, spin as a sibling bounty then.
+- **Custom in-app message search** — user-facing recovery for the ⌘F regression. Alice explicitly declined this (2026-08-09). If she changes her mind later, spin as a sibling bounty then.
 - **Virtualizing the message list of OTHER long-list surfaces** (fleet aside history, plan-pending history, etc.) — none exist today; not applicable to this phase.
 - **Windowing the conversation list itself** (pretty-conversations panel) — the conversation list is bounded by fleet identity count (~20-30 rows), not message count. Not worth virtualizing.
-- **Streaming-bubble re-measure logic** — moot per Ashley's "we don't do streaming tokens." If we ever add streaming tokens later, that's a different phase.
+- **Streaming-bubble re-measure logic** — moot per Alice's "we don't do streaming tokens." If we ever add streaming tokens later, that's a different phase.
 </deferred>
 
 ---
 
 *Phase: 27-virtualize-prettyview-message-list-iter-3-of-hidden-pane-cos*
-*Context gathered: 2026-08-09 via direct decision-lock (all decisions were already answered in ROADMAP entry + bounty + Ashley's in-chat responses; discuss-phase skipped to avoid re-eliciting settled context)*
+*Context gathered: 2026-08-09 via direct decision-lock (all decisions were already answered in ROADMAP entry + bounty + Alice's in-chat responses; discuss-phase skipped to avoid re-eliciting settled context)*

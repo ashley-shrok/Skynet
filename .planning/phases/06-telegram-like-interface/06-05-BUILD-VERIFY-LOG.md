@@ -2,7 +2,7 @@
 
 Timestamp: 2026-07-21T03:11:58Z
 Commit: 7a671de656c59608c3eb52dce61dedea80258160 (feat/tab-title-from-tmux)
-Scope: Local `npm run build` verification only. Docker image build is Ashley-gated in the main orchestrator context and NOT executed here (Task 4 deploy deferred).
+Scope: Local `npm run build` verification only. Docker image build is user-gated in the main orchestrator context and NOT executed here (Task 4 deploy deferred).
 
 ## Step A — Clean build
 
@@ -99,7 +99,7 @@ Zero dangling imports; source tree is consistent with dist artifact absence.
 
 ## Verdict
 
-**CLEAN** — safe for Ashley-gated deploy in the main orchestrator context.
+**CLEAN** — safe for user-gated deploy in the main orchestrator context.
 
 Rationale:
 1. Build completes in 13.48s with no errors and no new warnings beyond the pre-existing large-vendor-chunk informational.
@@ -109,7 +109,7 @@ Rationale:
 5. Scope fence honored — zero source diffs to pretty-view, terminal, guacamole, backend, docker, or package.json (Step E).
 6. Source-side deletions consistent with dist absence (Step F).
 
-Deploy remains Ashley-gated per fork discipline (`~/.claude/identities/tina/deploy-runbook.md` — DEADMAN IS MANDATORY, NO EXCEPTIONS; blanket pre-authorization ≠ per-deploy green light). Task 4 in Plan 06-05 is deferred to the main orchestrator context after Ashley reviews UAT checklist + patches-md entry and gives explicit deploy green-light.
+Deploy remains user-gated per fork discipline (`~/.claude/identities/tina/deploy-runbook.md` — DEADMAN IS MANDATORY, NO EXCEPTIONS; blanket pre-authorization ≠ per-deploy green light). Task 4 in Plan 06-05 is deferred to the main orchestrator context after Alice reviews UAT checklist + patches-md entry and gives explicit deploy green-light.
 
 ---
 

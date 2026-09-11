@@ -264,7 +264,7 @@ Key properties of this mitigation:
 - **Does NOT touch `stickyRef`.** This is the whole point — measurement adjustments should
   not change the user's read/follow intent.
 - **Constant is inline, not exported.** If a future TanStack version changes correction
-  magnitudes, or Ashley finds a real 15 px trackpad-microwheel event, we tune here without
+  magnitudes, or Alice finds a real 15 px trackpad-microwheel event, we tune here without
   API churn. Consider naming it `MEASUREMENT_DELTA_IGNORE_PX = 20` at the module scope for clarity.
 
 **Alternatives considered and rejected:**

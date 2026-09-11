@@ -65,7 +65,7 @@ completed: 2026-08-21
 
 ## Accomplishments
 
-- Fixed Bug 1 of bounty `claude-code-2-1-214-pretty-view-compat`: modern (v2.1.150+) async `Agent` invocations now show up in the BG-agents panel (Ashley's original observation of taylor's `gsd-executor` sub-agent's Task tool_use not rendering will resolve on next deploy).
+- Fixed Bug 1 of bounty `claude-code-2-1-214-pretty-view-compat`: modern (v2.1.150+) async `Agent` invocations now show up in the BG-agents panel (Alice's original observation of taylor's `gsd-executor` sub-agent's Task tool_use not rendering will resolve on next deploy).
 - Refactor-extracted the L2527-2620 raw-line scan into a module-scope `__admitBackgroundedAgentsLineForTests` helper. Zero behavior change from the extract alone (Task 1 RED test confirmed via Fixture C legacy path still passing while modern Fixtures A/D failed). Enables per-line unit testing of the correlator without a full WS-server + SSH pair.
 - Added `pendingAgentAdmission` scratch map (`Map<toolUseId, {toolUseId, subagentType, description, startedAt}>`) alongside `backgroundedAgents` — cleared at both reset sites for parity with `backgroundedAgents.clear()`.
 - Dual-path admission: legacy Agent (with `input.run_in_background === true`) admits directly; modern Agent (without the flag) stashes to scratch. On tool_result: `isAsyncAck === true` promotes scratch → `backgroundedAgents`; non-async completion drops scratch (Fixture B's silent-sync-drop behavior).
@@ -152,7 +152,7 @@ None — no external service configuration required. Backend-only parser fix. NO
 
 - **BG-agents panel admission for modern async Agents is ready to deploy.** Orchestrator (tabitha) picks up deploy — executor scope stopped at code + commit + tests green per fleet directive 2.
 - **Bug 2 of the same bounty (`claude-code-2-1-214-pretty-view-compat`) — plan-pending bubble via permission-mode events — is unaffected and unaddressed by this phase.** Documented as separate future phase in `51-CONTEXT.md` § "Deferred Ideas".
-- **Rendering sub-agent CONVERSATION content in pretty view** (Ashley's follow-on interest) also remains deferred — requires reading `subagents/agent-*.jsonl` files, distinct code path from the panel admission fix.
+- **Rendering sub-agent CONVERSATION content in pretty view** (Alice's follow-on interest) also remains deferred — requires reading `subagents/agent-*.jsonl` files, distinct code path from the panel admission fix.
 
 ## Threat Flags
 

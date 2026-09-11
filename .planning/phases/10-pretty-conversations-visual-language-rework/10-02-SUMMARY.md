@@ -53,7 +53,7 @@ metrics:
 
 # Phase 10 Plan 02: Wave 2 — PrettyConversationsPanel Summary
 
-Composed Wave 1's `PrettyConversationRow` into the flat-list `PrettyConversationsPanel` that Wave 3 will drop into AppShell as a single mount-site swap. Every Ashley-signed-off visual decision from the prototype pair (mobile prototype.html + desktop desktop.html) ships as authored:
+Composed Wave 1's `PrettyConversationRow` into the flat-list `PrettyConversationsPanel` that Wave 3 will drop into AppShell as a single mount-site swap. Every user-signed-off visual decision from the prototype pair (mobile prototype.html + desktop desktop.html) ships as authored:
 
 - Flat rows (no "Pinned" section header, no per-host semibold header)
 - Pinned rows at top marked only by the row's own pin glyph
@@ -122,7 +122,7 @@ tsc-clean; 15/15 Vitest green; Wave 1's 12/12 row tests still green.
 />
 ```
 
-The `variant` prop is the ONLY new wiring. Ashley's shape lock says variant tracks `isMobile` (the narrow-viewport predicate) rather than `isTouchDevice` (the hardware predicate) — the row's mobile swipe wants to fire on narrow desktop windows too where the touch device may still be a laptop (per Wave 1 handoff §"What Wave 2 DOES need to build" bullet 5).
+The `variant` prop is the ONLY new wiring. Alice's shape lock says variant tracks `isMobile` (the narrow-viewport predicate) rather than `isTouchDevice` (the hardware predicate) — the row's mobile swipe wants to fire on narrow desktop windows too where the touch device may still be a laptop (per Wave 1 handoff §"What Wave 2 DOES need to build" bullet 5).
 
 **What Wave 3 does NOT need to build:**
 - Header layout (variant-branched, already inside the panel)

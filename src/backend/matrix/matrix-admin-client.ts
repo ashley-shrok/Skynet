@@ -806,7 +806,7 @@ export async function getRoomName(
 
   // Use Synapse admin room-details endpoint — works for server-admins
   // regardless of room membership. Response shape carries `name` directly
-  // (null when unset), so no state-event filter needed. (Ashley UAT
+  // (null when unset), so no state-event filter needed. (Alice UAT
   // 2026-09-09 — swap out client-server /state/m.room.name which 403s
   // when admin isn't a room member.)
   const url = `${creds.homeserverBase}/_synapse/admin/v1/rooms/${encodeURIComponent(roomId)}`;
@@ -1084,7 +1084,7 @@ export async function getRoomMessages(
     params.set("limit", String(opts.limit));
   }
   // Use Synapse admin API (v1.75+) — bypasses room-membership requirement.
-  // Ashley UAT 2026-09-09 + nicole diagnosis: the client-server /messages
+  // Alice UAT 2026-09-09 + nicole diagnosis: the client-server /messages
   // endpoint requires the caller to be a room member (or public join_rules),
   // so admin-mediated reads 403'd on every user-created private relay room.
   // Synapse's admin equivalent works for server-admins regardless of

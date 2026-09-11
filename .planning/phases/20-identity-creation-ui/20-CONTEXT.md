@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-08-03
 **Status:** Ready for planning
-**Source:** `/open` session with Ashley 2026-08-03 (shape file locked) → `/gsd:discuss-phase` 2026-08-03 (this file). Nelly's DM 2026-08-03 supplied the bootstrap mechanism spec.
+**Source:** `/open` session with Alice 2026-08-03 (shape file locked) → `/gsd:discuss-phase` 2026-08-03 (this file). Nelly's DM 2026-08-03 supplied the bootstrap mechanism spec.
 
 <domain>
 ## Phase Boundary
@@ -18,23 +18,23 @@ Extend the New-Session modal to birth a whole new fleet identity in one motion �
 - Backend compound-birth endpoint (recommend one orchestrator with SSE progress stream, planner's call) that runs the 5-step birth sequence per Nelly's mechanism
 - Compound birth sequence (5 steps, matching shape file's granularity — see `<decisions>` below for the exact Nelly-cribbed sequence)
 - Per-step progress rendering in modal (5 checkboxes ticking as steps complete)
-- Per-step contextual failure messages (defaults drafted by Tina; Ashley overrides if any read wrong post-ship)
+- Per-step contextual failure messages (defaults drafted by Tina; Alice overrides if any read wrong post-ship)
 - Collision blocking on BOTH Skynet-side (409 pre-check via GET `/identities`) AND target-host-side (backend probes `~/.claude/identities/<name>/` over SSH before submit)
 - Focus-follow to the new session on success (modal closes, conversation view switches to the fresh identity's session)
 - Self-birth support: when target host IS `skynet-ec2` itself, backend runs the tmux/claude commands locally instead of via SSH
 - Frontend + backend tests, `skynet-patches.md` entry, ship as numbered patch(es) after #288
 
-**Out of scope (deliberate, Ashley-confirmed):**
-- **Homeserver-register / relay.json bootstrap for the fresh identity** — Ashley 2026-08-03 verbatim: "Nelly does not do that part for the relay, so it wouldn't be part of what you're building either." Identities have historically handled their own relay setup via the /id skill or first-wake onboarding. Do NOT add a homeserver-register step to the birth sequence. (Related concern flagged to Nelly on the relay: if the current homeserver requires her to do that step for other identities as a workaround, that's a separate problem to fix at the source, NOT to bake into Skynet.)
+**Out of scope (deliberate, user-confirmed):**
+- **Homeserver-register / relay.json bootstrap for the fresh identity** — Alice 2026-08-03 verbatim: "Nelly does not do that part for the relay, so it wouldn't be part of what you're building either." Identities have historically handled their own relay setup via the /id skill or first-wake onboarding. Do NOT add a homeserver-register step to the birth sequence. (Related concern flagged to Nelly on the relay: if the current homeserver requires her to do that step for other identities as a workaround, that's a separate problem to fix at the source, NOT to bake into Skynet.)
 - The second, smaller `src/ui/features/session-launcher/NewSessionDialog.tsx` (106 lines) opened from CommandPalette — stays regular-session-only; no identity-mode. Only the primary sidebar variant gets the upgrade.
-- Voice list gender-splitting or defaults-per-gender — Ashley flagged as a separate concern (see `<deferred>`).
+- Voice list gender-splitting or defaults-per-gender — Alice flagged as a separate concern (see `<deferred>`).
 - Any visible archetype-prompt editor — the prompt is a black box under Generate. Regen re-runs the LLM archetype draft with the same inputs, producing a genuinely different spin every time.
-- Review-before-commit / rollback / retry / cancel-mid-birth — Ashley locked these out during `/open`.
+- Review-before-commit / rollback / retry / cancel-mid-birth — Alice locked these out during `/open`.
 - Batch-size tuning UI — three is fixed.
 - Reuse-existing-identity path from this modal — collisions BLOCK. Existing identities are edited from the existing `IdentityModal.tsx`.
 - Any `description` / `personality` / `role` fields in the modal — the identity discovers itself via its own onboarding dialogue on first wake. The brief field is EPHEMERAL and only feeds the avatar prompt; it is never persisted anywhere.
 - Auto-triggering avatar generation on field-fill — explicit Generate button, always.
-- CEO-instance multi-user isolation concerns — this is single-operator scope for Ashley's box.
+- CEO-instance multi-user isolation concerns — this is single-operator scope for Alice's box.
 
 </domain>
 
@@ -74,7 +74,7 @@ Extend the New-Session modal to birth a whole new fleet identity in one motion �
   5. Return URLs the modal can `<img src>`.
 - **User picks one → its bytes get uploaded via existing `POST /identities` multipart contract** when Create fires (see "Compound birth sequence" below step 1).
 - **OpenAI API key source:** Tina's `~/.claude/identities/tina/openai-key.json` on skynet-ec2 (mode 0600) is the operational key today. Backend reads it at boot. Planner should confirm this is the right sharing model during plan-phase, or propose Skynet gets its own key (deferred question — not a blocker for CONTEXT.md).
-- **Regen semantics:** Every press of Generate/Regenerate is a fresh archetype draft (step 1 re-runs). No same-prompt-different-seeds mode. If a previous batch is in-flight when Regenerate is clicked, disable the button until the previous batch resolves (my call — Ashley waved forward). Cancellation of an in-flight batch is out of scope for v1.
+- **Regen semantics:** Every press of Generate/Regenerate is a fresh archetype draft (step 1 re-runs). No same-prompt-different-seeds mode. If a previous batch is in-flight when Regenerate is clicked, disable the button until the previous batch resolves (my call — Alice waved forward). Cancellation of an in-flight batch is out of scope for v1.
 - **Stale-avatar handling:** If the user picks an avatar and then edits name/title/brief afterward, the picked avatar stays (silently — no "your inputs changed, please regen" warning). User's call whether to regen. My call, matches "best we can" philosophy.
 
 ### Compound birth sequence (5 steps — per Nelly's mechanism, cribbed from `~/vms-apps/apps/home/agent-supervisor.sh` on thenasty)
@@ -112,11 +112,11 @@ Runs on backend after Create is clicked. Each step emits progress (SSE or equiva
 - On failure → step-5 failure blurb, close modal (session exists but /id didn't fire).
 
 ### Progress reporting granularity
-- **5 steps as ticking checkboxes**, matching the shape file. My call per Ashley's "whatever you think for number three." Rationale: 5 mirrors the birth-sequence structure directly, gives the user enough feedback to know where a failure landed for the manual finish-up blurb, and avoids the noise of ~15 sub-steps (Enter train firing 7 times is one step, not seven).
+- **5 steps as ticking checkboxes**, matching the shape file. My call per Alice's "whatever you think for number three." Rationale: 5 mirrors the birth-sequence structure directly, gives the user enough feedback to know where a failure landed for the manual finish-up blurb, and avoids the noise of ~15 sub-steps (Enter train firing 7 times is one step, not seven).
 - Transport: SSE stream from `POST /identities/birth` is my recommendation — cleanest to write on the modal side (`EventSource` with typed events `step:1:started`, `step:1:completed`, `step:N:failed:<reason>`, `birth:completed`). WebSocket alternative acceptable if there's an existing pattern in Skynet. Planner's call.
 - Each step visible state: **pending** (dim), **in-progress** (spinner), **done** (green check), **failed** (red X + blurb below the checklist).
 
-### Failure blurbs (my defaults; Ashley overrides post-ship if any read wrong)
+### Failure blurbs (my defaults; Alice overrides post-ship if any read wrong)
 - **Step 1 (Skynet record):** "Couldn't create the Skynet identity record. Nothing was created — safe to retry."
 - **Step 2 (tmux session):** "Skynet record created, but couldn't open a tmux session on \<host>. You'll need to delete the identity record from the identity modal before retrying, or open the session by hand: \`ssh \<host> tmux new-session -d -s \<name> -c \<path>\`."
 - **Step 3 (Claude CLI launch):** "Session is open on \<host>, but the Claude CLI didn't launch. Attach with \`ssh \<host> tmux attach -t \<name>\` and start it yourself."
@@ -155,7 +155,7 @@ Runs on backend after Create is clicked. Each step emits progress (SSE or equiva
 
 ### Ship
 - Numbered patch(es) after #288. Planner slices — likely 3-5 plans: (1) backend avatar batch endpoint + LLM/gpt-image-1 integration + gamma correction; (2) backend orchestrator endpoint + SSH sequence + SSE progress + tests; (3) frontend modal extension + validation + pickers reuse; (4) frontend avatar loop + SSE consumption + progress UI + failure blurbs; (5) skynet-patches.md entries + human-verify checklist.
-- Deploy per Tina's held-queue posture (patches #267-#288 currently held atop container `sha256:07547f6c4185`). Do NOT push / build / recreate without Ashley's explicit greenlight.
+- Deploy per Tina's held-queue posture (patches #267-#288 currently held atop container `sha256:07547f6c4185`). Do NOT push / build / recreate without Alice's explicit greenlight.
 
 ### Claude's Discretion
 - **Exact number of plans + wave decomposition** — planner's call. Suggested slicing above.
@@ -174,8 +174,8 @@ Runs on backend after Create is clicked. Each step emits progress (SSE or equiva
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Design source-of-truth (LOCKED)
-- `~/.claude/identities/tina/bounties/identity-creation-ui/shape-identity-creation-ui.md` — Shape file from `/open` session with Ashley 2026-08-03. LOCKED per the "What would make it wrong" section. Do NOT re-litigate design.
-- `~/.claude/identities/tina/bounties/identity-creation-ui/bounty.json` — Bounty tracker with Ashley's verbatim original ask + shape/vehicle timeline.
+- `~/.claude/identities/tina/bounties/identity-creation-ui/shape-identity-creation-ui.md` — Shape file from `/open` session with Alice 2026-08-03. LOCKED per the "What would make it wrong" section. Do NOT re-litigate design.
+- `~/.claude/identities/tina/bounties/identity-creation-ui/bounty.json` — Bounty tracker with Alice's verbatim original ask + shape/vehicle timeline.
 
 ### Nelly's mechanism (source of truth for the birth sequence)
 - Nelly's DM 2026-08-03: event `$IC059aLvfcQsVu01q-ffEil9TazzhU0AZ0wfl2zqLNs`, full text at `~/.claude/identities/tina/relay-state/messages/_IC059aLvfcQsVu01q-ffEil9TazzhU0AZ0wfl2zqLNs.txt`. Captures the full 8-line sequence, env-var rationale, failure modes, and architectural recommendation.
@@ -200,13 +200,13 @@ Runs on backend after Create is clicked. Each step emits progress (SSE or equiva
 ### Tina's operational tools
 - **Avatar-flow runbook:** `~/.claude/identities/tina/runbooks/avatar-flow.md` — SOURCE OF TRUTH for the archetype-drafting LLM call pattern, gpt-image-1 request shape, gamma 0.7 correction recipe (Python+Pillow+numpy), Skynet multipart upload contract, etc. The backend's avatar generation endpoint is essentially wiring this runbook into a programmatic pipeline instead of a hand-run one.
 - **OpenAI key:** `~/.claude/identities/tina/openai-key.json` (mode 0600) — operational key today; used for both the LLM archetype call and gpt-image-1. Planner confirms sharing model during plan-phase.
-- **Skynet admin creds:** `~/.claude/identities/tina/skynet-creds.json` (mode 0600) — Ashley's account creds + TOTP, used for admin cookie-authenticated Skynet API calls if the birth flow needs any (probably not — JWT auth on the existing identity routes should cover).
+- **Skynet admin creds:** `~/.claude/identities/tina/skynet-creds.json` (mode 0600) — Alice's account creds + TOTP, used for admin cookie-authenticated Skynet API calls if the birth flow needs any (probably not — JWT auth on the existing identity routes should cover).
 
 ### Fleet-wide rules (CLAUDE.md-tier)
 - **Nginx location blocks in BOTH configs.** `docker/nginx.conf` AND `docker/nginx-https.conf` (per CLAUDE.md caveat: "Every new backend route needs matching location blocks in BOTH... else it 200s with index.html and crashes the frontend on .map"). Applies to any new route Phase 20 adds.
-- **Deploy discipline.** Held-queue posture — do NOT push / build / recreate without Ashley's explicit greenlight. Held atop container `sha256:07547f6c4185` per Tina's handoff.
+- **Deploy discipline.** Held-queue posture — do NOT push / build / recreate without Alice's explicit greenlight. Held atop container `sha256:07547f6c4185` per Tina's handoff.
 - **Silent-no-op class on identity endpoint.** Documented in Tina's learned preferences (`~/.claude/identities/tina/tina.md` § "Skynet `/identities/:id` PUT is multipart/form-data..."). Any modal-side PUT/POST to identities MUST use multipart with `data` field, spot-check by GET-verify.
-- **Fresh archetype fleet-rule reminders** (Tina's tina.md): NEVER use git worktrees (Ashley 2026-07-31 fleet rule); NO more UAT check-ins (Ashley 2026-07-27); deploy pre-work (push/build) is NOT authorized by a code-work ask; NEVER mask exit codes with `| tail` / `| head` on build commands; frontend `tsc --noEmit` does NOT catch backend TS errors (use `npm run build:backend`).
+- **Fresh archetype fleet-rule reminders** (Tina's tina.md): NEVER use git worktrees (Alice 2026-07-31 fleet rule); NO more UAT check-ins (Alice 2026-07-27); deploy pre-work (push/build) is NOT authorized by a code-work ask; NEVER mask exit codes with `| tail` / `| head` on build commands; frontend `tsc --noEmit` does NOT catch backend TS errors (use `npm run build:backend`).
 
 ### Skynet patches history (context for planners)
 - `~/.claude/identities/tina/skynet-patches.md` — 288-patch fork catalog. Planner reads recent entries for shape reference (patches #279 = colorHue picker, #223 = voice picker, #77 = identity endpoint silent-no-op discovery).
@@ -217,7 +217,7 @@ Runs on backend after Create is clicked. Each step emits progress (SSE or equiva
 </canonical_refs>
 
 <specifics>
-## Specifics — Ashley's verbatim decisions
+## Specifics — Alice's verbatim decisions
 
 ### /open session 2026-08-03 (design lock)
 Full session captured in bounty timeline. Load-bearing verbatims:
@@ -242,7 +242,7 @@ Full session captured in bounty timeline. Load-bearing verbatims:
 ### discuss-phase decisions (2026-08-03)
 - **Nelly coordination timing:** "the earlier you get with the stuff from Nelly, the better, because you'll just have more context" → coordinated during discuss-phase; her mechanism folded into `<decisions>` above.
 - **Self-birth on skynet-ec2 allowed:** "obviously self-birth would have to be possible too" → local-exec branch when target host === skynet-ec2, SSH otherwise.
-- **Progress granularity + failure blurbs = Tina's call:** "whatever you think for number three, and I don't need to approve for number four" → 5 steps as ticking checkboxes; failure blurbs drafted above (Ashley overrides post-ship if any read wrong).
+- **Progress granularity + failure blurbs = Tina's call:** "whatever you think for number three, and I don't need to approve for number four" → 5 steps as ticking checkboxes; failure blurbs drafted above (Alice overrides post-ship if any read wrong).
 - **Homeserver-register OUT of scope:** "Nelly does not do that part for the relay, so it wouldn't be part of what you're building either." → No homeserver-register / relay.json step in the birth sequence. Identity self-services relay per historical pattern. Concern flagged to Nelly separately in case current homeserver requires her to do it as a workaround — that's fix-at-source, not bake-into-Skynet.
 
 </specifics>
@@ -250,16 +250,16 @@ Full session captured in bounty timeline. Load-bearing verbatims:
 <deferred>
 ## Deferred Ideas (out of Phase 20, catalog for future work)
 
-- **Voice list gender-splitting + defaults per gender.** Ashley flagged during original bounty capture as an adjacent-but-separate concern. Chatterbox voice list has 28 predefined voices; splitting them into male/female presented sets with a default per gender at creation time is its own bounty when she wants it.
+- **Voice list gender-splitting + defaults per gender.** Alice flagged during original bounty capture as an adjacent-but-separate concern. Chatterbox voice list has 28 predefined voices; splitting them into male/female presented sets with a default per gender at creation time is its own bounty when she wants it.
 - **Description / personality / role fields in the create modal.** Deliberately OUT — the identity discovers its own self through onboarding dialogue on first wake. The brief field is ephemeral and only feeds the avatar prompt.
-- **Editable archetype prompt UI.** Prompt stays hidden. If Ashley later wants a "power user" mode where she can tweak the drafted prompt before batch generation, that's its own bounty.
+- **Editable archetype prompt UI.** Prompt stays hidden. If Alice later wants a "power user" mode where she can tweak the drafted prompt before batch generation, that's its own bounty.
 - **Review-before-commit step.** Explicitly rejected during /open.
 - **Rollback / retry / cancel across the compound birth sequence.** Explicitly rejected during /open. If failure rates prove higher than "best we can" tolerates post-ship, revisit.
 - **Batch-size tuning UI.** Three is fixed.
 - **Reuse-existing-identity path from the create modal.** Explicitly rejected — collisions block. Existing identities are edited from the existing IdentityModal.
-- **Homeserver-register / relay.json bootstrap for fresh identities.** Ashley explicitly OUT. Identity self-services via /id skill's create-path or first-wake onboarding. See `<specifics>`.
-- **CommandPalette variant of NewSessionDialog gets identity-mode.** OUT of Phase 20. If Ashley later wants birth-from-command-palette, that's a small follow-up.
-- **Supervisor "adopt" HTTP endpoint on Nelly's side.** Nelly offered it if we need the supervisor to pick up the new identity immediately without a service restart. Deferred until we know whether that's a real requirement based on Ashley's usage. Ping Nelly if it becomes one.
+- **Homeserver-register / relay.json bootstrap for fresh identities.** Alice explicitly OUT. Identity self-services via /id skill's create-path or first-wake onboarding. See `<specifics>`.
+- **CommandPalette variant of NewSessionDialog gets identity-mode.** OUT of Phase 20. If Alice later wants birth-from-command-palette, that's a small follow-up.
+- **Supervisor "adopt" HTTP endpoint on Nelly's side.** Nelly offered it if we need the supervisor to pick up the new identity immediately without a service restart. Deferred until we know whether that's a real requirement based on Alice's usage. Ping Nelly if it becomes one.
 - **Auto-triggering avatar generation on required fields being filled.** Deferred — explicit Generate button is v1. If the friction becomes real, revisit.
 - **Backend gains its own OpenAI key** (vs. reading Tina's `openai-key.json`). Plan-phase question, not blocked at CONTEXT.md level.
 - **Post-ship polish for the avatar batch.** If specific batches drift or fail to land, an editable archetype prompt (see above) or a per-identity prompt-archive template pull (leveraging `~/.claude/identities/tina/avatar-prompts/<name>.md`) are natural v2 candidates.
@@ -269,4 +269,4 @@ Full session captured in bounty timeline. Load-bearing verbatims:
 ---
 
 *Phase: 20-identity-creation-ui*
-*Context gathered: 2026-08-03 via `/gsd:discuss-phase 20` with Ashley, following `/open identity-creation-ui` design lock earlier in session. Nelly's DM 2026-08-03 supplied the bootstrap-sequence spec cribbed into `<decisions>` step 3-4.*
+*Context gathered: 2026-08-03 via `/gsd:discuss-phase 20` with Alice, following `/open identity-creation-ui` design lock earlier in session. Nelly's DM 2026-08-03 supplied the bootstrap-sequence spec cribbed into `<decisions>` step 3-4.*

@@ -9,7 +9,7 @@
  *     `operation: "branding_config_boot_gate"` and exits the process with
  *     code 1.
  *   - If non-empty after trim, returns silently — boot continues.
- *   - Does NOT gate on the gamma field (per Ashley resolution #5 in
+ *   - Does NOT gate on the gamma field (per Alice resolution #5 in
  *     74-CONTEXT.md — gamma is optional-with-code-default; the loader's
  *     shape guard already requires it be finite, and the request-time
  *     consumer trusts whatever value it reads).
@@ -23,7 +23,7 @@
  * Fail-fast pattern reference: starter.ts L753-770 (uncaughtException +
  * startup_failed catch) uses the same structured-error-log + non-zero-exit
  * shape. The container supervisor sees the non-zero exit and restarts /
- * surfaces the failed-boot log line so Ashley sees why.
+ * surfaces the failed-boot log line so Alice sees why.
  *
  * Anti-pattern lock (74-CONTEXT.md § 'What would make it wrong' §5 + §3):
  *   NO fallback branch that reads a hardcoded spec constant. NO content

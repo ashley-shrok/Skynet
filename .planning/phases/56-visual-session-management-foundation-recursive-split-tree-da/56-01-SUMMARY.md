@@ -80,7 +80,7 @@ $ grep -v '^\s*//\|^\s*\*' src/ui/lib/split-tree.ts | grep -cE "\b(ratio|size|we
 0
 ```
 
-`SplitNode` carries only `kind`, `direction`, `children` (for splits) or `kind`, `tabId` (for leaves). Constant-ratio 50/50 is a rendering choice made downstream in Plan 56-02, not a data-model concern. This satisfies Ashley's 2026-08-28 locked decision "no draggable pane dividers".
+`SplitNode` carries only `kind`, `direction`, `children` (for splits) or `kind`, `tabId` (for leaves). Constant-ratio 50/50 is a rendering choice made downstream in Plan 56-02, not a data-model concern. This satisfies Alice's 2026-08-28 locked decision "no draggable pane dividers".
 
 ## No-surface contract on decoder
 

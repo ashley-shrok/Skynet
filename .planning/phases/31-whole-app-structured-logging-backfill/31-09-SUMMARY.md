@@ -14,7 +14,7 @@ dependency_graph:
     - 31-08
   provides:
     - 31-COVERAGE-REPORT.md (phase-wide grep sweep confirming all 18 D-02 subsystems COVERED)
-    - 31-MANUAL-VERIFICATION.md (Ashley-facing runbook for post-ship verification of WS-cycle + TTS log trail)
+    - 31-MANUAL-VERIFICATION.md (user-facing runbook for post-ship verification of WS-cycle + TTS log trail)
   affects: []
 tech_stack:
   added: []
@@ -41,7 +41,7 @@ metrics:
 
 # Phase 31 Plan 09: Coverage Verification + Manual Verification Runbook Summary
 
-**One-liner:** Phase-wide grep sweep confirms all 18 D-02 subsystems COVERED (0 GAPs), 8 anti-patterns eliminated from production code, builds green, 1913 tests pass, D-04 Standing directive verified present — plus Ashley-facing 169-line runbook for cellular reproduction.
+**One-liner:** Phase-wide grep sweep confirms all 18 D-02 subsystems COVERED (0 GAPs), 8 anti-patterns eliminated from production code, builds green, 1913 tests pass, D-04 Standing directive verified present — plus user-facing 169-line runbook for cellular reproduction.
 
 ## Tasks Completed
 
@@ -50,7 +50,7 @@ metrics:
 | 1 | Write 31-COVERAGE-REPORT.md (grep sweep + build gates + test suite + D-04 section) | 11ba0b8 | 31-COVERAGE-REPORT.md (new, 219 lines) |
 | 2 | Write 31-MANUAL-VERIFICATION.md (Reproduction A + B runbook) | 498ec67 | 31-MANUAL-VERIFICATION.md (new, 169 lines) |
 | 3 | D-04 directive verification (read-only grep, result recorded in section 8 of report) | 11ba0b8 | (section appended in Task 1 commit) |
-| 4 | Human checkpoint — APPROVED (Ashley: "I'm not going to verify anything, because these are just logs that we will start using to debug, so let's move on to what's next.") | — | — |
+| 4 | Human checkpoint — APPROVED (Alice: "I'm not going to verify anything, because these are just logs that we will start using to debug, so let's move on to what's next.") | — | — |
 
 ## Final Grep Counts for Every D-13 Prefix
 
@@ -100,7 +100,7 @@ Phase acceptance is NOT blocked by this dimension.
 
 Task 4 checkpoint: **APPROVED**
 
-Ashley's verbatim response: "I'm not going to verify anything, because these are just logs that we will start using to debug, so let's move on to what's next."
+Alice's verbatim response: "I'm not going to verify anything, because these are just logs that we will start using to debug, so let's move on to what's next."
 
 Phase 31 is closed as complete and ready to ship. The deferred bounties (ws-pause-gate-stuck-connect-cycling, speak-button-broken-on-cellular) are unblocked pending cellular reproduction and log-trail confirmation per the 31-MANUAL-VERIFICATION.md runbook.
 
@@ -108,9 +108,9 @@ Phase 31 is closed as complete and ready to ship. The deferred bounties (ws-paus
 
 Post-Phase-31 priority order:
 
-1. **ws-pause-gate-stuck-connect-cycling** (high priority) — Ashley reproduces on cellular, greps `[ws]`/`[pause-gate]`/`[reopen]` output. Prime suspects: pause-gate interaction with the reopen ladder (session-expiry path bypasses pause-gate via wasSessionExpiredRef branch), or Phase 30 cleanup drop in usePaneResolvingMachine.
+1. **ws-pause-gate-stuck-connect-cycling** (high priority) — Alice reproduces on cellular, greps `[ws]`/`[pause-gate]`/`[reopen]` output. Prime suspects: pause-gate interaction with the reopen ladder (session-expiry path bypasses pause-gate via wasSessionExpiredRef branch), or Phase 30 cleanup drop in usePaneResolvingMachine.
 
-2. **speak-button-broken-on-cellular** (high priority) — Ashley reproduces on cellular, greps `[tts]` output. Prime suspects: iOS AudioContext gesture-lock (await before AudioContext creation consumes gesture context) or cellular streaming stall (`media-stalled` fires without `media-ended`).
+2. **speak-button-broken-on-cellular** (high priority) — Alice reproduces on cellular, greps `[tts]` output. Prime suspects: iOS AudioContext gesture-lock (await before AudioContext creation consumes gesture context) or cellular streaming stall (`media-stalled` fires without `media-ended`).
 
 3. **shouldNotReconnectRef completeness** — 10 lower-priority mutation sites (totp/opkssh/tmux message handlers) not instrumented. If ws bounty analysis needs them, add `[ws] shouldNotReconnectRef-transition` at those sites in a targeted follow-up.
 

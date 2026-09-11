@@ -34,7 +34,7 @@ export const TG_BRIDGE_STATE_DIR: string = OVERRIDE || "/state";
  * Regex: lowercase-slug, 1..64 chars, must start with alphanumeric,
  * remainder may include `_` and `-`. Matches the shape of every
  * identity slug + human username currently seen in prod (verified
- * against `docker logs skynet | grep username:` for Ashley + Zoey).
+ * against `docker logs skynet | grep username:` for Alice + Zoey).
  *
  * Throws — callers must not swallow. A malformed name at a writer
  * boundary is a hard programming error, not a soft warning.

@@ -185,7 +185,7 @@ describe("Phase 30 — structural-grep gates (PS30-04 + PS30-05 + PS30-06)", () 
   it("PrettyView.tsx: zero requestRetry / handleRetry / bare-showSpinner references (Phase-29 hook surface gone)", () => {
     // phase-30-restore-resolving-overlay-paint-delay (2026-08-10): the
     // `showResolvingSpinner` local was legitimately reintroduced AT THE
-    // CALLER SITE as PS30-06's comment authorized after Ashley UAT surfaced
+    // CALLER SITE as PS30-06's comment authorized after Alice UAT surfaced
     // the flash Phase 30's delay-arm deletion left exposed. It is NOT a
     // resurrection of the Phase-29 hook surface — the hook stays trivial
     // (see usePaneResolvingMachine.ts) — so the grep guard drops it and
@@ -210,20 +210,20 @@ describe("Phase 30 — structural-grep gates (PS30-04 + PS30-05 + PS30-06)", () 
     // resolving-state mount is gated on `showResolvingSpinner`, a boolean
     // flipped by a 400ms paint-delay useEffect observing renderedState.
     // Direct `renderedState === "resolving"` gating is retired — that was
-    // the pattern that produced Ashley's UAT flash. See PrettyView.tsx
+    // the pattern that produced Alice's UAT flash. See PrettyView.tsx
     // for the delay-arm effect + mount gate.
     expect(pvSrc).toMatch(/showResolvingSpinner &&/);
   });
 
-  it("Phase 60 finish-line: ComposeBox canSend widens beyond `status === 'streaming'` to include `renderedState === 'dormant'` and `renderedState === 'active'` (2026-08-29 Ashley regression: Send stayed disabled on dormant panes)", () => {
+  it("Phase 60 finish-line: ComposeBox canSend widens beyond `status === 'streaming'` to include `renderedState === 'dormant'` and `renderedState === 'active'` (2026-08-29 Alice regression: Send stayed disabled on dormant panes)", () => {
     // Phase 60 (patch #519, 2026-08-29) mounted the ComposeBox for dormant
-    // panes so Ashley can type-and-send into a sleeping session and the
+    // panes so Alice can type-and-send into a sleeping session and the
     // backend invisibly wakes it. The MOUNT gate above (line ~3286) was
     // widened to include `renderedState === "dormant"` and
     // `renderedState === "active"` (cold-dormant → wake transition). But
     // the canSend prop kept `status === "streaming"` only, so ComposeBox's
     // internal `sendDisabled` predicate still gated Send off via
-    // `(canSend === false && !hasAttachments)`. Ashley UAT 2026-08-29:
+    // `(canSend === false && !hasAttachments)`. Alice UAT 2026-08-29:
     // "sometimes typing into the main text area of the compose box or
     // pasting stuff in there doesn't enable the send button." This test
     // pins the widened predicate so the same class of regression can't

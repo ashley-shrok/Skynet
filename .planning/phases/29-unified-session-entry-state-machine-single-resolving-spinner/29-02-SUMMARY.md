@@ -82,7 +82,7 @@ Four `describe` blocks, five `it` blocks:
 3. `PrettyViewErrorOverlay — motion-channel guardrail (static RefreshCcw)`
    - Test 4: RefreshCcw svg does NOT carry the spin-animation class. Regression guard — inverts PrettyViewLoadingOverlay's positive assertion; mirrors SessionHoldingOverlay A3 + DormancyOverlay Test 7 negative assertions. Patch #72 lineage.
 4. `PrettyViewErrorOverlay — iOS Safari backdrop-filter hardening (patch #333)`
-   - Test 5: scrim className carries all three load-bearing tokens (`isolate`, `[transform:translateZ(0)]`, `[-webkit-backdrop-filter:blur(12px)]`). Non-negotiable per patch #333 — Ashley uses this fork primarily on her iPhone PWA.
+   - Test 5: scrim className carries all three load-bearing tokens (`isolate`, `[transform:translateZ(0)]`, `[-webkit-backdrop-filter:blur(12px)]`). Non-negotiable per patch #333 — Alice uses this fork primarily on her iPhone PWA.
 
 **Test count: 5/5 passed. Zero skipped, zero failed.**
 
@@ -106,7 +106,7 @@ Four `describe` blocks, five `it` blocks:
 
 ## Copy Shipped
 
-**"Connection failed — retry"** — D-08 default. Em-dash is U+2014. Final copy remains open to UAT tweak with Ashley, per D-08 note.
+**"Connection failed — retry"** — D-08 default. Em-dash is U+2014. Final copy remains open to UAT tweak with Alice, per D-08 note.
 
 ## Deviations from Plan
 

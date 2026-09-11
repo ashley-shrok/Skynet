@@ -34,7 +34,7 @@
  * ### D-05 attempts-count semantics
  *
  * The store operation succeeds regardless of downstream WS delivery. Even
- * if the send later fails at the transport layer, Ashley's INTENT to talk
+ * if the send later fails at the transport layer, Alice's INTENT to talk
  * to the identity IS the recency signal. This module has no delivery
  * awareness — it only records the stamp.
  */
@@ -54,7 +54,7 @@ const FORCE_SAVE_REASON = "phase-85-stamp-identity-send";
 const MAX_IDENTITY_NAME_LEN = 256;
 
 /**
- * Record that Ashley just sent a message from the compose surface to the
+ * Record that Alice just sent a message from the compose surface to the
  * given identity. Monotonic (never regresses); triggers a DB force-save
  * after every successful write.
  *
@@ -181,7 +181,7 @@ export async function stampIdentityLastSend(
 }
 
 /**
- * Read the recorded unix-millis timestamp of Ashley's last send to the
+ * Read the recorded unix-millis timestamp of Alice's last send to the
  * given identity. Returns `null` if no row exists (identity has never
  * received a stamp) — matches D-09's first-ship "no backfill, natural
  * fill" contract: consumers see `null` and fall through to their own

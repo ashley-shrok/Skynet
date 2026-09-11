@@ -64,7 +64,7 @@ export const OBSERVATION_TICK_INTERVAL_MS = 10_000;
  *   (bounds the first-tick spread for a fleet booting in lock-step).
  *
  * Reusing the 10s cadence for the boot spread window (the original
- * Fixup M-2 shape) is what produced Ashley's ~20s worst-case cold-load
+ * Fixup M-2 shape) is what produced Alice's ~20s worst-case cold-load
  * for sidebar relay rooms: first-tick delay of up to 10s, then up to
  * another ~10s of scan-tick + admin-API latency before the room row
  * materialized in the sidebar. 500ms tightens that worst-case to well
@@ -72,7 +72,7 @@ export const OBSERVATION_TICK_INTERVAL_MS = 10_000;
  * = 500ms + 1s = 1.5s) while preserving the existing thundering-herd
  * defense.
  *
- * Thundering-herd math anchored to Ashley's fleet size (~100 concurrent
+ * Thundering-herd math anchored to Alice's fleet size (~100 concurrent
  * boot users): a 500ms spread window yields a peak of ~200 users/sec of
  * admin-API fan-in against Synapse. That is well within a single Synapse
  * homeserver's healthy concurrency budget (Synapse admin routes handle
@@ -749,7 +749,7 @@ export function createObservationLoop(
       // users. Window is 500ms (INITIAL_TICK_JITTER_MS), not 10s
       // (OBSERVATION_TICK_INTERVAL_MS) — the two knobs are separate; see
       // the INITIAL_TICK_JITTER_MS docblock above for the rationale
-      // (Ashley cold-load fix + fleet-size thundering-herd math).
+      // (Alice cold-load fix + fleet-size thundering-herd math).
       // Skipped when jitter is disabled (tests want deterministic firing
       // on the first scan tick).
       const initialDelayMs = jitterEnabled

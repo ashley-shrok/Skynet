@@ -12,9 +12,9 @@ requires:
   - "12-06 (locale strip — 2 atomic batches across 35 files)"
 provides:
   - "phase-boundary build verification log with all 70 grep hygiene gates + full toolchain gates + bundle-size delta"
-  - "Ashley's post-deploy UAT checklist (23 non-negotiable items + hash-fragment probes + failure route-back table + deploy runbook)"
+  - "Alice's post-deploy UAT checklist (23 non-negotiable items + hash-fragment probes + failure route-back table + deploy runbook)"
   - "paste-ready patch #139 draft for Tina's skynet-patches.md with multi-commit-under-one-pin format"
-  - "Phase 12 code-complete-pending-Ashley-UAT-and-deploy-greenlight verdict"
+  - "Phase 12 code-complete-pending-user-UAT-and-deploy-greenlight verdict"
 affects:
   - .planning/phases/12-.../12-BUILD-VERIFY-LOG.md (created)
   - .planning/phases/12-.../12-UAT-CHECKLIST.md (created)
@@ -50,11 +50,11 @@ metrics:
 
 # Phase 12 Plan 07: Phase-Boundary Docs — Build Verification + UAT Checklist + Patch #139 Draft Summary
 
-Closed Phase 12 with pure documentation: build-verify log capturing tsc + vitest + npm run build at the Phase 12 tip (all green, 70 grep hygiene gates PASS), UAT checklist for Ashley's post-deploy walkthrough (23 non-negotiable items covering all 5 PURGE-06..10 requirements + 5 hash-fragment probes with dual-outcome-acceptable framing + authoritative deploy-runbook citation), and paste-ready patch #139 draft for Tina's skynet-patches.md (multi-commit-under-one-pin format matching patches #104, #105, #128, #138 precedents). Zero source-tree modifications.
+Closed Phase 12 with pure documentation: build-verify log capturing tsc + vitest + npm run build at the Phase 12 tip (all green, 70 grep hygiene gates PASS), UAT checklist for Alice's post-deploy walkthrough (23 non-negotiable items covering all 5 PURGE-06..10 requirements + 5 hash-fragment probes with dual-outcome-acceptable framing + authoritative deploy-runbook citation), and paste-ready patch #139 draft for Tina's skynet-patches.md (multi-commit-under-one-pin format matching patches #104, #105, #128, #138 precedents). Zero source-tree modifications.
 
 ## One-liner
 
-Phase 12 code-complete-pending-Ashley-UAT-and-deploy-greenlight: 3 docs artifacts + 1 SUMMARY, all committed atomically; zero src/ files touched; full 5-way PURGE-06..10 traceability established; batching contract with patch #138 (Phase 11) and subsequent Phase 13+ backend-route purge patches explicit in the patch #139 draft.
+Phase 12 code-complete-pending-user-UAT-and-deploy-greenlight: 3 docs artifacts + 1 SUMMARY, all committed atomically; zero src/ files touched; full 5-way PURGE-06..10 traceability established; batching contract with patch #138 (Phase 11) and subsequent Phase 13+ backend-route purge patches explicit in the patch #139 draft.
 
 ## What Was Built (Docs Edition)
 
@@ -76,14 +76,14 @@ Phase 12 code-complete-pending-Ashley-UAT-and-deploy-greenlight: 3 docs artifact
 - **Mobile UAT (items 11-17):** Fresh landing on pretty-conversations list; tap row → view screen; back button; no bottom nav bar; no SettingsRow at bottom; RDP row tap opens Guacamole; iOS PWA reinstall safe-area check.
 - **Cross-viewport regression (items 18-23):** Message-queue drawer (Ctrl+M); pretty-view compose + WipBubble + session-holding overlay; RDP session usable (deep PURGE-05 check + `features/keyboard/` PROTECTED verification); session persistence A→B→A no reconnect (T-06-02-01 preservation); fleet-native rows on fresh load (Phase 7 lock); **NEW item 23: i18n retained keys still resolve to translated labels (PURGE-10 runtime gate)**.
 - **Failure route-back table:** 17 symptom → Plan/Task mappings for immediate route-back signal (dashboard cards render → Phase 11 Plan 02 Task 2; sidebar panel visible → Phase 12 Plan 03 tasks; tab bar visible → Plan 05; RDP click broken → Phase 11 Plan 03 Task 2 or Phase 12 Plan 03 Task 1; modifier bar missing → `features/keyboard/` scope-fence breach; double-shift broken → Plan 03 Task 1; CommandPalette chips broken → Plan 02 Task 2 import rewire; NewSessionDialog broken → Plan 02 Task 1 inline refactor; hash-fragment probes → per-fragment route-backs; i18n bare keys → Plan 06 batch-2 over-strip; FullScreenAppWrapper Dashboard render → Plan 04 Task 1 swap).
-- **Post-UAT deploy runbook:** Cites `~/.claude/identities/tina/deploy-runbook.md` as authoritative (per Phase 11 checker B-2 fix precedent); explicitly names the fork CLAUDE.md 15-min deadman line as **STALE** (retired 2026-07-21) with `claude-md-15min-deadman-stale` bounty tracker; documents the fleet-standing batching rule (Ashley 2026-07-23); check-before-recreate one-liner; Ashley pre-warn about first-hard-refresh HTTP2_PROTOCOL_ERROR white-screen; 8-step deploy flow per deploy-runbook.md with Phase 11 + Phase 12 signature-byte verification (`grep -c 'PrettyLandingCard' /app/html/assets/*.js` ≥ 1; `grep -c 'session-launcher' /app/html/assets/*.js` ≥ 1; `grep -c 'HostManagerPanel\|AdminSettingsPanel\|DashboardTab' /app/html/assets/*.js` = 0).
+- **Post-UAT deploy runbook:** Cites `~/.claude/identities/tina/deploy-runbook.md` as authoritative (per Phase 11 checker B-2 fix precedent); explicitly names the fork CLAUDE.md 15-min deadman line as **STALE** (retired 2026-07-21) with `claude-md-15min-deadman-stale` bounty tracker; documents the fleet-standing batching rule (Alice 2026-07-23); check-before-recreate one-liner; Alice pre-warn about first-hard-refresh HTTP2_PROTOCOL_ERROR white-screen; 8-step deploy flow per deploy-runbook.md with Phase 11 + Phase 12 signature-byte verification (`grep -c 'PrettyLandingCard' /app/html/assets/*.js` ≥ 1; `grep -c 'session-launcher' /app/html/assets/*.js` ≥ 1; `grep -c 'HostManagerPanel\|AdminSettingsPanel\|DashboardTab' /app/html/assets/*.js` = 0).
 
 ### Task 3 — 12-PATCHES-MD-ENTRY.md (commit `2946294`, bundled with Task 2)
 
 621-line paste-ready patch #139 entry for Tina's skynet-patches.md, matching Phase 11 patch #138 format (itself patterned on patches #104, #105, #128):
 
 - **Header:** patch #139 label, batch context (with patch #138 and subsequent Phase 13+ backend-route patches), explicit contract line "patch #139 batches with subsequent Phase 13+ backend-route purge patches" for the fork-catalog integrity gate, no Co-Authored-By trailer per fork convention.
-- **Motivating gap:** Ashley's Phase 10 UAT 2026-07-23 quote (same quote motivating patch #138); references patch #138 as predecessor; positions Phase 12 as "second slice" of Ship-of-Theseus purge.
+- **Motivating gap:** Alice's Phase 10 UAT 2026-07-23 quote (same quote motivating patch #138); references patch #138 as predecessor; positions Phase 12 as "second slice" of Ship-of-Theseus purge.
 - **Fix summary — 5 paragraphs, one per PURGE-06..10** with commit SHAs + line-counts + design rationale. PURGE-09 explicitly documents the writer+reader-atomic-retire discipline and calls out that "NO standalone shortcut editor UI file ever existed" (per Plan 01 Section G resolution — CONTEXT.md item 4's `features/keyboard/` was actually the on-screen modifier bar, PROTECTED per Section J).
 - **Preservation paragraph:** All 5 PURGE-05-carried baseline gates, backend untouched, `sidebar/NewSessionDialog.tsx` PROTECTED, `features/keyboard/` PROTECTED, `session-launcher/` NEW retained directory, `dashboard` + `network_graph` TabTypes preserved, tab plumbing preserved (openTab, doCloseTab, tabNodesRef DOM-move mechanism from patch #35).
 - **Bundle-size headline:** AppShell −1.19 kB / −1.58% raw + INDEX chunk −124.63 kB / −38.9% raw + cumulative Phase 11 + Phase 12 vs Phase 10 = AppShell −374.58 kB / −83.4% raw.
@@ -104,7 +104,7 @@ Phase 12 code-complete-pending-Ashley-UAT-and-deploy-greenlight: 3 docs artifact
 | Task | Name                                                                | Commit  | Files                                                          |
 | ---- | ------------------------------------------------------------------- | ------- | -------------------------------------------------------------- |
 | 1    | Author 12-BUILD-VERIFY-LOG.md — full production build verification | 500d788 | .planning/phases/12-.../12-BUILD-VERIFY-LOG.md (300 lines)     |
-| 2    | Author 12-UAT-CHECKLIST.md — Ashley post-deploy walkthrough        | 2946294 | .planning/phases/12-.../12-UAT-CHECKLIST.md (308 lines)        |
+| 2    | Author 12-UAT-CHECKLIST.md — Alice post-deploy walkthrough        | 2946294 | .planning/phases/12-.../12-UAT-CHECKLIST.md (308 lines)        |
 | 3    | Author 12-PATCHES-MD-ENTRY.md — paste-ready patch #139 draft       | 2946294 | .planning/phases/12-.../12-PATCHES-MD-ENTRY.md (621 lines)     |
 
 ## Verification Gates
@@ -173,7 +173,7 @@ Two minor observations documented in the artifacts (not deviations from Plan 07 
 | ---------- | --------------------------------------------------------------------- | -------------------------------------------------------- |
 | T-12-07-01 | Task 1 ran `npx tsc --noEmit` + `npx vitest run` + `npm run build` verbatim via bash tool; captured full output; recorded exit codes + test counts + bundle sizes exactly. No hand-typed PASS status. | PASS — all 3 command outputs paste-verified from `/tmp/12-{tsc,vitest,build}.log` |
 | T-12-07-02 | UAT checklist has: 23 non-negotiable items covering all 5 PURGE-06..10 requirements; 5 hash-fragment probes (`#hosts`, `#admin`, `#snippets`, `#dashboard`, `#network_graph`) with dual-outcome-acceptable framing; failure route-back table with 17 rows; explicit RDP verify (item 6, 16, 20 — PURGE-05 preservation deep check across desktop + mobile + on-screen-modifier-bar); explicit i18n runtime verify (item 23 — PURGE-10 runtime gate) | PASS                                                     |
-| T-12-07-03 | UAT deploy-runbook cites `~/.claude/identities/tina/deploy-runbook.md` as authoritative in bold; explicitly names fork CLAUDE.md 15-min deadman line as STALE with retirement date (2026-07-21); references the `claude-md-15min-deadman-stale` bounty tracker; provides the "what to say if Ashley asks about the deadman" script. Same pattern as Phase 11 UAT | PASS                                                     |
+| T-12-07-03 | UAT deploy-runbook cites `~/.claude/identities/tina/deploy-runbook.md` as authoritative in bold; explicitly names fork CLAUDE.md 15-min deadman line as STALE with retirement date (2026-07-21); references the `claude-md-15min-deadman-stale` bounty tracker; provides the "what to say if Alice asks about the deadman" script. Same pattern as Phase 11 UAT | PASS                                                     |
 | T-12-07-04 | All 3 artifacts contain internal file paths; documenting them is intentional (deployment/routing correctness gate — Tina must know where deploy-runbook.md lives). Same trust class as existing planning tree | ACCEPTED                                                 |
 | T-12-07-SC | Zero package installs                                                | PASS                                                     |
 
@@ -199,10 +199,10 @@ Zero src/ modifications made in Plan 07 — the entire retained-UI graph is byte
 
 ## Downstream Enablement
 
-- **Ashley UAT**: Ashley now has a 23-item concrete UAT checklist for the post-deploy walkthrough, ordered top-to-bottom by viewport with 🚨 blocking markers on non-negotiable items, plus a failure route-back table for immediate remediation signal on any regression.
+- **Alice UAT**: Alice now has a 23-item concrete UAT checklist for the post-deploy walkthrough, ordered top-to-bottom by viewport with 🚨 blocking markers on non-negotiable items, plus a failure route-back table for immediate remediation signal on any regression.
 - **Tina paste**: Tina now has a paste-ready patch #139 entry for skynet-patches.md with all SHAs already known except the last 2 Plan-07 docs commits (which resolve at paste-time via `git rev-parse --short HEAD`).
 - **Phase 13 planning**: This SUMMARY + patch #139 draft + UAT checklist together document the exact frontend deletion scope Phase 12 shipped, so Phase 13 planning can enumerate backend routes formerly serving these UIs (`/host/db/*` for HostManager consumers — verify pretty-conversations panel doesn't still consume them; `/snippets/*` fully dead; `/admin/*` fully dead; `/user/*` UserProfilePanel consumers — verify identity-store doesn't still consume) with confidence about which UI callers survive.
-- **Deploy runbook**: The UAT checklist's Post-UAT deploy runbook is self-contained enough that even without opening the identity's deploy-runbook.md, Ashley + Tina can walk through the batched Phase 11 + Phase 12 deploy safely.
+- **Deploy runbook**: The UAT checklist's Post-UAT deploy runbook is self-contained enough that even without opening the identity's deploy-runbook.md, Alice + Tina can walk through the batched Phase 11 + Phase 12 deploy safely.
 
 ## Key Findings
 

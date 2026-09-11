@@ -42,7 +42,7 @@ key-files:
 
 key-decisions:
   - "Companion wire type (role:update-file) rather than extending identity:update-role-file — planner-pick per D-08.3, rejected the frontend-synthesizes-identityKey fallback which breaks if roles-list host has no local identities"
-  - "Full-overwrite semantics preserved from writeRoleFile (mtime-409 UX deferred per D-08.3 Ashley marked nice-to-have but discretion)"
+  - "Full-overwrite semantics preserved from writeRoleFile (mtime-409 UX deferred per D-08.3 Alice marked nice-to-have but discretion)"
   - "ROLE_NAME_PATTERN validation gate lives at BOTH the writer helper AND the WS handler (belt + suspenders) — matches identity:update-role-file's IDENTITY_KEY_RE double-gate pattern"
   - "Old identity-keyed identity:update-role-file wire type left intact — coexists per shape lock (Plan 90-06 refactors identity modal off role-file editors but leaves the wire types for incidental callers)"
 

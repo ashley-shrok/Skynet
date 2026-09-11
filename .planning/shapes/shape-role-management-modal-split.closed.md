@@ -75,7 +75,7 @@ This is a phase, not a quick. Multi-file work: two new modal components (roles-l
 Working identity: **tabitha** on t1000. Bounty workspace lives at `~/.claude/roles/box-maintainer/bounties/role-management-modal-split/`. The design tasting mocks are served at `http://t1000:8898/index.html` (static HTML on the tailnet) and remain a useful visual anchor through implementation — Shape 1 with the conversation-row treatment is the locked reference for the roles-list rows.
 
 Two console snippets exist from the shape-tasting conversation for the identity-modal side:
-- one that hides the scope switch and adds a pill (Ashley redirected away from this shape),
+- one that hides the scope switch and adds a pill (Alice redirected away from this shape),
 - one that hides the scope switch and decorates the identity's title line as clickable (this is the locked treatment).
 
 Both live in the /open transcript; the second is the reference for the identity-modal side of the build.

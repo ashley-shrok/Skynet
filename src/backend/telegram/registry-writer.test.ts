@@ -50,7 +50,7 @@ describe("registry-writer.buildRegistryFromRows", () => {
     const humansByUserId = new Map([
       [
         "user-uuid-1",
-        { name: "ashley", mxid: "@ashley:thenasty.taild9b663.ts.net" },
+        { name: "alice", mxid: "@ashley:thenasty.taild9b663.ts.net" },
       ],
     ]);
     const agentsByIdentityKey = new Map([
@@ -75,11 +75,11 @@ describe("registry-writer.buildRegistryFromRows", () => {
     expect(agent.mxid).toBe("@alexander:thenasty.taild9b663.ts.net");
     expect(agent.humans).toHaveLength(1);
     expect(agent.humans[0]).toEqual({
-      name: "ashley",
+      name: "alice",
       mxid: "@ashley:thenasty.taild9b663.ts.net",
       chat_id: "-100123",
       room: null,
-      token: "ashley.token",
+      token: "alice.token",
     });
 
     // Serialization check — absolutely no bot_token or cred field present.
@@ -106,7 +106,7 @@ describe("registry-writer.buildRegistryFromRows", () => {
       },
     ];
     const humansByUserId = new Map([
-      ["u1", { name: "ashley", mxid: "@ashley:h" }],
+      ["u1", { name: "alice", mxid: "@ashley:h" }],
       ["u2", { name: "zoey", mxid: "@zoey:h" }],
     ]);
     const agentsByIdentityKey = new Map([
@@ -123,7 +123,7 @@ describe("registry-writer.buildRegistryFromRows", () => {
     expect(registry.agents).toHaveLength(2);
     const alex = registry.agents.find((a) => a.name === "alexander")!;
     const bea = registry.agents.find((a) => a.name === "beatrix")!;
-    expect(alex.humans[0].name).toBe("ashley");
+    expect(alex.humans[0].name).toBe("alice");
     expect(alex.humans[0].chat_id).toBeNull();
     expect(bea.humans[0].name).toBe("zoey");
     expect(bea.humans[0].chat_id).toBe("-100999");
@@ -173,7 +173,7 @@ describe("registry-writer.buildRegistryFromRows", () => {
     const humansByUserId = new Map([
       [
         "user-uuid-1",
-        { name: "ashley", mxid: "@ashley:server" },
+        { name: "alice", mxid: "@ashley:server" },
       ],
     ]);
     const agentsByIdentityKey = new Map([
@@ -195,11 +195,11 @@ describe("registry-writer.buildRegistryFromRows", () => {
 
     expect(registry.agents).toHaveLength(1);
     expect(registry.agents[0].humans[0]).toEqual({
-      name: "ashley",
+      name: "alice",
       mxid: "@ashley:server",
       chat_id: "-100123",
       room: "!dmroom1:server",
-      token: "ashley.token",
+      token: "alice.token",
     });
   });
 
@@ -221,15 +221,15 @@ describe("registry-writer.buildRegistryFromRows", () => {
       },
     ];
     const humansByUserId = new Map([
-      ["u1", { name: "ashley", mxid: "@ashley:server" }],
+      ["u1", { name: "alice", mxid: "@ashley:server" }],
       ["u2", { name: "zoey", mxid: "@zoey:server" }],
     ]);
     const agentsByIdentityKey = new Map([
       ["alexander", { name: "alexander", mxid: "@alexander:server" }],
     ]);
-    // Only Ashley's pair is in the map — Zoey's key is absent.
+    // Only Alice's pair is in the map — Zoey's key is absent.
     const roomByAgentHumanMxidPair = new Map<string, string | null>([
-      ["@alexander:server\t@ashley:server", "!dmroom-ashley"],
+      ["@alexander:server\t@ashley:server", "!dmroom-alice"],
     ]);
 
     const registry = buildRegistryFromRows(
@@ -242,9 +242,9 @@ describe("registry-writer.buildRegistryFromRows", () => {
     expect(registry.agents).toHaveLength(1);
     const humans = registry.agents[0].humans;
     expect(humans).toHaveLength(2);
-    const ashley = humans.find((h) => h.name === "ashley")!;
+    const alice = humans.find((h) => h.name === "alice")!;
     const zoey = humans.find((h) => h.name === "zoey")!;
-    expect(ashley.room).toBe("!dmroom-ashley");
+    expect(alice.room).toBe("!dmroom-alice");
     expect(zoey.room).toBeNull();
   });
 
@@ -260,7 +260,7 @@ describe("registry-writer.buildRegistryFromRows", () => {
       },
     ];
     const humansByUserId = new Map([
-      ["u1", { name: "ashley", mxid: "@ashley:server" }],
+      ["u1", { name: "alice", mxid: "@ashley:server" }],
     ]);
     const agentsByIdentityKey = new Map([
       ["alexander", { name: "alexander", mxid: "@alexander:server" }],
@@ -291,11 +291,11 @@ describe("registry-writer.writeRegistry", () => {
           mxid: "@alexander:h",
           humans: [
             {
-              name: "ashley",
+              name: "alice",
               mxid: "@ashley:h",
               chat_id: "-100123",
               room: null,
-              token: "ashley.token",
+              token: "alice.token",
             },
           ],
         },

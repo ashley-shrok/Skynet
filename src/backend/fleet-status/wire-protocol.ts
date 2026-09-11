@@ -85,14 +85,14 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 // (user-sent OR assistant-sent). Tool-use, thinking blocks, streaming ticks,
 // lifecycle events, and background-task starts/stops do NOT contribute to
 // this signal — the recency signal is edge-triggered ONLY on messages either
-// direction (Ashley 2026-08-14 lock: "activity = message either direction,
+// direction (Alice 2026-08-14 lock: "activity = message either direction,
 // and only that"). Semantics:
 //   - number (unix millis) → newest message-bearing frame timestamp.
 //   - null                → no message-bearing history known for this session.
 //   - undefined           → emitting watcher pre-dates Phase 41 Plan 03; the
 //                           frontend consumer treats undefined and null
 //                           identically (both flip the row to the top of the
-//                           middle zone per Ashley's no-history-to-top rule).
+//                           middle zone per Alice's no-history-to-top rule).
 // Because the field is `.optional().nullable()`, FRAME_SCHEMA_VERSION is
 // deliberately HELD AT 1 — additive+optional extensions never require a
 // version bump (T-41-03-05 mitigation). If a future breaking change lands,
@@ -188,7 +188,7 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 //
 // Sole authority: source B (per-identity enumeration in pollDormantOnlyIdentities)
 // is the ONLY publisher that stamps recycling. Source A OMITS the field per
-// inline-260830-source-a-omit-recycling (Ashley 2026-08-30, taylor) — an
+// inline-260830-source-a-omit-recycling (Alice 2026-08-30, taylor) — an
 // earlier version had source A stamp `recycling: false` explicitly on every
 // per-PID publish, which wiped the frontend cache immediately after source B
 // fired `recycling: true` on sentinel drop. Source B's fingerprint dedup then
@@ -218,13 +218,13 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 //   - `activityMtime`: mtime of `~/.claude/fleet-status/hooks/<sessionId>/activity`
 //     on the target host, × 1000 (seconds → unix millis). Touched by the
 //     Plan 62-01 activity-hook.sh, installed via Plan 62-02, on two hook
-//     events: UserPromptSubmit (Ashley submitted a prompt) and PreToolUse
+//     events: UserPromptSubmit (Alice submitted a prompt) and PreToolUse
 //     (agent began invoking a tool).
 //   - `stoppedMtime`: mtime of `~/.claude/fleet-status/hooks/<sessionId>/stopped`
 //     on the target host, × 1000. Touched by the Plan 62-01 stopped-hook.sh,
 //     installed via Plan 62-02, on three hook events: Stop (turn finished
 //     cleanly), StopFailure (turn ended in error), PermissionRequest (agent
-//     blocked waiting on Ashley for a permission decision — same as done from
+//     blocked waiting on Alice for a permission decision — same as done from
 //     the affordance's perspective).
 //
 // Semantics (both fields):
@@ -258,12 +258,12 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 //   - activityMtime !== null || stoppedMtime !== null → new predicate
 //     (Plan 62-04 mtime comparison).
 //   - both null → fall through to the retained Phase 59 shell-idle-gate
-//     predicate (Ashley has adapted to the known bugs on unupgraded boxes;
+//     predicate (Alice has adapted to the known bugs on unupgraded boxes;
 //     adaptation is intact until each box gets the Plan 62-02 installer).
 // A follow-up phase (orchestrator-tracked, post-full-rollout) retires the
 // Phase 59 fields cleanly once every managed box is confirmed installed.
 // Retention over deletion is the blast-radius-safe direction (CLAUDE.md —
-// a bad deploy loses Ashley access to her whole fleet).
+// a bad deploy loses Alice access to her whole fleet).
 //
 // Cache-preservation cross-reference: the two mtime reads in
 // ssh-poll-orchestrator.ts's processPid loop fail-open on SSH hiccup (null
@@ -277,7 +277,7 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 // NULLABLE numeric field carrying the per-session context-window fill %
 // (0-100) — the same value PrettyView's compose-box meter reads today.
 //
-// D-10 delivery mechanism (Ashley 2026-09-08 plan-checker resolution): rather
+// D-10 delivery mechanism (Alice 2026-09-08 plan-checker resolution): rather
 // than let contextPct live ONLY in PrettyView's local `useState`, it is
 // PROMOTED to a per-session field on fleet-status. Both surfaces subscribe
 // via the frontend hook `useSessionContextPct(hostId, tmuxSession)`:

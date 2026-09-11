@@ -7,7 +7,7 @@ description: >
   because underlying contextPct doesn't reset until session_changed fires
   (~seconds later). Make the click IMMEDIATELY show the existing
   SessionHoldingOverlay, lock the meter well to lit-but-no-segments during
-  holding, and turn the overlay's bubble RED after a 120s timeout as Ashley's
+  holding, and turn the overlay's bubble RED after a 120s timeout as Alice's
   cue to hit browser refresh.
 created: 2026-07-22
 status: planned
@@ -63,7 +63,7 @@ patch #74's overlay + 350ms delay-arm gate untouched.
 - Add `isHolding?: boolean` in the props block. Slot near `canSend`
   (line 114) since both gate render state on external session
   condition. JSDoc: "When true, force all meter well segments to their
-  unlit state (well glow, border, and background stay intact). Ashley
+  unlit state (well glow, border, and background stay intact). Alice
   UX rule: during session recycle the meter should read as `powered
   but empty`, not `powered and filled` — segments only re-populate
   when the backend emits `context_pct` on the fresh session."
@@ -148,7 +148,7 @@ patch #74's overlay + 350ms delay-arm gate untouched.
   // 350ms delay-arm timer immediately instead of waiting for the
   // backend `session_holding` frame. If the backend confirms with
   // its own `session_holding` frame later, setIsHolding(true) is
-  // idempotent — no double-fire. If Ashley clicks reset a second
+  // idempotent — no double-fire. If Alice clicks reset a second
   // time while the overlay is up (e.g. after a red-bubble
   // failure), the error state is intentionally reset to give the
   // fresh attempt a clean 120s window.
@@ -178,7 +178,7 @@ reason:**
     // when the ~holding timeout expires without a fresh session.
     // Flip the overlay to its red-bubble variant instead of taking
     // the normal inactive path — the surface should stay covered so
-    // Ashley sees the failure explicitly, not drop back to the
+    // Alice sees the failure explicitly, not drop back to the
     // "no active Claude session" fallback where the compose box
     // silently disappears.
     if (parsed.reason === "holding_timeout") {

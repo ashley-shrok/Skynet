@@ -3,7 +3,7 @@
 **Gathered:** 2026-09-08
 **Status:** Ready for planning
 
-> **Seeded from shape file** per `/build` convention — the shape file (`.planning/shapes/shape-relay-session-model-generalization.md`) already locked all the decisions below via a walked-one-at-a-time `/open` conversation with Ashley (2026-09-08, all greenlit `thumbs up`). This CONTEXT.md is the discuss-phase artifact that translates those decisions into a form downstream agents (researcher, planner) can act on without re-asking. Read the shape file for the fuller narrative; this file is the actionable extract.
+> **Seeded from shape file** per `/build` convention — the shape file (`.planning/shapes/shape-relay-session-model-generalization.md`) already locked all the decisions below via a walked-one-at-a-time `/open` conversation with Alice (2026-09-08, all greenlit `thumbs up`). This CONTEXT.md is the discuss-phase artifact that translates those decisions into a form downstream agents (researcher, planner) can act on without re-asking. Read the shape file for the fuller narrative; this file is the actionable extract.
 
 <domain>
 ## Phase Boundary
@@ -21,7 +21,7 @@ Materialization happens by observation, driven by Skynet using its existing admi
 <decisions>
 ## Implementation Decisions
 
-All 16 decisions below were walked one-at-a-time with Ashley during the `/open` conversation for this shape (2026-09-08). Each was greenlit `thumbs up` before advancing. The shape file's `## Shape` and `## Philosophy` sections are the fuller narrative; below is the actionable extract.
+All 16 decisions below were walked one-at-a-time with Alice during the `/open` conversation for this shape (2026-09-08). Each was greenlit `thumbs up` before advancing. The shape file's `## Shape` and `## Philosophy` sections are the fuller narrative; below is the actionable extract.
 
 ### Storage — two peer paths, not a discriminator
 
@@ -53,7 +53,7 @@ All 16 decisions below were walked one-at-a-time with Ashley during the `/open` 
 
 - **D-11: Skynet is the account-creator for BOTH agents and humans (Phase 75 landed this).** Verified live during `/open`: `POST /identities/birth` mints agent Matrix accounts via `matrix-admin-client.ts::createOrUpdateUser` since Phase 75 Plan 04; `POST /users/create` was extended in Phase 88 to mint human Matrix accounts the same way. Both hooks live on Skynet's side already. The registry-room join is a NEW step added at each of those two moments — after mint succeeds, use the admin `joinRoom` primitive (already exists at `matrix-admin-client.ts:186`) to add the new account to the appropriate registry room. The id-skill's own self-register block on the agent's box is now a LEGACY/FALLBACK pathway — do NOT wire the registry-room join through it.
 
-- **D-12: One-time backfill is MANUAL per instance-deployer — NOT automatic.** Refined 2026-09-08 post-verifier (Ashley verbatim: *"there's not supposed to be automatic backfill anyways. Like I said, that would be a manual step for whoever deploys this stuff over here on this instance and for Stacy on her instance."*). Matches the Phase 88 D-02 precedent (existing users hand-migrated by the maintainer of each Skynet instance — Taylor on t1000, Stacy on T800). The `runRegistryRoomsBackfill()` function exists as a **manual-invocation utility**, exported from `src/backend/relay-sessions/registry-rooms-backfill.ts` — the instance-deployer runs it once after deploying Phase 89 code, per the runbook in `89-SUMMARY.md § Manual backfill runbook`. The observation-loop-starter DOES NOT auto-fire it at boot. Between deploy and manual-backfill-run, pre-existing agents/humans are NOT in the registry rooms and the classifier's D-09 fallthrough conservatively materializes their two-party DMs (noisier sidebars for existing accounts until backfilled) — same trust model as Phase 88's "existing users get hand-migrated." The D-11 mint hooks (Phase 89-02) cover ALL new accounts from now on automatically; only pre-existing accounts need the manual backfill.
+- **D-12: One-time backfill is MANUAL per instance-deployer — NOT automatic.** Refined 2026-09-08 post-verifier (Alice verbatim: *"there's not supposed to be automatic backfill anyways. Like I said, that would be a manual step for whoever deploys this stuff over here on this instance and for Stacy on her instance."*). Matches the Phase 88 D-02 precedent (existing users hand-migrated by the maintainer of each Skynet instance — Taylor on t1000, Stacy on T800). The `runRegistryRoomsBackfill()` function exists as a **manual-invocation utility**, exported from `src/backend/relay-sessions/registry-rooms-backfill.ts` — the instance-deployer runs it once after deploying Phase 89 code, per the runbook in `89-SUMMARY.md § Manual backfill runbook`. The observation-loop-starter DOES NOT auto-fire it at boot. Between deploy and manual-backfill-run, pre-existing agents/humans are NOT in the registry rooms and the classifier's D-09 fallthrough conservatively materializes their two-party DMs (noisier sidebars for existing accounts until backfilled) — same trust model as Phase 88's "existing users get hand-migrated." The D-11 mint hooks (Phase 89-02) cover ALL new accounts from now on automatically; only pre-existing accounts need the manual backfill.
 
 - **D-13: Registry rooms themselves excluded via a Skynet-instance-owned "admin rooms" ignore-list.** Registry rooms have many members and would otherwise trip the D-08 multi-member materialize rule for every user. Skynet holds a small internal ignore-list of admin room IDs; the observation loop's materialization step skips any room whose ID is in this list. Ignore-list is populated at the moment Skynet creates each registry room (per D-10) — Skynet knows the room IDs at creation time.
 
@@ -89,7 +89,7 @@ All 16 decisions below were walked one-at-a-time with Ashley during the `/open` 
 
 ### Parent arc
 - `.planning/shapes/shape-relay-mediated-group-conversations.md` — Master shape of the multi-slice arc. Anchors philosophy (agent receivers already exist, this slice generalizes the SKYNET side); orthogonality invariant between session kinds.
-- Bounty: `~/.claude/roles/box-maintainer/bounties/relay-mediated-group-conversations-humans-agents-in-rooms/` (pinned by Ashley).
+- Bounty: `~/.claude/roles/box-maintainer/bounties/relay-mediated-group-conversations-humans-agents-in-rooms/` (pinned by Alice).
 
 ### Direct dependency — slice A (Phase 88, complete)
 - `.planning/phases/88-relay-mediated-group-conversations-sub-slice-a-human-relay-i/88-CONTEXT.md` — Slice A decisions (D-01..D-14). Established: every user has `users.mxid` populated, Skynet mints human Matrix accounts at `POST /users/create` (mint-first, refuse-create-on-Synapse-unreachable), sanitizer `_human` suffix convention for humans, deactivate-on-delete best-effort.
@@ -111,7 +111,7 @@ All 16 decisions below were walked one-at-a-time with Ashley during the `/open` 
 - Fleet-status roster (in-memory cache of identities per host) — the source for D-12 agent enumeration during backfill.
 
 ### Skynet architectural invariants (project-level)
-- `.planning/PROJECT.md` — Skynet's core value ("Ashley never loses access to her fleet"); every change preserves reliable browser SSH+RDP.
+- `.planning/PROJECT.md` — Skynet's core value ("Alice never loses access to her fleet"); every change preserves reliable browser SSH+RDP.
 - Crown-jewel in-memory-SQLite invariant: `DatabaseSaveTrigger.forceSave("<reason>")` MUST be called after every backend `db.insert/update/delete().run()`. Pattern reference: `host-autostart-routes.ts:173-181`. Applies to every write in this phase — new table inserts (materialize), state transitions (external kick), registry-room ignore-list writes.
 - nginx/Caddy routing: any NEW URL prefix needs matching entries in BOTH `docker/nginx.conf` AND `docker/nginx-https.conf` (Phase 87 D-19/20/21 pattern). Slice B is backend-only and does NOT add new user-facing endpoints — `/sessions/list` extension reuses the existing prefix — but if the planner surfaces admin-only endpoints (e.g. a health-check for the observation loop) that need external reach, both nginx configs must be touched.
 
@@ -156,7 +156,7 @@ All 16 decisions below were walked one-at-a-time with Ashley during the `/open` 
 - **Row shape is deliberate and locked** — see D-02. Any deviation from the exact column set (adding fields, changing types, scoping the uniqueness constraint) needs explicit re-greenlight, not planner discretion.
 - **Poll cadence targets ~10s** — see D-04. Not sub-second (unnecessary sync-client substrate), not minute-scale (bad UX for "join and see"). ~10s is the design center.
 - **Registry rooms + ignore-list are the load-bearing primitives** — see D-09..D-13. Two big departures from earlier design instincts landed here:
-  1. NOT naming-convention-based (Ashley: account format is changing).
+  1. NOT naming-convention-based (Alice: account format is changing).
   2. NOT disk-based (host downtime = fragile).
   Both departures were driven by the "what would make it wrong" section of the shape; do not backslide.
 - **Skynet is the account creator for both types** — see D-11. This IS the current state as of Phase 75 (agents) + Phase 88 (humans). Verified live during /open. Do NOT plan around the assumption that agents self-register — the id-skill's self-register block is legacy/fallback only.

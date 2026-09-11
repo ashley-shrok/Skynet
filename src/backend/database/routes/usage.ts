@@ -10,7 +10,7 @@
  * WeeklyUsageMeter component without CORS/mixed-content issues.
  *
  * No auth required — the collector only returns publicly-observable usage data
- * (the same Ashley sees in her statusLine); the backend machine is on the tailnet
+ * (the same Alice sees in her statusLine); the backend machine is on the tailnet
  * and is the only node with reachability to the collector's IP-gated endpoint.
  *
  * Per CLAUDE.md nginx caveat: matching location /api/usage blocks MUST exist in

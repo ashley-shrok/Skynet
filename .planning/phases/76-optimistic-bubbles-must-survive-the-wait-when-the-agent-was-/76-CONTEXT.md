@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-09-06
 **Status:** Ready for planning
-**Source:** Seeded from `/open` shape file `.planning/shapes/shape-optimistic-during-dormant-wake.md` per /build skill's express-path directive ("seed discuss-phase from the shape file — do not re-do the discovery /open already did"). No additional gray areas surfaced during the /open session that were not resolved there; interactive discuss-phase gray-area round skipped. Ashley 2026-09-06 verbatim on framing: *"do whatever you need to get there"* (full reliability), and *"I have no fucking idea what the right time is... just open the fucking build"* (delegating implementation-detail decisions to shape/plan).
+**Source:** Seeded from `/open` shape file `.planning/shapes/shape-optimistic-during-dormant-wake.md` per /build skill's express-path directive ("seed discuss-phase from the shape file — do not re-do the discovery /open already did"). No additional gray areas surfaced during the /open session that were not resolved there; interactive discuss-phase gray-area round skipped. Alice 2026-09-06 verbatim on framing: *"do whatever you need to get there"* (full reliability), and *"I have no fucking idea what the right time is... just open the fucking build"* (delegating implementation-detail decisions to shape/plan).
 
 <domain>
 ## Phase Boundary
@@ -34,11 +34,11 @@ Unify the two frontend dormancy signals into a single authoritative source, and 
 
 ### Failed-state visual
 
-- **D-06: Whole-bubble red fill on the flip-to-failed state, not just a red border.** Ashley 2026-09-06 verbatim: *"I imagined that like the original red bubble concept was that the whole bubble would just turn red instead of the blue hue that normal messages have from the user instead of what actually is what I got, which is just a red border. So it would be nice to change that visual during this. and then you know it's kind of more fitting anyways since hopefully after we do this work a failed bubble will be a truly failed bubble and that is worth being that loud about."* Rationale: post-fix, a failed bubble means the server tried its full budget and actually gave up — the visual should carry that stronger meaning. Plan-phase decides the exact CSS/tailwind approach; the intent is "whole bubble red fill, decisive."
+- **D-06: Whole-bubble red fill on the flip-to-failed state, not just a red border.** Alice 2026-09-06 verbatim: *"I imagined that like the original red bubble concept was that the whole bubble would just turn red instead of the blue hue that normal messages have from the user instead of what actually is what I got, which is just a red border. So it would be nice to change that visual during this. and then you know it's kind of more fitting anyways since hopefully after we do this work a failed bubble will be a truly failed bubble and that is worth being that loud about."* Rationale: post-fix, a failed bubble means the server tried its full budget and actually gave up — the visual should carry that stronger meaning. Plan-phase decides the exact CSS/tailwind approach; the intent is "whole bubble red fill, decisive."
 
 ### Multi-send verification
 
-- **D-07: Multi-send during a widened wait must be verified under real conditions in an in-process test, including a reconnect-mid-dormancy setup.** Phase 62's implementation claim was that multiple pending sends during a wake all deliver in order when the wake completes. Nobody has confirmed that under real conditions, and the specific failure mode Phase 76 fixes (dormantRef stale after reconnect) is exactly the setup where the multi-send claim would break. In-process test drives: agent goes dormant → WS reconnects (dormant frame emit-on-change does not re-fire) → Ashley sends TWO messages back-to-back → both must land as real bubbles in order after the wake completes. Ashley 2026-09-06 verbatim: *"that exact model was agreed upon when we first tried to implement this. So I imagine there's an attempt to have that already be happening in the current code. Although I don't think I've ever tried to send a follow-up message, so I can't really confirm if it works or not."* Verify, not assume.
+- **D-07: Multi-send during a widened wait must be verified under real conditions in an in-process test, including a reconnect-mid-dormancy setup.** Phase 62's implementation claim was that multiple pending sends during a wake all deliver in order when the wake completes. Nobody has confirmed that under real conditions, and the specific failure mode Phase 76 fixes (dormantRef stale after reconnect) is exactly the setup where the multi-send claim would break. In-process test drives: agent goes dormant → WS reconnects (dormant frame emit-on-change does not re-fire) → Alice sends TWO messages back-to-back → both must land as real bubbles in order after the wake completes. Alice 2026-09-06 verbatim: *"that exact model was agreed upon when we first tried to implement this. So I imagine there's an attempt to have that already be happening in the current code. Although I don't think I've ever tried to send a follow-up message, so I can't really confirm if it works or not."* Verify, not assume.
 
 ### Awake-case unchanged
 
@@ -114,24 +114,24 @@ The following are implementation details the planner is free to decide, subject 
 <specifics>
 ## Specific Ideas
 
-- **Ashley 2026-09-06 on framing (verbatim, load-bearing):** *"such shoddy work gets done in this app where things are just touched without considering how it affects other pieces. And things constantly break and are unreliable because of it."* Every decision above (D-01–D-08) traces back to preventing this exact class of miss — Phase 60 shipped assuming one watchdog; Phase 62 shipped assuming one dormancy signal. Phase 76 must produce the surface inventory as a hard artifact so this iteration cannot ship the same class of miss for a third time.
+- **Alice 2026-09-06 on framing (verbatim, load-bearing):** *"such shoddy work gets done in this app where things are just touched without considering how it affects other pieces. And things constantly break and are unreliable because of it."* Every decision above (D-01–D-08) traces back to preventing this exact class of miss — Phase 60 shipped assuming one watchdog; Phase 62 shipped assuming one dormancy signal. Phase 76 must produce the surface inventory as a hard artifact so this iteration cannot ship the same class of miss for a third time.
 
-- **Ashley 2026-09-06 on the 20s vs longer-window UX tradeoff:** *"For now the silent three-minute spin is acceptable because most of the time it doesn't take anywhere near that to wake the agent up."* Silent spin is fine. Do NOT add interim status text, wake-progress indicators, cancel-in-flight affordances, or any new UX surfaces during this phase.
+- **Alice 2026-09-06 on the 20s vs longer-window UX tradeoff:** *"For now the silent three-minute spin is acceptable because most of the time it doesn't take anywhere near that to wake the agent up."* Silent spin is fine. Do NOT add interim status text, wake-progress indicators, cancel-in-flight affordances, or any new UX surfaces during this phase.
 
-- **Ashley 2026-09-06 on the 90s-vs-190s question:** she waved this off — decision was made in-shape to source the value by reference to the backend give-up ceiling (D-05), not by picking a number. Do not re-litigate.
+- **Alice 2026-09-06 on the 90s-vs-190s question:** she waved this off — decision was made in-shape to source the value by reference to the backend give-up ceiling (D-05), not by picking a number. Do not re-litigate.
 
-- **Multi-send-during-wake user model:** two spinning bubbles in flight during a widened wait, both deliver in order when wake completes, no bubbles lost or reordered, no dedup collision. Ashley confirmed this is the intended model — verify it works.
+- **Multi-send-during-wake user model:** two spinning bubbles in flight during a widened wait, both deliver in order when wake completes, no bubbles lost or reordered, no dedup collision. Alice confirmed this is the intended model — verify it works.
 
 </specifics>
 
 <deferred>
 ## Deferred Ideas
 
-- **Duplicate real bubble on wake-triggered session recycle** — sister bounty `pv-queue-op-dedup-doesnt-survive-wake-recycle`. Priority two behind this phase per Ashley's ordering. Phase 62 Wave 2 shipped instrumentation for this; actual fix requires a repro with the instrumentation live to nail the mechanism. Follow-up build after the next dormant-wake repro produces the trace.
+- **Duplicate real bubble on wake-triggered session recycle** — sister bounty `pv-queue-op-dedup-doesnt-survive-wake-recycle`. Priority two behind this phase per Alice's ordering. Phase 62 Wave 2 shipped instrumentation for this; actual fix requires a repro with the instrumentation live to nail the mechanism. Follow-up build after the next dormant-wake repro produces the trace.
 
-- **Reconnect during the widened wait (survive-and-re-anchor pending)** — Ashley 2026-09-06 verbatim: *"you're talking about a rare scenario that probably needs a bunch of its own custom mechanisms. So I'm trying not to push my luck here."* Scope creep. Follow-up bounty only if it bites in practice.
+- **Reconnect during the widened wait (survive-and-re-anchor pending)** — Alice 2026-09-06 verbatim: *"you're talking about a rare scenario that probably needs a bunch of its own custom mechanisms. So I'm trying not to push my luck here."* Scope creep. Follow-up bounty only if it bites in practice.
 
-- **Cancel-in-flight affordance during a widened wait** — three minutes of silent spin might feel like an eternity if Ashley regrets sending. She confirmed silent spin is acceptable because wakes usually complete well before ceiling. Not adding new UX surface here.
+- **Cancel-in-flight affordance during a widened wait** — three minutes of silent spin might feel like an eternity if Alice regrets sending. She confirmed silent spin is acceptable because wakes usually complete well before ceiling. Not adding new UX surface here.
 
 - **Interim status text during the spin** — "waking her up" / "sending" / etc. Same rationale: no new UX surface during this phase.
 

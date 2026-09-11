@@ -9,12 +9,12 @@ Discuss-mode: compressed shape-seeded (per build-skill convention — shape file
 
 Phase entered through `/build` (feature mode). Sequence:
 
-1. `/build "update the identity modal to support both role-level and identity-level wakeups"` — Ashley pitched the mismatch: current modal shows only identity-scope wakeups, so a coordinator (who only has role-scope wakeups) sees "no scheduled wakeups" — technically true, entirely unhelpful. Also raised broader dissatisfaction with the flat 6-tab strip mixing role-scope and identity-scope content in one flat list.
-2. `/open identity-modal-scope-split` — pitched shape back to Ashley (scope-legibility redesign, coordinator case as the strongest argument for doing this at all, history-tab-scope surfaced as a possible confusion — turned out Ashley had misspoken and it IS role-scope per id-skill canonical text, no change needed).
-3. Ashley asked for a "tasting" (visual variant comparison) after her direction was "hard to say" — pushed to `/gsd:sketch` to produce 5 layout variants (grouped strip, stacked sections, left rail, top scope switch, dashboard cards), each showing actor-identity AND coordinator-identity states side-by-side.
-4. Sketch served on tailnet `http://100.99.149.8:8899/001-identity-modal-role-vs-identity-split/`. Ashley picked **variant D — Top Scope Switch** with "definitely D". Winner marked in README + MANIFEST + ★ on the tab. Sketch commit HEAD `f5c8f459`.
-5. Returned to `/open` to write shape file. Vehicle proposed: GSD phase (backed by fleet standing directive that phase-shaped work gets a phase, plus real backend surface, plus 4 modal test files in blast radius). Ashley greenlit vehicle with thumbs-up.
-6. Shape file written at `.planning/shapes/shape-identity-modal-scope-split.md`. Ashley greenlit running `/gsd:phase` with thumbs-up.
+1. `/build "update the identity modal to support both role-level and identity-level wakeups"` — Alice pitched the mismatch: current modal shows only identity-scope wakeups, so a coordinator (who only has role-scope wakeups) sees "no scheduled wakeups" — technically true, entirely unhelpful. Also raised broader dissatisfaction with the flat 6-tab strip mixing role-scope and identity-scope content in one flat list.
+2. `/open identity-modal-scope-split` — pitched shape back to Alice (scope-legibility redesign, coordinator case as the strongest argument for doing this at all, history-tab-scope surfaced as a possible confusion — turned out Alice had misspoken and it IS role-scope per id-skill canonical text, no change needed).
+3. Alice asked for a "tasting" (visual variant comparison) after her direction was "hard to say" — pushed to `/gsd:sketch` to produce 5 layout variants (grouped strip, stacked sections, left rail, top scope switch, dashboard cards), each showing actor-identity AND coordinator-identity states side-by-side.
+4. Sketch served on tailnet `http://100.99.149.8:8899/001-identity-modal-role-vs-identity-split/`. Alice picked **variant D — Top Scope Switch** with "definitely D". Winner marked in README + MANIFEST + ★ on the tab. Sketch commit HEAD `f5c8f459`.
+5. Returned to `/open` to write shape file. Vehicle proposed: GSD phase (backed by fleet standing directive that phase-shaped work gets a phase, plus real backend surface, plus 4 modal test files in blast radius). Alice greenlit vehicle with thumbs-up.
+6. Shape file written at `.planning/shapes/shape-identity-modal-scope-split.md`. Alice greenlit running `/gsd:phase` with thumbs-up.
 7. `/gsd:phase add` — Phase 72 added to roadmap via `gsd-sdk phase.add` (slug `identity-modal-role-identity-scope-split-with-role-level-wak`). STATE.md updated with Roadmap Evolution entry.
 8. `/gsd:discuss-phase 72` (this step) — seeded CONTEXT.md from shape file per build-skill convention. Compressed discussion: no gray-area re-elicitation, just canonical-refs + code-context + locked implementation decisions for what the shape didn't cover.
 
@@ -29,7 +29,7 @@ Before writing CONTEXT.md, probed the codebase for existing patterns this phase 
 
 ## Implementation decisions locked during discuss-phase
 
-All items below are LOCKED with defaults grounded in the existing codebase patterns above. Each is a decision that the shape file did not lock but that the planner needs to know before drafting plans. Ashley can override any of them in one line before `/gsd:plan-phase` runs.
+All items below are LOCKED with defaults grounded in the existing codebase patterns above. Each is a decision that the shape file did not lock but that the planner needs to know before drafting plans. Alice can override any of them in one line before `/gsd:plan-phase` runs.
 
 ### Wire protocol shape for role-scope wakeup CRUD
 
@@ -67,7 +67,7 @@ Affordance is a hue-tinted pill button at the top of the wakeups tab, matching t
 
 **Decision:** Atomic write via `fs.writeFile` (Linux atomic within a single file for the whole payload). Last-writer-wins. No lockfile.
 
-**Rationale:** Matches existing bounty-write pattern that already accepts the same race with no incidents. Wakeup CRUD write frequency is low (Ashley-driven, not automated); lockfile is over-engineering.
+**Rationale:** Matches existing bounty-write pattern that already accepts the same race with no incidents. Wakeup CRUD write frequency is low (user-driven, not automated); lockfile is over-engineering.
 
 ### Coordinator identity Identity-view behavior
 
@@ -86,4 +86,4 @@ Affordance is a hue-tinted pill button at the top of the wakeups tab, matching t
 - Schedule scope conversion (identity ↔ role move without recreate).
 - Coordinator dispatch history tab.
 - Unified schedule editor with in-form scope picker (explicitly ruled out per shape).
-- Alternative to rendering the Role file tab under coordinator Role view (currently shows "not loaded" empty state; could hide entirely — deferred until Ashley sees shipped version).
+- Alternative to rendering the Role file tab under coordinator Role view (currently shows "not loaded" empty state; could hide entirely — deferred until Alice sees shipped version).

@@ -31,7 +31,7 @@ metrics:
 
 # quick-260910-jqx Plan 01: Fix cache-read validator to accept relay rows — Summary
 
-Kind-aware `isFleetSession` validator so relay-room cache rows survive `readFleetSessionsCache()` — restores instant paint of relay rooms on cold-boot instead of Ashley's observed ~10s wait for the `/sessions/list` round-trip.
+Kind-aware `isFleetSession` validator so relay-room cache rows survive `readFleetSessionsCache()` — restores instant paint of relay rooms on cold-boot instead of Alice's observed ~10s wait for the `/sessions/list` round-trip.
 
 ## What Shipped
 
@@ -69,7 +69,7 @@ if (
 ) return false;
 ```
 
-Every relay-row cache entry hit that gate on read and got silently filtered out. `readFleetSessionsCache()` returned only the harness rows. On cold-boot, AppShell painted the harness rooms instantly from cache but had to wait for the fresh `/sessions/list` fetch (~10s under Ashley's load) before relay rooms materialized in the sidebar.
+Every relay-row cache entry hit that gate on read and got silently filtered out. `readFleetSessionsCache()` returned only the harness rows. On cold-boot, AppShell painted the harness rooms instantly from cache but had to wait for the fresh `/sessions/list` fetch (~10s under Alice's load) before relay rooms materialized in the sidebar.
 
 The write path at `conversation-store.ts:1361` (canonical map at 1377-1388) was already correct — it serialized both kinds. The FleetSession type at `conversation-store.ts:161` was already correct — all relay identity fields (`kind` / `roomId` / `roomTitle` etc.) were already optional. This was purely a read-side validator gap.
 
@@ -132,7 +132,7 @@ Zero touches to: `FleetSession` interface, `writeFleetSessionsCache`, `readFleet
 ## HEAD Status
 
 - HEAD `d5656557` LOCAL, NOT pushed / NOT built / NOT deployed per code-work-doesn't-authorize-ship rule.
-- Ship gate: this fix belongs with the broader UAT / Phase 97 polish arc currently held for greenlight. Ashley owns the push decision.
+- Ship gate: this fix belongs with the broader UAT / Phase 97 polish arc currently held for greenlight. Alice owns the push decision.
 
 ## Self-Check
 

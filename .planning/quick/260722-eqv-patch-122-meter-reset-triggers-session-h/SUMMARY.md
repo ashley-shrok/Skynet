@@ -66,7 +66,7 @@ alongside the existing `setIsHolding(false)`.
 ## Deploy status
 
 NOT DEPLOYED. Batched with patches #118-#121 for a single deploy later
-per Ashley 2026-07-22 batching directive. All five bounties are now
+per Alice 2026-07-22 batching directive. All five bounties are now
 code-complete on `feat/tab-title-from-tmux` and ship together on the
 next `docker compose up -d --force-recreate skynet` behind the 15-min
 deadman rollback.

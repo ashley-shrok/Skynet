@@ -25,7 +25,7 @@
        Terminal / RDP / VNC / file manager / dashboard / sidebar / tab
        bar / AppRail chrome **COMPLETELY unchanged**.
        * **Aesthetic goal**: pretty view was flat-brutalist to match
-         the rest of Skynet; Ashley wanted a distinct visual identity
+         the rest of Skynet; Alice wanted a distinct visual identity
          — a **"warm dark Glass depth aesthetic with real physical
          dimensionality"** — that reads as a themed island for the
          surface where she coordinates parallel Claude Code sessions.
@@ -38,13 +38,13 @@
          preserved in `.planning/phases/04-pretty-view-visual-reskin-glass-depth-aesthetic/04-CONTEXT.md`
          § design_spec iteration lessons):
          - Round 3: made compose a raised card with bright top rim +
-           drop shadow. Ashley: *"compose shouldn't draw as much
+           drop shadow. Alice: *"compose shouldn't draw as much
            attention as it does because it's never something I want
            to draw attention."* Recovery: compose lost its card
            treatment entirely — **VISUAL-06 HARD LOCK**.
          - Round 4: bright brightness contrast + hard top-edge
            separators between message area / panels / compose.
-           Ashley: *"as much as it does improve the issue of them
+           Alice: *"as much as it does improve the issue of them
            blending together, I like it less so."* Recovery:
            switched to shadow-based separation, same visual language
            as bubbles above (subtle floating cards), not stepped
@@ -187,7 +187,7 @@
          avoid cross-browser `@property` interpolation edge cases;
          inner components' `hsla(var(...))` work fine because they
          resolve at paint time.
-       * **Fleet asks that fed into this reskin**: Ashley's
+       * **Fleet asks that fed into this reskin**: Alice's
          many-parallel-Claude workflow benefits from per-pane color
          identification at a glance (patch #26 tint on terminal
          panes, patch #17 identity badges, patch #30 shared row
@@ -195,7 +195,7 @@
          4 extends the "which agent is this?" grounding into pretty
          view via the full color chain + bigger badge. The compose
          area's quiet-vs-attention hierarchy (Round-3 recovery)
-         reflects Ashley's actual workflow: pretty view is for
+         reflects Alice's actual workflow: pretty view is for
          reading Claude's output; compose is for firing back when
          she's ready. Chrome that shouts for attention when she's
          reading is a friction cost.
@@ -224,7 +224,7 @@
            does NOT drop.
        * **Deploy note**: shipped standalone via mandatory 15-min
          deadman + `sudo docker compose up -d --force-recreate
-         skynet`, pinned after Ashley's UAT green-light on
+         skynet`, pinned after Alice's UAT green-light on
          `.planning/phases/04-pretty-view-visual-reskin-glass-depth-aesthetic/04-UAT-CHECKLIST.md`,
          YYYY-MM-DD. Phase 3 patches (#61-#68) had already deployed
          before Phase 4 landed, so this was not a batch deploy.

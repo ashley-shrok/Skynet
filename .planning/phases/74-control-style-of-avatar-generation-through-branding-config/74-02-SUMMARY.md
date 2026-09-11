@@ -32,7 +32,7 @@ key-files:
 decisions:
   - "Boot gate lives in a SEPARATE module (assert-boot.ts) rather than as a throw path inside branding-config-loader.ts — preserves Phase 70's never-throws loader contract so `/api/branding` HTTP route cannot crash at request time (belt-and-suspenders)"
   - "Presence check trims BEFORE length check — whitespace-only strings are rejected per 74-CONTEXT.md § 'What would make it wrong' §3. If the check trusted raw length, a `\"   \"` config value would silently satisfy the gate"
-  - "Gate does NOT read avatarGammaDefault at all — per Ashley resolution #5 (74-CONTEXT.md), gamma is optional-with-code-default. The loader's shape guard already enforces `typeof number + isFinite`; the request-time consumer trusts whatever finite value it reads. Wrapping gamma in the boot gate would add zero safety and would violate the plan's Rule-4 architectural line"
+  - "Gate does NOT read avatarGammaDefault at all — per Alice resolution #5 (74-CONTEXT.md), gamma is optional-with-code-default. The loader's shape guard already enforces `typeof number + isFinite`; the request-time consumer trusts whatever finite value it reads. Wrapping gamma in the boot gate would add zero safety and would violate the plan's Rule-4 architectural line"
   - "Defensive `typeof config.avatarDirectorSpec === 'string' ? … : ''` in the gate — the loader's shape guard normally rejects a missing field (falls back to bundled defaults, whose spec is intentionally ''), but defense-in-depth means the gate must not crash on unexpected undefined reaching it. It must FIRE — and Test 2 proves it does"
   - "Insertion point in starter.ts is AFTER initializeDatabase()'s success log and BEFORE AuthManager.getInstance() + dbServer route-mount — crash-before-listen is cleaner than crash-after-listen (matches the existing 'startup failed' catch semantics at starter.ts L766-770)"
 metrics:
@@ -45,7 +45,7 @@ metrics:
 
 # Phase 74 Plan 02: Boot-time presence gate on avatarDirectorSpec — Summary
 
-Added the boot-time fail-fast gate that turns Plan 01's intentionally-empty bundled default into a hard boot refusal. `src/backend/branding/assert-boot.ts` exports `assertBrandingConfigAtBoot()` — a single-shot check that reads the branding config once via the Phase 70 never-throws loader, trims `avatarDirectorSpec`, and refuses (structured log + non-zero exit) if the trimmed length is 0. Wired into `starter.ts`'s boot IIFE between the database-init success log and the AuthManager init so no HTTP routes come up if the gate fires. The gate deliberately ignores `avatarGammaDefault` per Ashley resolution #5 — gamma is optional-with-code-default; presence-enforcement is the spec field's job alone.
+Added the boot-time fail-fast gate that turns Plan 01's intentionally-empty bundled default into a hard boot refusal. `src/backend/branding/assert-boot.ts` exports `assertBrandingConfigAtBoot()` — a single-shot check that reads the branding config once via the Phase 70 never-throws loader, trims `avatarDirectorSpec`, and refuses (structured log + non-zero exit) if the trimmed length is 0. Wired into `starter.ts`'s boot IIFE between the database-init success log and the AuthManager init so no HTTP routes come up if the gate fires. The gate deliberately ignores `avatarGammaDefault` per Alice resolution #5 — gamma is optional-with-code-default; presence-enforcement is the spec field's job alone.
 
 ## What Shipped
 
@@ -59,8 +59,8 @@ Added the boot-time fail-fast gate that turns Plan 01's intentionally-empty bund
 | 2 | Missing `avatarDirectorSpec` key → `process.exit(1)` | Defense-in-depth: gate doesn't crash on unexpected `undefined` reaching it |
 | 3 | Empty string → `process.exit(1)` | The load-bearing case — bundled default is `""` per Pitfall 1 lock |
 | 4 | Whitespace-only string → `process.exit(1)` | 74-CONTEXT.md § "What would make it wrong" §3 — trim-before-length |
-| 5 | Structured log fires with `operation: "branding_config_boot_gate"` | Structured error surface — Ashley sees WHY on failed boot |
-| 6 | Does NOT gate on `avatarGammaDefault` | Ashley resolution #5 — includes sane (0.7) and nonsense-but-finite (-999) gamma sub-cases; both pass |
+| 5 | Structured log fires with `operation: "branding_config_boot_gate"` | Structured error surface — Alice sees WHY on failed boot |
+| 6 | Does NOT gate on `avatarGammaDefault` | Alice resolution #5 — includes sane (0.7) and nonsense-but-finite (-999) gamma sub-cases; both pass |
 
 Mocking strategy: `vi.mock("./branding-config-loader.js")` with a mutable `state.loadResult` so each test injects its own config shape. `systemLogger.error` is captured via a `vi.fn()` spy. `process.exit` is spied per test with a throwing `mockImplementation` so awaited calls reject and the test can `await expect(...).rejects.toThrow(...)`. Fresh-import helper `freshGate()` calls `vi.resetModules()` to keep tests independent.
 
@@ -85,7 +85,7 @@ await assertBrandingConfigAtBoot();
 ```
 
 Placement rationale (from 74-RESEARCH.md § "Pattern 2" + § Sources):
-- AFTER `initializeDatabase()` so the DB-backed logger stream is live to carry the fatal log line out to Ashley.
+- AFTER `initializeDatabase()` so the DB-backed logger stream is live to carry the fatal log line out to Alice.
 - BEFORE `AuthManager` init and BEFORE the `dbServer` import at L301 (post-insert) so no HTTP routes come up if the gate fires.
 - Dynamic `await import(...)` matches the neighboring lazy-import style at L262/L272/L292/L294-301.
 - No try/catch wraps the call directly — the surrounding IIFE has its own catch-all at L766 which fires if the loader ever throws (it never does per Phase 70 contract, but defense-in-depth is preserved).
@@ -110,7 +110,7 @@ Placement rationale (from 74-RESEARCH.md § "Pattern 2" + § Sources):
 
 ## Anti-Pattern Locks Held
 
-- `assert-boot.ts` contains ZERO `avatarGammaDefault` references — the gate reads the spec field ONLY. Ashley resolution #5 is enforced by absence, not by comment.
+- `assert-boot.ts` contains ZERO `avatarGammaDefault` references — the gate reads the spec field ONLY. Alice resolution #5 is enforced by absence, not by comment.
 - No fallback constant (`ARCHETYPE_SYSTEM_PROMPT`, `FALLBACK_*`, etc.) exists in the gate — if the operator config is missing, boot refuses. Full stop.
 - Trim BEFORE length-check — whitespace-only strings are rejected per 74-CONTEXT.md § "What would make it wrong" §3. Test 4 covers `"   \n\t  "` explicitly.
 - No `--skip-branding-check` flag, no `SKIP_BRANDING_CHECK` env var. The gate is absolute; providing an escape hatch defeats the point (74-CONTEXT.md Philosophy).

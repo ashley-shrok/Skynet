@@ -124,7 +124,7 @@ No auto-fix deviations needed. The plan's `<action>` sections gave a precise imp
 
 None. The threat surface is REDUCED by this plan:
 - **T-92-03-01 (DoS on old SQLite):** Mitigated — `assertSqliteSupportsDropColumn` preflight runs first, throws loudly on SQLite <3.35 rather than silently continuing with a partially-migrated schema. Same shape as phase-66 mitigation.
-- **T-92-03-02 (data loss on pin history):** Accepted per D-08. Migration order per box: (1) query `pinnedConversationIds` before deploy, (2) `touch ~/.claude/identities/<name>/.pinned` on the host, (3) deploy new code. No code participates. Ashley + Stacy each handle their own box per D-07.
+- **T-92-03-02 (data loss on pin history):** Accepted per D-08. Migration order per box: (1) query `pinnedConversationIds` before deploy, (2) `touch ~/.claude/identities/<name>/.pinned` on the host, (3) deploy new code. No code participates. Alice + Stacy each handle their own box per D-07.
 - **T-92-03-03 (forceSave mislabel breaks ops-grep):** Mitigated — literal label `"phase-92-pin-sentinel-migration"` locked by both this SUMMARY's grep-hygiene and the plan's frontmatter contains-regex.
 - **T-92-03-04 (drop bundles hidden_conversation_ids as scope creep):** Mitigated — Test P92-04 regression trap (inline in P92-01) explicitly asserts `hidden_conversation_ids` survives the drop with its seeded VALUE intact. Any future refactor that over-eagerly bundles both drops fails this test loudly.
 - **T-92-03-05 (migration failure invisible in logs):** Accepted — existing `databaseLogger.error/warn` shape at L907-912 / L1042-1053 preserved verbatim; log tag `schema_migration_force_save_post_drop` grepable by ops.
@@ -143,7 +143,7 @@ None — pure backend schema-migration commit. No new dependencies, no new env v
 
 - **Plan 92-04 (frontend) is unblocked:** With the DB column physically dropped and the drizzle mirror field gone, Plan 92-04 can freely rewire `conversation-store` pin derivation to consume the `identity.pinned` field on the `publicIdentity` response object (Plan 92-02's read path) without any risk of a stale DB-column code path re-surfacing. The two-sources-of-truth window is closed at the schema level.
 - **Confirmation of migration sequencing:** This is the LAST plumbing step. Plan 92-01 shipped the primitive, Plan 92-02 rewired the read/write paths, Plan 92-03 dropped the dead storage. Plan 92-04 is UI-only (frontend consumers of `getPinnedIds` shift from `user-preferences-api` DB read to the new identity-metadata projection).
-- **Manual per-box migration is orchestrator-owned:** Per D-07 / D-08, each box maintainer (Ashley for t1000, Stacy for T800) runs the pre-deploy `touch ~/.claude/identities/<name>/.pinned` sequence before their container recreate. The executor scope ends here; the orchestrator wires the deploy motion around this commit.
+- **Manual per-box migration is orchestrator-owned:** Per D-07 / D-08, each box maintainer (Alice for t1000, Stacy for T800) runs the pre-deploy `touch ~/.claude/identities/<name>/.pinned` sequence before their container recreate. The executor scope ends here; the orchestrator wires the deploy motion around this commit.
 
 ## Self-Check: PASSED
 

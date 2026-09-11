@@ -36,7 +36,7 @@ provides:
   - AppShell onRelayRoomRowClick wiring at the PrettyConversationsPanel invocation site — the last mile that makes a relay-room-row click open the RelayRoomPane end-to-end
 affects:
   [
-    "Phase 90 slice D deliverable — every D-decision (D-01..D-20) is now realized end-to-end; Ashley can UAT the relay pane by clicking a relay-room sidebar row",
+    "Phase 90 slice D deliverable — every D-decision (D-01..D-20) is now realized end-to-end; Alice can UAT the relay pane by clicking a relay-room sidebar row",
   ]
 
 # Tech tracking
@@ -123,7 +123,7 @@ completed: 2026-09-08
 
 - **Zero pretty-view / backend modification.** `git diff --name-only HEAD~6 HEAD -- src/ui/features/pretty-view/ src/backend/` returns empty. D-01/D-03 upheld; D-04 no-modification-outside-scope respected.
 
-- **Every D-decision (D-01..D-20) is now realized end-to-end.** The phase is deliverable for Ashley UAT: a Skynet user with a running relay-room session on the fleet can click the sidebar row → PrettyConversationsPanel handleRowSelect fires new onRelayRoomRowClick(row) → AppShell openTab(null, "terminal", ..., {sessionKind: "relay-room", relayRoomId, relayRoomTitle}) → Tab persists → tabUtils's TerminalOrIdentitySessionPane dispatcher matches sessionKind='relay-room' branch (placed FIRST) → mounts RelayRoomSessionPane wrapper (Task 1) → mounts RelayRoomPane (Plan 06 wired) → presence row at top, message history in middle, compose box at bottom, per-agent context meters + reset on agent badges, sends go through viewing user's own relay identity via Wave 0 seams.
+- **Every D-decision (D-01..D-20) is now realized end-to-end.** The phase is deliverable for Alice UAT: a Skynet user with a running relay-room session on the fleet can click the sidebar row → PrettyConversationsPanel handleRowSelect fires new onRelayRoomRowClick(row) → AppShell openTab(null, "terminal", ..., {sessionKind: "relay-room", relayRoomId, relayRoomTitle}) → Tab persists → tabUtils's TerminalOrIdentitySessionPane dispatcher matches sessionKind='relay-room' branch (placed FIRST) → mounts RelayRoomSessionPane wrapper (Task 1) → mounts RelayRoomPane (Plan 06 wired) → presence row at top, message history in middle, compose box at bottom, per-agent context meters + reset on agent badges, sends go through viewing user's own relay identity via Wave 0 seams.
 
 ## Task Commits
 
@@ -214,7 +214,7 @@ None. Every new surface this plan introduces is enumerated in the plan's `<threa
 
 ## Known Stubs
 
-None. This plan is the last mile: every seam this touches is fully wired end-to-end. Every D-decision (D-01..D-20) from the phase is now realized somewhere in Plans 00-07. The end-to-end user flow works — Ashley can click a `kind: 'relay-room'` sidebar row and land on the RelayRoomPane.
+None. This plan is the last mile: every seam this touches is fully wired end-to-end. Every D-decision (D-01..D-20) from the phase is now realized somewhere in Plans 00-07. The end-to-end user flow works — Alice can click a `kind: 'relay-room'` sidebar row and land on the RelayRoomPane.
 
 Minor open items (not stubs — deferred by design):
 - Persisted relay-room tabs on refresh: currently `hostId: null` is written to the persistent-tabs table for relay-room tabs; whether relay-room tabs should PARTICIPATE in the on-login tab restore is a Plan 89 / follow-up concern (a restored relay-room tab needs the room membership check to still pass on rehydrate). For now, they persist; consumers filtering on `hostId != null OR sessionKind === 'harness'` can exclude them from restore if needed.
@@ -233,7 +233,7 @@ None. Pure frontend code + type additions. No external service configuration. No
 
 ## Next Phase Readiness
 
-- **Phase 90 slice D deliverable for Ashley UAT.** A Skynet user with a running relay-room session on the fleet can click the sidebar row and land on the RelayRoomPane end-to-end:
+- **Phase 90 slice D deliverable for Alice UAT.** A Skynet user with a running relay-room session on the fleet can click the sidebar row and land on the RelayRoomPane end-to-end:
   1. Sidebar row-click → PrettyConversationsPanel.handleRowSelect fires new onRelayRoomRowClick(row) branch (Task 3 panel-side).
   2. onRelayRoomRowClick(row) → AppShell openTab(null, "terminal", ..., {sessionKind: "relay-room", relayRoomId, relayRoomTitle, label}) (Task 3 AppShell wiring).
   3. Tab persists in state with sessionKind + relayRoomId + relayRoomTitle set (Plan 01 Tab type widening).

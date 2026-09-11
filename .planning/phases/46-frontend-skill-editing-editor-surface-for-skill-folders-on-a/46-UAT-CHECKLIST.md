@@ -1,12 +1,12 @@
 # Phase 46 UAT Checklist — Frontend Skill Editing
 
 **Coverage:** D-01 through D-16 (every decision in `46-CONTEXT.md`).
-**Audience:** Ashley, iPhone-primary PWA + desktop browser.
-**Ship-target URLs:** `https://example.com` (primary) and `https://skynet-ec2.ashleycook.com` (secondary).
+**Audience:** Alice, iPhone-primary PWA + desktop browser.
+**Ship-target URLs:** `https://example.com` (primary) and `https://skynet-ec2.example.com` (secondary).
 
 Walk these steps on production Skynet after the box-maintainer's build + deploy has landed and the 15-minute deadman timer has cancelled cleanly. Sign off each step with the Pass/Fail checkbox + a short note. Any `Fail` routes back to a new planning cycle; a fail on the destructive paths (Steps 9, 10) or the path-safety step (Step 13) means an immediate rollback discussion with the maintainer.
 
-**Fast-path Ashley cares about first:** Steps 1 → 6 (menu → host → skill → tab → edit → save). If those pass, the feature is minimally usable even if a later step fails. Steps 7-14 cover branches Ashley won't hit on every session but the maintainer needs verified before considering the phase closed.
+**Fast-path Alice cares about first:** Steps 1 → 6 (menu → host → skill → tab → edit → save). If those pass, the feature is minimally usable even if a later step fails. Steps 7-14 cover branches Alice won't hit on every session but the maintainer needs verified before considering the phase closed.
 
 **Prep once, before starting:**
 
@@ -141,7 +141,7 @@ No Save button, no Trash2 delete-file button visible on this branch. Layout heig
 
 ## Step 9: Delete-file confirm dialog appears, removes file on confirm
 
-**D-10:** the ONE confirmation Ashley explicitly asked for.
+**D-10:** the ONE confirmation Alice explicitly asked for.
 
 **Action:** Pick a text file you don't care about (one of the throwaway ones from Step 5 or Step 8 is ideal). Tap the file's tab so it's active in the editor. Look for the small `Trash2` (trash-can) icon-button to the **left** of the Save button. Tap it.
 
@@ -211,7 +211,7 @@ Verify on the host afterward that `~/.claude/skills/uat-scratch-260819/` is gone
 
 ## Step 13: Path-safety gate rejects crafted attack requests (browser DevTools check)
 
-**D-16 / T-46-02 defense verification.** This is a maintainer-assisted check — Ashley doesn't have to type curl.
+**D-16 / T-46-02 defense verification.** This is a maintainer-assisted check — Alice doesn't have to type curl.
 
 **Action:** Open your browser's DevTools → Network tab. Open the skill editor, pick a host + skill. Open a text file (Step 6) — you should see an XHR/fetch call to `/skills-editor/read` succeeding with a 200 response. In DevTools console, run:
 
@@ -248,7 +248,7 @@ If any of these returns anything other than `400`, STOP the UAT and page the mai
 
 ## Post-walk sign-off
 
-- [ ] Steps 1-14 all `Pass`. Feature usable end-to-end for Ashley's fast-path.
+- [ ] Steps 1-14 all `Pass`. Feature usable end-to-end for Alice's fast-path.
 - [ ] Any `Fail` above: route back to the planner via `/gsd-plan-phase` on a new phase or `/gsd-quick` for a scoped fix.
 - [ ] Deploy considered safe post-UAT. Deadman timer already cancelled by the maintainer once HTTPS 200 verified on `/skills-editor/skills?hostId=<n>` before the timer window ran out.
 - [ ] Throwaway UAT files/skills cleaned up on the host (`~/.claude/skills/uat-scratch-*` — delete any that survived Steps 8/9/10).

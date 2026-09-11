@@ -368,7 +368,7 @@ router.post("/speak-stream", authenticateJWT, express.json({ limit: "64kb" }), (
 router.get("/voices", authenticateJWT, (req, res) => { void handleListVoices(req, res); });
 ```
 
-**Disk-bank pattern (PRESERVE VERBATIM)** — lines 76-90 must stay in place, BEFORE any transcode. This writes raw multipart bytes; if transcode is inserted after this, Ashley's `.webm` files stay `.webm` on disk (see RESEARCH § Pitfall 6):
+**Disk-bank pattern (PRESERVE VERBATIM)** — lines 76-90 must stay in place, BEFORE any transcode. This writes raw multipart bytes; if transcode is inserted after this, Alice's `.webm` files stay `.webm` on disk (see RESEARCH § Pitfall 6):
 ```typescript
 // PRESERVE — must run BEFORE any ffmpeg transcode
 const dir = process.env.STT_RECORDINGS_DIR ?? "/app/stt-recordings";
@@ -635,7 +635,7 @@ Both are rewritten in this phase — safe to delete the file.
 
 **Pitfall specific to this deletion:**
 - The `media-endpoints.test.ts` sibling file (`src/backend/config/media-endpoints.test.ts`) must be deleted alongside.
-- The Phase 79 rationale docstring (lines 1-17) referenced Ashley's verbatim quote about shared source of truth — that's superseded by Phase 98's clean-cutover decision, no doc update needed elsewhere.
+- The Phase 79 rationale docstring (lines 1-17) referenced Alice's verbatim quote about shared source of truth — that's superseded by Phase 98's clean-cutover decision, no doc update needed elsewhere.
 
 ---
 
@@ -744,7 +744,7 @@ Feature dark: [describe AccessDenied → 503 UX].
 
 Hardcoded to us-east-1. To change: edit ...
 
-## For t1000 (Ashley's instance)
+## For t1000 (Alice's instance)
 
 Policy is already attached (Iris 2026-09-09, `termix-ssm-role/PollyTranscribeExploratory`).
 Pre-ship: ping Iris to re-scope name from `-Exploratory` to production.
@@ -755,7 +755,7 @@ Follow the steps above unmodified. If uncertainty, [contact path].
 ```
 
 **Pitfall specific to this file:**
-- Doc must be self-contained — CONTEXT explicitly says Ashley/Stacy can each execute without pinging tabitha.
+- Doc must be self-contained — CONTEXT explicitly says Alice/Stacy can each execute without pinging tabitha.
 - Ship-checklist item (from CONTEXT § Specifics): pre-ship, ping Iris to re-scope policy name from `-Exploratory` to production. This coordination lives in the doc AND in the ship checklist.
 
 ---
@@ -834,7 +834,7 @@ router.post("/transcribe", authenticateJWT, upload.single("file"), handler);
 **Source:** `src/backend/utils/logger.ts` — `databaseLogger.info/warn/error(msg, { operation: "..." })`.
 **Apply to:** Every adapter, every handler, the migration script.
 - Every log line has `operation:` metadata for grep + observability.
-- `[voice-server]` prefix in message strings for `voice.ts` handlers (preserve — Ashley's log-tail habit).
+- `[voice-server]` prefix in message strings for `voice.ts` handlers (preserve — Alice's log-tail habit).
 - `.info` for expected states (including AccessDenied — feature dark is not an error), `.warn` for degraded states (bank-write fail), `.error` for unexpected exceptions.
 - NEVER log message text content — only lengths and voice IDs (RESEARCH § Security § Log Injection).
 

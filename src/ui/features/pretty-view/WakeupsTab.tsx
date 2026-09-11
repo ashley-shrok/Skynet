@@ -39,7 +39,7 @@ import {
 // Quick 260731-2pa: form-based editor replaces the raw JSON textarea. The
 // schema is stable enough now (interval/daily/weekly/one_shot + optional tz)
 // that the patch #154 "raw textarea because schema evolves" hedge is no
-// longer justified. The Ashley-signed-off prototype lives at
+// longer justified. The user-signed-off prototype lives at
 // ~/.claude/identities/tina/bounties/identity-modal-wakeup-form-editor/prototype.html.
 //   - Form fields (edit-mode): name (text), schedule.type dropdown +
 //     per-type fields, instruction (textarea), enabled (checkbox — secondary

@@ -132,7 +132,7 @@ legitimate geometry-driven assertions, not stub-era carryover.)
 
 **Row grabbed by cursor → row moved to right-half of an already-split PrettyView:**
 
-1. Ashley presses mouse on a `PrettyConversationRow` body. Browser threshold-triggers
+1. Alice presses mouse on a `PrettyConversationRow` body. Browser threshold-triggers
    `dragstart` at ~5px cursor motion. `onRowDragStart(e)` fires:
    - `e.dataTransfer.setData("text/plain", row.id)` writes the tab id.
    - `e.dataTransfer.effectAllowed = "move"` sets the drag cursor to the move variant.
@@ -193,7 +193,7 @@ Plan Task 2 Tests 6-7 need to fire drop events at specific `clientX/Y` coordinat
 ## Threat model outcomes
 
 - **T-56-09 (Tampering — adversarial dataTransfer):** unchanged from Plan 56-02. The wire contract is `dataTransfer.setData("text/plain", row.id)` on drag source; `dataTransfer.getData("text/plain")` on drop target. Cross-origin drag payloads are blocked by same-origin policy in Chrome/Firefox. Same-origin adversarial payload can only rearrange existing tabs, no authz escalation.
-- **T-56-10 (DoS — gesture conflict):** accept, mitigated by design. Verified via non-regression: all 90 pre-existing `PrettyConversationRow.test.tsx` tests pass with `draggable={true}` and `onDragStart` added. The four native gestures coexist because HTML5 drag operates at a browser-owned threshold layer that preempts pointermove BEFORE React's synthetic mousemove reaches the mouse-swipe handler. Ashley's live UAT is the final gate for any brief-unresponsive frame edge case.
+- **T-56-10 (DoS — gesture conflict):** accept, mitigated by design. Verified via non-regression: all 90 pre-existing `PrettyConversationRow.test.tsx` tests pass with `draggable={true}` and `onDragStart` added. The four native gestures coexist because HTML5 drag operates at a browser-owned threshold layer that preempts pointermove BEFORE React's synthetic mousemove reaches the mouse-swipe handler. Alice's live UAT is the final gate for any brief-unresponsive frame edge case.
 - **T-56-11 (Repudiation — nearest-edge tie-break floats):** accept. Test 5 asserts dead-center → `'left'` per documented left→top→right→bottom priority. computeNearestEdge uses strict `<` throughout, giving deterministic first-match-wins for equidistant candidates.
 
 ## No new threat flags

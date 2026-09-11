@@ -192,7 +192,7 @@ This plan's `<task type="auto" tdd="true">` declarations are two-task per-file �
 
 **61-03 unblocked** — the backend now populates both `lastStopAt` and `lastStatusChangeAt` on every SessionState frame source A publishes. The wire schema (Wave 1) accepts both as `z.number().nullable().optional()`. The frontend `SessionState` interface mirror (Wave 1) exposes both as `?: number | null`. Wave 3 (61-03) can now consume the two axes at the `main = busy || (shell && stopIsFresh)` predicate location in `src/ui/state/session-working-store.ts` line 207 without any backend-side blocking dependency.
 
-**Rollout is still lazy per Phase 61 CONTEXT** — existing stale-shell sessions (Poppy, aqua, wilma) stay lit until their next real turn-end. Their next real turn-end fires the Wave 1 stop hook (which writes the per-session file for the first time), the backend's next 2s poll tick picks up the new file's mtime via this wave's stat, and lastStopAt is stamped for the first time. Combined with the Wave 3 frontend predicate, that flips the indicator off. Ashley's UAT (Poppy/aqua/wilma → next turn-end → indicator flips) becomes actionable once Wave 3 lands.
+**Rollout is still lazy per Phase 61 CONTEXT** — existing stale-shell sessions (Poppy, aqua, wilma) stay lit until their next real turn-end. Their next real turn-end fires the Wave 1 stop hook (which writes the per-session file for the first time), the backend's next 2s poll tick picks up the new file's mtime via this wave's stat, and lastStopAt is stamped for the first time. Combined with the Wave 3 frontend predicate, that flips the indicator off. Alice's UAT (Poppy/aqua/wilma → next turn-end → indicator flips) becomes actionable once Wave 3 lands.
 
 ## Self-Check: PASSED
 

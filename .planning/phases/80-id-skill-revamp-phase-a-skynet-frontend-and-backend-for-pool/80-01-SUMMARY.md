@@ -61,7 +61,7 @@ completed: 2026-09-06
 
 ## Accomplishments
 
-- **D-01 storage substrate landed.** `docker/pool-defaults/pool.json` ships with 7 PascalCase placeholder names (Willow, Cinder, Aster, Vega, Onyx, Sable, Fig); Ashley's vetted list will overwrite this file in parallel and ship at ship time — no code change required to swap contents.
+- **D-01 storage substrate landed.** `docker/pool-defaults/pool.json` ships with 7 PascalCase placeholder names (Willow, Cinder, Aster, Vega, Onyx, Sable, Fig); Alice's vetted list will overwrite this file in parallel and ship at ship time — no code change required to swap contents.
 - **Dockerfile COPY line added** immediately after the branding-defaults COPY (L78 → L79), same `--chown=node:node` flag, zero other Dockerfile changes.
 - **`getVettedPool()` loader** exports a memoized `string[]` fetch: sync `readFileSync` on first call, module-scope cache on subsequent calls, safe `[]` return on every failure branch (ENOENT / malformed JSON / shape-invalid top-level / non-array names / non-string entries / empty-string entries / non-ENOENT fs errors). Never re-throws.
 - **11 vitest cases pass** using the `vi.mock("node:fs")` + `vi.resetModules()` pattern from `branding-config-loader.test.ts`. Cases include: happy path, ENOENT-silent (no log), memoization across happy-path AND ENOENT (asserts `readFileSync` invoked exactly once when file payload flips between calls), and T-80-01-04 log-payload-does-not-contain-raw-body assertion.
@@ -106,7 +106,7 @@ None — no external service configuration required. The Docker image will bundl
 
 - **Plan 80-02 ready:** `getVettedPool()` is the substrate the pool-pick endpoint (planned as 80-04 per PLAN.md dependency graph) will consume. The API is stable: `getVettedPool(): string[]` — never `null`, never throws, memoized.
 - **Legacy-deploy safety confirmed:** for any Skynet container that ships without the Dockerfile COPY change, `getVettedPool()` returns `[]` silently. The pool-pick endpoint (80-04) will need to 503 on empty pool per PATTERNS.md § pool-routes step 5.
-- **Ship-time coordination note (for orchestrator):** Ashley's vetted ~1800→~subset name list can drop into `docker/pool-defaults/pool.json` at any time — pure content edit, no code touch required. The loader's shape guard accepts any non-empty array of non-empty PascalCase strings.
+- **Ship-time coordination note (for orchestrator):** Alice's vetted ~1800→~subset name list can drop into `docker/pool-defaults/pool.json` at any time — pure content edit, no code touch required. The loader's shape guard accepts any non-empty array of non-empty PascalCase strings.
 
 ## Self-Check: PASSED
 

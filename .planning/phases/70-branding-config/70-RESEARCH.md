@@ -278,7 +278,7 @@ location ~ ^/branding(/.*)?$ { proxy_pass http://127.0.0.1:30001; ...proxy heade
 ### Pitfall 8: `common.appName` i18n key is `"Skynet"` in en.json (L83)
 **What goes wrong:** CONTEXT.md `<specifics>` says "The `common.appName` i18n key ... does not need to be touched; the tab title is handled by the AppShell branding context and the logo surfaces are handled by iconPath/wordmarkPath." Grep confirms `t("common.appName")` is used at LoginPage.tsx L1137 for a giant marquee — BUT `LoginPage.tsx` is DEAD CODE. Confirmed via `grep -rn 'from.*LoginPage'` returning zero import sites; `main.tsx` L11 imports from `@/auth/Auth` (Auth.tsx), not LoginPage.tsx. So CONTEXT.md's specific claim holds — the i18n key IS untouched by any live UI. BUT: `en.json` L914 also has `"loginTitle": "Login to SKYNET"` and Auth.tsx L1314 uses `t("auth.loginTitle")` in a live surface (the "Login to SKYNET" `<h2>` above the login form).
 **Why it matters:** This is a fifth user-facing "SKYNET" string not enumerated in CONTEXT.md D-08's four surfaces. The plan must decide: (a) leave it as-is (operator lives with "Login to SKYNET" on AI+ deploys), (b) fold into the branding surfaces (wire `t("auth.loginTitle")` through the branding config or replace with a hardcoded `t("common.login")` for stack-neutral phrasing), or (c) treat as deferred like the apple-touch-icons.
-**Recommendation:** Recommend (b) as a small addition to the phase scope — the fix is one line in Auth.tsx (`t("auth.loginTitle")` → `t("common.login")` or similar) plus a locale-key deletion. But this is a scope-expansion decision for Ashley, not for research to lock. Flag it, don't decide it.
+**Recommendation:** Recommend (b) as a small addition to the phase scope — the fix is one line in Auth.tsx (`t("auth.loginTitle")` → `t("common.login")` or similar) plus a locale-key deletion. But this is a scope-expansion decision for Alice, not for research to lock. Flag it, don't decide it.
 
 ### Pitfall 9: Vite dev-server serves from `public/` differently than production
 **What goes wrong:** In dev (`npm run dev`), Vite serves `public/manifest.webmanifest` directly and `public/skynet-wordmark.png` from the URL root. In production, these come out of `/app/html/` via nginx. If the plan makes changes that only work in one mode, testing gets confused.
@@ -399,12 +399,12 @@ Not applicable — this is standard Express + React work using patterns that hav
 
 1. **Should `t("auth.loginTitle")` = "Login to SKYNET" (Auth.tsx L1314) be part of Phase 70 scope?**
    - What we know: It's a live user-facing string surfacing "SKYNET" on the login screen — a fifth surface not in CONTEXT.md D-08's four.
-   - What's unclear: Whether Ashley considers this in-scope or deferred.
-   - Recommendation: Flag to Ashley in planning phase; if in-scope, add a single-line change: replace with a stack-neutral phrase (e.g., `t("common.login")` = "Login") OR wire through branding config (`Login to ${brandingConfig.appName.toUpperCase()}`).
+   - What's unclear: Whether Alice considers this in-scope or deferred.
+   - Recommendation: Flag to Alice in planning phase; if in-scope, add a single-line change: replace with a stack-neutral phrase (e.g., `t("common.login")` = "Login") OR wire through branding config (`Login to ${brandingConfig.appName.toUpperCase()}`).
 
 2. **Should the bundled-default `iconPath` unify the conversation-header and login-screen icons?**
    - What we know: Currently different assets (`SkynetLogo` SVG vs `/icon.png`).
-   - What's unclear: Which one is the "canonical" Skynet icon per Ashley — or whether the two are BOTH intentional (icon.png is a photo/detailed version; SVG is a stylized simplified version).
+   - What's unclear: Which one is the "canonical" Skynet icon per Alice — or whether the two are BOTH intentional (icon.png is a photo/detailed version; SVG is a stylized simplified version).
    - Recommendation: Keep the current visual as-is by picking `/icon.png` as the bundled default (the design-mock-authoritative version, per the wordmark file that lives next to it). Rewire `PrettyConversationsPanel` header to use the same `iconPath` for consistency with D-08's "same icon+wordmark as the conversation header" claim.
 
 3. **What are the exact bundled-default asset filenames + directory structure inside the image?** (Marked as Claude's Discretion in CONTEXT.md)

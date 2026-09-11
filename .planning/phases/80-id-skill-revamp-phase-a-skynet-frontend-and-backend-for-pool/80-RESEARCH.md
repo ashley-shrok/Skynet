@@ -10,7 +10,7 @@ Phase 80 rides on top of a very well-established substrate: Phase 66 established
 
 Everything Phase 80 needs is **an additive extension of these existing patterns**, not a rewrite. Task field = one more scalar handled by `extractCosmeticsFromFrontmatter` + `buildIdentityFileBody` (both emit and read). Pool storage = the branding-config-loader pattern (JSON at `docker/pool-defaults/pool.json`, COPYed to `/app/pool-defaults/`, memoized on first read). Ordinal derivation = one new primitive in `matrix-admin-client.ts` calling `GET /_synapse/admin/v2/users?user_id=<pattern>&deactivated=true` and reading `total`. Task pill = one new absolute-positioned span in PrettyView's root, using the same `hsla(hue, …)` inline-style pattern IdentityBadge uses. Conversation-row task-primary = swap `identity.displayName` for `identity.task ?? identity.displayName` in one JSX span, and swap the aiTitle subtitle for a role-prominent-name-parens fragment when task is truthy.
 
-The "role select bug" is NOT a missing dropdown — the dropdown is fully wired at `NewSessionDialog.tsx:961-1010`. Read carefully: the dropdown is gated on `selectedHost !== null && identityMode`. If the user opens the modal WITHOUT picking a host first, no role selector appears — this is likely what Ashley experienced. Confirm during planning whether the bug is "missing role dropdown" (this) or something else, but the existing role dropdown machinery is intact.
+The "role select bug" is NOT a missing dropdown — the dropdown is fully wired at `NewSessionDialog.tsx:961-1010`. Read carefully: the dropdown is gated on `selectedHost !== null && identityMode`. If the user opens the modal WITHOUT picking a host first, no role selector appears — this is likely what Alice experienced. Confirm during planning whether the bug is "missing role dropdown" (this) or something else, but the existing role dropdown machinery is intact.
 
 **Primary recommendation:** Add `task` field to `extractCosmeticsFromFrontmatter` + `publicIdentity` + `buildIdentityFileBody` (all three surfaces). Add new primitive `countUsersMatching(prefix)` to `matrix-admin-client.ts`. Add pool loader at `src/backend/pool/pool-loader.ts` following branding-config pattern. Add `POST /identities/pool/pick` (returns one pool name unused-on-this-server for the requested role). Extend birth-orchestrator to accept optional `task` in `BirthOptions` and thread it into `buildIdentityFileBody`. Rebuild `NewSessionDialog` to add task-description input + pool-prefill (name field stays editable, pool is suggestion source). Rename `CloneAgentDialog` to `SpawnUnderRoleDialog` (or repurpose CloneAgentDialog to open the same unified modal pre-set to source role). Add task pill to PrettyView (absolute centered top). Swap two JSX spans in PrettyConversationRow (top-line + subtitle-line) gated on `identity.task`.
 
@@ -46,7 +46,7 @@ The "role select bug" is NOT a missing dropdown — the dropdown is fully wired 
 |------|---------|---------|
 | `src/backend/pool/pool-loader.ts` | Module-scope loader for vetted pool JSON. Reads `/app/pool-defaults/pool.json` (COPYed by Dockerfile) once, memoizes. Never throws (returns `[]` on missing / malformed) — same never-throws contract as `branding-config-loader.ts` | Byte-shape mirror of `src/backend/branding/branding-config-loader.ts` |
 | `src/backend/pool/pool-routes.ts` | New Express router. `POST /identities/pool/pick` accepts `{ role: string, hostId: number }`, picks an unused pool name (queries `countUsersMatching(<PoolName>-<Role>)` for each candidate until a bare match returns `total: 0`, OR picks the base and lets the birth-orchestrator's ordinal-derivation step append a suffix — see "Recommended approach per work stream" below for which shape to pick during planning). Returns `{ name: string }` | Mirror `src/backend/database/routes/roles-list-for-host.ts` for JWT auth + shape |
-| `docker/pool-defaults/pool.json` | Vetted-pool JSON seed. Shape: `{ "names": ["Willow", "Cinder", "Aster", "Vega", "Onyx", "Sable", "Fig", …] }`. Ashley finalizes contents in parallel; Phase 80 ships with whatever is landed. | Mirror `docker/branding-defaults/branding.json` |
+| `docker/pool-defaults/pool.json` | Vetted-pool JSON seed. Shape: `{ "names": ["Willow", "Cinder", "Aster", "Vega", "Onyx", "Sable", "Fig", …] }`. Alice finalizes contents in parallel; Phase 80 ships with whatever is landed. | Mirror `docker/branding-defaults/branding.json` |
 | `docker/Dockerfile:78` | Add `COPY --chown=node:node docker/pool-defaults /app/pool-defaults` next to the branding-defaults COPY | Mirror branding pattern |
 
 ### Frontend (existing files to rebuild / extend)
@@ -286,12 +286,12 @@ export interface Identity {
 
 **Where:** `NewSessionDialog.tsx:961` — `{selectedHost !== null && (` wraps the entire role dropdown.
 
-**Impact:** If the unified modal defaults to `identityMode=true` but no host is picked, no role selector appears. This is likely what Ashley experienced as "role selection isn't offered." The fix isn't "add a role dropdown" (it's already there) — it's to make sure:
+**Impact:** If the unified modal defaults to `identityMode=true` but no host is picked, no role selector appears. This is likely what Alice experienced as "role selection isn't offered." The fix isn't "add a role dropdown" (it's already there) — it's to make sure:
 - The unified modal auto-picks the sole host if only one exists (existing line 408-409 already does this when `flatHosts.length === 1`).
 - The role dropdown renders visibly (or a hint like "pick a host first") even when host is null.
 - Or (planner's call) the modal auto-selects the local Skynet host as default when identityMode is on.
 
-**During planning:** confirm with Ashley which of these is the actual bug she experienced. The dropdown-not-visible-until-host-picked is definitely one axis; there may be additional axes (e.g., the state resets when identityMode toggles, or the role field submits empty and backend rejects).
+**During planning:** confirm with Alice which of these is the actual bug she experienced. The dropdown-not-visible-until-host-picked is definitely one axis; there may be additional axes (e.g., the state resets when identityMode toggles, or the role field submits empty and backend rejects).
 
 ### Landmine 3: `identity` collision — cross-user access
 
@@ -315,7 +315,7 @@ export interface Identity {
 
 ### Landmine 6: In-memory pool memoization + hot-reload
 
-**Where:** Pool loader memoizes at first read (mirrors `branding-config-loader.ts:118`). If Ashley updates `/app/pool-defaults/pool.json` and reloads the container, the new pool takes effect. But if she hot-edits without restart, the memoized value stays stale.
+**Where:** Pool loader memoizes at first read (mirrors `branding-config-loader.ts:118`). If Alice updates `/app/pool-defaults/pool.json` and reloads the container, the new pool takes effect. But if she hot-edits without restart, the memoized value stays stale.
 
 **Impact:** Ship-time gate. Confirm during deploy motion that operator knows: to change the pool, redeploy. If a runtime reload endpoint is desired, that's out of scope for Phase 80 (D-01 locks "loaded on boot").
 
@@ -353,9 +353,9 @@ This is a POTENTIAL SCOPE CREEP or PATTERN CHANGE. Two options:
 - **(a)** Keep identity key === MXID localpart (i.e., folder is `willow-skynet-maintainer` lowercase). Ugly folder name, but no orchestrator changes needed.
 - **(b)** Diverge them. Add `mxidLocalpart` field to BirthOptions; orchestrator uses it for MXID and `opts.name` for folder.
 
-**During planning:** DECIDE THIS. Ashley may have opinions; this is a load-bearing choice. Shape file §Naming implies (b) is intended ("The relay account for each identity combines that pool name with the role name" — implying the identity is Willow and the relay account is Willow-Skynet-Maintainer, two distinct handles). Also shape §Relay-account handle format: `<PoolName>-<Role>` PascalCase-hyphenated. Identity folder shape from Phase 66+68 is lowercase-only (`IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/`).
+**During planning:** DECIDE THIS. Alice may have opinions; this is a load-bearing choice. Shape file §Naming implies (b) is intended ("The relay account for each identity combines that pool name with the role name" — implying the identity is Willow and the relay account is Willow-Skynet-Maintainer, two distinct handles). Also shape §Relay-account handle format: `<PoolName>-<Role>` PascalCase-hyphenated. Identity folder shape from Phase 66+68 is lowercase-only (`IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/`).
 
-**Marked [ASSUMED]:** Option (b) is the shape file's intent. Planner should confirm with Ashley or lock during discuss-phase.
+**Marked [ASSUMED]:** Option (b) is the shape file's intent. Planner should confirm with Alice or lock during discuss-phase.
 
 ### Landmine 10: Existing new-agent modal has many state fields — rebuild risks regression
 
@@ -379,7 +379,7 @@ This is a POTENTIAL SCOPE CREEP or PATTERN CHANGE. Two options:
 
 ### Stream 1: Backend — Pool storage + loader (LOW risk, small blast radius)
 
-1. Create `docker/pool-defaults/pool.json` with initial contents (e.g., 5-10 placeholder names Ashley provides in parallel).
+1. Create `docker/pool-defaults/pool.json` with initial contents (e.g., 5-10 placeholder names Alice provides in parallel).
 2. Add `COPY --chown=node:node docker/pool-defaults /app/pool-defaults` to `docker/Dockerfile:78`.
 3. Create `src/backend/pool/pool-loader.ts` mirroring `branding-config-loader.ts` — module-scope memoization, ENOENT → empty array (never throws), same never-throws contract.
 4. Test: `src/backend/pool/pool-loader.test.ts` — happy path + ENOENT + malformed JSON + non-array + non-string entries.
@@ -548,26 +548,26 @@ Nothing needs `slopcheck` verification because nothing is being installed.
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| A1 | Identity key (folder name) diverges from MXID localpart post-Phase-80 (folder = lowercase `willow`, MXID = `Willow-Skynet-Maintainer`) | Landmines §9 | If Ashley wants identity key === MXID localpart (option (a)), the birth-orchestrator wiring changes significantly. Also affects sessionMatchKey resolution. Confirm during discuss-phase or with Ashley. |
+| A1 | Identity key (folder name) diverges from MXID localpart post-Phase-80 (folder = lowercase `willow`, MXID = `Willow-Skynet-Maintainer`) | Landmines §9 | If Alice wants identity key === MXID localpart (option (a)), the birth-orchestrator wiring changes significantly. Also affects sessionMatchKey resolution. Confirm during discuss-phase or with Alice. |
 | A2 | Backend pool-pick returns just the bare pool NAME (e.g. `willow`); birth-orchestrator handles ordinal-derivation at creation time based on `<final-name>-<role>` | Landmines §8, Stream 3 | If Shape B (backend returns full handle) is desired, endpoint contract changes and user-edit-then-collide handling shifts to the birth-orchestrator retry path. Recommend Shape A but planner should lock in discuss-phase. |
 | A3 | Clone should NOT inherit task (task is the WHY of THIS new spawn) | Stream 4 (identity-clone.ts) | If clone inherits task, the "clone as spawn-under-role with fresh task" reframing loses coherence. Aligns with shape §Frontend creation flow which says clone becomes a thin entry-point into unified modal — user re-inputs task each time. |
-| A4 | "Role select bug" = role dropdown gated on host being picked (line 961). Fix = auto-pick sole host / add "pick host first" hint | Landmines §2 | If the actual bug is different (e.g., state resets on identityMode toggle, form submits with empty role), the fix is different. Confirm with Ashley or reproduce during executor implementation. |
+| A4 | "Role select bug" = role dropdown gated on host being picked (line 961). Fix = auto-pick sole host / add "pick host first" hint | Landmines §2 | If the actual bug is different (e.g., state resets on identityMode toggle, form submits with empty role), the fix is different. Confirm with Alice or reproduce during executor implementation. |
 | A5 | Task pill should use z-[100] (below IdentityBadge's z-[101]) | Stream 7 | If task pill needs to be above IdentityBadge for drag priority, swap z-indexes. Low impact. |
 | A6 | Reusing existing `.pv-label` + `.pv-ai-title` CSS classes verbatim covers D-03 requirement | Stream 8 | If pixel-tuning is needed for the role-prominent style, executor adds a small sibling class. D-03 explicitly says "any pixel-level tuning surfaces as executor decision, not planning question." |
 | A7 | Character soft-cap on task input = "~15-20 words" from shape file translates to roughly 100-140 chars — executor pins exact number when badge pill renders at real widths | Stream 5 | Shape file explicitly defers this to Phase A implementation (Claude's Discretion). Not a blocker. |
-| A8 | Pool loader ships with whatever Ashley's vetted list is at ship time (shape file: "Phase 80 ships with whatever vetted list is landed at ship time") | Stream 1 | Ashley has parallel-vetting responsibility. Coordination gate is at ship, not at plan. |
+| A8 | Pool loader ships with whatever Alice's vetted list is at ship time (shape file: "Phase 80 ships with whatever vetted list is landed at ship time") | Stream 1 | Alice has parallel-vetting responsibility. Coordination gate is at ship, not at plan. |
 
 ## Open Questions (RESOLVED)
 
 *All items below were resolved during the plan-checker revision cycle 2026-09-06. Each `**Resolution:**` line captures the locked answer that downstream plans implement.*
 
 1. **A1 (identity key vs MXID localpart divergence)** — must be answered before executor work on backend Stream 4. See Landmines §9. Recommendation: option (b), diverge.
-   **Resolution:** DIVERGE per orchestrator lock (2026-09-06, shape file greenlit by Ashley). Identity key = lowercase folder (e.g. `willow`, matches `IDENTITY_KEY_RE`). MXID localpart = PascalCase-hyphenated `<PoolName>-<Role>` (e.g. `Willow-Skynet-Maintainer`) with silent auto-suffix `-2`, `-3`, ... on collision. Implemented by plan 80-03b (composeMxidLocalpart + deriveMxidWithOrdinal inside Step 6 of the birth orchestrator). Legacy manually-created identities (Taylor, Tina, Tabitha, etc.) are NOT retroactively renamed — the new derivation gates on `opts.poolPicked === true`, which the frontend sets only when the name came from `pickPoolName` prefill and the user did not edit it.
+   **Resolution:** DIVERGE per orchestrator lock (2026-09-06, shape file greenlit by Alice). Identity key = lowercase folder (e.g. `willow`, matches `IDENTITY_KEY_RE`). MXID localpart = PascalCase-hyphenated `<PoolName>-<Role>` (e.g. `Willow-Skynet-Maintainer`) with silent auto-suffix `-2`, `-3`, ... on collision. Implemented by plan 80-03b (composeMxidLocalpart + deriveMxidWithOrdinal inside Step 6 of the birth orchestrator). Legacy manually-created identities (Taylor, Tina, Tabitha, etc.) are NOT retroactively renamed — the new derivation gates on `opts.poolPicked === true`, which the frontend sets only when the name came from `pickPoolName` prefill and the user did not edit it.
 
 2. **A2 (pool-pick endpoint response shape)** — must be answered before executor work on backend Stream 3. Recommendation: Shape A.
    **Resolution:** Shape A. Backend `POST /identities/pool/pick` returns bare lowercase pool name (e.g. `{ name: "willow" }`); birth-orchestrator handles handle composition + ordinal at creation time (plan 80-03b). The picker's "is this taken" check MUST use the FULL base-handle MXID (`@<PascalCandidate>-<PascalHyphenatedRole>:<server>`) because real Matrix accounts are minted with the PascalCase-hyphenated shape per A1 — a bare-lowercase check would return false-negatives and hand back names already taken in their real form. Plan 80-04 Task 1 encodes this correction with a grep gate against the bare-lowercase pattern and a regression test asserting the full-handle pattern in `countUsersMatching` call args.
 
-3. **A4 (actual "role select bug" repro steps)** — request Ashley reproduce or provide expected behavior. Recommendation: default identity-mode ON + auto-pick sole host + "pick host first" hint.
+3. **A4 (actual "role select bug" repro steps)** — request Alice reproduce or provide expected behavior. Recommendation: default identity-mode ON + auto-pick sole host + "pick host first" hint.
    **Resolution:** Fix during Phase 80 as part of the unified-modal rebuild (plan 80-06 Task 3). Executor picks Approach A (visible "Pick a host to see available roles" hint outside the role-cluster wrap when `identityMode && selectedHost === null`) OR Approach B (widen the existing `flatHosts.length === 1` auto-pick to also default to the local Skynet host when identifiable). Actual repro of the original bug is deferred to executor time — the plan's fix works for both the confirmed axis (role dropdown gated on host) and the plausible alternative axes (state reset on identityMode toggle, empty-role submit rejection).
 
 4. **Clone label wording** — "Spawn under this role" vs "New agent for this role" vs something else. Executor decision if not locked.
@@ -656,8 +656,8 @@ Task field itself is not security-sensitive (it's user-facing display text). But
 - Frontend patterns (modal, badge, row): HIGH — all traced to specific lines
 - Pool loader / seed JSON: HIGH — direct mirror of branding-config pattern
 - Ordinal-derivation Synapse endpoint: HIGH — verified via WebFetch against Synapse docs 2026-09-06
-- "Role select bug" root cause: MEDIUM — inferred from code inspection; not confirmed with Ashley
-- Identity key vs MXID localpart divergence: MEDIUM — inferred from shape file's phrasing; needs Ashley confirmation
+- "Role select bug" root cause: MEDIUM — inferred from code inspection; not confirmed with Alice
+- Identity key vs MXID localpart divergence: MEDIUM — inferred from shape file's phrasing; needs Alice confirmation
 
 **Research date:** 2026-09-06
 **Valid until:** 2026-10-06 (30 days — stable substrate, Phase 77 shipped same day so no substrate churn expected)

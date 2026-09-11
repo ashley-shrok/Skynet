@@ -46,7 +46,7 @@ must_haves:
 <objective>
 Fix four related composebox bugs in a single coherent revision to `ComposeBox.tsx`. The through-line: recording state is a single hook instance shared across the primary textarea + every queued-message textarea, and its `voice.state` + `micTarget` were being consulted with wrong visibility predicates. When recording starts in one textarea, sibling mic buttons vanish (should stay visible, may disable) and sibling send-when-idle buttons vanish (should stay fully functional). The transcribing-send spinner always renders on the primary regardless of which textarea recorded. Text underlaps the mic/arm-idle icons when three buttons show because right padding was sized for one button. Two vertical-spacing measurements are off.
 
-Purpose: Ashley reported all four in one Vehicle Composebox session because they share the composebox surface. Root causes: (a) predicates use `voice.state === "idle"` where they should use `micTarget !== <this textarea>` (or ignore voice.state entirely for arm-idle), (b) transcribing spinner render isn't target-aware, (c) `pr-10` doesn't account for the 3-button layout, (d) `gap-1` on the outer container is undersized between the queued-slot wrapper and the primary, and Row 1 needs an explicit +3px.
+Purpose: Alice reported all four in one Vehicle Composebox session because they share the composebox surface. Root causes: (a) predicates use `voice.state === "idle"` where they should use `micTarget !== <this textarea>` (or ignore voice.state entirely for arm-idle), (b) transcribing spinner render isn't target-aware, (c) `pr-10` doesn't account for the 3-button layout, (d) `gap-1` on the outer container is undersized between the queued-slot wrapper and the primary, and Row 1 needs an explicit +3px.
 
 Output: One modified file (`ComposeBox.tsx`), 3 atomic commits (task-per-commit).
 </objective>
@@ -95,7 +95,7 @@ Concrete changes:
    - `const isPrimaryTranscribing = voice.state === "transcribing" && micTarget === "primary";`
    Then rewrite the predicates:
    - `showMicButton`: replace the `voice.state === "idle"` gate with `!isPrimaryRecording && !isPrimaryTranscribing` (mic visible on primary whenever primary itself isn't the active recorder/transcriber; a slot recording elsewhere leaves this visible). Keep the `navigator.mediaDevices != null`, `!asideActive`, `!primaryArmed` gates. Additionally pass a `disabled` prop: mic is disabled while ANY other textarea is recording OR transcribing — i.e. `disabled={voice.state !== "idle"}` (only one recording at a time is fine; disable prevents starting a second).
-   - `showPrimaryArmButton`: REMOVE the `voice.state === "idle"` gate entirely. Arm-idle is orthogonal to recording elsewhere (Ashley: "send-when-idle while recording elsewhere is a valid workflow"). Keep the other gates (`!asideActive`, `!primaryArmed`, `text.trim() !== ""`, `!recycleActive`). Do NOT disable it while a slot is recording.
+   - `showPrimaryArmButton`: REMOVE the `voice.state === "idle"` gate entirely. Arm-idle is orthogonal to recording elsewhere (Alice: "send-when-idle while recording elsewhere is a valid workflow"). Keep the other gates (`!asideActive`, `!primaryArmed`, `text.trim() !== ""`, `!recycleActive`). Do NOT disable it while a slot is recording.
    - `showRecordingControls`: change to `isPrimaryRecording` (was `voice.state === "recording"` — but the render site @ L2089 already guards with `&& micTarget === "primary"`, so semantically identical; consolidate here for clarity).
    - `showTranscribingSend`: change to `isPrimaryTranscribing` (was `voice.state === "transcribing"`). This is the Bounty 2 fix for the primary side — the Loader2 spinner @ L2162 must only replace the primary's send button when the PRIMARY is transcribing, not when a slot is transcribing.
 
@@ -159,7 +159,7 @@ Concrete changes:
    - `const slotThreeButtonState = showSlotMic && showSlotArmButton;`
    - In the slot Textarea's className (~L1760): replace `"pr-10 pl-10"` with `"pr-10 pl-10"` as base + `slotThreeButtonState && "pr-32"` (or equivalent — SAME value chosen for primary so both surfaces feel consistent).
 
-3) Do NOT change the padding when only 2 buttons render (send + mic, OR send + arm-idle) — that's what `pr-10` was sized for. Ashley: "I think there's enough padding for the send button because there always is but the mic and send when idle buttons just end up overlapping the text" — the fix is specifically for the 3-button case.
+3) Do NOT change the padding when only 2 buttons render (send + mic, OR send + arm-idle) — that's what `pr-10` was sized for. Alice: "I think there's enough padding for the send button because there always is but the mic and send when idle buttons just end up overlapping the text" — the fix is specifically for the 3-button case.
 
 4) Do NOT touch the ABSOLUTE positions of the mic (right-11) / arm-idle (right-21) / send (right-1) buttons themselves — they're pinned by hard-locked positioning tokens (comments at L2176-2188 lock these). Only the textarea's padding changes.
 
@@ -184,16 +184,16 @@ Two vertical-spacing edits, then a visual sanity check across all four bounties 
 
 Concrete edits (do these BEFORE the checkpoint pause):
 
-(a) Row 1 (context meter + aux buttons) bottom margin: at ~L1388, the container is `<div className={cn("flex items-center gap-2", isTouchDevice ? "min-h-[44px]" : "min-h-8")}>`. Add `mb-[3px]` to the className. This gives Row 1 a 3px bottom margin on TOP OF the outer `gap-1` (4px), for a total 7px gap between Row 1 and whatever renders next (queued slot stack OR primary textarea, since queued slots may or may not be present). Ashley verified 3px in DevTools computed stats — do not round to a Tailwind numeric class; use the arbitrary bracket `mb-[3px]`.
+(a) Row 1 (context meter + aux buttons) bottom margin: at ~L1388, the container is `<div className={cn("flex items-center gap-2", isTouchDevice ? "min-h-[44px]" : "min-h-8")}>`. Add `mb-[3px]` to the className. This gives Row 1 a 3px bottom margin on TOP OF the outer `gap-1` (4px), for a total 7px gap between Row 1 and whatever renders next (queued slot stack OR primary textarea, since queued slots may or may not be present). Alice verified 3px in DevTools computed stats — do not round to a Tailwind numeric class; use the arbitrary bracket `mb-[3px]`.
 
-(b) Last-queued to primary gap: the queue-slots wrapper @ L1709 is `<div className="flex flex-col gap-2">` (queued→queued spacing = 8px). The OUTER compose container @ L1326 uses `gap-1` (4px between the queue-slots wrapper and the primary Row 2). Ashley reports the last-queued → primary gap "has ZERO margin" — DevTools measures element margin, not flex gap, so what she saw was the queued textarea's own margin (correctly 0). The fix that matches her intent ("last-queued → main gap should match queued→queued spacing") is to add `mb-1` to the queue-slots wrapper. `mb-1` = 4px. Combined with the outer `gap-1` = 4px, total gap = 8px, matching the `gap-2` between queued items. Preserve the existing `flex flex-col gap-2` classes — add `mb-1` to the same className string.
+(b) Last-queued to primary gap: the queue-slots wrapper @ L1709 is `<div className="flex flex-col gap-2">` (queued→queued spacing = 8px). The OUTER compose container @ L1326 uses `gap-1` (4px between the queue-slots wrapper and the primary Row 2). Alice reports the last-queued → primary gap "has ZERO margin" — DevTools measures element margin, not flex gap, so what she saw was the queued textarea's own margin (correctly 0). The fix that matches her intent ("last-queued → main gap should match queued→queued spacing") is to add `mb-1` to the queue-slots wrapper. `mb-1` = 4px. Combined with the outer `gap-1` = 4px, total gap = 8px, matching the `gap-2` between queued items. Preserve the existing `flex flex-col gap-2` classes — add `mb-1` to the same className string.
 
 Commit message for the code edits: `fix(composebox): vertical spacing polish for row 1 and last-queued gap (bounty 4)`
 
 Then, after the code commit, pause for human verification.
   </what-built>
   <how-to-verify>
-Ashley: please pull up the pretty-view compose box locally (dev build; browser DevTools open helps).
+Alice: please pull up the pretty-view compose box locally (dev build; browser DevTools open helps).
 
 STEP 1 — Bounty 4 (vertical spacing), measure in DevTools:
 1a. With NO queued messages present: inspect the Row 1 (context meter + aux buttons) container. Its computed bottom-margin should be `3px`. The visual gap between Row 1 and the primary textarea should feel a hair more generous than before (was ~4px, now ~7px).
@@ -239,7 +239,7 @@ No security-sensitive changes. All edits are UI predicate logic + CSS classes in
 </verification>
 
 <success_criteria>
-- All 4 bounties resolved per Ashley's verbatim descriptions in the planning context.
+- All 4 bounties resolved per Alice's verbatim descriptions in the planning context.
 - Exactly 3 commits authored (one per task).
 - Only `src/ui/features/pretty-view/ComposeBox.tsx` modified.
 - `useVoiceRecording.ts` NOT modified (D-16-02 iOS Safari getUserMedia constraint untouched).

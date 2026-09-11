@@ -130,7 +130,7 @@ describe("isPvSweepLineOfCurrentSchema", () => {
 describe("parseSweepJsonl — round-trip", () => {
   it("parses a hand-crafted JSONL blob with 3 identity lines", () => {
     const l1 = makeLine({ identity: "tiffany", context_pct: 24 });
-    const l2 = makeLine({ identity: "ashley", context_pct: 67 });
+    const l2 = makeLine({ identity: "alice", context_pct: 67 });
     const l3 = makeLine({ identity: "zoeysephilya", context_pct: null });
     const blob = makeJsonl(l1, l2, l3);
 
@@ -154,7 +154,7 @@ describe("parseSweepJsonl — round-trip", () => {
 
   it("tolerates blank lines between records", () => {
     const l1 = makeLine({ identity: "tiffany" });
-    const l2 = makeLine({ identity: "ashley" });
+    const l2 = makeLine({ identity: "alice" });
     const blob = [JSON.stringify(l1), "", JSON.stringify(l2), ""].join("\n");
     const result = parseSweepJsonl(blob);
     expect(result.lines).toHaveLength(2);

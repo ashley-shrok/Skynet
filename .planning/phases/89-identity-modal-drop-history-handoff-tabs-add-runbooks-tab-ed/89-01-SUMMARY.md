@@ -30,7 +30,7 @@ key-files:
 
 key-decisions:
   - "D-19: runbook.md replaces <slug>.md as the going-forward sentinel file name in id-skill body"
-  - "D-20: convention is going-forward only; no grandfather rule codified — on-disk rename of existing runbooks is Ashley's manual post-close pass"
+  - "D-20: convention is going-forward only; no grandfather rule codified — on-disk rename of existing runbooks is Alice's manual post-close pass"
   - "D-23: id-skill body update ships in its own Wave-1 commit before backend/frontend so no intermediate commit has contract drift"
 
 patterns-established:

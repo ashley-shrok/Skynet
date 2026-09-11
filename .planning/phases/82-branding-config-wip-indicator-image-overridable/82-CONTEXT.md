@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-09-07
 **Status:** Ready for planning
-**Source:** In-session scope discussion with Ashley (greenlit `thumbs up` 2026-09-07). Bounty `branding-config-wip-indicator-image-overridable` (pinned).
+**Source:** In-session scope discussion with Alice (greenlit `thumbs up` 2026-09-07). Bounty `branding-config-wip-indicator-image-overridable` (pinned).
 
 <domain>
 ## Phase Boundary
@@ -147,4 +147,4 @@ Companion to Phase 74 (`avatarDirectorSpec`), but in the "image asset" variant �
 ---
 
 *Phase: 82-branding-config-wip-indicator-image-overridable*
-*Context gathered: 2026-09-07 (in-session with Ashley — /build shape → GSD phase route)*
+*Context gathered: 2026-09-07 (in-session with Alice — /build shape → GSD phase route)*

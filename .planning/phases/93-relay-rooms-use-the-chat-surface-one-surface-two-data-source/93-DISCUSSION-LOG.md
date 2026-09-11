@@ -7,15 +7,15 @@
 **Phase:** 93-relay-rooms-use-the-chat-surface-one-surface-two-data-sources
 **Areas discussed:** Multi-badge row placement, Retirement of the standalone pane, Source-prop shape, Message-list source integration
 
-Discuss-phase followed a `/build → /open → /gsd:phase → /gsd:discuss-phase` chain the same session. The shape file (`.planning/shapes/shape-relay-room-pane-reuse-prettyview-pieces.md`) locked most of the phase's philosophy and scope edges via the `/open` grill. Discuss-phase surfaced four remaining implementation gray areas one-at-a-time. The first was RESOLVED BY CORRECTION rather than by option-select (my initial framing had the wrong mental model of where the harness pane's current badge lives; Ashley corrected me, and the correct model collapsed the gray area).
+Discuss-phase followed a `/build → /open → /gsd:phase → /gsd:discuss-phase` chain the same session. The shape file (`.planning/shapes/shape-relay-room-pane-reuse-prettyview-pieces.md`) locked most of the phase's philosophy and scope edges via the `/open` grill. Discuss-phase surfaced four remaining implementation gray areas one-at-a-time. The first was RESOLVED BY CORRECTION rather than by option-select (my initial framing had the wrong mental model of where the harness pane's current badge lives; Alice corrected me, and the correct model collapsed the gray area).
 
 ---
 
 ## Multi-badge row placement
 
-Initially framed as a gray area choosing between (a) no participants row in harness or (b) a top-of-pane participants row with one badge in harness. Ashley corrected the framing:
+Initially framed as a gray area choosing between (a) no participants row in harness or (b) a top-of-pane participants row with one badge in harness. Alice corrected the framing:
 
-**Ashley 2026-09-09 verbatim:** *"the current harness session pretty view has one badge in the upper right for whoever you're talking to, and the only differences that are going on here is that we are allowing multiple badges to be displayed if desired, which obviously in the cases of the harness and relay sessions would be used differently and so you have the one badge that's already there and every pretty view regardless of the session type is going to have at least that one badge but then you might also have more that grow left from where the original sits. And then some of them might have the context meters as well."*
+**Alice 2026-09-09 verbatim:** *"the current harness session pretty view has one badge in the upper right for whoever you're talking to, and the only differences that are going on here is that we are allowing multiple badges to be displayed if desired, which obviously in the cases of the harness and relay sessions would be used differently and so you have the one badge that's already there and every pretty view regardless of the session type is going to have at least that one badge but then you might also have more that grow left from where the original sits. And then some of them might have the context meters as well."*
 
 **Correction adopted:** the extension is not a new top-of-pane participants row — it's an extension of the existing upper-right badge anchor to accept N badges growing leftward. Harness supplies one (visually unchanged); relay supplies many, with meters on the ones that need them.
 

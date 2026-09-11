@@ -29,7 +29,7 @@ key-files:
     - src/ui/features/pretty-view/MultiBadgeAnchor.tsx
 
 key-decisions:
-  - "Verdict A (case-branch fill-in only) approved by Ashley on static-analysis evidence alone — no live-browser reproduction required to greenlight Plan 06"
+  - "Verdict A (case-branch fill-in only) approved by Alice on static-analysis evidence alone — no live-browser reproduction required to greenlight Plan 06"
   - "[pv-split-drop-diag] logs use template-string form (not object form) to mirror existing [pv-split-preview] convention at SplitView.tsx L356-360"
   - "Live-browser verification of F-2 verdict DEFERRED to phase-end deploy (standard fleet pattern; Task 1–3 commits are not deployed mid-phase)"
   - "gap-1 (4px) selected as the halved inner gap per D-11; ROOT_ANCHOR_CLASS is a single-token change with no reshape of sort order, cell bodies, or absolute-positioning tokens"
@@ -70,7 +70,7 @@ Each task was committed atomically:
 
 1. **Task 1: Add [pv-split-drop-diag] instrumentation at SplitView native dragover/drop** — `8094adbc` (feat)
 2. **Task 2: Tighten MultiBadgeAnchor inner gap from gap-2 to gap-1** — `4bc90709` (fix)
-3. **Task 3: Reproduce Ashley's flow + write DISCOVERY-NOTES.md (preliminary Verdict A)** — `6faa0128` (docs)
+3. **Task 3: Reproduce Alice's flow + write DISCOVERY-NOTES.md (preliminary Verdict A)** — `6faa0128` (docs)
 4. **Task 4: Verdict A close-out (Resolution section on DISCOVERY-NOTES.md)** — `3958cf07` (docs)
 
 **Plan metadata:** SUMMARY.md commit (docs: complete plan) — appended below.
@@ -79,7 +79,7 @@ Each task was committed atomically:
 
 - `src/ui/shell/SplitView.tsx` — Two `[pv-split-drop-diag]` structured log emit points added inside the existing native drop-target listener effect (dragover at L314, drop at L441). No change to outer-listener attach/detach, no change to window-level `dragend`, no reshape of the ownership boundary — log-add only. Template-string form matches existing `[pv-split-preview]` convention.
 - `src/ui/features/pretty-view/MultiBadgeAnchor.tsx` — Single-token change in `ROOT_ANCHOR_CLASS` at L193: `gap-2` → `gap-1`. All other tokens (`absolute top-4 right-5 z-[101] flex flex-row-reverse items-start`) preserved verbatim. Cell bodies at L129 and L164 untouched (Plan 06's territory).
-- `.planning/phases/97-.../97-01-DISCOVERY-NOTES.md` — Discovery notes documenting reproduction steps A and B, static-analysis basis for each RESEARCH hypothesis (H1–H5), preliminary Verdict A selection, live-log excerpt shapes, recommendation to orchestrator, and the final Resolution section recording Ashley's greenlight.
+- `.planning/phases/97-.../97-01-DISCOVERY-NOTES.md` — Discovery notes documenting reproduction steps A and B, static-analysis basis for each RESEARCH hypothesis (H1–H5), preliminary Verdict A selection, live-log excerpt shapes, recommendation to orchestrator, and the final Resolution section recording Alice's greenlight.
 
 ## Verification
 
@@ -105,7 +105,7 @@ Each task was committed atomically:
 
 ## Decisions Made
 
-- **Verdict A on static-analysis evidence alone.** Ashley chose to greenlight Verdict A without waiting for a live-browser reproduction cycle because the static code evidence for problem (a) (drag-source ask) is native-DOM contract, not a hypothesis — `draggable={false}` on the badge element is guaranteed to prevent `dragstart` from firing. Live verification of problem (b) (shared-state corruption after room open/close) is deferred to phase-end deploy; escalation path to Verdict B is preserved via the `[pv-split-drop-diag]` forensic tape that already shipped.
+- **Verdict A on static-analysis evidence alone.** Alice chose to greenlight Verdict A without waiting for a live-browser reproduction cycle because the static code evidence for problem (a) (drag-source ask) is native-DOM contract, not a hypothesis — `draggable={false}` on the badge element is guaranteed to prevent `dragstart` from firing. Live verification of problem (b) (shared-state corruption after room open/close) is deferred to phase-end deploy; escalation path to Verdict B is preserved via the `[pv-split-drop-diag]` forensic tape that already shipped.
 - **Diagnostic-log removal deferred.** The `[pv-split-drop-diag]` logs may stay in place as ambient forensic instrumentation post-ship, or a follow-up polish plan may remove them. Removal disposition is not a Plan 01 decision.
 
 ## Deviations from Plan
@@ -124,7 +124,7 @@ None — no external service configuration required. This plan is UI-code-only (
 
 - **Plan 06 unblocked to ship.** Plan 06 threads `tabId` through `MultiBadgeAnchor` per PATTERNS.md § Finding 2, filling in the case-branch this discovery identified. The `[pv-split-drop-diag]` forensic tape is already live in SplitView.tsx to catch any post-deploy surprise (e.g., if Verdict B needs to be revisited).
 - **Wave 2 (Plans 02, 03, 04, 05) ready to proceed.** Plan 01's file-disjoint scope leaves the wave-2 files untouched.
-- **Post-deploy verification concern.** Ashley's live-browser reproduction of Reproduction A + B at phase-end deploy time is the final gate that either confirms Verdict A (expected) or reopens F-2 as a Verdict-B follow-up phase. No blocker on wave progression in the meantime.
+- **Post-deploy verification concern.** Alice's live-browser reproduction of Reproduction A + B at phase-end deploy time is the final gate that either confirms Verdict A (expected) or reopens F-2 as a Verdict-B follow-up phase. No blocker on wave progression in the meantime.
 
 ## Self-Check: PASSED
 

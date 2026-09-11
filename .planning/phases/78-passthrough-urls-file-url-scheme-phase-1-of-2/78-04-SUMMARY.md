@@ -68,7 +68,7 @@ All 12 mechanical gates from the plan pass:
 > **Why we replaced the old tailnet HTTP-server recipe.** Serving files off the
 > tailnet IP over plain HTTP had three chronic pain points: (1) Chrome flagged
 > every download as "insecure file" because the tailnet has no cert path on
-> Ashley's plan; (2) the tailnet-only reach meant customer VMs and any box off
+> Alice's plan; (2) the tailnet-only reach meant customer VMs and any box off
 > the tailnet (T800 today, future customer boxes tomorrow) simply couldn't be
 > served this way; and (3) every share saddled you with agent-side server
 > lifecycle burden — a backgrounded process to kill, `mktemp -d` staging dirs to

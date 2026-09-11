@@ -147,7 +147,7 @@ function PriorityRow({
 }
 
 // Quick 260727-v0b: inline STATUS editor row — mirrors PriorityRow above
-// but with a treatment tweak per Ashley's ask: status has no glyph (just
+// but with a treatment tweak per Alice's ask: status has no glyph (just
 // the label), and each INACTIVE pill uses its own STATUS_CLASSES color
 // for fill/border/text (rather than the common muted border PriorityRow
 // uses). The ACTIVE pill still gets the "pressed white ring" treatment
@@ -814,7 +814,7 @@ export function BountyCard({
             {bounty.title}
           </span>
           {/* Patch #109: slug line — folder basename, monospace + muted.
-              Ashley refers to bounties by slug in conversation, so making
+              Alice refers to bounties by slug in conversation, so making
               it visible + copy-selectable next to the title is the fastest
               lookup. Second line (below title) keeps the primary title
               scannable at the same weight as before; slug never wraps —
@@ -875,7 +875,7 @@ export function BountyCard({
       {expanded && (
         <>
           {/* Quick 260727-v0b: inline status editor mirroring patch #154
-              priority editor. Placed ABOVE Priority per Ashley's ask —
+              priority editor. Placed ABOVE Priority per Alice's ask —
               status change is the higher-frequency edit. Patch #168:
               shows 4 options (in_progress / waiting_on_someone_else /
               done / dropped); "pinned" removed from the status enum. */}
@@ -899,7 +899,7 @@ export function BountyCard({
 
           {/* Patch #154: inline priority editor. Sits above the premise so
               it's the first thing in the expanded body — matches the
-              frequency Ashley re-prioritizes vs. reads the premise. */}
+              frequency Alice re-prioritizes vs. reads the premise. */}
           {onPriorityChange && (
             <div className="flex flex-col gap-1">
               <span className="text-xs font-medium text-[var(--color-pv-fg-muted)] uppercase">

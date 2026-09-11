@@ -87,7 +87,7 @@ describe("getLogPath default", () => {
   // Regression guard: the log-forwarder's whole point is post-hoc inspection
   // across container restarts, so its default MUST NOT live under /tmp inside
   // the container (wiped on every --force-recreate). Bit us 2026-08-06 when
-  // a deploy wiped voice-diag evidence Ashley had just produced.
+  // a deploy wiped voice-diag evidence Alice had just produced.
   it("default is not under /tmp", () => {
     delete process.env.SKYNET_CONSOLE_FORWARD_LOG_PATH;
     const p = getLogPath();

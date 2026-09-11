@@ -77,7 +77,7 @@ The following text is preserved verbatim from `PlanPendingBubble.tsx` lines 14�
 // split-send (patch #44) writes a body event + a separate \r event
 // with a 60ms gap, which Ink does NOT recognize as a plan-mode
 // selection. So do NOT surface "reply 1/2" copy — it's misleading
-// (Ashley verified 2026-07-18 by trying it). This bubble is a
+// (Alice verified 2026-07-18 by trying it). This bubble is a
 // pure PRESENCE indicator; the reply UI lives in the tmux pane
 // (which she can flip to with Ctrl+Shift+O — patch #44).
 ```

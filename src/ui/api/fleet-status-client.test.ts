@@ -683,7 +683,7 @@ describe("fleet-status-client: Test 9 — reconnect delay is full-jittered (R-54
 });
 
 // ---------------------------------------------------------------------------
-// Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Ashley 2026-09-08 D-03
+// Phase 90 Plan 00 Wave 0 (D-10 delivery mechanism, Alice 2026-09-08 D-03
 // waiver) — useSessionContextPct hook tests (behaviors 1-4 per plan).
 // ---------------------------------------------------------------------------
 

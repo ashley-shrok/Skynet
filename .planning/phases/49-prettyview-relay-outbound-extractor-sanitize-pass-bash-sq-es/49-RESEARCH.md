@@ -11,7 +11,7 @@ of the extractor, (b) confirming the mechanism via her raw command
 (c) building a Python prototype that ports both the current extractor and
 the proposed sanitize-pass alternative, (d) running the prototype against a
 182-send corpus from all box-maintainer identities on this box, (e)
-tabulating the delta. Ashley greenlit the approach 2026-08-20. Full prototype
+tabulating the delta. Alice greenlit the approach 2026-08-20. Full prototype
 + corpus + comparison harness live in
 `~/.claude/roles/box-maintainer/bounties/extractor-sanitize-pass/`.
 
@@ -26,12 +26,12 @@ alternation `(?:'\\'\'|[^'])` lets the capture group swallow the bash `'\''`
 sequence (close-single + `\'` + open-single, POSIX portable) as a legal
 inner "quote." But it does NOT handle the OTHER common bash idiom
 `'"'"'` (close-single + `"'"` + open-single), which is what many identities
-(including Nelly) actually use. When the regex hits `BODY='Relaying Ashley'"'"'s reply: …'`,
-it captures `Relaying Ashley` and stops at the first bare `'`.
+(including Nelly) actually use. When the regex hits `BODY='Relaying Alice'"'"'s reply: …'`,
+it captures `Relaying Alice` and stops at the first bare `'`.
 
 ## The fix
 
-Ashley (2026-08-20, verbatim): *"what if we strip the characters from the
+Alice (2026-08-20, verbatim): *"what if we strip the characters from the
 entire command instead of just the body? would parsing to find the body get
 any easier and cleaner then?"* — greenlit.
 
@@ -155,8 +155,8 @@ Target: `src/backend/claude-session/session-file-parser.outbound-body.test.ts`
   // corpus: nelly's DM to tabitha 2026-08-20, room !pCARzCxigsTfPfxsfc
   // bash '"'"' idiom for embedding ' in single-quoted BODY (produces literal ')
   name: "NELLY-SHAPE — BODY-sq with '\"'\"' apostrophe escape (bash close-sq/'/open-sq)",
-  cmd: `TOK=$(jq -r .access_token ~/.claude/identities/nelly/relay.json); BASE=$(jq -r .base ~/.claude/identities/nelly/relay.json); ROOM='!wNhqmNRUNlHesCshwg:thenasty.taild9b663.ts.net'; BODY='Relaying Ashley'"'"'s reply: hi'; curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXID" -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`,
-  expectedBody: "Relaying Ashley's reply: hi",
+  cmd: `TOK=$(jq -r .access_token ~/.claude/identities/nelly/relay.json); BASE=$(jq -r .base ~/.claude/identities/nelly/relay.json); ROOM='!wNhqmNRUNlHesCshwg:thenasty.taild9b663.ts.net'; BODY='Relaying Alice'"'"'s reply: hi'; curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXID" -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`,
+  expectedBody: "Relaying Alice's reply: hi",
 },
 ```
 
@@ -174,13 +174,13 @@ describe("extractOutboundBody — known limitations", () => {
     // contents from earlier regexes, shell-aware parser), this test flips
     // from documentation to regression guard.
     const cmd = `BODY=$(cat <<'EOF'
-Hey — the extractor's BODY='relaying Ashley' bug matched inside my heredoc content instead of the real body.
+Hey — the extractor's BODY='relaying Alice' bug matched inside my heredoc content instead of the real body.
 EOF
 )
 curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXID" \\
   -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`;
-    // Current behavior: BODY-sq matches the inner substring, returns 'relaying Ashley'.
-    expect(extractOutboundBody(cmd)).toBe("relaying Ashley");
+    // Current behavior: BODY-sq matches the inner substring, returns 'relaying Alice'.
+    expect(extractOutboundBody(cmd)).toBe("relaying Alice");
   });
 });
 ```
@@ -209,5 +209,5 @@ node process must reload — fast-path `docker cp` covers only frontend
 - **Wire type (RelayOutboundEvent):** unchanged (`body: string | null`).
 - **Classifier (detectRelayOutbound):** unchanged.
 - **Coverage of unextractable-by-design 3.6% tail:** out of scope.
-- **Self-referential heredoc-content-bleed:** documented, deferred per Ashley
+- **Self-referential heredoc-content-bleed:** documented, deferred per Alice
   (see CONTEXT.md § Deferred Ideas).

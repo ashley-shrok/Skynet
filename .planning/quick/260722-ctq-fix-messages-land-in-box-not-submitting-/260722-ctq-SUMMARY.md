@@ -179,7 +179,7 @@ no external service calls.
 
 ## Deploy status
 
-**NOT DEPLOYED** — Ashley-gated per CLAUDE.md deploy discipline and
+**NOT DEPLOYED** — user-gated per CLAUDE.md deploy discipline and
 per the plan's `<what_to_do>` step 1 hard constraint. This task ends
 at "commit landed at HEAD of feat/tab-title-from-tmux".
 
@@ -199,7 +199,7 @@ Post-deploy manual UAT (out of scope for this quick task, per plan
    pre-patch flakiness but no regression).
 
 Bounty `messages-land-in-box-not-submitting` remains **in_progress**
-until Ashley UATs the deployed patch (do NOT flip status here per
+until Alice UATs the deployed patch (do NOT flip status here per
 plan `<success_criteria>`).
 
 ## Self-Check: PASSED
@@ -209,4 +209,4 @@ plan `<success_criteria>`).
 - FOUND: patch #118 entry in /home/ubuntu/.claude/identities/tina/skynet-patches.md
 - FOUND: ONE HUNDRED EIGHTEEN header in /home/ubuntu/.claude/identities/tina/skynet-patches.md
 - FOUND: drift caveat update for src/backend/ssh/terminal.ts (patch 118 callout)
-- CONFIRMED: no push, no build, no deploy — all Ashley-gated steps remain Ashley-gated.
+- CONFIRMED: no push, no build, no deploy — all user-gated steps remain user-gated.

@@ -85,7 +85,7 @@ Publishes are on the `queue` state (armed for idle-send), NOT `queueSlots` (visu
 + {inActiveSet && isWorking === false && !isRecycling && !hasQueuePending && (
 ```
 
-Updated the header-of-file block comment AND the in-render block comment above the dot to document the fourth predicate and quote the bounty rationale verbatim: *"if a queued message is armed to auto-send the moment the agent goes idle, the agent is effectively already spoken-for and NOT ready for Ashley's next instruction (which IS the meaning of the dot)."*
+Updated the header-of-file block comment AND the in-render block comment above the dot to document the fourth predicate and quote the bounty rationale verbatim: *"if a queued message is armed to auto-send the moment the agent goes idle, the agent is effectively already spoken-for and NOT ready for Alice's next instruction (which IS the meaning of the dot)."*
 
 **Deliberately untouched (per plan non-scope):**
 

@@ -62,7 +62,7 @@ requirements_completed:
 
 ## What shipped
 
-Phase 57's payload — the interaction Ashley demoed in `prototype.html` is now live inside Skynet's Pane. Cursor movement over a pane shows the exact future split shape; releasing near the dead center is a silent "cancel" gesture. All 12 new Phase 57 tests pass alongside all 14 pre-existing Phase 56 tests in the same file (26 total in `SplitView.test.tsx`), broader scoped suite is 79/79 green, `tsc --noEmit` clean.
+Phase 57's payload — the interaction Alice demoed in `prototype.html` is now live inside Skynet's Pane. Cursor movement over a pane shows the exact future split shape; releasing near the dead center is a silent "cancel" gesture. All 12 new Phase 57 tests pass alongside all 14 pre-existing Phase 56 tests in the same file (26 total in `SplitView.test.tsx`), broader scoped suite is 79/79 green, `tsc --noEmit` clean.
 
 Two commits, TDD gate compliance:
 
@@ -71,7 +71,7 @@ Two commits, TDD gate compliance:
 | `5ca8713d` | test | `src/ui/shell/SplitView.test.tsx` (+381)     | RED — 10 of 12 new tests fail against current placeholder-only Pane. Tests 1/4 pass by coincidence (no overlay ever renders in current impl, so absent-overlay assertions trivially pass). |
 | `69b8034c` | feat | `src/ui/shell/SplitView.tsx` (+161 / -15)   | GREEN — state shape swap, listener body rewire, JSX overlay swap, `computeNearestEdge` callsite removed. All 26 tests in file pass; broader scoped suite 79/79 pass. |
 
-No REFACTOR commit. The implementation was a direct port with all intermediate structure baked into the GREEN commit; further "cleanup" would risk drifting from Ashley's prototype-validated visual language.
+No REFACTOR commit. The implementation was a direct port with all intermediate structure baked into the GREEN commit; further "cleanup" would risk drifting from Alice's prototype-validated visual language.
 
 ## Exact overlay CSS shipped
 
@@ -110,7 +110,7 @@ Grep evidence:
 | Stable testid | `data-testid="pane-drop-preview-overlay"` | `grep -c 'data-testid="pane-drop-preview-overlay"' src/ui/shell/SplitView.tsx` | **1** |
 | Stable zone attr | `data-zone={dropPreview.zone}` | queryable in tests | ✓ |
 
-Color rationale: `rgba(255, 184, 150)` matches the app's `--color-pv-code-fg: #ffb896` at `src/ui/index.css:159` exactly (255=0xff, 184=0xb8, 150=0x96) — this IS the app's coral token, dropped into the overlay at alpha 0.22 (fill) and 0.60 (border), tracking the prototype's `--highlight: rgba(255,184,150,0.20)` + `--highlight-strong: rgba(255,184,150,0.55)` with a small nudge for the darker base of Skynet's fork per Ashley's shape-file preference for legible-first CSS.
+Color rationale: `rgba(255, 184, 150)` matches the app's `--color-pv-code-fg: #ffb896` at `src/ui/index.css:159` exactly (255=0xff, 184=0xb8, 150=0x96) — this IS the app's coral token, dropped into the overlay at alpha 0.22 (fill) and 0.60 (border), tracking the prototype's `--highlight: rgba(255,184,150,0.20)` + `--highlight-strong: rgba(255,184,150,0.55)` with a small nudge for the darker base of Skynet's fork per Alice's shape-file preference for legible-first CSS.
 
 ## computeNearestEdge — untouched, still exported, no longer called from Pane
 
@@ -169,7 +169,7 @@ $ grep -n 'preventDefault\|stopPropagation' src/ui/shell/SplitView.tsx | head
 322:        e.stopPropagation();     # Pane onDragOver
 ```
 
-Test 7 asserts this — `dispatchDropAt(paneOuter, 50, 50, ...)` in the center dead zone fires; neither `onOpenSessionInTree` nor `onDropRowInTree` is called; but the `[pv-split-drop] center-dead-zone ignored` log line fires (via `console.info` spy). If `stopPropagation` did not fire, the drop event would bubble to AppShell.tsx:2265 and Ashley's payload would leak into a "center-drop opened a new tab" surprise — which the shape file explicitly locks against.
+Test 7 asserts this — `dispatchDropAt(paneOuter, 50, 50, ...)` in the center dead zone fires; neither `onOpenSessionInTree` nor `onDropRowInTree` is called; but the `[pv-split-drop] center-dead-zone ignored` log line fires (via `console.info` spy). If `stopPropagation` did not fire, the drop event would bubble to AppShell.tsx:2265 and Alice's payload would leak into a "center-drop opened a new tab" surprise — which the shape file explicitly locks against.
 
 ## Test-run output
 
@@ -291,7 +291,7 @@ None. Per the plan's `<threat_model>`, this is pure frontend UI — no auth surf
 
 ## Next steps (Plan 57-03 preview — for orchestrator context, not this plan's scope)
 
-Phase 57's core payload is now shipped in code + tests. The CONTEXT.md `<verification>` block mentions a manual visual smoke ("open the app in dev, drag a conv-list row over a Pane, watch the coral overlay snap between edges as the cursor moves") — this is the "Ashley can see where it will land" acceptance from CONTEXT.md §Vehicle Phase 2, verified live in orchestrator UAT, not in this executor's scope.
+Phase 57's core payload is now shipped in code + tests. The CONTEXT.md `<verification>` block mentions a manual visual smoke ("open the app in dev, drag a conv-list row over a Pane, watch the coral overlay snap between edges as the cursor moves") — this is the "Alice can see where it will land" acceptance from CONTEXT.md §Vehicle Phase 2, verified live in orchestrator UAT, not in this executor's scope.
 
 If Plan 57-03 lands (deferred visual tweaks + observability polish + any UAT-driven adjustments), it consumes:
 - `overlayGeometryForZone` if a helper-level refactor becomes worthwhile (currently module-local; tests query DOM inline styles directly).

@@ -1,7 +1,7 @@
 /**
  * Phase 23 (GEFM-04): POST /global-files/read + PUT /global-files/write
  *
- * Two endpoints that give Ashley the ability to read and write the operator-
+ * Two endpoints that give Alice the ability to read and write the operator-
  * configured "global files" on managed hosts (e.g. ~/.claude/CLAUDE.md).
  *
  * POST /global-files/read

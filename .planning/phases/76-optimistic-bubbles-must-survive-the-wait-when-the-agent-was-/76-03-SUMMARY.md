@@ -54,7 +54,7 @@ D-07 verification is complete. Phase 62's multi-send-during-wake claim holds und
 
 ### What Test 5d Proved
 
-The D-07 verification covered the scenario Ashley described verbatim: "two spinning bubbles in flight during a widened wait, both deliver in order when wake completes, no bubbles lost or reordered, no dedup collision."
+The D-07 verification covered the scenario Alice described verbatim: "two spinning bubbles in flight during a widened wait, both deliver in order when wake completes, no bubbles lost or reordered, no dedup collision."
 
 Specific assertions verified:
 1. After two `typeAndEnter` calls during dormancy-after-reconnect: `countPendingBubbles === 2`

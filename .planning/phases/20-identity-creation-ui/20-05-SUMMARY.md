@@ -108,7 +108,7 @@ NOT reimplemented. Prop signatures match plan 03's SUMMARY exactly.
 
 ## Deploy Discipline
 
-No `git push`, `docker build`, or `docker compose` was invoked. Container stays at `sha256:07547f6c4185` per held-queue posture. Ashley will greenlight the deploy separately.
+No `git push`, `docker build`, or `docker compose` was invoked. Container stays at `sha256:07547f6c4185` per held-queue posture. Alice will greenlight the deploy separately.
 
 ## Tests
 

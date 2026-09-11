@@ -3,12 +3,12 @@
  * user-wide skill catalog.
  *
  * This module is a leaf helper: it does not know about the STT route, does not
- * know about the pure matcher from plan 01, and is not aware of Ashley's
+ * know about the pure matcher from plan 01, and is not aware of Alice's
  * "slash <skill>" voice-first UX. It exposes a single async function that
  * takes a hostId + userId and resolves to a Set<string> of kebab-case skill
  * names found in `~/.claude/skills/*` on the target box.
  *
- * FAIL-OPEN CONTRACT (design decision — Ashley 2026-08-13, verbatim from
+ * FAIL-OPEN CONTRACT (design decision — Alice 2026-08-13, verbatim from
  * CONTEXT.md § Decisions "On wake-word HIT — SSH-fetch the skill catalog"):
  *
  *   > "instead of a 500 millisecond hard timeout, I think we could increase
@@ -60,7 +60,7 @@ import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
  * single outer Promise.race). Exported so the STT route in plan 03 can
  * import + reuse the same constant.
  *
- * Rationale (Ashley 2026-08-13, verbatim): "increase the timeout to something
+ * Rationale (Alice 2026-08-13, verbatim): "increase the timeout to something
  * way overboard, and as long as that call is only happening when the message
  * begins with the word slash, then I feel like that's a good tradeoff ...
  * I only invoke skills that way, you know, maybe a handful of times out of

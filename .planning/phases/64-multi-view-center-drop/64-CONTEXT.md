@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-08-30
 **Status:** Ready for planning
-**Source:** Direct-seeded from `.planning/shapes/shape-multi-view-center-drop.md` (opened 2026-08-30, Ashley thumbs-upped after one pitch-recap turn). Discuss-phase skipped per `/build` convention when the shape file already captures scope + philosophy + failure modes and the scope is small and clear (precedent for this work family: Phase 53 backend-authoritative-recycling, Phase 56 visual-session-management foundation, Phase 57 drop-preview overlay, Phase 58 identity-badge drag, Phase 59 coral drop-target affordance).
+**Source:** Direct-seeded from `.planning/shapes/shape-multi-view-center-drop.md` (opened 2026-08-30, Alice thumbs-upped after one pitch-recap turn). Discuss-phase skipped per `/build` convention when the shape file already captures scope + philosophy + failure modes and the scope is small and clear (precedent for this work family: Phase 53 backend-authoritative-recycling, Phase 56 visual-session-management foundation, Phase 57 drop-preview overlay, Phase 58 identity-badge drag, Phase 59 coral drop-target affordance).
 
 ## What this is
 
@@ -80,7 +80,7 @@ Both operate purely on the `SplitNode` tree; both are pure functions; both fit t
    - `data-zone="center"` attribute for test hooks (mirrors existing `data-zone="left|right|top|bottom"`).
    - The overlay's existing `pointer-events:none` + `zIndex: 20` + geometry transitions all reused verbatim.
 
-5. **Structured logging discipline** (box-maintainer standing directive, Ashley 2026-08-11). New handler-level logs from AppShell:
+5. **Structured logging discipline** (box-maintainer standing directive, Alice 2026-08-11). New handler-level logs from AppShell:
    - `[pv-split-drop] replace target=<tabId> with=<tabId>` on `replaceInTree` invocation.
    - `[pv-split-drop] swap a=<tabId> b=<tabId>` on `swapInTree` invocation.
    - Existing `[pv-split-preview] zone=... path=...` from SplitView continues to emit — extend it to also fire on `zone === "center"` (currently gated to non-center zones since center had no meaning).
@@ -95,7 +95,7 @@ Both operate purely on the `SplitNode` tree; both are pure functions; both fit t
 
 - **Any visual distinction between replace-coral and swap-coral.** Same RGBA, same border, same transition. No label, no icon, no differentiating word. Shape §Philosophy locked this.
 - **Any guard, confirmation, or undo affordance for the replace case.** No "you are about to lose the session in that slot" prompt. The displaced session is still trivially reachable from the conv list.
-- **Touch behavior.** Ashley has never exercised the current multi-view drag/drop on touch (her own words 2026-08-30: *"honestly, I've never tried it. I only use the app on my phone and desktop... on phone you can't use it because you can't see the conversation list and pretty view at the same time"*). Phase 64 inherits whatever the current touch story is — works, doesn't work, partially works — and does not add or subtract from it.
+- **Touch behavior.** Alice has never exercised the current multi-view drag/drop on touch (her own words 2026-08-30: *"honestly, I've never tried it. I only use the app on my phone and desktop... on phone you can't use it because you can't see the conversation list and pretty view at the same time"*). Phase 64 inherits whatever the current touch story is — works, doesn't work, partially works — and does not add or subtract from it.
 - **Any new drag source.** Only the two existing sources (conv-list rows from Phase 56, identity badges from Phase 58) are considered.
 - **Any new drop target other than the body of an already-open session.** Empty PrettyView, conv-list panel, and edge-zone drop targets all stay exactly as Phase 56–59 built them.
 - **The two shape-time trimmed edge cases:**
@@ -111,7 +111,7 @@ Both operate purely on the `SplitNode` tree; both are pure functions; both fit t
 
 2. **Swap when either session is not present in the tree.** Defensive path — the AppShell handler should only be called from SplitView, which only fires on drops onto open cells, so both sessions SHOULD be in the tree by construction. But `swapLeaves` still returns root unchanged and logs a warning if either leaf isn't found (`[split-tree] swapLeaves: leaf not found tabId=<x>`). Assert with a test.
 
-3. **Replace where the replacement session is already elsewhere in the tree** (the "already-in-grid" case the shape trimmed). Falls out cleanly from tree invariants: `replaceLeaf` first calls `removeLeaf(root, replacementTabId)` (no-op if not present); the source cell collapses if it was there; then the target cell's `tabId` flips to the replacement. Result: source moved from its old cell into the target's cell; target session kicked to conv-list-only. This is effectively a swap where one side goes "back to conv list only" instead of exchanging position — Ashley's "just let people manage their own sessions" call, no special-casing needed. Assert with a test.
+3. **Replace where the replacement session is already elsewhere in the tree** (the "already-in-grid" case the shape trimmed). Falls out cleanly from tree invariants: `replaceLeaf` first calls `removeLeaf(root, replacementTabId)` (no-op if not present); the source cell collapses if it was there; then the target cell's `tabId` flips to the replacement. Result: source moved from its old cell into the target's cell; target session kicked to conv-list-only. This is effectively a swap where one side goes "back to conv list only" instead of exchanging position — Alice's "just let people manage their own sessions" call, no special-casing needed. Assert with a test.
 
 4. **Replace where the replacement session is NOT already open** (the mainline "drag conv-list row of a not-yet-open session into an open session's center"). SplitView's guard falls back to `onReplaceInTree(replacementTabId, targetTabId)` regardless — `replaceLeaf` inserts the replacement at the target's cell whether or not it was previously in the tree. Result: session opens directly into the target's cell; displaced session drops to conv-list-only. Assert with a test.
 
@@ -203,14 +203,14 @@ Drop dispatch:
 - **64-01: Pure tree helpers.** Add `replaceLeaf` + `swapLeaves` to `src/ui/lib/split-tree.ts` with unit tests. Standalone — no UI wiring, no side effects, no AppShell touch. Wave 1.
 - **64-02: SplitView center-drop wiring + AppShell handlers + component + integration tests.** Depends on 64-01. Wave 2.
 
-**Executor scope**: code + commit + scoped tests green. Full-suite + docker build + deploy are orchestrator-only per box-maintainer role directive (Ashley 2026-08-08).
+**Executor scope**: code + commit + scoped tests green. Full-suite + docker build + deploy are orchestrator-only per box-maintainer role directive (Alice 2026-08-08).
 
 **TDD suitability**: both plans are TDD-friendly — pure helpers have precise I/O contracts; SplitView drop behavior is a state machine with clear inputs (MIME, source tabId, target tabId) and outputs (handler calls). Planner should apply `type: tdd` to eligible tasks per `TDD_MODE` if enabled.
 
 **Rebase risk**: LOW. `split-tree.ts` is fork-local and rarely touched cross-fleet. `SplitView.tsx` has moderate cross-fleet activity from the Phase 56–59 arc but is now stable. `AppShell.tsx` has heavy cross-fleet activity, but Phase 64's additions are two new handler declarations + one render-site prop update — additive, low collision surface. Coord at ship time per role rule.
 
-**Parent bounty**: none (this is a shape-file-driven /build phase, not attached to a bounty). If Ashley wants a bounty tracker, plan-phase can create one — but the shape file already captures the trail.
+**Parent bounty**: none (this is a shape-file-driven /build phase, not attached to a bounty). If Alice wants a bounty tracker, plan-phase can create one — but the shape file already captures the trail.
 
 **Reference prototype**: `~/.claude/roles/box-maintainer/bounties/bring-back-split-view/prototype.html` demonstrates the badge-drag interaction model from Phase 58 — the "center = valid drop target" mechanic is a natural next step over what that prototype shows. Consult if plan-phase wants a visual reference for the hit-testing.
 
-**No worktrees** (Ashley 2026-07-31, fleet rule).
+**No worktrees** (Alice 2026-07-31, fleet rule).

@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-08-12
 **Status:** Ready for planning
-**Source:** Direct capture of Ashley ↔ Tina design conversation (2026-08-12); no discuss-phase needed — design was settled interactively before phase was opened.
+**Source:** Direct capture of Alice ↔ Tina design conversation (2026-08-12); no discuss-phase needed — design was settled interactively before phase was opened.
 
 <domain>
 ## Phase Boundary
@@ -13,9 +13,9 @@ Rip out the temp-disabled `use-auto-scroll.ts` (225 lines, unused since 2026-08-
 2. **New messages while already at bottom** — follow (pin-to-bottom).
 3. **User sends** — force scroll to bottom regardless of current scroll position. Applies to ALL send paths: Enter/click, queued messages firing after idle (Hourglass), voice-send, aside-morph resume.
 
-**Implicit inverse (Ashley confirmed):** if the user is scrolled UP reading history, new incoming messages do NOT yank them down. The existing jump-to-bottom pill stays the manual affordance.
+**Implicit inverse (Alice confirmed):** if the user is scrolled UP reading history, new incoming messages do NOT yank them down. The existing jump-to-bottom pill stays the manual affordance.
 
-Nothing else. Ashley verbatim 2026-08-12: *"one of the goals I have here is to keep it simple, because the old auto-scroll behavior got pretty complicated when I asked for a bunch of different cases to be handled."* And: *"I want this to be done right so if you have to rip out the old stuff and start fresh or adjust things like you know that's my priority."*
+Nothing else. Alice verbatim 2026-08-12: *"one of the goals I have here is to keep it simple, because the old auto-scroll behavior got pretty complicated when I asked for a bunch of different cases to be handled."* And: *"I want this to be done right so if you have to rip out the old stuff and start fresh or adjust things like you know that's my priority."*
 
 Supersedes bounty `pv-disable-auto-scroll-temp` — this phase closes that hole by replacing the disable with a working design.
 
@@ -119,7 +119,7 @@ The plan must ship tests for exactly these four scenarios (mirrors the design ca
 - Existing test infrastructure for WS event dispatch + JSDOM message rendering in the same file.
 
 ### Prior art / superseded bounties
-- Bounty `pv-auto-scroll-redesign` timeline entry `2026-08-12T18:05:00Z` — full design detail from the Ashley ↔ Tina conversation (this CONTEXT.md is the phase-scoped extraction).
+- Bounty `pv-auto-scroll-redesign` timeline entry `2026-08-12T18:05:00Z` — full design detail from the Alice ↔ Tina conversation (this CONTEXT.md is the phase-scoped extraction).
 - Bounty `pv-disable-auto-scroll-temp` — the temp disable this phase supersedes.
 - Patch #385 (quick 260810-ia4) — jitter down-payment: type-aware estimateSize + image aspect-ratio 4/3 + overflow-anchor:none on outer scroll container. Keep all three.
 - `~/.claude/roles/box-maintainer/skynet-patches.md` — patch catalog.
@@ -167,9 +167,9 @@ Executor should not skip this verification.
 <deferred>
 ## Deferred Ideas
 
-- Library swap to `react-virtuoso`'s `<VirtuosoMessageList>` — parked from bounty `pv-auto-scroll-redesign`. If this phase's simple design still shows jitter under Ashley UAT, library swap is the fallback (bigger refactor, purpose-built for chat). But we're not doing it this phase.
+- Library swap to `react-virtuoso`'s `<VirtuosoMessageList>` — parked from bounty `pv-auto-scroll-redesign`. If this phase's simple design still shows jitter under Alice UAT, library swap is the fallback (bigger refactor, purpose-built for chat). But we're not doing it this phase.
 - Subscribe to TanStack Virtual's measurement events to preserve `scrollTop` across measurement adjustments — parked. Only pursue if the "TanStack Virtual scroll writes" verification above surfaces something the programmaticRef flag can't cover.
-- Additional scroll behaviors Ashley might want later (scroll-into-view for specific messages, scroll-to-mention, etc.). Not in scope.
+- Additional scroll behaviors Alice might want later (scroll-into-view for specific messages, scroll-to-mention, etc.). Not in scope.
 - Any changes to WipBubble / PlanPendingBubble / AsideBubble themselves. Not in scope — the RO-on-outer-container design absorbs their mounts without changing them.
 - Any changes to patch #385's three jitter-class fixes (type-aware estimateSize, aspect-ratio 4/3, static overflow-anchor:none). Those stay.
 
@@ -178,12 +178,12 @@ Executor should not skip this verification.
 ---
 
 *Phase: 32-redesign-pretty-view-auto-scroll-three-case-sticky-bottom-ho*
-*Context captured: 2026-08-12 directly from Ashley ↔ Tina design conversation. No discuss-phase run — design was settled interactively before phase-open.*
+*Context captured: 2026-08-12 directly from Alice ↔ Tina design conversation. No discuss-phase run — design was settled interactively before phase-open.*
 
 ## Post-ship correction (2026-08-13)
 
 ### Symptom
-Ashley 2026-08-13: "if I try to scroll up, I get a little ways up before it either
+Alice 2026-08-13: "if I try to scroll up, I get a little ways up before it either
 snaps back to the bottom or jumps to a completely different area in the overall
 height. And it seems to coincide with very tall bubbles that are taller than the
 screen."
@@ -211,7 +211,7 @@ Two failure modes flowed from the conflation:
    as content shifting.
 
 ### Structural fix
-Ashley greenlit the structural fix over a narrow threshold-bump. Split the
+Alice greenlit the structural fix over a narrow threshold-bump. Split the
 Case 2 useEffect into two effects:
 
 - **New effect (jump-on-new-message)**: keyed on

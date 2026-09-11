@@ -55,7 +55,7 @@ on skynet-ec2 — poppy, patricia, pixie, nicole, vicky and every other fleet id
 on its home box. So every non-tina identity comes back with role=null and the (host, role, label)
 comparator collapses to plain label-alpha. Confirmed 2026-08-06 hitting /identities as tina admin.
 
-Fix (LOCKED by Ashley — not up for re-debate): fold role resolution into the per-host session
+Fix (LOCKED by Alice — not up for re-debate): fold role resolution into the per-host session
 enumeration path at src/backend/database/routes/sessions.ts:38-129 (GET /sessions/list). That
 handler already opens `connectOneShot` per SSH+autoTmux host and runs `tmux list-sessions`.
 hostId + open SSH conn are already in scope. Read role frontmatter for each session-owning
@@ -282,7 +282,7 @@ of bug the Phase 25 mocked tests missed.
        used to at least attempt a role lookup. To fix: in `rowFromTab`, ALSO check for a
        matching FleetSession by (hostId, sessionName) tuple and prefer its `role` field.
        The lookup is O(N) over `state.fleetSessions` but N is small (~20-30 sessions in
-       Ashley's fleet); acceptable and mirrors the `openTabsSessionKeys` dedup pattern already
+       Alice's fleet); acceptable and mirrors the `openTabsSessionKeys` dedup pattern already
        in computeSnapshot at line 384-391. Concretely: build a `sessionRoleByKey` Map<string,
        string | null> once at the top of `computeSnapshot` keyed on
        `dedupKey(hostIdStr, sessionName)` before the Tier-1/2/3 loops run, then inside
@@ -339,7 +339,7 @@ of bug the Phase 25 mocked tests missed.
       + fake SSH conn path (catches the Phase 25 mocked-tests-passed class of bug).
   </what-built>
   <how-to-verify>
-    Ashley: after committing (do NOT push/build/deploy — per your standing rule, "ship it"
+    Alice: after committing (do NOT push/build/deploy — per your standing rule, "ship it"
     first before any post-commit deploy work), review the diff.
 
     Sanity-check items before you say "ship it":

@@ -22,14 +22,14 @@ dependency_graph:
     - src/ui/shell/IdentitySessionPane.tsx (tabId plumb to IdentityBadge + PrettyView)
     - src/ui/features/pretty-view/PrettyView.tsx (tabId prop + forward to inner IdentityBadge)
     - src/ui/features/pretty-conversations/PrettyConversationsPanel.test.tsx (Tests A-G + H + I)
-    - Downstream: parent bounty `bring-back-split-view` moves to closable state on Ashley UAT
+    - Downstream: parent bounty `bring-back-split-view` moves to closable state on Alice UAT
 tech_stack:
   added: []
   patterns:
     - Panel-level HTML5 drop target with MIME-discriminator type-gate on dragover (preventDefault ONLY when the discriminator MIME is present — non-badge drops fall through preserving browser default not-a-drop-target semantic per T-58-02-06)
     - Six-step validation gauntlet on drop (read raw → try/catch JSON.parse → shape-check tabId string → openTabIds validation guard → preventDefault → structured log → invoke callback)
     - Optional props (onCloseSession + openTabIds default = []) so pre-Phase-58 callers and tests without drop wiring render safely — absent handler + empty allow-list = silent no-op on any drop
-    - Explicit-field structured logging (no JSON.stringify(event)) per fleet directive Ashley 2026-08-11
+    - Explicit-field structured logging (no JSON.stringify(event)) per fleet directive Alice 2026-08-11
     - Assertion-only reconcile verification: the setSplitTree((prev) => removeLeaf(prev, id)) at AppShell.tsx:1498 (PRE-EXISTING code from Phase 56 Plan 02) satisfies PV58-DOCLOSETAB-TREE-RECONCILE without new code — Task 2 grep-asserts the line remains present
 key_files:
   created: []
@@ -226,7 +226,7 @@ All acceptance criteria pass across both tasks. All 9 Phase 58 tests green (7 co
 
 ## What's next
 
-Phase 58 code-complete. Both plans (58-01 badge drag source + 58-02 conv-list drop target + tabId plumb) shipped. Parent bounty `bring-back-split-view` moves to closable state on Ashley UAT:
+Phase 58 code-complete. Both plans (58-01 badge drag source + 58-02 conv-list drop target + tabId plumb) shipped. Parent bounty `bring-back-split-view` moves to closable state on Alice UAT:
 
 1. **Rearrange test** — Drag a badge from Pane A's edge onto Pane B's edge in a multi-session split tree. Confirm the source cell collapses (removeLeaf) and the target cell splits (insertAtEdge). Wire path: Plan 58-01 dragstart writes `text/plain=tabId` → Phase 56 Pane onDrop reads it → `openSessionInTree(tabId, path, edge)` → `removeLeaf` collapses source → `insertAtEdge` plants at target edge.
 2. **Close test** — Drag a badge onto the conv-list. Confirm the session closes and the split tree reconciles (no stale leaf in URL-encoded layout). Wire path: Plan 58-01 dragstart writes `application/x-skynet-badge=JSON.stringify({tabId})` → Plan 58-02 conv-list panel `handlePanelDrop` validates against `openTabIds` → `onCloseSession(tabId)` → AppShell's `closeTab` → `doCloseTab` → `setSplitTree((prev) => removeLeaf(prev, id))` at L1498 automatically reconciles (existing Phase 56 code, unchanged).
@@ -234,7 +234,7 @@ Phase 58 code-complete. Both plans (58-01 badge drag source + 58-02 conv-list dr
 4. **Mobile gate test** — Confirm on mobile viewport the badge is draggable=false (SplitView is desktop-only per AppShell.tsx:2372).
 5. **Structured logging spot-check** — Devtools console filter for `[badge-drag]` (dragstart) + `[convlist-drop]` (close). Both should emit exactly once per gesture with explicit `tabId=<x>` fields.
 
-Post-UAT, orchestrator handles ship (executor scope stops at code + commit + scoped tests green per fleet directive Ashley 2026-08-08). On ship, close bounty `bring-back-split-view` (status → done, archive).
+Post-UAT, orchestrator handles ship (executor scope stops at code + commit + scoped tests green per fleet directive Alice 2026-08-08). On ship, close bounty `bring-back-split-view` (status → done, archive).
 
 ## Self-Check: PASSED
 

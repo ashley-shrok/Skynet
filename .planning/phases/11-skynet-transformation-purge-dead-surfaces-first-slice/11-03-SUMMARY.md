@@ -15,7 +15,7 @@ provides:
   - PrettyConversationsPanel.tsx without the vestigial settingsRowSlot prop (destructure + type + JSX render site all gone; ReactNode import removed since it was the sole consumer)
   - PrettyConversationsPanel.test.tsx with Test 11 (settingsRowSlot mobile position) pruned; 14 tests remain (down from 15) — file-header comment index updated in place; renumbering not performed per Phase 10 Wave 4 precedent
   - Deleted src/ui/sidebar/AppRail.tsx (283 lines) — PURGE-02 delivered
-  - Deleted src/ui/sidebar/SettingsRow.tsx (198 lines) — Ashley's total-not-partial "no settings" lock delivered
+  - Deleted src/ui/sidebar/SettingsRow.tsx (198 lines) — Alice's total-not-partial "no settings" lock delivered
 affects:
   - Plan 04 (phase-boundary gate) — npm run build verification of the final tree happens there per checker W-3 fix; not run per-commit in this plan
   - Phase 12+ dead-panel-file cleanup — the 11 sidebar panel FILES stay on disk (per Section G scope-fence) but are now unreachable from any UI path; ripe for full deletion in a follow-up phase
@@ -80,7 +80,7 @@ commits_landed: 5
 
 ## Accomplishments
 
-**Task 1 — Test 11 pruned.** Deleted the `describe("PrettyConversationsPanel: mobile settings slot position", () => { ... })` block from `PrettyConversationsPanel.test.tsx`. Updated the file-header comment index at line 13 in place: `//  11)  RETIRED — settingsRowSlot prop dropped in Phase 11 (Ashley's "no settings" lock)`. Preserved Tests 12-15 numbering per Phase 10 Wave 4 precedent (no renumber). Test count: 15 → 14. Committed as `b68a821`.
+**Task 1 — Test 11 pruned.** Deleted the `describe("PrettyConversationsPanel: mobile settings slot position", () => { ... })` block from `PrettyConversationsPanel.test.tsx`. Updated the file-header comment index at line 13 in place: `//  11)  RETIRED — settingsRowSlot prop dropped in Phase 11 (Alice's "no settings" lock)`. Preserved Tests 12-15 numbering per Phase 10 Wave 4 precedent (no renumber). Test count: 15 → 14. Committed as `b68a821`.
 
 **Task 2 — AppShell.tsx surgery (heaviest single commit; 386 lines removed, 46 added, net -340).** Landed all of the following in ONE atomic commit:
 - Removed AppRail + RailView type imports (lines 20-21) and 10 sidebar panel imports (HostsPanel, SessionsPanel, QuickConnectPanel, SshToolsPanel, SnippetsPanel, HistoryPanel, SplitScreenPanel, UserProfilePanel, AdminSettingsPanel, CredentialsPanel — lines 22-31) plus ConnectionsPanel (line 59) and SettingsRow (line 83). 13 import lines total.
@@ -110,7 +110,7 @@ Verification: tsc clean, `AppShell.persistence.test.tsx` 4/4 pass, `PrettyConver
 | 1 | b68a821 | `test(pretty-conversations): prune Test 11 (settingsRowSlot mobile position — Phase 11 retires settings surface)` | src/ui/features/pretty-conversations/PrettyConversationsPanel.test.tsx |
 | 2 | cf7fe27 | `refactor(app-shell): strip rail-view state machine + AppRail/SettingsRow mounts + 10 dead panel branches + profileDropdownOpen (Phase 11 PURGE-02, PURGE-03)` | src/ui/AppShell.tsx |
 | 3 | 992bee3 | `refactor(pretty-conversations): drop vestigial settingsRowSlot prop (Phase 11 PURGE-03)` | src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx |
-| 4 | c3c84be | `chore(sidebar): delete retired SettingsRow.tsx (Phase 11 PURGE-03 — Ashley's "no settings" lock)` | src/ui/sidebar/SettingsRow.tsx (DELETED) |
+| 4 | c3c84be | `chore(sidebar): delete retired SettingsRow.tsx (Phase 11 PURGE-03 — Alice's "no settings" lock)` | src/ui/sidebar/SettingsRow.tsx (DELETED) |
 | 5 | c386068 | `chore(sidebar): delete retired AppRail.tsx (Phase 11 PURGE-02)` | src/ui/sidebar/AppRail.tsx (DELETED) |
 
 Five atomic commits — tsc-clean and vitest-green at every commit boundary per Phase 10 Wave 4 precedent.
@@ -124,7 +124,7 @@ Five atomic commits — tsc-clean and vitest-green at every commit boundary per 
 
 **Deleted:**
 - `src/ui/sidebar/AppRail.tsx` — 283 lines. PURGE-02 delivered.
-- `src/ui/sidebar/SettingsRow.tsx` — 198 lines. Ashley's "no settings" lock delivered.
+- `src/ui/sidebar/SettingsRow.tsx` — 198 lines. Alice's "no settings" lock delivered.
 
 **Created:**
 - `.planning/phases/11-skynet-transformation-purge-dead-skynet-surfaces-first-slice/11-03-SUMMARY.md` (this file)
@@ -208,7 +208,7 @@ See frontmatter `key-decisions`. Highlights:
 ## Success Criteria (from PLAN.md)
 
 - ✓ The AppRail component file `src/ui/sidebar/AppRail.tsx` no longer exists on disk (PURGE-02)
-- ✓ The SettingsRow component file `src/ui/sidebar/SettingsRow.tsx` no longer exists on disk (Ashley's "no settings" lock)
+- ✓ The SettingsRow component file `src/ui/sidebar/SettingsRow.tsx` no longer exists on disk (Alice's "no settings" lock)
 - ✓ Zero imports of `@/sidebar/AppRail` or `@/sidebar/SettingsRow` remain anywhere under `src/` (PURGE-02)
 - ✓ The rail-view state machine in `AppShell.tsx` (railView, handleRailClick, sidebarTitle Record, RailView type, profileDropdownOpen, editHostInManager) is fully removed (PURGE-03)
 - ✓ No visible UI navigation path exists from the pretty-conversations sidebar to the Skynet dashboard, host manager, snippets manager, admin console, or any settings surface (PURGE-03)

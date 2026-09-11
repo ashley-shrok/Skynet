@@ -85,8 +85,8 @@ return (
 isUser
   ? cn(
       // User bubble = mock's original assistant treatment
-      // (translucent mid-blue-gray gradient over the depth). Ashley
-      // is always Ashley, no per-pane variation.
+      // (translucent mid-blue-gray gradient over the depth). Alice
+      // is always Alice, no per-pane variation.
       "bg-[linear-gradient(160deg,rgba(45,55,80,0.55),rgba(28,35,55,0.6))]",
       "text-[#dfe3ee]",
       "border-[rgba(120,140,180,0.2)]",
@@ -798,7 +798,7 @@ export async function sendMessageAsUser(
 }
 ```
 
-**CRITICAL (Pitfall 3 from RESEARCH.md):** DO NOT reuse `creds.accessToken` for the PUT — the resulting Matrix event would appear as `@skynet-admin: hello` instead of `@ashley_human: hello`. The `loginAsUser` mint is what makes the message read as the human user.
+**CRITICAL (Pitfall 3 from RESEARCH.md):** DO NOT reuse `creds.accessToken` for the PUT — the resulting Matrix event would appear as `@skynet-admin: hello` instead of `@alice_human: hello`. The `loginAsUser` mint is what makes the message read as the human user.
 
 ---
 
@@ -871,7 +871,7 @@ location ^~ /relay-room/websocket/ {
 
 ### 2. Structured logging at boundaries — explicit fields, NEVER `JSON.stringify(event)`
 
-**Source:** Fleet-wide directive Ashley 2026-08-11 (also enforced by `IdentitySessionPane.tsx` L109-118 mount log + L121-128 edge log).
+**Source:** Fleet-wide directive Alice 2026-08-11 (also enforced by `IdentitySessionPane.tsx` L109-118 mount log + L121-128 edge log).
 **Apply to:** every new WS connect/disconnect/frame-in/frame-out, every send-path outcome, every observation loop touch.
 **Pattern:**
 ```typescript

@@ -265,7 +265,7 @@ Removes: `opts?: { historyWindow?: number }` param, the 13-line JSDoc comment L1
 
 ### 9. `src/ui/features/pretty-view/PrettyView.tsx` — three-part surgery
 
-**Nature of change:** (a) delete Phase 43 CLIENT PATHS for fetch_older + historyWindow (backend no longer supports either); (b) KEEP client-side drop-oldest cap on hydration + live-append (Ashley's UAT decision explicitly moves the windowing to client-side); (c) add `paddingBottom: 9` to the bubble wrapper.
+**Nature of change:** (a) delete Phase 43 CLIENT PATHS for fetch_older + historyWindow (backend no longer supports either); (b) KEEP client-side drop-oldest cap on hydration + live-append (Alice's UAT decision explicitly moves the windowing to client-side); (c) add `paddingBottom: 9` to the bubble wrapper.
 
 ---
 
@@ -287,13 +287,13 @@ Removes: `opts?: { historyWindow?: number }` param, the 13-line JSDoc comment L1
 (preserve `ClaudeSessionServerEvent` + `ConnectToPanePayload`, which are unrelated to fetch_older).
 
 **Delete block 2** — planner-locked constants that are no longer used (current L102-113):
-- KEEP `INITIAL_WINDOW = 50` and `WORKING_SET_CAP = 150` — these MOVE from "server-cap + client-cap" semantics to "client-cap only" semantics. Rename or repurpose them: Ashley's CONTEXT says "keep the cap Phase 43 shipped as." Planner's discretion which const name survives — recommendation: keep `WORKING_SET_CAP = 150` for the sustained cap and rename `INITIAL_WINDOW` → dropped (or keep as a documented alias if the planner sees value; recommendation: drop it since the concept "how many the server sends" is gone).
+- KEEP `INITIAL_WINDOW = 50` and `WORKING_SET_CAP = 150` — these MOVE from "server-cap + client-cap" semantics to "client-cap only" semantics. Rename or repurpose them: Alice's CONTEXT says "keep the cap Phase 43 shipped as." Planner's discretion which const name survives — recommendation: keep `WORKING_SET_CAP = 150` for the sustained cap and rename `INITIAL_WINDOW` → dropped (or keep as a documented alias if the planner sees value; recommendation: drop it since the concept "how many the server sends" is gone).
 - DELETE `REFETCH_BATCH_SIZE = 50` (fetch_older gone).
 - DELETE `NEAR_TOP_TRIGGER_PX = 500` (near-top scroll listener gone).
 - DELETE `LOAD_OLDER_DEBOUNCE_MS = 250` (debounce for the deleted listener).
 - DELETE `LOADING_HINT_THRESHOLD_MS = 150` (loading hint gone).
 
-Also update the multi-line const-block header comment L94-107 to remove references to fetch_older / server-cap semantics and describe the new "client-side cap on all messages" reality. The comment currently says: *"INITIAL_WINDOW ... backend caps tail -F to -n INITIAL_WINDOW"* — that comment is now a lie post-revert. Rewrite to reflect the new architecture (see Ashley's verbatim quote in CONTEXT `<decisions>` § "Client architecture": *"the client keeps only the last N"*).
+Also update the multi-line const-block header comment L94-107 to remove references to fetch_older / server-cap semantics and describe the new "client-side cap on all messages" reality. The comment currently says: *"INITIAL_WINDOW ... backend caps tail -F to -n INITIAL_WINDOW"* — that comment is now a lie post-revert. Rewrite to reflect the new architecture (see Alice's verbatim quote in CONTEXT `<decisions>` § "Client architecture": *"the client keeps only the last N"*).
 
 **Delete block 3** — refs + state for fetch_older (current L783-802):
 ```typescript
@@ -360,19 +360,19 @@ Also update the comment block above (L2430-2436) that explains the composed-ref 
 
 **Part (b) — KEEP client-side drop-oldest cap:**
 
-**Preserve** `appendDedupWithCap<T>` helper at L221-238 (18 lines including comment block). It correctly implements Ashley's UAT-locked pattern: *"as messages arrive on the WS during initial hydration, `setMessages(prev => prev.length >= CAP ? [...prev.slice(1), next] : [...prev, next])`"* — modulo the dedup-by-eventId gate, which the current implementation adds and is desirable.
+**Preserve** `appendDedupWithCap<T>` helper at L221-238 (18 lines including comment block). It correctly implements Alice's UAT-locked pattern: *"as messages arrive on the WS during initial hydration, `setMessages(prev => prev.length >= CAP ? [...prev.slice(1), next] : [...prev, next])`"* — modulo the dedup-by-eventId gate, which the current implementation adds and is desirable.
 
-**Preserve** all 5 live-append call sites (L1354, L1374, L1380, L1386, L1393) — they already call `appendDedupWithCap(prev, parsed, WORKING_SET_CAP)`. This is EXACTLY the pattern Ashley wants: the cap enforces during hydration (as the server dumps its full-file emission the client drops-oldest as it grows past 150) AND continues to enforce during live-tail. The line quoted in CONTEXT `<specifics>` — *"once initial hydration completes (server signals done, or after N ms of silence), the cap can either stay (bound memory) or lift"* — points at planner's discretion; the recommendation there is "keep the cap enforced always" which matches exactly what the current code does.
+**Preserve** all 5 live-append call sites (L1354, L1374, L1380, L1386, L1393) — they already call `appendDedupWithCap(prev, parsed, WORKING_SET_CAP)`. This is EXACTLY the pattern Alice wants: the cap enforces during hydration (as the server dumps its full-file emission the client drops-oldest as it grows past 150) AND continues to enforce during live-tail. The line quoted in CONTEXT `<specifics>` — *"once initial hydration completes (server signals done, or after N ms of silence), the cap can either stay (bound memory) or lift"* — points at planner's discretion; the recommendation there is "keep the cap enforced always" which matches exactly what the current code does.
 
-**Rationale to keep vs rebuild:** the current implementation ALREADY does what Ashley wants for the client-side cap. The Phase 43 mistake was pairing the client-side cap with a SERVER-side cap that starved observations. Removing the server-side cap (blocks 4/7 above) leaves the client-side cap doing the correct thing, byte-for-byte. No rebuild needed; the drop-oldest logic survives because the surgery targets are `historyWindow` and `fetch_older`, not `appendDedupWithCap`.
+**Rationale to keep vs rebuild:** the current implementation ALREADY does what Alice wants for the client-side cap. The Phase 43 mistake was pairing the client-side cap with a SERVER-side cap that starved observations. Removing the server-side cap (blocks 4/7 above) leaves the client-side cap doing the correct thing, byte-for-byte. No rebuild needed; the drop-oldest logic survives because the surgery targets are `historyWindow` and `fetch_older`, not `appendDedupWithCap`.
 
 **Preserve** the unused `appendDedup` helper at L213-219 alongside `appendDedupWithCap` — it's a 6-line documented pair per plan 43-07b `key-decisions`. Deleting it is scope-creep for Phase 45; the "no `while I'm in here` improvements" fence explicitly disallows.
 
 ---
 
-**Part (c) — ADD `paddingBottom: 9` to bubble wrapper (Ashley LOCKED value):**
+**Part (c) — ADD `paddingBottom: 9` to bubble wrapper (Alice LOCKED value):**
 
-**Analog for the exact wrapper shape + padding style:** `git show 5bc24f49~1:src/ui/features/pretty-view/PrettyView.tsx` L2380-2405 (pre-plain-DOM conversion). The pre-43-07a virtualized-item wrapper had `paddingBottom: 9` inline (L2402). The plain-DOM conversion in 43-07a dropped it — Ashley's UAT identified this as the second bug.
+**Analog for the exact wrapper shape + padding style:** `git show 5bc24f49~1:src/ui/features/pretty-view/PrettyView.tsx` L2380-2405 (pre-plain-DOM conversion). The pre-43-07a virtualized-item wrapper had `paddingBottom: 9` inline (L2402). The plain-DOM conversion in 43-07a dropped it — Alice's UAT identified this as the second bug.
 
 **Pre-P43 wrapper style (excerpt from `5bc24f49~1` L2381-2405):**
 ```typescript
@@ -407,7 +407,7 @@ The `paddingBottom: 9` here is the source of truth for the value.
             >
 ```
 
-**Change:** add `style={{ paddingBottom: 9 }}` prop on the `<div>`. Ashley's exact locked value + medium (padding, not margin — she called it out explicitly). Insertion point: line 2481 area. Result shape:
+**Change:** add `style={{ paddingBottom: 9 }}` prop on the `<div>`. Alice's exact locked value + medium (padding, not margin — she called it out explicitly). Insertion point: line 2481 area. Result shape:
 ```tsx
           {messages.map((m) => (
             <div
@@ -418,7 +418,7 @@ The `paddingBottom: 9` here is the source of truth for the value.
             >
 ```
 
-**Do NOT re-derive the number.** Ashley locked 9 with a verbatim quote (CONTEXT.md `<domain>`): *"the margin between the message bubbles before was nine pixels ... so that we didn't have to try to re-derive a good looking version of that."* Ship exactly 9.
+**Do NOT re-derive the number.** Alice locked 9 with a verbatim quote (CONTEXT.md `<domain>`): *"the margin between the message bubbles before was nine pixels ... so that we didn't have to try to re-derive a good looking version of that."* Ship exactly 9.
 
 ---
 
@@ -492,7 +492,7 @@ export function preprocessCommandTriplets(text: string): string {
 
 **Workflow the plan MUST follow (per CONTEXT `<decisions>` § "Bug #3"):**
 1. Bugs #1 + #2 land in dev (or on the current dev container) FIRST.
-2. Ashley re-triggers a send. Fresh minified stack lands in browser console.
+2. Alice re-triggers a send. Fresh minified stack lands in browser console.
 3. Read the fresh stack line; un-minify against the current dev build's source map (source-map-explorer OR direct inspection of the `AppShell-*.js.map` shipped alongside the dev build).
 4. Confirm which of the 3 candidate sites is the actual thrower.
 5. Add ONE targeted guard on that ONE site — do NOT sweep and guard all 25 `.replace()` sites (violates the no-defensive-code-for-scenarios-that-can't-happen rule, called out in CONTEXT `<deferred>`).
@@ -533,7 +533,7 @@ export function preprocessCommandTriplets(text: string): string {
 
 **Source:** current `PrettyView.tsx` — `appendDedupWithCap<T>` at L221-238 + all 5 live-append call sites using it.
 
-**Apply to:** § 9 Part (b). The instinct with a "fix-forward" phase is to rewrite everything the buggy phase touched. But Ashley's decision moved the CAP AUTHORITY from server to client — and the client already implements the cap correctly. The bug is the SERVER cap starving observations. Delete the SERVER-side pieces; the CLIENT-side pieces already do exactly what Ashley wants.
+**Apply to:** § 9 Part (b). The instinct with a "fix-forward" phase is to rewrite everything the buggy phase touched. But Alice's decision moved the CAP AUTHORITY from server to client — and the client already implements the cap correctly. The bug is the SERVER cap starving observations. Delete the SERVER-side pieces; the CLIENT-side pieces already do exactly what Alice wants.
 
 ### One-shot backend-write-then-frontend-consume pattern is the SIBLING of what's deleted
 
@@ -549,9 +549,9 @@ export function preprocessCommandTriplets(text: string): string {
 
 ### 9px value is PROJECT-CONSTANT, not planner-derived
 
-**Source:** Ashley's verbatim quote in CONTEXT `<domain>` — *"the margin between the message bubbles before was nine pixels ... so that we didn't have to try to re-derive a good looking version of that."* + evidence at `git show 5bc24f49~1:src/ui/features/pretty-view/PrettyView.tsx` L2402.
+**Source:** Alice's verbatim quote in CONTEXT `<domain>` — *"the margin between the message bubbles before was nine pixels ... so that we didn't have to try to re-derive a good looking version of that."* + evidence at `git show 5bc24f49~1:src/ui/features/pretty-view/PrettyView.tsx` L2402.
 
-**Apply to:** § 9 Part (c). Ship `paddingBottom: 9` verbatim. Do not run visual-QA to "confirm" a different value looks fine. Do not use `margin` (Ashley called out padding explicitly). Do not use CSS classes (inline was the pre-existing shape).
+**Apply to:** § 9 Part (c). Ship `paddingBottom: 9` verbatim. Do not run visual-QA to "confirm" a different value looks fine. Do not use `margin` (Alice called out padding explicitly). Do not use CSS classes (inline was the pre-existing shape).
 
 ### Bug #3 = investigate-first, guard-second, no speculation
 
@@ -596,7 +596,7 @@ None. Every file in Phase 45 has a strong analog:
 1. Every backend revert region has a byte-shape target visible via `git show <commit>~1:<path>` — plans can reference the exact pre-P43 shape rather than describe it narratively.
 2. Phase-43-born whole files (`session-file-range.ts`, `session-file-range.test.ts`, `claude-session-server.fetch-older.test.ts`, `claude-session-server.history-window.test.ts`, `claude-session-api.test.ts`) get whole-file deletion — cleaner than surgical.
 3. Client-side drop-oldest cap in `PrettyView.tsx` is ALREADY correct (`appendDedupWithCap` + 5 live-append sites). Phase 45 surgery there is DELETION of the fetch_older client + historyWindow opt-in + loading hint; the cap stays.
-4. `paddingBottom: 9` value is PROJECT-CONSTANT (Ashley verbatim); planner must ship exactly 9 as inline padding, not margin, not a class.
+4. `paddingBottom: 9` value is PROJECT-CONSTANT (Alice verbatim); planner must ship exactly 9 as inline padding, not margin, not a class.
 5. Bug #3 is a two-step plan (repro → targeted guard); planner must NOT collapse it into a single "add 3 speculative guards" plan.
 6. Observation channel is zero-touch — the tail command reverts to `-n +1` (feeding the observation channel the whole file); every downstream derivation (layer1-detect, context-pct, plan-pending, backgroundedAgents/Shells, id-reset) continues to receive every line unchanged.
 7. `PrettyView.plain-dom.test.tsx` is the intact sibling analog for the replacement test infrastructure — proven WS-stub + polyfill patterns for the plain-DOM path.

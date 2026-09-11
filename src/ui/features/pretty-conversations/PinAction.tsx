@@ -19,12 +19,12 @@
 // the hue-glow pip on pinned rows. The `.pv-row:not(.pinned) .pv-meta .pv-pin`
 // rule in the CSS continues to hide unpinned rows' pins unaffected.
 //
-// Visuals lifted verbatim from the Ashley-signed-off prototype:
+// Visuals lifted verbatim from the user-signed-off prototype:
 //   - prototype.html lines 333-337 — bare-icon-with-hue-drop-shadow treatment
 //     (`.meta .pin { color: hsla(var(--hue), 80%, 70%, 0.95);
 //     filter: drop-shadow(0 0 4px hsla(var(--hue), 80%, 60%, 0.55)); }`).
 //     Phase 13 Plan 03 (SHAPE-03) established the treatment for desktop;
-//     Phase 14B extends it to mobile per Ashley 2026-07-24.
+//     Phase 14B extends it to mobile per Alice 2026-07-24.
 //
 // Opacity / visibility is CSS-driven:
 //   - Desktop: `.pv-row.pv-row--desktop:not(.pinned):not(:hover):not(:focus-within)

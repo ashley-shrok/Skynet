@@ -7,7 +7,7 @@
 **Phase:** 80-id-skill-revamp-phase-a-skynet-frontend-and-backend-for-pool
 **Areas discussed:** Pool storage mechanism, Task pill visual family (chat surface), Conversation-list row subtitle typography
 
-**Preamble:** CONTEXT.md was seeded from the pre-existing shape file (`~/.claude/roles/box-maintainer/bounties/id-skill-revamp/shape-id-skill-revamp.md`) per `/build` skill convention — the shape had already been produced by `/open` with full grill pass and greenlit by Ashley 2026-09-06. Discuss-phase focused exclusively on the small set of gray areas the shape explicitly deferred to phase-time. The shape itself is the primary canonical ref; every other scope decision traces to it.
+**Preamble:** CONTEXT.md was seeded from the pre-existing shape file (`~/.claude/roles/box-maintainer/bounties/id-skill-revamp/shape-id-skill-revamp.md`) per `/build` skill convention — the shape had already been produced by `/open` with full grill pass and greenlit by Alice 2026-09-06. Discuss-phase focused exclusively on the small set of gray areas the shape explicitly deferred to phase-time. The shape itself is the primary canonical ref; every other scope decision traces to it.
 
 ---
 
@@ -20,7 +20,7 @@
 | (c) Config value from a backend config file (e.g., branding-config) | Loaded from config layer the branding-config phase already touches. | |
 
 **User's choice:** (a) JSON file in the repo.
-**Notes:** Ashley: "leaning A for number one."
+**Notes:** Alice: "leaning A for number one."
 
 ---
 
@@ -32,7 +32,7 @@
 | (b) Neutral pv-cream text on subtle pv-glass background, agnostic of colorHue | Pill is its own thing, purely typographic — "the task itself, sitting apart from any specific identity's decoration." | |
 
 **User's choice:** (a) Same glass treatment as identity badge, hue-tinted from colorHue.
-**Notes:** Ashley: "A for number two." Agent had leaned toward (b) in the pitch (arguing task-primary under the reframing suggests role-cosmetics recede); Ashley overrode toward (a) — cohesion with the badge wins. Locked as D-02.
+**Notes:** Alice: "A for number two." Agent had leaned toward (b) in the pitch (arguing task-primary under the reframing suggests role-cosmetics recede); Alice overrode toward (a) — cohesion with the badge wins. Locked as D-02.
 
 ---
 
@@ -45,7 +45,7 @@
 | (c) Both — smaller AND dimmer | | |
 
 **User's choice:** Not an open question — top line just adopts current top-line behavior. Locked as D-03.
-**Notes:** Ashley: "number three is not an open question, because we're just reusing how the top line behaves currently." Interpreted as: the visual treatment of the new task-primary top line inherits the current top-line typography verbatim (which previously carried the identity name), and the new subtitle inherits the current subtitle typography. No new typographic vocabulary invented. Any pixel-level tuning discovered during implementation surfaces as an executor decision, not a planning question.
+**Notes:** Alice: "number three is not an open question, because we're just reusing how the top line behaves currently." Interpreted as: the visual treatment of the new task-primary top line inherits the current top-line typography verbatim (which previously carried the identity name), and the new subtitle inherits the current subtitle typography. No new typographic vocabulary invented. Any pixel-level tuning discovered during implementation surfaces as an executor decision, not a planning question.
 
 ---
 

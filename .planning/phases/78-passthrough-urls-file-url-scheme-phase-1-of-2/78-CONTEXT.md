@@ -43,7 +43,7 @@ This is the file half of the two-phase shape `shape-skynet-passthrough-urls.md`.
 **Downstream agents MUST read these before planning or implementing.**
 
 ### Shape + R&D
-- `.planning/shapes/shape-skynet-passthrough-urls.md` — the two-phase shape agreed with Ashley 2026-09-05. Governs philosophy (agents-aren't-lied-to, Skynet-as-delivery-surface, no-writes-from-Skynet), scope edges, failure modes. Applies to both phase 75 (file) and the phase-2 serve URL work.
+- `.planning/shapes/shape-skynet-passthrough-urls.md` — the two-phase shape agreed with Alice 2026-09-05. Governs philosophy (agents-aren't-lied-to, Skynet-as-delivery-surface, no-writes-from-Skynet), scope edges, failure modes. Applies to both phase 75 (file) and the phase-2 serve URL work.
 - `~/.claude/roles/box-maintainer/bounties/skynet-passthrough-urls-rd/findings-summary.md` — R&D findings. Confirms SSH machinery reuse; documents the file-URL Phase 40 stack; lists gotchas relevant to phase 2 (mostly serve-URL concerns, but WS-compression gotcha context is worth reading).
 
 ### Phase 40 infrastructure (REUSE — do not fork)
@@ -99,7 +99,7 @@ This is the file half of the two-phase shape `shape-skynet-passthrough-urls.md`.
 <specifics>
 ## Specific Ideas
 
-- URL grammar reads like GitHub file URLs (`github.com/owner/repo/blob/main/src/foo.ts`) — same "literal path segments" feel Ashley reaches for naturally.
+- URL grammar reads like GitHub file URLs (`github.com/owner/repo/blob/main/src/foo.ts`) — same "literal path segments" feel Alice reaches for naturally.
 - The affordance renders EXACTLY like the tailnet-URL affordance already renders today — click → modal → view/edit → save-to-compose. No new visual affordance to design.
 - Error surfaces in the modal read like human speech: "Host unreachable," "File not found: `<path>`," "Permission denied on `<host>`" — not stack traces or HTTP status codes.
 

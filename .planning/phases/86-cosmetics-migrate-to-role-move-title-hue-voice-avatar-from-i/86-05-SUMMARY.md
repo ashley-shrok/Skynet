@@ -19,7 +19,7 @@ dependency_graph:
     - "Dirty predicate + inherit detection read committed* state (not identity prop) so save-with-revert flips visual state before parent's identity prop re-renders"
   affects:
     - "Wave 3 Plan 86-06 (IdentityModal tests realignment — new inherit/override test file may inform test-scaffolding shape for adjacent IdentityModal tests)"
-    - "Future role-cosmetic-edit modal bounty (deferred per Ashley 2026-09-07) — same inherit/override affordance patterns can be reused for cross-role cosmetic authoring"
+    - "Future role-cosmetic-edit modal bounty (deferred per Alice 2026-09-07) — same inherit/override affordance patterns can be reused for cross-role cosmetic authoring"
 tech_stack:
   added: []
   patterns:

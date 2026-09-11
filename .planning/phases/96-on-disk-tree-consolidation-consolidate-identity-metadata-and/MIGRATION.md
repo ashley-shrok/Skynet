@@ -6,7 +6,7 @@ runbook, all identity metadata and working directories will be consolidated unde
 `~/fleet/`, and the old scatter of `~/.claude/identities/`, `~/.claude/roles/`,
 and `~/skynet-<name>/` folders will be removed.
 
-**Applies to:** t1000 (Ashley / tanya box-maintainer), T800 (Stacy), and any
+**Applies to:** t1000 (Alice / tanya box-maintainer), T800 (Stacy), and any
 future box running Skynet or AI+.
 
 **Prerequisite:** The campaign ship is live — Shapes 1–4 commits are on

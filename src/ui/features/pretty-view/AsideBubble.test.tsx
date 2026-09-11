@@ -13,7 +13,7 @@
  *   - Three-layer neon glow: 12/32/64px, alphas 0.7 / 0.5 / 0.3.
  *   - Prop-driven `glow` multiplier (default 1.0) and `borderWidthPx`
  *     (default 10) so future dial-back is one prop change (per PATTERNS.md
- *     L62-77 and the aside-visual-snippet.js DevTools prototype Ashley
+ *     L62-77 and the aside-visual-snippet.js DevTools prototype Alice
  *     signed off on).
  *
  * These tests are the RED gate for Task 1 — they MUST fail before

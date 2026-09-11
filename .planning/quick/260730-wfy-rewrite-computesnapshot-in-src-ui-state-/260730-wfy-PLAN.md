@@ -122,7 +122,7 @@ Output: Modified `conversation-store.ts` (sort logic + header comment) and modif
 <success_criteria>
 - All three tasks' `<done>` criteria met.
 - All five commands in the Task 3 verification block exit 0.
-- Vitest summary counts (X passed / Y failed / Z skipped) reported verbatim, matching Ashley's L508 lesson.
+- Vitest summary counts (X passed / Y failed / Z skipped) reported verbatim, matching Alice's L508 lesson.
 - No push, no docker image rebuild beyond the local `npm run build` verification step, no container recreate, no edits under `~/.claude/identities/tina/**`, no edits to `skynet-patches.md`.
 </success_criteria>
 

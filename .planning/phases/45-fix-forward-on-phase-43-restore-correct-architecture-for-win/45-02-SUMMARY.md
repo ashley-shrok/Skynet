@@ -170,9 +170,9 @@ None. This plan removes trust-boundary surface area (client-controlled query-str
 
 - **Plan 45-03 is unblocked.** With Plan 45-01 (backend revert) and Plan 45-02 (frontend wire-type cleanup) both landed on `feat/tab-title-from-tmux`, Plan 45-03 can now:
   1. Delete the fetch_older client from `src/ui/features/pretty-view/PrettyView.tsx` (imports at L9-13, `fireFetchOlder` at L829/834, `openClaudeSessionSocket({historyWindow:INITIAL_WINDOW})` opt-in at L1247, `case "fetch_older_batch":` at L1401-1442, loading-hint mount ~L2449-2466, near-top-scroll listener, refs, constants — all per PATTERNS.md § 9 Part (a)).
-  2. Add `paddingBottom: 9` inline style to the bubble wrapper at PrettyView.tsx:2481 (PATTERNS.md § 9 Part (c), Ashley LOCKED value).
+  2. Add `paddingBottom: 9` inline style to the bubble wrapper at PrettyView.tsx:2481 (PATTERNS.md § 9 Part (c), Alice LOCKED value).
   3. Delete-and-recreate `src/ui/features/pretty-view/PrettyView.windowed-pagination.test.tsx` (PATTERNS.md § 10 — the 6 `.skip`-ed tests + the 5 currently-passing tests all go away with the file; new test file locks the client-side hydration cap, replaces Test 1's historyWindow URL assertion with a "no query string" assertion, keeps Test 10 + Test 11 as regression carry-overs).
 - **Frontend compile cleanliness:** Plan 45-03 acceptance MUST include `npx tsc -b --noEmit --force 2>&1 | grep -E 'PrettyView.tsx' | wc -l` returning at most 3 (the pre-existing baseline: L1396 `fetch_older_batch` case-not-comparable, L1491/L1493 `wakingSince`). Any residual PrettyView.tsx errors above baseline indicate incomplete fetch_older client cleanup.
 - **Sibling canaries preserved for 45-03 to reference:**
   - `countIdentityBounties` at `src/ui/api/claude-session-api.ts:871` (byte-for-byte from pre-P43).
-  - `appendDedupWithCap` and its 5 live-append call sites in `PrettyView.tsx` (per PATTERNS.md § 9 Part (b), preserved as-is — the drop-oldest cap logic is exactly what Ashley wants and does NOT need rebuilding in 45-03).
+  - `appendDedupWithCap` and its 5 live-append call sites in `PrettyView.tsx` (per PATTERNS.md § 9 Part (b), preserved as-is — the drop-oldest cap logic is exactly what Alice wants and does NOT need rebuilding in 45-03).

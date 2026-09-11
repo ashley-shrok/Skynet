@@ -215,7 +215,7 @@ export async function rewriteRegistryFromCurrentState(): Promise<
     }
 
     // Step 3: build the humans map from the users table. Per revision
-    // blocker B-4: users.username is already lowercase for prod (ashley,
+    // blocker B-4: users.username is already lowercase for prod (alice,
     // zoey). A defensive .toLowerCase() would be harmless but is not
     // required.
     const userRows = (await db

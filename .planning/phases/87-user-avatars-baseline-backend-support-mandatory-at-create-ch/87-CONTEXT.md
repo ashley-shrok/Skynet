@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-09-07
 **Status:** Ready for planning
-**Source:** In-session `/build user avatars` → `/open` discussion with Ashley (greenlit `thumbs up` 2026-09-07). Shape file at `.planning/shapes/shape-user-avatars.md` — this CONTEXT.md is seeded FROM the shape per build-skill convention; the shape file remains the design contract, this file adds implementation-locked decisions and codebase context for downstream agents.
+**Source:** In-session `/build user avatars` → `/open` discussion with Alice (greenlit `thumbs up` 2026-09-07). Shape file at `.planning/shapes/shape-user-avatars.md` — this CONTEXT.md is seeded FROM the shape per build-skill convention; the shape file remains the design contract, this file adds implementation-locked decisions and codebase context for downstream agents.
 
 <domain>
 ## Phase Boundary
@@ -154,17 +154,17 @@ Frontend consumption — where avatars actually appear in the UI, and any self-s
 <specifics>
 ## Specific Ideas
 
-- **"Boring standard"** (Ashley's phrase during /open discussion, verbatim: *"we are not doing anything crazy with these. you know this is about as standard as i think you can get for wanting avatar support for an app um so unless you can think of a reason to do otherwise i would ask what the standard go-to way would be for doing this and then we probably just go with that"*). The design shape traces to the standard web-app go-to convention. No invention.
-- **Mandatoriness requirement** (Ashley verbatim: *"i want avatars to be mandatory. But if wanting them to be mandatory poses issues, then I'm willing to drop it"*). She was willing to give it up if it forced ugly infrastructure (pending states, ticket flows). It did NOT — the hybrid single-call-mandatory-create + separate-change-endpoint pattern satisfies mandatoriness cheaply. Mandatoriness stays.
-- **Skynet-server-side disk, not managed-host disk** (Ashley verbatim: *"just to be clear, they would go on the machine that Skynet is running on, if they're going to go on disk, and not on hosts registered in Skynet"*). Explicitly captured because "disk" in a fleet-manager context is ambiguous.
+- **"Boring standard"** (Alice's phrase during /open discussion, verbatim: *"we are not doing anything crazy with these. you know this is about as standard as i think you can get for wanting avatar support for an app um so unless you can think of a reason to do otherwise i would ask what the standard go-to way would be for doing this and then we probably just go with that"*). The design shape traces to the standard web-app go-to convention. No invention.
+- **Mandatoriness requirement** (Alice verbatim: *"i want avatars to be mandatory. But if wanting them to be mandatory poses issues, then I'm willing to drop it"*). She was willing to give it up if it forced ugly infrastructure (pending states, ticket flows). It did NOT — the hybrid single-call-mandatory-create + separate-change-endpoint pattern satisfies mandatoriness cheaply. Mandatoriness stays.
+- **Skynet-server-side disk, not managed-host disk** (Alice verbatim: *"just to be clear, they would go on the machine that Skynet is running on, if they're going to go on disk, and not on hosts registered in Skynet"*). Explicitly captured because "disk" in a fleet-manager context is ambiguous.
 
 </specifics>
 
 <deferred>
 ## Deferred Ideas
 
-- **Frontend rendering of user avatars.** The whole point of building this plumbing now is so a downstream frontend build can consume it — but that IS a downstream build, not part of this phase. Ashley's phrasing during /open: *"because they're going to start getting used in some of the front end changes that aren't part of this build."*
-- **Self-serve avatar-change UI** (modal, form, drag-drop, upload picker, etc.). The backend endpoint (D-10) exists as of this phase but nothing invokes it from the UI. Ashley's phrasing: *"I know it would be tempting to add somewhere that it shows up right from the get go on the front end, and possibly UI affordances for changing avatars, but we are not going to do those things right now."*
+- **Frontend rendering of user avatars.** The whole point of building this plumbing now is so a downstream frontend build can consume it — but that IS a downstream build, not part of this phase. Alice's phrasing during /open: *"because they're going to start getting used in some of the front end changes that aren't part of this build."*
+- **Self-serve avatar-change UI** (modal, form, drag-drop, upload picker, etc.). The backend endpoint (D-10) exists as of this phase but nothing invokes it from the UI. Alice's phrasing: *"I know it would be tempting to add somewhere that it shows up right from the get go on the front end, and possibly UI affordances for changing avatars, but we are not going to do those things right now."*
 - **Backfill for existing users.** Users that exist today keep null avatar pointers until the future frontend/self-serve flow gives them one. No migration script this phase.
 - **Image transforms.** No resize, crop, thumbnail generation, color correction, EXIF-strip, etc. Bytes are stored as received (after format+size validation).
 - **Content moderation.** No policy check on avatar content. Trust the admin / trust the users.

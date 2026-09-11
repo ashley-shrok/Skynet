@@ -17,7 +17,7 @@ key_files:
 decisions:
   - "No new imports needed — selectConversationDeferred was already imported at AppShell.tsx:59 alongside the other conversation-store exports"
   - "No new tests — bug lived entirely outside test coverage (URL routing + persisted-tab restore paths, neither mocked in AppShell test harness); fix is symmetric with existing tested click-handler pattern"
-  - "Deploy deferred: batched with patch #146 (log-forwarder prototype) per Ashley 2026-07-23 batching rule"
+  - "Deploy deferred: batched with patch #146 (log-forwarder prototype) per Alice 2026-07-23 batching rule"
 metrics:
   duration: "~5 min"
   completed: "2026-07-24"

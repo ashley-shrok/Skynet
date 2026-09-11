@@ -1,9 +1,9 @@
 // ─── PrettyConversationRow — task-primary body swap coverage ─────────────────
-// Phase 80 Plan 08 (Ashley 2026-09-06 shape-locked) — the `.pv-body` markup is
+// Phase 80 Plan 08 (Alice 2026-09-06 shape-locked) — the `.pv-body` markup is
 // now a gated ternary on `identity?.task`. When truthy → task-primary display:
 // top line = identity.task alone (reuses .pv-label), subtitle = role prominent
 // via <strong> + (displayName) muted via existing .pv-hostname-suffix class.
-// The aiTitle drops entirely from the task-primary branch (Ashley greenlit the
+// The aiTitle drops entirely from the task-primary branch (Alice greenlit the
 // drop per 80-CONTEXT specifics §last bullet — "do NOT quietly preserve it").
 //
 // When identity?.task is null OR empty string → fallback branch preserves the

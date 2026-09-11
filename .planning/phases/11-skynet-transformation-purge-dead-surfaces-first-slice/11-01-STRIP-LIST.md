@@ -68,7 +68,7 @@ Enumerate the exact code sites Plan 02 modifies:
 
 ## Section C: SettingsRow deletion targets (Plan 03 input)
 
-Ashley 2026-07-23 lock: *"we are not having settings at all — this is total, not partial"* means SettingsRow MUST die with AppRail.
+Alice 2026-07-23 lock: *"we are not having settings at all — this is total, not partial"* means SettingsRow MUST die with AppRail.
 
 1. **File to delete: `src/ui/sidebar/SettingsRow.tsx`** (198 lines). Verified no test file exists at `src/ui/sidebar/SettingsRow.test.tsx`:
    ```

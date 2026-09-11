@@ -2,7 +2,7 @@
 phase: quick-260817-qfg-retire-activeset-zone-pinned-header
 plan: 01
 subsystem: pretty-conversations
-tags: [phase-42-uat-amendment, active-set-retirement, pinned-divider-retirement, ashley-verbatim-2026-08-17]
+tags: [phase-42-uat-amendment, active-set-retirement, pinned-divider-retirement, user-verbatim-2026-08-17]
 requires:
   - Phase 42 shipped (three-zone list activeSet → pinned → middle → RDP + "Pinned" divider chip)
 provides:
@@ -39,7 +39,7 @@ metrics:
 
 # Quick 260817-qfg: Retire active-set top zone + "Pinned" divider chip — Summary
 
-Phase 42 UAT amendment 2026-08-17. Ashley verbatim: *"sessions are still showing above the pinned area when they are active in the current instance of the client. That shouldn't happen. Also the pinned header should go away entirely."*
+Phase 42 UAT amendment 2026-08-17. Alice verbatim: *"sessions are still showing above the pinned area when they are active in the current instance of the client. That shouldn't happen. Also the pinned header should go away entirely."*
 
 ## What shipped
 
@@ -142,7 +142,7 @@ Phase 42 UAT amendment 2026-08-17. Ashley verbatim: *"sessions are still showing
 
 ## Handoff note for orchestrator (tina)
 
-Code done, tests green (all 2433 pass), builds green (backend + frontend). Ready to commit + rebase-past-origin + coord-room BEFORE + docker build/force-recreate + HTTPS verify + coord-room AFTER + git push + skynet-patches.md entry. Post-deploy, human verification per plan L217: Ashley loads the app, confirms active sessions no longer surface above pinned area and the "Pinned" section header no longer renders.
+Code done, tests green (all 2433 pass), builds green (backend + frontend). Ready to commit + rebase-past-origin + coord-room BEFORE + docker build/force-recreate + HTTPS verify + coord-room AFTER + git push + skynet-patches.md entry. Post-deploy, human verification per plan L217: Alice loads the app, confirms active sessions no longer surface above pinned area and the "Pinned" section header no longer renders.
 
 ## Self-Check: PASSED
 

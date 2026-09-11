@@ -18,7 +18,7 @@ must_haves:
     - "Pinning a hidden row via context menu still auto-unhides before pinning (handleTogglePin at line 1188 is untouched)."
   artifacts:
     - path: "src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx"
-      provides: "handleRowSelect with the auto-unhide branch removed; comment above cites Ashley 2026-09-03 flip of quick-260731-tgg."
+      provides: "handleRowSelect with the auto-unhide branch removed; comment above cites Alice 2026-09-03 flip of quick-260731-tgg."
       contains: "handleRowSelect"
     - path: "src/ui/features/pretty-conversations/PrettyConversationsPanel.test.tsx"
       provides: "Regression test in the Hide/Show wiring describe block asserting click-on-hidden-row does not call unhideConversationSpy but DOES call selectConversationSpy + onConversationSelected."
@@ -31,11 +31,11 @@ must_haves:
 ---
 
 <objective>
-Fix: clicking a row in the Hidden section of the pretty-conversations panel currently auto-unhides the row before routing the click. The synchronous store mutation re-renders the Hidden section, moves the row's DOM element out from under the cursor, and (a) violates the "hidden means hidden" semantic Ashley re-asserted 2026-09-03 and (b) races the click handler so the session sometimes never opens.
+Fix: clicking a row in the Hidden section of the pretty-conversations panel currently auto-unhides the row before routing the click. The synchronous store mutation re-renders the Hidden section, moves the row's DOM element out from under the cursor, and (a) violates the "hidden means hidden" semantic Alice re-asserted 2026-09-03 and (b) races the click handler so the session sometimes never opens.
 
 Root cause: two lines inside `handleRowSelect` at src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx:974-975 — a `hiddenIds.has(row.id)` guard that calls `unhideConversation(row.id)` before the routing branches. This is a deliberate flip of the prior `quick-260731-tgg` design decision.
 
-Purpose: honor Ashley 2026-09-03: hidden means hidden. Clicking a hidden row opens the session without changing hidden status. Kills both symptoms (wrong semantic + click-race navigation failure) with one edit.
+Purpose: honor Alice 2026-09-03: hidden means hidden. Clicking a hidden row opens the session without changing hidden status. Kills both symptoms (wrong semantic + click-race navigation failure) with one edit.
 
 Output: 2 files modified (source + test), one atomic commit, deployed to term.example.com with HTTPS 200 verification.
 </objective>
@@ -57,7 +57,7 @@ Output: 2 files modified (source + test), one atomic commit, deployed to term.ex
   <name>Task 1: Remove auto-unhide from handleRowSelect + add regression test (RED-then-GREEN, single atomic commit)</name>
   <files>src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx, src/ui/features/pretty-conversations/PrettyConversationsPanel.test.tsx</files>
   <behavior>
-    - New test in the existing `describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", ...)` block (test file line 2420-2576), placed as Test (n) after Test (j). Name it: `Test (n) [Ashley 2026-09-03 flip of quick-260731-tgg]: clicking a hidden row calls selectConversation + onConversationSelected but does NOT call unhideConversation`.
+    - New test in the existing `describe("PrettyConversationsPanel: Hide/Show wiring (quick-260731-tgg)", ...)` block (test file line 2420-2576), placed as Test (n) after Test (j). Name it: `Test (n) [Alice 2026-09-03 flip of quick-260731-tgg]: clicking a hidden row calls selectConversation + onConversationSelected but does NOT call unhideConversation`.
     - Setup: seed one plain (non-rdp, non-fleet) row via `makeConversationRow({ id: "hidden-row-n", label: "hidden-n", host: hostA })` in the `grouped` tier with `hiddenIds: new Set(["hidden-row-n"])`. Follow the exact pattern of Test (h) at line 2471 — seeding the row into `grouped` even though it's hidden, and expanding the Hidden chip so the row's `[data-conversation-id]` element is queryable.
     - The Hidden section is collapsed by default (see Test (b) at line 2258 and Test (c) at line 2289). To make the hidden row clickable, first `fireEvent.click(container.querySelector('[data-testid="hidden-divider"]'))` to expand it (mirror Test (c) at lines 2302-2308).
     - Render with `onConversationSelected={vi.fn()}` captured in a local variable so the test can assert it fires with `"hidden-row-n"`.
@@ -73,7 +73,7 @@ Output: 2 files modified (source + test), one atomic commit, deployed to term.ex
     - Locate `handleRowSelect` at line 973.
     - DELETE line 974 (`// quick-260731-tgg: opening a hidden row auto-unhides it before routing.`) and line 975 (`if (hiddenIds.has(row.id)) unhideConversation(row.id);`).
     - REPLACE with a new leading comment inside the function body that reads:
-      `// Ashley 2026-09-03 [inverts quick-260731-tgg]: hidden means hidden.`
+      `// Alice 2026-09-03 [inverts quick-260731-tgg]: hidden means hidden.`
       `// Clicking a hidden row opens the session WITHOUT mutating hiddenIds.`
       `// Two reasons: (1) semantic — "hidden" is a user-controlled bucket, only`
       `// the explicit Unhide context-menu action (handleToggleHide) should change`
@@ -96,11 +96,11 @@ Output: 2 files modified (source + test), one atomic commit, deployed to term.ex
       5. Expand the Hidden section: `fireEvent.click(container.querySelector('[data-testid="hidden-divider"]') as HTMLElement);` then `await waitFor(...)` if needed to confirm the row is present in `[data-hidden-group="true"]` (mirror Test (c) at lines 2308-2313).
       6. Query the row body and click: `const rowEl = container.querySelector('[data-conversation-id="hidden-row-n"]') as HTMLElement; const body = rowEl.querySelector('[role="button"]') as HTMLElement; fireEvent.click(body);`
       7. Assertions:
-         - `expect(unhideConversationSpy).not.toHaveBeenCalled();`  // Ashley 2026-09-03 invariant
+         - `expect(unhideConversationSpy).not.toHaveBeenCalled();`  // Alice 2026-09-03 invariant
          - `expect(selectConversationSpy).toHaveBeenCalledWith("hidden-row-n");`
          - `expect(onConversationSelected).toHaveBeenCalledWith("hidden-row-n");`
     - Add a leading test-block comment above the `it(...)` that reads:
-      `// Test (n) [Ashley 2026-09-03 — inverts quick-260731-tgg]: clicking a`
+      `// Test (n) [Alice 2026-09-03 — inverts quick-260731-tgg]: clicking a`
       `// hidden row opens the session but leaves hiddenIds untouched. The prior`
       `// quick-260731-tgg auto-unhide-on-click both violated the "hidden means`
       `// hidden" semantic and produced a click race (row DOM moved out from`
@@ -124,7 +124,7 @@ Output: 2 files modified (source + test), one atomic commit, deployed to term.ex
     <automated>npm test -- src/ui/features/pretty-conversations/PrettyConversationsPanel.test.tsx 2>&1 | tail -40</automated>
   </verify>
   <done>
-    - Lines 974-975 of the OLD PrettyConversationsPanel.tsx (`// quick-260731-tgg: opening a hidden row auto-unhides…` + the `if (hiddenIds.has(row.id)) unhideConversation(row.id);`) are gone; replaced with the Ashley 2026-09-03 explanatory comment. `grep -n "opening a hidden row auto-unhides" src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx` returns 0 matches. `grep -n "Ashley 2026-09-03" src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx` returns at least 1 match inside handleRowSelect.
+    - Lines 974-975 of the OLD PrettyConversationsPanel.tsx (`// quick-260731-tgg: opening a hidden row auto-unhides…` + the `if (hiddenIds.has(row.id)) unhideConversation(row.id);`) are gone; replaced with the Alice 2026-09-03 explanatory comment. `grep -n "opening a hidden row auto-unhides" src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx` returns 0 matches. `grep -n "Alice 2026-09-03" src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx` returns at least 1 match inside handleRowSelect.
     - `handleTogglePin` at ~line 1188 STILL contains `if (hiddenIds.has(row.id)) unhideConversation(row.id);` — grep confirms `grep -c "if (hiddenIds.has(row.id)) unhideConversation(row.id);" src/ui/features/pretty-conversations/PrettyConversationsPanel.tsx` returns `1` (down from 2).
     - Test (n) exists in PrettyConversationsPanel.test.tsx inside the Hide/Show wiring describe block. `grep -c "Test (n)" src/ui/features/pretty-conversations/PrettyConversationsPanel.test.tsx` returns at least 1.
     - Vitest run of `PrettyConversationsPanel.test.tsx` is fully green. Test (n) passes. Test (f) (unhide-before-pin) still passes untouched.
@@ -149,15 +149,15 @@ Output: 2 files modified (source + test), one atomic commit, deployed to term.ex
 |-----------|----------|-----------|-------------|-----------------|
 | T-quick-260903-vnu-01 | Tampering | handleRowSelect click → hiddenIds mutation | mitigate | Remove the unhide-on-click branch entirely; only the explicit context-menu Unhide action (handleToggleHide) mutates hiddenIds. Regression test asserts `unhideConversationSpy` NOT called on click path. |
 | T-quick-260903-vnu-02 | Denial of Service | Click race causing session-open failure | mitigate | Removing the pre-routing state mutation eliminates the DOM shift that races the click handler; navigation branches (selectConversation / onRdpRowClick / onDetachedRowClick) now fire deterministically. Test asserts selectConversation + onConversationSelected both fire. |
-| T-quick-260903-vnu-03 | Elevation of Privilege | Malicious PR restoring auto-unhide | accept | Low risk on a solo-dev repo; the Ashley 2026-09-03 comment + Test (n) name embed the design decision inline. Future reviewers see "why this line is missing" without needing archaeology. |
+| T-quick-260903-vnu-03 | Elevation of Privilege | Malicious PR restoring auto-unhide | accept | Low risk on a solo-dev repo; the Alice 2026-09-03 comment + Test (n) name embed the design decision inline. Future reviewers see "why this line is missing" without needing archaeology. |
 | T-quick-260903-vnu-SC | Tampering | npm/pip/cargo installs | accept | No new dependencies introduced; edit is pure source + test in existing files. Package-legitimacy gate not applicable. |
 </threat_model>
 
 <verification>
 - Vitest suite for PrettyConversationsPanel.test.tsx runs clean; Test (n) present and passing; Test (f) present and passing.
-- `grep` gates in <done> above prove: (a) old auto-unhide-on-click line is gone from handleRowSelect, (b) unhide-on-pin line is still present exactly once, (c) Ashley 2026-09-03 comment landed in the file, (d) Test (n) is present.
+- `grep` gates in <done> above prove: (a) old auto-unhide-on-click line is gone from handleRowSelect, (b) unhide-on-pin line is still present exactly once, (c) Alice 2026-09-03 comment landed in the file, (d) Test (n) is present.
 - Production HTTPS on term.example.com returns 200 after docker compose recreate.
-- Manual smoke on production: clicking a hidden row opens the session and leaves the row in the Hidden section (Ashley visual confirmation, not gate-blocking).
+- Manual smoke on production: clicking a hidden row opens the session and leaves the row in the Hidden section (Alice visual confirmation, not gate-blocking).
 </verification>
 
 <success_criteria>

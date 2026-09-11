@@ -115,7 +115,7 @@ root-cause bounty — do not strip.
 
 ## Deploy status
 
-NOT DEPLOYED. Local commit only, per Ashley 2026-07-22 — batch deploy
+NOT DEPLOYED. Local commit only, per Alice 2026-07-22 — batch deploy
 deferred until after bounties #3-5. This is a client-side mitigation
 only; the root cause of post-restart draft loss remains undiagnosed and
 is filed as a follow-up bounty. The four `console.warn` diagnostics

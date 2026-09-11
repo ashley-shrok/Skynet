@@ -94,7 +94,7 @@ Three visual shapes now map to three session states:
 | Assistant said something | Glass-card message bubble | ChatMessage.tsx (assistant branch) |
 | Idle, waiting on user (plan-pending) | Message-shaped card | PlanPendingBubble.tsx |
 
-The naked-spinner treatment prevents the first-glance ambiguity where a bubble containing only a spinner reads as "assistant is composing a message" — instead, the spinner-alone shape reads as "session state indicator" instantly, matching Ashley's operator model.
+The naked-spinner treatment prevents the first-glance ambiguity where a bubble containing only a spinner reads as "assistant is composing a message" — instead, the spinner-alone shape reads as "session state indicator" instantly, matching Alice's operator model.
 
 ## Self-Check: PASSED
 

@@ -257,7 +257,7 @@ Plan-gate: `grep -c "identity.coordinator === true" src/ui/features/pretty-view/
 
 ## What Wave 2 output enables
 
-Ashley can now visually distinguish coordinators from actors at a glance across three identity surfaces in Skynet:
+Alice can now visually distinguish coordinators from actors at a glance across three identity surfaces in Skynet:
 
 1. **Conversation list:** every row whose identity has `coordinator: true` on disk carries a hue-tinted MdHub hub-and-spoke watermark on the right side.
 2. **Pretty-view identity badge:** when opened, the badge pill carries the larger-scale watermark on the right, hue-derived from the identity.

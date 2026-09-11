@@ -425,7 +425,7 @@ while :; do
   done
   OUT="${JOINED}${OUT}"    # JOINED = backfill from a room you JUST auto-joined; OUT = text messages from rooms already joined. (Media attachments surface separately from their own background workers as they finish downloading.)
 
-  # --- Room-size-aware wake jitter (Ashley 2026-07-31) -----------------------------------------
+  # --- Room-size-aware wake jitter (Alice 2026-07-31) -----------------------------------------
   # Fanout on a room-with-many-agents (an announcement post → N receivers all wake in the same
   # second, all fire against Anthropic's shared org bucket → 429 cluster). Spread the wakes: if
   # any room in this sync batch has member_count>3, sleep uniform-random 0..(members × 30s)

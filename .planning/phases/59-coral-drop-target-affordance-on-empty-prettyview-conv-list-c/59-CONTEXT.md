@@ -2,7 +2,7 @@
 
 **Gathered:** 2026-08-29
 **Status:** Ready for planning
-**Source:** Ashley UAT of the completed `bring-back-split-view` arc (patches #515 Phase 57 + #516 Phase 58) on 2026-08-28/29. Two symmetric coral-affordance gaps surfaced. Ashley greenlight verbatim for bounty-and-next-session-start: *"Sure, you can bounty them and then reset yourself and we can work on them next session."* Bounty: `drop-target-affordance-empty-pv-and-convlist-close`. Discuss-phase skipped per `/build` convention when scope + palette source of truth + failure-mode taxonomy are already locked (precedent: Phase 53, 56, 57, 58).
+**Source:** Alice UAT of the completed `bring-back-split-view` arc (patches #515 Phase 57 + #516 Phase 58) on 2026-08-28/29. Two symmetric coral-affordance gaps surfaced. Alice greenlight verbatim for bounty-and-next-session-start: *"Sure, you can bounty them and then reset yourself and we can work on them next session."* Bounty: `drop-target-affordance-empty-pv-and-convlist-close`. Discuss-phase skipped per `/build` convention when scope + palette source of truth + failure-mode taxonomy are already locked (precedent: Phase 53, 56, 57, 58).
 
 ## What this is
 
@@ -17,7 +17,7 @@
 
 **Gap 1: empty PrettyView.** Small papercut. The whole area is the target so there's no ambiguity about *where* a session will land, but there's no signal that it *will* land. Consistency with Phase 57's Pane preview matters — the two drop-target flavors should feel like the same visual language.
 
-**Gap 2: conv-list panel drop-to-close.** Higher-impact. Ashley verbatim: *"when I'm hovering over the conversation list, and I have her badge in hand, there's no tint or anything. So it doesn't necessarily seem interactable."* A silent drop target on a **destructive gesture** (dragging a badge to the list closes the session — WS torn down, tab removed) erodes trust: the user completes a destructive action without visual confirmation the target accepted the drag. The tint IS the "yes, dropping here will do something" signal.
+**Gap 2: conv-list panel drop-to-close.** Higher-impact. Alice verbatim: *"when I'm hovering over the conversation list, and I have her badge in hand, there's no tint or anything. So it doesn't necessarily seem interactable."* A silent drop target on a **destructive gesture** (dragging a badge to the list closes the session — WS torn down, tab removed) erodes trust: the user completes a destructive action without visual confirmation the target accepted the drag. The tint IS the "yes, dropping here will do something" signal.
 
 ## Solution shape (identical for both gaps)
 
@@ -70,7 +70,7 @@ Existing behavior (per Phase 58 Plan 02 6-step validation gauntlet at `:1304-133
 
 **Phase 59 change**: add a coral tint overlay INSIDE this panel div, sibling to the existing conv-list rendering, controlled by a `badgeDragOverActive` boolean set by `handlePanelDragOver` (only when the badge MIME is present — same type-gate as existing preventDefault) and cleared by `handlePanelDrop` + a new `handlePanelDragLeave` (bounding-rect guard) + a window-level `dragend` cleanup for Escape-cancel.
 
-**Portal note**: PrettyConversationsPanel does NOT contain portaled content. The conv-list rows and header are all normal React children. React synthetic listeners are safe here — Phase 58 shipped and Ashley UAT confirmed the drop mechanics work end-to-end. No native-DOM-listener migration needed.
+**Portal note**: PrettyConversationsPanel does NOT contain portaled content. The conv-list rows and header are all normal React children. React synthetic listeners are safe here — Phase 58 shipped and Alice UAT confirmed the drop mechanics work end-to-end. No native-DOM-listener migration needed.
 
 ## In-scope this phase
 
@@ -90,7 +90,7 @@ Existing behavior (per Phase 58 Plan 02 6-step validation gauntlet at `:1304-133
    - Add window-level `dragend` cleanup for Escape-cancel.
    - Render the overlay as an absolutely-positioned sibling to the panel content with `pointer-events:none`, palette per §Solution shape.
 
-3. **Structured logging** (per box-maintainer standing directive Ashley 2026-08-11). Two new prefixes, both zone-change-gated (mirror Phase 57's `prevZoneRef` pattern to avoid drag-hover log spam):
+3. **Structured logging** (per box-maintainer standing directive Alice 2026-08-11). Two new prefixes, both zone-change-gated (mirror Phase 57's `prevZoneRef` pattern to avoid drag-hover log spam):
    - `[empty-pv-drop-preview]` on Gap 1 — fires once per state transition (`false → true`, `true → false`). Format: `[empty-pv-drop-preview] visible=<bool> splitTreeNull=<bool>`.
    - `[convlist-drop-preview]` on Gap 2 — fires once per state transition. Format: `[convlist-drop-preview] visible=<bool>`.
    - Do NOT log on every dragover — that would flood the console-forward log with per-mouse-move noise. Zone-change gate is the discipline.
@@ -102,7 +102,7 @@ Existing behavior (per Phase 58 Plan 02 6-step validation gauntlet at `:1304-133
 - Any changes to drop mechanics on either target — Gaps 1 + 2 both work; Phase 59 is purely additive visual affordance.
 - Any changes to Phase 57 Pane drop-preview or edge-zone hit-testing.
 - Any changes to Phase 58 badge drag source or its dual-MIME payload contract.
-- Any changes to the coral palette values themselves — reuse Phase 57's `rgba(255, 184, 150, 0.22)` fill + `0.60` border verbatim. Any palette change would be a design decision that should go through Ashley separately.
+- Any changes to the coral palette values themselves — reuse Phase 57's `rgba(255, 184, 150, 0.22)` fill + `0.60` border verbatim. Any palette change would be a design decision that should go through Alice separately.
 - New edge-zone semantics on the empty-PV target. Phase 57 has 4 edges + center-dead-zone for split-decision preview because the drop can land in different geometries. Empty-PV drops always plant as `leaf(payload)` OR `split(active, payload)` at nearest edge — but the user's visible action is unambiguous (whole area accepts, no need for per-zone preview at this affordance level). Same argument for conv-list panel (single close action, no per-zone semantics).
 - Animation timing (fade-in / fade-out durations) beyond a reasonable default. If the plan proposes a CSS transition, keep it short (100-200ms).
 - Any mobile handling. Both drop targets are desktop-only surfaces in practice (SplitView is desktop-gated per Phase 57; conv-list panel drops are desktop-only per Phase 58 `draggable={!isMobile}` gate on the IdentityBadge). No mobile-specific tint work.
@@ -174,7 +174,7 @@ Files that stay untouched:
 **Skip discuss-phase** (Phase 53 + 56 + 57 + 58 precedent). This CONTEXT.md IS the discuss-phase output.
 
 **Plan-phase**: expected to produce 1-2 plans. Two natural shapes:
-- **1 plan option (recommended)**: 59-01 covers both gaps in one plan — the pattern is identical, the code is small, and shipping both in one atomic patch #517 matches Ashley's expressed intent (bounty is one thing, both gaps land together).
+- **1 plan option (recommended)**: 59-01 covers both gaps in one plan — the pattern is identical, the code is small, and shipping both in one atomic patch #517 matches Alice's expressed intent (bounty is one thing, both gaps land together).
 - **2 plan option**: 59-01 = Gap 1 (empty-PV), 59-02 = Gap 2 (conv-list panel). Independent, safe to parallelize. Slightly higher planning overhead but cleaner test-file separation.
 
 Plan-phase decides. Prefer the 1-plan shape unless there's a concrete reason to split (e.g. plan-checker flags surface area).

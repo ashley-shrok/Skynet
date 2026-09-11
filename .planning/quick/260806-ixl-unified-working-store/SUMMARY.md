@@ -62,4 +62,4 @@ None required. `session-queue-pending-store.ts:93` JSDoc references `publishSess
 
 ## Ship status
 
-**NOT pushed. NOT built. NOT deployed.** Per fleet rule "code work doesn't authorize ship." Ashley's ship queue is held pending more changes; this becomes commit 6 (through 9) in the batch atop origin `67c49dd`, waiting on explicit "ship it."
+**NOT pushed. NOT built. NOT deployed.** Per fleet rule "code work doesn't authorize ship." Alice's ship queue is held pending more changes; this becomes commit 6 (through 9) in the batch atop origin `67c49dd`, waiting on explicit "ship it."

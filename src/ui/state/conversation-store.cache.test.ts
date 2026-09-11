@@ -183,7 +183,7 @@ describe("FleetSession localStorage cache (quick-260805-tub)", () => {
   // (hostId/hostName/sessionName/created) on EVERY entry — so backend-shaped
   // relay-room rows (kind:"relay-room", id, roomId, roomTitle, lastActivityAt,
   // createdAt, updatedAt per sessions.ts:592-601 — no harness fields) were
-  // silently filtered out on read. Ashley saw a ~10s wait for relay rooms
+  // silently filtered out on read. Alice saw a ~10s wait for relay rooms
   // to appear on every cold-boot despite the cache being warm. These four
   // cases pin the fixed behavior: relay round-trip, mixed round-trip,
   // legacy-harness backward-compat, and malformed-relay rejection.

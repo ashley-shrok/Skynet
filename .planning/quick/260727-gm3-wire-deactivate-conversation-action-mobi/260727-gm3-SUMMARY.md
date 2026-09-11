@@ -37,7 +37,7 @@ metrics:
 
 # Quick Task 260727-gm3: Wire Deactivate Conversation Action Summary
 
-One-liner: End-to-end wire of Ashley's deactivate-preview.js console snippet — active-set rows grow a red-tinted X glyph (desktop hover-reveal / mobile widened swipe strip); click removes id from activeSet AND closes the tab; row recedes to ambient. Agent keeps running under the hood.
+One-liner: End-to-end wire of Alice's deactivate-preview.js console snippet — active-set rows grow a red-tinted X glyph (desktop hover-reveal / mobile widened swipe strip); click removes id from activeSet AND closes the tab; row recedes to ambient. Agent keeps running under the hood.
 
 ## What shipped
 
@@ -53,7 +53,7 @@ One-liner: End-to-end wire of Ashley's deactivate-preview.js console snippet —
 
 ### Task 2 — Row + Panel + AppShell wiring
 
-- **`PrettyConversationRow`**: new `onDeactivate` prop + `onDeactivateClick` handler mirroring the pin's stopPropagation discipline. Mobile swipe strip (inside `isMobile && !isRdp`) now conditionally renders `<DeactivateAction />` after `<PinAction />` when `inActiveSet === true`; both children live in a flex container (`gap-3`) inside the widened 132px strip. Desktop `.pv-meta` block: `<DeactivateAction />` renders BEFORE `<PinAction />` when `!isMobile && !isRdp && inActiveSet === true`, matching Ashley's preview layout (X on left, pin on right in meta column).
+- **`PrettyConversationRow`**: new `onDeactivate` prop + `onDeactivateClick` handler mirroring the pin's stopPropagation discipline. Mobile swipe strip (inside `isMobile && !isRdp`) now conditionally renders `<DeactivateAction />` after `<PinAction />` when `inActiveSet === true`; both children live in a flex container (`gap-3`) inside the widened 132px strip. Desktop `.pv-meta` block: `<DeactivateAction />` renders BEFORE `<PinAction />` when `!isMobile && !isRdp && inActiveSet === true`, matching Alice's preview layout (X on left, pin on right in meta column).
 - **`PrettyConversationsPanel`**: imported `removeFromActiveSet`. Added `handleRowDeactivate(row)` that composes `removeFromActiveSet(row.id)` + `onDeactivateRow(row)`. Extended `PrettyConversationRowLive` props with optional `onDeactivate` pass-through. Wired `onDeactivate={() => handleRowDeactivate(row)}` at three render sites: active-set group, pinned group, non-RDP grouped block. RDP sentinel deliberately omits it.
 - **`PrettyConversationsPanel` prop**: new required `onDeactivateRow: (row: ConversationRowShape) => void`. Making it required forces every call site (production + tests) to explicitly wire the tab-close side.
 - **`AppShell`**: `onDeactivateRow={(row) => closeTab(row.id)}` at the `PrettyConversationsPanel` mount site. Reuses the existing L1169 `closeTab` function verbatim — no new tab-close path invented; confirm-tab-close toast branch preserved.
@@ -79,7 +79,7 @@ The plan's action prose for Test 20E called out "Clear the `addToActiveSetSpy`'s
 
 - `./node_modules/.bin/vitest run` → **619 / 619 tests passing** (up from 610 pre-gm3: +4 store tests 30f/g/h/i, +5 panel tests 20A-E).
 - `./node_modules/.bin/tsc --noEmit` → **clean** (0 errors).
-- Manual sanity (Ashley UAT — gated for ship): open the app, click any ambient row → row lights up in active-set treatment + tab opens. Hover the row on desktop → X icon appears alongside pin. Click X → row recedes to ambient, tab closes, agent process continues running server-side. On mobile: swipe row left → both pin and X icons appear in the widened 132px strip.
+- Manual sanity (Alice UAT — gated for ship): open the app, click any ambient row → row lights up in active-set treatment + tab opens. Hover the row on desktop → X icon appears alongside pin. Click X → row recedes to ambient, tab closes, agent process continues running server-side. On mobile: swipe row left → both pin and X icons appear in the widened 132px strip.
 
 ## Out of scope (intentional)
 

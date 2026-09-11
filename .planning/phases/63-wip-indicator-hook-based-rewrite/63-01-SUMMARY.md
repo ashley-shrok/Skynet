@@ -130,7 +130,7 @@ Plan 62-04 will:
 
 ## Executor remit boundary honored
 
-Per fleet standing directive (Ashley 2026-07-27) and this plan's `<sequential_execution>` block:
+Per fleet standing directive (Alice 2026-07-27) and this plan's `<sequential_execution>` block:
 - NO `git push` (deploy-window boundary at push — orchestrator handles).
 - NO `docker build` / `docker compose up` (deploys are orchestrator-only).
 - NO branch changes (stayed on `feat/tab-title-from-tmux`).

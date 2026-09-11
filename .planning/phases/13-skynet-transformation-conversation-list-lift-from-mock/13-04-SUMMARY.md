@@ -3,7 +3,7 @@ phase: 13-skynet-transformation-conversation-list-lift-from-mock
 plan: 04
 subsystem: ui
 tags: [ui, uat, diagnostics, ready-dot, mobile-scroll, safe-area, phase-13]
-status: pre-UAT complete; blocked on Ashley live UAT of deployed Waves 1-3 + shell chrome
+status: pre-UAT complete; blocked on Alice live UAT of deployed Waves 1-3 + shell chrome
 dependency_graph:
   requires:
     - phase: 13-01
@@ -19,15 +19,15 @@ dependency_graph:
     - src/ui/features/terminal/Terminal.tsx (READ-ONLY diagnostic reference; isIdle publish path at Terminal.tsx:245,252-257,1131-1139)
     - src/ui/AppShell.tsx (READ-ONLY diagnostic reference; 100dvh + safe-area chain at L1400-1405,1532,1554)
   provides:
-    - 13-04-UAT-DIAG-LOG.md — static-analysis pre-UAT verdicts + Ashley's UAT template + exhaustive route-back matrix
-    - Provisional-verdict inputs for Ashley's UAT session (Candidate B.1 flagged as MISMATCH; Candidate A.1 flagged as SUSPECT)
+    - 13-04-UAT-DIAG-LOG.md — static-analysis pre-UAT verdicts + Alice's UAT template + exhaustive route-back matrix
+    - Provisional-verdict inputs for Alice's UAT session (Candidate B.1 flagged as MISMATCH; Candidate A.1 flagged as SUSPECT)
   affects:
-    - Wave 5 (13-05): build-verify + UAT checklist + patch draft — will consume the completed UAT-DIAG-LOG once Ashley fills Section 2
+    - Wave 5 (13-05): build-verify + UAT checklist + patch draft — will consume the completed UAT-DIAG-LOG once Alice fills Section 2
     - Master `skynet-transformation` bounty — timeline entry for post-Wave-3 UAT-diagnostic pass
 tech_stack:
   added: []
   patterns:
-    - static-analysis pre-UAT pass — executor-side reads + provisional verdicts before Ashley's live observation
+    - static-analysis pre-UAT pass — executor-side reads + provisional verdicts before Alice's live observation
     - route-back matrix — exhaustive UAT-outcome → follow-up-work enumeration so no observed failure has an undocumented next step
 requirements_completed: []
 requirements_partially_completed: [SHAPE-05]
@@ -36,12 +36,12 @@ key_files:
     - .planning/phases/13-skynet-transformation-conversation-list-lift-from-mock/13-04-UAT-DIAG-LOG.md (951 lines)
   modified: []
 decisions:
-  - "Executed the plan's Task 1 (Automated diagnostic pass) autonomously per Ashley's 'go all the way through' directive. Task 2 (Ashley UAT human-verify checkpoint) is the terminal handoff — cannot be executed by the executor and is documented as blocking on Ashley's live UAT."
-  - "Kept Sections 2A-2G as EMPTY TEMPLATES with placeholder verdicts (`_PASS / DIFFERENCE_NOTED_` etc.) — did NOT invent Ashley's observations. The plan explicitly directs this as a diagnostic + UAT-scaffold plan, not a fix plan."
-  - "The route-back matrix (Section 3) is exhaustive per plan requirement: enumerates every combination of UAT findings (SHAPE-05 x7 outcomes, mobile scroll x5 outcomes, safe-area x3 outcomes, parity, SHAPE-06 x2 hard-fail branches) and states owner (phase-13 vs master vs closed) for each. This makes Ashley's UAT-output → follow-up-work path a one-lookup decision."
+  - "Executed the plan's Task 1 (Automated diagnostic pass) autonomously per Alice's 'go all the way through' directive. Task 2 (Alice UAT human-verify checkpoint) is the terminal handoff — cannot be executed by the executor and is documented as blocking on Alice's live UAT."
+  - "Kept Sections 2A-2G as EMPTY TEMPLATES with placeholder verdicts (`_PASS / DIFFERENCE_NOTED_` etc.) — did NOT invent Alice's observations. The plan explicitly directs this as a diagnostic + UAT-scaffold plan, not a fix plan."
+  - "The route-back matrix (Section 3) is exhaustive per plan requirement: enumerates every combination of UAT findings (SHAPE-05 x7 outcomes, mobile scroll x5 outcomes, safe-area x3 outcomes, parity, SHAPE-06 x2 hard-fail branches) and states owner (phase-13 vs master vs closed) for each. This makes Alice's UAT-output → follow-up-work path a one-lookup decision."
   - "Static-analysis primary conclusion: Candidate B.1 (sessionWorkingKey mismatch in the fresh-terminal open path — Tab.targetTmuxSession=null but Terminal.tsx publishes at real backend session name) is the highest-probability dot-visibility failure mode based on source reads. Candidate A.1 (Terminal.tsx isIdle null-start with no client-side idle-at-connect fallback) is the second-most-likely. Candidates C (activeSet sessionStorage) and D (Rules-of-Hooks) PASS by static analysis."
   - "Scope boundaries strictly respected: Terminal.tsx was READ ONLY (grep + line-number references only; no edit). AppShell.tsx was READ ONLY (100dvh chain audit only; no edit). No writes to any file in `src/`. `git diff --stat src/` post-commit returns empty."
-  - "Mobile scroll verdict: UNCHANGED FROM PRE-WAVE-1 by static analysis. Wave 1 did NOT add `touch-action: pan-y` to `.pv-row` and did NOT change touch handler strategy. If Ashley's live UAT reproduces the freeze, the recommended fix is a single-line CSS addition (documented in Section 3B row 2). If the freeze doesn't reproduce, Wave 1's CSS restructuring obviated it indirectly (unlikely but possible)."
+  - "Mobile scroll verdict: UNCHANGED FROM PRE-WAVE-1 by static analysis. Wave 1 did NOT add `touch-action: pan-y` to `.pv-row` and did NOT change touch handler strategy. If Alice's live UAT reproduces the freeze, the recommended fix is a single-line CSS addition (documented in Section 3B row 2). If the freeze doesn't reproduce, Wave 1's CSS restructuring obviated it indirectly (unlikely but possible)."
   - "Safe-area verdict: WORKAROUND STILL NEEDED. Wave 2's SHAPE-04 scope was chevron-only; the AppShell.tsx:1400 outer wrapper's `paddingTop: max(env(safe-area-inset-top), 0px)` is present but `paddingBottom` is NOT — this is the root cause escape. The `pb-[env(safe-area-inset-bottom)]` workaround at PrettyConversationsPanel.tsx:233 is doing its job as a per-scroller band-aid. Architectural fix (move safe-area compensation to AppShell root) is a master-bounty patch, not a phase-13 fix."
 metrics:
   duration: 6min
@@ -50,7 +50,7 @@ metrics:
   tasks_completed: 1
   tasks_total: 2
   tasks_deferred: 1
-  tasks_deferred_reason: "Task 2 is a human-verify checkpoint requiring Ashley's live UAT of deployed Waves 1-3 + shell chrome. Cannot be executed by the executor."
+  tasks_deferred_reason: "Task 2 is a human-verify checkpoint requiring Alice's live UAT of deployed Waves 1-3 + shell chrome. Cannot be executed by the executor."
   commits: 1
   files_created: 1
   files_modified: 0
@@ -62,8 +62,8 @@ metrics:
 # Phase 13 Plan 04: Post-Lift UAT + Diagnostic Candidate Investigation Summary
 
 **Autonomous execution of Task 1 (pre-UAT static-analysis diagnostic pass +
-UAT scaffold + route-back matrix authoring). Task 2 (Ashley's live human-
-verify UAT checkpoint) is deferred to Ashley's session because it requires
+UAT scaffold + route-back matrix authoring). Task 2 (Alice's live human-
+verify UAT checkpoint) is deferred to Alice's session because it requires
 her direct observation of Waves 1-3 running in a deployed instance — the
 executor cannot substitute for a live human-observed verdict on visual
 parity, dot visibility, mobile scroll, and safe-area padding.**
@@ -73,7 +73,7 @@ parity, dot visibility, mobile scroll, and safe-area padding.**
 `13-04-UAT-DIAG-LOG.md` created with (a) provisional verdicts for the 4
 dot-visibility candidates (2 SUSPECT/MISMATCH, 2 PASS), (b) mobile scroll
 and safe-area static-analysis verdicts, (c) template UAT observation
-sections for Ashley to fill after live deployment UAT, and (d) exhaustive
+sections for Alice to fill after live deployment UAT, and (d) exhaustive
 route-back matrix mapping every possible UAT finding to a specific
 follow-up action.
 
@@ -109,7 +109,7 @@ follow-up action.
     (WORKAROUND STILL NEEDED)
   - Section 1D: Additional pre-UAT signals (CSS specificity check,
     Terminal.tsx WS-cleanup impact, fleet-derived row edge case)
-- **Section 2 UAT TEMPLATE (Ashley fills):**
+- **Section 2 UAT TEMPLATE (Alice fills):**
   - 2A: Overall visual parity with mock v4 (5-row template)
   - 2B: Ready-for-attention dot visibility (SHAPE-05 PRIMARY VERIFICATION)
     — 3-row-clicked template + DevTools verification snippets
@@ -139,7 +139,7 @@ follow-up action.
 
 1. **Task 1 (docs authoring):** `843942e` — `docs(13-04): pre-UAT diagnostic sweep + UAT template + route-back matrix`
 
-Task 2 (Ashley's live UAT human-verify checkpoint) is **deferred** — see "Blocked On" section below.
+Task 2 (Alice's live UAT human-verify checkpoint) is **deferred** — see "Blocked On" section below.
 
 ## Files Created/Modified
 
@@ -181,15 +181,15 @@ Task 2 (Ashley's live UAT human-verify checkpoint) is **deferred** — see "Bloc
 
 ## Decisions Made
 
-- **Executed Task 1 autonomously per Ashley's "go all the way through"
+- **Executed Task 1 autonomously per Alice's "go all the way through"
   directive** — the plan's `autonomous: false` frontmatter is honored by
-  the deferral of Task 2 (which requires Ashley), NOT by declining Task 1.
-- **Kept Section 2 as empty templates** — did NOT invent Ashley's UAT
+  the deferral of Task 2 (which requires Alice), NOT by declining Task 1.
+- **Kept Section 2 as empty templates** — did NOT invent Alice's UAT
   observations. All verdict cells use `_PASS / FAIL_*_` placeholder syntax
-  so Ashley's fill-in is unambiguous.
+  so Alice's fill-in is unambiguous.
 - **Made the route-back matrix exhaustive** — every possible UAT finding
   has a documented follow-up action + owner (phase-13 / master / closed).
-  This means Ashley's UAT outcome maps to a specific next-step via a
+  This means Alice's UAT outcome maps to a specific next-step via a
   single table lookup.
 - **Read Terminal.tsx and AppShell.tsx as READ-ONLY diagnostics** — even
   though the static analysis surfaced concrete failure hypotheses (B.1
@@ -199,7 +199,7 @@ Task 2 (Ashley's live UAT human-verify checkpoint) is **deferred** — see "Bloc
 - **Documented the CSS specificity + inline-style analysis for
   `.pv-ready-dot`** — this rules out CSS as a root cause. The failure
   mode is EXCLUSIVELY at the JS-condition level (Candidate A or B), which
-  narrows Ashley's UAT investigation focus.
+  narrows Alice's UAT investigation focus.
 
 ## Deviations from Plan
 
@@ -215,17 +215,17 @@ None. No authentication surface touched. Pure diagnostic doc authoring.
 ## Rule 4 (Architectural) Decisions
 
 None escalated. All work stayed within the diagnostic + doc-authoring
-scope. Ashley's UAT outcome may trigger Rule 4 escalations in the
+scope. Alice's UAT outcome may trigger Rule 4 escalations in the
 follow-up phase (e.g., Section 3A last row proposes a Panel-side null-
-handling semantics change that would need Ashley's approval).
+handling semantics change that would need Alice's approval).
 
 ## Issues Encountered
 
-- **File location aliasing:** Ashley's task description referenced
+- **File location aliasing:** Alice's task description referenced
   `src/stores/session-working-store.ts` and `src/stores/conversation-store.ts`,
   but the actual location is `src/ui/state/`. Confirmed via `find` and
   proceeded with the correct paths. Both stores are patch #137 outputs;
-  no functional impact from the aliasing. (Ashley's shorthand — `src/stores`
+  no functional impact from the aliasing. (Alice's shorthand — `src/stores`
   is not a directory in this repo.)
 - **Pre-existing test suite baseline:** 2 pre-existing ComposeBox test
   failures documented in 13-02-SUMMARY.md and 13-03-SUMMARY.md remain
@@ -246,7 +246,7 @@ handling semantics change that would need Ashley's approval).
 | Contains `Candidate D`, `PrettyConversationRowLive`, or `Rules-of-Hooks` markers | PASS |
 | Contains `Section 2` and `scroll-freeze` markers | PASS |
 | Contains `Section 3`, `safe-area`, or `100dvh` markers | PASS |
-| Contains `Section 4` and `Recommended next steps` markers | PASS (Section 4 is "Deferred Route-Backs Awaiting Ashley's UAT" which includes executor recommendations) |
+| Contains `Section 4` and `Recommended next steps` markers | PASS (Section 4 is "Deferred Route-Backs Awaiting Alice's UAT" which includes executor recommendations) |
 | `git diff --stat src/` returns empty (no source changes) | PASS |
 | Docs commit landed | PASS (843942e) |
 
@@ -254,28 +254,28 @@ handling semantics change that would need Ashley's approval).
 
 | Criterion | Status |
 |-----------|--------|
-| Ashley UATs Waves 1-3 on desktop | DEFERRED (blocked on live deployment + Ashley) |
-| Ashley UATs Waves 1-3 on iPhone PWA | DEFERRED |
-| Section 5 (Ashley's completed A-F verdict table) filled | DEFERRED (Section 2 templates are ready; Section 5 in this plan's file layout is the Self-Check section — the UAT verdict table is at Section 2A-2F) |
+| Alice UATs Waves 1-3 on desktop | DEFERRED (blocked on live deployment + Alice) |
+| Alice UATs Waves 1-3 on iPhone PWA | DEFERRED |
+| Section 5 (Alice's completed A-F verdict table) filled | DEFERRED (Section 2 templates are ready; Section 5 in this plan's file layout is the Self-Check section — the UAT verdict table is at Section 2A-2F) |
 | PASS/FAIL/PARTIAL outcome routed to Section 3 matrix | DEFERRED |
 
 ## Blocked On
 
-**Task 2 (Ashley's live UAT human-verify checkpoint) — REQUIRES:**
+**Task 2 (Alice's live UAT human-verify checkpoint) — REQUIRES:**
 
 1. Waves 1-3 deployed to a runnable instance (either `npm run dev` locally
    or `docker compose up -d --force-recreate skynet` to term.example.com
    with the 15-min deadman rollback armed)
-2. Ashley visits the running app on:
+2. Alice visits the running app on:
    - Desktop browser (Chrome / Safari on her laptop)
    - iPhone PWA (added to home screen for PWA semantics + safe-area behavior)
-3. Ashley fills Sections 2A-2G of `13-04-UAT-DIAG-LOG.md` with her
+3. Alice fills Sections 2A-2G of `13-04-UAT-DIAG-LOG.md` with her
    observations
 4. On the outcome, this plan closes via:
-   - PASS: Ashley marks Section 2A-2F all `PASS`, this plan closes as
+   - PASS: Alice marks Section 2A-2F all `PASS`, this plan closes as
      SHAPE-05 PASS, and phase-13 proceeds to Wave 5 (13-05 build-verify
      + patch draft)
-   - PARTIAL: Ashley marks specific rows FAIL_*, Section 3's route-back
+   - PARTIAL: Alice marks specific rows FAIL_*, Section 3's route-back
      matrix identifies the follow-up action (usually a new
      `13-04-follow-up-*.md` plan or a 13-05 modification), this plan
      closes as PARTIAL with the route-back cited
@@ -285,7 +285,7 @@ handling semantics change that would need Ashley's approval).
 ## Known Stubs
 
 None. The UAT template placeholders in Section 2A-2G are intentional (they
-are the Ashley-fill-in slots, not stubs to be resolved). Every automated
+are the user-fill-in slots, not stubs to be resolved). Every automated
 diagnostic verdict in Section 1 is fully articulated — no "TODO",
 "placeholder", or "coming soon" markers.
 
@@ -300,9 +300,9 @@ doc authoring. STRIDE register mitigations applied as designed:
   AppShell.tsx:1400 missing paddingBottom). Executor did NOT edit source
   for any of these. `git diff --stat src/` post-commit returns empty.
   Route-backs documented in Section 3.
-- **T-13-04-02 (Denial of Service — Ashley UAT reveals a scope violation
+- **T-13-04-02 (Denial of Service — Alice UAT reveals a scope violation
   from Wave 1/2/3):** Section 3E and 3F explicitly enumerate the SHAPE-06
-  scope-violation route-backs. If Ashley reports FAIL on 2E or 2F, the
+  scope-violation route-backs. If Alice reports FAIL on 2E or 2F, the
   matrix routes to immediate revert + rebase before phase-13 can close.
 - **T-13-04-03 (Information Disclosure — UAT-DIAG-LOG content):** Accepted
   per plan (same information class as other planning-tree docs; no
@@ -310,7 +310,7 @@ doc authoring. STRIDE register mitigations applied as designed:
 - **T-13-04-04 (Denial of Service — mobile scroll-freeze fix requires
   touch-action CSS that Wave 1 did not include):** Section 1B verdict
   confirms Wave 1 did NOT add touch-action. Section 3B row 2 documents
-  the single-line CSS fix if Ashley confirms freeze reproduces.
+  the single-line CSS fix if Alice confirms freeze reproduces.
 - **T-13-04-SC (Supply chain — package installs):** Zero installs. Docs
   authoring only. No supply-chain surface.
 
@@ -327,10 +327,10 @@ doc authoring. STRIDE register mitigations applied as designed:
 ## Downstream Enablement
 
 - **Wave 5 (13-05) — Build-verify + UAT checklist + patch draft:** Will
-  consume the completed UAT-DIAG-LOG once Ashley fills Section 2. The
+  consume the completed UAT-DIAG-LOG once Alice fills Section 2. The
   route-back matrix in Section 3 provides the exhaustive lookup for
-  translating Ashley's observations into 13-05's scope.
-- **Ashley's live UAT session:** Sections 2A-2G give her a structured
+  translating Alice's observations into 13-05's scope.
+- **Alice's live UAT session:** Sections 2A-2G give her a structured
   observation template. Sections 1A-1D give her the pre-UAT expected
   behavior + provisional-verdict context so she can distinguish
   "Wave 1 fixed this" from "still broken."
@@ -340,22 +340,22 @@ doc authoring. STRIDE register mitigations applied as designed:
 ## Follow-up Candidates for Master Bounty
 
 Enumerated in Section 3's route-back matrix. Highlights (contingent on
-Ashley's UAT outcome):
+Alice's UAT outcome):
 
 - **Candidate B.1 fix (fresh-terminal path key mismatch):** Update
   `Tab.targetTmuxSession` from Terminal.tsx's `onTmuxSessionChange`
   callback so the row's key resolves to the actual backend session name.
   Estimated: 1-file fix in AppShell.tsx (openTabs management layer).
-  Owner: phase-13 (if Ashley UATs FAIL_PARTIAL and this candidate is
+  Owner: phase-13 (if Alice UATs FAIL_PARTIAL and this candidate is
   confirmed).
 - **Candidate A.1 fix (Terminal.tsx isIdle mount race):** Add client-side
   `setIsIdle(true)` fallback on WS-attach or change Panel-side null-
   handling. Terminal.tsx edit is FORBIDDEN in phase-13; Panel-side fix
   is possible but semantics-changing. Owner: master (Terminal.tsx path)
-  OR phase-13 (Panel-side path, if Ashley approves the semantics change).
+  OR phase-13 (Panel-side path, if Alice approves the semantics change).
 - **Mobile scroll `touch-action: pan-y`:** single-line CSS addition to
   `.pv-row` in pretty-conversations.css. Trivial. Owner: phase-13 if
-  Ashley confirms freeze.
+  Alice confirms freeze.
 - **Safe-area architectural fix:** move `paddingBottom:
   max(env(safe-area-inset-bottom), 0px)` from PrettyConversationsPanel.tsx:233
   workaround to AppShell.tsx:1400 outer wrapper. Owner: master (SHAPE-04
@@ -374,12 +374,12 @@ Ashley's UAT outcome):
 
 ## Status Line
 
-**pre-UAT complete; blocked on Ashley live UAT of deployed Waves 1-3 + shell chrome.**
+**pre-UAT complete; blocked on Alice live UAT of deployed Waves 1-3 + shell chrome.**
 
 Task 1 (Automated diagnostic pass) is complete and committed. Task 2
-(Ashley's live UAT human-verify checkpoint) is the terminal handoff — the
+(Alice's live UAT human-verify checkpoint) is the terminal handoff — the
 executor cannot substitute for a live human-observed verdict on visual
-parity, dot visibility, mobile scroll, and safe-area padding. Ashley UATs
+parity, dot visibility, mobile scroll, and safe-area padding. Alice UATs
 after Waves 1-3 deploy; her observations populate Sections 2A-2G of the
 UAT-DIAG-LOG; Section 3's exhaustive route-back matrix then routes her
 verdicts to specific follow-up actions.

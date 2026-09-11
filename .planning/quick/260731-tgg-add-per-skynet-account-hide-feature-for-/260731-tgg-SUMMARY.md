@@ -25,7 +25,7 @@ key_files:
     - src/ui/features/pretty-conversations/PrettyConversationRow.tsx
     - src/ui/features/pretty-conversations/pretty-conversations.css
 decisions:
-  - hiddenIds are intentionally sticky (NOT pruned in updateOpenTabs) so stale hidden ids re-hide when the session reappears, matching Ashley's intent
+  - hiddenIds are intentionally sticky (NOT pruned in updateOpenTabs) so stale hidden ids re-hide when the session reappears, matching Alice's intent
   - Panel uses knownRowsRef accumulator to resolve hidden row objects for the Hidden section, since computeSnapshot() already filters them from all tiers
   - Mobile swipe design lock: active-set rows keep Pin+Deactivate on swipe; Hide is context-menu-only for active-set rows (per plan spec)
   - Single atomic commit for all 3 tasks per fork's numbered-patch convention

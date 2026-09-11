@@ -2,12 +2,12 @@
 
 **Gathered:** 2026-07-21
 **Status:** Ready for planning
-**Source:** Synthesized from shape file `.planning/shapes/shape-fleet-native-conversation-list.md` — that file is authoritative and every philosophical / scope-edge question was locked during a `/open` discussion with Ashley on 2026-07-21 (see the shape's "What would make it wrong" and "Scope edges" sections for provenance). This CONTEXT.md restates the shape as locked planning decisions plus the concrete Skynet-fork integration points. **The shape is not to be re-litigated; the planner's job is HOW, not WHAT.**
+**Source:** Synthesized from shape file `.planning/shapes/shape-fleet-native-conversation-list.md` — that file is authoritative and every philosophical / scope-edge question was locked during a `/open` discussion with Alice on 2026-07-21 (see the shape's "What would make it wrong" and "Scope edges" sections for provenance). This CONTEXT.md restates the shape as locked planning decisions plus the concrete Skynet-fork integration points. **The shape is not to be re-litigated; the planner's job is HOW, not WHAT.**
 
 <domain>
 ## Phase Boundary
 
-Phase 7 is a follow-up to Phase 6 addressing the two UAT gaps Ashley surfaced on 2026-07-21 after patch #105 shipped: (a) a small chrome bug where the mobile settings surface renders in duplicate (header gear AND bottom settings row both visible on mobile, both routing to the same menu), and (b) the load-bearing shape gap where the conversation list's data source mirrored only the browser-tab's currently-open Skynet tabs, causing a fresh mobile page-load to show "no active conversations" even when Ashley had running sessions across her fleet.
+Phase 7 is a follow-up to Phase 6 addressing the two UAT gaps Alice surfaced on 2026-07-21 after patch #105 shipped: (a) a small chrome bug where the mobile settings surface renders in duplicate (header gear AND bottom settings row both visible on mobile, both routing to the same menu), and (b) the load-bearing shape gap where the conversation list's data source mirrored only the browser-tab's currently-open Skynet tabs, causing a fresh mobile page-load to show "no active conversations" even when Alice had running sessions across her fleet.
 
 Scope:
 
@@ -15,7 +15,7 @@ Scope:
 2. **Render remote-desktop host rows at the bottom of the list.** One row per RDP-enabled host, monitor icon in the avatar slot, no identity hue, no identity name — just the host name + monitor glyph. Persistent as fleet fact (row exists as long as the host is RDP-enabled, regardless of whether an RDP tab is currently open).
 3. **Re-style the existing New Session button as the Telegram-native pencil.** Function unchanged (pick a host, name a session, opens as identity tmux row); only the visual affordance changes. This is the ONLY creation button — plain SSH one-shot shells are explicitly not in the list, and the pencil is not overloaded to create them.
 4. **Fix the mobile gear/settings-row duplication.** The gear icon in the ConversationsPanel header renders on desktop viewports only; the settings row inside the ConversationsPanel scroller renders on mobile viewports only. Neither renders in both places.
-5. **Snapshot-on-page-load discovery, no polling.** The fleet-discovery signal fires once on mount and populates the store's `fleet` input. No polling, no push, no live-update chrome. Ashley refreshes to update.
+5. **Snapshot-on-page-load discovery, no polling.** The fleet-discovery signal fires once on mount and populates the store's `fleet` input. No polling, no push, no live-update chrome. Alice refreshes to update.
 
 Phase 7 does NOT touch: any tab lifecycle mechanism (how RDP tabs disconnect/reconnect, how identity-tmux sessions attach/detach, how pretty view mounts on identity resolution — all preserved verbatim from today's behavior), any pretty-view internals, any Terminal.tsx behavior, any RDP/guac backend behavior, any backend session-file tail / WS bridge, any nginx / caddy / docker configuration, any host record CRUD, any identity registry behavior, any package.json dependencies. This phase is a data-source reshape and a rendering addition; the tab machinery underneath is left alone.
 
@@ -30,28 +30,28 @@ All items below are **LOCKED** by the shape file — do NOT re-open them during 
 
 - **Fleet-native input added to the conversation-store.** The store currently consumes `openTabs` (from AppShell's tab state) as its row source. This phase adds a NEW input: `fleetSessions` — a snapshot of every tmux session on every reachable host, sourced from the same signal the current sidebar host-tree consumes. The store's derived row list becomes `fleet ∪ openTabs`, deduplicated by session identity (host id + tmux session name / id).
 - **Session identity for dedup.** A row is the same session iff the (host id, tmux session name/id) pair matches. When both `fleetSessions` and `openTabs` contain a row for the same identity, they collapse to a single row — the openTabs entry wins for anything the store already tracks (pin state, selection state, per-tab metadata), and fleetSessions contributes only the discovery signal ("this exists on the box").
-- **Snapshot on page-load, no polling (TG-17).** The `fleetSessions` input fires ONCE on component mount (the initial React effect that dispatches the discovery fetch). It does NOT re-poll on an interval, does NOT subscribe to real-time push, does NOT re-fetch on window focus or tab visibility change. If a session dies on a box Ashley isn't looking at, the row persists in the list stale until she refreshes. Explicitly agreed by Ashley: "I can refresh if I need to see the latest list."
+- **Snapshot on page-load, no polling (TG-17).** The `fleetSessions` input fires ONCE on component mount (the initial React effect that dispatches the discovery fetch). It does NOT re-poll on an interval, does NOT subscribe to real-time push, does NOT re-fetch on window focus or tab visibility change. If a session dies on a box Alice isn't looking at, the row persists in the list stale until she refreshes. Explicitly agreed by Alice: "I can refresh if I need to see the latest list."
   - **Planner reuse-vs-fresh call:** the current sidebar host-tree already fetches host data and knows about tmux sessions per host. If reusing that data source comes with polling attached, planner MUST disable the polling for the new list's purposes OR extract the one-shot fetch so the polling doesn't manifest as visible list mutations after page-load. Snapshot-on-load is the shape lock; free polling that leaks into visible mutations violates the shape.
 - **No attached/detached visual distinction (TG-13).** A row that has been clicked earlier this page-load (WebSocket open, pane warm) MUST look identical to a row that has not been clicked yet (exists on the box, not-yet-mounted). No brightness delta, no italic, no dot, no per-row indicator, no spinner-visible-only-for-detached. Rows are rows.
-- **Click-a-detached = transparent attach + mount + show (TG-14).** The user experience of clicking a detached row is functionally identical to clicking an attached row — no dialog, no confirmation, no separate "connect" step. Under the hood, clicking a detached row triggers `openTab(host, type, sessionName, opts)` (existing Phase 6 mechanism, reused verbatim) followed by `selectConversation(newTabId)` — the row's row-state changes from detached to attached, and it renders in the main view slot. From Ashley's perspective it's "click, see it."
+- **Click-a-detached = transparent attach + mount + show (TG-14).** The user experience of clicking a detached row is functionally identical to clicking an attached row — no dialog, no confirmation, no separate "connect" step. Under the hood, clicking a detached row triggers `openTab(host, type, sessionName, opts)` (existing Phase 6 mechanism, reused verbatim) followed by `selectConversation(newTabId)` — the row's row-state changes from detached to attached, and it renders in the main view slot. From Alice's perspective it's "click, see it."
 
 ### RDP row rendering (TG-15)
 
-- **One row per RDP-enabled host.** Ashley confirmed: "we don't really have a concept of multiple RDP sessions per host, so it would just be one per host."
+- **One row per RDP-enabled host.** Alice confirmed: "we don't really have a concept of multiple RDP sessions per host, so it would just be one per host."
 - **Row content: monitor icon + host name.** No identity hue, no avatar, no identity name. The monitor icon takes the avatar slot; the row otherwise matches the visual chrome of the identity-tmux rows (same row height, same click affordance, same host-name treatment).
 - **Placement: bottom of the list.** Below pins, below identity-tmux rows in the current sidebar's host-tree order. RDP rows form a distinct bottom section, either with a visual separator between them and the identity-tmux section above, or (planner's call) implicitly by grouping. On both mobile and desktop.
 - **Click = attach + mount + show.** Same as identity rows. Uses the existing RDP tab lifecycle mechanism (unchanged from Phase 6 and today).
 - **Row persistence tied to RDP-enabled host fact, NOT tab state.** The row exists as long as the host is RDP-enabled (per host record), regardless of whether an RDP tab is currently open. If the RDP tab dies server-side, the row stays (because the desktop is still available as a fleet fact); if the host record's RDP-enabled flag is turned off, the row vanishes.
-- **Pin capability on RDP rows: planner's call.** Ashley said "I don't think I really care if you could pin them or not, whatever's easier." Simplest is probably no-pin (RDP rows can't move above other RDP rows meaningfully, and they're already grouped at the bottom); the store's existing pin mechanism can be extended if pinning is trivial or left off if it isn't. Not shape-load-bearing.
+- **Pin capability on RDP rows: planner's call.** Alice said "I don't think I really care if you could pin them or not, whatever's easier." Simplest is probably no-pin (RDP rows can't move above other RDP rows meaningfully, and they're already grouped at the bottom); the store's existing pin mechanism can be extended if pinning is trivial or left off if it isn't. Not shape-load-bearing.
 
 ### Pencil re-style (TG-16)
 
 - **Same button, different visual.** The existing New Session button (added in Phase 6, Plan 06-04) is re-styled as the Telegram-native pencil-analog. Function is UNCHANGED — pick a host, name a session, open. The dialog / host picker / session-name capture flow is exactly what Phase 6 shipped; the button that opens the dialog gets a new icon (pencil glyph) and possibly a new position (see below).
-- **Placement: planner's discretion.** Ashley: "not too worried about the pencil placement." Two Telegram-native defaults to consider:
+- **Placement: planner's discretion.** Alice: "not too worried about the pencil placement." Two Telegram-native defaults to consider:
   - Per-viewport: FAB bottom-right on mobile, small pencil icon in the sidebar header on desktop.
   - Consistent-both-viewports: top-of-list button on both (matches Phase 6's current position).
   - Either is fine. Planner picks based on visual chrome fit.
-- **This is the ONLY creation button.** Plain SSH creation is explicitly NOT in scope — Ashley never creates plain-SSH sessions in her workflow, so no second affordance is added. The pencil creates a new tmux session (identity workflow); Ashley does the identity setup inside the pane (cd, start claude-code, run `/id`).
+- **This is the ONLY creation button.** Plain SSH creation is explicitly NOT in scope — Alice never creates plain-SSH sessions in her workflow, so no second affordance is added. The pencil creates a new tmux session (identity workflow); Alice does the identity setup inside the pane (cd, start claude-code, run `/id`).
 - **New-session flow behavior UNCHANGED from Phase 6.** Pick host, name it (empty allowed — auto-fills from tmux window title per the fork's feat/tab-title-from-tmux behavior), open, auto-navigate to view on mobile. The pending-select-id race defense from Plan 06-04 stays as-is; do not re-implement.
 
 ### Mobile gear/settings-row duplication fix (TG-18)
@@ -60,9 +60,9 @@ All items below are **LOCKED** by the shape file — do NOT re-open them during 
 - **Fix shape:** gate `showGear` on `!useIsTouchDevice()` (in addition to the existing `onRailClick` typeof check) so the gear renders on desktop viewports only. The SettingsRow's existing render condition (mobile-only, via Plan 06-03's `isTouchDevice` gate in AppShell) stays unchanged. Result: desktop sees gear (no settings row), mobile sees settings row (no gear), neither sees both.
 - **Both entry points continue to route to the same menu.** No change to what happens after the user opens the menu; only which entry point renders where.
 
-### Scope-fence discipline (Ashley's explicit lock)
+### Scope-fence discipline (Alice's explicit lock)
 
-- **Tab lifecycle is UNTOUCHABLE.** RDP tab disconnect/reconnect behavior, identity-tmux session attach/detach behavior, pretty-view mount-on-identity-resolution, session-persistence-within-page-load (Plan 06-02's tabNodesRef DOM-move mechanism), URL fragment scheme (patch #25 + Plan 06-03's `#mv=1` extension), any per-pane visibility signal contract — ALL preserved verbatim. Ashley: "under the hood of this conversation list, we are still using the tabs. And so I feel like we really don't need to be adjusting that stuff."
+- **Tab lifecycle is UNTOUCHABLE.** RDP tab disconnect/reconnect behavior, identity-tmux session attach/detach behavior, pretty-view mount-on-identity-resolution, session-persistence-within-page-load (Plan 06-02's tabNodesRef DOM-move mechanism), URL fragment scheme (patch #25 + Plan 06-03's `#mv=1` extension), any per-pane visibility signal contract — ALL preserved verbatim. Alice: "under the hood of this conversation list, we are still using the tabs. And so I feel like we really don't need to be adjusting that stuff."
 - **Pretty-view internals UNTOUCHABLE.** `src/ui/features/pretty-view/**` — same rule as Phase 6, no touches.
 - **Terminal.tsx UNTOUCHABLE.** Same rule as Phase 6.
 - **Guacamole / RDP backend UNTOUCHABLE.** Same rule as Phase 6.
@@ -154,13 +154,13 @@ Concrete surfaces the planner will need to touch or understand. Non-exhaustive �
 - Plain-SSH host rows in the list.
 - Any visual attached-vs-detached distinction.
 - A second creation affordance for plain-SSH or any non-identity-tmux flow.
-- Cross-device / cross-session state sync (a session created on Ashley's phone doesn't automatically show up on her desktop without a refresh).
+- Cross-device / cross-session state sync (a session created on Alice's phone doesn't automatically show up on her desktop without a refresh).
 
 ### Tempting but not in scope
 - Persisting the currently-selected conversation across browser refreshes.
 - Reusing the current sidebar's polling for the new list even if it comes for free. Even free polling that manifests as visible list mutations after page-load violates the shape lock (TG-17).
-- Distinguishing "identity attached" from "identity not-yet-attached" for a newly-created row while Ashley is doing her cd / claude / `/id` setup inside the pane.
-- Turning the pencil into a two-action popover that offers "new identity session" and "raw shell." Ashley never uses raw shell one-shots; keep the pencil single-purpose.
+- Distinguishing "identity attached" from "identity not-yet-attached" for a newly-created row while Alice is doing her cd / claude / `/id` setup inside the pane.
+- Turning the pencil into a two-action popover that offers "new identity session" and "raw shell." Alice never uses raw shell one-shots; keep the pencil single-purpose.
 
 </deferred>
 
@@ -183,20 +183,20 @@ Concrete surfaces the planner will need to touch or understand. Non-exhaustive �
 <success_criteria>
 ## Success Criteria (goal-backward)
 
-The phase is DONE when all of the following are true from Ashley's perspective on the deployed fork:
+The phase is DONE when all of the following are true from Alice's perspective on the deployed fork:
 
 1. **Fresh mobile page-load shows the fleet's running tmux sessions in the list** — not "no active conversations." The rows match what the current sidebar host-tree + double-shift menu would show.
-2. **Attached and detached rows are visually indistinguishable.** Ashley cannot tell from the row rendering whether she has clicked it earlier this page-load.
+2. **Attached and detached rows are visually indistinguishable.** Alice cannot tell from the row rendering whether she has clicked it earlier this page-load.
 3. **Clicking a detached row transparently attaches, mounts, and shows the session** — no separate connect step, no dialog, no confirmation.
 4. **Remote-desktop host rows sit at the bottom of the list** — one row per RDP-enabled host, monitor icon, no identity hue, clickable to open the desktop.
 5. **The New Session button is re-styled as a pencil.** Same function, new icon (and possibly new position per planner's placement choice).
 6. **Mobile no longer shows duplicate settings entry points.** The gear renders only on desktop; the settings row renders only on mobile.
-7. **The list does not auto-update after page-load.** No polling indicator, no live-count, no "syncing…" — Ashley refreshes to see cross-device or cross-session state changes.
+7. **The list does not auto-update after page-load.** No polling indicator, no live-count, no "syncing…" — Alice refreshes to see cross-device or cross-session state changes.
 8. **Every existing Phase 6 behavior is preserved verbatim** — per-session pins, host grouping with separators, mobile list-vs-view flow, tab-strip absence, sidebar collapse, session persistence within page-load, URL fragment schemes.
 9. **Every existing tab lifecycle behavior is preserved verbatim** — RDP tab disconnect/reconnect, identity-tmux attach/detach, pretty-view mount-on-identity-resolution.
 10. **Deployed behind the fork's mandatory 15-min deadman rollback.** No exceptions.
 
-If Ashley's UAT reveals ANY of these does not hold, the phase is not done.
+If Alice's UAT reveals ANY of these does not hold, the phase is not done.
 
 </success_criteria>
 

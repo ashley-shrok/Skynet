@@ -6,7 +6,7 @@
 
 ## Summary
 
-Every one of Ashley's seven UAT findings is a case-branch that Phase 93's architecture required but never made. The findings fall into three shapes:
+Every one of Alice's seven UAT findings is a case-branch that Phase 93's architecture required but never made. The findings fall into three shapes:
 
 1. **A lifecycle signal that only exists on the harness side** (findings 1 and 7). The loading veil is driven off the harness pane-state WS machine; the URL is driven off `tab-url.ts`'s `specForTab` which only knows the `tmux:` / `terminal:` / `rdp:` / `vnc:` / `telnet:` protocols. Neither is wired for `source.kind === "relay"`.
 2. **Chrome that was hidden monolithically but not reflowed** (findings 3 through 6). Phase 93 D-11 hid ComposeBox Row 1 + Paperclip when `mode === "relay"`; the horizontal footprint of the hidden paperclip's `pl-11` padding and the top-anchored `QueuePlusTab` still assumes Row 1 above the textarea. Findings 4, 5, and 6 are simple locked-decision fills (gap-1, drawer wrapper, placeholder copy).
@@ -98,7 +98,7 @@ useEffect(() => {
 
 Consequently, for a relay-kind mount: `paneState` stays `null` forever, `status` stays `"connecting"`, `wsTransportState` derives to `"not-connected"` (because `reconnectAttempts === 0` and `status !== "streaming"`), `renderedState` collapses to `"resolving"` per truth-table row (e) `resolve-phase.ts:199`, and after 400ms `showResolvingSpinner` flips `true` and stays true.
 
-**The message list itself DOES mount underneath** — L3830-3832 gate includes `source.kind === "relay"` which overrides the `status === "streaming"` requirement. So Ashley sees messages painting under a scrim that never dismisses.
+**The message list itself DOES mount underneath** — L3830-3832 gate includes `source.kind === "relay"` which overrides the `status === "streaming"` requirement. So Alice sees messages painting under a scrim that never dismisses.
 
 ### Root cause
 
@@ -114,10 +114,10 @@ Two paths, ordered by preference:
 
 **Path A (RECOMMENDED — data over configuration, per Phase 93 D-17):** Extend `ChatSurfaceAdapterState` (`sources/chat-surface-source.ts:67-79`) with an optional field the veil-mount gate can read case-agnostically. Two shapes to choose between:
 
-- Option A1 — reuse the existing `isReady` field. The veil-mount gate becomes: veil shows when `source.kind === "relay" && !adapter.isReady`. Tradeoff: `isReady` currently flips true on `session` frame which is BEFORE `history_batch` — messages might not be present yet when the veil dismisses (Ashley's "veil dismisses on a signal that doesn't correspond to messages have loaded" invariant from shape file).
+- Option A1 — reuse the existing `isReady` field. The veil-mount gate becomes: veil shows when `source.kind === "relay" && !adapter.isReady`. Tradeoff: `isReady` currently flips true on `session` frame which is BEFORE `history_batch` — messages might not be present yet when the veil dismisses (Alice's "veil dismisses on a signal that doesn't correspond to messages have loaded" invariant from shape file).
 - Option A2 — add a new discriminated field like `isMessagesLoaded: boolean` (name TBD), flipped `true` on the first `history_batch` frame. The relay adapter at `use-relay-adapter.ts:438-445` receives `history_batch`; add a state slot + the flip on that frame. The `useHarnessAdapter` inert shim leaves it undefined (or defaults to `true` since the harness-veil is separately driven).
 
-**The signal Ashley wants is history_batch**, not `session`, because `session` fires immediately on WS auth-pass and predates any actual message-loading work. Choose Option A2 for correctness. `[VERIFIED: use-relay-adapter.ts:430-446]`
+**The signal Alice wants is history_batch**, not `session`, because `session` fires immediately on WS auth-pass and predates any actual message-loading work. Choose Option A2 for correctness. `[VERIFIED: use-relay-adapter.ts:430-446]`
 
 **Path B (case-branched, not data-driven):** Reshape the veil-mount gate in PrettyView itself to case-branch on `source.kind`. Something like: `showLoadingOverlay = source.kind === "harness" ? showResolvingSpinner : (source.kind === "relay" && !relayFirstHistoryReceived)`. Requires a new state slot on PrettyView for "have we received history_batch yet" driven by an effect watching `chatSurfaceAdapter.messages.length` transitioning from 0 to non-zero. Uglier and violates D-17; only pick this if Option A2's adapter reshape turns out to be structurally hairier than expected (unlikely — it's an additive optional field).
 
@@ -127,12 +127,12 @@ Two paths, ordered by preference:
 
 The harness case's veil dismisses when `paneState` transitions from `null` to non-null (via a `pane_state` WS frame from the backend claude-session server — `pane-state-emitter.ts`). The moment the backend emits `pane_state:active`, `renderedState` transitions to `"active"`, the effect at L2013 sets `showResolvingSpinner(false)`, and the veil unmounts. That backend emit happens after the WS is attached and the session-transcript tail begins — roughly the same "we're now sending you real content" moment as the relay adapter's `history_batch`.
 
-The relay case's analog is: relay adapter's WS attaches → `session` frame lands (adapter marks itself connected) → `history_batch` frame lands (backend has read the room's history and shipped a batch). `history_batch` is the analog of "the harness backend has started tailing the JSONL" — that's when Ashley genuinely should see the veil come down.
+The relay case's analog is: relay adapter's WS attaches → `session` frame lands (adapter marks itself connected) → `history_batch` frame lands (backend has read the room's history and shipped a batch). `history_batch` is the analog of "the harness backend has started tailing the JSONL" — that's when Alice genuinely should see the veil come down.
 
 ### Landmines
 
 - **Do NOT dismiss on `chatSurfaceAdapter.messages.length > 0`.** An empty room has zero messages and zero history_batch entries — but `history_batch` still fires with an empty `events` array (`use-relay-adapter.ts:439-440` — `parsed.events` may be an empty array and history is set to it). If you gate on `messages.length > 0` the veil stays up in an empty room. Gate on the FRAME arrival, not on the state's cardinality.
-- **Do NOT dismiss on `session` frame alone.** That's what `isReady` already tracks; Ashley's finding says the veil should not dismiss until messages have loaded (or an empty-room verdict has landed).
+- **Do NOT dismiss on `session` frame alone.** That's what `isReady` already tracks; Alice's finding says the veil should not dismiss until messages have loaded (or an empty-room verdict has landed).
 - **Preserve the harness case veil behavior byte-identically.** No changes to `paneState` / `status` / `wsTransportState` / `resolveRenderedState`. The harness veil path continues to run through `showResolvingSpinner`.
 - **The 400ms delay-arm in the harness effect (L2007-2013) is deliberately present** to suppress veil flash on warm re-entry. If the relay-veil signal takes the SAME delay-arm treatment (recommended for consistency), duplicate the pattern or route both through the same setState. Do NOT skip the delay-arm — a fast WS reconnect would flash the veil.
 
@@ -152,7 +152,7 @@ Drag-SOURCE semantics live on IdentityBadge (`/home/ubuntu/skynet-taylor/src/ui/
 
 **(b) Portal reparenting on switch.** AppShell renders every tab as a React portal into a `data-tab-id` div (`SplitView.tsx:620-625`). The portal target reparenting is driven by `onPaneContentRef` (SplitView.tsx:264-269 → AppShell). When a room is opened, AppShell places PrettyView (with `source.kind === "relay"`) inside a Pane's tab-id div. The Pane's `useEffect` at L297-575 was already attached to `outerRef` at Pane mount and continues owning drag-drop.
 
-**The dragload-corruption claim from Ashley** ("split-view for even plain sessions is disturbed after a room has been opened") is the harder half of this finding. Diagnostic hypotheses in priority order:
+**The dragload-corruption claim from Alice** ("split-view for even plain sessions is disturbed after a room has been opened") is the harder half of this finding. Diagnostic hypotheses in priority order:
 
 **H1: window-level dragend leak.** SplitView.tsx:558 attaches `window.addEventListener("dragend", onDragEnd)`. The cleanup at L563 removes it. If a Pane is remounted (which happens when the split-tree changes shape), the effect cleanup runs. But if a Pane REMAINS mounted while its `path` changes (parent split reshapes), the deps at L568-575 include `path.join(".")`; effect re-runs; the previous window listener IS removed and a new one attached. This LOOKS clean.
 
@@ -164,22 +164,22 @@ Drag-SOURCE semantics live on IdentityBadge (`/home/ubuntu/skynet-taylor/src/ui/
 
 **H5: split-tree state mutation while a room mount is in flight.** If AppShell's `openTab(null, "terminal", ...)` for a relay-room tab triggers a split-tree reshape (unlikely per the create-relay-room flow at AppShell.tsx:2152-2179 — the row-click handler just adds a tab, doesn't touch splitTree), some intermediate state could leak. Also unlikely.
 
-**The most likely single cause is (a) — the missing drag source.** Ashley's specific complaint is "dragging a room-showing surface into an empty split slot opens the room in that slot" — that's a drag-SOURCE ask, and it's currently impossible because the relay badge has no tabId wired. The "shared-state corruption" claim needs live diagnosis with browser DevTools instrumentation before we can size it.
+**The most likely single cause is (a) — the missing drag source.** Alice's specific complaint is "dragging a room-showing surface into an empty split slot opens the room in that slot" — that's a drag-SOURCE ask, and it's currently impossible because the relay badge has no tabId wired. The "shared-state corruption" claim needs live diagnosis with browser DevTools instrumentation before we can size it.
 
 ### Root cause
 
 Two case-branches missing:
 
 1. **Drag source.** `MultiBadgeAnchor.tsx:129`, `MultiBadgeAnchor.tsx:186 (via AgentBadgeCell body)`, and `AgentBadgeWithMeter.tsx:186` need `tabId` threaded through, sourced from a new prop that MultiBadgeAnchor receives from PrettyView (which has `tabId` already, at PrettyView.tsx:612). BUT — a subtlety: Phase 93 D-18 says badge-click is a no-op for relay. Making it a drag-SOURCE is different from making it a click-target (drag-source doesn't fire onClick; the browser's 5px HTML5 drag threshold disambiguates). Verify with the planner that D-18 doesn't intend to preclude drag-source, just click.
-2. **Drop-target sanity.** Verify (during discovery — not a fix, a check) that a relay-showing Pane's native drop-target listener attaches, fires on drops, and cleans up cleanly on Pane unmount / path change. Instrument the `[pv-split-drop]` and `[pv-split-preview]` logs (already present) and reproduce Ashley's page-reload-clears-it observation. If clean, split-out DOES NOT apply — findings 1, 3, 4, 5, 6, 7 (and finding 2 as a simple drag-source-add case-branch) can ship as one arc.
+2. **Drop-target sanity.** Verify (during discovery — not a fix, a check) that a relay-showing Pane's native drop-target listener attaches, fires on drops, and cleans up cleanly on Pane unmount / path change. Instrument the `[pv-split-drop]` and `[pv-split-preview]` logs (already present) and reproduce Alice's page-reload-clears-it observation. If clean, split-out DOES NOT apply — findings 1, 3, 4, 5, 6, 7 (and finding 2 as a simple drag-source-add case-branch) can ship as one arc.
 
 ### Fix approach
 
 **Discovery phase (sequence FIRST, per D-07 split-out contract):**
 
 - Add a `[pv-split-drop-diag]` structured log at native `dragover` / `drop` on a relay-showing Pane (temporarily; can stay as instrumentation post-ship).
-- Manually reproduce Ashley's flow: open plain session → open room → close room → try to drag another session onto the plain session's Pane. Confirm what breaks: does the plain-session Pane's dragover still fire? Does the coral overlay still paint? Does the drop still route to `onOpenSessionInTree`?
-- If the plain-session Pane behaves correctly after the room open/close cycle → confirms Ashley's "shared-state corruption" is a red herring; the arc's fix reduces to problem (a) alone (wire tabId through MultiBadgeAnchor). Split-out DOES NOT apply.
+- Manually reproduce Alice's flow: open plain session → open room → close room → try to drag another session onto the plain session's Pane. Confirm what breaks: does the plain-session Pane's dragover still fire? Does the coral overlay still paint? Does the drop still route to `onOpenSessionInTree`?
+- If the plain-session Pane behaves correctly after the room open/close cycle → confirms Alice's "shared-state corruption" is a red herring; the arc's fix reduces to problem (a) alone (wire tabId through MultiBadgeAnchor). Split-out DOES NOT apply.
 - If a plain-session Pane DOES misbehave after a room mount → identify which handler is misbehaving (the outer-listener, the window dragend, or the AppShell handler at AppShell.tsx:2265 mentioned in SplitView comments). Full diagnosis THEN decide split-out.
 
 **If split-out DOES NOT apply, implementation:**
@@ -230,11 +230,11 @@ Paperclip is separately hidden at L2908 (`{showPaperclip && mode !== "relay" && 
 showPaperclip && "pl-11",
 ```
 
-`showPaperclip` is passed from PrettyView.tsx:4264 as `true`. When `mode === "relay"`, the Paperclip itself doesn't render, but the textarea's `pl-11` (44px left padding) is still applied. That 44px is the left gutter Ashley sees — space reserved for a Paperclip that isn't there.
+`showPaperclip` is passed from PrettyView.tsx:4264 as `true`. When `mode === "relay"`, the Paperclip itself doesn't render, but the textarea's `pl-11` (44px left padding) is still applied. That 44px is the left gutter Alice sees — space reserved for a Paperclip that isn't there.
 
 Similarly, the top-edge affordance is `QueuePlusTab` (a pebble-notch plus-tab rendered before the textarea at L2704-2710 when queueSlots is empty). It's positioned RELATIVE to the primary wrapper (L2695 `<div className="relative flex-1 self-stretch" data-testid="compose-primary-wrapper">`). The QueuePlusTab implementation at L3167-3210 uses absolute positioning to ride on the top edge of the textarea's wrapper. Its clip-path is documented at ComposeBox.tsx:2517-2519 as "rides on the topmost textarea's top edge." In the harness case, Row 1 above the textarea gives the QueuePlusTab pebble room to breathe above the textarea's rounded top corners. In the relay case, Row 1 is gone entirely — the textarea sits at the very top of the compose wrapper, with no vertical headroom above it for the pebble's `-top-N` offset. **Result: the pebble clips against the ComposeBox's outer container edge.**
 
-**Text-input vertical shortness (Ashley's third symptom in finding 3):** The textarea's base is `min-h-8!` (L2792, 32px). Auto-grow to 6 rows works via the useLayoutEffect at L2791 comment reference. The wrapper `flex-1 self-stretch` at L2695 says "take remaining vertical space in Row 2's flex container." Row 2's flex container at L2689 is `flex items-end gap-2`. In the harness case, when Row 1 is present with `mb-[3px]`, Row 2 sits BELOW Row 1 and the textarea occupies whatever vertical the ComposeBox's outer container has minus Row 1's height. In the relay case with Row 1 gone, Row 2 is the only child — the textarea's height should match. So the "input area too short" symptom is probably NOT the flex layout — it's the `min-h-8!` default reflecting that with fewer external chrome constraints, the auto-grow's baseline appears shorter relative to the pane. Hypothesis: the perception of "too short" comes from the removal of Row 1's vertical space above the textarea, making the ComposeBox as a whole shorter and the textarea's `min-h-8` looking more compressed.
+**Text-input vertical shortness (Alice's third symptom in finding 3):** The textarea's base is `min-h-8!` (L2792, 32px). Auto-grow to 6 rows works via the useLayoutEffect at L2791 comment reference. The wrapper `flex-1 self-stretch` at L2695 says "take remaining vertical space in Row 2's flex container." Row 2's flex container at L2689 is `flex items-end gap-2`. In the harness case, when Row 1 is present with `mb-[3px]`, Row 2 sits BELOW Row 1 and the textarea occupies whatever vertical the ComposeBox's outer container has minus Row 1's height. In the relay case with Row 1 gone, Row 2 is the only child — the textarea's height should match. So the "input area too short" symptom is probably NOT the flex layout — it's the `min-h-8!` default reflecting that with fewer external chrome constraints, the auto-grow's baseline appears shorter relative to the pane. Hypothesis: the perception of "too short" comes from the removal of Row 1's vertical space above the textarea, making the ComposeBox as a whole shorter and the textarea's `min-h-8` looking more compressed.
 
 Alternative hypothesis: something in the wrapper `flex items-end` or in a padding token isn't case-branching the way it should when Row 1 disappears. **Discovery step:** measure — inspect a live relay-mode ComposeBox and a harness-mode ComposeBox in DevTools; compare bounding rects. The truth will be visible in `getBoundingClientRect()` values, not guessable from code alone.
 
@@ -257,7 +257,7 @@ Change L2836 from `showPaperclip && "pl-11",` to `showPaperclip && mode !== "rel
 
 Add a `mode`-aware container padding-top on the primary wrapper (L2695) or on the compose outer container. Concrete recommendation: wrap the current `<div className="relative flex-1 self-stretch">` in a conditional `pt-N` where N accommodates the QueuePlusTab's `-top-N` offset. Find the pebble's exact absolute-positioning offset at ComposeBox.tsx:3180-3210 (QueuePlusTab function body — planner should read this passage to lock the exact padding delta needed).
 
-Alternative: instead of adding padding, take the Row 1 skeleton down to a `mode === "relay"` invisible spacer that carries the same `mb-[3px]` bottom margin as Row 1. Cleaner because it preserves the vertical geometry byte-for-byte. Ashley's ask is parity in feel; a matching invisible spacer is the least-invasive way to get it.
+Alternative: instead of adding padding, take the Row 1 skeleton down to a `mode === "relay"` invisible spacer that carries the same `mb-[3px]` bottom margin as Row 1. Cleaner because it preserves the vertical geometry byte-for-byte. Alice's ask is parity in feel; a matching invisible spacer is the least-invasive way to get it.
 
 **Step 3 — verify vertical parity:**
 
@@ -269,10 +269,10 @@ The harness case IS the reference. Every measurement in this fix is "make the re
 
 ### Landmines
 
-- **Do NOT hide the pebble in relay mode.** Ashley wants the top-edge affordance to work in relay mode (that's the whole point of finding 3's third symptom). The pebble's onClick calls `onAdd` which prepends a new empty queue slot at index 0 — the queue-a-message mechanism is a Row 2 concept, not a Row 1 concept, and it's meant to work in both cases.
+- **Do NOT hide the pebble in relay mode.** Alice wants the top-edge affordance to work in relay mode (that's the whole point of finding 3's third symptom). The pebble's onClick calls `onAdd` which prepends a new empty queue slot at index 0 — the queue-a-message mechanism is a Row 2 concept, not a Row 1 concept, and it's meant to work in both cases.
 - **Do NOT reintroduce Row 1 chrome to "solve" the pebble headroom.** D-11 locked the monolithic Row 1 hide. The fix is a vertical spacer (mode-specific padding-top or an empty-Row-1 skeleton), not a partial Row 1.
 - **Do NOT touch the Textarea's `min-h-8!` or `!` specificity.** Those are documented at L2793-2814 as load-bearing against shadcn Textarea's `min-h-[80px]` and `dark:bg-input/30`. Any change there re-opens a stack of past bug-fixes.
-- **Do NOT let the reflow spill into the harness case.** All new class tokens must be `mode === "relay" && ...` gated OR must be visually equivalent to the harness case's existing behavior. Regression floor is Ashley's harness-mode compose looks byte-identical.
+- **Do NOT let the reflow spill into the harness case.** All new class tokens must be `mode === "relay" && ...` gated OR must be visually equivalent to the harness case's existing behavior. Regression floor is Alice's harness-mode compose looks byte-identical.
 
 ---
 
@@ -299,7 +299,7 @@ Change L193 from `gap-2` to `gap-1` (4px). Single-token change. Executor may fin
 
 ### Analog
 
-There is no session-case analog for a multi-badge row — the harness case has exactly one badge. The reference is Ashley's judgment ("halve the gap").
+There is no session-case analog for a multi-badge row — the harness case has exactly one badge. The reference is Alice's judgment ("halve the gap").
 
 ### Landmines
 
@@ -374,7 +374,7 @@ placeholder={`Message ${identityName || "Claude"}…`}
 identityName={pvIdentity?.displayName}
 ```
 
-`pvIdentity` is derived from the harness session's identity (search PrettyView.tsx around L1809-1823). In the relay case, `pvIdentity` is undefined (there's no fleet identity for a room), so `identityName` is `undefined`, and the placeholder falls back to `Message Claude…`. That's Ashley's complaint — a room isn't Claude.
+`pvIdentity` is derived from the harness session's identity (search PrettyView.tsx around L1809-1823). In the relay case, `pvIdentity` is undefined (there's no fleet identity for a room), so `identityName` is `undefined`, and the placeholder falls back to `Message Claude…`. That's Alice's complaint — a room isn't Claude.
 
 ### Root cause
 
@@ -390,7 +390,7 @@ Two shapes to choose between:
 identityName={source.kind === "relay" ? "room" : pvIdentity?.displayName}
 ```
 
-The `Message ${identityName || "Claude"}…` template at ComposeBox.tsx:2750 renders `Message room…` for relay. Ashley's verbatim ask is `"message room"` (lower-case `m` in `message` was probably shorthand). The current template is `Message …` with capital M. Verify with Ashley (or lock as "Message room…" and let the reviewer flag if it's wrong).
+The `Message ${identityName || "Claude"}…` template at ComposeBox.tsx:2750 renders `Message room…` for relay. Alice's verbatim ask is `"message room"` (lower-case `m` in `message` was probably shorthand). The current template is `Message …` with capital M. Verify with Alice (or lock as "Message room…" and let the reviewer flag if it's wrong).
 
 **Shape B (ComposeBox learns mode for placeholder):** In ComposeBox.tsx:2750, case-branch on `mode`:
 
@@ -409,7 +409,7 @@ The harness case's placeholder pattern (`Message <Name>…`) is the reference; t
 ### Landmines
 
 - **Ellipsis is `…` U+2026, not three dots.** Preserve verbatim. Grep the string in the code to confirm.
-- **`Message` capital M** matches the harness case; Ashley's shorthand `"message room"` was almost certainly all-lowercase informality, not a design decision. Confirm with the reviewer — locking on `Message room…` (matching the harness template's capitalization convention) is the safer bet.
+- **`Message` capital M** matches the harness case; Alice's shorthand `"message room"` was almost certainly all-lowercase informality, not a design decision. Confirm with the reviewer — locking on `Message room…` (matching the harness template's capitalization convention) is the safer bet.
 - **Do NOT change the placeholder for the harness case.** Regression floor.
 
 ---
@@ -445,7 +445,7 @@ export function specForTab(input: {
 
 Returns `null` for a relay-room tab because `input.host` is `null` (relay-room tabs have no host — verified at tabUtils.tsx:186-195 and AppShell.tsx:2169). Result: relay-room tabs are dropped from the URL fragment by the URL-sync effect at AppShell.tsx:910-972.
 
-Round-trip on refresh: the URL fragment doesn't carry any `relay:` param → `consumePendingWorkspace` at tab-url.ts:211-251 has nothing to restore for the relay tab → AppShell's tab-restore path doesn't reopen it → Ashley refreshes and the room is gone.
+Round-trip on refresh: the URL fragment doesn't carry any `relay:` param → `consumePendingWorkspace` at tab-url.ts:211-251 has nothing to restore for the relay tab → AppShell's tab-restore path doesn't reopen it → Alice refreshes and the room is gone.
 
 ### Root cause
 
@@ -529,8 +529,8 @@ Reasoning:
 
 - The verbal problem statement ("shared-state corruption") is a hypothesis, not a locked cause.
 - The evidence I traced points at a simpler root cause: the missing drag-source wiring in MultiBadgeAnchor (problem (a) above). That's a case-branch fill-in, not a structural reshape.
-- The claimed "corruption after room open even on plain sessions" observation has no supporting log or DevTools trace attached. It could easily be an artifact of Ashley's testing flow — for example, a stale `dragCounter` in PrettyView (PrettyView.tsx:1744) or a stale focus state that a full page reload happens to clear.
-- The split-view drag-drop architecture (patch #514 native listeners + window-level dragend cleanup) is intentional and well-instrumented (existing `[pv-split-preview]` and `[pv-split-drop]` structured logs at SplitView.tsx:358, 517, 524, 538). Adding a temporary `[pv-split-drop-diag]` log during the discovery task should surface exactly what breaks in Ashley's plain-session-after-room-open scenario.
+- The claimed "corruption after room open even on plain sessions" observation has no supporting log or DevTools trace attached. It could easily be an artifact of Alice's testing flow — for example, a stale `dragCounter` in PrettyView (PrettyView.tsx:1744) or a stale focus state that a full page reload happens to clear.
+- The split-view drag-drop architecture (patch #514 native listeners + window-level dragend cleanup) is intentional and well-instrumented (existing `[pv-split-preview]` and `[pv-split-drop]` structured logs at SplitView.tsx:358, 517, 524, 538). Adding a temporary `[pv-split-drop-diag]` log during the discovery task should surface exactly what breaks in Alice's plain-session-after-room-open scenario.
 
 **Structural reshape scenarios (if diagnosis proves it):**
 
@@ -622,9 +622,9 @@ All claims in this research are `[VERIFIED]` against direct source-code reads or
 
 Empty table intentional. Every architectural claim is backed by a specific file + line-number reference; every "the fix approach is X" statement is derived from evidence in the shipped Phase 93 code, not from assumption.
 
-Two SOFT judgments below that are not `[ASSUMED]` claims but might benefit from Ashley confirmation at plan-check time:
+Two SOFT judgments below that are not `[ASSUMED]` claims but might benefit from Alice confirmation at plan-check time:
 
-- **Placeholder capitalization** (Finding 6): Ashley's verbatim `"message room"` was lower-case, but the existing template uses `Message …` (capital M). I recommend locking on `Message room…` to match the template pattern. If Ashley wants strict lower-case (`"message room…"`), it's a one-word change; verify at plan-check.
+- **Placeholder capitalization** (Finding 6): Alice's verbatim `"message room"` was lower-case, but the existing template uses `Message …` (capital M). I recommend locking on `Message room…` to match the template pattern. If Alice wants strict lower-case (`"message room…"`), it's a one-word change; verify at plan-check.
 - **Meter drawer tuck depth** (Finding 5): Prototype uses `-8px` verbatim; CONTEXT D-12 says "6–10px" range and Claude's Discretion at CONTEXT.md:92 permits executor to fine-tune. I recommend `-8px` (prototype value); executor may adjust to `-6px` or `-10px` based on live visual review.
 
 ## Open Questions
@@ -635,7 +635,7 @@ Two SOFT judgments below that are not `[ASSUMED]` claims but might benefit from 
    - Recommendation: add `isMessagesLoaded` as OPTIONAL (`isMessagesLoaded?: boolean`) on `ChatSurfaceAdapterState`. Harness shim leaves undefined; relay adapter populates. The veil-mount consumer treats undefined as "harness case — use the pane-state veil signal instead" via `source.kind === "harness"` gate.
 
 2. **Does the relay-badge tabId drag-source wire "the entire room tab" or "a per-participant handle"?**
-   - What we know: The harness IdentityBadge drag-source drags the whole tab. That's the semantic Ashley wants for relay too (Phase 97 D-05).
+   - What we know: The harness IdentityBadge drag-source drags the whole tab. That's the semantic Alice wants for relay too (Phase 97 D-05).
    - What's unclear: If each per-participant badge in MultiBadgeAnchor drags the same room tabId, dragging any badge in the row drags the entire room. That's what D-05 seems to want. But there's no per-participant dedicated drag target — every badge in the row is symmetric.
    - Recommendation: thread the SAME tabId to every badge in MultiBadgeAnchor. Dragging any participant's badge drags the whole room tab. Verify with reviewer at plan-check.
 

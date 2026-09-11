@@ -5,9 +5,9 @@
 
 ## What this is
 
-Skynet's voice-in (mic recording turned into text) and voice-out (assistant messages read aloud) currently terminate at a self-hosted model rig on Ashley's personal PC over the tailnet. That machine is going away as a model host — she's reclaiming it. This shape moves both sides of voice onto external cloud providers so nothing depends on the personal PC anymore.
+Skynet's voice-in (mic recording turned into text) and voice-out (assistant messages read aloud) currently terminate at a self-hosted model rig on Alice's personal PC over the tailnet. That machine is going away as a model host — she's reclaiming it. This shape moves both sides of voice onto external cloud providers so nothing depends on the personal PC anymore.
 
-Chosen providers, based on hands-on quality validation against real Skynet distribution: **Amazon Polly** for voice-out (top-tier generative engine, Ashley confirmed the quality matches or beats her local rig) and **Amazon Transcribe** streaming for voice-in.
+Chosen providers, based on hands-on quality validation against real Skynet distribution: **Amazon Polly** for voice-out (top-tier generative engine, Alice confirmed the quality matches or beats her local rig) and **Amazon Transcribe** streaming for voice-in.
 
 ## Shape
 
@@ -26,17 +26,17 @@ Two lanes, one philosophy — the client speaks the same shape it already speaks
 ## Philosophy
 
 - **The client contract is invariant.** Whatever shape the client speaks today for voice-in and voice-out stays exactly as it is. All translation to the new provider is a backend concern. This preserves the option to swap providers later without touching frontend code.
-- **One provider, one tier, no ceremony.** Voice-out is always top-tier generative because Ashley heard the quality difference and picked it flat. No user-facing engine toggle, no per-identity engine pick, no fallback tier. The mental model is: pick your voice, that's it.
+- **One provider, one tier, no ceremony.** Voice-out is always top-tier generative because Alice heard the quality difference and picked it flat. No user-facing engine toggle, no per-identity engine pick, no fallback tier. The mental model is: pick your voice, that's it.
 - **One route through the backend, not two.** Backend always owns orchestration, even for short messages that would technically pass through unchanged. Uniform path — no short-vs-long branching in the client.
-- **Real behavior over synthetic samples.** Provider choice was validated on real distribution — actual assistant messages Ashley receives and actual voice clips from her own recording history, not fabricated test text. That standard carries into implementation: if any provider behavior is uncertain, exercise it on real distribution before locking assumptions.
+- **Real behavior over synthetic samples.** Provider choice was validated on real distribution — actual assistant messages Alice receives and actual voice clips from her own recording history, not fabricated test text. That standard carries into implementation: if any provider behavior is uncertain, exercise it on real distribution before locking assumptions.
 - **Operator controls the cost gate.** The presence or absence of the narrow policy on an instance's host role IS the cost gate. No dashboards, no per-user quotas, no in-app spend caps — that's what the policy toggle covers.
 
 ## Prior context
 
 - The current voice-in and voice-out paths already happen to speak the same wire shape most external providers use — a happy accident of the local rig having chosen an industry-standard shape. Voice-in on the client side is close to an endpoint swap; real work is on the backend translation layer.
 - The old voice-out streaming pipeline is bespoke to the local rig's server-side chunking. The new pipeline moves chunking responsibility to Skynet's backend — same client experience, different owner of chunk boundaries.
-- Cloud-account access on Ashley's Skynet host was validated end-to-end during /open. The narrow exploratory-scoped policy is already attached to her host's role and produced the sample outputs Ashley signed off on. The eventual production feature runs on the same mechanism.
-- Skynet runs in two production places today — Ashley's own instance and one managed by Stacy on the Aither company's box. Both need the new voice code and both need a policy attached on their side. The code itself is uniform between them.
+- Cloud-account access on Alice's Skynet host was validated end-to-end during /open. The narrow exploratory-scoped policy is already attached to her host's role and produced the sample outputs Alice signed off on. The eventual production feature runs on the same mechanism.
+- Skynet runs in two production places today — Alice's own instance and one managed by Stacy on the Aither company's box. Both need the new voice code and both need a policy attached on their side. The code itself is uniform between them.
 
 ## What would make it wrong
 
@@ -73,9 +73,9 @@ Two lanes, one philosophy — the client speaks the same shape it already speaks
 
 **GSD phase, one phase.** Work crosses backend adapter code (two adapters, streaming lifecycle on both sides), frontend catalog reshape + validator update, migration for existing identity voice values, and a cross-tree deploy-time doc. Ceremony fits: atomic commits per touched surface, plan-checker catches "we forgot to remove the old integration path" class of miss, verify loop confirms chunk-and-stitch feels continuous at play-time.
 
-**Exploration artifacts to reference during discuss-phase and plan-phase:** `~/.claude/roles/box-maintainer/bounties/more-versatile-stt-tts-support/` holds the validation samples Ashley signed off on (real assistant messages fed to the voice-out service, real voice clips fed to the voice-in service, and the actual outputs). Plan-phase should read those to anchor the "real behavior over synthetic samples" philosophy.
+**Exploration artifacts to reference during discuss-phase and plan-phase:** `~/.claude/roles/box-maintainer/bounties/more-versatile-stt-tts-support/` holds the validation samples Alice signed off on (real assistant messages fed to the voice-out service, real voice clips fed to the voice-in service, and the actual outputs). Plan-phase should read those to anchor the "real behavior over synthetic samples" philosophy.
 
-**Coordination with Aither Infra:** Iris authored the narrow exploratory-scoped policy already attached to Ashley's host. When shipping is imminent, ping her to re-scope from exploratory-name to a production name (she asked for that ping explicitly). Stacy on the Aither box picks up the new code via the standard cross-tree flow and follows the deploy doc on her side for her instance's cloud role.
+**Coordination with Aither Infra:** Iris authored the narrow exploratory-scoped policy already attached to Alice's host. When shipping is imminent, ping her to re-scope from exploratory-name to a production name (she asked for that ping explicitly). Stacy on the Aither box picks up the new code via the standard cross-tree flow and follows the deploy doc on her side for her instance's cloud role.
 
 ---
 

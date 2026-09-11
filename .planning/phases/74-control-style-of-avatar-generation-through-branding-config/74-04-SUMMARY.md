@@ -5,7 +5,7 @@ subsystem: branding
 tags: [runbook-retirement, prompt-archive, local-filesystem, scope-close, grep-sweep, checkpoint-gated]
 requires:
   - Phase 74 Plan 03 scrubbed all three `avatar-flow` runbook header refs in identity-avatar-batch.ts (L16/L122/L180), leaving zero live-code dependents on the retired paths
-  - Ashley human checkpoint approval at 2026-09-04 (Task 1, `thumbs up`) confirming all five staged files' content is retired and nothing has quietly become live-again (per 74-CONTEXT.md § What would make it wrong §4)
+  - Alice human checkpoint approval at 2026-09-04 (Task 1, `thumbs up`) confirming all five staged files' content is retired and nothing has quietly become live-again (per 74-CONTEXT.md § What would make it wrong §4)
 provides:
   - Zero on-disk copies of the manual avatar-generation runbook (`~/.claude/roles/box-maintainer/runbooks/avatar-flow.md`, 22806 bytes, 471 lines) — retired
   - Zero on-disk copies of the four per-identity prompt-archive files (amelia 8429B, beatrice 7120B, becky 5235B, george 4522B — 25306 bytes total across 397 lines) — retired
@@ -36,7 +36,7 @@ key-files:
     - "~/.claude/roles/box-maintainer/avatar-prompts/becky.md"
     - "~/.claude/roles/box-maintainer/avatar-prompts/george.md"
 decisions:
-  - "Local-filesystem `rm` — NOT `git rm`. The five deleted files live in tina's `~/.claude/roles/box-maintainer/`, outside the Skynet repo tree. Deletion produces no commit against Skynet's history; only the SUMMARY.md audit trail records what was deleted. Per Ashley `<additional_context>` and 74-RESEARCH.md § Pitfall 5 (Deleting the runbook + archive files as a git commit)."
+  - "Local-filesystem `rm` — NOT `git rm`. The five deleted files live in tina's `~/.claude/roles/box-maintainer/`, outside the Skynet repo tree. Deletion produces no commit against Skynet's history; only the SUMMARY.md audit trail records what was deleted. Per Alice `<additional_context>` and 74-RESEARCH.md § Pitfall 5 (Deleting the runbook + archive files as a git commit)."
   - "Do NOT rmdir the `avatar-prompts/` empty directory. Per objective override: the plan's Task 2 action step 2 offers an optional `rmdir 2>/dev/null || true`, but the sequential-executor objective explicitly directs 'leave the folder in place; do NOT delete it (harmless empty folder is safer than accidental parent deletion)'. Applied override — folder left in place, `ls` confirms it is empty."
   - "Do NOT delete the `runbooks/` parent directory. It still contains two unrelated runbooks (`css-fast-path.md`, `user-onboarding.md`) that are NOT part of Phase 74's scope. Verified before AND after the delete — sibling runbooks preserved."
   - "Grep sweep found 3 remaining hits, all in `.planning/` documentation (ROADMAP.md L766/L1838-L1839 + shape-branding-config-avatar-style.md L78). Per plan Task 2 acceptance criteria (line 130-133), zero-hit requirement applies only to live-code paths (`src/`, `docker/`, `scripts/`); the `.planning/` hits are intentional historical audit trail equivalent to the phase-20 exclusion the plan explicitly calls out. Confirmed zero hits in `src/`, `docker/`, `scripts/` via targeted grep."
@@ -52,13 +52,13 @@ metrics:
 
 # Phase 74 Plan 04: Runbook + Prompt-Archive Deletion — Summary
 
-Closed Phase 74's scope edge on retiring the manual avatar-generation outrigger by deleting five files from tina's local `~/.claude/roles/box-maintainer/` role folder (the 471-line manual `avatar-flow.md` runbook and its four per-identity prompt-archive files: `amelia.md`, `beatrice.md`, `becky.md`, `george.md`). Gated by a human-verify checkpoint that Ashley approved via `thumbs up` after re-confirming (per 74-CONTEXT.md § "What would make it wrong" §4) that nothing in the runbook has quietly become live-again. Final repo-side grep sweep for `avatar-flow` and `avatar-prompts` confirmed zero live-code hits in `src/`, `docker/`, or `scripts/` — Plan 03's earlier scrub of the three `identity-avatar-batch.ts` header refs held. The three remaining hits under `.planning/` are all historical planning-artifact context (ROADMAP.md progress rows + Phase 74's own shape file), matching the phase-20 exclusion the plan explicitly authorizes. No files in the Skynet repo were modified.
+Closed Phase 74's scope edge on retiring the manual avatar-generation outrigger by deleting five files from tina's local `~/.claude/roles/box-maintainer/` role folder (the 471-line manual `avatar-flow.md` runbook and its four per-identity prompt-archive files: `amelia.md`, `beatrice.md`, `becky.md`, `george.md`). Gated by a human-verify checkpoint that Alice approved via `thumbs up` after re-confirming (per 74-CONTEXT.md § "What would make it wrong" §4) that nothing in the runbook has quietly become live-again. Final repo-side grep sweep for `avatar-flow` and `avatar-prompts` confirmed zero live-code hits in `src/`, `docker/`, or `scripts/` — Plan 03's earlier scrub of the three `identity-avatar-batch.ts` header refs held. The three remaining hits under `.planning/` are all historical planning-artifact context (ROADMAP.md progress rows + Phase 74's own shape file), matching the phase-20 exclusion the plan explicitly authorizes. No files in the Skynet repo were modified.
 
 ## What Shipped
 
 ### Task 1 (checkpoint:human-verify) — Human scope re-verification
 
-**Approved 2026-09-04 by Ashley (`thumbs up`).** After the executor presented the 5-file inventory (with byte + line counts) and ran the sanity grep confirming zero live-code refs to `avatar-flow` or `avatar-prompts`, Ashley confirmed via /open beat 2 ("Yeah, that is all gonna be retired") and gave explicit approval via `thumbs up`. Sibling runbooks (`css-fast-path.md`, `user-onboarding.md`) confirmed untouched by the plan's scope.
+**Approved 2026-09-04 by Alice (`thumbs up`).** After the executor presented the 5-file inventory (with byte + line counts) and ran the sanity grep confirming zero live-code refs to `avatar-flow` or `avatar-prompts`, Alice confirmed via /open beat 2 ("Yeah, that is all gonna be retired") and gave explicit approval via `thumbs up`. Sibling runbooks (`css-fast-path.md`, `user-onboarding.md`) confirmed untouched by the plan's scope.
 
 ### Task 2 (auto) — Local `rm` + repo-side grep sweep
 
@@ -131,7 +131,7 @@ Returned **zero hits**. Plan 03 Task 1's scrub of the three `identity-avatar-bat
 | `ls ~/.claude/roles/box-maintainer/avatar-prompts/` is empty | PASS (directory left in place per override; contents 0) |
 | grep `avatar-flow\|avatar-prompts` in `src/` `docker/` `scripts/` | 0 hits — PASS |
 | Grep hits outside phase-20/phase-74/quick exclusion (all under `.planning/`) | 2 files, all documentation — ACCEPTED (not live-code paths) |
-| Ashley checkpoint approval | RECORDED (`thumbs up`, 2026-09-04) |
+| Alice checkpoint approval | RECORDED (`thumbs up`, 2026-09-04) |
 
 ## Anti-Pattern Locks Held
 
@@ -165,7 +165,7 @@ Carried forward from Plan 01: **`isBrandingConfig` runtime guard in `src/ui/bran
 
 None. All threats documented in the plan's `<threat_model>` block (T-74-04-01 through T-74-04-SC) are covered:
 
-- **T-74-04-01 (loss of live knowledge → mitigate)** — human-verify checkpoint held; Ashley confirmed all outrigger content retired before deletions ran. Idempotency guards on all 5 `rm`s.
+- **T-74-04-01 (loss of live knowledge → mitigate)** — human-verify checkpoint held; Alice confirmed all outrigger content retired before deletions ran. Idempotency guards on all 5 `rm`s.
 - **T-74-04-02 (overly-broad delete → mitigate)** — five explicit absolute paths, no globs; sibling files in `runbooks/` verified preserved before AND after via `ls`.
 - **T-74-04-03 (elevation of privilege via user-input paths → accept, n/a)** — paths are fixed absolute literals, no dynamic construction.
 - **T-74-04-04 (grep miss on live-code ref → mitigate)** — grep sweep repo-wide across `.ts/.tsx/.js/.json/.md`; targeted second-sweep of `src/`, `docker/`, `scripts/` confirmed 0 live-code hits.
@@ -197,5 +197,5 @@ The five local-filesystem `rm`s themselves produced **zero commits** against the
 - 2 sibling runbooks (`css-fast-path.md`, `user-onboarding.md`) verified PRESERVED via `ls`
 - Zero live-code hits in `src/`/`docker/`/`scripts/` for `avatar-flow` or `avatar-prompts`
 - 3 remaining hits in `.planning/` docs (ROADMAP.md + shape file) all inspected + categorized as intentional historical audit trail
-- Checkpoint approval recorded (Ashley `thumbs up`, 2026-09-04)
+- Checkpoint approval recorded (Alice `thumbs up`, 2026-09-04)
 - No git branch switches, no worktree, no `--no-verify` (fleet sequential-mode rules held)

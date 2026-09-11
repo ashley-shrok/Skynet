@@ -9,7 +9,7 @@
 | New/Modified File | Kind | Role | Data Flow | Closest Analog | Match Quality |
 |-------------------|------|------|-----------|----------------|---------------|
 | `src/backend/claude-session/plan-pending-parser.ts` | MODIFY | pure text-helper | transform (pane→predicate/path) | `src/backend/claude-session/context-pct-parser.ts` (co-file sibling, same posture) | exact — same file gets extended |
-| `src/backend/claude-session/plan-pending-parser.test.ts` | MODIFY | vitest pure-helper suite | synthetic-in/assert-out | `src/backend/claude-session/context-pct-parser.test.ts` (Ashley's fingerprint style) | exact |
+| `src/backend/claude-session/plan-pending-parser.test.ts` | MODIFY | vitest pure-helper suite | synthetic-in/assert-out | `src/backend/claude-session/context-pct-parser.test.ts` (Alice's fingerprint style) | exact |
 | `src/backend/claude-session/claude-session-server.ts` | MODIFY | WS server + PTY orchestrator | request-response + emit-on-diff | itself (existing `plan_pending` emit site + `aside_arm`/`aside_dismissed` dispatch) | in-place extension |
 | `src/backend/ssh/plan-file-fetch.ts` (proposed name) | NEW | SSH SFTP helper module | file-I/O (SFTP read once per pending window) | `src/backend/ssh/pretty-view-upload.ts` (SFTP write orchestrator) + `src/backend/ssh/file-manager-download-routes.ts` (SFTP readFile idiom) | strong role-match |
 | `src/backend/ssh/plan-file-fetch.test.ts` (proposed name) | NEW | vitest SFTP-mock suite | mock-in/assert-out | `src/backend/ssh/pretty-view-upload.test.ts` (mockSftp harness) | exact |
@@ -50,7 +50,7 @@ if (!paneText.includes("Claude has written up a plan and is ready to execute. Wo
 return true;
 ```
 
-The two-condition fingerprint SHAPE stays (bottom-slice marker AND header-anywhere) — only the two strings and the reduction from two-header-variants to one change (pinned fleet is single-variant per Ashley 2026-08-04). Slice size stays 30 lines. Docblock's rationale for BOTTOM+HEADER combo still applies verbatim.
+The two-condition fingerprint SHAPE stays (bottom-slice marker AND header-anywhere) — only the two strings and the reduction from two-header-variants to one change (pinned fleet is single-variant per Alice 2026-08-04). Slice size stays 30 lines. Docblock's rationale for BOTTOM+HEADER combo still applies verbatim.
 
 **New helper `parsePlanFilePath(paneText: string): string | null`** — added in the same file, same pure-helper posture, same zero-imports:
 
@@ -505,7 +505,7 @@ Same pattern as `recycleActive={showOverlay}` and `asideActive={asideText !== nu
 
 ### `src/ui/features/pretty-view/ComposeBox.tsx` (React composed input surface)
 
-**Analog:** itself. Copy the `recycleActive` prop shape verbatim (Ashley 2026-08-04 CONTEXT lock: "match recycleActive treatment").
+**Analog:** itself. Copy the `recycleActive` prop shape verbatim (Alice 2026-08-04 CONTEXT lock: "match recycleActive treatment").
 
 **Add prop to interface** (mirror L256-281 `recycleActive` docblock verbatim + rewrite for planPendingActive):
 
@@ -514,7 +514,7 @@ Add after L281 `recycleActive?: boolean;`:
   // Phase 24: plan-mode approval prompt is pending. When true, every WS-side-
   // effecting compose control is disabled (Send button STAYS as Send but
   // disabled=true; reset, ThumbsUp, Recap, Queue all disabled). Textarea
-  // REMAINS typeable so Ashley can pre-draft her feedback message while the
+  // REMAINS typeable so Alice can pre-draft her feedback message while the
   // plan-approval prompt is open — matches the recycleActive behavior verbatim.
   //
   // Why SEPARATE from asideActive AND recycleActive (per CONTEXT § "Do NOT

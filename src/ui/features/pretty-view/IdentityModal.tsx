@@ -974,7 +974,7 @@ export function IdentityModal({
         </DialogTitle>
 
         {/* Header — patch #91: symmetric py-4 (was pt-5 pb-3 which pushed
-            the avatar visually above center; Ashley called out on first
+            the avatar visually above center; Alice called out on first
             #90 deploy eyeball). */}
         <DialogHeader
           className="shrink-0"
@@ -1020,13 +1020,13 @@ export function IdentityModal({
               )}
             />
           )}
-          {/* Scrollable inner row (Ashley 2026-09-02 mobile fix): the header's
+          {/* Scrollable inner row (Alice 2026-09-02 mobile fix): the header's
               children (avatar + name/title + stays-awake switch + pencil + close)
               have a natural minimum width that exceeds a phone viewport — the
               "Boost response time…" label alone is ~200px wide, and it sits
               alongside a 40px avatar + 36px pencil + 36px close (all shrink-0).
               Pre-fix, the row overflowed the outer overflow:hidden and clipped
-              the close button on the right, stranding Ashley with no way to
+              the close button on the right, stranding Alice with no way to
               dismiss the modal on mobile short of force-quitting the app.
               overflow-x-auto lets the row scroll horizontally when it doesn't
               fit, so the close button is always reachable via touch flick.
@@ -1191,7 +1191,7 @@ export function IdentityModal({
             <Pencil className="size-4" />
           </button>
           {/* Patch #91: close button glow-up. Was a ghost square with no
-              rest-state visual weight ("pretty lame looking" per Ashley
+              rest-state visual weight ("pretty lame looking" per Alice
               on first #90 deploy eyeball). Now a proper glass pill with:
               - rest: subtle warm-glass fill + hairline border, muted icon
               - hover: brightens fill + border + icon, hue-tinted outer glow

@@ -21,7 +21,7 @@ Phase 2 does NOT change the backend session-file discovery / tail / WS bridge �
 <decisions>
 ## Implementation Decisions
 
-### RENDER-04 and RENDER-05 are verify-only, not implementation (Ashley clarified at /id reset 2026-07-17)
+### RENDER-04 and RENDER-05 are verify-only, not implementation (Alice clarified at /id reset 2026-07-17)
 - RENDER-04 (native browser text selection with no highlight-then-Enter dance) and RENDER-05 (click-to-focus without accidentally starting a selection) come for **free** with Phase 1's HTML `PrettyView.tsx` — they are avoided problems, not build items.
 - The planner MUST treat these as verification / acceptance items in the phase's success criteria, NOT as tasks in the plan. Do not create a plan file whose goal is "make text selectable" or "fix click focus."
 - If verification finds a regression (e.g., a Phase 2 wrapper accidentally sets `user-select: none`, or a click handler stops event propagation and eats the browser's native focus), that becomes a Phase 2 remediation task at that time — but do not pre-emptively plan for it.
@@ -29,7 +29,7 @@ Phase 2 does NOT change the backend session-file discovery / tail / WS bridge �
 ### Toggle mechanism — real chord, replaces URL fragment (TOGGLE-01, TOGGLE-02)
 - The chord IS the mechanism. The `#pretty=1` URL-fragment gate at `src/ui/shell/tabUtils.tsx:137-153` is scaffolding from Phase 1 and MUST be removed as part of this phase (the fragment gate and the real chord are mutually exclusive — leaving both in place invites the "which one wins" bug).
 - Reference implementation: `src/ui/hooks/use-keyboard-close-tab.ts` (patch #37) and `use-keyboard-message-queue.ts` (patch #39). Both use the SAME shared pattern that Phase 2 MUST follow: document-capture-phase keydown handler, `enabledRef` reading `localStorage["<key>Enabled"]` with a `<key>EnabledChanged` window event for cross-component sync, and `e.code === "..."` (not `e.key`) for layout independence. Deviating from this pattern will drift the fork.
-- Chord choice: **Ctrl+Shift+O** is the recommended default (unbound in Chrome + VS Code + Ashley's OS binding table per patch #37 lesson-learned; adjacent-alphabet to Ctrl+Shift+I devtools but not colliding). Planner should confirm with Ashley before committing.
+- Chord choice: **Ctrl+Shift+O** is the recommended default (unbound in Chrome + VS Code + Alice's OS binding table per patch #37 lesson-learned; adjacent-alphabet to Ctrl+Shift+I devtools but not colliding). Planner should confirm with Alice before committing.
 - Toggle state lives on the **Terminal component per pane** (like the message queue drawer's `isMessageQueueOpen` state, patch #39). No global store; every fresh Terminal mount starts in tmux mode (TOGGLE-02).
 - The chord acts on the ACTIVE tab only (same guard pattern as patch #37 — dashboard/RDP/VNC/files ignored). Non-terminal tabs are a no-op.
 
@@ -47,7 +47,7 @@ Phase 2 does NOT change the backend session-file discovery / tail / WS bridge �
 - Compose box mounts INSIDE the pretty view pane, directly below the conversation scroll region. It is not part of the queue drawer (which stays at the bottom in either mode) and is not related to the drawer's per-message-list layout — the compose box is a single always-present textarea, the drawer is a queue.
 - Enter-key semantics: `e.key === "Enter" && !e.shiftKey` triggers send; `e.key === "Enter" && e.shiftKey` inserts a newline in the textarea (default textarea behavior; do not preventDefault).
 - Send path: reuse `TerminalHandle.sendInput(data)` from `terminal-types.ts` (patch #40 already exposed this for the queue drawer). The Terminal ref is available at the tab level (already threaded to MessageQueueDrawer). Compose calls sendInput twice with a ~60ms setTimeout gap: first the message body, then `\r` — this is patch #40's proven split-send that defeats Ink's bracketed-paste batching in Claude Code's REPL.
-- **Multi-line message handling — Claude's Discretion for the planner, with a fence.** COMPOSE-05 forbids "[pasted N lines]" collapse but the send path still has to interoperate with Ink. Two viable shapes: (a) preserve newlines in the compose textarea for display but collapse to spaces on send (matches queue drawer's patch #39 behaviour, cleanest for Ink); (b) preserve newlines on send by chunking as `line + \r + line + \r ...` with 60ms gaps between each line (more faithful to what the user typed but higher risk of Ink misinterpreting mid-message Enter as submit). Planner should default to (a) with a note recommending (b) as a future patch if Ashley wants literal multi-line preserved end-to-end.
+- **Multi-line message handling — Claude's Discretion for the planner, with a fence.** COMPOSE-05 forbids "[pasted N lines]" collapse but the send path still has to interoperate with Ink. Two viable shapes: (a) preserve newlines in the compose textarea for display but collapse to spaces on send (matches queue drawer's patch #39 behaviour, cleanest for Ink); (b) preserve newlines on send by chunking as `line + \r + line + \r ...` with 60ms gaps between each line (more faithful to what the user typed but higher risk of Ink misinterpreting mid-message Enter as submit). Planner should default to (a) with a note recommending (b) as a future patch if Alice wants literal multi-line preserved end-to-end.
 
 ### No optimistic display of sent messages (COMPOSE-04) — HARD LOCK from shape
 - Sent messages MUST NOT appear in the conversation until the session file tail confirms them.
@@ -61,11 +61,11 @@ Phase 2 does NOT change the backend session-file discovery / tail / WS bridge �
 - This means COMPOSE-05 is largely a **verification** requirement: verify that a large paste into the compose box arrives in Claude Code's REPL as full readable content, not a "[pasted N lines]" summary. Add a manual UAT step. No dedicated implementation task unless verification fails.
 
 ### Chord conflict discipline (learned from patch #37 K→L switch)
-- The chord chosen MUST be verified against Ashley's live OS bindings before ship. Patch #37 shipped Ctrl+Shift+K and had to be resworn to Ctrl+Shift+L because Ashley's OS-level speech-to-text hotkey ate K. Add a UAT step: "Ashley confirms the chord flips modes on all her active OS-level binding profiles."
+- The chord chosen MUST be verified against Alice's live OS bindings before ship. Patch #37 shipped Ctrl+Shift+K and had to be resworn to Ctrl+Shift+L because Alice's OS-level speech-to-text hotkey ate K. Add a UAT step: "Alice confirms the chord flips modes on all her active OS-level binding profiles."
 - Chord must also survive xterm's own key handler AND Guacamole's key handler on other tabs — this is why the document-capture-phase pattern (patch #37 reference implementation) is non-negotiable.
 
 ### Claude's Discretion
-- **Chord choice** — Ctrl+Shift+O recommended, planner should propose 1–2 alternates in case Ashley has a conflict.
+- **Chord choice** — Ctrl+Shift+O recommended, planner should propose 1–2 alternates in case Alice has a conflict.
 - **Compose box height / min-height** — 2 rows default, auto-grow to N rows on newline (planner picks N; 6 rows is a reasonable cap). Matches queue drawer textarea shape.
 - **Where the mode-toggle state lives in Terminal.tsx** — a `useState<'tmux' | 'pretty'>('tmux')` sibling to `isMessageQueueOpen` is the natural home. Planner confirms.
 - **What triggers a `TerminalHandle.toggleMode()` method** — parallel to the existing `toggleMessageQueue()` (patch #39). Planner adds to `terminal-types.ts`.
@@ -80,7 +80,7 @@ Phase 2 does NOT change the backend session-file discovery / tail / WS bridge �
 **Downstream agents MUST read these before planning or implementing.**
 
 ### The design contract
-- `.planning/shapes/shape-pretty-session-view.md` — **authoritative** shape file (Ashley 2026-07-17). Re-read the Philosophy, "What would make it wrong," and "Scope edges" sections before every planning + implementation decision. "Not persistent about mode choice" and "Not optimistic about sends" are the two hard locks Phase 2 must not accidentally erode.
+- `.planning/shapes/shape-pretty-session-view.md` — **authoritative** shape file (Alice 2026-07-17). Re-read the Philosophy, "What would make it wrong," and "Scope edges" sections before every planning + implementation decision. "Not persistent about mode choice" and "Not optimistic about sends" are the two hard locks Phase 2 must not accidentally erode.
 
 ### Phase 1 artifacts (shipped, stable — DO NOT modify unless verification finds a bug)
 - `src/backend/claude-session/session-file-discovery.ts` — pane→process→session-file walker.
@@ -104,16 +104,16 @@ Phase 2 does NOT change the backend session-file discovery / tail / WS bridge �
 - `src/ui/locales/en.json` — three `keyboard*` + `keyboard*Desc` key pairs already present; add a fourth.
 
 ### The project scope
-- `.planning/PROJECT.md` — Skynet fork context; Core Value = Ashley never loses access.
+- `.planning/PROJECT.md` — Skynet fork context; Core Value = Alice never loses access.
 - `.planning/REQUIREMENTS.md` — Phase 2 covers TOGGLE-01..03, RENDER-04..05 (verify-only), COMPOSE-01..05.
 - `.planning/ROADMAP.md` — Phase 2 Goal and Success Criteria.
 - `.planning/phases/01-live-session-stream-to-browser-read-only-pretty-view/01-CONTEXT.md` — Phase 1 context; the "Rendering — Chat App, Not Terminal Wrapper" section and the "No-Active-Session Fallback" already govern PrettyView; Phase 2 does not restate those.
 
 ### Deploy discipline (STANDING CONSTRAINT — NOT a plan task)
-- The fork's mandatory 15-min deadman rollback timer (`/opt/skynet/.tmp-revert.sh`) fires on every deploy per Ashley 2026-07-03; no exceptions.
+- The fork's mandatory 15-min deadman rollback timer (`/opt/skynet/.tmp-revert.sh`) fires on every deploy per Alice 2026-07-03; no exceptions.
 - Every backend route change (Phase 2 has none unless verification finds one) needs matching nginx location blocks in BOTH `docker/nginx.conf` AND `docker/nginx-https.conf`. Phase 2 SHOULD NOT introduce backend route changes; the compose box send reuses the existing terminal WS input path.
 - Fork build: `sudo bash /opt/skynet/skynet-patches/build-skynet.sh`. Deploy: `cd /opt/skynet && sudo docker compose up -d --force-recreate skynet`.
-- Fleet directive (Ashley 2026-07-12): pre-authorized code work does NOT authorize the deploy — every build → deploy transition is a distinct ask. Planner should note this so the executor doesn't stumble.
+- Fleet directive (Alice 2026-07-12): pre-authorized code work does NOT authorize the deploy — every build → deploy transition is a distinct ask. Planner should note this so the executor doesn't stumble.
 
 ### Docs / runbook
 - `/home/ubuntu/AGENTS.md` — fork runbook. Patches #37 (Ctrl+Shift+L close), #39-41 (message queue drawer with split-send) are the closest analogs to Phase 2's chord + compose work. Phase 2 will need its own dense per-patch write-up in AGENTS.md as part of close-out (already tracked in the pretty-session-view bounty todos).
@@ -127,7 +127,7 @@ Phase 2 does NOT change the backend session-file discovery / tail / WS bridge �
 ## Specific Ideas
 
 - **Phase 2 should ship as a single fork commit** (patch #44 in the numbered patch series) unless the executor discovers a natural mid-commit break. Aligns with the fork convention where each numbered patch is individually PR-able against upstream.
-- Test the chord AND the compose flow in production against a REAL live Claude Code session (any of Ashley's active workstation panes). A unit-tested compose that doesn't work end-to-end because of a split-send timing edge case (patch #40 lesson) is worse than shipping without unit tests. Manual UAT is authoritative here.
+- Test the chord AND the compose flow in production against a REAL live Claude Code session (any of Alice's active workstation panes). A unit-tested compose that doesn't work end-to-end because of a split-send timing edge case (patch #40 lesson) is worse than shipping without unit tests. Manual UAT is authoritative here.
 - The `#pretty=1` URL-fragment removal cleanup is easy to overlook. Explicitly plan a task to remove:
   - The `isPrettyMode` useMemo in `tabUtils.tsx:137-143`.
   - The branching mount in `tabUtils.tsx:146-153` (the PrettyView conditional).
@@ -158,8 +158,8 @@ Explicitly OUT of Phase 2 (either future v2 or out-of-scope entirely):
 - Multi-user simultaneous view of the same session
 - Rich paste treatment (rendering pasted attachments, image previews)
 
-**Out of Phase 2, in a follow-up patch if Ashley wants it:**
-- Multi-line preservation on send (COMPOSE-05 note): compose textarea preserves newlines visually today per browser default; whether the send path preserves them as `line + \r + line + \r ...` chunks or collapses to spaces is Claude's Discretion in Phase 2. If Ashley later wants literal multi-line end-to-end, it's a small follow-up.
+**Out of Phase 2, in a follow-up patch if Alice wants it:**
+- Multi-line preservation on send (COMPOSE-05 note): compose textarea preserves newlines visually today per browser default; whether the send path preserves them as `line + \r + line + \r ...` chunks or collapses to spaces is Claude's Discretion in Phase 2. If Alice later wants literal multi-line end-to-end, it's a small follow-up.
 
 </deferred>
 

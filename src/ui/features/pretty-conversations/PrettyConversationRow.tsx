@@ -1,5 +1,5 @@
 // ─── PrettyConversationRow ───────────────────────────────────────────────────
-// Phase 48 Plan 05 (v14 locked shape, Ashley 2026-08-19) — biggest surface
+// Phase 48 Plan 05 (v14 locked shape, Alice 2026-08-19) — biggest surface
 // change since Phase 41 Plan 01. Retired vs pre-Phase-48:
 //   * `.pv-meta` right column — element removed from the row entirely; the
 //     right-column grid slot is gone. Bounty badges were relocated to avatar
@@ -33,7 +33,7 @@
 //     in Phase 48 Plan 05 (retired in Phase 104 Plan 03 alongside the
 //     bounty-count wire). The current avatar-corner affordance is the
 //     Phase 104 Plan 02 trapped-work indicator.
-//   * `showSpinnerOn` JS-computed boolean (Ashley 2026-08-20 post-UAT
+//   * `showSpinnerOn` JS-computed boolean (Alice 2026-08-20 post-UAT
 //     tightening of 2026-08-19 verbatim): the spinner mirrors the ready-dot
 //     scope — it is a SCOPED-TO-ACTIVE-SET signal, ON when the row is in
 //     the active set AND the agent is doing something (working, recycling,
@@ -50,8 +50,8 @@
 //     `.pv-row.spinner-on .pv-avatar::before` — single class match; all 4
 //     inputs live in JS, CSS is the paint layer only.
 //
-// Phase 13 Plan 01 (Ashley 2026-07-23 lift-from-mock v4) — as amended by
-// Phase 41 Plan 01 (Ashley 2026-08-14 ambient-retirement): the row renders the
+// Phase 13 Plan 01 (Alice 2026-07-23 lift-from-mock v4) — as amended by
+// Phase 41 Plan 01 (Alice 2026-08-14 ambient-retirement): the row renders the
 // mock's semantic markup with class-toggle state variants. Every visual
 // definition (base body, avatar disc, selected treatment, hover, RDP,
 // spinner ring) lives in pretty-conversations.css.
@@ -66,7 +66,7 @@
 //
 // This component keeps only the surviving JS-only concerns:
 //
-//   - Working-spinner active-set-scoped gate (Ashley 2026-08-20 UAT):
+//   - Working-spinner active-set-scoped gate (Alice 2026-08-20 UAT):
 //     JS computes `showSpinnerOn = inActiveSet && (isWorking === true ||
 //     isRecycling || hasQueuePending)` — the pre-Phase-48 ready-dot 4-input
 //     universe scoped to the active set, with the three "doing-work"
@@ -209,14 +209,14 @@ export function PrettyConversationRow({
   row: ConversationRowShape;
   selected: boolean;
   pinned: boolean;
-  // quick-260731-tgg: whether this row is currently in Ashley's hidden set.
+  // quick-260731-tgg: whether this row is currently in Alice's hidden set.
   // Drives the context menu Hide/Show label. (Pre-pq2 also drove the swipe
   // strip placement; strip is gone.)
   hidden?: boolean;
   variant: "mobile" | "desktop";
   onSelect: () => void;
   onTogglePin: () => void;
-  // quick-260727-gm3: fired when Ashley clicks the red-tinted Deactivate
+  // quick-260727-gm3: fired when Alice clicks the red-tinted Deactivate
   // menu item (desktop right-click OR mobile long-press). MUST be provided by
   // the panel whenever inActiveSet === true — otherwise the menu item is
   // filtered out at items[] build time. See
@@ -224,11 +224,11 @@ export function PrettyConversationRow({
   // tab-close composition. As of quick-260804-uo4, RDP rows also receive this
   // prop (RDP context menu is now enabled).
   onDeactivate?: () => void;
-  // quick-260731-tgg: fired when Ashley clicks Hide (EyeOff) or Show (Eye).
+  // quick-260731-tgg: fired when Alice clicks Hide (EyeOff) or Show (Eye).
   // When provided, the Hide/Show item appears in the context menu between
   // Pin/Unpin and Deactivate. RDP rows never receive this prop.
   onToggleHide?: () => void;
-  // Phase 22 (SRIC-03) → Phase 80 → bounty 260908-h78: fired when Ashley clicks
+  // Phase 22 (SRIC-03) → Phase 80 → bounty 260908-h78: fired when Alice clicks
   // the 'create new agent under this role' context menu item (formerly
   // 'Spawn under this role', originally 'Clone'). Prop name
   // `onClone` is kept for now (rename is deferred as out-of-scope creep — this
@@ -241,7 +241,7 @@ export function PrettyConversationRow({
   // clone dialog exists anymore — Landmine 11: reuse, don't build new).
   onClone?: () => void;
   /**
-   * quick-260810-n3a: Fired when Ashley clicks the red Kill menu item.
+   * quick-260810-n3a: Fired when Alice clicks the red Kill menu item.
    * Provided by the panel only when !isRdp && !identity && row.targetTmuxSession.
    * The panel wraps the actual kill in a window.confirm — this callback fires
    * ONLY on confirm=true. See PrettyConversationsPanel.handleRowKill.
@@ -256,7 +256,7 @@ export function PrettyConversationRow({
   // quick-260730-qbl: true when the row's pretty-view surface is currently
   // rendering SessionHoldingOverlay (patch #74). Suppresses the ready-dot
   // regardless of other conditions — a row whose pane is showing the
-  // "session recycling…" overlay is NOT ready for Ashley's next
+  // "session recycling…" overlay is NOT ready for Alice's next
   // instruction, so showing the ready-dot would be a false-positive
   // signal. Phase 53 Plan 03: Panel resolves via useSessionIsRecycling
   // (working-store Axis E, backend-authoritative) — keyed identically
@@ -267,7 +267,7 @@ export function PrettyConversationRow({
   // per-source FIFO at ComposeBox.tsx:358). Suppresses the ready-dot as the
   // fourth predicate gate — if a queued message is armed to auto-send the
   // moment the agent goes idle, the agent is effectively already spoken-for
-  // and NOT ready for Ashley's next instruction (which IS the meaning of
+  // and NOT ready for Alice's next instruction (which IS the meaning of
   // the dot). Panel resolves via useSessionQueuePending(sessionWorkingKey(row))
   // — all three stores (working / recycling / queue-pending) share the
   // exact same `${hostId}:${tmuxSession ?? ""}` key shape.
@@ -283,7 +283,7 @@ export function PrettyConversationRow({
   // type surface is stable before Plan 47-05 wires the visual. Default
   // null so tests constructing the row without the prop keep working.
   aiTitle?: string | null;
-  // Patch #137 (updated Phase 41 Plan 01): whether this row is in Ashley's
+  // Patch #137 (updated Phase 41 Plan 01): whether this row is in Alice's
   // active-set (any session she has selectConversation-ed in this browser-tab
   // session). Phase 41 retired the ambient-recession visual entirely, so this
   // flag no longer controls "full-bubble vs recessed" appearance — every row
@@ -339,7 +339,7 @@ export function PrettyConversationRow({
     Number.isFinite(rowHostIdNum) && rowHostIdNum > 0 ? rowHostIdNum : null,
   );
 
-  // Phase 41 Plan 01 (Ashley 2026-08-14): the pre-Phase-41 amb-recession
+  // Phase 41 Plan 01 (Alice 2026-08-14): the pre-Phase-41 amb-recession
   // derivation (`!isRdp && !inActiveSet`) and its className toggle were
   // retired here. The related CSS block is deleted; every row carries the
   // same visual weight. `isRdp` and `inActiveSet` survive as separate flags
@@ -364,7 +364,7 @@ export function PrettyConversationRow({
   const isTouchDevice = useIsTouchDevice();
   const acceptsTouch = isMobile || isTouchDevice;
 
-  // quick-260821-suv: DEV-only mount-time breadcrumb so Ashley can confirm on
+  // quick-260821-suv: DEV-only mount-time breadcrumb so Alice can confirm on
   // iPad that the coarse-pointer path opened up (the "wide-viewport
   // touchscreen just wired its touch handlers via the OR gate" signal).
   // Empty deps array → fires exactly once per row mount; never re-fires on
@@ -920,7 +920,7 @@ export function PrettyConversationRow({
     disarmedRef.current = false;
   }, [variant, isRdp, beginSnapBack, resetSwipeGesture]);
 
-  // Phase 56 Plan 03 (Ashley 2026-08-28 shape file):
+  // Phase 56 Plan 03 (Alice 2026-08-28 shape file):
   // Fourth gesture on the row body — HTML5 native drag. Coexists with
   // the existing tap-select (onClick), touch swipe (onTouchStart/Move/End),
   // touch long-press context menu (500ms timer inside onTouchStart), desktop
@@ -1028,8 +1028,8 @@ export function PrettyConversationRow({
     dxLive < 0 &&
     swipeRawDx <= -swipeThreshold;
 
-  // Working-spinner active-set-scoped gate (Ashley 2026-08-20 UAT tightening
-  // of the 2026-08-19 verbatim rule). Ashley on the first-look UAT of the
+  // Working-spinner active-set-scoped gate (Alice 2026-08-20 UAT tightening
+  // of the 2026-08-19 verbatim rule). Alice on the first-look UAT of the
   // full-inversion shape: the ambient rows all lit up because the outer
   // `inActiveSet` was included in the inversion, which reads as "idle rows
   // have spinners." The intended shape is a SCOPED mirror of the ready-dot,
@@ -1180,7 +1180,7 @@ export function PrettyConversationRow({
             // parseInt(row.host.id, 10) when row.host is present; NaN when
             // absent. If NaN we can't fetch the avatar (backend 400s) so
             // fall back to the initial-letter placeholder rather than
-            // producing a broken-image affordance. Ashley 2026-09-01:
+            // producing a broken-image affordance. Alice 2026-09-01:
             // "some conversation-list rows show broken-image icons" — this
             // gates on avatarUrl truthiness (Phase 68: hostId is baked in by backend).
             identity.avatarUrl ? (
@@ -1223,14 +1223,14 @@ export function PrettyConversationRow({
         </div>
 
         {/* Body: title line + subtitle line.
-            Phase 48 Plan 05 (Ashley 2026-08-19) established the shape:
+            Phase 48 Plan 05 (Alice 2026-08-19) established the shape:
               Title line — identity displayName (or row.label as safety-net
               fallback) followed by a parenthetical suffix. Subtitle line —
               aiTitle (or `…` placeholder). Server icon dropped.
 
-            inline-260823-conv-title-suffix (Ashley 2026-08-23):
+            inline-260823-conv-title-suffix (Alice 2026-08-23):
               The parenthetical PREFERS `identity.title` over `row.host.name`.
-              Ashley verbatim: "all the identities are showing the host that
+              Alice verbatim: "all the identities are showing the host that
               they live on next to their name instead of their title ... I
               understand like maybe the host name is a fallback or something
               but like right now it's like a hundred percent of the identities
@@ -1249,7 +1249,7 @@ export function PrettyConversationRow({
               - Top line: the task string alone (reuses .pv-label typography).
               - Subtitle: role prominent via <strong> + (displayName) muted
                 via existing .pv-hostname-suffix class.
-              - The aiTitle drops entirely from this branch — Ashley greenlit
+              - The aiTitle drops entirely from this branch — Alice greenlit
                 the drop per 80-CONTEXT specifics §last bullet ("do NOT quietly
                 preserve it").
             When `identity?.task` is null/empty → fallback branch preserves the
@@ -1309,7 +1309,7 @@ export function PrettyConversationRow({
                 spinner ring on `.pv-avatar::before` (see pretty-conversations
                 .css). The same 4 inputs now drive the active-set-scoped
                 `showSpinnerOn` className computed at the rowClassName
-                composition above (Ashley 2026-08-20 UAT tightening: the
+                composition above (Alice 2026-08-20 UAT tightening: the
                 ready-dot's `inActiveSet` scope is PRESERVED so ambient rows
                 never spin; only the three inner "doing-work" predicates
                 flip to positive polarity). */}
@@ -1369,7 +1369,7 @@ export function PrettyConversationRow({
             // popup returns null, so the original tab survives.
             //
             // ⚠️ Do NOT add "noopener" to the features string (fixed 2026-08-05
-            // after Ashley UAT — original quick-260804-uo4 impl had it). Per spec,
+            // after Alice UAT — original quick-260804-uo4 impl had it). Per spec,
             // window.open() with the noopener feature ALWAYS returns null even
             // when the popup opens successfully, so the null-check would never
             // fire onDeactivate and Move-to-new-window would leave the original
@@ -1380,7 +1380,7 @@ export function PrettyConversationRow({
               const spec = specForTab({ type: row.type, host: row.host, targetTmuxSession: row.targetTmuxSession });
               if (spec !== null) {
                 items.push({
-                  // Label unified 2026-08-18 (Ashley): always "Open in new
+                  // Label unified 2026-08-18 (Alice): always "Open in new
                   // window" regardless of active-set membership. The
                   // deactivate side-effect on success still fires when
                   // inActiveSet — behavior unchanged, only the label.
@@ -1395,7 +1395,7 @@ export function PrettyConversationRow({
                 });
               }
             }
-            // Deactivate menu item removed 2026-08-17 (Ashley). The swipe-LEFT
+            // Deactivate menu item removed 2026-08-17 (Alice). The swipe-LEFT
             // gesture on mobile remains the sole UI trigger for deactivate;
             // panel-level handleRowDeactivate composition (removeFromActiveSet
             // + onDeactivateRow) is untouched. The `onDeactivate` prop still

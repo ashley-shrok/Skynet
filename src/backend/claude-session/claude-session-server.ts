@@ -37,7 +37,7 @@ import {
 } from "./pane-state-emitter.js";
 import { readContextPctFromJsonl } from "./context-pct-from-jsonl.js";
 import { parseSweepJsonl } from "./pv-sweep-schema.js";
-// Phase 90 Plan 00 (Wave 0, 2026-09-08 — D-10 delivery mechanism, Ashley 2026-09-08
+// Phase 90 Plan 00 (Wave 0, 2026-09-08 — D-10 delivery mechanism, Alice 2026-09-08
 // D-03 waiver): dual-write every `context_pct` emission into the fleet-status
 // shared map so PrettyView (post D-03 mechanical waiver swap) and the future
 // Plan 06 relay-pane badge appendage both read contextPct from the SAME
@@ -128,7 +128,7 @@ import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
  *     { type: "identity:create-wakeup", identityKey: string, hostId?: number, spec: { name, enabled, schedule, instruction } } // Phase 72 Plan 01: identity-scope parity gap closure — create a new identity-scope wakeup. Same shape as create-role-wakeup.
  *     { type: "identity:delete-wakeup", identityKey: string, hostId?: number, wakeupSlug: string } // Phase 72 Plan 01: identity-scope parity gap closure — delete an identity-scope wakeup (idempotent).
  *     { type: "identity:update-bounty-priority", identityKey: string, hostId?: number, bountySlug: string, priority: "urgent"|"high"|"medium"|"low"|"unprioritized" } // patch #154: patch bounties/<slug>/bounty.json
- *     { type: "identity:update-bounty-status", identityKey: string, hostId?: number, bountySlug: string, status: "in_progress"|"waiting_on_someone_else"|"done"|"dropped" } // quick 260727-v0b / patch #168: patch bounties/<slug>/bounty.json status field. Allowed values: in_progress, waiting_on_someone_else, done, dropped. "pinned" removed from enum (now an independent boolean field). Folder NOT moved even for done/dropped — supports Ashley's resurrect flow via a pure JSON patch.
+ *     { type: "identity:update-bounty-status", identityKey: string, hostId?: number, bountySlug: string, status: "in_progress"|"waiting_on_someone_else"|"done"|"dropped" } // quick 260727-v0b / patch #168: patch bounties/<slug>/bounty.json status field. Allowed values: in_progress, waiting_on_someone_else, done, dropped. "pinned" removed from enum (now an independent boolean field). Folder NOT moved even for done/dropped — supports Alice's resurrect flow via a pure JSON patch.
  *     { type: "identity:update-bounty-pinned", identityKey: string, hostId?: number, bountySlug: string, pinned: boolean } // quick 260728-sqk / patch #172: patch bounties/<slug>/bounty.json pinned field. `pinned` is an independent boolean orthogonal to status per fleet migration #168. Byte-shape mirror of update-bounty-status — flips the boolean, bumps updated_at, appends timeline line, folder untouched.
  *     { type: "identity:update-bounty-fields", identityKey: string, hostId: number, bountySlug: string, patch: BountyFieldsPatch } // Phase 18 / IDMEDIT-04: partial-JSON-patch write for bounty fields (title/premise/todos/keywords/source_links/deadline/meeting_questions). Only fields present in `patch` are written; server-owned fields (id/created_at/updated_at/timeline/pinned/requested_by) are protected. updated_at bumped unconditionally; one timeline entry per changed field. pinned rejected — use update-bounty-pinned. Returns fresh {bounties,archivedBounties} for BountyCard rehydration.
  *     { type: "identity:archive-bounty", identityKey: string, hostId?: number, bountySlug: string } // quick 260727-wd0: server decides new status internally (flip live→done or preserve terminal), then mv bounties/<slug>/ under bounties/archive/<slug>/ (mkdir -p archive/ if absent). No client-supplied status field.
@@ -771,7 +771,7 @@ export function __admitBackgroundedAgentsLineForTests(
 // Phase 3 session-changeover tuning constants. Holding timeout: 200 * 3s = 600s (10min).
 // Per D-31 and CONTEXT.md § holding timeout — Nelly's original timing note said "new .jsonl
 // appears within ~5s; fully-loaded identity ~30-70s later" but real /id reset flows
-// under load can take multiple minutes (Ashley 2026-08-09: original 45s tripped the
+// under load can take multiple minutes (Alice 2026-08-09: original 45s tripped the
 // "recycle failed — refresh to check" red overlay ~60s into a normal reset that later
 // completed fine; then teardownPane meant even after success nothing cleared the overlay).
 // 10min matches the client-side belt-and-suspenders watchdog at
@@ -821,7 +821,7 @@ export const ASIDE_END_MARKER = "Esc to close";
 // subsequent aside answers (the model self-references prior "please
 // explain" turns from earlier asides). Sending this key first gives every
 // new aside a clean slate. Lowercase `x` per the overlay's clear-history
-// keybinding (Ashley 2026-07-27). If UAT reveals a different key (e.g.
+// keybinding (Alice 2026-07-27). If UAT reveals a different key (e.g.
 // `c`, `Ctrl+L`), change this constant only — the two-keystroke shape
 // stays the same.
 export const BTW_CLEAR_HISTORY_KEY = "x";
@@ -1362,7 +1362,7 @@ export const __handleIdentityProbeTrappedWorkForTests = handleIdentityProbeTrapp
 // inside readRoleFile — the WS handler is a mechanical mirror of the
 // identity-file version and does NOT parse frontmatter itself. Missing role:
 // frontmatter surfaces as {error: "..."} per D-CONTEXT § "No no-role fallback
-// branches" (LOCKED with Ashley 2026-08-04).
+// branches" (LOCKED with Alice 2026-08-04).
 
 export async function handleIdentityGetRoleFile(
   ws: WebSocket,
@@ -3228,7 +3228,7 @@ export async function __applyInputMessageForTests(deps: {
   // Instrumentation (2026-08-21, tina): log every input frame at rx with all
   // signals needed to diagnose "message stuck in composer" reports. Compare
   // against `[compose] submit-*` on the frontend side to see where mqid gets
-  // dropped in the chain. Cheap + batched to console; rules per Ashley
+  // dropped in the chain. Cheap + batched to console; rules per Alice
   // 2026-08-11 (logging-first diagnosis).
   sshLogger.info(
     `[pv-input] rx hostId=${currentHostId} tmuxSession=${currentTmuxSession} dataLen=${data.length} hasMqid=${mqid.length > 0} mqid=${mqid.length > 0 ? mqid : "none"} endsWithCR=${data.endsWith("\r")} isSplitSend=${isSplitSend}`,
@@ -3261,7 +3261,7 @@ export async function __applyInputMessageForTests(deps: {
         }
       }
       // 1000ms — bumped from 250ms 2026-08-21 by tina. Patch #111 lore said
-      // "don't go BELOW 250" (Ashley UAT confirmed 50ms caused paste-detection-
+      // "don't go BELOW 250" (Alice UAT confirmed 50ms caused paste-detection-
       // still-active symptom). Diagnostic on 2026-08-21 found sends still
       // occasionally getting stuck at 250ms; raising to 1000ms adds more
       // headroom for bracketed-paste-drain / tmux-write-coalesce edges. Cost:
@@ -3761,7 +3761,7 @@ export async function __applyDormantPollWithRediscoveryForTests(
               // readContextPctFromJsonl (exec_fail / empty_tail /
               // no_asst_usage / exec_throw) so we get both the caller
               // context (which identity, on which tick) AND the reason
-              // from the same log-file pair. Ashley grep-target for the
+              // from the same log-file pair. Alice grep-target for the
               // blank-meter class.
               sshLogger.warn(
                 "context-pct: dormant-poll got null pct despite resolved session file",
@@ -4616,7 +4616,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // + Layer 2's discovery-repoll fall back to. Detection is
     // ORTHOGONAL to the parseSessionLine message-emission path below:
     // post quick-260829-r9i (2026-08-29) the /id user turn is SKIPPED
-    // as session-lifecycle noise (Ashley reversed the prior HARD LOCK
+    // as session-lifecycle noise (Alice reversed the prior HARD LOCK
     // on slash-command visibility), but that emission-channel change
     // does not touch this observation channel — the pane_state:holding
     // fire is unaffected. On real /id reset the emitter's dedupe
@@ -4661,7 +4661,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // is armed IFF the file's most-recent user turn is /id reset —
     // computed uniformly across `-n +1` replay AND live-append, so
     // historical /exit or historical /id reset lines from prior
-    // recycles no longer re-flash the overlay on WS reconnect (Ashley
+    // recycles no longer re-flash the overlay on WS reconnect (Alice
     // empirically saw 14 arm+clear pairs in ~1h under the pre-refactor
     // /exit edge-triggered detector). Sub-second detection of the
     // current session's /id reset is preserved. Layer 2 (discovery
@@ -4671,7 +4671,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // CONTEXT.md D-30 for the two-layer architecture.
     //
     // Fall through — the parser will now SKIP the /id reset turn as
-    // session-lifecycle noise (Ashley reversed the HARD LOCK on
+    // session-lifecycle noise (Alice reversed the HARD LOCK on
     // slash-command visibility in quick-260829-r9i, 2026-08-29). The
     // state transition is orthogonal to whether the /id reset text
     // renders as a chat bubble — this Layer 1 dispatch must still run
@@ -4861,7 +4861,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           suppress = result.suppress;
           // Phase 62 Wave 2 (D-62-01, D-62-04) — [dedup] instrumentation.
           // Emits one line per __applyQueueDedupForTests call outcome so
-          // the next dormant-send repro from Ashley produces log evidence
+          // the next dormant-send repro from Alice produces log evidence
           // identifying which frame pair (if any) is bypassing dedup.
           //
           // W-1 note (documented in 62-02-SUMMARY.md): the helper's return
@@ -5133,7 +5133,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     // "same-file active" reading is STALE — Claude is still running its
     // /id save flow (many tool invocations) before exit, so discovery
     // correctly reports the OLD session file as active. Clearing here
-    // would flash the SessionHoldingOverlay off within ~1-3s of Ashley
+    // would flash the SessionHoldingOverlay off within ~1-3s of Alice
     // typing /id reset even though the real recycle is still coming.
     // Skip the clear; wait for transitionToActiveNew when the new session
     // file appears (Layer 2's real-recycle path, unchanged).
@@ -7679,7 +7679,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
     activeViewers.get(asideKey)!.add(ws);
 
     // Connect-time re-attach probe (ASIDE-09): one-shot capture-pane on
-    // mount. If the BTW overlay is already open (Ashley closed a prior tab
+    // mount. If the BTW overlay is already open (Alice closed a prior tab
     // without dismissing, or her SSH session left a /btw hanging), emit
     // aside_ready to THIS client so the aside re-renders in-place, and
     // flip THIS ws's asideState.displayed = true so the overlap-ignore
@@ -7714,7 +7714,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
         const st = asideState.get(ws);
         if (st) st.displayed = true;
         // Set hadMarkerLastCapture so the subsequent poll's marker-
-        // disappearance detection works from mount forward (if Ashley
+        // disappearance detection works from mount forward (if Alice
         // Escape-closes the overlay via SSH, we want to broadcast dismiss).
         hadMarkerLastCapture = true;
       } catch {
@@ -7755,7 +7755,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           });
 
           // Marker-disappearance detection FIRST — cross-tab coherence
-          // when Ashley externally Escapes via SSH, or tmux dies. If we
+          // when Alice externally Escapes via SSH, or tmux dies. If we
           // saw the marker last poll and it's gone now AND this ws has
           // displayed=true, the overlay closed externally. broadcast
           // dismiss to all peers (flips this ws AND peers' displayed
@@ -7813,7 +7813,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
             return;
           }
 
-          // Still-working guard (Ashley 2026-07-26 UAT, iterating).
+          // Still-working guard (Alice 2026-07-26 UAT, iterating).
           // The stability check (`lastStableCapture !== output`) alone
           // false-positives when Claude Code's spinner sits byte-
           // identical across a 300ms poll window.
@@ -7883,7 +7883,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           lastStableCapture = null;
           // hadMarkerLastCapture stays true — the overlay IS still
           // displayed on the pane; marker-disappearance detection
-          // above needs this to fire when Ashley externally Escapes.
+          // above needs this to fire when Alice externally Escapes.
           hadMarkerLastCapture = true;
         })
         .catch(() => {

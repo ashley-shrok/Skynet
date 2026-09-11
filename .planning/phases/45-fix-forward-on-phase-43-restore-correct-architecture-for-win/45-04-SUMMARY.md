@@ -6,7 +6,7 @@ wave: 3
 status: complete
 outcome: resolved-incidentally
 autonomous: false
-executed_by: tina (orchestrator — plan is autonomous:false, so orchestrator drove the human-verify checkpoints inline with Ashley in the same session rather than spawning an executor)
+executed_by: tina (orchestrator — plan is autonomous:false, so orchestrator drove the human-verify checkpoints inline with Alice in the same session rather than spawning an executor)
 executed_at: 2026-08-19T01:50Z
 duration: ~5m (UAT rounds only; no code motion)
 ---
@@ -32,19 +32,19 @@ That is the outcome. **Zero code changes shipped. Zero speculative guards on any
 - **AppShell chunk:** `AppShell-CZ8IKp3n.js` (fresh Phase 45 build; #465's crashing bundle was `BjR3_4Qj.js`, revert baseline was `wLv43V6G.js`)
 - **HEAD at build time:** `c9b74e43` (Plans 45-01 + 45-02 + 45-03 all landed)
 - **Rollback preserved:** `skynet-patched:rollback-20260819T0141` → image `25c50004d183` (Tiffany's #464 baseline)
-- **15-min deadman armed** at deploy time; **cancelled** at 01:49Z after Ashley confirmed UAT looked fine
+- **15-min deadman armed** at deploy time; **cancelled** at 01:49Z after Alice confirmed UAT looked fine
 
 ### Coord room announcements
-- **BEFORE** (`$lfaYgAtz3MI2-st4BBBQLRwDAKw2Kr6NyqG9lugd_8o`): "starting deploy on replace-pv-virtualization-with-windowed-pagination (Phase 45 waves 1+2 = patch #466 candidate for Ashley UAT of Bug #3), HEAD c9b74e43, hold if you're mid-container-work"
-- **AFTER** (`$PNBj3_RMYaXfXwB42VSr6Bxd85y0d-YfACuKHT1-5VM`): "shipped ... container 7649209ef924 healthy T+8s, HTTPS 200 verified, 15-min deadman armed pending Ashley UAT of Bug #3 — clear (git pull --rebase before your next push)"
+- **BEFORE** (`$lfaYgAtz3MI2-st4BBBQLRwDAKw2Kr6NyqG9lugd_8o`): "starting deploy on replace-pv-virtualization-with-windowed-pagination (Phase 45 waves 1+2 = patch #466 candidate for Alice UAT of Bug #3), HEAD c9b74e43, hold if you're mid-container-work"
+- **AFTER** (`$PNBj3_RMYaXfXwB42VSr6Bxd85y0d-YfACuKHT1-5VM`): "shipped ... container 7649209ef924 healthy T+8s, HTTPS 200 verified, 15-min deadman armed pending Alice UAT of Bug #3 — clear (git pull --rebase before your next push)"
 
-### Ashley UAT rounds
-Ashley confirmed the following in-session:
-1. **Send path exercised** — Ashley sent "testing 1 2 3" to tina's session. Message arrived cleanly. No `.replace()` crash. Ashley verbatim: *"okay, so it didn't crash"*.
-2. **Additional session tested** — Ashley clicked into a second session with "a decent amount of messages" and sent from there too. Verbatim: *"that seems fine, too"*.
-3. **Standard closure applied** — Ashley verbatim: *"usually when I get to this point, rather than being ridiculously comprehensive, I just say that, you know, I'll have to get back to you on anything else that I notice is broken over the course of just using the app normally"*.
+### Alice UAT rounds
+Alice confirmed the following in-session:
+1. **Send path exercised** — Alice sent "testing 1 2 3" to tina's session. Message arrived cleanly. No `.replace()` crash. Alice verbatim: *"okay, so it didn't crash"*.
+2. **Additional session tested** — Alice clicked into a second session with "a decent amount of messages" and sent from there too. Verbatim: *"that seems fine, too"*.
+3. **Standard closure applied** — Alice verbatim: *"usually when I get to this point, rather than being ridiculously comprehensive, I just say that, you know, I'll have to get back to you on anything else that I notice is broken over the course of just using the app normally"*.
 
-Applies Ashley's standing "silence is success" pattern (role file § Standing directives — no more UAT check-ins after ship, silence IS success).
+Applies Alice's standing "silence is success" pattern (role file § Standing directives — no more UAT check-ins after ship, silence IS success).
 
 ### Root cause hypothesis (bank for archaeology)
 
@@ -74,11 +74,11 @@ Bug #3 was almost certainly downstream of Bug #1 (backend `tail -F -n 50` starvi
 
 **One deviation, documented:**
 
-1. **Plan expected an executor to drive the human-verify checkpoints. Instead the orchestrator (tina) drove them inline with Ashley in the same session.** The `autonomous:false` frontmatter is honored either way — the "human-verify" step happened with the human present. Rationale: Bug #3 UAT is a live browser session for Ashley, and she was already the one deploying-and-checking-in in this session. Spawning a dedicated executor sub-context would have required a second UAT round with the same human. Fleet standing directive re: subagents-don't-do-deploys already assumes orchestrator drives deploy-adjacent work; extending the same logic to autonomous:false Bug-#3-UAT is a natural fit.
+1. **Plan expected an executor to drive the human-verify checkpoints. Instead the orchestrator (tina) drove them inline with Alice in the same session.** The `autonomous:false` frontmatter is honored either way — the "human-verify" step happened with the human present. Rationale: Bug #3 UAT is a live browser session for Alice, and she was already the one deploying-and-checking-in in this session. Spawning a dedicated executor sub-context would have required a second UAT round with the same human. Fleet standing directive re: subagents-don't-do-deploys already assumes orchestrator drives deploy-adjacent work; extending the same logic to autonomous:false Bug-#3-UAT is a natural fit.
 
 ## Followups noted
 
-**Ashley observed a WIP-indicator regression during UAT** (verbatim: *"I never saw a work in progress indicator pop up that time, so that is kind of a regression"*). Verified NOT caused by Plan 45-03 surgery — the `{isWorking && <WipBubble />}` render at `PrettyView.tsx:2318` is intact, `useSessionIsWorking` hook usage at L769 unchanged. Regression is upstream (fleet-status pipeline → session-working-store → `isWorking` signal). **Offered to Ashley as a follow-up bounty candidate — awaiting greenlight before creating.** NOT in scope for Phase 45 / patch #466.
+**Alice observed a WIP-indicator regression during UAT** (verbatim: *"I never saw a work in progress indicator pop up that time, so that is kind of a regression"*). Verified NOT caused by Plan 45-03 surgery — the `{isWorking && <WipBubble />}` render at `PrettyView.tsx:2318` is intact, `useSessionIsWorking` hook usage at L769 unchanged. Regression is upstream (fleet-status pipeline → session-working-store → `isWorking` signal). **Offered to Alice as a follow-up bounty candidate — awaiting greenlight before creating.** NOT in scope for Phase 45 / patch #466.
 
 ## Wave handoff
 

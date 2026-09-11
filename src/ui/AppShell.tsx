@@ -124,7 +124,7 @@ import {
   publishFleetStatusTmuxSessionGone,
   useSessionTmuxName,
 } from "@/state/session-tmux-store";
-// Phase 11 Plan 03 (Ashley "no settings" lock): SettingsRow import RETIRED
+// Phase 11 Plan 03 (Alice "no settings" lock): SettingsRow import RETIRED
 // alongside AppRail — the entire settings-surface tree dies here.
 
 // Patch #512 diag: compact string form of a SplitNode tree for log tracing.
@@ -304,7 +304,7 @@ export function AppShell({
   //                create a real split. Edge-zoned half-body coral.
   // inline-260902 (identity-badge-drop-preview-not-edge-zoned-when-one-agent-open):
   // before this widening, state was a boolean and the overlay always drew
-  // whole-body — Ashley UAT: one-agent case highlighted the whole area even
+  // whole-body — Alice UAT: one-agent case highlighted the whole area even
   // when hovering left/right, mismatching the actual drop routing which had
   // always used computeNearestEdge to pick a real edge.
   //
@@ -656,7 +656,7 @@ export function AppShell({
     // swapped the last-fallback slot from the hardcoded brand string to
     // brandingConfig.appName).
     const tmux = activeTmuxFromStore ?? tmuxSessionNames[activeTabId];
-    // Ashley 2026-08-01: browser tab title mirrors the conversation-list
+    // Alice 2026-08-01: browser tab title mirrors the conversation-list
     // main-label source (patch #258) — for identity sessions, use the
     // properly-cased `identity.displayName` ("Tina") instead of the
     // lowercase tmux sessionName ("tina"). Falls back to raw tmux name,
@@ -709,7 +709,7 @@ export function AppShell({
   //
   // TG-17 hard shape lock: fleet fetch is EXACTLY ONCE per page-load. No
   // polling, no interval, no focus/visibility refetch, NOT wired to
-  // skynet:hosts-changed. Cross-device staleness acceptable — Ashley
+  // skynet:hosts-changed. Cross-device staleness acceptable — Alice
   // refreshes to update. The empty-dep-array useEffect enforces the lock.
   //
   // Silent try/catch on fetch failure — a network error just leaves
@@ -937,7 +937,7 @@ export function AppShell({
   // 07-01 / 07-02) but catches any code path that changes selection without
   // calling the mobile-flow imperatively (Plan 06-04 selectConversationDeferred
   // flush from a fresh openTab; keyboard shortcut selection; deep-link that
-  // arrives without `mv=1`). Ashley UAT'd patch #106 and reported taps on
+  // arrives without `mv=1`). Alice UAT'd patch #106 and reported taps on
   // existing fleet-native rows "do nothing" on mobile — the click handlers
   // fire but something in the URL / mobileScreen propagation edge-cases when
   // selection is upstream of the tap wiring. navigateToView is a no-op when
@@ -1219,8 +1219,8 @@ export function AppShell({
                 });
               }
 
-              // ── patch #150 C investigate (Ashley UAT 2026-07-24) ──
-              // Verdict: SAME_BUG. Ashley's two symptoms — (a) only ONE
+              // ── patch #150 C investigate (Alice UAT 2026-07-24) ──
+              // Verdict: SAME_BUG. Alice's two symptoms — (a) only ONE
               // restored tab glowed with .active-set, and (b) the un-glowed
               // tab "did NOT auto-load its content, had to wait" — collapse
               // to a single root cause here: only `restoredTabs[0]` is
@@ -1248,7 +1248,7 @@ export function AppShell({
               // = `!inPane && tab.id === effectiveSelectedTabId`. Only the
               // focused tab is `isVisible=true`, so only its restoredSessionId
               // reconnects at mount. This is CORRECT behavior — we don't want
-              // to prefetch N WebSocket handshakes at restore. When Ashley
+              // to prefetch N WebSocket handshakes at restore. When Alice
               // clicks the un-glowed row, `selectConversation` fires (Pretty
               // ConversationsPanel L208), addToActiveSet gives glow + mirror
               // effect L510-519 sets activeTabId → effectiveSelectedTabId
@@ -1280,7 +1280,7 @@ export function AppShell({
                 });
                 setActiveTabId(restoredTabs[0].id);
                 selectConversationDeferred(restoredTabs[0].id);
-                // patch #150 C fix (Ashley followup-3 UAT 2026-07-24):
+                // patch #150 C fix (Alice followup-3 UAT 2026-07-24):
                 // give EVERY restored tab a glow, not just restoredTabs[0].
                 // Pre-#150 C the single selectConversationDeferred above
                 // only propagated to activeSet for the first tab (via
@@ -1759,7 +1759,7 @@ export function AppShell({
     // first (list paints instantly), then commit this tab switch as a deferred transition
     // (new pane mounts async without blocking the paint).
     // TRADE-OFF: for a fraction of a second the right pane may still show the
-    // just-deactivated view while the list updates. Accepted — Ashley isn't waiting on
+    // just-deactivated view while the list updates. Accepted — Alice isn't waiting on
     // the session unload, she's waiting on the list to acknowledge her tap.
     // DO NOT revert to a synchronous batch — this split is the whole point of the block.
     startTransition(() => {
@@ -1776,7 +1776,7 @@ export function AppShell({
         //
         // Mobile guard: on touch devices this sync also drives the patch #111
         // F3 effect (~L582) that fires navigateToView() on any
-        // selectedConversationId change — which yanks Ashley off the list
+        // selectedConversationId change — which yanks Alice off the list
         // screen and into whatever tab got promoted, when all she wanted was
         // to deactivate one row and stay put. Skip the sync on mobile; the
         // deactivated row's ring disappears with the row anyway, and the
@@ -2156,7 +2156,7 @@ export function AppShell({
       // xterm.js) and MUST NOT get the terminal-visibility styling below, or
       // the transparent full-viewport overlay catches all clicks and shows a
       // stuck Suspense fallback on top of every other pane. (Bug at arc-close
-      // UAT 2026-09-09 — Ashley: no relay-room tab in strip + "no host selected"
+      // UAT 2026-09-09 — Alice: no relay-room tab in strip + "no host selected"
       // bubble stuck at top middle + entire pane area became un-clickable.)
       const isRelayRoom =
         tab.type === "terminal" && tab.sessionKind === "relay-room";
@@ -2411,11 +2411,11 @@ export function AppShell({
   // Phase 14B Slice 1 (Bug A): outer `sidebarHeader` retired. The prior fork's
   // bar with mixed-case "Conversations" title + reset-width Maximize2 button +
   // ChevronLeft close-sidebar button lived above the pretty-conversations panel
-  // and jarred against the pv aesthetic Ashley signed off on. The sidebar-toggle
+  // and jarred against the pv aesthetic Alice signed off on. The sidebar-toggle
   // chevron (the persistent fixed top-left button at ~L1424) already handles
   // open/close so ChevronLeft was redundant; PrettyConversationsPanel's
   // `.pv-panel-header` provides the UPPERCASE title + pv-pencil affordance. The
-  // reset-width button (Maximize2) died with the header — Ashley didn't call it
+  // reset-width button (Maximize2) died with the header — Alice didn't call it
   // out as essential; can be re-added with pv styling if needed.
 
   // Plan 06-03: touchscreen viewports render the Telegram-style two-screen
@@ -2440,7 +2440,7 @@ export function AppShell({
         }}
       >
         {/* Phase 10 Wave 3: persistent top-left sidebar-toggle chevron.
-            The fix for Ashley's small-window sidebar-affordance regression.
+            The fix for Alice's small-window sidebar-affordance regression.
             Renders unconditionally at all widths (desktop wide, narrow-window
             desktop, mobile touchscreen); replaces the narrow-window thin-
             strip at the old lines 1844-1852 that used to disappear below
@@ -2452,7 +2452,7 @@ export function AppShell({
             button. z-index: 30 sits above the sidebar's resize-handle at
             z-30 without needing a bump.
 
-            Phase 13 Wave 2 SHAPE-04 (Ashley 2026-07-23): visual treatment
+            Phase 13 Wave 2 SHAPE-04 (Alice 2026-07-23): visual treatment
             rebased to the mock v4 `.pv-pencil` aesthetic — transparent
             background + transparent border + border-radius 8px (rounded-lg)
             + `--color-pv-fg-muted` icon color + `rgba(220,225,245,0.06)`
@@ -2460,12 +2460,12 @@ export function AppShell({
             `--color-pv-fg` hover text. Retires the Skynet-theme filled-
             glass pill (opaque rgba fill + backdrop-blur + white-alpha
             border + drop shadow + Skynet muted-foreground text) that
-            Ashley called out as "the bar at the top that still looks
+            Alice called out as "the bar at the top that still looks
             Skynet." No shadow, no backdrop-blur — the mock's pencil is a
             bare transparent button that lets the pretty-view surface
             beneath show through.
 
-            Direction (Ashley 2026-07-29 re-lock): chevron points at the
+            Direction (Alice 2026-07-29 re-lock): chevron points at the
             EDGE'S DIRECTION OF MOTION on click. sidebarOpen === true →
             chevron points ← (default ChevronLeft), meaning "click, the
             sidebar collapses leftward." sidebarOpen === false → rotate
@@ -2534,8 +2534,8 @@ export function AppShell({
               transition: sidebarDragging ? "none" : "left 0.2s",
               // Touch-only hue-glass treatment: identity-avatar-badge visual
               // language (round, hue-tinted gradient, inset highlight + outer
-              // glow). Patch #272 (Ashley 2026-08-02) — recoloured from the
-              // prior warm-amber (hue 35) that Ashley called "weird yellowish"
+              // glow). Patch #272 (Alice 2026-08-02) — recoloured from the
+              // prior warm-amber (hue 35) that Alice called "weird yellowish"
               // to a dark blue/gray drawn from the pv palette family (the
               // user-bubble mid-blue-gray at hsl~220/28%/16-25% is the seed).
               // Reads as "part of the scheme" rather than a lone warm accent.
@@ -2661,7 +2661,7 @@ export function AppShell({
               taken over by the persistent top-left sidebar-toggle chevron
               at the top of the AppShell root — one canonical toggle,
               renders at all widths, no breakpoint-dependent disappearance
-              that Ashley's small-window use case tripped over. The
+              that Alice's small-window use case tripped over. The
               companion `pl-6` main-content padding that reserved space
               for the old strip is also removed. */}
           {/* Patch #144 Fix (b): the legacy mobile-view header — a shadcn
@@ -2671,7 +2671,7 @@ export function AppShell({
               (declared above at ~line 1400) is the sole back affordance
               now, and the top-right identity badge surfaces the active
               conversation's identity, so the redundant title span had
-              become dead weight. Ashley's UAT (2026-07-24) confirmed two
+              become dead weight. Alice's UAT (2026-07-24) confirmed two
               chevrons were rendering simultaneously on mobile-in-conv;
               deleting this block resolves the duplicate. */}
           {/* quick-260829-ih3: CollapsedPanelCloseLane — proxy close-target
@@ -2707,7 +2707,7 @@ export function AppShell({
                 the affordance the tab strip used to provide.
                 refreshTab is intentionally removed alongside its sole caller
                 (this TabBar mount) — Plan 06-04 or later may re-introduce a
-                per-row refresh affordance if Ashley's workflow needs one. */}
+                per-row refresh affordance if Alice's workflow needs one. */}
             <div
               className="relative flex flex-col flex-1 min-h-0 overflow-hidden"
               onDragOver={(e) => {
@@ -2830,7 +2830,7 @@ export function AppShell({
                 // landed on a gap between panes) — in that case, do
                 // nothing rather than clobber the existing tree via the
                 // pre-#514 "replace with split(active, dropped)" branch,
-                // which was the observed regression in Ashley's UAT.
+                // which was the observed regression in Alice's UAT.
                 if (splitTree !== null) {
                   // eslint-disable-next-line no-console
                   console.info(
