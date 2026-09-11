@@ -2424,10 +2424,10 @@ Plans:
 **Goal:** After merge, the identity-creation modal shows a spinner in the Create button while Skynet writes the identity to disk + mints Matrix, then invisibly waits for the supervisor to bring the agent alive (bounded 120s poll on the transcript-file signal), then closes the modal and deposits the user directly into the new agent's chat surface — Skynet never opens tmux or launches claude itself; failure surface is a single browser blocking alert with partial state left on disk.
 **Requirements**: D-01..D-22 (see 106-CONTEXT.md — CONTEXT-locked decisions serve as the acceptance surface; no numbered requirement IDs)
 **Depends on:** Phase 105
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
 - [ ] 106-01-PLAN.md — Backend orchestrator refactor: retire tmux + harness, add wait-for-supervisor poll + ended.reason field + SSE keepalive (Wave 1)
-- [ ] 106-02-PLAN.md — Frontend modal rework: delete BirthProgress; add spinner-in-Create-button + modal-lock + alert-on-failure (Wave 1, parallel with 106-01)
+- [x] 106-02-PLAN.md — Frontend modal rework: delete BirthProgress; add spinner-in-Create-button + modal-lock + alert-on-failure (Wave 1, parallel with 106-01)
 - [ ] 106-03-PLAN.md — Backend test updates: remove step:3/4/5 assertions; add wait-poll success/timeout/error tests (Wave 2, depends on 106-01)
 - [ ] 106-04-PLAN.md — Frontend test updates: remove BirthProgress assertions; add spinner + close-lock + alert assertions (Wave 2, depends on 106-02)
