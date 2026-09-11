@@ -236,32 +236,35 @@ router.post(
 
     const parsedColorHue = (typeof colorHue === "number" ? colorHue : null) as number | null;
     const parsedVoice = (typeof voice === "string" ? voice : null) as string | null;
-    // Phase 88 (Plan 88-01): substitute `~/<name>/` when the request body path
-    // is absent or empty. Non-admin submits from NewSessionDialog (Plan 88-02's
-    // admin-gate wraps the Path input at L926-942 in an isAdmin-conditional
-    // JSX guard) arrive here with body.path === "" or body.path === undefined.
-    // Admin submits arrive with body.path === "~/" (frontend default at
-    // NewSessionDialog.tsx L322 via `useState("~/")` + `normalizePath` at
-    // L631) or an admin-typed override. Admin-typed-empty edge case: an admin
-    // who actively clears the "~/" default hits the fallback branch and lands
-    // in `~/<name>/` — a reasonable interpretation of "give me the per-agent
-    // default" that matches shape §Philosophy ("each agent gets its own
-    // working directory named after itself keeps agents from stepping on each
-    // other in a shared home"). Extends the L213-214 (parsedTitle) /
-    // L218-221 (parsedAvatarCandidateId) Phase 86 Plan 86-04 empty-⇒-default
-    // idiom to the parsedPath narrow. Downstream: parsedPath is threaded into
-    // orchestrator opts.path at L336 which is consumed by the tmux `-c`
-    // working-directory argument (step 2 of birth) and the SFTP write target
-    // (step 2.5 role frontmatter); both accept `~/<name>/` and expand it via
-    // shell/SFTP tilde-resolution. The substituted name is the already-
-    // trimmed identity name from the same payload (see the `!name.trim()`
-    // guard at L111-114 above), lower-cased to match what the client sends
-    // at NewSessionDialog.tsx:644 (`name: name.toLowerCase()`) and the
-    // orchestrator invocation at L330 (`name: name.trim()`).
+    // Phase 88 (Plan 88-01) + Phase 96 D-04 (2026-09-11): substitute the
+    // canonical per-identity workspace path when the request body path is
+    // absent or empty. Non-admin submits from NewSessionDialog arrive here
+    // with body.path === "" or === undefined (admin-gate wraps the Path input
+    // in an isAdmin-conditional JSX guard). Admin submits arrive with the
+    // frontend default (`~/`) or an admin-typed override. Admin-typed-empty
+    // edge case: an admin who actively clears the default hits this same
+    // fallback branch and lands in the workspace path.
+    //
+    // Path convention is Phase 96 D-04: `~/fleet/identities/<name>/workspace/`.
+    // Pre-Phase-96 this substituted `~/<name>/` (bug: caused Ashley's
+    // onboarding-rehearsal on T800 test03-vm to birth aster at ~/aster/
+    // instead of ~/fleet/identities/aster/workspace/, and the supervisor's
+    // disk-scan cwd fallback specifically expects the new path — see
+    // agent-supervisor.sh's launch_claude cwd resolution). The substituted
+    // name is the already-trimmed identity name from the same payload
+    // (see the `!name.trim()` guard at L111-114 above), lower-cased to match
+    // what the client sends (`name: name.toLowerCase()`) and the orchestrator
+    // invocation (`name: name.trim()`).
+    //
+    // Downstream: parsedPath is threaded into orchestrator opts.path, which
+    // is consumed by the tmux `-c` working-directory argument (step 2 of
+    // birth) and the SFTP write target (step 2.5 role frontmatter); both
+    // accept the `~/fleet/identities/<name>/workspace/` form and expand it
+    // via shell/SFTP tilde-resolution.
     const parsedPath = (
       typeof path === "string" && path.trim()
         ? path
-        : `~/${(typeof name === "string" ? name.trim().toLowerCase() : "")}/`
+        : `~/fleet/identities/${(typeof name === "string" ? name.trim().toLowerCase() : "")}/workspace/`
     ) as string;
     // Phase 86 Plan 86-04: absent-⇒-empty-string fallbacks for cosmetics that
     // moved to role level. The orchestrator's buildIdentityFileBody
