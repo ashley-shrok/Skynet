@@ -8,19 +8,22 @@ description: >-
 
 ## What this skill does
 
-`/id <name>` gives you a persistent role that survives across sessions.
-It is the difference between starting fresh every time and resuming a person.
+`/id <name>` loads an identity — a worker holding a role. The role is what persists across
+sessions; the identity is the worker that briefly holds it. Most identities are **task-scoped**,
+existing to accomplish something specific; some are **long-lived** (pinned + always-on) for
+general-purpose or maintainer work the user returns to over time. Either shape is first-class;
+the substrate treats task-scoped as the default and long-lived as a valid explicit choice.
 
 Storage is a **two-folder split**: the fat shared knowledge for a role
 lives in one folder, the slim per-identity state lives in another. This lets
 multiple identities adopt the same role and run in parallel (identities —
 parallel workers on the same domain).
 
-- `~/.claude/roles/<role>/` — the **ROLE**: role file (directives,
+- `~/fleet/roles/<role>/` — the **ROLE**: role file (directives,
   preferences), bounty pool, chronological history, runbooks (see § Runbooks),
   and any deeper reference file(s) the role wants (e.g. `box-map.md`). Shared
   across every identity that adopts the role.
-- `~/.claude/identities/<name>/` — the **IDENTITY**: a slim
+- `~/fleet/identities/<name>/` — the **IDENTITY**: a slim
   `<name>.md` pointer file naming the role, per-identity handoff, per-identity
   wake-up specs, per-identity relay credentials.
 
@@ -36,7 +39,7 @@ Every role + identity has **four artifacts** across the two folders.
 Keep each in its lane — that separation is what keeps things legible
 instead of one ever-growing dumping ground.
 
-**In the ROLE folder (`~/.claude/roles/<role>/`) — shared across identities:**
+**In the ROLE folder (`~/fleet/roles/<role>/`) — shared across identities:**
 
 - **`<role>.md` — the permanent ROLE file.** Personality, role
   description, standing directives, learned preferences, accumulated
@@ -62,7 +65,7 @@ instead of one ever-growing dumping ground.
   of which identity's session did each thing. Also your **recall index**
   (see § Recall).
 
-**In the IDENTITY folder (`~/.claude/identities/<name>/`) — per-identity:**
+**In the IDENTITY folder (`~/fleet/identities/<name>/`) — per-identity:**
 
 - **`handoff.md` — single file, fully OVERWRITTEN at each `/id save`.**
   Per-identity (never role-scoped, because where-I-left-off is per-instance
@@ -111,10 +114,9 @@ to it. If your Notes section is more than ~30 lines, it's already the problem.
 (`SKILL.md`) loads on every `/id <name>` invocation, and `~/.claude/CLAUDE.md` loads on every
 Claude session — both are already in context by the time the role file is read. Restating
 their rules in the role file wastes instruction budget and silently rots when the
-source updates but the copy doesn't. Same principle applies at creation time (§2): a fresh
-role file inherits everything in the id skill and the user-wide CLAUDE.md for free — don't
-seed it with a summary of those. If you want to point at a rule from either, cite it, don't
-restate it.
+source updates but the copy doesn't. The same principle applies to a fresh role file — it
+inherits everything in the id skill and the user-wide CLAUDE.md for free; don't seed it with
+a summary of those. If you want to point at a rule from either, cite it, don't restate it.
 
 **Standard section template + soft caps** (adjust for your role):
 
@@ -123,7 +125,7 @@ restate it.
   of what you deal with. Almost every role is a maintainer of something and benefits
   from this. Deeper reference (per-subsystem paths, commands, gotchas) belongs in ONE
   explicitly-named on-demand file in the role folder (like
-  `~/.claude/roles/<role>/box-map.md`),
+  `~/fleet/roles/<role>/box-map.md`),
   and **you MUST name that file in the 10k-view section** so future-you knows to consult
   it — an on-demand file whose existence is not surfaced in the role file WILL NOT get
   consulted.
@@ -238,136 +240,22 @@ identity"). Lowercase-only makes that impossible.
 
 ```
 name=$(printf '%s' "<name>" | tr '[:upper:]' '[:lower:]')
-IDENTITY_FILE=~/.claude/identities/$name/$name.md
+IDENTITY_FILE=~/fleet/identities/$name/$name.md
 ```
 
-- If the file **exists**: load it (see §3).
-- If the file **does not exist**: create it (see §2).
+- If the file **exists**: load it (see § 2).
+- If the file **does not exist**: this identity has not been created on this box. Say so and
+  stop — do not try to create it yourself. Identities are created through Skynet: either by a
+  user through the new-agent UI, or by a coordinator dropping a request file (see the
+  `coordinator-instructions.md` companion). Response:
 
-### 2. Creating a new identity
+  > "No identity found for **<name>** on this box. Identities are created through Skynet — either
+  > through the new-agent UI, or by a coordinator dropping a request. This skill only adopts
+  > existing identities."
 
-If no file exists for `<name>`, the id skill creates an IDENTITY that identities an
-EXISTING role. Fresh-role creation is a separate command (**`/role <name>`**) —
-authoring vs adopting is deliberately split. This skill does the adopting.
+### 2. Loading an existing identity
 
-First ask **which existing role this identity should identity**:
-
-> "No identity found for **<name>**. Which existing role should this identity identity?
-> (If you want a fresh role, run `/role <name>` first, then `/id <name>` again.)"
-
-**Then:**
-
-1. Verify `~/.claude/roles/<role>/` exists. If not, say so and repeat the offer —
-   either name a different existing role, or run `/role <name>` first to create a
-   fresh one. **Never fabricate a role folder that the user didn't authorize** — that's
-   the /role skill's job.
-2. Create ONLY the slim identity folder at `~/.claude/identities/<name>/` with:
-   - `<name>.md` — the slim pointer file naming `role: <role>` (see template below)
-   - `handoff.md` — empty
-   - `wakeups/` — empty directory
-3. Then follow the relay self-register block below to register the identity's Matrix
-   account. The existing role folder is reused as-is; nothing about it changes.
-
-**Slim identity template** (`~/.claude/identities/<name>/<name>.md`):
-
-```markdown
----
-role: <role>
-# Optional cosmetic fields. Omit any you don't want set (no null writes).
-# displayName: <Name>              # pretty rendered name (defaults to identity key)
-# title: <Subtitle>                # short subtitle
-# colorHue: <0-360>                # integer degrees
-# voice: <VoiceName.wav>           # TTS voice ID
-# avatar: <name>.<ext>             # sibling image file in this folder
----
-
-# <Name> (identity of <role>)
-
-Any per-identity deviations from the role live below. Empty for a plain identity.
-```
-
-**Cosmetic fields live on disk** (2026-08-31). The five optional frontmatter fields
-above are the source of truth for the identity's face. Edits follow § Editing the
-role and identity files: `remember X` / `always X` naturally reach them since they're
-frontmatter, agent-proposed additions need explicit user approval, and ambiguous
-scope must be asked (role vs identity — cosmetics almost always identity-scope since
-faces are per-identity).
-
-Never create a capital or mixed-case identity or role folder (see §1 for why).
-
-**Then self-register on the homeserver and write `relay.json`.** This is the
-self-service bootstrap: no coordination with any other agent, no admin token, no one
-else registers the account for you. The homeserver has open registration enabled on
-the tailnet, so any agent on the tailnet can POST /register with dummy auth and get
-back a working `{user_id, access_token}`. Do it here so a fresh identity is
-relay-reachable the moment it first loads on wake.
-
-    P=$(head -c 24 /dev/urandom | base64 | tr -d '=+/' | head -c 32)
-    # The URL WRITTEN to relay.json (.base) is declared here EXPLICITLY as the
-    # canonical, most-durable form — independent of which fallback candidate below
-    # happens to serve the register call. (2026-08-06, Stacy diagnosis after her
-    # ceo-skynet Docker-IP shuffle: whichever $HS won the loop got baked in, and
-    # on her box that was an internal Docker IP that rotted on restart.)
-    # ⚠️ CANONICAL = the tailnet IP, NOT the `thenasty` hostname (2026-08-19,
-    # Sandy on thenasty + Tabitha/Taylor on t1000 all silently-deafness'd on
-    # first wake). Two reasons the hostname is wrong here: (a) on thenasty
-    # itself, `thenasty` maps to `127.0.1.1` via /etc/hosts but Synapse binds
-    # only on `100.113.23.63:8008` — so the hostname is unreachable from its
-    # OWN box. (b) On tailnet peers without split-DNS (t1000), `thenasty`
-    # doesn't resolve at all. The tailnet IP is the one URL that works from
-    # every reachable box on the tailnet, including thenasty itself.
-    CANONICAL_BASE=http://100.113.23.63:8008/_matrix/client/v3
-    RESP=""
-    for HS in http://100.113.23.63:8008 http://thenasty:8008; do
-      RESP=$(curl -sS --max-time 8 -X POST "$HS/_matrix/client/v3/register" \
-        -H 'Content-Type: application/json' \
-        -d "$(jq -nc --arg u "$name" --arg p "$P" \
-          '{username:$u, password:$p, auth:{type:"m.login.dummy"},
-            initial_device_display_name:("id-create-" + $u)}')" 2>/dev/null) && \
-        [ -n "$(echo "$RESP" | jq -r '.access_token // empty')" ] && break
-      RESP=""
-    done
-    TOK=$(echo "$RESP" | jq -r '.access_token // empty')
-    # ⚠️ Use MXID, not UID — $UID is a bash READONLY builtin (the linux uid). Assigning
-    # to it silently no-ops and downstream --arg gets "1000" instead of the mxid; register
-    # itself succeeds so it's a silent-until-you-look bug. Caught on nicole's first wake 2026-08-04.
-    MXID=$(echo "$RESP" | jq -r '.user_id // empty')
-    if [ -n "$TOK" ] && [ -n "$MXID" ]; then
-      # Write the FULL canonical shape recv.sh + other fleet plumbing expects:
-      # base (so recv.sh knows the homeserver — otherwise its HARD-FAIL preamble
-      # correctly barks on first launch), and both `token` + `access_token` (some
-      # plumbing reads either key).
-      jq -nc --arg b "$CANONICAL_BASE" \
-             --arg u "$MXID" --arg p "$P" --arg t "$TOK" \
-        '{base:$b, user_id:$u, password:$p, token:$t, access_token:$t}' \
-        > "$HOME/.claude/identities/$name/relay.json"
-      chmod 600 "$HOME/.claude/identities/$name/relay.json"
-      echo "relay account registered: $MXID"
-    else
-      echo "register FAILED — homeserver unreachable or the mxid is already taken:"
-      echo "$RESP"
-      # Do NOT invent a relay.json without a real account. Surface the failure so the
-      # user can decide (rename identity, register later once online, etc.). The rest
-      # of the create flow can still proceed — the identity is usable without relay,
-      # just not relay-reachable until this succeeds on a later wake.
-    fi
-
-If the register fails (homeserver unreachable / mxid already registered / firewall),
-say what happened and carry on — the identity's `<name>.md` is written and usable;
-the relay.json can be created on the next wake or by hand when the block clears. Do
-NOT write a placeholder relay.json — the on-wake receiver setup checks for it and
-starting the receiver against a fake cred file produces silent-deafness zombies (see
-§ On wake: start your relay receiver for why STATE_DIR + real creds are load-bearing).
-
-After writing the file (and relay.json if it succeeded), say:
-
-> "**<Name>** created. Tell me about this role and I'll update the role file.
-
-Then adopt the identity and wait for direction.
-
-### 3. Loading an existing identity
-
-Read the file `~/.claude/identities/<name>/<name>.md`. **Read its frontmatter**
+Read the file `~/fleet/identities/<name>/<name>.md`. **Read its frontmatter**
 (the block between `---` lines at the top of the file) — the `role: <role>` key
 tells you which role this identity holds.
 
@@ -386,15 +274,15 @@ treat it as ABSENT — this identity is an actor. Apply the same strict-frontmat
 anywhere else this skill says "check for `coordinator: true`" (including the actor-enumeration
 step in the picker prompt and the announce line below).
 
-1. Resolve the role folder: `~/.claude/roles/<role>/`.
-2. Read the ROLE FILE at `~/.claude/roles/<role>/<role>.md` — the fat file with
+1. Resolve the role folder: `~/fleet/roles/<role>/`.
+2. Read the ROLE FILE at `~/fleet/roles/<role>/<role>.md` — the fat file with
    directives, preferences, and the 10k-view of the domain. It's who you ARE (the role).
 3. Read any per-identity specialization from the slim identity file body below the
    frontmatter (usually empty; the pointer alone is fine).
 4. Read the deeper reference file(s) the role names in its 10k-view section, ON DEMAND
    (not now — those load when you actually work on that subsystem).
 
-Read **`~/.claude/identities/<name>/handoff.md`** — your where-we-left-off carry from
+Read **`~/fleet/identities/<name>/handoff.md`** — your where-we-left-off carry from
 the last session (session summary + still-open multi-session plans + any
 **Start-on-wake** items the user pre-authorized). Handoff is per-identity, in the
 identity folder. Hold onto its carried-forward plan list; you'll re-state the survivors
@@ -415,12 +303,12 @@ first substantive point — rather than closing with a meta "want to talk about 
 If it's a task, your load turn begins the task. The user already said yes; asking again
 defeats the whole point.
 
-Then enumerate the bounty folders directly under `~/.claude/roles/<role>/bounties/`
+Then enumerate the bounty folders directly under `~/fleet/roles/<role>/bounties/`
 (ignore the `archive/` subfolder) and count those whose `status` is not `done` or
 `dropped`. This is the SHARED role bounty pool; the count reflects everything the
 role has open, not just what this identity touched.
 
-Then enumerate the runbook subfolders directly under `~/.claude/roles/<role>/runbooks/`
+Then enumerate the runbook subfolders directly under `~/fleet/roles/<role>/runbooks/`
 — one folder per runbook, named for its slug. Hold the names in context silently. No
 announce line; no read-in. This is what makes the identity AWARE that a set of runbooks
 exists for this role; each runbook's content is read on demand only when it's actually
@@ -446,11 +334,11 @@ preferences silently — do not recite the whole file back unless asked.
 ## Coordinator mode
 
 Reached only when an identity's frontmatter carries `coordinator: true` (checked at the
-top of § 3 Loading an existing identity). This identity is a **coordinator** — a router
+top of § 2 Loading an existing identity). This identity is a **coordinator** — a router
 for its role, not an actor. The role file is NOT loaded; a companion instruction set is.
 Actor identities of the same role continue to load normally.
 
-**Alternate load path (replaces §3 steps 1–4 for coordinators):**
+**Alternate load path (replaces § 2 steps 1–4 for coordinators):**
 
 1. Do NOT load the role file. Do NOT load any deeper role-reference file. The coordinator
    doesn't do role work and doesn't need role directives.
@@ -474,7 +362,7 @@ actor context). Skip both.
 > identity names, derived as follows]."
 
 **How to derive the actor list.** Enumerate candidates with
-`grep -l "^role: <role>$" ~/.claude/identities/*/*.md`; this returns paths of the shape
+`grep -l "^role: <role>$" ~/fleet/identities/*/*.md`; this returns paths of the shape
 `.../identities/<name>/<file>.md`. For each match, KEEP the candidate only if:
 (a) the file's basename equals its folder name (i.e. `<name>/<name>.md` — the canonical
 identity pointer, not a scratch/note/backup that happens to live in the identity folder),
@@ -534,7 +422,7 @@ membership is the whole story.
 
 All the mechanics come from the **`agent-relay` skill** — load it for the building
 blocks (logging in, and the wake-on-message receiver) and use THIS identity's
-durable relay account at `~/.claude/identities/<name>/relay.json` (don't make a
+durable relay account at `~/fleet/identities/<name>/relay.json` (don't make a
 throwaway). Log in with the stored creds for a fresh token, seed the cursor, and
 launch the receiver **once, as a persistent `Monitor`** (per the agent-relay skill) —
 it long-polls forever and surfaces each message as its own wake **without exiting, so
@@ -563,9 +451,9 @@ Launch the receiver that shipped with your substrate install. The Skynet distrib
 were down).** Before you set up the receiver, create a stable per-identity state dir
 and export BOTH `STATE_DIR` and `SINCE_FILE` pointed at it:
 
-    mkdir -p ~/.claude/identities/<name>/relay-state
-    export STATE_DIR=~/.claude/identities/<name>/relay-state
-    export SINCE_FILE=~/.claude/identities/<name>/relay-state/since
+    mkdir -p ~/fleet/identities/<name>/relay-state
+    export STATE_DIR=~/fleet/identities/<name>/relay-state
+    export SINCE_FILE=~/fleet/identities/<name>/relay-state/since
 
 ⚠️ **Both exports are load-bearing — do NOT invent an ephemeral `STATE_DIR=/tmp/...`
 for a durable identity.** recv.sh derives your creds path as
@@ -602,7 +490,7 @@ where the scheduler reads specs from `wakeups/*.json` and persists state under
 
     # via the harness Monitor tool (persistent:true):
     #   description:  [ambient] <name> wake-up scheduler
-    #   command:      python3 ~/.local/bin/wakeup-scheduler ~/.claude/identities/<name>
+    #   command:      python3 ~/.local/bin/wakeup-scheduler ~/fleet/identities/<name>
 
 Each due wake-up prints one line — `⏰ [scheduled: <name>] <instruction>` — which
 arrives as an async wake. When you get one, **do the instruction**, then carry on;
@@ -633,17 +521,17 @@ the argument where context-watch persists state under `ctxwatch/.state/`):
 
     # via the harness Monitor tool (persistent:true):
     #   description:  [ambient] <name> context watch
-    #   command:      python3 ~/.local/bin/context-watch ~/.claude/identities/<name>
+    #   command:      python3 ~/.local/bin/context-watch ~/fleet/identities/<name>
 
 It scrapes your own tmux pane's live context % and stays silent until a threshold. At
 **~80%** it prints ONE nudge:
 
     ⚠️ [context-watch: <name>] context at NN% — at your NEXT stopping point run
-    `/id save`, then: touch ~/.claude/identities/<name>/.recycle-requested ...
+    `/id save`, then: touch ~/fleet/identities/<name>/.recycle-requested ...
 
 **When that nudge lands, act on it exactly:** finish the piece of work you're on (it's
 not urgent — you have plenty of runway), then run **`/id save`** to flush any deltas to
-your role file + bounties + handoff, and finally **`touch ~/.claude/identities/<name>/.recycle-requested`**.
+your role file + bounties + handoff, and finally **`touch ~/fleet/identities/<name>/.recycle-requested`**.
 That sentinel tells the agent-supervisor to recycle you: it kills the current session
 and re-drives a fresh `claude + /id <name>` into the same tmux session, so you come back
 with your identity + bounties reloaded clean. Your relay cursor (`SINCE_FILE`) means the
@@ -664,11 +552,11 @@ on **context pressure** — this fourth Monitor wakes you on a **role-file OR id
 change**, so mid-session edits to either file become visible while you are still running.
 
 Two cases it covers:
-- **Role file** (`~/.claude/roles/<role>/<role>.md`) — shared across every identity holding
+- **Role file** (`~/fleet/roles/<role>/<role>.md`) — shared across every identity holding
   the role. A `remember X` / `forget X` made in a peer identity's session lands in the file
   immediately, but running peer identities carry a now-stale copy until their next full
   recycle. The watch closes that gap.
-- **Identity file** (`~/.claude/identities/<name>/<name>.md`) — per-identity. Peer sessions
+- **Identity file** (`~/fleet/identities/<name>/<name>.md`) — per-identity. Peer sessions
   of the SAME identity are essentially impossible, so a foreign edit here is almost always
   **Ashley editing directly** (a cosmetic frontmatter change — colorHue, avatar, displayName
   — or an identity-scope `remember` she typed into another session for you).
@@ -687,7 +575,7 @@ target files under that one identity scope — one Monitor, not two):
 
     # via the harness Monitor tool (persistent:true):
     #   description:  [ambient] <name> role-file watch
-    #   command:      python3 ~/.local/bin/role-file-watch ~/.claude/identities/<name>
+    #   command:      python3 ~/.local/bin/role-file-watch ~/fleet/identities/<name>
 
 **Agent-side reading protocol:** when the watch fires with a diff, read it. The event tag
 tells you which file changed: `📝 [role-file: <role>]` or `📝 [identity-file: <name>]`. The
@@ -724,8 +612,8 @@ yourself always-on", "don't go dormant", "stay awake" — or asks the
 reverse ("okay you can go dormant again", "drop the exemption"), respond
 by creating or removing the sentinel:
 
-    touch ~/.claude/identities/<name>/.no-dormancy       # opt out of dormancy
-    rm    ~/.claude/identities/<name>/.no-dormancy       # opt back in
+    touch ~/fleet/identities/<name>/.no-dormancy       # opt out of dormancy
+    rm    ~/fleet/identities/<name>/.no-dormancy       # opt back in
 
 Present = you stay always-on. Absent = normal dormancy.
 
@@ -823,10 +711,10 @@ Both fail the user the same way, and both are prevented by the same reflex: grep
 
 The mechanical check, before you answer or act:
 
-    grep -rli "<topic-keyword>" ~/.claude/roles/<role>/bounties/
+    grep -rli "<topic-keyword>" ~/fleet/roles/<role>/bounties/
 
 Include the `archive/` subfolder — most useful prior context is in closed work, not open.
-Skim `~/.claude/roles/<role>/history.md` (the chronological one-line index) for slugs
+Skim `~/fleet/roles/<role>/history.md` (the chronological one-line index) for slugs
 matching the topic. Open matching bounties and read the `premise` + `timeline`.
 
 Do this BEFORE proposing, diagnosing, or asserting "we don't have that / that's new / we'd
@@ -1081,16 +969,16 @@ When invoked:
    session that lacks a bounty** (see § What a bounty is). Passively-noticed threads
    from this session that never got approval do NOT spawn a bounty at save either — put
    a line in the handoff or drop it. Bounties always land in the role's shared pool at
-   `~/.claude/roles/<role>/bounties/`. If a durable fact/preference/directive is worth
+   `~/fleet/roles/<role>/bounties/`. If a durable fact/preference/directive is worth
    banking to the role or slim identity file, **propose it to the user and write on
    greenlight** (see § Editing the role file — including the ambiguous-scope ask) —
    don't self-promote.
-5. **Append to `~/.claude/roles/<role>/history.md`** — one short line per notable
+5. **Append to `~/fleet/roles/<role>/history.md`** — one short line per notable
    thread, referencing the bounty slug rather than restating detail:
    `YYYY-MM-DD · one-line gist · slugs: foo,bar` (a thread with no bounty still gets a
    line, just no slug). History is shared across identities — no per-identity attribution;
    the role's story is one story.
-6. **Overwrite `~/.claude/identities/<name>/handoff.md`** (the identity folder —
+6. **Overwrite `~/fleet/identities/<name>/handoff.md`** (the identity folder —
    handoff is per-identity) with the new session summary, any **Start-on-wake** items
    the user pre-authorized this session, and your current set of open multi-session
    plans. The open-plans set = the still-open survivors from the handoff you read at
@@ -1116,8 +1004,8 @@ When invoked:
    Omit the `## Start on wake` section entirely if there are no pre-authorized items —
    its presence is the signal.
 
-7. **Trim `~/.claude/roles/<role>/history.md`** to the last 80 lines, as the final step:
-   `tail -n 80 ~/.claude/roles/<role>/history.md > /tmp/h.$$ && mv /tmp/h.$$ ~/.claude/roles/<role>/history.md`
+7. **Trim `~/fleet/roles/<role>/history.md`** to the last 80 lines, as the final step:
+   `tail -n 80 ~/fleet/roles/<role>/history.md > /tmp/h.$$ && mv /tmp/h.$$ ~/fleet/roles/<role>/history.md`
 8. **Confirm in one line** what you saved, e.g.:
 
    > Saved: history +2, handoff rewritten, updated bounties `forms-cluster`,`login-bug`.
@@ -1128,7 +1016,7 @@ current, skip the history append, and say so in one line.
 
 **If this save was triggered by the context-watch nudge** (recycling to escape a filling
 window, not just a manual reset): after saving, drop the recycle sentinel so the
-supervisor recreates you fresh — `touch ~/.claude/identities/<name>/.recycle-requested`.
+supervisor recreates you fresh — `touch ~/fleet/identities/<name>/.recycle-requested`.
 See **§ On wake: start your context watch**. (A plain manual `/id save` needs no sentinel.)
 Simpler: just run **`/id reset`** (next section), which does the save AND drops the sentinel
 in one step.
@@ -1160,7 +1048,7 @@ When invoked:
 2. **Run the full `/id save` procedure** (§ On `/id save`, steps 2–8) — summarize, sweep the
    harness task list, land detail in bounties, append the history line, overwrite the handoff,
    trim. Same continuity flush.
-3. **Drop the recycle sentinel** — `touch ~/.claude/identities/<name>/.recycle-requested`.
+3. **Drop the recycle sentinel** — `touch ~/fleet/identities/<name>/.recycle-requested`.
    This is what tells the agent-supervisor to kill this session and re-drive a fresh
    `claude + /id <name>` in the same tmux session. Your relay cursor (`SINCE_FILE`) means the
    fresh session catches anything that arrived during the ~seconds of restart.
@@ -1181,9 +1069,9 @@ When invoked:
 
 ## File locations
 
-Two peer folders at the top of `~/.claude/`, each with lowercased names (see §1):
+Three siblings under `~/fleet/`, each with lowercased names (see §1):
 
-**`~/.claude/roles/<role>/`** — shared across every identity holding this role:
+**`~/fleet/roles/<role>/`** — shared across every identity holding this role:
 
 - `<role>.md` — the role file (permanent — see § The four artifacts)
 - `bounties/` — the task/thread records + working dirs (shared pool)
@@ -1192,7 +1080,7 @@ Two peer folders at the top of `~/.claude/`, each with lowercased names (see §1
 - Optional deeper reference files (`box-map.md`, `architecture.md`, etc.) named in the
   role file's 10k-view section
 
-**`~/.claude/identities/<name>/`** — per-identity:
+**`~/fleet/identities/<name>/`** — per-identity:
 
 - `<name>.md` — slim identity pointer file (`role:` frontmatter + optional per-identity
   tweaks)
@@ -1202,23 +1090,30 @@ Two peer folders at the top of `~/.claude/`, each with lowercased names (see §1
 - `role-file-watch/` — role-file-watch runtime state (`.state/`, `spilled/`, `last-snapshot.role` + `last-snapshot.identity` baselines)
 - `relay.json` — durable per-identity Matrix account credentials
 - `relay-state/` — per-identity relay cursor + token
+- `workspace/` — the identity's working directory (D-04). Generic — no repo-leaning; for
+  maintainer identities it holds the repo they maintain, for other identities it may hold
+  anything or nothing. Empty at identity creation; populated as the identity does work.
 - `.no-dormancy` — optional sentinel; present = always-on / exempt from
   dormancy. **Only ever toggled on user request** (see § Making yourself
   always-on)
 
-Both folders sit outside any project so a role + its identities work regardless of
+**`~/fleet/identities-archive/`** — archived (retired) identities at the fleet root, sibling of
+`~/fleet/identities/`. Maintained by the agent-supervisor; not for direct use.
+
+All three siblings sit outside any project so a role + its identities work regardless of
 which repo or directory you're in.
 
-Create the role folder via **`/role <name>`** (see the /role skill) before creating an
-identity that adopts it. `/id <name>` creates the identity itself — see § 2 Creating
-a new identity.
+Create the role folder via **`/role <name>`** (see the /role skill) before any identity
+adopts it. Identities themselves are created by Skynet's identity-birth flow, triggered by
+the new-agent UI or by a coordinator dropping a request file; this skill only adopts
+existing identities, never creates them.
 
 ---
 
 ## Bounties — record + working directory for every meaningful thread
 
 Every role owns a `bounties/` subfolder. Each bounty is a folder
-`~/.claude/roles/<role>/bounties/<slug>/` holding `bounty.json` (the record) **plus any
+`~/fleet/roles/<role>/bounties/<slug>/` holding `bounty.json` (the record) **plus any
 scratch/artifacts for that thread** — it's both the memory of the work and the working
 directory for it. Every identity of the role sees the same set of bounties. Coordination
 is human — the user directs which identity works which bounty; there's no owner field or
@@ -1267,7 +1162,7 @@ it might be worth a bounty.
 
 ### Schema
 
-Each bounty is `~/.claude/roles/<role>/bounties/<slug>/bounty.json`. Slug is kebab-case;
+Each bounty is `~/fleet/roles/<role>/bounties/<slug>/bounty.json`. Slug is kebab-case;
 pick a name that's still meaningful in three months.
 
 ```jsonc
@@ -1418,16 +1313,16 @@ into `bounties/archive/`** so the active set stays small and the load-time
 scan stays cheap:
 
 ```bash
-mkdir -p ~/.claude/roles/<role>/bounties/archive
-mv ~/.claude/roles/<role>/bounties/<slug> \
-   ~/.claude/roles/<role>/bounties/archive/<slug>
+mkdir -p ~/fleet/roles/<role>/bounties/archive
+mv ~/fleet/roles/<role>/bounties/<slug> \
+   ~/fleet/roles/<role>/bounties/archive/<slug>
 ```
 
 `archive/` is a reserved folder name, not a bounty — it's history you can
 read but that never counts as "open." Nothing deletes it; it just keeps
 `bounties/` from growing unbounded. So:
 
-- **Open-bounty scans** (load-time §3 and `/id` with no argument) look only
+- **Open-bounty scans** (load-time § 2 and `/id` with no argument) look only
   at the bounty folders **directly under `bounties/`** and ignore
   `bounties/archive/`.
 - **Resurrecting** an archived bounty (rare) = move the folder back out of
@@ -1445,7 +1340,7 @@ sees the same set.
 
 ### Storage
 
-`~/.claude/roles/<role>/runbooks/<runbook-slug>/runbook.md` + whatever
+`~/fleet/roles/<role>/runbooks/<runbook-slug>/runbook.md` + whatever
 companions belong with that runbook (checklists, prompt archives, sample data,
 scripts) as siblings inside the same subfolder. Internal shape is **free-form** — no
 required title/triggers/procedure/gotchas spine. Whatever fits the runbook fits.
@@ -1457,7 +1352,7 @@ expression predictable.
 
 ### Awareness on wake
 
-Load-time enumeration (§ 3 Loading an existing identity) lists the subfolder names
+Load-time enumeration (§ 2 Loading an existing identity) lists the subfolder names
 under the role's `runbooks/` and holds them in context silently. The identity is
 AWARE that a set of runbooks exists and knows their names, but does NOT read them
 in — content is read on demand only when a runbook is actually invoked.
@@ -1523,11 +1418,11 @@ schedules — flip `enabled` or remove one only when she says to.)
 A wake-up spec's scope is determined by **where it lives** — no field, no in-body
 flag. Location tells you scope:
 
-- **Identity-level** — `~/.claude/identities/<name>/wakeups/<slug>.json`. Fires on
+- **Identity-level** — `~/fleet/identities/<name>/wakeups/<slug>.json`. Fires on
   that specific identity, for its own bookkeeping (rare but valid — e.g. an actor's
   daily self-check on its own pinned bounty). Every identity's own scheduler reads
   its own identity folder.
-- **Role-level** — `~/.claude/roles/<role>/wakeups/<slug>.json`. Fires on the role's
+- **Role-level** — `~/fleet/roles/<role>/wakeups/<slug>.json`. Fires on the role's
   **coordinator**, which routes it to a picked actor via the standard dispatch flow
   (see the coordinator-instructions § Type C). Lives alongside `bounties/` +
   `history.md` in the shared role folder, so any actor of the role can author or
@@ -1557,8 +1452,8 @@ argument.
 ### Spec format
 
 One JSON file per wake-up. Path depends on scope (see § Scope above): identity-level
-at `~/.claude/identities/<name>/wakeups/<slug>.json`, role-level at
-`~/.claude/roles/<role>/wakeups/<slug>.json`. Contents are the same either way:
+at `~/fleet/identities/<name>/wakeups/<slug>.json`, role-level at
+`~/fleet/roles/<role>/wakeups/<slug>.json`. Contents are the same either way:
 
 ```jsonc
 {

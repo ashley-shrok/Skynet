@@ -166,7 +166,7 @@ describe("readIdentityBounties — REMOTE branch, includeArchived flag", () => {
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (_conn: unknown, cmd: string) => {
         capturedCommands.push(cmd);
-        if (cmd.includes(".claude/identities/")) return identityMd;
+        if (cmd.includes("fleet/identities/")) return identityMd;
         // NOTE: we intentionally do NOT branch on /archive here — if the
         // reader wrongly runs the archive command with flag=false, the test
         // should still fail cleanly on the count-of-archive-commands
@@ -183,7 +183,7 @@ describe("readIdentityBounties — REMOTE branch, includeArchived flag", () => {
     // resolution runs first, so counting all execs won't work; count only
     // the ones targeting the bounties folder).
     const bountyCommands = capturedCommands.filter((c) =>
-      c.includes(".claude/roles/") && c.includes("/bounties"),
+      c.includes("fleet/roles/") && c.includes("/bounties"),
     );
     expect(bountyCommands).toHaveLength(1);
 
@@ -206,7 +206,7 @@ describe("readIdentityBounties — REMOTE branch, includeArchived flag", () => {
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (_conn: unknown, cmd: string) => {
         capturedCommands.push(cmd);
-        if (cmd.includes(".claude/identities/")) return identityMd;
+        if (cmd.includes("fleet/identities/")) return identityMd;
         if (cmd.includes("/bounties/archive")) return archiveStdout;
         if (cmd.includes("/bounties")) return openStdout;
         return "";
@@ -218,7 +218,7 @@ describe("readIdentityBounties — REMOTE branch, includeArchived flag", () => {
 
     // Both bounty commands must have run.
     const bountyCommands = capturedCommands.filter((c) =>
-      c.includes(".claude/roles/") && c.includes("/bounties"),
+      c.includes("fleet/roles/") && c.includes("/bounties"),
     );
     expect(bountyCommands).toHaveLength(2);
     // One command targets `.../bounties/archive`; the other targets `.../bounties`
@@ -240,7 +240,7 @@ describe("readIdentityBounties — REMOTE branch, includeArchived flag", () => {
   it("test 5: REMOTE, includeArchived=true, archive command REJECTS (simulates 300+ bounty timeout) → open list still returned; archivedBounties=[] via .catch fallback", async () => {
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (_conn: unknown, cmd: string) => {
-        if (cmd.includes(".claude/identities/")) return identityMd;
+        if (cmd.includes("fleet/identities/")) return identityMd;
         if (cmd.includes("/bounties/archive")) {
           throw new Error("remote exec timeout after 3000ms");
         }
@@ -261,7 +261,7 @@ describe("readIdentityBounties — REMOTE branch, includeArchived flag", () => {
   it("test 6: REMOTE, includeArchived=false, open command REJECTS → error propagates (no swallow on the open path)", async () => {
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (_conn: unknown, cmd: string) => {
-        if (cmd.includes(".claude/identities/")) return identityMd;
+        if (cmd.includes("fleet/identities/")) return identityMd;
         if (cmd.includes("/bounties")) {
           throw new Error("remote exec timeout after 3000ms");
         }

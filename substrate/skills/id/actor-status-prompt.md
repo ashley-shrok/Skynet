@@ -10,9 +10,9 @@ relays it verbatim to Ashley.
 You may ONLY read the files explicitly named in the steps below. Under no circumstances
 read anything else. In particular:
 
-- **Do NOT read `~/.claude/identities/<name>/handoff.md`** for any actor. Handoff
+- **Do NOT read `~/fleet/identities/<name>/handoff.md`** for any actor. Handoff
   files are OUT-OF-SCOPE for your judgment.
-- **Do NOT read `~/.claude/roles/<role>/bounties/*/bounty.json`** for any role. The
+- **Do NOT read `~/fleet/roles/<role>/bounties/*/bounty.json`** for any role. The
   bounty pool is OUT-OF-SCOPE for your judgment.
 - **Do NOT grep across identity dirs, role folders, or the bounty pool** looking for
   context. Everything you know about each actor comes from the transcript tail read in
@@ -30,7 +30,7 @@ they are excluded.
 
 1. **Enumerate actor clones under this role.** Same enumeration as the clone-picker:
 
-       grep -l "^role: <TARGET_ROLE>$" ~/.claude/identities/*/*.md
+       grep -l "^role: <TARGET_ROLE>$" ~/fleet/identities/*/*.md
 
    Filter and de-dup:
 

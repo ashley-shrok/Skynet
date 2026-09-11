@@ -233,7 +233,7 @@ def main():
         sys.exit(1)
 
     # --- Resolve role file path ---
-    role_file_path = os.path.expanduser("~/.claude/roles/%s/%s.md" % (role, role))
+    role_file_path = os.path.expanduser("~/fleet/roles/%s/%s.md" % (role, role))
     if not os.path.exists(role_file_path):
         msg = "role file not found: %s" % role_file_path
         print("📝 [role-file-watch] SETUP FAILED: %s" % msg, flush=True)

@@ -37,6 +37,11 @@ import { resolveHostById } from "../../ssh/host-resolver.js";
 // without rejecting operators' existing frontmatter. See polly-voice-catalog.ts
 // for the seven-entry catalog + guard.
 import { isValidPollyVoice } from "../../voice/polly-voice-catalog.js";
+// Phase 92 (renumbered from 92 in ROADMAP → Phase 105 post-collision with tina P92)
+// Plan 92-02 Task 1: per-identity `.pinned` sentinel probe. identityFileExists is
+// the read-side of the D-05 wire — a fail-closed stat against
+// `~/fleet/identities/<identityKey>/.pinned` on the identity's host.
+import { identityFileExists } from "../../claude-session/per-identity-file.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -178,6 +183,15 @@ export function publicIdentity(
     voice?: string;
     avatar?: string;
   } | null = null,
+  /** Phase 92 Plan 92-02 Task 1: pinned:boolean surface for the per-identity
+   *  `.pinned` sentinel (D-03/D-04). Populated by the GET /identities disk
+   *  fanout via identityFileExists in the same Promise.all wave as the
+   *  role-cosmetic read (see disk-fanout below at L280+). Default false is
+   *  the fail-closed safe-default per D-01 "presence is meaning" — a caller
+   *  that omits this argument (e.g. PUT response-echo prior to Plan 92-04's
+   *  frontend rewire) reports the identity as unpinned rather than
+   *  fabricating a truthy state. */
+  pinned: boolean = false,
 ) {
   // Phase 85: per-field merge — identity ?? role ?? null. The narrowing
   // guards (typeof/range) live in extractCosmeticsFromFrontmatter; here we
@@ -231,6 +245,12 @@ export function publicIdentity(
     // values so IdentityModal (Plan 85-05) can render inherit-vs-override
     // affordances. null when no role; {} when role has no cosmetics.
     roleDefaults: roleCosmetics,
+    // Phase 92 Plan 92-02: pinned:boolean derived from on-demand disk read
+    // of `.pinned` sentinel via identityFileExists at request time (D-03).
+    // No DB mirror, no in-memory cache. Frontend Plan 04 rewires
+    // conversation-store's pinnedIds derivation from GET /user-preferences
+    // to this per-identity field.
+    pinned,
   };
 }
 
@@ -340,11 +360,33 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
               return p;
             };
 
-            // Per-key parallel read of cosmetics + role.
+            // Per-key parallel read of cosmetics + role + .pinned sentinel.
             const identityList = await Promise.all(
               identityKeys.map(async (identityKey) => {
                 try {
-                  const { markdown } = await readIdentityFile(conn, identityKey);
+                  // Phase 92 Plan 92-02 Task 1: launch the .pinned probe in
+                  // the SAME Promise.all wave as the readIdentityFile call so
+                  // the pin state is a parallel disk read, not a second
+                  // serial round-trip per identity (PUB-92-04).
+                  //
+                  // H3 lowercase-on-disk invariant: identityKey is the raw
+                  // folder name from listIdentityKeysOnHost. Passed VERBATIM
+                  // to identityFileExists — no case coercion, no
+                  // reconstruction from cosmetics. The reader regex
+                  // (identity-artifact-reader.ts:174) guarantees this string
+                  // is already lowercase, so it matches the on-disk folder
+                  // segment byte-for-byte.
+                  // Grep-hygiene marker: identityFileExists → .pinned wiring.
+                  const pinnedPromise = identityFileExists(
+                    identityKey,
+                    ".pinned",
+                    { hostId, conn },
+                  ).catch(() => false); // fail-closed per D-01 (PUB-92-03)
+
+                  const [{ markdown }, pinned] = await Promise.all([
+                    readIdentityFile(conn, identityKey),
+                    pinnedPromise,
+                  ]);
                   const cosmetics = extractCosmeticsFromFrontmatter(markdown);
                   const role = extractRoleFromMarkdown(markdown) ?? null;
 
@@ -361,6 +403,7 @@ router.get("/", authenticateJWT, async (req: Request, res: Response) => {
                     cosmetics,
                     role,
                     roleCosmetics,
+                    pinned,
                   );
                 } catch {
                   // Per-key failure swallowed — skip this key.
@@ -671,7 +714,7 @@ router.put(
           } else if (conn) {
             await execCommand(
               conn,
-              `rm -f "$HOME/.claude/identities/${identityKey}/${identityKey}.${oldExt}"`,
+              `rm -f "$HOME/fleet/identities/${identityKey}/${identityKey}.${oldExt}"`,
             ).catch(() => {
               /* best-effort */
             });
@@ -706,7 +749,7 @@ router.put(
         } else if (conn) {
           await execCommand(
             conn,
-            `rm -f "$HOME/.claude/identities/${identityKey}/${canonicalName}"`,
+            `rm -f "$HOME/fleet/identities/${identityKey}/${canonicalName}"`,
           ).catch(() => {
             /* best-effort */
           });

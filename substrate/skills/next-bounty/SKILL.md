@@ -8,8 +8,8 @@ description: Initiates work on a pinned bounty — random by default, or a named
 The user is about to start work on a bounty. Do these two steps this turn, consecutively:
 
 1. **Pick.**
-   - **If an argument was given**, treat it as a bounty identifier: try an exact match on slug (the bounty folder name under `~/.claude/roles/<role>/bounties/`) first, then a substring match against slug or `.title`. The named bounty does NOT need to be pinned. If nothing matches, tell the user + list the closest candidates and STOP — do not fall through to a random pick.
-   - **If no argument was given**, list the current role's pinned bounties — bounty.json files under `~/.claude/roles/<role>/bounties/` where `.pinned == true`. CHOOSE RANDOMLY AND DO NOT ASK THE USER WHICH ONE TO CHOOSE.
+   - **If an argument was given**, treat it as a bounty identifier: try an exact match on slug (the bounty folder name under `~/fleet/roles/<role>/bounties/`) first, then a substring match against slug or `.title`. The named bounty does NOT need to be pinned. If nothing matches, tell the user + list the closest candidates and STOP — do not fall through to a random pick.
+   - **If no argument was given**, list the current role's pinned bounties — bounty.json files under `~/fleet/roles/<role>/bounties/` where `.pinned == true`. CHOOSE RANDOMLY AND DO NOT ASK THE USER WHICH ONE TO CHOOSE.
 
 2. After reading the bounty for yourself, do whatever code reading, research, or other read-only investigation you need to do to get familiar with the bounty.
 

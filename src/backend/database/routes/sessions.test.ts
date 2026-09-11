@@ -11,7 +11,7 @@
  *   4: host-level failure — connectOneShot throws → host silently dropped (no rows)
  *
  * Design: resolveRoleForIdentity is NOT mocked. The fake conn's execCommand responds to
- * two command shapes: "tmux list-sessions ..." and "cat $HOME/.claude/identities/..." .
+ * two command shapes: "tmux list-sessions ..." and "cat $HOME/fleet/identities/..." .
  * resolveRoleForIdentity calls execWithTimeout(conn, cmd) internally — which calls
  * execCommand on the passed conn — so the real frontmatter parse path is exercised.
  */

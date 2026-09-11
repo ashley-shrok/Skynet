@@ -84,6 +84,61 @@ export function buildIdentityHostsFromFleet(
   return map;
 }
 
+/**
+ * Phase 92 Plan 04 (D-04) — project each identity's `pinned: boolean` field
+ * (populated from disk by the backend at request time per D-03) into the
+ * conversation-row id space (`fleet::<hostId>::<sessionName>`). Called by the
+ * panel's hydrate effect (PrettyConversationsPanel.tsx L475+) as the
+ * replacement for the retired getPinnedIds() /user-preferences fetch.
+ *
+ * H2 invariant: the `identityHosts` argument MUST be constructed via the
+ * existing `buildIdentityHostsFromFleet(fleetSessions)` helper exported from
+ * this same module (L74-85), which uses `sessionMatchKey(session.sessionName)`
+ * from src/ui/features/terminal/session-hue.ts. That helper's null-return on
+ * empty/undefined sessionName is what filters relay-room sessions and other
+ * non-identity sessions out of the map. Callers MUST NOT construct
+ * identityHosts by iterating fleetSessions with a naive
+ * `session.sessionName.toLowerCase()` pattern — that crashes on the relay-
+ * room `sessionName === undefined` case (per conversation-store.ts L710-731)
+ * and diverges from the semantics the /identities fetch already uses.
+ *
+ * Fail-closed on missing `pinned` field: an identity object without the
+ * field is treated as unpinned (matches backend Plan 02 fail-closed contract
+ * where identityFileExists throws → pinned:false).
+ *
+ * Identity keys not present in identityHosts are filtered out — an identity
+ * we don't have a host mapping for cannot render as a pinned row anyway
+ * (no row to render), so including it in state.pinnedIds would produce an
+ * inert entry.
+ *
+ * H3 invariant (from Plan 92-02): identity.identityKey is emitted verbatim
+ * from listIdentityKeysOnHost's raw folder-name output — ALREADY lowercase
+ * because identity-artifact-reader.ts IDENTITY_KEY_RE forbids uppercase.
+ * The `.toLowerCase()` below is defense-in-depth belt-and-suspenders against
+ * a future backend change that ever emitted a capitalized key. The emitted
+ * `fleet::${hostId}::${lookupKey}` shape uses the lowercased key
+ * deliberately: it matches conversation-store.ts:740
+ * `fleetRowId(session.hostId, session.sessionName)` because session.sessionName
+ * from the fleet-status wire is the lowercase identity name (id-skill uses
+ * the same regex on the target host).
+ */
+export function deriveDiskPinnedIds(
+  identityHosts: Record<string, number>,
+): string[] {
+  const out: string[] = [];
+  for (const identity of state.identities) {
+    // Fail-closed: `pinned !== true` treats undefined / false / any non-true
+    // value as unpinned. Matches the backend's fail-closed contract at
+    // identities.ts L282+ where an exists() throw catches to false.
+    if (identity.pinned !== true) continue;
+    const lookupKey = identity.identityKey.toLowerCase();
+    const hostId = identityHosts[lookupKey];
+    if (typeof hostId !== "number") continue;
+    out.push(`fleet::${hostId}::${lookupKey}`);
+  }
+  return out;
+}
+
 // One-shot re-fetch after the first fleetSessions load. Fires ONCE per module
 // lifetime (guarded by hasRefreshedAfterFleetLoad). The subscription itself
 // is also installed lazily inside fetchOnce so a test that imports the module

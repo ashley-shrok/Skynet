@@ -37,3 +37,7 @@ electron/build-info.cjs
 # Playwright
 playwright-report/
 test-results/
+
+# Python bytecode
+__pycache__/
+*.pyc

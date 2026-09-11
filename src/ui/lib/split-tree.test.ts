@@ -396,7 +396,7 @@ describe("split-tree", () => {
 // Phase 57 Plan 01 Task 1 — edge-zone hit-testing (`computeEdgeZone`).
 //
 // Behaviour spec is 57-01-PLAN.md Task 1 `<behavior>` (Tests 1-13). Ports the
-// prototype's `pickZone` (~/.claude/roles/box-maintainer/bounties/
+// prototype's `pickZone` (~/fleet/roles/box-maintainer/bounties/
 // bring-back-split-view/prototype.html:361-370) verbatim: EDGE = 0.28
 // normalized threshold, tie-break priority top → bottom → left → right.
 //

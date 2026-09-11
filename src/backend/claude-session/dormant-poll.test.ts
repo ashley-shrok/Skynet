@@ -132,7 +132,7 @@ describe("Test A: identity-shape probe caches true → stat fires and emits dorm
     // Probe tick: no stat call yet (probe consumes this tick's budget)
     expect(exec).toHaveBeenCalledTimes(1);
     const probeCmd = exec.mock.calls[0][1] as string;
-    expect(probeCmd).toContain("test -d ~/.claude/identities/'myagent'");
+    expect(probeCmd).toContain("test -d ~/fleet/identities/'myagent'");
     expect(wsSend).not.toHaveBeenCalled(); // no emit on probe tick
 
     // Tick 2: stat fires (isIdentityShapedCached is now true)
@@ -142,7 +142,7 @@ describe("Test A: identity-shape probe caches true → stat fires and emits dorm
     );
     expect(exec).toHaveBeenCalledTimes(2);
     const statCmd = exec.mock.calls[1][1] as string;
-    expect(statCmd).toContain("stat ~/.claude/identities/'myagent'/.dormant");
+    expect(statCmd).toContain("stat ~/fleet/identities/'myagent'/.dormant");
     expect(wsSend).toHaveBeenCalledTimes(1);
     const emitted = JSON.parse(wsSend.mock.calls[0][0]);
     // Phase 56: wakingSince removed — frontend no longer needs to reconstruct
@@ -268,7 +268,7 @@ describe("Test G: inactive-branch dormancy probe — stat=yes → emits dormant:
     // stat was called once
     expect(exec).toHaveBeenCalledTimes(1);
     const statCmd = exec.mock.calls[0][1] as string;
-    expect(statCmd).toContain("stat ~/.claude/identities/'tiffany'/.dormant");
+    expect(statCmd).toContain("stat ~/fleet/identities/'tiffany'/.dormant");
 
     // Emitted dormant:true once
     expect(wsSend).toHaveBeenCalledTimes(1);
@@ -913,7 +913,7 @@ describe("Phase 56: send-while-dormant path (invisible wake trigger)", () => {
 
     // Sentinel drop fired with byte-identical command shape as the exec
     // previously in the wake-message test seam (deleted in Phase 56 Plan 03).
-    const sentinelDropIdx = execCalls.findIndex((c) => c.includes("rm -f ~/.claude/identities/'test-agent'/.dormant"));
+    const sentinelDropIdx = execCalls.findIndex((c) => c.includes("rm -f ~/fleet/identities/'test-agent'/.dormant"));
     expect(sentinelDropIdx).toBeGreaterThanOrEqual(0);
 
     // wakeTriggerTs recorded exactly once with the numeric triggerTs.
@@ -971,7 +971,7 @@ describe("Phase 56: send-while-dormant path (invisible wake trigger)", () => {
     });
 
     // Sentinel drop still fired (fallback path preserves the drop).
-    expect(execCalls.some((c) => c.includes("rm -f ~/.claude/identities/'test-agent'/.dormant"))).toBe(true);
+    expect(execCalls.some((c) => c.includes("rm -f ~/fleet/identities/'test-agent'/.dormant"))).toBe(true);
 
     // Send-keys still fired (body + Enter both present).
     expect(execCalls.some((c) => c.includes("tmux send-keys -l -t 'test-agent' 'hello'"))).toBe(true);
@@ -1041,7 +1041,7 @@ describe("Phase 56: send-while-dormant path (invisible wake trigger)", () => {
 
     // Sentinel drop fired at least twice (once per send — idempotent under -f).
     const sentinelDropCount = execCalls.filter((c) =>
-      c.includes("rm -f ~/.claude/identities/'test-agent'/.dormant"),
+      c.includes("rm -f ~/fleet/identities/'test-agent'/.dormant"),
     ).length;
     expect(sentinelDropCount).toBeGreaterThanOrEqual(2);
 
@@ -1053,7 +1053,7 @@ describe("Phase 56: send-while-dormant path (invisible wake trigger)", () => {
     expect(firstBodyIdx).toBeLessThan(secondBodyIdx);
 
     // Sequence sanity: for each send, sentinel-drop BEFORE body BEFORE Enter.
-    const firstSentinelIdx = execCalls.findIndex((c) => c.includes("rm -f ~/.claude/identities/'test-agent'/.dormant"));
+    const firstSentinelIdx = execCalls.findIndex((c) => c.includes("rm -f ~/fleet/identities/'test-agent'/.dormant"));
     const firstEnterIdx = execCalls.findIndex((c) => c.includes("tmux send-keys -t 'test-agent' Enter"));
     expect(firstSentinelIdx).toBeLessThan(firstBodyIdx);
     expect(firstBodyIdx).toBeLessThan(firstEnterIdx);
@@ -1086,7 +1086,7 @@ describe("Phase 56: send-while-dormant path (invisible wake trigger)", () => {
     });
 
     // Sentinel drop was NEVER called (no rm -f on identities path).
-    expect(execCalls.some((c) => c.includes("rm -f ~/.claude/identities/"))).toBe(false);
+    expect(execCalls.some((c) => c.includes("rm -f ~/fleet/identities/"))).toBe(false);
 
     // markerCommand was NEVER called (no marker polling).
     expect(markerCommand).not.toHaveBeenCalled();

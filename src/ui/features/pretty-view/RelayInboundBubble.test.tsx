@@ -10,7 +10,7 @@
  *   (6) detectFilePointer matches recv.sh preview line format with em-dash boundaries
  *
  * Updated 2026-07-28 (UAT Bug 2 fix): file-pointer paths updated to
- * ~/.claude/identities/<id>/relay-state/messages/<eventid>.txt shape.
+ * ~/fleet/identities/<id>/relay-state/messages/<eventid>.txt shape.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import "@testing-library/jest-dom/vitest";
@@ -86,7 +86,7 @@ describe("RelayInboundBubble", () => {
 
   it("Test 2: file-pointer body → fetch called with /relay-pointer?hostId=...&path=... on 200, body inlined (identity-dir path shape)", async () => {
     const fetchedBody = "This is the full relay message body from file.";
-    const identityPath = "/home/ubuntu/.claude/identities/molly/relay-state/messages/_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt";
+    const identityPath = "/home/ubuntu/fleet/identities/molly/relay-state/messages/_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt";
     global.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -132,7 +132,7 @@ describe("RelayInboundBubble", () => {
       <RelayInboundBubble
         room="!roomAlias:server.tld"
         sender="@tina:matrix.example.com"
-        body="/home/ubuntu/.claude/identities/tina/relay-state/messages/abc-xyz.txt"
+        body="/home/ubuntu/fleet/identities/tina/relay-state/messages/abc-xyz.txt"
         hostId={7}
       />,
     );
@@ -262,11 +262,11 @@ describe("RelayInboundBubble", () => {
     // The path is bounded by " — " (ASCII space + em-dash + ASCII space) on both sides.
     // JS \s matches the ASCII space adjacent to the em-dash, so the existing \s boundaries work.
     const reproStr =
-      "[long message, 1960 chars — full text at /home/ubuntu/.claude/identities/molly/relay-state/messages/_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt — Read it] «Huge. Signal received before I invested…»";
+      "[long message, 1960 chars — full text at /home/ubuntu/fleet/identities/molly/relay-state/messages/_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt — Read it] «Huge. Signal received before I invested…»";
     const result = detectFilePointer(reproStr);
     expect(result).not.toBeNull();
     expect(result?.pointerPath).toBe(
-      "/home/ubuntu/.claude/identities/molly/relay-state/messages/_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt",
+      "/home/ubuntu/fleet/identities/molly/relay-state/messages/_j14UxhqP0NpJXLReeXBR0qPGh04JwNXDGneCrEyarWw.txt",
     );
   });
 

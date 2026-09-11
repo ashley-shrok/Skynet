@@ -13,7 +13,7 @@
  * the pane still looks active to Skynet, but a recycle is IMMINENT —
  * the agent-supervisor's next reconcile tick will kill claude.
  *
- * The sentinel path is `~/.claude/identities/<name>/.recycle-requested`
+ * The sentinel path is `~/fleet/identities/<name>/.recycle-requested`
  * on the box where the agent is running. Presence = "recycle in flight"
  * from the agent's or supervisor's perspective; the overlay should
  * mirror that state.
@@ -40,7 +40,7 @@
  * to alphanumeric + dash + underscore, same subset accepted here).
  */
 export function buildSentinelCheckCommand(identityName: string): string {
-  return `test -f ~/.claude/identities/'${identityName}'/.recycle-requested 2>/dev/null && echo yes || echo no`;
+  return `test -f ~/fleet/identities/'${identityName}'/.recycle-requested 2>/dev/null && echo yes || echo no`;
 }
 
 // ── Pure predicates ────────────────────────────────────────────────────────

@@ -67,7 +67,7 @@ export class RunbookFileAlreadyExistsError extends Error {
 
 /**
  * Lists the runbooks for the given role on the given host
- * (`~/.claude/roles/<r>/runbooks/*`).
+ * (`~/fleet/roles/<r>/runbooks/*`).
  * Returns [] when the runbooks folder doesn't exist (200, not 404 — per Plan 89-02
  * D-15 "missing runbooks folder within a valid role is empty-list-not-404";
  * D-15's 404 fires only when the role folder itself is absent).

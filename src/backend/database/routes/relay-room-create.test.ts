@@ -145,10 +145,15 @@ let __createRoomAsUserResult: { ok: boolean; roomId?: string; status?: number; e
   roomId: "!room:server",
 };
 let __inviteToRoomResult: { ok: boolean; status?: number; error?: string } = { ok: true };
+let __joinRoomResult: { ok: boolean; roomId?: string; status?: number; error?: string } = {
+  ok: true,
+  roomId: "!room:server",
+};
 
 vi.mock("../../matrix/matrix-admin-client.js", () => ({
   createRoomAsUser: vi.fn(),
   inviteToRoom: vi.fn(),
+  joinRoom: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -177,7 +182,7 @@ vi.mock("../../utils/logger.js", () => ({
 // ---------------------------------------------------------------------------
 
 // eslint-disable-next-line import/first
-import { createRoomAsUser, inviteToRoom } from "../../matrix/matrix-admin-client.js";
+import { createRoomAsUser, inviteToRoom, joinRoom } from "../../matrix/matrix-admin-client.js";
 // eslint-disable-next-line import/first
 import { materializeRelayRoomSession } from "../../relay-sessions/relay-room-sessions-store.js";
 // eslint-disable-next-line import/first
@@ -187,6 +192,7 @@ import relayRoomCreateRoutes from "./relay-room-create.js";
 
 const mockCreateRoomAsUser = createRoomAsUser as unknown as ReturnType<typeof vi.fn>;
 const mockInviteToRoom = inviteToRoom as unknown as ReturnType<typeof vi.fn>;
+const mockJoinRoom = joinRoom as unknown as ReturnType<typeof vi.fn>;
 const mockMaterialize = materializeRelayRoomSession as unknown as ReturnType<typeof vi.fn>;
 
 // ---------------------------------------------------------------------------
@@ -244,6 +250,7 @@ describe("POST /relay-room/create (Phase 91 Plan 03)", () => {
     __viewerMxidDbError = false;
     __createRoomAsUserResult = { ok: true, roomId: "!room:server" };
     __inviteToRoomResult = { ok: true };
+    __joinRoomResult = { ok: true, roomId: "!room:server" };
     __materializeThrows = false;
 
     mockCreateRoomAsUser.mockReset();
@@ -251,6 +258,9 @@ describe("POST /relay-room/create (Phase 91 Plan 03)", () => {
 
     mockInviteToRoom.mockReset();
     mockInviteToRoom.mockImplementation(async () => __inviteToRoomResult);
+
+    mockJoinRoom.mockReset();
+    mockJoinRoom.mockImplementation(async () => __joinRoomResult);
 
     mockMaterialize.mockReset();
     mockMaterialize.mockImplementation(async () => {

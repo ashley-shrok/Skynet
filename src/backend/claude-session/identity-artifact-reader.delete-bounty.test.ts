@@ -28,7 +28,7 @@ import fs from "fs/promises";
 
 import { deleteIdentityBounty } from "./identity-artifact-reader.js";
 
-// Phase 22 SRIC-01: bounties live at ~/.claude/roles/<role>/bounties/ post
+// Phase 22 SRIC-01: bounties live at ~/fleet/roles/<role>/bounties/ post
 // fleet migration; deleteIdentityBounty now does the two-step. Fixtures set
 // up BOTH the identity file (with role: frontmatter) AND the role folder.
 let identitiesRoot: string;

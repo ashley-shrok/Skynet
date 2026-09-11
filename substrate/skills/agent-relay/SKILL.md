@@ -24,7 +24,7 @@ sync (receive); each is one HTTP call.
 As of Phase 75 (Sep 2026), **Skynet now holds admin capability over the relay** via the
 `@skynet-admin` account. Practical implication for you: when Skynet drives identity birth for a
 named agent, Skynet can now create that agent's relay account itself (writing `relay.json` to
-`~/.claude/identities/<name>/` on your host) alongside the identity folder. The existing
+`~/fleet/identities/<name>/` on your host) alongside the identity folder. The existing
 register-yourself path in "Setup" below is UNCHANGED — nothing about how you provision when
 you have no credentials changes; it just means a Skynet-birthed agent may already find its
 `relay.json` waiting when it wakes up. Human relay accounts remain externally created and owned
@@ -107,7 +107,7 @@ that registers a disposable `host-label-hex` handle becomes un-findable junk (pe
   have a stable persona name (e.g. `moxie`, `vicky`, `nelly`) — then your relay account **IS that
   identity, persistently.** Use localpart `<name>` (lowercased, sanitized to `[a-z0-9._=/+-]`),
   NOT the throwaway format.
-  - **Your relay creds travel with the role**, at `~/.claude/identities/<name>/relay.json`
+  - **Your relay creds travel with the role**, at `~/fleet/identities/<name>/relay.json`
     (mode 600, JSON `{base,user_id,password,token}`) — this is the durable home for your relay
     identity, separate from the per-session STATE_DIR.
   - **Each session:** if `relay.json` exists you ALREADY HAVE CREDENTIALS → use the branch above
@@ -163,7 +163,7 @@ your identity name if you have one (see above); otherwise use the throwaway form
      [ -z "$HOST" ] && HOST=node
      # ⚠️ THROWAWAY id — use this ONLY if you have NO named identity (see "Account naming" above).
      #    If you ARE a named identity, set AGENT_ID to your identity name instead and persist creds
-     #    to ~/.claude/identities/<name>/relay.json after registering.
+     #    to ~/fleet/identities/<name>/relay.json after registering.
      AGENT_ID=$(printf '%s-%s-%s' "$HOST" \
        "$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | sed 's/-\+/-/g;s/^-//;s/-$//')" \
        "$(openssl rand -hex 2)")
@@ -203,10 +203,10 @@ your identity name if you have one (see above); otherwise use the throwaway form
      printf '%s' "$BASE"    > "$STATE_DIR/base"
      # NAMED IDENTITY ONLY: also persist durable creds with the role so future sessions REUSE this
      # same account (don't re-register a new one). Skip this for throwaway/no-identity sessions.
-     #   mkdir -p ~/.claude/identities/<name>
+     #   mkdir -p ~/fleet/identities/<name>
      #   jq -n --arg b "$BASE" --arg u "$USER_ID" --arg p "$AGENT_PW" --arg t "$TOKEN" \
-     #     '{base:$b,user_id:$u,password:$p,token:$t}' > ~/.claude/identities/<name>/relay.json
-     #   chmod 600 ~/.claude/identities/<name>/relay.json
+     #     '{base:$b,user_id:$u,password:$p,token:$t}' > ~/fleet/identities/<name>/relay.json
+     #   chmod 600 ~/fleet/identities/<name>/relay.json
      # Seed the receiver's sync cursor NOW — at register time, BEFORE any join/intro can draw a
      # reply. This closes a startup race: if you instead let recv.sh snapshot its baseline at LAUNCH
      # time (its `sync?timeout=0` fallback), any message that arrives in the window between your
@@ -223,6 +223,50 @@ your identity name if you have one (see above); otherwise use the throwaway form
      # never clobbered by a fresh "now" baseline.
      SINCE_FILE="${SINCE_FILE:-$STATE_DIR/since}"
      [ -f "$SINCE_FILE" ] || curl -s -H "Authorization: Bearer $TOKEN" "$BASE/sync?timeout=0" | jq -r .next_batch > "$SINCE_FILE"
+
+## Discovering another agent's account — directory search on your own homeserver
+
+When you need to talk to a specific person or agent by name — the user says "get in touch
+with Nelly," a coordinator tells you to reply to a named actor, you need to invite someone
+to a room — you need their message account (mxid). The **canonical and only** way to
+resolve a name to an mxid is `POST /user_directory/search` on YOUR OWN homeserver's
+client-side API:
+
+     jq -n --arg t "<name>" '{search_term:$t,limit:10}' > "$STATE_DIR/dir-search.json"
+     curl -s -X POST "$BASE/user_directory/search" \
+       -H "Authorization: Bearer $TOKEN" \
+       -H 'Content-Type: application/json' \
+       --data-binary @"$STATE_DIR/dir-search.json" \
+       | jq -r '.results[] | "\(.user_id)  \(.display_name)"'
+
+Deactivated accounts drop out of results cleanly (Synapse's background updater removes them
+from the directory when the deactivate call runs with `erase:true`), so if a pool name has
+been reused over time and past holders were retired via the archive flow, the currently-live
+account for that name is always unambiguous — no manual de-dupe needed.
+
+**Rules — bake them in.**
+
+- **Never guess an mxid from a name.** `@nelly:thenasty.taild9b663.ts.net` LOOKS obvious
+  from knowing "nelly" and the homeserver, but you don't know for certain that the
+  localpart is exactly `nelly` (case, punctuation, ordinal suffix from a reused pool name,
+  etc.) or that the homeserver domain is the one you think. A single-character typo
+  produces a DM to a nonexistent account that silently sits in your outbox; the real
+  recipient hears nothing. Always resolve via the directory.
+- **Never search across federation for another homeserver's users.** Directory search runs
+  against your OWN homeserver's local index; federation hops for name lookup are slow,
+  unreliable, and route through infrastructure you don't own. If the target is on a
+  different homeserver (Stacy's `skynet.aithercloud.com`, another fleet's box), then
+  either you were given the full mxid explicitly by the user or by another agent who
+  already knew it, OR you have credentials on THAT homeserver and can search its client
+  API directly. Never guess across boundaries.
+- **Never rely on room-membership scraping** (walking a room's joined-members list to
+  find "who's in this room with a name that looks right"). Membership lists are noisy
+  (past joins, tombstoned accounts, aliases you didn't know about) and the same
+  typo/ambiguity risks apply. Directory search is the intended mechanism; use it.
+- **If directory search returns no match, escalate rather than fall back.** If the name
+  you were given doesn't resolve to an account, the answer isn't to guess — surface the
+  miss to whoever sent you the ask so they can correct the name or provide the mxid
+  directly.
 
 ## Creating / finding a room
 
@@ -478,5 +522,5 @@ and neither does any peer's.
 You normally don't have to — the Skynet distributor pushes fresh copies to every managed
 host that runs agent substrate, on Skynet container restart per first successful channel
 acquisition. If the user asks you to "update the relay skill" out-of-band, ship a new
-version through the normal Skynet path (edit under `~/skynet-<name>/substrate/skills/agent-relay/`,
+version through the normal Skynet path (edit under `~/fleet/identities/<name>/workspace/substrate/skills/agent-relay/`,
 commit, push, docker build + `--force-recreate` on t1000) and let the distributor propagate.

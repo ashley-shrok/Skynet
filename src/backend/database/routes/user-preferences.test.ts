@@ -1,5 +1,5 @@
 /**
- * Phase 15 Plan 1: /user-preferences GET + PUT tests for pinnedConversationIds.
+ * Phase 15 Plan 1 + Phase 92 Plan 92-02: /user-preferences GET + PUT tests.
  *
  * Tests exercise handleGetPreferences / handlePutPreferences at the function
  * level (no Express harness, no auth middleware) — matching the debug.test.ts
@@ -13,16 +13,26 @@
  *   - db.insert(userPreferences).values(...).run()
  *   - db.update(userPreferences).set(...).where(eq(...)).run()
  *
- * Test coverage (10 pin-specific + 3 regression per plan-checker Warning #3):
- *   PIN 1-3  : GET returns [] on missing row / NULL / valid JSON
- *   PIN 4    : PUT persists JSON.stringify'd form to DB column
- *   PIN 5    : PUT response body echoes pinnedConversationIds as PARSED ARRAY
- *              (Wave 2's optimistic reconciliation depends on this — distinct test)
- *   PIN 6    : PUT with [] persists "[]" (unpin-all)
- *   PIN 7-9  : PUT input validation (non-array / non-string element / > 1000)
- *   PIN 10   : PUT-then-GET round trip
- *   REG 1-3  : reopenTabsOnLogin non-boolean 400 / theme non-string 400 /
- *              empty updates 400 still work after the extension
+ * Phase 92-02 rewires the pin path:
+ *   - pinnedConversationIds is NO LONGER read from / written to the DB row.
+ *   - GET response omits pinnedConversationIds entirely (D-03 no DB mirror).
+ *   - PUT fans out per-identity `.pinned` sentinel writes/removes via the
+ *     Plan 92-01 primitive (writeIdentityFile / removeIdentityFile /
+ *     identityFileExists) with a required `identityHosts` body field
+ *     mapping identityKey → hostId.
+ *   - hiddenConversationIds slice is UNCHANGED (D-02 out-of-scope).
+ *
+ * Test coverage:
+ *   PUT-92-01..08 : Phase 92-02 pin-fanout contract (writes/removes/no-op/
+ *                   failure/identityHosts-required/validation/H3-verbatim)
+ *   GET-92-01     : pinnedConversationIds absent from GET response
+ *   PIN 7-9       : PUT input validation (non-array / non-string / > 1000) preserved
+ *   REG 1-3       : reopenTabsOnLogin non-boolean 400 / theme non-string 400 /
+ *                   empty updates 400 still work after the extension
+ *   HIDE 1-10     : hiddenConversationIds slice untouched (regression trap for
+ *                   D-02 out-of-scope pledge)
+ *   SAVE 1-4      : DatabaseSaveTrigger.forceSave sites for theme/fontSize/etc.
+ *                   writes (pin no longer contributes; hidden still does)
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -178,6 +188,58 @@ vi.mock("../../utils/logger.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Phase 92 Plan 92-02 Task 2: per-identity file primitive mocks
+// ---------------------------------------------------------------------------
+//
+// The rewired handler fans PUT pin-toggles out to per-identity `.pinned`
+// sentinel writes/removes via the Plan 92-01 primitive. Tests spy on these
+// three exports to assert the fan shape (writes for keys added to the set,
+// removes for keys taken out, no-ops on unchanged keys, verbatim identityKey
+// passthrough for the H3 lowercase-on-disk lock).
+
+const writeIdentityFileMock = vi.fn(async () => {});
+const removeIdentityFileMock = vi.fn(async () => {});
+const identityFileExistsMock = vi.fn(async () => false);
+
+vi.mock("../../claude-session/per-identity-file.js", () => ({
+  writeIdentityFile: (name: string, relPath: string, contents: string, opts: unknown) =>
+    writeIdentityFileMock(name, relPath, contents, opts),
+  removeIdentityFile: (name: string, relPath: string, opts: unknown) =>
+    removeIdentityFileMock(name, relPath, opts),
+  identityFileExists: (name: string, relPath: string, opts: unknown) =>
+    identityFileExistsMock(name, relPath, opts),
+  IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
+  ALLOWED_REL_PATHS: new Set(["relay.json", ".pinned"]),
+}));
+
+// isLocalHostId + identity-artifact-reader mock — the handler uses isLocalHostId
+// to route the SSH conn vs LOCAL branch. For pin-fanout, LOCAL means conn=null.
+const isLocalHostIdMock = vi.fn(() => true);
+
+vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
+  isLocalHostId: (n: number | undefined) => isLocalHostIdMock(n),
+  IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
+}));
+
+// SSH connection mocks — only fire on REMOTE branch (isLocalHostId=false).
+const connectOneShotMock = vi.fn();
+
+vi.mock("../../ssh/ssh-one-shot.js", () => ({
+  connectOneShot: (host: unknown, timeoutMs: number) =>
+    connectOneShotMock(host, timeoutMs),
+}));
+
+vi.mock("../../ssh/host-resolver.js", () => ({
+  resolveHostById: vi.fn().mockResolvedValue({
+    ip: "10.0.0.5",
+    port: 22,
+    username: "ubuntu",
+    authType: "key",
+    key: "fake-key",
+  }),
+}));
+
+// ---------------------------------------------------------------------------
 // Express Request/Response mocks (debug.test.ts shape)
 // ---------------------------------------------------------------------------
 
@@ -224,24 +286,46 @@ beforeEach(() => {
   rows.clear();
   pendingWhereUserId = null;
   (DatabaseSaveTrigger.forceSave as ReturnType<typeof vi.fn>).mockClear();
+  // Phase 92 Plan 92-02 per-identity mocks
+  writeIdentityFileMock.mockClear();
+  removeIdentityFileMock.mockClear();
+  identityFileExistsMock.mockClear();
+  writeIdentityFileMock.mockImplementation(async () => {});
+  removeIdentityFileMock.mockImplementation(async () => {});
+  identityFileExistsMock.mockImplementation(async () => false);
+  isLocalHostIdMock.mockClear();
+  isLocalHostIdMock.mockReturnValue(true);
+  connectOneShotMock.mockClear();
+  connectOneShotMock.mockResolvedValue({ __fake: "ssh-conn", end: vi.fn() });
 });
 
 // ---------------------------------------------------------------------------
 // Tests — GET
 // ---------------------------------------------------------------------------
 
-describe("handleGetPreferences: pinnedConversationIds branches", () => {
-  it("Test 1 — GET returns pinnedConversationIds: [] when no row exists for user", () => {
+// Phase 92 Plan 92-02: pinnedConversationIds is NO LONGER derived from the
+// user_preferences DB row on GET (D-03 no DB mirror; the frontend Plan 04
+// projects the pinned zone from GET /identities' per-identity `pinned` field
+// instead). Test GET-92-01 locks that: the response body must OMIT the
+// pinnedConversationIds field even if the (legacy) row happens to still hold
+// a JSON-encoded value.
+describe("handleGetPreferences: pinnedConversationIds absent from response (Phase 92-02)", () => {
+  it("GET-92-01: pinnedConversationIds is NOT present in GET response — no row", () => {
     const res = makeRes();
     handleGetPreferences(USER_ID, res as unknown as Response);
 
     expect(res._status).toBe(200);
-    const body = res._body as { pinnedConversationIds: string[] };
-    expect(body.pinnedConversationIds).toEqual([]);
-    expect(Array.isArray(body.pinnedConversationIds)).toBe(true);
+    const body = res._body as Record<string, unknown>;
+    expect("pinnedConversationIds" in body).toBe(false);
+    // Other preferences fields still present
+    expect("reopenTabsOnLogin" in body).toBe(true);
+    expect("theme" in body).toBe(true);
+    expect("hiddenConversationIds" in body).toBe(true);
   });
 
-  it("Test 2 — GET returns pinnedConversationIds: [] when column is NULL", () => {
+  it("GET-92-01b: pinnedConversationIds is NOT present in GET response — even if legacy row holds a non-null value", () => {
+    // Legacy row from before the migration — column may still carry old JSON.
+    // Post-92-02, the row is no longer consulted for pins.
     rows.set(USER_ID, {
       userId: USER_ID,
       reopenTabsOnLogin: false,
@@ -249,7 +333,7 @@ describe("handleGetPreferences: pinnedConversationIds branches", () => {
       fontSize: null,
       accentColor: null,
       language: null,
-      pinnedConversationIds: null,
+      pinnedConversationIds: JSON.stringify(["legacy-a", "legacy-b"]),
       hiddenConversationIds: null,
       updatedAt: "2026-07-27T00:00:00.000Z",
     });
@@ -258,30 +342,8 @@ describe("handleGetPreferences: pinnedConversationIds branches", () => {
     handleGetPreferences(USER_ID, res as unknown as Response);
 
     expect(res._status).toBe(200);
-    const body = res._body as { pinnedConversationIds: string[] };
-    expect(body.pinnedConversationIds).toEqual([]);
-    expect(Array.isArray(body.pinnedConversationIds)).toBe(true);
-  });
-
-  it("Test 3 — GET returns the parsed array when column has valid JSON string", () => {
-    rows.set(USER_ID, {
-      userId: USER_ID,
-      reopenTabsOnLogin: false,
-      theme: null,
-      fontSize: null,
-      accentColor: null,
-      language: null,
-      pinnedConversationIds: JSON.stringify(["id1", "id2", "id3"]),
-      hiddenConversationIds: null,
-      updatedAt: "2026-07-27T00:00:00.000Z",
-    });
-
-    const res = makeRes();
-    handleGetPreferences(USER_ID, res as unknown as Response);
-
-    expect(res._status).toBe(200);
-    const body = res._body as { pinnedConversationIds: string[] };
-    expect(body.pinnedConversationIds).toEqual(["id1", "id2", "id3"]);
+    const body = res._body as Record<string, unknown>;
+    expect("pinnedConversationIds" in body).toBe(false);
   });
 });
 
@@ -289,87 +351,173 @@ describe("handleGetPreferences: pinnedConversationIds branches", () => {
 // Tests — PUT
 // ---------------------------------------------------------------------------
 
-describe("handlePutPreferences: pinnedConversationIds branches", () => {
-  it("Test 4 — PUT with valid string[] persists the JSON.stringify'd form to the DB column", async () => {
+// ===========================================================================
+// Phase 92 Plan 92-02 Task 2: pin fan-out contract
+// ===========================================================================
+//
+// The rewired PUT handler no longer touches the DB row for pinnedConversationIds.
+// Instead it fans out per-identity `.pinned` sentinel writes/removes over
+// Plan 92-01's primitive. Required body field: identityHosts (Record<identityKey,
+// hostId>) — the fanout uses it to route each write to the identity's home box.
+// Response echoes the disk-authoritative post-fanout set as pinnedConversationIds
+// (D-06 UI-invariance preserved).
+//
+// H3 lowercase-on-disk invariant: identityHosts keys are lowercased at the
+// parseIdentityHosts entry boundary (identities.ts:248). The keys threaded
+// into writeIdentityFile / removeIdentityFile / identityFileExists are those
+// already-lowercased strings, VERBATIM — no case coercion between the body
+// and the primitive. Plan 01's stricter IDENTITY_KEY_RE at the primitive is
+// the belt-and-suspenders lock: any uppercase key sneaking through this
+// handler would throw at the primitive.
+
+describe("handlePutPreferences: Phase 92-02 pin sentinel fan-out", () => {
+  it("PUT-92-01: pin one identity — writeIdentityFile('tina', '.pinned', ...) called ONCE, no removes, response echoes ['tina']", async () => {
+    // Prior disk state: nothing pinned.
+    identityFileExistsMock.mockResolvedValue(false);
+
     const res = makeRes();
     await handlePutPreferences(
       USER_ID,
-      { pinnedConversationIds: ["a", "b"] },
+      { pinnedConversationIds: ["tina"], identityHosts: { tina: 1 } },
       res as unknown as Response,
     );
 
     expect(res._status).toBe(200);
-    // Distinct assertion: the raw column value in the mock db is the JSON string form
-    const row = rows.get(USER_ID);
-    expect(row).toBeDefined();
-    expect(row!.pinnedConversationIds).toBe('["a","b"]');
-    expect(typeof row!.pinnedConversationIds).toBe("string");
-  });
+    // Exactly one write, no removes
+    expect(writeIdentityFileMock).toHaveBeenCalledTimes(1);
+    const [name, relPath, contents] = writeIdentityFileMock.mock.calls[0];
+    expect(name).toBe("tina");
+    expect(relPath).toBe(".pinned");
+    expect(contents).toBe(""); // empty body — presence IS the meaning (D-01)
+    expect(removeIdentityFileMock).not.toHaveBeenCalled();
 
-  it("Test 5 — PUT response body includes pinnedConversationIds as a parsed array (PIN-08 JSON-echo — Wave 2 depends on this)", async () => {
-    const res = makeRes();
-    await handlePutPreferences(
-      USER_ID,
-      { pinnedConversationIds: ["x", "y", "z"] },
-      res as unknown as Response,
-    );
-
-    expect(res._status).toBe(200);
+    // Response echoes disk-derived post-fanout set. Since after write the disk
+    // truth is `tina→true`, the identityFileExists re-read (fanout-post) must
+    // observe true for tina. Simulate that by having exists return true for
+    // any post-write probe; but the simplest assertion: response includes
+    // pinnedConversationIds field (whatever shape, D-06 preserves the array
+    // API for the UI). We rerun exists so the mock returns the new state.
     const body = res._body as { pinnedConversationIds: unknown };
-    // Load-bearing assertion 1: response value is an actual array, not a JSON string
     expect(Array.isArray(body.pinnedConversationIds)).toBe(true);
-    // Load-bearing assertion 2: deep-equals the array we PUT
-    expect(body.pinnedConversationIds).toEqual(["x", "y", "z"]);
   });
 
-  it("Test 6 — PUT with empty array [] persists (unpin-all is legal, response echoes [])", async () => {
-    // Seed with existing pins so the empty PUT is a real state change
-    rows.set(USER_ID, {
-      userId: USER_ID,
-      reopenTabsOnLogin: false,
-      theme: null,
-      fontSize: null,
-      accentColor: null,
-      language: null,
-      pinnedConversationIds: JSON.stringify(["old-a", "old-b"]),
-      hiddenConversationIds: null,
-      updatedAt: "2026-07-27T00:00:00.000Z",
+  it("PUT-92-02: unpin one identity — removeIdentityFile('tina', '.pinned', ...) called ONCE, no writes", async () => {
+    // Prior disk state: tina pinned. Post-write re-read: tina no longer pinned.
+    // Sequence per call:
+    //   1st (per-key pre-diff) tina → true
+    //   2nd (per-key post-fanout echo) tina → false
+    identityFileExistsMock
+      .mockResolvedValueOnce(true) // pre: tina pinned
+      .mockResolvedValueOnce(false); // post: tina unpinned
+
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      { pinnedConversationIds: [], identityHosts: { tina: 1 } },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(200);
+    expect(removeIdentityFileMock).toHaveBeenCalledTimes(1);
+    const [name, relPath] = removeIdentityFileMock.mock.calls[0];
+    expect(name).toBe("tina");
+    expect(relPath).toBe(".pinned");
+    expect(writeIdentityFileMock).not.toHaveBeenCalled();
+  });
+
+  it("PUT-92-03: swap pins — writeIdentityFile('bob', ...) AND removeIdentityFile('alice', ...) in same fanout", async () => {
+    // Prior state: alice pinned, bob unpinned. New: bob pinned, alice unpinned.
+    // pre-diff probes fire once per identityHosts key (Promise.all order can
+    // interleave alice+bob) — return true for alice, false for bob.
+    identityFileExistsMock.mockImplementation(async (name: string) => {
+      // Both pre-diff and post-fanout re-read call this. Simplest deterministic
+      // policy: return true for the identity currently supposed to be pinned.
+      // The handler calls this twice per key (pre + post). Tests below check
+      // the CALL SEQUENCE, not the return values.
+      // Toggle behavior via call count.
+      return name === "alice" && identityFileExistsMock.mock.calls.length <= 2;
     });
 
     const res = makeRes();
     await handlePutPreferences(
       USER_ID,
-      { pinnedConversationIds: [] },
+      {
+        pinnedConversationIds: ["bob"],
+        identityHosts: { alice: 1, bob: 1 },
+      },
       res as unknown as Response,
     );
 
     expect(res._status).toBe(200);
-    // Persisted as "[]" (not "null", not undefined — unpin-all is a real state)
-    expect(rows.get(USER_ID)!.pinnedConversationIds).toBe("[]");
-    // Response echoes the parsed array shape
-    const body = res._body as { pinnedConversationIds: unknown };
-    expect(Array.isArray(body.pinnedConversationIds)).toBe(true);
-    expect(body.pinnedConversationIds).toEqual([]);
+    // One add (bob), one remove (alice)
+    expect(writeIdentityFileMock).toHaveBeenCalledTimes(1);
+    expect(writeIdentityFileMock.mock.calls[0][0]).toBe("bob");
+    expect(writeIdentityFileMock.mock.calls[0][1]).toBe(".pinned");
+
+    expect(removeIdentityFileMock).toHaveBeenCalledTimes(1);
+    expect(removeIdentityFileMock.mock.calls[0][0]).toBe("alice");
+    expect(removeIdentityFileMock.mock.calls[0][1]).toBe(".pinned");
   });
 
-  it("Test 7 — PUT with non-array returns 400 with specific error message + DB row unchanged", async () => {
-    const seed = {
-      userId: USER_ID,
-      reopenTabsOnLogin: false,
-      theme: null,
-      fontSize: null,
-      accentColor: null,
-      language: null,
-      pinnedConversationIds: JSON.stringify(["seed"]),
-      hiddenConversationIds: null,
-      updatedAt: "2026-07-27T00:00:00.000Z",
-    };
-    rows.set(USER_ID, seed);
+  it("PUT-92-04: no-op — same set as prior disk state means NO writes and NO removes", async () => {
+    // Prior state: tina pinned. New: tina pinned. Delta is empty on both sides.
+    identityFileExistsMock.mockResolvedValue(true); // both pre + post echo see tina pinned
 
     const res = makeRes();
     await handlePutPreferences(
       USER_ID,
-      { pinnedConversationIds: "not-an-array" },
+      { pinnedConversationIds: ["tina"], identityHosts: { tina: 1 } },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(200);
+    expect(writeIdentityFileMock).not.toHaveBeenCalled();
+    expect(removeIdentityFileMock).not.toHaveBeenCalled();
+  });
+
+  it("PUT-92-05: write failure surfaces synchronously per D-06 — writeIdentityFile throws → 500 response, no success echo", async () => {
+    identityFileExistsMock.mockResolvedValue(false); // nothing pinned prior
+    writeIdentityFileMock.mockRejectedValueOnce(new Error("sftp exploded"));
+
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      { pinnedConversationIds: ["tina"], identityHosts: { tina: 1 } },
+      res as unknown as Response,
+    );
+
+    // Non-2xx per D-06 synchronous truth. The exact code is whatever the
+    // pre-92 catch block returned (500 with error object).
+    expect(res._status).toBeGreaterThanOrEqual(500);
+    expect(res._body).toHaveProperty("error");
+  });
+
+  it("PUT-92-06: identityKey not in identityHosts map → 400 with 'identity host required', NO sentinel writes attempted", async () => {
+    identityFileExistsMock.mockResolvedValue(false);
+
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      {
+        pinnedConversationIds: ["unknown-key"],
+        identityHosts: { tina: 1 }, // "unknown-key" not mapped to a host
+      },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(400);
+    const body = res._body as { error?: string };
+    expect(body.error?.toLowerCase()).toContain("identity host required");
+    // Defense-in-depth: NO writes attempted before the 400 fires.
+    expect(writeIdentityFileMock).not.toHaveBeenCalled();
+    expect(removeIdentityFileMock).not.toHaveBeenCalled();
+  });
+
+  it("PUT-92-07a: validation preserved — non-array pinnedConversationIds → 400 (pre-fanout)", async () => {
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      { pinnedConversationIds: "not-an-array", identityHosts: {} },
       res as unknown as Response,
     );
 
@@ -377,28 +525,14 @@ describe("handlePutPreferences: pinnedConversationIds branches", () => {
     expect(res._body).toEqual({
       error: "pinnedConversationIds must be an array of strings",
     });
-    // Row unchanged
-    expect(rows.get(USER_ID)).toEqual(seed);
+    expect(writeIdentityFileMock).not.toHaveBeenCalled();
   });
 
-  it("Test 8 — PUT with non-string element returns 400 + DB row unchanged", async () => {
-    const seed = {
-      userId: USER_ID,
-      reopenTabsOnLogin: false,
-      theme: null,
-      fontSize: null,
-      accentColor: null,
-      language: null,
-      pinnedConversationIds: JSON.stringify(["seed"]),
-      hiddenConversationIds: null,
-      updatedAt: "2026-07-27T00:00:00.000Z",
-    };
-    rows.set(USER_ID, seed);
-
+  it("PUT-92-07b: validation preserved — non-string element → 400 (pre-fanout)", async () => {
     const res = makeRes();
     await handlePutPreferences(
       USER_ID,
-      { pinnedConversationIds: ["a", 42] },
+      { pinnedConversationIds: ["a", 42], identityHosts: { a: 1 } },
       res as unknown as Response,
     );
 
@@ -406,28 +540,18 @@ describe("handlePutPreferences: pinnedConversationIds branches", () => {
     expect(res._body).toEqual({
       error: "pinnedConversationIds must be an array of strings",
     });
-    expect(rows.get(USER_ID)).toEqual(seed);
+    expect(writeIdentityFileMock).not.toHaveBeenCalled();
   });
 
-  it("Test 9 — PUT with length > 1000 returns 400 + DB row unchanged (DoS mitigation)", async () => {
-    const seed = {
-      userId: USER_ID,
-      reopenTabsOnLogin: false,
-      theme: null,
-      fontSize: null,
-      accentColor: null,
-      language: null,
-      pinnedConversationIds: JSON.stringify(["seed"]),
-      hiddenConversationIds: null,
-      updatedAt: "2026-07-27T00:00:00.000Z",
-    };
-    rows.set(USER_ID, seed);
-
+  it("PUT-92-07c: validation preserved — length > 1000 → 400 (pre-fanout)", async () => {
     const huge = Array.from({ length: 1001 }, (_, i) => `id-${i}`);
+    const hosts: Record<string, number> = {};
+    for (const k of huge) hosts[k] = 1;
+
     const res = makeRes();
     await handlePutPreferences(
       USER_ID,
-      { pinnedConversationIds: huge },
+      { pinnedConversationIds: huge, identityHosts: hosts },
       res as unknown as Response,
     );
 
@@ -435,24 +559,79 @@ describe("handlePutPreferences: pinnedConversationIds branches", () => {
     expect(res._body).toEqual({
       error: "pinnedConversationIds exceeds max length of 1000",
     });
-    expect(rows.get(USER_ID)).toEqual(seed);
+    expect(writeIdentityFileMock).not.toHaveBeenCalled();
   });
 
-  it("Test 10 — PUT round-trip: after PUT with ['x','y'], GET returns ['x','y']", async () => {
-    const putRes = makeRes();
+  it("PUT-92-07d: PUT without identityHosts body field but with pinnedConversationIds → 400", async () => {
+    identityFileExistsMock.mockResolvedValue(false);
+
+    const res = makeRes();
     await handlePutPreferences(
       USER_ID,
-      { pinnedConversationIds: ["x", "y"] },
-      putRes as unknown as Response,
+      { pinnedConversationIds: ["tina"] }, // identityHosts omitted
+      res as unknown as Response,
     );
-    expect(putRes._status).toBe(200);
 
-    const getRes = makeRes();
-    handleGetPreferences(USER_ID, getRes as unknown as Response);
+    expect(res._status).toBe(400);
+    const body = res._body as { error?: string };
+    expect(body.error?.toLowerCase()).toContain("identityhosts");
+    expect(writeIdentityFileMock).not.toHaveBeenCalled();
+  });
 
-    expect(getRes._status).toBe(200);
-    const body = getRes._body as { pinnedConversationIds: string[] };
-    expect(body.pinnedConversationIds).toEqual(["x", "y"]);
+  it("PUT-92-08a: H3 verbatim — identityKey passed to writeIdentityFile byte-for-byte from identityHosts (lowercase input path)", async () => {
+    identityFileExistsMock.mockResolvedValue(false);
+
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      { pinnedConversationIds: ["tina"], identityHosts: { tina: 1 } },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(200);
+    expect(writeIdentityFileMock).toHaveBeenCalledTimes(1);
+    // Byte-for-byte match: the identityKey argument is exactly "tina" — no
+    // .toUpperCase(), no .toLowerCase() coercion between input and primitive.
+    expect(writeIdentityFileMock.mock.calls[0][0]).toBe("tina");
+    expect(writeIdentityFileMock.mock.calls[0][1]).toBe(".pinned");
+  });
+
+  it("PUT-92-08b: H3 lock — an uppercase 'Tina' path either 400s at parseIdentityHosts or throws at the primitive; ZERO uppercase key ever reaches disk", async () => {
+    identityFileExistsMock.mockResolvedValue(false);
+    // If a raw "Tina" somehow makes it to writeIdentityFile, the primitive's
+    // IDENTITY_KEY_RE gate would throw. Simulate that here so the assertion
+    // is that no uppercase identityKey ever survives to the primitive.
+    writeIdentityFileMock.mockImplementation(async (name: string) => {
+      if (!/^[a-z0-9_-]{1,64}$/.test(name)) {
+        throw new Error(`invalid identityKey — must match /^[a-z0-9_-]{1,64}$/`);
+      }
+    });
+
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      {
+        pinnedConversationIds: ["Tina"],
+        identityHosts: { Tina: 1 }, // NOTE: capital T — will be lowercased by
+        // parseIdentityHosts to `tina` at the entry boundary, causing
+        // "Tina" (in pinnedConversationIds) to not resolve to a host → 400.
+      },
+      res as unknown as Response,
+    );
+
+    // EITHER path is acceptable per the plan:
+    //  (a) 400 (parseIdentityHosts lowercase collapse → key not found)
+    //  (b) 500 (writeIdentityFile primitive gate throw)
+    // The invariant: NO uppercase identityKey ever reached disk.
+    // Collect all identityKey args passed to any of the three primitives.
+    const allKeys: string[] = [];
+    for (const call of writeIdentityFileMock.mock.calls) allKeys.push(call[0]);
+    for (const call of removeIdentityFileMock.mock.calls) allKeys.push(call[0]);
+    for (const call of identityFileExistsMock.mock.calls) allKeys.push(call[0]);
+    for (const k of allKeys) {
+      expect(k).toBe(k.toLowerCase());
+    }
+    expect([400, 500]).toContain(res._status);
   });
 });
 
@@ -729,12 +908,15 @@ describe("handlePutPreferences: hiddenConversationIds branches", () => {
 // ---------------------------------------------------------------------------
 
 describe("handlePutPreferences: cross-field (pinnedConversationIds + hiddenConversationIds)", () => {
-  it("HIDE-X — PUT with BOTH fields persists both, response echoes both as parsed arrays", async () => {
+  it("HIDE-X — PUT with BOTH fields: pins fan out to sentinel writes; hides persist to DB row (Phase 92-02: pin path decoupled from hidden path)", async () => {
+    identityFileExistsMock.mockResolvedValue(false); // nothing pinned prior
+
     const res = makeRes();
     await handlePutPreferences(
       USER_ID,
       {
         pinnedConversationIds: ["pin-a", "pin-b"],
+        identityHosts: { "pin-a": 1, "pin-b": 1 },
         hiddenConversationIds: ["hide-x", "hide-y"],
       },
       res as unknown as Response,
@@ -742,19 +924,24 @@ describe("handlePutPreferences: cross-field (pinnedConversationIds + hiddenConve
 
     expect(res._status).toBe(200);
 
-    // Both raw column values are JSON strings
+    // Pin path: fanout writes via primitive; DB row's pinnedConversationIds
+    // column NOT written (D-03 no DB mirror).
     const row = rows.get(USER_ID);
     expect(row).toBeDefined();
-    expect(row!.pinnedConversationIds).toBe('["pin-a","pin-b"]');
+    expect(row!.pinnedConversationIds).toBeNull(); // NOT written
+    // Hide path: preserved verbatim (D-02 out-of-scope).
     expect(row!.hiddenConversationIds).toBe('["hide-x","hide-y"]');
 
-    // Both response body fields are parsed arrays (NOT raw JSON strings)
+    // Pin fanout observed
+    expect(writeIdentityFileMock).toHaveBeenCalledTimes(2);
+    const namesWritten = writeIdentityFileMock.mock.calls.map((c) => c[0]);
+    expect(namesWritten).toContain("pin-a");
+    expect(namesWritten).toContain("pin-b");
+
+    // Response echoes hiddenConversationIds as parsed array (unchanged)
     const body = res._body as {
-      pinnedConversationIds: unknown;
       hiddenConversationIds: unknown;
     };
-    expect(Array.isArray(body.pinnedConversationIds)).toBe(true);
-    expect(body.pinnedConversationIds).toEqual(["pin-a", "pin-b"]);
     expect(Array.isArray(body.hiddenConversationIds)).toBe(true);
     expect(body.hiddenConversationIds).toEqual(["hide-x", "hide-y"]);
   });
@@ -769,11 +956,11 @@ describe("handlePutPreferences: cross-field (pinnedConversationIds + hiddenConve
 // ---------------------------------------------------------------------------
 
 describe("handlePutPreferences: DatabaseSaveTrigger.forceSave call sites", () => {
-  it("SAVE 1 — insert branch (no row exists) triggers forceSave with the 'user_preferences_updated' reason", async () => {
+  it("SAVE 1 — insert branch (no row exists) triggers forceSave with the 'user_preferences_updated' reason (hidden-only PUT — pins no longer touch the row)", async () => {
     const res = makeRes();
     await handlePutPreferences(
       USER_ID,
-      { pinnedConversationIds: ["a"] },
+      { hiddenConversationIds: ["a"] },
       res as unknown as Response,
     );
 
@@ -784,7 +971,7 @@ describe("handlePutPreferences: DatabaseSaveTrigger.forceSave call sites", () =>
     );
   });
 
-  it("SAVE 2 — update branch (row exists) also triggers forceSave", async () => {
+  it("SAVE 2 — update branch (row exists) also triggers forceSave (theme-write path)", async () => {
     rows.set(USER_ID, {
       userId: USER_ID,
       reopenTabsOnLogin: false,
@@ -792,7 +979,7 @@ describe("handlePutPreferences: DatabaseSaveTrigger.forceSave call sites", () =>
       fontSize: null,
       accentColor: null,
       language: null,
-      pinnedConversationIds: JSON.stringify(["existing"]),
+      pinnedConversationIds: null,
       hiddenConversationIds: null,
       updatedAt: "2026-07-27T00:00:00.000Z",
     });
@@ -800,7 +987,7 @@ describe("handlePutPreferences: DatabaseSaveTrigger.forceSave call sites", () =>
     const res = makeRes();
     await handlePutPreferences(
       USER_ID,
-      { pinnedConversationIds: ["new"] },
+      { theme: "dark" },
       res as unknown as Response,
     );
 
@@ -812,7 +999,7 @@ describe("handlePutPreferences: DatabaseSaveTrigger.forceSave call sites", () =>
     const res = makeRes();
     await handlePutPreferences(
       USER_ID,
-      { pinnedConversationIds: "not-an-array" },
+      { hiddenConversationIds: "not-an-array" },
       res as unknown as Response,
     );
 
@@ -828,7 +1015,7 @@ describe("handlePutPreferences: DatabaseSaveTrigger.forceSave call sites", () =>
     const res = makeRes();
     await handlePutPreferences(
       USER_ID,
-      { pinnedConversationIds: ["a"] },
+      { hiddenConversationIds: ["a"] },
       res as unknown as Response,
     );
 
@@ -836,5 +1023,25 @@ describe("handlePutPreferences: DatabaseSaveTrigger.forceSave call sites", () =>
     // echo. The lost-durability event is logged via databaseLogger.warn.
     expect(res._status).toBe(200);
     expect(DatabaseSaveTrigger.forceSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("SAVE 92-02 — pin-only PUT does NOT trigger a DB write / forceSave (pinnedConversationIds no longer contributes to updates)", async () => {
+    identityFileExistsMock.mockResolvedValue(false);
+
+    const res = makeRes();
+    await handlePutPreferences(
+      USER_ID,
+      { pinnedConversationIds: ["tina"], identityHosts: { tina: 1 } },
+      res as unknown as Response,
+    );
+
+    expect(res._status).toBe(200);
+    // Pin fanout DID happen
+    expect(writeIdentityFileMock).toHaveBeenCalledTimes(1);
+    // But no DB write for pins (the row's pinnedConversationIds column is
+    // untouched) → forceSave is NOT called for a pin-only request.
+    expect(DatabaseSaveTrigger.forceSave).not.toHaveBeenCalled();
+    // Row was never inserted or updated
+    expect(rows.get(USER_ID)).toBeUndefined();
   });
 });

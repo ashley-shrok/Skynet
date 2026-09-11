@@ -62,6 +62,10 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   // wires this into BirthDeps. Test 5 asserts d.writeAvatarSiblingFile is a
   // function.
   writeAvatarSiblingFile: vi.fn().mockResolvedValue(undefined),
+  // Phase 92 Plan 92-01 Task 2: per-identity-file.ts (transitively imported
+  // by identity-birth-orchestrator's Step 8) requires IDENTITY_KEY_RE from
+  // this module. H1 write⇔read parity lock — export the real regex value.
+  IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
 }));
 
 vi.mock("./identity-avatar-batch.js", () => ({

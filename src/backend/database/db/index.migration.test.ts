@@ -22,6 +22,7 @@ import {
   dropColumnIfExists,
   runIdentitiesCosmeticDrops,
   runIdentitiesTableDrop,
+  runPinColumnDrop,
 } from "./index.js";
 import { hosts } from "./schema.js";
 import { FieldCrypto } from "../../utils/field-crypto.js";
@@ -865,5 +866,144 @@ describe("Phase 85-01 migration — users.avatar_path column", () => {
       .get("test-user-id") as { avatar_path: string | null } | undefined;
     expect(row).toBeDefined();
     expect(row!.avatar_path).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 92 Plan 03 (D-02) — drop pinned_conversation_ids from user_preferences.
+//
+// Pin state is moving off the DB and onto per-identity `.pinned` sentinel
+// files on disk (D-01). Plan 92-02 already retired every reader/writer of
+// this column in src/; this plan physically drops the dead storage.
+//
+// Contract under test:
+//   Test P92-01 (OLD schema → drop → column absent, siblings intact, row
+//     data preserved): runPinColumnDrop against a DB seeded with the OLD
+//     user_preferences schema (including both pinned_conversation_ids AND
+//     hidden_conversation_ids) removes ONLY pinned_conversation_ids. The
+//     sibling hidden_conversation_ids column AND its seeded value survive
+//     verbatim (D-02 out-of-scope regression trap for T-92-03-04).
+//   Test P92-02 (NEW schema idempotent no-op): runPinColumnDrop against a
+//     NEW schema (pinned_conversation_ids already absent) does not throw
+//     and does not mutate PRAGMA table_info.
+//   Inline Test P92-03 (post-drop SELECT throws): after the drop, a raw
+//     SELECT for the dropped column throws — proves the column is
+//     physically absent, not just hidden from PRAGMA.
+//   Inline Test P92-04 (sibling hidden_conversation_ids untouched with
+//     VALUE preserved): after the drop, PRAGMA still lists
+//     hidden_conversation_ids AND its seeded value on the surviving row
+//     is byte-for-byte preserved.
+// ---------------------------------------------------------------------------
+
+// The OLD user_preferences CREATE TABLE — includes pinned_conversation_ids
+// (the column being dropped) AND hidden_conversation_ids (the sibling that
+// MUST survive per D-02). Mirrors the pre-Phase-92 addColumnIfNotExists
+// sweep at db/index.ts L941-946.
+const OLD_USER_PREFERENCES_CREATE_SQL = `
+  CREATE TABLE user_preferences (
+    user_id TEXT PRIMARY KEY,
+    reopen_tabs_on_login INTEGER NOT NULL DEFAULT 0,
+    theme TEXT,
+    font_size TEXT,
+    accent_color TEXT,
+    language TEXT,
+    pinned_conversation_ids TEXT,
+    hidden_conversation_ids TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+// The NEW user_preferences CREATE TABLE — matches the post-Phase-92 shape
+// with pinned_conversation_ids removed (D-02 "no dormant column"). The
+// sibling hidden_conversation_ids remains.
+const NEW_USER_PREFERENCES_CREATE_SQL = `
+  CREATE TABLE user_preferences (
+    user_id TEXT PRIMARY KEY,
+    reopen_tabs_on_login INTEGER NOT NULL DEFAULT 0,
+    theme TEXT,
+    font_size TEXT,
+    accent_color TEXT,
+    language TEXT,
+    hidden_conversation_ids TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+describe("Phase 92 migration — drop pinned_conversation_ids from user_preferences", () => {
+  it("Test P92-01: OLD schema → drop → pinned_conversation_ids absent, hidden_conversation_ids intact with value preserved, post-drop SELECT throws", () => {
+    const db = new Database(":memory:");
+    db.exec(OLD_USER_PREFERENCES_CREATE_SQL);
+
+    // Seed one row with real values for BOTH pin and hide columns +
+    // surviving fields, so we can assert Test P92-04 hidden_conversation_ids
+    // VALUE preservation (not just column presence).
+    db.prepare(
+      `INSERT INTO user_preferences
+       (user_id, reopen_tabs_on_login, theme, font_size, accent_color, language,
+        pinned_conversation_ids, hidden_conversation_ids, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      "u1",
+      0,
+      "dark",
+      null,
+      null,
+      null,
+      '["fleet::1::alice"]',
+      '["fleet::2::bob"]',
+      "2026-01-01T00:00:00.000Z",
+    );
+
+    // Sanity: both columns present pre-migration.
+    const preCols = columnNames(db, "user_preferences");
+    expect(preCols).toContain("pinned_conversation_ids");
+    expect(preCols).toContain("hidden_conversation_ids");
+
+    // Run the drop against this test db handle (not the module singleton).
+    runPinColumnDrop(db);
+
+    // Post-migration: pinned_conversation_ids gone; hidden_conversation_ids
+    // still present (D-02 out-of-scope invariant).
+    const postCols = columnNames(db, "user_preferences");
+    expect(postCols).not.toContain("pinned_conversation_ids");
+    expect(postCols).toContain("hidden_conversation_ids");
+
+    // Test P92-04 inline — surviving row data intact AND the sibling
+    // hidden_conversation_ids VALUE is byte-for-byte preserved. Reading
+    // theme too proves the ALTER didn't shred the row.
+    const row = db
+      .prepare(
+        "SELECT theme, hidden_conversation_ids FROM user_preferences WHERE user_id = ?",
+      )
+      .get("u1") as
+      | { theme: string | null; hidden_conversation_ids: string | null }
+      | undefined;
+    expect(row).toBeDefined();
+    expect(row!.theme).toBe("dark");
+    expect(row!.hidden_conversation_ids).toBe('["fleet::2::bob"]');
+
+    // Test P92-03 inline — post-drop SELECT throws. Proves the column is
+    // physically absent, not just hidden from PRAGMA.
+    expect(() =>
+      db.prepare("SELECT pinned_conversation_ids FROM user_preferences").get(),
+    ).toThrow();
+  });
+
+  it("Test P92-02: NEW schema (pinned_conversation_ids already absent) → migrate is idempotent no-op", () => {
+    const db = new Database(":memory:");
+    db.exec(NEW_USER_PREFERENCES_CREATE_SQL);
+
+    // Sanity: column already absent.
+    const preCols = columnNames(db, "user_preferences").sort();
+    expect(preCols).not.toContain("pinned_conversation_ids");
+    expect(preCols).toContain("hidden_conversation_ids");
+
+    // Idempotent — must not throw even though drop target is absent.
+    expect(() => runPinColumnDrop(db)).not.toThrow();
+
+    // Table shape unchanged.
+    const postCols = columnNames(db, "user_preferences").sort();
+    expect(postCols).toEqual(preCols);
+    expect(postCols).toContain("hidden_conversation_ids");
   });
 });

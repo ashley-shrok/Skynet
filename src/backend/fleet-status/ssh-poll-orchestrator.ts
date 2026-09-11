@@ -69,6 +69,12 @@ import {
 // for byte-parallel consumers in `src/backend/database/routes/sessions.ts`
 // (D-08); only the in-file `derivedLastMessageAt` derivation retires from it.
 import { getIdentityLastSend } from "./identity-send-log-store.js";
+import type { PendingBirth } from "../spawn-requests/types.js";
+// Slim import — parse-request-body.ts is a dependency-free extraction that
+// avoids pulling worker.ts's heavy transitive graph (birthIdentity, matrix
+// admin, Skynet DB init, pool-loader) into the fleet-status test module
+// surface. See parse-request-body.ts header for the full rationale.
+import { parseRequestBody } from "../spawn-requests/parse-request-body.js";
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -111,6 +117,14 @@ export interface OrchestratorDeps {
   staleSweepIntervalMs?: number;
   hookPayloadPath?: string;
   hookPayloadWarnCooldownMs?: number;
+
+  /**
+   * Phase 99: enqueue a claimed spawn-request for async birth-worker processing.
+   * Optional — when absent, spawn-request scan results are discarded (backward-
+   * compat for tests that don't exercise the spawn-request path). Wired in
+   * starter.ts to the spawn-requests/queue.ts enqueue function.
+   */
+  enqueueSpawnRequest?: (item: PendingBirth) => void;
 }
 
 export interface SshPollOrchestrator {
@@ -269,7 +283,7 @@ interface PidCacheEntry {
   // events). See 44-CONTEXT.md § ssh-poll-orchestrator.ts swap.
   staleTailTickCount: number;
   // Phase 52 Plan 01 Task 2 — cached derived boolean result of the source A
-  // dormant sentinel stat (`stat ~/.claude/identities/'<tmuxSession>'/.dormant
+  // dormant sentinel stat (`stat ~/fleet/identities/'<tmuxSession>'/.dormant
   // 2>/dev/null >/dev/null && echo yes || echo no`). Trimmed stdout "yes" →
   // true; "no" → false; anything else (null, throw, unexpected output) →
   // fail-open using this cached value (defaults to `false` on cold-start).
@@ -969,6 +983,151 @@ function computeFingerprint(state: SessionState): string {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 99 — spawn-request scan helpers (D-01, D-02, D-03, D-17)
+//
+// One atomic read-and-delete exec per tick per host: lists
+// ~/fleet/spawn-requests/, reads + claims each *.json request file via `mv`
+// (atomic claim — Pitfall 7, RESEARCH Security Note), filters to UUID-shaped
+// basenames (36-char length guard prevents *.success.json / *.failure.json
+// from being claimed), and returns the parsed batch to pollOneHost.
+//
+// Missing folder → empty batch (D-03, not an error).
+// Null SSH return → empty batch, warn logged (fail-open, same as ls path).
+// ---------------------------------------------------------------------------
+
+/**
+ * Atomic shell one-liner for the spawn-request scan (RESEARCH Pattern 2).
+ *
+ * - `cd ... || exit 0` — missing folder short-circuits cleanly (D-03).
+ * - `[ -f "$f" ] || continue` — skip glob no-match (*.json expands to literal
+ *   when folder is empty, which is guarded by the `[ -f ]` test).
+ * - `base="${f%.json}"` then `[ ${#base} -eq 36 ] || continue` — UUID length
+ *   guard: request filenames are <uuid>.json (36-char hex-and-dash). Response
+ *   files are <uuid>.success.json / <uuid>.failure.json — stripped base is 43+
+ *   chars, rejected here (RESEARCH Security Note + Pitfall 7).
+ * - `mv "$f" "$tmp" 2>/dev/null || continue` — atomic claim. Only one
+ *   concurrent tick can win the mv; the loser skips (double-observation
+ *   defense per Pitfall 7).
+ * - `printf '%s\t' "$f"; cat "$tmp"; printf '\n'; rm -f "$tmp"` — emit
+ *   tab-separated `<filename><TAB><body><NEWLINE>` then delete the temp file.
+ *   No shell quoting of the JSON body — the body goes to stdout as raw bytes.
+ */
+const SPAWN_REQUESTS_SCAN_CMD = [
+  "cd ~/fleet/spawn-requests 2>/dev/null || exit 0;",
+  "for f in *.json; do",
+  "[ -f \"$f\" ] || continue;",
+  "base=\"${f%.json}\";",
+  "[ ${#base} -eq 36 ] || continue;",
+  "tmp=\"$f.$$\";",
+  "mv \"$f\" \"$tmp\" 2>/dev/null || continue;",
+  "printf '%s\\t' \"$f\"; cat \"$tmp\"; printf '\\n'; rm -f \"$tmp\";",
+  "done",
+].join(" ");
+
+/** UUID shape regex for defense-in-depth in the TS parser (RESEARCH Security Note). */
+const UUID_RE = /^[0-9a-f-]{36}$/i;
+
+/**
+ * Parse the batched stdout from the atomic spawn-request scan exec into an
+ * array of PendingBirth items.
+ *
+ * stdout format: one line per claimed file, tab-separated:
+ *   <uuid>.json<TAB><json-body><NEWLINE>
+ *
+ * Skips:
+ * - Lines without a TAB separator.
+ * - Filenames whose UUID portion fails UUID_RE (e.g. response files).
+ * - Lines with malformed JSON (warns + continues).
+ *
+ * userId is left as "" — the worker refetches via getHostOwnerUserId(hostIdNum)
+ * at drain time (Pitfall 3 + Plan 99-01 Task 2 contract).
+ */
+export function parseSpawnRequestBatch(stdout: string, hostId: string): PendingBirth[] {
+  if (!stdout.trim()) return [];
+  const results: PendingBirth[] = [];
+  const hostIdNum = parseInt(hostId, 10);
+  for (const line of stdout.split("\n")) {
+    const tab = line.indexOf("\t");
+    if (tab === -1) continue;
+    const filename = line.slice(0, tab).trim();
+    const body = line.slice(tab + 1).trim();
+    const uuid = filename.replace(/\.json$/, "");
+    if (!UUID_RE.test(uuid)) continue;
+
+    // Full request-body validation via the worker's parseRequestBody helper.
+    // On failure, enqueue a PendingBirth with malformedReason so the worker
+    // drops a proper {reason:"malformed", message} failure file back to coord.
+    // (Post-code-review M2/M3: prior version silently dropped malformed
+    // requests via `continue`, leaving coord to time out.)
+    const parsed = parseRequestBody(uuid, body);
+    // Explicit `=== false` narrowing: `!parsed.ok` fails to narrow the
+    // discriminated union under tsconfig.node.json's strict setup (build tsc
+    // sees the full union inside the guard instead of just the ok:false
+    // variant). Same TS 6.0.3 workaround pattern used in identity-birth-
+    // orchestrator.ts mintResult/loginResult call sites.
+    if (parsed.ok === false) {
+      systemLogger.warn("spawn-request-scan: request body malformed — enqueueing malformed failure", {
+        operation: "spawn_request_scan_malformed",
+        fleetHostId: hostId,
+        uuid,
+        reason: parsed.message,
+      });
+      results.push({
+        hostId,
+        hostIdNum,
+        uuid,
+        role: "",
+        task: null,
+        requested_at: "",
+        userId: "",
+        malformedReason: parsed.message,
+      });
+      continue;
+    }
+
+    results.push({
+      hostId,
+      hostIdNum,
+      uuid,
+      role: parsed.body.role,
+      task: parsed.body.task,
+      requested_at: parsed.body.requested_at,
+      userId: "",
+    });
+  }
+  return results;
+}
+
+/**
+ * Issue the atomic scan exec on the per-host SSH channel and return parsed
+ * PendingBirth items.
+ *
+ * Fails open on SSH error (null channel.exec return) — same pattern as the
+ * ls listing inside pollOneHost. Missing folder returns empty batch (D-03).
+ */
+export async function scanSpawnRequests(host: HostRecord, channel: SshChannel): Promise<PendingBirth[]> {
+  const stdout = await channel.exec(SPAWN_REQUESTS_SCAN_CMD);
+  if (stdout === null) {
+    systemLogger.warn("Fleet-status: spawn-request scan returned null (SSH error)", {
+      operation: "fleet_status_spawn_scan_ssh_error",
+      fleetHostId: host.id,
+    });
+    return [];
+  }
+  if (!stdout.trim()) {
+    // Missing folder (cd ... || exit 0) OR empty folder — both non-errors per D-03.
+    return [];
+  }
+  const results = parseSpawnRequestBatch(stdout, host.id);
+  systemLogger.info("Fleet-status: spawn-request scan complete", {
+    operation: "spawn_request_scan_complete",
+    fleetHostId: host.id,
+    claimed: results.length,
+  });
+  return results;
+}
+
+// ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
 
@@ -1046,6 +1205,18 @@ export function createSshPollOrchestrator(
    */
   const SWEEP_EXEC_TIMEOUT_MS = 8000;
 
+// ---------------------------------------------------------------------------
+// Phase 99 — spawn-request scan helpers (D-01, D-02, D-03, D-17)
+//
+// One atomic read-and-delete exec per tick per host: lists
+// ~/fleet/spawn-requests/, reads + claims each *.json request file via `mv`
+// (atomic claim — Pitfall 7, RESEARCH Security Note), filters to UUID-shaped
+// basenames (36-char length guard prevents *.success.json / *.failure.json
+// from being claimed), and returns the parsed batch to pollOneHost.
+//
+// Missing folder → empty batch (D-03, not an error).
+// Null SSH return → empty batch, warn logged (fail-open, same as ls path).
+
   /**
    * pollOneHost — dispatcher. See docblock above.
    */
@@ -1092,6 +1263,12 @@ export function createSshPollOrchestrator(
     ) {
       const result = await pollOneHostBatch(hostState);
       if (result.ok) {
+        // Phase 99 — spawn-request scan (D-01+D-02). Runs on every completed poll
+        // regardless of path so any claimed request files get enqueued.
+        const spawnBatch = await scanSpawnRequests(host, channel);
+        for (const item of spawnBatch) {
+          deps.enqueueSpawnRequest?.(item);
+        }
         systemLogger.info("Fleet-status poll end (batch)", {
           operation: "fleet_status_poll_end",
           fleetHostId: host.id,
@@ -1099,6 +1276,7 @@ export function createSshPollOrchestrator(
           path: "batch",
           identityCount: result.identityCount,
           pidCount: result.pidCount,
+          spawnClaimed: spawnBatch.length,
         });
         return;
       }
@@ -1130,11 +1308,19 @@ export function createSshPollOrchestrator(
     }
 
     await pollOneHostLegacy(hostState);
+
+    // Phase 99 — spawn-request scan (D-01+D-02).
+    const spawnBatch = await scanSpawnRequests(host, channel);
+    for (const item of spawnBatch) {
+      deps.enqueueSpawnRequest?.(item);
+    }
+
     systemLogger.info("Fleet-status poll end (legacy)", {
       operation: "fleet_status_poll_end",
       fleetHostId: host.id,
       tick: pollTickCount,
       path: "legacy",
+      spawnClaimed: spawnBatch.length,
     });
   }
 
@@ -1184,7 +1370,7 @@ export function createSshPollOrchestrator(
       pidNumbers.map((pid) => processPid(hostState, pid)),
     );
 
-    // (c) Phase 52 Plan 01 Task 3 — source B: enumerate ~/.claude/identities/
+    // (c) Phase 52 Plan 01 Task 3 — source B: enumerate ~/fleet/identities/
     //     for dormant-only identities that have NO live claude PID this tick
     //     and publish SessionState frames for them.
     const liveTmuxSet = new Set<string>();
@@ -1465,7 +1651,7 @@ export function createSshPollOrchestrator(
     const { host, channel, identityRecycleState } = hostState;
 
     // Enumerate identity folders. Use `find -type d` (not `ls -1`) so
-    // leftover backup tarballs / notes / .DS_Store in ~/.claude/identities/
+    // leftover backup tarballs / notes / .DS_Store in ~/fleet/identities/
     // (e.g. `pixie.pre-role-migration.20260804T050759Z.tar.gz` from role
     // migrations) do NOT get enumerated as identity names — otherwise we
     // fire ghost SSH-exec stat/find calls per tick against nonexistent
@@ -1474,9 +1660,9 @@ export function createSshPollOrchestrator(
     // prior `ls -1` output. Managed hosts are all Linux (box-map.md
     // § Managed hosts) so GNU find + `-printf` is available. Guard
     // `2>/dev/null || true` mirrors the prior fail-open shape when the
-    // ~/.claude/identities/ dir doesn't exist.
+    // ~/fleet/identities/ dir doesn't exist.
     const listing = await channel.exec(
-      "find ~/.claude/identities/ -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' 2>/dev/null || true",
+      "find ~/fleet/identities/ -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' 2>/dev/null || true",
     );
     if (listing === null || listing.trim() === "") {
       systemLogger.debug(
@@ -1500,13 +1686,13 @@ export function createSshPollOrchestrator(
         const quotedName = shellSingleQuote(name);
         const [dormantOut, recyclingOut, requestedOut] = await Promise.all([
           channel.exec(
-            `stat ~/.claude/identities/${quotedName}/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
+            `stat ~/fleet/identities/${quotedName}/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
           ),
           channel.exec(
-            `stat ~/.claude/identities/${quotedName}/.recycled-at 2>/dev/null >/dev/null && echo yes || echo no`,
+            `stat ~/fleet/identities/${quotedName}/.recycled-at 2>/dev/null >/dev/null && echo yes || echo no`,
           ),
           channel.exec(
-            `test -f ~/.claude/identities/${quotedName}/.recycle-requested 2>/dev/null && echo yes || echo no`,
+            `test -f ~/fleet/identities/${quotedName}/.recycle-requested 2>/dev/null && echo yes || echo no`,
           ),
         ]);
         // T-52-01-01 mitigation: only "yes" or "no" are meaningful. Anything
@@ -1986,7 +2172,7 @@ export function createSshPollOrchestrator(
     if (tmuxSession !== null) {
       const quotedTmuxSession = shellSingleQuote(tmuxSession);
       const dormantRaw = await channel.exec(
-        `stat ~/.claude/identities/${quotedTmuxSession}/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
+        `stat ~/fleet/identities/${quotedTmuxSession}/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
       );
       if (dormantRaw !== null) {
         const trimmed = dormantRaw.trim();

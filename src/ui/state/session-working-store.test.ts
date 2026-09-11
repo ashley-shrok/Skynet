@@ -1024,7 +1024,7 @@ describe("session-working-store (Phase 47 Plan 03): reconciliation chokepoint �
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 52 Plan 01 — Dormant axis (Axis D) + useSessionIsDormant hook.
-// Source: ~/.claude/identities/<tmuxSession>/.dormant sentinel file on the
+// Source: ~/fleet/identities/<tmuxSession>/.dormant sentinel file on the
 // target host. Boolean strict (dormant: boolean default false in WorkingRecord).
 //
 // Test P52-01-i   (publish dormant:true → hook returns true)
@@ -1180,7 +1180,7 @@ describe("session-working-store (Phase 52 Plan 01): dormant axis (Axis D) + useS
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 53 Plan 02 — Recycling axis (Axis E) + useSessionIsRecycling hook.
-// Source: ~/.claude/identities/<tmuxSession>/.recycled-at sentinel file on the
+// Source: ~/fleet/identities/<tmuxSession>/.recycled-at sentinel file on the
 // target host (identity being replaced via /id-reset). Boolean strict
 // (`recycling: boolean` default false in WorkingRecord).
 //

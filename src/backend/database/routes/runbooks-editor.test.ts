@@ -606,7 +606,7 @@ describe("PUT /runbooks-editor/write", () => {
     const [, sftpPath, sftpContent] = (writeMarkdownFileAtomic as Mock).mock
       .calls[0] as [unknown, string, string];
     expect(sftpPath).toBe(
-      "/home/testuser/.claude/roles/box-maintainer/runbooks/avatar-flow/runbook.md",
+      "/home/testuser/fleet/roles/box-maintainer/runbooks/avatar-flow/runbook.md",
     );
     expect(sftpContent).toBe("new runbook content\n");
   });
@@ -746,7 +746,7 @@ describe("POST /runbooks-editor/create", () => {
     const touchCall = calls.find(([, cmd]) => cmd.startsWith("touch "));
     expect(touchCall).toBeDefined();
     expect(touchCall![1]).toContain(
-      "'/home/testuser/.claude/roles/box-maintainer/runbooks/avatar-flow/new-note.md'",
+      "'/home/testuser/fleet/roles/box-maintainer/runbooks/avatar-flow/new-note.md'",
     );
   });
 
@@ -842,7 +842,7 @@ describe("DELETE /runbooks-editor/file", () => {
     const rmCall = calls.find(([, cmd]) => cmd.startsWith("rm -f "));
     expect(rmCall).toBeDefined();
     expect(rmCall![1]).toContain(
-      "'/home/testuser/.claude/roles/box-maintainer/runbooks/avatar-flow/runbook.md'",
+      "'/home/testuser/fleet/roles/box-maintainer/runbooks/avatar-flow/runbook.md'",
     );
   });
 
@@ -935,7 +935,7 @@ describe("DELETE /runbooks-editor/runbook", () => {
     const rmrfCall = calls.find(([, cmd]) => cmd.startsWith("rm -rf "));
     expect(rmrfCall).toBeDefined();
     expect(rmrfCall![1]).toContain(
-      "'/home/testuser/.claude/roles/box-maintainer/runbooks/avatar-flow'",
+      "'/home/testuser/fleet/roles/box-maintainer/runbooks/avatar-flow'",
     );
   });
 

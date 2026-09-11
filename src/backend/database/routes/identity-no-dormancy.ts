@@ -8,7 +8,7 @@
  * PUT /identities/:key/no-dormancy?hostId=<n>  body: { present: boolean }
  *   → { present: boolean }
  *
- * Checks / sets / clears `~/.claude/identities/<key>/.no-dormancy` on the
+ * Checks / sets / clears `~/fleet/identities/<key>/.no-dormancy` on the
  * target host:
  *   - LOCAL branch: when hostId is in IDENTITIES_LOCAL_HOST_IDS, probe is a
  *     local fs operation against getLocalIdentitiesRoot()/<key>/.no-dormancy.
@@ -120,7 +120,7 @@ router.get(
         const output = await Promise.race([
           execCommand(
             conn,
-            `test -e "$HOME/.claude/identities/${key}/.no-dormancy" && echo Y || echo N`,
+            `test -e "$HOME/fleet/identities/${key}/.no-dormancy" && echo Y || echo N`,
           ),
           new Promise<string>((_, reject) =>
             setTimeout(
@@ -224,8 +224,8 @@ router.put(
         );
 
         const cmd = present
-          ? `mkdir -p "$HOME/.claude/identities/${key}" && touch "$HOME/.claude/identities/${key}/.no-dormancy"`
-          : `rm -f "$HOME/.claude/identities/${key}/.no-dormancy"`;
+          ? `mkdir -p "$HOME/fleet/identities/${key}" && touch "$HOME/fleet/identities/${key}/.no-dormancy"`
+          : `rm -f "$HOME/fleet/identities/${key}/.no-dormancy"`;
 
         await Promise.race([
           execCommand(conn, cmd),

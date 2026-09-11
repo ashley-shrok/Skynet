@@ -6,8 +6,15 @@ import { renderHook, act } from "@testing-library/react";
 // module-graph edge. The store's `import { putPinnedIds } from "@/api/user-
 // preferences-api"` resolves to this factory during test runs.
 vi.mock("@/api/user-preferences-api", () => ({
-  getPinnedIds: vi.fn().mockResolvedValue([]),
+  // Phase 92 Plan 04: getPinnedIds is RETIRED. The mock no longer exports it —
+  // the panel now derives pinnedIds via deriveDiskPinnedIds over the identities-
+  // store snapshot instead of a dedicated GET /user-preferences fetch. Any test
+  // that still references UserPreferencesApi.getPinnedIds surfaces as a
+  // TypeError, which is the intended tripwire.
   putPinnedIds: vi.fn().mockResolvedValue([]),
+  // hiddenConversationIds slice is UNTOUCHED (D-02 out-of-scope per shape file).
+  getHiddenIds: vi.fn().mockResolvedValue([]),
+  putHiddenIds: vi.fn().mockResolvedValue([]),
 }));
 
 import {
@@ -134,7 +141,6 @@ beforeEach(() => {
   // per-test toHaveBeenCalledTimes assertions start from zero.
   __resetPinnedIdsForTest();
   vi.mocked(UserPreferencesApi.putPinnedIds).mockClear();
-  vi.mocked(UserPreferencesApi.getPinnedIds).mockClear();
   updateOpenTabs([]);
   selectConversation(null);
   updateHostTree(null);
@@ -2111,8 +2117,12 @@ describe("conversation-store (Phase 15): pinnedIds ↔ server persistence", () =
     // compute-then-put ordering (putting stale state.pinnedIds instead
     // of nextPinnedIds) would silently drift pins on the server. The
     // assertion below MUST equal ["t-A"], not [].
+    //
+    // Phase 92 Plan 04: putPinnedIds now takes a SECOND argument
+    // (identityHosts) sourced from buildIdentityHostsFromFleet(state.fleetSessions).
+    // Since this test seeds no fleet sessions, the identityHosts arg is `{}`.
     expect(putSpy).toHaveBeenCalledTimes(1);
-    expect(putSpy).toHaveBeenCalledWith(["t-A"]);
+    expect(putSpy).toHaveBeenCalledWith(["t-A"], {});
   });
 
   // Test 30k — unpin fires PUT with the reduced set (PIN-03).
@@ -2135,8 +2145,9 @@ describe("conversation-store (Phase 15): pinnedIds ↔ server persistence", () =
     expect(snap.pinnedIds.has("t-A")).toBe(false);
 
     // Server write fired once with the reduced (empty) set.
+    // Phase 92 Plan 04: second arg is identityHosts (empty here — no fleet).
     expect(putSpy).toHaveBeenCalledTimes(1);
-    expect(putSpy).toHaveBeenCalledWith([]);
+    expect(putSpy).toHaveBeenCalledWith([], {});
   });
 
   // Test 30l — idempotent no-op: pin on already-pinned id does NOT fire PUT.
@@ -2259,7 +2270,8 @@ describe("conversation-store (Phase 15): pinnedIds ↔ server persistence", () =
       });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const result = await realPutPinnedIds(["a", "b"]);
+    // Phase 92 Plan 04: putPinnedIds now takes an identityHosts second arg.
+    const result = await realPutPinnedIds(["a", "b"], { a: 1, b: 2 });
 
     // Server echo is authoritative — putPinnedIds returns what the server sent.
     expect(result).toEqual(["b", "a"]);
@@ -2271,6 +2283,147 @@ describe("conversation-store (Phase 15): pinnedIds ↔ server persistence", () =
 
     warnSpy.mockRestore();
     putSpy.mockRestore();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 92 Plan 04 Task 2 — STORE-92-* tests: identityHosts fanout companion
+// ─────────────────────────────────────────────────────────────────────────────
+// Locks the H2 identityHosts derivation invariant at the pin toggle callsites.
+// The single source of truth for the fleetSessions → identityHosts map is
+// buildIdentityHostsFromFleet (identities-store.ts:74-85). pinConversation /
+// unpinConversation build the map via that helper and thread it into
+// putPinnedIds so the backend fanout (Plan 92-02) can route each .pinned
+// sentinel write to the correct host.
+
+import { buildIdentityHostsFromFleet } from "./identities-store.js";
+
+describe("Phase 92 Plan 04 — pin toggle passes identityHosts via buildIdentityHostsFromFleet", () => {
+  it("STORE-92-01: pinConversation passes identityHosts derived from state.fleetSessions", () => {
+    const hostA = makeHost("hA", "alpha");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
+      // Seed a fleet session that maps identityKey "tina" → hostId 1.
+      updateFleetSessions([
+        { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
+      ]);
+    });
+
+    const putSpy = vi.mocked(UserPreferencesApi.putPinnedIds);
+    putSpy.mockClear();
+
+    act(() => pinConversation("fleet::1::tina"));
+
+    expect(putSpy).toHaveBeenCalledTimes(1);
+    // Second arg carries the identityHosts map — { tina: 1 }.
+    expect(putSpy).toHaveBeenCalledWith(
+      ["fleet::1::tina"],
+      { tina: 1 },
+    );
+  });
+
+  it("STORE-92-02: unpinConversation passes identityHosts derived from state.fleetSessions", () => {
+    const hostA = makeHost("hA", "alpha");
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
+      updateFleetSessions([
+        { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
+      ]);
+    });
+
+    // Pin first so unpin has something to remove; clear spy to isolate the unpin.
+    act(() => pinConversation("fleet::1::tina"));
+    const putSpy = vi.mocked(UserPreferencesApi.putPinnedIds);
+    putSpy.mockClear();
+
+    act(() => unpinConversation("fleet::1::tina"));
+
+    expect(putSpy).toHaveBeenCalledTimes(1);
+    expect(putSpy).toHaveBeenCalledWith([], { tina: 1 });
+  });
+
+  it("STORE-92-03: identityHosts derivation matches buildIdentityHostsFromFleet(state.fleetSessions) byte-for-byte", () => {
+    const hostA = makeHost("hA", "alpha");
+    const hostB = makeHost("hB", "beta");
+    const fleet: FleetSession[] = [
+      { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
+      { hostId: 2, hostName: "beta", sessionName: "alice", created: 200, role: null },
+    ];
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA, hostB] });
+      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
+      updateFleetSessions(fleet);
+    });
+
+    const putSpy = vi.mocked(UserPreferencesApi.putPinnedIds);
+    putSpy.mockClear();
+
+    act(() => pinConversation("fleet::1::tina"));
+
+    // Compare against the SAME helper the identities-store uses. If the pin
+    // toggle callsite ever forks its derivation, this equality trips.
+    const expected = buildIdentityHostsFromFleet(fleet);
+    expect(expected).toEqual({ tina: 1, alice: 2 });
+    expect(putSpy).toHaveBeenCalledWith(
+      ["fleet::1::tina"],
+      expected,
+    );
+  });
+
+  it("STORE-92-04 (H2 lock): relay-room sessions are skipped by sessionMatchKey; no crash on undefined sessionName", () => {
+    const hostA = makeHost("hA", "alpha");
+    // Mix of harness + relay-room. The relay-room entry has
+    // `sessionName === undefined` (per conversation-store.ts L710-731); a
+    // naive helper doing `sessionName.toLowerCase()` would crash here. The
+    // buildIdentityHostsFromFleet helper uses sessionMatchKey which returns
+    // null on empty/undefined sessionName → the entry is skipped cleanly.
+    const fleet: FleetSession[] = [
+      { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
+      // Relay-room-shaped session — no hostId, no hostName, no sessionName.
+      // TypeScript's FleetSession union accepts this shape via the relay-room
+      // discriminant. Cast to satisfy the fixture builder without altering
+      // the type.
+      {
+        kind: "relay-room",
+        id: "relay::!abc:matrix.org",
+        roomId: "!abc:matrix.org",
+        roomTitle: "Test Room",
+        lastActivityAt: null,
+      } as unknown as FleetSession,
+      { hostId: 2, hostName: "beta", sessionName: "alice", created: 300, role: null },
+    ];
+    act(() => {
+      updateHostTree({ name: "root", children: [hostA] });
+      updateOpenTabs([makeTab("fleet::1::tina", "terminal", hostA)]);
+      updateFleetSessions(fleet);
+    });
+
+    const putSpy = vi.mocked(UserPreferencesApi.putPinnedIds);
+    putSpy.mockClear();
+
+    // MUST NOT throw during derivation. The forbidden pattern
+    // `session.sessionName.toLowerCase()` would throw on the relay-room
+    // entry — proving that pattern is absent from the pin path.
+    expect(() => act(() => pinConversation("fleet::1::tina"))).not.toThrow();
+
+    expect(putSpy).toHaveBeenCalledTimes(1);
+    const [, actualIdentityHosts] = putSpy.mock.calls[0]!;
+
+    // Positive shape lock: map has the two harness entries + omits any key
+    // derived from the relay-room session.
+    expect(actualIdentityHosts).toEqual({ tina: 1, alice: 2 });
+    // Anti-crash lock: no "undefined" key, no `undefined` value.
+    expect(Object.keys(actualIdentityHosts)).not.toContain("undefined");
+    for (const v of Object.values(actualIdentityHosts)) {
+      expect(v).not.toBeUndefined();
+      expect(typeof v).toBe("number");
+    }
+    // H2 byte-for-byte equality with the helper's own output.
+    expect(actualIdentityHosts).toEqual(
+      buildIdentityHostsFromFleet(fleet),
+    );
   });
 });
 

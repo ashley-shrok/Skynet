@@ -2,7 +2,7 @@
 //
 // Phase 22 SRIC-06 / Plan 22-06 Task 1: verifies the new readRoleFile + writeRoleFile
 // helpers that let the IdentityModal Role tab render + edit
-// ~/.claude/roles/<role>/<role>.md for the current identity.
+// ~/fleet/roles/<role>/<role>.md for the current identity.
 //
 // The public wire shape mirrors readIdentityFile/writeIdentityFile: `{markdown}` for
 // reads, `Promise<void>` for writes. The role name is discovered internally via
@@ -11,7 +11,7 @@
 //
 // TDD test map (tests 1-9, per plan Task 1 <behavior>):
 //   1. readRoleFile LOCAL reads $ROLES_HOST_DIR/<role>/<role>.md
-//   2. readRoleFile REMOTE execs `cat "$HOME/.claude/roles/<role>/<role>.md"`
+//   2. readRoleFile REMOTE execs `cat "$HOME/fleet/roles/<role>/<role>.md"`
 //   3. readRoleFile throws (via resolveRoleForIdentity) when identity file lacks role
 //   4. readRoleFile returns {markdown: ""} when role file missing (LOCAL + REMOTE)
 //   5. writeRoleFile validates identityKey via IDENTITY_KEY_RE
@@ -124,9 +124,9 @@ function makeRouter(opts: {
 }): (conn: unknown, cmd: string) => Promise<string> {
   return async (_conn, cmd) => {
     if (cmd.includes("echo $HOME")) return (opts.home ?? "/home/tester") + "\n";
-    if (cmd.includes(".claude/identities/") && cmd.startsWith("cat "))
+    if (cmd.includes("fleet/identities/") && cmd.startsWith("cat "))
       return opts.identityFile ?? "";
-    if (cmd.includes(".claude/roles/") && cmd.includes(".md") && cmd.startsWith("cat "))
+    if (cmd.includes("fleet/roles/") && cmd.includes(".md") && cmd.startsWith("cat "))
       return opts.roleFile ?? "";
     return "";
   };
@@ -196,15 +196,15 @@ describe("readRoleFile — LOCAL branch (conn=null)", () => {
 });
 
 describe("readRoleFile — REMOTE branch (conn is SSHClientType)", () => {
-  it("test 2: execs `cat \"$HOME/.claude/roles/<role>/<role>.md\"` and returns {markdown: <stdout>}", async () => {
+  it("test 2: execs `cat \"$HOME/fleet/roles/<role>/<role>.md\"` and returns {markdown: <stdout>}", async () => {
     const identityMd = "---\nrole: box-maintainer\n---\n\n# tina\n";
     const roleMd = "# Box Maintainer\n\n## Role\n\nKeeps the boxes running.\n";
     const capturedCommands: string[] = [];
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (_conn: unknown, cmd: string) => {
         capturedCommands.push(cmd);
-        if (cmd.includes(".claude/identities/") && cmd.startsWith("cat ")) return identityMd;
-        if (cmd.includes(".claude/roles/box-maintainer/box-maintainer.md")) return roleMd;
+        if (cmd.includes("fleet/identities/") && cmd.startsWith("cat ")) return identityMd;
+        if (cmd.includes("fleet/roles/box-maintainer/box-maintainer.md")) return roleMd;
         return "";
       },
     );
@@ -214,14 +214,14 @@ describe("readRoleFile — REMOTE branch (conn is SSHClientType)", () => {
 
     // Path substitution: role folder queried; identity-side artifact path NOT queried for role file
     const roleCmd = capturedCommands.find((c) =>
-      c.includes(".claude/roles/box-maintainer/box-maintainer.md"),
+      c.includes("fleet/roles/box-maintainer/box-maintainer.md"),
     );
     expect(roleCmd).toBeDefined();
-    expect(roleCmd).toContain("$HOME/.claude/roles/box-maintainer/box-maintainer.md");
+    expect(roleCmd).toContain("$HOME/fleet/roles/box-maintainer/box-maintainer.md");
 
     // Two-step: identity file read happened first
     const identityCmd = capturedCommands.find((c) =>
-      c.includes(".claude/identities/tina/tina.md"),
+      c.includes("fleet/identities/tina/tina.md"),
     );
     expect(identityCmd).toBeDefined();
 
@@ -232,7 +232,7 @@ describe("readRoleFile — REMOTE branch (conn is SSHClientType)", () => {
   it("test 3: throws (via resolveRoleForIdentity) when identity file has no role frontmatter", async () => {
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (_conn: unknown, cmd: string) => {
-        if (cmd.includes(".claude/identities/")) return "# no frontmatter here\n";
+        if (cmd.includes("fleet/identities/")) return "# no frontmatter here\n";
         return "";
       },
     );
@@ -244,7 +244,7 @@ describe("readRoleFile — REMOTE branch (conn is SSHClientType)", () => {
     const identityMd = "---\nrole: box-maintainer\n---\n";
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (_conn: unknown, cmd: string) => {
-        if (cmd.includes(".claude/identities/") && cmd.startsWith("cat ")) return identityMd;
+        if (cmd.includes("fleet/identities/") && cmd.startsWith("cat ")) return identityMd;
         // role file cat returns empty (the `|| true` swallows the ENOENT)
         return "";
       },
@@ -284,7 +284,7 @@ describe("writeRoleFile — validation + byte cap", () => {
 });
 
 describe("writeRoleFile — REMOTE branch", () => {
-  it("test 6: writes to $HOME/.claude/roles/<role>/<role>.md via writeMarkdownFileAtomic (SFTP tmp+rename)", async () => {
+  it("test 6: writes to $HOME/fleet/roles/<role>/<role>.md via writeMarkdownFileAtomic (SFTP tmp+rename)", async () => {
     const { conn, sftp, renameCalls } = buildMockConn();
 
     // Route execCommand: first `echo $HOME` (from writeRoleFile OR
@@ -304,20 +304,20 @@ describe("writeRoleFile — REMOTE branch", () => {
     expect(sftp.ext_openssh_rename).toHaveBeenCalledTimes(1);
     expect(sftp.rename).not.toHaveBeenCalled();
 
-    // Path shape: writes to <home>/.claude/roles/box-maintainer/box-maintainer.md
+    // Path shape: writes to <home>/fleet/roles/box-maintainer/box-maintainer.md
     expect(renameCalls).toHaveLength(1);
     expect(renameCalls[0].from).toBe(
-      "/home/tester/.claude/roles/box-maintainer/box-maintainer.md.tmp",
+      "/home/tester/fleet/roles/box-maintainer/box-maintainer.md.tmp",
     );
     expect(renameCalls[0].to).toBe(
-      "/home/tester/.claude/roles/box-maintainer/box-maintainer.md",
+      "/home/tester/fleet/roles/box-maintainer/box-maintainer.md",
     );
 
     // writeFile hit the .tmp path first (atomic-write pattern)
     expect(sftp.writeFile).toHaveBeenCalledTimes(1);
     const writeArgs = sftp.writeFile.mock.calls[0];
     expect(writeArgs[0]).toBe(
-      "/home/tester/.claude/roles/box-maintainer/box-maintainer.md.tmp",
+      "/home/tester/fleet/roles/box-maintainer/box-maintainer.md.tmp",
     );
 
     // finally { sftp.end() } always fires
@@ -329,7 +329,7 @@ describe("writeRoleFile — REMOTE branch", () => {
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (_conn: unknown, cmd: string) => {
         if (cmd.includes("echo $HOME")) return "/home/tester\n";
-        if (cmd.includes(".claude/identities/")) return "# no frontmatter\n";
+        if (cmd.includes("fleet/identities/")) return "# no frontmatter\n";
         return "";
       },
     );

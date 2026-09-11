@@ -77,7 +77,7 @@ describe("readRoleWakeups — LOCAL branch (conn=null)", () => {
     await fs.rm(rolesRoot, { recursive: true, force: true });
   });
 
-  it("(a) reads two wakeup JSONs from ~/.claude/roles/<role>/wakeups/", async () => {
+  it("(a) reads two wakeup JSONs from ~/fleet/roles/<role>/wakeups/", async () => {
     const wakeupsDir = path.join(rolesRoot, ROLE, "wakeups");
     await fs.mkdir(wakeupsDir, { recursive: true });
     await fs.writeFile(
@@ -171,10 +171,10 @@ describe("readRoleWakeups — REMOTE branch", () => {
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (_conn: unknown, cmd: string) => {
         capturedCommands.push(cmd);
-        if (cmd.includes(".claude/identities/") && cmd.startsWith("cat ")) {
+        if (cmd.includes("fleet/identities/") && cmd.startsWith("cat ")) {
           return identityMd;
         }
-        if (cmd.includes(".claude/roles/box-maintainer/wakeups")) {
+        if (cmd.includes("fleet/roles/box-maintainer/wakeups")) {
           // Simulate the delimiter one-liner output for two wakeup files.
           return (
             `===FILE:morning-standup.json===\n` +
@@ -192,13 +192,13 @@ describe("readRoleWakeups — REMOTE branch", () => {
 
     // Two-step: identity file read happened first
     const identityCmd = capturedCommands.find((c) =>
-      c.includes(".claude/identities/tina/tina.md"),
+      c.includes("fleet/identities/tina/tina.md"),
     );
     expect(identityCmd).toBeDefined();
 
     // Role folder queried with proper path
     const roleCmd = capturedCommands.find((c) =>
-      c.includes(".claude/roles/box-maintainer/wakeups"),
+      c.includes("fleet/roles/box-maintainer/wakeups"),
     );
     expect(roleCmd).toBeDefined();
 

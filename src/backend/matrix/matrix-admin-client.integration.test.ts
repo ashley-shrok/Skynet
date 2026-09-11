@@ -138,7 +138,7 @@ describe.skipIf(!gate)(
           throw new Error(
             "matrix_admin_creds row is missing — operator must run the ingestion step: " +
               "setMatrixAdminCreds({ homeserverBase, userId, accessToken, password }) " +
-              "with values from ~/.claude/roles/box-maintainer/bounties/skynet-matrix-admin-integration/credentials.txt",
+              "with values from ~/fleet/roles/box-maintainer/bounties/skynet-matrix-admin-integration/credentials.txt",
           );
         }
 

@@ -75,6 +75,9 @@ import {
   useHiddenIds,
   useActiveSet,
   useFleetSessionsLoaded,
+  // Phase 92 Plan 04: hydrate effect reads the fleet-sessions snapshot to
+  // build the identityHosts map for the deriveDiskPinnedIds projection.
+  getFleetSessionsSnapshot,
   selectConversation,
   addToActiveSet,
   removeFromActiveSet,
@@ -113,10 +116,19 @@ import {
 // now using useSessionIsRecycling from the working-store above
 // (backend-authoritative via Plan 53-01 + Plan 53-02).
 import { useSessionQueuePending } from "@/state/session-queue-pending-store";
-import { useIdentities } from "@/state/identities-store";
-// Phase 104 Plan 02: trapped-work poller. Plan 03 retired the sibling
-// bounty-count wire; the trapped-work poller is the sole per-identity
-// polling loop mounted here.
+// Phase 92 Plan 04: panel hydrate effect derives pinnedIds from the
+// identities-store's `pinned: boolean` field (populated on-demand from disk
+// by the backend per Plan 92-02) rather than fetching from GET /user-
+// preferences. buildIdentityHostsFromFleet is the H2 lock helper shared
+// with pin-toggle writes.
+// Phase 104 Plan 02+03: trapped-work poller is the sole per-identity
+// polling loop mounted here — the sibling bounty-count wire was retired
+// in Plan 03 (bounty-counts-store deleted).
+import {
+  useIdentities,
+  buildIdentityHostsFromFleet,
+  deriveDiskPinnedIds,
+} from "@/state/identities-store";
 import { startTrappedWorkPoller } from "@/state/trapped-work-store";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/popover";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
@@ -130,7 +142,11 @@ import { NewSessionDialog, type NewSessionOnCreateOpts } from "@/sidebar/NewSess
 // "create new agent under this role" item now routes through NewSessionDialog with the (bounty 260908-h78 label rewrite)
 // row's host + identity.role seeded and NO task/brief prefill (A3 lock: each
 // spawn describes its own why).
-import { getPinnedIds, getHiddenIds } from "@/api/user-preferences-api";
+// Phase 92 Plan 04: getPinnedIds is retired. The panel projects the pin state
+// from the identities-store's `pinned: boolean` field via deriveDiskPinnedIds
+// (imported above). getHiddenIds is UNCHANGED — the hidden slice is out of
+// scope per D-02 and still fetches from GET /user-preferences.
+import { getHiddenIds } from "@/api/user-preferences-api";
 import type { Host, HostFolder } from "@/types/ui-types";
 
 import { PrettyConversationRow } from "./PrettyConversationRow";
@@ -478,21 +494,35 @@ export function PrettyConversationsPanel({
     hydratedRef.current = true;
     let cancelled = false;
     (async () => {
-      // quick-260731-tgg: fetch pinnedIds and hiddenIds in parallel so
-      // a network failure on either does NOT prevent the other from succeeding.
-      // Each is independently try/caught — same silent-catch semantics as the
-      // pre-tgg single-fetch path. Both dispatches are guarded by the same
-      // `cancelled` cancel-token (one unmount = both guarded).
-      const [pinnedResult, hiddenResult] = await Promise.allSettled([
-        getPinnedIds(),
-        getHiddenIds(),
-      ]);
+      // Phase 92 Plan 04 (D-04): pinnedConversationIds no longer fetches from
+      // GET /user-preferences. Instead the panel projects the identities-store's
+      // per-identity `pinned: boolean` field (populated by the backend fanout
+      // per Plan 92-02) into the row id space via deriveDiskPinnedIds.
+      //
+      // H2 identityHosts lock: buildIdentityHostsFromFleet is the SINGLE
+      // fleetSessions → identityHosts helper in the codebase (identities-
+      // store.ts:74-85). It uses sessionMatchKey to derive keys — correctly
+      // handles relay-room sessions (skipped: sessionMatchKey(undefined) →
+      // null → identities-store L80 continues past). Do NOT replace this
+      // with a local iterator that calls .toLowerCase() on sessionName —
+      // that pattern is forbidden per H2 and would crash on the relay-room
+      // undefined-sessionName case (see conversation-store.ts L710-731).
+      const identityHosts = buildIdentityHostsFromFleet(
+        getFleetSessionsSnapshot(),
+      );
+      const pinnedIds = deriveDiskPinnedIds(identityHosts);
       if (cancelled) return;
-      if (pinnedResult.status === "fulfilled") {
-        hydratePinnedIdsFromServer(pinnedResult.value);
-      }
-      if (hiddenResult.status === "fulfilled") {
-        hydrateHiddenIdsFromServer(hiddenResult.value);
+      hydratePinnedIdsFromServer(pinnedIds);
+
+      // Phase 92 D-02 out-of-scope: hiddenConversationIds still fetches from
+      // GET /user-preferences. The hidden slice is untouched by Phase 92 —
+      // only pinned migrates to the disk-sentinel model.
+      try {
+        const hiddenIds = await getHiddenIds();
+        if (cancelled) return;
+        hydrateHiddenIdsFromServer(hiddenIds);
+      } catch {
+        // Silent — same policy as pre-Phase-92 hidden path.
       }
     })();
     return () => {

@@ -4,7 +4,7 @@
  * When recv.sh writes a long inbound relay body to a file instead of
  * inlining it, the WS `relay_inbound.body` field contains a line of the form:
  *
- *   [long message, N chars — full text at ~/.claude/identities/<id>/relay-state/messages/<eventid>.txt — Read it] «...»
+ *   [long message, N chars — full text at ~/fleet/identities/<id>/relay-state/messages/<eventid>.txt — Read it] «...»
  *
  * or the path may appear alone as the body.
  *
@@ -19,8 +19,9 @@
  * prevents path traversal via the query string.
  *
  * Character class matches plan 17-02's WHITELIST_REGEX:
- *   ~/.claude/identities/<id>/relay-state/messages/<eventid>.txt
+ *   ~/fleet/identities/<id>/relay-state/messages/<eventid>.txt
  * where user and identity names are [a-z0-9_-] and eventid is [A-Za-z0-9_-].
+ * (Updated Phase 96 D-06: fleet tree replaces legacy .claude/identities path.)
  *
  * Updated 2026-07-28 (UAT Bug 2 fix): now uses the actual recv.sh identity-dir output
  * path shape (prev. form used a /tmp path). The recv.sh preview line format uses em-dash
@@ -32,13 +33,16 @@
  * Matches an identity-dir relay message path preceded and followed by whitespace
  * or start/end of string. Group 1 = the absolute path.
  *
- * Path shape: /home/<user>/.claude/identities/<id>/relay-state/messages/<eventid>.txt
+ * Path shape: /home/<user>/fleet/identities/<id>/relay-state/messages/<eventid>.txt
  * Character classes:
  *   - user and identity name: [a-z0-9_-] (POSIX-safe lowercase)
  *   - event-id: [A-Za-z0-9_-] (Matrix event ids are base64url-like; dot excluded)
+ *
+ * Updated Phase 96 (D-06 hard-cutover): fleet tree path replaces legacy .claude/identities path.
+ * Must stay in sync with backend WHITELIST_REGEX in relay-pointer.ts (already updated Plan 96-02).
  */
 export const POINTER_REGEX =
-  /(?:^|\s)(\/home\/[a-z0-9_-]+\/\.claude\/identities\/[a-z0-9_-]+\/relay-state\/messages\/[A-Za-z0-9_-]+\.txt)(?:\s|$)/;
+  /(?:^|\s)(\/home\/[a-z0-9_-]+\/fleet\/identities\/[a-z0-9_-]+\/relay-state\/messages\/[A-Za-z0-9_-]+\.txt)(?:\s|$)/;
 
 export interface FilePointer {
   pointerPath: string;

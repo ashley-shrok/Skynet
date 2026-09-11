@@ -6,6 +6,18 @@ import { eq } from "drizzle-orm";
 import type { Request, Response } from "express";
 import { databaseLogger } from "../../utils/logger.js";
 import { AuthManager } from "../../utils/auth-manager.js";
+// Phase 92 Plan 92-02 Task 2: pin sentinel fan-out. The PUT handler drives
+// per-identity `.pinned` writes/removes over the Plan 92-01 primitive
+// instead of touching the user_preferences DB row for pinnedConversationIds.
+// The GET path retires the row-read entirely (D-03 no DB mirror).
+import {
+  writeIdentityFile,
+  removeIdentityFile,
+  identityFileExists,
+} from "../../claude-session/per-identity-file.js";
+import { isLocalHostId } from "../../claude-session/identity-artifact-reader.js";
+import { connectOneShot } from "../../ssh/ssh-one-shot.js";
+import { resolveHostById } from "../../ssh/host-resolver.js";
 
 const router = express.Router();
 const authManager = AuthManager.getInstance();
@@ -25,36 +37,6 @@ const PINNED_CONVERSATION_IDS_MAX_LENGTH = 1000;
 const HIDDEN_CONVERSATION_IDS_MAX_LENGTH = 1000;
 
 /**
- * Parse the raw JSON-serialized string[] stored in the pinned_conversation_ids
- * TEXT column into an actual string[].
- *
- * Returns [] for:
- *   - null / undefined (user has never set pins)
- *   - malformed JSON
- *   - JSON that parses to a non-array
- *   - arrays containing any non-string element (defense-in-depth against a
- *     corrupted row — mirror of the client-side hydrate pattern)
- *
- * Silent-catch: never throws, never propagates a corrupted-row failure to the
- * client. Wave 2's optimistic reconciliation must never see an exception path.
- */
-function parsePinnedConversationIds(
-  raw: string | null | undefined,
-): string[] {
-  if (raw == null) return [];
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    for (const v of parsed) {
-      if (typeof v !== "string") return [];
-    }
-    return parsed as string[];
-  } catch {
-    return [];
-  }
-}
-
-/**
  * Parse the raw JSON-serialized string[] stored in the hidden_conversation_ids
  * TEXT column into an actual string[].
  *
@@ -63,10 +45,9 @@ function parsePinnedConversationIds(
  *   - malformed JSON
  *   - JSON that parses to a non-array
  *   - arrays containing any non-string element (defense-in-depth against a
- *     corrupted row — mirror of parsePinnedConversationIds)
+ *     corrupted row — mirror of the client-side hydrate pattern)
  *
- * Silent-catch: never throws. quick-260731-tgg structural mirror of
- * parsePinnedConversationIds — do NOT extract a shared helper.
+ * Silent-catch: never throws.
  */
 function parseHiddenConversationIds(
   raw: string | null | undefined,
@@ -84,15 +65,46 @@ function parseHiddenConversationIds(
   }
 }
 
+/**
+ * Phase 92 Plan 92-02: parseIdentityHosts mirrors identities.ts:239-255 shape.
+ *
+ * Accepts a Record<string, unknown> (typically from the PUT body) and returns
+ * a `Record<string, number>` where every key is LOWERCASED (H3 entry-boundary
+ * normalization — `out[k.toLowerCase()] = v`, same as identities.ts:248). Any
+ * value that isn't a positive integer hostId is dropped.
+ *
+ * Duplicated here rather than imported from identities.ts to avoid a
+ * cross-route circular import. The two implementations MUST stay behaviorally
+ * identical — the identityHosts wire shape is a single contract shared by
+ * GET /identities and PUT /user-preferences.
+ *
+ * H3 lowercase-on-disk invariant: this is the sole entry point where PUT-body
+ * identityHosts keys get normalized. Every downstream identityKey threaded
+ * into writeIdentityFile / removeIdentityFile / identityFileExists is the
+ * post-toLowerCase value — VERBATIM, no further coercion.
+ */
+function parseIdentityHosts(raw: unknown): Record<string, number> {
+  if (raw === null || raw === undefined) return {};
+  if (typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === "number" && Number.isInteger(v) && v > 0) {
+      out[k.toLowerCase()] = v;
+    }
+  }
+  return out;
+}
+
 const pickPreferences = (row?: typeof userPreferences.$inferSelect) => ({
   reopenTabsOnLogin: row?.reopenTabsOnLogin ?? false,
   theme: row?.theme ?? null,
   fontSize: row?.fontSize ?? null,
   accentColor: row?.accentColor ?? null,
   language: row?.language ?? null,
-  pinnedConversationIds: parsePinnedConversationIds(
-    row?.pinnedConversationIds,
-  ),
+  // Phase 92 Plan 92-02: pinnedConversationIds NO LONGER surfaces on the GET
+  // response body — the row is not consulted for pins (D-03 no DB mirror).
+  // The frontend Plan 04 projects pinned state from GET /identities' per-
+  // identity `pinned` field instead.
   hiddenConversationIds: parseHiddenConversationIds(
     row?.hiddenConversationIds,
   ),
@@ -122,6 +134,30 @@ export function handleGetPreferences(
   }
 }
 
+/**
+ * Phase 92 Plan 92-02: helper that resolves an SSH conn for a hostId if the
+ * host is REMOTE, or returns null for LOCAL. Callers must close returned
+ * connections in a finally.
+ *
+ * Returns { conn, local }.
+ * Throws on unresolvable hostId or SSH failure — the fanout treats this as a
+ * synchronous error per D-06.
+ */
+async function openConnForHost(
+  hostId: number,
+  userId: string,
+): Promise<{ conn: import("ssh2").Client | null; local: boolean }> {
+  if (isLocalHostId(hostId)) {
+    return { conn: null, local: true };
+  }
+  const host = await resolveHostById(hostId, userId);
+  if (!host) {
+    throw new Error(`hostId ${hostId} not resolvable`);
+  }
+  const conn = await connectOneShot(host, 5_000);
+  return { conn, local: false };
+}
+
 export async function handlePutPreferences(
   userId: string,
   body: unknown,
@@ -134,6 +170,7 @@ export async function handlePutPreferences(
     accentColor,
     language,
     pinnedConversationIds,
+    identityHosts: identityHostsRaw,
     hiddenConversationIds,
   } = (body ?? {}) as {
     reopenTabsOnLogin?: boolean;
@@ -142,6 +179,7 @@ export async function handlePutPreferences(
     accentColor?: string | null;
     language?: string | null;
     pinnedConversationIds?: unknown;
+    identityHosts?: unknown;
     hiddenConversationIds?: unknown;
   };
 
@@ -174,11 +212,26 @@ export async function handlePutPreferences(
   if (accentColor !== undefined) updates.accentColor = accentColor;
   if (language !== undefined) updates.language = language;
 
-  // Phase 15 Plan 1 — pinnedConversationIds validation + serialization.
-  // Reject non-arrays, non-string elements, and arrays that exceed the
-  // configured DoS-mitigation length cap. Serialize to JSON at the boundary
-  // because the column is TEXT (no native JSON type in SQLite).
+  // -------------------------------------------------------------------------
+  // Phase 92 Plan 92-02: pin sentinel fan-out (replaces DB write path)
+  // -------------------------------------------------------------------------
+  //
+  // Validation happens BEFORE any fanout so a malformed body fails fast
+  // (Test PUT-92-07a/b/c). The identityHosts body field is REQUIRED whenever
+  // pinnedConversationIds is present (PUT-92-07d) — without it the fanout
+  // has no way to route each write to the identity's home box.
+  //
+  // H3 lowercase-on-disk invariant: identityHosts keys are lowercased at the
+  // parseIdentityHosts entry boundary (mirroring identities.ts:248). Threaded
+  // VERBATIM into identityFileExists / writeIdentityFile / removeIdentityFile
+  // — the primitive uses each key as the on-disk folder segment. Plan 01's
+  // stricter IDENTITY_KEY_RE gate at the primitive layer is the belt-and-
+  // suspenders lock: any uppercase key sneaking through this handler throws
+  // at the primitive.
+  let didFanoutSentinels = false;
+
   if (pinnedConversationIds !== undefined) {
+    // Validation retained verbatim from pre-92 (PUT-92-07a/b/c).
     if (!Array.isArray(pinnedConversationIds)) {
       return res.status(400).json({
         error: "pinnedConversationIds must be an array of strings",
@@ -196,13 +249,154 @@ export async function handlePutPreferences(
         error: `pinnedConversationIds exceeds max length of ${PINNED_CONVERSATION_IDS_MAX_LENGTH}`,
       });
     }
-    updates.pinnedConversationIds = JSON.stringify(pinnedConversationIds);
+
+    // Phase 92-02: identityHosts is REQUIRED when pinnedConversationIds is
+    // in the body — no host routing means no fanout means silent no-op.
+    // PUT-92-07d locks the missing-identityHosts case at 400.
+    if (identityHostsRaw === undefined || identityHostsRaw === null) {
+      return res.status(400).json({
+        error: "identityHosts required in body when setting pinnedConversationIds",
+      });
+    }
+    const identityHosts = parseIdentityHosts(identityHostsRaw);
+    if (Object.keys(identityHosts).length === 0 && pinnedConversationIds.length > 0) {
+      // Empty map + nonempty pins → the fanout would silently miss every key.
+      // PUT-92-06 covers the mismatched-key case; this covers the
+      // no-map case for symmetric defense.
+      return res.status(400).json({
+        error: "identityHosts required in body when setting pinnedConversationIds",
+      });
+    }
+
+    // Defense-in-depth: every pin key MUST have a host mapping. Missing key
+    // → 400 (PUT-92-06). No sentinel writes attempted.
+    for (const key of pinnedConversationIds) {
+      if (!(key in identityHosts)) {
+        return res.status(400).json({
+          error: `identity host required for identityKey ${JSON.stringify(key)}`,
+        });
+      }
+    }
+
+    // Fanout target: every identityHosts key gets probed for its current
+    // .pinned state, and any delta drives a write or a remove.
+    // Dedupe hostIds so we open one SSH conn per unique host (T-92-02-05).
+    const uniqueHostIds = [...new Set(Object.values(identityHosts))];
+    const connByHost = new Map<number, import("ssh2").Client | null>();
+    try {
+      // Open all conns in parallel.
+      await Promise.all(
+        uniqueHostIds.map(async (hostId) => {
+          const { conn } = await openConnForHost(hostId, userId);
+          connByHost.set(hostId, conn);
+        }),
+      );
+
+      // --- Step 1: derive previous set from disk ------------------------
+      // For each identityHosts key, probe identityFileExists. Any failure
+      // → false (fail-closed per D-01 — never over-report pinned).
+      const identityHostsKeys = Object.keys(identityHosts);
+      const previousStates = await Promise.all(
+        identityHostsKeys.map(async (key) => {
+          const hostId = identityHosts[key];
+          try {
+            const exists = await identityFileExists(key, ".pinned", {
+              hostId,
+              conn: connByHost.get(hostId) ?? null,
+            });
+            return exists;
+          } catch {
+            return false;
+          }
+        }),
+      );
+      const previousSet = new Set<string>();
+      identityHostsKeys.forEach((k, i) => {
+        if (previousStates[i]) previousSet.add(k);
+      });
+
+      // --- Step 2: compute deltas ---------------------------------------
+      const nextSet = new Set<string>(pinnedConversationIds);
+      const toAdd: string[] = [];
+      const toRemove: string[] = [];
+      for (const k of nextSet) {
+        if (!previousSet.has(k)) toAdd.push(k);
+      }
+      for (const k of previousSet) {
+        if (!nextSet.has(k)) toRemove.push(k);
+      }
+
+      // --- Step 3: fan out writes + removes in parallel ------------------
+      // Any throw propagates → outer catch surfaces as 500 (D-06 synchronous
+      // truth). identityKey is passed VERBATIM to the primitive (H3
+      // lowercase-on-disk invariant — parseIdentityHosts already lowercased).
+      await Promise.all([
+        ...toAdd.map((k) =>
+          writeIdentityFile(k, ".pinned", "", {
+            hostId: identityHosts[k],
+            conn: connByHost.get(identityHosts[k]) ?? null,
+          }),
+        ),
+        ...toRemove.map((k) =>
+          removeIdentityFile(k, ".pinned", {
+            hostId: identityHosts[k],
+            conn: connByHost.get(identityHosts[k]) ?? null,
+          }),
+        ),
+      ]);
+      didFanoutSentinels = true;
+
+      // --- Step 4: re-derive disk-authoritative set for response echo ----
+      // Do NOT trust the client input for the echo — disk is truth now.
+      const postStates = await Promise.all(
+        identityHostsKeys.map(async (key) => {
+          const hostId = identityHosts[key];
+          try {
+            return await identityFileExists(key, ".pinned", {
+              hostId,
+              conn: connByHost.get(hostId) ?? null,
+            });
+          } catch {
+            return false;
+          }
+        }),
+      );
+      const echoPinned: string[] = [];
+      identityHostsKeys.forEach((k, i) => {
+        if (postStates[i]) echoPinned.push(k);
+      });
+
+      // Handoff to response: attach to a locals-shape variable for later.
+      // We store it on the res object indirectly via a closure below.
+      // Simpler: stash in a var and read after DB write.
+      (res as unknown as { _echoPinned: string[] })._echoPinned = echoPinned;
+    } catch (e) {
+      databaseLogger.error("Pin sentinel fan-out failed", e, {
+        operation: "user_preferences_pin_fanout",
+        userId,
+      });
+      // Conn cleanup happens in `finally` below — do NOT close here or
+      // ssh2.Client.end() runs twice on the error path (works today because
+      // the second end() no-ops, but the redundant loop reads as intentional
+      // and invites divergence). M-1 from Plan 92 unbiased review.
+      return res
+        .status(500)
+        .json({ error: "Failed to update user preferences" });
+    } finally {
+      // Single cleanup point for both success and error paths.
+      for (const conn of connByHost.values()) {
+        if (conn) {
+          try { conn.end(); } catch { /* ignore */ }
+        }
+      }
+    }
   }
 
   // quick-260731-tgg — hiddenConversationIds validation + serialization.
-  // Structural mirror of the pinnedConversationIds block above: reject non-
+  // Structural mirror of the pre-92 pinnedConversationIds block: reject non-
   // arrays, non-string elements, and arrays exceeding the configured DoS-
   // mitigation cap. Serialize to JSON at the boundary (column is TEXT).
+  // Phase 92-02 leaves this slice UNTOUCHED (D-02 out-of-scope).
   if (hiddenConversationIds !== undefined) {
     if (!Array.isArray(hiddenConversationIds)) {
       return res.status(400).json({
@@ -225,67 +419,82 @@ export async function handlePutPreferences(
   }
 
   // Guard: updates always carries { updatedAt } — length 1 means no user
-  // fields were provided. Any single user field (including pinnedConversationIds)
-  // pushes length to 2 and passes.
-  if (Object.keys(updates).length === 1) {
+  // fields were provided AND no pin fanout occurred. Phase 92-02: pin fanout
+  // (didFanoutSentinels=true) also counts as "did something" so a pin-only
+  // request skips the DB write block cleanly rather than tripping this 400.
+  if (Object.keys(updates).length === 1 && !didFanoutSentinels) {
     return res.status(400).json({ error: "No preferences provided" });
   }
 
   try {
-    const existing = db
-      .select()
-      .from(userPreferences)
-      .where(eq(userPreferences.userId, userId))
-      .all();
-
-    if (existing.length === 0) {
-      db.insert(userPreferences)
-        .values({
-          userId,
-          ...updates,
-        })
-        .run();
-    } else {
-      db.update(userPreferences)
-        .set(updates)
+    // Phase 92-02: skip the DB write block entirely for pin-only requests
+    // (Object.keys(updates).length === 1 means only updatedAt is set, so no
+    // real user fields were provided — the fanout already happened above).
+    if (Object.keys(updates).length > 1) {
+      const existing = db
+        .select()
+        .from(userPreferences)
         .where(eq(userPreferences.userId, userId))
-        .run();
-    }
+        .all();
 
-    // Skynet's DB is in-memory-decrypted SQLite; raw db.insert/update writes
-    // reach RAM only. The 5-min isDirty poller is gated on _dirty=true which
-    // only triggerSave/forceSave set — direct writes never mark dirty. Without
-    // an explicit save call, pins + hides survive to disk only if SIGTERM's
-    // graceful flush wins the deploy race. Force the save here so the write
-    // is durable before we ACK. Silent-warn on failure — an in-memory-only
-    // preference is worse UX than a slow response, but a 500 is worse still.
-    // Pattern reference: identities.ts:264-273 (identity_updated).
-    try {
-      await DatabaseSaveTrigger.forceSave("user_preferences_updated");
-    } catch (saveErr) {
-      databaseLogger.warn(
-        "Force-save after user preferences update failed",
-        {
-          operation: "user_preferences_update_save_failed",
-          userId,
-          error:
-            saveErr instanceof Error ? saveErr.message : "Unknown error",
-        },
-      );
+      if (existing.length === 0) {
+        db.insert(userPreferences)
+          .values({
+            userId,
+            ...updates,
+          })
+          .run();
+      } else {
+        db.update(userPreferences)
+          .set(updates)
+          .where(eq(userPreferences.userId, userId))
+          .run();
+      }
+
+      // Skynet's DB is in-memory-decrypted SQLite; raw db.insert/update writes
+      // reach RAM only. The 5-min isDirty poller is gated on _dirty=true which
+      // only triggerSave/forceSave set — direct writes never mark dirty. Without
+      // an explicit save call, hides survive to disk only if SIGTERM's
+      // graceful flush wins the deploy race. Force the save here so the write
+      // is durable before we ACK. Silent-warn on failure — an in-memory-only
+      // preference is worse UX than a slow response, but a 500 is worse still.
+      // Pattern reference: identities.ts:264-273 (identity_updated).
+      try {
+        await DatabaseSaveTrigger.forceSave("user_preferences_updated");
+      } catch (saveErr) {
+        databaseLogger.warn(
+          "Force-save after user preferences update failed",
+          {
+            operation: "user_preferences_update_save_failed",
+            userId,
+            error:
+              saveErr instanceof Error ? saveErr.message : "Unknown error",
+          },
+        );
+      }
     }
 
     // Read the row back through pickPreferences so the response body shape is
-    // the same source of truth as the GET handler — including the parsed
-    // pinnedConversationIds ARRAY (not the raw JSON string). Wave 2's
-    // optimistic reconciliation depends on this contract (Test 5 in
-    // user-preferences.test.ts asserts Array.isArray + deep-equals).
+    // the same source of truth as the GET handler. Phase 92-02: pin state
+    // does NOT surface via pickPreferences — instead, the disk-derived echo
+    // (previously stashed on res._echoPinned) attaches as pinnedConversationIds.
     const row = db
       .select()
       .from(userPreferences)
       .where(eq(userPreferences.userId, userId))
       .all()[0];
 
-    return res.json({ success: true, ...pickPreferences(row) });
+    const echoPinned = (res as unknown as { _echoPinned?: string[] })._echoPinned;
+    const responseBody: Record<string, unknown> = {
+      success: true,
+      ...pickPreferences(row),
+    };
+    if (echoPinned !== undefined) {
+      // D-06 UI-invariance: PUT still echoes pinnedConversationIds as an array
+      // so the frontend's putPinnedIds()-await site gets the shape it expects.
+      responseBody.pinnedConversationIds = echoPinned;
+    }
+    return res.json(responseBody);
   } catch (e) {
     databaseLogger.error("Failed to update user preferences", e, {
       operation: "update_user_preferences",
@@ -312,10 +521,6 @@ export async function handlePutPreferences(
  *               properties:
  *                 reopenTabsOnLogin:
  *                   type: boolean
- *                 pinnedConversationIds:
- *                   type: array
- *                   items:
- *                     type: string
  *                 hiddenConversationIds:
  *                   type: array
  *                   items:
@@ -346,6 +551,12 @@ router.get("/", authenticateJWT, (req: Request, res: Response) => {
  *                 type: array
  *                 items:
  *                   type: string
+ *                 description: "Phase 92-02: writes fan out to per-identity `.pinned` sentinels. Requires identityHosts body field."
+ *               identityHosts:
+ *                 type: object
+ *                 additionalProperties:
+ *                   type: integer
+ *                 description: "Phase 92-02: map of identityKey → hostId. Required when pinnedConversationIds is present."
  *               hiddenConversationIds:
  *                 type: array
  *                 items:

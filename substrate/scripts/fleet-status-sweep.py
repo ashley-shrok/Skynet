@@ -734,7 +734,7 @@ def _build_pid_line(pid, identity, home, identity_jsonl_paths, jsonl_tail_cache)
     # fields, so we emit both.
     if identity is not None and SAFE_NAME_RE.match(identity):
         dormant_a = os.path.exists(os.path.join(
-            home, ".claude", "identities", identity, ".dormant",
+            home, "fleet", "identities", identity, ".dormant",
         ))
     else:
         dormant_a = False
@@ -746,7 +746,7 @@ def _build_pid_line(pid, identity, home, identity_jsonl_paths, jsonl_tail_cache)
     if identity is not None:
         # Cache miss (identity not in the identity-set — should be rare;
         # can happen if a live PID exists for an identity whose folder does
-        # not exist under ~/.claude/identities/). Attempt discovery just for
+        # not exist under ~/fleet/identities/). Attempt discovery just for
         # this PID's identity so ai-title scan still has fresh input.
         if identity not in jsonl_tail_cache:
             fallback_path = identity_jsonl_paths.get(identity)
@@ -783,10 +783,10 @@ def _build_pid_line(pid, identity, home, identity_jsonl_paths, jsonl_tail_cache)
 def _enumerate_identities(home):
     """Return list of dicts {name, dormant, recycled_at, recycle_requested}.
 
-    Iterates ~/.claude/identities/*/. On FileNotFoundError, returns []. Skips
+    Iterates ~/fleet/identities/*/. On FileNotFoundError, returns []. Skips
     entries whose name fails the safe-char regex (G6 server-side belt).
     """
-    identities_root = os.path.join(home, ".claude", "identities")
+    identities_root = os.path.join(home, "fleet", "identities")
     out = []
     try:
         with os.scandir(identities_root) as it:

@@ -47,7 +47,7 @@ export const users = sqliteTable("users", {
   // Skynet holds no password for this account: mint password is discarded;
   // runtime access tokens come from admin loginAsUser (deferred to later
   // sub-slice per D-13). Agents' relay identifiers live on-disk in
-  // ~/.claude/identities/<name>/relay.json per fleet convention (unchanged).
+  // ~/fleet/identities/<name>/relay.json per fleet convention (unchanged).
   mxid: text("mxid"),
 
   // Phase 85 (locked decision D-04) — pointer to this user's avatar image
@@ -705,7 +705,7 @@ export const apiKeys = sqliteTable("api_keys", {
 // This is the sole set of Matrix credentials stored in Skynet DB — the
 // @skynet-admin singleton used by matrix-admin-client for every admin API
 // call (createOrUpdateUser, deactivateUser, loginAsUser). Agent relay creds
-// live on-disk at ~/.claude/identities/<name>/relay.json per fleet convention
+// live on-disk at ~/fleet/identities/<name>/relay.json per fleet convention
 // (Phase 69) — unchanged. Phase 88 slice A (D-14): human relay accounts are
 // Skynet-owned — Skynet mints via admin API (createOrUpdateUser) with a
 // Skynet-generated password that is discarded on the spot. Humans hold no
@@ -835,7 +835,6 @@ export const userPreferences = sqliteTable("user_preferences", {
   fontSize: text("font_size"),
   accentColor: text("accent_color"),
   language: text("language"),
-  pinnedConversationIds: text("pinned_conversation_ids"),
   hiddenConversationIds: text("hidden_conversation_ids"),
   updatedAt: text("updated_at")
     .notNull()

@@ -93,6 +93,9 @@ vi.mock("@/state/identities-store", () => ({
     loaded: true,
     refresh: async () => {},
   }),
+  // Phase 92 Plan 04: panel hydrate effect imports both.
+  deriveDiskPinnedIds: () => [],
+  buildIdentityHostsFromFleet: () => ({}),
 }));
 
 // ─── user-management-api (Plan 06 mock: mutable per-test) ─────────────────────
@@ -104,9 +107,6 @@ vi.mock("@/api/user-management-api", () => ({
   getUsersListBasic: vi.fn(async () => [
     { id: "u-bob", username: "bob", mxid: "@bob:s" },
   ]),
-  // getPinnedIds / getHiddenIds are consumed by PrettyConversationsPanel mount effect.
-  getPinnedIds: vi.fn(async () => []),
-  getHiddenIds: vi.fn(async () => []),
 }));
 
 // ─── relay-room-create-api (Plan 06 mock: the key seam assertion) ─────────────
@@ -171,6 +171,8 @@ vi.mock("@/state/conversation-store", () => ({
   useHiddenIds: () => new Set<string>(),
   useActiveSet: () => new Set<string>(),
   useFleetSessionsLoaded: () => true,
+  // Phase 92 Plan 04: panel hydrate reads fleet snapshot to build identityHosts.
+  getFleetSessionsSnapshot: () => [],
   selectConversation: (id: string | null) => selectConversationSpy(id),
   pinConversation: vi.fn(),
   unpinConversation: vi.fn(),
@@ -184,10 +186,10 @@ vi.mock("@/state/conversation-store", () => ({
   hydrateHiddenIdsFromServer: vi.fn(),
 }));
 
-// ─── user-preferences-api (stub: panel fetches pinned/hidden on mount) ────────
+// ─── user-preferences-api (stub: panel fetches hidden on mount; pinned retired) ─
 
 vi.mock("@/api/user-preferences-api", () => ({
-  getPinnedIds: vi.fn().mockResolvedValue([]),
+  // Phase 92 Plan 04: getPinnedIds retired.
   putPinnedIds: vi.fn().mockResolvedValue([]),
   getHiddenIds: vi.fn().mockResolvedValue([]),
   putHiddenIds: vi.fn().mockResolvedValue([]),

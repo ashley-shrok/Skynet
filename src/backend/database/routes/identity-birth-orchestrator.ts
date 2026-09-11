@@ -29,6 +29,15 @@ import {
   MIME_TO_AVATAR_EXT,
   type AvatarExt,
 } from "../../claude-session/identity-artifact-reader.js";
+// Phase 92 Plan 92-01 Task 2 — per-identity file-touch primitive.
+// Step 8's relay.json write routes through this primitive (D-05 wire
+// generalization). The primitive delegates writes to writeMarkdownFileAtomic
+// (same SFTP tmp+atomic-rename discipline Phase 77 shipped) and threads
+// opts.chmod=0o600 for the post-write mode change — replacing the direct
+// deps.writeMarkdownFileAtomic + deps.execCommand(chmod 600) sequence that
+// lived here before. Byte-shape parity is proven by Task 2 regression tests
+// (T1-T6) in identity-birth-orchestrator.test.ts.
+import { writeIdentityFile } from "../../claude-session/per-identity-file.js";
 // Phase 89-02 Task 3: post-mint agents-registry-room join hook (D-11).
 // Best-effort — a failed join does NOT fail the birth; there is no
 // in-process backfill safety net (backfill is fully manual, SSH-based).
@@ -133,7 +142,7 @@ export interface BirthOptions {
   voice: string | null;
   avatarCandidateId: string;
   /**
-   * Phase 22 SRIC-02: kebab-case-lowercase role name from ~/.claude/roles/<role>/
+   * Phase 22 SRIC-02: kebab-case-lowercase role name from ~/fleet/roles/<role>/
    * on the target host. Validated at HTTP handler (identity-birth.ts) AND
    * re-validated at Step 2.5 entry (defense in depth per T-22-02-01).
    */
@@ -168,7 +177,7 @@ export interface BirthDeps {
    * getIdentityRecord have been removed from BirthDeps entirely.
    *
    * Step 1 now serves as the on-disk collision precheck:
-   *   - For remote hosts: SSH exec `if [ -d ~/.claude/identities/<name> ]`
+   *   - For remote hosts: SSH exec `if [ -d ~/fleet/identities/<name> ]`
    *   - For local hosts: fs.access equivalent
    * The step fails immediately with "identity already exists on this host"
    * if the folder already exists.
@@ -261,7 +270,7 @@ export interface BirthDeps {
   matrixHomeserver: string;
   /**
    * Phase 75 Plan 04 — pure builder for the relay.json JSON body that Step 8
-   * writes to `~/.claude/identities/<name>/relay.json` on the target host.
+   * writes to `~/fleet/identities/<name>/relay.json` on the target host.
    * Wired to Plan 02's buildRelayJsonBody export. Emits exactly five keys
    * (base, user_id, password, token, access_token) per agent-relay/SKILL.md.
    */
@@ -456,7 +465,7 @@ function buildIdentityFileBody(
 //   Step 7: build the relay.json JSON body via deps.buildRelayJsonBody. Guards
 //           against an empty access_token from the login call — throws before
 //           writing to disk if the token is missing.
-//   Step 8: SFTP-write ~/.claude/identities/<name>/relay.json (atomic tmp +
+//   Step 8: SFTP-write ~/fleet/identities/<name>/relay.json (atomic tmp +
 //           ext_openssh_rename), then chmod 600. A chmod failure DOES fail
 //           the step (world-readable relay.json is a security regression per
 //           agent-relay/SKILL.md:105 fleet convention, T-75-18).
@@ -658,6 +667,13 @@ export async function runRelayMintAndWrite(
     name: string;
     displayName?: string;
     /**
+     * Target host record ID. Threaded into Step 8's writeIdentityFile
+     * primitive so it can pick LOCAL (isLocalHostId → bind-mount fast-path)
+     * vs REMOTE (SFTP tmp+rename) — matches the WriteIdentityFileOpts
+     * contract at claude-session/per-identity-file.ts.
+     */
+    hostId: number;
+    /**
      * Phase 80 Plan 80-03b A1 lock: kebab-case-lowercase role name (matches
      * BirthOptions.role). Only consumed when poolPicked === true — used by
      * composeMxidLocalpart to build the PascalCase-hyphenated MXID base handle.
@@ -844,40 +860,38 @@ export async function runRelayMintAndWrite(
   });
 
   // -------------------------------------------------------------------------
-  // Step 8: SFTP write + chmod 600
+  // Step 8: relay.json write + chmod 600 via per-identity-file primitive
   //
-  // The tmp+ext_openssh_rename atomic-overwrite discipline in
-  // writeMarkdownFileAtomic (identity-artifact-reader.ts:1849-1903) handles
-  // the concurrency case where a retry lands on an existing relay.json —
-  // Pitfall 3 / #2924. `writeMarkdownFileAtomic` is content-agnostic despite
-  // the name (its prologue documents this).
+  // Phase 92 Plan 92-01 Task 2 (D-05): rerouted from a direct
+  // deps.writeMarkdownFileAtomic + deps.execCommand(chmod 600) sequence to
+  // the writeIdentityFile primitive at src/backend/claude-session/per-identity-file.ts.
+  //
+  // Byte-shape parity vs pre-refactor L862 literal:
+  //   - Target path: `$HOME/fleet/identities/${opts.name}/relay.json` —
+  //     $HOME is passed to SFTP as a LITERAL string (primitive matches this
+  //     shape verbatim; see per-identity-file.ts remoteTargetPath).
+  //   - Body: relayJsonBody is threaded through unchanged.
+  //   - chmod 600: opts.chmod=0o600 threaded into the primitive, which
+  //     preserves the pre-refactor `chmod_600_failed:` error tag on failure.
+  //
+  // The tmp+atomic-rename discipline in writeMarkdownFileAtomic
+  // (identity-artifact-reader.ts:1924) handles the concurrency case where
+  // a retry lands on an existing relay.json — Pitfall 3 / #2924. The
+  // primitive delegates writes to that helper (do NOT re-implement).
   //
   // chmod 600 is REQUIRED (not best-effort) per S-1 lock — a world-readable
   // relay.json exposes the agent's Matrix credentials to any other target-
   // host user (T-75-18). Matches agent-relay/SKILL.md:105 fleet convention.
+  //
+  // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode +
+  // agent-supervisor race. runStep(8)'s catch is unchanged.
   // -------------------------------------------------------------------------
   await runStep(8, async () => {
-    const relayJsonPath = `$HOME/.claude/identities/${opts.name}/relay.json`;
-    await deps.writeMarkdownFileAtomic(conn, relayJsonPath, relayJsonBody);
-
-    // chmod 600 — required, not best-effort. Path is single-quoted for shell
-    // safety even though opts.name is already gated by IDENTITY_KEY_RE +
-    // TMUX_SAFE_NAME_RE upstream (defense-in-depth per T-75-16).
-    const quotedPath = "'" + relayJsonPath.replace(/'/g, "'\\''") + "'";
-    // execCommand resolves to stdout — non-zero exit codes throw synchronously
-    // via ssh2's stream event, which propagates as a rejection through
-    // execCommand's promise. If chmod 600 fails (e.g. permission denied on the
-    // parent dir, or the file was rm'd between write and chmod), the throw
-    // fails Step 8 loudly rather than shipping a world-readable relay.json.
-    // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode + agent-supervisor race
-    try {
-      await deps.execCommand(conn, `chmod 600 ${quotedPath}`);
-    } catch (chmodErr) {
-      // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode + agent-supervisor race
-      throw new Error(
-        `chmod_600_failed: ${chmodErr instanceof Error ? chmodErr.message : String(chmodErr)}`,
-      );
-    }
+    await writeIdentityFile(opts.name, "relay.json", relayJsonBody, {
+      hostId: opts.hostId,
+      conn,
+      chmod: 0o600,
+    });
   });
 }
 
@@ -1027,7 +1041,7 @@ export async function birthIdentity(
     // Step 1: On-disk collision probe + avatar candidate check
     //         (Phase 68 rewire — no DB INSERT or GET-verify)
     //
-    //   For remote: SSH exec `if [ -d ~/.claude/identities/<name> ]`
+    //   For remote: SSH exec `if [ -d ~/fleet/identities/<name> ]`
     //   For local: relies on Step 2's mkdir being idempotent (local branch
     //              self-birth doesn't probe — same pre-Phase-68 behavior).
     //
@@ -1061,7 +1075,7 @@ export async function birthIdentity(
       if (!useLocal && conn) {
         const probeOut = await deps.execCommand(
           conn,
-          `if [ -d "$HOME/.claude/identities/${opts.name}" ]; then echo exists; else echo missing; fi`,
+          `if [ -d "$HOME/fleet/identities/${opts.name}" ]; then echo exists; else echo missing; fi`,
         );
         if (probeOut.trim() === "exists") {
           throw new Error("identity already exists on this host");
@@ -1077,7 +1091,7 @@ export async function birthIdentity(
     // Step 2: mkdir -p + tmux new-session (Nelly §1(a) + terminal sizing)
     //
     // Phase 22 SRIC-02 addendum (B4b(a), REVISION 2026-08-04):
-    //   Step 2 now ALSO pre-writes ~/.claude/identities/<name>/<name>.md with
+    //   Step 2 now ALSO pre-writes ~/fleet/identities/<name>/<name>.md with
     //   role: frontmatter + a wake-up seed comment, creates the wakeups/ dir,
     //   and touches handoff.md — BEFORE Step 5's `/id <name>` fires. This
     //   causes the id skill on the box to take its load-existing branch
@@ -1121,14 +1135,15 @@ export async function birthIdentity(
 
         // Build the identity folder path. opts.name is already gated by
         // IDENTITY_KEY_RE + TMUX_SAFE_NAME_RE above, so it's shell-safe.
-        const identityDir = `${remoteHome}/.claude/identities/${opts.name}`;
+        const identityDir = `${remoteHome}/fleet/identities/${opts.name}`;
         const identityFilePath = `${identityDir}/${opts.name}.md`;
 
-        // 1. Create the identity folder tree (mkdir wakeups also creates parent).
-        //    touch handoff.md to satisfy id skill's load-existing branch.
+        // 1. Create the identity folder tree — wakeups/ + workspace/ (generic working dir per D-04)
+        //    plus touch handoff.md to satisfy id skill's load-existing branch.
+        //    Single mkdir -p covers both sub-parts and the parent identityDir.
         await deps.execCommand(
           conn,
-          `mkdir -p "${identityDir}/wakeups" && touch "${identityDir}/handoff.md"`,
+          `mkdir -p "${identityDir}/wakeups" "${identityDir}/workspace" && touch "${identityDir}/handoff.md"`,
         );
 
         // 2. Derive avatar ext from the candidate mime. Defense-in-depth: the
@@ -1185,7 +1200,7 @@ export async function birthIdentity(
         //
         //    Phase 86 Plan 86-04 (D-CTX-86-inherit): skip the sibling write
         //    when no candidate bytes exist (role-inherited-avatar path).
-        //    The role's avatar file at ~/.claude/roles/<role>/<file> is
+        //    The role's avatar file at ~/fleet/roles/<role>/<file> is
         //    served via Plan 86-01's GET /:key/avatar role-folder fallback.
         //    avatarExt was assigned above inside the same `birthCandidate
         //    !== null` guard, so the non-null assertion is safe here.
@@ -1223,6 +1238,7 @@ export async function birthIdentity(
         {
           name: opts.name,
           displayName,
+          hostId: opts.hostId,
           role: opts.role,
           poolPicked: opts.poolPicked,
         },

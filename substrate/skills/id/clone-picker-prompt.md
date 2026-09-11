@@ -14,9 +14,9 @@ JSON; the coordinator acts on your pick.
 You may ONLY read the files explicitly named in the steps below. Under no circumstances
 read anything else. In particular:
 
-- **Do NOT read `~/.claude/identities/<name>/handoff.md`** for any actor. Handoff
+- **Do NOT read `~/fleet/identities/<name>/handoff.md`** for any actor. Handoff
   files are OUT-OF-SCOPE for your judgment.
-- **Do NOT read `~/.claude/roles/<role>/bounties/*/bounty.json`** for any role. The
+- **Do NOT read `~/fleet/roles/<role>/bounties/*/bounty.json`** for any role. The
   bounty pool is OUT-OF-SCOPE for your judgment.
 - **Do NOT grep across identity dirs, role folders, or the bounty pool** looking for
   related-context matches. Related-context comes from the session transcripts you
@@ -34,7 +34,7 @@ role, which is precisely why they are excluded.
 
 1. **Enumerate actor clones under this role.** Start with:
 
-       grep -l "^role: <TARGET_ROLE>$" ~/.claude/identities/*/*.md
+       grep -l "^role: <TARGET_ROLE>$" ~/fleet/identities/*/*.md
 
    Each match is a candidate PATH of the shape `.../identities/<name>/<file>.md`.
    Filter and de-dup as follows:

@@ -218,7 +218,7 @@ describe("wire-protocol", () => {
   // ---------------------------------------------------------------------------
   // Phase 52 Plan 01 — dormant is an optional, back-compat boolean field on
   // SessionState carrying the inline supervisor-dormancy signal. Source is the
-  // ~/.claude/identities/<tmuxSession>/.dormant sentinel file on the target
+  // ~/fleet/identities/<tmuxSession>/.dormant sentinel file on the target
   // host. Additive-only wire extension; FRAME_SCHEMA_VERSION stays at 1.
   // Three-valued semantics: true → sentinel present, false → sentinel absent,
   // undefined → emitting watcher pre-dates this phase (treated as false).
@@ -279,7 +279,7 @@ describe("wire-protocol", () => {
   });
 
   // Phase 53 Plan 01 — recycling is an optional, back-compat boolean field on
-  // SessionState. Source: ~/.claude/identities/<tmuxSession>/.recycled-at sentinel
+  // SessionState. Source: ~/fleet/identities/<tmuxSession>/.recycled-at sentinel
   // file on the target host. Semantics: true → sentinel present (recycle in flight);
   // false → sentinel absent; null → normalised-null; undefined → pre-Phase-53 watcher.
   // Frontend treats undefined/null identically (both → false). FRAME_SCHEMA_VERSION

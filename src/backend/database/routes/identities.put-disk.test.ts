@@ -616,7 +616,7 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
     expect(rmCalls.length).toBe(1);
     const rmCmd = String(rmCalls[0][1]);
     expect(rmCmd).toContain(
-      `rm -f "$HOME/.claude/identities/testkey/testkey.png"`,
+      `rm -f "$HOME/fleet/identities/testkey/testkey.png"`,
     );
 
     // Frontmatter now has avatar: testkey.webp
@@ -867,7 +867,7 @@ describe("PUT /identities/:identityKey — Phase 68-02 rekey (no row bump, no fo
     expect(rmCalls.length).toBe(1);
     const rmCmd = String(rmCalls[0][1]);
     expect(rmCmd).toContain(
-      `rm -f "$HOME/.claude/identities/testkey/testkey.png"`,
+      `rm -f "$HOME/fleet/identities/testkey/testkey.png"`,
     );
 
     // fs.unlink must NOT have been called (REMOTE path uses execCommand)

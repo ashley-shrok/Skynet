@@ -4,7 +4,7 @@
 // "Couldn't load bounties: Command exited with code 1" when opening the
 // bounties tab for an identity on a remote host whose role had no bounties
 // yet. Two shell-level failure modes both surfaced identically:
-//   (a) `~/.claude/roles/<role>/bounties/` does not exist yet (fresh role that
+//   (a) `~/fleet/roles/<role>/bounties/` does not exist yet (fresh role that
 //       has never had a bounty created), or
 //   (b) `bounties/` exists but is empty (or contains only `archive/`).
 //
@@ -43,7 +43,7 @@ describe("readIdentityBounties — REMOTE, empty/missing bounties dir tolerance"
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (_conn: unknown, cmd: string) => {
         capturedCommands.push(cmd);
-        if (cmd.includes(".claude/identities/")) return identityMd;
+        if (cmd.includes("fleet/identities/")) return identityMd;
         return "";
       },
     );
@@ -52,7 +52,7 @@ describe("readIdentityBounties — REMOTE, empty/missing bounties dir tolerance"
     await readIdentityBounties(conn, KEY, true);
 
     const bountyCommands = capturedCommands.filter(
-      (c) => c.includes(".claude/roles/") && c.includes("/bounties"),
+      (c) => c.includes("fleet/roles/") && c.includes("/bounties"),
     );
     // Both open + archive commands run when includeArchived=true.
     expect(bountyCommands).toHaveLength(2);
@@ -74,7 +74,7 @@ describe("readIdentityBounties — REMOTE, empty/missing bounties dir tolerance"
     // execCommand resolves with "" rather than throwing "Command exited with code 1".
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (_conn: unknown, cmd: string) => {
-        if (cmd.includes(".claude/identities/")) return identityMd;
+        if (cmd.includes("fleet/identities/")) return identityMd;
         if (cmd.includes("/bounties")) return "";
         return "";
       },
@@ -94,7 +94,7 @@ describe("readIdentityBounties — REMOTE, empty/missing bounties dir tolerance"
     // fs.readdir ENOENT tolerance (identity-artifact-reader.ts:819-828).
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (_conn: unknown, cmd: string) => {
-        if (cmd.includes(".claude/identities/")) return identityMd;
+        if (cmd.includes("fleet/identities/")) return identityMd;
         // With the fix in place, the shell command exits 0 on missing/empty
         // dir and resolves with empty stdout — never throws to this level.
         return "";

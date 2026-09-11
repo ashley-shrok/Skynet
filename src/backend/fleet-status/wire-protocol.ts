@@ -127,7 +127,7 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 // ---------------------------------------------------------------------------
 // Phase 52 Plan 01 (2026-08-20): added `dormant` as an OPTIONAL, NULLABLE
 // boolean field carrying the inline supervisor-dormancy signal for a session.
-// Source: the `~/.claude/identities/<tmuxSession>/.dormant` sentinel file on
+// Source: the `~/fleet/identities/<tmuxSession>/.dormant` sentinel file on
 // the target host. Presence of the sentinel ⇔ identity is dormant
 // (supervisor-managed pause). Semantics:
 //   - true      → sentinel file present; the identity has been parked by the
@@ -140,7 +140,7 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 //                 treats undefined and null identically (both → false).
 // This field is published by TWO sources in ssh-poll-orchestrator:
 //   Source A: per-PID tick — stats the sentinel for live-PID identities.
-//   Source B: per-host tick — enumerates ~/.claude/identities/*/ and stats
+//   Source B: per-host tick — enumerates ~/fleet/identities/*/ and stats
 //             each sentinel for dormant-only identities with no live PID.
 // Because the field is `.optional().nullable()`, FRAME_SCHEMA_VERSION is
 // deliberately HELD AT 1 — additive+optional extensions never require a
@@ -158,7 +158,7 @@ export type BackgroundTask = z.infer<typeof BackgroundTaskSchema>;
 // boolean field carrying the backend-authoritative identity-recycling signal
 // for a session.
 //
-// Source: the caretaker's `~/.claude/identities/<tmuxSession>/.recycled-at`
+// Source: the caretaker's `~/fleet/identities/<tmuxSession>/.recycled-at`
 // sentinel file on the target host. Presence of the sentinel ⇔ identity is
 // currently being replaced via the /id-reset routine (renamed from
 // `.recycle-requested` at recycle-intent detection, before the outgoing claude

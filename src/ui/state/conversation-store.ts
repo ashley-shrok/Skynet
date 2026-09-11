@@ -52,6 +52,13 @@ import type { Host, HostFolder, Tab, TabType } from "@/types/ui-types";
 import { putPinnedIds, putHiddenIds } from "@/api/user-preferences-api";
 import type { Identity } from "@/api/identities-api";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
+// Phase 92 Plan 04 (H2 lock): pin toggle callsites REUSE the existing
+// fleetSessions → identityHosts derivation from identities-store. Do NOT
+// re-implement this locally with `sessionName.toLowerCase()` — that
+// pattern crashes on the relay-room `sessionName === undefined` case (see
+// L710-731 relay-room branch) and diverges from the semantics the
+// identities-store fetch already uses.
+import { buildIdentityHostsFromFleet } from "./identities-store";
 // Phase 41 Plan 03 — bridge to the working-store cache for the wire-side
 // lastMessageAt signal + a subscribe hook so a working-store publish invalidates
 // our memoized snapshot (row derivation re-runs and re-picks up fresh recency).
@@ -1569,8 +1576,16 @@ export function pinConversation(id: string): void {
   // Phase 15: fire-and-forget server write. Failures leave the optimistic
   // pin in place; the next pin/unpin OR next panel mount reconciles from
   // server. Mirrors addToActiveSet's silent-catch pattern at L713-722.
+  //
+  // Phase 92 Plan 04 (H2 identityHosts lock): identityHosts is sourced from
+  // buildIdentityHostsFromFleet (identities-store.ts:74-85) which uses
+  // sessionMatchKey — correctly skips relay-room sessions (sessionName ===
+  // undefined) and any future non-identity harness sessions. Do NOT replace
+  // with an inline `fleetSessions.map(s => [s.sessionName.toLowerCase(),
+  // s.hostId])` pattern — that crashes on the undefined sessionName case.
+  const identityHosts = buildIdentityHostsFromFleet(state.fleetSessions);
   try {
-    void putPinnedIds([...nextPinnedIds]);
+    void putPinnedIds([...nextPinnedIds], identityHosts);
   } catch {
     // Silent — do not block state update on network failure.
     // Optimistic update stands; retry on next mount or next pin/unpin.
@@ -1586,8 +1601,13 @@ export function unpinConversation(id: string): void {
   // Phase 15: fire-and-forget server write. Failures leave the optimistic
   // unpin in place; the next pin/unpin OR next panel mount reconciles from
   // server. Mirrors addToActiveSet's silent-catch pattern at L713-722.
+  //
+  // Phase 92 Plan 04 (H2 identityHosts lock): same helper as pinConversation
+  // above — buildIdentityHostsFromFleet is the SINGLE fleetSessions →
+  // identityHosts derivation site (identities-store.ts:74-85). Do not fork.
+  const identityHosts = buildIdentityHostsFromFleet(state.fleetSessions);
   try {
-    void putPinnedIds([...nextPinnedIds]);
+    void putPinnedIds([...nextPinnedIds], identityHosts);
   } catch {
     // Silent — do not block state update on network failure.
     // Optimistic update stands; retry on next mount or next pin/unpin.

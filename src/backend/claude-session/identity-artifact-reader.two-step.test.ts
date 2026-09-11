@@ -4,9 +4,9 @@
 // changing the (identityKey, hostId) frontend contract.
 //
 // The Bounties + History tabs on IdentityModal used to root at
-// ~/.claude/identities/<key>/{bounties,history.md}. Post the fleet role/identity
+// ~/fleet/identities/<key>/{bounties,history.md}. Post the fleet role/identity
 // migration those folders are empty — the actual data lives at
-// ~/.claude/roles/<role>/{bounties,history.md}, and the role is discovered by
+// ~/fleet/roles/<role>/{bounties,history.md}, and the role is discovered by
 // reading `role:` from the identity file's YAML frontmatter.
 //
 // This test file covers:
@@ -136,12 +136,12 @@ describe("getLocalRolesRoot", () => {
     else process.env.ROLES_HOST_DIR = savedEnv;
   });
 
-  it("test 9: returns ROLES_HOST_DIR when set, else falls back to $HOME/.claude/roles", () => {
+  it("test 9: returns ROLES_HOST_DIR when set, else falls back to $HOME/fleet/roles", () => {
     process.env.ROLES_HOST_DIR = "/mnt/roles-bind-mount";
     expect(getLocalRolesRoot()).toBe("/mnt/roles-bind-mount");
 
     delete process.env.ROLES_HOST_DIR;
-    expect(getLocalRolesRoot()).toBe(path.join(os.homedir(), ".claude", "roles"));
+    expect(getLocalRolesRoot()).toBe(path.join(os.homedir(), "fleet", "roles"));
   });
 });
 
@@ -155,10 +155,10 @@ describe("readIdentityBounties + readIdentityHistory — two-step", () => {
   // the reader's internal call order can evolve without breaking tests.
   //
   // Contract:
-  //   - `cat "$HOME/.claude/identities/<key>/<key>.md"` → identity file body
-  //   - `cd "$HOME/.claude/roles/<role>/bounties" ...` → bounties dir dump
-  //   - `cd "$HOME/.claude/roles/<role>/bounties/archive" ...` → archive dump
-  //   - `cat "$HOME/.claude/roles/<role>/history.md"` → history body
+  //   - `cat "$HOME/fleet/identities/<key>/<key>.md"` → identity file body
+  //   - `cd "$HOME/fleet/roles/<role>/bounties" ...` → bounties dir dump
+  //   - `cd "$HOME/fleet/roles/<role>/bounties/archive" ...` → archive dump
+  //   - `cat "$HOME/fleet/roles/<role>/history.md"` → history body
   //
   // Tests assert on the command string via a captured spy so path substitution
   // is verified even when the response is a stub.
@@ -169,16 +169,16 @@ describe("readIdentityBounties + readIdentityHistory — two-step", () => {
     historyMd?: string;
   }): (conn: SSHClientType, cmd: string) => Promise<string> {
     return async (_conn, cmd) => {
-      if (cmd.includes(".claude/identities/") && cmd.startsWith("cat ")) {
+      if (cmd.includes("fleet/identities/") && cmd.startsWith("cat ")) {
         return opts.identityFile ?? "";
       }
-      if (cmd.includes(".claude/roles/") && cmd.includes("/bounties/archive")) {
+      if (cmd.includes("fleet/roles/") && cmd.includes("/bounties/archive")) {
         return opts.bountiesArchive ?? "";
       }
-      if (cmd.includes(".claude/roles/") && cmd.includes("/bounties")) {
+      if (cmd.includes("fleet/roles/") && cmd.includes("/bounties")) {
         return opts.bountiesOpen ?? "";
       }
-      if (cmd.includes(".claude/roles/") && cmd.includes("/history.md")) {
+      if (cmd.includes("fleet/roles/") && cmd.includes("/history.md")) {
         return opts.historyMd ?? "";
       }
       return "";
@@ -189,7 +189,7 @@ describe("readIdentityBounties + readIdentityHistory — two-step", () => {
     vi.clearAllMocks();
   });
 
-  it("test 10: readIdentityBounties (REMOTE) reads from $HOME/.claude/roles/<role>/bounties, not identity folder", async () => {
+  it("test 10: readIdentityBounties (REMOTE) reads from $HOME/fleet/roles/<role>/bounties, not identity folder", async () => {
     const identityMd = "---\nrole: box-maintainer\n---\n";
     const bountyJson =
       '{"id":"bounty-a","title":"A","priority":"medium","status":"in_progress"}';
@@ -198,7 +198,7 @@ describe("readIdentityBounties + readIdentityHistory — two-step", () => {
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (_conn: unknown, cmd: string) => {
         capturedCommands.push(cmd);
-        if (cmd.includes(".claude/identities/")) return identityMd;
+        if (cmd.includes("fleet/identities/")) return identityMd;
         if (cmd.includes("/bounties/archive")) return "";
         if (cmd.includes("/bounties")) return bountiesStdout;
         return "";
@@ -214,26 +214,26 @@ describe("readIdentityBounties + readIdentityHistory — two-step", () => {
     // omits this guard since it enumerates INSIDE the archive folder.
     const bountiesCmd = capturedCommands.find(
       (c) =>
-        c.includes(".claude/roles/box-maintainer/bounties") &&
+        c.includes("fleet/roles/box-maintainer/bounties") &&
         c.includes('[ "$d" = "archive" ] && continue'),
     );
     expect(bountiesCmd).toBeDefined();
-    expect(bountiesCmd).toContain("$HOME/.claude/roles/box-maintainer/bounties");
-    expect(bountiesCmd).not.toContain("$HOME/.claude/identities/moxie/bounties");
+    expect(bountiesCmd).toContain("$HOME/fleet/roles/box-maintainer/bounties");
+    expect(bountiesCmd).not.toContain("$HOME/fleet/identities/moxie/bounties");
 
     // Content flowed through the parser
     expect(result.bounties).toHaveLength(1);
     expect((result.bounties[0] as { slug: string }).slug).toBe("bounty-a");
   });
 
-  it("test 11: readIdentityHistory (REMOTE) reads $HOME/.claude/roles/<role>/history.md, not identity folder", async () => {
+  it("test 11: readIdentityHistory (REMOTE) reads $HOME/fleet/roles/<role>/history.md, not identity folder", async () => {
     const identityMd = "---\nrole: box-maintainer\n---\n";
     const historyMd = "# History\n\n- entry one\n- entry two\n";
     const capturedCommands: string[] = [];
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (_conn: unknown, cmd: string) => {
         capturedCommands.push(cmd);
-        if (cmd.includes(".claude/identities/")) return identityMd;
+        if (cmd.includes("fleet/identities/")) return identityMd;
         if (cmd.includes("/history.md")) return historyMd;
         return "";
       },
@@ -244,8 +244,8 @@ describe("readIdentityBounties + readIdentityHistory — two-step", () => {
 
     const historyCmd = capturedCommands.find((c) => c.includes("/history.md"));
     expect(historyCmd).toBeDefined();
-    expect(historyCmd).toContain("$HOME/.claude/roles/box-maintainer/history.md");
-    expect(historyCmd).not.toContain("$HOME/.claude/identities/moxie/history.md");
+    expect(historyCmd).toContain("$HOME/fleet/roles/box-maintainer/history.md");
+    expect(historyCmd).not.toContain("$HOME/fleet/identities/moxie/history.md");
     expect(result.markdown).toBe(historyMd);
     // history entries: strip #-headings + blank lines, reverse (mirrors existing behavior)
     expect(result.entries).toEqual(["- entry two", "- entry one"]);
@@ -320,7 +320,7 @@ describe("readIdentityBounties + readIdentityHistory — two-step", () => {
   it("test 14: readIdentityBounties propagates the throw from resolveRoleForIdentity when identity file is empty", async () => {
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (_conn: unknown, cmd: string) => {
-        if (cmd.includes(".claude/identities/")) return ""; // no frontmatter
+        if (cmd.includes("fleet/identities/")) return ""; // no frontmatter
         return "";
       },
     );
@@ -333,7 +333,7 @@ describe("readIdentityBounties + readIdentityHistory — two-step", () => {
   it("test 15: readIdentityHistory propagates the throw when identity file has no role frontmatter", async () => {
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (_conn: unknown, cmd: string) => {
-        if (cmd.includes(".claude/identities/")) {
+        if (cmd.includes("fleet/identities/")) {
           return "# just a heading, no frontmatter\n";
         }
         return "";

@@ -47,6 +47,12 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   // Phase 66 Plan 66-01: additive dep — pre-existing tests are unchanged;
   // the orchestrator's Step 2.5 now calls this after writeMarkdownFileAtomic.
   writeAvatarSiblingFile: vi.fn().mockResolvedValue(undefined),
+  // Phase 92 Plan 92-01 Task 2: per-identity-file.ts imports IDENTITY_KEY_RE
+  // from identity-artifact-reader (H1 write⇔read parity lock). The primitive
+  // is transitively imported by identity-birth-orchestrator's Step 8, so
+  // this mocked module MUST export the real regex value (not a stub) so
+  // the primitive's identityKey gate matches production behavior in tests.
+  IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
   MIME_TO_AVATAR_EXT: {
     "image/webp": "webp",
     "image/png": "png",
@@ -94,7 +100,10 @@ import {
 
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
 import { execCommand } from "../../ssh/tmux-helper.js";
-import { isLocalHostId } from "../../claude-session/identity-artifact-reader.js";
+import {
+  isLocalHostId,
+  writeMarkdownFileAtomic,
+} from "../../claude-session/identity-artifact-reader.js";
 import { joinAgentToAgentsRegistry } from "../../relay-sessions/registry-rooms.js";
 
 // ---------------------------------------------------------------------------
@@ -104,6 +113,12 @@ import { joinAgentToAgentsRegistry } from "../../relay-sessions/registry-rooms.j
 const mockConnectOneShot = connectOneShot as unknown as Mock;
 const mockExecCommand = execCommand as unknown as Mock;
 const mockIsLocalHostId = isLocalHostId as unknown as Mock;
+// Phase 92 Plan 92-01 Task 2: Step 8's relay.json write now routes through
+// per-identity-file.writeIdentityFile which internally calls the module-level
+// writeMarkdownFileAtomic (not deps.writeMarkdownFileAtomic). Test assertions
+// for the relay.json write need to inspect this module-mock.
+const mockWriteMarkdownFileAtomicModule =
+  writeMarkdownFileAtomic as unknown as Mock;
 const mockJoinAgentToAgentsRegistry = joinAgentToAgentsRegistry as unknown as Mock;
 
 function collectEvents(): { events: BirthEvent[]; emit: (e: BirthEvent) => void } {
@@ -196,6 +211,12 @@ beforeEach(() => {
   mockConnectOneShot.mockReset();
   mockExecCommand.mockReset();
   mockIsLocalHostId.mockReset();
+  // Phase 92 Plan 92-01 Task 2: reset the module-level writeMarkdownFileAtomic
+  // mock between tests so Step 8's per-identity-file callthrough is inspected
+  // per-test (previously the deps-level mock was reset via makeDeps overrides;
+  // the module mock persists across tests without an explicit reset).
+  mockWriteMarkdownFileAtomicModule.mockReset();
+  mockWriteMarkdownFileAtomicModule.mockResolvedValue(undefined);
 
   // Default: remote host
   mockIsLocalHostId.mockReturnValue(false);
@@ -497,6 +518,47 @@ it("Test 6: step 2 command is mkdir -p + tmux new-session with correct flags", a
 
   // Session name must not use -t "=name" exact-match syntax
   expect(cmd).not.toMatch(/-t\s+"?=/);
+}, 10_000);
+
+// ---------------------------------------------------------------------------
+// Test 6b: Step 2 creates wakeups/ + workspace/ sub-parts at identity birth
+// (D-04: workspace/ is a generic working directory inside every identity folder)
+// ---------------------------------------------------------------------------
+
+it("Test 6b: Step 2 identity-tree mkdir creates both wakeups/ and workspace/ sub-parts per D-04", async () => {
+  mockIsLocalHostId.mockReturnValue(false);
+  const mockConn = { end: vi.fn() };
+  mockConnectOneShot.mockResolvedValue(mockConn);
+  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
+    return Promise.resolve("");
+  });
+
+  const deps = makeDeps();
+  const opts = makeOpts({ name: "agent1" });
+  const { events, emit } = collectEvents();
+
+  const birthPromise = birthIdentity(opts, emit, deps);
+  await vi.runAllTimersAsync();
+  await birthPromise;
+
+  // Find the identity-tree mkdir command (contains "wakeups" — NOT the tmux command)
+  const identityTreeMkdir = mockExecCommand.mock.calls.find(
+    (call: unknown[]) =>
+      typeof call[1] === "string" &&
+      (call[1] as string).includes("wakeups"),
+  );
+
+  expect(identityTreeMkdir).toBeDefined();
+  const mkdirCmd = identityTreeMkdir![1] as string;
+
+  // Both sub-parts must be present in a single mkdir -p invocation (D-04)
+  expect(mkdirCmd).toContain("mkdir -p");
+  expect(mkdirCmd).toContain("wakeups"); // wakeups/ sub-part
+  expect(mkdirCmd).toContain("workspace"); // workspace/ sub-part per D-04
+  expect(mkdirCmd).toContain("fleet/identities/agent1"); // fleet-tree path (Plan 96-02)
 }, 10_000);
 
 // ---------------------------------------------------------------------------
@@ -1259,13 +1321,17 @@ describe("Phase 75 Plan 04: relay-mint extensions (Steps 6, 7, 8)", () => {
     expect(relayArg.accessToken.length).toBeGreaterThan(0);
     expect(relayArg.mxid).toBe("@agent1:matrix.local");
 
-    // writeMarkdownFileAtomic called with the relay.json path
-    const writeCalls = mockWriteMd.mock.calls;
-    const relayJsonWrite = writeCalls.find(
+    // Phase 92 Plan 92-01 Task 2: Step 8's relay.json write now routes
+    // through per-identity-file.writeIdentityFile → module-level
+    // writeMarkdownFileAtomic (mockWriteMarkdownFileAtomicModule), NOT
+    // deps.writeMarkdownFileAtomic (mockWriteMd). deps.writeMarkdownFileAtomic
+    // stays wired for Step 2.5's identity .md write.
+    const moduleWriteCalls = mockWriteMarkdownFileAtomicModule.mock.calls;
+    const relayJsonWrite = moduleWriteCalls.find(
       (c: unknown[]) => typeof c[1] === "string" && (c[1] as string).endsWith("/relay.json"),
     );
     expect(relayJsonWrite).toBeDefined();
-    expect(relayJsonWrite![1]).toContain("$HOME/.claude/identities/agent1/relay.json");
+    expect(relayJsonWrite![1]).toContain("$HOME/fleet/identities/agent1/relay.json");
 
     // chmod 600 was called on the relay.json path — S-1 lock proof
     const chmodCalls = mockExecCommand.mock.calls.filter(
@@ -1398,17 +1464,24 @@ describe("Phase 75 Plan 04: relay-mint extensions (Steps 6, 7, 8)", () => {
       .fn()
       .mockResolvedValue({ ok: true, accessToken: "syt_real_token" });
 
-    // writeMarkdownFileAtomic succeeds for the .md/.png writes but fails on
-    // the relay.json write. Mock tracks call count so first two succeed, third
-    // (relay.json) throws.
+    // Phase 92 Plan 92-01 Task 2: Step 8's write now routes through the
+    // module-level writeMarkdownFileAtomic (via per-identity-file). Reject
+    // relay.json writes there, not on deps.writeMarkdownFileAtomic.
+    // deps.writeMarkdownFileAtomic (Step 2.5 identity.md write) remains no-op.
     let writeCallCount = 0;
-    const mockWriteMd = vi.fn().mockImplementation((_conn, targetPath) => {
-      writeCallCount += 1;
-      if (typeof targetPath === "string" && targetPath.endsWith("/relay.json")) {
-        return Promise.reject(new Error("sftp_write_failed"));
-      }
-      return Promise.resolve(undefined);
-    });
+    mockWriteMarkdownFileAtomicModule.mockImplementation(
+      (_conn: unknown, targetPath: string) => {
+        writeCallCount += 1;
+        if (
+          typeof targetPath === "string" &&
+          targetPath.endsWith("/relay.json")
+        ) {
+          return Promise.reject(new Error("sftp_write_failed"));
+        }
+        return Promise.resolve(undefined);
+      },
+    );
+    const mockWriteMd = vi.fn().mockResolvedValue(undefined);
 
     const deps = makeDeps({
       matrixCreateOrUpdateUser: mockCreateOrUpdate,
@@ -1441,8 +1514,12 @@ describe("Phase 75 Plan 04: relay-mint extensions (Steps 6, 7, 8)", () => {
     // Q2 anti-rollback assertion: NO rm/rm -rf, no folder-cleanup
     assertNoRmRfInExecCalls(mockExecCommand);
 
-    // Confirm writeMarkdownFileAtomic was invoked (proves we reached step 8)
-    expect(writeCallCount).toBeGreaterThanOrEqual(2); // .md write + relay.json write attempt
+    // Confirm module-level writeMarkdownFileAtomic was invoked for relay.json
+    // (proves we reached step 8 via the per-identity-file primitive).
+    expect(writeCallCount).toBeGreaterThanOrEqual(1);
+    // Additionally: deps.writeMarkdownFileAtomic (Step 2.5 identity .md write)
+    // was invoked at least once (proves Step 2.5 still runs pre-Step 8).
+    expect(mockWriteMd).toHaveBeenCalled();
   }, 30_000);
 
   // ---- Test C2: chmod 600 failure fails step 8 without rollback (Q2 agent-supervisor race) ----
@@ -1565,7 +1642,7 @@ describe("Phase 75 Plan 04: relay-mint extensions (Steps 6, 7, 8)", () => {
 
     // First invocation
     await runRelayMintAndWrite(
-      { name: "agent1", displayName: "Agent1" },
+      { name: "agent1", displayName: "Agent1", hostId: 999 },
       emit1,
       deps,
       mockConn as unknown as Parameters<typeof runRelayMintAndWrite>[3],
@@ -1573,7 +1650,7 @@ describe("Phase 75 Plan 04: relay-mint extensions (Steps 6, 7, 8)", () => {
 
     // Second invocation (retry)
     await runRelayMintAndWrite(
-      { name: "agent1", displayName: "Agent1" },
+      { name: "agent1", displayName: "Agent1", hostId: 999 },
       emit2,
       deps,
       mockConn as unknown as Parameters<typeof runRelayMintAndWrite>[3],
@@ -1597,7 +1674,18 @@ describe("Phase 75 Plan 04: relay-mint extensions (Steps 6, 7, 8)", () => {
     expect(mockCreateOrUpdate).toHaveBeenCalledTimes(2);
     expect(mockLoginAsUser).toHaveBeenCalledTimes(2);
     expect(mockBuildRelay).toHaveBeenCalledTimes(2);
-    expect(mockWriteMd).toHaveBeenCalledTimes(2);
+    // Phase 92 Plan 92-01 Task 2: Step 8's relay.json write now flows through
+    // the module-level writeMarkdownFileAtomic (via per-identity-file), NOT
+    // deps.writeMarkdownFileAtomic. runRelayMintAndWrite only covers Steps
+    // 6/7/8 (Step 2.5 isn't executed here) so deps.writeMarkdownFileAtomic
+    // is NEVER called on this path post-refactor; the module mock IS.
+    expect(mockWriteMd).not.toHaveBeenCalled();
+    const relayJsonWrites =
+      mockWriteMarkdownFileAtomicModule.mock.calls.filter(
+        (c: unknown[]) =>
+          typeof c[1] === "string" && (c[1] as string).endsWith("/relay.json"),
+      );
+    expect(relayJsonWrites).toHaveLength(2);
 
     // chmod 600 called twice
     const chmodCalls = mockExecCommand.mock.calls.filter(
@@ -1808,3 +1896,270 @@ describe("Phase 89-02 Task 3: agents-registry join hook in Step 6", () => {
     expect((endedEvent as { ok: boolean }).ok).toBe(true);
   }, 30_000);
 });
+
+// ---------------------------------------------------------------------------
+// Phase 92 Plan 92-01 Task 2: identity-birth Step 8 refactor — byte-shape
+// regression tests. Step 8's relay.json write is rerouted through the new
+// per-identity-file.writeIdentityFile primitive; the wire must be
+// byte-for-byte identical to the pre-refactor Phase 77 SFTP write.
+// ---------------------------------------------------------------------------
+
+describe("Phase 92-01 Task 2: Step 8 refactor byte-shape parity", () => {
+  // ---- T1: relay.json target path unchanged ($HOME/fleet/identities/<name>/relay.json)
+  it("T1: relay.json REMOTE target path matches pre-refactor L862 literal `$HOME/fleet/identities/<name>/relay.json`", async () => {
+    mockIsLocalHostId.mockReturnValue(false);
+
+    const mockCreateOrUpdate = vi
+      .fn()
+      .mockResolvedValue({ ok: true, mxid: "@agent92:matrix.local", password: "pw", status: 201 });
+    const mockLoginAsUser = vi
+      .fn()
+      .mockResolvedValue({ ok: true, accessToken: "syt_real_token" });
+    const mockBuildRelay = vi.fn().mockReturnValue('{"ok":true}');
+
+    const deps = makeDeps({
+      matrixCreateOrUpdateUser: mockCreateOrUpdate,
+      matrixLoginAsUser: mockLoginAsUser,
+      buildRelayJsonBody: mockBuildRelay,
+    });
+    const opts = makeOpts({ name: "agent92" });
+    const { emit } = collectEvents();
+
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    // Find the relay.json write call on the module-level writeMarkdownFileAtomic
+    const relayJsonWrites =
+      mockWriteMarkdownFileAtomicModule.mock.calls.filter(
+        (c: unknown[]) =>
+          typeof c[1] === "string" && (c[1] as string).endsWith("/relay.json"),
+      );
+    expect(relayJsonWrites).toHaveLength(1);
+    // Byte-shape lock: $HOME is a LITERAL string, not resolved.
+    expect(relayJsonWrites[0][1]).toBe(
+      "$HOME/fleet/identities/agent92/relay.json",
+    );
+  }, 30_000);
+
+  // ---- T2: relay.json body threaded through verbatim (no wrapping)
+  it("T2: relay.json body threaded verbatim (equals buildRelayJsonBody output)", async () => {
+    mockIsLocalHostId.mockReturnValue(false);
+
+    const expectedBody = '{"custom":"body","token":"xyz"}';
+    const mockCreateOrUpdate = vi
+      .fn()
+      .mockResolvedValue({ ok: true, mxid: "@agent92:matrix.local", password: "pw", status: 201 });
+    const mockLoginAsUser = vi
+      .fn()
+      .mockResolvedValue({ ok: true, accessToken: "syt_real_token" });
+    const mockBuildRelay = vi.fn().mockReturnValue(expectedBody);
+
+    const deps = makeDeps({
+      matrixCreateOrUpdateUser: mockCreateOrUpdate,
+      matrixLoginAsUser: mockLoginAsUser,
+      buildRelayJsonBody: mockBuildRelay,
+    });
+    const opts = makeOpts({ name: "agent92" });
+    const { emit } = collectEvents();
+
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    const relayJsonWrites =
+      mockWriteMarkdownFileAtomicModule.mock.calls.filter(
+        (c: unknown[]) =>
+          typeof c[1] === "string" && (c[1] as string).endsWith("/relay.json"),
+      );
+    expect(relayJsonWrites).toHaveLength(1);
+    // Contents (arg [2]) must be the raw buildRelayJsonBody output — no
+    // wrapping / re-serialization.
+    expect(relayJsonWrites[0][2]).toBe(expectedBody);
+  }, 30_000);
+
+  // ---- T3: chmod 600 preserved
+  it("T3: Step 8 still applies chmod 600 to relay.json (S-1 lock)", async () => {
+    mockIsLocalHostId.mockReturnValue(false);
+
+    const mockCreateOrUpdate = vi
+      .fn()
+      .mockResolvedValue({ ok: true, mxid: "@agent92:matrix.local", password: "pw", status: 201 });
+    const mockLoginAsUser = vi
+      .fn()
+      .mockResolvedValue({ ok: true, accessToken: "syt_real_token" });
+    const mockBuildRelay = vi.fn().mockReturnValue("{}");
+
+    const deps = makeDeps({
+      matrixCreateOrUpdateUser: mockCreateOrUpdate,
+      matrixLoginAsUser: mockLoginAsUser,
+      buildRelayJsonBody: mockBuildRelay,
+    });
+    const opts = makeOpts({ name: "agent92" });
+    const { emit } = collectEvents();
+
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    // chmod 600 called on relay.json — S-1 lock (world-readable relay.json
+    // would expose Matrix creds; primitive threads opts.chmod=0o600).
+    const chmodCalls = mockExecCommand.mock.calls.filter(
+      (c: unknown[]) =>
+        typeof c[1] === "string" &&
+        /chmod\s+600\s+.*relay\.json/.test(c[1] as string),
+    );
+    expect(chmodCalls.length).toBeGreaterThanOrEqual(1);
+  }, 30_000);
+
+  // ---- T4: writeIdentityFile throw fails Step 8 loudly (no rollback)
+  it("T4: writeIdentityFile (module writeMarkdownFileAtomic) throw at Step 8 → ended{ok:false, failedStep:8}", async () => {
+    mockIsLocalHostId.mockReturnValue(false);
+
+    // Make the module-level writeMarkdownFileAtomic REJECT for relay.json only
+    mockWriteMarkdownFileAtomicModule.mockImplementation(
+      (_conn: unknown, targetPath: string) => {
+        if (
+          typeof targetPath === "string" &&
+          targetPath.endsWith("/relay.json")
+        ) {
+          return Promise.reject(new Error("sftp_write_failed_at_relay"));
+        }
+        return Promise.resolve(undefined);
+      },
+    );
+
+    const mockCreateOrUpdate = vi
+      .fn()
+      .mockResolvedValue({ ok: true, mxid: "@agent92:matrix.local", password: "pw", status: 201 });
+    const mockLoginAsUser = vi
+      .fn()
+      .mockResolvedValue({ ok: true, accessToken: "syt_real_token" });
+    const mockBuildRelay = vi.fn().mockReturnValue("{}");
+
+    const deps = makeDeps({
+      matrixCreateOrUpdateUser: mockCreateOrUpdate,
+      matrixLoginAsUser: mockLoginAsUser,
+      buildRelayJsonBody: mockBuildRelay,
+    });
+    const opts = makeOpts({ name: "agent92" });
+    const { events, emit } = collectEvents();
+
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    const failedEvent = events.find(
+      (e) => e.type === "step" && e.n === 8 && e.phase === "failed",
+    );
+    expect(failedEvent).toBeDefined();
+
+    const endedEvent = events.find((e) => e.type === "ended");
+    expect(endedEvent).toBeDefined();
+    expect((endedEvent as { ok: boolean }).ok).toBe(false);
+    expect((endedEvent as { failedStep?: number }).failedStep).toBe(8);
+  }, 30_000);
+
+  // ---- T5: Step 6/7 unaffected — mint + login + buildRelay still invoked
+  it("T5: Step 6/7 unaffected — matrixCreateOrUpdateUser + matrixLoginAsUser + buildRelayJsonBody still called", async () => {
+    mockIsLocalHostId.mockReturnValue(false);
+
+    const mockCreateOrUpdate = vi
+      .fn()
+      .mockResolvedValue({ ok: true, mxid: "@agent92:matrix.local", password: "pw", status: 201 });
+    const mockLoginAsUser = vi
+      .fn()
+      .mockResolvedValue({ ok: true, accessToken: "syt_real_token" });
+    const mockBuildRelay = vi.fn().mockReturnValue('{"ok":true}');
+
+    const deps = makeDeps({
+      matrixCreateOrUpdateUser: mockCreateOrUpdate,
+      matrixLoginAsUser: mockLoginAsUser,
+      buildRelayJsonBody: mockBuildRelay,
+    });
+    const opts = makeOpts({ name: "agent92" });
+    const { events, emit } = collectEvents();
+
+    const birthPromise = birthIdentity(opts, emit, deps);
+    await vi.runAllTimersAsync();
+    await birthPromise;
+
+    expect(mockCreateOrUpdate).toHaveBeenCalledTimes(1);
+    expect(mockLoginAsUser).toHaveBeenCalledTimes(1);
+    expect(mockBuildRelay).toHaveBeenCalledTimes(1);
+
+    // Step 6/7/8 all completed
+    for (const n of [6, 7, 8]) {
+      const done = events.find(
+        (e) => e.type === "step" && e.n === n && e.phase === "completed",
+      );
+      expect(done).toBeDefined();
+    }
+  }, 30_000);
+
+  // ---- T6: regex-tightening backwards compat — every legit identity key still reaches Step 8
+  it("T6: every identity key that passed the pre-refactor gates STILL reaches Step 8 through the primitive's stricter regex", async () => {
+    // Legitimate identity keys observed in the fleet — all lowercase alnum with
+    // hyphen/underscore. These MUST reach Step 8 (invoke module
+    // writeMarkdownFileAtomic for relay.json) under the primitive's stricter
+    // /^[a-z0-9_-]{1,64}$/ gate. The pre-refactor identity-birth.ts:64 route
+    // regex is looser but no fleet identity uses the extra characters.
+    const legitKeys = [
+      "tina",
+      "tina-01",
+      "stacy",
+      "role-name-hyphenated",
+      "underscored_id",
+      "a".repeat(63),
+      "a".repeat(64),
+    ];
+
+    for (const key of legitKeys) {
+      // Reset only the module-level writeMarkdownFileAtomic between iterations
+      // — vi.useFakeTimers state persists across iterations within one it().
+      mockWriteMarkdownFileAtomicModule.mockReset();
+      mockWriteMarkdownFileAtomicModule.mockResolvedValue(undefined);
+
+      const mockCreateOrUpdate = vi
+        .fn()
+        .mockResolvedValue({ ok: true, mxid: `@${key}:matrix.local`, password: "pw", status: 201 });
+      const mockLoginAsUser = vi
+        .fn()
+        .mockResolvedValue({ ok: true, accessToken: "syt_real_token" });
+      const mockBuildRelay = vi.fn().mockReturnValue("{}");
+
+      const deps = makeDeps({
+        matrixCreateOrUpdateUser: mockCreateOrUpdate,
+        matrixLoginAsUser: mockLoginAsUser,
+        buildRelayJsonBody: mockBuildRelay,
+      });
+      const opts = makeOpts({ name: key });
+      const { events, emit } = collectEvents();
+
+      const birthPromise = birthIdentity(opts, emit, deps);
+      await vi.runAllTimersAsync();
+      await birthPromise;
+
+      // Step 8 must have completed for every legit key
+      const step8Completed = events.find(
+        (e) => e.type === "step" && e.n === 8 && e.phase === "completed",
+      );
+      expect(
+        step8Completed,
+        `identity key ${JSON.stringify(key)} failed to reach Step 8 completed`,
+      ).toBeDefined();
+
+      // relay.json write path is exactly `$HOME/fleet/identities/<key>/relay.json`
+      const relayJsonWrite =
+        mockWriteMarkdownFileAtomicModule.mock.calls.find(
+          (c: unknown[]) =>
+            typeof c[1] === "string" && (c[1] as string).endsWith("/relay.json"),
+        );
+      expect(relayJsonWrite).toBeDefined();
+      expect(relayJsonWrite![1]).toBe(
+        `$HOME/fleet/identities/${key}/relay.json`,
+      );
+    }
+  }, 60_000);
+});
+

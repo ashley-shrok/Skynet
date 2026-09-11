@@ -144,20 +144,20 @@ describe("writeIdentityFile — REMOTE branch atomic-rename API (quick 260802-qr
     expect(sftp.ext_openssh_rename).toHaveBeenCalledTimes(1);
     expect(sftp.rename).not.toHaveBeenCalled();
 
-    // Path shape: writes to <home>/.claude/identities/tina/tina.md.tmp
-    // then renames it to <home>/.claude/identities/tina/tina.md.
+    // Path shape: writes to <home>/fleet/identities/tina/tina.md.tmp
+    // then renames it to <home>/fleet/identities/tina/tina.md.
     expect(renameCalls).toHaveLength(1);
     expect(renameCalls[0].from).toBe(
-      "/home/tester/.claude/identities/tina/tina.md.tmp",
+      "/home/tester/fleet/identities/tina/tina.md.tmp",
     );
     expect(renameCalls[0].to).toBe(
-      "/home/tester/.claude/identities/tina/tina.md",
+      "/home/tester/fleet/identities/tina/tina.md",
     );
 
     // sftp.writeFile was invoked with the .tmp target BEFORE the rename.
     expect(sftp.writeFile).toHaveBeenCalledTimes(1);
     const writeArgs = sftp.writeFile.mock.calls[0];
-    expect(writeArgs[0]).toBe("/home/tester/.claude/identities/tina/tina.md.tmp");
+    expect(writeArgs[0]).toBe("/home/tester/fleet/identities/tina/tina.md.tmp");
 
     // finally { sftp.end() } always runs.
     expect(sftp.end).toHaveBeenCalledTimes(1);
@@ -172,7 +172,7 @@ describe("writeIdentityHistory and writeIdentityHandoff — REMOTE branch (quick
   // but has more setup — left out of scope; the shared helper guarantees
   // the fix transitively.)
 
-  it("writeIdentityHistory routes through ext_openssh_rename to /<home>/.claude/identities/tina/history.md", async () => {
+  it("writeIdentityHistory routes through ext_openssh_rename to /<home>/fleet/identities/tina/history.md", async () => {
     const { conn, sftp, renameCalls } = buildMockConn();
 
     await writeIdentityHistory(conn, "tina", "# history\n");
@@ -182,16 +182,16 @@ describe("writeIdentityHistory and writeIdentityHandoff — REMOTE branch (quick
 
     expect(renameCalls).toHaveLength(1);
     expect(renameCalls[0].from).toBe(
-      "/home/tester/.claude/identities/tina/history.md.tmp",
+      "/home/tester/fleet/identities/tina/history.md.tmp",
     );
     expect(renameCalls[0].to).toBe(
-      "/home/tester/.claude/identities/tina/history.md",
+      "/home/tester/fleet/identities/tina/history.md",
     );
 
     expect(sftp.end).toHaveBeenCalledTimes(1);
   });
 
-  it("writeIdentityHandoff routes through ext_openssh_rename to /<home>/.claude/identities/tina/handoff.md", async () => {
+  it("writeIdentityHandoff routes through ext_openssh_rename to /<home>/fleet/identities/tina/handoff.md", async () => {
     const { conn, sftp, renameCalls } = buildMockConn();
 
     await writeIdentityHandoff(conn, "tina", "# handoff\n");
@@ -201,10 +201,10 @@ describe("writeIdentityHistory and writeIdentityHandoff — REMOTE branch (quick
 
     expect(renameCalls).toHaveLength(1);
     expect(renameCalls[0].from).toBe(
-      "/home/tester/.claude/identities/tina/handoff.md.tmp",
+      "/home/tester/fleet/identities/tina/handoff.md.tmp",
     );
     expect(renameCalls[0].to).toBe(
-      "/home/tester/.claude/identities/tina/handoff.md",
+      "/home/tester/fleet/identities/tina/handoff.md",
     );
 
     expect(sftp.end).toHaveBeenCalledTimes(1);
@@ -223,7 +223,7 @@ describe("writeIdentityHistory and writeIdentityHandoff — REMOTE branch (quick
 // mechanism (reused unchanged from the markdown writers above).
 
 describe("writeAvatarSiblingFile — REMOTE branch atomic-rename API", () => {
-  it("Test A: calls ext_openssh_rename (not sftp.rename); writes bytes to <home>/.claude/identities/<key>/<key>.<ext>.tmp then renames to target", async () => {
+  it("Test A: calls ext_openssh_rename (not sftp.rename); writes bytes to <home>/fleet/identities/<key>/<key>.<ext>.tmp then renames to target", async () => {
     const { conn, sftp, renameCalls } = buildMockConn();
 
     const bytes = Buffer.from([0xde, 0xad, 0xbe, 0xef]);
@@ -236,17 +236,17 @@ describe("writeAvatarSiblingFile — REMOTE branch atomic-rename API", () => {
     // Path shape: tmp then final.
     expect(renameCalls).toHaveLength(1);
     expect(renameCalls[0].from).toBe(
-      "/home/tester/.claude/identities/tina/tina.webp.tmp",
+      "/home/tester/fleet/identities/tina/tina.webp.tmp",
     );
     expect(renameCalls[0].to).toBe(
-      "/home/tester/.claude/identities/tina/tina.webp",
+      "/home/tester/fleet/identities/tina/tina.webp",
     );
 
     // sftp.writeFile called with the .tmp target AND the input bytes verbatim.
     expect(sftp.writeFile).toHaveBeenCalledTimes(1);
     const writeArgs = sftp.writeFile.mock.calls[0];
     expect(writeArgs[0]).toBe(
-      "/home/tester/.claude/identities/tina/tina.webp.tmp",
+      "/home/tester/fleet/identities/tina/tina.webp.tmp",
     );
     // Bytes must round-trip byte-for-byte
     const writtenBuf = writeArgs[1] as Buffer;

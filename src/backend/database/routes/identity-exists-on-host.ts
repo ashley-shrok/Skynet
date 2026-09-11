@@ -5,9 +5,9 @@
  * GET /identities/exists-on-host?hostId=<n>&name=<slug>
  *   → { exists: boolean }
  *
- * Checks whether `~/.claude/identities/<name>/` exists on the target host:
+ * Checks whether `~/fleet/identities/<name>/` exists on the target host:
  *   - LOCAL branch: when hostId is in IDENTITIES_LOCAL_HOST_IDS, probe is a
- *     local fs.stat call against os.homedir()/.claude/identities/<name>/.
+ *     local fs.stat call against os.homedir()/fleet/identities/<name>/.
  *   - SSH branch: otherwise, opens a connectOneShot SSH connection and runs
  *     an idempotent `if [ -d ... ]` check via execCommand.
  *
@@ -130,7 +130,7 @@ router.get(
         const output = await Promise.race([
           execCommand(
             conn,
-            `if [ -d "$HOME/.claude/identities/${name}" ]; then echo exists; else echo missing; fi`,
+            `if [ -d "$HOME/fleet/identities/${name}" ]; then echo exists; else echo missing; fi`,
           ),
           new Promise<string>((_, reject) =>
             setTimeout(

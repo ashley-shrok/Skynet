@@ -114,7 +114,7 @@ type WorkingRecord = {
   // store third axis.
   aiTitle: string | null;
   // Phase 52 Plan 01 — the inline supervisor-dormancy signal. Source: the
-  // ~/.claude/identities/<tmuxSession>/.dormant sentinel file on the target
+  // ~/fleet/identities/<tmuxSession>/.dormant sentinel file on the target
   // host. `true` when the sentinel is present (identity parked by supervisor),
   // `false` otherwise. Default `false` on cold-start and on frames from
   // pre-Phase-52 backends that omit the field entirely. Strict boolean at
@@ -990,7 +990,7 @@ export function useSessionIsWorkingRaw(key: string | null): boolean | null {
  *   - dormant === false → false (sentinel absent; identity in normal operation).
  *   - dormant === true  → true  (sentinel present; identity parked by supervisor).
  *
- * Source: ~/.claude/identities/<tmuxSession>/.dormant sentinel file on the
+ * Source: ~/fleet/identities/<tmuxSession>/.dormant sentinel file on the
  * target host, plumbed via ssh-poll-orchestrator source A (live-PID tick) and
  * source B (dormant-only enumeration). See Phase 52 Plan 01 for both sources.
  *
@@ -1017,7 +1017,7 @@ export function useSessionIsDormant(key: string | null): boolean {
  *   - recycling === true    → true  (sentinel present; identity being replaced
  *                                    via /id-reset).
  *
- * Source: caretaker's ~/.claude/identities/<tmuxSession>/.recycled-at sentinel,
+ * Source: caretaker's ~/fleet/identities/<tmuxSession>/.recycled-at sentinel,
  * plumbed via ssh-poll-orchestrator source A per Phase 53 RESEARCH § Assumption
  * A1, see Phase 53 Plan 01.
  *

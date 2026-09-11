@@ -58,7 +58,7 @@
  *
  * The identities table was dropped in Phase 68 per
  * shape-kill-identities-table.md. Agent mxids live on-disk in
- * ~/.claude/identities/<name>/relay.json. There is no database registry for
+ * ~/fleet/identities/<name>/relay.json. There is no database registry for
  * agents that this route can query. The fleet-registry helper therefore
  * only gates humanMxids against users.mxid; agentMxids pass registry
  * validation as long as they satisfy the MXID_RE grammar (Layer 1). Every

@@ -15,6 +15,8 @@ import {
 } from "./utils/logger.js";
 import { flushBackendLogs } from "./utils/console-forward-transport.js";
 import type { SshChannel } from "./fleet-status/ssh-poll-orchestrator.js";
+import { enqueue as enqueueSpawnRequest, setProcessBirth as setSpawnRequestProcessBirth } from "./spawn-requests/queue.js";
+import { processBirth as processSpawnRequestBirth, buildProductionDeps as buildSpawnRequestWorkerDeps } from "./spawn-requests/worker.js";
 
 // ---------------------------------------------------------------------------
 // Phase 39 Plan 04 (D-05 / GATE2-05): Module-scope helper for fire-and-forget
@@ -728,6 +730,15 @@ if (process.env.VITEST !== "true") {
         }
       }
 
+      // Phase 99: wire the spawn-request birth-worker into the queue module.
+      // Runs before the orchestrator starts polling, so any request claimed on
+      // the first tick has a processBirth callback ready to drain it.
+      // (D-06 in-memory queue + D-07 serialized worker + D-14 host-owner userId
+      // + D-20 no changes to identity-birth-orchestrator.ts — the worker is a
+      // new caller of the existing birthIdentity export.)
+      const spawnRequestWorkerDeps = buildSpawnRequestWorkerDeps();
+      setSpawnRequestProcessBirth((item) => processSpawnRequestBirth(item, spawnRequestWorkerDeps));
+
       const orchestrator = createSshPollOrchestrator({
         // Phase 72 Plan 05 — tightened cast: the projected records now carry
         // runsFleetSubstrate + _connDetails, matching IdentityHostingHostRecord.
@@ -751,6 +762,12 @@ if (process.env.VITEST !== "true") {
         staleSweepIntervalMs: 30000,
         hookPayloadPath: "~/.claude/fleet-status/last-stop-payload.json",
         hookPayloadWarnCooldownMs: 60000,
+        // Phase 99 (D-01 + D-17): wire the fleet-status sweep's atomic
+        // spawn-request scan step to the in-memory queue's enqueue function.
+        // Each claimed request file becomes a PendingBirth item that the
+        // serialized worker (wired above via setSpawnRequestProcessBirth) will
+        // drain into a birthIdentity call.
+        enqueueSpawnRequest,
       });
 
       // ---------------------------------------------------------------------

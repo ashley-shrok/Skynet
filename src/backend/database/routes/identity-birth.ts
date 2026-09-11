@@ -566,7 +566,7 @@ router.post("/retry/:key", express.json(), requireAdmin, async (req: Request, re
       // (which does NOT emit ended — the retry route emits ended{ok:true}
       // on success below).
       await runRelayMintAndWrite(
-        { name: key, displayName },
+        { name: key, displayName, hostId },
         (e: BirthEvent) => {
           emit(e);
           if (e.type === "ended") endedEmitted = true;

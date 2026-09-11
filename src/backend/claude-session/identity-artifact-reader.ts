@@ -218,7 +218,7 @@ export function isLocalHostId(hostId: number | undefined): boolean {
 export function getLocalIdentitiesRoot(): string {
   return (
     process.env.IDENTITIES_HOST_DIR ||
-    path.join(os.homedir(), ".claude", "identities")
+    path.join(os.homedir(), "fleet", "identities")
   );
 }
 
@@ -238,7 +238,7 @@ export function getLocalIdentitiesRoot(): string {
 export function getLocalRolesRoot(): string {
   return (
     process.env.ROLES_HOST_DIR ||
-    path.join(os.homedir(), ".claude", "roles")
+    path.join(os.homedir(), "fleet", "roles")
   );
 }
 
@@ -247,9 +247,9 @@ export function getLocalRolesRoot(): string {
 // ---------------------------------------------------------------------------
 //
 // The fleet-side role/identity paradigm stores role assignment as YAML
-// frontmatter (`role: <name>`) at the top of ~/.claude/identities/<key>/<key>.md.
+// frontmatter (`role: <name>`) at the top of ~/fleet/identities/<key>/<key>.md.
 // Role-scoped artifacts (bounties, history, role-file) live at
-// ~/.claude/roles/<role>/... — so any backend op that needs a role artifact
+// ~/fleet/roles/<role>/... — so any backend op that needs a role artifact
 // must first read the identity file, parse the frontmatter, and extract role.
 //
 // This helper pair (extractRoleFromMarkdown + resolveRoleForIdentity) is the
@@ -444,12 +444,12 @@ export async function readIdentityFile(
   // REMOTE branch — patch #95: shellEscape produces single-quoted
   // 'identityKey', but wrapping that inside outer double-quotes preserves
   // the single quotes as LITERAL path characters (path became
-  // $HOME/.claude/identities/'moxie'/'moxie'.md). identityKey is already
+  // $HOME/fleet/identities/'moxie'/'moxie'.md). identityKey is already
   // validated by IDENTITY_KEY_RE = /^[a-z0-9_-]{1,64}$/ — none of those
   // characters are shell-special inside double quotes, so direct
   // interpolation is safe. shellEscape is redundant + broken in this
   // wrapping and is dropped for the string readers.
-  const cmd = `cat "$HOME/.claude/identities/${identityKey}/${identityKey}.md" 2>/dev/null || true`;
+  const cmd = `cat "$HOME/fleet/identities/${identityKey}/${identityKey}.md" 2>/dev/null || true`;
   const stdout = await execWithTimeout(conn, cmd);
   return { markdown: stdout };
 }
@@ -472,7 +472,7 @@ export async function readIdentityFile(
  *   - Returns sorted (lexicographic) array of names.
  *
  * REMOTE branch (conn !== null):
- *   - Runs `find "$HOME/.claude/identities" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null || true`
+ *   - Runs `find "$HOME/fleet/identities" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null || true`
  *     via execWithTimeout (3s timeout matches other REMOTE ops).
  *   - `|| true` handles "identities dir missing" as empty stdout.
  *   - Splits stdout by newline, trims, drops empty strings.
@@ -510,7 +510,7 @@ export async function listIdentityKeysOnHost(
 
   // REMOTE branch — find prints basenames only; || true handles missing dir
   const cmd =
-    `find "$HOME/.claude/identities" -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' 2>/dev/null || true`;
+    `find "$HOME/fleet/identities" -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' 2>/dev/null || true`;
   const stdout = await execWithTimeout(conn, cmd);
   return stdout
     .split("\n")
@@ -524,7 +524,7 @@ export async function listIdentityKeysOnHost(
 // ---------------------------------------------------------------------------
 
 /**
- * Read the identity's role file (~/.claude/roles/<role>/<role>.md).
+ * Read the identity's role file (~/fleet/roles/<role>/<role>.md).
  *
  * Byte-shape mirror of readIdentityFile: same wire shape `{markdown}`, same
  * LOCAL vs REMOTE branch structure. The role name is discovered internally
@@ -554,7 +554,7 @@ export async function readRoleFile(
 
   if (conn === null) {
     // LOCAL branch — reads from ROLES_HOST_DIR (mirrors readIdentityFile
-    // LOCAL pattern rooted at ~/.claude/roles/<role>/<role>.md)
+    // LOCAL pattern rooted at ~/fleet/roles/<role>/<role>.md)
     const root = getLocalRolesRoot();
     const filePath = path.join(root, role, role + ".md");
     try {
@@ -576,7 +576,7 @@ export async function readRoleFile(
   // IDENTITY_KEY_RE inside resolveRoleForIdentity (same defense as
   // readIdentityFile at patch #95 comment above). `|| true` swallows
   // ENOENT so the response is `{markdown: ""}` on missing role file.
-  const cmd = `cat "$HOME/.claude/roles/${role}/${role}.md" 2>/dev/null || true`;
+  const cmd = `cat "$HOME/fleet/roles/${role}/${role}.md" 2>/dev/null || true`;
   const stdout = await execWithTimeout(conn, cmd);
   return { markdown: stdout };
 }
@@ -586,7 +586,7 @@ export async function readRoleFile(
 // ---------------------------------------------------------------------------
 
 /**
- * Read a role file (~/.claude/roles/<roleName>/<roleName>.md) directly by
+ * Read a role file (~/fleet/roles/<roleName>/<roleName>.md) directly by
  * role name — WITHOUT the identity-file two-step used by readRoleFile above.
  *
  * Wave-1 need: GET /identities per-host fanout resolves each identity's role
@@ -600,7 +600,7 @@ export async function readRoleFile(
  * Byte-shape mirror of readRoleFile's LOCAL/REMOTE branch structure:
  *   LOCAL: getLocalRolesRoot() + <roleName>/<roleName>.md via fs.readFile,
  *          ENOENT → {markdown: ""}.
- *   REMOTE: `cat "$HOME/.claude/roles/${roleName}/${roleName}.md" 2>/dev/null
+ *   REMOTE: `cat "$HOME/fleet/roles/${roleName}/${roleName}.md" 2>/dev/null
  *           || true` via execWithTimeout, empty stdout → {markdown: ""}.
  *
  * ROLE_NAME_PATTERN gate (T-85-01-01): defense-in-depth for the SSH
@@ -625,7 +625,7 @@ export async function readRoleFileByName(
 
   if (conn === null) {
     // LOCAL branch — reads from ROLES_HOST_DIR (mirrors readRoleFile LOCAL
-    // pattern; same ~/.claude/roles/<name>/<name>.md path shape).
+    // pattern; same ~/fleet/roles/<name>/<name>.md path shape).
     const root = getLocalRolesRoot();
     const filePath = path.join(root, roleName, roleName + ".md");
     try {
@@ -645,7 +645,7 @@ export async function readRoleFileByName(
 
   // REMOTE branch — roleName passed ROLE_NAME_PATTERN above, so direct
   // interpolation is shell-safe (same defense as readRoleFile L578).
-  const cmd = `cat "$HOME/.claude/roles/${roleName}/${roleName}.md" 2>/dev/null || true`;
+  const cmd = `cat "$HOME/fleet/roles/${roleName}/${roleName}.md" 2>/dev/null || true`;
   const stdout = await execWithTimeout(conn, cmd);
   return { markdown: stdout };
 }
@@ -660,7 +660,7 @@ export async function readRoleFileByName(
  * The `entries` field is unchanged — additive widening, no consumers broken.
  *
  * Phase 22 SRIC-01: reads via two-step — identity file → role: frontmatter →
- * role folder (~/.claude/roles/<role>/history.md). Public signature untouched;
+ * role folder (~/fleet/roles/<role>/history.md). Public signature untouched;
  * frontend contract stays (identityKey, hostId) per D-CONTEXT lockdown. See
  * resolveRoleForIdentity above for the no-fallback semantics.
  */
@@ -675,7 +675,7 @@ export async function readIdentityHistory(
 
   if (conn === null) {
     // LOCAL branch — reads from ROLES_HOST_DIR (mirrors identity-folder pattern
-    // pre-SRIC-01 but rooted at ~/.claude/roles/<role>/history.md)
+    // pre-SRIC-01 but rooted at ~/fleet/roles/<role>/history.md)
     const root = getLocalRolesRoot();
     const filePath = path.join(root, role, "history.md");
     try {
@@ -704,7 +704,7 @@ export async function readIdentityHistory(
   // (via caller) AND role (via resolveRoleForIdentity's IDENTITY_KEY_RE gate)
   // are validated by /^[a-z0-9_-]{1,64}$/ — none of those characters are
   // shell-special inside double quotes.
-  const cmd = `cat "$HOME/.claude/roles/${role}/history.md" 2>/dev/null || true`;
+  const cmd = `cat "$HOME/fleet/roles/${role}/history.md" 2>/dev/null || true`;
   const markdown = await execWithTimeout(conn, cmd);
   if (!markdown) return { entries: [], markdown: "" };
   const entries = markdown
@@ -828,7 +828,7 @@ export async function readIdentityWakeups(
   // REMOTE branch — delimiter-based one-liner (one round-trip for all wakeup files)
   // Patch #95: direct interpolation (see readIdentityFile for the bug).
   const cmd =
-    `cd "$HOME/.claude/identities/${identityKey}/wakeups" 2>/dev/null && ` +
+    `cd "$HOME/fleet/identities/${identityKey}/wakeups" 2>/dev/null && ` +
     'for f in *.json; do echo "===FILE:$f==="; cat "$f"; done';
   let stdout: string;
   try {
@@ -878,7 +878,7 @@ export async function readIdentityWakeups(
 }
 
 // ---------------------------------------------------------------------------
-// 3b. readRoleWakeups — ~/.claude/roles/<role>/wakeups/*.json (Phase 72 Plan 01)
+// 3b. readRoleWakeups — ~/fleet/roles/<role>/wakeups/*.json (Phase 72 Plan 01)
 // ---------------------------------------------------------------------------
 
 /**
@@ -908,7 +908,7 @@ export async function readRoleWakeups(
 
   if (conn === null) {
     // LOCAL branch — mirrors readIdentityWakeups LOCAL, rooted at
-    // ~/.claude/roles/<role>/wakeups/
+    // ~/fleet/roles/<role>/wakeups/
     const root = getLocalRolesRoot();
     const wakeupsDir = path.join(root, role, "wakeups");
     let dirEntries: string[];
@@ -962,7 +962,7 @@ export async function readRoleWakeups(
   // /^[a-z0-9_-]{1,64}$/ — none of those characters are shell-special inside
   // double quotes.
   const cmd =
-    `cd "$HOME/.claude/roles/${role}/wakeups" 2>/dev/null && ` +
+    `cd "$HOME/fleet/roles/${role}/wakeups" 2>/dev/null && ` +
     'for f in *.json; do echo "===FILE:$f==="; cat "$f"; done';
   let stdout: string;
   try {
@@ -1043,7 +1043,7 @@ export async function readIdentityHandoff(
   // REMOTE branch — patch #94: `|| true` so missing handoff.md resolves as
   // empty stdout instead of throwing "Command exited with code 1".
   // Patch #95: direct interpolation (see readIdentityFile for the bug).
-  const cmd = `cat "$HOME/.claude/identities/${identityKey}/handoff.md" 2>/dev/null || true`;
+  const cmd = `cat "$HOME/fleet/identities/${identityKey}/handoff.md" 2>/dev/null || true`;
   const stdout = await execWithTimeout(conn, cmd);
   return { markdown: stdout };
 }
@@ -1055,7 +1055,7 @@ export async function readIdentityHandoff(
 /** Result shape for bounties reads. Matches the wire shape "identity:bounties".
  *
  * Phase 22 SRIC-01: reads via two-step — identity file → role: frontmatter →
- * role folder (~/.claude/roles/<role>/bounties/, plus /archive/). Public
+ * role folder (~/fleet/roles/<role>/bounties/, plus /archive/). Public
  * signature untouched; frontend contract stays (identityKey, hostId) per
  * D-CONTEXT lockdown. Callers in claude-session-server.ts (list-bounties
  * plus every write-then-refetch bounty-mutation handler) get the two-step
@@ -1089,7 +1089,7 @@ export async function readIdentityBounties(
 
   if (conn === null) {
     // LOCAL branch — reads from ROLES_HOST_DIR (mirrors identity-folder pattern
-    // pre-SRIC-01 but rooted at ~/.claude/roles/<role>/bounties/)
+    // pre-SRIC-01 but rooted at ~/fleet/roles/<role>/bounties/)
     const root = getLocalRolesRoot();
     const baseDir = path.join(root, role, "bounties");
 
@@ -1177,7 +1177,7 @@ export async function readIdentityBounties(
 
   // REMOTE branch — delimiter-based dir enumeration (one round-trip per
   // artifact per R5). Phase 22 SRIC-01: role-scoped path
-  // (~/.claude/roles/<role>/bounties/) — role validated by
+  // (~/fleet/roles/<role>/bounties/) — role validated by
   // resolveRoleForIdentity's IDENTITY_KEY_RE gate above, so direct
   // interpolation inside double quotes is shell-safe (same posture as
   // identityKey per patch #95's readIdentityFile prologue).
@@ -1212,7 +1212,7 @@ export async function readIdentityBounties(
   // Real shell errors (e.g. `cd` failing on a permission-denied dir) still
   // propagate via execCommand's timeout / connection-level failure paths.
   const openCmd =
-    `DIR="$HOME/.claude/roles/${role}/bounties"; [ -d "$DIR" ] || exit 0; ` +
+    `DIR="$HOME/fleet/roles/${role}/bounties"; [ -d "$DIR" ] || exit 0; ` +
     'cd "$DIR" || exit 0; ' +
     'for d in */; do d="${d%/}"; [ "$d" = "*" ] && continue; ' +
     '[ "$d" = "archive" ] && continue; ' +
@@ -1223,7 +1223,7 @@ export async function readIdentityBounties(
   let archiveStdout = "";
   if (includeArchived) {
     const archiveCmd =
-      `DIR="$HOME/.claude/roles/${role}/bounties/archive"; [ -d "$DIR" ] || exit 0; ` +
+      `DIR="$HOME/fleet/roles/${role}/bounties/archive"; [ -d "$DIR" ] || exit 0; ` +
       'cd "$DIR" || exit 0; ' +
       'for d in */; do d="${d%/}"; [ "$d" = "*" ] && continue; ' +
       '[ -f "$d/bounty.json" ] && echo "===DIR:$d===" && cat "$d/bounty.json"; done; ' +
@@ -1274,7 +1274,7 @@ export async function readIdentityBounties(
 // ---------------------------------------------------------------------------
 //
 // Patch #154: first write path on identity artifacts. Merges `enabled` and/or
-// `schedule` into ~/.claude/identities/<key>/wakeups/<slug>.json. The wakeup
+// `schedule` into ~/fleet/identities/<key>/wakeups/<slug>.json. The wakeup
 // scheduler reloads specs every ~30s (see id skill § Scheduled wake-ups), so
 // the change takes effect within one poll — no scheduler restart.
 //
@@ -1417,7 +1417,7 @@ export async function writeIdentityWakeupUpdate(
   const payload = JSON.stringify(updates).replace(/'/g, "'\\''");
   const cmd =
     `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} ` +
-    `"$HOME/.claude/identities/${identityKey}/wakeups/${wakeupSlug}.json"`;
+    `"$HOME/fleet/identities/${identityKey}/wakeups/${wakeupSlug}.json"`;
   await execWithTimeout(conn, cmd);
 }
 
@@ -1432,7 +1432,7 @@ export async function writeIdentityWakeupUpdate(
 // instruction string) and same IDENTITY_SLUG_RE double-belt on wakeupSlug in
 // REMOTE branch as the identity-scope version.
 
-/** Merge `updates` into ~/.claude/roles/<role>/wakeups/<wakeupSlug>.json.
+/** Merge `updates` into ~/fleet/roles/<role>/wakeups/<wakeupSlug>.json.
  *  Two-step: resolves role from identity file's frontmatter first (throws
  *  when missing). Caller validates slug against IDENTITY_SLUG_RE before
  *  invoking. Throws on filesystem/parse errors or if the spec file doesn't
@@ -1504,7 +1504,7 @@ export async function writeRoleWakeupUpdate(
   const payload = JSON.stringify(updates).replace(/'/g, "'\\''");
   const cmd =
     `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} ` +
-    `"$HOME/.claude/roles/${role}/wakeups/${wakeupSlug}.json"`;
+    `"$HOME/fleet/roles/${role}/wakeups/${wakeupSlug}.json"`;
   await execWithTimeout(conn, cmd);
 }
 
@@ -1512,7 +1512,7 @@ export async function writeRoleWakeupUpdate(
 // 6a2. writeRoleWakeupCreate — create a new role-scope wakeup (Phase 72 Plan 01)
 // ---------------------------------------------------------------------------
 //
-// Creates a fresh ~/.claude/roles/<role>/wakeups/<slug>.json. Slug is derived
+// Creates a fresh ~/fleet/roles/<role>/wakeups/<slug>.json. Slug is derived
 // from spec.name via kebab-case normalization. Guards against clobber (throws
 // if the file already exists). After a successful write, re-lists via
 // readRoleWakeups and returns the fresh list so the WS handler can echo it
@@ -1548,7 +1548,7 @@ function validateWakeupSpec(spec: WakeupSpec): void {
   }
 }
 
-/** Create a new ~/.claude/roles/<role>/wakeups/<slug>.json where <slug> is
+/** Create a new ~/fleet/roles/<role>/wakeups/<slug>.json where <slug> is
  *  derived from spec.name via kebab-case. Throws "wakeup with this name
  *  already exists" if the target file already exists (last-writer-wins is
  *  the norm for updates; create is deliberately non-overwriting so a rushed
@@ -1609,10 +1609,10 @@ export async function writeRoleWakeupCreate(
 
   // REMOTE branch — clobber-check via `[ -e ]` + create via python3
   // (mirrors writeIdentityWakeupUpdate REMOTE for atomic tmp+rename).
-  const targetPath = `$HOME/.claude/roles/${role}/wakeups/${slug}.json`;
+  const targetPath = `$HOME/fleet/roles/${role}/wakeups/${slug}.json`;
   // Clobber check + defensive mkdir in one round-trip.
   const preCheckCmd =
-    `mkdir -p "$HOME/.claude/roles/${role}/wakeups" && ` +
+    `mkdir -p "$HOME/fleet/roles/${role}/wakeups" && ` +
     `[ -e "${targetPath}" ] && echo EXISTS || echo OK`;
   const preCheck = (await execWithTimeout(conn, preCheckCmd)).trim();
   if (preCheck.endsWith("EXISTS")) {
@@ -1645,7 +1645,7 @@ export async function writeRoleWakeupCreate(
 // `rm -f` on REMOTE branch (which is itself idempotent). After delete,
 // re-lists via readRoleWakeups and returns the refreshed {wakeups}.
 
-/** Delete ~/.claude/roles/<role>/wakeups/<wakeupSlug>.json. Idempotent —
+/** Delete ~/fleet/roles/<role>/wakeups/<wakeupSlug>.json. Idempotent —
  *  succeeds silently if the file is already absent. Returns the refreshed
  *  {wakeups} list post-delete. */
 export async function writeRoleWakeupDelete(
@@ -1680,7 +1680,7 @@ export async function writeRoleWakeupDelete(
   }
 
   // REMOTE branch — `rm -f` is idempotent (silent on missing files).
-  const cmd = `rm -f "$HOME/.claude/roles/${role}/wakeups/${wakeupSlug}.json"`;
+  const cmd = `rm -f "$HOME/fleet/roles/${role}/wakeups/${wakeupSlug}.json"`;
   await execWithTimeout(conn, cmd);
   return readRoleWakeups(conn, identityKey);
 }
@@ -1692,9 +1692,9 @@ export async function writeRoleWakeupDelete(
 // Phase 72 Plan 01: parity gap closure. Identity-scope wakeups today support
 // list + update (patches #17g + #154) but NOT create + delete. This adds the
 // create path, mirroring writeRoleWakeupCreate but rooted at
-// ~/.claude/identities/<key>/wakeups/ (no two-step).
+// ~/fleet/identities/<key>/wakeups/ (no two-step).
 
-/** Create a new ~/.claude/identities/<identityKey>/wakeups/<slug>.json where
+/** Create a new ~/fleet/identities/<identityKey>/wakeups/<slug>.json where
  *  <slug> is derived from spec.name via kebab-case. Throws "wakeup with this
  *  name already exists" on clobber. Returns the refreshed {wakeups} list
  *  post-write. */
@@ -1742,9 +1742,9 @@ export async function writeIdentityWakeupCreate(
   }
 
   // REMOTE branch — same pattern as writeRoleWakeupCreate, identity path.
-  const targetPath = `$HOME/.claude/identities/${identityKey}/wakeups/${slug}.json`;
+  const targetPath = `$HOME/fleet/identities/${identityKey}/wakeups/${slug}.json`;
   const preCheckCmd =
-    `mkdir -p "$HOME/.claude/identities/${identityKey}/wakeups" && ` +
+    `mkdir -p "$HOME/fleet/identities/${identityKey}/wakeups" && ` +
     `[ -e "${targetPath}" ] && echo EXISTS || echo OK`;
   const preCheck = (await execWithTimeout(conn, preCheckCmd)).trim();
   if (preCheck.endsWith("EXISTS")) {
@@ -1773,7 +1773,7 @@ export async function writeIdentityWakeupCreate(
 // 6a5. writeIdentityWakeupDelete — delete an identity-scope wakeup
 // ---------------------------------------------------------------------------
 
-/** Delete ~/.claude/identities/<identityKey>/wakeups/<wakeupSlug>.json.
+/** Delete ~/fleet/identities/<identityKey>/wakeups/<wakeupSlug>.json.
  *  Idempotent (swallows ENOENT / uses `rm -f`). Returns the refreshed
  *  {wakeups} list post-delete. */
 export async function writeIdentityWakeupDelete(
@@ -1807,7 +1807,7 @@ export async function writeIdentityWakeupDelete(
     return readIdentityWakeups(conn, identityKey);
   }
 
-  const cmd = `rm -f "$HOME/.claude/identities/${identityKey}/wakeups/${wakeupSlug}.json"`;
+  const cmd = `rm -f "$HOME/fleet/identities/${identityKey}/wakeups/${wakeupSlug}.json"`;
   await execWithTimeout(conn, cmd);
   return readIdentityWakeups(conn, identityKey);
 }
@@ -2075,11 +2075,11 @@ async function sftpWriteBinaryAtomic(
  *      SFTP; mirrors IDMEDIT_MAX_MARKDOWN_BYTES DoS-cap pattern.
  *
  * LOCAL branch (conn === null): tmp+rename via Node fs — mirrors
- *   writeIdentityFile LOCAL pattern at ~/.claude/identities/<key>/<key>.<ext>.
+ *   writeIdentityFile LOCAL pattern at ~/fleet/identities/<key>/<key>.<ext>.
  * REMOTE branch (conn is SSHClientType): SFTP tmp+rename via
  *   sftpWriteBinaryAtomic above (ext_openssh_rename discipline). remoteHome
  *   is resolved via `echo $HOME` on the target box; targetPath is
- *   <home>/.claude/identities/<key>/<key>.<ext> — remoteHome is server-side
+ *   <home>/fleet/identities/<key>/<key>.<ext> — remoteHome is server-side
  *   only (not attacker-influenceable via any birth-payload field).
  */
 export async function writeAvatarSiblingFile(
@@ -2113,7 +2113,7 @@ export async function writeAvatarSiblingFile(
 
   // REMOTE branch — resolve $HOME then SFTP write via ext_openssh_rename.
   const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
-  const targetPath = `${remoteHome}/.claude/identities/${identityKey}/${identityKey}.${ext}`;
+  const targetPath = `${remoteHome}/fleet/identities/${identityKey}/${identityKey}.${ext}`;
   await sftpWriteBinaryAtomic(conn, targetPath, bytes);
 }
 
@@ -2131,7 +2131,7 @@ export async function writeAvatarSiblingFile(
 const ROLE_AVATAR_FILENAME_RE = /^[a-z0-9-]+\.(webp|png|jpg|gif)$/;
 
 /**
- * Write a role's sibling avatar file (~/.claude/roles/<roleName>/<filename>).
+ * Write a role's sibling avatar file (~/fleet/roles/<roleName>/<filename>).
  *
  * Sibling of writeRoleFileByName (L2678) — role-name-keyed write helper that
  * lands the uploaded avatar bytes next to the role markdown. Called by the
@@ -2164,7 +2164,7 @@ const ROLE_AVATAR_FILENAME_RE = /^[a-z0-9-]+\.(webp|png|jpg|gif)$/;
  *   - tmp+rename atomic write via Node fs.
  *
  * REMOTE branch (conn is SSHClientType):
- *   - Defensive `mkdir -p "$HOME/.claude/roles/<roleName>"` via execWithTimeout
+ *   - Defensive `mkdir -p "$HOME/fleet/roles/<roleName>"` via execWithTimeout
  *     BEFORE the SFTP write, matching the LOCAL branch's mkdir. Cheap and
  *     forgiving on a role folder that already exists.
  *   - Resolve $HOME then SFTP tmp+rename via sftpWriteBinaryAtomic.
@@ -2215,10 +2215,10 @@ export async function writeRoleAvatarByName(
   // command is shell-safe (same defense as writeRoleFile L2644-2646).
   await execWithTimeout(
     conn,
-    `mkdir -p "$HOME/.claude/roles/${roleName}"`,
+    `mkdir -p "$HOME/fleet/roles/${roleName}"`,
   );
   const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
-  const targetPath = `${remoteHome}/.claude/roles/${roleName}/${filename}`;
+  const targetPath = `${remoteHome}/fleet/roles/${roleName}/${filename}`;
   await sftpWriteBinaryAtomic(conn, targetPath, bytes);
 }
 
@@ -2345,7 +2345,7 @@ export function extractCosmeticsFromFrontmatter(markdown: string): {
 }
 
 /**
- * Read the identity's sibling avatar file (~/.claude/identities/<key>/<key>.<ext>).
+ * Read the identity's sibling avatar file (~/fleet/identities/<key>/<key>.<ext>).
  *
  * Discovery order:
  *   1. Read <key>.md's frontmatter via readIdentityFile. If it has a valid
@@ -2457,7 +2457,7 @@ export async function readAvatarSiblingFile(
     // direct interpolation without quoting is shell-safe. Code review HIGH #2,
     // 2026-09-01.
     const lsCmd =
-      `ls "$HOME/.claude/identities/${identityKey}/${identityKey}".{webp,png,jpg,gif,svg} 2>/dev/null | head -n1 | xargs -r basename`;
+      `ls "$HOME/fleet/identities/${identityKey}/${identityKey}".{webp,png,jpg,gif,svg} 2>/dev/null | head -n1 | xargs -r basename`;
     const basename = (await execWithTimeout(conn, lsCmd)).trim();
     if (!basename) return null;
     // Extract ext from basename like "tina.webp"
@@ -2469,7 +2469,7 @@ export async function readAvatarSiblingFile(
     extToRead = m[1] as AvatarExt;
   }
 
-  const targetPath = `${remoteHome}/.claude/identities/${identityKey}/${identityKey}.${extToRead}`;
+  const targetPath = `${remoteHome}/fleet/identities/${identityKey}/${identityKey}.${extToRead}`;
   const bytes = await sftpReadFile(conn, targetPath);
   if (bytes.byteLength > IDMEDIT_MAX_AVATAR_BYTES) {
     throw new Error("avatar exceeds cap on disk");
@@ -2482,7 +2482,7 @@ export async function readAvatarSiblingFile(
 // ---------------------------------------------------------------------------
 
 /**
- * Read a role's sibling avatar file (~/.claude/roles/<roleName>/<avatarFilename>).
+ * Read a role's sibling avatar file (~/fleet/roles/<roleName>/<avatarFilename>).
  *
  * Wave-1 role-fallback for GET /identities/:key/avatar: when an identity has
  * no sibling avatar of its own, the endpoint reads the identity's role
@@ -2495,7 +2495,7 @@ export async function readAvatarSiblingFile(
  *     role's frontmatter `avatar:` field). No frontmatter re-read needed —
  *     the caller has already parsed it.
  *   - Rooted at getLocalRolesRoot()/<roleName>/<avatarFilename> (LOCAL)
- *     or "$HOME/.claude/roles/<roleName>/<avatarFilename>" (REMOTE).
+ *     or "$HOME/fleet/roles/<roleName>/<avatarFilename>" (REMOTE).
  *   - Enforces the IDMEDIT_MAX_AVATAR_BYTES cap on both branches, mirroring
  *     the identity-side defense at L2219-2221 / L2286-2288.
  *
@@ -2554,12 +2554,12 @@ export async function readAvatarSiblingFileByRole(
   // from sftpReadFile), then read via SFTP. Mirror the readAvatarSiblingFile
   // REMOTE-branch shape: single existence probe via bash, then sftpReadFile.
   const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
-  const probeCmd = `ls "$HOME/.claude/roles/${roleName}/${avatarFilename}" 2>/dev/null || true`;
+  const probeCmd = `ls "$HOME/fleet/roles/${roleName}/${avatarFilename}" 2>/dev/null || true`;
   const probeOut = (await execWithTimeout(conn, probeCmd)).trim();
   if (!probeOut) {
     return null;
   }
-  const targetPath = `${remoteHome}/.claude/roles/${roleName}/${avatarFilename}`;
+  const targetPath = `${remoteHome}/fleet/roles/${roleName}/${avatarFilename}`;
   const bytes = await sftpReadFile(conn, targetPath);
   if (bytes.byteLength > IDMEDIT_MAX_AVATAR_BYTES) {
     throw new Error("avatar exceeds cap on disk");
@@ -2625,7 +2625,7 @@ export async function writeIdentityFile(
     throw new Error("markdown payload exceeds IDMEDIT_MAX_MARKDOWN_BYTES");
   }
   const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
-  const targetPath = `${remoteHome}/.claude/identities/${identityKey}/${identityKey}.md`;
+  const targetPath = `${remoteHome}/fleet/identities/${identityKey}/${identityKey}.md`;
   await writeMarkdownFileAtomic(conn, targetPath, contents);
 }
 
@@ -2653,7 +2653,7 @@ export async function writeIdentityHistory(
     throw new Error("markdown payload exceeds IDMEDIT_MAX_MARKDOWN_BYTES");
   }
   const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
-  const targetPath = `${remoteHome}/.claude/identities/${identityKey}/history.md`;
+  const targetPath = `${remoteHome}/fleet/identities/${identityKey}/history.md`;
   await writeMarkdownFileAtomic(conn, targetPath, contents);
 }
 
@@ -2681,11 +2681,11 @@ export async function writeIdentityHandoff(
     throw new Error("markdown payload exceeds IDMEDIT_MAX_MARKDOWN_BYTES");
   }
   const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
-  const targetPath = `${remoteHome}/.claude/identities/${identityKey}/handoff.md`;
+  const targetPath = `${remoteHome}/fleet/identities/${identityKey}/handoff.md`;
   await writeMarkdownFileAtomic(conn, targetPath, contents);
 }
 
-/** Write the identity's role file (~/.claude/roles/<role>/<role>.md) atomically.
+/** Write the identity's role file (~/fleet/roles/<role>/<role>.md) atomically.
  *
  * Byte-shape mirror of writeIdentityFile: same signature, same LOCAL vs REMOTE
  * branch structure, same byte-cap constant (IDMEDIT_MAX_MARKDOWN_BYTES), same
@@ -2730,7 +2730,7 @@ export async function writeRoleFile(
 
   if (conn === null) {
     // LOCAL branch — tmp+rename via Node fs, mirrors writeIdentityFile
-    // LOCAL pattern rooted at ~/.claude/roles/<role>/<role>.md
+    // LOCAL pattern rooted at ~/fleet/roles/<role>/<role>.md
     const root = getLocalRolesRoot();
     const roleDir = path.join(root, role);
     // Defensive mkdir -p — Plan 22-04's create-role flow makes the folder,
@@ -2744,11 +2744,11 @@ export async function writeRoleFile(
   }
 
   // REMOTE branch — echo $HOME then SFTP write to
-  // <home>/.claude/roles/<role>/<role>.md via writeMarkdownFileAtomic
+  // <home>/fleet/roles/<role>/<role>.md via writeMarkdownFileAtomic
   // (ext_openssh_rename — see writeMarkdownFileAtomic prologue for the
   // EEXIST rationale that made plain sftp.rename unsafe).
   const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
-  const targetPath = `${remoteHome}/.claude/roles/${role}/${role}.md`;
+  const targetPath = `${remoteHome}/fleet/roles/${role}/${role}.md`;
   await writeMarkdownFileAtomic(conn, targetPath, contents);
 }
 
@@ -2756,7 +2756,7 @@ export async function writeRoleFile(
 // 6b. writeRoleFileByName — Phase 90 Plan 90-03 Task 1 (D-08.3)
 // ---------------------------------------------------------------------------
 
-/** Write a role file (~/.claude/roles/<roleName>/<roleName>.md) atomically,
+/** Write a role file (~/fleet/roles/<roleName>/<roleName>.md) atomically,
  * keyed directly on roleName — WITHOUT the identity two-step used by writeRoleFile
  * above. Byte-shape mirror of writeRoleFile MINUS the resolveRoleForIdentity
  * step at L2623 (since roleName arrives directly, use it after ROLE_NAME_PATTERN
@@ -2811,11 +2811,11 @@ export async function writeRoleFileByName(
   }
 
   // REMOTE branch — echo $HOME then SFTP write to
-  // <home>/.claude/roles/<roleName>/<roleName>.md via writeMarkdownFileAtomic
+  // <home>/fleet/roles/<roleName>/<roleName>.md via writeMarkdownFileAtomic
   // (ext_openssh_rename — see writeMarkdownFileAtomic prologue for the
   // EEXIST rationale that made plain sftp.rename unsafe).
   const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
-  const targetPath = `${remoteHome}/.claude/roles/${roleName}/${roleName}.md`;
+  const targetPath = `${remoteHome}/fleet/roles/${roleName}/${roleName}.md`;
   await writeMarkdownFileAtomic(conn, targetPath, contents);
 }
 
@@ -2853,7 +2853,7 @@ export async function readRoleBountiesByName(
 
   if (conn === null) {
     // LOCAL branch — mirrors readIdentityBounties LOCAL rooted at
-    // ~/.claude/roles/<roleName>/bounties/
+    // ~/fleet/roles/<roleName>/bounties/
     const root = getLocalRolesRoot();
     const baseDir = path.join(root, roleName, "bounties");
 
@@ -2942,7 +2942,7 @@ export async function readRoleBountiesByName(
   // (a) `[ -d "$DIR" ] || exit 0`, (b) `[ "$d" = "*" ] && continue`,
   // (c) trailing `exit 0` to override loop-last-command exit status.
   const openCmd =
-    `DIR="$HOME/.claude/roles/${roleName}/bounties"; [ -d "$DIR" ] || exit 0; ` +
+    `DIR="$HOME/fleet/roles/${roleName}/bounties"; [ -d "$DIR" ] || exit 0; ` +
     'cd "$DIR" || exit 0; ' +
     'for d in */; do d="${d%/}"; [ "$d" = "*" ] && continue; ' +
     '[ "$d" = "archive" ] && continue; ' +
@@ -2953,7 +2953,7 @@ export async function readRoleBountiesByName(
   let archiveStdout = "";
   if (includeArchived) {
     const archiveCmd =
-      `DIR="$HOME/.claude/roles/${roleName}/bounties/archive"; [ -d "$DIR" ] || exit 0; ` +
+      `DIR="$HOME/fleet/roles/${roleName}/bounties/archive"; [ -d "$DIR" ] || exit 0; ` +
       'cd "$DIR" || exit 0; ' +
       'for d in */; do d="${d%/}"; [ "$d" = "*" ] && continue; ' +
       '[ -f "$d/bounty.json" ] && echo "===DIR:$d===" && cat "$d/bounty.json"; done; ' +
@@ -3027,7 +3027,7 @@ export async function readRoleWakeupsByName(
 
   if (conn === null) {
     // LOCAL branch — mirrors readRoleWakeups LOCAL rooted at
-    // ~/.claude/roles/<roleName>/wakeups/
+    // ~/fleet/roles/<roleName>/wakeups/
     const root = getLocalRolesRoot();
     const wakeupsDir = path.join(root, roleName, "wakeups");
     let dirEntries: string[];
@@ -3078,7 +3078,7 @@ export async function readRoleWakeupsByName(
   // ROLE_NAME_PATTERN above; direct interpolation inside double quotes is
   // shell-safe.
   const cmd =
-    `cd "$HOME/.claude/roles/${roleName}/wakeups" 2>/dev/null && ` +
+    `cd "$HOME/fleet/roles/${roleName}/wakeups" 2>/dev/null && ` +
     'for f in *.json; do echo "===FILE:$f==="; cat "$f"; done';
   let stdout: string;
   try {
@@ -3129,7 +3129,7 @@ export async function readRoleWakeupsByName(
 // ---------------------------------------------------------------------------
 
 /** Write a role-scope wakeup spec by role name — full-overwrite of
- *  ~/.claude/roles/<roleName>/wakeups/<slug>.json where <slug> is derived
+ *  ~/fleet/roles/<roleName>/wakeups/<slug>.json where <slug> is derived
  *  from spec.name via kebab-case normalization. Byte-shape mirror of
  *  writeRoleWakeupCreate/writeRoleWakeupUpdate combined MINUS the
  *  resolveRoleForIdentity step.
@@ -3187,8 +3187,8 @@ export async function writeRoleWakeupByName(
   // REMOTE branch — mkdir -p + python3 tmp+rename write (mirrors
   // writeRoleWakeupCreate REMOTE MINUS the clobber check since this is
   // create-or-update semantics per plan spec).
-  const targetPath = `$HOME/.claude/roles/${roleName}/wakeups/${slug}.json`;
-  const mkdirCmd = `mkdir -p "$HOME/.claude/roles/${roleName}/wakeups"`;
+  const targetPath = `$HOME/fleet/roles/${roleName}/wakeups/${slug}.json`;
+  const mkdirCmd = `mkdir -p "$HOME/fleet/roles/${roleName}/wakeups"`;
   await execWithTimeout(conn, mkdirCmd);
   const script =
     'import json,os,sys\n' +
@@ -3214,7 +3214,7 @@ export async function writeRoleWakeupByName(
 // ---------------------------------------------------------------------------
 
 /** Delete a role-scope wakeup by role name —
- *  ~/.claude/roles/<roleName>/wakeups/<wakeupName>.json. Idempotent (succeeds
+ *  ~/fleet/roles/<roleName>/wakeups/<wakeupName>.json. Idempotent (succeeds
  *  silently if the file is already absent — same as writeRoleWakeupDelete).
  *  Byte-shape mirror of writeRoleWakeupDelete MINUS the resolveRoleForIdentity
  *  step.
@@ -3258,7 +3258,7 @@ export async function deleteRoleWakeupByName(
   }
 
   // REMOTE branch — `rm -f` is idempotent.
-  const cmd = `rm -f "$HOME/.claude/roles/${roleName}/wakeups/${wakeupName}.json"`;
+  const cmd = `rm -f "$HOME/fleet/roles/${roleName}/wakeups/${wakeupName}.json"`;
   await execWithTimeout(conn, cmd);
   return readRoleWakeupsByName(conn, roleName);
 }
@@ -3292,8 +3292,8 @@ export async function writeIdentityBountyPriority(
     throw new Error("invalid bounty slug");
   }
 
-  // Phase 22 SRIC-01: two-step — bounties live at ~/.claude/roles/<role>/bounties/
-  // post fleet migration, not ~/.claude/identities/<key>/bounties/. Resolve role
+  // Phase 22 SRIC-01: two-step — bounties live at ~/fleet/roles/<role>/bounties/
+  // post fleet migration, not ~/fleet/identities/<key>/bounties/. Resolve role
   // from identity file's frontmatter first; throw propagates (no fallback).
   const role = await resolveRoleForIdentity(conn, identityKey);
 
@@ -3340,7 +3340,7 @@ export async function writeIdentityBountyPriority(
   const payload = JSON.stringify({ priority }).replace(/'/g, "'\\''");
   const cmd =
     `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} ` +
-    `"$HOME/.claude/roles/${role}/bounties/${bountySlug}/bounty.json"`;
+    `"$HOME/fleet/roles/${role}/bounties/${bountySlug}/bounty.json"`;
   await execWithTimeout(conn, cmd);
 }
 
@@ -3375,7 +3375,7 @@ export async function writeIdentityBountyStatus(
     throw new Error("invalid bounty slug");
   }
 
-  // Phase 22 SRIC-01: two-step — writes go to ~/.claude/roles/<role>/bounties/
+  // Phase 22 SRIC-01: two-step — writes go to ~/fleet/roles/<role>/bounties/
   // post fleet migration (see writeIdentityBountyPriority for full rationale).
   const role = await resolveRoleForIdentity(conn, identityKey);
 
@@ -3421,7 +3421,7 @@ export async function writeIdentityBountyStatus(
   const payload = JSON.stringify({ status }).replace(/'/g, "'\\''");
   const cmd =
     `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} ` +
-    `"$HOME/.claude/roles/${role}/bounties/${bountySlug}/bounty.json"`;
+    `"$HOME/fleet/roles/${role}/bounties/${bountySlug}/bounty.json"`;
   await execWithTimeout(conn, cmd);
 }
 
@@ -3455,7 +3455,7 @@ export async function writeIdentityBountyPinned(
     throw new Error("invalid bounty slug");
   }
 
-  // Phase 22 SRIC-01: two-step — writes go to ~/.claude/roles/<role>/bounties/
+  // Phase 22 SRIC-01: two-step — writes go to ~/fleet/roles/<role>/bounties/
   // post fleet migration (see writeIdentityBountyPriority for full rationale).
   const role = await resolveRoleForIdentity(conn, identityKey);
 
@@ -3504,7 +3504,7 @@ export async function writeIdentityBountyPinned(
   const payload = JSON.stringify({ pinned }).replace(/'/g, "'\\''");
   const cmd =
     `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} ` +
-    `"$HOME/.claude/roles/${role}/bounties/${bountySlug}/bounty.json"`;
+    `"$HOME/fleet/roles/${role}/bounties/${bountySlug}/bounty.json"`;
   await execWithTimeout(conn, cmd);
 }
 
@@ -3574,7 +3574,7 @@ export async function writeIdentityBountyNeedsDesk(
   const payload = JSON.stringify({ needs_desk: needsDesk }).replace(/'/g, "'\\''");
   const cmd =
     `printf '%s' '${payload}' | python3 -c ${shellEscape(script)} ` +
-    `"$HOME/.claude/roles/${role}/bounties/${bountySlug}/bounty.json"`;
+    `"$HOME/fleet/roles/${role}/bounties/${bountySlug}/bounty.json"`;
   await execWithTimeout(conn, cmd);
 }
 
@@ -3735,7 +3735,7 @@ export async function writeIdentityBountyFields(
     throw new Error("invalid bounty slug");
   }
 
-  // Phase 22 SRIC-01: two-step — bounty.json lives at ~/.claude/roles/<role>/
+  // Phase 22 SRIC-01: two-step — bounty.json lives at ~/fleet/roles/<role>/
   // bounties/<slug>/bounty.json post fleet migration. Resolve role BEFORE the
   // branch split so both LOCAL and REMOTE reads/writes use the correct path.
   const role = await resolveRoleForIdentity(conn, identityKey);
@@ -3768,7 +3768,7 @@ export async function writeIdentityBountyFields(
   // REMOTE branch — SFTP read → Node merge → SFTP tmp+rename write.
   // identityKey + bountySlug guards already hoisted to top of function.
   const remoteHome = (await execWithTimeout(conn, "echo $HOME")).trim();
-  const targetPath = `${remoteHome}/.claude/roles/${role}/bounties/${bountySlug}/bounty.json`;
+  const targetPath = `${remoteHome}/fleet/roles/${role}/bounties/${bountySlug}/bounty.json`;
   // Read current bounty.json via SFTP into Node process memory
   const currentBytes = await sftpReadFile(conn, targetPath);
   const parsed = JSON.parse(currentBytes.toString("utf-8")) as Record<string, unknown>;
@@ -3838,7 +3838,7 @@ export async function archiveIdentityBounty(
     throw new Error("invalid bounty slug");
   }
 
-  // Phase 22 SRIC-01: two-step — bounties live at ~/.claude/roles/<role>/bounties/
+  // Phase 22 SRIC-01: two-step — bounties live at ~/fleet/roles/<role>/bounties/
   // post fleet migration. Resolve role BEFORE branch split so both LOCAL and
   // REMOTE paths use the role folder for the tmp+rename patch and the mv.
   const role = await resolveRoleForIdentity(conn, identityKey);
@@ -3931,7 +3931,7 @@ export async function archiveIdentityBounty(
     'os.rename(bounty_dir,archive_dest)\n';
   const cmd =
     `python3 -c ${shellEscape(script)} ` +
-    `"$HOME/.claude/roles/${role}/bounties/${bountySlug}/bounty.json"`;
+    `"$HOME/fleet/roles/${role}/bounties/${bountySlug}/bounty.json"`;
   await execWithTimeout(conn, cmd);
 }
 
@@ -3977,7 +3977,7 @@ export async function deleteIdentityBounty(
   }
 
   // Phase 22 SRIC-01: two-step — bounties (both open + archive) live at
-  // ~/.claude/roles/<role>/bounties/ post fleet migration. Resolve role
+  // ~/fleet/roles/<role>/bounties/ post fleet migration. Resolve role
   // before the branch split; both LOCAL and REMOTE rm both candidate paths.
   const role = await resolveRoleForIdentity(conn, identityKey);
 
@@ -4012,7 +4012,7 @@ export async function deleteIdentityBounty(
     'shutil.rmtree(os.path.join(base,"archive",slug),ignore_errors=True)\n';
   const cmd =
     `python3 -c ${shellEscape(script)} ` +
-    `"$HOME/.claude/roles/${role}/bounties" ` +
+    `"$HOME/fleet/roles/${role}/bounties" ` +
     `"${bountySlug}"`;
   await execWithTimeout(conn, cmd);
 }

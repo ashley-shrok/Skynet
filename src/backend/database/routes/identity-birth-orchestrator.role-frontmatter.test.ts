@@ -6,11 +6,11 @@
  * is APPROVED but the relay-register work is SHIFTED OUT of Skynet's birth
  * orchestrator and into the fresh agent's own first-wake flow. Step 2.5
  * now writes ONLY:
- *   (a) ~/.claude/identities/<name>/<name>.md with role: frontmatter + a
+ *   (a) ~/fleet/identities/<name>/<name>.md with role: frontmatter + a
  *       SEED COMMENT instructing the wake-up agent to register a relay
  *       account on first wake and remove the comment when done.
- *   (b) ~/.claude/identities/<name>/wakeups/ empty directory
- *   (c) ~/.claude/identities/<name>/handoff.md empty file
+ *   (b) ~/fleet/identities/<name>/wakeups/ empty directory
+ *   (c) ~/fleet/identities/<name>/handoff.md empty file
  *
  * The seed comment must:
  *   - NOT say "Skynet" (agents don't know what that is)
@@ -55,6 +55,11 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   isLocalHostId: vi.fn(),
   writeMarkdownFileAtomic: vi.fn(),
   writeAvatarSiblingFile: vi.fn(),
+  // Phase 92 Plan 92-01 Task 2: per-identity-file.ts imports IDENTITY_KEY_RE
+  // from identity-artifact-reader (H1 write⇔read parity lock). The primitive
+  // is transitively imported by identity-birth-orchestrator's Step 8, so
+  // this mocked module MUST export the real regex value (not a stub).
+  IDENTITY_KEY_RE: /^[a-z0-9_-]{1,64}$/,
   MIME_TO_AVATAR_EXT: {
     "image/webp": "webp",
     "image/png": "png",
@@ -275,8 +280,8 @@ it("Test 12: writeMarkdownFileAtomic invoked with target path + role: frontmatte
   expect(writeAtomic).toHaveBeenCalled();
   const [, targetPath, contents] = writeAtomic.mock.calls[0] as [unknown, string, string];
 
-  // Target path: ~/.claude/identities/<name>/<name>.md
-  expect(targetPath).toBe("/home/ubuntu/.claude/identities/testkey/testkey.md");
+  // Target path: ~/fleet/identities/<name>/<name>.md
+  expect(targetPath).toBe("/home/ubuntu/fleet/identities/testkey/testkey.md");
 
   // Body starts with a frontmatter block whose FIRST key is role: <role>
   // (Phase 66 Plan 66-01 grew this to also emit displayName/title/colorHue/
@@ -326,7 +331,7 @@ it("Test 13: Step 2.5 execs mkdir wakeups + touch handoff.md via execCommand", a
   const mkdirCmd = allCmds.find(
     (c) =>
       c.includes("mkdir -p") &&
-      c.includes(".claude/identities/testkey/wakeups"),
+      c.includes("fleet/identities/testkey/wakeups"),
   );
   expect(mkdirCmd).toBeDefined();
 
@@ -334,7 +339,7 @@ it("Test 13: Step 2.5 execs mkdir wakeups + touch handoff.md via execCommand", a
   const touchCmd = allCmds.find(
     (c) =>
       c.includes("touch") &&
-      c.includes(".claude/identities/testkey/handoff.md"),
+      c.includes("fleet/identities/testkey/handoff.md"),
   );
   expect(touchCmd).toBeDefined();
 }, 30_000);

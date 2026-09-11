@@ -5,7 +5,7 @@
  * SHAPE SOURCE OF TRUTH:
  *   .planning/phases/72-feature-02-slice-2-reconcile-loop/72-CONTEXT.md
  *   (and, via that CONTEXT.md, the locked feature-02 design doc under
- *    ~/.claude/roles/box-maintainer/bounties/ai-plus-mvp-project/
+ *    ~/fleet/roles/box-maintainer/bounties/ai-plus-mvp-project/
  *    feature-02-skynet-distributor.md and the closed slice-1 shape doc.)
  *
  * PURE-LIB DISCIPLINE:

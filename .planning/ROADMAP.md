@@ -2184,6 +2184,21 @@ Plans:
 - [ ] 93-04-PLAN.md — Wave 4 (depends 93-03): dispatcher rewire (both `tabUtils.tsx:204` + `:314` early-return retirement) + delete standalone tree (17 files)
 - [ ] 93-05-PLAN.md — Wave 5 (depends 93-04): comment sweep (5 external ref sites, grep-enumerate-first) + optimistic-bubble parity test at composed level
 
+
+### Phase 94: supervisor archive extension — daily archive-scan for 180-day dormant identities (Shape 2 of id-skill-revamp campaign)
+
+**Goal:** Teach the per-host agent-supervisor a second job alongside its existing keep-identities-alive role: on a daily cadence, walk the box's identities and retire the ones that have been genuinely dormant for 180 days. Retirement = (1) move the identity folder into an `archive/` sibling of the identities tree, (2) kill any live tmux session for the identity, (3) self-deactivate the identity's matrix account using its own credentials. All three steps local to the host; no admin credential, no cross-service coordination, no announcement (silent by design per shape). Shape 2 of 4 in the id-skill-revamp campaign; hard-depends on Phase 92's `.pinned` disk sentinel for guard D-03.
+**Requirements**: (captured in CONTEXT.md § decisions D-01 through D-17 + shape file § What this is / Shape / What would make it wrong — no separate requirement IDs)
+**Depends on:** Phase 92
+**Plans:** 4/4 plans complete
+
+Plans:
+
+- [x] 94-01-PLAN.md — Wave 1: guard building blocks in agent-supervisor.sh (ARCHIVE_THRESHOLD constants D-08, is_coordinator awk strict-detector D-05, get_freshness_epoch cursor+folder-mtime reader D-06/D-07, .pinned + .no-dormancy sentinel-check shape D-03/D-04); pure disk reads, zero side effects, no reconcile hook yet; shellcheck clean
+- [x] 94-02-PLAN.md — Wave 2 (depends 94-01): retire_identity three-step action in agent-supervisor.sh — move folder D-10 → kill tmux D-11 → self-deactivate matrix account via client endpoint + own token D-12; four-state idempotency case-analysis for retry-from-top D-13; explicit EXCEPTION-to-L233 comment for Pitfall 7; jq -nc --arg for body construction (credentials never in log strings D-15); no admin endpoint, no un-archive path D-16, no Skynet touch D-17
+- [x] 94-03-PLAN.md — Wave 3 (depends 94-01, 94-02): daily orchestration in agent-supervisor.sh — run_archive_scan_if_due 24h gate D-01/D-02 with unconditional marker touch (Pitfall 5); run_archive_scan MODE-agnostic walk of $IDENTITIES_DIR/*/ (Pitfall 1 + skip 'archive' Pitfall 2); retire-stuck counter Option A in DORMANCY_STATE_DIR with LOUD ERROR: log at count>=3 D-14; single-line hook inside reconcile() between sample_memory and resolve_identities
+- [x] 94-04-PLAN.md — Wave 4 (depends 94-01, 94-02, 94-03): end-to-end test coverage at substrate/scripts/tests/agent-supervisor-archive-scan.sh — guard unit tests (all 5 coordinator cases from RESEARCH), freshness read tests (cursor/fallback/both-absent), retire action tests against a stub local homeserver (200/401/5xx/network-fail/retry-from-partial/collision/password-with-quotes), retire-stuck counter tests (fires at 3-not-before + counter resets on success), MODE-agnostic scan test, 24h gate test, static-analysis grep gates for all seven RESEARCH pitfalls; README documents run + extension pattern
+
 ### Phase 95: PV context-pct batch sweep — drop tmux capture-pane, one exec per host per tick (Phase 92 sibling)
 
 **Goal:** Sibling to Phase 92 for the second wasteful-exec pattern hitting the same Skynet-host SSH connection. Drop `tmux capture-pane` from the per-tick context-pct loop entirely (JSONL is authoritative for pct; migrate isPlanPending/parsePlanFilePath to a filesystem check). Batch-coalesce the per-identity `tail -c` execs (currently up to 4 per identity per 3s per open PrettyView WebSocket) into ONE distributor-shipped Python sweep script per host per tick emitting versioned JSONL for all subscribed identities. Caller rewire in `claude-session-server.ts` mirrors the Phase 92 shape (presence probe cache per-SSH-channel-lifetime, null-exec re-probe, schema-mismatch latch, legacy per-tail path preserved as backward-compat fallback for mid-rollout). Slot 95 explicitly per phase-collision auto-resolve rule (Taylor claimed 93 for relay-rooms refactor, Tanya claimed 94 for id-skill-revamp Shape 2).
@@ -2198,6 +2213,33 @@ Plans:
 - [x] 95-03-PLAN.md — Wave 2 (Part B frontend deletion, depends 95-02): delete PlanPendingBubble.tsx + ComposeBox.plan-pending-disable.test.tsx whole; PrettyView.tsx 15 sites (import L35, state L632–L659, three setPlanPending resets, plan_pending case handler L2491–L2494, conditional render L3751–L3756, planPendingActive prop-drill L3972–L3982, 6 comment edits); ComposeBox.tsx 14 planPendingActive sites (prop docblock + destructure + 8 OR-in guards + prop-drill + duplicate cluster L3219+); claude-session-api.ts wire-type deletions (PlanPendingEvent + raw_keystrokes); 9 comment-only sibling edits (PrettyViewLoadingOverlay/RelayInboundBubble/AsideBubble/SessionHoldingOverlay/WaitingBubble docblock rewrite/use-auto-scroll/AgentBadgeWithAppendage/AppShell); RESEARCH G7 Ink Plan Mode split-send lesson preserved verbatim in SUMMARY.md before file rm
 - [x] 95-04-PLAN.md — Wave 3 (Part C substrate, depends 95-03): new src/backend/claude-session/pv-sweep-schema.ts (single-tier v1 schema — line_kind identity + identity + schema_version=1 + context_pct + jsonl_path; lenient parseSweepJsonl never throws; PV_SWEEP_SCHEMA_VERSION constant) + pv-sweep-schema.test.ts (8 tests including wire-contract grep-guard); new substrate/scripts/pv-context-pct-sweep.py (Python 3 stdlib-only, --identities argv, ports readContextPctFromJsonl TAIL_EXPANSION_STEPS + reverseScanForAssistantUsageSum + discover-identity-session-file.ts predicate server-side, exits 0 always, execute bit committed); distributor catalog row (bundledPath /app/fleet-substrate/scripts/pv-context-pct-sweep.py → installPath ~/.local/bin/pv-context-pct-sweep, restartHook null) + catalog.test.ts Test 1 22→23 + Test 6 scriptRows 8→9 + run-sweep.test.ts count bump; MEDIUM-confidence decision #2 (SSH-topology) LOCKED as Option 3 per-WS in Plan objective + SUMMARY — rationale: claude-session-server has no per-host shared SSH connection (each WS uses connectOneShot; RESEARCH G1), Option 1 (per-host coordinator) requires new connection-pool subsystem = scope creep, Option 3 delivers 4x per-WS collapse with zero new plumbing, Ashley owns override
 - [x] 95-05-PLAN.md — Wave 3 (Part C caller rewire + close, depends 95-04): rewire contextPctTimer in claude-session-server.ts with computeContextPctBatch + computeContextPctLegacy helpers; add per-WS closure state sweepScriptPresent + sweepSchemaMismatch; presence probe (test -x ~/.local/bin/pv-context-pct-sweep) once per SSH-channel lifetime; sweep exec (~/.local/bin/pv-context-pct-sweep --identities <session>) with G6 belt-and-suspenders safe-char guard; null-exec forces re-probe next tick; schema-mismatch latches for channel lifetime; both dispatch branches emit context_pct (null passthrough); new structured log ops pv_context_pct_sweep_probe + pv_context_pct_batch_fallback; 6 regression tests in new claude-session-server.pv-sweep.test.ts (batch dispatch exec-count, legacy fallback, probe caching, null-exec recovery, schema-mismatch latch, strict batch-vs-legacy parity on emitted pct); Ashley UAT gate (7 checks — sweep script installed per peer, sweep-probe log fired per WS, zero tail -c 10000/50000/200000/512000 on Skynet host under 5-tab PV load, batch_fallback ops rare, SFTP curl 20/20, cross-check UI pct vs sweep script pct within 1%, frontend regression sanity) MUST close with all-pass before Phase 95 completes (completed 2026-09-10)
+
+
+### Phase 96: On-disk tree consolidation — consolidate identity metadata and each identity's working directory under one canonical ~/fleet/ tree with roles, identities, and identities-archive siblings; workspace sub-part inside each identity folder; per-box manual migration coordinated with substrate + Skynet code deploy; Shape 3 of id-skill-revamp campaign. Shape file at .planning/shapes/shape-on-disk-tree-consolidation.md
+
+**Goal:** Every reference in code and prose to the legacy `~/.claude/identities/`, `~/.claude/roles/`, and `~/skynet-<name>/` locations is rewritten to the new `~/fleet/` tree (roles, identities, identities-archive as siblings; workspace/ as a new sub-part inside each identity folder), a MIGRATION.md runbook is written for maintainers to execute per box, and a repo-wide grep sweep confirms zero legacy live-code references outside the retained set (CLAUDE.md, skills/, local/bin/). No dual-path fallback in code (D-06); Shape 3 held from ship with Shapes 1, 2, 4 for coordinated campaign release (D-18).
+**Requirements**: (path-rewrite phase — success = grep-clean + MIGRATION.md exists + tests green; must-haves keyed off CONTEXT.md D-01..D-18 at plan level)
+**Depends on:** Phase 94
+**Plans:** 7/7 plans complete
+
+**Wave 1**
+
+- [x] 96-01-PLAN.md — Backend path helper single-source-of-truth: per-identity-file.ts localTargetPath + remoteTargetPath fleet-tree rewrite; identity-artifact-reader.ts getLocalIdentitiesRoot + getLocalRolesRoot fallbacks + all REMOTE SSH template literals; matching test-file assertion bumps. Implements D-01/D-02/D-05/D-06 at the SFTP write single source.
+
+**Wave 2** *(parallel — disjoint file surfaces)*
+
+- [x] 96-02-PLAN.md — Backend routes fan-out: relay-pointer.ts WHITELIST_REGEX (security gate) + 6 identity routes + 3 role routes + runbooks-editor.ts ROLE_ROOT_REL constant + their test files. Implements D-06 hard-reject of legacy paths in WHITELIST_REGEX.
+- [x] 96-03-PLAN.md — ssh-poll-orchestrator.ts (5 SSH exec strings + prose) + its ~6000-line test file (bulk sed on 100+ fixture path strings) + session-file-parser.outbound-body.test.ts corpus rewrites.
+- [x] 96-04-PLAN.md — Substrate scripts: agent-supervisor.sh (introduce IDENTITIES_ARCHIVE_DIR sibling variable, retire_identity rewrite, remove dead `archive` skip filter, convention workdir → $IDENTITIES_DIR/$name/workspace, direct-literal rewrites) + Phase 94 archive-scan test driver update (AGENT_IDENTITIES_ARCHIVE_DIR separate scratch dir) + role-file-watch.py line 236 + wakeup-scheduler.py docstring + recv.sh error message.
+- [x] 96-05-PLAN.md — Substrate skill prose: id/SKILL.md (~50 refs, on-disk-layout section adds workspace/, STATE_DIR block writes fleet path) + coordinator-instructions.md (all refs + new mkdir workspace/ step per D-04) + clone-picker-prompt.md + actor-status-prompt.md + agent-relay/SKILL.md (7 hits including line 481 maintainer local-tree rewrite).
+
+**Wave 3** *(depends on 96-01 + 96-02)*
+
+- [x] 96-06-PLAN.md — Extend Skynet backend identity-birth-orchestrator Step 2 mkdir to create workspace/ sub-part alongside wakeups/ (D-04 + orchestrator-resolved-Q4) + matching test assertion.
+
+**Wave 4** *(depends on all prior)*
+
+- [x] 96-07-PLAN.md — Write MIGRATION.md per-box runbook (D-07 7-step sequence + D-09 archived-identities decision prompt + D-10 location) and run D-15 repo-wide grep-clean audit enumerating retained references (D-12/D-13/D-14) for reviewer verification. Ship-readiness affidavit.
 
 ### Phase 97: Room-case chrome and lifecycle should match session-case except where deliberately case-branched — Phase 93 UAT polish arc
 
@@ -2246,6 +2288,22 @@ Plans:
 **Wave 5** *(blocked on Wave 4 completion)*
 
 - [x] 98-10-PLAN.md — Wave 5 (deps 98-06, 98-08): Final Chatterbox kill — move getMatrixHomeserverBase from media-endpoints.ts to new src/backend/matrix/matrix-config.ts; rewire bridge-config-writer.ts import; delete src/backend/config/media-endpoints.ts + media-endpoints.test.ts; grep-sweep verifies zero residual Chatterbox references in live code
+
+
+### Phase 99: spawn-request-watcher — Skynet-side noticing of coord-dropped request files: fleet-status observation-and-claim per-tick, in-memory backend queue, async birth-worker invoking existing identity-birth flow, success/failure response-file drops keyed by request-id. Shape 5 (final) of id-skill-revamp campaign. Shape file at .planning/shapes/shape-spawn-request-watcher.md. (rescue-rebased 97 → 98 → 99 after taylor P97 phase-93-uat-polish-arc + tabitha P98 more-versatile-stt-tts-support collisions; both peers mid-ship, tiebreak-1 gives both their slots)
+
+**Goal:** Extend Skynet with server-side handling of coordinator-dropped spawn-request files: fleet-status per-host sweep gains one atomic read-and-delete exec step per tick claiming request files at ~/fleet/spawn-requests/<uuid>.json; backend enqueues in an in-memory serialized queue; async birth-worker invokes existing birthIdentity from Phase 77 with role + task + host-owner-userId; drops <uuid>.success.json ({name, birthed_at}) or <uuid>.failure.json ({reason, message?}) response file back to the same folder for coord to observe. No changes to identity-birth-orchestrator.ts. (Post-code-review fix(99-cr): dropped mxid field from success response as YAGNI — coord dispatches by name; malformed requests now enqueue with malformedReason so coord gets a proper failure file instead of silent drop; mapEndedEventToReason now correctly routes homeserver_unreachable / role_unknown via captured step:failed reason; Shape 4 coord-instructions.md rewritten to describe the actual response-file protocol.)
+**Requirements**: n/a — campaign-shape work item
+**Depends on:** Phase 96
+**Plans:** 2/2 plans complete
+Plans:
+**Wave 1**
+
+- [x] 99-01-PLAN.md — Types + in-memory serialized queue + birth-worker (parseRequestBody, host-owner userId lookup, BirthDeps assembly, birthIdentity invocation, success/failure response-file drop via writeMarkdownFileAtomic) + unit tests. Standalone spawn-requests/ module — no fleet-status coupling.
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [x] 99-02-PLAN.md — Extend ssh-poll-orchestrator.ts pollOneHost with atomic scan step (mv-claim, 36-char UUID filter, missing-folder-is-not-error); add optional enqueueSpawnRequest to OrchestratorDeps (backward-compat for 7207-line test file); wire queue + worker into starter.ts; extend ssh-poll-orchestrator.test.ts with 8 new scan tests.
 
 ### Phase 100: STT chunked parallel streaming — split incoming voice audio into ~8s overlapping chunks and dispatch parallel AWS Transcribe streaming sessions, stitch results via word-timestamp dedup. Backend-only refactor of handleTranscribe in src/backend/database/routes/voice.ts. Preserves /voice/transcribe endpoint contract exactly (same multipart WebM in, same {text} JSON out, slash-command transform preserved). Targets 5-10x speedup vs the current single-stream real-time floor (empirical benchmark 2026-09-10: 3s clip returns in 0.8s, 8s in 3.6s, 15s in 8.8s, 30s in 17.8s; so 4 parallel 8s chunks target ~3.5s wall for 30s audio vs 18s today). Follow-up to Phase 98 more-versatile-stt-tts-support. Bounty: stt-chunked-parallel-streaming.
 
@@ -2343,3 +2401,20 @@ Plans:
 - [ ] 104-01-PLAN.md — Wave 1 (parallel): Backend detector — new readIdentityTrappedWork(conn, identityKey) mirroring readIdentityBountyCounts + handleIdentityProbeTrappedWork WS handler + identity:probe-trapped-work route + tests (D-01, D-02, D-03, D-06, D-09)
 - [ ] 104-02-PLAN.md — Wave 1 (parallel, file-disjoint from 104-01): Frontend api + store + row indicator + badge indicator + CSS + poller mount + tests (D-03, D-05, D-06, D-07, D-08)
 - [ ] 104-03-PLAN.md — Wave 2 (deps 104-01 + 104-02): Full deletion pass — retire readIdentityBountyCounts + handleIdentityCountBounties + countIdentityBounties + bounty-counts-store + PrettyBountyCountBadge + panel bounty helpers + pinned/needs-desk filter menu items + all tests + all CSS bounty rules (D-04, D-11)
+
+
+### Phase 105: pin-sentinel-migration — move identity pin state from Skynet DB to a `.pinned` on-disk sentinel per identity folder (matches `.no-dormancy` and `.recycle-requested` presence-based pattern); generalize the identity-birth SFTP wire into a per-identity file-touch primitive; drop the DB pin table in the same schema migration; existing pinned identities migrated manually per-box. Shape 1 of the id-skill-revamp multi-shape campaign. Shape file at `.planning/shapes/shape-pin-sentinel-migration.md`.
+
+**Goal:** Retire the `user_preferences.pinned_conversation_ids` DB column and move pin state to a presence-is-meaning `.pinned` sentinel file inside each identity folder on its host (matches `.no-dormancy` / `.recycle-requested` convention); extract Phase 77 identity-birth SFTP wire into a per-identity file-touch primitive with two callers (identity-birth existing, pin action new); drop the DB column in the same schema migration; existing pinned identities migrated manually per-box per D-07/D-08 (no Skynet code participates). Post-phase: disk IS the source of truth for pinned-ness; the frontend `pinnedIds` Set derives from each identity's `pinned: boolean` field (populated on-demand from disk-read of `.pinned` at request time) rather than a dedicated per-user DB fetch. UI feel unchanged from current pin toggle behavior per D-06.
+**Requirements**: (captured in CONTEXT.md § decisions D-01 through D-09 + shape file § What this is / Shape / What would make it wrong — no separate requirement IDs)
+**Depends on:** Phase 91
+**Plans:** 4/4 plans complete
+
+Plans:
+
+- [x] 105-01-PLAN.md — Wave 1: extract per-identity file-touch primitive (`src/backend/claude-session/per-identity-file.ts` — `writeIdentityFile` / `removeIdentityFile` / `identityFileExists`); refactor identity-birth-orchestrator Step 8 relay.json write to route through it byte-for-byte identically; contract tests + sftp.rename regression trap
+- [x] 105-02-PLAN.md — Wave 2 (depends 105-01): backend rewire — publicIdentity gains `pinned: boolean` populated by `identityFileExists` in the disk-fanout at request time (D-03); `PUT /user-preferences` fans out per-identity sentinel writes+removes synchronously via the primitive (D-05/D-06); user-preferences GET/PUT stops reading/writing `pinnedConversationIds` from the DB row; hidden slice untouched (D-02)
+- [x] 105-03-PLAN.md — Wave 3 (depends 105-02): schema migration — `runPinColumnDrop()` (mirrors runIdentitiesTableDrop) drops `pinned_conversation_ids` from `user_preferences` via `dropColumnIfExists` + labeled `forceSave(phase-92-pin-sentinel-migration)`; Test 1 (OLD schema → drop → column absent) + Test 2 (NEW schema → idempotent no-op) + Test 3 (post-drop SELECT throws) + Test 4 (hidden_conversation_ids untouched) mirroring Phase 66 pattern
+- [x] 105-04-PLAN.md — Wave 4 (depends 105-03): frontend rewire — retire `getPinnedIds()` from user-preferences-api; new `deriveDiskPinnedIds(identityHosts)` selector in identities-store projects each identity's `pinned: boolean` into the `fleet::hostId::sessionName` id space (D-04); `putPinnedIds([...], identityHosts)` signature extended for the backend fanout; panel hydrate effect swaps source; pin/unpin UI feel unchanged (D-06); `hydratePinnedIdsFromServer` preserved as the reconciliation seam
+
+**Note on numbering:** rescue-rebased from local Phase 92 (id-skill-revamp campaign Shape 1) to Phase 105 during campaign squash-merge — resolves phase-number collision with tina's Phase 92 (fleet-status-poller batch sweep) which shipped first. Content unchanged; disk-side plan filenames renumbered to `105-01-PLAN.md` etc. and the phase folder is at `.planning/phases/105-pin-sentinel-migration-...`. The `forceSave(phase-92-pin-sentinel-migration)` label inside the migration code retains its original name (that's the label the code was committed with; renaming it would rewrite history).

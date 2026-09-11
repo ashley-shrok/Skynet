@@ -23,7 +23,7 @@ describe("buildSentinelCheckCommand", () => {
   it("returns a test -f command with `yes`/`no` output for the identity's .recycle-requested path", () => {
     const cmd = buildSentinelCheckCommand("tina");
     expect(cmd).toContain("test -f");
-    expect(cmd).toContain("~/.claude/identities/'tina'/.recycle-requested");
+    expect(cmd).toContain("~/fleet/identities/'tina'/.recycle-requested");
     expect(cmd).toContain("echo yes");
     expect(cmd).toContain("echo no");
   });

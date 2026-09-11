@@ -323,7 +323,7 @@ export function collectTabIds(root: SplitNode | null): string[] {
  *  `"center"` dead-zone.
  *
  *  Value 0.28 matches the reference prototype
- *  (`~/.claude/roles/box-maintainer/bounties/bring-back-split-view/
+ *  (`~/fleet/roles/box-maintainer/bounties/bring-back-split-view/
  *  prototype.html:362` — `const EDGE = 0.28`). A ~28% inner band per axis
  *  gives roughly a 44% × 44% center dead-zone rectangle (100% - 2×28%),
  *  Ashley-validated live in the reference. NOT exported: the threshold is
@@ -342,7 +342,7 @@ const EDGE_ZONE_THRESHOLD = 0.28;
  *      hit-testing-replace-placehold/57-CONTEXT.md` §In-scope item 1 for
  *      the contract.
  *
- *  Ports `pickZone` at `~/.claude/roles/box-maintainer/bounties/
+ *  Ports `pickZone` at `~/fleet/roles/box-maintainer/bounties/
  *  bring-back-split-view/prototype.html:361-370` verbatim (Ashley-validated
  *  live in the reference). Algorithm:
  *    1. Normalize cursor to [0..1] per axis: `zx = (x - left) / width`.

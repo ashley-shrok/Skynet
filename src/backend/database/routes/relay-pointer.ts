@@ -3,7 +3,7 @@
  *
  * Fetches a long-inbound relay body file from the pane's remote host via SSH.
  * Gated by:
- *   1. WHITELIST_REGEX — path must match ~/.claude/identities/<id>/relay-state/messages/<eventid>.txt
+ *   1. WHITELIST_REGEX — path must match ~/fleet/identities/<id>/relay-state/messages/<eventid>.txt
  *      exactly (SSRF gate, T-17-02-01). Updated 2026-07-28 (UAT Bug 2 fix): now uses the
  *      actual recv.sh identity-dir output path shape (prev. form used a /tmp path).
  *   2. resolveHostById(hostId, userId) — per-user host ownership (elevation-of-privilege gate)
@@ -30,7 +30,7 @@ const authenticateJWT = authManager.createAuthMiddleware();
 
 /**
  * SSRF whitelist: only identity-dir relay message paths are allowed.
- * Shape: /home/<user>/.claude/identities/<id>/relay-state/messages/<eventid>.txt
+ * Shape: /home/<user>/fleet/identities/<id>/relay-state/messages/<eventid>.txt
  * Character classes:
  *   - user and identity name: [a-z0-9_-] (POSIX-safe lowercase, rejects uppercase, dot, slash)
  *   - event-id: [A-Za-z0-9_-] (Matrix event ids are base64url-like; dot excluded intentionally
@@ -38,9 +38,11 @@ const authenticateJWT = authManager.createAuthMiddleware();
  * Rejects `..`, `/` inside name components, shell metacharacters. Anchored `^...$` prevents bypass.
  * T-17-02-01 mitigation. Updated 2026-07-28 (UAT Bug 2 fix): swapped to actual recv.sh
  * identity-dir output path shape (POSIX-safe lowercase user + identity name).
+ * Updated Phase 96 (D-06 hard-cutover): fleet tree path replaces legacy .claude/identities path.
+ * Legacy .claude/identities paths are REJECTED — no dual-path fallback per D-06.
  */
 export const WHITELIST_REGEX =
-  /^\/home\/[a-z0-9_-]+\/\.claude\/identities\/[a-z0-9_-]+\/relay-state\/messages\/[A-Za-z0-9_-]+\.txt$/;
+  /^\/home\/[a-z0-9_-]+\/fleet\/identities\/[a-z0-9_-]+\/relay-state\/messages\/[A-Za-z0-9_-]+\.txt$/;
 
 /**
  * Server-side read cap: 512 KB.

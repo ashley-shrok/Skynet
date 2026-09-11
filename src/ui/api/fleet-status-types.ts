@@ -122,7 +122,7 @@ export interface SessionState {
   aiTitle?: string | null;
   // Phase 52 (mirror gap-closure per Phase 53 Plan 02 Task 1): the inline
   // supervisor-dormancy signal. Source: the
-  // ~/.claude/identities/<tmuxSession>/.dormant sentinel file on the target
+  // ~/fleet/identities/<tmuxSession>/.dormant sentinel file on the target
   // host. Semantics: `true` = sentinel present (identity parked by
   // supervisor), `false` = sentinel absent (normal operation), `null` =
   // normalised-null in transit (SSH error), `undefined` = emitting backend
@@ -135,7 +135,7 @@ export interface SessionState {
   // type. MUST stay in lockstep with the backend schema.
   dormant?: boolean | null;
   // Phase 53 Plan 02 (2026-08-21): the backend-authoritative recycling signal.
-  // Source: the caretaker's ~/.claude/identities/<tmuxSession>/.recycled-at
+  // Source: the caretaker's ~/fleet/identities/<tmuxSession>/.recycled-at
   // sentinel file on the target host — renamed from `.recycle-requested` at
   // recycle-intent detection (before the outgoing claude PID exits), removed
   // with an 8s delay after the fresh claude is up and driven through `/id`.

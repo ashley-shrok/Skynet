@@ -29,7 +29,11 @@
 set -uo pipefail
 
 CONF="${AGENT_SUPERVISOR_CONF:-$HOME/.claude/agent-supervisor.conf}"
-IDENTITIES_DIR="${AGENT_IDENTITIES_DIR:-$HOME/.claude/identities}"
+IDENTITIES_DIR="${AGENT_IDENTITIES_DIR:-$HOME/fleet/identities}"
+# Sibling of IDENTITIES_DIR per D-02; kept as a separate variable so retire_identity does not
+# derive the archive path from IDENTITIES_DIR + '/archive' (which would resolve to
+# `~/fleet/identities/archive/` — wrong tree).
+IDENTITIES_ARCHIVE_DIR="${AGENT_IDENTITIES_ARCHIVE_DIR:-$HOME/fleet/identities-archive}"
 SELF_PATH="$(readlink -f "$0" 2>/dev/null || echo "$0")"
 log() { printf '%s %s\n' "$(date '+%H:%M:%S')" "$*"; }
 
@@ -64,6 +68,16 @@ FALSE_KILL_MINUTES="${FALSE_KILL_MINUTES:-5}"              # wake within this ma
 DORMANCY_STATE_DIR="${DORMANCY_STATE_DIR:-$HOME/.claude/agent-supervisor-state}"
 METRICS_LOG="${METRICS_LOG:-$HOME/.claude/agent-supervisor-metrics.jsonl}"
 MEM_SAMPLES_LOG="${MEM_SAMPLES_LOG:-$HOME/.claude/agent-supervisor-mem-samples.jsonl}"
+
+# ---- archive scan (Phase 94) — daily sweep for 180-day dormant identities ----
+# Threshold is uniform per D-08; NOT a conf variable (locked no-knob per shape).
+ARCHIVE_THRESHOLD_DAYS=180
+# shellcheck disable=SC2034  # used by Wave 3 run_archive_scan (94-03-PLAN.md)
+ARCHIVE_THRESHOLD_SECONDS=$((ARCHIVE_THRESHOLD_DAYS * 24 * 60 * 60))
+# shellcheck disable=SC2034  # used by Wave 3 run_archive_scan_if_due (94-03-PLAN.md)
+ARCHIVE_SCAN_MARKER="${DORMANCY_STATE_DIR}/archive-scan-last-ran"
+# shellcheck disable=SC2034  # used by Wave 3 run_archive_scan_if_due (94-03-PLAN.md)
+ARCHIVE_SCAN_INTERVAL=$((24 * 60 * 60))    # 86400s — D-01 daily cadence
 
 # ---- resolve the claude binary (a --user service may lack ~/.local/bin on PATH) ----
 CLAUDE="${AGENT_SUPERVISOR_CLAUDE:-}"   # explicit override (non-standard install paths; also testable)
@@ -207,7 +221,6 @@ resolve_identities() {
     for d in "$IDENTITIES_DIR"/*/; do
       [ -d "$d" ] || continue
       name="$(basename "$d")"
-      [ "$name" = archive ] && continue          # defensive; identity-archive is a SIBLING dir, not here
       # require a real identity file (skip empty stubs like a bare `/id` scaffold)
       [ -f "$d/$name.md" ] || continue
       IDENTITIES+=("$name")
@@ -217,6 +230,268 @@ resolve_identities() {
 }
 
 slug() { printf '%s' "$1" | tr ' ' '-'; }   # canonical session name: spaces -> hyphens, case preserved
+
+# ---- archive scan (Phase 94) — coordinator detection ----
+# is_coordinator <identity_file_path>
+# Returns 0 IFF the file has `coordinator: true` as a top-level key on its own line
+# BETWEEN the first two `---` frontmatter delimiters (unquoted true, not commented,
+# not in body prose). MUST match substrate/skills/id/SKILL.md L379-387 verbatim —
+# any drift here silently retires coordinators. See Pitfall 6 in Phase 94 RESEARCH.
+is_coordinator() {
+  local identity_file="$1"
+  [ -f "$identity_file" ] || return 1
+  awk '/^---$/{f++} f==1 && /^coordinator: true$/{found=1; exit} END{exit !found}' "$identity_file"
+}
+
+# ---- archive scan (Phase 94) — freshness signal reader ----
+# get_freshness_epoch <name> <iddir>
+# Prints the epoch of the identity's last-active signal:
+#   - mtime of $iddir/relay-state/since if it exists (D-06 — cursor is rewritten
+#     every ~30s any session is up, per substrate/skills/agent-relay/recv.sh L235)
+#   - else mtime of $iddir itself (D-07 fallback — brand-new identity that has
+#     never woken; the folder's own mtime is a sensible substitute)
+# Prints 0 if both stat calls fail (should be unreachable — iddir came from the
+# scan's for-loop over existing dirs — but keep the safe default).
+get_freshness_epoch() {
+  local name="$1" iddir="$2"
+  local cursor_file="$iddir/relay-state/since"
+  local mtime
+  if [ -f "$cursor_file" ]; then
+    mtime=$(stat -c %Y "$cursor_file" 2>/dev/null)
+  else
+    mtime=$(stat -c %Y "$iddir" 2>/dev/null)
+  fi
+  printf '%s' "${mtime:-0}"
+}
+
+# ---- archive scan (Phase 94) — retire action ----
+# retire_identity(name)
+#
+# Executes the three-step retire in the D-10 → D-11 → D-12 order (move folder →
+# kill tmux session → deactivate matrix account). This order is LOAD-BEARING:
+# Step 1 removes the identity from the active tree so the supervisor's keep-alive
+# loop cannot race and relaunch it during Steps 2 or 3. Step 2 tears down any
+# live tmux process before Step 3 consumes credentials. Step 3 reads credentials
+# from the NOW-ARCHIVED relay.json (moved by Step 1) — never from the active path.
+#
+# Idempotency (D-13 retry-from-top): each step handles the case where a prior
+# partial run already completed that step. Re-running from the top after any
+# partial failure is safe.
+#
+# Return contract: 0 on full success (all three steps complete); 1 on any step
+# failure (caller is responsible for retire-stuck counter — see run_archive_scan
+# in Wave 3 / 94-03-PLAN.md; this function does NOT touch that counter).
+retire_identity() {
+  local name="$1"
+  local iddir="$IDENTITIES_DIR/$name"
+  local archdir="$IDENTITIES_ARCHIVE_DIR/$name"
+
+  # STEP 1 (D-10): Move identity folder to the archive sibling location per D-02 — FIRST because
+  # the supervisor's keep-alive loop reads the active tree; once the folder is gone no new sessions
+  # for this identity can spin up regardless of what happens in Steps 2 and 3.
+  # Create the archive sibling location on demand (first retire on any box creates it).
+  mkdir -p "$IDENTITIES_ARCHIVE_DIR" 2>/dev/null
+  if [ -d "$iddir" ] && [ ! -d "$archdir" ]; then
+    # State 1 (normal path): active present, archive absent — do the move.
+    if ! mv "$iddir" "$archdir" 2>/dev/null; then
+      log "ERROR: archive-scan: retire '$name': step 1 — mv to archive/ failed; aborting retire"
+      return 1
+    fi
+    log "archive-scan: retire '$name': step 1 — moved to archive/"
+  elif [ ! -d "$iddir" ] && [ -d "$archdir" ]; then
+    # State 2 (retry from prior partial run): active absent, archive present — skip move, resume from step 2.
+    log "archive-scan: retire '$name': step 1 — folder already in archive/ (resuming from step 2)"
+  elif [ -d "$iddir" ] && [ -d "$archdir" ]; then
+    # State 3 (collision — impossible per D-16 since un-archive is out of scope, but planner-defensive):
+    # both active and archive/ exist. Abort — the retire-stuck counter will drive to retire-stuck after
+    # 3 consecutive daily-pass failures so the maintainer sees the anomalous state.
+    log "ERROR: archive-scan: retire '$name': collision — both active and archive/ folders exist; refusing to mv (aborting retire; the counter will drive to retire-stuck)"
+    return 1
+  else
+    # State 4 (anomaly): active absent, archive absent — nothing to retire.
+    log "ERROR: archive-scan: retire '$name': neither active nor archive/ folder exists (anomaly); aborting"
+    return 1
+  fi
+
+  # STEP 2 (D-11): Kill the identity's tmux session if one is running.
+  # EXCEPTION to the "never kill" rule (see "SAFETY: the supervisor NEVER kills a session" below):
+  # this function IS the permanent-removal case. Unlike the keep-alive loop which only recovers
+  # sessions, retire deliberately tears down a session that will never be relaunched on this host.
+  # kill-session is the correct call here (not /exit + poll — that keeps the shell session alive).
+  local slugname actual
+  slugname="$(slug "$name")"
+  actual="$(match_session "$slugname" || true)"
+  if [ -n "$actual" ]; then
+    if timeout -k 5 10 tmux kill-session -t "$actual" 2>/dev/null; then
+      log "archive-scan: retire '$name': step 2 — killed tmux session '$actual'"
+    else
+      # Session likely died between match and kill — treat as no-op success and proceed to step 3.
+      log "archive-scan: retire '$name': step 2 — tmux kill-session returned non-zero (session likely already gone)"
+    fi
+  else
+    log "archive-scan: retire '$name': step 2 — no tmux session found (no-op)"
+  fi
+
+  # STEP 3 (D-12): Deactivate the identity's matrix account using its OWN credentials.
+  # Reads from the NOW-ARCHIVED relay.json at $archdir (Pitfall 4 lock: the active path no longer
+  # exists after Step 1 moved the folder). No admin token — fleet invariant: no managed box holds
+  # a homeserver admin key.
+  local relay_json="$archdir/relay.json"
+  if [ ! -f "$relay_json" ]; then
+    log "ERROR: archive-scan: retire '$name': step 3 — relay.json not found at $relay_json; cannot deactivate"
+    return 1
+  fi
+  local base mxid password access_token
+  base=$(jq -r '.base // empty' "$relay_json" 2>/dev/null)
+  mxid=$(jq -r '.user_id // empty' "$relay_json" 2>/dev/null)
+  password=$(jq -r '.password // empty' "$relay_json" 2>/dev/null)
+  access_token=$(jq -r '.access_token // empty' "$relay_json" 2>/dev/null)
+  if [ -z "$base" ] || [ -z "$mxid" ] || [ -z "$password" ] || [ -z "$access_token" ]; then
+    log "ERROR: archive-scan: retire '$name': step 3 — relay.json missing required fields (base/user_id/password/access_token); cannot deactivate"
+    return 1
+  fi
+  # Build deactivate body via jq --arg so credentials are JSON-escaped (prevents injection
+  # from passwords containing '"' or '\' — T-94-02-05 mitigation). Never string-interpolate
+  # $password or $access_token into a JSON literal. Full MXID in UIA user field (A3).
+  local body
+  body=$(jq -nc --arg u "$mxid" --arg p "$password" \
+    '{"auth":{"type":"m.login.password","user":$u,"password":$p},"erase":true}')
+  local resp http_code
+  resp=$(curl -sS -w '\n%{http_code}' --max-time 30 \
+    -X POST "$base/_matrix/client/v3/account/deactivate" \
+    -H "Authorization: Bearer $access_token" \
+    -H "Content-Type: application/json" \
+    -d "$body" 2>/dev/null)
+  http_code=$(printf '%s\n' "$resp" | tail -1)
+  case "$http_code" in
+    200)
+      log "archive-scan: retire '$name': step 3 — matrix account deactivated (200)"
+      ;;
+    401)
+      # Token already revoked by a prior deactivation — account is already deactivated.
+      # Treat as idempotent success (D-13 / Assumption A4): the prior run completed Step 3;
+      # this retry run simply confirms it.
+      log "archive-scan: retire '$name': step 3 — 401 M_UNKNOWN_TOKEN (account already deactivated from prior attempt); treating as success"
+      ;;
+    4*)
+      # Non-401 4xx: a client-side error we cannot recover from automatically (bad endpoint,
+      # malformed body, authorization issue beyond token expiry). Log $base and $mxid only —
+      # never $access_token or $password (T-94-02-04 mitigation).
+      log "ERROR: archive-scan: retire '$name': step 3 — deactivate returned $http_code for $mxid at $base; aborting"
+      return 1
+      ;;
+    5*|"")
+      log "ERROR: archive-scan: retire '$name': step 3 — deactivate failed (http=$http_code) for $mxid at $base; network error or server error"
+      return 1
+      ;;
+    *)
+      log "ERROR: archive-scan: retire '$name': step 3 — deactivate returned unexpected code $http_code for $mxid at $base; aborting"
+      return 1
+      ;;
+  esac
+
+  log "archive-scan: retire '$name': complete (move + kill + deactivate)"
+  return 0
+}
+
+# ---- archive scan (Phase 94) — daily scan dispatcher ----
+# run_archive_scan()
+#
+# The daily archive-scan branch (D-01 cadence, D-14 retire-stuck counter, D-15 silent-by-design).
+# Walks ALL identity directories under $IDENTITIES_DIR/*/ (MODE-agnostic per Open Question 1 —
+# a box that owns an identity folder is responsible for archiving it whether or not the supervisor
+# is actively supervising it in MODE=A). For each identity, applies four guards in order:
+#
+#   (1) require .md file exists         — an empty stub is not a retire candidate
+#   (2) skip if .pinned present         — D-03 guard (Phase 92 sentinel)
+#   (3) skip if .no-dormancy present    — D-04 guard (existing always-on affordance)
+#   (4) skip if is_coordinator returns 0 — D-05 guard (strict frontmatter check, Pitfall 6)
+#   (5) compute age; skip if < ARCHIVE_THRESHOLD_SECONDS — D-06/D-07/D-08 freshness
+#   (6) invoke retire_identity(name)    — and update the retire-stuck counter (D-14)
+#
+# D-15 silent discipline: routine per-identity skip/retire log lines are diagnostic plumbing
+# (not announcements). Only the D-14 retire-stuck fire uses the ERROR: prefix (the ONE
+# explicit exception to D-15 per CONTEXT.md).
+run_archive_scan() {
+  log "archive-scan: starting scan"
+  mkdir -p "$IDENTITIES_ARCHIVE_DIR" 2>/dev/null
+  local now; now=$(date +%s)
+  local d name
+  for d in "$IDENTITIES_DIR"/*/; do
+    [ -d "$d" ] || continue                          # guard against nullglob miss (no match → literal *)
+    name="$(basename "$d")"
+    [ -f "$d/$name.md" ] || continue                 # require real identity file (same check as resolve_identities)
+
+    # Guard D-03 (pinned): skip silently — D-15 silent discipline for routine skip path.
+    [ -f "$d/.pinned" ] && continue
+    # Guard D-04 (no-dormancy): skip silently.
+    [ -f "$d/.no-dormancy" ] && continue
+    # Guard D-05 (coordinator): is_coordinator returns 0 if the identity has `coordinator: true`
+    # in frontmatter (strict awk detection from Wave 1 — Pitfall 6 lock). Skip silently.
+    if is_coordinator "$d/$name.md"; then continue; fi
+
+    # Freshness D-06/D-07: get_freshness_epoch returns cursor mtime or folder mtime as fallback.
+    local fresh; fresh=$(get_freshness_epoch "$name" "$d")
+    # D-08: threshold 180 days in seconds (constant declared in Wave 1 constants block at L72).
+    local age=$(( now - fresh ))
+    if [ "$age" -lt "$ARCHIVE_THRESHOLD_SECONDS" ]; then continue; fi
+
+    # This identity is dormant for >= 180 days — retire it.
+    # D-15 carve-out: the RETIRE event IS worth naming in the log (diagnostic plumbing).
+    log "archive-scan: '$name' dormant for $((age / 86400))d — retiring"
+
+    if retire_identity "$name"; then
+      # Success: reset the retire-fail counter (caller-owned per Open Question 3 resolution).
+      rm -f "$DORMANCY_STATE_DIR/retire-fail-count-$name" 2>/dev/null
+      log "archive-scan: '$name' retire succeeded"
+    else
+      # Failure path — D-14 retire-stuck counter (Option A: plain-integer file in DORMANCY_STATE_DIR).
+      # Counter must survive supervisor restarts → on-disk, not in-memory.
+      mkdir -p "$DORMANCY_STATE_DIR" 2>/dev/null
+      local count
+      count=$(grep -E '^[0-9]+$' "$DORMANCY_STATE_DIR/retire-fail-count-$name" 2>/dev/null || echo 0)
+      count=$((count + 1))
+      printf '%s' "$count" > "$DORMANCY_STATE_DIR/retire-fail-count-$name"
+      if [ "$count" -ge 3 ]; then
+        # D-14: drop retire-stuck sentinel (presence-only empty file, matches .pinned/.no-dormancy
+        # convention). Written to the archived folder ($IDENTITIES_ARCHIVE_DIR/$name/retire-stuck).
+        # Note: if Step 1 of retire_identity failed (State 4: neither active nor archive exists),
+        # the archive sibling subfolder does not exist and this touch silently fails — the counter
+        # still increments. Wave 4 tests exercise this edge.
+        touch "$IDENTITIES_ARCHIVE_DIR/$name/retire-stuck" 2>/dev/null
+        # LOUD log — the ONE explicit exception to D-15 silent-by-design (per CONTEXT.md D-14).
+        log "ERROR: archive-scan: '$name': STUCK after $count consecutive daily-pass failures — retire-stuck sentinel dropped in archive/$name/"
+      else
+        log "archive-scan: '$name' retire failed (attempt $count/3) — will retry next daily pass"
+      fi
+    fi
+  done
+  log "archive-scan: scan complete"
+}
+
+# ---- archive scan (Phase 94) — 24h cadence gate ----
+# run_archive_scan_if_due()
+#
+# Fast-path gate: reads mtime of $ARCHIVE_SCAN_MARKER; if < ARCHIVE_SCAN_INTERVAL seconds
+# have elapsed since the last scan, returns immediately (no-op on most reconcile ticks).
+# When the 24h boundary is crossed, invokes run_archive_scan() and then UNCONDITIONALLY
+# touches the marker (Pitfall 5 lock: cadence gate resets regardless of individual retire
+# outcomes — if the marker only updated on clean scans, a persistent failure would cause
+# the scan to re-run on every 15s tick and starve the keep-alive loop).
+#
+# Called at the TOP of reconcile(), BEFORE resolve_identities (D-01 insertion point per
+# RESEARCH § D-01 map). The MODE-agnostic walk inside run_archive_scan() means even a
+# MODE=A box with zero supervised identities sweeps all identity folders on disk.
+run_archive_scan_if_due() {
+  mkdir -p "$DORMANCY_STATE_DIR" 2>/dev/null         # ensure marker directory exists
+  local last=0
+  [ -f "$ARCHIVE_SCAN_MARKER" ] && last=$(stat -c %Y "$ARCHIVE_SCAN_MARKER" 2>/dev/null || echo 0)
+  local now; now=$(date +%s)
+  if [ $((now - last)) -lt "$ARCHIVE_SCAN_INTERVAL" ]; then return 0; fi
+  log "archive-scan: 24h elapsed since last run — running now"
+  run_archive_scan
+  touch "$ARCHIVE_SCAN_MARKER"   # UNCONDITIONAL — Pitfall 5 lock (cadence gate, not success gate)
+}
 
 # Find the ACTUAL existing tmux session name matching $1 CASE-INSENSITIVELY (tmux names are
 # case-sensitive, but a human may name a session 'hilda' for identity 'Hilda' — a case difference
@@ -755,22 +1030,22 @@ launch() {
   local name="$1" mode="$2" sess="$3" created=0
   if [ "${DRY_RUN:-0}" = 1 ]; then log "DRY_RUN would $mode '$name' (tmux session '$sess')"; return 0; fi
   # Discover this identity's real working dir + latest session, so we resume in the RIGHT place
-  # rather than fresh in $HOME. For a truly-first-ever launch (no prior session), use $HOME/<name>
-  # by convention if the coord (or a human) has created it — otherwise fall to $HOME.
+  # rather than fresh in $HOME. For a truly-first-ever launch (no prior session), use the identity's
+  # workspace/ sub-folder by convention if it exists — otherwise fall to $HOME.
   # Convention-not-string: both coord and supervisor derive the path from $name; nothing is parsed
-  # from a config file. If ~/<name> doesn't exist, the supervisor silently falls back — the coord
-  # is supposed to catch the mkdir failure BEFORE dispatch (see coordinator-instructions § step 6),
+  # from a config file. If workspace/ doesn't exist, the supervisor silently falls back — the coord
+  # is supposed to create workspace/ at identity creation time (see coordinator-instructions § step 6),
   # so a $HOME fallback here indicates something went wrong at spawn time.
   local cwd="$HOME" resume="" disc
   if disc="$(resolve_session "$name")"; then
     cwd="${disc%%$'\t'*}"; resume="${disc#*$'\t'}"
     log "'$name' launch: resolve_session picked token=${resume:0:8} cwd='$cwd'"
     if [ ! -d "$cwd" ]; then log "'$name' recorded workdir '$cwd' missing — fresh /id in \$HOME"; cwd="$HOME"; resume=""; fi
-  elif [ -d "$HOME/$name" ]; then
-    cwd="$HOME/$name"
+  elif [ -d "$IDENTITIES_DIR/$name/workspace" ]; then
+    cwd="$IDENTITIES_DIR/$name/workspace"
     log "'$name' launch: resolve_session found no prior session — using convention workdir '$cwd'"
   else
-    log "'$name' launch: resolve_session found no prior session AND \$HOME/$name absent — fresh /id in \$HOME"
+    log "'$name' launch: resolve_session found no prior session AND $IDENTITIES_DIR/$name/workspace absent — fresh /id in \$HOME"
   fi
   # An explicit recycle request means "reload me CLEAN" — keep the workdir, drop the resume. (Set by
   # the sentinel branch when the session was already gone; consumed here so it can't leak.)
@@ -832,7 +1107,7 @@ launch() {
 # Wake paths (all in-supervisor):
 #   1. matrix_peek — supervisor does its OWN /sync per dormant identity, distinct device from the
 #      identity's receiver (which is dead-with-session). New event → wake.
-#   2. schedule_peek — supervisor reads $HOME/.claude/identities/<name>/wakeups/*.json, computes
+#   2. schedule_peek — supervisor reads $IDENTITIES_DIR/<name>/wakeups/*.json, computes
 #      next fire, wakes when due. Identity's own scheduler picks up on resume.
 #   3. sentinel-delete — external actor (Skynet, hand) rm's .dormant → sentinel-check below fails
 #      → falls through to existing alive-check → claude is dead → recover path relaunches.
@@ -948,7 +1223,7 @@ _matrix_peek_one() {
   local rj="$2"
   local rs="$3"
   local account
-  if [ "$(dirname "$rj")" = "$HOME/.claude/identities/$name" ]; then
+  if [ "$(dirname "$rj")" = "$IDENTITIES_DIR/$name" ]; then
     account="primary"
   else
     account=$(basename "$(dirname "$rj")")
@@ -1003,7 +1278,7 @@ _matrix_peek_one() {
 
 matrix_peek() {
   local name="$1"
-  local idroot="$HOME/.claude/identities/$name"
+  local idroot="$IDENTITIES_DIR/$name"
   local wake=1
   # nullglob so an empty <idroot>/*/relay.json glob yields zero iterations, not a literal '*'
   # string. Save & restore prior nullglob state so we don't leak the option to the caller.
@@ -1028,7 +1303,7 @@ matrix_peek() {
 # because the earlier pilot only wired interval and stubbed the others to "never pending."
 schedule_peek() {
   local name="$1"
-  local wd="$HOME/.claude/identities/$name/wakeups"
+  local wd="$IDENTITIES_DIR/$name/wakeups"
   [ -d "$wd" ] || return 1
   # NOTE: wakeup-scheduler.py writes time.time() (a FLOAT) into .state/<slug>.last, not an int.
   # int(open(..).read()) fails on '1786106092.3482552' → silent-fail-swallowed = no wake ever
@@ -1287,6 +1562,7 @@ do_wake() {
 
 reconcile() {
   sample_memory                                    # dashboard sampler — one line per cycle
+  run_archive_scan_if_due                          # Phase 94: daily archive-scan branch (24h gate; fast-path no-op on most ticks)
   resolve_identities
   if [ "${#IDENTITIES[@]}" -eq 0 ]; then log "no identities to supervise (MODE=$MODE)"; return 0; fi
   local name slugname actual sentinel launched=0
@@ -1441,6 +1717,17 @@ reconcile() {
   [ "$launched" -eq 0 ] && [ "${VERBOSE:-0}" = 1 ] && log "all supervised identities alive"
   return 0
 }
+
+# ---- LIB_ONLY guard (Phase 94-04) ----
+# When sourced by the test driver (AGENT_SUPERVISOR_LIB_ONLY=1), stop here: all function
+# definitions above are now available in the caller's environment, but the reconcile loop
+# below is NOT executed. This is the correct hook point — after all archive-scan helpers
+# (is_coordinator, get_freshness_epoch, retire_identity, run_archive_scan,
+# run_archive_scan_if_due) are defined, before the infinite reconcile loop starts.
+# Has no effect during normal fleet execution (the variable is never set there).
+# shellcheck disable=SC2015  # A && return || true: intentional — `return` is valid when sourced;
+#                              `|| true` is a no-op fallback when executed directly (not sourced).
+[ "${AGENT_SUPERVISOR_LIB_ONLY:-0}" = 1 ] && return 0 2>/dev/null || true
 
 # ---- main ----
 ensure_agent_teams_env

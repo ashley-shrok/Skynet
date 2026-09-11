@@ -8,7 +8,7 @@
 // TDD test map (per plan Task 1 <behavior>):
 //   A (LOCAL, valid):  writes to ROLES_HOST_DIR/<roleName>/<roleName>.md via
 //                      fs tmp+rename; readRoleFileByName round-trips.
-//   B (REMOTE, valid): writes to $HOME/.claude/roles/<roleName>/<roleName>.md
+//   B (REMOTE, valid): writes to $HOME/fleet/roles/<roleName>/<roleName>.md
 //                      via writeMarkdownFileAtomic (SFTP tmp+rename).
 //   C (bad roleName):  throws "invalid roleName" BEFORE any I/O.
 //   D (oversized):     throws "markdown payload exceeds IDMEDIT_MAX_MARKDOWN_BYTES"
@@ -158,7 +158,7 @@ describe("writeRoleFileByName — LOCAL branch (conn=null)", () => {
 // ──────────────────────────────────────────────────────────────────────
 
 describe("writeRoleFileByName — REMOTE branch (conn is SSHClientType)", () => {
-  it("test B: writes to $HOME/.claude/roles/<roleName>/<roleName>.md via writeMarkdownFileAtomic", async () => {
+  it("test B: writes to $HOME/fleet/roles/<roleName>/<roleName>.md via writeMarkdownFileAtomic", async () => {
     const { conn, sftp, renameCalls } = buildMockConn();
 
     // REMOTE branch does one `echo $HOME` to build the target path.
@@ -175,20 +175,20 @@ describe("writeRoleFileByName — REMOTE branch (conn is SSHClientType)", () => 
     expect(sftp.ext_openssh_rename).toHaveBeenCalledTimes(1);
     expect(sftp.rename).not.toHaveBeenCalled();
 
-    // Path shape: writes to <home>/.claude/roles/box-maintainer/box-maintainer.md
+    // Path shape: writes to <home>/fleet/roles/box-maintainer/box-maintainer.md
     expect(renameCalls).toHaveLength(1);
     expect(renameCalls[0].from).toBe(
-      "/home/tester/.claude/roles/box-maintainer/box-maintainer.md.tmp",
+      "/home/tester/fleet/roles/box-maintainer/box-maintainer.md.tmp",
     );
     expect(renameCalls[0].to).toBe(
-      "/home/tester/.claude/roles/box-maintainer/box-maintainer.md",
+      "/home/tester/fleet/roles/box-maintainer/box-maintainer.md",
     );
 
     // writeFile hit the .tmp path first (atomic-write pattern)
     expect(sftp.writeFile).toHaveBeenCalledTimes(1);
     const writeArgs = sftp.writeFile.mock.calls[0];
     expect(writeArgs[0]).toBe(
-      "/home/tester/.claude/roles/box-maintainer/box-maintainer.md.tmp",
+      "/home/tester/fleet/roles/box-maintainer/box-maintainer.md.tmp",
     );
 
     // finally { sftp.end() } always fires

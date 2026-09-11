@@ -480,7 +480,7 @@ describe("PUT /identities/:key/no-dormancy", () => {
     expect(res.body).toEqual({ present: true });
     expect(execCommand).toHaveBeenCalledTimes(1);
     const [, cmd] = (execCommand as Mock).mock.calls[0] as [unknown, string];
-    expect(cmd).toContain(`mkdir -p "$HOME/.claude/identities/moxie" && touch "$HOME/.claude/identities/moxie/.no-dormancy"`);
+    expect(cmd).toContain(`mkdir -p "$HOME/fleet/identities/moxie" && touch "$HOME/fleet/identities/moxie/.no-dormancy"`);
   });
 
   // -------------------------------------------------------------------------
@@ -498,7 +498,7 @@ describe("PUT /identities/:key/no-dormancy", () => {
     expect(res.body).toEqual({ present: false });
     expect(execCommand).toHaveBeenCalledTimes(1);
     const [, cmd] = (execCommand as Mock).mock.calls[0] as [unknown, string];
-    expect(cmd).toContain(`rm -f "$HOME/.claude/identities/moxie/.no-dormancy"`);
+    expect(cmd).toContain(`rm -f "$HOME/fleet/identities/moxie/.no-dormancy"`);
   });
 
   // -------------------------------------------------------------------------

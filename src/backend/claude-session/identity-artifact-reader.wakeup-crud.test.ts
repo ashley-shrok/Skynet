@@ -5,7 +5,7 @@
 //   - writeIdentityWakeupDelete — new
 //
 // Byte-shape mirror of the role-wakeup tests, minus the two-step (identity
-// scope reads/writes ~/.claude/identities/<key>/wakeups/ directly — no role
+// scope reads/writes ~/fleet/identities/<key>/wakeups/ directly — no role
 // resolution). LOCAL branch only (REMOTE branch shares the python3 tmp+rename
 // primitive already covered by the existing writeIdentityWakeupUpdate tests).
 //
@@ -61,7 +61,7 @@ describe("writeIdentityWakeupCreate — LOCAL branch (conn=null)", () => {
     await fs.rm(identitiesRoot, { recursive: true, force: true });
   });
 
-  it("(a) creates ~/.claude/identities/<key>/wakeups/<slug>.json with slug derived from name", async () => {
+  it("(a) creates ~/fleet/identities/<key>/wakeups/<slug>.json with slug derived from name", async () => {
     const result = await writeIdentityWakeupCreate(null, KEY, {
       name: "Weekly Review",
       enabled: true,

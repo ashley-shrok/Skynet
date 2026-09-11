@@ -60,6 +60,17 @@ let mockIdentitiesByKey: Map<
   { identityKey: string; title?: string | null; displayName?: string | null }
 > = new Map();
 
+// Phase 92 Plan 04: identities-store now exports deriveDiskPinnedIds +
+// buildIdentityHostsFromFleet (H2 lock — single derivation site invariant).
+// The panel hydrate effect calls both. Mutable spies + mock return values so
+// PANEL-92-* tests can seed a controlled projection.
+const deriveDiskPinnedIdsSpy = vi.fn<
+  (identityHosts: Record<string, number>) => string[]
+>(() => []);
+const buildIdentityHostsFromFleetSpy = vi.fn<
+  (fleetSessions: unknown[]) => Record<string, number>
+>(() => ({}));
+
 vi.mock("@/state/identities-store", () => ({
   useIdentities: () => ({
     byKey: mockIdentitiesByKey,
@@ -67,6 +78,10 @@ vi.mock("@/state/identities-store", () => ({
     loaded: true,
     refresh: async () => {},
   }),
+  deriveDiskPinnedIds: (identityHosts: Record<string, number>) =>
+    deriveDiskPinnedIdsSpy(identityHosts),
+  buildIdentityHostsFromFleet: (fleetSessions: unknown[]) =>
+    buildIdentityHostsFromFleetSpy(fleetSessions),
 }));
 
 // Phase 104 Plan 03: patch #167 mock retired alongside its wire deletion.
@@ -206,6 +221,12 @@ let mockActiveSet: ReadonlySet<string> = new Set<string>();
 // before render — see Test 21 which was updated to opt in.
 let mockFleetSessionsLoaded = false;
 
+// Phase 92 Plan 04 — controlled fleetSessions snapshot for the panel's
+// hydrate effect. Mock-scope mutable array so PANEL-92-* tests can seed
+// specific sessions and assert buildIdentityHostsFromFleet is called with
+// exactly this snapshot. beforeEach resets to empty.
+let mockFleetSessionsSnapshot: unknown[] = [];
+
 vi.mock("@/state/conversation-store", () => ({
   useConversations: () => ({
     activeSet: snapshot.activeSet,
@@ -228,6 +249,10 @@ vi.mock("@/state/conversation-store", () => ({
   // Backed by mockFleetSessionsLoaded so Test 22 can flip it on/off between
   // rerenders to exercise the gate.
   useFleetSessionsLoaded: () => mockFleetSessionsLoaded,
+  // Phase 92 Plan 04: panel hydrate effect reads fleetSessions to derive
+  // identityHosts. Backed by mockFleetSessionsSnapshot so PANEL-92-* tests
+  // can seed the projection input.
+  getFleetSessionsSnapshot: () => mockFleetSessionsSnapshot,
   selectConversation: (id: string | null) => selectConversationSpy(id),
   pinConversation: (id: string) => pinConversationSpy(id),
   unpinConversation: (id: string) => unpinConversationSpy(id),
@@ -239,9 +264,9 @@ vi.mock("@/state/conversation-store", () => ({
   // assertion can match against "fleet::HOSTID::SESSIONNAME".
   fleetRowId: (hostId: number, sessionName: string) =>
     `fleet::${hostId}::${sessionName}`,
-  // Phase 15 (Wave 3): the panel's new mount-effect calls this after
-  // getPinnedIds resolves. Spy so the integration test can assert the
-  // fetch → hydrate wiring.
+  // Phase 92 Plan 04: hydrate spy still exercised, now called with the
+  // deriveDiskPinnedIds projection result rather than the retired
+  // getPinnedIds() fetch.
   hydratePinnedIdsFromServer: (ids: string[]) =>
     hydratePinnedIdsFromServerSpy(ids),
   // quick-260731-tgg: hide/show store functions.
@@ -251,16 +276,13 @@ vi.mock("@/state/conversation-store", () => ({
     hydrateHiddenIdsFromServerSpy(ids),
 }));
 
-// Phase 15 (Wave 3): mock @/api/user-preferences-api so the panel's mount
-// effect resolves getPinnedIds against a controlled fixture. Default returns
-// an empty array — matches the pre-Wave-3 observable behavior of the panel
-// (no pins hydrated) so the 25+ pre-existing tests remain unaffected. The
-// mount effect fires on EVERY render (empty deps → once per mount), so this
-// mock's mere presence ensures no real HTTP layer is touched.
+// Phase 92 Plan 04: getPinnedIds is RETIRED. The mock no longer surfaces it —
+// any import that still references it fails at runtime with "undefined is not
+// a function" (the H2 anti-shim regression trap). The hidden slice remains
+// untouched per D-02.
 vi.mock("@/api/user-preferences-api", () => ({
-  getPinnedIds: vi.fn().mockResolvedValue([]),
   putPinnedIds: vi.fn().mockResolvedValue([]),
-  // quick-260731-tgg: hiddenIds API wrappers.
+  // quick-260731-tgg: hiddenIds API wrappers (D-02 out-of-scope, unchanged).
   getHiddenIds: vi.fn().mockResolvedValue([]),
   putHiddenIds: vi.fn().mockResolvedValue([]),
 }));
@@ -444,14 +466,19 @@ beforeEach(async () => {
   // invariant post-kbw. Tests that need the mount fetch (Test 21 and
   // Test 22's second render) opt in explicitly.
   mockFleetSessionsLoaded = false;
-  // Phase 15 (Wave 3): re-arm the getPinnedIds mock's default resolve value.
-  // vi.clearAllMocks() above wipes the resolved value along with call
-  // history; restore the "empty array" default so pre-Wave-3 tests continue
-  // to observe the panel with an empty pinned tier post-mount-fetch.
-  const { getPinnedIds, getHiddenIds } = await import("@/api/user-preferences-api");
-  vi.mocked(getPinnedIds).mockResolvedValue([]);
-  // quick-260731-tgg: re-arm getHiddenIds default.
+  // Phase 92 Plan 04: getPinnedIds is retired — re-arm only getHiddenIds
+  // (which still fires from the panel hydrate effect for the hidden slice
+  // per D-02 out-of-scope). The pin hydrate now goes through the identities-
+  // store deriveDiskPinnedIds spy, reset below.
+  const { getHiddenIds } = await import("@/api/user-preferences-api");
   vi.mocked(getHiddenIds).mockResolvedValue([]);
+  // Phase 92 Plan 04: reset the identities-store spies + fleet-snapshot mock
+  // between tests so per-test seeds don't leak.
+  deriveDiskPinnedIdsSpy.mockReset();
+  deriveDiskPinnedIdsSpy.mockReturnValue([]);
+  buildIdentityHostsFromFleetSpy.mockReset();
+  buildIdentityHostsFromFleetSpy.mockReturnValue({});
+  mockFleetSessionsSnapshot = [];
   // Patch #167: reset identities mock. Phase 104 Plan 03: mockBountyCounts
   // retired with the bounty-count wire.
   mockIdentitiesByKey = new Map();
@@ -1697,34 +1724,32 @@ describe("PrettyConversationsPanel: patch #144 activeSet on selectedId", () => {
 });
 
 // ─────────────────────────────────────────────────────────────
-// Phase 15 (Wave 3) — server-hydration on mount (PIN-04 integration)
+// Phase 92 Plan 04 — panel hydrate effect uses deriveDiskPinnedIds
+// (replacement for retired getPinnedIds() fetch)
 // ─────────────────────────────────────────────────────────────
 //
-// Asserts the mount-fetch-hydrate round-trip end-to-end at the panel level:
-//   1. On mount, getPinnedIds() is called exactly once (empty-deps effect).
-//   2. Once getPinnedIds resolves with a fixture array, the panel calls
-//      hydratePinnedIdsFromServer(ids) with that exact array — the store's
-//      pinnedIds then reflects server state.
-//
-// This is PIN-04's architectural assertion of "server is authoritative +
-// every mount fetches fresh." Cross-device confirmation (PIN-02) is the
-// human-verify checkpoint Step 3; this test locks the plumbing.
+// Post-Phase-92: the hydrate effect no longer fetches pinnedConversationIds
+// from GET /user-preferences. Instead it projects each identity's on-disk
+// `pinned: boolean` field (populated by the backend fanout per Plan 92-02)
+// into the row id space via deriveDiskPinnedIds(identityHosts). The
+// identityHosts argument is built by buildIdentityHostsFromFleet — the H2
+// lock helper (identities-store.ts:74-85) shared with pin-toggle writes.
 
-describe("PrettyConversationsPanel (Phase 15): server-hydration on mount", () => {
-  it("Test 21 (Phase 15 Wave 3): mount fires getPinnedIds() then hydratePinnedIdsFromServer(ids) with the resolved array", async () => {
+describe("PrettyConversationsPanel (Phase 92 Plan 04): server-hydration on mount", () => {
+  it("Test 21 (Phase 92 rewire): mount calls buildIdentityHostsFromFleet(fleetSessions) then deriveDiskPinnedIds then hydratePinnedIdsFromServer", async () => {
     // quick-260727-kbw: opt in to the fleet-loaded gate so the mount effect
-    // fires. Pre-kbw this test relied on the empty-deps effect firing on
-    // every mount; post-kbw the effect gates on fleetSessionsLoaded=true
-    // (mirrors the production ordering where AppShell's fleet-fetch effect
-    // populates state.fleetSessions before the panel's hydrate effect runs).
+    // fires. Same gate contract as pre-92.
     mockFleetSessionsLoaded = true;
 
-    // Fixture: two ids that are legally-pinnable in this test setup. Content
-    // doesn't need to match anything the snapshot renders — the assertion is
-    // on the fetch → hydrate wiring, not on the rendered pinned tier.
-    const fixtureIds = ["fleet::1::work", "t-A"];
-    const { getPinnedIds } = await import("@/api/user-preferences-api");
-    vi.mocked(getPinnedIds).mockResolvedValueOnce(fixtureIds);
+    // Seed the fleet snapshot the panel will pass into
+    // buildIdentityHostsFromFleet, and seed each spy's return so the
+    // projection lands ["fleet::1::tina"] into hydratePinnedIdsFromServer.
+    const fleetFixture = [
+      { hostId: 1, hostName: "hostA", sessionName: "tina", created: 100, role: null },
+    ];
+    mockFleetSessionsSnapshot = fleetFixture;
+    buildIdentityHostsFromFleetSpy.mockReturnValueOnce({ tina: 1 });
+    deriveDiskPinnedIdsSpy.mockReturnValueOnce(["fleet::1::tina"]);
 
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
@@ -1743,41 +1768,42 @@ describe("PrettyConversationsPanel (Phase 15): server-hydration on mount", () =>
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
-    // getPinnedIds fires synchronously on mount (empty-deps effect kicks off
-    // the async IIFE). Assert the call count before waiting on the hydrate.
-    expect(vi.mocked(getPinnedIds)).toHaveBeenCalledTimes(1);
+    // buildIdentityHostsFromFleet fires with the seeded fleet snapshot.
+    await waitFor(() => {
+      expect(buildIdentityHostsFromFleetSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(buildIdentityHostsFromFleetSpy).toHaveBeenCalledWith(fleetFixture);
 
-    // Wait for the resolve microtask to land the hydrate call. The panel's
-    // mount effect's IIFE awaits getPinnedIds → hydratePinnedIdsFromServer
-    // is called in the resolve branch (guarded by !cancelled).
+    // deriveDiskPinnedIds is called with the buildIdentityHostsFromFleet result.
+    await waitFor(() => {
+      expect(deriveDiskPinnedIdsSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(deriveDiskPinnedIdsSpy).toHaveBeenCalledWith({ tina: 1 });
+
+    // The projection result flows into hydratePinnedIdsFromServer.
     await waitFor(() => {
       expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(1);
     });
-    expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledWith(fixtureIds);
+    expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledWith(["fleet::1::tina"]);
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 22 — quick-260727-kbw: mount hydration gated on fleetSessionsLoaded
+// (Phase 92 Plan 04 rewired to the deriveDiskPinnedIds path)
 // ─────────────────────────────────────────────────────────────────────────────
-// The Wave-3 mount effect empty-deps at L204-218 (pre-kbw) fired the
-// getPinnedIds fetch in a microtask while state.fleetSessions was still empty;
-// the next routine updateOpenTabs pruned the freshly-hydrated fleet pin
-// because fleetPinKeepSet was built from an empty state.fleetSessions.
-//
-// Post-kbw: the effect gates on useFleetSessionsLoaded() === true AND uses a
-// hydratedRef to prevent double-fetch across re-renders (defense-in-depth per
-// bug spec).
-//
-// This test locks the ordering itself. The store-level regression assertion —
-// that IF the ordering holds, the pin survives the pruner — lives in
-// conversation-store.test.ts.
+// The load-order gate is UNCHANGED post-Phase-92: the hydrate effect body
+// still early-returns while fleetSessionsLoaded=false; still uses hydratedRef
+// to prevent double-fire across re-renders. Only the fetch → projection
+// wiring inside the body shifted.
 
-describe("PrettyConversationsPanel (quick-260727-kbw): mount hydration gated on fleetSessionsLoaded", () => {
-  it("Test 22 (quick-260727-kbw): mount does NOT call getPinnedIds while fleetSessionsLoaded=false; DOES call once after it flips to true; stays once across further re-renders (hydratedRef dedupe)", async () => {
-    const fixtureIds = ["fleet::7::aqua"];
-    const { getPinnedIds } = await import("@/api/user-preferences-api");
-    vi.mocked(getPinnedIds).mockResolvedValueOnce(fixtureIds);
+describe("PrettyConversationsPanel (quick-260727-kbw, Phase 92 rewire): mount hydration gated on fleetSessionsLoaded", () => {
+  it("Test 22 (quick-260727-kbw, Phase 92): mount does NOT call deriveDiskPinnedIds while fleetSessionsLoaded=false; DOES call once after it flips to true; stays once across further re-renders (hydratedRef dedupe)", async () => {
+    mockFleetSessionsSnapshot = [
+      { hostId: 7, hostName: "hostA", sessionName: "aqua", created: 100, role: null },
+    ];
+    buildIdentityHostsFromFleetSpy.mockReturnValue({ aqua: 7 });
+    deriveDiskPinnedIdsSpy.mockReturnValue(["fleet::7::aqua"]);
 
     const hostA = makeHost("h1", "hostA");
     setSnapshot({
@@ -1792,45 +1818,103 @@ describe("PrettyConversationsPanel (quick-260727-kbw): mount hydration gated on 
       ],
     });
 
-    // beforeEach sets mockFleetSessionsLoaded = false. Render — the gate is
-    // closed, so the mount effect body should early-return before calling
-    // getPinnedIds.
+    // beforeEach sets mockFleetSessionsLoaded = false. Render — gate closed.
     const { rerender } = render(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
-    // Pre-flip assertion: fetch NOT called. Await a microtask so any deferred
-    // effect body would have had a chance to fire.
+    // Pre-flip assertion: projection NOT called.
     await Promise.resolve();
-    expect(vi.mocked(getPinnedIds)).toHaveBeenCalledTimes(0);
+    expect(deriveDiskPinnedIdsSpy).toHaveBeenCalledTimes(0);
     expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(0);
 
-    // Flip the gate open, rerender — the mount effect's dep is
-    // [fleetSessionsLoaded] so the body reruns and fires the fetch this time.
+    // Flip the gate open, rerender.
     mockFleetSessionsLoaded = true;
     rerender(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
 
-    // Post-flip: fetch called exactly once. Await the resolve microtask for
-    // the hydrate to land.
+    // Post-flip: projection called exactly once + hydrate lands.
     await waitFor(() => {
-      expect(vi.mocked(getPinnedIds)).toHaveBeenCalledTimes(1);
+      expect(deriveDiskPinnedIdsSpy).toHaveBeenCalledTimes(1);
     });
     await waitFor(() => {
       expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(1);
     });
-    expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledWith(fixtureIds);
+    expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledWith(["fleet::7::aqua"]);
 
-    // Third render: gate stays open, hydratedRef should hold. Fetch count
-    // MUST NOT bump — this is the ref-based dedupe guard.
+    // Third render: gate stays open, hydratedRef holds.
     rerender(
       <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
     );
-    // Give any deferred work a chance to fire before asserting it didn't.
     await Promise.resolve();
-    expect(vi.mocked(getPinnedIds)).toHaveBeenCalledTimes(1);
+    expect(deriveDiskPinnedIdsSpy).toHaveBeenCalledTimes(1);
     expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PANEL-92-* — Phase 92 Plan 04 Task 2 regression traps
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("PrettyConversationsPanel (Phase 92 Plan 04): PANEL-92-* hydrate regression traps", () => {
+  it("PANEL-92-03 (hiddenIds hydrate unchanged): getHiddenIds() STILL fires alongside the disk-projection pinned path", async () => {
+    // D-02 out-of-scope for hidden slice — Plan 04 rewires ONLY the pinned
+    // hydrate path. The hidden hydrate must still fire on mount, and must
+    // still route through hydrateHiddenIdsFromServer.
+    mockFleetSessionsLoaded = true;
+    const hiddenFixture = ["fleet::9::hidden-a"];
+    const { getHiddenIds } = await import("@/api/user-preferences-api");
+    vi.mocked(getHiddenIds).mockResolvedValueOnce(hiddenFixture);
+
+    setSnapshot({ activeSet: [], pinned: [], grouped: [] });
+
+    render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    await waitFor(() => {
+      expect(vi.mocked(getHiddenIds)).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(hydrateHiddenIdsFromServerSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(hydrateHiddenIdsFromServerSpy).toHaveBeenCalledWith(hiddenFixture);
+  });
+
+  it("PANEL-92-04 (H2 lock): hydrate effect threads buildIdentityHostsFromFleet(state.fleetSessions) into deriveDiskPinnedIds", async () => {
+    // The panel MUST route identityHosts derivation through the shared
+    // buildIdentityHostsFromFleet helper. This test asserts:
+    //   (1) buildIdentityHostsFromFleet is called with the fleetSessions
+    //       snapshot returned from getFleetSessionsSnapshot,
+    //   (2) deriveDiskPinnedIds is called with that helper's return value,
+    //   (3) the same call order holds (build → derive → hydrate).
+    mockFleetSessionsLoaded = true;
+    const fleetFixture = [
+      { hostId: 1, hostName: "alpha", sessionName: "tina", created: 100, role: null },
+      { hostId: 2, hostName: "beta", sessionName: "alice", created: 200, role: null },
+    ];
+    mockFleetSessionsSnapshot = fleetFixture;
+    const expectedIdentityHosts = { tina: 1, alice: 2 };
+    buildIdentityHostsFromFleetSpy.mockReturnValueOnce(expectedIdentityHosts);
+    deriveDiskPinnedIdsSpy.mockReturnValueOnce(["fleet::1::tina"]);
+
+    setSnapshot({ activeSet: [], pinned: [], grouped: [] });
+
+    render(
+      <PrettyConversationsPanel variant="desktop" onDeactivateRow={() => {}} />,
+    );
+
+    await waitFor(() => {
+      expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledTimes(1);
+    });
+
+    // (1) buildIdentityHostsFromFleet called with the fleet snapshot.
+    expect(buildIdentityHostsFromFleetSpy).toHaveBeenCalledWith(fleetFixture);
+    // (2) deriveDiskPinnedIds called with the build's return value.
+    expect(deriveDiskPinnedIdsSpy).toHaveBeenCalledWith(expectedIdentityHosts);
+    // (3) hydratePinnedIdsFromServer called with the projection result.
+    expect(hydratePinnedIdsFromServerSpy).toHaveBeenCalledWith(["fleet::1::tina"]);
   });
 });
 
@@ -4514,6 +4598,8 @@ describe("PrettyConversationsPanel: Phase 91 — New conversation menu item + mo
   it("Test 4: existing menu items appear in locked order (New agent → Edit roles… → Edit global files… → Edit skills…)", () => {
     // This is a grep/source-level assertion.
     // We also verify via rendering that the items appear in source order.
+    // Phase 90 Plan 90-06 (D-07): "New role" swapped out for "Edit roles…"
+    // (PrettyConversationsPanel.tsx:2213).
     renderPanelWithCreateRelayRoom();
     openThreeDotMenu();
 
@@ -4527,7 +4613,7 @@ describe("PrettyConversationsPanel: Phase 91 — New conversation menu item + mo
     const agentIdx = labels.findIndex((l) => l === "New agent");
     const rolesIdx = labels.findIndex((l) => l.includes("Edit roles"));
     const filesIdx = labels.findIndex((l) => l.includes("global files"));
-    const skillsIdx = labels.findIndex((l) => l.includes("skills"));
+    const skillsIdx = labels.findIndex((l) => l.toLowerCase().includes("skills"));
 
     expect(agentIdx).toBeGreaterThan(-1);
     expect(rolesIdx).toBeGreaterThan(agentIdx); // Edit roles… AFTER New agent

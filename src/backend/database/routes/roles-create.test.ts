@@ -32,7 +32,7 @@
  *       standard body.
  *     Test 3: multipart POST with `data` + `avatar` (image/webp) → writes
  *       BOTH the .md (with `avatar: box-maintainer.webp` in frontmatter)
- *       AND the sibling `~/.claude/roles/box-maintainer/box-maintainer.webp`
+ *       AND the sibling `~/fleet/roles/box-maintainer/box-maintainer.webp`
  *       via the inline SFTP writeFile helper.
  *     Test 4: multipart POST with malformed cosmetic values (colorHue=400,
  *       voice="wrong-format") → 400 with a field-specific error message
@@ -510,7 +510,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
     // with the uploaded bytes.
     expect(capturedSftpWrites.length).toBe(1);
     expect(capturedSftpWrites[0].remotePath).toBe(
-      "/home/ubuntu/.claude/roles/box-maintainer/box-maintainer.webp",
+      "/home/ubuntu/fleet/roles/box-maintainer/box-maintainer.webp",
     );
     expect(capturedSftpWrites[0].bytes.equals(avatarBytes)).toBe(true);
   });
@@ -657,7 +657,7 @@ describe("POST /roles — Phase 86 cosmetic frontmatter + avatar sibling write",
     // Inline SFTP write landed at role folder with correct ext.
     expect(capturedSftpWrites.length).toBe(1);
     expect(capturedSftpWrites[0].remotePath).toBe(
-      "/home/ubuntu/.claude/roles/box-maintainer/box-maintainer.png",
+      "/home/ubuntu/fleet/roles/box-maintainer/box-maintainer.png",
     );
   });
 

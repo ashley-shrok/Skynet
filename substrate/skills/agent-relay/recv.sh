@@ -40,7 +40,7 @@ ME=$(cred user_id); [ -z "$ME" ] && ME=$(cat "$STATE_DIR/uid" 2>/dev/null)
 # to STDOUT (so it wakes the agent as an actual event, not just buried stderr) and exit; the
 # Monitor ends and the agent gets a wake with the diagnostic instead of a live-looking zombie.
 if [ -z "$BASE" ]; then
-  echo "recv.sh FATAL: BASE could not be resolved. STATE_DIR=$STATE_DIR — recv.sh derives creds from \$(dirname \$STATE_DIR)/relay.json (looked at '$(dirname "$STATE_DIR")/relay.json'). For a DURABLE identity, STATE_DIR must point at ~/.claude/identities/<name>/relay-state so dirname lands on the identity dir where relay.json lives. Exiting so this failure is visible instead of silent."
+  echo "recv.sh FATAL: BASE could not be resolved. STATE_DIR=$STATE_DIR — recv.sh derives creds from \$(dirname \$STATE_DIR)/relay.json (looked at '$(dirname "$STATE_DIR")/relay.json'). For a DURABLE identity, STATE_DIR must point at ~/fleet/identities/<name>/relay-state so dirname lands on the identity dir where relay.json lives. Exiting so this failure is visible instead of silent."
   exit 2
 fi
 # relogin(): mint a fresh token from the stored password, persist it, rebuild H. Returns 1 if it
@@ -120,7 +120,7 @@ SINCE=$(cat "$SINCE_FILE" 2>/dev/null)   # pre-seeded at REGISTER time; SINCE_FI
 # race — the second advances it past messages the first hasn't surfaced, silently eating them.
 # ⚠️ The pidfile is keyed on the CURSOR's dir (dirname SINCE_FILE), NOT STATE_DIR. This is the
 # fix for the cross-session dup bug (diagnosed 2026-07-17): a durable identity's SINCE_FILE is a
-# STABLE path (~/.claude/identities/<name>/relay-state/since), so its pidfile is stable too and a
+# STABLE path (~/fleet/identities/<name>/relay-state/since), so its pidfile is stable too and a
 # NEW session's receiver sees + kills the PRIOR session's receiver even though that one lives in a
 # DIFFERENT ephemeral STATE_DIR. Keying on STATE_DIR (the old bug) made each session's guard blind
 # to the others, so a stale receiver from an earlier session kept polling and ate messages into a

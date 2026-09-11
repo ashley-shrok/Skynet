@@ -5,9 +5,9 @@
  * adaptations:
  *   1. **Role dimension** replaces `hostId` alone: requests carry
  *      `(hostId, roleName, [runbookName], [relativePath])`. Runbooks live at
- *      `~/.claude/roles/<roleName>/runbooks/<runbookName>/...` on the remote host.
+ *      `~/fleet/roles/<roleName>/runbooks/<runbookName>/...` on the remote host.
  *   2. **Role validation 404**: before any runbook I/O, the backend checks that
- *      `~/.claude/roles/<roleName>/` exists on the host and returns 404
+ *      `~/fleet/roles/<roleName>/` exists on the host and returns 404
  *      `{error:"role not found"}` if not (D-15). Missing runbooks folder within
  *      a valid role is empty-list-not-404 (mirrors skills' "missing = empty state"
  *      posture — same as skills-editor.ts L294-302).
@@ -19,9 +19,9 @@
  * Endpoints (all gated by authenticateJWT + resolveHostById(hostId, userId)):
  *   GET  /runbooks-editor/runbooks?hostId=<n>&role=<r>
  *     → 200 { runbooks: [{name}] } sorted alphabetically; empty array when
- *       `~/.claude/roles/<r>/runbooks/` is missing OR empty (matches skills'
+ *       `~/fleet/roles/<r>/runbooks/` is missing OR empty (matches skills'
  *       "missing = empty state" posture per skills-editor.ts L294-302); 404
- *       `{error:"role not found"}` when `~/.claude/roles/<r>/` itself is absent
+ *       `{error:"role not found"}` when `~/fleet/roles/<r>/` itself is absent
  *       (per D-15).
  *   GET  /runbooks-editor/files?hostId=<n>&role=<r>&runbook=<b>
  *     → 200 { files: [{path}] } — recursive `find <runbookRoot> -type f
@@ -118,8 +118,9 @@ const RUNBOOK_NAME_RE = /^[a-zA-Z0-9._-]{1,128}$/;
  * Relative path root for roles on the remote host.
  * Runbook root is composed as `${remoteHome}/${ROLE_ROOT_REL}/${role}/runbooks/${runbook}`.
  * Mirrors SKILL_ROOT_REL = ".claude/skills" in skills-editor.ts:109.
+ * Updated Phase 96 (D-01/D-02): roles now live under ~/fleet/roles/ on the managed host.
  */
-const ROLE_ROOT_REL = ".claude/roles";
+const ROLE_ROOT_REL = "fleet/roles";
 
 /**
  * Race an exec against a timeout so a hung remote can't stall the route.
@@ -241,7 +242,7 @@ function detectIsText(buf: Buffer): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * List runbooks for a role on the host — `find ~/.claude/roles/<r>/runbooks
+ * List runbooks for a role on the host — `find ~/fleet/roles/<r>/runbooks
  * -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort`. Returns empty array
  * when the runbooks directory is missing (not 404 — mirrors skills' "missing =
  * empty state"). Returns 404 `{error:"role not found"}` when the role folder

@@ -43,12 +43,12 @@
  *   7. resolveRoleForIdentity(conn, sourceIdentityKey) — THROWS on missing
  *      frontmatter (500 with "source has no role frontmatter"). NO fallback
  *      branch per Pitfall 8 + D-CONTEXT LOCKED "no such identities exist".
- *   8. Collision probe: `if [ -d "$HOME/.claude/identities/<newName>" ]` —
+ *   8. Collision probe: `if [ -d "$HOME/fleet/identities/<newName>" ]` —
  *      409 if "exists".
  *   9. Provision new fleet folder (mirrors 22-02 Step 2.5 shape MINUS the
  *      SSH relay-register block per REVISION 2026-08-04):
- *      - `mkdir -p ~/.claude/identities/<newName>/wakeups`
- *      - `touch ~/.claude/identities/<newName>/handoff.md`
+ *      - `mkdir -p ~/fleet/identities/<newName>/wakeups`
+ *      - `touch ~/fleet/identities/<newName>/handoff.md`
  *      - `echo $HOME` for absolute path resolution
  *      - writeMarkdownFileAtomic with `role: <sourceRole>` frontmatter +
  *        SEED COMMENT (wake-up agent registers own relay account on first
@@ -272,7 +272,7 @@ function execWithTimeout(
 /**
  * POST /
  * Body: { sourceIdentityKey, hostId, newName, title, voice, avatarCandidateId }
- * Provisions ~/.claude/identities/<newName>/ + wakeups/ + handoff.md +
+ * Provisions ~/fleet/identities/<newName>/ + wakeups/ + handoff.md +
  * <newName>.md (with role: frontmatter and wake-up seed comment) and inserts
  * a new Skynet DB row that mirrors the source's colorHue.
  */
@@ -439,7 +439,7 @@ router.post(
     // frontmatter). That IS the source-existence check now. No DB SELECT.
     //
     // Phase 68: newName collision is checked exclusively by the SSH-side probe
-    // at Step 7 (`if [ -d ~/.claude/identities/${newName} ]`). No DB precheck
+    // at Step 7 (`if [ -d ~/fleet/identities/${newName} ]`). No DB precheck
     // — there's no DB roster to check against.
     // -----------------------------------------------------------------------
 
@@ -562,7 +562,7 @@ router.post(
       try {
         existsStdout = await execWithTimeout(
           conn,
-          `if [ -d "$HOME/.claude/identities/${newName}" ]; then echo exists; else echo missing; fi`,
+          `if [ -d "$HOME/fleet/identities/${newName}" ]; then echo exists; else echo missing; fi`,
         );
       } catch (err) {
         sshLogger.warn("identity-clone: existence probe failed", {
@@ -594,11 +594,11 @@ router.post(
       try {
         await execWithTimeout(
           conn,
-          `mkdir -p "$HOME/.claude/identities/${newName}/wakeups"`,
+          `mkdir -p "$HOME/fleet/identities/${newName}/wakeups"`,
         );
         await execWithTimeout(
           conn,
-          `touch "$HOME/.claude/identities/${newName}/handoff.md"`,
+          `touch "$HOME/fleet/identities/${newName}/handoff.md"`,
         );
         const escWorkingPath = shellPath(normalizeRemotePath(path));
         // mkdir + tmux new-session in one exec (mirrors identity-birth-
@@ -732,7 +732,7 @@ router.post(
       );
       const identityFileMarkdown =
         `---\n${cloneYamlBody}---\n\n${CLONE_SEED_COMMENT}\n\n# ${newName}\n\n(cloned from ${sourceIdentityKey})\n`;
-      const targetPath = `${remoteHome}/.claude/identities/${newName}/${newName}.md`;
+      const targetPath = `${remoteHome}/fleet/identities/${newName}/${newName}.md`;
       try {
         await writeMarkdownFileAtomic(conn, targetPath, identityFileMarkdown);
       } catch (err) {

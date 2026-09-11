@@ -14,7 +14,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // Same api-client mock as conversation-store.test.ts — required because
 // importing the store pulls in user-preferences-api at module load.
 vi.mock("@/api/user-preferences-api", () => ({
-  getPinnedIds: vi.fn().mockResolvedValue([]),
+  // Phase 92 Plan 04: getPinnedIds retired.
   putPinnedIds: vi.fn().mockResolvedValue([]),
 }));
 

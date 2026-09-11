@@ -23,7 +23,9 @@ import {
   type SshChannel,
   type OrchestratorDeps,
   __scanTailForNewestMessageAtForTests,
+  parseSpawnRequestBatch,
 } from "./ssh-poll-orchestrator.js";
+import type { PendingBirth } from "../spawn-requests/types.js";
 import type { SubscriptionRegistry } from "./subscription-registry.js";
 import type { SessionState } from "./wire-protocol.js";
 import type { HostRecord } from "./host-id-resolver.js";
@@ -61,6 +63,75 @@ vi.mock("../utils/logger.js", () => ({
     info: vi.fn(),
     error: vi.fn(),
     success: vi.fn(),
+  },
+  // Post-Phase-99-code-review M2/M3: the sweep now imports parseRequestBody
+  // from spawn-requests/worker.ts, which transitively pulls in host-resolver.ts,
+  // pool-loader, and other modules that use named loggers (`sshLogger`,
+  // `apiLogger`, etc.). Mock ALL logger exports so the transitive module graph
+  // loads cleanly under vitest regardless of which named logger a downstream
+  // module imports.
+  logger: {
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    debug: vi.fn(),
+  },
+  sshLogger: {
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    debug: vi.fn(),
+  },
+  tunnelLogger: {
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    debug: vi.fn(),
+  },
+  fileLogger: {
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    debug: vi.fn(),
+  },
+  statsLogger: {
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    debug: vi.fn(),
+  },
+  apiLogger: {
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    debug: vi.fn(),
+  },
+  authLogger: {
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    debug: vi.fn(),
+  },
+  versionLogger: {
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    debug: vi.fn(),
+  },
+  dashboardLogger: {
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    success: vi.fn(),
+    debug: vi.fn(),
   },
 }));
 
@@ -313,7 +384,7 @@ function buildDeps(
   );
   // Phase 52 Plan 01 Task 3 — source B identities listing. Default empty so
   // existing tests don't trigger source B publishes. Task 3 tests override.
-  channel.setResponse("~/.claude/identities/ -mindepth", "");
+  channel.setResponse("~/fleet/identities/ -mindepth", "");
   channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
   channel.setResponse(
     "cat /proc/12345/stat",
@@ -322,6 +393,12 @@ function buildDeps(
   channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0TMUX=/tmp/tmux\0");
   channel.setResponse("tmux display-message", "tina");
   channel.setResponse("cat ~/.claude/fleet-status/last-stop-payload.json", makeValidPayload());
+  // Phase 99: default empty response for the atomic spawn-request scan exec.
+  // This is the critical backward-compat change: every existing test that doesn't
+  // override the spawn-requests response gets a benign empty stdout (missing folder
+  // or empty folder — both non-errors per D-03). Without this, every existing test
+  // tick would get a null response for the scan and log a spurious SSH-error warn.
+  channel.setResponse("fleet/spawn-requests", "");
 
   let currentTime = 0;
 
@@ -2398,7 +2475,7 @@ describe("Phase 47 Plan 02 — aiTitle derivation and publish", () => {
 //
 // Contract (locked by 52-01-PLAN.md § task 2 + § threat_model T-52-01-01/02):
 //   - Per PID-tick, when tmuxSession is non-null, orchestrator executes
-//     `stat ~/.claude/identities/'<escapedTmuxSession>'/.dormant 2>/dev/null
+//     `stat ~/fleet/identities/'<escapedTmuxSession>'/.dormant 2>/dev/null
 //     >/dev/null && echo yes || echo no` on the SSH channel. Trimmed stdout
 //     "yes" → dormant true; "no" → dormant false; anything else (null, throw)
 //     → fail-open (preserve cached value, default false on cold start).
@@ -2458,7 +2535,7 @@ describe("Phase 52 Plan 01 Task 2 — source A dormant stat + fingerprint", () =
     channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
     // Source B (Task 3) — return empty listing here so Task 2 tests don't
     // trigger source B publishes. Task 3 tests set this explicitly.
-    channel.setResponse("~/.claude/identities/ -mindepth", "");
+    channel.setResponse("~/fleet/identities/ -mindepth", "");
     channel.setResponse(
       "cat ~/.claude/sessions/12345.json",
       makeSessionJson(),
@@ -2491,7 +2568,7 @@ describe("Phase 52 Plan 01 Task 2 — source A dormant stat + fingerprint", () =
     // .dormant stat command (per source A action step 2). trailing newline is
     // what a real ssh exec of `stat …/.dormant … && echo yes || echo no` returns.
     channel.setResponse(
-      "stat ~/.claude/identities/'tina'/.dormant",
+      "stat ~/fleet/identities/'tina'/.dormant",
       "yes\n",
     );
 
@@ -2515,7 +2592,7 @@ describe("Phase 52 Plan 01 Task 2 — source A dormant stat + fingerprint", () =
     const channel = new MockSshChannel();
     wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
     channel.setResponse(
-      "stat ~/.claude/identities/'tina'/.dormant",
+      "stat ~/fleet/identities/'tina'/.dormant",
       "no\n",
     );
 
@@ -2542,7 +2619,7 @@ describe("Phase 52 Plan 01 Task 2 — source A dormant stat + fingerprint", () =
     // Return null — simulates SSH channel error mid-tick. Orchestrator MUST
     // fall through to cached value (default false on cold start), NOT throw.
     channel.setResponse(
-      "stat ~/.claude/identities/'tina'/.dormant",
+      "stat ~/fleet/identities/'tina'/.dormant",
       null,
     );
 
@@ -2568,7 +2645,7 @@ describe("Phase 52 Plan 01 Task 2 — source A dormant stat + fingerprint", () =
     const channel = new MockSshChannel();
     wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
     channel.setResponse(
-      "stat ~/.claude/identities/'tina'/.dormant",
+      "stat ~/fleet/identities/'tina'/.dormant",
       "no\n",
     );
 
@@ -2609,7 +2686,7 @@ describe("Phase 52 Plan 01 Task 2 — source A dormant stat + fingerprint", () =
     wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
     // Tick 1: dormant:false
     channel.setResponse(
-      "stat ~/.claude/identities/'tina'/.dormant",
+      "stat ~/fleet/identities/'tina'/.dormant",
       "no\n",
     );
 
@@ -2635,7 +2712,7 @@ describe("Phase 52 Plan 01 Task 2 — source A dormant stat + fingerprint", () =
     // json, same tail, same hook payload). Fingerprint MUST see the dormant
     // delta and fire publish.
     channel.setResponse(
-      "stat ~/.claude/identities/'tina'/.dormant",
+      "stat ~/fleet/identities/'tina'/.dormant",
       "yes\n",
     );
 
@@ -2661,7 +2738,7 @@ describe("Phase 52 Plan 01 Task 2 — source A dormant stat + fingerprint", () =
 //     Promise.all completes. Builds liveTmuxSet from livenessMap.values()
 //     — identities that had a live PID this tick (and every tick prior
 //     since PID reap deletes the entry).
-//   - Source B: `ls -1 ~/.claude/identities/ 2>/dev/null || true` → parse
+//   - Source B: `ls -1 ~/fleet/identities/ 2>/dev/null || true` → parse
 //     identity names → parallel-stat each `.dormant` sentinel → for each
 //     identity NOT in liveTmuxSet, publish a SessionState frame with
 //     sessionId:"__dormant__", pid:null, status:"idle", dormant:isDormant,
@@ -2750,11 +2827,11 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
   // Test P52-01-T3-i — Empty `ls` output (no identities dir) → no publish, no throw.
   // ---------------------------------------------------------------------------
 
-  it("Test P52-01-T3-i: empty `ls -1 ~/.claude/identities/` output → source B skips (no publish, no throw)", async () => {
+  it("Test P52-01-T3-i: empty `ls -1 ~/fleet/identities/` output → source B skips (no publish, no throw)", async () => {
     const channel = new MockSshChannel();
     wireEmptySessions(channel);
     // Explicit empty for identities listing.
-    channel.setResponse("~/.claude/identities/ -mindepth", "");
+    channel.setResponse("~/fleet/identities/ -mindepth", "");
 
     const deps = buildDeps({
       acquireSshChannel: vi.fn().mockResolvedValue(channel),
@@ -2771,10 +2848,10 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
   // Test P52-01-T3-ii — `ls` returns null (SSH error) → no publish, no throw.
   // ---------------------------------------------------------------------------
 
-  it("Test P52-01-T3-ii: `ls -1 ~/.claude/identities/` returns null (SSH error) → source B skips (no publish, no throw)", async () => {
+  it("Test P52-01-T3-ii: `ls -1 ~/fleet/identities/` returns null (SSH error) → source B skips (no publish, no throw)", async () => {
     const channel = new MockSshChannel();
     wireEmptySessions(channel);
-    channel.setResponse("~/.claude/identities/ -mindepth", null);
+    channel.setResponse("~/fleet/identities/ -mindepth", null);
 
     const deps = buildDeps({
       acquireSshChannel: vi.fn().mockResolvedValue(channel),
@@ -2796,12 +2873,12 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
   it("Test P52-01-T3-iii: two identities, one dormant one not, no live PID → source B publishes BOTH (first-appearance emits both dormant states)", async () => {
     const channel = new MockSshChannel();
     wireEmptySessions(channel);
-    channel.setResponse("~/.claude/identities/ -mindepth", "tina\ntanya\n");
+    channel.setResponse("~/fleet/identities/ -mindepth", "tina\ntanya\n");
     // Per-identity dormant stat responses. Substring `identities/'tina'` and
     // `identities/'tanya'` uniquely identify each stat command since source A
     // is dormant here (no live PID → no source A stat).
-    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "yes\n");
-    channel.setResponse("stat ~/.claude/identities/'tanya'/.dormant", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "yes\n");
+    channel.setResponse("stat ~/fleet/identities/'tanya'/.dormant", "no\n");
 
     const deps = buildDeps({
       acquireSshChannel: vi.fn().mockResolvedValue(channel),
@@ -2833,9 +2910,9 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
   it("Test P52-01-T3-iv: tick 2 with same dormant states → 0 additional publishes (cache-hit fingerprint suppression)", async () => {
     const channel = new MockSshChannel();
     wireEmptySessions(channel);
-    channel.setResponse("~/.claude/identities/ -mindepth", "tina\ntanya\n");
-    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "yes\n");
-    channel.setResponse("stat ~/.claude/identities/'tanya'/.dormant", "no\n");
+    channel.setResponse("~/fleet/identities/ -mindepth", "tina\ntanya\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "yes\n");
+    channel.setResponse("stat ~/fleet/identities/'tanya'/.dormant", "no\n");
 
     const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
     const deps = buildDeps({
@@ -2870,8 +2947,8 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
   it("Test P52-01-T3-v: tick 1 dormant:true, tick 2 dormant:false → publish dormant:false frame on tick 2", async () => {
     const channel = new MockSshChannel();
     wireEmptySessions(channel);
-    channel.setResponse("~/.claude/identities/ -mindepth", "tina\n");
-    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "yes\n");
+    channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "yes\n");
 
     const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
     const deps = buildDeps({
@@ -2889,7 +2966,7 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
     expect(deps.registry.publishedStates[0].state.dormant).toBe(true);
 
     // Tick 2: dormant flips to false → cache miss → publish.
-    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "no\n");
     const pollFn = setIntervalFns.find((f) => f.ms === 2000);
     if (pollFn) {
       await pollFn.fn();
@@ -2912,10 +2989,10 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
     // Live PID for identity "tina" — source A will publish for this PID.
     wireLivePid(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n", "tina");
     // Source A dormant stat — tina has .dormant present → source A publishes dormant:true.
-    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "yes\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "yes\n");
     // Source B: identities listing includes tina; but tina is in liveTmuxSet
     // because source A had a live PID → source B must SKIP tina.
-    channel.setResponse("~/.claude/identities/ -mindepth", "tina\n");
+    channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
 
     const deps = buildDeps({
       acquireSshChannel: vi.fn().mockResolvedValue(channel),
@@ -2945,8 +3022,8 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
     const channel = new MockSshChannel();
     // Tick 1 setup: NO live PIDs; source B enumerates "tina" as dormant.
     wireEmptySessions(channel);
-    channel.setResponse("~/.claude/identities/ -mindepth", "tina\n");
-    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "yes\n");
+    channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "yes\n");
 
     const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
     const deps = buildDeps({
@@ -3028,8 +3105,8 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
     wireEmptySessions(channel);
     // Wire the new-command shape so pollDormantOnlyIdentities gets a dir-only
     // listing and the downstream stat fires normally.
-    channel.setResponse("~/.claude/identities/ -mindepth", "tina\n");
-    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "yes\n");
+    channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "yes\n");
 
     const deps = buildDeps({
       acquireSshChannel: vi.fn().mockResolvedValue(channel),
@@ -3043,23 +3120,23 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
     expect(
       calls.some(
         (c) =>
-          c.includes("find ~/.claude/identities/") &&
+          c.includes("find ~/fleet/identities/") &&
           c.includes("-mindepth 1") &&
           c.includes("-maxdepth 1") &&
           c.includes("-type d") &&
           c.includes("-printf"),
       ),
     ).toBe(true);
-    // Regression guard — the old `ls -1 ~/.claude/identities/` must NOT be
+    // Regression guard — the old `ls -1 ~/fleet/identities/` must NOT be
     // fired (source B is the ONLY caller of the identities listing).
     expect(
       calls.some(
-        (c) => c.startsWith("ls -1 ~/.claude/identities/"),
+        (c) => c.startsWith("ls -1 ~/fleet/identities/"),
       ),
     ).toBe(false);
     // Downstream stat did fire for the enumerated identity.
     expect(
-      calls.some((c) => c.includes("stat ~/.claude/identities/'tina'/.dormant")),
+      calls.some((c) => c.includes("stat ~/fleet/identities/'tina'/.dormant")),
     ).toBe(true);
   });
 
@@ -3079,9 +3156,9 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
     // Simulate what real `find … -type d -printf '%f\n'` returns: dir names
     // only. Any tarball / notes.txt entry in the identities dir is filtered
     // out by the shell command BEFORE reaching Skynet.
-    channel.setResponse("~/.claude/identities/ -mindepth", "alice\nbob\n");
-    channel.setResponse("stat ~/.claude/identities/'alice'/.dormant", "yes\n");
-    channel.setResponse("stat ~/.claude/identities/'bob'/.dormant", "no\n");
+    channel.setResponse("~/fleet/identities/ -mindepth", "alice\nbob\n");
+    channel.setResponse("stat ~/fleet/identities/'alice'/.dormant", "yes\n");
+    channel.setResponse("stat ~/fleet/identities/'bob'/.dormant", "no\n");
 
     const deps = buildDeps({
       acquireSshChannel: vi.fn().mockResolvedValue(channel),
@@ -3093,10 +3170,10 @@ describe("Phase 52 Plan 01 Task 3 — source B dormant-only enumeration + publis
     const calls = channel.getCalls().map((c) => c.command);
     // Both dir names had their .dormant stat fired.
     expect(
-      calls.some((c) => c.includes("stat ~/.claude/identities/'alice'/.dormant")),
+      calls.some((c) => c.includes("stat ~/fleet/identities/'alice'/.dormant")),
     ).toBe(true);
     expect(
-      calls.some((c) => c.includes("stat ~/.claude/identities/'bob'/.dormant")),
+      calls.some((c) => c.includes("stat ~/fleet/identities/'bob'/.dormant")),
     ).toBe(true);
     // Regression: NO stat fired against a tarball-shaped name — the shell
     // filtering means such names never appear in the listing, so the loop
@@ -3879,7 +3956,7 @@ describe("quick-260820-tm0 — perHostState pruning on refresh", () => {
 //
 // Contract (locked by 53-01-PLAN.md § task 2 + § threat_model T-53-01-01/02):
 //   - Per PID-tick, when tmuxSession is non-null, orchestrator executes
-//     `stat ~/.claude/identities/'<escapedTmuxSession>'/.recycled-at 2>/dev/null
+//     `stat ~/fleet/identities/'<escapedTmuxSession>'/.recycled-at 2>/dev/null
 //     >/dev/null && echo yes || echo no` on the SSH channel. Trimmed stdout
 //     "yes" → recycling true; "no" → recycling false; anything else (null, throw)
 //     → fail-open (preserve cached value, default false on cold start).
@@ -3938,7 +4015,7 @@ describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
   //
   // quick-260823-73o migration: source A no longer stamps the recycling axis;
   // source B (identity-folder-keyed) is the sole publisher. wireBaseResponses
-  // therefore wires "ls -1 ~/.claude/identities/" → "tina\n" so source B
+  // therefore wires "ls -1 ~/fleet/identities/" → "tina\n" so source B
   // enumerates tina every tick and exercises the recycle-axis pipeline that
   // used to live in source A. Assertions in this describe block that check
   // recycling MUST look at the source-B frame (sessionId === "__dormant__"),
@@ -3950,7 +4027,7 @@ describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
   ): void {
     channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
     // quick-260823-73o: source B needs to iterate tina to publish the recycling axis.
-    channel.setResponse("~/.claude/identities/ -mindepth", "tina\n");
+    channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
     channel.setResponse(
       "cat ~/.claude/sessions/12345.json",
       makeSessionJson(),
@@ -3971,13 +4048,13 @@ describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
     channel.setResponse("IDENTITY=", discoveryStdout);
     channel.setResponse("discovered.jsonl", jsonlContents);
     // Default dormant stat response (not dormant) — mirrors Phase 52 Task 2 sibling.
-    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "no\n");
     // Default recycled-at stat response (not recycling) — override per test as needed.
-    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
     // quick-260823-recycle-overlay: default .recycle-requested stat (not present).
     // Override per test to exercise the new source-A axis.
     channel.setResponse(
-      "test -f ~/.claude/identities/'tina'/.recycle-requested",
+      "test -f ~/fleet/identities/'tina'/.recycle-requested",
       "no\n",
     );
   }
@@ -4004,7 +4081,7 @@ describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
     wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
     // Override default recycled-at response to simulate sentinel present.
     channel.setResponse(
-      "stat ~/.claude/identities/'tina'/.recycled-at",
+      "stat ~/fleet/identities/'tina'/.recycled-at",
       "yes\n",
     );
 
@@ -4030,7 +4107,7 @@ describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
     const channel = new MockSshChannel();
     wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
     channel.setResponse(
-      "stat ~/.claude/identities/'tina'/.recycled-at",
+      "stat ~/fleet/identities/'tina'/.recycled-at",
       "no\n",
     );
 
@@ -4061,7 +4138,7 @@ describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
     // Return null — simulates SSH channel error mid-tick. Orchestrator MUST
     // fall through to cached value (default false on cold start), NOT throw.
     channel.setResponse(
-      "stat ~/.claude/identities/'tina'/.recycled-at",
+      "stat ~/fleet/identities/'tina'/.recycled-at",
       null,
     );
 
@@ -4093,7 +4170,7 @@ describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
     const channel = new MockSshChannel();
     wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
     channel.setResponse(
-      "stat ~/.claude/identities/'tina'/.recycled-at",
+      "stat ~/fleet/identities/'tina'/.recycled-at",
       "no\n",
     );
 
@@ -4135,7 +4212,7 @@ describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
     wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
     // Tick 1: recycling:false
     channel.setResponse(
-      "stat ~/.claude/identities/'tina'/.recycled-at",
+      "stat ~/fleet/identities/'tina'/.recycled-at",
       "no\n",
     );
 
@@ -4164,7 +4241,7 @@ describe("Phase 53 Plan 01 — source A recycling stat + fingerprint", () => {
     // json, same tail, same hook payload, same dormant). Fingerprint MUST see
     // the recycling delta and fire publish.
     channel.setResponse(
-      "stat ~/.claude/identities/'tina'/.recycled-at",
+      "stat ~/fleet/identities/'tina'/.recycled-at",
       "yes\n",
     );
 
@@ -4223,10 +4300,10 @@ describe("Phase 53 CR C2/C3 — source B recycling coverage", () => {
   it("Test P53-CR-C2-i: identity with .recycled-at present + no live PID → source B publishes recycling:true frame", async () => {
     const channel = new MockSshChannel();
     wireEmptySessions(channel);
-    channel.setResponse("~/.claude/identities/ -mindepth", "tina\n");
+    channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
     // dormant absent, recycling present — the exact PID-vanish window.
-    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
-    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "yes\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "yes\n");
 
     const deps = buildDeps({
       acquireSshChannel: vi.fn().mockResolvedValue(channel),
@@ -4253,9 +4330,9 @@ describe("Phase 53 CR C2/C3 — source B recycling coverage", () => {
   it("Test P53-CR-C3-i: identity with both .dormant and .recycled-at → source B publishes dormant:true AND recycling:true (no axis blanking)", async () => {
     const channel = new MockSshChannel();
     wireEmptySessions(channel);
-    channel.setResponse("~/.claude/identities/ -mindepth", "tina\n");
-    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "yes\n");
-    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "yes\n");
+    channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "yes\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "yes\n");
 
     const deps = buildDeps({
       acquireSshChannel: vi.fn().mockResolvedValue(channel),
@@ -4278,9 +4355,9 @@ describe("Phase 53 CR C2/C3 — source B recycling coverage", () => {
   it("Test P53-CR-C2-ii: source B tick 2 with recycling flipped (dormant unchanged) → new publish (cache respects recycling axis)", async () => {
     const channel = new MockSshChannel();
     wireEmptySessions(channel);
-    channel.setResponse("~/.claude/identities/ -mindepth", "tina\n");
-    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
-    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+    channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
 
     const setIntervalFns: Array<{ fn: () => void; ms: number }> = [];
     const deps = buildDeps({
@@ -4298,7 +4375,7 @@ describe("Phase 53 CR C2/C3 — source B recycling coverage", () => {
     expect(deps.registry.publishedStates[0].state.recycling).toBe(false);
 
     // Tick 2: recycling flips true. dormantOnlyIdentities cache differs → publish.
-    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "yes\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "yes\n");
     const pollFn = setIntervalFns.find((s) => s.ms >= 500 && s.ms <= 3000)?.fn;
     expect(pollFn).toBeDefined();
     await pollFn!();
@@ -4389,7 +4466,7 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
   // quick-260823-73o migration: source A no longer stamps the recycling axis;
   // source B (identity-folder-keyed) is the sole publisher of that axis. The
   // Layer 1 tail scan (once source-A-owned) also moved to source B. Wire
-  // "ls -1 ~/.claude/identities/" → "tina\n" so source B iterates tina every
+  // "ls -1 ~/fleet/identities/" → "tina\n" so source B iterates tina every
   // tick and exercises the axis. Assertions in this describe block that check
   // recycling MUST look at the source-B frame (sessionId === "__dormant__").
   function wireBaseResponses(
@@ -4398,7 +4475,7 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
     discoveryOverride?: string,
   ): void {
     channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
-    channel.setResponse("~/.claude/identities/ -mindepth", "tina\n");
+    channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
     channel.setResponse(
       "cat ~/.claude/sessions/12345.json",
       makeSessionJson(),
@@ -4419,14 +4496,14 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
     channel.setResponse("IDENTITY=", discoveryStdout);
     channel.setResponse("discovered.jsonl", jsonlContents);
     // Default dormant stat response (not dormant).
-    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "no\n");
     // Default recycled-at stat response (not recycling) — override per test as needed.
-    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
     // quick-260823-73o: source B also probes .recycle-requested per identity;
     // default no so tests that only exercise Layer 1 / .recycled-at aren't
     // accidentally armed via the third axis.
     channel.setResponse(
-      "test -f ~/.claude/identities/'tina'/.recycle-requested",
+      "test -f ~/fleet/identities/'tina'/.recycle-requested",
       "no\n",
     );
   }
@@ -4452,7 +4529,7 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
     // Tail contains a /id reset user turn (satisfies detectIdReset).
     wireBaseResponses(channel, idResetLine(2000) + "\n");
     // Sentinel absent — recycling should still be true from Layer 1 alone.
-    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
 
     const deps = buildDeps({
       acquireSshChannel: vi.fn().mockResolvedValue(channel),
@@ -4480,7 +4557,7 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
     // Plain assistant message — Layer 1 predicate will be false.
     wireBaseResponses(channel, plainMessageLine(1000, "assistant", "hello") + "\n");
     // Sentinel present — recycling should be true from sentinel alone.
-    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "yes\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "yes\n");
 
     const deps = buildDeps({
       acquireSshChannel: vi.fn().mockResolvedValue(channel),
@@ -4507,7 +4584,7 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
     const channel = new MockSshChannel();
     // /id reset in tail + sentinel present.
     wireBaseResponses(channel, idResetLine(2000) + "\n");
-    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "yes\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "yes\n");
 
     const deps = buildDeps({
       acquireSshChannel: vi.fn().mockResolvedValue(channel),
@@ -4534,7 +4611,7 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
     const channel = new MockSshChannel();
     // Plain message — no /id reset; sentinel absent.
     wireBaseResponses(channel, plainMessageLine(1000, "user", "hello") + "\n");
-    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
 
     const deps = buildDeps({
       acquireSshChannel: vi.fn().mockResolvedValue(channel),
@@ -4566,7 +4643,7 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
     // Wire JSONL tail to null — simulates SSH hiccup on tail -c 262144 exec.
     channel.setResponse("discovered.jsonl", null);
     // Sentinel absent.
-    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
 
     const deps = buildDeps({
       acquireSshChannel: vi.fn().mockResolvedValue(channel),
@@ -4676,7 +4753,7 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
       toolResultUserLine(2400, "toolu_04") +
       "\n";
     wireBaseResponses(channel, tail);
-    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
 
     const deps = buildDeps({
       acquireSshChannel: vi.fn().mockResolvedValue(channel),
@@ -4699,7 +4776,7 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
     const tail =
       idResetLine(2000) + "\n" + exitCommandLine(2500) + "\n";
     wireBaseResponses(channel, tail);
-    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
 
     const deps = buildDeps({
       acquireSshChannel: vi.fn().mockResolvedValue(channel),
@@ -4721,7 +4798,7 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
     const tail =
       idResetLine(2000) + "\n" + resumedInjectionLine(2500) + "\n";
     wireBaseResponses(channel, tail);
-    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
 
     const deps = buildDeps({
       acquireSshChannel: vi.fn().mockResolvedValue(channel),
@@ -4748,7 +4825,7 @@ describe("quick-260822-0vw — Layer 1 /id reset OR composition into source A re
       plainMessageLine(2500, "user", "actually never mind") +
       "\n";
     wireBaseResponses(channel, tail);
-    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
 
     const deps = buildDeps({
       acquireSshChannel: vi.fn().mockResolvedValue(channel),
@@ -4821,7 +4898,7 @@ describe("quick-260823-recycle-overlay — `.recycle-requested` source-A stat + 
     discoveryOverride?: string,
   ): void {
     channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
-    channel.setResponse("~/.claude/identities/ -mindepth", "tina\n");
+    channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
     channel.setResponse("cat ~/.claude/sessions/12345.json", makeSessionJson());
     channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
     channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
@@ -4838,10 +4915,10 @@ describe("quick-260823-recycle-overlay — `.recycle-requested` source-A stat + 
       );
     channel.setResponse("IDENTITY=", discoveryStdout);
     channel.setResponse("discovered.jsonl", jsonlContents);
-    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
-    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
     channel.setResponse(
-      "test -f ~/.claude/identities/'tina'/.recycle-requested",
+      "test -f ~/fleet/identities/'tina'/.recycle-requested",
       "no\n",
     );
   }
@@ -4859,11 +4936,11 @@ describe("quick-260823-recycle-overlay — `.recycle-requested` source-A stat + 
     const channel = new MockSshChannel();
     wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
     channel.setResponse(
-      "test -f ~/.claude/identities/'tina'/.recycle-requested",
+      "test -f ~/fleet/identities/'tina'/.recycle-requested",
       "yes\n",
     );
     // Explicit sanity: `.recycled-at` still false, Layer 1 still false (assistant-only tail).
-    channel.setResponse("stat ~/.claude/identities/'tina'/.recycled-at", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.recycled-at", "no\n");
 
     const deps = buildDeps({
       acquireSshChannel: vi.fn().mockResolvedValue(channel),
@@ -4905,7 +4982,7 @@ describe("quick-260823-recycle-overlay — `.recycle-requested` source-A stat + 
     wireBaseResponses(channel, jsonlMessageLine(1000, "assistant", "hi") + "\n");
     // Override to return null (SSH failure).
     channel.setResponse(
-      "test -f ~/.claude/identities/'tina'/.recycle-requested",
+      "test -f ~/fleet/identities/'tina'/.recycle-requested",
       null,
     );
 
@@ -4937,7 +5014,7 @@ describe("quick-260823-recycle-overlay — `.recycle-requested` source-A stat + 
     await orchestrator.start();
 
     const probeCalls = channel.countCallsMatching(
-      "test -f ~/.claude/identities/'tina'/.recycle-requested",
+      "test -f ~/fleet/identities/'tina'/.recycle-requested",
     );
     // Exactly ONE per tick under source A (the single `pollAllHosts` tick fired by start()).
     expect(probeCalls).toBe(1);
@@ -5039,8 +5116,8 @@ describe("quick-260823-73o — recycle axes in source B (per-identity, PID-indep
    * discoverIdentityJsonlPathViaChannel helper with the same identityName
    * → same buildDiscoveryScript output → same "IDENTITY=" prefix).
    *
-   * Same shape for the sentinel stat responses: `stat ~/.claude/identities/'tina'/.dormant`
-   * and `test -f ~/.claude/identities/'tina'/.recycle-requested` — source A and
+   * Same shape for the sentinel stat responses: `stat ~/fleet/identities/'tina'/.dormant`
+   * and `test -f ~/fleet/identities/'tina'/.recycle-requested` — source A and
    * source B both issue these; the mock returns the same value to both callers.
    */
   function wireLivePidAndIdentity(
@@ -5083,7 +5160,7 @@ describe("quick-260823-73o — recycle axes in source B (per-identity, PID-indep
     );
 
     // Source B wiring — identities dir lists tina every tick.
-    channel.setResponse("~/.claude/identities/ -mindepth", "tina\n");
+    channel.setResponse("~/fleet/identities/ -mindepth", "tina\n");
 
     // Discovery — shared substring "IDENTITY=" serves both source A and source B.
     const discoveryStdout = buildDiscoveryFixture(
@@ -5097,15 +5174,15 @@ describe("quick-260823-73o — recycle axes in source B (per-identity, PID-indep
 
     // Per-identity sentinel stats — same substring serves source A and source B.
     channel.setResponse(
-      "stat ~/.claude/identities/'tina'/.dormant",
+      "stat ~/fleet/identities/'tina'/.dormant",
       `${dormant}\n`,
     );
     channel.setResponse(
-      "stat ~/.claude/identities/'tina'/.recycled-at",
+      "stat ~/fleet/identities/'tina'/.recycled-at",
       `${recycledAt}\n`,
     );
     channel.setResponse(
-      "test -f ~/.claude/identities/'tina'/.recycle-requested",
+      "test -f ~/fleet/identities/'tina'/.recycle-requested",
       `${recycleRequested}\n`,
     );
   }
@@ -5320,7 +5397,7 @@ describe("quick-260823-73o — recycle axes in source B (per-identity, PID-indep
 
     // Tick 2: `.recycle-requested` flips to no. All other axes stay false.
     channel.setResponse(
-      "test -f ~/.claude/identities/'tina'/.recycle-requested",
+      "test -f ~/fleet/identities/'tina'/.recycle-requested",
       "no\n",
     );
     // (recycledAt and jsonl tail already false/plain from wireLivePidAndIdentity defaults.)
@@ -5403,11 +5480,11 @@ describe("quick-260823-73o — recycle axes in source B (per-identity, PID-indep
     // Then flip the sentinel to `.recycled-at` (supervisor rename) — source B
     // should stay recycling:true via that axis and source A should still omit.
     channel.setResponse(
-      "test -f ~/.claude/identities/'tina'/.recycle-requested",
+      "test -f ~/fleet/identities/'tina'/.recycle-requested",
       "no\n",
     );
     channel.setResponse(
-      "stat ~/.claude/identities/'tina'/.recycled-at",
+      "stat ~/fleet/identities/'tina'/.recycled-at",
       "yes\n",
     );
     await pollFn!();
@@ -5488,7 +5565,7 @@ describe("Phase 55: session-file cache writes", () => {
       "/home/ubuntu/.claude/sessions/12345.json\n",
     );
     // Source B identities — empty so source B never fires.
-    channel.setResponse("~/.claude/identities/ -mindepth", "");
+    channel.setResponse("~/fleet/identities/ -mindepth", "");
     channel.setResponse(
       "cat ~/.claude/sessions/12345.json",
       makeSessionJson({ pid: 12345, procStart: "12345" }),
@@ -5505,7 +5582,7 @@ describe("Phase 55: session-file cache writes", () => {
     // Tail of the JSONL — matched by filename fragment.
     channel.setResponse("id.jsonl", "");
     // Dormant sentinel for identity aqua.
-    channel.setResponse("stat ~/.claude/identities/'aqua'/.dormant", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'aqua'/.dormant", "no\n");
   }
 
   // ---------------------------------------------------------------------------
@@ -5693,7 +5770,7 @@ describe("Phase 55: session-file cache writes", () => {
     // Source A: empty sessions dir → no PID → processPid never called.
     channel.setResponse("ls -1 ~/.claude/sessions/", "");
     // Source B: one dormant identity "aqua".
-    channel.setResponse("~/.claude/identities/ -mindepth", "aqua\n");
+    channel.setResponse("~/fleet/identities/ -mindepth", "aqua\n");
     channel.setResponse(
       "fleet-status/last-stop-payload.json",
       makeValidPayload(),
@@ -5707,10 +5784,10 @@ describe("Phase 55: session-file cache writes", () => {
     channel.setResponse("IDENTITY=", discoveryB);
     channel.setResponse("id.jsonl", "");
     // Dormant sentinel for identity aqua.
-    channel.setResponse("stat ~/.claude/identities/'aqua'/.dormant", "no\n");
-    channel.setResponse("stat ~/.claude/identities/'aqua'/.recycled-at", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'aqua'/.dormant", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'aqua'/.recycled-at", "no\n");
     channel.setResponse(
-      "test -f ~/.claude/identities/'aqua'/.recycle-requested",
+      "test -f ~/fleet/identities/'aqua'/.recycle-requested",
       "no\n",
     );
 
@@ -5768,7 +5845,7 @@ describe("ssh-poll-orchestrator Phase 59 — lastStopAt + lastStatusChangeAt der
   // The substring `fleet-status/stop-` uniquely identifies it vs the box-wide
   // hook payload command (`cat ~/.claude/fleet-status/last-stop-payload.json`)
   // AND vs the Phase 52 dormant sentinel stat
-  // (`stat ~/.claude/identities/'<tmux>'/.dormant …`). Registered as a distinct
+  // (`stat ~/fleet/identities/'<tmux>'/.dormant …`). Registered as a distinct
   // MockSshChannel pattern per test — MUST be set BEFORE the box-wide
   // last-stop-payload.json response so the includes-match iteration finds it
   // first (MockSshChannel iterates responses in insertion order).
@@ -5787,7 +5864,7 @@ describe("ssh-poll-orchestrator Phase 59 — lastStopAt + lastStatusChangeAt der
     // "fleet-status/" prefix but not the "fleet-status/stop-" prefix).
     channel.setResponse(PER_SESSION_STOP_PATTERN, ""); // default: file absent
     channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
-    channel.setResponse("~/.claude/identities/ -mindepth", "");
+    channel.setResponse("~/fleet/identities/ -mindepth", "");
     channel.setResponse(
       "cat ~/.claude/sessions/12345.json",
       sessionJsonOverride ?? makeSessionJson(),
@@ -5801,7 +5878,7 @@ describe("ssh-poll-orchestrator Phase 59 — lastStopAt + lastStatusChangeAt der
     );
     // Phase 52 dormant sentinel — always "no" so the dormant axis stays
     // constant and doesn't confuse the fingerprint-delta assertions.
-    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "no\n");
   }
 
   // Helper: build a deps object with a controllable now() clock. Follows the
@@ -6185,7 +6262,7 @@ describe("quick-260829-kmr — cross-identity background_tasks leak: per-session
     channel.setResponse(PER_SESSION_STAT_PATTERN, ""); // default: no mtime
     channel.setResponse(BOX_WIDE_PAYLOAD_PATTERN, ""); // default: file absent
     channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
-    channel.setResponse("~/.claude/identities/ -mindepth", "");
+    channel.setResponse("~/fleet/identities/ -mindepth", "");
     channel.setResponse(
       "cat ~/.claude/sessions/12345.json",
       sessionJsonOverride ?? makeSessionJson(),
@@ -6193,7 +6270,7 @@ describe("quick-260829-kmr — cross-identity background_tasks leak: per-session
     channel.setResponse("cat /proc/12345/stat", makeStatContents("12345"));
     channel.setResponse("cat /proc/12345/environ", "TMUX_PANE=%2\0");
     channel.setResponse("tmux display-message", "tina");
-    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "no\n");
   }
 
   // Locally-scoped duplicate of Phase 59's buildPhase59Deps (avoids touching
@@ -6490,7 +6567,7 @@ describe("ssh-poll-orchestrator Phase 62 Plan 03 — activityMtime + stoppedMtim
     // Phase 59 per-session stop file (uniquely `fleet-status/stop-` prefix).
     channel.setResponse("fleet-status/stop-", "");
     channel.setResponse("ls -1 ~/.claude/sessions/", "/home/ubuntu/.claude/sessions/12345.json\n");
-    channel.setResponse("~/.claude/identities/ -mindepth", "");
+    channel.setResponse("~/fleet/identities/ -mindepth", "");
     channel.setResponse(
       "cat ~/.claude/sessions/12345.json",
       sessionJsonOverride ?? makeSessionJson(),
@@ -6502,7 +6579,7 @@ describe("ssh-poll-orchestrator Phase 62 Plan 03 — activityMtime + stoppedMtim
       "cat ~/.claude/fleet-status/last-stop-payload.json",
       makeValidPayload(),
     );
-    channel.setResponse("stat ~/.claude/identities/'tina'/.dormant", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'tina'/.dormant", "no\n");
   }
 
   // Helper: build deps with a controllable now() clock (mirrors buildPhase59Deps).
@@ -7393,8 +7470,8 @@ describe("Phase 92 — batch sweep dispatch", () => {
     // (batch: null-in-fixture; legacy: file-absent) compose identically.
     // (Absent stubs already default to null via MockSshChannel.)
     // A10 dormant sentinel per identity.
-    channel.setResponse("stat ~/.claude/identities/'alpha'/.dormant", "no\n");
-    channel.setResponse("stat ~/.claude/identities/'beta'/.dormant", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'alpha'/.dormant", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'beta'/.dormant", "no\n");
     // Per-session Stop-hook payload (A9) — non-null so both paths hit the
     // perSessionUsable branch and both use identical backgroundTasks=[].
     channel.setResponse(
@@ -7411,19 +7488,19 @@ describe("Phase 92 — batch sweep dispatch", () => {
     // Source B — three identity folders (alpha, beta, gamma). The legacy
     // `find … -mindepth 1` output shape is one name per line.
     channel.setResponse(
-      "~/.claude/identities/ -mindepth",
+      "~/fleet/identities/ -mindepth",
       `${IDENTITIES.join("\n")}\n`,
     );
     // gamma is the dormant-only identity — no live PID → source B publishes.
-    channel.setResponse("stat ~/.claude/identities/'gamma'/.dormant", "no\n");
+    channel.setResponse("stat ~/fleet/identities/'gamma'/.dormant", "no\n");
     // Recycled-at + recycle-requested sentinels off for all three.
     for (const name of IDENTITIES) {
       channel.setResponse(
-        `stat ~/.claude/identities/'${name}'/.recycled-at`,
+        `stat ~/fleet/identities/'${name}'/.recycled-at`,
         "no\n",
       );
       channel.setResponse(
-        `test -f ~/.claude/identities/'${name}'/.recycle-requested`,
+        `test -f ~/fleet/identities/'${name}'/.recycle-requested`,
         "no\n",
       );
     }
@@ -7532,12 +7609,12 @@ describe("Phase 92 — batch sweep dispatch", () => {
     // (c) Zero legacy source-A driver.
     expect(channel.countCallsMatching("ls -1 ~/.claude/sessions/")).toBe(0);
     // (d) Zero legacy source-B driver.
-    expect(channel.countCallsMatching("find ~/.claude/identities/")).toBe(0);
+    expect(channel.countCallsMatching("find ~/fleet/identities/")).toBe(0);
     // (e) Zero per-PID stat exec (compose consumes SweepPidLine.stat_result
     //     directly — no `cat /proc/<pid>/stat` fires under batch).
     expect(channel.countCallsMatching("cat /proc/")).toBe(0);
     // (f) Zero per-identity source-B stat exec.
-    expect(channel.countCallsMatching("stat ~/.claude/identities/")).toBe(0);
+    expect(channel.countCallsMatching("stat ~/fleet/identities/")).toBe(0);
     // (g) Composition matches: 2 source-A frames (alpha+beta live PIDs) + 1
     //     source-B frame (gamma dormant-only). alpha/beta skipped by source B
     //     because they have live PIDs AND are not recycling.
@@ -7628,7 +7705,7 @@ describe("Phase 92 — batch sweep dispatch", () => {
     // (this is the "byte-identical exec-count observable" truth from the
     // plan frontmatter — legacy path is unchanged by Phase 92).
     expect(legacyChannel.countCallsMatching("ls -1 ~/.claude/sessions/")).toBe(1);
-    expect(legacyChannel.countCallsMatching("find ~/.claude/identities/")).toBeGreaterThanOrEqual(1);
+    expect(legacyChannel.countCallsMatching("find ~/fleet/identities/")).toBeGreaterThanOrEqual(1);
     // And batch path did NOT fire the sweep-exec substring on the legacy
     // channel (no cross-run contamination).
     expect(
@@ -7831,5 +7908,189 @@ describe("Phase 92 — batch sweep dispatch", () => {
     expect(channel.countCallsMatching("ls -1 ~/.claude/sessions/")).toBeGreaterThan(
       listingCallsAfterTick1,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 99 — spawn-request scan tests
+// ---------------------------------------------------------------------------
+
+describe("spawn-request scan (Phase 99)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Test 1: atomic scan exec issued per tick
+  it("issues atomic scan exec on each poll tick", async () => {
+    const deps = buildDeps();
+    // Default already has "fleet/spawn-requests" → ""
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    const calls = deps.channel.getCalls();
+    const callCommands = calls.map((c) => c.command);
+    expect(callCommands.some((c) => c.includes("fleet/spawn-requests"))).toBe(true);
+  });
+
+  // Test 2: null channel response → empty batch, no enqueue call
+  it("null channel response → empty batch, no enqueue call", async () => {
+    const enqueueSpawnRequest = vi.fn();
+    const deps = buildDeps({ enqueueSpawnRequest });
+    // Override: spawn-requests scan returns null (SSH error)
+    deps.channel.setResponse("fleet/spawn-requests", null);
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(enqueueSpawnRequest).not.toHaveBeenCalled();
+  });
+
+  // Test 3: missing folder (empty stdout) → empty batch, no enqueue call
+  it("missing folder (empty stdout) → empty batch, no enqueue call", async () => {
+    const enqueueSpawnRequest = vi.fn();
+    const deps = buildDeps({ enqueueSpawnRequest });
+    // Default already sets "fleet/spawn-requests" → ""; override to be explicit
+    deps.channel.setResponse("fleet/spawn-requests", "");
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(enqueueSpawnRequest).not.toHaveBeenCalled();
+  });
+
+  // Test 4: valid request file → enqueues correct PendingBirth item
+  it("valid request file → enqueues correct PendingBirth item", async () => {
+    const enqueueSpawnRequest = vi.fn();
+    const deps = buildDeps({ enqueueSpawnRequest });
+
+    const uuid = "12345678-1234-1234-1234-1234567890ab";
+    const body = JSON.stringify({
+      role: "coordinator",
+      task: "test task",
+      requested_at: "2026-09-10T00:00:00Z",
+    });
+    deps.channel.setResponse("fleet/spawn-requests", `${uuid}.json\t${body}\n`);
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(enqueueSpawnRequest).toHaveBeenCalledTimes(1);
+    const item = enqueueSpawnRequest.mock.calls[0][0] as PendingBirth;
+    expect(item.uuid).toBe(uuid);
+    expect(item.role).toBe("coordinator");
+    expect(item.task).toBe("test task");
+    expect(item.requested_at).toBe("2026-09-10T00:00:00Z");
+    expect(typeof item.hostIdNum).toBe("number");
+    // host-1 → parseInt("host-1", 10) → NaN is acceptable here; the worker
+    // re-fetches via getHostOwnerUserId at drain time (Plan 99-01 contract)
+    expect(item.userId).toBe(""); // worker refetches
+  });
+
+  // Test 5: UUID-shape filter defense-in-depth — direct parseSpawnRequestBatch call
+  it("UUID-shape filter: rejects non-UUID basenames (e.g. response filenames)", () => {
+    // Not a UUID
+    const result1 = parseSpawnRequestBatch("not-a-uuid.json\t{}\n", "host-1");
+    expect(result1).toHaveLength(0);
+
+    // *.success.json — basename after stripping .json is 43 chars, fails UUID_RE
+    const uuid = "12345678-1234-1234-1234-1234567890ab";
+    const successFile = `${uuid}.success.json\t${JSON.stringify({ role: "coordinator", task: null, requested_at: "2026-09-10T00:00:00Z" })}\n`;
+    const result2 = parseSpawnRequestBatch(successFile, "host-1");
+    expect(result2).toHaveLength(0);
+
+    // A genuine request file — 36-char UUID basename, should parse OK
+    const validLine = `${uuid}.json\t${JSON.stringify({ role: "coordinator", task: "test", requested_at: "2026-09-10T00:00:00Z" })}\n`;
+    const result3 = parseSpawnRequestBatch(validLine, "host-1");
+    expect(result3).toHaveLength(1);
+    expect(result3[0].uuid).toBe(uuid);
+  });
+
+  // Test 6: malformed JSON body → enqueued with malformedReason set
+  // (Post-code-review M2/M3: prior behavior silently dropped malformed requests,
+  // stranding coord until its safety timeout. New behavior enqueues a PendingBirth
+  // with `malformedReason` so the worker drops a `{reason:"malformed", message}`
+  // failure file — coord sees the failure and can potentially iterate.)
+  it("malformed JSON body → enqueued with malformedReason (worker drops failure file)", async () => {
+    const enqueueSpawnRequest = vi.fn();
+    const deps = buildDeps({ enqueueSpawnRequest });
+
+    const uuid = "12345678-1234-1234-1234-1234567890ab";
+    deps.channel.setResponse("fleet/spawn-requests", `${uuid}.json\t{not-json}\n`);
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(enqueueSpawnRequest).toHaveBeenCalledTimes(1);
+    const item = enqueueSpawnRequest.mock.calls[0][0];
+    expect(item.uuid).toBe(uuid);
+    expect(item.malformedReason).toBeDefined();
+    expect(String(item.malformedReason)).toMatch(/JSON/i);
+    expect(item.role).toBe("");
+    expect(item.task).toBeNull();
+  });
+
+  // Test 6b: role failing ROLE_NAME_PATTERN → enqueued with malformedReason
+  // (Post-code-review M2/M3: full parseRequestBody validation at sweep time
+  // means role-shape violations become malformed failures, not birth_failed.)
+  it("role failing ROLE_NAME_PATTERN → enqueued with malformedReason (role_unknown → malformed via sweep-side validation)", async () => {
+    const enqueueSpawnRequest = vi.fn();
+    const deps = buildDeps({ enqueueSpawnRequest });
+
+    const uuid = "12345678-1234-1234-1234-1234567890ab";
+    const body = JSON.stringify({
+      role: "INVALID ROLE WITH SPACES",
+      task: "test",
+      requested_at: "2026-09-10T00:00:00Z",
+    });
+    deps.channel.setResponse("fleet/spawn-requests", `${uuid}.json\t${body}\n`);
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(enqueueSpawnRequest).toHaveBeenCalledTimes(1);
+    const item = enqueueSpawnRequest.mock.calls[0][0];
+    expect(item.uuid).toBe(uuid);
+    expect(item.malformedReason).toBeDefined();
+    expect(String(item.malformedReason)).toMatch(/role/i);
+  });
+
+  // Test 7: multiple valid request files in one tick → all enqueued
+  it("multiple valid request files in one tick → all enqueued", async () => {
+    const enqueueSpawnRequest = vi.fn();
+    const deps = buildDeps({ enqueueSpawnRequest });
+
+    const uuid1 = "12345678-1234-1234-1234-1234567890ab";
+    const uuid2 = "abcdef12-abcd-abcd-abcd-abcdef123456";
+    const body1 = JSON.stringify({ role: "coordinator", task: "task one", requested_at: "2026-09-10T00:00:00Z" });
+    const body2 = JSON.stringify({ role: "executor", task: "task two", requested_at: "2026-09-10T00:01:00Z" });
+    deps.channel.setResponse(
+      "fleet/spawn-requests",
+      `${uuid1}.json\t${body1}\n${uuid2}.json\t${body2}\n`,
+    );
+
+    const orchestrator = createSshPollOrchestrator(deps);
+    await orchestrator.start();
+
+    expect(enqueueSpawnRequest).toHaveBeenCalledTimes(2);
+    const uuids = enqueueSpawnRequest.mock.calls.map((call: [PendingBirth]) => call[0].uuid);
+    expect(uuids).toContain(uuid1);
+    expect(uuids).toContain(uuid2);
+  });
+
+  // Test 8: backward-compat regression guard — buildDeps without enqueueSpawnRequest still works
+  it("buildDeps without enqueueSpawnRequest override compiles and runs without crash", async () => {
+    // No enqueueSpawnRequest in deps — scan still runs, results silently discarded
+    const deps = buildDeps({});
+    const orchestrator = createSshPollOrchestrator(deps);
+
+    // A valid request file is in the channel — scan will parse it but nobody receives it
+    const uuid = "12345678-1234-1234-1234-1234567890ab";
+    deps.channel.setResponse(
+      "fleet/spawn-requests",
+      `${uuid}.json\t${JSON.stringify({ role: "coordinator", task: null, requested_at: "2026-09-10T00:00:00Z" })}\n`,
+    );
+
+    // Must not throw
+    await expect(orchestrator.start()).resolves.not.toThrow();
   });
 });

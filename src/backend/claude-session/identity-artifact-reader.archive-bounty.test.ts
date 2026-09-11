@@ -30,7 +30,7 @@ import fs from "fs/promises";
 
 import { archiveIdentityBounty } from "./identity-artifact-reader.js";
 
-// Phase 22 SRIC-01: bounties live at ~/.claude/roles/<role>/bounties/ post
+// Phase 22 SRIC-01: bounties live at ~/fleet/roles/<role>/bounties/ post
 // fleet migration; archiveIdentityBounty now does the two-step (identity file
 // → role: frontmatter → role folder). Fixtures set up BOTH the identity file
 // (with role: frontmatter) AND the role folder tree so the writer's

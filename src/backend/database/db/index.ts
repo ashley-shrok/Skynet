@@ -889,6 +889,29 @@ export function runIdentitiesTableDrop(sqliteDb: Database.Database): void {
   }
 }
 
+/**
+ * Phase 92 D-02 — drop the `pinned_conversation_ids` column from
+ * `user_preferences`. Pin state lives on disk as `~/fleet/identities/
+ * <name>/.pinned` post-Phase-92 (matches `.no-dormancy` / `.recycle-
+ * requested` presence-is-meaning convention). Plan 02 already retired
+ * every reader/writer of this column in src/ — this drop retires the
+ * dead storage.
+ *
+ * Idempotent via dropColumnIfExists (probes SELECT; ALTER TABLE DROP
+ * COLUMN on hit; silent no-op on miss). The sibling `hidden_conversation
+ * _ids` column on the same row is DELIBERATELY out of scope per D-02
+ * and is not touched — regression-trapped in the migration test's Test 4.
+ *
+ * Exported so index.migration.test.ts can exercise Test 1 (OLD schema
+ * drop) + Test 2 (NEW schema idempotent no-op) against test-owned
+ * in-memory databases — parallel to runIdentitiesCosmeticDrops export
+ * pattern at L851-860.
+ */
+export function runPinColumnDrop(sqliteDb: Database.Database): void {
+  assertSqliteSupportsDropColumn(sqliteDb);
+  dropColumnIfExists(sqliteDb, "user_preferences", "pinned_conversation_ids");
+}
+
 const migrateSchema = async () => {
   // Phase 66 Plan 04: drop the cosmetic columns from identities (now live on
   // disk per shape file). Preflight asserts SQLite >= 3.35 (native DROP
@@ -938,12 +961,60 @@ const migrateSchema = async () => {
     );
   }
 
+  // Phase 92 Plan 03 (D-02): drop the pinned_conversation_ids column from
+  // user_preferences. Pin state now lives on disk as `.pinned` sentinels
+  // per identity (Plan 92-01 primitive + Plan 92-02 read/write rewire).
+  // Runs BEFORE the addColumnIfNotExists sweep below so a stale install
+  // that still has an addColumnIfNotExists line pointing at this column
+  // (there isn't one post-this-commit — see the deletion at L945 pre-drop)
+  // couldn't briefly re-add the column in the same boot cycle. Same
+  // ordering rationale as runIdentitiesCosmeticDrops at L901-913.
+  //
+  // Preflight throw is fatal — mirrors L903-913 precedent (T-66-04-04:
+  // "boot aborts before schema corruption"). The labeled forceSave that
+  // persists the schema mutation lives after the addColumnIfNotExists
+  // sweep below so a single forceSave batches the drop + all the adds
+  // in one atomic file write.
+  try {
+    runPinColumnDrop(sqlite);
+  } catch (preflightErr) {
+    databaseLogger.error(
+      "Phase 92 pin-column drop preflight failed",
+      preflightErr,
+      { operation: "schema_migration_preflight" },
+    );
+    throw preflightErr;
+  }
+
   addColumnIfNotExists("user_preferences", "theme", "TEXT");
   addColumnIfNotExists("user_preferences", "font_size", "TEXT");
   addColumnIfNotExists("user_preferences", "accent_color", "TEXT");
   addColumnIfNotExists("user_preferences", "language", "TEXT");
-  addColumnIfNotExists("user_preferences", "pinned_conversation_ids", "TEXT");
   addColumnIfNotExists("user_preferences", "hidden_conversation_ids", "TEXT");
+
+  // Phase 92 Plan 03 — persist the pinned_conversation_ids DROP (via
+  // runPinColumnDrop above) to the encrypted SQLite file. Direct .exec()
+  // writes only reach RAM per CLAUDE.md § "In-memory SQLite pattern";
+  // without an explicit forceSave the drop lives only in memory until an
+  // unrelated write fires the debounced save trigger — a restart in that
+  // window would lose the schema mutation and re-run the drop on next
+  // boot. Wrapped in try/catch with a non-fatal warn: dropColumnIfExists
+  // is idempotent, so a save failure retries on the next boot cycle.
+  // Mirrors the L928-939 (phase-68) / L995-1006 (phase-75) precedent —
+  // same shape, same reason, same tolerance for uninitialized-trigger
+  // races on the first-ever boot.
+  try {
+    await DatabaseSaveTrigger.forceSave("phase-92-pin-sentinel-migration");
+  } catch (saveError) {
+    databaseLogger.warn(
+      "[phase-92] forceSave failed post-drop (non-fatal — dropColumnIfExists is idempotent, next boot retries)",
+      {
+        operation: "schema_migration_force_save_post_drop",
+        reason: "phase-92-pin-sentinel-migration",
+        error: saveError,
+      },
+    );
+  }
 
   // Bounty message-queue-in-pretty-view: queue_slots column for compose_drafts.
   // Existing installs pick this up via addColumnIfNotExists; fresh installs get it

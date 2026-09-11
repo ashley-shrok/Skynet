@@ -60,6 +60,11 @@ vi.mock("@/state/identities-store", () => ({
     loaded: true,
     refresh: async () => {},
   }),
+  // Phase 92 Plan 04: panel hydrate effect imports both. Stubbed to empty
+  // projections — this test file exercises relay-room row rendering, not
+  // the pin hydrate path.
+  deriveDiskPinnedIds: () => [],
+  buildIdentityHostsFromFleet: () => ({}),
 }));
 
 // Phase 104 Plan 02 — trapped-work-store (inert stub — panel mounts poller)
@@ -150,6 +155,8 @@ vi.mock("@/state/conversation-store", () => ({
   useHiddenIds: () => snapshot.hiddenIds,
   useActiveSet: () => mockActiveSet,
   useFleetSessionsLoaded: () => mockFleetSessionsLoaded,
+  // Phase 92 Plan 04: panel hydrate reads fleet snapshot to build identityHosts.
+  getFleetSessionsSnapshot: () => [],
   selectConversation: (id: string | null) => selectConversationSpy(id),
   pinConversation: (id: string) => pinConversationSpy(id),
   unpinConversation: (id: string) => unpinConversationSpy(id),
@@ -166,7 +173,7 @@ vi.mock("@/state/conversation-store", () => ({
 }));
 
 vi.mock("@/api/user-preferences-api", () => ({
-  getPinnedIds: vi.fn().mockResolvedValue([]),
+  // Phase 92 Plan 04: getPinnedIds retired — no export.
   putPinnedIds: vi.fn().mockResolvedValue([]),
   getHiddenIds: vi.fn().mockResolvedValue([]),
   putHiddenIds: vi.fn().mockResolvedValue([]),

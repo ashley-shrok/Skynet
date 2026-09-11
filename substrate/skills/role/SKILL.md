@@ -12,11 +12,11 @@ description: >-
 `/role <name>` creates a fresh ROLE folder — the shared knowledge home that identities
 will adopt.
 
-Under the two-folder layout (see the id skill for the full picture):
+Under the fleet tree layout (see the id skill for the full picture):
 
-- `~/.claude/roles/<role>/` — the ROLE: role file, bounty pool, history, deeper
+- `~/fleet/roles/<role>/` — the ROLE: role file, bounty pool, history, deeper
   reference files. Shared across every identity holding this role.
-- `~/.claude/identities/<name>/` — the IDENTITY: slim per-clone state.
+- `~/fleet/identities/<name>/` — the IDENTITY: slim per-clone state.
 
 Multiple identities can point at the same role — clones running in parallel on the
 same domain. `/role` handles **authoring** the role; `/id` handles **adopting** it via
@@ -35,7 +35,7 @@ anything, lowercase `<name>`.
 
 ```
 name=$(printf '%s' "<name>" | tr '[:upper:]' '[:lower:]')
-ROLE_DIR=~/.claude/roles/$name
+ROLE_DIR=~/fleet/roles/$name
 ```
 
 Reject any name that isn't `[a-z0-9-]+` (kebab-case only; no dots, no slashes, no
@@ -46,10 +46,10 @@ underscores). Reserved keywords are the same as `/id`'s reserved list — refuse
 
 **If `$ROLE_DIR` already exists, REFUSE**:
 
-> "Role **<name>** already exists at `~/.claude/roles/<name>/`. Not clobbering. If
+> "Role **<name>** already exists at `~/fleet/roles/<name>/`. Not clobbering. If
 > you want to adopt it as an identity, run `/id <some-identity-name>` and answer
 > `<name>` when it asks which role to clone. If you want to modify the role, edit
-> `~/.claude/roles/<name>/<name>.md` directly (mind the id skill's approval flow —
+> `~/fleet/roles/<name>/<name>.md` directly (mind the id skill's approval flow —
 > `remember X` / `forget X`, or explicit hand-edit under user greenlight)."
 
 Do NOT offer to overwrite. Do NOT auto-adopt as an identity — that's the user's
@@ -91,7 +91,7 @@ live in bounties, not here.
 
 Announce:
 
-> "Role **<name>** created at `~/.claude/roles/<name>/` (empty starter file + empty
+> "Role **<name>** created at `~/fleet/roles/<name>/` (empty starter file + empty
 > bounties/ + empty history.md). Next step: run `/id <name>` to create an identity
 > that clones this role."
 

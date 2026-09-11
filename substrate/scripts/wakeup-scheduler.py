@@ -8,7 +8,7 @@ wake-up; each printed line is an async wake for the agent.
 Vendored into Skynet's substrate and distributed to every host running agent substrate
 via the Skynet distributor (see feature 02). Stdlib only.
 
-Schedule specs live at `~/.claude/identities/<name>/wakeups/<slug>.json`:
+Schedule specs live at `~/fleet/identities/<name>/wakeups/<slug>.json`:
 
     {"name": "standup-check", "enabled": true,
      "schedule": {"type": "interval", "every": "2h"},        # or:

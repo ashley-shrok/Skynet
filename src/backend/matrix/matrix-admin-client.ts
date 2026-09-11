@@ -432,7 +432,7 @@ export interface BuildRelayJsonBodyOpts {
 }
 
 /**
- * Build the JSON body recv.sh reads at `~/.claude/identities/<name>/relay.json`.
+ * Build the JSON body recv.sh reads at `~/fleet/identities/<name>/relay.json`.
  *
  * Emits exactly five keys — base, user_id, password, token, access_token —
  * matching the shape defined in substrate/skills/agent-relay/SKILL.md L100-116

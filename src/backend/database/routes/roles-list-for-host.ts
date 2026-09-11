@@ -6,7 +6,7 @@
  *   → [{ name, description }]
  *
  * SSH-only: opens a connectOneShot connection and runs two exec calls:
- *   1. `ls -1 "$HOME/.claude/roles"` — enumerate role directories.
+ *   1. `ls -1 "$HOME/fleet/roles"` — enumerate role directories.
  *   2. Batched `cat` (===ROLE:<n>=== delimited) — fetch each role's `<name>.md`
  *      markdown in a single SSH round-trip.
  *
@@ -103,7 +103,7 @@ function execWithTimeout(
 
 /**
  * GET /roles?hostId=<n>
- * Returns [{name, description}] for every valid role in ~/.claude/roles/ on the target host.
+ * Returns [{name, description}] for every valid role in ~/fleet/roles/ on the target host.
  */
 router.get(
   "/",
@@ -150,7 +150,7 @@ router.get(
       try {
         lsOutput = await execWithTimeout(
           conn,
-          `ls -1 "$HOME/.claude/roles" 2>/dev/null || true`,
+          `ls -1 "$HOME/fleet/roles" 2>/dev/null || true`,
         );
       } catch (err) {
         sshLogger.warn("roles-list-for-host: SSH exec (ls) failed", {
@@ -191,7 +191,7 @@ router.get(
       const catCmd = validRoles
         .map(
           (r) =>
-            `echo "===ROLE:${r}==="; cat "$HOME/.claude/roles/${r}/${r}.md" 2>/dev/null; echo ""`,
+            `echo "===ROLE:${r}==="; cat "$HOME/fleet/roles/${r}/${r}.md" 2>/dev/null; echo ""`,
         )
         .join(" ; ");
 

@@ -544,7 +544,7 @@ describe("POST /identities/clone", () => {
     // writeMarkdownFileAtomic called with expected target + seed comment body
     expect(writeMarkdownFileAtomic).toHaveBeenCalledTimes(1);
     const writeArgs = (writeMarkdownFileAtomic as Mock).mock.calls[0];
-    expect(writeArgs[1]).toBe("/home/ubuntu/.claude/identities/tina-2/tina-2.md");
+    expect(writeArgs[1]).toBe("/home/ubuntu/fleet/identities/tina-2/tina-2.md");
 
     const stubBody = writeArgs[2] as string;
     // (a) Positive assertions: role frontmatter present + full cosmetic

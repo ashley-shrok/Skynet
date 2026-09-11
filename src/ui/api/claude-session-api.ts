@@ -515,7 +515,7 @@ export type FetchOlderRangePayload = {
 //     { type: "identity:bounties", bounties: Bounty[], archivedBounties: Bounty[], error?: string }
 //
 // `identityKey` is the lowercased identity name (matches the identity dir under
-// ~/.claude/identities/<key>/bounties/). The client passes it from the resolved
+// ~/fleet/identities/<key>/bounties/). The client passes it from the resolved
 // `identity.identityKey` from `useSessionIdentity()` — no additional backend
 // resolution needed (D-01).
 
@@ -602,7 +602,7 @@ export type IdentityIdentityFileEvent = { type: "identity:identity-file"; markdo
 // Phase 22 SRIC-06 / Plan 22-06: role-file WS wire types.
 //
 // Byte-shape mirror of the identity-file pair above. Backend does the two-step
-// (identity file → role: frontmatter → open ~/.claude/roles/<role>/<role>.md);
+// (identity file → role: frontmatter → open ~/fleet/roles/<role>/<role>.md);
 // the frontend contract stays (identityKey, hostId) — role name never crosses
 // the wire, per D-CONTEXT § "Backend does the two-step" lock.
 //
@@ -702,7 +702,7 @@ export type IdentityWakeupUpdatedEvent = {
 //
 // Six new wire type pairs land the backend WS handlers that let the
 // IdentityModal role-view Wakeups tab list/create/edit/delete role-scope
-// wakeups (~/.claude/roles/<role>/wakeups/*.json) plus close the
+// wakeups (~/fleet/roles/<role>/wakeups/*.json) plus close the
 // identity-scope parity gap (create + delete for identity-scope wakeups,
 // which today only supports list + update).
 //
@@ -852,7 +852,7 @@ export type IdentityUpdateRoleFilePayload = {
   identityKey: string;
   /** Pane SSH host id — backend uses it to route writes to the pane's box. */
   hostId: number;
-  /** UTF-8 markdown payload (full-overwrite of ~/.claude/roles/<role>/<role>.md). */
+  /** UTF-8 markdown payload (full-overwrite of ~/fleet/roles/<role>/<role>.md). */
   contents: string;
 };
 export type IdentityRoleFileUpdatedEvent = {
@@ -872,7 +872,7 @@ export type RoleUpdateFilePayload = {
   roleName: string;
   /** Backend SSH host id (LOCAL omitted / undefined routes to bind-mount). */
   hostId?: number;
-  /** UTF-8 markdown payload (full-overwrite of ~/.claude/roles/<roleName>/<roleName>.md). */
+  /** UTF-8 markdown payload (full-overwrite of ~/fleet/roles/<roleName>/<roleName>.md). */
   contents: string;
 };
 export type RoleFileUpdatedEvent = {
@@ -1374,7 +1374,7 @@ export type RoleWakeupDeletedEvent = {
 };
 
 /**
- * Read ~/.claude/roles/<roleName>/<roleName>.md. Resolves `{markdown}` on
+ * Read ~/fleet/roles/<roleName>/<roleName>.md. Resolves `{markdown}` on
  * success; rejects with `Error(env.error)` if the envelope carries `error`
  * (e.g. invalid roleName, host-not-found).
  */
@@ -1431,7 +1431,7 @@ export function getRoleFileByName(args: {
 }
 
 /**
- * List ~/.claude/roles/<roleName>/bounties/. Resolves
+ * List ~/fleet/roles/<roleName>/bounties/. Resolves
  * `{bounties, archivedBounties}` on success — archivedBounties is always
  * present; empty when includeArchived is omitted.
  */
@@ -1493,7 +1493,7 @@ export function listBountiesForRoleName(args: {
 }
 
 /**
- * List ~/.claude/roles/<roleName>/wakeups/*.json. Resolves `{wakeups}` on
+ * List ~/fleet/roles/<roleName>/wakeups/*.json. Resolves `{wakeups}` on
  * success.
  */
 export function listRoleWakeupsByName(args: {

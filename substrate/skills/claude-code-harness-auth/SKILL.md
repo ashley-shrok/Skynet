@@ -55,7 +55,7 @@ to URL emission. No pre-URL prompt handling needed.
 
 **Install marker (permanent, one per identity):**
 
-    ~/.claude/identities/<name>/.oauth-token-install-marker
+    ~/fleet/identities/<name>/.oauth-token-install-marker
 
 Contents: single line, ISO-8601 UTC timestamp of when the currently-installed token was
 last written. Read on every daily wake to check age. Written by Phase B on successful
@@ -63,7 +63,7 @@ install. Absent = no token has ever been installed by this skill on this box (bo
 
 **Pending-flow state (transient, exists only while awaiting Ashley's paste):**
 
-    ~/.claude/identities/<name>/harness-auth-pending.json
+    ~/fleet/identities/<name>/harness-auth-pending.json
 
 Contents:
 
@@ -88,7 +88,7 @@ Runs from a scheduled wake-up spec. One clean check per day.
 
 ### A.0 — check for stale pending state first
 
-    ST=~/.claude/identities/<name>/harness-auth-pending.json
+    ST=~/fleet/identities/<name>/harness-auth-pending.json
     if [ -f "$ST" ]; then
       URL_AT=$(jq -r '.url_sent_at' "$ST")
       AGE_H=$(( ($(date +%s) - $(date -d "$URL_AT" +%s)) / 3600 ))
@@ -122,7 +122,7 @@ session directories that are BOTH beyond the 20 newest AND older than 30 days
 
 ### A.1 — evaluate token age
 
-    MARKER=~/.claude/identities/<name>/.oauth-token-install-marker
+    MARKER=~/fleet/identities/<name>/.oauth-token-install-marker
     if [ ! -f "$MARKER" ]; then
       NEEDS_PROMPT=1
       REASON="no token installed — bootstrap"
@@ -229,7 +229,7 @@ shown to a human.
 ### A.4 — DM Ashley the URL and persist state
 
 Via the `agent-relay` skill's building blocks (log in with
-`~/.claude/identities/<name>/relay.json`, find or create the DM room, send). Body:
+`~/fleet/identities/<name>/relay.json`, find or create the DM room, send). Body:
 
     🔐 [box: <HOSTNAME>, maintainer: <name>] Claude Code harness needs a fresh subscription OAuth token.
     Click and complete the browser OAuth flow:
@@ -238,7 +238,7 @@ Via the `agent-relay` skill's building blocks (log in with
 
 Persist state:
 
-    cat > ~/.claude/identities/<name>/harness-auth-pending.json.tmp <<EOF
+    cat > ~/fleet/identities/<name>/harness-auth-pending.json.tmp <<EOF
     {
       "started_at":     "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
       "attempt":        1,
@@ -249,8 +249,8 @@ Persist state:
       "url_sent_at":    "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     }
     EOF
-    mv ~/.claude/identities/<name>/harness-auth-pending.json.tmp \
-       ~/.claude/identities/<name>/harness-auth-pending.json
+    mv ~/fleet/identities/<name>/harness-auth-pending.json.tmp \
+       ~/fleet/identities/<name>/harness-auth-pending.json
 
 Return control. Sidecar sits idle waiting for the code. The relay receiver wakes the
 maintainer when Ashley DMs back; Phase B runs then.
@@ -261,7 +261,7 @@ Runs from the maintainer's reflex when Ashley's DM lands and pending state exist
 
 ### B.1 — sanity-check state and sidecar
 
-    ST=~/.claude/identities/<name>/harness-auth-pending.json
+    ST=~/fleet/identities/<name>/harness-auth-pending.json
     [ -f "$ST" ] || exit 0
     SESSION=$(jq -r '.tmux_session' "$ST")
     STEP=$(jq -r '.step' "$ST")
@@ -440,7 +440,7 @@ that catches silent-invalid-token cases.**
     # Install marker for the daily-check age calculation — written ONLY after BOTH
     # Anthropic verifies pass. A bad token that got rolled back must not get its age
     # reset, or the daily check would wait another ~11 months before re-prompting.
-    date -u +%Y-%m-%dT%H:%M:%SZ > ~/.claude/identities/<name>/.oauth-token-install-marker
+    date -u +%Y-%m-%dT%H:%M:%SZ > ~/fleet/identities/<name>/.oauth-token-install-marker
 
     # Also stash the expired `.credentials.json` (if any) aside so it can't confuse Claude
     # Code's precedence logic on next launch — an expired short-lived credentials file
@@ -450,7 +450,7 @@ that catches silent-invalid-token cases.**
 
     # Clean up sidecar + pending state
     tmux kill-session -t "$SESSION" 2>/dev/null
-    rm -f ~/.claude/identities/<name>/harness-auth-pending.json
+    rm -f ~/fleet/identities/<name>/harness-auth-pending.json
 
     # DM: "✓ [box: <HOSTNAME>] token installed and Anthropic-verified (HTTP 200).
     # Applies to all claude launches on this box AND takes effect on already-running sessions

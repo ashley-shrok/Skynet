@@ -8,7 +8,7 @@
  * PUT is multipart/form-data with field name `data` — a JSON body silently
  * no-ops with a 200") — a raw-JSON request now returns 415 LOUDLY instead of
  * silently no-op'ing. Cosmetics land in the role file's YAML frontmatter;
- * the avatar file lands as a sibling at ~/.claude/roles/<name>/<avatar-file>.
+ * the avatar file lands as a sibling at ~/fleet/roles/<name>/<avatar-file>.
  *
  * POST /roles
  *   Content-Type: multipart/form-data
@@ -22,7 +22,7 @@
  *     gates title/colorHue/voice)
  *   → 401 without JWT
  *   → 404 when hostId does not resolve for the caller
- *   → 409 when ~/.claude/roles/<name>/ already exists on the target host
+ *   → 409 when ~/fleet/roles/<name>/ already exists on the target host
  *   → 413 on avatar exceeding 2 MiB (multer LIMIT_FILE_SIZE)
  *   → 415 on non-multipart Content-Type OR unsupported avatar mimetype
  *   → 502 on SSH connect / exec / SFTP write failure
@@ -270,7 +270,7 @@ async function sftpWriteFileInline(
  * Content-Type: multipart/form-data
  * Fields: data (JSON blob), avatar (optional PNG/JPEG/WebP ≤ 2 MiB)
  *
- * Provisions ~/.claude/roles/<name>/ + bounties/ + history.md + <name>.md
+ * Provisions ~/fleet/roles/<name>/ + bounties/ + history.md + <name>.md
  * (with cosmetic frontmatter when supplied) + optional <name>.<ext> avatar
  * sibling file.
  */
@@ -468,7 +468,7 @@ router.post(
       try {
         existsStdout = await execWithTimeout(
           conn,
-          `if [ -d "$HOME/.claude/roles/${name}" ]; then echo exists; else echo missing; fi`,
+          `if [ -d "$HOME/fleet/roles/${name}" ]; then echo exists; else echo missing; fi`,
         );
       } catch (err) {
         sshLogger.warn("roles-create: existence probe exec failed", {
@@ -492,11 +492,11 @@ router.post(
       try {
         await execWithTimeout(
           conn,
-          `mkdir -p "$HOME/.claude/roles/${name}/bounties"`,
+          `mkdir -p "$HOME/fleet/roles/${name}/bounties"`,
         );
         await execWithTimeout(
           conn,
-          `touch "$HOME/.claude/roles/${name}/history.md"`,
+          `touch "$HOME/fleet/roles/${name}/history.md"`,
         );
       } catch (err) {
         sshLogger.warn("roles-create: provision exec failed", {
@@ -551,7 +551,7 @@ router.post(
           })}---\n\n${bodyLines}`
         : bodyLines;
 
-      const targetPath = `${remoteHome}/.claude/roles/${name}/${name}.md`;
+      const targetPath = `${remoteHome}/fleet/roles/${name}/${name}.md`;
 
       try {
         await writeMarkdownFileAtomic(conn, targetPath, stubMarkdown);
@@ -579,7 +579,7 @@ router.post(
       // ---------------------------------------------------------------------
       if (req.file && avatarFilename) {
         const avatarTargetPath =
-          `${remoteHome}/.claude/roles/${name}/${avatarFilename}`;
+          `${remoteHome}/fleet/roles/${name}/${avatarFilename}`;
         try {
           await sftpWriteFileInline(conn, avatarTargetPath, req.file.buffer);
         } catch (err) {

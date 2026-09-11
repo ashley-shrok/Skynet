@@ -244,7 +244,7 @@ function restoreApostrophes(body: string | null): string | null {
 
 // ---------------------------------------------------------------------------
 // quick-260823-hd6: substituteShellVars extended to 6 assignment shapes.
-// Ported verbatim from ~/.claude/roles/box-maintainer/bounties/
+// Ported verbatim from ~/fleet/roles/box-maintainer/bounties/
 //   relay-outbound-cmdsub-heredoc-body/extractor_v3.py — corpus-validated
 // against 787 real fleet outbound cmds (t1000 + workstation, 2 weeks):
 // 96.3% ok extraction, 0 regressions vs v0, catches 2 latent wrong-body

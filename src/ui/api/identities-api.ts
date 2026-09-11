@@ -25,6 +25,16 @@ export interface Identity {
    *  task). Present-and-truthy gates the task-primary UI treatment on chat +
    *  list surfaces (D-06 fallback semantics). */
   task: string | null;
+  /** Phase 92 Plan 02 (D-03/D-04): presence of `~/fleet/identities/<key>/.pinned`
+   *  sentinel on the identity's home host, populated by the backend
+   *  publicIdentity fanout via identityFileExists in the same Promise.all wave
+   *  as readIdentityFile. Optional so pre-Phase-92 test fixtures and consumers
+   *  that don't care about pin state stay compiling; absent-from-response
+   *  normalizes to false (fail-closed per D-01 "presence is meaning"). The
+   *  panel's hydrate effect projects this field into state.pinnedIds via
+   *  deriveDiskPinnedIds (identities-store.ts) — Plan 92-04's replacement for
+   *  the retired getPinnedIds() /user-preferences fetch. */
+  pinned?: boolean;
   /** Phase 85 Plan 85-01 Task 2: role-cosmetic defaults surfaced separately
    *  from the resolved values. Populated per D-CTX-85-inherit merge on the
    *  backend so IdentityModal (Plan 85-05) can render inherit-vs-override

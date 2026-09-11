@@ -5,7 +5,7 @@
  * Role-avatar serve endpoint. Byte-shape mirror of the identity-avatar-serve
  * handler at `identities.ts:767-870`, adapted for role scope:
  *   - Addressed by role name (not identity key).
- *   - Reads `~/.claude/roles/<name>/<name>.md` frontmatter for the avatar
+ *   - Reads `~/fleet/roles/<name>/<name>.md` frontmatter for the avatar
  *     filename via `readRoleFileByName` + `extractCosmeticsFromFrontmatter`.
  *   - Streams the sibling avatar bytes via `readAvatarSiblingFileByRole`.
  *   - No identity two-step — the URL param IS the role name.
@@ -284,7 +284,7 @@ router.get(
  * Phase 90 Plan 90-08: POST /:name/avatar?hostId=<n>
  *
  * Accepts multipart/form-data with an `avatar` file field. Writes:
- *   1. avatar bytes to `~/.claude/roles/<name>/<name>.<ext>` on target host
+ *   1. avatar bytes to `~/fleet/roles/<name>/<name>.<ext>` on target host
  *      via writeRoleAvatarByName (SFTP tmp+rename atomic write on REMOTE,
  *      tmp+rename via Node fs on LOCAL).
  *   2. role frontmatter's `avatar:` key updated to the new filename via

@@ -91,11 +91,11 @@ your own role's actors (see § Actor-originated DMs below for that case).
 
 ### Type C: Scheduled wake-up (from your wake-up scheduler) → ROUTE-AND-DROP variant
 
-Wake-up specs in the ROLE folder `~/.claude/roles/<role>/wakeups/` fire on your session.
+Wake-up specs in the ROLE folder `~/fleet/roles/<role>/wakeups/` fire on your session.
 Your wake-up scheduler runs against the role folder — not your identity folder — so
 every spec that fires is by definition role-general and gets dispatched to an actor.
 Coordinators have no identity-level wake-ups: any specs left in your own
-`~/.claude/identities/<your-name>/wakeups/` dir are never read. If a genuine
+`~/fleet/identities/<your-name>/wakeups/` dir are never read. If a genuine
 coord-only self-check is ever needed, express it as a role-level spec with an
 internal "don't route" convention — future addition, not implemented today.
 
@@ -209,124 +209,116 @@ picker-family query and always goes through a fresh sub-agent.
 
 When the picker returns `{"picked": null, "reason": "no_fit", ...}`, the whole role's actor
 pool is content-busy on other threads and none of them match the incoming context. Grow the
-pool: spawn a fresh actor of your role on your own box, then dispatch the pending item to
-it immediately. Ashley-locked automatic — no permission ask per spawn.
+pool: **request a fresh actor of your role by dropping a request file into the spawn-requests
+folder on your own box**, then dispatch the pending item once the new identity's folder
+appears. Ashley-locked automatic — no permission ask per spawn.
 
-### Choose a name
+You do NOT create the identity yourself. You do NOT pick a name. You do NOT touch the
+homeserver, mkdir any folders, or write any relay credentials. All of that is Skynet's
+identity-birth job — you are a thin trigger. Skynet picks the name from the vetted pool,
+registers the message account, writes the identity's folder + credentials on the box the
+request lives on, and deletes the request file when it's done.
 
-Read the actor pool the picker just enumerated (or re-enumerate the same way — see
-§ Startup on load for the exact filter). Then:
+### Derive the task string
 
-- Take the letter every existing actor's name starts with (fleet convention: all actors
-  of a role share the same starting letter — and the coordinator sits on that same
-  letter too, so if the pool is empty use YOUR OWN name's starting letter as the
-  template).
-- Match the **gender** of the existing actors' names. Pool all male-coded (e.g. `aaron,
-  andrew, axel`) → pick a male name. Pool all female-coded (e.g. `paisley, patricia,
-  penelope, piper`) → pick a female name. Gender uniformity within a role is the fleet
-  convention — and again, the coordinator's own name is in the same pool, so an empty
-  actor pool means match YOUR OWN name's gender.
-- Pick a **common, memorable, easy-to-say-aloud** human name on that letter. Common
-  because Ashley routes to actors by name via speech-to-text and STT needs clear common
-  names to work reliably.
-- The name must not collide: `~/.claude/identities/<candidate>/` must NOT already exist
-  on your box. If your first pick collides, pick another common name on the same letter.
-- Lowercase the chosen name (non-negotiable — filesystem is case-sensitive, supervisor
-  names tmux sessions after folder names, mixed-case creates ghost twins).
+The task string describes what the fresh actor will work on. It gets displayed in the task
+pill on the actor's chat surface and as the primary line of the actor's conversation row,
+so brevity and front-loaded specificity matter.
 
-Examples: if the pool is `nelly, nicole`, N-names not-in-use might be `nadia`, `natalie`,
-`nora`, `noelle`, `nina`. If the pool is `tina, tiffany`, T-names: `tara`, `tamara`,
-`teresa`. Pick one — don't consult Ashley, just spawn.
+- **Roughly 15-20 words maximum.** Much longer overflows the badge task pill; much shorter
+  loses useful detail.
+- **First ~6 words carry the row-scanning weight.** Lead with the concrete thing being
+  worked on — "investigate cellular WebSocket drops on iPhone" beats "help investigate a
+  potential WebSocket issue that came up on cellular."
+- **Verbatim from the incoming ask is fine when it's short and clear.** For long or vague
+  asks, paraphrase-to-shorten while keeping the specificity — the goal is that the pool
+  will scan-read this row and immediately recognize what the actor is on.
 
-### Spawn steps (all on your own box, in order)
+### Drop the request file
 
-⚠️ **Register FIRST — before any local folder/file creation.** Fleet-wide mxid collision
-is the only failure mode the § Choose a name checks can't catch (local-not-in-use only
-covers your own box; the homeserver is shared across the fleet). If mxid is taken and
-you've already mkdir'd + written handoff + written the identity `.md`, you're stuck
-cleaning up orphan local state before re-picking. Register first, and a re-pick costs
-nothing.
+Write a JSON file to `~/fleet/spawn-requests/<uuid>.json` on your own box (the new identity
+always lands on the same box as the coordinator that requested it). Contents are minimal:
 
-1. **Register the Matrix relay account for your chosen name.**
-   - POST to homeserver `/_matrix/client/v3/register` with body
-     `{username: <name>, password: <random-32>, auth: {type: "m.login.dummy"},
-     initial_device_display_name: "coordinator-spawn-<name>"}`.
-   - **If register returns `M_USER_IN_USE`** (mxid taken fleet-wide): pick a different
-     name (re-run the § Choose a name constraints: shared letter, gender-match,
-     common/memorable/STT-clear, lowercase, local-not-in-use) and retry the register.
-     Loop until you get an mxid + token. Nothing local touched yet, so re-picking is free.
-   - **⚠️ Bash variable trap:** extract `MXID=$(echo "$RESP" | jq -r .user_id)`. Do NOT
-     name the variable `UID` — it's a bash READONLY builtin (the linux uid); assignment
-     silently no-ops and downstream `--arg u "$UID"` gets literal `1000`. Silent-until-
-     you-look; ate an identity 2026-08-04.
-   - **Use the mxid the SERVER returned, not what you sent** for the localpart of the
-     name going forward — the server has the final say (case normalization etc.).
-   - **⚠️ CANONICAL_BASE = tailnet IP** `http://100.113.23.63:8008/_matrix/client/v3`,
-     **NOT** the `thenasty` hostname. On thenasty itself the hostname maps to
-     `127.0.1.1` via /etc/hosts but Synapse binds only on the tailnet IP; on tailnet
-     peers without split-DNS the hostname doesn't resolve at all. Tailnet IP is the
-     ONLY URL that works from every reachable box.
-   - **If register fails for any reason OTHER than M_USER_IN_USE** (rate-limit, server
-     down, network): surface the failure and escalate the pending item to Ashley the
-     same way you'd escalate a picker failure (see § Picker failure handling above).
-     Do NOT create local state; do NOT write a placeholder relay.json (fake creds =
-     silent-deafness zombie the supervisor can't detect).
+    {
+      "role": "<your-role>",
+      "task": "<the task string you just derived>",
+      "requested_at": "<ISO-Z timestamp — e.g. 2026-09-10T14:23:00Z>"
+    }
 
-Once register succeeds and you hold `{MXID, PASSWORD, ACCESS_TOKEN}`, then and only
-then create the local state:
+⚠️ **Write atomically** — write to `<uuid>.json.tmp` first, then `mv` to `<uuid>.json`.
+Skynet's watcher must never read a half-written file. Use a fresh UUID per request
+(e.g. `uuidgen`) so parallel requests don't collide.
 
-2. `mkdir -p ~/.claude/identities/<name>/wakeups` (name = mxid localpart)
-3. `touch ~/.claude/identities/<name>/handoff.md`
-4. Write `~/.claude/identities/<name>/<name>.md` with YAML frontmatter that includes
-   `role: <your-role>` AND the role's aesthetic frontmatter — copied from YOUR OWN
-   identity file's frontmatter. Ashley keeps all identities under a role aesthetically
-   uniform (2026-09-01), so the coord's own file is the canonical role template:
-   - Copy `title`, `colorHue`, `voice` (if present) verbatim from your own frontmatter.
-   - Set `displayName` to the new identity's name, capitalized (e.g. `nadia` →
-     `Nadia`) — this is the ONE per-identity value; do NOT copy your own displayName.
-   - Set `avatar: <name>.<same-ext-as-yours>` (e.g. if your avatar is `nelly.webp`,
-     the new identity's is `<name>.webp`).
-   - Also **COPY the avatar image file itself** from your identity dir to the new
-     one, renamed to match: `cp ~/.claude/identities/<yourname>/<yourname>.<ext>
-     ~/.claude/identities/<name>/<name>.<ext>`. The image bytes are role-shared —
-     same visual across every identity of the role; only the filename varies to
-     match the sibling-file convention (`avatar: <name>.<ext>` in the frontmatter
-     always references a file in the identity's own dir).
-   - Empty body below the frontmatter. No seed comment (relay is already
-     registered — first-wake has nothing to do about it).
-5. Write `~/.claude/identities/<name>/relay.json` with the FULL shape
-   `{base, user_id, password, token, access_token}` (both `token` and `access_token`
-   keys — different plumbing reads either). `chmod 600` the file.
-6. `mkdir -p ~/<name>` — the per-actor working directory for their harness.
-   The supervisor uses `~/<name>` by CONVENTION as the fresh-launch cwd (no
-   sentinel-string handoff; the path is derived from the name on both sides).
-   ⚠️ **Verify it exists** (`[ -d ~/<name> ]`) before proceeding to dispatch.
-   If the mkdir failed silently (permissions / filesystem full / anything),
-   escalate to Ashley per § Failure and cleanup — do NOT retry, do NOT proceed
-   to dispatch. A missing workdir here means the actor's first launch would
-   silently fall back to `$HOME`, which is not a supervised state.
+If the spawn-requests folder doesn't exist yet on your box, create it first:
+`mkdir -p ~/fleet/spawn-requests`.
+
+### Wait for the response file
+
+Skynet's per-host sweep picks up your request file on its next tick (~2 seconds), reads
+its contents, and deletes it atomically as the claim signal — the request file
+disappearing is NOT "birth complete", it's just "Skynet noticed and took over." A backend
+worker then runs the identity-birth flow (~3-5 seconds), and drops a response file back
+into the same folder keyed by your uuid:
+
+- Success → `~/fleet/spawn-requests/<uuid>.success.json` with `{name, birthed_at}`.
+- Failure → `~/fleet/spawn-requests/<uuid>.failure.json` with `{reason, message?}` where
+  `reason` is one of `malformed`, `role_unknown`, `birth_failed`,
+  `homeserver_unreachable`, `pool_exhausted`, `matrix_creds_missing`; `message` is
+  descriptive only when `reason == "malformed"` (so you can potentially iterate on the
+  request body) — absent or short-terse otherwise.
+
+Watch for either file to appear, keyed by your uuid:
+
+    while [ ! -f ~/fleet/spawn-requests/<uuid>.success.json ] \
+       && [ ! -f ~/fleet/spawn-requests/<uuid>.failure.json ]; do
+      sleep 2
+    done
+
+Give the watch a safety timeout of roughly **3 minutes**. Normal births complete in
+single-digit seconds; anything longer means Skynet crashed mid-birth (request claimed,
+never responded) — the safety timeout catches that edge case. On timeout, escalate to
+Ashley the same way you'd escalate a picker failure (see § Picker failure handling above)
+and stop.
+
+### Act on the response
+
+On **success**: read `<uuid>.success.json`, extract `name`, dispatch the pending inbound
+to that new actor (see § Dispatch below), then delete `<uuid>.success.json` — happy-path
+cleanup, no reaper on the Skynet side.
+
+On **failure**: read `<uuid>.failure.json`. If `reason == "malformed"` and the descriptive
+`message` genuinely tells you what to fix (a bad field shape you can correct), you may
+retry ONCE with a corrected request. For any other `reason`, or if `malformed` doesn't
+give you actionable info, escalate the pending item to Ashley via the picker-failure path
+and stop. Then delete `<uuid>.failure.json`.
+
+⚠️ **Do NOT try to birth the identity yourself on failure.** Coord's job is to trigger
+births; recovery from failed births is Ashley's decision, never coord's own initiative.
 
 ### Dispatch the pending item to the fresh actor
 
-Immediately after the spawn steps above complete, dispatch the pending inbound to
-`@<name>:<your-homeserver-domain>` the same way you'd dispatch to any actor — create a DM
-room, invite the mxid, send the message with the same preamble the inbound-type dictates
-(Type A / B / C). **Do NOT wait for the fresh actor's session to launch.** The message
-sits in the invited room; when the fresh actor's receiver arms for the first time on its
-first-wake, it auto-joins the invite and backfills, catching your dispatched message as
-the wake.
+Once you have the new actor's `name` from the success file, dispatch the pending inbound
+to `@<name>:<your-homeserver-domain>` the same way you'd dispatch to any actor — resolve
+the mxid via `user_directory/search` on your own homeserver (see the agent-relay skill's
+discovery convention), create a DM room, invite the mxid, send the message with the same
+preamble the inbound-type dictates (Type A / B / C). **Do NOT wait for the fresh actor's
+session to launch.** The message sits in the invited room; when the fresh actor's
+receiver arms for the first time on its first-wake, it auto-joins the invite and
+backfills, catching your dispatched message as the wake.
 
-The supervisor on your box rebuilds its identity list from `~/.claude/identities/*/` on
+The supervisor on your box rebuilds its identity list from `~/fleet/identities/*/` on
 every 15-second tick, notices the new folder, launches the fresh actor's tmux + claude +
 `/id` load automatically. You do not touch that.
 
 ### Failure and cleanup
 
-If any step (1-5 above, or the dispatch) fails: surface the failure and escalate the item
-to Ashley via the same escalation path as picker failure. **Do NOT retry the spawn. Do
-NOT clean up partial state.** Ashley-locked: "recovery is not part of doing this." If a
-partial spawn leaves an orphan folder or account, Ashley cleans up when she notices;
-that's fine.
+If the safety timeout fires, or dispatch fails after a success response, or a failure
+response indicates a non-iterable reason: surface the failure and escalate the pending
+item to Ashley via the same escalation path as picker failure. **Do NOT retry the request
+drop unless the failure was `malformed` and you have a specific correction. Do NOT clean
+up partial state on the Skynet side.** Ashley-locked: "recovery is not part of doing
+this." Delete response files you've read; leave request files that timed out (Ashley
+inspects them).
 
 ## What you do NOT do
 
@@ -339,7 +331,7 @@ that's fine.
 - **Not touch bounties.** The picker reads bounties as input to its judgment; you don't
   interact with them. Actors create/update/close bounties.
 - **Not have identity-level wake-ups.** Your wake-up scheduler runs against the ROLE
-  folder (`~/.claude/roles/<role>/wakeups/`), not your identity folder. Every spec
+  folder (`~/fleet/roles/<role>/wakeups/`), not your identity folder. Every spec
   there is role-general and dispatched; specs left in your own identity `wakeups/`
   dir are never read.
 - **Not stay awake longer than needed.** You wake on inbound message or scheduled fire, do
@@ -383,7 +375,7 @@ announce line is different from an actor's:
 > "I'm **<Name>**, coordinator for role **<role>**. Actors: [<comma-separated list, derived
 > as follows>]."
 
-Enumerate candidates with `grep -l "^role: <role>$" ~/.claude/identities/*/*.md`. Keep a
+Enumerate candidates with `grep -l "^role: <role>$" ~/fleet/identities/*/*.md`. Keep a
 candidate only if (a) the file's basename equals its folder name (the canonical
 `<name>/<name>.md` pointer, not a scratch/note/backup that happens to live in the identity
 folder), AND (b) the `role:` line appears in the YAML frontmatter (between the first two
@@ -398,27 +390,28 @@ bounties" line — bounties are actor context; you don't need it.
 
 **If your enumeration returns ZERO actors, seed the pool BEFORE routing begins.** A
 coordinator with no actors is a broken router — every inbound would escalate. Run the
-§ Spawning a fresh actor recipe once, right here on load, to spawn one actor of your role.
-⚠️ **JUST DO IT — do NOT ask Ashley for permission to seed.** Your very first wake will
-typically be unsupervised (that's the whole POINT of an on-load seed: bootstrap without
-human intervention, because a broken router that stops to ask for approval to become
-functional is still broken). The spawn is already pre-authorized per § Spawning a fresh
-actor ("Ashley-locked automatic — no permission ask per spawn") AND specifically
-authorized as part of this on-load seed. Run the recipe silently. The § Choose a name
-empty-pool fallback (use your own name's letter + gender) applies. Do NOT dispatch
-anything — there's no inbound to route yet; this is a proactive seed. The supervisor will
-bring the fresh actor's session up in the background while you continue.
+§ Spawning a fresh actor recipe once, right here on load, to request one actor of your
+role. ⚠️ **JUST DO IT — do NOT ask Ashley for permission to seed.** Your very first wake
+will typically be unsupervised (that's the whole POINT of an on-load seed: bootstrap
+without human intervention, because a broken router that stops to ask for approval to
+become functional is still broken). The spawn is already pre-authorized per § Spawning a
+fresh actor ("Ashley-locked automatic — no permission ask per spawn") AND specifically
+authorized as part of this on-load seed. Drop the request file with a bootstrap task
+string (e.g. `"initial actor seed for role — will pick up first inbound work"`), watch
+for it to be deleted, and continue on. Do NOT dispatch anything — there's no inbound to
+route yet; this is a proactive seed. The supervisor will bring the fresh actor's session
+up in the background while you continue.
 
 Then start three ambient Monitors: the relay receiver and context-watch as any identity
 does, plus a wake-up scheduler pointed at the **role folder** (not your identity folder):
 
-    python3 ~/.local/bin/wakeup-scheduler ~/.claude/roles/<role>
+    python3 ~/.local/bin/wakeup-scheduler ~/fleet/roles/<role>
 
 Ambient description: `[ambient] <your-name> role-level wake-up scheduler` — the
 `[ambient]` prefix stays load-bearing for the isWorking filter. The scheduler is
 dir-agnostic; pointing it at the role folder makes it read specs from
-`~/.claude/roles/<role>/wakeups/*.json` and persist state under
-`~/.claude/roles/<role>/wakeups/.state/`.
+`~/fleet/roles/<role>/wakeups/*.json` and persist state under
+`~/fleet/roles/<role>/wakeups/.state/`.
 
 Only ONE scheduler total — do NOT launch a second one against your own identity
 `wakeups/` dir. Coords have no identity-level wake-ups (see § What you DON'T do);

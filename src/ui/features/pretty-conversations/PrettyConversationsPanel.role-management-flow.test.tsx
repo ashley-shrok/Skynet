@@ -106,6 +106,8 @@ vi.mock("@/state/conversation-store", () => ({
   useHiddenIds: () => new Set(),
   useActiveSet: () => new Set(),
   useFleetSessionsLoaded: () => false,
+  // Phase 92 Plan 04: panel hydrate reads fleet snapshot to build identityHosts.
+  getFleetSessionsSnapshot: () => [],
   selectConversation: () => {},
   pinConversation: () => {},
   unpinConversation: () => {},
@@ -120,7 +122,7 @@ vi.mock("@/state/conversation-store", () => ({
 }));
 
 vi.mock("@/api/user-preferences-api", () => ({
-  getPinnedIds: vi.fn().mockResolvedValue([]),
+  // Phase 92 Plan 04: getPinnedIds retired.
   putPinnedIds: vi.fn().mockResolvedValue([]),
   getHiddenIds: vi.fn().mockResolvedValue([]),
   putHiddenIds: vi.fn().mockResolvedValue([]),
@@ -144,6 +146,9 @@ vi.mock("@/state/identities-store", () => ({
     refresh: async () => {},
   }),
   applyIdentityChange: vi.fn(),
+  // Phase 92 Plan 04: panel hydrate effect imports both.
+  deriveDiskPinnedIds: () => [],
+  buildIdentityHostsFromFleet: () => ({}),
 }));
 
 vi.mock("@/features/pretty-view/GlobalFilesModal", () => ({

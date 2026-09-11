@@ -115,7 +115,7 @@ import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
  *     { type: "identity:probe-trapped-work", targets: Array<{ identityKey: string; hostId: number | null }> } // Phase 104 Plan 01: batched per-identity trapped-work probe (~/fleet/identities/<key>/workspace/ walk) for the trapped-work indicator
  *     // patch #17g/#92: identity artifact fetches (one-shot; no pane needed):
  *     { type: "identity:get-identity-file", identityKey: string, hostId?: number } // patch #17g/#92: fetch <key>.md
- *     { type: "identity:get-role-file", identityKey: string, hostId?: number }     // Phase 22 SRIC-06: fetch ~/.claude/roles/<role>/<role>.md via backend two-step (identity file → role: frontmatter → role artifact)
+ *     { type: "identity:get-role-file", identityKey: string, hostId?: number }     // Phase 22 SRIC-06: fetch ~/fleet/roles/<role>/<role>.md via backend two-step (identity file → role: frontmatter → role artifact)
  *     { type: "identity:get-history", identityKey: string, hostId?: number }       // patch #17g/#92: fetch history.md
  *     { type: "identity:list-wakeups", identityKey: string, hostId?: number }      // patch #17g/#92: list wakeups/*.json
  *     { type: "identity:list-role-wakeups", identityKey: string, hostId?: number } // Phase 72 Plan 01: list role-scope wakeups via two-step (identity file frontmatter -> role folder). Mirrors list-wakeups for role scope.
@@ -135,15 +135,15 @@ import { getHostSemaphore } from "../ssh/host-semaphore-registry.js";
  *     { type: "identity:delete-bounty", identityKey: string, hostId?: number, bountySlug: string } // quick 260729-g5r / patch #183: permanent rm -rf of a bounty folder. Applies to BOTH open (bounties/<slug>/) AND archived (bounties/archive/<slug>/) cards — server rm's both candidate paths with force:true so one call covers both locations. No confirmation gate here; window.confirm() lives in BountyCard.
  *     // Phase 18 / IDMEDIT-06: markdown write surfaces (full-overwrite, tmp+rename atomic):
  *     { type: "identity:update-identity-file", identityKey: string, hostId: number, contents: string } // Phase 18: full-overwrite <key>/<key>.md via SFTP tmp+rename (REMOTE) or fs tmp+rename (LOCAL)
- *     { type: "identity:update-role-file", identityKey: string, hostId: number, contents: string }     // Phase 22 SRIC-06: full-overwrite ~/.claude/roles/<role>/<role>.md via backend two-step
- *     { type: "role:update-file", roleName: string, hostId?: number, contents: string }                 // Phase 90 Plan 90-03: role-name-keyed companion of identity:update-role-file — full-overwrite ~/.claude/roles/<roleName>/<roleName>.md without the identity two-step. Consumed by the RoleModal (Plan 90-04) which has no identity context.
+ *     { type: "identity:update-role-file", identityKey: string, hostId: number, contents: string }     // Phase 22 SRIC-06: full-overwrite ~/fleet/roles/<role>/<role>.md via backend two-step
+ *     { type: "role:update-file", roleName: string, hostId?: number, contents: string }                 // Phase 90 Plan 90-03: role-name-keyed companion of identity:update-role-file — full-overwrite ~/fleet/roles/<roleName>/<roleName>.md without the identity two-step. Consumed by the RoleModal (Plan 90-04) which has no identity context.
  *     // Phase 90 Plan 90-07: role-name-keyed READ + wakeup CRUD variants (D-08.3). Byte-shape mirrors of identity-keyed handlers MINUS identity two-step. RoleModal has role-name context, not identity.
- *     { type: "role:get-file", roleName: string, hostId?: number }                                          // Phase 90 Plan 90-07: role-name-keyed companion of identity:get-role-file — read ~/.claude/roles/<roleName>/<roleName>.md directly.
- *     { type: "role:list-bounties", roleName: string, hostId?: number, includeArchived?: boolean }          // Phase 90 Plan 90-07: role-name-keyed companion of identity:list-bounties — list ~/.claude/roles/<roleName>/bounties/. Opt-in archive read (default false).
- *     { type: "role:list-wakeups", roleName: string, hostId?: number }                                      // Phase 90 Plan 90-07: role-name-keyed companion of identity:list-role-wakeups — list ~/.claude/roles/<roleName>/wakeups/*.json.
+ *     { type: "role:get-file", roleName: string, hostId?: number }                                          // Phase 90 Plan 90-07: role-name-keyed companion of identity:get-role-file — read ~/fleet/roles/<roleName>/<roleName>.md directly.
+ *     { type: "role:list-bounties", roleName: string, hostId?: number, includeArchived?: boolean }          // Phase 90 Plan 90-07: role-name-keyed companion of identity:list-bounties — list ~/fleet/roles/<roleName>/bounties/. Opt-in archive read (default false).
+ *     { type: "role:list-wakeups", roleName: string, hostId?: number }                                      // Phase 90 Plan 90-07: role-name-keyed companion of identity:list-role-wakeups — list ~/fleet/roles/<roleName>/wakeups/*.json.
  *     { type: "role:create-wakeup", roleName: string, hostId?: number, spec: { name, enabled, schedule, instruction } } // Phase 90 Plan 90-07: create-or-update wakeup by role name. Slug derived from spec.name (kebab-case). Full-overwrite semantics via writeRoleWakeupByName.
  *     { type: "role:update-wakeup", roleName: string, hostId?: number, spec: { name, enabled, schedule, instruction } } // Phase 90 Plan 90-07: same writer as create-wakeup — distinct wire type so client can distinguish optimistic UI.
- *     { type: "role:delete-wakeup", roleName: string, hostId?: number, wakeupName: string }                 // Phase 90 Plan 90-07: role-name-keyed companion of identity:delete-role-wakeup — remove ~/.claude/roles/<roleName>/wakeups/<wakeupName>.json (idempotent).
+ *     { type: "role:delete-wakeup", roleName: string, hostId?: number, wakeupName: string }                 // Phase 90 Plan 90-07: role-name-keyed companion of identity:delete-role-wakeup — remove ~/fleet/roles/<roleName>/wakeups/<wakeupName>.json (idempotent).
  *     { type: "identity:update-history", identityKey: string, hostId: number, contents: string }       // Phase 18: full-overwrite <key>/history.md
  *     { type: "identity:update-handoff", identityKey: string, hostId: number, contents: string }       // Phase 18: full-overwrite <key>/handoff.md
  *     // hostId routing (patch #92): when omitted OR when the hostId is in IDENTITIES_LOCAL_HOST_IDS,
@@ -857,7 +857,7 @@ async function injectBtw(
     // BTW_PROMPT burst as a paste and absorbs the trailing Enter into the
     // paste buffer — /btw overlay never opens. Two calls + delay lets the
     // paste buffer flush before Enter arrives as a distinct keystroke.
-    // See ~/.claude/identities/tina/bounties/aside-btw-enter-not-submitting/
+    // See ~/fleet/identities/tina/bounties/aside-btw-enter-not-submitting/
     // for the live reproduction + fix verification against v2.1.150.
     await execCommand(
       conn,
@@ -2909,7 +2909,7 @@ export async function __applyDormantPollTickForTests(
     try {
       const probeOut = await exec(
         connSnapshot,
-        `test -d ~/.claude/identities/'${escapedName}' && echo yes || echo no`,
+        `test -d ~/fleet/identities/'${escapedName}' && echo yes || echo no`,
       );
       state.isIdentityShapedCached = probeOut.trim() === "yes";
     } catch {
@@ -2921,7 +2921,7 @@ export async function __applyDormantPollTickForTests(
     try {
       const statOut = await exec(
         connSnapshot,
-        `stat ~/.claude/identities/'${escapedName}'/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
+        `stat ~/fleet/identities/'${escapedName}'/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
       );
       const isDormant = statOut.trim() === "yes";
       if (isDormant !== state.dormantLastEmitted) {
@@ -3114,7 +3114,7 @@ export async function __applyInputMessageForTests(deps: {
       // discovery); client-supplied hostId/tmuxSession are IGNORED.
       await exec(
         sshConn,
-        `rm -f ~/.claude/identities/'${currentTmuxSession}'/.dormant`,
+        `rm -f ~/fleet/identities/'${currentTmuxSession}'/.dormant`,
       );
       sshLogger.info(`[diag-dormant-send] backend sentinel-dropped mqid=${mqidForDormantLog.length > 0 ? mqidForDormantLog : "none"} elapsedMs=${deps.now() - triggerTs}`);
     } catch (sentinelErr) {
@@ -3719,7 +3719,7 @@ export async function __applyDormantPollWithRediscoveryForTests(
     // Poll the .dormant sentinel (reuse exact command from seam line 956-961)
     const statOut = await exec(
       connSnapshot,
-      `stat ~/.claude/identities/'${escapedName}'/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
+      `stat ~/fleet/identities/'${escapedName}'/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
     );
     const isDormant = statOut.trim() === "yes";
     if (isDormant) {
@@ -7010,7 +7010,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
               try {
                 const out = await execCommand(
                   conn as import("ssh2").Client,
-                  `cat ~/.claude/identities/'${name}'/.resume-complete 2>/dev/null || echo`,
+                  `cat ~/fleet/identities/'${name}'/.resume-complete 2>/dev/null || echo`,
                 );
                 const trimmed = out.trim();
                 return trimmed.length > 0 ? trimmed : null;
@@ -7595,7 +7595,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
 
           // 2026-08-18 Layer 3 — sentinel-present recycle detector.
           // Piggybacks the same context-pct tick + connSnapshot the dormant
-          // block above uses: check whether `~/.claude/identities/<name>/
+          // block above uses: check whether `~/fleet/identities/<name>/
           // .recycle-requested` exists on the pane's target box; if yes AND
           // we're currently `active`, arm the SessionHoldingOverlay via
           // transitionToHolding("sentinel"). Covers the window between the
@@ -8093,7 +8093,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
           // Tier 1: is this an identity-shaped pane? (reuse exact command from seam line 946-950)
           const identityProbeOut = await execCommand(
             conn,
-            `test -d ~/.claude/identities/'${escapedName}' && echo yes || echo no`,
+            `test -d ~/fleet/identities/'${escapedName}' && echo yes || echo no`,
           );
           const isIdentityShape = identityProbeOut.trim() === "yes";
           // Cache for the connection lifetime so dormant-poll and wake handler use it.
@@ -8102,7 +8102,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
             // Tier 2: .dormant sentinel present? (reuse exact command from seam line 956-961)
             const dormantProbeOut = await execCommand(
               conn,
-              `stat ~/.claude/identities/'${escapedName}'/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
+              `stat ~/fleet/identities/'${escapedName}'/.dormant 2>/dev/null >/dev/null && echo yes || echo no`,
             );
             if (dormantProbeOut.trim() === "yes") {
               // This IS a dormant pane. Seed closure state so wake handler +
@@ -8248,7 +8248,7 @@ wss.on("connection", async (ws: WebSocket, req) => {
                           try {
                             const out = await execCommand(
                               conn as import("ssh2").Client,
-                              `cat ~/.claude/identities/'${name}'/.resume-complete 2>/dev/null || echo`,
+                              `cat ~/fleet/identities/'${name}'/.resume-complete 2>/dev/null || echo`,
                             );
                             const trimmed = out.trim();
                             return trimmed.length > 0 ? trimmed : null;

@@ -14,7 +14,7 @@
 //
 //   3. readAvatarSiblingFileByRole(conn, roleName, avatarFilename)
 //      — role-side avatar reader mirroring readAvatarSiblingFile's shape but
-//      rooted at ~/.claude/roles/<roleName>/<avatarFilename> with the filename
+//      rooted at ~/fleet/roles/<roleName>/<avatarFilename> with the filename
 //      passed in explicitly (already known from role frontmatter).
 //
 // Test map (10 tests, per plan Task 1 <behavior>):
@@ -144,13 +144,13 @@ describe("readRoleFileByName + extractCosmeticsFromFrontmatter — LOCAL branch 
 // ──────────────────────────────────────────────────────────────────────
 
 describe("readRoleFileByName — REMOTE branch (conn is SSHClientType)", () => {
-  it("Test 6: execs exact `cat \"$HOME/.claude/roles/<role>/<role>.md\" 2>/dev/null || true` and returns {markdown: <stdout>}", async () => {
+  it("Test 6: execs exact `cat \"$HOME/fleet/roles/<role>/<role>.md\" 2>/dev/null || true` and returns {markdown: <stdout>}", async () => {
     const roleMd = "---\ntitle: Box maintainer\n---\n\n# body\n";
     const capturedCommands: string[] = [];
     (execCommand as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       async (_conn: unknown, cmd: string) => {
         capturedCommands.push(cmd);
-        if (cmd.includes(".claude/roles/box-maintainer/box-maintainer.md")) {
+        if (cmd.includes("fleet/roles/box-maintainer/box-maintainer.md")) {
           return roleMd;
         }
         return "";
@@ -162,16 +162,16 @@ describe("readRoleFileByName — REMOTE branch (conn is SSHClientType)", () => {
 
     // Path substitution: role folder queried directly, NO identity two-step
     const roleCmd = capturedCommands.find((c) =>
-      c.includes(".claude/roles/box-maintainer/box-maintainer.md"),
+      c.includes("fleet/roles/box-maintainer/box-maintainer.md"),
     );
     expect(roleCmd).toBeDefined();
     expect(roleCmd).toBe(
-      `cat "$HOME/.claude/roles/box-maintainer/box-maintainer.md" 2>/dev/null || true`,
+      `cat "$HOME/fleet/roles/box-maintainer/box-maintainer.md" 2>/dev/null || true`,
     );
 
     // Two-step MUST NOT happen — no identity file read
     const identityCmd = capturedCommands.find((c) =>
-      c.includes(".claude/identities/"),
+      c.includes("fleet/identities/"),
     );
     expect(identityCmd).toBeUndefined();
 

@@ -31,7 +31,7 @@ const FIXTURES: Array<{
     // corpus: project=-home-ubuntu-skynet-tanya ts=2026-08-06T15:42:14.513Z — BODY-sq shape
     name: "BODY-sq — coord room initial setup report (tanya)",
     cmd: `ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
-CREDS=~/.claude/identities/tanya/relay.json
+CREDS=~/fleet/identities/tanya/relay.json
 BASE=$(jq -r .base "$CREDS")
 TOK=$(jq -r .access_token "$CREDS")
 TXN="tanya-$(date +%s%N)"
@@ -50,7 +50,7 @@ curl -sS -X PUT "$BASE/rooms/$ROOM_ENC/send/m.room.message/$TXN" \\
     // corpus: project=-home-ubuntu-skynet-tanya ts=2026-08-06T18:19:48.776Z — BODY-sq shape (short)
     name: "BODY-sq — ack short message (tanya)",
     cmd: `ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
-CREDS=~/.claude/identities/tanya/relay.json
+CREDS=~/fleet/identities/tanya/relay.json
 BASE=$(jq -r .base "$CREDS")
 TOK=$(jq -r .access_token "$CREDS")
 TXN="tanya-$(date +%s%N)"
@@ -67,7 +67,7 @@ curl -sS -X PUT "$BASE/rooms/$ROOM_ENC/send/m.room.message/$TXN" \\
     // bash '"'"' idiom for embedding ' in single-quoted BODY (produces literal ')
     // Phase 49 sanitize pass fix — pre-Phase-49 this returned "Relaying Ashley"
     name: `NELLY-SHAPE — BODY-sq with '"'"' apostrophe escape (bash close-sq/quote/open-sq)`,
-    cmd: `TOK=$(jq -r .access_token ~/.claude/identities/nelly/relay.json); BASE=$(jq -r .base ~/.claude/identities/nelly/relay.json); ROOM='!wNhqmNRUNlHesCshwg:thenasty.taild9b663.ts.net'; BODY='Relaying Ashley'"'"'s reply: hi'; curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXID" -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`,
+    cmd: `TOK=$(jq -r .access_token ~/fleet/identities/nelly/relay.json); BASE=$(jq -r .base ~/fleet/identities/nelly/relay.json); ROOM='!wNhqmNRUNlHesCshwg:thenasty.taild9b663.ts.net'; BODY='Relaying Ashley'"'"'s reply: hi'; curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXID" -d "$(jq -nc --arg b "$BODY" '{msgtype:"m.text", body:$b}')"`,
     expectedBody: "Relaying Ashley's reply: hi",
   },
 
@@ -78,8 +78,8 @@ curl -sS -X PUT "$BASE/rooms/$ROOM_ENC/send/m.room.message/$TXN" \\
   {
     // corpus: project=-home-ubuntu-skynet-tanya ts=2026-08-10T07:43:54.028Z — BODY-dq shape
     name: "BODY-dq — deploy announce starting (tanya)",
-    cmd: `BASE=$(cat ~/.claude/identities/tanya/relay-state/base)
-TOK=$(cat ~/.claude/identities/tanya/relay-state/token)
+    cmd: `BASE=$(cat ~/fleet/identities/tanya/relay-state/base)
+TOK=$(cat ~/fleet/identities/tanya/relay-state/token)
 ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
 # use IP directly since thenasty doesn't resolve on this box
 BASE_IP=\${BASE/thenasty/100.113.23.63}
@@ -101,7 +101,7 @@ echo`,
   {
     // corpus: project=-home-ubuntu-skynet-tanya ts=2026-08-09T09:18:21.779Z — MSG-dq shape
     name: "MSG-dq — deploy announce starting (tanya)",
-    cmd: `R=~/.claude/identities/tanya/relay.json
+    cmd: `R=~/fleet/identities/tanya/relay.json
 BASE=$(jq -r .base "$R")
 TOK=$(jq -r .token "$R")
 ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
@@ -121,7 +121,7 @@ curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
   {
     // corpus: project=-home-ubuntu-skynet-tanya ts=2026-08-10T03:22:49.526Z — MSG-sq shape with '\"'\" escape
     name: "MSG-sq — deploy announce with apostrophe in body (tanya)",
-    cmd: `RELAY=~/.claude/identities/tanya/relay.json
+    cmd: `RELAY=~/fleet/identities/tanya/relay.json
 BASE=$(python3 -c "import json; print(json.load(open('$RELAY'))['base'])")
 TOK=$(python3 -c "import json; print(json.load(open('$RELAY'))['access_token'])")
 RID='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
@@ -143,7 +143,7 @@ curl -sS -X PUT "$BASE/rooms/$RID/send/m.room.message/$(openssl rand -hex 8)" \\
     // corpus: project=-home-ubuntu-skynet-tiffany ts=2026-08-11T22:06:57.814Z — jq-arg-inline-dq shape
     name: "jq-arg-inline-dq — tiffany BEFORE announce phase-31 experiment (tiffany)",
     cmd: `# Coord-room BEFORE announce
-cred=~/.claude/identities/tiffany/relay.json
+cred=~/fleet/identities/tiffany/relay.json
 TOK=$(jq -r '.token // .access_token' "$cred")
 BASE=$(jq -r '.base' "$cred")
 ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
@@ -164,8 +164,8 @@ curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
     // corpus: project=-home-ubuntu-skynet-tiffany ts=2026-08-11T15:12:16.365Z — jq-arg-inline-sq shape
     name: "jq-arg-inline-sq — tiffany takes lead on Phase 31 (tiffany)",
     cmd: `source ~/.claude/skills/agent-relay/lib.sh 2>/dev/null
-BASE=$(jq -r .base ~/.claude/identities/tiffany/relay.json)
-TOK=$(jq -r '.access_token // .token' ~/.claude/identities/tiffany/relay.json)
+BASE=$(jq -r .base ~/fleet/identities/tiffany/relay.json)
+TOK=$(jq -r '.access_token // .token' ~/fleet/identities/tiffany/relay.json)
 ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
 TXN=t$(date +%s%N)
 curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
@@ -184,9 +184,9 @@ curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
   {
     // corpus: project=-home-ubuntu-skynet-tanya ts=2026-08-08T19:02:06.550Z — heredoc-to-file shape
     name: "heredoc-to-file — tanya ack after rebase (tanya)",
-    cmd: `STATE_DIR=~/.claude/identities/tanya/relay-state
-BASE=$(jq -r .base ~/.claude/identities/tanya/relay.json)
-TOKEN=$(cat "$STATE_DIR/token" 2>/dev/null || jq -r .token ~/.claude/identities/tanya/relay.json)
+    cmd: `STATE_DIR=~/fleet/identities/tanya/relay-state
+BASE=$(jq -r .base ~/fleet/identities/tanya/relay.json)
+TOKEN=$(cat "$STATE_DIR/token" 2>/dev/null || jq -r .token ~/fleet/identities/tanya/relay.json)
 RID='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
 
 cat > /tmp/tanya-msg.txt <<'EOF'
@@ -205,9 +205,9 @@ rm -f /tmp/tanya-msg.txt /tmp/tanya-req.json`,
   {
     // corpus: project=-home-ubuntu-skynet-tanya ts=2026-08-08T19:10:58.404Z — heredoc-to-file shape (short)
     name: "heredoc-to-file — tanya LGTM final state (tanya)",
-    cmd: `STATE_DIR=~/.claude/identities/tanya/relay-state
-BASE=$(jq -r .base ~/.claude/identities/tanya/relay.json)
-TOKEN=$(cat "$STATE_DIR/token" 2>/dev/null || jq -r .token ~/.claude/identities/tanya/relay.json)
+    cmd: `STATE_DIR=~/fleet/identities/tanya/relay-state
+BASE=$(jq -r .base ~/fleet/identities/tanya/relay.json)
+TOKEN=$(cat "$STATE_DIR/token" 2>/dev/null || jq -r .token ~/fleet/identities/tanya/relay.json)
 RID='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
 
 cat > /tmp/tanya-msg.txt <<'EOF'
@@ -257,7 +257,7 @@ curl -sS -X PUT -H "Authorization: Bearer $TOK" -H "Content-Type: application/js
   {
     // corpus: project=-home-ubuntu ts=2026-07-28T14:38:32.001Z — inline-json shape
     name: "inline-json — tina relay-bubble feasibility test (tina)",
-    cmd: `STATE=~/.claude/identities/tina/relay-state
+    cmd: `STATE=~/fleet/identities/tina/relay-state
 BASE=$(cat "$STATE/base")
 TOK=$(cat "$STATE/token")
 ROOM='!T82GI9T6LR4MWy5K1fsSuRMgwnh4HsGUZw3rb2Y_WMc'
@@ -281,9 +281,9 @@ curl -fsS -X PUT \\
   {
     // corpus: project=-home-ubuntu-skynet-tiffany ts=2026-08-11T14:37:05.697Z — cross-turn file ref
     name: "UNEXTRACTABLE-cross-turn — --data-binary @req.json no body in cmd (tiffany)",
-    cmd: `STATE_DIR=~/.claude/identities/tiffany/relay-state
-BASE=$(jq -r .base "$HOME/.claude/identities/tiffany/relay.json")
-TOK=$(jq -r .access_token "$HOME/.claude/identities/tiffany/relay.json")
+    cmd: `STATE_DIR=~/fleet/identities/tiffany/relay-state
+BASE=$(jq -r .base "$HOME/fleet/identities/tiffany/relay.json")
+TOK=$(jq -r .access_token "$HOME/fleet/identities/tiffany/relay.json")
 RID='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
 jq -Rs '{msgtype:"m.text",body:(.|rtrimstr("\\n"))}' "$STATE_DIR/msg-before.txt" > "$STATE_DIR/req.json"
 curl -s -X PUT "$BASE/rooms/$RID/send/m.room.message/$(openssl rand -hex 8)" \\
@@ -310,7 +310,7 @@ curl -s -X PUT "$BASE/rooms/$RID/send/m.room.message/$(openssl rand -hex 8)" \\
     name: "BODY-sq-after-python-PY-block — BODY var present after python3 heredoc (tiffany)",
     cmd: `python3 << 'PY'
 import json, datetime
-p = '/home/ubuntu/.claude/roles/box-maintainer/bounties/phase-31-ws-regression-rca/bounty.json'
+p = '/home/ubuntu/fleet/roles/box-maintainer/bounties/phase-31-ws-regression-rca/bounty.json'
 b = json.load(open(p))
 now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')
 b['updated_at'] = now
@@ -321,7 +321,7 @@ PY
 
 # Update Ashley via Tina
 ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
-CREDS=~/.claude/identities/tiffany/relay.json
+CREDS=~/fleet/identities/tiffany/relay.json
 BASE=$(jq -r .base "$CREDS")
 TOK=$(jq -r .access_token "$CREDS")
 BODY='@tina got the mechanism from the [wsdiag] tape. Please relay to Ashley: FOUND IT (probably).'
@@ -338,7 +338,7 @@ curl -sS -X PUT -H "Authorization: Bearer $TOK" -H "Content-Type: application/js
 // ---------------------------------------------------------------------------
 const PURE_PYTHON_CMD = `python3 <<'PY'
 import json, urllib.request, time, uuid
-creds = json.load(open('/home/ubuntu/.claude/identities/tiffany/relay.json'))
+creds = json.load(open('/home/ubuntu/fleet/identities/tiffany/relay.json'))
 BASE = creds['base']; TOK = creds['access_token']
 HDR = {'Authorization': f'Bearer {TOK}', 'Content-Type': 'application/json'}
 room_id = '!TmJoVZLOCdojNYhatT:thenasty.taild9b663.ts.net'
@@ -510,7 +510,7 @@ describe("extractOutboundBody — shape A: cmd-sub cat heredoc", () => {
     // Under v3: assignment map includes BODY, Strategy 12 preflight returns body via
     // the passthrough. Result is identical text either way; this fixture pins the
     // shape into the assignment builder so the more complex A2/A3 shapes work.
-    const cmd = `CREDS=~/.claude/identities/isabella/relay.json
+    const cmd = `CREDS=~/fleet/identities/isabella/relay.json
 BASE=$(jq -r '.base' "$CREDS")
 TOK=$(jq -r '.access_token' "$CREDS")
 ROOM='!TOhwMIOAPQHcffSjFM:thenasty.taild9b663.ts.net'
@@ -529,7 +529,7 @@ curl -sS -X PUT "$BASE/rooms/$ROOM_ENC/send/m.room.message/$TXN" \\
   it("A2: BODY=$(cat <<'EOF' multi-line body EOF) preserves embedded newlines", () => {
     // corpus: ts=2026-08-22T09:03:23.065Z (wendy) — multi-line cat-heredoc body
     // Real fleet wendy→coord ack; body has 8 lines w/ soft-wrapped newlines.
-    const cmd = `RELAY=~/.claude/identities/wendy/relay.json
+    const cmd = `RELAY=~/fleet/identities/wendy/relay.json
 BASE=$(jq -r '.base' "$RELAY")
 TOK=$(jq -r '.access_token' "$RELAY")
 ROOM='!GztzHGVvpCWCSyGDNG:thenasty.taild9b663.ts.net'
@@ -569,7 +569,7 @@ you and Ashley, and stand by. Ping if that changes.`,
     // the wider Strategy 12 shape). Composed from A2's wendy shape with an
     // apostrophe-embedded body to prove single quotes inside a cat heredoc are
     // literal (heredoc body is uninterpreted — sq is not a shell metacharacter).
-    const cmd = `RELAY=~/.claude/identities/wendy/relay.json
+    const cmd = `RELAY=~/fleet/identities/wendy/relay.json
 BASE=$(jq -r '.base' "$RELAY")
 TOK=$(jq -r '.access_token' "$RELAY")
 ROOM='!GztzHGVvpCWCSyGDNG:thenasty.taild9b663.ts.net'
@@ -599,7 +599,7 @@ describe("extractOutboundBody — shape B: cmd-sub jq -n body:", () => {
     // 6 (jq-arg-inline-dq) captures the substituted literal. This is a v0-passing
     // shape; the new fixture pins that v3's expanded assignment builder still
     // catches simple MSG-sq → jq-arg passthrough.
-    const cmd = `R=~/.claude/identities/tina/relay.json
+    const cmd = `R=~/fleet/identities/tina/relay.json
 BASE=$(jq -r .base "$R")
 TOK=$(jq -r .token "$R")
 ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
@@ -619,7 +619,7 @@ curl -sS -X PUT "$BASE/rooms/$ROOM/send/m.room.message/$TXN" \\
     // SYNTHETIC — extractor_v3.py's Shape B parses `jq -n[c] '{...body:"X"}'`
     // directly. This tests the _extract_jq_body helper's backslash decoding
     // for embedded double quotes in the jq filter.
-    const cmd = `R=~/.claude/identities/tina/relay.json
+    const cmd = `R=~/fleet/identities/tina/relay.json
 BASE=$(jq -r .base "$R")
 TOK=$(jq -r .token "$R")
 ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
@@ -640,7 +640,7 @@ describe("extractOutboundBody — shape C: ANSI-C $'...'", () => {
     // newlines. Under v0 no assignment shape matches this → Strategy 6 captures
     // the substituted body which is bare literal `$BODY` (bug). Under v3 Shape C
     // ANSI-C parser decodes the escapes and substituteShellVars replaces $BODY.
-    const cmd = `RELAY=~/.claude/identities/aqua/relay.json
+    const cmd = `RELAY=~/fleet/identities/aqua/relay.json
 BASE=$(jq -r '.base' "$RELAY")
 TOK=$(jq -r '.access_token // .token' "$RELAY")
 ROOM_FULL='!XiCaysQQjBbCwwtOGx:thenasty.taild9b663.ts.net'
@@ -660,7 +660,7 @@ curl -sS -X PUT "$BASE/rooms/\${ROOM_ENC}/send/m.room.message/\${TXN}" \\
     // SYNTHETIC — coverage of ANSI-C escape map: \t → tab, \' → literal '
     // (proves _decode_ansi_c walks the char stream and looks up the escape
     // table char-by-char, not a naive regex substitution).
-    const cmd = `RELAY=~/.claude/identities/aqua/relay.json
+    const cmd = `RELAY=~/fleet/identities/aqua/relay.json
 BASE=$(jq -r '.base' "$RELAY")
 TOK=$(jq -r '.access_token' "$RELAY")
 ROOM='!XiCaysQQjBbCwwtOGx:thenasty.taild9b663.ts.net'
@@ -683,7 +683,7 @@ describe("extractOutboundBody — shape D: read heredoc", () => {
     // into $MSG. Under v0, no assignment shape matches → Strategy 6 captures
     // `$MSG` literal. Under v3, Shape D parses `read [flags] VAR <<EOF` and
     // populates the assignment map.
-    const cmd = `R=~/.claude/identities/poppy/relay.json
+    const cmd = `R=~/fleet/identities/poppy/relay.json
 TOK=$(jq -r '.access_token // .token' "$R"); BASE=$(jq -r '.base' "$R")
 ROOM='!dKuMpeCcOqsMSPUIiZ:thenasty.taild9b663.ts.net'
 TXN="poppy-vicky-column-filter-expand-$(date +%s)"
@@ -714,7 +714,7 @@ describe("extractOutboundBody — Strategy 12 preflight", () => {
     // preflight matches `--arg b "$BODY" '{msgtype:"m.text",body:$b}'`, looks
     // up BODY in the assignment map, and returns the heredoc body directly —
     // bypassing the post-substitution regex that would break on embedded ".
-    const cmd = `CREDS=~/.claude/identities/isabella/relay.json
+    const cmd = `CREDS=~/fleet/identities/isabella/relay.json
 BASE=$(jq -r '.base' "$CREDS")
 TOK=$(jq -r '.access_token' "$CREDS")
 ROOM='!TOhwMIOAPQHcffSjFM:thenasty.taild9b663.ts.net'
@@ -749,8 +749,8 @@ describe("extractOutboundBody — latent bug regressions", () => {
     // Under v3, Strategy 12 preflight matches `--arg b "$BODY" '{...body:$b}'`,
     // finds BODY in the assignment map (Shape A cat-heredoc), and returns the
     // primary body — bypassing Strategy 7's greedy match on the secondary arg.
-    const cmd = `TOK=$(jq -r .access_token ~/.claude/identities/tabitha/relay.json)
-BASE=$(jq -r .base ~/.claude/identities/tabitha/relay.json)
+    const cmd = `TOK=$(jq -r .access_token ~/fleet/identities/tabitha/relay.json)
+BASE=$(jq -r .base ~/fleet/identities/tabitha/relay.json)
 ROOM='!wNhqmNRUNlHesCshwg:thenasty.taild9b663.ts.net'
 TXN="tabitha-$(date +%s)"
 BODY=$(cat <<'EOF'
@@ -772,7 +772,7 @@ describe("extractOutboundBody — no-op invariant", () => {
     // any cmd whose assignment map is dominated by the pre-existing sq/dq shapes.
     // Original fixture: BODY='Ack — holding cps, nothing in flight on my end.'
     const cmd = `ROOM='!FHdIfqtmSWcGYUfyVp:thenasty.taild9b663.ts.net'
-CREDS=~/.claude/identities/tanya/relay.json
+CREDS=~/fleet/identities/tanya/relay.json
 BASE=$(jq -r .base "$CREDS")
 TOK=$(jq -r .access_token "$CREDS")
 TXN="tanya-$(date +%s%N)"

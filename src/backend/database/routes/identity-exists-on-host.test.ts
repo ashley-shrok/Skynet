@@ -343,7 +343,7 @@ describe("GET /identities/exists-on-host", () => {
     const [, command] = (execCommand as Mock).mock.calls[0] as [unknown, string];
     // The name must appear raw inside the double-quoted path (correct form)
     expect(command).toContain(`/identities/${safeName}`);
-    expect(command).toContain(`"$HOME/.claude/identities/${safeName}"`);
+    expect(command).toContain(`"$HOME/fleet/identities/${safeName}"`);
     // CR-03 regression: single-quoted form must NOT appear in the command
     expect(command).not.toContain(`'${safeName}'`);
   });
