@@ -2273,3 +2273,197 @@ describe("createRoomAsUser", () => {
     expect(body.room_alias_name).toBe("test-room");
   });
 });
+
+// ---------------------------------------------------------------------------
+// getRoomPowerLevels + putRoomPowerLevels (Quick 260911-n8a — registry-room
+// auto-lockdown). Two new primitives on top of the client-server API's
+// m.room.power_levels state event. Consumed by registry-rooms.ts's
+// assertRegistryRoomLockdown to detect & repair drift on every boot.
+// ---------------------------------------------------------------------------
+
+import {
+  getRoomPowerLevels,
+  putRoomPowerLevels,
+} from "./matrix-admin-client.js";
+
+describe("getRoomPowerLevels (260911-n8a)", () => {
+  it("G1: happy path 200 with a valid content JSON → { ok:true, content: {...} }", async () => {
+    const content = {
+      events_default: 0,
+      state_default: 50,
+      users_default: 0,
+      invite: 0,
+      kick: 50,
+      ban: 50,
+      redact: 50,
+      historical: 100,
+      users: { "@skynet-admin:host": 100 },
+    };
+    const fetchMock = vi.fn(async () => mockFetchResponse(200, content));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await getRoomPowerLevels("!r1:server");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.content).toEqual(content);
+    }
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toBe(
+      `${HAPPY_CREDS.homeserverBase}/_matrix/client/v3/rooms/${encodeURIComponent("!r1:server")}/state/m.room.power_levels`,
+    );
+    const opts = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(opts.method).toBe("GET");
+    const headers = opts.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe(
+      `Bearer ${HAPPY_CREDS.accessToken}`,
+    );
+  });
+
+  it("G2: 404 (state event unset) → { ok:false, status:404, error:'admin_api_non_2xx' }; caller can treat as 'assume defaults'", async () => {
+    stubFetchOk(404, { errcode: "M_NOT_FOUND" });
+    const result = await getRoomPowerLevels("!r1:server");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(404);
+      expect(result.error).toBe("admin_api_non_2xx");
+    }
+  });
+
+  it("G3: 403 → { ok:false, status:403, error:'admin_api_non_2xx' }", async () => {
+    stubFetchOk(403, { errcode: "M_FORBIDDEN" });
+    const result = await getRoomPowerLevels("!r1:server");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(403);
+      expect(result.error).toBe("admin_api_non_2xx");
+    }
+  });
+
+  it("G4: network exception → { ok:false, status:502, error:'admin_api_proxy_error' }; access token NEVER appears in a log call payload", async () => {
+    stubFetchNetworkError();
+    const errorSpy = vi.mocked(databaseLogger.error);
+    errorSpy.mockClear();
+    const result = await getRoomPowerLevels("!r1:server");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(502);
+      expect(result.error).toBe("admin_api_proxy_error");
+    }
+    expect(errorSpy).toHaveBeenCalled();
+    for (const call of errorSpy.mock.calls) {
+      for (const arg of call) {
+        expect(JSON.stringify(arg)).not.toContain(HAPPY_CREDS.accessToken);
+      }
+    }
+  });
+
+  it("G5: path-traversal-shaped roomId is encodeURIComponent-passed (URL contains %2F for '/' and %3A for ':'; '!' passes through literal per encodeURIComponent semantics)", async () => {
+    const fetchMock = vi.fn(async () => mockFetchResponse(200, {}));
+    vi.stubGlobal("fetch", fetchMock);
+    await getRoomPowerLevels("!weird/room:server");
+    const url = fetchMock.mock.calls[0][0] as string;
+    // encodeURIComponent DOES NOT encode `!` (it is not a reserved char under
+    // RFC 3986 unreserved set exceptions in encodeURIComponent). It DOES
+    // encode `/` → %2F and `:` → %3A — those are the real path-traversal
+    // vectors we care about.
+    expect(url).toContain("%2F");
+    expect(url).toContain("%3A");
+    expect(url).not.toContain("!weird/room:server");
+    // Regression pin: the encoded segment matches encodeURIComponent's output.
+    expect(url).toContain(encodeURIComponent("!weird/room:server"));
+  });
+});
+
+describe("putRoomPowerLevels (260911-n8a)", () => {
+  it("P1: 200 → { ok:true }; method=PUT; body JSON.parse matches content byte-for-byte", async () => {
+    const content = {
+      events_default: 100,
+      state_default: 100,
+      redact: 100,
+      invite: 100,
+      kick: 100,
+      ban: 100,
+      historical: 100,
+      users: { "@skynet-admin:host": 100 },
+    };
+    const fetchMock = vi.fn(async () => mockFetchResponse(200, {}));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await putRoomPowerLevels("!r1:server", content);
+    expect(result.ok).toBe(true);
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toBe(
+      `${HAPPY_CREDS.homeserverBase}/_matrix/client/v3/rooms/${encodeURIComponent("!r1:server")}/state/m.room.power_levels`,
+    );
+    const opts = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(opts.method).toBe("PUT");
+    const headers = opts.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe(`Bearer ${HAPPY_CREDS.accessToken}`);
+    expect(headers["Content-Type"]).toBe("application/json");
+    const parsedBody = JSON.parse(opts.body as string);
+    expect(parsedBody).toEqual(content);
+  });
+
+  it("P2: 403 (permission denied) → { ok:false, status:403, error:'admin_api_non_2xx' }", async () => {
+    stubFetchOk(403, { errcode: "M_FORBIDDEN" });
+    const result = await putRoomPowerLevels("!r1:server", {
+      events_default: 100,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(403);
+      expect(result.error).toBe("admin_api_non_2xx");
+    }
+  });
+
+  it("P3: timeout via AbortController → { ok:false, status:504, error:'admin_api_timeout' }", async () => {
+    stubFetchAbort();
+    const result = await putRoomPowerLevels("!r1:server", { events_default: 100 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.status).toBe(504);
+      expect(result.error).toBe("admin_api_timeout");
+    }
+  });
+});
+
+describe("createRoom initial_state (260911-n8a)", () => {
+  it("C1: no initialState arg → request body has NO `initial_state` key (regression guard on registry-rooms fast path)", async () => {
+    const fetchMock = vi.fn(async () =>
+      mockFetchResponse(200, { room_id: "!x:s" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await createRoom({ name: "no-initial-state" });
+    const opts = fetchMock.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(opts.body as string);
+    expect(body).not.toHaveProperty("initial_state");
+    // Existing fields still shape-preserving.
+    expect(body.name).toBe("no-initial-state");
+    expect(body.preset).toBe("private_chat");
+    expect(body.visibility).toBe("private");
+  });
+
+  it("C2: initialState=[{type:'m.room.power_levels',content:{...}}] → request body has initial_state array present with the passed content", async () => {
+    const pl = {
+      events_default: 100,
+      state_default: 100,
+      redact: 100,
+      invite: 100,
+      kick: 100,
+      ban: 100,
+      historical: 100,
+      users: { "@skynet-admin:host": 100 },
+    };
+    const initialState = [{ type: "m.room.power_levels", content: pl }];
+    const fetchMock = vi.fn(async () =>
+      mockFetchResponse(200, { room_id: "!x:s" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await createRoom({
+      name: "birth-locked",
+      initialState,
+    });
+    const opts = fetchMock.mock.calls[0][1] as RequestInit;
+    const body = JSON.parse(opts.body as string);
+    expect(Array.isArray(body.initial_state)).toBe(true);
+    expect(body.initial_state).toEqual(initialState);
+  });
+});

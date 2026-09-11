@@ -890,6 +890,18 @@ export async function createRoom(opts: {
   preset?: "private_chat" | "trusted_private_chat";
   visibility?: "public" | "private";
   roomAliasName?: string;
+  /**
+   * Optional Matrix `initial_state` — forwarded verbatim to the createRoom
+   * request body. Consumed by registry-rooms.ts to birth-lock the two
+   * registry rooms with an m.room.power_levels state event at creation
+   * time (quick 260911-n8a — no observable open-write window between
+   * createRoom and the boot-time lockdown PATCH).
+   */
+  initialState?: Array<{
+    type: string;
+    state_key?: string;
+    content: Record<string, unknown>;
+  }>;
 }): Promise<CreateRoomOk | AdminErr> {
   const creds = await getMatrixAdminCreds();
   if (!creds) {
@@ -904,6 +916,9 @@ export async function createRoom(opts: {
   };
   if (opts.roomAliasName !== undefined) {
     body.room_alias_name = opts.roomAliasName;
+  }
+  if (opts.initialState !== undefined) {
+    body.initial_state = opts.initialState;
   }
 
   const controller = new AbortController();
@@ -1603,5 +1618,145 @@ async function sendMessageOnce(
       result: { ok: false, status: 502, error: ERR_PROXY },
       retryable: false,
     };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// getRoomPowerLevels + putRoomPowerLevels (quick 260911-n8a — registry-room
+// auto-lockdown). GET+PUT the m.room.power_levels state event via the
+// client-server API. Consumed by registry-rooms.ts's
+// assertRegistryRoomLockdown boot-pass to detect & repair drift on the two
+// registry rooms every boot. Both primitives follow the same discriminated-
+// union scaffolding as getRoomName (client-server API, admin token via
+// Bearer auth, AbortController+REQUEST_TIMEOUT_MS, encodeURIComponent on the
+// path arg, never-log-the-token).
+// ---------------------------------------------------------------------------
+
+/**
+ * Loose-typed return for a successful getRoomPowerLevels. The Matrix spec's
+ * m.room.power_levels content shape is well-known but we defensively pass
+ * `content` through as `Record<string, unknown>` — the caller narrows on
+ * the fields it cares about. Do NOT throw on unexpected extra fields; a
+ * room admin may have added custom `events`/`notifications` keys and we
+ * want them preserved on a subsequent PUT.
+ */
+export type GetRoomPowerLevelsOk = AdminOk<{
+  content: Record<string, unknown>;
+}>;
+
+/**
+ * Read a room's m.room.power_levels state event.
+ *
+ * GET /_matrix/client/v3/rooms/{roomId}/state/m.room.power_levels
+ *
+ * - 200 with a JSON object → { ok:true, content }
+ * - 404 → { ok:false, status:404, error:ERR_NON_2XX }. The state event may
+ *   be genuinely unset (fresh room with no power_levels ever set) — callers
+ *   that treat "unset = assume Matrix defaults" (like
+ *   assertRegistryRoomLockdown) branch on status:404 explicitly.
+ * - 403 / other non-2xx → same generic mapping.
+ * - Timeout → ERR_TIMEOUT; network / parse throw → ERR_PROXY.
+ *
+ * Path-traversal defense: encodeURIComponent on the roomId.
+ * NEVER logs the admin access_token (proxy-error path only passes the
+ * operation label + the raw `err`; the logger's own scrubbing is the
+ * second line of defense).
+ */
+export async function getRoomPowerLevels(
+  roomId: string,
+): Promise<GetRoomPowerLevelsOk | AdminErr> {
+  const creds = await getMatrixAdminCreds();
+  if (!creds) {
+    return { ok: false, status: 500, error: ERR_CREDS_MISSING };
+  }
+
+  const url = `${creds.homeserverBase}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.power_levels`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: ERR_NON_2XX };
+    }
+    const parsed = (await response.json()) as Record<string, unknown>;
+    return { ok: true, content: parsed };
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return { ok: false, status: 504, error: ERR_TIMEOUT };
+    }
+    databaseLogger.error("matrix admin proxy error", err, {
+      operation: "matrix_admin_get_room_power_levels",
+    });
+    return { ok: false, status: 502, error: ERR_PROXY };
+  }
+}
+
+/**
+ * Write (replace) a room's m.room.power_levels state event.
+ *
+ * PUT /_matrix/client/v3/rooms/{roomId}/state/m.room.power_levels
+ *
+ * The request body is the whole content object; Matrix replaces the state
+ * event body atomically. Callers are responsible for producing a MERGED
+ * content (existing fields preserved + invariants raised) — see
+ * buildLockdownPowerLevelsContent in registry-rooms.ts for the merge logic.
+ *
+ * - 200 → { ok:true }
+ * - 403 (permission denied — most common failure mode when the admin
+ *   account was never at PL 100 in that room to begin with) → generic
+ *   ERR_NON_2XX mapping.
+ * - Other non-2xx / timeout / proxy → same shape as sibling primitives.
+ *
+ * Path-traversal defense: encodeURIComponent on the roomId.
+ * NEVER logs the admin access_token OR the content body (proxy-error path
+ * only passes operation label + raw err).
+ */
+export async function putRoomPowerLevels(
+  roomId: string,
+  content: Record<string, unknown>,
+): Promise<{ ok: true } | AdminErr> {
+  const creds = await getMatrixAdminCreds();
+  if (!creds) {
+    return { ok: false, status: 500, error: ERR_CREDS_MISSING };
+  }
+
+  const url = `${creds.homeserverBase}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.power_levels`;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(content),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!response.ok) {
+      return { ok: false, status: response.status, error: ERR_NON_2XX };
+    }
+    return { ok: true };
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return { ok: false, status: 504, error: ERR_TIMEOUT };
+    }
+    databaseLogger.error("matrix admin proxy error", err, {
+      operation: "matrix_admin_put_room_power_levels",
+    });
+    return { ok: false, status: 502, error: ERR_PROXY };
   }
 }
