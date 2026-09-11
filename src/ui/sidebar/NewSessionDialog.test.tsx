@@ -129,8 +129,14 @@ vi.mock("@/features/terminal/session-hue", () => ({
   sessionMatchKey: () => null,
   useSessionIdentity: () => ({ identity: null, identityHue: null }),
 }));
+// Phase 106 Plan 106-04 (D-18): mock `refreshIdentities` so we can assert
+// the D-18 ordering invariant (refreshIdentities → onCreate → onClose) in
+// the success-path test. `mockRefreshIdentities` is exposed at
+// module scope so individual tests can inspect .mock.calls / invocationCallOrder.
+const mockRefreshIdentities = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/state/identities-store", () => ({
   useIdentities: () => ({ byKey: new Map() }),
+  refreshIdentities: (...args: unknown[]) => mockRefreshIdentities(...args),
 }));
 vi.mock("@/hooks/use-is-touch-device", () => ({
   useIsTouchDevice: () => false,
@@ -1024,12 +1030,40 @@ describe("NewSessionDialog: Test V — Create with identity-mode ON calls openBi
   });
 });
 
+// ─── Phase 106 Plan 106-04 (D-21 test-suite refresh) ─────────────────────────
+// The pre-Phase-106 Tests W/X/Y/Z/AA/BB/CC/DD/EE/FF asserted on the deleted
+// per-step birth-checklist UX (5 progress rows, per-step data-status="failed"
+// icons, step-1/2/3 failure blurbs, modal-stays-open-on-failure). Plan 106-02
+// collapsed that entire scaffolding into a spinner-in-button + modal-lock +
+// generic-alert-on-failure shape (D-13/D-14/D-15/D-17). The tests below
+// replace the deleted W..FF set to pin the NEW behavior:
+//
+//   Test 106A: during birthing, the Create button renders a Loader2 spinner
+//              (not the "Create" text label) — D-14.
+//   Test 106B: during birthing, the Cancel button is disabled AND the Dialog's
+//              onOpenChange no-ops so ESC/backdrop close cannot fire onClose —
+//              D-15 (modal fully locked from Create click to birth resolution).
+//   Test 106C: on ended:ok:true, refreshIdentities fires BEFORE onCreate which
+//              fires BEFORE onClose — D-18 ordering invariant + D-16 auto-route
+//              chain payload preservation.
+//   Test 106D: on ended:ok:false, window.alert("agent creation failed") fires
+//              exactly once and onClose fires; onCreate does NOT fire — D-17.
+//   Test 106E: on stream-throw (outer catch path), same failure surface as
+//              Test 106D — D-17 (single generic alert regardless of failure class).
+//
+// Note: Test R above already exercises the ended:ok:true success payload
+// shape (identityMode:true, name, no cosmetic fields). Test 106C strengthens
+// that with the D-18 ordering-with-refreshIdentities assertion.
+
 // ─────────────────────────────────────────────────────────────────────────────
-// Test W: 5 progress rows render on birth start
+// Test 106A: spinner-in-Create-button during birthing (D-14)
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test W — 5 progress rows appear after Create", () => {
-  it("Test W: after clicking Create, 5 step rows appear with correct labels", async () => {
-    // Stream that stays open (never completes)
+describe("NewSessionDialog: Test 106A — Create button shows spinner during birthing", () => {
+  it("Test 106A: while birthing (stream open, no ended yet), Create button contains a Loader2 spinner instead of the 'Create' text label", async () => {
+    // A stream that yields nothing and never resolves — simulates the
+    // in-flight window between click and terminal `ended` event. React
+    // flips `birthing=true` immediately on click; the spinner replaces
+    // the button label per D-14.
     let resolveStream!: () => void;
     const neverEnds = new Promise<void>((res) => { resolveStream = res; });
     async function* hangingStream() {
@@ -1039,291 +1073,159 @@ describe("NewSessionDialog: Test W — 5 progress rows appear after Create", () 
 
     const utils = renderDialog();
     await fillIdentityForm(utils);
-    const createBtn = utils.getByRole("button", { name: /^(open|create|creating)/i }) as HTMLButtonElement;
+    const createBtn = utils.getByRole("button", {
+      name: /^(open|create|creating|creating agent)/i,
+    }) as HTMLButtonElement;
     fireEvent.click(createBtn);
 
+    // After click, birthing===true → Create button's text label is gone;
+    // its DOM contains a Loader2 icon with the .animate-spin class.
     await waitFor(() => {
-      // Phase 68 SHAPE B: Step 1 is now "Check identity name is available on host"
-      expect(screen.queryByText(/check identity name is available/i)).toBeTruthy();
+      const spinnerInBtn = createBtn.querySelector(".animate-spin");
+      expect(spinnerInBtn).toBeTruthy();
     });
-    expect(screen.queryByText(/launch claude cli/i)).toBeTruthy();
-    expect(screen.queryByText(/bootstrap dance/i)).toBeTruthy();
-    expect(screen.queryByText(/\/id command/i)).toBeTruthy();
 
-    // Cleanup: resolve the hanging stream
+    // Cleanup: resolve the hanging stream so React can unmount cleanly.
     resolveStream();
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test X: step:N:started → row flips to in-progress
-// Use a controlled stream: pause after step:2:started so React renders the
-// intermediate state, then assert, then let the stream continue/end.
+// Test 106B: modal fully locked during birthing (D-15)
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test X — step started marks row in-progress", () => {
-  it("Test X: emit step:2:started followed by failure → row 2 shows in-progress then failed", async () => {
-    // Use a stream that has a visible intermediate in-progress state by
-    // eventually ending with a failure (so the component doesn't auto-close)
-    mockOpenBirthStream.mockReturnValueOnce(createMockStream([
-      { type: "step", n: 2, phase: "started" },
-      { type: "step", n: 2, phase: "failed", reason: "test" },
-      { type: "ended", ok: false, failedStep: 2 },
-    ]));
-
-    const utils = renderDialog();
-    await fillIdentityForm(utils);
-    fireEvent.click(utils.getByRole("button", { name: /^(open|create|creating)/i }));
-
-    // Wait for the stream to complete and show a failed step
-    await waitFor(() => {
-      const failedRows = document.querySelectorAll('[data-status="failed"]');
-      expect(failedRows.length).toBeGreaterThanOrEqual(1);
-    });
-    // At this point, step 2 should be "failed" (was "in-progress" before)
-    // The key state transition happened: pending → in-progress → failed
-    const failedRows = document.querySelectorAll('[data-status="failed"]');
-    expect(failedRows.length).toBeGreaterThanOrEqual(1);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test Y: step:N:completed → row flips to done
-// ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test Y — step completed marks row done", () => {
-  it("Test Y: all 5 steps started+completed + ended:ok:true → all rows show done", async () => {
-    mockOpenBirthStream.mockReturnValueOnce(createMockStream([
-      { type: "step", n: 1, phase: "started" },
-      { type: "step", n: 1, phase: "completed" },
-      { type: "step", n: 2, phase: "started" },
-      { type: "step", n: 2, phase: "completed" },
-      { type: "step", n: 3, phase: "started" },
-      { type: "step", n: 3, phase: "completed" },
-      { type: "step", n: 4, phase: "started" },
-      { type: "step", n: 4, phase: "completed" },
-      { type: "step", n: 5, phase: "started" },
-      { type: "step", n: 5, phase: "completed" },
-      { type: "ended", ok: true, identityId: "abc", sessionName: "alicia" },
-    ]));
-
-    const onCreate = vi.fn();
-    const utils = renderDialog({ onCreate });
-    await fillIdentityForm(utils);
-    fireEvent.click(utils.getByRole("button", { name: /^(open|create|creating)/i }));
-
-    // Wait for successful birth (onCreate called = stream completed with ok:true)
-    await waitFor(() => {
-      expect(onCreate).toHaveBeenCalledTimes(1);
-    }, { timeout: 3000 });
-    // After success, onCreate fires with identityMode:true
-    expect(onCreate.mock.calls[0][0].identityMode).toBe(true);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test Z: step:N:failed → row shows failed + failure blurb
-// ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test Z — step failed shows failed row + blurb", () => {
-  it("Test Z: emit step:2:failed → row 2 data-status=failed AND blurb with 'tmux session' text appears", async () => {
-    mockOpenBirthStream.mockReturnValueOnce(createMockStream([
-      { type: "step", n: 2, phase: "failed", reason: "Connect timeout" },
-      { type: "ended", ok: false, failedStep: 2 },
-    ]));
-
-    const utils = renderDialog();
-    await fillIdentityForm(utils);
-    fireEvent.click(utils.getByRole("button", { name: /^(open|create|creating)/i }));
-
-    await waitFor(() => {
-      const failedRows = document.querySelectorAll('[data-status="failed"]');
-      expect(failedRows.length).toBeGreaterThanOrEqual(1);
-    });
-    // Step-2 blurb: "Skynet record created, but couldn't open a tmux session"
-    await waitFor(() => {
-      expect(screen.queryByText(/skynet record created.*tmux/i) ?? screen.queryByText(/couldn't open a tmux session/i) ?? screen.queryByText(/tmux session/i)).toBeTruthy();
-    });
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test AA: successful birth closes modal + calls onCreate
-// ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test AA — successful birth closes modal + calls onCreate", () => {
-  it("Test AA: all 5 steps complete + ended:ok:true → onClose called + onCreate called with identityMode:true payload", async () => {
-    mockOpenBirthStream.mockReturnValueOnce(createMockStream([
-      { type: "step", n: 1, phase: "started" },
-      { type: "step", n: 1, phase: "completed" },
-      { type: "step", n: 2, phase: "started" },
-      { type: "step", n: 2, phase: "completed" },
-      { type: "step", n: 3, phase: "started" },
-      { type: "step", n: 3, phase: "completed" },
-      { type: "step", n: 4, phase: "started" },
-      { type: "step", n: 4, phase: "completed" },
-      { type: "step", n: 5, phase: "started" },
-      { type: "step", n: 5, phase: "completed" },
-      { type: "ended", ok: true, identityId: "abc", sessionName: "alicia" },
-    ]));
-
-    const onCreate = vi.fn();
-    const onClose = vi.fn();
-    const utils = renderDialog({ onCreate, onClose });
-    await fillIdentityForm(utils);
-    fireEvent.click(utils.getByRole("button", { name: /^(open|create|creating)/i }));
-
-    await waitFor(() => {
-      expect(onCreate).toHaveBeenCalledTimes(1);
-    });
-    // onCreate should have been called with identity birth payload
-    const arg = onCreate.mock.calls[0][0] as Record<string, unknown>;
-    expect(arg.identityMode).toBe(true);
-    expect(arg.name).toBe("alicia");
-    // Modal should close
-    await waitFor(() => {
-      expect(onClose).toHaveBeenCalled();
-    });
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test BB: failed birth keeps modal OPEN, onCreate NOT called
-// ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test BB — failed birth keeps modal open", () => {
-  it("Test BB: ended:ok:false → modal stays open (onClose not called) + onCreate not called", async () => {
-    mockOpenBirthStream.mockReturnValueOnce(createMockStream([
-      { type: "step", n: 3, phase: "failed", reason: "x" },
-      { type: "ended", ok: false, failedStep: 3 },
-    ]));
-
-    const onCreate = vi.fn();
-    const onClose = vi.fn();
-    const utils = renderDialog({ onCreate, onClose });
-    await fillIdentityForm(utils);
-    fireEvent.click(utils.getByRole("button", { name: /^(open|create|creating)/i }));
-
-    // Wait for stream to finish
-    await waitFor(() => {
-      const failedRows = document.querySelectorAll('[data-status="failed"]');
-      expect(failedRows.length).toBeGreaterThanOrEqual(1);
-    });
-    expect(onClose).not.toHaveBeenCalled();
-    expect(onCreate).not.toHaveBeenCalled();
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test CC: close after failure resets ALL state
-// ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test CC — close after failure resets state", () => {
-  it("Test CC: after failure, user closes modal → re-open shows fresh defaults (no name)", async () => {
-    mockOpenBirthStream.mockReturnValueOnce(createMockStream([
-      { type: "step", n: 3, phase: "failed", reason: "x" },
-      { type: "ended", ok: false, failedStep: 3 },
-    ]));
+describe("NewSessionDialog: Test 106B — modal is fully locked during birthing", () => {
+  it("Test 106B: while birthing → Cancel button disabled; pressing Escape does NOT fire onClose", async () => {
+    // Same stuck-stream mock as Test 106A so `birthing===true` is stable.
+    let resolveStream!: () => void;
+    const neverEnds = new Promise<void>((res) => { resolveStream = res; });
+    async function* hangingStream() {
+      await neverEnds;
+    }
+    mockOpenBirthStream.mockReturnValueOnce(hangingStream());
 
     const onClose = vi.fn();
     const utils = renderDialog({ onClose });
     await fillIdentityForm(utils);
-    fireEvent.click(utils.getByRole("button", { name: /^(open|create|creating)/i }));
+    const createBtn = utils.getByRole("button", {
+      name: /^(open|create|creating|creating agent)/i,
+    }) as HTMLButtonElement;
+    fireEvent.click(createBtn);
 
-    // Wait for failure
-    await waitFor(() => expect(document.querySelectorAll('[data-status="failed"]').length).toBeGreaterThanOrEqual(1));
-
-    // Close the dialog.
-    // Phase 88: pass isAdmin={true} on rerender so the admin-gated Path field
-    // + shell-only checkbox remain rendered (renderDialog helper's default
-    // isAdmin=true does not propagate through utils.rerender's raw JSX).
-    utils.rerender(
-      <NewSessionDialog
-        open={false}
-        onClose={onClose}
-        hostTree={threeHostTree}
-        onCreate={vi.fn()}
-        isAdmin={true}
-      />
-    );
-    // Re-open
-    utils.rerender(
-      <NewSessionDialog
-        open={true}
-        onClose={onClose}
-        hostTree={threeHostTree}
-        onCreate={vi.fn()}
-        isAdmin={true}
-      />
-    );
-
-    // Name should be reset
-    expect((utils.getByLabelText(/^name$/i) as HTMLInputElement).value).toBe("");
-    // No failed rows
-    expect(document.querySelectorAll('[data-status="failed"]').length).toBe(0);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test DD: birth in progress disables ALL form fields + no cancel affordance
-// ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test DD — birth in progress disables form fields, no cancel button", () => {
-  it("Test DD: while birthing → name/path disabled, identity-mode checkbox disabled, no cancel-birth button", async () => {
-    let resolveStream!: () => void;
-    const neverEnds = new Promise<void>((res) => { resolveStream = res; });
-    async function* hangingStream() {
-      await neverEnds;
-    }
-    mockOpenBirthStream.mockReturnValueOnce(hangingStream());
-
-    const utils = renderDialog();
-    await fillIdentityForm(utils);
-    fireEvent.click(utils.getByRole("button", { name: /^(open|create|creating)/i }));
-
+    // Wait for birthing to flip on (visible via disabled Cancel button —
+    // D-15's rendered-always-but-disabled treatment per plan 106-02).
+    const cancelBtn = utils.getByRole("button", { name: /cancel/i }) as HTMLButtonElement;
     await waitFor(() => {
-      // name input should be disabled
-      expect((utils.getByLabelText(/^name$/i) as HTMLInputElement).disabled).toBe(true);
+      expect(cancelBtn.disabled).toBe(true);
     });
-    // Phase 88: shell-only checkbox is disabled during birth (existing
-    // formDisabled binding; renderDialog helper defaults isAdmin=true so
-    // the checkbox is present to inspect).
-    const checkbox = utils.getByRole("checkbox", { name: IDENTITY_MODE_CHECKBOX_RE }) as HTMLInputElement;
-    expect(checkbox.disabled).toBe(true);
-    // No cancel-birth button
-    expect(screen.queryByRole("button", { name: /cancel.*birth|cancel birth/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /stop birth/i })).toBeNull();
 
+    // ESC keypress on the dialog should NOT invoke onClose — the Dialog's
+    // onOpenChange handler no-ops while birthing (D-15). We fire on
+    // document to route through Radix Dialog's keydown listener.
+    fireEvent.keyDown(document.body, { key: "Escape", code: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Clicking the (disabled) Cancel button should also not trigger onClose.
+    fireEvent.click(cancelBtn);
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Cleanup
     resolveStream();
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test EE: step:1:failed with silent-no-op reason surfaces step-1 blurb
+// Test 106C: success chain — refreshIdentities → onCreate → onClose (D-18, D-16)
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test EE — step-1 failure shows correct blurb", () => {
-  it("Test EE: step:1:failed → step-1 blurb (identity name already in use on host) renders", async () => {
-    // Phase 68: SHAPE B — Step 1 is now an SSH-side on-disk collision probe
-    // (not a Skynet DB record creation). Blurb updated to reflect the new meaning.
+describe("NewSessionDialog: Test 106C — success chain fires refreshIdentities → onCreate → onClose in order", () => {
+  it("Test 106C: on ended:ok:true, refreshIdentities is called BEFORE onCreate which is called BEFORE onClose; onCreate payload matches D-16 (identityMode:true, name)", async () => {
     mockOpenBirthStream.mockReturnValueOnce(createMockStream([
-      { type: "step", n: 1, phase: "failed", reason: "identity already exists on this host" },
-      { type: "ended", ok: false, failedStep: 1 },
+      { type: "ended", ok: true, identityId: "alicia", sessionName: "alicia" },
     ]));
 
-    const utils = renderDialog();
+    const onCreate = vi.fn();
+    const onClose = vi.fn();
+    const utils = renderDialog({ onCreate, onClose });
     await fillIdentityForm(utils);
-    fireEvent.click(utils.getByRole("button", { name: /^(open|create|creating)/i }));
+    fireEvent.click(
+      utils.getByRole("button", { name: /^(open|create|creating|creating agent)/i }),
+    );
 
+    // Wait for the success chain to complete.
     await waitFor(() => {
-      // Step 1 blurb: Phase 68 SHAPE B — "The identity name is already in use on this host"
-      expect(
-        screen.queryByText(/identity name.*already in use/i) ??
-        screen.queryByText(/already in use on this host/i) ??
-        screen.queryByText(/pick a different name/i)
-      ).toBeTruthy();
+      expect(onCreate).toHaveBeenCalledTimes(1);
+      expect(onClose).toHaveBeenCalledTimes(1);
     });
+
+    // D-18: refreshIdentities called (at least once).
+    expect(mockRefreshIdentities).toHaveBeenCalled();
+
+    // D-18 ordering: refreshIdentities fires BEFORE onCreate.
+    const refreshOrder = mockRefreshIdentities.mock.invocationCallOrder[0];
+    const createOrder = onCreate.mock.invocationCallOrder[0];
+    const closeOrder = onClose.mock.invocationCallOrder[0];
+    expect(refreshOrder).toBeLessThan(createOrder);
+    // onCreate fires BEFORE onClose (existing invariant preserved).
+    expect(createOrder).toBeLessThan(closeOrder);
+
+    // D-16 payload preservation.
+    expect(onCreate.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ identityMode: true, name: "alicia" }),
+    );
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test FF: openBirthStream throwing surfaces as step-1 failure
+// Test 106D: window.alert('agent creation failed') on ended:ok:false (D-17)
 // ─────────────────────────────────────────────────────────────────────────────
-describe("NewSessionDialog: Test FF — fetch error surfaces as step-1 failure", () => {
-  it("Test FF: openBirthStream throws → row 1 shows failed, modal stays open, no state reset", async () => {
+describe("NewSessionDialog: Test 106D — ended:ok:false fires generic alert + onClose", () => {
+  it("Test 106D: on ended:ok:false, window.alert is called once with 'agent creation failed' and onClose fires; onCreate does NOT fire", async () => {
+    const alertSpy = vi
+      .spyOn(window, "alert")
+      .mockImplementation(() => { /* swallow */ });
+
+    mockOpenBirthStream.mockReturnValueOnce(createMockStream([
+      { type: "ended", ok: false, failedStep: 6, reason: "supervisor_wait_timeout" },
+    ]));
+
+    const onCreate = vi.fn();
+    const onClose = vi.fn();
+    const utils = renderDialog({ onCreate, onClose });
+    await fillIdentityForm(utils);
+    fireEvent.click(
+      utils.getByRole("button", { name: /^(open|create|creating|creating agent)/i }),
+    );
+
+    await waitFor(() => {
+      expect(alertSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(alertSpy).toHaveBeenCalledWith("agent creation failed");
+
+    // Modal closes on failure (D-17: no fields preserved, no in-modal error state).
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+    // Success path did NOT fire.
+    expect(onCreate).not.toHaveBeenCalled();
+
+    alertSpy.mockRestore();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 106E: window.alert('agent creation failed') on stream throw (D-17)
+// ─────────────────────────────────────────────────────────────────────────────
+describe("NewSessionDialog: Test 106E — stream throw fires generic alert + onClose", () => {
+  it("Test 106E: if openBirthStream throws (network / fetch reject / abort), outer catch fires the same generic alert + onClose; onCreate does NOT fire", async () => {
+    const alertSpy = vi
+      .spyOn(window, "alert")
+      .mockImplementation(() => { /* swallow */ });
+
+    // Async generator that throws on first iteration — routes through the
+    // outer catch in NewSessionDialog.handleBirth (D-17 same-surface rule).
     async function* throwingStream(): AsyncGenerator<never> {
+      // Throwing before any yield exercises the outer catch (not the
+      // ended:ok:false branch), matching Plan 106-02 edit 8's dual-path
+      // routing to the same alert-then-close surface.
       throw new Error("Network error");
       // eslint-disable-next-line no-unreachable
       yield {} as never;
@@ -1334,14 +1236,21 @@ describe("NewSessionDialog: Test FF — fetch error surfaces as step-1 failure",
     const onClose = vi.fn();
     const utils = renderDialog({ onCreate, onClose });
     await fillIdentityForm(utils);
-    fireEvent.click(utils.getByRole("button", { name: /^(open|create|creating)/i }));
+    fireEvent.click(
+      utils.getByRole("button", { name: /^(open|create|creating|creating agent)/i }),
+    );
 
     await waitFor(() => {
-      const failedRows = document.querySelectorAll('[data-status="failed"]');
-      expect(failedRows.length).toBeGreaterThanOrEqual(1);
+      expect(alertSpy).toHaveBeenCalledTimes(1);
     });
-    expect(onClose).not.toHaveBeenCalled();
+    expect(alertSpy).toHaveBeenCalledWith("agent creation failed");
+
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
     expect(onCreate).not.toHaveBeenCalled();
+
+    alertSpy.mockRestore();
   });
 });
 
