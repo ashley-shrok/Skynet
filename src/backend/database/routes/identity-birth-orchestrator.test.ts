@@ -1,29 +1,29 @@
 /**
- * Phase 20 (IDUI-06/08/09): Tests for identity-birth-orchestrator.ts
+ * Phase 20 (IDUI-06/08/09): Tests for identity-birth-orchestrator.ts.
+ *
+ * Phase 106 (Plan 106-03) rewire — the harness bootstrap (Steps 3/4/5:
+ * trust-flag pre-write, claude launch, 7-Enter settle train, `/id <name>`
+ * dispatch) is RETIRED from the birth orchestrator. agent-supervisor.sh
+ * on the target box is now the sole spawner and lifecycle owner. The
+ * orchestrator's Step 2 no longer opens the tmux session either — the
+ * per-session `tmux new-session -d -s <name>` call is retired. All
+ * step:3/step:4/step:5 assertions are removed from this file per D-20.
+ *
+ * New coverage added in Plan 106-03:
+ *   - Wait-for-supervisor poll success case (mock discoverIdentitySessionFile
+ *     returns non-null on Nth poll → ended{ok:true}).
+ *   - Wait-for-supervisor poll timeout case (mock always returns null →
+ *     ended{ok:false, reason:"supervisor_wait_timeout"} + databaseLogger.warn
+ *     with operation:"identity_birth_supervisor_wait_timeout").
+ *   - SSH-error-during-poll path (mock returns null throughout — same shape
+ *     as the fail-safe null-return contract at
+ *     discover-identity-session-file.ts:319-321).
+ *   - D-12 forensics preservation — step:6/step:7/step:8 breadcrumbs still
+ *     emit for backend log-forensic purposes.
  *
  * Tests exercise birthIdentity() as a pure function with injected deps.
- * All SSH, local-exec, fs, and identity-record operations are mocked.
- * Events are collected via the emit callback.
- *
- * Test coverage (18 tests):
- *   1: happy path remote host — emits all 5 steps in order (11 events)
- *   2: self-birth (isLocalHostId=true) — no SSH, uses local exec for steps 2-5
- *   3: step 1 posts identity with multipart+data field, then GET-verifies
- *   4: step 1 silent-no-op guard: GET-verify mismatch → step:1:failed
- *   5: step 1 failure (409 collision) → step:1:failed
- *   6: step 2 mkdir + tmux new-session sent verbatim
- *   7: step 2 followed by 3s sleep before step 3 starts
- *   8: step 3 pre-writes hasTrustDialogAccepted=true BEFORE claude launch
- *   9: step 3 send-keys uses plain -t <name>, NEVER -t "=<name>"
- *  10: step 3 claude launch command includes both env-vars verbatim
- *  11: step 4 blind Enter train fires EXACTLY 7 times at 3s spacing
- *  12: step 4 does NOT do REPL-scrape detection (no capture-pane)
- *  13: step 5 sends /id <name> then Enter, exact shape
- *  14: step 3 SSH failure → step:3:failed and steps 4-5 are NEVER attempted
- *  15: avatar candidate cache miss at step 1 → step:1:failed:candidate-expired
- *  16: SSH connect timeout at step 2 → step:2:failed with timeout reason
- *  17: orchestrator uses IDENTITY_KEY_RE gate on name
- *  18: path normalization: backslashes → forward slashes, tilde/empty → $HOME
+ * All SSH, local-exec, fs, discovery, and identity-record operations are
+ * mocked. Events are collected via the emit callback.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
@@ -86,6 +86,37 @@ vi.mock("node:fs/promises", () => ({
   },
 }));
 
+// Phase 106 Plan 106-03: mock databaseLogger so wait-for-supervisor timeout
+// tests can assert the structured warn call on operation-key
+// "identity_birth_supervisor_wait_timeout" (see D-08 rationale in
+// identity-birth-orchestrator.ts wait-block comment).
+vi.mock("../../utils/logger.js", () => ({
+  databaseLogger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+  sshLogger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+  systemLogger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+  logger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
 import {
   birthIdentity,
   ENTER_TRAIN_COUNT,
@@ -96,6 +127,8 @@ import {
   SSH_CONNECT_TIMEOUT_MS,
   CLAUDE_LAUNCH_CMD_PREFIX,
   TMUX_NEW_SESSION_FLAGS,
+  WAIT_FOR_SUPERVISOR_POLL_MS,
+  WAIT_FOR_SUPERVISOR_TIMEOUT_MS,
 } from "./identity-birth-orchestrator.js";
 
 import { connectOneShot } from "../../ssh/ssh-one-shot.js";
@@ -105,6 +138,7 @@ import {
   writeMarkdownFileAtomic,
 } from "../../claude-session/identity-artifact-reader.js";
 import { joinAgentToAgentsRegistry } from "../../relay-sessions/registry-rooms.js";
+import { databaseLogger } from "../../utils/logger.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -120,6 +154,10 @@ const mockIsLocalHostId = isLocalHostId as unknown as Mock;
 const mockWriteMarkdownFileAtomicModule =
   writeMarkdownFileAtomic as unknown as Mock;
 const mockJoinAgentToAgentsRegistry = joinAgentToAgentsRegistry as unknown as Mock;
+// Phase 106 Plan 106-03: typed handle for the mocked databaseLogger.warn so
+// the wait-poll timeout test can inspect the structured warn payload for the
+// operation-key "identity_birth_supervisor_wait_timeout".
+const mockDatabaseLoggerWarn = databaseLogger.warn as unknown as Mock;
 
 function collectEvents(): { events: BirthEvent[]; emit: (e: BirthEvent) => void } {
   const events: BirthEvent[] = [];
@@ -182,6 +220,16 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
         2,
       ),
     ),
+    // Phase 106 Plan 106-03 (D-05/D-06): the wait-for-supervisor sensor.
+    // Default returns a non-null jsonl path on the FIRST call so the wait-poll
+    // exits immediately with success on all happy-path tests (no fake-timer
+    // dance needed). Individual tests override for null-return timeout tests.
+    matrixCountUsersMatching: vi
+      .fn()
+      .mockResolvedValue({ ok: true, total: 0 }),
+    discoverIdentitySessionFile: vi
+      .fn()
+      .mockResolvedValue("/mock/session.jsonl"),
     ...overrides,
   };
 }
@@ -275,13 +323,24 @@ describe("exported constants (Nelly-verbatim)", () => {
   it("TMUX_NEW_SESSION_FLAGS is -x 220 -y 50", () => {
     expect(TMUX_NEW_SESSION_FLAGS).toBe("-x 220 -y 50");
   });
+
+  // Phase 106 Plan 106-03 (D-07/D-08): wait-for-supervisor exports.
+  it("WAIT_FOR_SUPERVISOR_POLL_MS is 2000 (Phase 106 D-07)", () => {
+    expect(WAIT_FOR_SUPERVISOR_POLL_MS).toBe(2000);
+  });
+
+  it("WAIT_FOR_SUPERVISOR_TIMEOUT_MS is 120000 (Phase 106 D-08)", () => {
+    expect(WAIT_FOR_SUPERVISOR_TIMEOUT_MS).toBe(120000);
+  });
 });
 
 // ---------------------------------------------------------------------------
-// Test 1: happy path remote host — emits all 5 steps in order (11 events)
+// Test 1: happy path remote host — emits steps 1/2/6/7/8 (post-Phase-106).
+// The harness steps (3/4/5) are retired per D-01..D-03; agent-supervisor.sh
+// is the sole spawner. Test asserts 11 events: 5 steps × 2 phases + 1 ended.
 // ---------------------------------------------------------------------------
 
-it("Test 1: happy path, remote host, emits all 5 steps in order", async () => {
+it("Test 1: happy path, remote host, emits steps 1/2/6/7/8 in order (Phase 106)", async () => {
   mockIsLocalHostId.mockReturnValue(false);
   const mockConn = { end: vi.fn() };
   mockConnectOneShot.mockResolvedValue(mockConn);
@@ -299,22 +358,21 @@ it("Test 1: happy path, remote host, emits all 5 steps in order", async () => {
 
   const birthPromise = birthIdentity(opts, emit, deps);
 
-  // Advance through all sleeps
+  // Advance through all sleeps (Step 2 STEP_2_SLEEP_MS + any wait-poll sleeps
+  // — with the default happy-path mock returning non-null on first call, the
+  // wait-poll block exits before its first sleep runs).
   await vi.runAllTimersAsync();
   await birthPromise;
 
-  // Phase 75 Plan 04: expect 17 events on remote-branch happy path:
-  //   5 pre-existing steps × 2 (started+completed) = 10
-  //   3 new steps (6/7/8) × 2 (started+completed) = 6
-  //   1 ended{ok:true} = 1
-  //   total = 17
-  // (Rule 1 auto-fix: prior expectation of 11 was correct for pre-Phase-75
-  //  orchestrator; the widening from D-OQ6 lock adds Steps 6/7/8 to the
-  //  remote-branch happy path.)
-  expect(events.length).toBe(17);
+  // Phase 106 (D-01..D-03): steps 3/4/5 retired. Expected wire on remote-branch
+  // happy path:
+  //   Steps 1, 2, 6, 7, 8 × 2 (started+completed) = 10
+  //   1 ended{ok:true}                            = 1
+  //   total                                       = 11
+  expect(events.length).toBe(11);
 
-  // Check step sequence in order (all 8 steps present)
-  for (let n = 1; n <= 8; n++) {
+  // Check step sequence in order (only steps 1/2/6/7/8 present under new wire)
+  for (const n of [1, 2, 6, 7, 8]) {
     const startedIdx = events.findIndex(
       (e) => e.type === "step" && e.n === n && e.phase === "started",
     );
@@ -323,6 +381,14 @@ it("Test 1: happy path, remote host, emits all 5 steps in order", async () => {
     );
     expect(startedIdx).toBeGreaterThanOrEqual(0);
     expect(completedIdx).toBeGreaterThan(startedIdx);
+  }
+
+  // No retired step numbers on the wire.
+  for (const n of [3, 4, 5]) {
+    const retiredStepEvents = events.filter(
+      (e) => e.type === "step" && (e as { n: number }).n === n,
+    );
+    expect(retiredStepEvents).toHaveLength(0);
   }
 
   const endedEvent = events.find((e) => e.type === "ended");
@@ -334,14 +400,20 @@ it("Test 1: happy path, remote host, emits all 5 steps in order", async () => {
 }, 10_000);
 
 // ---------------------------------------------------------------------------
-// Test 2: self-birth (isLocalHostId=true) — no SSH, uses local exec for steps 2-5
+// Test 2: self-birth (isLocalHostId=true) — no SSH, no discoverIdentitySessionFile
+// poll (guarded on !useLocal per Phase 106 wait-block predicate), uses local
+// exec for Step 2 only (Steps 6/7/8 + wait-poll all skipped on local branch).
 // ---------------------------------------------------------------------------
 
-it("Test 2: self-birth (isLocalHostId=true), uses local exec, no SSH", async () => {
+it("Test 2: self-birth (isLocalHostId=true), uses local exec, no SSH, skips wait-poll", async () => {
   mockIsLocalHostId.mockReturnValue(true);
 
   const mockExecLocal = vi.fn().mockResolvedValue("");
-  const deps = makeDeps({ execLocal: mockExecLocal });
+  const mockDiscover = vi.fn().mockResolvedValue("/mock/session.jsonl");
+  const deps = makeDeps({
+    execLocal: mockExecLocal,
+    discoverIdentitySessionFile: mockDiscover,
+  });
   const opts = makeOpts({ hostId: 5 });
   const { events, emit } = collectEvents();
 
@@ -352,11 +424,16 @@ it("Test 2: self-birth (isLocalHostId=true), uses local exec, no SSH", async () 
   // connectOneShot was NEVER called for local branch
   expect(mockConnectOneShot).not.toHaveBeenCalled();
 
-  // execLocal was called for steps 2-5
+  // execLocal was called for step 2 (mkdir target path)
   expect(mockExecLocal).toHaveBeenCalled();
 
-  // Still 11 events
-  expect(events.length).toBe(11);
+  // Phase 106: local branch skips wait-poll entirely — discoverIdentitySessionFile
+  // is never invoked (guarded on `!useLocal && conn`).
+  expect(mockDiscover).not.toHaveBeenCalled();
+
+  // Phase 106: local branch emits only steps 1, 2 (Steps 6/7/8 skipped on local
+  // branch per L1228 predicate). 2 × 2 + 1 ended = 5 events.
+  expect(events.length).toBe(5);
   const endedEvent = events.find((e) => e.type === "ended");
   expect(endedEvent).toBeDefined();
   expect((endedEvent as { type: "ended"; ok: boolean }).ok).toBe(true);
@@ -476,14 +553,17 @@ it("Test 5: Phase 68 — ended event identityId carries opts.name (not a nanoid)
 }, 10_000);
 
 // ---------------------------------------------------------------------------
-// Test 6: step 2 mkdir + tmux new-session sent verbatim
+// Test 6: Phase 106 — Step 2 does NOT open a tmux session (retired per D-01)
 // ---------------------------------------------------------------------------
+// The per-session `tmux new-session -d -s <name> ...` invocation is retired
+// from birth orchestrator. agent-supervisor.sh's 15s reconcile tick is now
+// the sole party that opens the tmux session for the new identity. Verified
+// via ZERO exec calls containing "tmux new-session" during birthIdentity.
 
-it("Test 6: step 2 command is mkdir -p + tmux new-session with correct flags", async () => {
+it("Test 6: Phase 106 — Step 2 exec does NOT contain `tmux new-session` (retired per D-01)", async () => {
   mockIsLocalHostId.mockReturnValue(false);
   const mockConn = { end: vi.fn() };
   mockConnectOneShot.mockResolvedValue(mockConn);
-  // Default: `echo $HOME` returns a plausible path (Phase 22 Step 2.5), all others return ""
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
@@ -493,31 +573,30 @@ it("Test 6: step 2 command is mkdir -p + tmux new-session with correct flags", a
 
   const deps = makeDeps();
   const opts = makeOpts({ name: "testkey", path: "/workspace/testkey" });
-  const { events, emit } = collectEvents();
+  const { emit } = collectEvents();
 
   const birthPromise = birthIdentity(opts, emit, deps);
   await vi.runAllTimersAsync();
   await birthPromise;
 
-  // Step 2 command: mkdir -p ... && tmux new-session ...
-  const step2Call = mockExecCommand.mock.calls.find(
+  // No exec invocation should carry a `tmux new-session` fragment — the
+  // per-session tmux invocation is now agent-supervisor.sh's job.
+  const tmuxNewSessionCall = mockExecCommand.mock.calls.find(
     (call: unknown[]) =>
       typeof call[1] === "string" &&
-      (call[1] as string).includes("mkdir") &&
       (call[1] as string).includes("tmux new-session"),
   );
+  expect(tmuxNewSessionCall).toBeUndefined();
 
-  expect(step2Call).toBeDefined();
-  const cmd = step2Call![1] as string;
-
-  // Must use single-quoted path for shell safety
-  expect(cmd).toContain("mkdir -p");
-  expect(cmd).toContain("testkey"); // session name
-  expect(cmd).toContain("tmux new-session -d");
-  expect(cmd).toContain("-x 220 -y 50");
-
-  // Session name must not use -t "=name" exact-match syntax
-  expect(cmd).not.toMatch(/-t\s+"?=/);
+  // Step 2's mkdir -p on the target path IS still present (this is what
+  // survives the tmux retirement in the Step 2 body).
+  const mkdirPathCall = mockExecCommand.mock.calls.find(
+    (call: unknown[]) =>
+      typeof call[1] === "string" &&
+      (call[1] as string).startsWith("mkdir -p ") &&
+      (call[1] as string).includes("testkey"),
+  );
+  expect(mkdirPathCall).toBeDefined();
 }, 10_000);
 
 // ---------------------------------------------------------------------------
@@ -538,13 +617,14 @@ it("Test 6b: Step 2 identity-tree mkdir creates both wakeups/ and workspace/ sub
 
   const deps = makeDeps();
   const opts = makeOpts({ name: "agent1" });
-  const { events, emit } = collectEvents();
+  const { emit } = collectEvents();
 
   const birthPromise = birthIdentity(opts, emit, deps);
   await vi.runAllTimersAsync();
   await birthPromise;
 
-  // Find the identity-tree mkdir command (contains "wakeups" — NOT the tmux command)
+  // Find the identity-tree mkdir command (contains "wakeups" — this is the
+  // Step 2.5 mkdir for the identity folder tree).
   const identityTreeMkdir = mockExecCommand.mock.calls.find(
     (call: unknown[]) =>
       typeof call[1] === "string" &&
@@ -558,119 +638,25 @@ it("Test 6b: Step 2 identity-tree mkdir creates both wakeups/ and workspace/ sub
   expect(mkdirCmd).toContain("mkdir -p");
   expect(mkdirCmd).toContain("wakeups"); // wakeups/ sub-part
   expect(mkdirCmd).toContain("workspace"); // workspace/ sub-part per D-04
-  expect(mkdirCmd).toContain("fleet/identities/agent1"); // fleet-tree path (Plan 96-02)
+  expect(mkdirCmd).toContain("fleet/identities/agent1"); // fleet-tree path
 }, 10_000);
 
 // ---------------------------------------------------------------------------
-// Test 7: step 2 followed by 3s sleep before step 3 starts
+// Phase 106 Plan 106-03 wait-for-supervisor tests (Tests A / B / C / D)
+//
+// The birth orchestrator's terminal condition is now supervisor-observable
+// disk state (transcript JSONL with `/id <name>` first-turn on the target
+// host), not Skynet-driven action. The wait block runs after Steps 6/7/8's
+// mint sequence completes, polls the injected discoverIdentitySessionFile
+// dep every WAIT_FOR_SUPERVISOR_POLL_MS, and closes the stream with
+// ended{ok:true} on first non-null result or ended{ok:false,
+// reason:"supervisor_wait_timeout"} after WAIT_FOR_SUPERVISOR_TIMEOUT_MS.
 // ---------------------------------------------------------------------------
 
-it("Test 7: step 3 does NOT dispatch until >=3000ms after step 2 completion", async () => {
+it("Test A (Phase 106): emits ended:ok:true after discoverIdentitySessionFile returns non-null on 3rd poll", async () => {
   mockIsLocalHostId.mockReturnValue(false);
   const mockConn = { end: vi.fn() };
   mockConnectOneShot.mockResolvedValue(mockConn);
-
-  // Track call timing
-  const callLog: Array<{ type: "exec"; cmd: string; t: number }> = [];
-  let virtualTime = 0;
-
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    callLog.push({ type: "exec", cmd, t: virtualTime });
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    return Promise.resolve("");
-  });
-
-  const deps = makeDeps();
-  const opts = makeOpts();
-  const { events, emit } = collectEvents();
-
-  const birthPromise = birthIdentity(opts, emit, deps);
-
-  // Advance step 1 (no sleep after step 1)
-  await vi.advanceTimersByTimeAsync(0);
-  // Advance step 2 sleep (3000ms)
-  virtualTime = 3000;
-  await vi.advanceTimersByTimeAsync(3000);
-  // Advance step 3 sleep (2000ms)
-  virtualTime = 5000;
-  await vi.advanceTimersByTimeAsync(2000);
-  // Advance step 4 enter train (7 * 3000ms = 21000ms)
-  virtualTime = 26000;
-  await vi.advanceTimersByTimeAsync(21000);
-  // Advance step 5
-  virtualTime = 27000;
-  await vi.advanceTimersByTimeAsync(1000);
-
-  await birthPromise;
-
-  // Find step 2 (mkdir+new-session) and step 3 (trust flag write or claude launch)
-  const step2CallIdx = callLog.findIndex(
-    (c) => c.cmd.includes("mkdir") && c.cmd.includes("tmux new-session"),
-  );
-  const step3Calls = callLog.filter(
-    (c) => c.cmd.includes("hasTrustDialogAccepted") || c.cmd.includes("dangerously-skip-permissions"),
-  );
-
-  expect(step2CallIdx).toBeGreaterThanOrEqual(0);
-  expect(step3Calls.length).toBeGreaterThan(0);
-
-  const step2Time = callLog[step2CallIdx].t;
-  const step3Time = step3Calls[0].t;
-
-  // At least 3000ms must have elapsed between step 2 and step 3
-  expect(step3Time - step2Time).toBeGreaterThanOrEqual(3000);
-}, 30_000);
-
-// ---------------------------------------------------------------------------
-// Test 8: step 3 pre-writes hasTrustDialogAccepted=true BEFORE claude launch
-// ---------------------------------------------------------------------------
-
-it("Test 8: step 3 pre-writes hasTrustDialogAccepted=true BEFORE claude launch", async () => {
-  mockIsLocalHostId.mockReturnValue(false);
-  const mockConn = { end: vi.fn() };
-  mockConnectOneShot.mockResolvedValue(mockConn);
-
-  const callOrder: string[] = [];
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    if ((cmd as string).includes("hasTrustDialogAccepted")) {
-      callOrder.push("trust-flag");
-    } else if ((cmd as string).includes("dangerously-skip-permissions")) {
-      callOrder.push("claude-launch");
-    } else {
-      callOrder.push("other");
-    }
-    return Promise.resolve("");
-  });
-
-  const deps = makeDeps();
-  const opts = makeOpts();
-  const { events, emit } = collectEvents();
-
-  const birthPromise = birthIdentity(opts, emit, deps);
-  await vi.runAllTimersAsync();
-  await birthPromise;
-
-  const trustIdx = callOrder.indexOf("trust-flag");
-  const launchIdx = callOrder.indexOf("claude-launch");
-
-  expect(trustIdx).toBeGreaterThanOrEqual(0);
-  expect(launchIdx).toBeGreaterThan(trustIdx);
-}, 10_000);
-
-// ---------------------------------------------------------------------------
-// Test 9: step 3 send-keys uses plain -t <name>, NEVER -t "=<name>"
-// ---------------------------------------------------------------------------
-
-it("Test 9: send-keys uses plain -t testkey, NEVER -t \"=\" syntax", async () => {
-  mockIsLocalHostId.mockReturnValue(false);
-  const mockConn = { end: vi.fn() };
-  mockConnectOneShot.mockResolvedValue(mockConn);
-  // Default: `echo $HOME` returns a plausible path (Phase 22 Step 2.5), all others return ""
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
@@ -678,179 +664,65 @@ it("Test 9: send-keys uses plain -t testkey, NEVER -t \"=\" syntax", async () =>
     return Promise.resolve("");
   });
 
-  const allCmds: string[] = [];
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    allCmds.push(cmd as string);
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    return Promise.resolve("");
-  });
+  // Mock the discovery sensor: returns null twice, then a real path on the 3rd
+  // poll. This proves the wait-poll loop keeps ticking on null and terminates
+  // successfully as soon as the sensor sees the transcript file appear.
+  const mockDiscover = vi
+    .fn()
+    .mockResolvedValueOnce(null)
+    .mockResolvedValueOnce(null)
+    .mockResolvedValueOnce("/home/ubuntu/.claude/projects/found/session.jsonl");
 
-  const deps = makeDeps();
-  const opts = makeOpts({ name: "testkey" });
-  const { events, emit } = collectEvents();
-
-  const birthPromise = birthIdentity(opts, emit, deps);
-  await vi.runAllTimersAsync();
-  await birthPromise;
-
-  // ZERO matches for -t "= or -t =
-  const hasBadSyntax = allCmds.some(
-    (cmd) => cmd.includes('-t "=') || cmd.match(/-t\s+=\S/),
-  );
-  expect(hasBadSyntax).toBe(false);
-
-  // Must have valid -t testkey usage
-  const hasValidTarget = allCmds.some(
-    (cmd) => cmd.includes("send-keys") && cmd.includes("testkey"),
-  );
-  expect(hasValidTarget).toBe(true);
-}, 10_000);
-
-// ---------------------------------------------------------------------------
-// Test 10: step 3 claude launch includes both env-vars verbatim
-// ---------------------------------------------------------------------------
-
-it("Test 10: step 3 claude launch includes both env-vars and uses -l flag + separate Enter", async () => {
-  mockIsLocalHostId.mockReturnValue(false);
-  const mockConn = { end: vi.fn() };
-  mockConnectOneShot.mockResolvedValue(mockConn);
-  // Default: `echo $HOME` returns a plausible path (Phase 22 Step 2.5), all others return ""
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    return Promise.resolve("");
-  });
-
-  const allCmds: string[] = [];
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    allCmds.push(cmd as string);
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    return Promise.resolve("");
-  });
-
-  const deps = makeDeps();
-  const opts = makeOpts({ name: "testkey" });
-  const { events, emit } = collectEvents();
-
-  const birthPromise = birthIdentity(opts, emit, deps);
-  await vi.runAllTimersAsync();
-  await birthPromise;
-
-  // Find the launch command
-  const launchCmd = allCmds.find((cmd) => cmd.includes("dangerously-skip-permissions"));
-  expect(launchCmd).toBeDefined();
-  expect(launchCmd!).toContain("CLAUDE_CODE_RESUME_THRESHOLD_MINUTES=99999999");
-  expect(launchCmd!).toContain("CLAUDE_CODE_RESUME_TOKEN_THRESHOLD=99999999");
-  expect(launchCmd!).toContain("claude --model opus --dangerously-skip-permissions");
-
-  // Must use -l (literal mode) for the send-keys with the command
-  expect(launchCmd!).toContain("-l");
-
-  // There must be a separate send-keys Enter after the launch (no -l for Enter)
-  // Find the Enter command that comes right after the launch
-  const launchIdx = allCmds.indexOf(launchCmd!);
-  const enterAfterLaunch = allCmds
-    .slice(launchIdx + 1)
-    .find(
-      (cmd) =>
-        cmd.includes("send-keys") &&
-        cmd.includes("testkey") &&
-        cmd.includes("Enter") &&
-        !cmd.includes("dangerously"),
-    );
-  expect(enterAfterLaunch).toBeDefined();
-}, 10_000);
-
-// ---------------------------------------------------------------------------
-// Test 11: step 4 blind Enter train fires EXACTLY 7 times at 3s spacing
-// ---------------------------------------------------------------------------
-
-it("Test 11: step 4 Enter train fires EXACTLY 7 times at 3s spacing", async () => {
-  mockIsLocalHostId.mockReturnValue(false);
-  const mockConn = { end: vi.fn() };
-  mockConnectOneShot.mockResolvedValue(mockConn);
-
-  // Use virtual time to count Enter train timing
-  const enterFireTimes: number[] = [];
-  let virtualMs = 0;
-
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    // Track when Enter is fired (step 4 specific — no -l flag)
-    const cmdStr = cmd as string;
-    if (
-      cmdStr.includes("send-keys") &&
-      cmdStr.includes("Enter") &&
-      !cmdStr.includes("-l") &&
-      !cmdStr.includes("/id")
-    ) {
-      enterFireTimes.push(virtualMs);
-    }
-    return Promise.resolve("");
-  });
-
-  const deps = makeDeps();
+  const deps = makeDeps({ discoverIdentitySessionFile: mockDiscover });
   const opts = makeOpts({ name: "testkey" });
   const { events, emit } = collectEvents();
 
   const birthPromise = birthIdentity(opts, emit, deps);
 
-  // Step 1 (no sleep)
-  await vi.advanceTimersByTimeAsync(0);
-  // Step 2 sleep = 3000ms
-  virtualMs += 3000;
-  await vi.advanceTimersByTimeAsync(3000);
-  // Step 3 sleep = 2000ms (after launch)
-  virtualMs += 2000;
-  await vi.advanceTimersByTimeAsync(2000);
+  // Advance through Step 2's STEP_2_SLEEP_MS + wait-poll sleeps. Two null
+  // returns → two 2s sleeps between polls; third call returns non-null so the
+  // loop exits. Use runAllTimersAsync to drain the whole cascade in one shot
+  // (the mock resolves synchronously in the same tick each poll fires).
+  await vi.runAllTimersAsync();
+  await birthPromise;
 
-  // Step 4: Enter train — advance one Enter at a time
-  for (let i = 0; i < ENTER_TRAIN_COUNT; i++) {
-    virtualMs += ENTER_TRAIN_SPACING_MS;
-    await vi.advanceTimersByTimeAsync(ENTER_TRAIN_SPACING_MS);
+  // Discovery was called exactly 3 times — proves the poll loop respected the
+  // null-return cadence and stopped on first non-null.
+  expect(mockDiscover).toHaveBeenCalledTimes(3);
+
+  // Every poll was invoked with (conn, identityName)
+  for (const call of mockDiscover.mock.calls) {
+    expect(call[1]).toBe("testkey");
   }
 
-  // Step 5
-  await vi.advanceTimersByTimeAsync(1000);
-  await birthPromise;
+  // Terminal event: ended{ok:true, identityId, sessionName}
+  const endedEvent = events.find((e) => e.type === "ended");
+  expect(endedEvent).toBeDefined();
+  expect((endedEvent as { ok: boolean; identityId?: string; sessionName?: string }).ok).toBe(true);
+  expect((endedEvent as { identityId?: string }).identityId).toBe("testkey");
+  expect((endedEvent as { sessionName?: string }).sessionName).toBe("testkey");
 
-  // Count only step-4 Enters (exclude step-3's Enter after launch)
-  // Step 4 starts AFTER step 3 completes. We need to identify them specifically.
-  // The test counts ALL Enters that match the pattern (no -l, no /id)
-  // This includes the step-3 Enter. So we need exactly 7 + 1 (step 3's Enter) = 8 total.
-  // Actually, the step-3 Enter has no content checking — let's verify total Enter count
-  // for "send-keys testkey Enter" without -l: we expect exactly 8 (1 from step3 + 7 from step4)
-  // But the spec says "step 4 fires EXACTLY 7". We need a way to separate them.
-  // Since they all look alike (send-keys -t testkey Enter), let's just count ALL non-literal Enters
-  // including step 3's one. We expect 8 total (1 step3 + 7 step4).
-  // The test logic should count only step-4 window.
-  // For simplicity: the total should be exactly 8 (1 after claude launch + 7 train).
-  // We assert >= 7 specifically in the enter window.
-  const enterCount = enterFireTimes.length;
-  // We expect either 7 (if step-3 Enter is tracked separately by the route)
-  // or 8 (if step-3's Enter also has no -l). The implementation may or may not
-  // use -l for the Enter after launch. Per plan, only the send-keys WITH the command
-  // uses -l; the Enter itself doesn't. So both step-3 Enter and step-4 Enters look alike.
-  // Total should be 8: 1 from step 3 + 7 from step 4.
-  expect(enterCount).toBeGreaterThanOrEqual(7);
+  // D-12 forensics: step:6, step:7, step:8 breadcrumbs still emit BEFORE the
+  // ended event (proves the mint sequence ran to completion — the wait block
+  // sits AFTER the Step 8 relay.json write).
+  const endedIdx = events.indexOf(endedEvent!);
+  for (const n of [6, 7, 8]) {
+    const startedIdx = events.findIndex(
+      (e) => e.type === "step" && (e as { n: number }).n === n && (e as { phase: string }).phase === "started",
+    );
+    const completedIdx = events.findIndex(
+      (e) => e.type === "step" && (e as { n: number }).n === n && (e as { phase: string }).phase === "completed",
+    );
+    expect(startedIdx).toBeGreaterThanOrEqual(0);
+    expect(completedIdx).toBeGreaterThan(startedIdx);
+    expect(completedIdx).toBeLessThan(endedIdx);
+  }
 }, 30_000);
 
-// ---------------------------------------------------------------------------
-// Test 12: step 4 does NOT do REPL-scrape detection (no capture-pane)
-// ---------------------------------------------------------------------------
-
-it("Test 12: step 4 has NO capture-pane, grep-bypass, or list-panes content scrape", async () => {
+it("Test B (Phase 106): emits ended:ok:false reason:supervisor_wait_timeout after 120s of null returns", async () => {
   mockIsLocalHostId.mockReturnValue(false);
   const mockConn = { end: vi.fn() };
   mockConnectOneShot.mockResolvedValue(mockConn);
-  // Default: `echo $HOME` returns a plausible path (Phase 22 Step 2.5), all others return ""
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
@@ -858,16 +730,136 @@ it("Test 12: step 4 has NO capture-pane, grep-bypass, or list-panes content scra
     return Promise.resolve("");
   });
 
-  const allCmds: string[] = [];
+  // Always-null: the transcript file never appears; the wait block must run
+  // out its full 120s window.
+  const mockDiscover = vi.fn().mockResolvedValue(null);
+
+  // Reset the logger warn spy so we can assert cleanly on the timeout call.
+  mockDatabaseLoggerWarn.mockClear();
+
+  const deps = makeDeps({ discoverIdentitySessionFile: mockDiscover });
+  const opts = makeOpts({ name: "testkey", hostId: 42 });
+  const { events, emit } = collectEvents();
+
+  const birthPromise = birthIdentity(opts, emit, deps);
+  // Drain the whole cadence in one shot — runAllTimersAsync steps through
+  // every setTimeout the orchestrator queues (Step 2 sleep + the full
+  // WAIT_FOR_SUPERVISOR_TIMEOUT_MS window's poll sleeps).
+  await vi.runAllTimersAsync();
+  await birthPromise;
+
+  // Terminal event: ended{ok:false, reason:"supervisor_wait_timeout"}. No
+  // failedStep is set (this isn't a Step N failure — the mint sequence
+  // completed; the supervisor just never picked the identity up).
+  const endedEvent = events.find((e) => e.type === "ended");
+  expect(endedEvent).toBeDefined();
+  expect((endedEvent as { ok: boolean }).ok).toBe(false);
+  expect((endedEvent as { reason?: string }).reason).toBe(
+    "supervisor_wait_timeout",
+  );
+
+  // Mock was called ~60 times over the 120s window at 2s cadence. The exact
+  // count depends on when Date.now() ticks over the timeout boundary — allow
+  // an off-by-one window rather than pinning the exact integer.
+  const expectedCalls = Math.floor(
+    WAIT_FOR_SUPERVISOR_TIMEOUT_MS / WAIT_FOR_SUPERVISOR_POLL_MS,
+  );
+  expect(mockDiscover.mock.calls.length).toBeGreaterThanOrEqual(
+    expectedCalls - 1,
+  );
+  expect(mockDiscover.mock.calls.length).toBeLessThanOrEqual(
+    expectedCalls + 1,
+  );
+
+  // Structured warn log fires on the operation-key defined in the wait block
+  // (identity_birth_supervisor_wait_timeout) — proves the log-forensic
+  // breadcrumb lands for post-mortem correlation per D-08.
+  const timeoutWarnCall = mockDatabaseLoggerWarn.mock.calls.find(
+    (call: unknown[]) =>
+      typeof call[1] === "object" &&
+      call[1] !== null &&
+      (call[1] as { operation?: string }).operation ===
+        "identity_birth_supervisor_wait_timeout",
+  );
+  expect(timeoutWarnCall).toBeDefined();
+  const warnPayload = timeoutWarnCall![1] as {
+    identityKey?: string;
+    hostId?: number;
+    timeoutMs?: number;
+  };
+  expect(warnPayload.identityKey).toBe("testkey");
+  expect(warnPayload.hostId).toBe(42);
+  expect(warnPayload.timeoutMs).toBe(WAIT_FOR_SUPERVISOR_TIMEOUT_MS);
+}, 30_000);
+
+it("Test C (Phase 106): SSH-error-during-poll — discoverIdentitySessionFile returns null throughout (fail-safe contract) → supervisor_wait_timeout", async () => {
+  // Per discover-identity-session-file.ts:319-321, the helper is fail-safe:
+  // SSH exec errors during the discovery script return null, not throw. This
+  // test mirrors that contract — from the orchestrator's perspective an
+  // SSH-error tick looks identical to a "signal not found" tick, and the
+  // wait block treats both the same way: keep polling until the timeout.
+  // Guards against a future refactor treating discovery errors as a hard
+  // failure that emits step:8:failed instead of supervisor_wait_timeout.
+  mockIsLocalHostId.mockReturnValue(false);
+  const mockConn = { end: vi.fn() };
+  mockConnectOneShot.mockResolvedValue(mockConn);
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    allCmds.push(cmd as string);
     if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
       return Promise.resolve("/home/ubuntu\n");
     }
     return Promise.resolve("");
   });
 
-  const deps = makeDeps();
+  // Fail-safe: the helper returns null on any internal SSH error. This test
+  // uses the null-return shape (preferred per module contract at :319-321)
+  // to simulate the SSH-error path.
+  const mockDiscover = vi.fn().mockResolvedValue(null);
+
+  const deps = makeDeps({ discoverIdentitySessionFile: mockDiscover });
+  const opts = makeOpts({ name: "testkey" });
+  const { events, emit } = collectEvents();
+
+  const birthPromise = birthIdentity(opts, emit, deps);
+  await vi.runAllTimersAsync();
+  await birthPromise;
+
+  // Same terminal shape as Test B — reason must be supervisor_wait_timeout,
+  // NOT some SSH-error-specific reason string. Fail-safe contract preserved.
+  const endedEvent = events.find((e) => e.type === "ended");
+  expect(endedEvent).toBeDefined();
+  expect((endedEvent as { ok: boolean }).ok).toBe(false);
+  expect((endedEvent as { reason?: string }).reason).toBe(
+    "supervisor_wait_timeout",
+  );
+
+  // No step:N:failed emitted — the wait-poll timeout is NOT a step failure.
+  const stepFailedEvent = events.find(
+    (e) => e.type === "step" && (e as { phase: string }).phase === "failed",
+  );
+  expect(stepFailedEvent).toBeUndefined();
+}, 30_000);
+
+it("Test D (Phase 106 / D-12 forensics): step:6/step:7/step:8 breadcrumbs still emit on happy path", async () => {
+  // D-12 lock: intermediate step events stay on the wire during the mint
+  // block (step:1, step:2, step:6, step:7, step:8) purely as backend
+  // log-forensic breadcrumbs — the frontend discards them, but backend log
+  // correlation requires them present for per-step failure attribution.
+  // This test explicitly pins that D-12 invariant so any future refactor
+  // that quietly drops intermediate emits gets caught.
+  mockIsLocalHostId.mockReturnValue(false);
+  const mockConn = { end: vi.fn() };
+  mockConnectOneShot.mockResolvedValue(mockConn);
+  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
+    return Promise.resolve("");
+  });
+
+  // Happy-path discovery returns non-null on first call so the wait-poll
+  // exits immediately with success and doesn't dominate the event log.
+  const mockDiscover = vi.fn().mockResolvedValue("/mock/session.jsonl");
+  const deps = makeDeps({ discoverIdentitySessionFile: mockDiscover });
   const opts = makeOpts();
   const { events, emit } = collectEvents();
 
@@ -875,143 +867,37 @@ it("Test 12: step 4 has NO capture-pane, grep-bypass, or list-panes content scra
   await vi.runAllTimersAsync();
   await birthPromise;
 
-  const hasCapturePaneCall = allCmds.some((cmd) =>
-    cmd.includes("capture-pane"),
-  );
-  expect(hasCapturePaneCall).toBe(false);
+  // Assert step:6/7/8 breadcrumbs are PRESENT on the wire — literal object
+  // shapes so grep(`n: 6`) and grep(`n: 8`) catch this test in the
+  // acceptance-criteria guard for D-12 preservation.
+  expect(events).toContainEqual({ type: "step", n: 6, phase: "started" });
+  expect(events).toContainEqual({ type: "step", n: 6, phase: "completed" });
+  expect(events).toContainEqual({ type: "step", n: 7, phase: "started" });
+  expect(events).toContainEqual({ type: "step", n: 7, phase: "completed" });
+  expect(events).toContainEqual({ type: "step", n: 8, phase: "started" });
+  expect(events).toContainEqual({ type: "step", n: 8, phase: "completed" });
 
-  const hasGrepBypass = allCmds.some((cmd) =>
-    cmd.includes("grep") && cmd.includes("bypass"),
-  );
-  expect(hasGrepBypass).toBe(false);
+  // Ordering: every step:6/7/8 emit comes BEFORE the ended event (proves
+  // the wait block sits AFTER the mint sequence).
+  const endedIdx = events.findIndex((e) => e.type === "ended");
+  expect(endedIdx).toBeGreaterThanOrEqual(0);
+  for (const n of [6, 7, 8]) {
+    const startedIdx = events.findIndex(
+      (e) => e.type === "step" && (e as { n: number }).n === n && (e as { phase: string }).phase === "started",
+    );
+    const completedIdx = events.findIndex(
+      (e) => e.type === "step" && (e as { n: number }).n === n && (e as { phase: string }).phase === "completed",
+    );
+    expect(startedIdx).toBeGreaterThanOrEqual(0);
+    expect(completedIdx).toBeGreaterThan(startedIdx);
+    expect(completedIdx).toBeLessThan(endedIdx);
+  }
 
-  const hasListPanesContent = allCmds.some(
-    (cmd) =>
-      cmd.includes("list-panes") && cmd.includes("content"),
-  );
-  expect(hasListPanesContent).toBe(false);
-}, 10_000);
+  // Terminal ended:ok:true (happy path completes end-to-end).
+  const endedEvent = events[endedIdx];
+  expect((endedEvent as { ok: boolean }).ok).toBe(true);
+}, 30_000);
 
-// ---------------------------------------------------------------------------
-// Test 13: step 5 sends /id <name> then Enter, exact shape
-// ---------------------------------------------------------------------------
-
-it("Test 13: step 5 sends /id testkey (-l) then Enter", async () => {
-  mockIsLocalHostId.mockReturnValue(false);
-  const mockConn = { end: vi.fn() };
-  mockConnectOneShot.mockResolvedValue(mockConn);
-  // Default: `echo $HOME` returns a plausible path (Phase 22 Step 2.5), all others return ""
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    return Promise.resolve("");
-  });
-
-  const allCmds: string[] = [];
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    allCmds.push(cmd as string);
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    return Promise.resolve("");
-  });
-
-  const deps = makeDeps();
-  const opts = makeOpts({ name: "testkey" });
-  const { events, emit } = collectEvents();
-
-  const birthPromise = birthIdentity(opts, emit, deps);
-  await vi.runAllTimersAsync();
-  await birthPromise;
-
-  // Find /id command
-  const idCmd = allCmds.find((cmd) => cmd.includes("/id testkey") && cmd.includes("-l"));
-  expect(idCmd).toBeDefined();
-
-  // There must be an Enter after it
-  const idIdx = allCmds.indexOf(idCmd!);
-  expect(idIdx).toBeGreaterThanOrEqual(0);
-
-  const enterAfterIdCmd = allCmds.slice(idIdx + 1).find(
-    (cmd) =>
-      cmd.includes("send-keys") &&
-      cmd.includes("testkey") &&
-      cmd.includes("Enter"),
-  );
-  expect(enterAfterIdCmd).toBeDefined();
-}, 10_000);
-
-// ---------------------------------------------------------------------------
-// Test 14: step 3 failure → step:3:failed, steps 4-5 NEVER attempted, no rollback
-// ---------------------------------------------------------------------------
-
-it("Test 14: step 3 SSH failure → step:3:failed, steps 4-5 never dispatched", async () => {
-  mockIsLocalHostId.mockReturnValue(false);
-  const mockConn = { end: vi.fn() };
-  mockConnectOneShot.mockResolvedValue(mockConn);
-
-  let step3Reached = false;
-  const allCmds: string[] = [];
-
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    allCmds.push(cmd as string);
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    // Fail when step 3 tries to launch claude
-    if ((cmd as string).includes("dangerously-skip-permissions")) {
-      step3Reached = true;
-      return Promise.reject(new Error("send-keys failed"));
-    }
-    return Promise.resolve("");
-  });
-
-  const deps = makeDeps();
-  const opts = makeOpts({ name: "testkey" });
-  const { events, emit } = collectEvents();
-
-  const birthPromise = birthIdentity(opts, emit, deps);
-  await vi.runAllTimersAsync();
-  await birthPromise;
-
-  expect(step3Reached).toBe(true);
-
-  // step:3:failed must be emitted
-  const failedEvent = events.find(
-    (e) => e.type === "step" && e.n === 3 && e.phase === "failed",
-  );
-  expect(failedEvent).toBeDefined();
-
-  // ended event with failedStep=3
-  const endedEvent = events.find((e) => e.type === "ended");
-  expect((endedEvent as { ok: boolean; failedStep?: number }).ok).toBe(false);
-  expect((endedEvent as { ok: boolean; failedStep?: number }).failedStep).toBe(3);
-
-  // NO Enter train (step 4) was dispatched
-  const step4Enters = allCmds.filter(
-    (cmd) =>
-      cmd.includes("send-keys") &&
-      cmd.includes("Enter") &&
-      !cmd.includes("/id") &&
-      // After step 3 failed, no more Enters should fire
-      // We count only the ones that are pure "Enter" without -l
-      !cmd.includes("-l"),
-  );
-  // The step 3 failure stops after the first failed claude launch command.
-  // No further exec calls for Enter train or /id
-  const hasPureEnterAfterFail = allCmds
-    .slice(allCmds.indexOf(
-      allCmds.find((c) => c.includes("dangerously-skip-permissions")) ?? ""
-    ) + 1)
-    .some((cmd) => cmd.includes("send-keys") && cmd.includes("Enter"));
-
-  expect(hasPureEnterAfterFail).toBe(false);
-
-  // No /id command dispatched
-  const hasIdCmd = allCmds.some((cmd) => cmd.includes("/id testkey"));
-  expect(hasIdCmd).toBe(false);
-}, 10_000);
 
 // ---------------------------------------------------------------------------
 // Test 15: avatar candidate cache miss → step:1:failed:candidate-expired
@@ -1091,20 +977,15 @@ it("Test 17: name with space fails IDENTITY_KEY_RE gate before any SSH", async (
 });
 
 // ---------------------------------------------------------------------------
-// Test 18: path normalization
+// Test 18: path normalization (Phase 106: Step 2 exec is `mkdir -p <path>`
+// only — the tmux new-session invocation is retired per D-01, so path
+// normalization is now inspected on the bare mkdir exec)
 // ---------------------------------------------------------------------------
 
 it("Test 18: path normalization — backslashes → forward slashes; tilde → $HOME shell expansion", async () => {
   mockIsLocalHostId.mockReturnValue(false);
   const mockConn = { end: vi.fn() };
   mockConnectOneShot.mockResolvedValue(mockConn);
-  // Default: `echo $HOME` returns a plausible path (Phase 22 Step 2.5), all others return ""
-  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
-    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
-      return Promise.resolve("/home/ubuntu\n");
-    }
-    return Promise.resolve("");
-  });
 
   const allCmds: string[] = [];
   mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
@@ -1115,16 +996,20 @@ it("Test 18: path normalization — backslashes → forward slashes; tilde → $
     return Promise.resolve("");
   });
 
-  // Test backslash normalization
+  // Test backslash normalization. Post-Phase-106, Step 2's target-path exec
+  // is `mkdir -p <path>` (no `&& tmux new-session ...` tail). Find the exec
+  // that mentions the normalized path fragment `home/ubuntu/test` — the
+  // wakeups-dir mkdir uses `fleet/identities/<name>` so the target-path
+  // mkdir is uniquely identifiable by containing `/home/ubuntu/test`.
   const deps1 = makeDeps();
   const opts1 = makeOpts({ path: "\\home\\ubuntu\\test" });
-  const { events: e1, emit: emit1 } = collectEvents();
+  const { emit: emit1 } = collectEvents();
   const bp1 = birthIdentity(opts1, emit1, deps1);
   await vi.runAllTimersAsync();
   await bp1;
 
   const step2Cmd1 = allCmds.find(
-    (cmd) => cmd.includes("mkdir") && cmd.includes("tmux new-session"),
+    (cmd) => cmd.startsWith("mkdir -p ") && cmd.includes("home/ubuntu/test"),
   );
   expect(step2Cmd1).toBeDefined();
   // Backslashes should be normalized to forward slashes
@@ -1134,20 +1019,28 @@ it("Test 18: path normalization — backslashes → forward slashes; tilde → $
   // Reset
   allCmds.length = 0;
   mockExecCommand.mockClear();
+  mockExecCommand.mockImplementation((_conn: unknown, cmd: string) => {
+    allCmds.push(cmd as string);
+    if (typeof cmd === "string" && cmd.trim() === "echo $HOME") {
+      return Promise.resolve("/home/ubuntu\n");
+    }
+    return Promise.resolve("");
+  });
 
-  // Test tilde normalization — should use $HOME (unquoted or double-quoted for shell expansion)
+  // Test tilde normalization — should use $HOME (unquoted for shell expansion)
   const deps2 = makeDeps();
   const opts2 = makeOpts({ path: "~" });
-  const { events: e2, emit: emit2 } = collectEvents();
+  const { emit: emit2 } = collectEvents();
   const bp2 = birthIdentity(opts2, emit2, deps2);
   await vi.runAllTimersAsync();
   await bp2;
 
+  // The mkdir target-path exec must reference $HOME (shell-expandable) rather
+  // than a literal tilde character.
   const step2Cmd2 = allCmds.find(
-    (cmd) => cmd.includes("mkdir") && cmd.includes("tmux new-session"),
+    (cmd) => cmd.startsWith("mkdir -p ") && cmd.includes("$HOME"),
   );
   expect(step2Cmd2).toBeDefined();
-  // Tilde should become $HOME for shell expansion
   expect(step2Cmd2!).toMatch(/\$HOME/);
 }, 20_000);
 
