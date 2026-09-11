@@ -1578,6 +1578,37 @@ the paraphrase as their actual words. If you must compress for space, quote the 
 phrase and paraphrase around it, so the exact language is on the record. Same rule live
 in-session: don't attribute claims to them that they didn't actually make.
 
+### Never wait on a process with `pgrep -f "…"` — you'll match your own shell
+
+`pgrep -f` searches ANY process whose command line contains that string — including
+your OWN wait-loop shell, which contains the pattern as a literal. The pgrep returns
+your own PID; the loop never exits; you sit there until timeout.
+
+**Symptom**: process actually finished successfully N minutes ago, but the wait-loop is
+still spinning. Real cause is silent.
+
+**Fix — always wait by PID, never by pattern:**
+
+```
+cmd &
+PID=$!
+while kill -0 "$PID" 2>/dev/null; do sleep 10; done
+# or: wait "$PID"
+```
+
+**Better — use the harness's `run_in_background: true` on Bash.** It tracks the actual
+PID and fires a completion notification when the real process exits. Don't wrap it in
+a `pgrep -f` monitor.
+
+If you MUST match by pattern (e.g. you're monitoring something someone else launched
+and you don't have the PID), exclude your own PID:
+
+```
+pgrep -f "PATTERN" | grep -vwE "^($$|$BASHPID)$"
+```
+
+— or better, don't; find another way to get the PID.
+
 ### Group-room etiquette — 3+ participant rooms only
 
 When a relay room has three or more participants (you + at least two others, agents or humans),
