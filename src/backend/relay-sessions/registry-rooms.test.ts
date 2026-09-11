@@ -622,14 +622,28 @@ describe("registry-rooms lockdown (quick 260911-n8a)", () => {
     expect(agentsCall).toBeDefined();
     expect(humansCall).toBeDefined();
 
+    // L3 fix (post-ship code review): assert every invariant field, not just
+    // the two that had explicit drift in the input. A regression that failed
+    // to raise (say) state_default or redact would otherwise slip past.
     const agentsContent = agentsCall![1] as Record<string, unknown>;
     expect(agentsContent.events_default).toBe(100);
+    expect(agentsContent.state_default).toBe(100);
+    expect(agentsContent.redact).toBe(100);
+    expect(agentsContent.invite).toBe(100);
+    expect(agentsContent.kick).toBe(100);
+    expect(agentsContent.ban).toBe(100);
+    expect(agentsContent.historical).toBe(100);
     const agentsUsers = agentsContent.users as Record<string, number>;
     expect(agentsUsers[HAPPY_CREDS.userId]).toBe(100);
 
     const humansContent = humansCall![1] as Record<string, unknown>;
     expect(humansContent.events_default).toBe(100);
+    expect(humansContent.state_default).toBe(100);
+    expect(humansContent.redact).toBe(100);
     expect(humansContent.invite).toBe(100);
+    expect(humansContent.kick).toBe(100);
+    expect(humansContent.ban).toBe(100);
+    expect(humansContent.historical).toBe(100);
     const humansUsers = humansContent.users as Record<string, number>;
     expect(humansUsers["@nelly-admin:server"]).toBe(100);
     expect(humansUsers[HAPPY_CREDS.userId]).toBe(100);
