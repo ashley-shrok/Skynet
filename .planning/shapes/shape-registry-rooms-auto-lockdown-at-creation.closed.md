@@ -99,3 +99,41 @@ Applied both via `initial_state` at `createRoom` time AND via a boot-time `PATCH
 **Working repo:** `~/skynet-tanya` on branch `feat/tab-title-from-tmux`. Do NOT use git worktrees (fleet rule).
 
 **Close arc:** `/close registry-rooms-auto-lockdown-at-creation` — reads this file back and verifies conformance both ways.
+
+---
+
+## Close-Out
+
+**Closed:** 2026-09-11
+**Vehicle used:** gsd quick
+**Overall verdict:** closed-hit
+
+### Shape features (conformance)
+
+- **What this is** — present · Two roster rooms (agents + humans) are the targets; module owns their existence and lockdown.
+- **Shape: boot-time pass extended with lockdown assertion** — present · `ensureRegistryRoomsExist` calls `assertRegistryRoomLockdown` on both rooms on both fast and slow paths every boot.
+- **Shape: idempotent — locked = no-op, drifted = patched** — present · `buildLockdownPowerLevelsContent` returns `needsPatch`; PUT only fires when true.
+- **Shape: birth-locked at creation via `initial_state` (no open window)** — present · `createRegistryRoom` passes `m.room.power_levels` in `initialState`; `createRoom` forwards as `initial_state` in the createRoom request body.
+- **Shape: preserve existing admins; only ADD fleet-admin, only RAISE, never LOWER/REMOVE** — present · `Math.max(existing, 100)` on each invariant; users map shallow-copied; fleet-admin only added if missing; `kick=200` preserved in test L4.
+- **Shape: log-only failure handling; retry on next boot** — present · try/catch around GET, diff, and PUT; warn logs on all failure branches; `ensureRegistryRoomsExist` still returns `ok:true`.
+- **Philosophy: structural not procedural / no operator escape hatch** — present · No config knob, no opt-out; the assertion is unconditional and hard-coded.
+- **Prior context: works on existing manually-patched rooms** — present · Read-then-diff pattern is a no-op when invariants already meet target (L3 test); patches only if drift.
+- **What would make it wrong: silent success while still writable** — present · Success is only reported after a real GET showed target levels or a real PUT returned ok; no fake-success path.
+- **What would make it wrong: strips a legitimate human admin** — present · Users merge is shallow-copy-then-only-add-fleet-admin; L4 test asserts two existing PL-100 humans preserved.
+- **What would make it wrong: boot pass takes non-trivial time / emits noise on well-configured rooms** — present · No-op path is one GET + one diff + one info log per room; no PUT, no warn, no visible noise.
+- **What would make it wrong: unlock survives next boot** — present · Assertion runs every boot on both fast-path and slow-path; any un-lock is re-locked on next restart.
+- **What would make it wrong: fresh install has an observable open window** — present · `initial_state` carries the lockdown `power_levels` at `createRoom` time — L1 test verifies `createRoom`'s `initialState` contains all invariants at 100 plus fleet-admin.
+- **Scope edges: IN — boot-time pass, createRoom extension, both rooms, three canonical test cases, log-only failure** — present · All six IN items realized. L1/L2/L3 tests map to fresh-install / drifted / already-locked.
+- **Scope edges: OUT — no historical cleanup, no other rooms locked, no upstream caller fix, no in-app alert, no per-room opt-out** — present · None of the OUT items done; scope stayed contained.
+
+### Additions (in the result, not in the shape)
+
+None.
+
+### Follow-ups
+
+None.
+
+### Notes
+
+The implementer added a small belt-and-suspenders: after a fresh `createRoom` (which is already birth-locked via `initial_state`), the code still runs `assertRegistryRoomLockdown` once. This is consistent with the shape's "BOTH via `initial_state` AND via a boot-time PATCH" framing — the boot pass simply doesn't skip the room it just created — and the L1 test verifies it correctly no-ops in that case. Not an addition, just a rigorous reading of the shape. Also worth carrying forward: the exported `PL_INVARIANT_FIELDS` list and `buildLockdownPowerLevelsContent` are cleanly pure and unit-tested (L7a-e); if a future shape needs to broaden or vary the invariant set for another structural room, the merge helper is trivially reusable.
