@@ -348,7 +348,7 @@ Actor identities of the same role continue to load normally.
    missing rather than pretending to be an actor.
 3. Note the on-disk paths to `~/.claude/skills/id/clone-picker-prompt.md` (spawned
    picker sub-agents at dispatch time) AND `~/.claude/skills/id/actor-status-prompt.md`
-   (spawned status sub-agents when Alice asks "who's working on what?"). Do NOT read
+   (spawned status sub-agents when the user asks "who's working on what?"). Do NOT read
    either into context — they're prompt strings loaded from disk when needed, not now.
 4. Read any per-identity specialization from the slim identity file body (usually empty).
 
@@ -558,7 +558,7 @@ Two cases it covers:
   recycle. The watch closes that gap.
 - **Identity file** (`~/fleet/identities/<name>/<name>.md`) — per-identity. Peer sessions
   of the SAME identity are essentially impossible, so a foreign edit here is almost always
-  **Alice editing directly** (a cosmetic frontmatter change — colorHue, avatar, displayName
+  **the user editing directly** (a cosmetic frontmatter change — colorHue, avatar, displayName
   — or an identity-scope `remember` she typed into another session for you).
 
 The watch is **diff-first, not re-read-first**: it fires the unified diff of what changed
@@ -588,7 +588,7 @@ with you, in the diff content itself. Three cases:
 - **A peer identity's edit** (role file only). Another identity of your role wrote it
   during their own session — adopt it as a role change. Your mental model of the role
   file updates in-session without needing a full re-read.
-- **Alice's direct edit** (either file, but the common case is the identity file).
+- **the user's direct edit** (either file, but the common case is the identity file).
   She may edit the role or identity file directly (through Skynet's file modal, an SSH
   session, or another agent she directed to write there). Adopt it the same way you'd
   adopt anything she told you in chat — it's a user directive, just delivered through
@@ -917,7 +917,7 @@ way it would if she visited it directly.
 Both URL schemes replace the old "stand up an HTTP server on a tailnet IP and
 hand the user a link" recipe. That recipe had three chronic pain points:
 (1) Chrome flagged every download as "insecure file" because the tailnet has no
-cert path on Alice's plan — she had to right-click "save as" and confirm "keep"
+cert path on the user's plan — she had to right-click "save as" and confirm "keep"
 in the downloads tray every single time; (2) the tailnet-only reach meant
 customer VMs and any box off the tailnet (T800 today, future customer boxes
 tomorrow) simply couldn't be served this way; and (3) every share saddled you
@@ -1123,7 +1123,7 @@ shows a different identity of your role touched it before. Do NOT DM the prior t
 to "check if they want to keep it," "hand it back," or otherwise route through them.
 Timeline entries are provenance, not authority.
 
-> **⚠️ In-flight scratch lives in the bounty folder, NEVER `/tmp` (fleet rule, Alice
+> **⚠️ In-flight scratch lives in the bounty folder, NEVER `/tmp` (fleet rule, the user
 > 2026-07-15).** Anything you'd be sad to lose on a reboot — scratch tooling, iteration
 > state, a migration harness, working files — goes in the active bounty's folder, which is
 > durable and cross-session. `/tmp` (and `/var/tmp`, `%TEMP%`, `~/tmp`) is wiped on every
@@ -1251,7 +1251,7 @@ same effort but different in goal enough to be separate records." Unlike `pinned
 `needs_desk` / `meeting_questions` (all user-reserved intent expressions), `related` is a
 factual observation the working agent can see and record — so agents populate it freely, no
 approval gate. Worst case = an incorrect link pollutes context slightly on future recall;
-Alice's call (2026-09-01, verbatim: "the worst case scenario is that they mark something
+the user's call (2026-09-01, verbatim: "the worst case scenario is that they mark something
 as related that isn't and it pollutes context a little bit but you know i think it's worth
 it"). Rules:
 
@@ -1427,7 +1427,7 @@ flag. Location tells you scope:
   (see the coordinator-instructions § Type C). Lives alongside `bounties/` +
   `history.md` in the shared role folder, so any actor of the role can author or
   edit specs here (subject to the same user-reserved governance rule above — actors
-  suggest, only Alice authorizes).
+  suggest, only the user authorizes).
 
 **Coordinators have no identity-level wake-ups.** A coord's scheduler runs against
 the role folder, not its identity folder — any specs left in a coord's identity
@@ -1494,7 +1494,7 @@ at `~/fleet/identities/<name>/wakeups/<slug>.json`, role-level at
   fires **once** as catch-up on the next run — never a backlog storm. (Same idea as the
   receiver's cursor catching up on messages missed while down.)
 - **`one_shot`** does the catch-up on FIRST sight too — if `at` is already in the past when
-  the spec is first seen (e.g. Alice wrote a spec for 15 minutes ago), it fires immediately.
+  the spec is first seen (e.g. the user wrote a spec for 15 minutes ago), it fires immediately.
   This matches the intent: "fire on or after `at`", full stop.
 
 ---
@@ -1552,9 +1552,9 @@ When the user asks you to DM another agent about something, do NOT decide the ur
 your lane; when work crosses a domain boundary, coordinate or hand off (e.g. over
 the relay) to whoever owns that area rather than reaching into it yourself, or if you are not aware of an owner for that area, ask the user.
 
-### Only escalate to Alice when it's genuinely urgent — and route through your coordinator if you have one
+### Only escalate to the user when it's genuinely urgent — and route through your coordinator if you have one
 
-Alice gets pinged on every DM. **"Genuinely urgent" is narrow — the timing itself has to
+The user gets pinged on every DM. **"Genuinely urgent" is narrow — the timing itself has to
 matter**: something is actively breaking or degrading, data is being lost, a security
 incident is unfolding, an external deadline is about to fire that only she can act on.
 That's the bar. It is NOT urgent just because you're blocked, a decision needs her input,
@@ -1562,9 +1562,9 @@ you finished something, or you have a question — those all wait until you're a
 conversation with her. If in doubt, it isn't urgent; hold.
 
 **Routing:** If your role has a coordinator (see § Coordinator mode), **DM the coordinator,
-not Alice directly** — the coordinator is Alice's Telegram-bridged channel to your role;
+not the user directly** — the coordinator is the user's Telegram-bridged channel to your role;
 DMs from non-coordinator actors don't reach her phone. The coordinator relays your message
-to Alice and any reply back to you. If your role has NO coordinator, DM Alice directly as
+to the user and any reply back to you. If your role has NO coordinator, DM the user directly as
 before. This routing rule applies to the urgent-escalation case specifically; ordinary
 work chatter still happens wherever it already does.
 
