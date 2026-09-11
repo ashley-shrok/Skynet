@@ -350,9 +350,10 @@ describe("POST /identities/pool/pick", () => {
     const callArgs = (countUsersMatching as Mock).mock.calls;
     expect(callArgs.length).toBeGreaterThan(0);
     for (const [mxidArg] of callArgs) {
-      // Positive: must contain the hyphenated PascalCase base-handle segment.
+      // Positive: must contain the hyphenated lowercase base-handle segment
+      // (post 2026-09-11 casing flip — Matrix spec + Synapse mxid gate).
       expect(mxidArg as string).toMatch(
-        /^@(Willow|Aster)-Skynet-Maintainer:matrix\.example\.com$/,
+        /^@(willow|aster)-skynet-maintainer:matrix\.example\.com$/,
       );
       // Negative: must NOT be the bare-lowercase shape.
       expect(mxidArg as string).not.toMatch(
@@ -410,15 +411,16 @@ describe("POST /identities/pool/pick", () => {
     expect(res.status).toBe(200);
     expect((res.body as { name: string }).name).toBe("willow");
 
-    // Exact call args: `@Willow-Foo-Bar-Baz:matrix.example.com`
+    // Exact call args: `@willow-foo-bar-baz:matrix.example.com` (post 2026-09-11
+    // lowercase-mxid flip — Matrix spec + Synapse M_INVALID_USERNAME).
     expect(countUsersMatching).toHaveBeenCalledWith(
-      "@Willow-Foo-Bar-Baz:matrix.example.com",
+      "@willow-foo-bar-baz:matrix.example.com",
     );
   });
 
-  it("Test 14: pool.json casing drift — lowercase pool entry gets PascalCase-normalized (defense-in-depth)", async () => {
-    // Pool entry is lowercase in JSON (drift from PascalCase seed convention).
-    (getVettedPool as Mock).mockReturnValueOnce(["willow"]);
+  it("Test 14: pool.json casing drift — PascalCase pool entry gets lowercased (defense-in-depth)", async () => {
+    // Pool entry is PascalCase in JSON (matches Plan 80-01 seed convention).
+    (getVettedPool as Mock).mockReturnValueOnce(["Willow"]);
     (countUsersMatching as Mock).mockResolvedValue({ ok: true, total: 0 });
 
     const res = await httpRequest(server, {
@@ -429,10 +431,10 @@ describe("POST /identities/pool/pick", () => {
     expect(res.status).toBe(200);
     expect((res.body as { name: string }).name).toBe("willow");
 
-    // Even though the pool entry is lowercase, the MXID check MUST use the
-    // PascalCase-normalized base handle.
+    // Regardless of the pool entry's casing, the MXID check MUST use the
+    // lowercase base handle — Synapse rejects uppercase mxids.
     expect(countUsersMatching).toHaveBeenCalledWith(
-      "@Willow-Skynet-Maintainer:matrix.example.com",
+      "@willow-skynet-maintainer:matrix.example.com",
     );
   });
 });

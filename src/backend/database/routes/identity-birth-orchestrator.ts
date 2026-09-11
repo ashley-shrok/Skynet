@@ -46,6 +46,7 @@ import yaml from "js-yaml";
 import {
   MIME_TO_AVATAR_EXT,
   type AvatarExt,
+  getLocalIdentitiesRoot,
 } from "../../claude-session/identity-artifact-reader.js";
 // Phase 92 Plan 92-01 Task 2 — per-identity file-touch primitive.
 // Step 8's relay.json write routes through this primitive (D-05 wire
@@ -208,14 +209,20 @@ export interface BirthOptions {
   task?: string;
   /**
    * Phase 80 Plan 80-03b A1 lock: when true, MXID composition follows the
-   * DIVERGE shape (`<PoolName>-<Role>[-N]` PascalCase-hyphenated per shape
-   * file) — identity folder key stays lowercase (`willow`) while the Matrix
-   * account MXID becomes `@Willow-Skynet-Maintainer:server` (with silent
-   * auto-suffix `-2`, `-3`, ... on collision). When false/absent, the legacy
-   * `@<name>:<serverName>` shape is used (backward compat for pre-Phase-80
-   * identities and manually-typed names — Taylor, Tina, Tabitha, etc. keep
-   * their existing `@taylor:server` MXIDs). Frontend NewSessionDialog sets
-   * true when the name field was pool-picked (plan 80-06).
+   * DIVERGE shape (`<pool-name>-<role>[-N]` lowercase-hyphenated) — identity
+   * folder key stays lowercase (`willow`) and the Matrix account MXID becomes
+   * `@willow-skynet-maintainer:server` (with silent auto-suffix `-2`, `-3`,
+   * ... on collision). When false/absent, the legacy `@<name>:<serverName>`
+   * shape is used (backward compat for pre-Phase-80 identities and
+   * manually-typed names — Taylor, Tina, Tabitha, etc. keep their existing
+   * `@taylor:server` MXIDs). Frontend NewSessionDialog sets true when the
+   * name field was pool-picked (plan 80-06).
+   *
+   * 2026-09-11: original PascalCase output (`Willow-Skynet-Maintainer`) was
+   * rejected by Synapse (M_INVALID_USERNAME — Matrix spec requires mxid
+   * localparts to be lowercase). Every pool-picked birth got 400 at Step 6;
+   * the fix lowercases composeMxidLocalpart's output + the pool-picker's
+   * availability query.
    */
   poolPicked?: boolean;
   /**
@@ -598,11 +605,16 @@ function extractServerName(homeserverBase: string): string {
 //
 // composeMxidLocalpart + deriveMxidWithOrdinal implement the A1 DIVERGE
 // decision: identity KEY (folder name, IDENTITY_KEY_RE gate) stays lowercase
-// (e.g. `willow`) while the Matrix account MXID localpart becomes PascalCase-
-// hyphenated `<PoolName>-<Role>[-N]` (e.g. `Willow-Skynet-Maintainer`,
-// `Willow-Skynet-Maintainer-2`, ...). Both helpers are pure (side-effect-free
+// (e.g. `willow`) AND the Matrix account MXID localpart is also lowercase-
+// hyphenated `<pool-name>-<role>[-N]` (e.g. `willow-skynet-maintainer`,
+// `willow-skynet-maintainer-2`, ...). Both helpers are pure (side-effect-free
 // modulo deriveMxidWithOrdinal's injected countFn) so they're testable in
 // isolation without matrix mocking.
+//
+// 2026-09-11: mxid localpart was PascalCase (`Willow-Skynet-Maintainer`) until
+// Synapse rejected every birth with M_INVALID_USERNAME (Matrix spec requires
+// lowercase). Casing convention below is preserved as the DERIVATION rules
+// but the OUTPUT is lowercase — see composeMxidLocalpart body.
 //
 // Casing convention (locked to shape file 2026-09-06):
 //   - PoolName PascalCase (`willow` → `Willow`): first letter uppercased,
@@ -652,9 +664,9 @@ export const MXID_ORDINAL_MAX = 100;
  *     may have edited a pool-picked name to a non-pool shape.
  *
  * Examples:
- *   composeMxidLocalpart("willow", "skynet-maintainer") → "Willow-Skynet-Maintainer"
- *   composeMxidLocalpart("aster", "coordinator")        → "Aster-Coordinator"
- *   composeMxidLocalpart("willow", "foo-bar-baz")       → "Willow-Foo-Bar-Baz"
+ *   composeMxidLocalpart("willow", "skynet-maintainer") → "willow-skynet-maintainer"
+ *   composeMxidLocalpart("aster", "coordinator")        → "aster-coordinator"
+ *   composeMxidLocalpart("willow", "foo-bar-baz")       → "willow-foo-bar-baz"
  */
 export function composeMxidLocalpart(name: string, role: string): string {
   // Phase 80 review fix (H5): defensive lowercase — the frontend already
@@ -670,12 +682,18 @@ export function composeMxidLocalpart(name: string, role: string): string {
   if (!ROLE_NAME_RE.test(role)) {
     throw new Error(`mxid_role_malformed: ${role}`);
   }
-  const pascalName = normalizedName[0].toUpperCase() + normalizedName.slice(1);
-  const pascalRole = role
-    .split("-")
-    .map((seg) => seg[0].toUpperCase() + seg.slice(1))
-    .join("-");
-  return `${pascalName}-${pascalRole}`;
+  // 2026-09-11: lowercase output. Matrix spec (client-server v3 §5.5.1) +
+  // Synapse (M_INVALID_USERNAME "User ID can only contain characters a-z,
+  // 0-9, or '=_-./+'") both require mxid localparts to be lowercase. Phase
+  // 80's original PascalCase output ("Willow-Box-Maintainer") was rejected
+  // by Synapse's admin PUT /_synapse/admin/v2/users/<mxid> — every
+  // pool-picked birth got 400 back at Step 6 (admin_mint_failed). Since
+  // the composed handle is only ever consumed as an mxid (Skynet doesn't
+  // use it as a display name — displayName is derived separately from
+  // opts.name in the orchestrator's Step 6 call site), casing lives here.
+  // ROLE_NAME_RE is already kebab-case-lowercase, so role passes through
+  // unchanged; only the pool name needs normalization (already done above).
+  return `${normalizedName}-${role}`;
 }
 
 /**
@@ -1253,23 +1271,36 @@ export async function birthIdentity(
         );
       }
 
-      // Resolve $HOME via the exec() abstraction — SSH for REMOTE,
-      // child_process.exec for LOCAL. Both surface the same $HOME the
-      // downstream file writes will target.
-      const remoteHome = (await exec("echo $HOME")).trim();
-      if (!remoteHome || remoteHome.includes("\n")) {
-        throw new Error("could not resolve $HOME");
+      // Build the identity folder path.
+      //   REMOTE: resolve $HOME via SSH exec — the target host's shell tells
+      //           us where the user's fleet dir lives.
+      //   LOCAL:  use getLocalIdentitiesRoot() — the container-side path
+      //           where the /fleet bind-mount sits (env IDENTITIES_HOST_DIR
+      //           falling back to os.homedir()/fleet/identities). Do NOT use
+      //           the container shell's $HOME — inside the Skynet container
+      //           that's /home/node which is NOT where the bind mount is,
+      //           and writes there land in ephemeral container storage
+      //           (invisible to the supervisor on the host).
+      // opts.name is already gated by IDENTITY_KEY_RE + TMUX_SAFE_NAME_RE
+      // above, so it's shell-safe.
+      let identityDir: string;
+      if (useLocal) {
+        identityDir = `${getLocalIdentitiesRoot()}/${opts.name}`;
+      } else {
+        const remoteHome = (await exec("echo $HOME")).trim();
+        if (!remoteHome || remoteHome.includes("\n")) {
+          throw new Error("could not resolve $HOME");
+        }
+        identityDir = `${remoteHome}/fleet/identities/${opts.name}`;
       }
-
-      // Build the identity folder path. opts.name is already gated by
-      // IDENTITY_KEY_RE + TMUX_SAFE_NAME_RE above, so it's shell-safe.
-      const identityDir = `${remoteHome}/fleet/identities/${opts.name}`;
       const identityFilePath = `${identityDir}/${opts.name}.md`;
 
       // 1. Create the identity folder tree — wakeups/ + workspace/ (generic
       //    working dir per D-04) plus touch handoff.md to satisfy id skill's
       //    load-existing branch. Single mkdir -p + touch works both branches
-      //    (LOCAL via execLocal, REMOTE via SSH exec).
+      //    (LOCAL via execLocal, REMOTE via SSH exec). identityDir is an
+      //    absolute path either way (bind-mount root on LOCAL, remote $HOME
+      //    on REMOTE), so the shell interpolation is safe.
       await exec(
         `mkdir -p "${identityDir}/wakeups" "${identityDir}/workspace" && touch "${identityDir}/handoff.md"`,
       );

@@ -47,6 +47,11 @@ vi.mock("../../claude-session/identity-artifact-reader.js", () => ({
   // Phase 66 Plan 66-01: additive dep — pre-existing tests are unchanged;
   // the orchestrator's Step 2.5 now calls this after writeMarkdownFileAtomic.
   writeAvatarSiblingFile: vi.fn().mockResolvedValue(undefined),
+  // 2026-09-11 LOCAL-branch fix: orchestrator Step 2.5 resolves the LOCAL
+  // identity dir via this helper (parent-of-IDENTITIES_HOST_DIR or fallback
+  // os.homedir()/fleet/identities). Stub returns a stable test path so
+  // Step 2.5 can compose identityDir + identityFilePath without failing.
+  getLocalIdentitiesRoot: vi.fn().mockReturnValue("/tmp/test-fleet/identities"),
   // Phase 92 Plan 92-01 Task 2: per-identity-file.ts imports IDENTITY_KEY_RE
   // from identity-artifact-reader (H1 write⇔read parity lock). The primitive
   // is transitively imported by identity-birth-orchestrator's Step 8, so

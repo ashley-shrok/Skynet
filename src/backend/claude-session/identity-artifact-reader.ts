@@ -1935,15 +1935,32 @@ export async function writeMarkdownFileAtomic(
   // writeAvatarSiblingFile's LOCAL branch structure at L2104-L2111 and
   // per-identity-file.ts writeIdentityFile's LOCAL branch). Callers may
   // pass a $HOME-prefixed path (matching the REMOTE $HOME-literal convention
-  // used by identity-birth Step 2.5) — substitute os.homedir() so it
-  // resolves to the container's HOME (which the /fleet bind-mount maps to
-  // the host's fleet dir on LOCAL deployments).
+  // used by identity-birth Step 2.5).
+  //
+  // $HOME resolution — do NOT use os.homedir(). Inside the Skynet container
+  // os.homedir() returns the runtime user's home (e.g. /home/node) which
+  // is NOT where the /fleet bind mount lives. The bind mount is at
+  // <container-root>/fleet mapped to the host's fleet dir; IDENTITIES_HOST_DIR
+  // (e.g. /fleet/identities) names that mount. Take the parent of
+  // IDENTITIES_HOST_DIR as the "fleet root inside the container" and
+  // substitute `$HOME/fleet` → that. Fallback for non-container runs uses
+  // os.homedir()/fleet, mirroring getLocalIdentitiesRoot's fallback shape.
   if (conn === null) {
-    const localPath = targetPath.startsWith("$HOME/")
-      ? path.join(os.homedir(), targetPath.slice("$HOME/".length))
-      : targetPath === "$HOME"
-        ? os.homedir()
-        : targetPath;
+    const fleetRoot = process.env.IDENTITIES_HOST_DIR
+      ? path.dirname(process.env.IDENTITIES_HOST_DIR)
+      : path.join(os.homedir(), "fleet");
+    let localPath: string;
+    if (targetPath.startsWith("$HOME/fleet/")) {
+      localPath = path.join(fleetRoot, targetPath.slice("$HOME/fleet/".length));
+    } else if (targetPath === "$HOME/fleet") {
+      localPath = fleetRoot;
+    } else if (targetPath.startsWith("$HOME/")) {
+      localPath = path.join(os.homedir(), targetPath.slice("$HOME/".length));
+    } else if (targetPath === "$HOME") {
+      localPath = os.homedir();
+    } else {
+      localPath = targetPath;
+    }
     const localTmpPath = localPath + ".tmp";
     try {
       await fs.writeFile(localTmpPath, buf, { mode: 0o644 });

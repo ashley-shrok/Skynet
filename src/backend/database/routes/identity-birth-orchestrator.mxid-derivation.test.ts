@@ -192,19 +192,24 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("composeMxidLocalpart", () => {
-  it("(a) willow + skynet-maintainer → Willow-Skynet-Maintainer", () => {
+  // 2026-09-11 output flipped PascalCase → lowercase (Matrix spec + Synapse
+  // M_INVALID_USERNAME require mxid localparts to be a-z, 0-9, or =_-./+).
+  // The Phase 80 PascalCase design was rejected by Synapse at Step 6's
+  // admin-mint PUT — every pool-picked birth got 400 back. See fix commit
+  // <this-session> for rationale + follow-on tests below.
+  it("(a) willow + skynet-maintainer → willow-skynet-maintainer", () => {
     expect(composeMxidLocalpart("willow", "skynet-maintainer")).toBe(
-      "Willow-Skynet-Maintainer",
+      "willow-skynet-maintainer",
     );
   });
 
-  it("(b) aster + coordinator → Aster-Coordinator", () => {
-    expect(composeMxidLocalpart("aster", "coordinator")).toBe("Aster-Coordinator");
+  it("(b) aster + coordinator → aster-coordinator", () => {
+    expect(composeMxidLocalpart("aster", "coordinator")).toBe("aster-coordinator");
   });
 
-  it("(c) willow + foo-bar-baz → Willow-Foo-Bar-Baz (multi-segment role)", () => {
+  it("(c) willow + foo-bar-baz → willow-foo-bar-baz (multi-segment role)", () => {
     expect(composeMxidLocalpart("willow", "foo-bar-baz")).toBe(
-      "Willow-Foo-Bar-Baz",
+      "willow-foo-bar-baz",
     );
   });
 
@@ -238,28 +243,25 @@ describe("composeMxidLocalpart", () => {
     );
   });
 
-  // Phase 80 review fix H5 — defensive lowercase on backend side. Frontend
-  // lowercases via name.toLowerCase() at NewSessionDialog submit, but a
-  // client bypassing that path (curl, hand-rolled tool) could submit
-  // 'Willow' (PascalCase from the pool.json seed). Without the defensive
-  // lowercase, POOL_NAME_RE rejects and Step 6 would fall back to legacy
-  // `@Willow:server` — an uppercase-localpart MXID that Synapse rejects.
-  // Backend should normalize to canonical.
-  it("(h2, review H5) Willow (PascalCase input) + skynet-maintainer → Willow-Skynet-Maintainer (normalized, does NOT throw)", () => {
+  // Defensive lowercase on backend for clients bypassing the frontend's
+  // NewSessionDialog toLowerCase() (curl, hand-rolled tool). Original test
+  // pinned normalization to willow-skynet-maintainer (PascalCase); post
+  // 2026-09-11 fix the output is lowercase throughout — Synapse-safe.
+  it("(h2) Willow (PascalCase input) + skynet-maintainer → willow-skynet-maintainer (normalized, does NOT throw)", () => {
     expect(composeMxidLocalpart("Willow", "skynet-maintainer")).toBe(
-      "Willow-Skynet-Maintainer",
+      "willow-skynet-maintainer",
     );
   });
 
-  it("(h3, review H5) WILLOW (all-caps input) + skynet-maintainer → Willow-Skynet-Maintainer (normalized)", () => {
+  it("(h3) WILLOW (all-caps input) + skynet-maintainer → willow-skynet-maintainer (normalized)", () => {
     expect(composeMxidLocalpart("WILLOW", "skynet-maintainer")).toBe(
-      "Willow-Skynet-Maintainer",
+      "willow-skynet-maintainer",
     );
   });
 
-  it("(h4, review H5) WilloW (mixed-case) + coordinator → Willow-Coordinator (normalized)", () => {
+  it("(h4) WilloW (mixed-case) + coordinator → willow-coordinator (normalized)", () => {
     expect(composeMxidLocalpart("WilloW", "coordinator")).toBe(
-      "Willow-Coordinator",
+      "willow-coordinator",
     );
   });
 });
@@ -270,7 +272,7 @@ describe("composeMxidLocalpart", () => {
 
 describe("deriveMxidWithOrdinal", () => {
   const SERVER = "matrix.example.com";
-  const BASE = "Willow-Skynet-Maintainer";
+  const BASE = "willow-skynet-maintainer";
 
   it("(i) base handle free on first count → returns @<base>:server, countFn called exactly once", async () => {
     const countFn = vi.fn().mockResolvedValue({ ok: true, total: 0 });
@@ -351,10 +353,10 @@ describe("deriveMxidWithOrdinal", () => {
 // ---------------------------------------------------------------------------
 
 describe("Step 6 integration (runRelayMintAndWrite MXID derivation)", () => {
-  it("(o) opts.poolPicked === true + happy path → matrixCreateOrUpdateUser called with @Willow-Skynet-Maintainer:server (derived MXID, not @willow:server)", async () => {
+  it("(o) opts.poolPicked === true + happy path → matrixCreateOrUpdateUser called with @willow-skynet-maintainer:server (derived MXID, not @willow:server)", async () => {
     const mintMock = vi.fn().mockResolvedValue({
       ok: true,
-      mxid: "@Willow-Skynet-Maintainer:mock.homeserver.local",
+      mxid: "@willow-skynet-maintainer:mock.homeserver.local",
       password: "mock",
       status: 200,
     });
@@ -376,15 +378,15 @@ describe("Step 6 integration (runRelayMintAndWrite MXID derivation)", () => {
 
     expect(mintMock).toHaveBeenCalled();
     const mxidArg = mintMock.mock.calls[0]?.[0] as string;
-    expect(mxidArg).toBe("@Willow-Skynet-Maintainer:mock.homeserver.local");
+    expect(mxidArg).toBe("@willow-skynet-maintainer:mock.homeserver.local");
     expect(mxidArg).not.toBe("@willow:mock.homeserver.local");
     expect(countMock).toHaveBeenCalledTimes(1);
   }, 30_000);
 
-  it("(p) opts.poolPicked === true + base taken → matrixCreateOrUpdateUser called with @Willow-Skynet-Maintainer-2:server (ordinal suffix)", async () => {
+  it("(p) opts.poolPicked === true + base taken → matrixCreateOrUpdateUser called with @willow-skynet-maintainer-2:server (ordinal suffix)", async () => {
     const mintMock = vi.fn().mockResolvedValue({
       ok: true,
-      mxid: "@Willow-Skynet-Maintainer-2:mock.homeserver.local",
+      mxid: "@willow-skynet-maintainer-2:mock.homeserver.local",
       password: "mock",
       status: 200,
     });
@@ -409,7 +411,7 @@ describe("Step 6 integration (runRelayMintAndWrite MXID derivation)", () => {
 
     expect(mintMock).toHaveBeenCalled();
     const mxidArg = mintMock.mock.calls[0]?.[0] as string;
-    expect(mxidArg).toBe("@Willow-Skynet-Maintainer-2:mock.homeserver.local");
+    expect(mxidArg).toBe("@willow-skynet-maintainer-2:mock.homeserver.local");
     expect(countMock).toHaveBeenCalledTimes(2);
   }, 30_000);
 
@@ -476,7 +478,7 @@ describe("Step 6 integration (runRelayMintAndWrite MXID derivation)", () => {
     });
     const mintMock = vi.fn().mockResolvedValue({
       ok: true,
-      mxid: "@Willow-Skynet-Maintainer:mock.homeserver.local",
+      mxid: "@willow-skynet-maintainer:mock.homeserver.local",
       password: "mock",
       status: 200,
     });

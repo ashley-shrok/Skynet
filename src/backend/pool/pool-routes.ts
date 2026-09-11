@@ -133,28 +133,25 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
     // -----------------------------------------------------------------------
     // 6. Picker (Shape A per RESEARCH §8 — blocker-2-corrected):
     //    - Extract serverHost from creds.homeserverBase.
-    //    - Compose pascalRole ONCE (kebab-case → PascalCase-hyphenated).
     //    - Shuffle pool, iterate candidates:
-    //        - Normalize candidate to PascalCase (defense-in-depth vs casing
-    //          drift in pool.json).
+    //        - Normalize candidate to lowercase (defense-in-depth vs casing
+    //          drift in pool.json + Matrix mxid gate).
     //        - Compose FULL base-handle MXID
-    //          `@<PascalCandidate>-<PascalHyphenatedRole>:<serverHost>`.
+    //          `@<lowerCandidate>-<lowerRole>:<serverHost>`.
     //        - countUsersMatching(fullBaseHandle):
     //            - !ok → 502 (no leak of pool state).
-    //            - total===0 → return 200 { name: pascalCandidate.toLowerCase() }.
+    //            - total===0 → return 200 { name: lowerCandidate }.
     //    - All busy → fallback to first shuffled candidate lowercased;
     //      birth-orchestrator's deriveMxidWithOrdinal will append `-N`.
     // -----------------------------------------------------------------------
     const serverHost = new URL(creds.homeserverBase).host;
 
-    // PascalCase-hyphenated role: `skynet-maintainer` → `Skynet-Maintainer`.
-    // Matches composeMxidLocalpart's casing rule (identity-birth-orchestrator
-    // L551-555) so the shape we probe here is byte-identical to the shape the
-    // orchestrator will mint at birth time.
-    const pascalRole = roleTrimmed
-      .split("-")
-      .map((seg) => seg[0].toUpperCase() + seg.slice(1))
-      .join("-");
+    // Role for probe — stays lowercase byte-for-byte identical to
+    // composeMxidLocalpart's post-2026-09-11 output (lowercase mxids per
+    // Matrix spec + Synapse M_INVALID_USERNAME). ROLE_NAME_RE upstream
+    // already gates roleTrimmed as kebab-case-lowercase, so no transform
+    // needed here.
+    const lowerRole = roleTrimmed;
 
     // Shuffle a copy so the pool order isn't a covert stability signal.
     // Fisher-Yates — `sort(() => Math.random() - 0.5)` is a biased shuffle
@@ -171,13 +168,12 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
     for (const candidate of shuffled) {
       // Defense-in-depth normalization: pool.json entries are PascalCase by
       // convention (Plan 80-01 seed shape) but any casing drift is corrected
-      // here so the query and the returned name are both canonical.
-      const pascalCandidate =
-        candidate[0].toUpperCase() + candidate.slice(1).toLowerCase();
+      // here so the query and the returned name are both canonical lowercase.
+      const lowerCandidate = candidate.toLowerCase();
 
       // FULL base-handle MXID — blocker 2 fix. NEVER compose the bare shape
       // `@${candidate.toLowerCase()}:${serverHost}` — that produces false-
-      // negatives against real accounts minted as `@Willow-Skynet-Maintainer`.
+      // negatives against real accounts minted as `@willow-skynet-maintainer`.
       // Note: Synapse admin `user_id=<mxid>` is a SUBSTRING match, so this
       // probe also matches any `@<base>-N:server` ordinals (e.g. `-2`, `-3`).
       // Consequence: once ANY ordinal of a base handle exists, this picker
@@ -186,7 +182,12 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
       // orchestrator's `deriveMxidWithOrdinal` still finds a free slot at
       // creation time (checking each ordinal individually), so this is a
       // picker-freshness note only — birth uniqueness is preserved.
-      const baseHandleMxid = `@${pascalCandidate}-${pascalRole}:${serverHost}`;
+      //
+      // 2026-09-11 lowercase flip: composeMxidLocalpart now returns lowercase
+      // (Matrix spec + Synapse mxid gate). The probe here must match that
+      // exact byte shape or the picker's availability check drifts from what
+      // the mint actually produces.
+      const baseHandleMxid = `@${lowerCandidate}-${lowerRole}:${serverHost}`;
 
       const result = await countUsersMatching(baseHandleMxid);
       if (!result.ok) {
@@ -197,8 +198,8 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
       }
       if (result.total === 0) {
         // Response is the bare lowercase pool name (matches IDENTITY_KEY_RE).
-        // Birth-orchestrator re-derives the PascalCase MXID at creation time.
-        res.json({ name: pascalCandidate.toLowerCase() });
+        // Birth-orchestrator re-derives the full MXID at creation time.
+        res.json({ name: lowerCandidate });
         return;
       }
     }
@@ -207,11 +208,7 @@ router.post("/pick", express.json(), authenticateJWT, async (req: Request, res: 
     // deriveMxidWithOrdinal (identity-birth-orchestrator) appends `-N` when
     // the base handle exists. Never fails the request just because the pool
     // is exhausted (RESEARCH §Landmine 8).
-    const fallbackCandidate = shuffled[0];
-    const fallbackPascal =
-      fallbackCandidate[0].toUpperCase() +
-      fallbackCandidate.slice(1).toLowerCase();
-    res.json({ name: fallbackPascal.toLowerCase() });
+    res.json({ name: shuffled[0].toLowerCase() });
   },
 );
 
