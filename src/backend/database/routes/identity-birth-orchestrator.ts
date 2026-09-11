@@ -355,6 +355,18 @@ export interface BirthDeps {
    */
   matrixServerName: string | null;
   /**
+   * 2026-09-11: URL to write into per-identity relay.json's `base` field.
+   * Distinct from matrixHomeserver because relay.json is consumed by recv.sh
+   * on the identity's HOST — which may require a different URL than
+   * Skynet-in-container uses to reach synapse (e.g. hosts unable to reach a
+   * docker-internal alias like `http://synapse:8008`). Sourced in
+   * identity-birth.ts from `creds.hostSideBase ?? creds.homeserverBase` — a
+   * falsy hostSideBase preserves the pre-2026-09-11 single-URL behavior.
+   * NEVER a hardcoded fallback per D-OQ7 (island-model per 75-CONTEXT.md
+   * § Philosophy).
+   */
+  relayJsonHomeserverBase: string;
+  /**
    * Phase 75 Plan 04 — pure builder for the relay.json JSON body that Step 8
    * writes to `~/fleet/identities/<name>/relay.json` on the target host.
    * Wired to Plan 02's buildRelayJsonBody export. Emits exactly five keys
@@ -998,7 +1010,14 @@ export async function runRelayMintAndWrite(
       mxid,
       password: agentPassword,
       accessToken: mintedAccessToken,
-      homeserverBase: deps.matrixHomeserver,
+      // 2026-09-11: relay.json's `base` field consumes the host-reachable
+      // URL — NOT deps.matrixHomeserver, which may be a container-internal
+      // alias like `http://synapse:8008`. Sourced from
+      // creds.hostSideBase ?? creds.homeserverBase in identity-birth.ts.
+      // Step 6's mxid derivation (extractServerName(deps.matrixHomeserver))
+      // is intentionally unchanged — that path needs the URL Skynet uses
+      // to reach synapse from inside its container.
+      homeserverBase: deps.relayJsonHomeserverBase,
     });
   });
 

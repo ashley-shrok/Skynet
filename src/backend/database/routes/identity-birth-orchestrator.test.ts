@@ -225,6 +225,10 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
       .mockResolvedValue({ ok: true, accessToken: "syt_fake_access_token" }),
     matrixHomeserver: "http://synapse.example.com:8008",
     matrixServerName: null,
+    // 2026-09-11: default fallback branch — relay.json base equals the
+    // homeserverBase URL when hostSideBase column is null. Tests below that
+    // exercise the override branch pass an override via makeDeps({}).
+    relayJsonHomeserverBase: "http://synapse.example.com:8008",
     buildRelayJsonBody: vi.fn().mockReturnValue(
       JSON.stringify(
         {

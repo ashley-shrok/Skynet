@@ -112,13 +112,26 @@ vi.mock("../../utils/logger.js", () => ({
 // when matrix admin foundation isn't ingested. Tests here focus on SSE +
 // orchestrator-invocation behavior, not the fail-early path, so mock the store
 // to return non-null creds so the gate passes and the handler proceeds.
-vi.mock("../../matrix/matrix-admin-creds-store.js", () => ({
-  getMatrixAdminCreds: vi.fn().mockResolvedValue({
+// 2026-09-11: mock includes the widened MatrixAdminCreds shape (serverName +
+// hostSideBase columns). Default returns both nulls — Test 5 asserts the
+// fallback branch (deps.relayJsonHomeserverBase === creds.homeserverBase).
+// Tests 5a/5b below override the mock per-case to exercise the override
+// branch (hostSideBase set → deps.relayJsonHomeserverBase === hostSideBase).
+// Wrapped in vi.hoisted() because vi.mock() factories are hoisted above
+// module-scope declarations by vitest.
+const { getMatrixAdminCredsMock } = vi.hoisted(() => ({
+  getMatrixAdminCredsMock: vi.fn().mockResolvedValue({
     homeserverBase: "http://mock.homeserver.local:8008",
     userId: "@mock-admin:mock.homeserver.local",
     password: "mock-admin-password",
     accessToken: "syt_mock_admin_token_test",
+    serverName: null,
+    hostSideBase: null,
   }),
+}));
+
+vi.mock("../../matrix/matrix-admin-creds-store.js", () => ({
+  getMatrixAdminCreds: getMatrixAdminCredsMock,
   setMatrixAdminCreds: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -454,6 +467,81 @@ it("Test 5: orchestrator called with body opts + userId + all required dep keys"
   // (WAIT_FOR_SUPERVISOR_POLL_MS) until it returns non-null or the 120s
   // (WAIT_FOR_SUPERVISOR_TIMEOUT_MS) ceiling is hit.
   expect(typeof d.discoverIdentitySessionFile).toBe("function");
+  // 2026-09-11: relayJsonHomeserverBase wired from creds.hostSideBase ??
+  // creds.homeserverBase. Default mock returns hostSideBase: null so the
+  // fallback branch fires — deps.relayJsonHomeserverBase must equal
+  // creds.homeserverBase.
+  expect(d.relayJsonHomeserverBase).toBe("http://mock.homeserver.local:8008");
+  expect(d.matrixHomeserver).toBe("http://mock.homeserver.local:8008");
+});
+
+// ---------------------------------------------------------------------------
+// 2026-09-11: relayJsonHomeserverBase override branch — when hostSideBase
+// is set on the creds row, deps.relayJsonHomeserverBase must equal that
+// value (NOT homeserverBase), while deps.matrixHomeserver must remain
+// homeserverBase (Step 6's admin-API-URL consumer stays unchanged).
+// ---------------------------------------------------------------------------
+
+it("Test 5a: deps.relayJsonHomeserverBase === creds.hostSideBase when set; matrixHomeserver unchanged", async () => {
+  getMatrixAdminCredsMock.mockResolvedValueOnce({
+    homeserverBase: "http://synapse:8008",
+    userId: "@mock-admin:thenasty.taild9b663.ts.net",
+    password: "p",
+    accessToken: "t",
+    serverName: "thenasty.taild9b663.ts.net",
+    hostSideBase: "http://100.99.149.8:8008",
+  });
+
+  let capturedDeps: unknown;
+  mockBirthIdentity.mockImplementation(
+    async (
+      _opts: unknown,
+      _emit: unknown,
+      deps: unknown,
+    ) => {
+      capturedDeps = deps;
+    },
+  );
+
+  await httpPost(port, "/identities/birth", VALID_BODY);
+
+  const d = capturedDeps as Record<string, unknown>;
+  // Override branch: relay.json base points at the host-reachable URL.
+  expect(d.relayJsonHomeserverBase).toBe("http://100.99.149.8:8008");
+  // matrixHomeserver (Step 6 admin-API URL) stays as the container-internal
+  // URL — the whole point of the split.
+  expect(d.matrixHomeserver).toBe("http://synapse:8008");
+  // matrixServerName override also propagates so mxid derivation is stable.
+  expect(d.matrixServerName).toBe("thenasty.taild9b663.ts.net");
+});
+
+it("Test 5b: deps.relayJsonHomeserverBase falls back to homeserverBase when hostSideBase is null", async () => {
+  getMatrixAdminCredsMock.mockResolvedValueOnce({
+    homeserverBase: "http://t1000.taild9b663.ts.net:8008",
+    userId: "@mock-admin:t1000.taild9b663.ts.net",
+    password: "p",
+    accessToken: "t",
+    serverName: null,
+    hostSideBase: null,
+  });
+
+  let capturedDeps: unknown;
+  mockBirthIdentity.mockImplementation(
+    async (
+      _opts: unknown,
+      _emit: unknown,
+      deps: unknown,
+    ) => {
+      capturedDeps = deps;
+    },
+  );
+
+  await httpPost(port, "/identities/birth", VALID_BODY);
+
+  const d = capturedDeps as Record<string, unknown>;
+  // Fallback branch: single-URL fleets get the same URL for both slots.
+  expect(d.relayJsonHomeserverBase).toBe("http://t1000.taild9b663.ts.net:8008");
+  expect(d.matrixHomeserver).toBe("http://t1000.taild9b663.ts.net:8008");
 });
 
 // ---------------------------------------------------------------------------

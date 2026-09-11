@@ -417,6 +417,9 @@ router.post(
         matrixLoginAsUser(mxid, validUntilMs),
       matrixHomeserver: creds.homeserverBase,
       matrixServerName: creds.serverName,
+      // Host-reachable relay.json base — falls back to homeserverBase when
+      // the hostSideBase column is null (single-URL fleets like t1000).
+      relayJsonHomeserverBase: creds.hostSideBase ?? creds.homeserverBase,
       buildRelayJsonBody: (opts) => buildRelayJsonBody(opts),
       // Phase 80 Plan 80-03b — countUsersMatching primitive from plan 80-02.
       // Called by deriveMxidWithOrdinal inside Step 6 to find the first unused
@@ -617,6 +620,7 @@ router.post("/retry/:key", express.json(), requireAdmin, async (req: Request, re
       | "matrixLoginAsUser"
       | "matrixHomeserver"
       | "matrixServerName"
+      | "relayJsonHomeserverBase"
       | "buildRelayJsonBody"
       | "writeMarkdownFileAtomic"
       | "execCommand"
@@ -630,6 +634,9 @@ router.post("/retry/:key", express.json(), requireAdmin, async (req: Request, re
         matrixLoginAsUser(mxid, validUntilMs),
       matrixHomeserver: creds.homeserverBase,
       matrixServerName: creds.serverName,
+      // Host-reachable relay.json base — falls back to homeserverBase when
+      // the hostSideBase column is null (single-URL fleets like t1000).
+      relayJsonHomeserverBase: creds.hostSideBase ?? creds.homeserverBase,
       buildRelayJsonBody: (opts) => buildRelayJsonBody(opts),
     };
 

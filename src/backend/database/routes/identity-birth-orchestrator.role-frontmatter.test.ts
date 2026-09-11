@@ -139,6 +139,9 @@ function makeDeps(overrides: Partial<BirthDeps> = {}): BirthDeps {
     // tests just need the deps to be callable and return {ok:true}.
     matrixHomeserver: "http://mock.homeserver.local:8008",
     matrixServerName: null,
+    // 2026-09-11: fallback branch — relay.json base equals homeserverBase
+    // when hostSideBase column is null (single-URL fleets).
+    relayJsonHomeserverBase: "http://mock.homeserver.local:8008",
     matrixCreateOrUpdateUser: vi.fn().mockResolvedValue({
       ok: true,
       mxid: "@testkey:mock.homeserver.local",

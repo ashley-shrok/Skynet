@@ -372,6 +372,10 @@ export const processBirth = async (item: PendingBirth, deps: WorkerDeps): Promis
       matrixLoginAsUser(mxid, validUntilMs),
     matrixHomeserver: creds.homeserverBase,
     matrixServerName: creds.serverName,
+    // 2026-09-11: Host-reachable relay.json base — falls back to
+    // homeserverBase when hostSideBase column is null (single-URL fleets).
+    // Mirrors the identity-birth.ts primary deps wiring.
+    relayJsonHomeserverBase: creds.hostSideBase ?? creds.homeserverBase,
     buildRelayJsonBody: (bOpts) => buildRelayJsonBody(bOpts),
     matrixCountUsersMatching: (mxid) => matrixCountUsersMatching(mxid),
     // Phase 106 (D-05/D-06): wait-for-supervisor sensor. birthIdentity polls
