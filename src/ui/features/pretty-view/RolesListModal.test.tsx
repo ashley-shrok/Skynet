@@ -7,16 +7,21 @@
  *
  * Task 1 tests (A–H): shell + host-picker + fetch effect.
  * Task 2 tests (I–P): `.pv-row` row rendering, row click emits onSelectRole,
- * '+ New role' opens CreateRoleDialog, empty state.
+ * '+ New role' fires onNewRole callback, empty state.
+ *
+ * D-10 revised 2026-09-11: CreateRoleDialog is no longer mounted internally
+ * (was Plan 90-06 D-07 stack pattern — caused a click-freeze from two Radix
+ * Dialog portals contending, and dropped the CRD → NewSessionDialog chain).
+ * '+ New role' now fires onNewRole; parent (PrettyConversationsPanel) owns
+ * the CreateRoleDialog mount as a swap-not-stack sibling. Test O (post-create
+ * re-fetch) is retired accordingly.
  *
  * Mocking strategy:
  *   - @/api/identities-api: listRolesForHost resolves asynchronously with
  *     canned RoleSummary payloads keyed by hostId; roleAvatarUrl is the real
  *     helper (pure string builder, no mock needed).
- *   - CreateRoleDialog is stubbed out to avoid pulling in its own dependency
- *     tree (POST /roles, avatar batch generator, cosmetic pickers) — the
- *     tests only care that the dialog gets mounted with `open={true}` and
- *     that firing its `onCreated` re-invokes listRolesForHost.
+ *   - CreateRoleDialog stub retained solely so Test N can assert as a NEGATIVE
+ *     (stub testid never appears — internal mount is gone).
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -40,44 +45,13 @@ vi.mock("@/api/identities-api", async (importOriginal) => {
   };
 });
 
-// Stub CreateRoleDialog — the real component pulls in a batch avatar generator,
-// pickers, POST /roles multipart, etc. For this modal's tests we only need to
-// observe (a) the stub renders when `open={true}` and (b) invoking its
-// `onCreated` re-triggers RolesListModal's fetch. The stub renders a marker
-// <div> + an exposed button that fires `onCreated`.
+// CreateRoleDialog mock retained (data-testid still checked by Test N as a
+// negative — the stub must never render because the mount is no longer
+// internal). D-10 revised 2026-09-11: swap-not-stack, parent owns the mount.
 vi.mock("@/sidebar/CreateRoleDialog", () => ({
-  CreateRoleDialog: ({
-    open,
-    onCreated,
-    onClose,
-  }: {
-    open: boolean;
-    onCreated?: (r: { name: string; description: string; host: { id: string } }) => void;
-    onClose: () => void;
-  }) => {
+  CreateRoleDialog: ({ open }: { open: boolean }) => {
     if (!open) return null;
-    return (
-      <div data-testid="create-role-dialog-stub">
-        <span>CreateRoleDialog stub open</span>
-        <button
-          type="button"
-          data-testid="stub-fire-created"
-          onClick={() => {
-            onCreated?.({
-              name: "new-role",
-              description: "d",
-              host: { id: "3" } as never,
-            });
-            onClose();
-          }}
-        >
-          Fire onCreated
-        </button>
-        <button type="button" data-testid="stub-close" onClick={onClose}>
-          Close stub
-        </button>
-      </div>
-    );
+    return <div data-testid="create-role-dialog-stub">stub</div>;
   },
 }));
 
@@ -183,6 +157,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         hostTree={MULTI_HOST_TREE}
         defaultHostId={null}
         onSelectRole={vi.fn()}
+        onNewRole={vi.fn()}
       />,
     );
     // The modal Title is rendered via DialogTitle; the "Roles" header text
@@ -204,6 +179,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         hostTree={MULTI_HOST_TREE}
         defaultHostId={null}
         onSelectRole={vi.fn()}
+        onNewRole={vi.fn()}
       />,
     );
     const select = await screen.findByLabelText(/host/i);
@@ -223,6 +199,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         hostTree={SINGLE_HOST_TREE}
         defaultHostId={null}
         onSelectRole={vi.fn()}
+        onNewRole={vi.fn()}
       />,
     );
     // With one host, the picker element should not render (matches
@@ -243,6 +220,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         hostTree={MULTI_HOST_TREE}
         defaultHostId={null}
         onSelectRole={vi.fn()}
+        onNewRole={vi.fn()}
       />,
     );
     const select = (await screen.findByLabelText(/host/i)) as HTMLSelectElement;
@@ -270,6 +248,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         hostTree={SINGLE_HOST_TREE}
         defaultHostId={2}
         onSelectRole={vi.fn()}
+        onNewRole={vi.fn()}
       />,
     );
     await waitFor(() => expect(screen.queryByText(/loading/i)).toBeTruthy(), {
@@ -286,6 +265,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         hostTree={SINGLE_HOST_TREE}
         defaultHostId={2}
         onSelectRole={vi.fn()}
+        onNewRole={vi.fn()}
       />,
     );
     await waitFor(() => expect(screen.queryByText(/kaboom/i)).toBeTruthy(), {
@@ -301,6 +281,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         hostTree={MULTI_HOST_TREE}
         defaultHostId={2}
         onSelectRole={vi.fn()}
+        onNewRole={vi.fn()}
       />,
     );
     await waitFor(() => expect(listRolesForHost).toHaveBeenCalledWith(2), {
@@ -316,6 +297,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         hostTree={SINGLE_HOST_TREE}
         defaultHostId={2}
         onSelectRole={vi.fn()}
+        onNewRole={vi.fn()}
       />,
     );
     await waitFor(() => expect(listRolesForHost).toHaveBeenCalledTimes(1), {
@@ -329,6 +311,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         hostTree={SINGLE_HOST_TREE}
         defaultHostId={2}
         onSelectRole={vi.fn()}
+        onNewRole={vi.fn()}
       />,
     );
     // Reopen — should re-fetch (new fetch call means state was reset)
@@ -339,6 +322,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         hostTree={SINGLE_HOST_TREE}
         defaultHostId={2}
         onSelectRole={vi.fn()}
+        onNewRole={vi.fn()}
       />,
     );
     await waitFor(() => expect(listRolesForHost).toHaveBeenCalledTimes(2), {
@@ -356,6 +340,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         hostTree={SINGLE_HOST_TREE}
         defaultHostId={2}
         onSelectRole={vi.fn()}
+        onNewRole={vi.fn()}
       />,
     );
     // 3 roles alphabetical by displayName → Ally, Box Maintainer, Unadorned
@@ -388,6 +373,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         hostTree={SINGLE_HOST_TREE}
         defaultHostId={2}
         onSelectRole={vi.fn()}
+        onNewRole={vi.fn()}
       />,
     );
     // The `unadorned` role has no colorHue → hue 190 fallback per D-05.
@@ -413,6 +399,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         hostTree={SINGLE_HOST_TREE}
         defaultHostId={2}
         onSelectRole={vi.fn()}
+        onNewRole={vi.fn()}
       />,
     );
     await waitFor(
@@ -433,6 +420,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         hostTree={SINGLE_HOST_TREE}
         defaultHostId={2}
         onSelectRole={vi.fn()}
+        onNewRole={vi.fn()}
       />,
     );
     await waitFor(() => expect(screen.queryByText("Ally")).toBeTruthy());
@@ -457,6 +445,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         hostTree={SINGLE_HOST_TREE}
         defaultHostId={2}
         onSelectRole={onSelectRole}
+        onNewRole={vi.fn()}
       />,
     );
     const row = await screen.findByRole("button", { name: /Box Maintainer/ });
@@ -469,7 +458,8 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
     expect(arg.roleCosmetics.colorHue).toBe(320);
   });
 
-  it("N: '+ New role' button — opens CreateRoleDialog on top (stack, list stays)", async () => {
+  it("N: '+ New role' button — fires onNewRole callback (D-10 revised 2026-09-11: swap-not-stack, parent opens CreateRoleDialog)", async () => {
+    const onNewRole = vi.fn();
     render(
       <RolesListModal
         open={true}
@@ -477,39 +467,14 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         hostTree={SINGLE_HOST_TREE}
         defaultHostId={2}
         onSelectRole={vi.fn()}
+        onNewRole={onNewRole}
       />,
     );
     const btn = await screen.findByRole("button", { name: /\+ New role/i });
     fireEvent.click(btn);
-    await waitFor(() =>
-      expect(screen.queryByTestId("create-role-dialog-stub")).toBeTruthy(),
-    );
-    // RolesListModal stays open — "Roles" title still present.
-    expect(screen.queryByText("Roles")).toBeTruthy();
-  });
-
-  it("O: CreateRoleDialog onCreated — re-fetches the roles list", async () => {
-    render(
-      <RolesListModal
-        open={true}
-        onOpenChange={vi.fn()}
-        hostTree={SINGLE_HOST_TREE}
-        defaultHostId={2}
-        onSelectRole={vi.fn()}
-      />,
-    );
-    // Wait for the initial fetch
-    await waitFor(() => expect(listRolesForHost).toHaveBeenCalledTimes(1));
-    // Open CreateRoleDialog
-    const btn = await screen.findByRole("button", { name: /\+ New role/i });
-    fireEvent.click(btn);
-    // Fire the stub's onCreated
-    const fire = await screen.findByTestId("stub-fire-created");
-    fireEvent.click(fire);
-    // Re-fetch should now have fired
-    await waitFor(() => expect(listRolesForHost).toHaveBeenCalledTimes(2), {
-      timeout: 2000,
-    });
+    expect(onNewRole).toHaveBeenCalledTimes(1);
+    // Internal CreateRoleDialog mount is GONE; the stub can never render.
+    expect(screen.queryByTestId("create-role-dialog-stub")).toBeNull();
   });
 
   it("P: empty state — 'This host has no roles yet.' when list is empty, header + New role still available", async () => {
@@ -521,6 +486,7 @@ describe("RolesListModal — Phase 90 Plan 90-05", () => {
         hostTree={SINGLE_HOST_TREE}
         defaultHostId={2}
         onSelectRole={vi.fn()}
+        onNewRole={vi.fn()}
       />,
     );
     await waitFor(

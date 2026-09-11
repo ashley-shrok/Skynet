@@ -133,8 +133,11 @@ import { startTrappedWorkPoller } from "@/state/trapped-work-store";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/popover";
 import { sessionMatchKey } from "@/features/terminal/session-hue";
 import { NewSessionDialog, type NewSessionOnCreateOpts } from "@/sidebar/NewSessionDialog";
-// Phase 90 Plan 90-06 (D-07): CreateRoleDialog import DELETED — role creation
-// now lives inside RolesListModal (which imports CreateRoleDialog internally).
+// D-10 revised 2026-09-11: CreateRoleDialog re-imported at panel level. The
+// Plan 90-06 stack-inside-RolesListModal arrangement caused a click-freeze
+// (two Radix Dialog portals contending) and dropped the CRD → NewSessionDialog
+// chain. Restored as swap-not-stack sibling of RolesListModal.
+import { CreateRoleDialog } from "@/sidebar/CreateRoleDialog";
 // Phase 80: clone flow repurposed into unified NewSessionDialog pre-seeded
 // with initialHost + initialRole via the existing chain-hook mechanism
 // (identical to CreateRoleDialog's onChainToCreateIdentity path). See
@@ -593,9 +596,10 @@ export function PrettyConversationsPanel({
 
   // Local state: NewSessionDialog open/closed toggle (opened by pencil).
   const [newSessionDialogOpen, setNewSessionDialogOpen] = useState(false);
-  // Phase 90 Plan 90-06 (D-07): panel-level createRoleDialogOpen state slot
-  // DELETED. CreateRoleDialog is now mounted inside RolesListModal (D-10 stack)
-  // rather than as a sibling of NewSessionDialog. See <RolesListModal> mount below.
+  // D-10 revised 2026-09-11: panel-level CreateRoleDialog state RESTORED.
+  // Opened when RolesListModal fires onNewRole (which also closes the list
+  // per swap-not-stack). See <CreateRoleDialog> mount below.
+  const [createRoleDialogOpen, setCreateRoleDialogOpen] = useState(false);
   // Phase 22 (SRIC-05): chain-into-create-identity pre-fill payload. Set when
   // CreateRoleDialog fires onChainToCreateIdentity ({role, host}); consumed by
   // the NewSessionDialog mount as its initialHost + initialRole props. Cleared
@@ -2008,14 +2012,22 @@ export function PrettyConversationsPanel({
           isAdmin={isAdmin}
         />
       )}
-      {/* Phase 90 Plan 90-06 (D-07): the panel-level CreateRoleDialog mount is
-          DELETED. Role creation is now reached via the three-dots menu's
-          "Edit roles…" entry → RolesListModal → its header '+ New role' button
-          (which internally mounts its own CreateRoleDialog stack per D-10).
-          Trade-off: the CRD → chainPrefill → NewSessionDialog "chain into
-          create identity" flow that lived here is dropped for this entry
-          point. If Alice wants it back, RolesListModal can grow an
-          onChainToCreateIdentity prop in a follow-up. */}
+      {/* D-10 revised 2026-09-11: panel-level CreateRoleDialog mount RESTORED
+          as swap-not-stack sibling of RolesListModal + NewSessionDialog.
+          Opened via RolesListModal's onNewRole callback (which also closes
+          the list). onChainToCreateIdentity fires after successful role
+          create → sets chainPrefill + opens NewSessionDialog with role +
+          host + description pre-filled, restoring the historical chain. */}
+      <CreateRoleDialog
+        open={createRoleDialogOpen}
+        onClose={() => setCreateRoleDialogOpen(false)}
+        hostTree={hostTree ?? null}
+        onChainToCreateIdentity={({ role, host, description }) => {
+          setCreateRoleDialogOpen(false);
+          setChainPrefill({ role, host, description });
+          setNewSessionDialogOpen(true);
+        }}
+      />
       {/* Phase 80: the dedicated clone-dialog mount was DELETED. The row
           context-menu "create new agent under this role" item (formerly labeled
           "Clone") now routes through the NewSessionDialog mount above via
@@ -2081,6 +2093,11 @@ export function PrettyConversationsPanel({
             roleCosmetics,
             hostId: pickedHostId,
           });
+        }}
+        onNewRole={() => {
+          // D-10 revised 2026-09-11 swap-not-stack: close list, open create.
+          setRolesListModalOpen(false);
+          setCreateRoleDialogOpen(true);
         }}
       />
       {/* Phase 90 Plan 90-06 (D-04): RoleModal — swap target for RolesListModal

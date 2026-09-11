@@ -494,10 +494,11 @@ describe("Phase 90 role-management flow — RoleModal cosmetic edit", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test D — '+ New role' in RolesListModal opens CreateRoleDialog on TOP (D-10)
+// Test D — '+ New role' in RolesListModal swaps to CreateRoleDialog
+// (D-10 revised 2026-09-11: swap-not-stack, no more juggling)
 // ─────────────────────────────────────────────────────────────────────────────
-describe("Phase 90 role-management flow — CreateRoleDialog stack", () => {
-  it("D: '+ New role' button in RolesListModal header opens CreateRoleDialog", async () => {
+describe("Phase 90 role-management flow — CreateRoleDialog swap", () => {
+  it("D: '+ New role' closes RolesListModal and opens CreateRoleDialog (swap-not-stack)", async () => {
     render(
       <PrettyConversationsPanel
         variant="desktop"
@@ -516,25 +517,26 @@ describe("Phase 90 role-management flow — CreateRoleDialog stack", () => {
       ) as HTMLElement,
     );
 
-    // Wait for RolesListModal.
+    // Wait for RolesListModal — detectable via its "Roles" title.
     await waitFor(() => {
-      expect(document.querySelector('[role="dialog"]')).toBeTruthy();
+      expect(screen.queryByText("Roles")).toBeTruthy();
     });
     // Wait for the header button "+ New role" to be rendered.
     await waitFor(() => {
       expect(screen.getAllByText(/\+ New role/i).length).toBeGreaterThan(0);
     });
 
-    // Click the "+ New role" button in the header.
+    // Click the "+ New role" button.
     const newRoleBtn = screen.getAllByText(/\+ New role/i)[0];
     fireEvent.click(newRoleBtn);
 
-    // CreateRoleDialog stacks on top. Both dialogs are present.
+    // RolesListModal closes; its "Roles" title disappears.
     await waitFor(() => {
-      const dialogs = document.querySelectorAll('[role="dialog"]');
-      // 2 dialogs: RolesListModal + CreateRoleDialog stacked.
-      expect(dialogs.length).toBeGreaterThanOrEqual(2);
+      expect(screen.queryByText("Roles")).toBeNull();
     });
+    // Exactly one dialog remains — the new CreateRoleDialog.
+    const dialogs = document.querySelectorAll('[role="dialog"]');
+    expect(dialogs.length).toBe(1);
   });
 });
 

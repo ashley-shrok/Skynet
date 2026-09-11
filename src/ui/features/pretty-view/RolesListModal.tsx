@@ -20,18 +20,21 @@
  * display name (falls back to title-cased slug), right-side chevron.
  * Alphabetical sort by displayName.
  *
- * D-10 (LOCKED): '+ New role' button lives in the modal header (right side,
- * near the close X). Click opens `CreateRoleDialog` ON TOP of RolesListModal
- * (stack — planner-pick per D-10 discretion). On successful creation
- * (CreateRoleDialog's `onCreated` fires), RolesListModal closes the dialog
- * and re-fetches its roles list.
+ * D-10 (revised 2026-09-11): '+ New role' button lives in the modal header
+ * (right side, near the close X). Click emits `onNewRole()` — parent
+ * (PrettyConversationsPanel) closes this modal and opens CreateRoleDialog as
+ * a swap-not-stack sibling. Mirrors the row-click → RoleModal swap pattern.
+ * Restores the CreateRoleDialog → NewSessionDialog chain (via the parent's
+ * `onChainToCreateIdentity` → `chainPrefill` wiring) that was dropped when
+ * Plan 90-06 first mounted CreateRoleDialog internally. Stacking two Radix
+ * Dialog portals was also the cause of the "click freezes app" bug.
  *
  * Row click emits `onSelectRole({roleName, roleCosmetics, hostId})` — the
  * parent (Plan 90-06's PrettyConversationsPanel wiring) handles the
  * swap-not-stack transition to `<RoleModal>` on that role.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronRight, X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { DialogHeader, DialogTitle, DialogClose } from "@/components/dialog";
@@ -42,7 +45,6 @@ import {
   roleAvatarUrl,
   type RoleSummary,
 } from "@/api/identities-api";
-import { CreateRoleDialog } from "@/sidebar/CreateRoleDialog";
 import type { TabState } from "./IdentityFileTab";
 
 // Chrome/Linux desktop <option> popup — same OPTION_STYLE that
@@ -105,6 +107,12 @@ export interface RolesListModalProps {
     roleCosmetics: RoleSummary;
     hostId: number;
   }) => void;
+  /**
+   * Fired when the user clicks either '+ New role' button (header or
+   * empty-state). Parent is expected to close this modal and open
+   * CreateRoleDialog as a sibling swap target (D-10 revised 2026-09-11).
+   */
+  onNewRole: () => void;
 }
 
 export function RolesListModal({
@@ -113,16 +121,12 @@ export function RolesListModal({
   hostTree,
   defaultHostId,
   onSelectRole,
+  onNewRole,
 }: RolesListModalProps): JSX.Element {
   const [selectedHostId, setSelectedHostId] = useState<number | null>(null);
   const [rolesState, setRolesState] = useState<TabState<RoleSummary[]>>({
     status: "loading",
   });
-  // D-10 planner-pick: CreateRoleDialog stacks on top of RolesListModal.
-  const [createRoleOpen, setCreateRoleOpen] = useState<boolean>(false);
-  // Fetch-version counter — bumped after CreateRoleDialog.onCreated fires so
-  // the fetch effect re-runs even when selectedHostId didn't change.
-  const [fetchVersion, setFetchVersion] = useState<number>(0);
 
   const flatHosts = useMemo(
     () =>
@@ -140,7 +144,6 @@ export function RolesListModal({
     if (!open) {
       setSelectedHostId(null);
       setRolesState({ status: "loading" });
-      setCreateRoleOpen(false);
       return;
     }
     // Prefer defaultHostId if it's in the fleet
@@ -152,9 +155,10 @@ export function RolesListModal({
     if (flatHosts.length === 1) setSelectedHostId(Number(flatHosts[0].id));
   }, [open, defaultHostId, flatHosts]);
 
-  // Fetch roles list when host changes OR when fetchVersion bumps
-  // (post-CreateRoleDialog success). Mirrors GlobalFilesModal L97-119
-  // cancellable pattern.
+  // Fetch roles list when host changes. Mirrors GlobalFilesModal L97-119
+  // cancellable pattern. (D-10 revised 2026-09-11: fetchVersion counter
+  // dropped — CreateRoleDialog now opens as a swap sibling, so this modal
+  // re-mounts on next open and naturally re-fetches with fresh data.)
   useEffect(() => {
     if (selectedHostId == null) return;
     let cancelled = false;
@@ -180,14 +184,7 @@ export function RolesListModal({
     return () => {
       cancelled = true;
     };
-  }, [selectedHostId, fetchVersion]);
-
-  // D-10 planner-pick: on CreateRoleDialog success, close the dialog and bump
-  // fetchVersion so the roles list refreshes (new role appears).
-  const handleCreateRoleCreated = useCallback(() => {
-    setCreateRoleOpen(false);
-    setFetchVersion((v) => v + 1);
-  }, []);
+  }, [selectedHostId]);
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange} modal={false}>
@@ -261,11 +258,13 @@ export function RolesListModal({
 
             <div className="flex-1" />
 
-            {/* D-10: '+ New role' button in header. Stacks CreateRoleDialog
-                on top of RolesListModal (planner-pick per D-10 discretion). */}
+            {/* D-10 (revised 2026-09-11): '+ New role' button in header. Fires
+                onNewRole — parent closes this modal and opens CreateRoleDialog
+                as a sibling swap target. Restores the CRD → NewSessionDialog
+                chain that lived here pre-Plan-90-06. */}
             <button
               type="button"
-              onClick={() => setCreateRoleOpen(true)}
+              onClick={onNewRole}
               className="px-3 py-1.5 rounded-md bg-[hsla(220,80%,60%,0.20)] hover:bg-[hsla(220,80%,60%,0.30)] text-[#e8e4d8] text-sm cursor-pointer"
             >
               + New role
@@ -325,7 +324,7 @@ export function RolesListModal({
               <div>This host has no roles yet.</div>
               <button
                 type="button"
-                onClick={() => setCreateRoleOpen(true)}
+                onClick={onNewRole}
                 className="px-3 py-1.5 rounded-md bg-[hsla(220,80%,60%,0.20)] hover:bg-[hsla(220,80%,60%,0.30)] text-[#e8e4d8] text-sm cursor-pointer"
               >
                 + New role
@@ -451,15 +450,6 @@ export function RolesListModal({
             </div>
           )}
 
-          {/* D-10: CreateRoleDialog stacks on top when open. Mounted as a
-              sibling inside the same Portal — CreateRoleDialog owns its own
-              Radix Dialog root + portal so it will overlay us cleanly. */}
-          <CreateRoleDialog
-            open={createRoleOpen}
-            onClose={() => setCreateRoleOpen(false)}
-            hostTree={hostTree}
-            onCreated={handleCreateRoleCreated}
-          />
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
