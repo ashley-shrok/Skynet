@@ -1,30 +1,48 @@
 /**
  * Phase 20 (IDUI-06/08/09): Identity birth orchestrator — pure logic module.
  *
- * Exports: birthIdentity(opts, emit, deps) — runs the 5-step Nelly-cribbed
- * bootstrap sequence and streams progress via the emit callback.
+ * Exports: birthIdentity(opts, emit, deps) — runs the birth bootstrap sequence
+ * and streams progress via the emit callback.
  *
  * Design: pure function with injected deps (no direct express or HTTP imports),
  * making unit testing clean. The SSE route wraps this with real dep instances.
  *
- * Step sequence (cribbed from ~/vms-apps/apps/home/agent-supervisor.sh §FRESH):
+ * Step sequence (post-Phase-106 sole-spawner reshape — see
+ * .planning/shapes/shape-birth-flow-supervisor-sole-spawner.md):
  *   Step 1: On-disk collision probe + avatar candidate check (Phase 68 rewire)
- *   Step 2: mkdir -p + tmux new-session on target host (SSH or local)
- *   Step 3: pre-write hasTrustDialogAccepted + launch claude CLI
- *   Step 4: blind Enter train × 7 at 3s spacing (fire-and-forget, timing-based)
- *   Step 5: send /id <name> then Enter
+ *   Step 2: mkdir -p target path + Step 2.5 identity file / avatar sibling
+ *           pre-write on the target host (SSH or local). Post-Phase-106 the
+ *           per-session tmux invocation is retired — agent-supervisor.sh's
+ *           15s reconcile tick becomes the sole party opening the tmux
+ *           session and launching the claude REPL for the new identity.
+ *   Step 6: admin-mint relay account (Matrix admin API)
+ *   Step 7: build relay.json JSON body
+ *   Step 8: SFTP-write relay.json + chmod 600 on the target host
+ *   Wait for supervisor transcript signal (bounded, up to
+ *     WAIT_FOR_SUPERVISOR_TIMEOUT_MS): poll the injected identity-session
+ *     discovery dep every WAIT_FOR_SUPERVISOR_POLL_MS until a non-null JSONL
+ *     path appears — that signal means the supervisor picked the identity
+ *     up, launched its tmux session, and the agent's `/id <name>` first-turn
+ *     is on disk. On timeout the identity stays on disk (Q2 no-rollback
+ *     lock) and the SSE stream closes with ended{ok:false,
+ *     reason:"supervisor_wait_timeout"}.
  *
- * Failure policy: any step failure emits step:N:failed + ended{ok:false,failedStep:N}
- * and STOPS. NO rollback. NO retry. NO cancel. (user-locked, CONTEXT.md §Failure.)
+ * Steps 3/4/5 (harness bootstrap: trust-flag pre-write, claude launch, Enter
+ * settle train, `/id <name>` dispatch) are RETIRED from birth per Phase 106
+ * (D-01..D-03). The harness-start helper still lives at
+ * ./identity-harness-start.js and is still used by identity-clone.ts:632 (D-03).
  *
- * tmux note: always -t <name> (plain). NEVER -t "=<name>" — tmux 3.4 exact-match
- * syntax errors on send-keys (Nelly §3).
+ * Failure policy: any step failure emits step:N:failed + ended{ok:false,
+ * failedStep:N, reason} and STOPS. NO rollback. NO retry. NO cancel.
+ * Supervisor-wait timeout emits ended{ok:false, reason:"supervisor_wait_timeout"}
+ * and STOPS — also NO rollback (the identity folder + Matrix account stay on
+ * disk; the supervisor may still bring the identity alive after we've stopped
+ * waiting). See shape file §"What would make it wrong" bullet 4.
  */
 
 import { randomBytes } from "node:crypto";
 import type { Client as SSHClient } from "ssh2";
 import yaml from "js-yaml";
-import { startHarnessOnIdentity } from "./identity-harness-start.js";
 import {
   MIME_TO_AVATAR_EXT,
   type AvatarExt,
@@ -62,11 +80,35 @@ export const ENTER_TRAIN_SPACING_MS = 3000;
  */
 export const SETTLE_SECONDS = 22;
 
-/** Sleep after tmux new-session so login shell can source its profile (Nelly §1(b)). */
+/** Sleep after Step 2's mkdir so a login shell would have time to source its
+ * profile (Nelly §1(b)). Retained after Phase 106's tmux retirement because
+ * the constant is re-exported for clone's harness sequence, which still opens
+ * a tmux session and needs this cadence (see identity-harness-start.ts). */
 export const STEP_2_SLEEP_MS = 3000;
 
 /** Sleep after claude launch before starting the Enter train (Nelly §1(f)). */
 export const STEP_3_SLEEP_MS = 2000;
+
+/**
+ * Phase 106 (D-07): poll cadence for the wait-for-supervisor block. 2s matches
+ * fleet-status orchestrator default granularity. Every tick runs one
+ * `discoverIdentitySessionFile` SSH exec on the same connection the birth
+ * request opened (no new connect). Cheap enough at 60 iterations over the full
+ * 120s window because the discovery script is a single find+head+grep chain.
+ */
+export const WAIT_FOR_SUPERVISOR_POLL_MS = 2000;
+
+/**
+ * Phase 106 (D-08): hard ceiling on the wait-for-supervisor block. 120s = 2×
+ * buffer over worst-case supervisor tick (15s) + agent boot chain
+ * (~30-40s: tmux launch + REPL-up + 7-Enter settle + `/id` load = ~45-60s
+ * realistic ceiling). Timeout emits ended{ok:false,
+ * reason:"supervisor_wait_timeout"} and stops — NO rollback (Q2 lock, per
+ * shape file §"What would make it wrong" bullet 4). The identity may still
+ * come alive after we've given up waiting; the operator sees the alert, the
+ * log captures the operation-key `identity_birth_supervisor_wait_timeout`.
+ */
+export const WAIT_FOR_SUPERVISOR_TIMEOUT_MS = 120000;
 
 /** SSH connect timeout. */
 export const SSH_CONNECT_TIMEOUT_MS = 30000;
@@ -79,7 +121,10 @@ export const SSH_CONNECT_TIMEOUT_MS = 30000;
 export const CLAUDE_LAUNCH_CMD_PREFIX =
   "CLAUDE_CODE_RESUME_THRESHOLD_MINUTES=99999999 CLAUDE_CODE_RESUME_TOKEN_THRESHOLD=99999999";
 
-/** tmux new-session terminal sizing flags (Nelly §3 terminal-sizing gotcha). */
+/** tmux terminal sizing flags for the new-session invocation (Nelly §3
+ * terminal-sizing gotcha). Post-Phase-106 the birth orchestrator no longer
+ * opens the session itself, but this constant is re-exported for clone's
+ * harness (identity-harness-start.ts) and for agent-supervisor parity docs. */
 export const TMUX_NEW_SESSION_FLAGS = "-x 220 -y 50";
 
 /**
@@ -124,9 +169,14 @@ export const IDENTITY_FILE_SEED_COMMENT =
 // admin-mint + relay.json write steps. Frontend BirthProgress checklist quietly
 // ignores unknown step numbers today; the union widening here is backend-only
 // (frontend widening is a Phase B concern per 75-RESEARCH.md Assumption A4).
+// Phase 106 (D-11): `ended` grows an optional `reason` string on the failure
+// path so backend log-forensics can distinguish Skynet-side failures from
+// supervisor-wait timeouts. Frontend ignores the field entirely and always
+// shows a generic alert (D-17). See shape file §"What would make it wrong"
+// bullet 5 — same alert regardless of failure kind on the user-facing surface.
 export type BirthEvent =
   | { type: "step"; n: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8; phase: "started" | "completed" | "failed"; reason?: string }
-  | { type: "ended"; ok: boolean; failedStep?: number; identityId?: string; sessionName?: string };
+  | { type: "ended"; ok: boolean; failedStep?: number; reason?: string; identityId?: string; sessionName?: string };
 
 export interface BirthOptions {
   // Patch #316: userId is the JWT subject (`users.id` = text() in schema,
@@ -294,6 +344,24 @@ export interface BirthDeps {
     | { ok: true; total: number }
     | { ok: false; status: number; error: string }
   >;
+  /**
+   * Phase 106 (D-05/D-06): the wait-for-supervisor sensor. Called once every
+   * WAIT_FOR_SUPERVISOR_POLL_MS from the wait block that runs after Step 8's
+   * relay.json write. Returns the JSONL path when the supervisor has picked
+   * the identity up, opened its tmux session, launched the claude REPL, and
+   * the agent's /id <name> first-turn is on disk under the exec-user's
+   * ~/.claude/projects/ (mtime-newest JSONL). Returns null when nothing has
+   * appeared yet OR on any SSH-side error (helper's fail-safe null-return
+   * contract).
+   *
+   * Wired in identity-birth.ts to
+   * src/backend/claude-session/discover-identity-session-file.ts's
+   * discoverIdentitySessionFile(conn, identityName) — the SAME sensor
+   * fleet-status and sessions.ts already trust for "this is a live agent
+   * session, not a bare shell." Do NOT introduce a parallel sensor per shape
+   * file §"What would make it wrong" bullet 7.
+   */
+  discoverIdentitySessionFile: (conn: SSHClient, identityName: string) => Promise<string | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -710,9 +778,13 @@ export async function runRelayMintAndWrite(
       emit({ type: "step", n, phase: "completed" });
     } catch (e) {
       // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode + agent-supervisor race
+      // Phase 106 (D-11): propagate the sanitized reason string on the ended
+      // event too, so log-forensics on the SSE consumer side can distinguish
+      // Skynet-side step failures from supervisor-wait timeouts by inspecting
+      // ended.reason without having to correlate to the step:failed breadcrumb.
       const reason = sanitizeError(e);
       emit({ type: "step", n, phase: "failed", reason });
-      emit({ type: "ended", ok: false, failedStep: n });
+      emit({ type: "ended", ok: false, failedStep: n, reason });
       throw new BirthAborted(n);
     }
   }
@@ -975,9 +1047,14 @@ export async function birthIdentity(
       // session for the identity; deleting the folder would delete something
       // the supervisor is actively dealing with. The id skill's self-register
       // fallback handles the partial-state case gracefully.
+      //
+      // Phase 106 (D-11): propagate the sanitized reason string on the ended
+      // event too, so log-forensics on the SSE consumer side can distinguish
+      // Skynet-side step failures from supervisor-wait timeouts by inspecting
+      // ended.reason without having to correlate to the step:failed breadcrumb.
       const reason = failReasonOverride ?? sanitizeError(e);
       emit({ type: "step", n, phase: "failed", reason });
-      emit({ type: "ended", ok: false, failedStep: n });
+      emit({ type: "ended", ok: false, failedStep: n, reason });
       throw new BirthAborted(n);
     }
   }
@@ -1083,21 +1160,30 @@ export async function birthIdentity(
       }
     });
 
-    // Single-quote the session name for shell safety
-    const escName = shellSingleQuote(opts.name);
     const escPath = shellPath(normalizedPath);
 
     // -----------------------------------------------------------------------
-    // Step 2: mkdir -p + tmux new-session (Nelly §1(a) + terminal sizing)
+    // Step 2: mkdir -p target path + Step 2.5 identity file / avatar sibling
+    //         pre-write on the target host.
+    //
+    // Phase 106 (D-01): the per-session tmux invocation (`-d -s <name> -c
+    // <path> -x 220 -y 50`) is retired from this step. agent-supervisor.sh's
+    // 15s reconcile tick is now the sole party opening the tmux session for
+    // the new identity (Chunk 1 of the birth-flow rework arc — 5f6efd29
+    // landed the supervisor's disk-scan behavior that makes this handoff
+    // safe).
+    // See shape file §Philosophy: one party owns tmux + agent lifecycle on
+    // every box. STEP_2_SLEEP_MS is preserved (harmless; matches Nelly-
+    // cribbed profile-sourcing intent even without a tmux launch here).
     //
     // Phase 22 SRIC-02 addendum (B4b(a), REVISION 2026-08-04):
-    //   Step 2 now ALSO pre-writes ~/fleet/identities/<name>/<name>.md with
+    //   Step 2 also pre-writes ~/fleet/identities/<name>/<name>.md with
     //   role: frontmatter + a wake-up seed comment, creates the wakeups/ dir,
-    //   and touches handoff.md — BEFORE Step 5's `/id <name>` fires. This
-    //   causes the id skill on the box to take its load-existing branch
-    //   instead of the interactive create branch (so no human prompt is
-    //   needed on the box side for role selection). Piggybacked on Step 2's
-    //   number so the frontend BirthProgress checklist stays untouched.
+    //   and touches handoff.md — this makes the id skill on the box take its
+    //   load-existing branch instead of the interactive create branch (so no
+    //   human prompt is needed on the box side for role selection). All of
+    //   this stays on Step 2; the supervisor picks up the pre-written folder
+    //   on its next reconcile tick.
     //
     //   Skynet does NOT invoke the relay-register block — that's the fresh
     //   agent's own responsibility at first wake (per the seed comment).
@@ -1107,9 +1193,7 @@ export async function birthIdentity(
     //   remains a pre-Phase-22 workflow and skips the pre-write silently.
     // -----------------------------------------------------------------------
     await runStep(2, async () => {
-      await exec(
-        `mkdir -p ${escPath} && tmux new-session -d -s ${escName} -c ${escPath} ${TMUX_NEW_SESSION_FLAGS}`,
-      );
+      await exec(`mkdir -p ${escPath}`);
       // Sleep 3s: login shell needs to source its profile (Nelly §1(b))
       await sleep(STEP_2_SLEEP_MS);
 
@@ -1249,46 +1333,84 @@ export async function birthIdentity(
     }
 
     // -----------------------------------------------------------------------
-    // Steps 3-5: post-tmux Claude-harness bootstrap.
+    // Phase 106 — Wait for the supervisor to bring the identity alive.
     //
-    // quick-260806-dwe: The verbatim body of steps 3-5 was extracted into
-    // identity-harness-start.ts so clone can reuse the exact same sequence
-    // (trust-flag pre-write → claude launch → 2s sleep → 7-Enter train →
-    // /id <name> + Enter). Birth delegates the whole sequence to the helper.
+    // Steps 3/4/5 (harness bootstrap: trust-flag pre-write, claude launch,
+    // 7-Enter settle train, `/id <name>` dispatch) are RETIRED per D-01..D-03.
+    // The harness-start helper still lives at ./identity-harness-start.js
+    // and is still used by identity-clone.ts:632.
     //
-    // SSE contract preservation: the frontend's BirthProgress checklist
-    // ticks 5 items (steps 1..5), so after the helper completes we still
-    // emit synthetic started+completed events for steps 4 and 5. The actual
-    // work all happens inside runStep(3); a helper rejection surfaces as
-    // step:3:failed (Test 14 expects that attribution for the claude-launch
-    // failure case, which is inside the helper). Failure attribution for a
-    // rejection during the Enter train or /id would also surface as step 3,
-    // which is acceptable — the frontend's failure UX just shows "step
-    // failed at N" and offers no per-step recovery.
+    // Rationale (see shape file §Shape step 4 + §Philosophy):
+    //   agent-supervisor.sh on the target host reconciles the identities
+    //   folder every 15s (CHECK_INTERVAL=15). Once Step 8 has written the
+    //   identity's folder tree + <name>.md + relay.json, the supervisor's
+    //   next tick picks the identity up, opens the tmux session (its own
+    //   `tmux new -d -s <name> -c <workdir> -x 220 -y 50`), launches the
+    //   claude REPL, and dispatches `/id <name>`. Skynet does not talk to
+    //   the supervisor directly — the coordination is shared-nothing
+    //   through disk. We wait for the visible completion signal on disk
+    //   (the transcript JSONL with `/id <name>` as its first user-turn),
+    //   then close the SSE stream with ended{ok:true}.
+    //
+    // Signal (D-05): `discoverIdentitySessionFile(conn, opts.name)` — the
+    // SAME sensor fleet-status and sessions.ts already trust for "this is a
+    // live agent session, not a bare shell." Do NOT invent a parallel sensor
+    // per shape file §"What would make it wrong" bullet 7.
+    //
+    // Cadence (D-07): every WAIT_FOR_SUPERVISOR_POLL_MS (2s).
+    // Timeout (D-08): after WAIT_FOR_SUPERVISOR_TIMEOUT_MS (120s), emit
+    //   ended{ok:false, reason:"supervisor_wait_timeout"} and stop.
+    //
+    // Q2 no-rollback lock (shape file §"What would make it wrong" bullet 4):
+    //   On timeout the identity folder + Matrix account STAY on disk. Do NOT
+    //   rm -rf, do NOT unlink relay.json, do NOT deactivate the Matrix
+    //   account. The supervisor may still bring the identity alive after
+    //   we've given up waiting — deleting on timeout re-introduces the race
+    //   the no-rollback rule was written to prevent.
+    //
+    // Local branch (isLocalHostId=true): skip the wait entirely. There is
+    // no remote transcript file to poll (the exec-user's `~/.claude/projects/`
+    // is on the Skynet box itself, not a remote box); local-branch self-birth
+    // is out of Phase A UAT scope. Emit ended{ok:true} directly, matching the
+    // pattern at :1228 above where Steps 6/7/8 are also guarded on `!useLocal
+    // && conn`.
     // -----------------------------------------------------------------------
-    await runStep(3, async () => {
-      await startHarnessOnIdentity({
-        exec,
-        name: opts.name,
-        remotePath: escPath,
-      });
-    });
-    // Preserve the SSE 5-event contract for the frontend checklist. These are
-    // informational only — the actual work happened inside runStep(3).
-    emit({ type: "step", n: 4, phase: "started" });
-    emit({ type: "step", n: 4, phase: "completed" });
-    emit({ type: "step", n: 5, phase: "started" });
-    emit({ type: "step", n: 5, phase: "completed" });
+    if (!useLocal && conn) {
+      const waitStartMs = Date.now();
+      let discoveredPath: string | null = null;
+      while (Date.now() - waitStartMs < WAIT_FOR_SUPERVISOR_TIMEOUT_MS) {
+        discoveredPath = await deps.discoverIdentitySessionFile(conn, opts.name);
+        if (discoveredPath !== null) break;
+        await sleep(WAIT_FOR_SUPERVISOR_POLL_MS);
+      }
+      if (discoveredPath === null) {
+        // Q2 no-rollback lock — see 75-CONTEXT.md § Storage failure mode +
+        // agent-supervisor race, and shape file §"What would make it wrong"
+        // bullet 4. Timeout STAYS on disk; the operator sees the alert; the
+        // log captures the operation-key for post-mortem correlation.
+        databaseLogger.warn("identity birth: supervisor wait timed out", {
+          operation: "identity_birth_supervisor_wait_timeout",
+          identityKey: opts.name,
+          hostId: opts.hostId,
+          timeoutMs: WAIT_FOR_SUPERVISOR_TIMEOUT_MS,
+        });
+        emit({ type: "ended", ok: false, reason: "supervisor_wait_timeout" });
+        return;
+      }
+    }
 
-    // All 5 steps completed successfully
+    // All steps completed successfully (and — for the remote branch — the
+    // supervisor's transcript signal fired within the timeout window).
     emit({ type: "ended", ok: true, identityId, sessionName: opts.name });
   } catch (e) {
     if (e instanceof BirthAborted) {
       // Failure event already emitted by runStep — no re-emit
       return;
     }
-    // Unexpected error outside a step
-    emit({ type: "ended", ok: false });
+    // Unexpected error outside a step — Phase 106 (D-11): propagate the
+    // sanitized reason string so log-forensics can distinguish this from
+    // step failures and from the supervisor-wait timeout.
+    emit({ type: "ended", ok: false, reason: sanitizeError(e) });
   } finally {
     // Always clean up SSH connection if we opened one
     if (conn) {

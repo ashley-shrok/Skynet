@@ -21,6 +21,7 @@ import { systemLogger } from "../utils/logger.js";
 import { connectOneShot } from "../ssh/ssh-one-shot.js";
 import { execCommand } from "../ssh/tmux-helper.js";
 import { isLocalHostId, writeMarkdownFileAtomic } from "../claude-session/identity-artifact-reader.js";
+import { discoverIdentitySessionFile } from "../claude-session/discover-identity-session-file.js";
 import { resolveHostById } from "../ssh/host-resolver.js";
 import { birthIdentity, ROLE_NAME_PATTERN, SSH_CONNECT_TIMEOUT_MS, type BirthEvent, type BirthDeps, type BirthOptions } from "../database/routes/identity-birth-orchestrator.js";
 import {
@@ -353,6 +354,12 @@ export const processBirth = async (item: PendingBirth, deps: WorkerDeps): Promis
     matrixHomeserver: creds.homeserverBase,
     buildRelayJsonBody: (bOpts) => buildRelayJsonBody(bOpts),
     matrixCountUsersMatching: (mxid) => matrixCountUsersMatching(mxid),
+    // Phase 106 (D-05/D-06): wait-for-supervisor sensor. birthIdentity polls
+    // this after Step 8's relay.json write to confirm agent-supervisor.sh has
+    // brought the identity alive on the target host before closing the SSE
+    // stream (or the spawn-request response file, in the worker path).
+    discoverIdentitySessionFile: (conn, identityName) =>
+      discoverIdentitySessionFile(conn, identityName),
   };
 
   // 6. Invoke birthIdentity via injected dep (never throws in normal operation —
